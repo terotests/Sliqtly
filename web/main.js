@@ -1020,11 +1020,14 @@ async function saveDocNow(force) {
   // a deck as it was opened is not kept until someone changes it (a shared
   // deck opens with its own CSS: that is as opened too), nor an empty one
   if (!doc.persisted && !force && ((md === doc.openedText && css === doc.openedCss) || !md.trim())) return;
+  let renamedNow = false;
   saving = (async () => {
     const cur = doc.persisted ? await vfs.getDoc(doc.id) : null;
     // another tab of this browser saved this deck since this one read it:
     // nothing is written over, the two are put together first
     if (cur && !collabOn() && changedElsewhere(cur)) return "merge";
+    // its name changed (a heading edited): the room's list shows it
+    if (cur && cur.name !== exportName()) renamedNow = true;
     await vfs.putDoc({
       ...(cur || {}), id: doc.id, name: exportName(), md, theme: key, css, created: doc.created, updated: Date.now(), by: TAB,
       cloud: doc.cloud, cloudMd: doc.cloudMd, cloudCss: doc.cloudCss, cloudTheme: doc.cloudTheme, cloudFiles: doc.cloudFiles,
@@ -1045,6 +1048,7 @@ async function saveDocNow(force) {
   let r;
   try { r = await saving; } finally { saving = null; }
   if (r === "merge") return takeLocal();
+  if (renamedNow) roomDecksAgain();
   refreshFiles();
   cloudSoon();
   tellTabs();
@@ -1151,12 +1155,18 @@ async function copyDeckTo(room, deck) {
 }
 // A room's presentations: [{ id, name, current }], ids as fileRequest's
 // "doc:" takes them ("sample:<key>" for a sample).
+// The open deck shows its name as it is now (renamed, not saved yet).
 async function roomRows(room) {
+  const live = (r) => (r.current && !r.id.startsWith("sample:") ? { ...r, name: exportName() || r.name } : r);
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
-    return (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
+    return (g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
   }
-  return roomDecks(roomsHere, room, await allDocs(), sampleRows());
+  return roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live);
+}
+// The open room's presentations listed again (the open deck renamed).
+function roomDecksAgain() {
+  if (roomShown) roomsRequest("room:decks:" + roomShown).catch(() => {});
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -1453,6 +1463,7 @@ function renameDeck(name) {
   docName = name;
   if (shownKey) app.deckTabOpen(shownKey, tabLabel(exportName()));
   collab?.takeLocal();
+  roomDecksAgain();
   needsPaint = true;
 }
 function copyName() {
@@ -1498,6 +1509,27 @@ async function newSheet() {
     onSave: (raw) => saveWorkbook(path, raw),
     onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
   }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
+// A row of a presentation's menu in Rooms or on its deck tab
+// ("<room|tab>:<id>\t<request>"): the File menu's rows act on the open deck,
+// so that deck opens first; one that did not open has nothing done to the
+// deck open instead.
+async function deckDo(what) {
+  const tab = what.indexOf("\t");
+  if (tab < 0) return;
+  const [from, ...rest] = what.slice(0, tab).split(":");
+  const id = rest.join(":");
+  if (from === "tab") {
+    await switchDeck(id);
+    if (shownKey !== id) return;
+  } else {
+    await roomsRequest("room:deck:" + id);
+    if (!id.startsWith("sample:") && (await currentRoomId()) !== id) return;
+  }
+  app.request(what.slice(tab + 1));
+  handleRequests();
+  needsPaint = true;
 }
 
 // File → Delete presentation…, once confirmed: the open deck removed from
@@ -3076,6 +3108,17 @@ mirror.root.addEventListener("keydown", (ev) => {
     return;
   }
   if (/^thumb-\d+$/.test(id) && stripKey(ev)) return;
+  // Shift+F10 or the menu key on a presentation in Rooms or its tab: its menu
+  if ((id.startsWith("tb-roomdeck-d-") || id.startsWith("decktabs-tab-")) && node && (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10"))) {
+    ev.preventDefault();
+    let opened = false;
+    pressAtCentre(node, (x, y) => { opened = app.deckMenuAt(x, y); });
+    if (opened) {
+      afterInput();
+      focusSlideMenu();
+    }
+    return;
+  }
   if (node && node.role === "slider" && /^Arrow/.test(ev.key)) {
     ev.preventDefault();
     const up = ev.key === "ArrowRight" || ev.key === "ArrowUp";
@@ -3807,6 +3850,8 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("deckdo:")) {
+      deckDo(r.slice(7)).catch(fail);
     } else if (r.startsWith("deck:switch:")) {
       switchDeck(r.slice(12)).catch(fail);
     } else if (r === "deck:tabs") {
@@ -6700,7 +6745,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (pinch) return;
   // the secondary button (or Control + click on a Mac) on a slide of the
   // strip: its menu (contextmenu below), not a press that picks the slide
-  if (secondaryPress(ev, IS_MAC) && app.inStrip(x, y)) {
+  if (secondaryPress(ev, IS_MAC) && (app.inStrip(x, y) || app.inDeckRow(x, y))) {
     ev.preventDefault();
     return;
   }
@@ -6958,10 +7003,11 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
-// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+// A right click on a slide of the strip: New, Duplicate, Move, Delete; on a
+// presentation in Rooms or a deck tab: the File menu's rows for it.
 canvas.addEventListener("contextmenu", (ev) => {
   const [x, y] = at(ev);
-  if (!app.slideMenuAt(x, y)) return;
+  if (!app.deckMenuAt(x, y) && !app.slideMenuAt(x, y)) return;
   ev.preventDefault();
   closeHint();
   afterInput();

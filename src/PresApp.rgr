@@ -4440,6 +4440,16 @@ class PresApp {
         this.stageUp()
     }
 
+    ; A presentation's row of the Rooms panel, or a deck tab, at x, y (its
+    ; menu opens there).
+    fn inDeckRow:boolean (x:double y:double) {
+        this.place()
+        if ((mode == "present") || (barH <= 0.0)) {
+            return false
+        }
+        return (((strlen (toolbar.roomDeckAt(x y))) > 0) || ((strlen (this.deckTabKeyAt(x y))) > 0))
+    }
+
     fn inStrip:boolean (x:double y:double) {
         this.place()
         return ((mode != "present") && (stripRect.has(x y)))
@@ -10663,6 +10673,52 @@ class PresApp {
         return false
     }
 
+    ; A presentation of the Rooms panel or a deck tab under x, y: its menu,
+    ; the File menu's rows for that deck (PresToolbar.openDeckContext).
+    fn deckMenuAt:boolean (x:double y:double) {
+        if ((mode == "present") || (barH <= 0.0)) {
+            return false
+        }
+        def from:string "room"
+        def id:string (toolbar.roomDeckAt(x y))
+        def name:string ""
+        def current:boolean false
+        if ((strlen id) > 0) {
+            name = (toolbar.roomDeckName(id))
+            current = (toolbar.roomDeckCurrent(id))
+        } {
+            def key:string (this.deckTabKeyAt(x y))
+            if ((strlen key) == 0) {
+                return false
+            }
+            from = "tab"
+            id = key
+            name = (deckTabs.labelOf(key))
+            current = (key == deckTabs.tabs.active)
+        }
+        if chart.isOpen {
+            this.closeChart()
+        }
+        if hint.isOpen {
+            this.closeHint()
+        }
+        toolbar.openDeckContext(x y from id name current)
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The deck tab under x, y ("" none, or its ×): its key.
+    fn deckTabKeyAt:string (x:double y:double) {
+        if ((deckRect.has(x y)) == false) {
+            return ""
+        }
+        def hit:string (deckTabs.hitAt(x y))
+        if ((indexOf hit "tab:") == 0) {
+            return (substring hit 4 (strlen hit))
+        }
+        return ""
+    }
+
     ; The menu from the keyboard (Shift+F10, the menu key): at the selected
     ; slide's thumbnail.
     fn slideMenuAtSelected:boolean () {
@@ -10763,6 +10819,13 @@ class PresApp {
     ; A request from the page's keys, as a menu row would make it: "slide:…"
     ; is done here, the rest goes to the page with the others.
     fn request:void (r:string) {
+        ; File → Rename… (a presentation's menu, once it is open): the name at
+        ; the start of the bar as a field
+        if (r == "rename") {
+            toolbar.titleBegin()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if ((indexOf r "slide:") == 0) {
             this.slideCommand((substring r 6 (strlen r)))
             return

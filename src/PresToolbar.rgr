@@ -90,6 +90,14 @@ class PresToolbar {
     def ctxLeft:boolean true
     def ctxRight:boolean true
     def ctxDelete:boolean true
+    ; a presentation of the Rooms panel the context menu is for ("" the
+    ; strip's slide menu): the File menu's rows for that deck
+    def ctxDeck:string ""
+    ; where that presentation's row is: "room" (Rooms) or "tab" (the deck
+    ; tabs), its name and whether it is the open deck
+    def ctxDeckFrom:string "room"
+    def ctxDeckName:string ""
+    def ctxDeckCurrent:boolean false
     ; The left rail (a wide window): the places, Slack's way, an icon and a
     ; name each; the bar starts after it. `railValue` is the one open now
     ; (PresApp says: the editor, the Files tab or Rooms).
@@ -352,6 +360,9 @@ class PresToolbar {
         }
         if (id == "duplicate") {
             return "files:duplicate"
+        }
+        if (id == "rename") {
+            return "rename"
         }
         if (id == "deleteDeck") {
             return "files:deletedeck"
@@ -626,8 +637,98 @@ class PresToolbar {
         ctxLeft = canLeft
         ctxRight = canRight
         ctxDelete = canDelete
+        ctxDeck = ""
         ctxOpen = true
         this.rebuild()
+    }
+
+    ; The presentation of the open room under x, y ("" none): its row's id.
+    fn roomDeckAt:string (px:double py:double) {
+        if (roomsOpen == false) {
+            return ""
+        }
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def maybe@(optional):UiCtl (host.ctlFor((host.hitTest(px py))))
+        if (null? maybe) {
+            return ""
+        }
+        def owner:UiCtl (unwrap maybe)
+        if ((indexOf owner.tid "tb-roomdeck-d-") == 0) {
+            return (substring owner.tid 14 (strlen owner.tid))
+        }
+        return ""
+    }
+
+    ; A presentation's context menu at x, y: the File menu's rows for it.
+    ; from: "room" (a row of Rooms, `id` its deck) or "tab" (a deck tab, `id`
+    ; its key).
+    fn openDeckContext:void (x:double y:double from:string id:string name:string current:boolean) {
+        ctxDeckFrom = from
+        ctxDeckName = name
+        ctxDeckCurrent = current
+        this.closeSelects()
+        this.closeMenus()
+        drawerOpen = false
+        dragDeck = ""
+        dragOn = false
+        ctxX = x
+        ctxY = y
+        ctxDeck = id
+        ctxOpen = true
+        this.rebuild()
+    }
+
+    ; Is the presentation `id` of the open room's list the open deck?
+    fn roomDeckCurrent:boolean (id:string) {
+        def ds:[string] (strsplit roomDecks (strfromcode 10))
+        def k:int 0
+        while (k < (array_length ds)) {
+            def dp:[string] (strsplit (itemAt ds k) (strfromcode 9))
+            if (((array_length dp) >= 3) && ((itemAt dp 0) == id)) {
+                return ((itemAt dp 2) == "1")
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; The File menu's rows that act on the open deck: save and export | the
+    ; assistant | settings | delete, red and last. File and a presentation's
+    ; context menu in Rooms both have them.
+    fn deckRows:void (m:MenuCtl canDelete:boolean) {
+        m.addItem("save" (PresI18n.t("Save .md")) false)
+        def xs:UiItem (m.addSub("export" (PresI18n.t("Export")) false))
+        def xsClip:UiItem (MenuCtl.addKid(xs "x-clip" (PresI18n.t("Clipboard")) false))
+        def xsFile:UiItem (MenuCtl.addKid(xs "x-file" (PresI18n.t("File")) false))
+        this.exportGroups(xsClip xsFile)
+        m.addSeparator()
+        m.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
+        m.addSeparator()
+        m.addItem("docset" (PresI18n.t("Document settings…")) false)
+        if canDelete {
+            m.addSeparator()
+            m.addItem("deleteDeck" (PresI18n.t("Delete presentation…")) false)
+            m.setVariant("deleteDeck" "destructive")
+        }
+    }
+
+    ; A row of a presentation's context menu, as the page's request: the
+    ; File request itself for the open deck, else the deck opened first
+    ; ("deckdo:<room|tab>:<id>\t<request>"); Open only opens it.
+    fn deckRequest:string (choice:string) {
+        if (choice == "deckOpen") {
+            if (ctxDeckFrom == "tab") {
+                return ("deck:switch:" + ctxDeck)
+            }
+            return ("room:deck:" + ctxDeck)
+        }
+        def r:string (PresToolbar.requestFor(choice))
+        if ctxDeckCurrent {
+            return r
+        }
+        return ((((("deckdo:" + ctxDeckFrom) + ":") + ctxDeck) + (strfromcode 9)) + r)
     }
 
     ; The context menu as rows: the Slide menu's, with Move left and right.
@@ -638,6 +739,37 @@ class PresToolbar {
         cm.tid = "tb-m-ctx"
         cm.name = (PresI18n.t("Slide"))
         cm.contextMode = true
+        if ((strlen ctxDeck) > 0) {
+            this.deckContextRows(cm)
+        } {
+            this.slideContextRows(cm)
+        }
+        cm.openMenu()
+        cm.activeTid = keepActive
+        cm.build()
+        def r:EVGElement (unwrap cm.rootEl)
+        r.setAttribute("position" "absolute")
+        r.setAttribute("left" ((EVGDisplayList.num(ctxX)) + "px"))
+        r.setAttribute("top" ((EVGDisplayList.num(ctxY)) + "px"))
+        push menus cm
+        this.put(cm root)
+    }
+
+    ; A presentation's rows (Rooms, a deck tab): Open (not the open one),
+    ; Rename and Duplicate, then the File menu's rows for the deck. A sample
+    ; is not deleted.
+    fn deckContextRows:void (cm:MenuCtl) {
+        cm.name = ctxDeckName
+        if (ctxDeckCurrent == false) {
+            cm.addItem("deckOpen" (PresI18n.t("Open")) false)
+        }
+        cm.addItem("rename" (PresI18n.t("Rename…")) false)
+        cm.addItem("duplicate" (PresI18n.t("Duplicate")) false)
+        cm.addSeparator()
+        this.deckRows(cm ((indexOf ctxDeck "sample:") != 0))
+    }
+
+    fn slideContextRows:void (cm:MenuCtl) {
         cm.addItem("slideNew" (PresI18n.t("New slide")) false)
         cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
         cm.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
@@ -662,15 +794,6 @@ class PresToolbar {
         cm.setShortcut("slideLeft" (this.modKey("ArrowLeft")))
         cm.setShortcut("slideRight" (this.modKey("ArrowRight")))
         cm.setShortcut("slideDelete" "Delete")
-        cm.openMenu()
-        cm.activeTid = keepActive
-        cm.build()
-        def r:EVGElement (unwrap cm.rootEl)
-        r.setAttribute("position" "absolute")
-        r.setAttribute("left" ((EVGDisplayList.num(ctxX)) + "px"))
-        r.setAttribute("top" ((EVGDisplayList.num(ctxY)) + "px"))
-        push menus cm
-        this.put(cm root)
     }
 
     ; The context menu closed itself (a row chosen, Esc): it is not drawn again.
@@ -1435,24 +1558,14 @@ class PresToolbar {
             def nw:UiItem (file.addSub("new" (PresI18n.t("New")) false))
             MenuCtl.addKid(nw "newPres" (PresI18n.t("Presentation…")) false)
             MenuCtl.addKid(nw "newSheet" (PresI18n.t("Datasheet…")) false)
+            file.addItem("rename" (PresI18n.t("Rename…")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
             file.addItem("openbox" (PresI18n.t("Open…")) false)
             def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
             this.recentKids(rc)
             file.addSeparator()
-            file.addItem("save" (PresI18n.t("Save .md")) false)
-            def xs:UiItem (file.addSub("export" (PresI18n.t("Export")) false))
-            def xsClip:UiItem (MenuCtl.addKid(xs "x-clip" (PresI18n.t("Clipboard")) false))
-            def xsFile:UiItem (MenuCtl.addKid(xs "x-file" (PresI18n.t("File")) false))
-            this.exportGroups(xsClip xsFile)
-            file.addSeparator()
-            file.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
-            file.addSeparator()
-            file.addItem("docset" (PresI18n.t("Document settings…")) false)
-            file.addSeparator()
-            file.addItem("deleteDeck" (PresI18n.t("Delete presentation…")) false)
-            file.setVariant("deleteDeck" "destructive")
+            this.deckRows(file true)
             file.setShortcut("openbox" (this.modKey("O")))
             file.setShortcut("save" (this.modKey("S")))
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
@@ -1591,6 +1704,7 @@ class PresToolbar {
             body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
             this.button("dr-newSheet" (PresI18n.t("New datasheet")) "ghost" body)
+            this.button("dr-rename" (PresI18n.t("Rename…")) "ghost" body)
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
@@ -1676,7 +1790,7 @@ class PresToolbar {
     ; a label beside it, as MenuCtl's own sub-trigger rows are.
     ; Path: Simple Icons (CC0).
     sfn markFor:string (id:string) {
-        if ((id == "tb-m-file-item-aiClaude") || (id == "tb-dr-aiClaude")) {
+        if (((id == "tb-m-file-item-aiClaude") || (id == "tb-m-ctx-item-aiClaude")) || (id == "tb-dr-aiClaude")) {
             return "claude"
         }
         return ""
@@ -1984,7 +2098,16 @@ class PresToolbar {
                         if m.open {
                             m.closeMenu()
                         }
-                        push requests (PresToolbar.requestFor(choice))
+                        def req:string (PresToolbar.requestFor(choice))
+                        if ((m.tid == "tb-m-ctx") && ((strlen ctxDeck) > 0)) {
+                            req = (this.deckRequest(choice))
+                        }
+                        ; Rename: the name at the start of the bar as a field
+                        if (req == "rename") {
+                            this.titleBegin()
+                        } {
+                            push requests req
+                        }
                     }
                 }
                 i = (i + 1)
@@ -2007,8 +2130,13 @@ class PresToolbar {
             return
         }
         if ((indexOf ctlTid "tb-dr-") == 0) {
-            push requests (PresToolbar.requestFor((substring ctlTid 6 (strlen ctlTid))))
+            def dreq:string (PresToolbar.requestFor((substring ctlTid 6 (strlen ctlTid))))
             drawerOpen = false
+            if (dreq == "rename") {
+                this.titleBegin()
+                return
+            }
+            push requests dreq
             this.rebuild()
             return
         }
