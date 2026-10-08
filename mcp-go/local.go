@@ -245,8 +245,9 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.settingsPage(w)
 		return
 	}
-	// the viewer's slides and downloads are the app's (rgr/View.rgr)
-	if strings.HasPrefix(p, "/api/") && p != "/api/hit" && !strings.HasPrefix(p, "/api/view/") && !strings.HasPrefix(p, "/api/export/") {
+	// the viewer's slides and downloads, and a link's card picture (another
+	// Sliqtly's room chat draws it), are the app's (rgr/View.rgr)
+	if strings.HasPrefix(p, "/api/") && p != "/api/hit" && !strings.HasPrefix(p, "/api/view/") && !strings.HasPrefix(p, "/api/export/") && !strings.HasPrefix(p, "/api/card/") {
 		s.api(w, r)
 		return
 	}

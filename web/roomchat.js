@@ -101,8 +101,10 @@ export class RoomChat {
     const info = (await this.d.rooms()).find((r) => r.room_id === room) || { title: room };
     if (turn !== this.opening) return;
     // a presentation embedded in the chat shows its slide, drawn by the
-    // server of one's own (/s/<deck>/<n>.jpg)
-    app.roomChatPictures(this.d.ownServer() ? "/s/{deck}/{slide}.jpg" : "");
+    // server of one's own (/s/<deck>/<n>.jpg); a link to one shared on
+    // another Sliqtly (sliqtly.com) by that one, its link card's picture
+    // (/api/card/<deck>.jpg, mcp-go/linkcard.go)
+    app.roomChatPictures(this.d.ownServer() ? "/s/{deck}/{slide}.jpg" : "", "{origin}/api/card/{deck}.jpg?slide={slide}", globalThis.location?.origin || "");
     if (!this.d.ownServer()) {
       app.roomChatShow(room, info.title || "", info.description || "", true, this.d.t("The chat works on a Sliqtly server of your own (sliqtly serve) for now."));
       return;

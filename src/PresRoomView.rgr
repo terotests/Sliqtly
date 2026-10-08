@@ -237,10 +237,14 @@ class PresRoomView {
         this.changed()
     }
 
-    ; where an embedded presentation's slide picture is read ("" none)
-    fn embedPictures:void (pattern:string) {
-        if (ch.embedPicture != pattern) {
+    ; where an embedded presentation's slide picture is read ("" none):
+    ; one of this server's, and one shared on another site (linkPattern,
+    ; with {origin}; own: this page's origin)
+    fn embedPictures:void (pattern:string linkPattern:string own:string) {
+        if (((ch.embedPicture != pattern) || (ch.linkPicture != linkPattern)) || (ch.ownOrigin != own)) {
             ch.embedPicture = pattern
+            ch.linkPicture = linkPattern
+            ch.ownOrigin = own
             this.changed()
         }
     }

@@ -7453,9 +7453,11 @@ class PresApp {
         room.uploading(inThread n)
     }
 
-    ; where an embedded presentation's slide is drawn from: {deck}, {slide}
-    fn roomChatPictures:void (pattern:string) {
-        room.embedPictures(pattern)
+    ; where an embedded presentation's slide is drawn from: {deck}, {slide};
+    ; one shared on another site than own (this page's origin): linkPattern,
+    ; {origin} too
+    fn roomChatPictures:void (pattern:string linkPattern:string own:string) {
+        room.embedPictures(pattern linkPattern own)
     }
 
     ; the thread's composer has the keys (a pasted file goes there)
