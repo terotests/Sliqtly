@@ -104,6 +104,8 @@ class PresApp {
     ; always reads `mdEditor`.
     def mdEditor:ScriptEditor (new ScriptEditor())
     def cssEditor:ScriptEditor (new ScriptEditor())
+    ; a picture the slides name came after they were laid out (addImage)
+    def picturesArrived:boolean false
     ; the files tab: a file of the document's opened from it (data, a chart
     ; spec) in an editor of its own; "" while the list shows
     def fileEditor:ScriptEditor (new ScriptEditor())
@@ -393,8 +395,28 @@ class PresApp {
         return deck.wantFaces
     }
 
+    ; A picture handed over after the slides that name it were laid out (a
+    ; file someone else in the deck's room added, read from the share after
+    ; their Markdown edit arrived) showed as its "[alt]" text: the slides are
+    ; laid out again on the next frame (`settle`), once however many came.
     fn addImage:boolean (name:string data:buffer contentType:string w:int h:int) {
-        return (deck.addImage(name data contentType w h))
+        def ok:boolean (deck.addImage(name data contentType w h))
+        if (ok && ((deck.slideCount()) > 0) && (this.namesPicture(name))) {
+            picturesArrived = true
+        }
+        return ok
+    }
+
+    ; The Markdown or the theme names the picture at `name` ("/media/a.png").
+    fn namesPicture:boolean (name:string) {
+        def rel:string name
+        if ((indexOf rel "/") == 0) {
+            rel = (substring rel 1 (strlen rel))
+        }
+        if ((strlen rel) == 0) {
+            return false
+        }
+        return (((indexOf (mdEditor.text()) rel) >= 0) || ((indexOf (cssEditor.text()) rel) >= 0))
     }
 
     ; `[{"path":"/inline-svg/….svg","svg":"<svg …>"}]`: the <svg> drawings
@@ -3361,6 +3383,11 @@ class PresApp {
     ;   thumbnail not drawn yet, or charts still drawn under old defaults
     ;   (a few a frame while editing)
     fn settle:boolean () {
+        if picturesArrived {
+            picturesArrived = false
+            this.rebuildDeck()
+            return true
+        }
         def n:int (deck.slideCount())
         if ((selected >= 0) && (selected < n)) {
             if (this.undrawnIn((this.spanFrom(selected)) (this.spanTo(selected)))) {

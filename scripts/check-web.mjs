@@ -1610,6 +1610,29 @@ try {
   check("…cut to the part kept", pic.size.join("x") === "32x20", JSON.stringify(pic.size));
   check("…a flat picture: Enter adds it vectorized (the vectorizer opens)", pic.flat === true && pic.traced, JSON.stringify(pic));
 
+  // A picture that comes after the slide naming it was laid out (someone
+  // else in the deck's room pasted it: their Markdown edit arrives first, the
+  // file after it): the slide is laid out again and shows it, not "[late]".
+  const late = await page.evaluate(async () => {
+    const a = window.__app;
+    const before = a.source();
+    a.setSource("---\ntitle: L\n---\n\n## Late\n\n![late](media/late-pic.png)\n");
+    const shown = () => JSON.parse(a.stageJson()).list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("late-pic"));
+    const first = shown();
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 40;
+    c.getContext("2d").fillRect(0, 0, 64, 40);
+    const buf = await (await new Promise((res) => c.toBlob(res, "image/png"))).arrayBuffer();
+    buf._view = new DataView(buf);
+    a.addImage("/media/late-pic.png", buf, "image/png", 64, 40);
+    for (let i = 0; i < 30 && !shown(); i += 1) await new Promise((res) => setTimeout(res, 50));
+    const after = shown();
+    a.setSource(before);
+    return { first, after };
+  });
+  check("a picture that comes after its slide was laid out is shown", !late.first && late.after, JSON.stringify(late));
+
   // A picture picked on the slide: a side dragged writes its width, the
   // picture dragged sideways its place, Delete takes it out (PresImageDrag).
   const hand = await page.evaluate(() => {
