@@ -32,6 +32,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
 import { RoomChat } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
@@ -713,8 +714,10 @@ const doc = { id: newId(), persisted: false, loading: false, created: Date.now()
 // cloudFiles: the paths the share is known to have, kept with the deck in
 // this browser (null: not known, as for a deck kept before it was), so a
 // file this browser has and the share never got is told from one removed
-// there (openOwnCloudNow).
-Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
+// there (openOwnCloudNow). cloudSeen: path → the version there this
+// browser's copy is (web/sharefiles.js), so a file written again elsewhere
+// is taken.
+Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSeen: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
 const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
@@ -756,7 +759,7 @@ function beginDoc(text) {
   doc.created = Date.now();
   doc.openedText = text;
   doc.openedCss = null;
-  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSeen: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
   versions = null;
   filesAtCommit = null;
   pending.clear();
@@ -4466,6 +4469,8 @@ async function cloudSync() {
   cloudBusy = (async () => {
     let id = doc.cloud;
     let files = deck.files.map((f) => f.path);
+    let entries = null;
+    let sent = null;
     if (!id) {
       // The share is kept with the deck as soon as it is made, before its
       // files go: while they go (a few big pictures take a while) the deck
@@ -4488,7 +4493,9 @@ async function cloudSync() {
       }
     } else {
       try {
-        files = (await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() })).map((f) => f.path);
+        sent = new Set(deck.files.filter((f) => doc.cloudStamps.get(f.path) !== f.stamp).map((f) => f.path));
+        entries = await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() });
+        files = entries.map((f) => f.path);
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
         // changed elsewhere (another device, an assistant) since this page
@@ -4501,6 +4508,7 @@ async function cloudSync() {
     if (doc.id !== which) return id; // another deck was opened meanwhile
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
+    if (entries) doc.cloudSeen = seenAfterSave(entries, doc.cloudSeen, sent);
     cloudWarned = false;
     cloudError = "";
     plainAddress();
@@ -4590,6 +4598,7 @@ async function openOwnCloudNow(id) {
   // the files that did come are what the share has; one that did not is
   // not sent back, so the share keeps it
   doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
+  doc.cloudSeen = seenAfterSave((shared.files || []).filter((f) => pending.has(f.path)));
   // this browser's own, not in the share: kept, and sent on the next save
   for (const f of unsent) {
     const rec = { ...f, doc: doc.id };
@@ -4827,38 +4836,44 @@ async function cloudCheck() {
   }
 }
 
-// Files the share has that were added or removed elsewhere since this page
-// last wrote it (a file changed in place elsewhere is not seen here).
+// Files the share has that were added, written again or removed elsewhere
+// since this page last wrote or read it (web/sharefiles.js): a drawing
+// someone changed on a slide reaches the others in the room, and an old
+// copy here does not go up over it.
 async function takeCloudFiles(s) {
-  const remote = new Map((s.files || []).map((f) => [f.path, f]));
-  const local = new Map((await docFiles()).map((f) => [f.path, f]));
+  const local = new Map((await docFiles()).map((f) => [f.path, stampOf(f)]));
+  const plan = planFiles({ remote: s.files || [], local, stamps: doc.cloudStamps, seen: doc.cloudSeen });
   let moved = false;
-  for (const [path, f] of remote) {
-    if (local.has(path) || doc.cloudStamps.has(path)) continue;
+  const failed = new Set();
+  for (const f of [...plan.add, ...plan.update]) {
     try {
-      const res = await fetch(f.url);
+      const res = await fetch(f.url, { cache: "no-cache" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = isText(f.path, f.type) ? await res.text() : await res.blob();
-      const rec = { doc: doc.id, path, type: f.type, size: f.size, data, updated: Date.now() };
+      const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
       await vfs.putFile(rec);
       await useFile(rec);
-      doc.cloudStamps.set(path, stampOf(rec));
+      doc.cloudStamps.set(f.path, stampOf(rec));
       moved = true;
     } catch (e) {
-      console.warn("cloud file not loaded: " + path, e);
+      console.warn("cloud file not loaded: " + f.path, e);
+      failed.add(f.path);
     }
   }
-  for (const [path, stamp] of [...doc.cloudStamps]) {
-    if (remote.has(path)) continue;
-    const f = local.get(path);
-    // removed there and not changed here since
-    if (f && stampOf(f) === stamp) {
-      await vfs.deleteFile(doc.id, path);
-      moved = true;
-    }
-    doc.cloudStamps.delete(path);
+  for (const path of plan.remove) {
+    await vfs.deleteFile(doc.id, path);
+    moved = true;
   }
-  doc.cloudFiles = [...remote.keys()];
+  const remote = new Set((s.files || []).map((f) => f.path));
+  for (const path of [...doc.cloudStamps.keys()]) if (!remote.has(path)) doc.cloudStamps.delete(path);
+  // one that did not come is looked at again next time
+  for (const path of failed) {
+    if (doc.cloudSeen.has(path)) plan.seen.set(path, doc.cloudSeen.get(path));
+    else plan.seen.delete(path);
+  }
+  doc.cloudSeen = plan.seen;
+  doc.cloudFiles = [...remote];
+  if (moved) dropThumbs();
   return moved;
 }
 

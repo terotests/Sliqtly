@@ -134,8 +134,14 @@ async function saveShare(id, deck, since) {
     }
     kept.push(await putFile(id, f));
   }
-  for (const path of had.keys()) {
-    if (!deck.files.some((f) => f.path === path)) api("DELETE", "/api/files/shares/" + id + "/" + enc(path)).catch(() => {});
+  // a file this page never had (someone else in the deck's room added it
+  // since this page read the share) stays; one it had and has no more was
+  // removed here
+  const known = (path) => !since.stamps || since.stamps.has(path);
+  for (const [path, f] of had) {
+    if (deck.files.some((g) => g.path === path)) continue;
+    if (known(path)) api("DELETE", "/api/files/shares/" + id + "/" + enc(path)).catch(() => {});
+    else kept.push(f);
   }
   const patch = { name: deck.name, theme: deck.theme || "", css: deck.css ?? null, files: kept };
   if (!since.collab) {
