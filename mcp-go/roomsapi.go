@@ -292,6 +292,9 @@ type roomRow struct {
 	Role     string `json:"role"`
 	Archived bool   `json:"archived"`
 	Decks    int    `json:"presentations"`
+	// the newest chat message's number (0 none): a page shows the room as
+	// having unread messages while it is above the one it read up to
+	ChatSeq int64 `json:"chat_seq,omitempty"`
 }
 
 type linkRow struct {
@@ -338,6 +341,11 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			rows = append(rows, row)
 		}
 		page, total := q.pick(rows)
+		if s.chat != nil {
+			for i := range page {
+				page[i].ChatSeq, _ = s.chat.Last(ctx, p.TenantID, page[i].RoomID)
+			}
+		}
 		out := map[string]any{"rooms": page, "total": total, "order": q.Order}
 		if next := q.Offset + len(page); next < total {
 			out["next_offset"] = next

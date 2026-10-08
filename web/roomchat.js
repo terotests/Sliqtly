@@ -49,6 +49,18 @@ function write(store, key, v) {
   try { store.setItem(key, JSON.stringify(v)); } catch (_) { /* this page only */ }
 }
 
+// The rooms with messages this browser has not read: a room's newest
+// message number (list_rooms' chat_seq) above the one it read up to
+// (READ_KEY); the room whose chat is open (`open`) is being read.
+export function unreadRooms(rooms, store, open = "") {
+  const marks = read(store, READ_KEY, {});
+  const out = new Set();
+  for (const r of rooms || []) {
+    if (r.room_id !== open && Number(r.chat_seq || 0) > Number(marks[r.room_id] || 0)) out.add(r.room_id);
+  }
+  return out;
+}
+
 // This browser's chat identity: made once, a character and colour picked by
 // chance until the person picks their own.
 export function chatMe(store, name, rand = Math.random) {
@@ -79,6 +91,8 @@ export class RoomChat {
     // which open() is the latest: a close() while one still waits for the
     // rooms keeps the chat closed when they arrive
     this.opening = 0;
+    // the newest message number heard in the open room (replies count too)
+    this.seen = 0;
   }
 
   // the person as the server takes it ("as"): their id becomes p-<id>
@@ -111,12 +125,14 @@ export class RoomChat {
     }
     app.roomChatShow(room, info.title || "", info.description || "", !!info.archived, "");
     if (same) return;
+    this.seen = 0;
     app.roomChatReadUpTo(read(this.d.store, READ_KEY, {})[room] || 0);
     app.roomChatChannels((await this.d.rooms()).filter((r) => r.room_id !== room).map((r) => String(r.title || "").replace(/\s+/g, "_")).join("\n"));
     const got = await this.d.call("read_room_chat", { room_id: room });
     if (turn !== this.opening) return;
     app.roomChatLoad(JSON.stringify(got), false);
     this.names(got);
+    this.seen = Math.max(this.seen, Number(got.last_seq) || 0);
     this.markRead();
     this.here();
     this.decks(room).catch(() => {});
@@ -171,17 +187,20 @@ export class RoomChat {
       const out = await this.d.call("chat_here", { room_id: room, as: this.as() });
       if (room === this.room) this.d.app.roomChatHere(JSON.stringify(out));
     } catch (_) { /* the next beat tries again */ }
+    // closed while it was asked: no next beat
+    if (!this.d.app.roomChatOpen()) return;
     this.timer = setTimeout(() => this.here(), HERE_MS);
   }
 
   markRead() {
     if (!this.room) return;
-    const seq = this.d.app.roomChatLastSeq();
+    const seq = Math.max(this.d.app.roomChatLastSeq() || 0, this.seen);
     if (!seq) return;
     const all = read(this.d.store, READ_KEY, {});
     if ((all[this.room] || 0) >= seq) return;
     all[this.room] = seq;
     write(this.d.store, READ_KEY, all);
+    this.d.readChanged?.();
   }
 
   // A `chat` event from the stream: only the open room's is drawn.
@@ -200,6 +219,9 @@ export class RoomChat {
     } else if (v.t === "msg" && v.msg) {
       const missed = app.roomChatPut(JSON.stringify(v.msg));
       this.names({ messages: [v.msg] });
+      // read as it comes: the chat is open on it
+      this.seen = Math.max(this.seen, Number(v.msg.seq) || 0);
+      this.markRead();
       if (missed >= 0) await this.catchUp(missed);
     }
     this.d.paint();

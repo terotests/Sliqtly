@@ -2,7 +2,7 @@
 // app and a fake server
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RoomChat, chatMe, ME_KEY, READ_KEY, AVATARS } from "../roomchat.js";
+import { RoomChat, chatMe, unreadRooms, ME_KEY, READ_KEY, AVATARS } from "../roomchat.js";
 
 function memStore(init = {}) {
   const m = new Map(Object.entries(init));
@@ -211,7 +211,8 @@ test("events: the open room's are drawn, a gap asks for what was missed", async 
   await w.chat.event({ t: "reopen" });
   assert.deepEqual(w.calls.at(-1), ["read_room_chat", { room_id: "r1", after_seq: 3, limit: 500 }]);
   w.chat.close();
-  assert.equal(JSON.parse(w.store.getItem(READ_KEY)).r1, 3);
+  // read up to the room's newest (the server's last_seq 4: a reply, say)
+  assert.equal(JSON.parse(w.store.getItem(READ_KEY)).r1, 4);
 });
 
 test("files go into the room's files, wait in the composer and go with the message", async () => {
@@ -254,5 +255,25 @@ test("embedded presentations are named, each asked for once", async () => {
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(w.log.filter((l) => l[0] === "deck" && l[1] !== "d1"), [["deck", "abcdef1", "Budget"]]);
   assert.deepEqual([...w.chat.named], ["abcdef1", "zzzzzz9"]);
+  w.chat.close();
+});
+
+test("a room with messages past the read mark is unread, not the one being read", async () => {
+  const store = memStore({ [READ_KEY]: JSON.stringify({ r1: 4, r2: 9 }) });
+  const rooms = [{ room_id: "r1", chat_seq: 6 }, { room_id: "r2", chat_seq: 9 }, { room_id: "r3", chat_seq: 1 }, { room_id: "r4" }];
+  assert.deepEqual([...unreadRooms(rooms, store)], ["r1", "r3"]);
+  assert.deepEqual([...unreadRooms(rooms, store, "r1")], ["r3"]);
+  // opening a room reads it up to its newest message, replies too
+  const w = world();
+  let told = 0;
+  w.chat.d.readChanged = () => told++;
+  w.answers.read_room_chat = () => ({ room: { room_id: "r1" }, messages: [], last_seq: 7 });
+  await w.chat.open("r1");
+  assert.equal(JSON.parse(w.store.getItem(READ_KEY)).r1, 7);
+  assert.equal(told, 1);
+  // a message heard while it is open is read as it comes
+  w.app.roomChatPut = () => -1;
+  await w.chat.event({ t: "msg", room: "r1", msg: { id: "m8", seq: 8 } });
+  assert.equal(JSON.parse(w.store.getItem(READ_KEY)).r1, 8);
   w.chat.close();
 });
