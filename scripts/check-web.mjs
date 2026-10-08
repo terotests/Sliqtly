@@ -2387,6 +2387,38 @@ try {
   check("…its width, from its slider", ce.sized, JSON.stringify(ce));
   check("…its height, from its own slider, the width kept", ce.heightOnly, JSON.stringify(ce));
 
+  // A dropdown at the window's foot opens its list past the frame: a press on
+  // a row out there chooses it, and the window stays (it used to close)
+  const past = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+    a.openChartEditor(5);
+    const c = a.chart;
+    const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+    const press = (id) => { a.chartJson(); const e = walk(c.host.lastPage, id); a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); };
+    press("ce-tabs-tab-ulkoasu");
+    c.y = 40;
+    c.rebuild();
+    press("ce-effect-trigger");
+    a.chartJson();
+    const f = c.win.frameEl;
+    const foot = f.calculatedY + f.calculatedHeight;
+    const rows = [];
+    (function w(e) { if (e.id && e.id.startsWith("ce-effect-item-")) rows.push(e); (e.children || []).forEach(w); })(c.host.lastPage);
+    const out = rows.find((e) => e.calculatedY > foot + 2);
+    let res = { foot, rows: rows.map((e) => Math.round(e.calculatedY)) };
+    if (out) {
+      a.pointerDown(out.calculatedX + 6, out.calculatedY + 6, false, 1);
+      a.pointerUp();
+      res = { ...res, row: out.id, open: a.chartIsOpen(), effect: c.model.effect };
+    }
+    a.key("escape", false, false);
+    a.setSource(src0);
+    return res;
+  });
+  check("…a Style row hanging below the window is chosen, the window stays", !!past.row && past.open && "ce-effect-item-" + past.effect === past.row, JSON.stringify(past));
+
   // A click on the fence's `vega-lite` opens the chart editor, not the language list
   {
     const src0 = await page.evaluate(() => window.__app.source());
@@ -2692,6 +2724,44 @@ try {
     // the room's chat was over the work area: the new deck shows instead
     const chatGone = await until(() => !window.__app.roomChatOpen());
     check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
+    // a right click on a presentation in Rooms: the File menu's rows for it;
+    // one that is not open opens first, then the row acts on it
+    await R(`t("tb-room-general");`);
+    await until(() => window.__app.toolbar.roomOpen === "general");
+    await until(() => window.__app.toolbar.roomDecks.split("\n").some((l) => { const p = l.split("\t"); return p[0] && !p[3] && p[2] !== "1"; }));
+    const other = await R(`const row = a.toolbar.roomDecks.split("\\n").map((l) => l.split("\\t")).find((p) => p[0] && !p[3] && p[2] !== "1");
+      const e = row && tb("tb-roomdeck-d-" + row[0]);
+      return e ? { id: row[0], at: at(e) } : null;`);
+    const cr2 = await rp.evaluate(() => { const c = document.getElementById("c").getBoundingClientRect(); return [c.left, c.top]; });
+    if (other) await rp.mouse.click(cr2[0] + other.at[0], cr2[1] + other.at[1], { button: "right" });
+    const deckRows = await R(`return ["deckOpen", "duplicate", "save", "export", "aiClaude", "docset", "deleteDeck"].map((v) => !!tb("tb-m-ctx-item-" + v));`);
+    const dupRow = await R(`const e = tb("tb-m-ctx-item-duplicate"); return e ? at(e) : null;`);
+    if (dupRow) await rp.mouse.click(cr2[0] + dupRow[0], cr2[1] + dupRow[1]);
+    const dupOpen = await until((id) => { const a = window.__app; return a.deckTabFront() === id && a.chart.isOpen && a.chart.mode === "newdeck"; }, other && other.id, 20000);
+    await R(`a.key("escape", false, false);`);
+    // the open one has no Open row
+    const curRow = await R(`const row = a.toolbar.roomDecks.split("\\n").map((l) => l.split("\\t")).find((p) => p[2] === "1");
+      const e = row && tb("tb-roomdeck-d-" + row[0]);
+      return e ? at(e) : null;`);
+    if (curRow) await rp.mouse.click(cr2[0] + curRow[0], cr2[1] + curRow[1], { button: "right" });
+    const curRows = await R(`return [!!tb("tb-m-ctx-item-deckOpen"), !!tb("tb-m-ctx-item-docset")];`);
+    await R(`a.key("escape", false, false);`);
+    check("…a right click on a presentation in Rooms opens the File menu's rows for it; Duplicate opens that deck and asks the copy's name", !!other && deckRows.every(Boolean) && dupOpen && !!curRow && !curRows[0] && curRows[1], JSON.stringify({ other, deckRows, dupOpen, curRow, curRows }));
+    // the open deck's tab has the same menu; Rename makes the name at the
+    // start of the bar a field, and the new name shows in the room's list
+    const tabAt = await R(`a.chromeJson();
+      const id = "decktabs-tab-" + a.deckTabFront();
+      const w = (el) => { if (!el) return null; if (el.id === id) return el; for (let i = 0; i < el.getChildCount(); i++) { const f = w(el.getChild(i)); if (f) return f; } return null; };
+      const e = w(a.chromeRoot);
+      return e ? at(e) : null;`);
+    if (tabAt) await rp.mouse.click(cr2[0] + tabAt[0], cr2[1] + tabAt[1], { button: "right" });
+    const tabRows = await R(`return [!!tb("tb-m-ctx-item-deckOpen"), !!tb("tb-m-ctx-item-rename"), !!tb("tb-m-ctx-item-deleteDeck")];`);
+    const renRow = await R(`const e = tb("tb-m-ctx-item-rename"); return e ? at(e) : null;`);
+    if (renRow) await rp.mouse.click(cr2[0] + renRow[0], cr2[1] + renRow[1]);
+    const renField = await until(() => window.__app.toolbar.titleEditing);
+    await R(`a.text("Menu renamed"); a.key("enter", false, false);`);
+    const listed = await until(() => window.__app.toolbar.roomDecks.split("\n").some((l) => { const p = l.split("\t"); return p[2] === "1" && p[1] === "Menu renamed"; }));
+    check("…a deck's tab has the same menu; Rename edits the name, and the room's list shows the new name", !!tabAt && !tabRows[0] && tabRows[1] && tabRows[2] && renField && listed, JSON.stringify({ tabAt, tabRows, renField, listed }));
     // the search row: a field whose text lists the rooms found
     await rp.evaluate((findJs) => {
       const a = window.__app;
@@ -4779,6 +4849,34 @@ try {
     check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
     check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
     check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
+    // the presentation's own data (front matter keys Sliqtly does not
+    // read): a row a key, + Data adds one, and the footer prints it
+    const dd = await pd.evaluate(async () => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      // the window the page's pick opened above goes first, so this one
+      // reads this source
+      if (a.chartIsOpen()) a.key("escape", false, false);
+      a.setSource("---\ntitle: Q3\njira: ACME-400\nfooter-right: \"{jira} · {page}\"\n---\n\n# Cover\n");
+      a.showTab("md");
+      a.openDocSettings("");
+      a.chartJson();
+      const out = { row: !!walk(a.chart.host.lastPage, "ds-dk-0") && !walk(a.chart.host.lastPage, "ds-dk-1") };
+      tap(a.chart.host.lastPage, "ds-dadd");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-dk-1");
+      a.text("Owner");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-dv-1");
+      a.text("Tero");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-title");
+      out.src = a.source().split("\n").slice(0, 6).join("|");
+      a.key("escape", false, false);
+      return out;
+    });
+    check("Document settings: the presentation's data as rows, + Data writes a new key", dd.row && dd.src === "---|title: Q3|jira: ACME-400|footer-right: \"{jira} · {page}\"|owner: Tero|---", JSON.stringify(dd));
     await pd.close();
   }
 

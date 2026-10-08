@@ -100,6 +100,9 @@ class RSlide {
     ; what the slide's source says that its drawing cannot show: a picture
     ; still at a web address (not kept with the deck)
     def notes:[string]
+    ; the slide's own data from its heading, `jira=ACME-412 owner=Tero`
+    ; (MdSlideMeta); "" when it carries none
+    def meta:string ""
 }
 
 class RSlideOut {
@@ -419,6 +422,11 @@ class Report {
             head = (head + ".")
         }
         push o.lines head
+        ; what the slide carries and nothing draws, so an assistant reading
+        ; the report can see which ticket this slide is about
+        if ((strlen s.meta) > 0) {
+            push o.lines ("- data: " + s.meta)
+        }
         for items it:string ii {
             push o.lines it
         }

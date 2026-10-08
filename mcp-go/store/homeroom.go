@@ -106,11 +106,14 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 				return next, nil
 			}
 			if cur != nil && cur[RoomField] != nil {
-				// a writer that replaces the document keeps its room
+				// a writer that replaces the document keeps its room (and
+				// its folder there)
 				next[RoomField] = cur[RoomField]
-				if v, ok := cur[InheritField]; ok {
-					if _, set := next[InheritField]; !set {
-						next[InheritField] = v
+				for _, k := range []string{InheritField, FolderField} {
+					if v, ok := cur[k]; ok {
+						if _, set := next[k]; !set {
+							next[k] = v
+						}
 					}
 				}
 				return next, nil

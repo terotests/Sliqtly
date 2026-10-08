@@ -855,6 +855,11 @@ class Tools {
         for (J.strList((out.field("warnings")))) w:string i {
             push lines ("Note: " + w)
         }
+        ; the front matter's own keys, so an assistant sees what the deck is
+        ; about (a ticket, an owner) without reading the Markdown
+        if (out.has("data")) {
+            push lines ("Presentation data: " + (out.str_("data")))
+        }
         def lay:string (Tools.layoutText((out.field("layout")) true))
         if ((strlen lay) > 0) {
             push lines lay
@@ -1700,6 +1705,9 @@ class Tools {
         }
         def out:MfJ (MfJ.newObj())
         out.put("layout" (Tools.layoutJson(ck.report)))
+        if ((strlen ck.deckData) > 0) {
+            out.putStr("data" ck.deckData)
+        }
         out.put("pictures" (Tools.svgPictures(host md bgs ck.width ck.height)))
         out.putStr("title" (a.str_("title")))
         out.putStr("theme" theme)
@@ -2510,6 +2518,9 @@ class Tools {
         }
         def out:MfJ (MfJ.newObj())
         out.put("layout" (Tools.layoutJson(ck.report)))
+        if ((strlen ck.deckData) > 0) {
+            out.putStr("data" ck.deckData)
+        }
         out.put("pictures" (Tools.svgPictures(host md bgs ck.width ck.height)))
         out.put("title" (saved.field("name")))
         out.put("theme" (saved.field("theme")))

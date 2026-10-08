@@ -27,6 +27,7 @@
 Import "PresI18n.rgr"
 Import "../markdown/src/MdHtml.rgr"
 Import "PresRange.rgr"
+Import "../markdown/src/MdSlideMeta.rgr"
 
 class PresHints {
     ; --- what the Markdown knows ----------------------------------------------
@@ -125,6 +126,12 @@ class PresHints {
         if (key == "slide-grow") { return (PresI18n.t("How much a sparse slide may grow (off: not at all).")) }
         if (key == "slide-split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
         if (key == "title") { return (PresI18n.t("Presentation title.")) }
+        ; On a heading, a key Sliqtly does not know is the slide's own data
+        ; (MdSlideMeta): a ticket number, an owner, a status. Saying so is
+        ; the difference between "this does nothing" and "this is kept".
+        if ((MdSlideMeta.isEngineKey(key)) == false) {
+            return ((PresI18n.t("Your own data, e.g. a ticket number: in the front matter for the presentation, on a heading for one slide. It is not drawn; a header or footer prints it as ")) + "{" + key + "}.")
+        }
         return ""
     }
 

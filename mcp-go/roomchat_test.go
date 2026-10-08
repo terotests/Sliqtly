@@ -107,6 +107,14 @@ func TestRoomChat(t *testing.T) {
 	eq(t, mapOf(th["root"])["replies"], 1.0)
 	top := ok("read_room_chat", map[string]any{"room_id": room})
 	eq(t, len(list(top["messages"])), 1)
+	// the room list says the newest message's number (pages show unread)
+	var seq any
+	for _, r := range list(ok("list_rooms", map[string]any{})["rooms"]) {
+		if mapOf(r)["room_id"] == room {
+			seq = mapOf(r)["chat_seq"]
+		}
+	}
+	eq(t, seq, top["last_seq"])
 
 	// reactions: one per person and emoji, a second press takes it back
 	pagePost(t, srv.URL, "chat_react", map[string]any{"room_id": room, "message_id": first, "emoji": "👍", "as": bob})

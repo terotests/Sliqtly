@@ -3672,6 +3672,12 @@ class PresApp {
         if (s.steps > 0) {
             where = (where + (PresI18n.t("  ·  step ")) + (to_string pStep) + " / " + (to_string s.steps))
         }
+        ; the slide's own data (`## Title {jira=ACME-412}`): the presenter's
+        ; screen is where it is useful — the ticket the slide is about
+        def own:string (s.meta.asText())
+        if ((strlen own) > 0) {
+            where = (where + "  ·  " + own)
+        }
         root.addChild((PresApp.label("sp-where" "sp-where" where (nx + 110.0) 24.0)))
         def ny:double ((nextRect.y + nextRect.h) + 18.0)
         if ((selected + 1) >= (deck.slideCount())) {
@@ -3834,6 +3840,7 @@ class PresApp {
         if (focus == "room") {
             focus = "editor"
             room.ch.keys = ""
+            room.closeMenu()
             room.changed()
         }
         if (PresApp.panelLayer(top)) {
@@ -4454,6 +4461,16 @@ class PresApp {
             chromeRev = (chromeRev + 1)
         }
         this.stageUp()
+    }
+
+    ; A presentation's row of the Rooms panel, or a deck tab, at x, y (its
+    ; menu opens there).
+    fn inDeckRow:boolean (x:double y:double) {
+        this.place()
+        if ((mode == "present") || (barH <= 0.0)) {
+            return false
+        }
+        return (((strlen (toolbar.roomDeckAt(x y))) > 0) || ((strlen (this.deckTabKeyAt(x y))) > 0))
     }
 
     fn inStrip:boolean (x:double y:double) {
@@ -7128,19 +7145,76 @@ class PresApp {
     ; The drawing changed: the slide refers to it (the line is added when
     ; it does not), and the page writes its file.
     fn sketchSave:void () {
-        def path:string sketch.path
+        this.sketchSync(sketch.path)
+    }
+
+    ; The drawing at `path` (on the selected slide) as it is now: one with
+    ; something in it is referred to from the slide (the line is added when
+    ; it is not), an emptied one is not (its line is removed; it stays the
+    ; slide's drawing to go on with, and comes back with what is drawn or
+    ; undone into it); the page writes its file.
+    fn sketchSync:void (path:string) {
         if ((strlen path) == 0) {
             return
         }
-        if ((deck.newSketchSlide == selected) && (deck.newSketchPath == path)) {
-            def sl:PresSlide (deck.slideAt(selected))
-            if ((array_length sl.sketches) == 0) {
-                this.sketchRef(selected (substring path 1 (strlen path)))
+        def name:string (substring path 1 (strlen path))
+        def empty:boolean (((deck.sketchFor(path)).count()) == 0)
+        if empty {
+            if (this.sketchUnref(selected name)) {
+                deck.newSketchPath = path
+                deck.newSketchSlide = selected
+                sketch.path = path
             }
-            deck.newSketchPath = ""
-            deck.newSketchSlide = -1
+        } {
+            if ((deck.newSketchSlide == selected) && (deck.newSketchPath == path)) {
+                def sl:PresSlide (deck.slideAt(selected))
+                if ((array_length sl.sketches) == 0) {
+                    this.sketchRef(selected name)
+                }
+                deck.newSketchPath = ""
+                deck.newSketchSlide = -1
+            }
         }
-        push requests ("sketch-file:" + (substring path 1 (strlen path)))
+        push requests ("sketch-file:" + name)
+    }
+
+    ; The line referring to drawing `path` removed from slide i, as one edit
+    ; of the Markdown; false when the slide has none.
+    fn sketchUnref:boolean (i:int path:string) {
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return false
+        }
+        def lines:[string]
+        def k:int linesFrom
+        while (k < linesAt) {
+            push lines (mdEditor.buf.lineAt(k))
+            k = (k + 1)
+        }
+        def span:[int] (PresSketch.refSpan(lines path))
+        if ((itemAt span 0) < 0) {
+            return false
+        }
+        def from:int (linesFrom + (itemAt span 0))
+        def last:int (linesFrom + (itemAt span 1))
+        ; the caret stays where it was in the text around the lines
+        def cl:int mdEditor.sel.caret.line
+        def cc:int mdEditor.sel.caret.col
+        this.replaceLines(from last "")
+        if (cl > last) {
+            cl = (cl - ((last - from) + 1))
+        } {
+            if (cl >= from) {
+                cl = (from - 1)
+                if (cl < 0) {
+                    cl = 0
+                }
+                cc = (strlen (mdEditor.buf.lineAt(cl)))
+            }
+        }
+        mdEditor.moveCaret(cl cc false)
+        this.syncEditor()
+        return true
     }
 
     ; What the page writes to the drawing's file.
@@ -7156,8 +7230,8 @@ class PresApp {
         }
         def path:string (substring u 0 at)
         deck.setSketch(path (substring u (at + 1) (strlen u)))
+        this.sketchSync(path)
         PresTimeline.planAll(deck)
-        push requests ("sketch-file:" + (substring path 1 (strlen path)))
         chromeRev = (chromeRev + 1)
     }
 
@@ -9264,6 +9338,17 @@ class PresApp {
         return true
     }
 
+    ; A room's "+ New folder" (`id` "") or a folder's gear: the folder's
+    ; window, its name. Save is "newdeck-create" with the plan's "ask"
+    ; "folder", "room" the folder's id and "act" ("" save, "delete").
+    fn openFolderDialog:boolean (id:string name:string) {
+        if ((this.openDupDeck(name)) == false) {
+            return false
+        }
+        chart.openFolder(id name chart.x chart.y W H)
+        return true
+    }
+
     fn openDupDeck:boolean (name:string) {
         if (mode == "present") {
             return false
@@ -10594,6 +10679,19 @@ class PresApp {
         return true
     }
 
+    ; --- the room chat's message menu ---------------------------------------------
+    ; A right click on the open room's chat: the menu of the message under
+    ; it. True when x, y is on the chat (no other menu there).
+    fn roomMenuAt:boolean (x:double y:double) {
+        this.place()
+        if (((room.open == false) || (mode == "present")) || ((this.layerAt(x y)) != "room")) {
+            return false
+        }
+        room.menuAt(x y)
+        this.afterRoom()
+        return true
+    }
+
     ; --- the strip's context menu -------------------------------------------------
     ; A right click on a thumbnail selects it and opens New / Duplicate /
     ; Move left / Move right / Delete / Copy there; on the slide being
@@ -10620,6 +10718,52 @@ class PresApp {
             i = (i + 1)
         }
         return false
+    }
+
+    ; A presentation of the Rooms panel or a deck tab under x, y: its menu,
+    ; the File menu's rows for that deck (PresToolbar.openDeckContext).
+    fn deckMenuAt:boolean (x:double y:double) {
+        if ((mode == "present") || (barH <= 0.0)) {
+            return false
+        }
+        def from:string "room"
+        def id:string (toolbar.roomDeckAt(x y))
+        def name:string ""
+        def current:boolean false
+        if ((strlen id) > 0) {
+            name = (toolbar.roomDeckName(id))
+            current = (toolbar.roomDeckCurrent(id))
+        } {
+            def key:string (this.deckTabKeyAt(x y))
+            if ((strlen key) == 0) {
+                return false
+            }
+            from = "tab"
+            id = key
+            name = (deckTabs.labelOf(key))
+            current = (key == deckTabs.tabs.active)
+        }
+        if chart.isOpen {
+            this.closeChart()
+        }
+        if hint.isOpen {
+            this.closeHint()
+        }
+        toolbar.openDeckContext(x y from id name current)
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The deck tab under x, y ("" none, or its ×): its key.
+    fn deckTabKeyAt:string (x:double y:double) {
+        if ((deckRect.has(x y)) == false) {
+            return ""
+        }
+        def hit:string (deckTabs.hitAt(x y))
+        if ((indexOf hit "tab:") == 0) {
+            return (substring hit 4 (strlen hit))
+        }
+        return ""
     }
 
     ; The menu from the keyboard (Shift+F10, the menu key): at the selected
@@ -10722,6 +10866,13 @@ class PresApp {
     ; A request from the page's keys, as a menu row would make it: "slide:…"
     ; is done here, the rest goes to the page with the others.
     fn request:void (r:string) {
+        ; File → Rename… (a presentation's menu, once it is open): the name at
+        ; the start of the bar as a field
+        if (r == "rename") {
+            toolbar.titleBegin()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if ((indexOf r "slide:") == 0) {
             this.slideCommand((substring r 6 (strlen r)))
             return
