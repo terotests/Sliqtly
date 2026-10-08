@@ -20,6 +20,7 @@ Import "PresPick.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
 Import "PresScrollInput.rgr"
+Import "PresServer.rgr"
 Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
@@ -3577,6 +3578,76 @@ class PresCheck {
         this.ok(((tour.indexOf("ei: Tilaa → Varastossa? (back)")) > 0) ("findings: a loop ends at the branch it came from: " + tour))
     }
 
+    ; the host's side of ApiClient: the next request, answered
+    fn answer:ApiRequest (s:PresServer status:int body:string) {
+        def r@(optional):ApiRequest (s.api.take())
+        def got:ApiRequest (new ApiRequest())
+        if (!null? r) {
+            got = (unwrap r)
+            s.api.deliver(got.id status body "")
+            s.process()
+        }
+        return got
+    }
+
+    fn serverDecks:void () {
+        def s (new PresServer())
+        this.ok(((s.request("decks")) == false) "server: not connected, the app's requests are its own")
+        s.connect("localhost:8080/" "")
+        def info:ApiRequest (this.answer(s 200 "{\"name\":\"Sliqtly\",\"api\":1,\"user\":\"tero\"}"))
+        this.ok((info.url == "http://localhost:8080/api/v1/info") ("server: /info first, " + info.url))
+        this.ok((s.connected()) "server: connected once /info answers api 1")
+        def list:ApiRequest (this.answer(s 200 "{\"decks\":[{\"id\":\"aaa111\",\"name\":\"Beta\",\"updated\":1759921140000},{\"id\":\"bbb222\",\"name\":\"alpha\",\"updated\":1759834740000}]}"))
+        this.ok((list.url == "http://localhost:8080/api/v1/decks") "server: then the list")
+        this.ok((s.request("decks")) "server: File → Presentations… is the server's")
+        def again:ApiRequest (this.answer(s 200 "{\"decks\":[{\"id\":\"aaa111\",\"name\":\"Beta\",\"updated\":1759921140000},{\"id\":\"bbb222\",\"name\":\"alpha\",\"updated\":1759834740000}]}"))
+        this.ok(((s.decksOpen && s.decksPending) && ((indexOf s.decksJson "\"rows\":[{\"id\":\"aaa111\"") > 0)) ("server: newest first, " + s.decksJson))
+        this.ok(((indexOf s.decksJson "8.10.2025 10:59") > 0) "server: times as d.m.yyyy hh:mm (UTC)")
+        s.request("decks:sort:name")
+        this.ok(((indexOf s.decksJson "\"rows\":[{\"id\":\"bbb222\"") > 0) "server: by name, case left out (alpha before Beta)")
+        s.request("decks:sort:name")
+        this.ok(((indexOf s.decksJson "\"rows\":[{\"id\":\"aaa111\"") > 0) "server: the same column again turns it round")
+        this.ok((PresServer.whenText(1759921140000.0 180) == "8.10.2025 13:59") "server: local time from the host's offset")
+        ; open
+        s.request("files:doc:aaa111")
+        def get:ApiRequest (this.answer(s 200 "{\"id\":\"aaa111\",\"name\":\"Beta\",\"markdown\":\"# Beta\\n\",\"version\":\"v1\"}"))
+        this.ok((get.url == "http://localhost:8080/api/v1/decks/aaa111") "server: open reads the deck")
+        this.ok(((s.loadPending && (s.loadMd == "# Beta\n")) && (s.deckVersion == "v1")) "server: its Markdown goes to the editor")
+        this.ok(((s.dirty("# Beta\n") == false) && (s.dirty("# Beta 2\n"))) "server: changed when the text differs from the saved")
+        ; save over a version the server no longer has
+        this.ok((s.save("# Beta 2\n")) "server: Save is the server's for its deck")
+        def put:ApiRequest (this.answer(s 409 "{\"error\":\"changed\",\"code\":\"conflict\",\"current\":{\"id\":\"aaa111\",\"markdown\":\"# Beta (theirs)\\n\",\"version\":\"v2\"}}"))
+        this.ok(((put.method == "PUT") && ((indexOf put.body "\"ifVersion\":\"v1\"") > 0)) ("server: written only over v1, " + put.body))
+        this.ok(((indexOf put.body "\"name\"") < 0) "server: a save leaves the name as it is")
+        this.ok((s.askKey == "srvconflict") "server: 409 asks which to keep")
+        s.askKey = ""
+        s.request("confirm:srvconflict:alt")
+        def put2:ApiRequest (this.answer(s 200 "{\"id\":\"aaa111\",\"name\":\"Beta\",\"version\":\"v3\"}"))
+        this.ok(((indexOf put2.body "\"ifVersion\":\"v2\"") > 0) "server: mine written over the version just seen")
+        this.ok((((s.deckVersion == "v3") && (s.dirty("# Beta 2\n") == false)) && ((itemAt s.notes ((array_length s.notes) - 1)) == "Saved.")) "server: saved, the new version kept")
+        ; the other answer: the server's text replaces this one
+        s.loadPending = false
+        s.save("# Mine\n")
+        this.answer(s 409 "{\"current\":{\"markdown\":\"# Theirs\\n\",\"version\":\"v4\"}}")
+        s.request("confirm:srvconflict")
+        this.ok(((s.loadPending && (s.loadMd == "# Theirs\n")) && (s.deckVersion == "v4")) "server: the server's version taken")
+        ; the rail's name: only the name, and the version kept when the text is the same
+        s.request("title:Beta final")
+        def ren:ApiRequest (this.answer(s 200 "{\"id\":\"aaa111\",\"name\":\"Beta final\",\"markdown\":\"# Theirs\\n\",\"version\":\"v5\"}"))
+        this.ok((((ren.body == "{\"name\":\"Beta final\"}") && (s.deckName == "Beta final")) && (s.deckVersion == "v5")) ("server: renamed, " + ren.body + " " + s.deckVersion))
+        ; File → New presentation: made on the server, then open
+        this.ok(((s.newDeck("{\"name\":\"x\",\"dup\":true,\"ask\":\"dup\"}")) == false) "server: a copy is not a new one")
+        this.ok((s.newDeck("{\"name\":\"Gamma\",\"theme\":\"ember\",\"data\":\"none\",\"dup\":false,\"ask\":\"\"}")) "server: a new deck is the server's")
+        s.loadPending = false
+        def post:ApiRequest (this.answer(s 200 "{\"id\":\"ccc333\",\"name\":\"Gamma\",\"markdown\":\"# Gamma\\n\\nWrite here.\\n\",\"version\":\"1\"}"))
+        this.ok((((post.method == "POST") && ((indexOf post.body "\"theme\":\"ember\"") > 0)) && (s.loadPending && (s.deckId == "ccc333"))) ("server: made and opened, " + post.body))
+        ; no server there
+        def n (new PresServer())
+        n.connect("localhost:9" "")
+        this.answer(n 0 "")
+        this.ok((((n.connected()) == false) && ((array_length n.notes) == 1)) "server: none there is said, not connected")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -3616,6 +3687,7 @@ class PresCheck {
         c.sketches()
         c.meeting()
         c.scrollInput()
+        c.serverDecks()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

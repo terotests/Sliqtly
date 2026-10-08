@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 //
-// Serve the web build on http://127.0.0.1:8140/ (npm run web).
+// Serve the web build on http://127.0.0.1:8140/ (npm run old:web).
 // A static server rooted at web/ and nothing else; the Sliqtly server the
 // page talks to is wherever the user points it (CORS is that server's job).
 //

@@ -1,0 +1,541 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresServer — the editor on a Sliqtly server of one's own, over REST API v1
+; ==============================================================================
+;
+; The native editor keeps no presentations of its own: they are the server's
+; (docs/api-v1.md, the same shares the browser editor edits). This class is
+; what the editor needs of that, with no network and no UI of its own:
+;
+;   the list      GET /decks, for File → Presentations… (`decksJson`, the
+;                 window's JSON as web/decklist.js makes it in the browser)
+;   open          GET /decks/{id}: its Markdown goes to the editor
+;   save          PUT /decks/{id} with ifVersion: written only over the
+;                 version this editor read; otherwise 409, and the person
+;                 chooses (`conflict`): the server's version, or this one
+;   new, delete   POST /decks, DELETE /decks/{id}
+;
+; HTTP is ApiClient's queue (src/ApiClient.rgr): the host takes requests from
+; `api`, performs them (libcurl natively) and delivers the answers; `process`
+; then acts on them. What the editor should do comes out as fields the host
+; reads and clears: `loadMd` (a deck to show), `decksJson` (the window's
+; list), `notes` (toasts), `ask` (a question for app.openChoice).
+;
+; The app's requests it answers (`request`): "decks", "decks:sort:<by>",
+; "decks:del:<id>", "files:doc:<id>", "title:<name>" (the rail's deck name),
+; and the answers to its
+; own questions, "confirm:srvconflict" (keep the server's) and
+; "confirm:srvconflict:alt" (write this one over it).
+; ==============================================================================
+
+Import "ApiClient.rgr"
+
+class PresServerDeck {
+    def id:string ""
+    def name:string ""
+    def updated:double 0.0
+    def slides:int 0
+
+    Constructor () {
+    }
+}
+
+class PresServer {
+    def api:ApiClient (new ApiClient())
+    ; the server's address once it answered /info
+    def address:string ""
+    def serverName:string ""
+    def connecting:boolean false
+
+    def decks:[PresServerDeck]
+    def sortBy:string "updated"
+    def sortDir:string "desc"
+    ; the window is open: the list goes to it again when it changes
+    def windowOpen:boolean false
+
+    ; the open deck
+    def deckId:string ""
+    def deckName:string ""
+    def deckVersion:string ""
+    def savedMd:string ""
+    def sentMd:string ""
+    def saving:boolean false
+    ; a save that 409ed: the server's deck as it is now
+    def conflictMd:string ""
+    def conflictVersion:string ""
+
+    ; minutes east of UTC, for the window's times (the host's local time)
+    def utcOffsetMin:int 0
+
+    ; --- for the host to read and clear ---------------------------------------
+    def loadMd:string ""
+    def loadPending:boolean false
+    def decksJson:string ""
+    def decksOpen:boolean false
+    def decksPending:boolean false
+    def notes:[string]
+    ; a question: app.openChoice(askKey askTitle askText askOk askAlt)
+    def askKey:string ""
+    def askTitle:string ""
+    def askText:string ""
+    def askOk:string ""
+    def askAlt:string ""
+
+    Constructor () {
+    }
+
+    ; --- the server ---------------------------------------------------------------
+
+    fn connect:void (url:string token:string) {
+        def base:string (ApiClient.normalizeBase(url))
+        if ((strlen base) == 0) {
+            return
+        }
+        api.reset()
+        api.base = base
+        api.token = token
+        address = ""
+        connecting = true
+        api.send("GET" (base + "/api/v1/info") "" "info" false)
+    }
+
+    fn connected:boolean () {
+        return ((strlen address) > 0)
+    }
+
+    fn note:void (text:string) {
+        push notes text
+    }
+
+    ; --- what the app asks ----------------------------------------------------------
+
+    ; True when the request was the server's to answer.
+    fn request:boolean (r:string) {
+        if ((this.connected()) == false) {
+            return false
+        }
+        if (r == "decks") {
+            windowOpen = true
+            decksOpen = true
+            this.listDecks()
+            this.makeJson()
+            return true
+        }
+        if ((indexOf r "decks:sort:") == 0) {
+            this.sortOn((substring r 11 (strlen r)))
+            this.makeJson()
+            decksPending = true
+            return true
+        }
+        if ((indexOf r "decks:del:") == 0) {
+            def id:string (substring r 10 (strlen r))
+            if ((id != deckId) && ((strlen id) > 0)) {
+                api.del(("/decks/" + (ApiClient.enc(id))) "delete")
+            }
+            return true
+        }
+        if ((indexOf r "files:doc:") == 0) {
+            this.open((substring r 10 (strlen r)))
+            return true
+        }
+        if (((indexOf r "title:") == 0) && ((strlen deckId) > 0)) {
+            this.rename((substring r 6 (strlen r)))
+            return true
+        }
+        if (r == "confirm:srvconflict") {
+            this.takeServers()
+            return true
+        }
+        if (r == "confirm:srvconflict:alt") {
+            this.overwrite()
+            return true
+        }
+        return false
+    }
+
+    ; "click:save" with the editor's text: true when this deck is the
+    ; server's (and so saved there). The name stays the server's: the first
+    ; heading is not the deck's name (renaming is "title:").
+    fn save:boolean (md:string) {
+        if (((this.connected()) == false) || ((strlen deckId) == 0)) {
+            return false
+        }
+        if saving {
+            return true
+        }
+        saving = true
+        sentMd = md
+        def body:JVal (JVal.mkObj())
+        body.setStr("markdown" md)
+        if ((strlen deckVersion) > 0) {
+            body.setStr("ifVersion" deckVersion)
+        }
+        api.put(("/decks/" + (ApiClient.enc(deckId))) (body.toJson()) "save")
+        return true
+    }
+
+    ; The open deck's name, on the server at once: only the name is sent, so
+    ; it needs no version to be written over.
+    fn rename:void (name:string) {
+        def n:string (trim name)
+        if (((strlen n) == 0) || (n == deckName)) {
+            return
+        }
+        def body:JVal (JVal.mkObj())
+        body.setStr("name" n)
+        api.put(("/decks/" + (ApiClient.enc(deckId))) (body.toJson()) "rename")
+    }
+
+    ; File → New presentation's answer (app.newDeckPlan(), "newdeck-create"):
+    ; a plain new deck is made on the server and opened. True when it was
+    ; this one's; a copy, a room's or a folder's window, or one's own name
+    ; are the host's.
+    fn newDeck:boolean (planJson:string) {
+        if ((this.connected()) == false) {
+            return false
+        }
+        def plan:JVal (JVal.parse(planJson))
+        if (((strlen (plan.strOr("ask" ""))) > 0) || (plan.boolOr("dup" false))) {
+            return false
+        }
+        def name:string (trim (plan.strOr("name" "")))
+        if ((strlen name) == 0) {
+            name = "New presentation"
+        }
+        this.create(name ("# " + name + "\n\nWrite here.\n") (plan.strOr("theme" "")))
+        return true
+    }
+
+    fn dirty:boolean (md:string) {
+        return (((strlen deckId) > 0) && (md != savedMd))
+    }
+
+    fn listDecks:void () {
+        api.get("/decks" "decks")
+    }
+
+    fn open:void (id:string) {
+        if ((strlen id) == 0) {
+            return
+        }
+        api.get(("/decks/" + (ApiClient.enc(id))) "deck")
+    }
+
+    ; A new deck on the server, opened once it is made.
+    fn create:void (name:string md:string theme:string) {
+        def body:JVal (JVal.mkObj())
+        body.setStr("name" name)
+        body.setStr("markdown" md)
+        if ((strlen theme) > 0) {
+            body.setStr("theme" theme)
+        }
+        api.post("/decks" (body.toJson()) "create")
+    }
+
+    ; 409, the server's version kept: it replaces the text here.
+    fn takeServers:void () {
+        deckVersion = conflictVersion
+        savedMd = conflictMd
+        loadMd = conflictMd
+        loadPending = true
+        this.note("The server's version is open.")
+    }
+
+    ; 409, this version kept: written over the one just seen.
+    fn overwrite:void () {
+        deckVersion = conflictVersion
+        this.save(sentMd)
+    }
+
+    ; --- answers ------------------------------------------------------------------
+
+    ; Everything the host delivered since: acted on.
+    fn process:void () {
+        def go:boolean true
+        while go {
+            def r@(optional):ApiResult (api.takeResult())
+            if (null? r) {
+                go = false
+            } {
+                this.handle((unwrap r))
+            }
+        }
+    }
+
+    fn handle:void (res:ApiResult) {
+        if (res.tag == "info") {
+            connecting = false
+            if (((res.ok()) == false) || ((res.json.intOr("api" 0)) < 1)) {
+                this.note(("No Sliqtly server at " + api.base + ": " + (res.message())))
+                return
+            }
+            address = api.base
+            serverName = (res.json.strOr("user" ""))
+            this.note(("Connected to " + address))
+            this.listDecks()
+            return
+        }
+        if (res.tag == "decks") {
+            if ((res.ok()) == false) {
+                this.note(("Could not list the presentations: " + (res.message())))
+                return
+            }
+            this.takeList(res.json.get("decks"))
+            if windowOpen {
+                this.makeJson()
+                decksPending = true
+            }
+            return
+        }
+        if (res.tag == "deck") {
+            if ((res.ok()) == false) {
+                this.note(("Could not open it: " + (res.message())))
+                return
+            }
+            this.takeDeck(res.json)
+            loadMd = savedMd
+            loadPending = true
+            windowOpen = false
+            return
+        }
+        if (res.tag == "create") {
+            if ((res.ok()) == false) {
+                this.note(("Not made: " + (res.message())))
+                return
+            }
+            this.takeDeck(res.json)
+            loadMd = savedMd
+            loadPending = true
+            this.listDecks()
+            return
+        }
+        if (res.tag == "save") {
+            this.onSave(res)
+            return
+        }
+        if (res.tag == "rename") {
+            if ((res.ok()) == false) {
+                this.note(("Not renamed: " + (res.message())))
+                return
+            }
+            deckName = (res.json.strOr("name" deckName))
+            ; the server's new version is still this text when nothing else
+            ; was saved in between: later saves go over it
+            if ((res.json.strOr("markdown" "")) == savedMd) {
+                deckVersion = (res.json.strOr("version" deckVersion))
+            }
+            if windowOpen {
+                this.listDecks()
+            }
+            return
+        }
+        if (res.tag == "delete") {
+            if ((res.ok()) == false) {
+                this.note(("Not deleted: " + (res.message())))
+            }
+            this.listDecks()
+            return
+        }
+    }
+
+    fn takeDeck:void (v:JVal) {
+        deckId = (v.strOr("id" ""))
+        deckName = (v.strOr("name" ""))
+        deckVersion = (v.strOr("version" ""))
+        savedMd = (v.strOr("markdown" ""))
+    }
+
+    fn takeList:void (list:JVal) {
+        clear decks
+        def n:int (list.len())
+        def i:int 0
+        while (i < n) {
+            def o:JVal (list.at(i))
+            def d (new PresServerDeck())
+            d.id = (o.strOr("id" ""))
+            d.name = (o.strOr("name" ""))
+            d.updated = (o.numOr("updated" 0.0))
+            d.slides = (o.intOr("slides" 0))
+            if ((strlen d.id) > 0) {
+                push decks d
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn onSave:void (res:ApiResult) {
+        saving = false
+        if (res.status == 409) {
+            def cur:JVal (res.json.get("current"))
+            conflictVersion = (cur.strOr("version" ""))
+            conflictMd = (cur.strOr("markdown" ""))
+            askKey = "srvconflict"
+            askTitle = "Changed on the server"
+            askText = "This presentation was changed on the server since it was opened here. Keep the server's version, or write this one over it?"
+            askOk = "Server's version"
+            askAlt = "Write mine"
+            return
+        }
+        if ((res.ok()) == false) {
+            this.note(("Not saved: " + (res.message())))
+            return
+        }
+        deckVersion = (res.json.strOr("version" deckVersion))
+        deckName = (res.json.strOr("name" deckName))
+        savedMd = sentMd
+        this.note("Saved.")
+        if windowOpen {
+            this.listDecks()
+        }
+    }
+
+    ; --- the window -----------------------------------------------------------------
+
+    fn sortOn:void (by:string) {
+        if (((by != "updated") && (by != "name")) && (by != "created")) {
+            return
+        }
+        if (by == sortBy) {
+            if (sortDir == "asc") {
+                sortDir = "desc"
+            } {
+                sortDir = "asc"
+            }
+            return
+        }
+        sortBy = by
+        if (by == "name") {
+            sortDir = "asc"
+        } {
+            sortDir = "desc"
+        }
+    }
+
+    ; a before b in the window's order
+    fn before:boolean (a:PresServerDeck b:PresServerDeck) {
+        if (sortBy == "name") {
+            def x:string (to_lowercase a.name)
+            def y:string (to_lowercase b.name)
+            if (x != y) {
+                if (sortDir == "asc") {
+                    return (PresServer.textBefore(x y))
+                }
+                return (PresServer.textBefore(y x))
+            }
+            return (a.updated > b.updated)
+        }
+        if (a.updated == b.updated) {
+            return false
+        }
+        if (sortDir == "asc") {
+            return (a.updated < b.updated)
+        }
+        return (a.updated > b.updated)
+    }
+
+    ; a before b, by code points
+    sfn textBefore:boolean (a:string b:string) {
+        def x:[int] (to_chars a)
+        def y:[int] (to_chars b)
+        def n:int (array_length x)
+        def m:int (array_length y)
+        def i:int 0
+        while ((i < n) && (i < m)) {
+            def p:int (itemAt x i)
+            def q:int (itemAt y i)
+            if (p != q) {
+                return (p < q)
+            }
+            i = (i + 1)
+        }
+        return (n < m)
+    }
+
+    fn sorted:[PresServerDeck] () {
+        def out:[PresServerDeck]
+        def n:int (array_length decks)
+        def i:int 0
+        while (i < n) {
+            def d:PresServerDeck (itemAt decks i)
+            ; insertion: lists are short, and equal ones keep the server's order
+            def at:int (array_length out)
+            while ((at > 0) && (this.before(d (itemAt out (at - 1))))) {
+                at = (at - 1)
+            }
+            insert out at d
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The window's JSON: {"sort", "dir", "rows": [{"id", "name", "added",
+    ; "modified", "where", "cloudOnly", "current"}], "note"}.
+    fn makeJson:void () {
+        def o:JVal (JVal.mkObj())
+        ; the server keeps no creation time: Added sorts as Modified
+        o.setStr("sort" sortBy)
+        o.setStr("dir" sortDir)
+        def rows:JVal (JVal.mkArr())
+        def list:[PresServerDeck] (this.sorted())
+        def n:int (array_length list)
+        def i:int 0
+        while (i < n) {
+            def d:PresServerDeck (itemAt list i)
+            def r:JVal (JVal.mkObj())
+            r.setStr("id" d.id)
+            def name:string d.name
+            if ((strlen name) == 0) {
+                name = "presentation"
+            }
+            r.setStr("name" name)
+            r.setStr("added" "")
+            r.setStr("modified" (PresServer.whenText(d.updated utcOffsetMin)))
+            r.setStr("where" "On the server")
+            r.setBool("cloudOnly" false)
+            r.setBool("current" (d.id == deckId))
+            rows.add(r)
+            i = (i + 1)
+        }
+        o.set("rows" rows)
+        o.setStr("note" ("Server: " + address))
+        decksJson = (o.toJson())
+    }
+
+    ; "4.10.2026 11:39" for a time in ms since 1970 (UTC) at `offsetMin`
+    ; minutes east of UTC; "" for none.
+    sfn whenText:string (ms:double offsetMin:int) {
+        if (ms <= 0.0) {
+            return ""
+        }
+        def t:double (ms + ((to_double offsetMin) * 60000.0))
+        def days:int (to_int (t / 86400000.0))
+        def inDay:int (to_int ((t - ((to_double days) * 86400000.0)) / 60000.0))
+        def z:int (days + 719468)
+        def era:int (to_int (z / 146097))
+        def doe:int (z - (era * 146097))
+        def yoe:int (to_int ((doe - (to_int (doe / 1460)) + (to_int (doe / 36524)) - (to_int (doe / 146096))) / 365))
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - ((365 * yoe) + (to_int (yoe / 4)) - (to_int (yoe / 100))))
+        def mp:int (to_int (((5 * doy) + 2) / 153))
+        def d:int ((doy - (to_int (((153 * mp) + 2) / 5))) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        def h:int (to_int (inDay / 60))
+        def mi:int (inDay % 60)
+        def mis:string (to_string mi)
+        if (mi < 10) {
+            mis = ("0" + mis)
+        }
+        def hs:string (to_string h)
+        if (h < 10) {
+            hs = ("0" + hs)
+        }
+        return ((to_string d) + "." + (to_string m) + "." + (to_string y) + " " + hs + ":" + mis)
+    }
+}

@@ -1,14 +1,15 @@
-# Sliqtly Editor (desktop/): builds the Ranger app for the web and as the
-# native SDL2 + OpenGL binary, runs the unit tests and the headless native
-# check against desktop/test/mock-server.mjs, on Linux and macOS. The macOS
-# job uploads the zipped "Sliqtly Editor.app". Deploys nothing.
+# Sliqtly, native (desktop/): the editor (src/PresApp.rgr + EVGUI) compiled
+# to C++ in an SDL2 + OpenGL window, built and checked headless on Linux and
+# macOS; the macOS job uploads the zipped Sliqtly.app. The Linux job also
+# builds and checks the first editor (src/EditorApp.rgr, `old:*` scripts)
+# against desktop/test/mock-server.mjs. Deploys nothing.
 name: Desktop editor
 
 on:
   push:
-    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "src/**", "presentation.config.json", "scripts/lib.mjs", ".github/workflows/desktop.yml"]
   pull_request:
-    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "src/**", "presentation.config.json", "scripts/lib.mjs", ".github/workflows/desktop.yml"]
   workflow_dispatch:
 
 permissions:
@@ -36,22 +37,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsdl2-dev libgl-dev libgl1-mesa-dri libcurl4-openssl-dev xvfb
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        working-directory: .
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
       - run: npm ci --no-audit --no-fund
       - name: EVG (ranger.json, pinned)
         run: npm run deps
-      - name: Unit tests (models, mock server, screens)
-        run: npm test
-      - name: Web build
-        run: npm run web:build
-      - name: Native build
+      - name: Native build (the editor)
         run: npm run native
-      - name: Native check (headless, screenshots)
+      - name: Native check (headless)
         run: npm run native:check
+      - name: The first editor, unit tests (models, mock server, screens)
+        run: npm test
+      - name: The first editor, web build
+        run: npm run old:web:build
+      - name: The first editor, native build
+        run: npm run old:native
+      - name: The first editor, native check (headless, screenshots)
+        run: npm run old:native:check
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sliqtly-editor-linux-shots
-          path: desktop/native/build/shots/
+          name: sliqtly-native-linux-shots
+          path: |
+            desktop/native/build-editor/shots/
+            desktop/native/build/shots/
           if-no-files-found: ignore
 
   macos:
@@ -74,22 +86,29 @@ jobs:
           hdiutil detach "$RUNNER_TEMP/sdl"
           echo "SDL2_FRAMEWORK=$RUNNER_TEMP/fw/SDL2.framework" >> "$GITHUB_ENV"
           echo "UNIVERSAL=1" >> "$GITHUB_ENV"
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        working-directory: .
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
       - run: npm ci --no-audit --no-fund
       - name: EVG (ranger.json, pinned)
         run: npm run deps
-      - name: Unit tests
-        run: npm test
-      - name: Native build (and the .app bundle)
+      - name: Native build (and Sliqtly.app)
         run: npm run native
       - name: Check the bundle
         run: |
-          plutil -lint "native/build/Sliqtly Editor.app/Contents/Info.plist"
-          test "$(plutil -extract CFBundleIdentifier raw "native/build/Sliqtly Editor.app/Contents/Info.plist")" = com.sliqtly.editor
-          test -x "native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
-          test -s "native/build/Sliqtly Editor.app/Contents/Resources/AppIcon.icns"
+          APP="native/build-editor/Sliqtly.app"
+          plutil -lint "$APP/Contents/Info.plist"
+          test "$(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist")" = com.sliqtly.app
+          test -x "$APP/Contents/MacOS/sliqtly"
+          test -s "$APP/Contents/Resources/AppIcon.icns"
+          test -s "$APP/Contents/Resources/editor-res/pres.css"
+          test -s "$APP/Contents/Resources/editor-res/fonts/OpenSans-Regular.ttf"
       - name: Check it opens on older macOS (minimum 11.0, both CPUs, nothing from Homebrew)
         run: |
-          BIN="native/build/Sliqtly Editor.app/Contents/MacOS/sliqtly-editor"
+          APP="native/build-editor/Sliqtly.app"
+          BIN="$APP/Contents/MacOS/sliqtly"
           lipo -archs "$BIN" | grep -q arm64
           lipo -archs "$BIN" | grep -q x86_64
           for a in arm64 x86_64; do
@@ -97,19 +116,19 @@ jobs:
           done
           if otool -L "$BIN" | grep -E "/opt/homebrew|/usr/local"; then echo "links to Homebrew"; exit 1; fi
           otool -L "$BIN" | grep -q "@rpath/SDL2.framework"
-          test -d "native/build/Sliqtly Editor.app/Contents/Frameworks/SDL2.framework"
-          codesign --verify --deep --strict "native/build/Sliqtly Editor.app"
+          test -d "$APP/Contents/Frameworks/SDL2.framework"
+          codesign --verify --deep --strict "$APP"
       - name: Zip the app
-        run: ditto -c -k --sequesterRsrc --keepParent "native/build/Sliqtly Editor.app" "native/build/Sliqtly-Editor-macOS.zip"
+        run: ditto -c -k --sequesterRsrc --keepParent "native/build-editor/Sliqtly.app" "native/build-editor/Sliqtly-macOS.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: Sliqtly-Editor-macOS
-          path: desktop/native/build/Sliqtly-Editor-macOS.zip
-      - name: Native check (screenshots)
+          name: Sliqtly-macOS
+          path: desktop/native/build-editor/Sliqtly-macOS.zip
+      - name: Native check (headless)
         run: npm run native:check
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sliqtly-editor-macos-shots
-          path: desktop/native/build/shots/
+          name: sliqtly-native-macos-shots
+          path: desktop/native/build-editor/shots/
           if-no-files-found: ignore
