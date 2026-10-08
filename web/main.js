@@ -3481,6 +3481,7 @@ function frame() {
       paintOnce();
       handleRequests();
       followAddress();
+      syncPageTitle(rev);
       if (lastLayout) fetchChartFiles(lastLayout.rev);
       if (rev !== lastA11yRev) {
         lastA11yRev = rev;
@@ -3917,6 +3918,19 @@ document.addEventListener("fullscreenchange", () => {
 });
 
 let docName = "presentation";
+
+// The browser's tab says which presentation is open: the name the bar shows
+// (front matter `title:`, else the first heading, else the file's name).
+// Looked at again only when the text or the open deck changed.
+let pageTitleKey = "";
+function syncPageTitle(rev) {
+  const key = rev + "\n" + docName;
+  if (key === pageTitleKey) return;
+  pageTitleKey = key;
+  const name = String(app.docTitle() || "").replace(/\s+/g, " ").trim() || docName;
+  const want = name ? name + " · Sliqtly" : "Sliqtly";
+  if (document.title !== want) document.title = want;
+}
 
 // --- the toolbar ------------------------------------------------------------------
 // Not in the menu: the deck the page checks drive (npm run check:web opens
