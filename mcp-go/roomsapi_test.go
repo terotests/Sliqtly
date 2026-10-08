@@ -175,3 +175,98 @@ func TestRoomsHTTP(t *testing.T) {
 	eq(t, code, 400)
 	match(t, body, `not found`)
 }
+
+// folders in a room: made, a deck filed there (kept when the deck is
+// written again), renamed, the deck moved out by another room, deleted
+func TestRoomFolders(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	s := &testServer{root: srv.URL, session: session}
+	ok := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		r := call(t, s, name, args)
+		if r.IsError {
+			t.Fatalf("%s: %s", name, textOf(r))
+		}
+		return sc(r)
+	}
+	bad := func(name string, args map[string]any, want string) {
+		t.Helper()
+		r := call(t, s, name, args)
+		if !r.IsError {
+			t.Fatalf("%s worked: %s", name, textOf(r))
+		}
+		match(t, textOf(r), want)
+	}
+	deck := func(title string) string {
+		return ok("create_presentation", map[string]any{"title": title, "markdown": DECK})["deck_id"].(string)
+	}
+	a, b := deck("Alpha"), deck("Beta")
+	room := ok("create_room", map[string]any{"title": "Sprint"})["room_id"].(string)
+
+	made := ok("create_folder", map[string]any{"room_id": room, "name": "  Testing "})
+	testing := made["folder_id"].(string)
+	eq(t, made["made"], true)
+	// the same name, any case, is that folder
+	eq(t, ok("create_folder", map[string]any{"room_id": room, "name": "testing"}), map[string]any{"folder_id": testing, "made": false})
+	ok("create_folder", map[string]any{"room_id": room, "name": "Drafts"})
+	bad("create_folder", map[string]any{"room_id": room, "name": "  "}, `name of its own`)
+	bad("create_folder", map[string]any{"room_id": "nothere", "name": "X"}, `not found`)
+	// General has folders too
+	ok("create_folder", map[string]any{"room_id": "general", "name": "Old"})
+
+	mv := ok("move_presentation", map[string]any{"deck_id": a, "room_id": room, "folder_id": testing})
+	eq(t, []any{mv["from_room_id"], mv["room"], mv["folder"], mv["moved"]}, []any{"general", "Sprint", "Testing", true})
+	eq(t, ok("move_presentation", map[string]any{"deck_id": a, "room_id": room, "folder_id": testing})["moved"], false)
+	ok("move_presentation", map[string]any{"deck_id": b, "room_id": room})
+	bad("move_presentation", map[string]any{"deck_id": b, "room_id": room, "folder_id": "f-nope"}, `no folder f-nope`)
+
+	g := ok("get_room", map[string]any{"room_id": room})
+	folders := list(g["folders"])
+	eq(t, len(folders), 2)
+	eq(t, []any{mapOf(folders[0])["name"], mapOf(folders[1])["name"], mapOf(folders[1])["presentations"]}, []any{"Drafts", "Testing", 1.0})
+	inFolder := map[string]any{}
+	for _, d := range list(g["presentations"]) {
+		inFolder[mapOf(d)["deck_id"].(string)] = mapOf(d)["folder_id"]
+	}
+	eq(t, inFolder, map[string]any{a: testing, b: ""})
+
+	// writing the deck again keeps it in its folder
+	ok("update_presentation", map[string]any{"deck_id": a, "markdown": DECK + "\n---\n\n# More\n"})
+	for _, d := range list(ok("get_room", map[string]any{"room_id": room})["presentations"]) {
+		if mapOf(d)["deck_id"] == a {
+			eq(t, mapOf(d)["folder_id"], testing)
+		}
+	}
+
+	ok("rename_folder", map[string]any{"room_id": room, "folder_id": testing, "name": "Tests"})
+	bad("rename_folder", map[string]any{"room_id": room, "folder_id": testing, "name": "drafts"}, `name of its own`)
+	bad("rename_folder", map[string]any{"room_id": room, "folder_id": "f-nope", "name": "X"}, `not found`)
+	eq(t, mapOf(list(ok("get_room", map[string]any{"room_id": room})["folders"])[1])["name"], "Tests")
+
+	// deleted: its decks are at the room's top again, none deleted
+	eq(t, ok("delete_folder", map[string]any{"room_id": room, "folder_id": testing})["moved"], 1.0)
+	g = ok("get_room", map[string]any{"room_id": room})
+	eq(t, len(list(g["folders"])), 1)
+	eq(t, len(list(g["presentations"])), 2)
+	for _, d := range list(g["presentations"]) {
+		eq(t, mapOf(d)["folder_id"], "")
+	}
+
+	// to another room the deck leaves its folder; a room deleted takes its
+	// folders, and its decks are at General's top
+	drafts := mapOf(list(g["folders"])[0])["folder_id"].(string)
+	ok("move_presentation", map[string]any{"deck_id": b, "room_id": room, "folder_id": drafts})
+	ok("move_presentation", map[string]any{"deck_id": b, "room_id": "general"})
+	ok("move_presentation", map[string]any{"deck_id": b, "room_id": room, "folder_id": drafts})
+	ok("delete_room", map[string]any{"room_id": room})
+	for _, d := range list(ok("get_room", map[string]any{"room_id": "general"})["presentations"]) {
+		eq(t, mapOf(d)["folder_id"], "")
+	}
+
+	// an archived room's folders are read only
+	arch := ok("create_room", map[string]any{"title": "Done"})["room_id"].(string)
+	ok("archive_room", map[string]any{"room_id": arch})
+	bad("create_folder", map[string]any{"room_id": arch, "name": "X"}, `role does not allow`)
+}

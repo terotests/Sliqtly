@@ -9305,6 +9305,17 @@ class PresApp {
         return true
     }
 
+    ; A room's "+ New folder" (`id` "") or a folder's gear: the folder's
+    ; window, its name. Save is "newdeck-create" with the plan's "ask"
+    ; "folder", "room" the folder's id and "act" ("" save, "delete").
+    fn openFolderDialog:boolean (id:string name:string) {
+        if ((this.openDupDeck(name)) == false) {
+            return false
+        }
+        chart.openFolder(id name chart.x chart.y W H)
+        return true
+    }
+
     fn openDupDeck:boolean (name:string) {
         if (mode == "present") {
             return false
