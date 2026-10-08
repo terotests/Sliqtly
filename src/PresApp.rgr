@@ -7112,19 +7112,76 @@ class PresApp {
     ; The drawing changed: the slide refers to it (the line is added when
     ; it does not), and the page writes its file.
     fn sketchSave:void () {
-        def path:string sketch.path
+        this.sketchSync(sketch.path)
+    }
+
+    ; The drawing at `path` (on the selected slide) as it is now: one with
+    ; something in it is referred to from the slide (the line is added when
+    ; it is not), an emptied one is not (its line is removed; it stays the
+    ; slide's drawing to go on with, and comes back with what is drawn or
+    ; undone into it); the page writes its file.
+    fn sketchSync:void (path:string) {
         if ((strlen path) == 0) {
             return
         }
-        if ((deck.newSketchSlide == selected) && (deck.newSketchPath == path)) {
-            def sl:PresSlide (deck.slideAt(selected))
-            if ((array_length sl.sketches) == 0) {
-                this.sketchRef(selected (substring path 1 (strlen path)))
+        def name:string (substring path 1 (strlen path))
+        def empty:boolean (((deck.sketchFor(path)).count()) == 0)
+        if empty {
+            if (this.sketchUnref(selected name)) {
+                deck.newSketchPath = path
+                deck.newSketchSlide = selected
+                sketch.path = path
             }
-            deck.newSketchPath = ""
-            deck.newSketchSlide = -1
+        } {
+            if ((deck.newSketchSlide == selected) && (deck.newSketchPath == path)) {
+                def sl:PresSlide (deck.slideAt(selected))
+                if ((array_length sl.sketches) == 0) {
+                    this.sketchRef(selected name)
+                }
+                deck.newSketchPath = ""
+                deck.newSketchSlide = -1
+            }
         }
-        push requests ("sketch-file:" + (substring path 1 (strlen path)))
+        push requests ("sketch-file:" + name)
+    }
+
+    ; The line referring to drawing `path` removed from slide i, as one edit
+    ; of the Markdown; false when the slide has none.
+    fn sketchUnref:boolean (i:int path:string) {
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return false
+        }
+        def lines:[string]
+        def k:int linesFrom
+        while (k < linesAt) {
+            push lines (mdEditor.buf.lineAt(k))
+            k = (k + 1)
+        }
+        def span:[int] (PresSketch.refSpan(lines path))
+        if ((itemAt span 0) < 0) {
+            return false
+        }
+        def from:int (linesFrom + (itemAt span 0))
+        def last:int (linesFrom + (itemAt span 1))
+        ; the caret stays where it was in the text around the lines
+        def cl:int mdEditor.sel.caret.line
+        def cc:int mdEditor.sel.caret.col
+        this.replaceLines(from last "")
+        if (cl > last) {
+            cl = (cl - ((last - from) + 1))
+        } {
+            if (cl >= from) {
+                cl = (from - 1)
+                if (cl < 0) {
+                    cl = 0
+                }
+                cc = (strlen (mdEditor.buf.lineAt(cl)))
+            }
+        }
+        mdEditor.moveCaret(cl cc false)
+        this.syncEditor()
+        return true
     }
 
     ; What the page writes to the drawing's file.
@@ -7140,8 +7197,8 @@ class PresApp {
         }
         def path:string (substring u 0 at)
         deck.setSketch(path (substring u (at + 1) (strlen u)))
+        this.sketchSync(path)
         PresTimeline.planAll(deck)
-        push requests ("sketch-file:" + (substring path 1 (strlen path)))
         chromeRev = (chromeRev + 1)
     }
 
