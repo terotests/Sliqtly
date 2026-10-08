@@ -312,6 +312,8 @@ func (rs Rooms) Remove(ctx context.Context, p Principal, room string, cols ...st
 					return cur, nil
 				}
 				cur[RoomField] = GeneralRoom
+				// at General's top: the room's folders go with it
+				delete(cur, FolderField)
 				return cur, nil
 			})
 			if err != nil {

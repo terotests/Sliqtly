@@ -30,8 +30,9 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
 import { RoomChat, unreadRooms } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
@@ -713,8 +714,10 @@ const doc = { id: newId(), persisted: false, loading: false, created: Date.now()
 // cloudFiles: the paths the share is known to have, kept with the deck in
 // this browser (null: not known, as for a deck kept before it was), so a
 // file this browser has and the share never got is told from one removed
-// there (openOwnCloudNow).
-Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
+// there (openOwnCloudNow). cloudSeen: path → the version there this
+// browser's copy is (web/sharefiles.js), so a file written again elsewhere
+// is taken.
+Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSeen: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
 const pending = new Map();
 // A shared presentation opened to read: its files, which nothing saves
 const readFiles = new Map();
@@ -756,7 +759,7 @@ function beginDoc(text) {
   doc.created = Date.now();
   doc.openedText = text;
   doc.openedCss = null;
-  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
+  Object.assign(doc, { cloud: null, cloudMd: null, cloudCss: null, cloudTheme: null, cloudStamps: new Map(), cloudSeen: new Map(), cloudFiles: null, cloudSig: "", cloudHalt: false });
   versions = null;
   filesAtCommit = null;
   pending.clear();
@@ -787,6 +790,15 @@ let roomShown = "";
 // the room whose "+ Add new presentation" opened File → New's window
 let roomForNew = "";
 let roomChatOne = null;
+// the folder whose window is open ({ room, id }, id "" for a new one), and
+// the folders shown open in the panel ("<room>/<folder>", this browser's)
+let folderFor = null;
+const FOLDERS_OPEN_KEY = "sliqtly.openFolders";
+let foldersOpen = new Set();
+try { foldersOpen = new Set(JSON.parse(localStorage.getItem(FOLDERS_OPEN_KEY) || "[]")); } catch (_) { /* none kept */ }
+function keepFoldersOpen() {
+  try { localStorage.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...foldersOpen])); } catch (_) { /* this page only */ }
+}
 let roomsHere = emptyRooms();
 try { roomsHere = readKept(localStorage, ROOMS_KEY); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
@@ -1149,14 +1161,21 @@ async function copyDeckTo(room, deck) {
   const id = await currentRoomId();
   if (id) await roomsRequest("room:moveid:" + room + ":" + id);
 }
-// A room's presentations: [{ id, name, current }], ids as fileRequest's
-// "doc:" takes them ("sample:<key>" for a sample).
-async function roomRows(room) {
+// A room's presentations, [{ id, name, current, folder }], ids as
+// fileRequest's "doc:" takes them ("sample:<key>" for a sample), and its
+// folders, [{ id, name }].
+async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
-    return (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud }));
+    return {
+      rows: (g.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "" })),
+      folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
+    };
   }
-  return roomDecks(roomsHere, room, await allDocs(), sampleRows());
+  return { rows: roomDecks(roomsHere, room, await allDocs(), sampleRows()), folders: foldersOf(roomsHere, room) };
+}
+async function roomRows(room) {
+  return (await roomView(room)).rows;
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -1348,13 +1367,78 @@ async function roomsRequest(r) {
     roomShown = what;
     // pressed: a room one is active in (the list shown again is no use of it)
     if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
-    const rows = await roomRows(roomShown);
+    const { rows, folders } = await roomView(roomShown);
     const lines = deckLines(rows, {
+      folders,
+      open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
       addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
+      newFolder: roomShown === ONBOARDING ? "" : "+ " + t("New folder"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
     if (action === "open") await roomChat().open(roomShown);
+  } else if (action === "fold") {
+    // a folder pressed: open or shut, in this browser
+    const [room, folder] = rest;
+    const key = room + "/" + folder;
+    if (foldersOpen.has(key)) foldersOpen.delete(key);
+    else foldersOpen.add(key);
+    keepFoldersOpen();
+    await roomsRequest("room:decks:" + room);
+    return;
+  } else if (action === "newfolder") {
+    folderFor = { room: what, id: "" };
+    app.openFolderDialog("", "");
+  } else if (action === "folderset") {
+    const [room, folder] = rest;
+    const f = (await roomView(room)).folders.find((x) => x.id === folder);
+    if (!f) return;
+    folderFor = { room, id: folder };
+    app.openFolderDialog(folder, f.name);
+  } else if (action === "foldersave") {
+    // the folder's window answered (newdeck-create, "ask" "folder")
+    const plan = JSON.parse(what);
+    const at = folderFor;
+    folderFor = null;
+    if (!at) return;
+    const { room, id } = at;
+    if (plan.act === "delete" && id) {
+      if (ownServer()) await roomsCall("delete_folder", { room_id: room, folder_id: id });
+      else keepRooms((s) => deleteFolder(s, room, id));
+      foldersOpen.delete(room + "/" + id);
+      keepFoldersOpen();
+      toast(t("Folder deleted. Its presentations are at the room's top."));
+    } else if (id) {
+      if (ownServer()) await roomsCall("rename_folder", { room_id: room, folder_id: id, name: plan.name });
+      else keepRooms((s) => renameFolder(s, room, id, plan.name));
+    } else if (String(plan.name || "").trim()) {
+      let made = "";
+      if (ownServer()) made = (await roomsCall("create_folder", { room_id: room, name: plan.name })).folder_id || "";
+      else keepRooms((s) => {
+        const r = createFolder(s, room, plan.name, newId);
+        made = r.id;
+        return r.state;
+      });
+      // a new folder is shown open, ready for what is dragged onto it
+      if (made) {
+        foldersOpen.add(room + "/" + made);
+        keepFoldersOpen();
+      }
+    }
+    if (roomShown === room) await roomsRequest("room:decks:" + room);
+  } else if (action === "file") {
+    // a presentation let go on a folder of its room ("<room>:<folder>:<deck>"),
+    // or on its own room (folder ""): to the room's top
+    const [room, folder, ...deckParts] = rest;
+    const deck = deckParts.join(":");
+    if (deck.startsWith("sample:")) return;
+    if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room, folder_id: folder });
+    else keepRooms((s) => moveDeck(s, deck, room, folder));
+    if (folder) {
+      foldersOpen.add(room + "/" + folder);
+      keepFoldersOpen();
+    }
+    await roomsRequest("room:decks:" + room);
   } else if (action === "deck") {
     roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
@@ -3860,6 +3944,8 @@ function handleRequests() {
       const plan = JSON.parse(app.newDeckPlan());
       if (plan.ask === "room") {
         roomsRequest("room:save:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+      } else if (plan.ask === "folder") {
+        roomsRequest("room:foldersave:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
       } else if (plan.ask === "name") {
         renameMe(plan.name);
       } else if (plan.dup) {
@@ -4407,6 +4493,8 @@ async function cloudSync() {
   cloudBusy = (async () => {
     let id = doc.cloud;
     let files = deck.files.map((f) => f.path);
+    let entries = null;
+    let sent = null;
     if (!id) {
       // The share is kept with the deck as soon as it is made, before its
       // files go: while they go (a few big pictures take a while) the deck
@@ -4429,7 +4517,9 @@ async function cloudSync() {
       }
     } else {
       try {
-        files = (await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() })).map((f) => f.path);
+        sent = new Set(deck.files.filter((f) => doc.cloudStamps.get(f.path) !== f.stamp).map((f) => f.path));
+        entries = await p.saveShare(id, deck, { md: doc.cloudMd, stamps: doc.cloudStamps, collab: collabOn() });
+        files = entries.map((f) => f.path);
       } catch (e) {
         if (e?.code !== "changed-elsewhere") throw e;
         // changed elsewhere (another device, an assistant) since this page
@@ -4442,6 +4532,7 @@ async function cloudSync() {
     if (doc.id !== which) return id; // another deck was opened meanwhile
     doc.cloudSig = sig;
     doc.cloudStamps = new Map(deck.files.map((f) => [f.path, f.stamp]));
+    if (entries) doc.cloudSeen = seenAfterSave(entries, doc.cloudSeen, sent);
     cloudWarned = false;
     cloudError = "";
     plainAddress();
@@ -4531,6 +4622,7 @@ async function openOwnCloudNow(id) {
   // the files that did come are what the share has; one that did not is
   // not sent back, so the share keeps it
   doc.cloudStamps = new Map([...pending.values()].map((f) => [f.path, stampOf(f)]));
+  doc.cloudSeen = seenAfterSave((shared.files || []).filter((f) => pending.has(f.path)));
   // this browser's own, not in the share: kept, and sent on the next save
   for (const f of unsent) {
     const rec = { ...f, doc: doc.id };
@@ -4768,38 +4860,44 @@ async function cloudCheck() {
   }
 }
 
-// Files the share has that were added or removed elsewhere since this page
-// last wrote it (a file changed in place elsewhere is not seen here).
+// Files the share has that were added, written again or removed elsewhere
+// since this page last wrote or read it (web/sharefiles.js): a drawing
+// someone changed on a slide reaches the others in the room, and an old
+// copy here does not go up over it.
 async function takeCloudFiles(s) {
-  const remote = new Map((s.files || []).map((f) => [f.path, f]));
-  const local = new Map((await docFiles()).map((f) => [f.path, f]));
+  const local = new Map((await docFiles()).map((f) => [f.path, stampOf(f)]));
+  const plan = planFiles({ remote: s.files || [], local, stamps: doc.cloudStamps, seen: doc.cloudSeen });
   let moved = false;
-  for (const [path, f] of remote) {
-    if (local.has(path) || doc.cloudStamps.has(path)) continue;
+  const failed = new Set();
+  for (const f of [...plan.add, ...plan.update]) {
     try {
-      const res = await fetch(f.url);
+      const res = await fetch(f.url, { cache: "no-cache" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = isText(f.path, f.type) ? await res.text() : await res.blob();
-      const rec = { doc: doc.id, path, type: f.type, size: f.size, data, updated: Date.now() };
+      const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
       await vfs.putFile(rec);
       await useFile(rec);
-      doc.cloudStamps.set(path, stampOf(rec));
+      doc.cloudStamps.set(f.path, stampOf(rec));
       moved = true;
     } catch (e) {
-      console.warn("cloud file not loaded: " + path, e);
+      console.warn("cloud file not loaded: " + f.path, e);
+      failed.add(f.path);
     }
   }
-  for (const [path, stamp] of [...doc.cloudStamps]) {
-    if (remote.has(path)) continue;
-    const f = local.get(path);
-    // removed there and not changed here since
-    if (f && stampOf(f) === stamp) {
-      await vfs.deleteFile(doc.id, path);
-      moved = true;
-    }
-    doc.cloudStamps.delete(path);
+  for (const path of plan.remove) {
+    await vfs.deleteFile(doc.id, path);
+    moved = true;
   }
-  doc.cloudFiles = [...remote.keys()];
+  const remote = new Set((s.files || []).map((f) => f.path));
+  for (const path of [...doc.cloudStamps.keys()]) if (!remote.has(path)) doc.cloudStamps.delete(path);
+  // one that did not come is looked at again next time
+  for (const path of failed) {
+    if (doc.cloudSeen.has(path)) plan.seen.set(path, doc.cloudSeen.get(path));
+    else plan.seen.delete(path);
+  }
+  doc.cloudSeen = plan.seen;
+  doc.cloudFiles = [...remote];
+  if (moved) dropThumbs();
   return moved;
 }
 

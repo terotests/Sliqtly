@@ -965,6 +965,12 @@ lands in General, and the user then has to move it by hand.
 - `get_room` lists a room's presentations; `update_room` renames or
   describes it; `archive_room` puts finished work away (read only, nothing
   removed); `delete_room` removes the room and moves its decks to General.
+- A room has one level of folders (e.g. "Testing" for its test decks):
+  `get_room` lists them (`folders`, each deck's `folder_id`);
+  `create_folder` makes one (a name the room has already is that folder),
+  `move_presentation` with `folder_id` files a deck there, without it the
+  deck is at the room's top; `rename_folder`, `delete_folder` (its decks
+  go to the room's top, none is deleted).
 - `add_link` ties a room to the ticket itself: `room:<room_id>`
   `references` `jira:PROJ-123`.
 
