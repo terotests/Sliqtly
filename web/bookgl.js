@@ -8,14 +8,14 @@
 // thing: the PDF has single pages).
 //
 // Each page is drawn once by EVG into a picture (the caller's `paint`),
-// kept as a texture, and drawn here as a quad or, while it turns, as a grid
-// bent round the cylinder. The leaf's front is the page being turned, its
+// kept as a texture, and drawn here as a quad or, while it turns, as strips
+// along the fold bent round the cylinder (book.js leafMesh). The leaf's front is the page being turned, its
 // back the page on the other side of the sheet (sampled mirrored, so it reads
 // the right way round once it lies on the other side). Light: the spine's
 // shadow on both pages, the roll shaded by how far it faces away, and the
 // page underneath darkened where the curl hangs over it.
 
-import { bend } from "./book.js";
+import { leafMesh } from "./book.js";
 
 const VERT = `#version 300 es
 in vec3 aPos;      // page units: x from the spine, y down, z towards the reader
@@ -96,10 +96,6 @@ function shader(gl, type, src) {
   return s;
 }
 
-// The grid a leaf is bent as: fine enough for a smooth roll at any size.
-const GRID_X = 48;
-const GRID_Y = 32;
-
 export class BookGL {
   /**
    * `target`: a canvas of its own, or a WebGL 2 context another painter
@@ -108,7 +104,7 @@ export class BookGL {
    */
   constructor(target) {
     this.shared = typeof WebGL2RenderingContext !== "undefined" && target instanceof WebGL2RenderingContext;
-    const gl = this.shared ? target : target.getContext("webgl2", { antialias: true, premultipliedAlpha: false, depth: true, alpha: true });
+    const gl = this.shared ? target : target.getContext("webgl2", { antialias: true, premultipliedAlpha: false, depth: false, alpha: true });
     if (!gl) throw new Error("WebGL 2 is not available");
     this.canvas = gl.canvas;
     this.gl = gl;
@@ -182,7 +178,6 @@ export class BookGL {
       buf: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
       viewport: gl.getParameter(gl.VIEWPORT),
       blend: [gl.getParameter(gl.BLEND_SRC_RGB), gl.getParameter(gl.BLEND_DST_RGB), gl.getParameter(gl.BLEND_SRC_ALPHA), gl.getParameter(gl.BLEND_DST_ALPHA)],
-      depthFunc: gl.getParameter(gl.DEPTH_FUNC),
       frontFace: gl.getParameter(gl.FRONT_FACE),
       unpackFlip: gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL),
     };
@@ -204,7 +199,6 @@ export class BookGL {
     gl.bindBuffer(gl.ARRAY_BUFFER, s.buf);
     gl.viewport(s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3]);
     gl.blendFuncSeparate(s.blend[0], s.blend[1], s.blend[2], s.blend[3]);
-    gl.depthFunc(s.depthFunc);
     gl.frontFace(s.frontFace);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, s.unpackFlip);
   }
@@ -257,12 +251,9 @@ export class BookGL {
       }
     }
     gl.viewport(0, 0, cw, ch);
-    gl.clearDepth(1);
-    if (this.shared) {
-      gl.clear(gl.DEPTH_BUFFER_BIT);
-    } else {
+    if (!this.shared) {
       gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.clear(gl.COLOR_BUFFER_BIT);
     }
     gl.useProgram(this.prog);
     gl.bindVertexArray(this.vao);
@@ -342,37 +333,15 @@ export class BookGL {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  // The turning leaf as a grid bent by the curl, its two faces apart.
+  // The turning leaf, its two faces apart: strips along the fold in the
+  // order they lie on each other (book.js leafMesh), so no depth test.
   leaf(turn, W, H) {
     const gl = this.gl;
-    const c = turn.curl;
     const xa = turn.side > 0 ? 0 : -W;
-    const pts = [];
-    for (let j = 0; j <= GRID_Y; j += 1) {
-      for (let i = 0; i <= GRID_X; i += 1) {
-        const u = i / GRID_X;
-        const v = j / GRID_Y;
-        const [x, y, z] = bend(xa + u * W, v * H, c);
-        // how far the surface faces away from the reader on the roll
-        const s = (xa + u * W - c.px) * c.dx + (v * H - c.py) * c.dy;
-        let shade = 1;
-        if (s > 0 && c.R > 0 && s < Math.PI * c.R) shade = 0.62 + 0.38 * Math.abs(Math.cos(s / c.R));
-        else if (s >= Math.PI * c.R && s > 0) shade = 0.985;
-        pts.push([x, y, z, u, v, shade]);
-      }
-    }
-    const tri = [];
-    const at = (i, j) => pts[j * (GRID_X + 1) + i];
-    for (let j = 0; j < GRID_Y; j += 1) {
-      for (let i = 0; i < GRID_X; i += 1) {
-        // one winding throughout, so the face that is over is the back
-        for (const p of [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j), at(i + 1, j + 1), at(i, j + 1)]) tri.push(...p);
-      }
-    }
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
-    // the grid runs right then down on a screen whose y is down: clockwise
-    // there, so that is the front
+    const tri = leafMesh(turn.curl, xa, W, H).flat();
+    gl.disable(gl.DEPTH_TEST);
+    // the rectangle runs right then down on a screen whose y is down:
+    // clockwise there, so that is the front
     gl.frontFace(gl.CW);
     gl.uniform1i(this.loc.uMode, 1);
     gl.activeTexture(gl.TEXTURE0);
@@ -386,7 +355,6 @@ export class BookGL {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tri), gl.STREAM_DRAW);
     gl.drawArrays(gl.TRIANGLES, 0, tri.length / 6);
     gl.activeTexture(gl.TEXTURE0);
-    gl.disable(gl.DEPTH_TEST);
     gl.frontFace(gl.CCW);
   }
 }

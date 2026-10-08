@@ -155,3 +155,76 @@ export function turnPath(cx, cy, fx, fy, u, over, H) {
   const lift = over ? Math.sin(Math.PI * e) * H * 0.12 * (cy > H / 2 ? -1 : 1) : 0;
   return { x: fx + (tx - fx) * e, y: fy + (ty - fy) * e + lift };
 }
+
+/**
+ * The leaf under the curl `c` as triangles to draw, in the order to draw
+ * them: [x, y, z, u, v, shade] a vertex, three a triangle. `xa` is the
+ * leaf's left edge (0 for a right-hand page, -W for a left-hand one).
+ *
+ * The leaf is cut into strips PARALLEL TO THE FOLD, not a grid on the page:
+ * the flat part before the fold is one strip, the roll `arcSteps` strips
+ * however narrow it has become, the part lying over one more. A grid on the
+ * page sampled a roll narrower than its cells with a facet or two, whose
+ * corners jumped between the roll and the flat back from frame to frame and
+ * showed big triangles of the wrong face at the spine as a turn ended.
+ *
+ * The strips come in the order of their distance past the fold, which is
+ * the order they lie on top of each other (the roll rises with it, and what
+ * lies over is on top), so they are drawn in it without a depth test: the
+ * part lying over and the page under it at the same height no longer fight.
+ */
+export function leafMesh(c, xa, W, H, arcSteps = 24) {
+  const sOf = (x, y) => (x - c.px) * c.dx + (y - c.py) * c.dy;
+  const rect = [[xa, 0], [xa + W, 0], [xa + W, H], [xa, H]];
+  const ss = rect.map(([x, y]) => sOf(x, y));
+  const lo = Math.min(...ss);
+  const hi = Math.max(...ss);
+  const arc = Math.PI * c.R;
+  const cuts = [lo];
+  const cut = (s) => {
+    if (s > cuts[cuts.length - 1] + 1e-9 && s < hi - 1e-9) cuts.push(s);
+  };
+  cut(0);
+  if (arc > 1e-6) for (let k = 1; k <= arcSteps; k += 1) cut((arc * k) / arcSteps);
+  cuts.push(hi);
+  const shadeAt = (s) => {
+    if (s <= 0) return 1;
+    if (c.R > 0 && s < arc) return 0.62 + 0.38 * Math.abs(Math.cos(s / c.R));
+    return 0.985;
+  };
+  const out = [];
+  for (let k = 0; k + 1 < cuts.length; k += 1) {
+    const poly = slab(rect, sOf, cuts[k], cuts[k + 1]);
+    if (poly.length < 3) continue;
+    const vs = poly.map(([x, y]) => {
+      const [bx, by, bz] = bend(x, y, c);
+      return [bx, by, bz, (x - xa) / W, y / H, shadeAt(sOf(x, y))];
+    });
+    // a fan keeps the rectangle's winding: the front is the front
+    for (let i = 1; i + 1 < vs.length; i += 1) out.push(vs[0], vs[i], vs[i + 1]);
+  }
+  return out;
+}
+
+// The part of convex polygon `poly` with s0 <= s <= s1 (Sutherland–Hodgman,
+// twice), its winding kept.
+function slab(poly, sOf, s0, s1) {
+  const clip = (pts, keep, edge) => {
+    const res = [];
+    for (let i = 0; i < pts.length; i += 1) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const sa = sOf(a[0], a[1]);
+      const sb = sOf(b[0], b[1]);
+      const ina = keep(sa);
+      const inb = keep(sb);
+      if (ina) res.push(a);
+      if (ina !== inb) {
+        const t = (edge - sa) / (sb - sa);
+        res.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return res;
+  };
+  return clip(clip(poly, (s) => s >= s0, s0), (s) => s <= s1, s1);
+}
