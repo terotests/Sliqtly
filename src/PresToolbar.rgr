@@ -723,6 +723,16 @@ class PresToolbar {
     ; File request itself for the open deck, else the deck opened first
     ; ("deckdo:<room|tab>:<id>\t<request>"); Open only opens it.
     fn deckRequest:string (choice:string) {
+        ; Move to folder: in the open room, the deck need not be open
+        if (choice == "mvf-new") {
+            return ("room:newfolder:" + roomOpen + ":" + ctxDeck)
+        }
+        if (choice == "mvf-top") {
+            return ("room:file:" + roomOpen + "::" + ctxDeck)
+        }
+        if ((indexOf choice "mvf-") == 0) {
+            return ("room:file:" + roomOpen + ":" + (substring choice 4 (strlen choice)) + ":" + ctxDeck)
+        }
         if (choice == "deckOpen") {
             if (ctxDeckFrom == "tab") {
                 return ("deck:switch:" + ctxDeck)
@@ -770,8 +780,51 @@ class PresToolbar {
         }
         cm.addItem("rename" (PresI18n.t("Rename…")) false)
         cm.addItem("duplicate" (PresI18n.t("Duplicate")) false)
+        ; a presentation of a room (not a sample): into one of its folders
+        if ((ctxDeckFrom == "room") && ((indexOf ctxDeck "sample:") != 0)) {
+            this.folderKids((cm.addSub("moveFolder" (PresI18n.t("Move to folder")) false)))
+        }
         cm.addSeparator()
         this.deckRows(cm ((indexOf ctxDeck "sample:") != 0))
+    }
+
+    ; Move to folder's rows: the open room's folders (the one the deck is in
+    ; greyed), the room's top when it is in one, and a new folder.
+    fn folderKids:void (parent:UiItem) {
+        def inFolder:string ""
+        def folder:string ""
+        def ds:[string] (strsplit roomDecks (strfromcode 10))
+        def k:int 0
+        while (k < (array_length ds)) {
+            def dp:[string] (strsplit (itemAt ds k) (strfromcode 9))
+            if ((array_length dp) >= 4) {
+                if ((itemAt dp 3) == "f") {
+                    folder = (substring (itemAt dp 0) 2 (strlen (itemAt dp 0)))
+                }
+                if (((itemAt dp 3) == "i") && ((itemAt dp 0) == ctxDeck)) {
+                    inFolder = folder
+                }
+            }
+            k = (k + 1)
+        }
+        def any:boolean false
+        k = 0
+        while (k < (array_length ds)) {
+            def fp:[string] (strsplit (itemAt ds k) (strfromcode 9))
+            if (((array_length fp) >= 4) && ((itemAt fp 3) == "f")) {
+                def fid:string (substring (itemAt fp 0) 2 (strlen (itemAt fp 0)))
+                MenuCtl.addKid(parent ("mvf-" + fid) (itemAt fp 1) (fid == inFolder))
+                any = true
+            }
+            k = (k + 1)
+        }
+        if ((strlen inFolder) > 0) {
+            MenuCtl.addKid(parent "mvf-top" (PresI18n.t("Out of the folder")) false)
+        }
+        if any {
+            MenuCtl.addKidSeparator(parent)
+        }
+        MenuCtl.addKid(parent "mvf-new" (PresI18n.t("New folder…")) false)
     }
 
     fn slideContextRows:void (cm:MenuCtl) {
