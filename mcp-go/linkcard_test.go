@@ -113,6 +113,36 @@ func TestLinkCard(t *testing.T) {
 	eq(t, code, 302)
 	eq(t, h.Get("Location"), at)
 
+	// a link to one slide: its heading and words, its picture
+	code, _, page = fetch(t, s.root+"/s/"+id+"?slide=2")
+	eq(t, code, 200)
+	eq(t, metaOf(page, "og:title"), "Q3 &amp; &#34;vuosi&#34; · Toinen dia")
+	eq(t, metaOf(page, "og:description"), "Lisää tekstiä.")
+	eq(t, metaOf(page, "og:url"), BASE+"/s/"+id+"?slide=2")
+	eq(t, metaOf(page, "og:image:alt"), "Slide 2 of 2 of Q3 &amp; &#34;vuosi&#34;")
+	pic2 := metaOf(page, "og:image")
+	if !strings.HasPrefix(pic2, BASE+"/api/card/"+id+".jpg?") || !strings.Contains(pic2, "slide=2") {
+		t.Fatalf("og:image %q", pic2)
+	}
+	code, _, body2 := fetch(t, s.root+strings.ReplaceAll(strings.TrimPrefix(pic2, BASE), "&amp;", "&"))
+	eq(t, code, 200)
+	if body2 == body {
+		t.Fatal("slide 2's picture is slide 1's")
+	}
+	// the first slide's words, list marks left out; past the end is the last
+	code, _, page = fetch(t, s.root+"/s/"+id+"?slide=1")
+	eq(t, metaOf(page, "og:title"), "Q3 &amp; &#34;vuosi&#34; · Myynti &amp;")
+	eq(t, metaOf(page, "og:description"), "Liikevaihto kasvoi 12 % ja asiakkaita tuli lisää. · secret() · Ensimmäinen kohta")
+	eq(t, metaOf(page, "og:url"), BASE+"/s/"+id)
+	code, _, page = fetch(t, s.root+"/s/"+id+"?slide=99")
+	eq(t, metaOf(page, "og:url"), BASE+"/s/"+id+"?slide=2")
+	// a picked view's slide (?slides=, PresPick keys); keys that are not keys are dropped
+	code, _, page = fetch(t, s.root+"/s/"+id+"?slides=toinen-dia&slide=1")
+	eq(t, metaOf(page, "og:title"), "Q3 &amp; &#34;vuosi&#34; · Toinen dia")
+	eq(t, metaOf(page, "og:url"), BASE+"/s/"+id+"?slides=toinen-dia")
+	code, _, page = fetch(t, s.root+"/s/"+id+"?slides=%3Cx%3E&slide=x")
+	eq(t, metaOf(page, "og:url"), BASE+"/s/"+id)
+
 	// a private deck has no card: the site's page as it is, no picture
 	ctx := context.Background()
 	if err := f.db.Update(ctx, "shares", id, Doc{"visibility": "private"}); err != nil {

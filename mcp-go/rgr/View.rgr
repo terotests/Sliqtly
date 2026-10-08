@@ -419,8 +419,12 @@ class LinkCard {
         return (to_string (to_int t))
     }
 
-    ; { "title", "text", "stamp" }, or "" when the deck has no card
-    sfn json:string (host:McpHost id:string) {
+    ; { "title", "text", "stamp", "keys", "slide", "slides", "list" }, or ""
+    ; when the deck has no card. A link to one slide (/s/<id>?slide=<n>,
+    ; 1-based, of the ?slides= view when the link has one) is laid out and
+    ; carries that slide's display list, whose words the page's head takes
+    ; (linkcard.go); the deck's link carries the deck's first words.
+    sfn json:string (host:McpHost id:string keys:string slide:int) {
         def doc:MfJ (LinkCard.shown(host id))
         if ((doc.isObj()) == false) {
             return ""
@@ -434,7 +438,89 @@ class LinkCard {
         o.putStr("title" title)
         o.putStr("text" (LinkCard.summary(md title)))
         o.putStr("stamp" (LinkCard.stamp(doc)))
+        def k:string (LinkCard.keysOf(keys))
+        o.putStr("keys" k)
+        if (slide > 0) {
+            def d:PresDeck (LinkCard.deckOf(host doc id k))
+            def n:int (d.slideCount())
+            if (n > 0) {
+                def at:int (LinkCard.indexOf(slide n))
+                def groups:[int]
+                o.putInt("slide" (at + 1))
+                o.putInt("slides" n)
+                o.putStr("list" ((d.slideList(at groups 0.0)).toJson()))
+            }
+        }
         return (JOut.text(o))
+    }
+
+    ; slide (1-based) as an index of n slides: past the end is the last
+    sfn indexOf:int (slide:int n:int) {
+        def at:int (slide - 1)
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        return at
+    }
+
+    ; the ?slides= keys (PresPick section keys) as given, when they are
+    ; only such keys; else none, so a card's address carries nothing else
+    sfn keysOf:string (keys:string) {
+        if ((strlen keys) > 300) {
+            return ""
+        }
+        def i:int 0
+        while (i < (strlen keys)) {
+            def c:int (charAt keys i)
+            def ok:boolean ((((c >= 48) && (c <= 57)) || ((c >= 97) && (c <= 122))) || ((c >= 65) && (c <= 90)))
+            if ((((c == 45) || (c == 95)) || ((c == 126) || (c == 44))) || (c == 46)) {
+                ok = true
+            }
+            if (ok == false) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        return keys
+    }
+
+    ; the deck laid out at rest as the viewer shows it: all of it, or the
+    ; sections keys names (View.json)
+    sfn deckOf:PresDeck (host:McpHost doc:MfJ id:string keys:string) {
+        def md:string (doc.str_("md"))
+        def stored:[string]
+        for (doc.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.md = md
+        def css:MfJ (doc.field("css"))
+        din.css = (Tools.sheetFor(host (doc.str_("theme")) (css.kind == 3) (doc.str_("css"))))
+        din.pics = bgs.pics
+        din.data = bgs.data
+        din.types = bgs.types
+        def d:PresDeck (Check.prepare(host din (new Checked)))
+        if ((strlen keys) > 0) {
+            def l:MdLayout (d.layout())
+            din.md = (PresPick.viewText(md l.splitLevel keys))
+            if ((strlen din.md) == 0) {
+                din.md = "# These slides are no longer in the presentation.\n"
+            }
+            d = (Check.prepare(host din (new Checked)))
+        }
+        d.still = true
+        for bgs.pics p:CheckPic pi {
+            host_render_pic host p.name (itemAt bgs.data pi)
+        }
+        return d
     }
 
     sfn firstHeading:string (md:string) {
@@ -602,41 +688,22 @@ class LinkCard {
         return (close + 1)
     }
 
-    ; the first slide at rest as JPEG `width` pixels wide; empty when the
+    ; a slide at rest (1-based, of the keys' view when there are keys; the
+    ; first when slide is 0) as JPEG `width` pixels wide; empty when the
     ; deck has no card or no slide could be drawn
-    sfn image:buffer (host:McpHost id:string width:int) {
+    sfn image:buffer (host:McpHost id:string keys:string slide:int width:int) {
         def none:buffer (buffer_from_string "")
         def doc:MfJ (LinkCard.shown(host id))
         if ((doc.isObj()) == false) {
             return none
         }
-        def md:string (doc.str_("md"))
-        def stored:[string]
-        for (doc.list("files")) f:MfJ fi {
-            push stored (f.str_("path"))
-        }
-        def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
-        def din (new DeckIn)
-        din.deckId = id
-        din.stored = stored
-        din.live = true
-        din.md = md
-        def css:MfJ (doc.field("css"))
-        din.css = (Tools.sheetFor(host (doc.str_("theme")) (css.kind == 3) (doc.str_("css"))))
-        din.pics = bgs.pics
-        din.data = bgs.data
-        din.types = bgs.types
-        def d:PresDeck (Check.prepare(host din (new Checked)))
-        if ((d.slideCount()) == 0) {
+        def d:PresDeck (LinkCard.deckOf(host doc id (LinkCard.keysOf(keys))))
+        def n:int (d.slideCount())
+        if (n == 0) {
             return none
         }
-        d.still = true
-        for bgs.pics p:CheckPic pi {
-            host_render_pic host p.name (itemAt bgs.data pi)
-        }
         def groups:[int]
-        def list:string ((d.slideList(0 groups 0.0)).toJson())
+        def list:string ((d.slideList((LinkCard.indexOf(slide n)) groups 0.0)).toJson())
         return (host_render_still host list d.pageW d.pageH width)
     }
 }

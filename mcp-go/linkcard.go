@@ -11,11 +11,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"log"
+	"math"
 	"net/http"
+	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -83,18 +87,46 @@ func (h *McpHost) ViewerPage(id, card string) string {
 	if page == "" || card == "" {
 		return page
 	}
-	var c struct{ Title, Text, Stamp string }
+	var c cardInfo
 	if err := json.Unmarshal([]byte(card), &c); err != nil {
 		log.Printf("card %s: %v", id, err)
 		return page
 	}
-	return withCard(page, strings.TrimRight(h.env.BaseURL, "/"), id, c.Title, c.Text, c.Stamp)
+	return withCard(page, strings.TrimRight(h.env.BaseURL, "/"), id, c)
 }
 
-func withCard(page, base, id, title, text, stamp string) string {
-	title = cardClip(title, 120)
+// what LinkCard.json says of a deck, and of the slide a link names
+type cardInfo struct {
+	Title, Text, Stamp, Keys string
+	Slide, Slides            int
+	List                     string
+}
+
+func withCard(page, base, id string, c cardInfo) string {
+	title := cardClip(c.Title, 120)
 	if title == "" {
 		title = "Presentation"
+	}
+	text := c.Text
+	alt := "The first slide of " + title
+	q := url.Values{}
+	if c.Slide > 0 {
+		// a link to one slide: its heading beside the deck's name, its
+		// words for the description
+		head, words := slideWords(c.List)
+		if head != "" && head != title {
+			title = cardClip(title+" · "+head, 120)
+		}
+		if words != "" {
+			text = words
+		}
+		alt = fmt.Sprintf("Slide %d of %d of %s", c.Slide, c.Slides, c.Title)
+		if c.Slide > 1 {
+			q.Set("slide", fmt.Sprint(c.Slide))
+		}
+	}
+	if c.Keys != "" {
+		q.Set("slides", c.Keys)
 	}
 	text = cardClip(text, cardText)
 	if text == "" {
@@ -102,7 +134,14 @@ func withCard(page, base, id, title, text, stamp string) string {
 	}
 	esc := html.EscapeString
 	link := base + "/s/" + id
-	pic := base + "/api/card/" + id + ".jpg?v=" + stamp
+	if len(q) > 0 {
+		link += "?" + q.Encode()
+	}
+	pq := url.Values{"v": {c.Stamp}}
+	for k, v := range q {
+		pq[k] = v
+	}
+	pic := base + "/api/card/" + id + ".jpg?" + pq.Encode()
 	var b strings.Builder
 	b.WriteString("<title>" + esc(title) + " · Sliqtly</title>")
 	head := []string{
@@ -114,7 +153,7 @@ func withCard(page, base, id, title, text, stamp string) string {
 		`<meta property="og:description" content="` + esc(text) + `" />`,
 		`<meta property="og:image" content="` + esc(pic) + `" />`,
 		`<meta property="og:image:type" content="image/jpeg" />`,
-		`<meta property="og:image:alt" content="` + esc("The first slide of "+title) + `" />`,
+		`<meta property="og:image:alt" content="` + esc(alt) + `" />`,
 		`<meta name="twitter:card" content="summary_large_image" />`,
 	}
 	t := pageTitle.ReplaceAllLiteralString(page, b.String())
@@ -123,6 +162,77 @@ func withCard(page, base, id, title, text, stamp string) string {
 	}
 	page = pageDesc.ReplaceAllLiteralString(t, "")
 	return strings.Replace(page, "</head>", strings.Join(head, "\n")+"\n</head>", 1)
+}
+
+// a slide's words from its display list: the line in the largest type
+// (its heading) and the rest in reading order, top to bottom, left to right
+func slideWords(listJSON string) (string, string) {
+	var doc dlDoc
+	if listJSON == "" || json.Unmarshal([]byte(listJSON), &doc) != nil {
+		return "", ""
+	}
+	type line struct {
+		y, x, size float64
+		text       string
+	}
+	var lines []line
+	for _, c := range doc.Cmds {
+		t := strings.TrimSpace(utf8Of(c.Text))
+		// a list's marks are drawn as runs of their own
+		if c.K != 3 || t == "" || c.Size <= 0 || strings.Trim(t, "•◦▪▸–-*·") == "" {
+			continue
+		}
+		// runs on one baseline make one line
+		joined := false
+		for i := range lines {
+			if math.Abs(lines[i].y-c.Y) < c.Size/3 && lines[i].size == c.Size {
+				if c.X < lines[i].x {
+					lines[i].text, lines[i].x = t+" "+lines[i].text, c.X
+				} else {
+					lines[i].text += " " + t
+				}
+				joined = true
+				break
+			}
+		}
+		if !joined {
+			lines = append(lines, line{c.Y, c.X, c.Size, t})
+		}
+	}
+	if len(lines) == 0 {
+		return "", ""
+	}
+	sort.SliceStable(lines, func(i, j int) bool {
+		if math.Abs(lines[i].y-lines[j].y) > 1 {
+			return lines[i].y < lines[j].y
+		}
+		return lines[i].x < lines[j].x
+	})
+	top := 0
+	for i, l := range lines {
+		if l.size > lines[top].size {
+			top = i
+		}
+	}
+	// a paragraph's wrapped lines are one text; blocks are set apart by " · "
+	var rest strings.Builder
+	var prev *line
+	for i := range lines {
+		if i == top {
+			continue
+		}
+		l := &lines[i]
+		if prev != nil {
+			if l.size == prev.size && l.y-prev.y < 2*l.size {
+				rest.WriteString(" ")
+			} else {
+				rest.WriteString(" · ")
+			}
+		}
+		rest.WriteString(l.text)
+		prev = l
+	}
+	return cardClip(lines[top].text, 120), rest.String()
 }
 
 // s as one line of at most n characters, cut at a word with "…"
