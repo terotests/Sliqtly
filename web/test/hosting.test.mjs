@@ -83,3 +83,16 @@ test("the editor's pages and the engine are not in the viewer's build", async ()
     assert.ok(!src.includes(`"${f}"`), f);
   }
 });
+
+test("the owner's dashboard: its page, its numbers from the server, linked nowhere", () => {
+  const rw = hosting().rewrites;
+  const api = rw.find((r) => r.source === "/main/admin/api/**");
+  assert.equal(api.run.serviceId, "sliqtly-mcp");
+  assert.equal(rw.find((r) => r.source === "/main/admin").destination, "/main/admin.html");
+  assert.ok(rw.indexOf(api) < rw.findIndex((r) => r.source === "/main/admin"));
+  const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
+  assert.ok(src.includes('["admin.html", "main/admin.html"]'));
+  for (const page of ["view.html", "connect.html", "oauth.html", "local.html"]) {
+    assert.ok(!fs.readFileSync(path.join(web, page), "utf8").includes("/main/admin"), page);
+  }
+});

@@ -582,3 +582,29 @@ than 4 GB. The service runs as the project's default compute account, which
 needs Cloud Datastore User and Storage Object Admin on `sliqtly`; verifying
 Google ID tokens needs no role. The page's own Deploy (Hosting) needs the
 service to exist, since its rewrites point at it.
+
+### The owner's dashboard
+
+`sliqtly.com/main/admin` (web/admin.html, linked from nowhere) shows, per UTC
+day: visitors and page loads, presentations made (signed in, or by an
+assistant without sign-in), new and active signed-in accounts, and the Cloud
+bill. The page signs in with Google; the numbers come from
+`GET /main/admin/api/stats?days=7|30|90` (admin.go), which answers only a
+Firebase ID token whose verified email is in `SLIQTLY_ADMIN_EMAILS`. Without
+that variable the route does not exist. The deploy sets it from the
+repository variable `SLIQTLY_ADMIN_EMAILS` (Settings → Variables), or the
+owner's address when that is unset. A report is kept a minute per instance;
+Refresh reads again.
+
+What the service account needs for each part (a part it cannot read says so
+on the page, the rest still shows):
+
+- visitors, presentations: Cloud Datastore User (already there)
+- accounts: Firebase Authentication Viewer
+- the bill: Cloud Billing → Billing export → BigQuery export, "Standard usage
+  cost", into a dataset (e.g. `billing_export` in `sliqtly`). Give the
+  service account BigQuery Job User on the project and BigQuery Data Viewer
+  on that dataset, set the repository variable `SLIQTLY_BILLING_TABLE` to the
+  table it makes (`sliqtly.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX`),
+  and run Deploy MCP (Go). The export fills from the day it is turned on and
+  runs about a day behind.
