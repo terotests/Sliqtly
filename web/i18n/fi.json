@@ -1313,5 +1313,8 @@
   "A folder keeps some of a room's presentations together, e.g. its test decks. Drag a presentation onto the folder to file it there.": "Kansio pitää osan huoneen esityksistä yhdessä, esimerkiksi testiesitykset. Vedä esitys kansion päälle siirtääksesi sen sinne.",
   "Delete folder": "Poista kansio",
   "Its presentations move to the room's top; none of them is deleted.": "Sen esitykset siirtyvät huoneen ylätasolle; mitään niistä ei poisteta.",
-  "Folder deleted. Its presentations are at the room's top.": "Kansio poistettu. Sen esitykset ovat huoneen ylätasolla."
+  "Folder deleted. Its presentations are at the room's top.": "Kansio poistettu. Sen esitykset ovat huoneen ylätasolla.",
+  "Move to folder": "Siirrä kansioon",
+  "Out of the folder": "Pois kansiosta",
+  "New folder…": "Uusi kansio…"
 }
