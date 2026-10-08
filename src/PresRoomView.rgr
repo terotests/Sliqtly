@@ -84,6 +84,16 @@ class PresRoomView {
         ch.attachText = (PresI18n.t("Attach a file"))
         ch.uploadingText = (PresI18n.t("Uploading…"))
         ch.removeText = (PresI18n.t("Remove"))
+        ch.addReactionText = (PresI18n.t("Add reaction"))
+        ch.quoteText = (PresI18n.t("Quote message"))
+        ch.copyTextText = (PresI18n.t("Copy text"))
+        ch.openLinkText = (PresI18n.t("Open link"))
+        ch.copyLinkText = (PresI18n.t("Copy link"))
+        ch.editMessageText = (PresI18n.t("Edit message"))
+        ch.deleteMessageText = (PresI18n.t("Delete message"))
+        ch.editingText = (PresI18n.t("Editing message"))
+        ch.escCancelsText = (PresI18n.t("Esc to cancel"))
+        ch.messageMenuText = (PresI18n.t("Message"))
     }
 
     ; --- what the page says -------------------------------------------------------------
@@ -116,6 +126,7 @@ class PresRoomView {
     }
 
     fn hide:void () {
+        ch.closeMenu()
         open = false
         selecting = false
         this.changed()
@@ -454,6 +465,10 @@ class PresRoomView {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        ; the message menu's card as wide as its widest row
+        if (UiHost.fitSurfaces(r lay)) {
+            lay.layout(pg)
+        }
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg
@@ -517,6 +532,28 @@ class PresRoomView {
         return true
     }
 
+    ; a right click: the menu of the message under it (React, Reply, Quote,
+    ; Copy, Edit, Delete). → true when it was over the channel at all (the
+    ; browser's own menu is not wanted there either).
+    fn menuAt:boolean (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return false
+        }
+        def tid:string (this.hitAt(px py))
+        selecting = false
+        ch.openMenuAt(tid (px - x) (py - y))
+        this.changed()
+        return true
+    }
+
+    ; the menu closes (a press elsewhere on the page, the channel closing)
+    fn closeMenu:void () {
+        if (ch.menuOpen()) {
+            ch.closeMenu()
+            this.changed()
+        }
+    }
+
     fn dragTo:void (px:double py:double) {
         if selecting {
             ch.textPointerDragAt(px py)
@@ -547,20 +584,26 @@ class PresRoomView {
             }
             return false
         }
-        def before:string ((ch.hoverWhere) + (to_string ch.hoverSeq))
+        def before:string (this.hoverState())
         def tid:string (this.hitAt(px py))
         ch.hover(tid)
-        if (((ch.hoverWhere) + (to_string ch.hoverSeq)) != before) {
+        if ((this.hoverState()) != before) {
             this.changed()
             return true
         }
         return false
     }
 
+    ; what the pointer lights up: a message, or the menu's row and submenu
+    fn hoverState:string () {
+        return ((ch.hoverWhere) + (to_string ch.hoverSeq) + "|" + ch.menu.activeTid + "|" + (to_string (array_length ch.menu.openPath)))
+    }
+
     fn wheel:boolean (px:double py:double dy:double) {
         if ((this.has(px py)) == false) {
             return false
         }
+        this.closeMenu()
         def inThread:boolean (((strlen ch.threadId) > 0) && (px >= ((x + w) - ch.threadW)))
         if (((strlen ch.threadId) > 0) && (w < 720.0)) {
             inThread = true
@@ -580,7 +623,7 @@ class PresRoomView {
     ; --- keys ----------------------------------------------------------------------------------
 
     fn hasKeys:boolean () {
-        return (open && (ch.hasField()))
+        return (open && ((ch.hasField()) || (ch.menuOpen())))
     }
 
     fn key:void (k:string shift:boolean ctrl:boolean) {

@@ -3847,6 +3847,7 @@ class PresApp {
         if (focus == "room") {
             focus = "editor"
             room.ch.keys = ""
+            room.closeMenu()
             room.changed()
         }
         if (PresApp.panelLayer(top)) {
@@ -4487,6 +4488,16 @@ class PresApp {
             chromeRev = (chromeRev + 1)
         }
         this.stageUp()
+    }
+
+    ; A presentation's row of the Rooms panel, or a deck tab, at x, y (its
+    ; menu opens there).
+    fn inDeckRow:boolean (x:double y:double) {
+        this.place()
+        if ((mode == "present") || (barH <= 0.0)) {
+            return false
+        }
+        return (((strlen (toolbar.roomDeckAt(x y))) > 0) || ((strlen (this.deckTabKeyAt(x y))) > 0))
     }
 
     fn inStrip:boolean (x:double y:double) {
@@ -9355,6 +9366,17 @@ class PresApp {
         return true
     }
 
+    ; A room's "+ New folder" (`id` "") or a folder's gear: the folder's
+    ; window, its name. Save is "newdeck-create" with the plan's "ask"
+    ; "folder", "room" the folder's id and "act" ("" save, "delete").
+    fn openFolderDialog:boolean (id:string name:string) {
+        if ((this.openDupDeck(name)) == false) {
+            return false
+        }
+        chart.openFolder(id name chart.x chart.y W H)
+        return true
+    }
+
     fn openDupDeck:boolean (name:string) {
         if (mode == "present") {
             return false
@@ -10685,6 +10707,19 @@ class PresApp {
         return true
     }
 
+    ; --- the room chat's message menu ---------------------------------------------
+    ; A right click on the open room's chat: the menu of the message under
+    ; it. True when x, y is on the chat (no other menu there).
+    fn roomMenuAt:boolean (x:double y:double) {
+        this.place()
+        if (((room.open == false) || (mode == "present")) || ((this.layerAt(x y)) != "room")) {
+            return false
+        }
+        room.menuAt(x y)
+        this.afterRoom()
+        return true
+    }
+
     ; --- the strip's context menu -------------------------------------------------
     ; A right click on a thumbnail selects it and opens New / Duplicate /
     ; Move left / Move right / Delete / Copy there; on the slide being
@@ -10711,6 +10746,52 @@ class PresApp {
             i = (i + 1)
         }
         return false
+    }
+
+    ; A presentation of the Rooms panel or a deck tab under x, y: its menu,
+    ; the File menu's rows for that deck (PresToolbar.openDeckContext).
+    fn deckMenuAt:boolean (x:double y:double) {
+        if ((mode == "present") || (barH <= 0.0)) {
+            return false
+        }
+        def from:string "room"
+        def id:string (toolbar.roomDeckAt(x y))
+        def name:string ""
+        def current:boolean false
+        if ((strlen id) > 0) {
+            name = (toolbar.roomDeckName(id))
+            current = (toolbar.roomDeckCurrent(id))
+        } {
+            def key:string (this.deckTabKeyAt(x y))
+            if ((strlen key) == 0) {
+                return false
+            }
+            from = "tab"
+            id = key
+            name = (deckTabs.labelOf(key))
+            current = (key == deckTabs.tabs.active)
+        }
+        if chart.isOpen {
+            this.closeChart()
+        }
+        if hint.isOpen {
+            this.closeHint()
+        }
+        toolbar.openDeckContext(x y from id name current)
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The deck tab under x, y ("" none, or its ×): its key.
+    fn deckTabKeyAt:string (x:double y:double) {
+        if ((deckRect.has(x y)) == false) {
+            return ""
+        }
+        def hit:string (deckTabs.hitAt(x y))
+        if ((indexOf hit "tab:") == 0) {
+            return (substring hit 4 (strlen hit))
+        }
+        return ""
     }
 
     ; The menu from the keyboard (Shift+F10, the menu key): at the selected
@@ -10813,6 +10894,13 @@ class PresApp {
     ; A request from the page's keys, as a menu row would make it: "slide:…"
     ; is done here, the rest goes to the page with the others.
     fn request:void (r:string) {
+        ; File → Rename… (a presentation's menu, once it is open): the name at
+        ; the start of the bar as a field
+        if (r == "rename") {
+            toolbar.titleBegin()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if ((indexOf r "slide:") == 0) {
             this.slideCommand((substring r 6 (strlen r)))
             return

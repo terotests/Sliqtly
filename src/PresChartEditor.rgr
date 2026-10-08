@@ -358,6 +358,18 @@ class PresChartEditor {
         this.rebuild()
     }
 
+    ; A room's "+ New folder" (no `id`) or a folder's gear: its name, and
+    ; for a folder that is there, Delete.
+    fn openFolder:void (id:string name:string px:double py:double pw:double ph:double) {
+        this.openDupDeck(name px py pw ph)
+        ndAsk = "folder"
+        rmId = id
+        rmState = ""
+        ndDesc = ""
+        rmAct = ""
+        this.rebuild()
+    }
+
     ; Editing together: the name the others see, all selected.
     fn openAskName:void (name:string px:double py:double pw:double ph:double) {
         this.openDupDeck(name px py pw ph)
@@ -969,6 +981,12 @@ class PresChartEditor {
                 win.name = (PresI18n.t("New room"))
                 if ((strlen rmId) > 0) {
                     win.name = (PresI18n.t("Room settings"))
+                }
+            }
+            if (ndAsk == "folder") {
+                win.name = (PresI18n.t("New folder"))
+                if ((strlen rmId) > 0) {
+                    win.name = (PresI18n.t("Folder settings"))
                 }
             }
             win.title = win.name
@@ -1624,6 +1642,10 @@ class PresChartEditor {
             this.roomBody(root)
             return
         }
+        if (ndAsk == "folder") {
+            this.folderBody(root)
+            return
+        }
         def pane:EVGElement (this.div("ce-pane"))
         def sec:EVGElement (this.section(pane (PresI18n.t("The copy"))))
         def nr:EVGElement (this.field((PresI18n.t("Name"))))
@@ -1664,6 +1686,35 @@ class PresChartEditor {
             this.button("rm-delete" (PresI18n.t("Delete room…")) "danger" row)
             sec2.addChild(row)
             sec2.addChild((this.text("ce-doc" (PresI18n.t("An archived room is out of the list and read only; search still finds it. Deleting a room moves its presentations to General; none of them is deleted.")))))
+        }
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        def ok:string (PresI18n.t("Create"))
+        if ((strlen rmId) > 0) {
+            ok = (PresI18n.t("Save"))
+        }
+        this.button("nd-create" ok "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; A folder of a room (one level): its name; a folder that is there can be
+    ; deleted (its presentations go to the room's top).
+    fn folderBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("Folder"))))
+        def nr:EVGElement (this.field((PresI18n.t("Name"))))
+        this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("e.g. Testing")) "ce-wide" nr)
+        sec.addChild(nr)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("A folder keeps some of a room's presentations together, e.g. its test decks. Drag a presentation onto the folder to file it there.")))))
+        if ((strlen rmId) > 0) {
+            def sec2:EVGElement (this.section(pane (PresI18n.t("Delete"))))
+            def row:EVGElement (this.div("ce-chips"))
+            this.button("rm-delete" (PresI18n.t("Delete folder")) "danger" row)
+            sec2.addChild(row)
+            sec2.addChild((this.text("ce-doc" (PresI18n.t("Its presentations move to the room's top; none of them is deleted.")))))
         }
         root.addChild(pane)
 

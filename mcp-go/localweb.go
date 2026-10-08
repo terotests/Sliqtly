@@ -13,7 +13,9 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -581,7 +583,9 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 			return nil, fail(400, "", err.Error())
 		}
 		h := &McpHost{env: s.env}
-		return map[string]any{"path": rel, "type": ct, "size": len(data), "url": h.FileURL(name, "")}, nil
+		// sha names this version of the file: the pages editing the deck
+		// take a file written again elsewhere by it (web/sharefiles.js)
+		return map[string]any{"path": rel, "type": ct, "size": len(data), "url": h.FileURL(name, ""), "sha": fileSha(data)}, nil
 	case http.MethodDelete:
 		if err := s.bucket.Remove(name); err != nil {
 			return nil, err
@@ -589,6 +593,12 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 		return map[string]bool{"ok": true}, nil
 	}
 	return nil, fail(405, "", "method not allowed")
+}
+
+// A file's version: the first 16 bytes of its SHA-256, as hex.
+func fileSha(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:16])
 }
 
 // PUT /api/files/rooms/{room}/{name}: a file into the room's files

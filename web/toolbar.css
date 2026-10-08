@@ -204,6 +204,9 @@
 .theme-tb .tb-room-open:hover { background-color: #e0e7ff; }
 .tb-room-name { font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
 .tb-room-count { font-size: 11px; color: #71717a; }
+/* a room with chat messages this browser has not read: a small blue dot
+   after its name */
+.tb-room-dot { width: 8px; height: 8px; border-radius: 4px; background-color: #2563eb; margin-left: 6px; flex-shrink: 0; }
 /* a room's presentations: rows on the panel's own ground, hung from a thin
    line under the room's "#" (EVG draws no one-sided border: the line is an
    element); the open one tinted like the open room, its name in bold */
@@ -235,6 +238,9 @@
    place, and the line before the room it would go before */
 .theme-tb .tb-roomgear { width: 24px; height: 24px; padding: 0; margin: 0 -4px 0 6px; border-radius: 5px; flex-shrink: 0; }
 .theme-tb .tb-icon-roomgear { width: 15px; height: 15px; stroke: #a1a1aa; stroke-width: 1.8; }
+/* a folder of the open room (one level), and its presentations set in under it */
+.theme-tb .tb-icon-folder { width: 15px; height: 15px; stroke: #71717a; stroke-width: 1.7; margin: 0 6px 0 0; flex-shrink: 0; }
+.theme-tb .tb-roomdeck-in { margin: 0 0 0 16px; }
 .theme-tb .tb-room-dragged { opacity: 0.45; }
 .theme-tb .tb-room-before { border-top: 2px solid #4f46e5; }
 .theme-tb .tb-rooms-sep { height: 1px; min-height: 1px; margin: 6px 8px; background-color: #e4e4e7; }

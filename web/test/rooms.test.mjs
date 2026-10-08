@@ -1,7 +1,7 @@
 // node --test: rooms in this browser (web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
+import { emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
 
 const decks = [
   { id: "a", name: "Budget", updated: 300 },
@@ -230,4 +230,100 @@ test("the one value kept before is split into facts on the first change", () => 
   assert.equal(roomOf(now, "a"), "r-x");
   assert.equal(now.touched["r-x"], 10);
   assert.deepEqual(now.order, ["r-x"]);
+});
+
+test("folders: one level in a room, by name; a deck filed there and back to the top", () => {
+  let { state, id: room } = createRoom(emptyRooms(), "Sprint", idOf);
+  let made = createFolder(state, room, "  Testing  ", idOf);
+  assert.ok(made.id.startsWith("f-"));
+  const testing = made.id;
+  state = made.state;
+  // a name the room has already, any case or accent, is that folder
+  assert.equal(createFolder(state, room, "TESTING", idOf).id, testing);
+  ({ state } = createFolder(state, room, "Sprint 10", idOf));
+  ({ state } = createFolder(state, room, "Sprint 2", idOf));
+  assert.deepEqual(foldersOf(state, room).map((f) => f.name), ["Sprint 2", "Sprint 10", "Testing"]);
+  // General and Playground take folders too; Onboarding and unknown rooms do not
+  assert.ok(createFolder(state, GENERAL, "Old", idOf).id);
+  assert.equal(createFolder(state, ONBOARDING, "X", idOf).id, "");
+  assert.equal(createFolder(state, "r-nope", "X", idOf).id, "");
+  assert.equal(createFolder(state, room, "   ", idOf).id, "");
+
+  state = moveDeck(state, "a", room, testing);
+  assert.equal(folderOf(state, "a"), testing);
+  assert.deepEqual(roomDecks(state, room, decks, samples).map((d) => [d.id, d.folder]), [["a", testing]]);
+  // a folder of another room is the top
+  const other = createFolder(state, GENERAL, "Elsewhere", idOf);
+  state = moveDeck(other.state, "b", room, other.id);
+  assert.equal(folderOf(state, "b"), "");
+  // moved to another room, the deck leaves its folder
+  state = moveDeck(state, "a", GENERAL);
+  assert.equal(folderOf(state, "a"), "");
+  assert.equal(state.filed.a, undefined);
+});
+
+test("a folder renamed (not to another's name) and deleted: its decks are at the room's top", () => {
+  let { state, id: room } = createRoom(emptyRooms(), "Work", idOf);
+  const a = createFolder(state, room, "Testing", idOf);
+  const b = createFolder(a.state, room, "Drafts", idOf);
+  state = moveDeck(b.state, "a", room, a.id);
+  assert.equal(renameFolder(state, room, a.id, "drafts"), state);
+  assert.equal(renameFolder(state, room, a.id, " "), state);
+  state = renameFolder(state, room, a.id, "Tests");
+  assert.deepEqual(foldersOf(state, room).map((f) => f.name), ["Drafts", "Tests"]);
+  state = deleteFolder(state, room, a.id);
+  assert.deepEqual(foldersOf(state, room).map((f) => f.name), ["Drafts"]);
+  assert.equal(folderOf(state, "a"), "");
+  assert.equal(roomOf(state, "a"), room);
+  // a room deleted takes its folders, and its decks are at General's top
+  state = moveDeck(state, "a", room, b.id);
+  state = deleteRoom(state, room);
+  assert.equal(state.folders[room], undefined);
+  assert.equal(folderOf(state, "a"), "");
+  assert.deepEqual(state.filed, {});
+});
+
+test("the panel: folders first by name with their counts, an open one's decks under it, then the top", () => {
+  const rows = [
+    { id: "a", name: "Budget", folder: "f-t" },
+    { id: "b", name: "Kickoff", current: true, folder: "" },
+    { id: "c", name: "Load test", folder: "f-t" },
+    { id: "d", name: "Lost", folder: "f-gone" },
+  ];
+  const folders = [{ id: "f-t", name: "Testing" }, { id: "f-e", name: "Empty" }];
+  const shut = deckLines(rows, { folders, addNew: "+ New", newFolder: "+ Folder" }).split("\n").map((l) => l.split("\t"));
+  assert.deepEqual(shut, [
+    ["f:f-e", "Empty", "", "f", ""],
+    ["f:f-t", "Testing", "", "f", "2"],
+    ["b", "Kickoff", "1", ""],
+    ["d", "Lost", "", ""],
+    ["new", "+ New", "", "n"],
+    ["newfolder", "+ Folder", "", "nf"],
+  ]);
+  const open = deckLines(rows, { folders, open: ["f-t"] }).split("\n").map((l) => l.split("\t").slice(0, 4));
+  assert.deepEqual(open.map((l) => [l[0], l[3]]), [["f:f-e", "f"], ["f:f-t", "f"], ["a", "i"], ["c", "i"], ["b", ""], ["d", ""]]);
+  // Show all counts only the room's top
+  const many = Array.from({ length: SHOWN }, (_, i) => ({ id: "x" + i, name: "X", folder: "f-t" })).concat([{ id: "y", name: "Y", folder: "" }]);
+  assert.ok(!deckLines(many, { folders, showAll: "… all" }).includes("… all"));
+});
+
+test("folders and filed decks are kept as facts of their own, read back by another tab", () => {
+  const store = tabStore(new Map());
+  let room = "";
+  let folder = "";
+  changeKept(store, "k", (s) => {
+    const r = createRoom(s, "Kept", idOf);
+    room = r.id;
+    const f = createFolder(r.state, room, "Testing", idOf);
+    folder = f.id;
+    return moveDeck(f.state, "a", room, folder);
+  });
+  assert.equal(store.getItem("k/filed/a"), folder);
+  assert.deepEqual(JSON.parse(store.getItem("k/folders/" + room)), [{ id: folder, name: "Testing" }]);
+  const back = readKept(store, "k");
+  assert.equal(folderOf(back, "a"), folder);
+  // deleting the folder removes both facts
+  changeKept(store, "k", (s) => deleteFolder(s, room, folder));
+  assert.equal(store.getItem("k/folders/" + room), null);
+  assert.equal(store.getItem("k/filed/a"), null);
 });
