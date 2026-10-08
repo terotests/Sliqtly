@@ -712,7 +712,17 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; A presentation being opened (the page's beginDoc): its theme, pictures
+    ; and data files arrive before its text, and each laid the deck before
+    ; it out again (a data file each time), only for setSource to lay out
+    ; the one opened. Until setSource the deck is held as it is
+    ; (PresDeck.held).
+    fn beginOpen:void () {
+        deck.held = true
+    }
+
     fn setSource:void (text:string) {
+        deck.held = false
         this.showTab("md")
         ; the slides of the deck before say nothing about this one's
         sourceNew = true
@@ -747,6 +757,9 @@ class PresApp {
     ; the slides on screen (`settle` draws the others as they come into
     ; view, `settleAll` before a file is written).
     fn rebuildWith:void (budget:int lazy:boolean) {
+        if deck.held {
+            return
+        }
         deck.redrawBudget = budget
         deck.lazy = lazy
         this.aimDeck()
@@ -3384,6 +3397,9 @@ class PresApp {
     ;   thumbnail not drawn yet, or charts still drawn under old defaults
     ;   (a few a frame while editing)
     fn settle:boolean () {
+        if deck.held {
+            return false
+        }
         if picturesArrived {
             picturesArrived = false
             this.rebuildDeck()

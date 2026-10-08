@@ -931,10 +931,10 @@ class PresChartEditor {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         ; what the pointer is over stays hovered across a rebuild
         fresh.hoverTid = host.hoverTid
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("ce " + skin)))
         host.setPageSize(w h)
         before = inputs
