@@ -3,8 +3,9 @@
 The Sliqtly editor as a desktop app on macOS and Linux: the same editor the
 browser runs (`../src/PresApp.rgr` with EVGUI), compiled by Ranger to C++ and
 hosted in an SDL2 + OpenGL window (`native/editor_host.cpp`), painted by EVG's
-native painter (`evg::gl::Painter`). It opens a Markdown deck file and saves
-back to it (Cmd/Ctrl+S).
+native painter (`evg::gl::Painter`). It edits the presentations of a Sliqtly
+server (File → Presentations…, Cmd/Ctrl+S saves there), or a Markdown deck
+file given on the command line.
 
 ## Quick start
 
@@ -18,6 +19,30 @@ npm run native:run        # build and start it with the welcome deck
 npm run native:run -- ~/deck.md   # … or with a deck file of your own
 npm run native:check      # headless check: click, typing, wheel direction, a painted frame
 ```
+
+### The server
+
+At start the editor connects to `http://localhost:8080` (`npm run serve` in
+the repository root), or to `--server URL` / `SLIQTLY_SERVER`; `--token T` /
+`SLIQTLY_TOKEN` when the server was started with `-token`. `--server none`
+works on files only.
+
+```bash
+npm run native:run -- --server http://localhost:8080
+```
+
+- File → Presentations… lists the server's presentations (sort by a column,
+  delete one that is not open); a row opens it.
+- Cmd/Ctrl+S saves the open one there. If it was changed on the server since
+  it was opened (a browser, an assistant over MCP), the editor asks which to
+  keep: the server's version or this one.
+- The welcome deck, saved, becomes a new presentation on the server.
+- A deck file given on the command line saves to that file.
+
+What the editor does with the server is `../src/PresServer.rgr` (REST API v1,
+`../docs/api-v1.md`, over `../src/ApiClient.rgr`), tested in
+`../src/PresCheck.rgr`; the host only performs its HTTP requests with libcurl.
+Not yet here: sign-in (OAuth), a server's own HTTPS CA, rooms and pictures.
 
 The build compiles the whole editor (PresApp.cpp, some 360 000 lines), so it
 takes a few minutes. It uses the Ranger, EVGUI, RangerFlow, RangerMarkdown and
@@ -123,10 +148,11 @@ folder (the checks use it).
 ## How it is put together
 
 ```
-src/            Ranger: the app, compiled to both targets
+../src/         shared with the editor above
   JsonValue.rgr   a small JSON value + parser (UTF-8, \u escapes, surrogates)
-  TextBuffer.rgr  the text model: lines, caret / selection in code points, undo
   ApiClient.rgr   REST v1 requests as a queue the host runs; Bearer, refresh on 401
+src/            Ranger: the app, compiled to both targets
+  TextBuffer.rgr  the text model: lines, caret / selection in code points, undo
   Settings.rgr    the servers and their tokens / CA, as JSON
   Session.rgr     the state machine: connect, probe, sign-in, trust, decks, save, preview
   EditorApp.rgr   the UI: EVG element trees → display lists; input; a script runner

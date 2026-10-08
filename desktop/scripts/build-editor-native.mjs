@@ -61,11 +61,11 @@ console.log("  2/3 stylesheets, themes, fonts -> native/build-editor/editor-res/
 const { flags: sdl, framework } = sdl2();
 const EVG_NATIVE = process.env.EVG_NATIVE || path.join(evgDir(), "native");
 if (!fs.existsSync(path.join(EVG_NATIVE, "gl", "EvgGlPainter.h"))) die(`no EVG native painter at ${EVG_NATIVE}`);
-const sources = [path.join(NATIVE, "editor_host.cpp"), ...fs.readdirSync(path.join(EVG_NATIVE, "gl")).filter((f) => f.endsWith(".cpp")).map((f) => path.join(EVG_NATIVE, "gl", f))]
+const sources = [path.join(NATIVE, "editor_host.cpp"), path.join(NATIVE, "http_curl.cpp"), ...fs.readdirSync(path.join(EVG_NATIVE, "gl")).filter((f) => f.endsWith(".cpp")).map((f) => path.join(EVG_NATIVE, "gl", f))]
   .map((f) => JSON.stringify(f)).join(" ");
 const bin = path.join(BUILD, "sliqtly-native");
 // -w: the generated PresApp.cpp is large and not written for warnings
-execSync(`${cxx()} -std=c++17 ${macFlags(framework)}${process.env.CXX_OPT || "-O1"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${glFlags()}`, { stdio: "inherit" });
+execSync(`${cxx()} -std=c++17 ${macFlags(framework)}${process.env.CXX_OPT || "-O1"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${glFlags()} -lcurl -lpthread`, { stdio: "inherit" });
 if (MAC) {
   const { icon } = macApp({ nativeDir: NATIVE, buildDir: BUILD, name: APP_NAME, bundleId: BUNDLE_ID, version: VERSION, bin, exe: "sliqtly", resources: [RES], framework });
   console.log(`  3/3 native/build-editor/sliqtly-native, native/build-editor/${APP_NAME}.app${icon ? "" : " (no icon)"}${framework ? ", SDL2.framework inside" : ""}`);
