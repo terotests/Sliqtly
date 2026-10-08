@@ -914,8 +914,8 @@ class PresChartEditor {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("ce " + skin)))
         host.setPageSize(w h)
         before = inputs

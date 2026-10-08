@@ -388,8 +388,8 @@ class PresRoomView {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("pn " + skin)))
         host.setPageSize(pw ph)
         def root:EVGElement (unwrap host.root)

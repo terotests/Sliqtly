@@ -2187,7 +2187,16 @@ class PresDeck {
         this.rebuild()
     }
 
+    ; Held while the page opens another document (PresApp.beginOpen): what
+    ; arrives for it (its pictures, its data files, its drawings) is kept
+    ; without laying out the text before it. PresApp.setSource lets go and
+    ; lays the deck out once.
+    def held:boolean false
+
     fn rebuild:void () {
+        if held {
+            return
+        }
         src.read(text)
         ; the tables, masked into charts of their own (PresTable)
         def k0:int 0

@@ -140,3 +140,66 @@ export async function decodePicture(bytes, type, path = "") {
   const img = await loadImage(new Blob([bytes], { type }));
   return img ? { img, w: img.naturalWidth, h: img.naturalHeight, bytes, type } : { img: null, w: 0, h: 0, bytes, type };
 }
+
+// What a file holds, as text: SHA-256 where the page has it (a secure
+// context: https or localhost), else two 32-bit FNV-1a sums (a local server
+// opened by its network address is plain http).
+export async function contentKey(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle) {
+    const d = new Uint8Array(await subtle.digest("SHA-256", u8));
+    return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ u8.length;
+  for (let i = 0; i < u8.length; i++) {
+    a = Math.imul(a ^ u8[i], 0x01000193);
+    b = Math.imul(b ^ u8[i], 0x5bd1e995);
+  }
+  return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
+}
+
+// decodePicture, remembered by what the file holds. Opening a deck again (its
+// tab pressed back to) hands over the same pictures, and each was decoded
+// again; an SVG drawn to a PNG was most of what such a switch cost, and the
+// slides' caches (the GPU texture, the contrast check's grid) are kept per
+// picture object, so a new one for the same file paid for those too. Up to
+// `budget` pixels are kept, the least recently used let go first; a picture
+// that did not decode is not kept.
+export function pictureCache(decode = decodePicture, budget = 24e6) {
+  const kept = new Map();
+  let px = 0;
+  return async function decodeKept(bytes, type, path = "") {
+    const key = (isSvg(type, path) ? "svg" : String(type || "")) + ":" + bytes.byteLength + ":" + (await contentKey(bytes));
+    const hit = kept.get(key);
+    if (hit) {
+      kept.delete(key);
+      kept.set(key, hit);
+      return hit.p;
+    }
+    const entry = { p: decode(bytes, type, path), px: 0 };
+    kept.set(key, entry);
+    let p;
+    try {
+      p = await entry.p;
+    } catch (e) {
+      if (kept.get(key) === entry) kept.delete(key);
+      throw e;
+    }
+    if (!p || !p.img) {
+      if (kept.get(key) === entry) kept.delete(key);
+      return p;
+    }
+    if (kept.get(key) !== entry) return p;
+    entry.px = Math.max(1, (p.img.naturalWidth || p.img.width || p.w || 1) * (p.img.naturalHeight || p.img.height || p.h || 1));
+    px += entry.px;
+    for (const [k, e] of kept) {
+      if (px <= budget) break;
+      if (k === key || !e.px) continue;
+      kept.delete(k);
+      px -= e.px;
+    }
+    return p;
+  };
+}

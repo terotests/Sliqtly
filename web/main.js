@@ -23,7 +23,7 @@ import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, r
 import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
 import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
-import { decodePicture, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
+import { decodePicture, pictureCache, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
@@ -222,9 +222,12 @@ const SKETCH_TYPE = "application/vnd.sliqtly.ink+json";
 
 // --- pictures -------------------------------------------------------------------
 const pictures = new Map();
+// the decks' pictures, decoded once for every deck that has them (a switch
+// back to a deck hands over the same files again)
+const decodeKept = pictureCache();
 async function registerPicture(path, bytes, type) {
   if (isSmartArt(type, path)) return;
-  pictures.set(path, (await decodePicture(bytes, type, path)).img);
+  pictures.set(path, (await decodeKept(bytes, type, path)).img);
 }
 
 // A picture of the deck handed to the slides: drawn for the screen, and its
@@ -235,7 +238,7 @@ async function addPicture(path, bytes, type) {
     app.addImage(path, asRangerBuffer(bytes.slice(0)), type || "", 0, 0);
     return { img: null, w: 0, h: 0, bytes, type: type || "" };
   }
-  const p = await decodePicture(bytes, type || "image/png", path);
+  const p = await decodeKept(bytes, type || "image/png", path);
   app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
   // an SVG's own text too: the PDF and the PPTX keep it a vector
   if (p.svg) app.addSvgPicture(path, p.svg, asRangerBuffer(p.svgBytes.slice(0)), asRangerBuffer(p.fallback ? p.fallback.slice(0) : new ArrayBuffer(0)));
@@ -743,6 +746,9 @@ function beginDoc(text) {
   // the deck left: its tab goes when nothing could open it again
   if (shownKey && !canReturn(doc)) app.deckTabClose(shownKey);
   shownKey = null;
+  // its theme and files are not laid out on the deck before (shownDoc lays
+  // out this one)
+  app.beginOpen();
   // the deck before's pictures go with it: one this deck names and does not
   // have is not drawn from that one's as if it were here (a copy whose
   // files did not come looked whole that way)
@@ -6169,17 +6175,19 @@ async function openSample(key) {
     docName = key;
     await leaveDoc();
     const text = await textOf(s[1]);
+    beginDoc(text);
     if (s[2]) {
       themeSel.value = s[2];
       useTheme(s[2]);
     }
-    beginDoc(text);
     doc.src = "sample:" + key;
     await useSampleFiles(key, s[3] || []);
     shownDoc(text);
     dropThumbs();
     needsPaint = true;
   } catch (e) {
+    // stopped half way: the editor shows the deck it had begun to open
+    if (doc.loading) shownDoc(doc.openedText);
     fail(e);
   }
 }

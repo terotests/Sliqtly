@@ -373,8 +373,8 @@ class PresHintPopover {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("hp " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)

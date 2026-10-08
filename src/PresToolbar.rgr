@@ -1402,8 +1402,8 @@ class PresToolbar {
         def noMenus:[MenuCtl]
         menus = noMenus
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("tb " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
