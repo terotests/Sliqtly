@@ -67,6 +67,13 @@ const server = http.createServer((req, res) => {
     res.end();
     return;
   }
+  // the owner's dashboard: the page, and the server refusing a visitor
+  if (rel.startsWith("/main/admin/api/")) {
+    res.writeHead(401, { "content-type": "application/json" });
+    res.end('{"error":"Sign in with Google."}');
+    return;
+  }
+  if (rel === "/main/admin") rel = "/main/admin.html";
   if (rel === "/" || rel.startsWith("/s/")) rel = "/index.html";
   const file = path.join(viewDir, rel);
   if (!file.startsWith(viewDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -220,6 +227,37 @@ try {
   await page.waitForTimeout(200);
   if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) fail("the front page is wider than a phone");
   await page.close();
+
+  // the owner's dashboard: signed out it asks for sign-in and shows no
+  // numbers; with the server's answer (mcp-go/admin.go) it draws them, a
+  // phone's width included
+  page = await open("/main/admin");
+  await page.waitForFunction(() => !document.getElementById("signin").hidden, null, { timeout: 15000 })
+    .catch(() => fail("/main/admin does not ask a visitor to sign in"));
+  if (await page.isVisible("#board")) fail("/main/admin shows the board signed out");
+  const drawn = await page.evaluate(async () => {
+    const days = ["2026-10-06", "2026-10-07", "2026-10-08"];
+    const r = {
+      generated: "2026-10-08T15:00:00Z", days,
+      visitors: { rows: days.map((day, i) => ({ day, visitors: i + 2, views: i + 3, editor: 0, view: i, edit: 1, mobile: 1 })), visitors: 9, views: 12, refs: [{ name: "google.com", value: 3 }] },
+      decks: { rows: days.map((day, i) => ({ day, decks: i + 1, signedIn: i, anonymous: 1, people: i ? 1 : 0 })), total: 6, anonymous: 3, people: 1, allTime: 140 },
+      users: { rows: days.map((day, i) => ({ day, new: i, active: 2 })), total: 12, new: 3, active: 6 },
+      billing: { currency: "EUR", rows: days.map((day, i) => ({ day, cost: i * 0.25 })), range: 0.75, month: 1.08, lastMonth: 1, services: [{ name: "Cloud Run", value: 0.75 }], latest: "2026-10-07" },
+    };
+    const m = await import("./admin.js?v=" + document.querySelector('meta[name="build"]').content);
+    m.show("board");
+    m.render(r);
+    return {
+      tiles: document.querySelectorAll("#tiles .tile").length,
+      bars: ["cVisitors", "cDecks", "cUsers", "cBilling"].map((id) => document.querySelectorAll(`#${id} svg path`).length),
+      month: document.querySelector("#tiles").textContent.includes("€1.08"),
+    };
+  });
+  if (drawn.tiles !== 4 || drawn.bars.some((n) => n < 2) || !drawn.month) fail(`the dashboard did not draw: ${JSON.stringify(drawn)}`);
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.waitForTimeout(200);
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) fail("the dashboard is wider than a phone");
+  await page.close();
 } finally {
   await browser.close();
   server.close();
@@ -229,4 +267,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, keys, a pinch and a swipe, links, Export, 404 and the front page`);
+log(`view   web/dist-view: ${slides} slides painted, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

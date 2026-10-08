@@ -81,7 +81,10 @@ type Bucket interface {
 }
 
 // IDToken is what a verified Firebase ID token says about the person.
-type IDToken struct{ UID, Name, Email string }
+type IDToken struct {
+	UID, Name, Email string
+	Verified         bool // the provider vouches for Email
+}
 
 type Env struct {
 	DB            DB     // nil: nothing is kept, the deck travels in the link
@@ -149,6 +152,9 @@ type Env struct {
 	cache    map[string]string // host_cache_put: the day's visit salt
 	// the viewer's page and the link cards' pictures (linkcard.go)
 	cards linkCards
+
+	// the owner's dashboard (admin.go); nil: no /main/admin/api
+	Admin *adminConfig
 }
 
 // The whole server as one handler.
@@ -175,6 +181,10 @@ func NewApp(env *Env) http.Handler {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(429)
 			io.WriteString(w, `{"error":"slow_down","error_description":"Too many registrations from here; try again in a few minutes."}`)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, adminPath) {
+			serveAdmin(env, w, r)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/d/") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
