@@ -180,6 +180,16 @@
   #viewBar > #vGo { width: 88px; text-align: center; border-color: #60a5fa; cursor: text; }
   #viewBar > [hidden] { display: none; }
   #viewBar > #vExport { padding: 0 16px; font: 15px/1 "Open Sans", system-ui, sans-serif; white-space: nowrap; }
+  #viewBar > #vShare { padding: 0 16px; font: 15px/1 "Open Sans", system-ui, sans-serif; white-space: nowrap; }
+  #viewBar > #vShare .icon { display: none; font-size: 18px; }
+  /* a phone's bar has room for the share mark only, and none for ⏮ (the
+     count goes to any slide) */
+  @media (max-width: 560px) {
+    #viewBar > #vFirst { display: none; }
+    #viewBar > #vShare { padding: 0; }
+    #viewBar > #vShare .icon { display: inline; }
+    #viewBar > #vShare .lbl { display: none; }
+  }
   #viewBar > #vExport[aria-busy="true"] { cursor: progress; opacity: .8; }
   /* the formats, above the bar at its right end */
   #vMenu { position: absolute; right: 0; bottom: 52px; min-width: 200px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
@@ -346,6 +356,7 @@
   <button id="vCount" title="Go to slide… (type the number and Enter)" aria-live="polite">1 / 1</button>
   <input id="vGo" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Slide number" hidden />
   <button id="vFull" title="Full screen">⛶</button>
+  <button id="vShare" title="Share this slide (copies its link)" aria-label="Share slide"><span class="icon" aria-hidden="true">⤴&#xFE0E;</span><span class="lbl">Share slide</span></button>
   <button id="vExport" title="Download the presentation" aria-haspopup="menu" aria-expanded="false" aria-controls="vMenu">Export ▾</button>
   <div id="vMenu" role="menu" aria-label="Download as" hidden>
     <button role="menuitem" data-format="pdf">PDF <span>.pdf</span></button>

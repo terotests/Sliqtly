@@ -378,3 +378,332 @@ class PlainMd {
         return true
     }
 }
+
+; =============================================================================
+; A shared link's preview card (Slack, Teams, iMessage, LinkedIn …): what
+; GET /s/<id> writes into the page's head for a reader that runs no script
+; (og:title, og:description, og:image), and the picture GET /api/card/<id>.jpg
+; draws: the first slide at rest. Only a deck shared by link has a card; a
+; private one keeps the site's own title and has no picture, so its name and
+; slides reach nobody without the owner's sign-in.
+; =============================================================================
+
+class LinkCard {
+    ; the deck when everyone with the link may see it, else an empty MfJ
+    sfn shown:MfJ (host:McpHost id:string) {
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (new MfJ)
+        }
+        def doc:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("card " + id + ": " + (host_error host))
+            host_clear_error host
+            return (new MfJ)
+        }
+        if ((doc.isObj()) == false) {
+            return (new MfJ)
+        }
+        if ((View.shows(doc "")) == false) {
+            return (new MfJ)
+        }
+        return doc
+    }
+
+    ; what changes when the deck does: the picture's address carries it, so
+    ; a card read again after an edit draws the new first slide
+    sfn stamp:string (doc:MfJ) {
+        def t:double (doc.num_("updated" 0.0))
+        if (t <= 0.0) {
+            t = (doc.num_("created" 0.0))
+        }
+        return (to_string (to_int t))
+    }
+
+    ; { "title", "text", "stamp", "keys", "slide", "slides", "list" }, or ""
+    ; when the deck has no card. A link to one slide (/s/<id>?slide=<n>,
+    ; 1-based, of the ?slides= view when the link has one) is laid out and
+    ; carries that slide's display list, whose words the page's head takes
+    ; (linkcard.go); the deck's link carries the deck's first words.
+    sfn json:string (host:McpHost id:string keys:string slide:int) {
+        def doc:MfJ (LinkCard.shown(host id))
+        if ((doc.isObj()) == false) {
+            return ""
+        }
+        def md:string (doc.str_("md"))
+        def title:string (trim (doc.str_("name")))
+        if ((strlen title) == 0) {
+            title = (LinkCard.firstHeading(md))
+        }
+        def o:MfJ (MfJ.newObj())
+        o.putStr("title" title)
+        o.putStr("text" (LinkCard.summary(md title)))
+        o.putStr("stamp" (LinkCard.stamp(doc)))
+        def k:string (LinkCard.keysOf(keys))
+        o.putStr("keys" k)
+        if (slide > 0) {
+            def d:PresDeck (LinkCard.deckOf(host doc id k))
+            def n:int (d.slideCount())
+            if (n > 0) {
+                def at:int (LinkCard.indexOf(slide n))
+                def groups:[int]
+                o.putInt("slide" (at + 1))
+                o.putInt("slides" n)
+                o.putStr("list" ((d.slideList(at groups 0.0)).toJson()))
+            }
+        }
+        return (JOut.text(o))
+    }
+
+    ; slide (1-based) as an index of n slides: past the end is the last
+    sfn indexOf:int (slide:int n:int) {
+        def at:int (slide - 1)
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        return at
+    }
+
+    ; the ?slides= keys (PresPick section keys) as given, when they are
+    ; only such keys; else none, so a card's address carries nothing else
+    sfn keysOf:string (keys:string) {
+        if ((strlen keys) > 300) {
+            return ""
+        }
+        def i:int 0
+        while (i < (strlen keys)) {
+            def c:int (charAt keys i)
+            def ok:boolean ((((c >= 48) && (c <= 57)) || ((c >= 97) && (c <= 122))) || ((c >= 65) && (c <= 90)))
+            if ((((c == 45) || (c == 95)) || ((c == 126) || (c == 44))) || (c == 46)) {
+                ok = true
+            }
+            if (ok == false) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        return keys
+    }
+
+    ; the deck laid out at rest as the viewer shows it: all of it, or the
+    ; sections keys names (View.json)
+    sfn deckOf:PresDeck (host:McpHost doc:MfJ id:string keys:string) {
+        def md:string (doc.str_("md"))
+        def stored:[string]
+        for (doc.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.md = md
+        def css:MfJ (doc.field("css"))
+        din.css = (Tools.sheetFor(host (doc.str_("theme")) (css.kind == 3) (doc.str_("css"))))
+        din.pics = bgs.pics
+        din.data = bgs.data
+        din.types = bgs.types
+        def d:PresDeck (Check.prepare(host din (new Checked)))
+        if ((strlen keys) > 0) {
+            def l:MdLayout (d.layout())
+            din.md = (PresPick.viewText(md l.splitLevel keys))
+            if ((strlen din.md) == 0) {
+                din.md = "# These slides are no longer in the presentation.\n"
+            }
+            d = (Check.prepare(host din (new Checked)))
+        }
+        d.still = true
+        for bgs.pics p:CheckPic pi {
+            host_render_pic host p.name (itemAt bgs.data pi)
+        }
+        return d
+    }
+
+    sfn firstHeading:string (md:string) {
+        for (strsplit (PlainMd.text(md)) "\n") line:string li {
+            def t:string (trim line)
+            if ((indexOf t "#") == 0) {
+                return (LinkCard.inline((LinkCard.dropMarks(t "#"))))
+            }
+        }
+        return ""
+    }
+
+    ; the deck's first words of prose, headings other than the title too,
+    ; as one line: list marks, emphasis and link targets taken out. Code,
+    ; tables, pictures, notes and the front matter are not text a reader
+    ; of the card wants. A few hundred bytes; the page cuts it to length.
+    sfn summary:string (md:string title:string) {
+        def lines:[string] (strsplit (PlainMd.text(md)) "\n")
+        def out:[string]
+        def size:int 0
+        def fence:string ""
+        def front:boolean false
+        def notes:boolean false
+        for lines line:string li {
+            def t:string (trim line)
+            def f:string (Deck.fenceOf(line))
+            if ((strlen fence) > 0) {
+                if (((strlen f) > 0) && (((charAt f 0) == (charAt fence 0)) && ((strlen f) >= (strlen fence)))) {
+                    fence = ""
+                }
+                continue
+            }
+            if ((strlen f) > 0) {
+                fence = f
+                continue
+            }
+            if ((li == 0) && (t == "---")) {
+                front = true
+                continue
+            }
+            if front {
+                if (t == "---") {
+                    front = false
+                }
+                continue
+            }
+            if ((indexOf t ":::") == 0) {
+                notes = ((indexOf t "notes") > 0)
+                continue
+            }
+            if notes {
+                continue
+            }
+            if (((strlen t) == 0) || (LinkCard.skipped(t))) {
+                continue
+            }
+            def text:string (LinkCard.inline((LinkCard.dropMarks(t "#"))))
+            if (((strlen text) == 0) || (text == title)) {
+                continue
+            }
+            push out text
+            size = (size + (strlen text))
+            if (size >= 400) {
+                return (join out " · ")
+            }
+        }
+        return (join out " · ")
+    }
+
+    ; a line that is no prose: a rule, a table row, a picture, HTML, a
+    ; slide's attribute block
+    sfn skipped:boolean (t:string) {
+        if (((t == "---") || (t == "***")) || (t == "___")) {
+            return true
+        }
+        if ((((indexOf t "|") == 0) || ((indexOf t "![") == 0)) || ((indexOf t "<") == 0)) {
+            return true
+        }
+        return ((indexOf t "{") == 0)
+    }
+
+    ; t without the run of `mark` it starts with and the space after it,
+    ; and without a list's or a quote's mark
+    sfn dropMarks:string (t:string mark:string) {
+        def s:string t
+        while ((indexOf s mark) == 0) {
+            s = (substring s 1 (strlen s))
+        }
+        s = (trim s)
+        def again:boolean true
+        while again {
+            again = false
+            if ((((indexOf s "- ") == 0) || ((indexOf s "* ") == 0)) || (((indexOf s "+ ") == 0) || ((indexOf s "> ") == 0))) {
+                s = (trim (substring s 2 (strlen s)))
+                again = true
+            }
+        }
+        def dot:int (indexOf s ". ")
+        if ((dot > 0) && (dot <= 3)) {
+            if (LinkCard.digits((substring s 0 dot))) {
+                s = (trim (substring s (dot + 2) (strlen s)))
+            }
+        }
+        return s
+    }
+
+    sfn digits:boolean (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return ((strlen s) > 0)
+    }
+
+    ; inline Markdown as its text: [words](address) → words, ![..](..)
+    ; dropped, the marks * _ ` ~ taken out
+    sfn inline:string (t:string) {
+        def out:string ""
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt t i)
+            if ((c == 33) && ((i + 1) < n)) {
+                if ((charAt t (i + 1)) == 91) {
+                    def close:int (LinkCard.linkEnd(t (i + 1)))
+                    if (close > 0) {
+                        i = close
+                        continue
+                    }
+                }
+            }
+            if (c == 91) {
+                def mid:int (indexOfFrom t "](" i)
+                def close2:int (LinkCard.linkEnd(t i))
+                if ((mid > i) && (close2 > 0)) {
+                    out = (out + (substring t (i + 1) mid))
+                    i = close2
+                    continue
+                }
+            }
+            if ((((c == 42) || (c == 95)) || (c == 96)) || (c == 126)) {
+                i = (i + 1)
+                continue
+            }
+            out = (out + (substring t i (i + 1)))
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    ; past the ")" that ends a link opened by "[" at `at`, or -1
+    sfn linkEnd:int (t:string at:int) {
+        def mid:int (indexOfFrom t "](" at)
+        if (mid < 0) {
+            return -1
+        }
+        def close:int (indexOfFrom t ")" mid)
+        if (close < 0) {
+            return -1
+        }
+        return (close + 1)
+    }
+
+    ; a slide at rest (1-based, of the keys' view when there are keys; the
+    ; first when slide is 0) as JPEG `width` pixels wide; empty when the
+    ; deck has no card or no slide could be drawn
+    sfn image:buffer (host:McpHost id:string keys:string slide:int width:int) {
+        def none:buffer (buffer_from_string "")
+        def doc:MfJ (LinkCard.shown(host id))
+        if ((doc.isObj()) == false) {
+            return none
+        }
+        def d:PresDeck (LinkCard.deckOf(host doc id (LinkCard.keysOf(keys))))
+        def n:int (d.slideCount())
+        if (n == 0) {
+            return none
+        }
+        def groups:[int]
+        def list:string ((d.slideList((LinkCard.indexOf(slide n)) groups 0.0)).toJson())
+        return (host_render_still host list d.pageW d.pageH width)
+    }
+}

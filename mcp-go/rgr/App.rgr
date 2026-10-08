@@ -112,6 +112,104 @@ class App {
         App.sendJson(res 200 body)
     }
 
+    ; GET /s/<id>[?slide=<n>][&slides=<keys>]: the viewer's page (Hosting's
+    ; index.html) with the deck's link card in its head (LinkCard), the
+    ; slide's own with ?slide=, for the previews chat apps draw
+    ; without running the page. A private or missing deck gets the page as
+    ; it is. Without the page (the site did not answer) the reader goes to
+    ; the same viewer by #share=<id>.
+    sfn servePage:void (host:McpHost req:HttpRequest res:HttpResponse rest:string) {
+        def id:string rest
+        if ((lastIndexOf id "/") == ((strlen id) - 1)) {
+            id = (substring id 0 ((strlen id) - 1))
+        }
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            http_set_header res "Content-Type" "text/plain; charset=utf-8"
+            http_set_status res 404
+            http_send res "Not found"
+            return
+        }
+        def q:MfJ (J.parse((http_query_json req)))
+        def card:string (LinkCard.json(host id (q.str_("slides")) (App.slideOf(q))))
+        def page:string (host_viewer_page host id card)
+        if ((strlen page) == 0) {
+            http_set_header res "Cache-Control" "no-store"
+            App.redirect(res ("/#share=" + id))
+            return
+        }
+        ; the page is the same for every reader; a minute in the CDN
+        http_set_header res "Cache-Control" "public, max-age=0, s-maxage=60"
+        http_set_header res "Content-Type" "text/html; charset=utf-8"
+        http_set_status res 200
+        http_send res page
+    }
+
+    ; ?slide=<n>: a link to one slide, 1-based; 0 for none (or not a number)
+    sfn slideOf:int (q:MfJ) {
+        def n:int (?? (str2int (trim (q.str_("slide")))) 0)
+        if ((n < 1) || (n > 9999)) {
+            return 0
+        }
+        return n
+    }
+
+    ; GET /api/card/<id>.jpg?v=<stamp>[&slide=<n>][&slides=<keys>]: the
+    ; card's picture, the first slide or the one the link names.
+    ; Drawn once per change of the deck (the stamp in its address; another
+    ; stamp is sent to the current one), kept per instance and a day in the
+    ; CDN, so a link pasted in many chats is not drawn again for each.
+    sfn serveCard:void (host:McpHost req:HttpRequest res:HttpResponse rest:string) {
+        def id:string rest
+        if ((indexOf id ".jpg") == ((strlen id) - 4)) {
+            id = (substring id 0 ((strlen id) - 4))
+        }
+        def doc:MfJ (LinkCard.shown(host id))
+        if ((doc.isObj()) == false) {
+            http_set_header res "Cache-Control" "no-store"
+            App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")
+            return
+        }
+        def stamp:string (LinkCard.stamp(doc))
+        def q:MfJ (J.parse((http_query_json req)))
+        def keys:string (LinkCard.keysOf((q.str_("slides"))))
+        def slide:int (App.slideOf(q))
+        def more:string ""
+        if (slide > 1) {
+            more = ("&slide=" + (to_string slide))
+        }
+        if ((strlen keys) > 0) {
+            more = (more + "&slides=" + keys)
+        }
+        if ((q.str_("v")) != stamp) {
+            http_set_header res "Cache-Control" "public, max-age=0, s-maxage=60"
+            App.redirect(res ("/api/card/" + id + ".jpg?v=" + stamp + more))
+            return
+        }
+        def key:string (id + "-" + stamp + more)
+        def jpg:buffer (host_card_get host key)
+        if ((buffer_length jpg) == 0) {
+            if ((host_card_slot host) == false) {
+                http_set_header res "Cache-Control" "no-store"
+                http_set_header res "Retry-After" "5"
+                App.sendJson(res 503 "{\"error\":\"Busy drawing; try again in a moment.\"}")
+                return
+            }
+            jpg = (LinkCard.image(host id keys slide 1200))
+            host_render_done host "card"
+            if ((buffer_length jpg) == 0) {
+                http_set_header res "Cache-Control" "no-store"
+                App.sendJson(res 404 "{\"error\":\"This presentation has no slide to show.\"}")
+                return
+            }
+            host_card_put host key jpg
+        }
+        http_set_header res "Cache-Control" "public, max-age=86400, s-maxage=86400, immutable"
+        http_set_header res "Content-Type" "image/jpeg"
+        http_set_header res "X-Content-Type-Options" "nosniff"
+        http_set_status res 200
+        http_send_buffer res jpg
+    }
+
     ; the Google account signed in on the viewer page: a Firebase ID token
     ; as "Authorization: Bearer <token>", verified; "" without one
     sfn pageUser:string (host:McpHost req:HttpRequest) {
@@ -219,6 +317,14 @@ class App {
         }
         if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/view/") == 0)) {
             App.serveView(host req res (substring path 10 (strlen path)))
+            return
+        }
+        if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/s/") == 0)) {
+            App.servePage(host req res (substring path 3 (strlen path)))
+            return
+        }
+        if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/card/") == 0)) {
+            App.serveCard(host req res (substring path 10 (strlen path)))
             return
         }
         if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/export/") == 0)) {

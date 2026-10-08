@@ -19,7 +19,7 @@ import { currentUser, signIn, authHeaders } from "./viewauth.js";
 import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } from "./book.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
-import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
+import { linkOf, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
 const fi = /^fi\b/i.test(navigator.language || "");
@@ -39,7 +39,13 @@ for (const [id, en, fiText] of [
   ["vCount", "Go to slide… (type the number and Enter)", "Siirry diaan… (kirjoita numero ja Enter)"],
   ["vFull", "Full screen", "Koko näyttö"],
   ["vExport", "Download the presentation", "Lataa esitys"],
+  ["vShare", "Share this slide (copies its link)", "Jaa tämä dia (kopioi sen linkin)"],
 ]) document.getElementById(id).title = say(en, fiText);
+const vShare = document.getElementById("vShare");
+const vShareLabel = vShare.querySelector(".lbl");
+const SHARE_LABEL = say("Share slide", "Jaa dia");
+vShareLabel.textContent = SHARE_LABEL;
+vShare.setAttribute("aria-label", SHARE_LABEL);
 const vExport = document.getElementById("vExport");
 const vMenu = document.getElementById("vMenu");
 const EXPORT_LABEL = say("Export ▾", "Vie ▾");
@@ -49,6 +55,8 @@ vMenu.setAttribute("aria-label", say("Download as", "Lataa muodossa"));
 // the address, or the one the assistant's preview gives in <meta>
 const given = document.querySelector('meta[name="sliqtly-link"]')?.content || "";
 const link = linkOf(given ? "" : location.pathname, given ? "" : location.search, location.hash, given);
+// the assistant's preview is not at the slides' own address: no slide link
+if (given) vShare.hidden = true;
 
 const FACES = [
   ["Open Sans", "OpenSans-Regular.ttf"],
@@ -308,6 +316,37 @@ document.getElementById("vNext").addEventListener("click", () => step(1));
 document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else document.documentElement.requestFullscreen?.().catch(() => {});
+});
+
+// Share slide: the link to the slide shown, which opens at that slide and
+// whose preview in a chat app (Slack, Teams) is that slide. The phone's
+// share sheet where there is one, else copied.
+vShare.addEventListener("click", async () => {
+  if (!link?.id) return;
+  const url = slideLink(location.origin, link, at);
+  let said = say("Link copied", "Linkki kopioitu");
+  try {
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+      await navigator.share({ url, title: deck?.name || "Sliqtly" });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+  } catch (e) {
+    if (e?.name === "AbortError") return;
+    window.prompt(say("The slide's link:", "Dian linkki:"), url);
+    said = SHARE_LABEL;
+  }
+  // said on the button (its label, or ✓ where it shows the mark only)
+  // and to a screen reader
+  const mark = vShare.querySelector(".icon");
+  vShareLabel.textContent = said;
+  vShare.setAttribute("aria-label", said);
+  if (said !== SHARE_LABEL) mark.textContent = "✓";
+  setTimeout(() => {
+    mark.textContent = "⤴\uFE0E";
+    vShareLabel.textContent = SHARE_LABEL;
+    vShare.setAttribute("aria-label", SHARE_LABEL);
+  }, 2000);
 });
 
 // Export ▾: the deck as a PDF, a PowerPoint file or its Markdown, made on

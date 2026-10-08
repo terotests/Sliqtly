@@ -274,6 +274,8 @@ var fakeNet = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Res
 		return respond(200, "image/png", string(PNG)), nil
 	case "https://client.test/meta.json":
 		return respond(200, "application/json", `{"client_id":"https://client.test/meta.json","client_name":"Test Client","redirect_uris":["https://client.test/cb"]}`), nil
+	case BASE + "/index.html":
+		return respond(200, "text/html", viewerPage), nil
 	case BASE + "/__/firebase/init.json":
 		return respond(200, "application/json", `{"projectId":"sliqtly-test","apiKey":"k"}`), nil
 	case "https://images.test/page.html":

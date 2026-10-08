@@ -10,6 +10,8 @@ const ID = /^[A-Za-z0-9]{6,32}$/;
  * { md: true } for a link that carries the Markdown itself (#md=…), which
  * this page cannot lay out, or null for the front page.
  *   /s/{id}[?slides=a,b][#slide=3]
+ *   /s/{id}?slide=3  one slide's link (Share slide): the server reads it too
+ *                (its link card, mcp-go/linkcard.go); #slide= wins
  *   #share={id}  the same where the page has no address of its own: the
  *                assistant's preview (mcp-go/assets/preview.html) gives it in
  *                <meta name="sliqtly-link">, passed here as `given`
@@ -20,13 +22,26 @@ export function linkOf(pathname, search, hash, given = "") {
   const at = slide > 0 ? slide - 1 : 0;
   const m = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(pathname || "");
   if (m) {
-    const slides = new URLSearchParams(search || "").get("slides");
-    return { id: m[1], slides: slides || "", slide: at };
+    const q = new URLSearchParams(search || "");
+    const named = parseInt(q.get("slide") || "", 10);
+    return { id: m[1], slides: q.get("slides") || "", slide: slide > 0 || !(named > 0) ? at : named - 1 };
   }
   const share = h.get("share");
   if (share && ID.test(share)) return { id: share, slides: "", slide: at };
   if (h.has("md")) return { md: true };
   return null;
+}
+
+/**
+ * The link to slide `at` (0-based) of `link` on `origin`: /s/{id}?slide=n,
+ * with the picked slides' keys. The slide is in the query, not the hash, so
+ * a chat app's preview (which never sees a hash) shows that slide.
+ */
+export function slideLink(origin, link, at) {
+  const q = new URLSearchParams();
+  if (link.slides) q.set("slides", link.slides);
+  q.set("slide", String(at + 1));
+  return origin + "/s/" + link.id + "?" + q.toString();
 }
 
 /** The address of the slides of `link` (GET, answered by View.rgr). */

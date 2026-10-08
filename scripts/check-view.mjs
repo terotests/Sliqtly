@@ -174,6 +174,22 @@ try {
   page = await open("/s/" + ID + "#slide=3");
   await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
   if ((await text(page, "vCount")) !== `3 / ${slides}`) fail("#slide=3 did not open on slide 3");
+  // Share slide: the link to the slide shown, in the query (the server's
+  // link card reads it; a chat app never sees a hash), copied
+  await page.evaluate(() => {
+    window.__copied = "";
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t) => { window.__copied = t; } } });
+  });
+  await page.click("#vShare");
+  await page.waitForFunction(() => /copied|kopioitu/i.test(document.getElementById("vShare").textContent), null, { timeout: 5000 })
+    .catch(() => fail("Share slide did not say the link was copied"));
+  const shared = await page.evaluate(() => window.__copied);
+  if (!shared.endsWith("/s/" + ID + "?slide=3")) fail("Share slide copied " + JSON.stringify(shared));
+  await page.close();
+  // …and that link opens on its slide
+  page = await open("/s/" + ID + "?slide=4");
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  if ((await text(page, "vCount")) !== `4 / ${slides}`) fail("?slide=4 did not open on slide 4");
   await page.close();
 
   // one that is not there

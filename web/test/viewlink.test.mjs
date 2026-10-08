@@ -1,13 +1,22 @@
 // node --test: the public viewer's addresses and keys (web/viewlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkOf, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
+import { linkOf, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
 
 test("/s/{id} is a shared presentation, its picked slides and the slide shown", () => {
   assert.deepEqual(linkOf("/s/AbCdEf1234", "", ""), { id: "AbCdEf1234", slides: "", slide: 0 });
   assert.deepEqual(linkOf("/s/AbCdEf1234/", "?slides=intro,plan", "#slide=3"), { id: "AbCdEf1234", slides: "intro,plan", slide: 2 });
   // the editor's ?edit is gone: the presentation is shown
   assert.equal(linkOf("/s/AbCdEf1234", "?edit", "").id, "AbCdEf1234");
+});
+
+test("one slide's link: ?slide= in the query, which the server's link card reads", () => {
+  assert.equal(linkOf("/s/AbCdEf1234", "?slide=4", "").slide, 3);
+  // the hash, which the viewer writes as one moves on, wins
+  assert.equal(linkOf("/s/AbCdEf1234", "?slide=4", "#slide=2").slide, 1);
+  assert.equal(linkOf("/s/AbCdEf1234", "?slide=x", "").slide, 0);
+  assert.equal(slideLink("https://sliqtly.com", { id: "AbCdEf1234", slides: "" }, 2), "https://sliqtly.com/s/AbCdEf1234?slide=3");
+  assert.equal(slideLink("https://sliqtly.com", { id: "AbCdEf1234", slides: "a,b" }, 0), "https://sliqtly.com/s/AbCdEf1234?slides=a%2Cb&slide=1");
 });
 
 test("the assistant's preview gives the link in <meta>", () => {

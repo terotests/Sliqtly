@@ -64,7 +64,12 @@ test("the site is the viewer's build, not the editor's", () => {
 test("a shared presentation is the viewer's page, its slides the server's", () => {
   const rw = hosting().rewrites;
   const at = (src) => rw.findIndex((r) => r.source === src);
-  assert.equal(rw[at("/s/**")].destination, "/index.html");
+  // the page comes through the server, which writes the deck's link card
+  // (og:title, og:image) into the site's index.html (mcp-go/linkcard.go)
+  assert.equal(rw[at("/s/**")].run.serviceId, "sliqtly-mcp");
+  assert.equal(rw[at("/api/card/**")].run.serviceId, "sliqtly-mcp");
+  // the server sets the page's Cache-Control (a minute in the CDN)
+  assert.ok(!hosting().headers.some((h) => h.source === "/s/**"));
   assert.equal(rw[at("/api/view/**")].run.serviceId, "sliqtly-mcp");
   // the first rule that matches wins
   assert.ok(at("/api/view/**") < at("/s/**"));

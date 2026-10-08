@@ -147,6 +147,8 @@ type Env struct {
 	themes   map[string]string
 	webCfg   string            // the site's /__/firebase/init.json once it has been read
 	cache    map[string]string // host_cache_put: the day's visit salt
+	// the viewer's page and the link cards' pictures (linkcard.go)
+	cards linkCards
 }
 
 // The whole server as one handler.
