@@ -116,7 +116,7 @@ var roomTools = []roomTool{
 			"offset":   map[string]any{"type": "integer", "description": "Skip this many (next_offset of the page before)"},
 		}},
 	{name: "get_room", title: "Show a room", readOnly: true,
-		desc:     "A room's members, presentations (deck_id and name) and links.",
+		desc:     "A room's members, folders (folder_id, name, how many presentations), presentations (deck_id, name and folder_id, \"\" at the room's top) and links.",
 		props:    map[string]any{"room_id": strProp("room_id from list_rooms")},
 		required: []string{"room_id"}},
 	{name: "create_room", title: "Create a room",
@@ -132,9 +132,21 @@ var roomTools = []roomTool{
 		props:    map[string]any{"room_id": strProp("The room")},
 		required: []string{"room_id"}},
 	{name: "move_presentation", title: "Move a presentation to a room",
-		desc:     "Make room_id the presentation's home room. Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new room at once. → the room it came from (from_room_id), the new room's name, and moved false when it was there already",
-		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to")},
+		desc:     "Make room_id the presentation's home room, at its top or into one of its folders (folder_id). Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new place at once. → the room and folder it came from (from_room_id, from_folder_id), the new room's and folder's names, and moved false when it was there already",
+		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to"), "folder_id": strProp("A folder of that room (get_room lists them, create_folder makes one); leave out for the room's top")},
 		required: []string{"deck_id", "room_id"}},
+	{name: "create_folder", title: "Create a folder in a room",
+		desc:     "Make a folder in a room (one level, no folders in folders), e.g. \"Testing\" for a room's test presentations, then move them there with move_presentation folder_id. Editors of the room, General and Playground too. A name the room has already (any case) is that folder. → folder_id, made false when it was there",
+		props:    map[string]any{"room_id": strProp("The room"), "name": strProp("The folder's name, at most 100 characters")},
+		required: []string{"room_id", "name"}},
+	{name: "rename_folder", title: "Rename a folder",
+		desc:     "Give a room's folder a new name (not one another folder of the room has).",
+		props:    map[string]any{"room_id": strProp("The room"), "folder_id": strProp("The folder"), "name": strProp("Its new name")},
+		required: []string{"room_id", "folder_id", "name"}},
+	{name: "delete_folder", title: "Delete a folder", destructive: true,
+		desc:     "Remove a room's folder. Its presentations are not deleted: they are at the room's top again. → how many moved",
+		props:    map[string]any{"room_id": strProp("The room"), "folder_id": strProp("The folder")},
+		required: []string{"room_id", "folder_id"}},
 	{name: "set_room_member", title: "Set a room member's role", destructive: true,
 		desc:     "Give a user or group a role in a room (owners only): viewer reads, editor also changes presentations, owner also manages members. An empty role removes them; the last owner stays.",
 		props:    map[string]any{"room_id": strProp("The room"), "member": strProp("user:<id> or group:<id>"), "role": map[string]any{"type": "string", "enum": []string{"viewer", "editor", "owner", ""}}},
@@ -278,6 +290,7 @@ func (s *roomService) callVia(ctx context.Context, uid, via, op string, a map[st
 var roomListChanges = map[string]bool{
 	"create_room": true, "update_room": true, "delete_room": true,
 	"archive_room": true, "move_presentation": true,
+	"create_folder": true, "rename_folder": true, "delete_folder": true,
 }
 
 type roomRow struct {
@@ -292,6 +305,9 @@ type roomRow struct {
 	Role     string `json:"role"`
 	Archived bool   `json:"archived"`
 	Decks    int    `json:"presentations"`
+	// the newest chat message's number (0 none): a page shows the room as
+	// having unread messages while it is above the one it read up to
+	ChatSeq int64 `json:"chat_seq,omitempty"`
 }
 
 type linkRow struct {
@@ -338,6 +354,11 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			rows = append(rows, row)
 		}
 		page, total := q.pick(rows)
+		if s.chat != nil {
+			for i := range page {
+				page[i].ChatSeq, _ = s.chat.Last(ctx, p.TenantID, page[i].RoomID)
+			}
+		}
 		out := map[string]any{"rooms": page, "total": total, "order": q.Order}
 		if next := q.Offset + len(page); next < total {
 			out["next_offset"] = next
@@ -368,7 +389,15 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			Owner   string `json:"owner,omitempty"`
 			Updated int64  `json:"updated"`
 			Inherit bool   `json:"inherit_room_files"`
+			Folder  string `json:"folder_id"`
 		}
+		type folderRow struct {
+			FolderID string `json:"folder_id"`
+			Name     string `json:"name"`
+			Decks    int    `json:"presentations"`
+		}
+		fs := store.FoldersOf(d)
+		inFolder := map[string]int{}
 		decks := []deckRow{}
 		for _, it := range items {
 			at := millisOf(it.Doc["updated"])
@@ -377,7 +406,17 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			}
 			name, _ := it.Doc["name"].(string)
 			owner, _ := it.Doc["owner"].(string)
-			decks = append(decks, deckRow{it.ID, name, owner, at, it.Doc[store.InheritField] == true})
+			// a folder that is gone is the room's top
+			folder, _ := it.Doc[store.FolderField].(string)
+			if !store.HasFolder(fs, folder) {
+				folder = ""
+			}
+			inFolder[folder]++
+			decks = append(decks, deckRow{it.ID, name, owner, at, it.Doc[store.InheritField] == true, folder})
+		}
+		folders := []folderRow{}
+		for _, f := range fs {
+			folders = append(folders, folderRow{f.ID, f.Name, inFolder[f.ID]})
 		}
 		sort.SliceStable(decks, func(i, j int) bool { return decks[i].Updated > decks[j].Updated })
 		links, err := s.linksOf(ctx, p, store.Ref{Kind: "room", ID: id})
@@ -385,7 +424,7 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			return nil, err
 		}
 		row := roomRowOf(id, role, d, len(decks))
-		return map[string]any{"room": row, "members": members, "presentations": decks, "links": links}, nil
+		return map[string]any{"room": row, "members": members, "folders": folders, "presentations": decks, "links": links}, nil
 
 	case "create_room":
 		title := argStr(a, "title")
@@ -454,28 +493,102 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		return map[string]any{"deleted": true}, nil
 
 	case "move_presentation":
-		deck, room := argStr(a, "deck_id"), argStr(a, "room_id")
+		deck, room, folder := argStr(a, "deck_id"), argStr(a, "room_id"), argStr(a, "folder_id")
 		if p.Rooms[room] == store.NoRole {
 			return nil, store.ErrNotFound
 		}
-		from := ""
-		_, _, err := s.st.Update(ctx, p, "shares", deck, func(cur store.Doc, _ store.Rev) (store.Doc, error) {
+		rd, _, err := s.rooms.Get(ctx, p, room)
+		if err != nil {
+			return nil, err
+		}
+		fs := store.FoldersOf(rd)
+		if folder != "" && !store.HasFolder(fs, folder) {
+			return nil, roomErr{"no folder " + folder + " in that room: get_room lists its folders, create_folder makes one"}
+		}
+		from, fromFolder := "", ""
+		_, _, err = s.st.Update(ctx, p, "shares", deck, func(cur store.Doc, _ store.Rev) (store.Doc, error) {
 			if cur == nil {
 				return nil, store.ErrNotFound
 			}
 			from, _ = cur[store.RoomField].(string)
+			fromFolder, _ = cur[store.FolderField].(string)
 			cur[store.RoomField] = room
+			if folder != "" {
+				cur[store.FolderField] = folder
+			} else {
+				delete(cur, store.FolderField)
+			}
 			return cur, nil
 		})
 		if err != nil {
 			return nil, err
 		}
+		// from another room, or a folder that is gone: from_folder_id is
+		// only ever one of this room's
+		if from != room || !store.HasFolder(fs, fromFolder) {
+			fromFolder = ""
+		}
 		// what the assistant tells the user: from where to where, by name
-		out := map[string]any{"deck_id": deck, "room_id": room, "from_room_id": from, "moved": from != room}
-		if d, _, err := s.rooms.Get(ctx, p, room); err == nil {
-			out["room"], _ = d["title"].(string)
+		out := map[string]any{"deck_id": deck, "room_id": room, "from_room_id": from, "folder_id": folder, "from_folder_id": fromFolder, "moved": from != room || fromFolder != folder}
+		out["room"], _ = rd["title"].(string)
+		for _, f := range fs {
+			if f.ID == folder {
+				out["folder"] = f.Name
+			}
 		}
 		return out, nil
+
+	case "create_folder":
+		room := argStr(a, "room_id")
+		id, made := "", false
+		err := s.rooms.EditFolders(ctx, p, room, func(fs []store.Folder) ([]store.Folder, error) {
+			out, fid, m, err := store.AddFolder(fs, argStr(a, "name"), store.NewFolderID)
+			id, made = fid, m
+			return out, err
+		})
+		if err != nil {
+			return nil, folderErr(err)
+		}
+		return map[string]any{"folder_id": id, "made": made}, nil
+
+	case "rename_folder":
+		room, id := argStr(a, "room_id"), argStr(a, "folder_id")
+		err := s.rooms.EditFolders(ctx, p, room, func(fs []store.Folder) ([]store.Folder, error) {
+			return store.RenameFolder(fs, id, argStr(a, "name"))
+		})
+		if err != nil {
+			return nil, folderErr(err)
+		}
+		return map[string]any{"ok": true}, nil
+
+	case "delete_folder":
+		room, id := argStr(a, "room_id"), argStr(a, "folder_id")
+		err := s.rooms.EditFolders(ctx, p, room, func(fs []store.Folder) ([]store.Folder, error) {
+			return store.RemoveFolder(fs, id)
+		})
+		if err != nil {
+			return nil, folderErr(err)
+		}
+		// its presentations are at the room's top again
+		items, err := s.st.Query(ctx, p, store.Query{From: "shares", Where: store.And{store.Eq(store.RoomField, room), store.Eq(store.FolderField, id)}})
+		if err != nil {
+			return nil, err
+		}
+		moved := 0
+		for _, it := range items {
+			_, _, err := s.st.Update(ctx, p, "shares", it.ID, func(cur store.Doc, _ store.Rev) (store.Doc, error) {
+				if cur == nil || cur[store.RoomField] != room || cur[store.FolderField] != id {
+					return cur, nil
+				}
+				delete(cur, store.FolderField)
+				return cur, nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			moved++
+		}
+		return map[string]any{"deleted": true, "moved": moved}, nil
 
 	case "set_room_member":
 		role := store.Role(argStr(a, "role"))
@@ -528,6 +641,17 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		return map[string]any{"links": links}, nil
 	}
 	return nil, roomErr{"no such operation: " + op}
+}
+
+// a folder's error as the caller is told it
+func folderErr(err error) error {
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrDenied) {
+		return err
+	}
+	if err != nil && strings.HasPrefix(err.Error(), "store: ") {
+		return roomErr{strings.TrimPrefix(err.Error(), "store: ")}
+	}
+	return err
 }
 
 func roomRowOf(id string, role store.Role, d store.Doc, decks int) roomRow {

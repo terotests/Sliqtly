@@ -3818,6 +3818,7 @@ class PresApp {
         if (focus == "room") {
             focus = "editor"
             room.ch.keys = ""
+            room.closeMenu()
             room.changed()
         }
         if (PresApp.panelLayer(top)) {
@@ -9315,6 +9316,17 @@ class PresApp {
         return true
     }
 
+    ; A room's "+ New folder" (`id` "") or a folder's gear: the folder's
+    ; window, its name. Save is "newdeck-create" with the plan's "ask"
+    ; "folder", "room" the folder's id and "act" ("" save, "delete").
+    fn openFolderDialog:boolean (id:string name:string) {
+        if ((this.openDupDeck(name)) == false) {
+            return false
+        }
+        chart.openFolder(id name chart.x chart.y W H)
+        return true
+    }
+
     fn openDupDeck:boolean (name:string) {
         if (mode == "present") {
             return false
@@ -10642,6 +10654,19 @@ class PresApp {
         this.syncEditor()
         this.selectSlide((deck.pageOfOffset((this.offsetOf(start 0)))))
         chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; --- the room chat's message menu ---------------------------------------------
+    ; A right click on the open room's chat: the menu of the message under
+    ; it. True when x, y is on the chat (no other menu there).
+    fn roomMenuAt:boolean (x:double y:double) {
+        this.place()
+        if (((room.open == false) || (mode == "present")) || ((this.layerAt(x y)) != "room")) {
+            return false
+        }
+        room.menuAt(x y)
+        this.afterRoom()
         return true
     }
 
