@@ -1397,7 +1397,10 @@ async function roomsRequest(r) {
     await roomsRequest("room:decks:" + room);
     return;
   } else if (action === "newfolder") {
-    folderFor = { room: what, id: "" };
+    // "<room>" from the room's row, "<room>:<deck>" from a presentation's
+    // Move to folder: the new folder then takes that presentation
+    const [room, ...deckParts] = rest;
+    folderFor = { room, id: "", deck: deckParts.join(":") };
     app.openFolderDialog("", "");
   } else if (action === "folderset") {
     const [room, folder] = rest;
@@ -1433,6 +1436,7 @@ async function roomsRequest(r) {
       if (made) {
         foldersOpen.add(room + "/" + made);
         keepFoldersOpen();
+        if (at.deck) await roomsRequest("room:file:" + room + ":" + made + ":" + at.deck);
       }
     }
     if (roomShown === room) await roomsRequest("room:decks:" + room);
