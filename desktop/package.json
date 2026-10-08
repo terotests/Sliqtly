@@ -3,21 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Sliqtly Editor: a native (SDL2 + OpenGL) and web editor for Sliqtly decks, one Ranger app",
+  "description": "Sliqtly, native: the browser editor (src/PresApp.rgr + EVGUI) compiled to C++ in an SDL2 + OpenGL window; the old:* scripts build the first REST-client editor (src/EditorApp.rgr)",
   "type": "module",
   "scripts": {
     "deps": "rgrc install",
-    "web": "node scripts/build-web.mjs && node web/serve.mjs",
-    "web:build": "node scripts/build-web.mjs",
-    "native": "node scripts/build-native.mjs",
-    "native:run": "node scripts/build-native.mjs --run",
-    "native:check": "node scripts/check-native.mjs",
+    "native": "node scripts/build-editor-native.mjs",
+    "native:run": "node scripts/build-editor-native.mjs --run",
+    "native:check": "node scripts/check-editor-native.mjs",
     "icon": "node scripts/make-icon.mjs",
-    "mock": "node test/mock-server.mjs",
     "test": "node test/run-tests.mjs",
-    "editor:native": "node scripts/build-editor-native.mjs",
-    "editor:native:run": "node scripts/build-editor-native.mjs --run",
-    "editor:native:check": "node scripts/check-editor-native.mjs"
+    "old:web": "node scripts/build-web.mjs && node web/serve.mjs",
+    "old:web:build": "node scripts/build-web.mjs",
+    "old:native": "node scripts/build-native.mjs",
+    "old:native:run": "node scripts/build-native.mjs --run",
+    "old:native:check": "node scripts/check-native.mjs",
+    "old:mock": "node test/mock-server.mjs"
   },
   "devDependencies": {
     "ranger-compiler": "4.0.2"
