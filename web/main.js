@@ -6958,9 +6958,17 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
-// A right click on a slide of the strip: New, Duplicate, Move, Delete.
+// A right click on a slide of the strip: New, Duplicate, Move, Delete; on
+// a room's chat, a message's menu.
 canvas.addEventListener("contextmenu", (ev) => {
   const [x, y] = at(ev);
+  // on a room's chat: the message's menu (React, Reply, Quote, Copy, Edit, Delete)
+  if (app.roomMenuAt(x, y)) {
+    ev.preventDefault();
+    closeHint();
+    afterInput();
+    return;
+  }
   if (!app.slideMenuAt(x, y)) return;
   ev.preventDefault();
   closeHint();

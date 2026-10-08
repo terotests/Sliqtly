@@ -273,6 +273,9 @@ export class RoomChat {
       const args = { room_id: room, text: text.join("\t"), thread_id: thread || undefined, as: this.as() };
       if (files.length) args.files = files;
       await call("post_room_message", args);
+    } else if (what === "edit") {
+      const [id, ...text] = f;
+      await call("post_room_message", { room_id: room, message_id: id, text: text.join("\t"), as: this.as() });
     } else if (what === "attach") {
       const files = await this.d.pickFiles();
       if (files && files.length) await this.attach(files, f[0] === "thread");

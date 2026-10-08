@@ -163,6 +163,9 @@ test("requests go to the server as the person", async () => {
   assert.deepEqual(w.calls[6], ["update_room", { room_id: "r1", description: "New words" }]);
   await w.chat.request("link\thttps://example.com");
   assert.deepEqual(w.links, ["https://example.com"]);
+  // the message menu's Edit: one's own message gets its new text
+  await w.chat.request("edit\tm1\tfixed\ttext");
+  assert.deepEqual(w.calls.at(-1), ["post_room_message", { room_id: "r1", message_id: "m1", text: "fixed\ttext", as: w.chat.as() }]);
   await w.chat.request("channel\tgeneral");
   assert.deepEqual(w.log.at(-1), ["room", "r2"]);
   await w.chat.request("channel\tnowhere");
