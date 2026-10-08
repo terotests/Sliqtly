@@ -76,10 +76,12 @@
 .theme-retro .tb-icon-room-new { stroke: var(--retro-ink); }
 .theme-retro .tb-icon-roomgear { stroke: var(--retro-ink-dim); }
 .theme-retro .tb-room-open { background-color: var(--retro-screen-3); }
+.theme-retro .tb-room-open:hover { background-color: var(--retro-screen-3); }
 .theme-retro .tb-room-name { color: var(--retro-ink); }
 .theme-retro .tb-room-count { color: var(--retro-ink-dim); }
 .theme-retro .tb-roomdeck-label { color: var(--retro-ink-dim); }
 .theme-retro .tb-roomdeck-current { background-color: var(--retro-screen-3); border: 1px solid var(--retro-shell-b); }
+.theme-retro .tb-roomdeck-current:hover { background-color: var(--retro-screen-3); }
 .theme-retro .tb-roomdeck-act { color: var(--retro-hot-b); }
 .theme-retro .tb-rooms-sep { background-color: var(--retro-screen-3); }
 .theme-retro .tb-rooms-note { color: var(--retro-ink-dim); }
@@ -118,6 +120,11 @@
   border-radius: 10px;
   color: var(--retro-btn-ink);
 }
+.theme-retro .thumb:hover { background-color: var(--retro-ink-dim); }
+.theme-retro .thumb-on:hover { background-color: var(--accent); }
+.theme-retro .thumb-picked:hover { background-color: #f59e0b; }
+.theme-retro .thumb-add:hover,
+.theme-retro .thumb-add-btn:hover { background: linear-gradient(180deg, var(--retro-hot-a), var(--retro-hot-b)); }
 .theme-retro .sp-clock { color: var(--retro-hot-b); }
 
 /* --- help and files panels ---------------------------------------------------- */
@@ -216,6 +223,7 @@
 .theme-retro .ui-window-handle-dragging { background: linear-gradient(180deg, var(--retro-hot-a), var(--retro-hot-b)); }
 .theme-retro .ui-window-title { color: var(--retro-btn-ink); font-weight: 700; }
 .theme-retro .ui-window-close { color: var(--retro-btn-ink); }
+.theme-retro .ui-window-close:hover { background-color: rgba(255, 255, 255, 0.3); }
 .theme-retro .ce-body { color: var(--retro-ink); }
 .theme-retro .ce-foot,
 .theme-retro .hp-foot { border-top: 1px solid var(--retro-screen-3); }

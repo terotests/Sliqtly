@@ -31,6 +31,7 @@
 .ui-window-handle-dragging { background-color: #fafafa; }
 .ui-window-title { font-family: Open Sans; font-size: 14px; font-weight: 600; color: #09090b; }
 .ui-window-close { font-family: Open Sans; font-size: 18px; color: #71717a; padding: 0 16px; height: 44px; line-height: 44px; }
+.ui-window-close:hover { color: #18181b; background-color: #f4f4f5; }
 .ui-window-body { padding: 0; }
 
 .ce-body {
@@ -72,6 +73,8 @@
 .theme-ce .ui-tablist { gap: 2px; padding: 3px; background-color: #f4f4f5; border-radius: 8px; }
 .theme-ce .ui-tab { border: 1px solid rgba(0,0,0,0); background-color: rgba(0,0,0,0); color: #71717a; padding: 5px 14px; border-radius: 6px; font-family: Open Sans; font-size: 13px; }
 .theme-ce .ui-tab-state-active { background-color: #ffffff; color: #09090b; border-color: #e4e4e7; }
+.theme-ce .ui-tab:hover { background-color: rgba(0, 0, 0, 0.04); color: #3f3f46; }
+.theme-ce .ui-tab-state-active:hover { background-color: #ffffff; color: #09090b; }
 .theme-ce .ui-tabpanel { display: none; }
 
 /* buttons: black primary, white outline, quiet ghost */
@@ -82,6 +85,13 @@
 .theme-ce .ui-button-ghost { background-color: rgba(0,0,0,0); color: #3f3f46; border-color: rgba(0,0,0,0); }
 .theme-ce .ui-button-disabled { opacity: 0.4; }
 .theme-ce .ui-button-label { font-weight: 500; font-size: 13px; color: #09090b; }
+/* under the pointer: each variant a step deeper in its own colour (the kit's
+   own hover colours are blue-grey, and `:hover` outranks these plain rules) */
+.theme-ce .ui-button:hover { background-color: #f4f4f5; }
+.theme-ce .ui-button-primary:hover { background-color: #3f3f46; border-color: #3f3f46; }
+.theme-ce .ui-button-secondary:hover { background-color: #f4f4f5; }
+.theme-ce .ui-button-ghost:hover { background-color: rgba(0, 0, 0, 0.05); }
+.theme-ce .ui-button-danger:hover { background-color: #b91c1c; border-color: #b91c1c; }
 .theme-ce .ce-onprimary { color: #fafafa; }
 .theme-ce .ce-small { height: 30px; padding: 0 12px; }
 .theme-ce .ce-chip { height: 28px; padding: 0 10px; }
@@ -222,6 +232,7 @@
 }
 .cp-iconbtn:hover { background-color: #f4f4f5; }
 .cp-iconbtn-on { background-color: #f7e4da; border-color: #b4532a; }
+.cp-iconbtn-on:hover { background-color: #f7e4da; }
 
 /* The current colour over a two-square checkerboard. */
 .cp-current {
@@ -396,8 +407,10 @@
 .theme-ce .ui-input-text { white-space: nowrap; }
 /* The card is rebuilt on every change, so a transition would replay from its
    start each time (a checked switch sliding in again, a pressed control
-   squeezing): state is shown at once instead. */
-.theme-ce .ui-switch-track, .theme-ce .ui-switch-thumb, .theme-ce .ui-tab, .theme-ce .ui-slider-thumb, .theme-ce .ui-checkbox-box, .theme-ce .ui-button { transition: none; }
+   squeezing): state is shown at once instead, a hover colour too (a transition held it at
+   its start, so a select or a menu item showed no hover at all). */
+.theme-ce .ui-switch-track, .theme-ce .ui-switch-thumb, .theme-ce .ui-tab, .theme-ce .ui-slider-thumb, .theme-ce .ui-checkbox-box, .theme-ce .ui-button,
+.theme-ce .ui-select-trigger, .theme-ce .ui-select-item, .theme-ce .ui-menubar-trigger, .theme-ce .ui-menubar-item, .theme-ce .ui-dropdownmenu-item, .theme-ce .ui-contextmenu-item, .theme-ce .ui-toolbar-button, .theme-ce .ui-toggle, .theme-ce .ui-dialog-trigger, .theme-ce .ui-popover-trigger, .theme-ce .ui-navmenu-trigger, .theme-ce .ui-sortable-item { transition: none; }
 .theme-ce .ui-switch-track:active, .theme-ce .ui-tab:active, .theme-ce .ui-checkbox-box:active { transform: none; }
 .theme-ce .ui-button-state-pressed { transform: none; }
 .theme-ce .ui-switch-thumb-state-checked { transform: translate(18px, 0); }
