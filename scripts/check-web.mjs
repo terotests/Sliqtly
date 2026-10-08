@@ -2692,6 +2692,44 @@ try {
     // the room's chat was over the work area: the new deck shows instead
     const chatGone = await until(() => !window.__app.roomChatOpen());
     check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
+    // a right click on a presentation in Rooms: the File menu's rows for it;
+    // one that is not open opens first, then the row acts on it
+    await R(`t("tb-room-general");`);
+    await until(() => window.__app.toolbar.roomOpen === "general");
+    await until(() => window.__app.toolbar.roomDecks.split("\n").some((l) => { const p = l.split("\t"); return p[0] && !p[3] && p[2] !== "1"; }));
+    const other = await R(`const row = a.toolbar.roomDecks.split("\\n").map((l) => l.split("\\t")).find((p) => p[0] && !p[3] && p[2] !== "1");
+      const e = row && tb("tb-roomdeck-d-" + row[0]);
+      return e ? { id: row[0], at: at(e) } : null;`);
+    const cr2 = await rp.evaluate(() => { const c = document.getElementById("c").getBoundingClientRect(); return [c.left, c.top]; });
+    if (other) await rp.mouse.click(cr2[0] + other.at[0], cr2[1] + other.at[1], { button: "right" });
+    const deckRows = await R(`return ["deckOpen", "duplicate", "save", "export", "aiClaude", "docset", "deleteDeck"].map((v) => !!tb("tb-m-ctx-item-" + v));`);
+    const dupRow = await R(`const e = tb("tb-m-ctx-item-duplicate"); return e ? at(e) : null;`);
+    if (dupRow) await rp.mouse.click(cr2[0] + dupRow[0], cr2[1] + dupRow[1]);
+    const dupOpen = await until((id) => { const a = window.__app; return a.deckTabFront() === id && a.chart.isOpen && a.chart.mode === "newdeck"; }, other && other.id, 20000);
+    await R(`a.key("escape", false, false);`);
+    // the open one has no Open row
+    const curRow = await R(`const row = a.toolbar.roomDecks.split("\\n").map((l) => l.split("\\t")).find((p) => p[2] === "1");
+      const e = row && tb("tb-roomdeck-d-" + row[0]);
+      return e ? at(e) : null;`);
+    if (curRow) await rp.mouse.click(cr2[0] + curRow[0], cr2[1] + curRow[1], { button: "right" });
+    const curRows = await R(`return [!!tb("tb-m-ctx-item-deckOpen"), !!tb("tb-m-ctx-item-docset")];`);
+    await R(`a.key("escape", false, false);`);
+    check("…a right click on a presentation in Rooms opens the File menu's rows for it; Duplicate opens that deck and asks the copy's name", !!other && deckRows.every(Boolean) && dupOpen && !!curRow && !curRows[0] && curRows[1], JSON.stringify({ other, deckRows, dupOpen, curRow, curRows }));
+    // the open deck's tab has the same menu; Rename makes the name at the
+    // start of the bar a field, and the new name shows in the room's list
+    const tabAt = await R(`a.chromeJson();
+      const id = "decktabs-tab-" + a.deckTabFront();
+      const w = (el) => { if (!el) return null; if (el.id === id) return el; for (let i = 0; i < el.getChildCount(); i++) { const f = w(el.getChild(i)); if (f) return f; } return null; };
+      const e = w(a.chromeRoot);
+      return e ? at(e) : null;`);
+    if (tabAt) await rp.mouse.click(cr2[0] + tabAt[0], cr2[1] + tabAt[1], { button: "right" });
+    const tabRows = await R(`return [!!tb("tb-m-ctx-item-deckOpen"), !!tb("tb-m-ctx-item-rename"), !!tb("tb-m-ctx-item-deleteDeck")];`);
+    const renRow = await R(`const e = tb("tb-m-ctx-item-rename"); return e ? at(e) : null;`);
+    if (renRow) await rp.mouse.click(cr2[0] + renRow[0], cr2[1] + renRow[1]);
+    const renField = await until(() => window.__app.toolbar.titleEditing);
+    await R(`a.text("Menu renamed"); a.key("enter", false, false);`);
+    const listed = await until(() => window.__app.toolbar.roomDecks.split("\n").some((l) => { const p = l.split("\t"); return p[2] === "1" && p[1] === "Menu renamed"; }));
+    check("…a deck's tab has the same menu; Rename edits the name, and the room's list shows the new name", !!tabAt && !tabRows[0] && tabRows[1] && tabRows[2] && renField && listed, JSON.stringify({ tabAt, tabRows, renField, listed }));
     // the search row: a field whose text lists the rooms found
     await rp.evaluate((findJs) => {
       const a = window.__app;
