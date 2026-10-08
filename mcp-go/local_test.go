@@ -203,6 +203,9 @@ func TestLocalServer(t *testing.T) {
 	code, _, body = get(t, srv.URL+"/api/export/"+id+"/md")
 	eq(t, code, 200)
 	match(t, body, `# Hello`)
+	// a link's card picture, which a room chat elsewhere draws (linkcard.go)
+	code, ct, body = get(t, srv.URL+"/api/card/"+id+".jpg?slide=2")
+	eq(t, []any{code, ct, len(body) > 1000}, []any{200, "image/jpeg", true})
 	// the decks are not listed until listing is turned on
 	for _, p := range []string{"/", "/decks"} {
 		code, _, body = get(t, srv.URL+p)

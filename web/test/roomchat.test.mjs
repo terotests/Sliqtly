@@ -25,7 +25,7 @@ function world({ own = true } = {}) {
     roomChatAbout: (ht, title, ha, about) => w.log.push(["about", ht, title, ha, about]),
     roomChatDeck: (id, name) => w.log.push(["deck", id, name]),
     roomChatLastSeq: () => w.last,
-    roomChatPictures: (pattern) => w.log.push(["pictures", pattern]),
+    roomChatPictures: (pattern, linkPattern, own) => w.log.push(["pictures", pattern, linkPattern, own]),
     roomChatUploading: (th, n) => w.log.push(["uploading", th, n]),
     roomChatPending: (th, name, url, type, size, pw, ph) => w.log.push(["pending", th, name, url, type, size, pw, ph]),
   };
@@ -85,7 +85,9 @@ test("opening a room shows its channel, loads it and says one is here", async ()
   assert.deepEqual(shown, ["show", "r1", "PAY 817", "Retry", false, ""]);
   assert.deepEqual(w.log.find((l) => l[0] === "read"), ["read", 2]);
   assert.deepEqual(w.log.find((l) => l[0] === "channels"), ["channels", "general"]);
-  assert.deepEqual(w.log.find((l) => l[0] === "pictures"), ["pictures", "/s/{deck}/{slide}.jpg"]);
+  // a deck of this server by its own address; one shared on another Sliqtly
+  // (sliqtly.com) by that one's link card picture
+  assert.deepEqual(w.log.find((l) => l[0] === "pictures"), ["pictures", "/s/{deck}/{slide}.jpg", "{origin}/api/card/{deck}.jpg?slide={slide}", ""]);
   assert.deepEqual(w.calls.map((c) => c[0]).slice(0, 2), ["read_room_chat", "chat_here"]);
   assert.equal(w.calls[1][1].as.name, "Ada");
   await new Promise((r) => setTimeout(r, 0));
