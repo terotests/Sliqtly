@@ -1303,5 +1303,9 @@
   "A folder keeps some of a room's presentations together, e.g. its test decks. Drag a presentation onto the folder to file it there.": "Kansio pitää osan huoneen esityksistä yhdessä, esimerkiksi testiesitykset. Vedä esitys kansion päälle siirtääksesi sen sinne.",
   "Delete folder": "Poista kansio",
   "Its presentations move to the room's top; none of them is deleted.": "Sen esitykset siirtyvät huoneen ylätasolle; mitään niistä ei poisteta.",
-  "Folder deleted. Its presentations are at the room's top.": "Kansio poistettu. Sen esitykset ovat huoneen ylätasolla."
+  "Folder deleted. Its presentations are at the room's top.": "Kansio poistettu. Sen esitykset ovat huoneen ylätasolla.",
+  "A slide's own data": "Dian oma tieto",
+  "## Revenue {jira=ACME-412 owner=Tero}": "## Myynti {jira=ACME-412 owner=Tero}",
+  "A key Sliqtly does not know is the slide's own data: a ticket number, an owner, a status. It is not drawn, it stays with the slide, and a header or footer prints it as {jira}. The presenter's screen shows it. meta-width=wide carries a key Sliqtly would otherwise read as a setting.": "Avain, jota Sliqtly ei tunne, on dian omaa tietoa: tiketin numero, vastuuhenkilö, tila. Sitä ei piirretä, se kulkee dian mukana, ja ylä- tai alatunniste tulostaa sen muodossa {jira}. Esittäjän näyttö näyttää sen. meta-width=wide kantaa avaimen, jonka Sliqtly muuten lukisi asetukseksi.",
+  "On a slide's heading: the slide's own data, e.g. a ticket number. It is not drawn, it travels with the slide, and a header or footer can print it as ": "Dian otsikossa: dian omaa tietoa, esimerkiksi tiketin numero. Sitä ei piirretä, se kulkee dian mukana, ja ylä- tai alatunniste voi tulostaa sen muodossa "
 }

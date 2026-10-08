@@ -1088,6 +1088,51 @@ class PresCheck {
         this.ok(((PresCheck.texts(last "3 / 3")) == 1) "that slide keeps its footer")
     }
 
+    ; A slide's own data in its heading: `## Revenue {jira=ACME-412}`.
+    ; Carried, never drawn, printable in a footer, and findable.
+    fn slideMeta:void () {
+        def text:string ("---\nslide-split-level: 2\nfooter-right: \"{jira} · {page} / {pages}\"\n---\n\n"
+            + "## Myynti {jira=ACME-412 owner=Tero}\n\nKasvoi 18 %.\n\n"
+            + "## Kulut {jira=ACME-413}\n\nEnnallaan.\n\n"
+            + "## Näkymä {transtion=fade}\n\nHyvä.\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) "three slides with data")
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        this.ok(((s0.meta.value("jira")) == "ACME-412") ("meta: the ticket, got " + (s0.meta.value("jira"))))
+        this.ok(((s0.meta.value("owner")) == "Tero") "meta: the owner")
+        this.ok(((deck.slideMetaValue(1 "jira")) == "ACME-413") "meta: the deck answers per slide")
+        this.ok(((deck.slideMetaValue(2 "jira")) == "") "meta: a slide without it carries none")
+        def keys:[string] (deck.metaKeysUsed())
+        this.ok(((array_length keys) == 3) ("meta: three keys over the deck, got " + (to_string (array_length keys))))
+        def found:[int] (deck.slidesWithMeta("jira" "ACME-413"))
+        this.ok((((array_length found) == 1) && ((itemAt found 0) == 1)) "meta: a slide is found by its ticket")
+        def any:[int] (deck.slidesWithMeta("jira" ""))
+        this.ok(((array_length any) == 2) "meta: both slides with a ticket are found")
+        ; the slide itself says nothing about it; the footer does
+        def first:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(first "ACME-412 · 1 / 3")) == 1) "meta: the footer prints the ticket")
+        this.ok(((PresCheck.texts(first "jira=ACME-412")) == 0) "meta: nothing drawn on the slide")
+        def last:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok(((PresCheck.texts(last "3 / 3")) == 1) "meta: a slide without the key keeps its numbers")
+        this.ok(((PresCheck.texts(last "· 3 / 3")) == 0) "meta: and no separator hanging")
+        ; a misspelt engine key is kept and named
+        def warn:[string] (deck.slideMetaWarnings())
+        this.ok(((array_length warn) == 1) ("meta: one warning, got " + (to_string (array_length warn))))
+        if ((array_length warn) > 0) {
+            this.ok(((indexOf (itemAt warn 0) "transtion") >= 0) "meta: the warning names the key")
+        }
+        def notes:[string] (deck.slideMetaNotes())
+        this.ok(((array_length notes) == 3) ("meta: a report line per slide with data, got " + (to_string (array_length notes))))
+        ; and the key hint says what it is rather than nothing
+        this.ok(((strlen (PresHints.attrDoc("jira"))) > 0) "meta: a key Sliqtly does not know gets a hint")
+        this.ok(((strlen (PresHints.attrDoc("transition"))) > 0) "meta: an engine key keeps its own hint")
+    }
+
     ; --- the theme's cascade (PresCascade), against what the layout draws ---------
     sfn hexOf:string (v:string) {
         def c:EVGColor (CssValue.color(v))
@@ -3499,6 +3544,7 @@ class PresCheck {
         def c (new PresCheck())
         c.run()
         c.edges()
+        c.slideMeta()
         c.cascade()
         c.chartMotion()
         c.chartLooks()

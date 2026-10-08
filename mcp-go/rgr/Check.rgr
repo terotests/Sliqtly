@@ -348,6 +348,11 @@ class Check {
         for (d.chartStyleNotes()) csn:string csi {
             push c.warnings (Guide.see(csn "charts"))
         }
+        ; a heading key one character from one Sliqtly knows: kept as the
+        ; slide's own data, which is not what `{transtion=fade}` meant
+        for (d.slideMetaWarnings()) smw:string smi {
+            push c.warnings (Guide.see(smw "layout"))
+        }
         for (d.htmlNotes()) hn:string hi {
             push c.warnings (Guide.see(hn "text"))
         }
