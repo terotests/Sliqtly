@@ -334,6 +334,11 @@ func TestLocalWebAndAPI(t *testing.T) {
 	var f map[string]any
 	json.Unmarshal([]byte(body), &f)
 	eq(t, f["url"], base+"/files/shares/"+id+"/media/dot.png")
+	eq(t, f["sha"], fileSha(PNG), "the file's version is named")
+	_, again := req(t, "PUT", srv.URL+"/api/files/shares/"+id+"/media/other.png", "image/png", string(PNG)+"x")
+	var f2 map[string]any
+	json.Unmarshal([]byte(again), &f2)
+	eq(t, f2["sha"] != f["sha"], true, "another content, another version")
 	code, ct, got := get(t, srv.URL+"/files/shares/"+id+"/media/dot.png")
 	eq(t, []any{code, ct, got == string(PNG)}, []any{200, "image/png", true})
 
