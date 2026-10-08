@@ -2387,6 +2387,38 @@ try {
   check("…its width, from its slider", ce.sized, JSON.stringify(ce));
   check("…its height, from its own slider, the width kept", ce.heightOnly, JSON.stringify(ce));
 
+  // A dropdown at the window's foot opens its list past the frame: a press on
+  // a row out there chooses it, and the window stays (it used to close)
+  const past = await page.evaluate(() => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.setSource("# D\n\n## O\n\n```vega-lite\n{\"data\": {\"values\": [{\"f\": \"A\", \"u\": 90}, {\"f\": \"B\", \"u\": 75}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"f\", \"type\": \"nominal\"}, \"y\": {\"field\": \"u\", \"type\": \"quantitative\"}}}\n```\n");
+    a.openChartEditor(5);
+    const c = a.chart;
+    const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+    const press = (id) => { a.chartJson(); const e = walk(c.host.lastPage, id); a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); };
+    press("ce-tabs-tab-ulkoasu");
+    c.y = 40;
+    c.rebuild();
+    press("ce-effect-trigger");
+    a.chartJson();
+    const f = c.win.frameEl;
+    const foot = f.calculatedY + f.calculatedHeight;
+    const rows = [];
+    (function w(e) { if (e.id && e.id.startsWith("ce-effect-item-")) rows.push(e); (e.children || []).forEach(w); })(c.host.lastPage);
+    const out = rows.find((e) => e.calculatedY > foot + 2);
+    let res = { foot, rows: rows.map((e) => Math.round(e.calculatedY)) };
+    if (out) {
+      a.pointerDown(out.calculatedX + 6, out.calculatedY + 6, false, 1);
+      a.pointerUp();
+      res = { ...res, row: out.id, open: a.chartIsOpen(), effect: c.model.effect };
+    }
+    a.key("escape", false, false);
+    a.setSource(src0);
+    return res;
+  });
+  check("…a Style row hanging below the window is chosen, the window stays", !!past.row && past.open && "ce-effect-item-" + past.effect === past.row, JSON.stringify(past));
+
   // A click on the fence's `vega-lite` opens the chart editor, not the language list
   {
     const src0 = await page.evaluate(() => window.__app.source());
