@@ -120,6 +120,11 @@ class PresSlide {
     def fxValues:[string]
     def notes:string ""
     def audio:string ""
+    ; THE SLIDE'S OWN DATA, from the keys on its heading the engine does not
+    ; know: `## Revenue {jira=ACME-412 owner=Tero}` (MdSlideMeta). Nothing
+    ; draws it; it is read back per slide, `{jira}` in a header or a footer
+    ; prints it, and an assistant can ask which slide carries a ticket.
+    def meta:MdSlideMeta (new MdSlideMeta())
     ; the first and last source offsets laid out on this slide
     def srcStart:int -1
     def srcEnd:int -1
@@ -1522,6 +1527,69 @@ class PresDeck {
         return out
     }
 
+    ; ----------------------------------------------------------------------
+    ; A slide's own data
+    ; ----------------------------------------------------------------------
+    ;
+    ; `## Revenue {jira=ACME-412}`: what the engine does not claim belongs to
+    ; the document (MdSlideMeta). Read back here so a host — the editor, an
+    ; export, an assistant over MCP — can ask which slide carries what.
+
+    fn slideMetaValue:string (i:int key:string) {
+        if ((i < 0) || (i >= (array_length slides))) { return "" }
+        def s:PresSlide (itemAt slides i)
+        return (s.meta.value(key))
+    }
+
+    ; The slides carrying `key`, and `value` when one is given ("" = any).
+    fn slidesWithMeta:[int] (key:string value:string) {
+        def out:[int]
+        def want:string (trim value)
+        for slides sl:PresSlide si {
+            if (sl.meta.has(key)) {
+                if (((strlen want) == 0) || ((sl.meta.value(key)) == want)) {
+                    push out si
+                }
+            }
+        }
+        return out
+    }
+
+    ; Every key any slide carries, each once, in the order they appear.
+    fn metaKeysUsed:[string] () {
+        def out:[string]
+        for slides sl:PresSlide si {
+            def i:int 0
+            while (i < (sl.meta.count())) {
+                def k:string (itemAt sl.meta.keys i)
+                if ((indexOf out k) < 0) {
+                    push out k
+                }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; The presentation's own data: front matter keys the engine does not
+    ; read (`jira: ACME-400`). A slide's own value goes over it in `{jira}`.
+    fn deckMeta:MdSlideMeta () {
+        def l:MdLayout (this.layout())
+        return l.deckMeta
+    }
+
+    ; One line per slide that carries data, and one per key that looks like a
+    ; misspelt engine key — the report's business (MdLayout keeps both).
+    fn slideMetaNotes:[string] () {
+        def l:MdLayout (this.layout())
+        return (l.slideMetaNotes())
+    }
+
+    fn slideMetaWarnings:[string] () {
+        def l:MdLayout (this.layout())
+        return (l.slideMetaWarnings())
+    }
+
     ; A chart's commands from `before` on, dressed for the stage: in a look,
     ; or the theme's way (`PresChart.dress`).
     ; The slide a chart is being dressed on, for its paper (a slide rule can
@@ -2745,6 +2813,7 @@ class PresDeck {
 
     fn readHeading:void (s:PresSlide h:MdNode) {
         s.id = h.nodeId
+        s.meta = (MdSlideMeta.of(h))
         if (h.hasAttr("transition")) {
             s.transition = (h.attrValue("transition"))
         }

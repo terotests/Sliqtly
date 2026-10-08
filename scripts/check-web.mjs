@@ -4817,6 +4817,34 @@ try {
     check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
     check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
     check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
+    // the presentation's own data (front matter keys Sliqtly does not
+    // read): a row a key, + Data adds one, and the footer prints it
+    const dd = await pd.evaluate(async () => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      // the window the page's pick opened above goes first, so this one
+      // reads this source
+      if (a.chartIsOpen()) a.key("escape", false, false);
+      a.setSource("---\ntitle: Q3\njira: ACME-400\nfooter-right: \"{jira} · {page}\"\n---\n\n# Cover\n");
+      a.showTab("md");
+      a.openDocSettings("");
+      a.chartJson();
+      const out = { row: !!walk(a.chart.host.lastPage, "ds-dk-0") && !walk(a.chart.host.lastPage, "ds-dk-1") };
+      tap(a.chart.host.lastPage, "ds-dadd");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-dk-1");
+      a.text("Owner");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-dv-1");
+      a.text("Tero");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-title");
+      out.src = a.source().split("\n").slice(0, 6).join("|");
+      a.key("escape", false, false);
+      return out;
+    });
+    check("Document settings: the presentation's data as rows, + Data writes a new key", dd.row && dd.src === "---|title: Q3|jira: ACME-400|footer-right: \"{jira} · {page}\"|owner: Tero|---", JSON.stringify(dd));
     await pd.close();
   }
 

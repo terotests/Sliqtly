@@ -1088,6 +1088,60 @@ class PresCheck {
         this.ok(((PresCheck.texts(last "3 / 3")) == 1) "that slide keeps its footer")
     }
 
+    ; A slide's own data in its heading: `## Revenue {jira=ACME-412}`.
+    ; Carried, never drawn, printable in a footer, and findable.
+    fn slideMeta:void () {
+        def text:string ("---\nslide-split-level: 2\nfooter-right: \"{jira} · {page} / {pages}\"\n---\n\n"
+            + "## Myynti {jira=ACME-412 owner=Tero}\n\nKasvoi 18 %.\n\n"
+            + "## Kulut {jira=ACME-413}\n\nEnnallaan.\n\n"
+            + "## Näkymä {transtion=fade}\n\nHyvä.\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) "three slides with data")
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        this.ok(((s0.meta.value("jira")) == "ACME-412") ("meta: the ticket, got " + (s0.meta.value("jira"))))
+        this.ok(((s0.meta.value("owner")) == "Tero") "meta: the owner")
+        this.ok(((deck.slideMetaValue(1 "jira")) == "ACME-413") "meta: the deck answers per slide")
+        this.ok(((deck.slideMetaValue(2 "jira")) == "") "meta: a slide without it carries none")
+        def keys:[string] (deck.metaKeysUsed())
+        this.ok(((array_length keys) == 3) ("meta: three keys over the deck, got " + (to_string (array_length keys))))
+        def found:[int] (deck.slidesWithMeta("jira" "ACME-413"))
+        this.ok((((array_length found) == 1) && ((itemAt found 0) == 1)) "meta: a slide is found by its ticket")
+        def any:[int] (deck.slidesWithMeta("jira" ""))
+        this.ok(((array_length any) == 2) "meta: both slides with a ticket are found")
+        ; the slide itself says nothing about it; the footer does
+        def first:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(first "ACME-412 · 1 / 3")) == 1) "meta: the footer prints the ticket")
+        this.ok(((PresCheck.texts(first "jira=ACME-412")) == 0) "meta: nothing drawn on the slide")
+        def last:EVGDisplayList (PresTimeline.finalFrame(deck 2))
+        this.ok(((PresCheck.texts(last "3 / 3")) == 1) "meta: a slide without the key keeps its numbers")
+        this.ok(((PresCheck.texts(last "· 3 / 3")) == 0) "meta: and no separator hanging")
+        ; a misspelt engine key is kept and named
+        def warn:[string] (deck.slideMetaWarnings())
+        this.ok(((array_length warn) == 1) ("meta: one warning, got " + (to_string (array_length warn))))
+        if ((array_length warn) > 0) {
+            this.ok(((indexOf (itemAt warn 0) "transtion") >= 0) "meta: the warning names the key")
+        }
+        def notes:[string] (deck.slideMetaNotes())
+        this.ok(((array_length notes) == 3) ("meta: a report line per slide with data, got " + (to_string (array_length notes))))
+        ; the presentation's own data in the front matter: a slide's value
+        ; goes over it, the rest of the slides get it
+        def fm:string ("---\nslide-split-level: 2\njira: ACME-400\nfooter-right: \"{jira}\"\n---\n\n## Eka {jira=ACME-412}\n\nA\n\n## Toka\n\nB\n")
+        def fd (new PresDeck())
+        fd.setText(fm)
+        PresTimeline.planAll(fd)
+        this.ok(((fd.deckMeta().value("jira")) == "ACME-400") "meta: the presentation's ticket")
+        this.ok(((PresCheck.texts((PresTimeline.finalFrame(fd 0)) "ACME-412")) == 1) "meta: a slide's own ticket over the deck's")
+        this.ok(((PresCheck.texts((PresTimeline.finalFrame(fd 1)) "ACME-400")) == 1) "meta: the deck's on a slide without one")
+        ; and the key hint says what it is rather than nothing
+        this.ok(((strlen (PresHints.attrDoc("jira"))) > 0) "meta: a key Sliqtly does not know gets a hint")
+        this.ok(((strlen (PresHints.attrDoc("transition"))) > 0) "meta: an engine key keeps its own hint")
+    }
+
     ; --- the theme's cascade (PresCascade), against what the layout draws ---------
     sfn hexOf:string (v:string) {
         def c:EVGColor (CssValue.color(v))
@@ -1609,6 +1663,34 @@ class PresCheck {
         d3.build()
         def one:string ((this.outOf(d3 "style")) + "|" + (this.outOf(d3 "chart-style")) + "|" + (this.outOf(d3 "diagram-style")))
         this.ok((one == "neon||") ("docset: the same style, one style: key: " + one))
+
+        ; the presentation's own data: the front matter keys Sliqtly does
+        ; not read, shown as rows, written back as keys
+        def dm (new MdMeta())
+        MdFrontMatter.parseInto("title: Q3\nlang: fi\njira: ACME-400\nowner: Tero\nmeta-theme: internal" dm)
+        def dd (new PresDocSettings())
+        dd.read(dm)
+        this.ok(((array_length dd.dataKeys) == 3) ("docset data: three rows, got " + (to_string (array_length dd.dataKeys))))
+        this.ok((((itemAt dd.dataKeys 0) == "jira") && ((itemAt dd.dataVals 0) == "ACME-400")) "docset data: the ticket")
+        this.ok(((indexOf dd.dataKeys "title") < 0) "docset data: title is not a data row")
+        this.ok(((indexOf dd.dataKeys "lang") < 0) "docset data: nor lang")
+        ; change one, take one out, add one with a key typed loosely
+        set dd.dataVals 0 "ACME-401"
+        dd.removeData(1)
+        dd.addData()
+        set dd.dataKeys 2 "Sprint Name"
+        set dd.dataVals 2 "Syksy 2"
+        dd.addData()
+        set dd.dataKeys 3 "Title"
+        set dd.dataVals 3 "not the title"
+        dd.build()
+        this.ok(((this.outOf(dd "jira")) == "ACME-401") "docset data: a value changed")
+        this.ok(((this.outOf(dd "owner")) == "") "docset data: a row taken out is taken out")
+        this.ok(((this.outOf(dd "meta-theme")) == "internal") "docset data: meta- kept as written")
+        this.ok(((this.outOf(dd "sprint-name")) == "Syksy 2") "docset data: a typed key made a key")
+        this.ok(((this.outOf(dd "meta-title")) == "not the title") "docset data: a key Sliqtly reads is written meta-")
+        this.ok(((this.outOf(dd "title")) == "Q3") "docset data: and the title stays the title")
+        this.ok(((PresDocSettings.dataKey("  ")) == "") "docset data: an empty key is no key")
     }
 
     fn outOf:string (d:PresDocSettings k:string) {
@@ -3499,6 +3581,7 @@ class PresCheck {
         def c (new PresCheck())
         c.run()
         c.edges()
+        c.slideMeta()
         c.cascade()
         c.chartMotion()
         c.chartLooks()

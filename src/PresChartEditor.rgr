@@ -1870,6 +1870,7 @@ class PresChartEditor {
             this.inputWith("ds-title" (PresI18n.t("Title")) ds.title (PresI18n.t("Write a title…")) "ce-wide" nr)
             sec.addChild(nr)
             sec.addChild((this.text("ce-doc" (PresI18n.t("{title} in a header or footer, and the name of an exported file.")))))
+            this.dataSection(pane)
             def sec2:EVGElement (this.section(pane (PresI18n.t("Transition"))))
             def tc:EVGElement (this.div("ce-chips"))
             def kinds:[string] (strsplit "fade,slide,zoom,none" ",")
@@ -1921,6 +1922,28 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; The presentation's own data: front matter keys of the user's own, such
+    ; as a ticket number (PresDocSettings.dataKeys), a key and a value a row.
+    fn dataSection:void (pane:EVGElement) {
+        def sec:EVGElement (this.section(pane (PresI18n.t("Data"))))
+        def grid:EVGElement (this.div("ce-grid"))
+        def i:int 0
+        while (i < (array_length ds.dataKeys)) {
+            def row:EVGElement (this.div("ce-gridrow"))
+            this.inputWith(("ds-dk-" + (to_string i)) (PresI18n.t("Name")) (itemAt ds.dataKeys i) "jira" "ce-cat" row)
+            this.inputWith(("ds-dv-" + (to_string i)) (PresI18n.t("Value")) (itemAt ds.dataVals i) "ACME-412" "ce-flowlabel" row)
+            def x0:ButtonCtl (this.button(("ds-ddel-" + (to_string i)) "×" "ghost" row))
+            UiTree.addClass((unwrap x0.rootEl) "ce-x")
+            grid.addChild(row)
+            i = (i + 1)
+        }
+        sec.addChild(grid)
+        def foot:EVGElement (this.div("ce-row"))
+        this.button("ds-dadd" (PresI18n.t("+ Data")) "outline" foot)
+        sec.addChild(foot)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("Your own keys, e.g. a ticket number. They are not drawn; {jira} in a header or footer prints one. A slide's heading can have its own: ## Title {jira=ACME-413}.")))))
     }
 
     fn edgePane:void (pane:EVGElement e:int) {
@@ -2101,6 +2124,19 @@ class PresChartEditor {
                 v = ""
             }
             ds.transition = v
+            changed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "ds-dadd") {
+            ds.addData()
+            focusTid = ("ds-dk-" + (to_string ((array_length ds.dataKeys) - 1)))
+            this.rebuild()
+            return true
+        }
+        if ((indexOf tid "ds-ddel-") == 0) {
+            ds.removeData((?? (str2int (substring tid 8 (strlen tid))) -1))
+            focusTid = ""
             changed = true
             this.rebuild()
             return true
@@ -3857,6 +3893,18 @@ class PresChartEditor {
         }
         if (focusTid == "ds-title") {
             ds.title = v
+        }
+        if ((indexOf focusTid "ds-dk-") == 0) {
+            def dk:int (?? (str2int (substring focusTid 6 (strlen focusTid))) -1)
+            if ((dk >= 0) && (dk < (array_length ds.dataKeys))) {
+                set ds.dataKeys dk v
+            }
+        }
+        if ((indexOf focusTid "ds-dv-") == 0) {
+            def dv:int (?? (str2int (substring focusTid 6 (strlen focusTid))) -1)
+            if ((dv >= 0) && (dv < (array_length ds.dataVals))) {
+                set ds.dataVals dv v
+            }
         }
         if ((indexOf focusTid "ds-t-") == 0) {
             def n:int (?? (str2int (substring focusTid 5 (strlen focusTid))) -1)

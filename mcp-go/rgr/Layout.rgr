@@ -158,6 +158,7 @@ class Layout {
         rs.index = i
         def ps:PresSlide (d.slideAt(i))
         rs.title = ps.title
+        rs.meta = (ps.meta.asText())
         rs.w = d.pageW
         rs.h = d.pageH
         def l:MdLayout (d.layout())
