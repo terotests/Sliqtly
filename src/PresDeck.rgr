@@ -1571,6 +1571,13 @@ class PresDeck {
         return out
     }
 
+    ; The presentation's own data: front matter keys the engine does not
+    ; read (`jira: ACME-400`). A slide's own value goes over it in `{jira}`.
+    fn deckMeta:MdSlideMeta () {
+        def l:MdLayout (this.layout())
+        return l.deckMeta
+    }
+
     ; One line per slide that carries data, and one per key that looks like a
     ; misspelt engine key — the report's business (MdLayout keeps both).
     fn slideMetaNotes:[string] () {

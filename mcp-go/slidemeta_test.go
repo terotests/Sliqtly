@@ -15,7 +15,7 @@ func TestSlideMetadataInHeading(t *testing.T) {
 	f := fakeFirebase()
 	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s.close()
-	md := "---\nslide-split-level: 2\nfooter-right: \"{jira} · {page} / {pages}\"\n---\n\n" +
+	md := "---\nslide-split-level: 2\njira: ACME-400\nowner: Tero\nfooter-right: \"{jira} · {page} / {pages}\"\n---\n\n" +
 		"## Revenue {jira=ACME-412 owner=Tero}\n\nUp 18 %.\n\n" +
 		"## Costs {jira=ACME-413}\n\nFlat.\n\n" +
 		"## Outlook {transtion=fade}\n\nGood.\n"
@@ -26,7 +26,13 @@ func TestSlideMetadataInHeading(t *testing.T) {
 	out := sc(c)
 	eq(t, out["slides"], 3)
 
+	// the presentation's own data, from the front matter keys Sliqtly does
+	// not read; title and the footer's keys are not data
+	eq(t, out["data"], "jira=ACME-400 owner=Tero")
 	rep := textOf(c)
+	if !strings.Contains(rep, "Presentation data: jira=ACME-400 owner=Tero") {
+		t.Fatalf("the presentation's data is not in the result:\n%s", rep)
+	}
 	if !strings.Contains(rep, "- data: jira=ACME-412 owner=Tero") {
 		t.Fatalf("the first slide's data is not in the report:\n%s", rep)
 	}

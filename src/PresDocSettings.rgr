@@ -35,6 +35,13 @@ class PresDocSettings {
     def color:[string]
     def band:[string]
     def size:[string]
+    ; THE PRESENTATION'S OWN DATA: front matter keys Sliqtly does not read
+    ; (`jira: ACME-400`, MdSlideMeta.isDeckDataKey), as written, in order;
+    ; `dataWas` the keys read, so a row taken out or renamed is taken out of
+    ; the front matter too
+    def dataKeys:[string]
+    def dataVals:[string]
+    def dataWas:[string]
     ; what `build` made
     def outKeys:[string]
     def outVals:[string]
@@ -44,6 +51,12 @@ class PresDocSettings {
     }
 
     fn clear:void () {
+        def dk:[string]
+        dataKeys = dk
+        def dv:[string]
+        dataVals = dv
+        def dw:[string]
+        dataWas = dw
         def t:[string]
         texts = t
         def l:[string]
@@ -100,6 +113,16 @@ class PresDocSettings {
 
     fn read:void (meta:MdMeta) {
         this.clear()
+        def mi:int 0
+        while (mi < (array_length meta.keys)) {
+            def mk:string (itemAt meta.keys mi)
+            if (MdSlideMeta.isDeckDataKey(mk)) {
+                push dataKeys mk
+                push dataVals (itemAt meta.values mi)
+                push dataWas mk
+            }
+            mi = (mi + 1)
+        }
         title = (meta.get("title" ""))
         transition = (meta.get("transition" ""))
         def both:string (trim (meta.get("style" "")))
@@ -188,11 +211,91 @@ class PresDocSettings {
         push outVals v
     }
 
+    ; A key as typed into the window, as the front matter can hold it:
+    ; lowercase, a space as `-`, nothing but letters, digits, `-` and `_`.
+    ; A key Sliqtly reads itself (`title`) is written `meta-title`, so the
+    ; data does not change the presentation's title. "" when nothing is left.
+    sfn dataKey:string (typed:string) {
+        def t:string (MdChar.lower((trim typed)))
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if ((((c >= 97) && (c <= 122)) || ((c >= 48) && (c <= 57))) || ((c == 45) || (c == 95))) {
+                out = (out + (substring t i (i + 1)))
+            } {
+                if ((c == 32) && ((strlen out) > 0)) {
+                    out = (out + "-")
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return ""
+        }
+        if ((MdSlideMeta.isDeckDataKey(out)) == false) {
+            return ("meta-" + out)
+        }
+        return out
+    }
+
+    fn addData:void () {
+        push dataKeys ""
+        push dataVals ""
+    }
+
+    fn removeData:void (i:int) {
+        if ((i < 0) || (i >= (array_length dataKeys))) {
+            return
+        }
+        def ks:[string]
+        def vs:[string]
+        def j:int 0
+        while (j < (array_length dataKeys)) {
+            if (j != i) {
+                push ks (itemAt dataKeys j)
+                push vs (itemAt dataVals j)
+            }
+            j = (j + 1)
+        }
+        dataKeys = ks
+        dataVals = vs
+    }
+
     fn build:void () {
         def ok:[string]
         outKeys = ok
         def ov:[string]
         outVals = ov
+        ; the data first: a key read and no longer in a row goes out, then
+        ; each row with a key, in order (an empty value takes it out too)
+        def kept:[string]
+        def r:int 0
+        while (r < (array_length dataKeys)) {
+            def key:string (PresDocSettings.dataKey((itemAt dataKeys r)))
+            if (((strlen key) > 0) && ((indexOf kept key) < 0)) {
+                push kept key
+            }
+            r = (r + 1)
+        }
+        def w:int 0
+        while (w < (array_length dataWas)) {
+            def was:string (itemAt dataWas w)
+            if ((indexOf kept was) < 0) {
+                this.put(was "")
+            }
+            w = (w + 1)
+        }
+        def put:[string]
+        def q:int 0
+        while (q < (array_length dataKeys)) {
+            def key2:string (PresDocSettings.dataKey((itemAt dataKeys q)))
+            if (((strlen key2) > 0) && ((indexOf put key2) < 0)) {
+                push put key2
+                this.put(key2 (trim (itemAt dataVals q)))
+            }
+            q = (q + 1)
+        }
         this.put("title" title)
         this.put("transition" transition)
         ; one `style:` when the two agree, else a key for each

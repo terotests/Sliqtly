@@ -1304,8 +1304,11 @@
   "Delete folder": "Poista kansio",
   "Its presentations move to the room's top; none of them is deleted.": "Sen esitykset siirtyvät huoneen ylätasolle; mitään niistä ei poisteta.",
   "Folder deleted. Its presentations are at the room's top.": "Kansio poistettu. Sen esitykset ovat huoneen ylätasolla.",
-  "A slide's own data": "Dian oma tieto",
-  "## Revenue {jira=ACME-412 owner=Tero}": "## Myynti {jira=ACME-412 owner=Tero}",
-  "A key Sliqtly does not know is the slide's own data: a ticket number, an owner, a status. It is not drawn, it stays with the slide, and a header or footer prints it as {jira}. The presenter's screen shows it. meta-width=wide carries a key Sliqtly would otherwise read as a setting.": "Avain, jota Sliqtly ei tunne, on dian omaa tietoa: tiketin numero, vastuuhenkilö, tila. Sitä ei piirretä, se kulkee dian mukana, ja ylä- tai alatunniste tulostaa sen muodossa {jira}. Esittäjän näyttö näyttää sen. meta-width=wide kantaa avaimen, jonka Sliqtly muuten lukisi asetukseksi.",
-  "On a slide's heading: the slide's own data, e.g. a ticket number. It is not drawn, it travels with the slide, and a header or footer can print it as ": "Dian otsikossa: dian omaa tietoa, esimerkiksi tiketin numero. Sitä ei piirretä, se kulkee dian mukana, ja ylä- tai alatunniste voi tulostaa sen muodossa "
+  "Value": "Arvo",
+  "+ Data": "+ Tieto",
+  "Your own keys, e.g. a ticket number. They are not drawn; {jira} in a header or footer prints one. A slide's heading can have its own: ## Title {jira=ACME-413}.": "Omat avaimesi, esimerkiksi tiketin numero. Niitä ei piirretä; {jira} ylä- tai alatunnisteessa tulostaa sen. Dian otsikossa voi olla oma arvonsa: ## Otsikko {jira=ACME-413}.",
+  "Your own data": "Omat tiedot",
+  "---   jira: ACME-400   ---      ## Revenue {jira=ACME-412}": "---   jira: ACME-400   ---      ## Myynti {jira=ACME-412}",
+  "A key Sliqtly does not know is your own data: a ticket number, an owner, a status. In the front matter it is the presentation's (File → Document settings → Data), on a heading one slide's, and the slide's goes over the presentation's. It is not drawn; a header or footer prints it as {jira}, and the presenter's screen shows a slide's. meta-title: … carries a key Sliqtly would otherwise read as a setting.": "Avain, jota Sliqtly ei tunne, on omaa tietoasi: tiketin numero, vastuuhenkilö, tila. Alkutiedoissa (front matter) se koskee koko esitystä (Tiedosto → Asiakirjan asetukset → Tiedot), otsikossa yhtä diaa, ja dian arvo menee esityksen arvon edelle. Sitä ei piirretä; ylä- tai alatunniste tulostaa sen muodossa {jira}, ja esittäjän näyttö näyttää dian arvon. meta-title: … kantaa avaimen, jonka Sliqtly muuten lukisi asetukseksi.",
+  "Your own data, e.g. a ticket number: in the front matter for the presentation, on a heading for one slide. It is not drawn; a header or footer prints it as ": "Omaa tietoasi, esimerkiksi tiketin numero: alkutiedoissa koko esitykselle, otsikossa yhdelle dialle. Sitä ei piirretä; ylä- tai alatunniste tulostaa sen muodossa "
 }

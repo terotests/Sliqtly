@@ -107,7 +107,7 @@ Blocks are laid out top to bottom under the heading.
 | Text over a picture | `## T {bg=media/x.jpg}` and `{container=box}` under the text, or `bg-dim=0.4–0.8` |
 | A speech bubble | `{container=bubble}` |
 | A slide with its heading hidden | `## Name {heading=hidden}` (the name stays in the overview) |
-| A ticket number or owner kept with a slide | `## Name {jira=ACME-412 owner=Tero}` (data, not drawn) |
+| A ticket number or owner kept with the deck or a slide | `jira: ACME-400` in the front matter, `## Name {jira=ACME-412}` on a slide (data, not drawn) |
 | Photos in a grid or one per slide | `gallery` fence (topic `pictures`) |
 
 - `.center` / `.right` / `.left` set a heading's or paragraph's lines
@@ -201,15 +201,18 @@ const total = sum(rows);
 - Text beside a picture or chart, or in a column, is set as large as the
   slide has room for, as text alone on a slide is.
 
-## A slide's own data
+## Your own data
 
-A key on a slide's heading that Sliqtly does not know is the deck's own
-data: `## Revenue {jira=ACME-412 owner=Tero}`. It is not drawn; it stays
-with the slide, the layout report lists it as `- data: jira=ACME-412`, and
-a header or footer can print it (`footer-right: "{jira}"`). `meta-<key>`
-is data whatever it is called, for a key Sliqtly would otherwise read as a
-setting (`{meta-width=wide}`). A key one letter from a setting Sliqtly
-knows (`{transtion=fade}`) is kept as data and comes back as a warning.
+A front matter key Sliqtly does not read is the presentation's own data
+(`jira: ACME-400`, `owner: Tero`); a key on a slide's heading is that
+slide's (`## Revenue {jira=ACME-412}`), and goes over the presentation's.
+Neither is drawn. The result names the presentation's as `Presentation
+data: jira=ACME-400` and the layout report a slide's as
+`- data: jira=ACME-412`; a header or footer prints one
+(`footer-right: "{jira}"`). `meta-<key>` is data whatever it is called, for
+a key Sliqtly would otherwise read as a setting (`meta-title:`,
+`{meta-width=wide}`). A key one letter from one Sliqtly knows (`tilte:`,
+`{transtion=fade}`) is kept as data and comes back as a warning.
 
 ## Headers and footers
 
