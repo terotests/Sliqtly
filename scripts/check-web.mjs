@@ -4785,6 +4785,9 @@ try {
       const a = window.__app;
       const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
       const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      // the window the page's pick opened above goes first, so this one
+      // reads this source
+      if (a.chartIsOpen()) a.key("escape", false, false);
       a.setSource("---\ntitle: Q3\njira: ACME-400\nfooter-right: \"{jira} · {page}\"\n---\n\n# Cover\n");
       a.showTab("md");
       a.openDocSettings("");
