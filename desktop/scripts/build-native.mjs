@@ -18,14 +18,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync, execSync, spawnSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import { MAC, cxx, sdl2, glFlags, macFlags, macApp } from "./native-link.mjs";
 import { ROOT, install, compile, evgDir } from "./ranger.mjs";
 
 const NATIVE = path.join(ROOT, "native");
 const BUILD = path.join(NATIVE, "build");
 const argv = process.argv.slice(2);
 const runAt = argv.indexOf("--run");
-const MAC = process.platform === "darwin";
 const APP_NAME = "Sliqtly Editor";
 const BUNDLE_ID = "com.sliqtly.editor";
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
@@ -50,27 +50,7 @@ static const char* EDITOR_CSS = ${raw(fs.readFileSync(path.join(ROOT, "assets", 
 console.log("  2/3 assets/editor.css -> native/build/assets.h");
 
 // --- 3. The binary ---------------------------------------------------------------
-const has = (cmd) => spawnSync("sh", ["-c", `command -v ${cmd}`]).status === 0;
-const cxx = process.env.CXX || (MAC ? ["clang++", "g++"] : ["g++", "clang++"]).find(has);
-if (!cxx) die("no C++ compiler (clang++ / g++) found");
-// macOS: the oldest system the app opens on. Without it the binary takes the
-// build machine's version (a Tahoe runner made an app nothing older opens).
-const MAC_MIN = "11.0";
-// SDL2_FRAMEWORK: the official SDL2.framework (universal, built for old
-// systems) linked and copied into the bundle, so the app needs no Homebrew.
-// Without it pkg-config's SDL2 is linked, which is fine on the machine
-// that built it.
-const SDL_FW = MAC ? (process.env.SDL2_FRAMEWORK || "") : "";
-if (SDL_FW && !fs.existsSync(path.join(SDL_FW, "Headers", "SDL.h"))) die(`SDL2_FRAMEWORK is not an SDL2.framework: ${SDL_FW}`);
-let sdl = "";
-if (SDL_FW) {
-  const dir = path.dirname(SDL_FW);
-  sdl = `-I${JSON.stringify(path.join(SDL_FW, "Headers"))} -F${JSON.stringify(dir)} -framework SDL2 -rpath @executable_path/../Frameworks`;
-}
-if (!sdl) { try { sdl = execSync("pkg-config --cflags --libs sdl2", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {} }
-if (!sdl) { try { sdl = execSync("sdl2-config --cflags --libs", { encoding: "utf8" }).trim(); } catch {} }
-if (!sdl) die(MAC ? "SDL2 not found: brew install sdl2" : "SDL2 not found: sudo apt-get install libsdl2-dev");
-const gl = MAC ? "-framework OpenGL -framework Cocoa" : "-lGL";
+const { flags: sdl, framework } = sdl2();
 const EVG_NATIVE = path.join(evgDir(), "native");
 if (!fs.existsSync(path.join(EVG_NATIVE, "gl", "EvgGlPainter.h"))) die(`the EVG package has no native painter (${EVG_NATIVE}) — is ranger.json's evg rev new enough?`);
 const sources = [
@@ -79,66 +59,15 @@ const sources = [
 ].map((f) => JSON.stringify(f)).join(" ");
 const bin = path.join(BUILD, "sliqtly-editor");
 // -w: the generated EditorApp.cpp is large and not written for warnings.
-// UNIVERSAL=1 (with SDL2_FRAMEWORK): one binary for Apple silicon and Intel.
-const macFlags = MAC ? `-mmacosx-version-min=${MAC_MIN}${SDL_FW && process.env.UNIVERSAL === "1" ? " -arch arm64 -arch x86_64" : ""} ` : "";
-const cmd = `${cxx} -std=c++17 ${macFlags}${process.env.CXX_OPT || "-O2"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${gl} -lcurl -lpthread`;
+const cmd = `${cxx()} -std=c++17 ${macFlags(framework)}${process.env.CXX_OPT || "-O2"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${glFlags()} -lcurl -lpthread`;
 execSync(cmd, { stdio: "inherit" });
 const fonts = path.join(BUILD, "fonts");
 fs.mkdirSync(fonts, { recursive: true });
 for (const f of fs.readdirSync(path.join(NATIVE, "fonts"))) fs.copyFileSync(path.join(NATIVE, "fonts", f), path.join(fonts, f));
 
 if (MAC) {
-  const bundle = path.join(BUILD, `${APP_NAME}.app`);
-  const app = path.join(bundle, "Contents");
-  fs.rmSync(bundle, { recursive: true, force: true });
-  fs.mkdirSync(path.join(app, "MacOS"), { recursive: true });
-  fs.mkdirSync(path.join(app, "Resources", "fonts"), { recursive: true });
-  fs.copyFileSync(bin, path.join(app, "MacOS", "sliqtly-editor"));
-  fs.chmodSync(path.join(app, "MacOS", "sliqtly-editor"), 0o755);
-  for (const f of fs.readdirSync(fonts)) fs.copyFileSync(path.join(fonts, f), path.join(app, "Resources", "fonts", f));
-  // The bundle's icon, from native/icon/icon-1024.png (scripts/make-icon.mjs)
-  // with the system's own sips and iconutil.
-  const iconPng = path.join(NATIVE, "icon", "icon-1024.png");
-  const iconset = path.join(BUILD, "AppIcon.iconset");
-  let icon = false;
-  if (fs.existsSync(iconPng) && has("sips") && has("iconutil")) {
-    fs.rmSync(iconset, { recursive: true, force: true });
-    fs.mkdirSync(iconset);
-    for (const s of [16, 32, 128, 256, 512]) {
-      for (const [mul, suffix] of [[1, ""], [2, "@2x"]]) {
-        const name = path.join(iconset, `icon_${s}x${s}${suffix}.png`);
-        execFileSync("sips", ["-z", String(s * mul), String(s * mul), iconPng, "--out", name], { stdio: "ignore" });
-      }
-    }
-    execFileSync("iconutil", ["-c", "icns", iconset, "-o", path.join(app, "Resources", "AppIcon.icns")]);
-    icon = true;
-  } else if (fs.existsSync(path.join(NATIVE, "icon", "AppIcon.icns"))) {
-    fs.copyFileSync(path.join(NATIVE, "icon", "AppIcon.icns"), path.join(app, "Resources", "AppIcon.icns"));
-    icon = true;
-  }
-  fs.writeFileSync(path.join(app, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>${APP_NAME}</string>
-  <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
-  <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
-  <key>CFBundleExecutable</key><string>sliqtly-editor</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
-  <key>CFBundleVersion</key><string>${VERSION}</string>
-  <key>LSMinimumSystemVersion</key><string>${MAC_MIN}</string>
-  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHighResolutionCapable</key><true/>${icon ? "\n  <key>CFBundleIconFile</key><string>AppIcon</string>" : ""}
-</dict></plist>
-`);
-  if (SDL_FW) {
-    // ditto keeps the framework's symlinks and its signature
-    fs.mkdirSync(path.join(app, "Frameworks"), { recursive: true });
-    execFileSync("ditto", [SDL_FW, path.join(app, "Frameworks", "SDL2.framework")]);
-  }
-  // an ad-hoc signature over the whole bundle: Apple silicon runs nothing unsigned
-  if (has("codesign")) execFileSync("codesign", ["--force", "--deep", "--sign", "-", bundle], { stdio: "ignore" });
-  console.log(`  3/3 native/build/sliqtly-editor, native/build/${APP_NAME}.app${icon ? "" : " (no icon: run npm run icon)"}${SDL_FW ? ", SDL2.framework inside" : ""}`);
+  const { icon } = macApp({ nativeDir: NATIVE, buildDir: BUILD, name: APP_NAME, bundleId: BUNDLE_ID, version: VERSION, bin, exe: "sliqtly-editor", resources: [fonts], framework });
+  console.log(`  3/3 native/build/sliqtly-editor, native/build/${APP_NAME}.app${icon ? "" : " (no icon: run npm run icon)"}${framework ? ", SDL2.framework inside" : ""}`);
 } else {
   console.log("  3/3 native/build/sliqtly-editor");
 }

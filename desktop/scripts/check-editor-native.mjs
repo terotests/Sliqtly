@@ -13,10 +13,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { ROOT } from "./ranger.mjs";
+import { pamToPng } from "./png.mjs";
 
 const BUILD = path.join(ROOT, "native", "build-editor");
-const bin = path.join(BUILD, "sliqtly-native");
-if (!fs.existsSync(bin)) { console.error("build it first: node scripts/build-editor-native.mjs"); process.exit(2); }
+// on macOS the bundle's own binary: it finds SDL2.framework and editor-res inside the .app
+const appBin = path.join(BUILD, "Sliqtly.app", "Contents", "MacOS", "sliqtly");
+const bin = process.platform === "darwin" && fs.existsSync(appBin) ? appBin : path.join(BUILD, "sliqtly-native");
+if (!fs.existsSync(bin)) { console.error("build it first: npm run native"); process.exit(2); }
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sliqtly-native-"));
 const deck = path.join(tmp, "deck.md");
 const lines = ["---", "title: Check", "---", "# One", ...Array.from({ length: 40 }, (_, i) => `line ${i + 5}`)];
@@ -39,7 +42,7 @@ fs.writeFileSync(path.join(tmp, "steps.txt"), [
 ].join("\n") + "\n");
 
 const shot = path.join(tmp, "shot.pam");
-let cmd = bin, args = [deck, "--res", path.join(BUILD, "editor-res"), "--size", "1280x800", "--script", path.join(tmp, "steps.txt"), "--shot", shot];
+let cmd = bin, args = [deck, ...(bin === appBin ? [] : ["--res", path.join(BUILD, "editor-res")]), "--size", "1280x800", "--script", path.join(tmp, "steps.txt"), "--shot", shot];
 if (process.platform === "linux" && !process.env.DISPLAY) {
   args = ["-a", "-s", "-screen 0 1600x1000x24 +extension GLX", cmd, ...args];
   cmd = "xvfb-run";
@@ -62,5 +65,9 @@ if (fs.existsSync(shot)) {
   for (let i = end + 3; i < buf.length; i += 4 * 97) if (buf[i] > 0) lit++;
 }
 expect("a frame is painted", lit > 100, `${lit} samples`);
+if (fs.existsSync(shot)) {
+  fs.mkdirSync(path.join(BUILD, "shots"), { recursive: true });
+  pamToPng(shot, path.join(BUILD, "shots", "editor.png"));
+}
 fs.rmSync(tmp, { recursive: true, force: true });
 process.exit(fails.length ? 1 : 0);

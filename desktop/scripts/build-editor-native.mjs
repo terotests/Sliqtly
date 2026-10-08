@@ -12,11 +12,14 @@
 // package `rgrc install` fetched (scripts/ranger.mjs evgDir()).
 //
 // Writes native/build-editor/sliqtly-native and native/build-editor/editor-res/
-// (the stylesheets, themes, fonts and the welcome deck the host reads).
+// (the stylesheets, themes, fonts and the welcome deck the host reads); on
+// macOS also native/build-editor/Sliqtly.app with editor-res in its Resources.
+// SDL2_FRAMEWORK and UNIVERSAL=1 as in scripts/native-link.mjs.
 
 import fs from "node:fs";
 import path from "node:path";
 import { execSync, execFileSync, spawnSync } from "node:child_process";
+import { MAC, cxx, sdl2, glFlags, macFlags, macApp } from "./native-link.mjs";
 import { ensureRanger, LINK, root } from "../../scripts/lib.mjs";
 import { ROOT, evgDir } from "./ranger.mjs";
 
@@ -25,7 +28,9 @@ const BUILD = path.join(NATIVE, "build-editor");
 const RES = path.join(BUILD, "editor-res");
 const argv = process.argv.slice(2);
 const runAt = argv.indexOf("--run");
-const MAC = process.platform === "darwin";
+const APP_NAME = "Sliqtly";
+const BUNDLE_ID = "com.sliqtly.app";
+const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 const die = (msg) => { console.error(msg); process.exit(1); };
 fs.mkdirSync(BUILD, { recursive: true });
 
@@ -52,22 +57,20 @@ for (const f of fs.readdirSync(path.join(NATIVE, "fonts")).filter((f) => f.endsW
 copy(path.join(root, "samples", "welcome.en.md"), path.join(RES, "welcome.en.md"));
 console.log("  2/3 stylesheets, themes, fonts -> native/build-editor/editor-res/");
 
-// --- 3. The binary ---------------------------------------------------------------
-const has = (cmd) => spawnSync("sh", ["-c", `command -v ${cmd}`]).status === 0;
-const cxx = process.env.CXX || (MAC ? ["clang++", "g++"] : ["g++", "clang++"]).find(has);
-if (!cxx) die("no C++ compiler (clang++ / g++) found");
-let sdl = "";
-try { sdl = execSync("pkg-config --cflags --libs sdl2", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}
-if (!sdl) { try { sdl = execSync("sdl2-config --cflags --libs", { encoding: "utf8" }).trim(); } catch {} }
-if (!sdl) die(MAC ? "SDL2 not found: brew install sdl2" : "SDL2 not found: sudo apt-get install libsdl2-dev");
-const gl = MAC ? "-framework OpenGL -framework Cocoa" : "-lGL";
+// --- 3. The binary (and on macOS the .app) ------------------------------------
+const { flags: sdl, framework } = sdl2();
 const EVG_NATIVE = process.env.EVG_NATIVE || path.join(evgDir(), "native");
 if (!fs.existsSync(path.join(EVG_NATIVE, "gl", "EvgGlPainter.h"))) die(`no EVG native painter at ${EVG_NATIVE}`);
 const sources = [path.join(NATIVE, "editor_host.cpp"), ...fs.readdirSync(path.join(EVG_NATIVE, "gl")).filter((f) => f.endsWith(".cpp")).map((f) => path.join(EVG_NATIVE, "gl", f))]
   .map((f) => JSON.stringify(f)).join(" ");
 const bin = path.join(BUILD, "sliqtly-native");
 // -w: the generated PresApp.cpp is large and not written for warnings
-execSync(`${cxx} -std=c++17 ${MAC ? "-mmacosx-version-min=11.0 " : ""}${process.env.CXX_OPT || "-O1"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${gl}`, { stdio: "inherit" });
-console.log("  3/3 native/build-editor/sliqtly-native");
+execSync(`${cxx()} -std=c++17 ${macFlags(framework)}${process.env.CXX_OPT || "-O1"} -w -I${JSON.stringify(NATIVE)} -I${JSON.stringify(BUILD)} -I${JSON.stringify(EVG_NATIVE)} ${sources} -o ${JSON.stringify(bin)} ${sdl} ${glFlags()}`, { stdio: "inherit" });
+if (MAC) {
+  const { icon } = macApp({ nativeDir: NATIVE, buildDir: BUILD, name: APP_NAME, bundleId: BUNDLE_ID, version: VERSION, bin, exe: "sliqtly", resources: [RES], framework });
+  console.log(`  3/3 native/build-editor/sliqtly-native, native/build-editor/${APP_NAME}.app${icon ? "" : " (no icon)"}${framework ? ", SDL2.framework inside" : ""}`);
+} else {
+  console.log("  3/3 native/build-editor/sliqtly-native");
+}
 
 if (runAt >= 0) execFileSync(bin, argv.slice(runAt + 1), { stdio: "inherit" });

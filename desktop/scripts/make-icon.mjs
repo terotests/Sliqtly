@@ -8,7 +8,7 @@
 // this one only when those are missing). The host sets the window / Dock icon
 // at runtime (it draws it itself); the web build copies the PNG.
 //
-//   node scripts/make-icon.mjs        (after npm run native)
+//   node scripts/make-icon.mjs        (after npm run old:native)
 
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +18,7 @@ import { ROOT } from "./ranger.mjs";
 import { pngOf, readPam } from "./png.mjs";
 
 const bin = path.join(ROOT, "native", "build", "sliqtly-editor");
-if (!fs.existsSync(bin)) { console.error("build it first: npm run native"); process.exit(2); }
+if (!fs.existsSync(bin)) { console.error("build it first: npm run old:native"); process.exit(2); }
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sliqtly-icon-"));
 const pam = path.join(tmp, "icon.pam");
 let cmd = bin, args = ["--icon", pam];
