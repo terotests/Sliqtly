@@ -3237,6 +3237,35 @@ class PresCheck {
         def r0:PresSketchItem (k.itemAt(0))
         this.ok((((k.count()) == 2) && (r0.isText())) "sketch: an item removed")
 
+        ; emptied: its reference goes from the slide
+        this.ok((PresSketch.isRefLine("![](drawings/a.ink)" "/drawings/a.ink")) "sketch: the reference line, the key with its /")
+        this.ok((PresSketch.isRefLine("  ![piirros](/drawings/a.ink) " "drawings/a.ink")) "sketch: …with words and a / of its own")
+        this.ok(((PresSketch.isRefLine("![](drawings/ab.ink)" "drawings/a.ink")) == false) "sketch: not another drawing's")
+        this.ok(((PresSketch.isRefLine("![](media/drawings/a.ink)" "drawings/a.ink")) == false) "sketch: not one in another folder")
+        this.ok(((PresSketch.isRefLine("Katso ![](drawings/a.ink)" "drawings/a.ink")) == false) "sketch: not in a sentence")
+        def refLines:[string] (strsplit "## Yksi\n\nEnsin\n\n![](drawings/a.ink)\n\nSitten" "\n")
+        def sp:[int] (PresSketch.refSpan(refLines "/drawings/a.ink"))
+        this.ok((((itemAt sp 0) == 4) && ((itemAt sp 1) == 5)) ("sketch: the line and the blank after it: " + (to_string (itemAt sp 0)) + "-" + (to_string (itemAt sp 1))))
+        def tight:[int] (PresSketch.refSpan((strsplit "Ensin\n![](drawings/a.ink)\n\nSitten" "\n") "drawings/a.ink"))
+        this.ok((((itemAt tight 0) == 1) && ((itemAt tight 1) == 1)) "sketch: no blank before it, the blank after stays")
+        def noRef:[int] (PresSketch.refSpan(refLines "drawings/b.ink"))
+        this.ok(((itemAt noRef 0) == -1) "sketch: no reference, nothing to remove")
+        def kept:string ""
+        def li:int 0
+        while (li < (array_length refLines)) {
+            if ((li < (itemAt sp 0)) || (li > (itemAt sp 1))) {
+                kept = (kept + (itemAt refLines li) + "\n")
+            }
+            li = (li + 1)
+        }
+        this.ok((kept == "## Yksi\n\nEnsin\n\nSitten\n") ("sketch: removed without a gap: " + kept))
+        def gone (new PresDeck())
+        gone.setText(("---\nslide-split-level: 2\n---\n\n" + kept))
+        gone.setChartData("drawings/a.ink" ((new PresSketch()).toJson()))
+        PresTimeline.planAll(gone)
+        def gs:PresSlide (gone.slideAt(0))
+        this.ok(((array_length gs.sketches) == 0) "sketch: the slide has no drawing left")
+
         ; on the slides: the reference takes no room, comes after the build
         def md:string "---\nslide-split-level: 2\n---\n\n## Yksi\n\nEnsin\n\n![](drawings/a.ink)\n\nSitten\n\n## Kaksi\n\n- a\n- b\n{.build}\n"
         def plain (new PresDeck())
