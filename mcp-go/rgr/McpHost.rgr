@@ -406,6 +406,32 @@ operators {
             go ( (e 1) ".ThemeCSS(" (e 2) ")" )
         }
     }
+    ; the viewer's page (the site's index.html, cached per instance) with
+    ; a deck's link card (LinkCard.json; "" for none) in its head; "" when
+    ; the site's page could not be read (linkcard.go)
+    host_viewer_page _:string (h:McpHost id:string card:string) {
+        templates {
+            go ( (e 1) ".ViewerPage(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; a card's picture kept on this instance under key; empty when none
+    host_card_get _:buffer (h:McpHost key:string) {
+        templates {
+            go ( (e 1) ".CardGet(" (e 2) ")" )
+        }
+    }
+    host_card_put _:void (h:McpHost key:string jpg:buffer) {
+        templates {
+            go ( (e 1) ".CardPut(" (e 2) ", " (e 3) ")" nl )
+        }
+    }
+    ; a drawing slot for the cards (two at once per instance, given back
+    ; with host_render_done "card"); false when both are taken
+    host_card_slot _:boolean (h:McpHost) {
+        templates {
+            go ( (e 1) ".CardSlot()" )
+        }
+    }
     ; the site's Firebase config (public) as JSON, cached per instance; ""
     ; when it cannot be read, which is no error
     host_web_config _:string (h:McpHost) {

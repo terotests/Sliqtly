@@ -24,15 +24,6 @@
         ]
       },
       {
-        "source": "/s/**",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
-          }
-        ]
-      },
-      {
         "source": "/fonts/**",
         "headers": [
           {
@@ -186,8 +177,18 @@
         }
       },
       {
+        "source": "/api/card/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/s/**",
-        "destination": "/index.html"
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
       }
     ],
     "redirects": [
