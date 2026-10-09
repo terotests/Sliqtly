@@ -99,3 +99,7 @@ jobs:
           test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/api/hit" -H 'content-type: application/json' -d '{"p":"editor"}')" = 204
           # the dashboard answers no one without a listed account's sign-in
           test "$(curl -sS -o /dev/null -w '%{http_code}' "$URL/main/admin/api/stats")" = 401
+          # the editor (mcp-go/editor.go): its sign-in page to anyone, its
+          # files to no one without a sign-in
+          curl -fsS "$URL/editor/" | grep -q 'Sign in to the editor'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$URL/editor/main.js")" = 401

@@ -43,6 +43,13 @@ import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trac
 import { BookGL } from "./bookgl.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
+// Where the editor's addresses start: sliqtly.com serves the editor at
+// /editor to signed-in people (mcp-go/editor.go), a server of one's own at
+// its root. A deck in it is EDITOR_ROOT + "/s/{id}".
+const EDITOR_ROOT = /^\/editor(\/|$)/.test(location.pathname) ? "/editor" : "";
+const DECK_PATH = /^(?:\/editor)?\/s\/([A-Za-z0-9]{6,32})\/?$/;
+const SHARED_PATH = /^(?:\/editor)?\/s\//;
+
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
 // came from. No cookie, nothing kept in the browser; not sent when the
@@ -50,7 +57,7 @@ import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPag
 (function countVisit() {
   if (!/^(sliqtly\.com|sliqtly\.web\.app)$/.test(location.hostname)) return;
   if (navigator.globalPrivacyControl || navigator.doNotTrack === "1") return;
-  const shared = /^\/s\//.test(location.pathname);
+  const shared = SHARED_PATH.test(location.pathname);
   const p = !shared ? "editor" : new URLSearchParams(location.search).has("edit") ? "edit" : "view";
   let r = "";
   try { r = document.referrer ? new URL(document.referrer).hostname : ""; } catch { /* no referrer */ }
@@ -1834,19 +1841,19 @@ function sampleChartSlide() {
 function plainAddress() {
   // a PRO deck: its own address, which a reload opens from the cloud
   if (doc.cloud) {
-    history.replaceState(null, "", "/s/" + doc.cloud + "?edit");
+    history.replaceState(null, "", EDITOR_ROOT + "/s/" + doc.cloud + "?edit");
     lastHash = "";
     return;
   }
   const q = new URLSearchParams(location.search);
-  const shared = /^\/s\//.test(location.pathname);
+  const shared = SHARED_PATH.test(location.pathname);
   if (!location.hash && !shared && !q.has("sample") && !q.has("deck")) return;
   q.delete("sample");
   q.delete("edit");
   q.delete("deck");
   q.delete("from");
   const search = q.toString();
-  history.replaceState(null, "", (shared ? "/" : location.pathname) + (search ? "?" + search : ""));
+  history.replaceState(null, "", (shared ? EDITOR_ROOT + "/" : location.pathname) + (search ? "?" + search : ""));
   lastHash = "";
 }
 
@@ -2087,7 +2094,9 @@ async function refreshFiles() {
     if (signedIn()) {
       note = doc.cloudHalt
         ? t("This presentation was changed elsewhere, so it is not saved to the cloud now. A copy stays in this browser.")
-        : cloudError
+        : cloudError && cloudNoRight
+          ? cloudError
+          : cloudError
           ? t("Saving to the cloud failed: ") + cloudError + ". " + t("It is tried again on the next change; a copy stays in this browser.")
           : t("PRO: this presentation and its files are saved to your cloud and go with share links. A copy stays in this browser.");
     }
@@ -4516,13 +4525,15 @@ function cloudSoon() {
 let cloudBusy = null;
 let cloudWarned = false;
 let cloudError = "";
+let cloudNoRight = false; // cloudError is the license's answer (sliqtly.js editRight)
 function cloudTrouble(e) {
   console.warn("cloud save failed", e);
-  cloudError = String(e?.code || e?.message || e);
+  cloudNoRight = e?.code === "no-edit-right";
+  cloudError = cloudNoRight ? e.message : String(e?.code || e?.message || e);
   refreshFiles();
   if (cloudWarned) return;
   cloudWarned = true;
-  toast(t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
+  toast(cloudNoRight ? e.message : t("Saving to the cloud failed: ") + (e?.code || e?.message || String(e)) + ". " + t("The presentation is kept in this browser."));
 }
 // The deck as the cloud keeps it, and a signature of it.
 async function cloudDeck() {
@@ -4599,6 +4610,7 @@ async function cloudSync() {
     if (entries) doc.cloudSeen = seenAfterSave(entries, doc.cloudSeen, sent);
     cloudWarned = false;
     cloudError = "";
+    cloudNoRight = false;
     plainAddress();
     return id;
   })();
@@ -4767,7 +4779,7 @@ async function commitVersion(message, alone = false, extra = [], force = false) 
 let versionsPush = Promise.resolve();
 function pushVersions() {
   const h = deckVersions();
-  if (!h || !doc.cloud || doc.cloudHalt || !window.sliqtly?.user?.()) return versionsPush;
+  if (!h || !doc.cloud || doc.cloudHalt || cloudNoRight || !window.sliqtly?.user?.()) return versionsPush;
   versionsPush = versionsPush.then(async () => {
     if (cloudBusy) await cloudBusy.catch(() => {});
     // the share's head moved elsewhere: the copies are merged first
@@ -6166,7 +6178,7 @@ async function ownIsNewer(own) {
   }
 }
 async function openFromShare() {
-  const m = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname);
+  const m = DECK_PATH.exec(location.pathname);
   const own = m || hashShare() ? null : ownDeck();
   const id = m ? m[1] : hashShare() || own?.from;
   if (!id) return false;
@@ -6254,7 +6266,7 @@ async function notOwnerNotice(id, owner) {
   // the owner signs in from here on (this question, or Sign in): theirs opens
   window.addEventListener("sliqtly:user", () => {
     const u = p.user?.();
-    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = "/s/" + id + "?edit";
+    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = EDITOR_ROOT + "/s/" + id + "?edit";
   });
   let asked = false;
   try { asked = sessionStorage.getItem(SWITCH_FLAG) === id; sessionStorage.removeItem(SWITCH_FLAG); } catch (_) { /* ask */ }
@@ -7624,7 +7636,7 @@ async function start() {
   const own = ownDeck();
   // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
   // own deck: opened from the cloud, where it lives
-  const editId = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(location.pathname)?.[1] || own?.from;
+  const editId = DECK_PATH.exec(location.pathname)?.[1] || own?.from;
   const editing = !!own || (!!editId && q.has("edit"));
   // the browser's store not answering (web/vfs.js gives up on a stuck
   // call) leaves no page behind the loader: the welcome deck opens, and the

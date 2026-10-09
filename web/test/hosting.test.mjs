@@ -96,3 +96,15 @@ test("the owner's dashboard: its page, its numbers from the server, linked nowhe
     assert.ok(!fs.readFileSync(path.join(web, page), "utf8").includes("/main/admin"), page);
   }
 });
+
+test("the editor comes only from the server, which sends it to signed-in people (mcp-go/editor.go)", () => {
+  const rw = hosting().rewrites;
+  for (const src of ["/editor", "/editor/**"]) {
+    const r = rw.find((x) => x.source === src);
+    assert.equal(r?.run?.serviceId, "sliqtly-mcp", src);
+  }
+  // no rule of the site's own files catches /editor first
+  const first = rw.findIndex((r) => r.source.startsWith("/editor"));
+  assert.ok(rw.slice(0, first).every((r) => !r.destination), "a file rule before /editor");
+  assert.ok(!fs.existsSync(path.join(web, "dist-view", "editor")));
+});

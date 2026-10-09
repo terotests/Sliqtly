@@ -120,6 +120,20 @@
     ],
     "rewrites": [
       {
+        "source": "/editor",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/editor/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/main/admin/api/**",
         "run": {
           "serviceId": "sliqtly-mcp",

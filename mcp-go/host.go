@@ -155,6 +155,8 @@ type Env struct {
 
 	// the owner's dashboard (admin.go); nil: no /main/admin/api
 	Admin *adminConfig
+	// the editor for signed-in people at /editor (editor.go); nil: none
+	EditorGate *editorGate
 }
 
 // The whole server as one handler.
@@ -186,6 +188,16 @@ func NewApp(env *Env) http.Handler {
 		if strings.HasPrefix(r.URL.Path, adminPath) {
 			serveAdmin(env, w, r)
 			return
+		}
+		if r.URL.Path == editorPath || strings.HasPrefix(r.URL.Path, editorPath+"/") {
+			serveEditor(env, w, r)
+			return
+		}
+		if env.EditorGate != nil {
+			if to, ok := editLinkTarget(r); ok {
+				http.Redirect(w, r, to, http.StatusFound)
+				return
+			}
 		}
 		if strings.HasPrefix(r.URL.Path, "/d/") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			serveDownload(env, w, r)

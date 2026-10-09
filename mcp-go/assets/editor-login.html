@@ -1,0 +1,152 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sliqtly editor</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  /* /editor before sign-in (mcp-go/editor.go): Google's sign-in by
+     redirect, no popup. Holds none of the editor's code: the server sends
+     that only with a sign-in. */
+  :root { --bg: #f6f7fb; --card: #fff; --fg: #1d2233; --muted: #5d6480; --line: #dfe3ef; --accent: #18181b; --on-accent: #fafafa; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #111113; --card: #1b1b1f; --fg: #f4f4f5; --muted: #a1a1aa; --line: #2e2e33; --accent: #c8ff3c; --on-accent: #111113; --bad: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  main { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px; }
+  header { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+  header img { width: 30px; height: 30px; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 10px; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  button { display: block; width: 100%; border-radius: 9px; padding: 11px 14px; font: inherit; font-weight: 600; cursor: pointer; margin-top: 10px; }
+  .primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  .secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .error { color: var(--bad); margin-top: 14px; }
+  .small { font-size: 14px; margin-top: 18px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/favicon.svg" alt="">Sliqtly</header>
+  <h1 id="title">Sign in to the editor</h1>
+  <p id="lead">The Sliqtly editor is for signed-in users. Sign in with your Google account: a Trial license lets you edit two presentations in the cloud.</p>
+  <p id="busy" hidden>Signing in…</p>
+  <button class="primary" id="go" disabled>Continue with Google</button>
+  <button class="secondary" id="other" hidden>Use another Google account</button>
+  <p class="error" id="err" hidden></p>
+  <p class="small"><a href="/" id="home">Sliqtly home</a></p>
+</main>
+<script>
+(async () => {
+  const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
+  const $ = (id) => document.getElementById(id);
+  const fi = /^fi\b/i.test(navigator.language || "");
+  if (fi) {
+    document.documentElement.lang = "fi";
+    $("title").textContent = "Kirjaudu editoriin";
+    $("lead").textContent = "Sliqtlyn editori on kirjautuneille käyttäjille. Kirjaudu Google-tililläsi: Trial-lisenssillä voit muokata kahta esitystä pilvessä.";
+    $("busy").textContent = "Kirjaudutaan…";
+    $("go").textContent = "Jatka Googlella";
+    $("other").textContent = "Käytä toista Google-tiliä";
+    $("home").textContent = "Sliqtlyn etusivu";
+  }
+  const say = (en, fiText) => (fi ? fiText : en);
+  // a sign-in that came back but did not let the editor in: no reload loop
+  const TRIED = "sliqtly:editor-entered";
+
+  function fail(text) {
+    $("busy").hidden = true;
+    $("err").textContent = text;
+    $("err").hidden = false;
+    $("go").disabled = false;
+    $("other").disabled = false;
+  }
+  function load(src) {
+    return new Promise((ok, no) => {
+      const s = document.createElement("script");
+      s.src = src; s.onload = ok; s.onerror = () => no(new Error("could not load " + src));
+      document.head.append(s);
+    });
+  }
+
+  let auth;
+  try {
+    await load(SDK + "firebase-app-compat.js");
+    await load(SDK + "firebase-auth-compat.js");
+    const cfg = await (await fetch("/__/firebase/init.json")).json();
+    // the redirect comes back through this site's own /__/auth/handler:
+    // Safari keeps no storage for another domain inside this one
+    firebase.initializeApp({ ...cfg, authDomain: location.host });
+    auth = firebase.auth();
+  } catch (e) {
+    fail(say("Sign-in is not available here: ", "Kirjautuminen ei ole käytettävissä: ") + e.message);
+    return;
+  }
+
+  // the server lets the editor in for this user's sign-in
+  async function enter(user) {
+    $("busy").hidden = false;
+    $("go").disabled = true;
+    $("other").disabled = true;
+    let last = 0;
+    try { last = +sessionStorage.getItem(TRIED) || 0; } catch {}
+    if (Date.now() - last < 15000) {
+      try { sessionStorage.removeItem(TRIED); } catch {}
+      fail(say("The editor did not open after sign-in. Check that this browser allows cookies for this site, then try again.",
+        "Editori ei auennut kirjautumisen jälkeen. Tarkista, että selain sallii evästeet tälle sivustolle, ja yritä uudelleen."));
+      return;
+    }
+    const idToken = await user.getIdToken(true);
+    const res = await fetch("/editor/api/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idToken }) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      fail(out.error || say("Sign-in did not go through.", "Kirjautuminen ei onnistunut."));
+      return;
+    }
+    try { sessionStorage.setItem(TRIED, String(Date.now())); } catch {}
+    location.reload();
+  }
+
+  function google(pick) {
+    const p = new firebase.auth.GoogleAuthProvider();
+    if (pick) p.setCustomParameters({ prompt: "select_account" });
+    return p;
+  }
+
+  $("go").onclick = () => {
+    $("go").disabled = true;
+    auth.signInWithRedirect(google(false)).catch((e) => fail(e.message));
+  };
+  $("other").onclick = async () => {
+    $("other").disabled = true;
+    await auth.signOut().catch(() => {});
+    auth.signInWithRedirect(google(true)).catch((e) => fail(e.message));
+  };
+
+  try {
+    const back = await auth.getRedirectResult();
+    if (back && back.user) return await enter(back.user);
+  } catch (e) {
+    fail(say("Sign-in failed: ", "Kirjautuminen epäonnistui: ") + (e.message || e));
+    return;
+  }
+  // signed in from an earlier visit: in again without a press
+  const user = await new Promise((done) => {
+    const stop = auth.onAuthStateChanged((u) => { stop(); done(u); });
+  });
+  if (user) {
+    $("other").hidden = false;
+    return enter(user).catch((e) => fail(e.message));
+  }
+  $("go").disabled = false;
+})();
+</script>
+</body>
+</html>

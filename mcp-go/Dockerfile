@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build from the repository root:
-#   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .                  # Cloud Run
+#   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .                  # Cloud Run, editor at /editor
 #   docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .   # with the editor
 # The first stage compiles rgr/ and the editor's deck model (src/) to Go with
 # Ranger, cloned at the ref in presentation.config.json, with RangerFlow,
@@ -58,10 +58,16 @@ ENV SLIQTLY_LISTEN=network
 EXPOSE 8080
 ENTRYPOINT ["/server"]
 
+# Cloud Run: the same web/dist built in, which the server sends at /editor
+# to signed-in people only (editor.go); Hosting's public files have none of it
+FROM build AS build-cloud
+COPY --from=web /src/web/dist/ ./webdist/
+RUN rm -rf webdist/fonts && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
+
 # Cloud Run (the default target): no shell, no libc, the binary, CA
 # certificates and a nonroot user
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /server /server
+COPY --from=build-cloud /server /server
 # the folder a server of one's own keeps decks in (SLIQTLY_DATA=/data)
 COPY --from=build --chown=65532:65532 /data /data
 ENV SLIQTLY_LISTEN=network
