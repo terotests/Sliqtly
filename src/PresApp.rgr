@@ -4315,8 +4315,8 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
-        ; a drag selecting in the channel's text fields
-        if room.selecting {
+        ; a drag selecting in the channel's text fields, or its thread's width
+        if (room.dragging()) {
             room.dragTo(x y)
             chromeRev = (chromeRev + 1)
             return
@@ -4499,7 +4499,9 @@ class PresApp {
             this.afterReview()
             chromeRev = (chromeRev + 1)
         }
-        room.release()
+        if (room.release()) {
+            this.afterRoom()
+        }
         panels.chatRelease()
         panels.textRelease()
         ; a finger on a dialog that did not scroll is a tap, pressed now
@@ -4768,6 +4770,9 @@ class PresApp {
         this.place()
         if (review.dragging || review.co.dragging) {
             return "grabbing"
+        }
+        if room.resizing {
+            return "col-resize"
         }
         if (room.open && (mode != "present")) {
             if (room.hoverAt(x y)) {
@@ -7689,6 +7694,13 @@ class PresApp {
     }
 
     ; the thread's composer has the keys (a pasted file goes there)
+    ; the thread pane's width the reader dragged it to before (0: none)
+    fn roomChatThreadW:void (w:double) {
+        room.ch.setThreadW(w)
+        room.changed()
+        chromeRev = (chromeRev + 1)
+    }
+
     fn roomChatInThread:boolean () {
         return (room.ch.keys == "thread")
     }

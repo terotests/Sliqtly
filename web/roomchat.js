@@ -12,7 +12,8 @@
 //
 // Who one is in the chat — a made-up id for this browser, a name, a retro
 // character and its colour — is kept in localStorage, as is the last
-// message read in each room (the "New" line).
+// message read in each room (the "New" line), and how wide the thread pane
+// was dragged.
 //
 // Files put into the chat go into the room's own files first (PUT
 // /api/files/rooms/<room>/<name>, mcp-go/roomfiles.go) and wait in the
@@ -33,6 +34,8 @@
 
 export const ME_KEY = "sliqtly.chatMe";
 export const READ_KEY = "sliqtly.chatRead";
+// how wide the reader dragged the thread pane (px; 0 the default)
+export const THREAD_W_KEY = "sliqtly.chatThreadW";
 export const HERE_MS = 30000;
 export const AVATARS = ["knight", "ghost", "cat", "wizard", "alien", "slime", "bunny", "owl", "ninja", "mushroom"];
 export const COLORS = ["#ef4444", "#f97316", "#eab308", "#84cc16", "#22c55e", "#14b8a6", "#0ea5e9", "#2563eb", "#7c3aed", "#c026d3", "#db2777", "#64748b"];
@@ -112,6 +115,7 @@ export class RoomChat {
     this.room = room;
     app.roomChatMe(this.fromId(), this.me.name, this.me.avatar, this.me.color);
     app.roomChatClock(this.d.now(), this.d.zone());
+    app.roomChatThreadW(Number(read(this.d.store, THREAD_W_KEY, 0)) || 0);
     const info = (await this.d.rooms()).find((r) => r.room_id === room) || { title: room };
     if (turn !== this.opening) return;
     // a presentation embedded in the chat shows its slide, drawn by the
@@ -341,6 +345,8 @@ export class RoomChat {
       await this.here();
     } else if (what === "copy") {
       await this.d.copy(f.join("\t"));
+    } else if (what === "threadw") {
+      write(this.d.store, THREAD_W_KEY, Math.max(0, Math.round(Number(f[0]) || 0)));
     }
     this.d.paint();
   }

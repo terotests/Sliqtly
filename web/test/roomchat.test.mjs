@@ -2,7 +2,7 @@
 // app and a fake server
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RoomChat, chatMe, unreadRooms, ME_KEY, READ_KEY, AVATARS } from "../roomchat.js";
+import { RoomChat, chatMe, unreadRooms, ME_KEY, READ_KEY, THREAD_W_KEY, AVATARS } from "../roomchat.js";
 
 function memStore(init = {}) {
   const m = new Map(Object.entries(init));
@@ -17,6 +17,7 @@ function world({ own = true } = {}) {
     roomChatHide: () => { w.open = false; w.log.push(["hide"]); },
     roomChatMe: (id, name, av, col) => w.log.push(["me", id, name, av, col]),
     roomChatClock: () => {},
+    roomChatThreadW: (px) => w.log.push(["threadw", px]),
     roomChatReadUpTo: (seq) => w.log.push(["read", seq]),
     roomChatChannels: (names) => w.log.push(["channels", names]),
     roomChatLoad: (json, older) => { w.log.push(["load", JSON.parse(json), older]); },
@@ -275,5 +276,20 @@ test("a room with messages past the read mark is unread, not the one being read"
   w.app.roomChatPut = () => -1;
   await w.chat.event({ t: "msg", room: "r1", msg: { id: "m8", seq: 8 } });
   assert.equal(JSON.parse(w.store.getItem(READ_KEY)).r1, 8);
+  w.chat.close();
+});
+
+test("the thread pane's dragged width is kept and given back when a room opens", async () => {
+  const w = world();
+  await w.chat.open("r1");
+  assert.deepEqual(w.log.find((x) => x[0] === "threadw"), ["threadw", 0]);
+  await w.chat.request("threadw\t512.4");
+  assert.equal(JSON.parse(w.store.getItem(THREAD_W_KEY)), 512);
+  w.log.length = 0;
+  await w.chat.open("r2");
+  assert.deepEqual(w.log.find((x) => x[0] === "threadw"), ["threadw", 512]);
+  await w.chat.request("threadw\t0");
+  assert.equal(JSON.parse(w.store.getItem(THREAD_W_KEY)), 0);
+  assert.equal(w.calls.filter(([op]) => op === "post_room_message").length, 0);
   w.chat.close();
 });
