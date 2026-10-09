@@ -43,6 +43,7 @@ import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
+import { createApps } from "./apps.js";
 import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
@@ -176,6 +177,9 @@ const SAMPLES = {
   tyonkulku: sample("tyonkulku", "Workflows: XState statecharts", "Työnkulut: XState-tilakaaviot"),
   // the newest themes and features, on Nebula
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
+  // programs on slides (```app), with their files (samples/pelit/apps/…)
+  pelit: [...sample("pelit", "Games: programs on slides", "Pelit: ohjelmat kalvoilla"), "",
+    ["apps/scaffold.tsx", "apps/scaffold.tsx.css", "apps/target.tsx", "apps/target.tsx.css"]],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -274,6 +278,9 @@ let W = 0;
 let H = 0;
 let needsPaint = true;
 let lastRev = "";
+// programs on slides (```app, web/apps.js): CErXes in workers, painted by the app
+const apps = createApps({ app, repaint: () => { needsPaint = true; }, toast, t });
+window.__apps = apps;
 
 function resize() {
   const r = stageEl.getBoundingClientRect();
@@ -833,6 +840,7 @@ function beginDoc(text) {
   dropPasting();
   pictures.clear();
   app.clearImages();
+  apps.reset();
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
@@ -3813,7 +3821,8 @@ function fetchChartFiles(rev) {
     chartFiles.set(url, got);
     got.then((text) => {
       if (text == null) {
-        toast(t("Could not load the chart file: ") + url);
+        // a program's stylesheet beside it (app.tsx.css) is optional
+        if (!/\.tsx\.css$/i.test(url)) toast(t("Could not load the chart file: ") + url);
         app.setChartDataMissing(url);
         needsPaint = true;
         return;
@@ -3859,6 +3868,7 @@ function frame() {
     if ((doc.cloud || "") !== collabWant) collabFollow();
     collab?.tick();
     meet.tick();
+    apps.tick(app.revision());
     const rev = app.revision();
     const effects = window.__lastStage && window.__lastStage.list && window.__lastStage.list.effects && window.__lastStage.list.effects.length > 0;
     if (needsPaint || rev !== lastRev || effects) {
@@ -6740,16 +6750,19 @@ async function openSample(key) {
 
 // A sample's own files (samples/<key>/<path>), the deck's files as a shared
 // one's are: shown at once, kept with the deck on its first change.
-const SAMPLE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE };
+const SAMPLE_TYPES = { tsx: "text/plain", css: "text/css", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE };
 async function useSampleFiles(key, paths) {
   const got = await Promise.all(paths.map(async (path) => {
     const res = await fetch(fresh(`./samples/${key}/${path}`));
     if (!res.ok) throw new Error(path + " → " + res.status);
-    return { path, data: await res.blob() };
+    // text (a program and its stylesheet) as text, as a file added by hand is
+    return { path, data: isText(path, "") ? await res.text() : await res.blob() };
   }));
   for (const { path, data } of got) {
-    const type = SAMPLE_TYPES[path.split(".").pop().toLowerCase()] || data.type;
-    const rec = { doc: doc.id, path, type, size: data.size, data: new Blob([data], { type }), updated: Date.now() };
+    const type = SAMPLE_TYPES[path.split(".").pop().toLowerCase()] || data.type || "text/plain";
+    const rec = typeof data === "string"
+      ? { doc: doc.id, path, type, size: data.length, data, updated: Date.now() }
+      : { doc: doc.id, path, type, size: data.size, data: new Blob([data], { type }), updated: Date.now() };
     pending.set(rec.path, rec);
     await useFile(rec);
   }
@@ -7546,6 +7559,11 @@ canvas.addEventListener("pointerdown", (ev) => {
     needsPaint = true;
     return;
   }
+  // a program's box (```app) takes the press, and the keyboard with it
+  if (apps.pointerDown(x, y, !!(lastLayout && lastLayout.mode === "present"))) {
+    ev.preventDefault();
+    return;
+  }
   // a finger wobbles: it has to travel further than a mouse before a tap
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
@@ -7610,6 +7628,7 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  apps.pointerMove(x, y);
   if (touches.has(ev.pointerId)) touches.set(ev.pointerId, [x, y]);
   if (pinch) {
     if (touches.size >= 2) {
@@ -7784,6 +7803,7 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
+window.addEventListener("pointerup", () => apps.pointerUp());
 // A right click on a slide of the strip: New, Duplicate, Move, Delete; on
 // a room's chat, a message's menu; on a presentation in Rooms or a deck tab:
 // the File menu's rows for it.

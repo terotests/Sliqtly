@@ -477,7 +477,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	if !bad.IsError {
 		t.Fatal("an unknown topic was answered")
 	}
-	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, editing, export, limits\.`)
+	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, apps, editing, export, limits\.`)
 }
 
 // every topic Core lists is there, and every topic is listed in Core

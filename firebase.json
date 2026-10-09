@@ -46,7 +46,7 @@
         ]
       },
       {
-        "source": "/*.@(js|mjs)",
+        "source": "/*.@(js|mjs|wasm)",
         "headers": [
           {
             "key": "Cache-Control",

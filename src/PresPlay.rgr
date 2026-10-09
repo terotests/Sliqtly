@@ -1,0 +1,604 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresPlay.rgr — a program on a slide (```app): its picture, what it asks of
+; the deck, and the looks it gives the slide's own elements.
+; ============================================================================
+;
+;   ```app                         the page (web/apps.js) runs the program in
+;   src: apps/scaffold.tsx   ──►   CErXes, in a Worker: tick(dt, input) and
+;   size: 640x480                  view() every frame, the JSX tree as JSON
+;   allow: deck.data, slide.nav           │
+;   ```                                   ▼
+;                         PresPlayView  tree → EVGElements, the program's
+;                                       stylesheet, layout at its own size,
+;                                       a display list placed in the box
+;                         PresPlayAsks  what the frame asked of the deck,
+;                                       sorted into granted and refused by
+;                                       the fence's `allow:`
+;                         PresPlayStyle the looks `el("#id")` gave the slide's
+;                                       blocks, laid over their commands
+;
+; Nothing here knows a Worker, a key press or the WebGL painter: the page
+; hands in text (the tree, the stylesheet, the asks) and takes text out, so
+; the same model runs under the unit test (tests/PresPlayCheck.rgr) as in
+; the editor.
+; ============================================================================
+
+Import "JsonValue.rgr"
+Import "../markdown/src/MdApp.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
+
+; One running program's picture: its stylesheet and the last tree its
+; view() gave, laid out at the program's own size.
+class PresPlayView {
+    ; what the deck calls it ("apps/scaffold.tsx#1"): the same key across
+    ; edits of the deck, so the program goes on running through them
+    def key:string ""
+    def width:double 640.0
+    def height:double 480.0
+    def css:string ""
+    def cssSet:boolean false
+    def sheet:EVGStyleSheet (new EVGStyleSheet())
+    def root:EVGElement (EVGElement.createDiv())
+    ; a tree has been laid out (else the plate the fence left is shown)
+    def drawn:boolean false
+    def frames:int 0
+    ; why the last tree or stylesheet was not taken, "" when it was
+    def error:string ""
+    def lay:EVGLayout (new EVGLayout())
+
+    Constructor () {
+        sheet.parse("")
+    }
+
+    ; The stylesheet (the program's .tsx.css), parsed once per change.
+    fn setCss:void (text:string) {
+        if (cssSet && (text == css)) {
+            return
+        }
+        css = text
+        cssSet = true
+        sheet = (new EVGStyleSheet())
+        sheet.parse(css)
+        if drawn {
+            this.relayout()
+        }
+    }
+
+    fn cssErrors:[string] () {
+        return sheet.errors
+    }
+
+    ; One frame: the tree as runtime.js serialized it,
+    ;   { t: tag, id?, cls?, a?: {attr: value}, s?: {style: value}, c?: [child] }
+    ; a text child a plain string. False when it was not a tree.
+    fn setTree:boolean (json:string) {
+        def v:JVal (JVal.parse(json))
+        if ((v.isObj()) == false) {
+            error = "the frame was not an element tree"
+            return false
+        }
+        root = (PresPlayView.build(v))
+        error = ""
+        this.relayout()
+        drawn = true
+        frames = (frames + 1)
+        return true
+    }
+
+    fn relayout:void () {
+        sheet.setViewport(width height false)
+        sheet.applyTree(root "")
+        if (root.width.isSet == false) {
+            root.width = (EVGUnit.px(width))
+        }
+        if (root.height.isSet == false) {
+            root.height = (EVGUnit.px(height))
+        }
+        lay = (new EVGLayout())
+        lay.setPageSize(width height)
+        lay.layout(root)
+    }
+
+    sfn isTextTag:boolean (tag:string) {
+        return ((((tag == "span") || (tag == "text")) || ((tag == "p") || (tag == "b"))) || (tag == "label"))
+    }
+
+    sfn element:EVGElement (tag:string) {
+        if (PresPlayView.isTextTag(tag)) {
+            def s:EVGElement (EVGElement.createSpan())
+            s.tagName = tag
+            return s
+        }
+        def d:EVGElement (EVGElement.createDiv())
+        d.tagName = tag
+        return d
+    }
+
+    sfn build:EVGElement (n:JVal) {
+        if (n.kind == 3) {
+            def t:EVGElement (EVGElement.createSpan())
+            t.tagName = "span"
+            t.setAttribute("className" "text")
+            t.textContent = n.str
+            return t
+        }
+        def tag:string (n.strOr("t" "div"))
+        def el:EVGElement (PresPlayView.element(tag))
+        def cls:string (n.strOr("cls" ""))
+        if ((strlen cls) > 0) {
+            el.setAttribute("className" cls)
+        }
+        def id:string (n.strOr("id" ""))
+        if ((strlen id) > 0) {
+            el.setAttribute("id" id)
+        }
+        def a:JVal (n.get("a"))
+        if (a.isObj()) {
+            def ai:int 0
+            while (ai < (array_length a.keys)) {
+                el.setAttribute((itemAt a.keys ai) ((itemAt a.vals ai).asStr("")))
+                ai = (ai + 1)
+            }
+        }
+        def st:JVal (n.get("s"))
+        if (st.isObj()) {
+            def si:int 0
+            while (si < (array_length st.keys)) {
+                def name:string (itemAt st.keys si)
+                el.setAttribute(name ((itemAt st.vals si).asStr("")))
+                el.markInline(name)
+                si = (si + 1)
+            }
+        }
+        def kids:JVal (n.get("c"))
+        if (kids.isArr()) {
+            def text:boolean (PresPlayView.isTextTag(tag))
+            if text {
+                def words:string ""
+                def ti:int 0
+                while (ti < (kids.len())) {
+                    def k0:JVal (kids.at(ti))
+                    if (k0.kind == 3) {
+                        words = (words + k0.str)
+                    }
+                    ti = (ti + 1)
+                }
+                el.textContent = words
+            }
+            def ci:int 0
+            while (ci < (kids.len())) {
+                def k:JVal (kids.at(ci))
+                if ((text == false) || (k.kind != 3)) {
+                    el.addChild((PresPlayView.build(k)))
+                }
+                ci = (ci + 1)
+            }
+        }
+        return el
+    }
+
+    ; The scale and place of the program's picture in a box: its own shape,
+    ; as large as the box allows, centred. [x, y, k]
+    fn fitIn:[double] (bx:double by:double bw:double bh:double) {
+        def k:double (bw / width)
+        if ((height * k) > bh) {
+            k = (bh / height)
+        }
+        def x:double (bx + ((bw - (width * k)) * 0.5))
+        def y:double (by + ((bh - (height * k)) * 0.5))
+        return ([] _:double (x y k))
+    }
+
+    ; The picture, in the box (bx, by, bw, bh) of `out`: false when there is
+    ; none yet (the fence's plate stays).
+    fn paint:boolean (out:EVGDisplayList bx:double by:double bw:double bh:double) {
+        if (drawn == false) {
+            return false
+        }
+        def f:[double] (this.fitIn(bx by bw bh))
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        dl.scaleBy((itemAt f 2))
+        dl.offsetBy((itemAt f 0) (itemAt f 1))
+        ; what the program draws past its own size is not the slide's
+        def clip:EVGDrawCmd (new EVGDrawCmd())
+        clip.kind = 4
+        clip.x = (itemAt f 0)
+        clip.y = (itemAt f 1)
+        clip.w = (width * (itemAt f 2))
+        clip.h = (height * (itemAt f 2))
+        push out.cmds clip
+        out.appendFrom(dl)
+        def pop:EVGDrawCmd (new EVGDrawCmd())
+        pop.kind = 5
+        push out.cmds pop
+        return true
+    }
+
+    ; A ring round the box: the program has the keyboard.
+    fn paintFocus:void (out:EVGDisplayList bx:double by:double bw:double bh:double colour:string) {
+        def f:[double] (this.fitIn(bx by bw bh))
+        def c:EVGColor (EVGColor.parse(colour))
+        def ring:EVGDrawCmd (new EVGDrawCmd())
+        ring.kind = 1
+        ring.x = ((itemAt f 0) - 3.0)
+        ring.y = ((itemAt f 1) - 3.0)
+        ring.w = ((width * (itemAt f 2)) + 6.0)
+        ring.h = ((height * (itemAt f 2)) + 6.0)
+        ring.thickness = 3.0
+        ring.radius = 6.0
+        ring.r = (c.red())
+        ring.g = (c.green())
+        ring.b = (c.blue())
+        ring.a = 0.9
+        push out.cmds ring
+    }
+
+    ; A point of the box in the program's own units, or [-1, -1] outside it.
+    fn toLocal:[double] (bx:double by:double bw:double bh:double px:double py:double) {
+        def f:[double] (this.fitIn(bx by bw bh))
+        def k:double (itemAt f 2)
+        def x:double ((px - (itemAt f 0)) / k)
+        def y:double ((py - (itemAt f 1)) / k)
+        if ((((x < 0.0) || (y < 0.0)) || (x > width)) || (y > height)) {
+            return ([] _:double (-1.0 -1.0))
+        }
+        return ([] _:double (x y))
+    }
+
+    ; The id of the topmost element with one under a point of the program's
+    ; own units, "" for none: where a click goes in the program.
+    fn idAt:string (x:double y:double) {
+        if (drawn == false) {
+            return ""
+        }
+        def ht:EVGHitTest (new EVGHitTest())
+        return (ht.idAt(root x y))
+    }
+}
+
+; One thing a frame asked of the deck.
+class PresPlayAsk {
+    ; "deck.set", "slide.next", "slide.prev", "slide.go", "slide.step",
+    ; "el.style", "el.show", "el.hide", "el.reset", "machine.send"
+    def kind:string ""
+    def key:string ""
+    def value:string ""
+    ; el.*: "#id" or ".class"
+    def sel:string ""
+    ; slide.go: 1-based
+    def n:int 0
+    def event:string ""
+    def styleKeys:[string]
+    def styleVals:[string]
+
+    Constructor () {
+    }
+}
+
+; What a frame asked, sorted by the fence's `allow:`.
+class PresPlayAsks {
+    def granted:[PresPlayAsk]
+    ; one line per refusal, for the editor and an assistant's report
+    def refused:[string]
+
+    Constructor () {
+    }
+
+    ; The grant an ask needs, "" for one nothing grants.
+    sfn grantOf:string (kind:string) {
+        if (kind == "deck.set") {
+            return "deck.data"
+        }
+        if ((((kind == "slide.next") || (kind == "slide.prev")) || (kind == "slide.go")) || (kind == "slide.step")) {
+            return "slide.nav"
+        }
+        if ((((kind == "el.style") || (kind == "el.show")) || (kind == "el.hide")) || (kind == "el.reset")) {
+            return "slide.style"
+        }
+        if (kind == "machine.send") {
+            return "machine"
+        }
+        return ""
+    }
+
+    sfn read:PresPlayAsks (json:string spec:MdAppSpec name:string) {
+        def out:PresPlayAsks (new PresPlayAsks())
+        def v:JVal (JVal.parse(json))
+        if ((v.isArr()) == false) {
+            return out
+        }
+        def i:int 0
+        while (i < (v.len())) {
+            def e:JVal (v.at(i))
+            i = (i + 1)
+            def a:PresPlayAsk (new PresPlayAsk())
+            a.kind = (e.strOr("k" ""))
+            a.key = (e.strOr("key" ""))
+            a.value = (e.strOr("value" ""))
+            a.sel = (trim (e.strOr("sel" "")))
+            a.n = (e.intOr("n" 0))
+            a.event = (e.strOr("event" ""))
+            def st:JVal (e.get("style"))
+            if (st.isObj()) {
+                def si:int 0
+                while (si < (array_length st.keys)) {
+                    push a.styleKeys (itemAt st.keys si)
+                    push a.styleVals ((itemAt st.vals si).asStr(""))
+                    si = (si + 1)
+                }
+            }
+            def grant:string (PresPlayAsks.grantOf(a.kind))
+            if ((strlen grant) == 0) {
+                push out.refused (name + ": \"" + a.kind + "\" is nothing a program can ask")
+                continue
+            }
+            if ((spec.allows(grant)) == false) {
+                push out.refused (name + ": " + a.kind + " needs \"allow: " + grant + "\" in its fence")
+                continue
+            }
+            if ((a.kind == "deck.set") && ((strlen (trim a.key)) == 0)) {
+                push out.refused (name + ": deck.set without a key")
+                continue
+            }
+            if (((indexOf a.kind "el.") == 0) && ((PresPlayStyle.selOk(a.sel)) == false)) {
+                push out.refused (name + ": el(\"" + a.sel + "\") is not #id or .class")
+                continue
+            }
+            push out.granted a
+        }
+        return out
+    }
+}
+
+; The look a program gave the blocks that a selector names.
+class PresPlayLook {
+    def sel:string ""
+    def hidden:boolean false
+    ; -1: as written
+    def opacity:double -1.0
+    def color:string ""
+    def fill:string ""
+    def dx:double 0.0
+    def dy:double 0.0
+
+    Constructor () {
+    }
+}
+
+; Every look the deck's programs gave, by selector. The Markdown is not
+; changed: the looks are laid over the slide as it paints, and go when the
+; program resets them or another deck is opened.
+class PresPlayStyle {
+    def looks:[PresPlayLook]
+    def rev:int 0
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length looks)
+    }
+
+    fn clear:void () {
+        def none:[PresPlayLook]
+        looks = none
+        rev = (rev + 1)
+    }
+
+    sfn selOk:boolean (sel:string) {
+        def n:int (strlen sel)
+        if (n < 2) {
+            return false
+        }
+        def c0:int (charAt sel 0)
+        if ((c0 != 35) && (c0 != 46)) {
+            return false
+        }
+        def i:int 1
+        while (i < n) {
+            def c:int (charAt sel i)
+            def ok:boolean ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((((c >= 48) && (c <= 57)) || (c == 45)) || (c == 95)))
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn lookAt:PresPlayLook (sel:string) {
+        def i:int 0
+        while (i < (array_length looks)) {
+            def l:PresPlayLook (itemAt looks i)
+            if (l.sel == sel) {
+                return l
+            }
+            i = (i + 1)
+        }
+        def nl:PresPlayLook (new PresPlayLook())
+        nl.sel = sel
+        push looks nl
+        return nl
+    }
+
+    ; A length: "12px", "12" or "-4.5px", in the slide's units.
+    sfn px:double (v0:string) {
+        def v:string (trim v0)
+        def n:int (strlen v)
+        if ((n > 2) && ((substring v (n - 2) n) == "px")) {
+            v = (substring v 0 (n - 2))
+        }
+        def d@(optional):double (str2double (trim v))
+        return (?? d 0.0)
+    }
+
+    ; One granted el.* ask taken in. True when a look changed.
+    fn take:boolean (a:PresPlayAsk) {
+        if (a.kind == "el.reset") {
+            def keep:[PresPlayLook]
+            def gone:boolean false
+            def i:int 0
+            while (i < (array_length looks)) {
+                def l0:PresPlayLook (itemAt looks i)
+                if (l0.sel != a.sel) {
+                    push keep l0
+                } {
+                    gone = true
+                }
+                i = (i + 1)
+            }
+            looks = keep
+            if gone {
+                rev = (rev + 1)
+            }
+            return gone
+        }
+        def l:PresPlayLook (this.lookAt(a.sel))
+        if (a.kind == "el.show") {
+            l.hidden = false
+        }
+        if (a.kind == "el.hide") {
+            l.hidden = true
+        }
+        if (a.kind == "el.style") {
+            def k:int 0
+            while (k < (array_length a.styleKeys)) {
+                def name:string (itemAt a.styleKeys k)
+                def val:string (trim (itemAt a.styleVals k))
+                if (name == "opacity") {
+                    def o@(optional):double (str2double val)
+                    l.opacity = (?? o 1.0)
+                    if (l.opacity < 0.0) {
+                        l.opacity = 0.0
+                    }
+                    if (l.opacity > 1.0) {
+                        l.opacity = 1.0
+                    }
+                }
+                if (name == "color") {
+                    l.color = val
+                }
+                if ((name == "background") || ((name == "background-color") || (name == "backgroundColor"))) {
+                    l.fill = val
+                }
+                if ((name == "display") || (name == "visibility")) {
+                    l.hidden = ((val == "none") || (val == "hidden"))
+                }
+                ; a move from where the slide put it: "translate": "20px -10px"
+                if (name == "translate") {
+                    def parts:[string] (strsplit (MdApp.replaceAll(val "," " ")) " ")
+                    def got:[double]
+                    def p:int 0
+                    while (p < (array_length parts)) {
+                        if ((strlen (trim (itemAt parts p))) > 0) {
+                            push got (PresPlayStyle.px((itemAt parts p)))
+                        }
+                        p = (p + 1)
+                    }
+                    if ((array_length got) > 0) {
+                        l.dx = (itemAt got 0)
+                    }
+                    if ((array_length got) > 1) {
+                        l.dy = (itemAt got 1)
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        rev = (rev + 1)
+        return true
+    }
+
+    ; The looks for a block with this id and these classes, in the order
+    ; they were first given; empty when none names it.
+    fn looksFor:[PresPlayLook] (id:string classes:[string]) {
+        def out:[PresPlayLook]
+        def i:int 0
+        while (i < (array_length looks)) {
+            def l:PresPlayLook (itemAt looks i)
+            def name:string (substring l.sel 1 (strlen l.sel))
+            if ((charAt l.sel 0) == 35) {
+                if (((strlen id) > 0) && (name == id)) {
+                    push out l
+                }
+            } {
+                if ((indexOf classes name) >= 0) {
+                    push out l
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The commands of `out` from `from` on dressed in a look: hidden ones
+    ; taken out, the rest faded, recoloured and moved.
+    sfn dress:void (out:EVGDisplayList from:int l:PresPlayLook) {
+        if l.hidden {
+            def keep:[EVGDrawCmd]
+            def i0:int 0
+            while (i0 < from) {
+                push keep (itemAt out.cmds i0)
+                i0 = (i0 + 1)
+            }
+            out.cmds = keep
+            return
+        }
+        def ink:EVGColor (EVGColor.parse("#000000"))
+        def hasInk:boolean ((strlen l.color) > 0)
+        if hasInk {
+            ink = (EVGColor.parse(l.color))
+        }
+        def paint:EVGColor (EVGColor.parse("#000000"))
+        def hasPaint:boolean ((strlen l.fill) > 0)
+        if hasPaint {
+            paint = (EVGColor.parse(l.fill))
+        }
+        def i:int from
+        while (i < (array_length out.cmds)) {
+            def c:EVGDrawCmd (itemAt out.cmds i)
+            i = (i + 1)
+            if ((c.kind == 4) || (c.kind == 5)) {
+                continue
+            }
+            if (hasInk && ((c.kind == 3) || (c.kind == 6))) {
+                c.r = (ink.red())
+                c.g = (ink.green())
+                c.b = (ink.blue())
+            }
+            if (hasPaint && (c.kind == 0)) {
+                c.r = (paint.red())
+                c.g = (paint.green())
+                c.b = (paint.blue())
+                c.hasGrad = false
+            }
+            if (l.opacity >= 0.0) {
+                c.a = (c.a * l.opacity)
+                c.a2 = (c.a2 * l.opacity)
+            }
+            if ((l.dx != 0.0) || (l.dy != 0.0)) {
+                c.x = (c.x + l.dx)
+                c.y = (c.y + l.dy)
+                def pi:int 0
+                while (pi < (array_length c.pts)) {
+                    if ((pi % 2) == 0) {
+                        set_at c.pts pi ((itemAt c.pts pi) + l.dx)
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + l.dy)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+        }
+    }
+}

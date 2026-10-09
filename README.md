@@ -314,6 +314,40 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   is EVGUI's `DrawToolsCtl` (compact), the editing `src/PresSketchUi.rgr`. PDF shows
   the drawings; the PPTX, Word and HTML exports and the MCP server do not
   include them yet.
+- **Programs on a slide** (games, small apps): a TypeScript + JSX file of the
+  deck, with its stylesheet beside it, runs in the box of an `app` fence. The
+  sample deck *Games* has two.
+
+  ````markdown
+  ```app
+  src: apps/scaffold.tsx      # its stylesheet: apps/scaffold.tsx.css (or css:)
+  size: 640x480               # the program's own units, scaled to the box
+  allow: deck.data, slide.nav # what it may ask of the deck
+  ```
+  ````
+
+  - **The program** defines `view()` (JSX), and optionally `tick(dt, input)`,
+    `onKeyDown(key)`, `onKeyUp(key)` and `onClick` handlers on elements, as in
+    componentengine's playground. Its CSS is laid out by EVG like the slide.
+  - **Running:** each program runs in [CErXes](https://github.com/terotests/componentengine)
+    (built to WebAssembly) in a Worker of its own, only while its slide is on
+    the stage. It has no page, network or storage. One that does not answer in
+    3 s is stopped.
+  - **Keyboard:** a click on the box gives the program the keys; Esc gives them
+    back, and while editing a double click then edits the block.
+  - **The deck** (each needs its word on `allow:`, the rest is refused and said):
+    `deck.data` / `deck.get(key)` read the deck's own keys, `deck.set(key, v)`
+    fills `{key}` in headers and footers (`deck.data`); `slide.next()`,
+    `slide.prev()`, `slide.go(n)`, `slide.build()` (`slide.nav`);
+    `el("#id")` / `el(".class")` `.style({ color, background, opacity, translate, display })`,
+    `.show()`, `.hide()`, `.reset()` over the slide's blocks, without changing
+    the Markdown (`slide.style`). `machine.send` waits for state machines.
+  - **Exports and thumbnails** show the program's last picture, or a plate with
+    its name before it has run. The public viewer shows the plate.
+  - The fence is read by RangerMarkdown (`MdApp`), the picture laid out and
+    painted by `src/PresPlay.rgr`, the workers driven by `web/apps.js`. The
+    build clones componentengine and builds `cerxes.wasm` with cargo (`rustup
+    target add wasm32-wasip1`); without it the boxes keep their plates.
 
 ## Using it
 
