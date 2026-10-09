@@ -38,11 +38,24 @@ npm run native:run -- --server http://localhost:8080
   keep: the server's version or this one.
 - The welcome deck, saved, becomes a new presentation on the server.
 - A deck file given on the command line saves to that file.
+- The rail's Rooms are the server's: rooms and their presentations, folders,
+  search, new and archived rooms, a presentation dragged to another room
+  (move or copy), Document settings → Room. Which rooms one was active in and
+  the order they were dragged into are kept in `rooms.json` in the app's
+  settings folder (SDL_GetPrefPath).
+- Share shows the presentation's link on the server; Export → PDF and
+  PowerPoint are drawn by the server (`/api/export/<id>/<format>`) and saved
+  in ~/Downloads. Duplicate and Delete presentation work on the server too.
+- A button whose work is still only the browser editor's (recording, Word
+  and web-page export, pictures, versions, the editor's look) says so
+  instead of doing nothing.
 
 What the editor does with the server is `../src/PresServer.rgr` (REST API v1,
-`../docs/api-v1.md`, over `../src/ApiClient.rgr`), tested in
-`../src/PresCheck.rgr`; the host only performs its HTTP requests with libcurl.
-Not yet here: sign-in (OAuth), a server's own HTTPS CA, rooms and pictures.
+`../docs/api-v1.md`, over `../src/ApiClient.rgr`), with the rooms in
+`../src/PresRooms.rgr` (POST /api/rooms/<op>), tested in
+`../src/PresCheck.rgr`; the host only performs its HTTP requests with libcurl
+and makes the app calls they ask for. Not yet here: sign-in (OAuth), a
+server's own HTTPS CA, room chat and pictures.
 
 The build compiles the whole editor (PresApp.cpp, some 360 000 lines), so it
 takes a few minutes. It uses the Ranger, EVGUI, RangerFlow, RangerMarkdown and

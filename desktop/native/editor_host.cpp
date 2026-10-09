@@ -39,6 +39,7 @@
 #include <SDL.h>
 
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <ctime>
 #include <deque>
@@ -177,11 +178,48 @@ struct Net {
   }
 };
 
+// The themes in editor-res/themes, as the app knows them (addTemplate).
+const char* const kThemes[] = {"aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"};
+
+// "aurora\tAurora\n…": the rows File → New's window lists.
+std::string themeRows() {
+  std::string rows;
+  for (const char* t : kThemes) {
+    if (!rows.empty()) rows += "\n";
+    rows += std::string(t) + "\t" + (char)std::toupper((unsigned char)t[0]) + (t + 1);
+  }
+  return rows;
+}
+
+// Where a downloaded file goes: ~/Downloads when there is one, else the
+// home folder.
+std::string downloadsDir() {
+  const char* home = std::getenv("HOME");
+  std::string h = home && *home ? home : ".";
+  std::string d = h + "/Downloads";
+  std::ofstream probe(d + "/.sliqtly-probe");
+  if (probe) {
+    probe.close();
+    std::remove((d + "/.sliqtly-probe").c_str());
+    return d;
+  }
+  return h;
+}
+
+double epochMs() {
+  using namespace std::chrono;
+  return (double)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
 struct Host {
   std::shared_ptr<PresApp> app;
   std::shared_ptr<PresScrollInput> scroll;
   std::shared_ptr<PresServer> server;
   Net net;
+  std::map<std::string, std::string> themeCss;
+  std::string roomsFile;  // the rail's view of the rooms, kept between runs
+  bool autoContrast = true;
+  std::string shareShow, shareEdit;
   Painter painter;
   SDL_Window* window = nullptr;
   int W = 1280, H = 800;          // window, points
@@ -251,12 +289,94 @@ struct Host {
   }
 
   void handle(const std::string& r) {
+    server->rooms->now = epochMs();
     if (server->request(r)) {
       needsPaint = true;
-    } else if (r == "fullscreen") {
+      return;
+    }
+    needsPaint = true;
+    auto starts = [&](const char* p) { return r.compare(0, std::strlen(p), p) == 0; };
+    auto clip = [&](const std::string& text) {
+      bool ok = !text.empty() && SDL_SetClipboardText(text.c_str()) == 0;
+      app->toast(ok ? "Copied" : "Could not copy");
+    };
+    if (r == "fullscreen") {
       SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    } else if (r == "exit-fullscreen") {
+      SDL_SetWindowFullscreen(window, 0);
     } else if (r == "click:save") {
       save();
+    } else if (r == "click:present") {
+      app->present(true);
+    } else if (r == "click:play") {
+      if (app->isPlaying()) app->stop();
+      else app->play();
+    } else if (r == "click:share") {
+      // the deck's link on the server (web/main.js shareLink, short link)
+      std::string url = server->shareUrl();
+      if (url.empty()) {
+        app->toast("Save the presentation on the server first: then it has a link.");
+      } else {
+        shareShow = url;
+        shareEdit = url + "?edit";
+        app->openShare(shareShow, shareEdit, "The presentation's link on " + server->address + ".");
+      }
+    } else if (starts("copy:")) {
+      std::string which = r.substr(5);
+      std::string text = which == "show" ? shareShow : shareEdit;
+      bool ok = !text.empty() && SDL_SetClipboardText(text.c_str()) == 0;
+      app->shareCopied(which, ok);
+    } else if (starts("clip:")) {
+      clip(app->copyText(r.substr(5)));
+    } else if (r == "review-copy") {
+      clip(app->reviewClip());
+    } else if (r == "files:new" || r == "click:newPres") {
+      // asked first, in the app's own window (web/main.js fileRequest "new")
+      app->openNewDeck(themeRows(), server->deckTheme.empty() ? "aurora" : server->deckTheme, "");
+    } else if (r == "files:duplicate") {
+      app->openDupDeck((server->deckName.empty() ? app->docTitle() : server->deckName) + " (copy)");
+    } else if (r == "files:deletedeck") {
+      if (server->deckId.empty()) {
+        app->toast("This presentation is not on the server.");
+      } else {
+        app->openConfirm("deletedeck", "Delete presentation",
+                         "Delete \u201c" + server->deckName + "\u201d? It is removed from the server, and its link stops working. This cannot be undone.",
+                         "Delete");
+      }
+    } else if (r == "newdeck-create") {
+      if (!server->newDeck(app->newDeckPlan(), app->source())) app->toast("Not connected to a server.");
+    } else if (r == "openbox") {
+      // Open: the server's presentations (the samples are the browser's)
+      handle("decks");
+    } else if (starts("select:theme:")) {
+      std::string k = r.substr(13);
+      app->setStyleSheet(themeCss.count(k) ? themeCss[k] : themeCss["aurora"]);
+      thumbs.clear();
+    } else if (r == "settings") {
+      app->openSettings(autoContrast);
+    } else if (starts("setting:contrast:")) {
+      autoContrast = r.size() >= 3 && r.compare(r.size() - 3, 3, ":on") == 0;
+      thumbs.clear();
+    } else if (starts("setting:review:")) {
+      app->setReviewMode(r.compare(r.size() - 3, 3, ":on") == 0);
+    } else if (r == "rail:review") {
+      app->setReviewMode(!app->reviewMode());
+    } else if (r == "about") {
+      std::string words = "Sliqtly\nDesktop app";
+      if (server->connected()) words += "\nServer " + server->address;
+      app->openAbout("About", words);
+    } else if (r == "help-guide") {
+      app->openHelpTab("guide");
+    } else if (starts("showtab:")) {
+      app->showTab(r.substr(8));
+    } else if (r == "docset") {
+      if (app->openDocSettings("")) server->rooms->docRooms();
+    } else if (starts("click:") || starts("rec:") || starts("record:") || starts("replay:") || starts("meet:") ||
+               starts("select:sample:") || starts("setting:skin") || starts("setting:mode:") ||
+               starts("setting:term:") || starts("image-") || r == "files:newsheet" || starts("roomchat:open")) {
+      // a button whose work is still only the browser editor's: said, not dropped
+      app->toast("Not in the desktop app yet. The browser editor has it.");
+      std::fprintf(stderr, "not in the desktop app yet: %s\n", r.c_str());
     } else if (std::getenv("SLIQTLY_DEBUG")) {
       std::fprintf(stderr, "request not handled yet: %s\n", r.c_str());
     }
@@ -550,6 +670,9 @@ struct Host {
       server->loadPending = false;
       app->setSource(server->loadMd);
       server->loadMd = "";
+      std::string k = server->loadTheme.empty() ? "aurora" : server->loadTheme;
+      app->setStyleSheet(themeCss.count(k) ? themeCss[k] : themeCss["aurora"]);
+      thumbs.clear();
       deckPath = "";
       SDL_SetWindowTitle(window, ("Sliqtly – " + server->deckName).c_str());
       needsPaint = true;
@@ -575,6 +698,34 @@ struct Host {
     }
     if (!server->notes.empty()) {
       server->notes.clear();
+      needsPaint = true;
+    }
+    // what the rooms ask of the app (PresAppCall)
+    auto& calls = server->rooms->calls;
+    for (auto& c : calls) {
+      if (c->kind == "opts") app->setToolbarOptions(c->a, c->b, c->c);
+      else if (c->kind == "roomDialog") app->openRoomDialog(c->a, c->b, c->c, c->d);
+      else if (c->kind == "folderDialog") app->openFolderDialog(c->a, c->b);
+      else if (c->kind == "choice") app->openChoice(c->a, c->b, c->c, c->d, c->e);
+      else if (c->kind == "confirm") app->openConfirm(c->a, c->b, c->c, c->d);
+      else if (c->kind == "docRooms") app->setDocRooms(c->a, c->b, c->c);
+      else if (c->kind == "toast") app->toast(c->a);
+      else if (c->kind == "newDeck") app->openNewDeck(themeRows(), "aurora", "");
+    }
+    if (!calls.empty()) {
+      calls.clear();
+      needsPaint = true;
+    }
+    if (server->rooms->stateChanged && !roomsFile.empty()) {
+      server->rooms->stateChanged = false;
+      writeText(roomsFile, server->rooms->stateJson());
+    }
+    if (server->filePending) {
+      server->filePending = false;
+      std::string path = downloadsDir() + "/" + server->fileName;
+      bool ok = writeText(path, server->fileBody);
+      server->fileBody.clear();
+      app->toast(ok ? "Saved " + path : "Could not write " + path);
       needsPaint = true;
     }
     if (!server->askKey.empty()) {
@@ -757,8 +908,9 @@ int main(int argc, char** argv) {
   h.app->setPlatformMeasure([painter](std::string text, std::string family, double sz) {
     return painter->text().measure(family, sz, text);
   });
-  for (const char* t : {"aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"}) {
+  for (const char* t : kThemes) {
     std::string css = readText(res + "themes/" + t + ".css");
+    h.themeCss[t] = css;
     if (!css.empty()) h.app->addTemplate(t, css);
   }
   h.app->setStyleSheet(readText(res + "themes/aurora.css"));
@@ -771,6 +923,11 @@ int main(int argc, char** argv) {
   h.server = std::make_shared<PresServer>();
   h.server->utcOffsetMin = utcOffsetMinutes();
   h.net.wake = SDL_RegisterEvents(1);
+  if (char* pref = SDL_GetPrefPath("Sliqtly", "Sliqtly")) {
+    h.roomsFile = std::string(pref) + "rooms.json";
+    SDL_free(pref);
+    h.server->rooms->loadState(readText(h.roomsFile));
+  }
   // the headless check stays off the network unless told otherwise
   if ((shot.empty() || serverGiven) && serverUrl != "none") h.server->connect(serverUrl, token);
 

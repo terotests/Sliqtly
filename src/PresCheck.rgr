@@ -3637,16 +3637,140 @@ class PresCheck {
         def ren:ApiRequest (this.answer(s 200 "{\"id\":\"aaa111\",\"name\":\"Beta final\",\"markdown\":\"# Theirs\\n\",\"version\":\"v5\"}"))
         this.ok((((ren.body == "{\"name\":\"Beta final\"}") && (s.deckName == "Beta final")) && (s.deckVersion == "v5")) ("server: renamed, " + ren.body + " " + s.deckVersion))
         ; File → New presentation: made on the server, then open
-        this.ok(((s.newDeck("{\"name\":\"x\",\"dup\":true,\"ask\":\"dup\"}")) == false) "server: a copy is not a new one")
-        this.ok((s.newDeck("{\"name\":\"Gamma\",\"theme\":\"ember\",\"data\":\"none\",\"dup\":false,\"ask\":\"\"}")) "server: a new deck is the server's")
+        this.ok((s.newDeck("{\"name\":\"\",\"dup\":true,\"ask\":\"dup\"}" "# Mine\n")) "server: Duplicate is the server's")
+        def dup:ApiRequest (this.answer(s 200 "{\"id\":\"dup1\",\"name\":\"Beta final (copy)\",\"markdown\":\"# Mine\\n\",\"version\":\"1\"}"))
+        this.ok((((indexOf dup.body "\"name\":\"Beta final (copy)\"") > 0) && ((indexOf dup.body "\"markdown\":\"# Mine\\n\"") > 0)) ("server: the copy is this text, named (copy), " + dup.body))
+        this.flush(s)
+        this.ok((s.newDeck("{\"name\":\"Gamma\",\"theme\":\"ember\",\"data\":\"none\",\"dup\":false,\"ask\":\"\"}" "")) "server: a new deck is the server's")
         s.loadPending = false
         def post:ApiRequest (this.answer(s 200 "{\"id\":\"ccc333\",\"name\":\"Gamma\",\"markdown\":\"# Gamma\\n\\nWrite here.\\n\",\"version\":\"1\"}"))
         this.ok((((post.method == "POST") && ((indexOf post.body "\"theme\":\"ember\"") > 0)) && (s.loadPending && (s.deckId == "ccc333"))) ("server: made and opened, " + post.body))
+        this.flush(s)
+        ; the theme chosen here goes with the next save
+        s.request("select:theme:ember")
+        s.save("# Gamma\n")
+        def th:ApiRequest (this.answer(s 200 "{\"version\":\"2\"}"))
+        this.ok(((indexOf th.body "\"theme\":\"ember\"") > 0) ("server: the theme saved, " + th.body))
+        ; export: the server's file, named after the deck
+        this.ok((s.request("click:pdf")) "server: Export PDF is the server's")
+        def ex:ApiRequest (this.answer(s 200 "%PDF-1.4"))
+        this.ok((((ex.url == "http://localhost:8080/api/export/ccc333/pdf") && s.filePending) && ((s.fileName == "Gamma.pdf") && (s.fileBody == "%PDF-1.4"))) ("server: the PDF to write, " + ex.url + " " + s.fileName))
+        this.ok(((PresServer.fileOf("a/b: c?" "pptx")) == "a-b- c-.pptx") "server: no path marks in a file name")
+        this.ok(((s.shareUrl()) == "http://localhost:8080/s/ccc333") "server: Share is the deck's link")
+        ; the open deck deleted: the newest other one opens
+        s.request("confirm:deletedeck")
+        def del:ApiRequest (this.answer(s 204 ""))
+        this.ok(((del.method == "DELETE") && ((strlen s.deckId) == 0)) "server: the open deck deleted")
+        def nl:ApiRequest (this.answer(s 200 "{\"decks\":[{\"id\":\"old\",\"updated\":5},{\"id\":\"new\",\"updated\":9}]}"))
+        def gn:ApiRequest (this.answer(s 200 "{\"id\":\"new\",\"name\":\"N\",\"markdown\":\"# N\\n\",\"version\":\"3\",\"theme\":\"carbon\"}"))
+        this.ok((((gn.url == "http://localhost:8080/api/v1/decks/new") && (s.deckId == "new")) && (s.loadTheme == "carbon")) ("server: then the newest opens with its theme, " + gn.url))
         ; no server there
         def n (new PresServer())
         n.connect("localhost:9" "")
         this.answer(n 0 "")
         this.ok((((n.connected()) == false) && ((array_length n.notes) == 1)) "server: none there is said, not connected")
+    }
+
+    ; the last "opts" call for `id`, "" none
+    fn optsOf:string (r:PresRooms id:string) {
+        def out:string "-"
+        def i:int 0
+        while (i < (array_length r.calls)) {
+            def c:PresAppCall (itemAt r.calls i)
+            if ((c.kind == "opts") && (c.a == id)) {
+                out = c.b
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; every request still waiting answered 200 {}
+    fn flush:void (s:PresServer) {
+        def go:boolean true
+        while go {
+            def r@(optional):ApiRequest (s.api.take())
+            if (null? r) {
+                go = false
+            } {
+                def got:ApiRequest (unwrap r)
+                s.api.deliver(got.id 200 "{}" "")
+            }
+        }
+        s.process()
+    }
+
+    fn serverRooms:void () {
+        def s (new PresServer())
+        s.connect("localhost:8080" "")
+        this.answer(s 200 "{\"api\":1}")
+        this.answer(s 200 "{\"decks\":[]}")
+        def r:PresRooms s.rooms
+        r.now = 1791480000000.0
+        this.ok((s.request("room:list")) "rooms: the rail's Rooms is the server's")
+        def lr:ApiRequest (this.answer(s 200 "{\"rooms\":[{\"room_id\":\"general\",\"title\":\"General\",\"created\":1,\"presentations\":2},{\"room_id\":\"playground\",\"title\":\"Playground\",\"created\":1},{\"room_id\":\"old\",\"title\":\"Old work\",\"created\":1000},{\"room_id\":\"r1\",\"title\":\"Ääniraportti\",\"created\":1791470000000},{\"room_id\":\"r2\",\"title\":\"Budget\",\"created\":1791475000000,\"archived\":true}]}"))
+        this.ok(((lr.url == "http://localhost:8080/api/rooms/list_rooms") && (lr.method == "POST")) ("rooms: POST /api/rooms/list_rooms, " + lr.url))
+        def rows:string (this.optsOf(r "rooms"))
+        this.ok(((indexOf rows "r1\tÄäniraportti") == 0) ("rooms: a new room first, " + rows))
+        this.ok((((indexOf rows "old\t") < 0) && ((indexOf rows "r2\t") < 0)) "rooms: an old room and an archived one only by search")
+        this.ok(((indexOf rows "general\tGeneral\t2\t") > 0) "rooms: a room's count")
+        this.ok((r.shown == "r1") "rooms: the first room shown when none was")
+        def gr:ApiRequest (this.answer(s 200 "{\"room\":{\"room_id\":\"r1\"},\"presentations\":[{\"deck_id\":\"d1\",\"name\":\"Plan\",\"folder_id\":\"\"},{\"deck_id\":\"d2\",\"name\":\"Test\",\"folder_id\":\"f1\"}],\"folders\":[{\"folder_id\":\"f1\",\"name\":\"Tests\"}]}"))
+        this.ok(((indexOf gr.body "\"room_id\":\"r1\"") > 0) "rooms: then the shown room's presentations")
+        def dl:string (this.optsOf(r "roomdecks"))
+        this.ok(((indexOf dl "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t\nnew\t") == 0) ("rooms: a folder, shut, then the room's top, " + dl))
+        clear r.calls
+        s.request("room:fold:r1:f1")
+        this.ok(((indexOf (this.optsOf(r "roomdecks")) "f:f1\tTests\t1\tf\t1\ncloud:d2\tTest\t\ti\n") == 0) "rooms: a folder opened shows what is in it")
+        ; search, accents left out
+        clear r.calls
+        s.request("room:search:aani")
+        this.ok(((indexOf (this.optsOf(r "rooms")) "r1\t") == 0) "rooms: search leaves the accents out")
+        s.request("room:search:budget")
+        this.ok(((indexOf (this.optsOf(r "rooms")) "r2\tBudget (archived)") == 0) "rooms: search finds an archived room")
+        s.request("room:searchend")
+        this.flush(s)
+        ; a presentation pressed opens it
+        s.request("room:deck:cloud:d1")
+        def gd:ApiRequest (this.answer(s 200 "{\"id\":\"d1\",\"name\":\"Plan\",\"markdown\":\"# Plan\\n\",\"version\":\"1\",\"room\":\"r1\"}"))
+        this.ok(((gd.url == "http://localhost:8080/api/v1/decks/d1") && (s.deckId == "d1")) ("rooms: a presentation pressed opens, " + gd.url))
+        def again:ApiRequest (this.answer(s 200 "{\"rooms\":[{\"room_id\":\"general\",\"title\":\"General\",\"created\":1},{\"room_id\":\"r1\",\"title\":\"Ääniraportti\",\"created\":1791470000000}]}"))
+        this.ok(((indexOf again.url "list_rooms") > 0) "rooms: a deck opened lists the rooms again")
+        this.answer(s 200 "{\"room\":{\"room_id\":\"r1\"},\"presentations\":[{\"deck_id\":\"d1\",\"name\":\"Plan\",\"folder_id\":\"\"}],\"folders\":[]}")
+        this.ok(((indexOf (this.optsOf(r "roomdecks")) "cloud:d1\tPlan\t1\t") == 0) "rooms: the open one is marked")
+        ; a new room from its window
+        clear r.calls
+        s.request("room:new")
+        def c0:PresAppCall (itemAt r.calls 0)
+        this.ok((((array_length r.calls) == 1) && (c0.kind == "roomDialog")) "rooms: + opens the room's window")
+        this.ok((s.newDeck("{\"name\":\"  Launch \",\"ask\":\"room\",\"room\":\"\",\"desc\":\"Q4\",\"act\":\"\"}" "")) "rooms: its Save is the rooms'")
+        def cr:ApiRequest (this.answer(s 200 "{\"room_id\":\"r9\"}"))
+        this.ok((((indexOf cr.url "/api/rooms/create_room") > 0) && ((indexOf cr.body "\"title\":\"Launch\"") > 0)) ("rooms: create_room, " + cr.body))
+        this.ok((r.shown == "r9") "rooms: the new room is shown")
+        ; drag to another room: move or copy
+        clear r.calls
+        s.request("room:drop:r9:cloud:d1")
+        def c1:PresAppCall (itemAt r.calls 0)
+        this.ok(((c1.kind == "choice") && (c1.a == "roomdrop:r9:d1")) ("rooms: a drop asks move or copy, " + c1.kind + " " + c1.a))
+        def drain:ApiRequest (this.answer(s 200 "{\"rooms\":[]}"))
+        s.request("confirm:roomdrop:r9:d1")
+        def mv:ApiRequest (this.answer(s 200 "{\"moved\":true}"))
+        this.ok((((indexOf mv.url "move_presentation") > 0) && ((indexOf mv.body "\"room_id\":\"r9\"") > 0)) ("rooms: Move, " + mv.body))
+        ; the view kept over a restart
+        r.moveRoom("r1" "")
+        r.touch("r1")
+        def kept:string (r.stateJson())
+        def back (new PresRooms())
+        back.loadState(kept)
+        this.ok((((back.shown == r.shown) && ((array_length back.order) == (array_length r.order))) && ((back.touchedOf("r1")) > 0.0)) ("rooms: one's own view kept, " + kept))
+        ; a room the server made a moment after this side's clock read
+        def fresh (new PresRooms())
+        fresh.now = 1000.0
+        fresh.takeRooms((JVal.parse("[{\"room_id\":\"general\",\"created\":1},{\"room_id\":\"playground\",\"created\":1},{\"room_id\":\"n1\",\"title\":\"New\",\"created\":1300}]")))
+        fresh.shown = "n1"
+        fresh.show()
+        this.ok(((fresh.hidden == 0) && ((array_length fresh.listed) == 3)) ("rooms: a room made just now is listed, none hidden: " + (to_string fresh.hidden)))
+        this.ok(((PresRooms.fold("ÄÖÅ éx")) == "aoa ex") ("rooms: fold, " + (PresRooms.fold("ÄÖÅ éx"))))
     }
 
     ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
@@ -3902,6 +4026,7 @@ class PresCheck {
         c.meeting()
         c.scrollInput()
         c.serverDecks()
+        c.serverRooms()
         c.clips()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
