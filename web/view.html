@@ -209,7 +209,6 @@
       <a href="#features">Features</a>
       <a href="/connect.html">Connect</a>
       <a href="#local">Get Local</a>
-      <a href="#terms">Terms</a>
     </nav>
     <div class="nav__cta"><a class="coffee" href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8.6 1.6 0 2.5M12 3.5c-.6.8.6 1.6 0 2.5"/></svg></a><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
   </header>
@@ -280,18 +279,22 @@
     <section class="section" id="features">
       <div class="wrap">
         <p class="label">Features</p>
-        <h2 class="display display--lg">What the <span class="accent">Markdown</span> can hold.</h2>
-        <p class="lead">PowerPoint and Google Slides are a slightly unfair yardstick for a project this young: they have decades of work behind them. Here is plainly what Sliqtly reads and draws today.</p>
+        <h2 class="display display--lg">What <span class="accent">Sliqtly</span> does today.</h2>
+        <p class="lead">PowerPoint and Google Slides are a slightly unfair yardstick for a project this young: they have decades of work behind them. Here is plainly what Sliqtly reads, draws and does today.</p>
         <div class="features">
-          <div><h3>Charts</h3><p>Vega-Lite, drawn by Sliqtly's own Vega engine (46 chart types tested against Vega):</p><ul><li>bar, stacked, grouped and normalized bar, histogram</li><li>line, multi-series line, area, streamgraph</li><li>scatter, bubble, heat map, tick</li><li>pie, donut, text labels, layered, faceted and side-by-side charts</li><li>time and log scales; filter, calculate, aggregate, bin, window, fold, pivot, lookup, regression, loess, density</li><li>looks: flat, forge, neon, glass</li></ul><p class="no">Not yet: errorbar, errorband, impute, sample.</p></div>
+          <div><h3>Charts</h3><p>Vega-Lite, drawn by Sliqtly's own Vega engine (46 chart types tested against Vega):</p><ul><li>bar, stacked, grouped and normalized bar, histogram</li><li>line, multi-series line, area, streamgraph</li><li>scatter, bubble, heat map, tick</li><li>pie, donut, text labels, layered, faceted and side-by-side charts</li><li>time and log scales; filter, calculate, aggregate, bin, window, fold, pivot, lookup, regression, loess, density</li><li>looks: flat, forge, neon, glass, cartoon, romantic</li><li>chart text in the deck's language (lang:)</li></ul><p class="no">Not yet: errorbar, errorband, impute, sample.</p></div>
           <div><h3>Diagrams</h3><ul><li><b>Mermaid</b>: flowchart, sequence, class, state, ER, mindmap, timeline, journey, gantt, gitGraph, pie, quadrant, xychart, sankey, block, architecture, kanban, requirement, C4 context, packet, radar, treemap</li><li><b>PlantUML</b>: sequence, class, object, component, deployment, use case, activity</li><li><b>Graphviz DOT</b>, <b>D2</b></li><li>a guided tour, box by box</li></ul><p class="no">PlantUML state, timing, mind map, Gantt are not drawn.</p></div>
           <div><h3>Diagram looks</h3><ul><li>classic</li><li>sketch (hand-drawn)</li><li>mermaid (pastel cards)</li><li>jurassic (poster)</li><li>cartoon (speech bubbles)</li><li>romantic (caption boxes)</li></ul></div>
           <div><h3>Layouts from lists</h3><ul><li>process (chevron steps)</li><li>SWOT</li><li>timeline</li><li>cards</li><li>stats (key figures)</li><li>gallery (photo albums)</li></ul></div>
           <div><h3>Text</h3><ul><li>tables, with rowspan/colspan and toned cells</li><li>math in LaTeX, inline and display</li><li>code with highlighting, line numbers and stepped lines</li><li>diffs</li><li>build steps, transitions, speaker notes</li></ul></div>
           <div><h3>Pictures and art</h3><ul><li>SVG</li><li>PNG, JPEG, GIF, WebP</li><li>SmartArt (partial: 20 layouts)</li><li>a picture as a slide background</li></ul></div>
-          <div><h3>Data</h3><ul><li>inline values</li><li>CSV and JSON files or URLs</li><li>Excel workbooks kept with the deck</li><li>Google Sheets, read live</li></ul></div>
-          <div><h3>Output</h3><ul><li>the player (HTML, a link)</li><li>PDF, also for print with bleed and crop marks</li><li>PowerPoint (.pptx, editable text)</li><li>Word (.docx)</li><li>a web page (.html)</li></ul></div>
+          <div><h3>Data</h3><ul><li>inline values</li><li>CSV and JSON files or URLs</li><li>Excel workbooks kept with the deck</li><li>Google Sheets, read live</li><li>your own keys in the front matter, shown in headers and footers</li></ul></div>
+          <div><h3>Output</h3><ul><li>the player (HTML, a link)</li><li>PDF, also for print with bleed and crop marks</li><li>PowerPoint (.pptx, editable text, formulas as equations)</li><li>Word (.docx)</li><li>a web page (.html)</li><li>Markdown, with or without review comments</li></ul></div>
           <div><h3>Themes</h3><ul><li>aurora, nebula, carbon, ember, midnight (dark)</li><li>corporate (light)</li><li>editorial (A4 pages)</li><li>your own CSS on top</li></ul></div>
+          <div><h3>Books and albums</h3><ul><li><code>mode: book</code>: pages in spreads, inside and outside margins</li><li>a realistic 3D page turn in the viewer</li><li>headers, footers and page numbers</li></ul></div>
+          <div><h3>AI assistants (MCP)</h3><ul><li>any MCP client: Claude, ChatGPT, Cursor, VS Code…</li><li>create, edit and export decks; read back a layout report</li><li>render slides to check them</li><li>bind charts to data, write Excel workbooks</li><li>list, add and resolve review comments</li><li>sees what you changed by hand since its last look</li></ul></div>
+          <div><h3>Editor</h3><ul><li>at sliqtly.com/editor after Google sign-in</li><li>Markdown and the slides side by side</li><li>diagram and table windows for editing blocks</li><li>version history</li><li>review mode: comment pins and threads on slides</li><li>draw on slides, record voice and pointer while presenting</li><li>dark and light looks</li></ul></div>
+          <div><h3>Working together</h3><p>On your own Sliqtly server:</p><ul><li>rooms (projects) holding decks, folders and files</li><li>room chat with threads, files and link previews</li><li>editing the same deck together, live</li><li>voice calls inside a room</li></ul></div>
         </div>
         <div class="actions">
           <a class="btn btn--solid btn--lg" href="/examples/sliqtly-example.pdf" target="_blank" rel="noopener">Example PDF (Finnish)</a>
@@ -314,18 +317,6 @@
       </div>
     </section>
 
-    <section class="section" id="terms">
-      <div class="wrap"><div class="notice">
-        <p class="label">Terms</p>
-        <h2 class="display display--lg">Experimental service — use at your own risk</h2>
-        <p>Sliqtly is currently provided as an experimental service on an "AS IS" and "AS AVAILABLE" basis, without warranties of any kind, whether express or implied.</p>
-        <p>The service may contain errors, experience interruptions, change without notice, or result in loss or corruption of data. You are solely responsible for maintaining appropriate backups of any files or content you use with the service.</p>
-        <p>Do not upload, store, process or transmit confidential, sensitive, secret, regulated, personal health, financial, authentication, or other information that requires secure or guaranteed handling.</p>
-        <p>To the maximum extent permitted by applicable law, the operator of Sliqtly shall not be liable for loss of data, loss of business, loss of profits, service interruptions, indirect or consequential damages, or other losses resulting from the use of or inability to use the service.</p>
-        <p>By using the service, you acknowledge that it is experimental and that you use it at your own risk.</p>
-      </div></div>
-    </section>
-
     <section class="section deal" id="who">
       <div class="wrap">
         <div class="who who--last">
@@ -340,7 +331,7 @@
   <footer class="foot">
     <div class="wrap foot__in">
       <div><strong>Sliqtly — Better slides through MCP.</strong>Experimental software · As Is · No confidential data</div>
-      <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="#local">Download</a><a href="#terms">Terms</a><a href="/personal-license.txt">License</a><a href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a coffee ☕</a></nav>
+      <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="#local">Download</a><a href="/personal-license.txt">License</a><a href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a coffee ☕</a></nav>
     </div>
   </footer>
 </div>
