@@ -66,6 +66,9 @@ class PresPlayView {
     def frames:int 0
     ; why the last tree or stylesheet was not taken, "" when it was
     def error:string ""
+    ; why the page stopped the program or could not start it (its syntax
+    ; error, what it threw, the watchdog), "" while it runs
+    def stopped:string ""
     def lay:EVGLayout (new EVGLayout())
     ; the fence allows 3-D worlds (`allow: 3d`): a <scene3d> shows one
     def allow3d:boolean false
@@ -287,6 +290,34 @@ class PresPlayView {
             i = (i + 1)
         }
         return out
+    }
+
+    ; What the plate says under the program's name: why it is not running,
+    ; "" while nothing went wrong.
+    fn note:string () {
+        if ((strlen stopped) > 0) {
+            return stopped
+        }
+        return error
+    }
+
+    ; The fence's plate in the box (bx, by, bw, bh) of `out`, at the
+    ; program's shape, with `note()` under its name.
+    fn paintPlate:void (out:EVGDisplayList spec:MdAppSpec bx:double by:double bw:double bh:double) {
+        def f:[double] (this.fitIn(bx by bw bh))
+        def w:double (width * (itemAt f 2))
+        def h:double (height * (itemAt f 2))
+        def root:EVGElement (MdApp.plate(spec w h (this.note())))
+        root.position = "absolute"
+        root.left = (EVGUnit.px((itemAt f 0)))
+        root.top = (EVGUnit.px((itemAt f 1)))
+        def le:EVGLayout (new EVGLayout())
+        le.setPageSize((bx + bw) (by + bh))
+        le.layout(root)
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.setTextEngine((le.getTextEngine()))
+        dl.build(root)
+        out.appendFrom(dl)
     }
 
     ; A ring round the box: the program has the keyboard.

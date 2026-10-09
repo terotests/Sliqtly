@@ -69,6 +69,12 @@ operators {
             go ( (e 1) ".EditorOn()" )
         }
     }
+    ; the plugins the admin turned on (SLIQTLY_PLUGINS), comma separated
+    host_plugins _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".Plugins()" )
+        }
+    }
     ; the folders files may be read from by path (SLIQTLY_IMPORT_DIRS on a
     ; server of one's own), comma separated; "" when none
     host_import_dirs _:string (h:McpHost) {
@@ -280,6 +286,14 @@ operators {
     host_svg_png _:buffer (h:McpHost data:buffer side:int) {
         templates {
             go ( (e 1) ".SvgPng(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; why the program of an app block does not run (cerxescheck.go): its
+    ; syntax error, what its first frames threw, "" when it runs, "-" when
+    ; there is no engine here to try it in
+    host_app_check _:string (h:McpHost src:string w:double hgt:double) {
+        templates {
+            go ( (e 1) ".AppCheck(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
     ; --- slides as pictures (render.go)

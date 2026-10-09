@@ -1413,6 +1413,11 @@ class PresDeck {
     ; A program's box painted: its picture when it has one (a still list —
     ; a thumbnail, the PDF — shows the last), else the fence's plate; a ring
     ; when it has the keyboard. False when the box is no program's.
+    ; true: a program's box is left empty where it has no picture yet (the
+    ; public viewer, mcp-go/rgr/View.rgr, paints the plate itself and runs
+    ; the program over it)
+    def platesOff:boolean false
+
     fn paintPlay:boolean (out:EVGDisplayList s:PresSlide b:MdBox painter:MdToEvg l:MdLayout) {
         def k:int 0
         while (k < (array_length s.plays)) {
@@ -1420,10 +1425,17 @@ class PresDeck {
             if (u.source == b.embedSource) {
                 def v@(optional):PresPlayView (this.playView(u.key))
                 def shown:boolean false
+                def said:string ""
                 if (!null? v) {
-                    shown = ((unwrap v).paint(out b.x b.y b.w b.h))
+                    def pv:PresPlayView (unwrap v)
+                    shown = (pv.paint(out b.x b.y b.w b.h))
+                    said = (pv.note())
+                    if ((shown == false) && ((strlen said) > 0)) {
+                        pv.paintPlate(out u.spec b.x b.y b.w b.h)
+                        shown = true
+                    }
                 }
-                if (shown == false) {
+                if ((shown == false) && (platesOff == false)) {
                     painter.paintBox(out l b 0.0)
                 }
                 if ((((!null? v) && (u.key == playFocus)) && showControls) && (still == false)) {
@@ -1453,6 +1465,14 @@ class PresDeck {
             }
             if (((strlen u.spec.src) > 0) && ((indexOf dataMissing (MdVegaRender.resolveUrl(u.spec.src))) >= 0)) {
                 push out ("Slide " + (to_string (u.page + 1)) + ": app: no file " + u.spec.src + " in this presentation")
+            }
+            ; its stylesheet's rules the layout does not take
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if (!null? v) {
+                def view:PresPlayView (unwrap v)
+                for (view.cssErrors()) ce:string cei {
+                    push out ("Slide " + (to_string (u.page + 1)) + ": " + u.spec.css + ": " + ce)
+                }
             }
             i = (i + 1)
         }

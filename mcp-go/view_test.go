@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -182,6 +183,82 @@ func TestViewBook(t *testing.T) {
 	if _, has := open("")["book"]; has {
 		t.Fatal("a deck of slides has no book")
 	}
+}
+
+// A program on a slide (```app) comes with the view: the page runs it. Its
+// box is the program's own shape, centred in the column (not stretched to
+// the column's right edge).
+func TestViewPlays(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Title\n\n## Video\n\n```app\nsrc: apps/v.tsx\nsize: 960x540\nallow: slide.nav\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Played", "markdown": md, "visibility": "link",
+		"files": []any{
+			map[string]any{"name": "v.tsx", "text": "function view() { return <div className=\"r\"/> }"},
+			map[string]any{"name": "v.tsx.css", "text": ".r { background: red; }"},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	res, err := http.Get(s.root + "/api/view/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var v struct {
+		Deck struct {
+			Width float64 `json:"width"`
+			Plays []struct {
+				Key, Src, CSS, Text, CSSText string
+				Slide                        int
+				W, H                         float64
+				Allow                        []string
+				Box                          []float64
+			} `json:"plays"`
+		} `json:"deck"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, len(v.Deck.Plays), 1)
+	p := v.Deck.Plays[0]
+	eq(t, p.Key, "apps/v.tsx#1")
+	eq(t, p.Slide, 1)
+	eq(t, p.W, 960.0)
+	eq(t, fmt.Sprint(p.Allow), "[slide.nav]")
+	eq(t, p.Text, "function view() { return <div className=\"r\"/> }")
+	eq(t, p.CSSText, ".r { background: red; }")
+	eq(t, len(p.Box), 4)
+	// the box is left empty in the slide's list: the page paints the plate
+	// and runs the program over it
+	_, _, _, body := getView(t, s.root+"/api/view/"+id)
+	if strings.Contains(body, "▶ v.tsx") {
+		t.Fatal("the view's list draws the plate")
+	}
+
+	// the plate in the slide's list: as wide as 16:9 at the box's height
+	r := call(t, s, "render_slide", map[string]any{"deck_id": id, "slide": 2})
+	m := regexp.MustCompile(`diagram \(App\) at (\d+),\d+ size (\d+)×(\d+)`).FindStringSubmatch(lastText(r))
+	if m == nil {
+		t.Fatal(lastText(r))
+	}
+	w, h := atof(m[2]), atof(m[3])
+	if d := w/h - 16.0/9.0; d > 0.01 || d < -0.01 {
+		t.Fatalf("plate %v×%v is not 16:9", w, h)
+	}
+	if left, right := atof(m[1]), 1920-atof(m[1])-w; left-right > 4 || right-left > 4 {
+		t.Fatalf("plate not centred: %v left, %v right", left, right)
+	}
+}
+
+func atof(s string) float64 {
+	var f float64
+	fmt.Sscan(s, &f)
+	return f
 }
 
 // A deck's own effect (```fx, src/FxLang.rgr): the viewer is sent the shader

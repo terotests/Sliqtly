@@ -1,0 +1,133 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresPlayWeb.rgr — the programs on slides (```app) in the public viewer.
+; ============================================================================
+;
+; The viewer (web/view.js) paints display lists the server laid out and has
+; no deck model; the server sends each program's box, size, source and
+; stylesheet (mcp-go/rgr/View.rgr plays) and leaves the box empty. This is
+; the little the page needs on top: PresPlayView per program (the tree laid
+; out with its stylesheet, painted in the box) and the fence's plate while
+; there is no picture yet, as display list JSON in the slide's units.
+;
+; Compiled on its own into web/dist-view/pres_play.js (scripts/build-view.mjs),
+; loaded only by a deck that has a program.
+; ============================================================================
+
+Import "PresPlay.rgr"
+
+class PresPlayWeb {
+    def views:[PresPlayView]
+    def specs:[MdAppSpec]
+    ; the box of each, in the slide's units: x, y, w, h one after another
+    def boxes:[double]
+
+    Constructor () {
+    }
+
+    fn indexOf:int (key:string) {
+        def i:int 0
+        while (i < (array_length views)) {
+            def v:PresPlayView (itemAt views i)
+            if (v.key == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A program of the deck: its key, its fence's src, its own size and its
+    ; box on the slide. Its stylesheet comes with `setCss`.
+    fn add:void (key:string src:string width:double height:double x:double y:double w:double h:double) {
+        if ((this.indexOf(key)) >= 0) {
+            return
+        }
+        def v:PresPlayView (new PresPlayView())
+        v.key = key
+        v.width = width
+        v.height = height
+        push views v
+        def spec:MdAppSpec (new MdAppSpec())
+        spec.src = src
+        spec.width = width
+        spec.height = height
+        push specs spec
+        push boxes x
+        push boxes y
+        push boxes w
+        push boxes h
+    }
+
+    fn setCss:void (key:string css:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return
+        }
+        def v:PresPlayView (itemAt views i)
+        v.setCss(css)
+    }
+
+    ; A frame's tree (PresPlayView.setTree): false when it was none.
+    fn setTree:boolean (key:string json:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return false
+        }
+        def v:PresPlayView (itemAt views i)
+        return (v.setTree(json))
+    }
+
+    ; Why the page stopped the program, "" while it runs.
+    fn setStopped:void (key:string why:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return
+        }
+        def v:PresPlayView (itemAt views i)
+        v.stopped = why
+    }
+
+    fn boxAt:double (i:int k:int) {
+        return (itemAt boxes ((i * 4) + k))
+    }
+
+    ; The program's box painted: its picture, else the plate (with why it
+    ; is not running), as an EVGDisplayList's JSON in the slide's units.
+    fn paintJson:string (key:string) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return (out.toJson())
+        }
+        def v:PresPlayView (itemAt views i)
+        def bx:double (this.boxAt(i 0))
+        def by:double (this.boxAt(i 1))
+        def bw:double (this.boxAt(i 2))
+        def bh:double (this.boxAt(i 3))
+        if ((v.paint(out bx by bw bh)) == false) {
+            v.paintPlate(out (itemAt specs i) bx by bw bh)
+        }
+        return (out.toJson())
+    }
+
+    ; Slide point (px, py) in the program's own units with the id under it,
+    ; {"x", "y", "id"}, or "" outside its picture.
+    fn point:string (key:string px:double py:double) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return ""
+        }
+        def v:PresPlayView (itemAt views i)
+        def loc:[double] (v.toLocal((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py))
+        if ((itemAt loc 0) < 0.0) {
+            return ""
+        }
+        def o:JVal (JVal.mkObj())
+        o.setNum("x" (itemAt loc 0))
+        o.setNum("y" (itemAt loc 1))
+        o.setStr("id" (v.idAt((itemAt loc 0) (itemAt loc 1))))
+        return (o.toJson())
+    }
+}

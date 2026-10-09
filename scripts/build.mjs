@@ -18,7 +18,7 @@ import { stampImports, unstampedImports } from "./stamp.mjs";
 // (pres_app.js 8.2 MB → 4.9 MB, 1.7 MB → 1.4 MB gzipped): every visit
 // downloads them. Names are kept, which the compiled classes may read.
 // Without it the bundles go out as compiled.
-function minify(file) {
+export function minify(file) {
   let esbuild;
   try { esbuild = createRequire(import.meta.url)("esbuild"); } catch (_) { return; }
   const out = esbuild.transformSync(fs.readFileSync(file, "utf8"), { minify: true, keepNames: true, legalComments: "none" });
@@ -126,6 +126,9 @@ export function build({ ranger } = {}) {
     copy(cerxes.wasm, path.join(distDir, "cerxes.wasm"));
   } else {
     fs.rmSync(path.join(distDir, "cerxes.wasm"), { force: true });
+    // a build that is deployed must have it: the Cloud Run image went out
+    // without Rust once, and every program showed its plate
+    if (process.env.SLIQTLY_NEED_CERXES) throw new Error(`cerxes not built: ${cerxes.why} (SLIQTLY_NEED_CERXES is set)`);
     log(`cerxes not built: ${cerxes.why}; programs on slides show their plates`);
   }
   // versions and deltas (web/versions.js): RangerDiff's built module

@@ -541,6 +541,21 @@ class PresApp {
         return (view.setTree(tree))
     }
 
+    ; Why the page stopped program `key` or could not start it, "" when it
+    ; runs: said on its plate while it has no picture.
+    fn setPlayStopped:void (key:string why:string) {
+        def v@(optional):PresPlayView (deck.playView(key))
+        if (null? v) {
+            return
+        }
+        def view:PresPlayView (unwrap v)
+        if (view.stopped != why) {
+            view.stopped = why
+            deck.revision = (deck.revision + 1)
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
     ; What a program reads each frame beside the keys and the pointer: where
     ; the deck is and its data. {slide, slides, step, mode, data}
     fn playState:string (key:string) {

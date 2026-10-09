@@ -66,6 +66,9 @@ jobs:
           # BigQuery table (project.dataset.table; unset: no costs shown)
           ADMIN_EMAILS: ${{ vars.SLIQTLY_ADMIN_EMAILS || 'teroktolonen@gmail.com' }}
           BILLING_TABLE: ${{ vars.SLIQTLY_BILLING_TABLE }}
+          # sliqtly_plugin's plugins (mcp-go/rgr/Plugins.rgr); unset:
+          # code-review, "none" turns them all off
+          PLUGINS: ${{ vars.SLIQTLY_PLUGINS || 'code-review' }}
         run: |
           # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
           # Run's sandbox need not show the cgroup limit memlimit.go reads,
@@ -77,7 +80,7 @@ jobs:
           # instance (up to 10) takes them.
           # The pairs are joined by "|" (gcloud's ^|^): an e-mail address has
           # an @, and a list of them commas.
-          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE"
+          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS"
           if [ -n "$GH_TOKEN_SECRET" ]; then
             ENV_VARS="$ENV_VARS|SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET|SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
           fi
