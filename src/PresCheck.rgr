@@ -30,6 +30,7 @@ Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
+Import "PresClip.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -3648,6 +3649,219 @@ class PresCheck {
         this.ok((((n.connected()) == false) && ((array_length n.notes) == 1)) "server: none there is said, not connected")
     }
 
+    ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
+    fn clips:void () {
+        ; the format: written and read back
+        def d (new PresClipDoc())
+        d.kind = "slides"
+        d.from = "Myynti\n2026"
+        d.splitLevel = 2
+        push d.parts "## Tulos {.iso}\n\nKasvu 12 %\n\n---\n\nalaviite\n"
+        push d.parts "\n\n## Seuraavaksi\n\n```mermaid\nflowchart LR\n  A --> B\n```"
+        d.css = ".iso { font-size: 64px; }"
+        def b64:string "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        d.addFile("media/logo.png" "image/png" b64)
+        def text:string (PresClip.write(d))
+        this.ok((startsWith text "===== Sliqtly clipboard v1: 2 slides =====\n") ("clip: start line, got " + text))
+        this.ok(((indexOf text "----- slide 2: markdown -----\n## Seuraavaksi") > 0) "clip: a slide's section, its blank lines left out")
+        this.ok(((indexOf text "from: Myynti 2026\n") > 0) "clip: from on one line")
+        this.ok(((indexOf text "----- file: media/logo.png (image/png, base64) -----\n") > 0) "clip: a file's section")
+        this.ok(((indexOf text "\niVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6\nkgAAAABJRU5ErkJggg==\n") > 0) "clip: base64 at 76 characters a line")
+        this.ok((endsWith text "===== end of Sliqtly clipboard =====\n") "clip: end line")
+        def r:PresClipDoc (PresClip.read(text))
+        this.ok((r.kind == "slides") "clip: read slides")
+        this.ok(((array_length r.parts) == 2) ("clip: two parts, got " + (to_string (array_length r.parts))))
+        this.ok(((itemAt r.parts 0) == "## Tulos {.iso}\n\nKasvu 12 %\n\n---\n\nalaviite") ("clip: part 1 back with its rule line, got " + (itemAt r.parts 0)))
+        this.ok(((itemAt r.parts 1) == "## Seuraavaksi\n\n```mermaid\nflowchart LR\n  A --> B\n```") ("clip: part 2 back, got " + (itemAt r.parts 1)))
+        this.ok((r.css == ".iso { font-size: 64px; }") ("clip: css back, got " + r.css))
+        this.ok(((r.from == "Myynti 2026") && (r.splitLevel == 2)) "clip: notes back")
+        this.ok(((array_length r.files) == 1) "clip: one file")
+        def rf:PresClipFile (itemAt r.files 0)
+        this.ok((((rf.name == "media/logo.png") && (rf.mime == "image/png")) && (rf.data == b64)) ("clip: file back whole, got " + rf.name + " " + rf.mime + " " + rf.data))
+        this.ok(((r.markdown()) == ((itemAt r.parts 0) + "\n\n" + (itemAt r.parts 1))) "clip: the Markdown of all parts")
+        ; Windows line ends, a byte order mark, blank lines before
+        def crlf:string ((strfromcode 65279) + "\r\n\r\n===== Sliqtly clipboard v1: 1 element (chart) =====\r\n\r\n----- element: markdown -----\r\n```vega-lite\r\n{}\r\n```\r\n===== end of Sliqtly clipboard =====\r\n")
+        def e:PresClipDoc (PresClip.read(crlf))
+        this.ok(((e.kind == "element") && (e.what == "chart")) ("clip: element and its kind, got " + e.kind + "/" + e.what))
+        this.ok(((itemAt e.parts 0) == "```vega-lite\n{}\n```") ("clip: CRLF read as lines, got " + (itemAt e.parts 0)))
+        ; the names written by hand (Tero's first sketch), an unknown section,
+        ; no end line, a name with spaces
+        def loose:string "===== Sliqtly clipboard v1: 1 slide =====\n------ markdown 1. data from clipboard ------\n# A\n------ markdown 1 css from clipboard ------\nh1 { color: red; }\n----- comments: json -----\n[1]\n----- file: media/my pic.svg (image/svg+xml, base64) -----\nPHN2Zz4=\n"
+        def l:PresClipDoc (PresClip.read(loose))
+        this.ok((((array_length l.parts) == 1) && ((itemAt l.parts 0) == "# A")) "clip: markdown N read as a slide")
+        this.ok((l.css == "h1 { color: red; }") ("clip: markdown N css read as styles, got " + l.css))
+        def lf:PresClipFile (itemAt l.files 0)
+        this.ok(((lf.name == "media/my pic.svg") && (lf.mime == "image/svg+xml")) ("clip: a file name with a space, got " + lf.name))
+        this.ok(((PresClip.isEnvelope("## Otsikko\n\n----- not ours -----\n")) == false) "clip: Markdown is not the format")
+        this.ok(((PresClip.read("hello")).kind == "") "clip: plain text reads as nothing")
+        this.ok(((PresClip.sectionName("----- styles: css -----")) == "styles: css") "clip: a section's name")
+        this.ok(((PresClip.sectionName("-----")) == "") "clip: a rule is no section")
+
+        ; what was pasted
+        this.ok(((PresClip.classify(text)) == "sliqtly") "classify: the format")
+        this.ok(((PresClip.classify("flowchart LR\n  A --> B")) == "mermaid") "classify: mermaid flowchart")
+        this.ok(((PresClip.classify("graph TD\nA-->B")) == "mermaid") "classify: mermaid graph TD")
+        this.ok(((PresClip.classify("%% kommentti\nsequenceDiagram\n  A->>B: hei")) == "mermaid") "classify: mermaid after a comment")
+        this.ok(((PresClip.classify("---\ntitle: Kulku\n---\nflowchart TD\n  A --> B")) == "mermaid") "classify: mermaid with front matter")
+        this.ok(((PresClip.classify("digraph G {\n a -> b\n}")) == "graphviz") "classify: digraph")
+        this.ok(((PresClip.classify("graph G {\n a -- b\n}")) == "graphviz") "classify: graph with a name and {")
+        this.ok(((PresClip.classify("strict graph {\n a -- b\n}")) == "graphviz") "classify: strict graph")
+        this.ok(((PresClip.classify("graphics are nice")) == "text") "classify: graphics is no graph")
+        this.ok(((PresClip.classify("@startuml\nAlice -> Bob\n@enduml")) == "plantuml") "classify: plantuml")
+        this.ok(((PresClip.classify("{\"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\", \"data\": {\"values\": []}}")) == "vega") "classify: vega-lite by its schema")
+        this.ok(((PresClip.classify("{\"mark\": \"bar\", \"encoding\": {}}")) == "vega") "classify: vega-lite by its mark")
+        this.ok(((PresClip.classify("{\"a\": 1}")) == "text") "classify: other JSON is text")
+        this.ok(((PresClip.classify("{\"mark\": \"bar\"")) == "text") "classify: broken JSON is text")
+        this.ok(((PresClip.classify("## Otsikko\n\nteksti")) == "markdown") "classify: markdown")
+        this.ok(((PresClip.classify("Pelkkää tekstiä.")) == "text") "classify: text")
+        this.ok(((PresClip.classify("  \n ")) == "") "classify: nothing")
+        this.ok(((PresClip.asMarkdown("flowchart LR\n  A --> B\n")) == "```mermaid\nflowchart LR\n  A --> B\n```") ("asMarkdown: fenced, got " + (PresClip.asMarkdown("flowchart LR\n  A --> B\n"))))
+        this.ok(((PresClip.asMarkdown("digraph { a -> b }")) == "```dot\ndigraph { a -> b }\n```") "asMarkdown: graphviz as dot")
+        this.ok(((PresClip.asMarkdown("{\"mark\":\"bar\"}")) == "```vega-lite\n{\"mark\":\"bar\"}\n```") "asMarkdown: vega-lite")
+        this.ok(((PresClip.asMarkdown("@startuml\nnote: ``` x\n@enduml")) == "````plantuml\n@startuml\nnote: ``` x\n@enduml\n````") "asMarkdown: a longer fence when the text has ```")
+        this.ok(((PresClip.asMarkdown("hei")) == "hei") "asMarkdown: text stays")
+        def fenced:string "a\n```mermaid\nflowchart LR\n\n```\nb\n"
+        this.ok((PresClip.insideFence(fenced 26)) "insideFence: inside")
+        this.ok(((PresClip.insideFence(fenced 1)) == false) "insideFence: above")
+        this.ok(((PresClip.insideFence(fenced ((strlen fenced) - 1))) == false) "insideFence: below")
+        this.ok((PresClip.insideFence("```\nx" 5)) "insideFence: a fence left open")
+
+        ; slides in Markdown, levels
+        def two:string "## A\n\nx\n\n### alaotsikko\n\n## B\n"
+        this.ok(((PresClip.slideCount(two 2)) == 2) "slides: two at level 2")
+        this.ok(((PresClip.slideCount(two 1)) == 0) "slides: none at level 1")
+        this.ok((PresClip.startsSlide(two 2)) "slides: starts with a slide")
+        this.ok(((PresClip.startsSlide(("intro\n\n" + two) 2)) == false) "slides: text above the first heading")
+        this.ok(((PresClip.firstHeading(two)) == 2) "slides: first heading level")
+        def up:string (PresClip.shiftHeadings("## A\n\n```\n## not\n```\n\n### b" -1))
+        this.ok((up == "# A\n\n```\n## not\n```\n\n## b") ("shiftHeadings: up a level, fences kept, got " + up))
+        this.ok(((PresClip.shiftHeadings("# A" -1)) == "# A") "shiftHeadings: not past 1")
+
+        def sl:[string] (strsplit "## A\n\nteksti\n\n::: notes\npuhe\n:::\n\n" "\n")
+        this.ok(((PresClip.intoLine(sl 0 (array_length sl))) == 2) "intoLine: above the speaker notes")
+        def sl2:[string] (strsplit "## A\n\n::: box\nx\n:::\n" "\n")
+        this.ok(((PresClip.intoLine(sl2 0 (array_length sl2))) == 4) "intoLine: after a container")
+        def sl3:[string] (strsplit "x\n## A\n\n```\n::: notes\n```\n" "\n")
+        this.ok(((PresClip.intoLine(sl3 1 (array_length sl3))) == 5) "intoLine: notes in a fence are code")
+        def sl4:[string] (strsplit "## A\n::: notes\nx\n:::" "\n")
+        this.ok(((PresClip.intoLine(sl4 0 4)) == 0) "intoLine: the heading alone")
+
+        ; style sheets
+        def sheet:string "/* teema { } */\n@import url(\"https://fonts.example/x.css\");\n:root { --brand: #e11; --ink: var(--brand); }\nh1 { color: red; }\n.iso, .iso h2 { font-size: 64px; color: var(--ink); }\n#tulos p { content: \"}\"; }\n@media print { .iso { color: black; } }\n"
+        def rs:[PresClipRule] (PresClip.rules(sheet))
+        this.ok(((array_length rs) == 6) ("rules: six, got " + (to_string (array_length rs))))
+        def r0:PresClipRule (itemAt rs 0)
+        this.ok((r0.at && (startsWith r0.selector "@import")) "rules: @import")
+        def r3:PresClipRule (itemAt rs 3)
+        this.ok((r3.selector == ".iso, .iso h2") ("rules: a selector list, got " + r3.selector))
+        def r4:PresClipRule (itemAt rs 4)
+        this.ok((r4.text == "#tulos p { content: \"}\"; }") ("rules: a brace in a string, got " + r4.text))
+        def r5:PresClipRule (itemAt rs 5)
+        this.ok((r5.at && (r5.selector == "@media print")) "rules: @media whole")
+        this.ok(((join (PresClip.selectorNames(".a #b h2 .a")) ",") == ".a,#b") "names: classes and ids once")
+        this.ok(((array_length (PresClip.selectorNames("h1 [data-x=\".y\"] .5em"))) == 0) "names: none in attributes and numbers")
+        def mdn:string (join (PresClip.markdownNames("## Tulos 2025 {.iso}\n\n::: box\nx\n:::\n\nkuva {class=\"wide\" #k}\n\n```\n{.not}\n```\n")) ",")
+        this.ok((mdn == "#tulos-2025,.iso,.box,.wide,#k") ("names: the Markdown's, got " + mdn))
+        def picked:string (PresClip.cssFor(sheet "## Tulos {.iso}\n"))
+        this.ok((picked == ":root {\n  --ink: var(--brand);\n  --brand: #e11;\n}\n\n.iso, .iso h2 { font-size: 64px; color: var(--ink); }\n\n#tulos p { content: \"}\"; }") ("cssFor: the slide's rules and their variables, got " + picked))
+        this.ok(((PresClip.cssFor(sheet "Pelkkä teksti")) == "") "cssFor: nothing for text with no names")
+
+        ; the deck pasted into wins
+        def master:string ":root { --brand: #00f; }\nh1 { color: blue; }\n.iso { color: green; }\n"
+        def masterMd:string "# Kansi {.big}\n"
+        def theirs:string ":root { --brand: #e11; --accent: #fa0; }\nh1 { color: red; }\n.iso { font-size: 64px; }\n.big { color: pink; }\n.uusi { color: teal; }\n.uusi, h2 { color: teal; }\n.big .uusi2 { color: teal; }\n@media print { .uusi { color: black; } }\n@media print { h2 { color: black; } }\n@font-face { font-family: X; src: url(x.woff2); }\n"
+        def mg:PresClipMerge (PresClip.mergeCss(master masterMd theirs))
+        this.ok((mg.css == ":root {\n  --accent: #fa0;\n}\n\n.uusi { color: teal; }\n\n.big .uusi2 { color: teal; }\n\n@media print { .uusi { color: black; } }\n\n@font-face { font-family: X; src: url(x.woff2); }") ("mergeCss: only what reaches the pasted, got " + mg.css))
+        this.ok(((mg.added == 5) && (mg.skipped == 6)) ("mergeCss: counts, got " + (to_string mg.added) + "/" + (to_string mg.skipped)))
+        def again:PresClipMerge (PresClip.mergeCss((master + "\n" + mg.css) masterMd theirs))
+        this.ok((again.added == 0) ("mergeCss: a second paste adds nothing, got " + again.css))
+
+        ; files
+        def paths:[string] ([] _:string ("media/logo.png" "media/logo.png.bak" "data/a.csv" "media/x.png"))
+        def used:string (join (PresClip.filesUsed("![](media/logo.png) and /data/a.csv, not media/x.pngx" paths)) ",")
+        this.ok((used == "media/logo.png,data/a.csv") ("filesUsed: whole paths, got " + used))
+        def taken:[string] ([] _:string ("media/logo.png" "media/logo-2.png"))
+        this.ok(((PresClip.copyName("media/logo.png" taken)) == "media/logo-3.png") "copyName: the first free number")
+        this.ok(((PresClip.copyName("data/README" taken)) == "data/README-2") "copyName: no extension")
+        this.ok(((PresClip.copyName("my.dir/file" taken)) == "my.dir/file-2") "copyName: a dot in the folder")
+        def fd (new PresClipDoc())
+        fd.addFile("a.png" "image/png" "AA==")
+        fd.addFile("b.png" "image/png" "AA==")
+        fd.addFile("c.csv" "text/csv" "AA==")
+        fd.addFile("d.svg" "" "AA==")
+        def steps:string (join (PresClip.fileSteps(fd ([] _:string ("new" "same" "differs" "differs")))) ",")
+        this.ok((steps == "add,skip,skip,ask") ("fileSteps: new, same, data and a picture, got " + steps))
+        this.ok(((PresClip.swapRefs("![](media/logo.png) ![](/media/logo.png)" "media/logo.png" "media/logo-2.png")) == "![](media/logo-2.png) ![](/media/logo-2.png)") "swapRefs: every use")
+
+        ; pastes
+        def lv:int 2
+        def p1:PresClipPlan (PresClip.plan(text "md" false false lv master masterMd))
+        this.ok((((p1.target == "md") && p1.ask) && ((indexOf p1.md "## Seuraavaksi") > 0)) "plan: the format in the editor: its Markdown")
+        this.ok(((p1.css == "") && (p1.slides == 2)) "plan: no styles into the Markdown")
+        def p2:PresClipPlan (PresClip.plan("flowchart LR\n A-->B" "md" false false lv "" ""))
+        this.ok((((p2.target == "md") && p2.ask) && (startsWith p2.md "```mermaid\n")) "plan: a diagram in the editor: fenced")
+        def p3:PresClipPlan (PresClip.plan("flowchart LR\n A-->B" "md" true false lv "" ""))
+        this.ok(((p3.target == "") && (p3.ask == false)) "plan: a diagram inside a fence: as it is")
+        def p4:PresClipPlan (PresClip.plan("## Otsikko\n" "md" false false lv "" ""))
+        this.ok(((p4.target == "") && (p4.kind == "markdown")) "plan: Markdown in the editor: an ordinary paste")
+        def p5:PresClipPlan (PresClip.plan(text "css" false false lv "" ""))
+        this.ok(((p5.target == "css") && (p5.css == ".iso { font-size: 64px; }")) "plan: the format in the theme: its styles alone")
+        this.ok(((PresClip.plan("h1 {}" "css" false false lv "" "")).target == "") "plan: CSS text in the theme: an ordinary paste")
+        def p6:PresClipPlan (PresClip.plan(text "deck" false false lv "" ""))
+        this.ok((((p6.target == "deck") && (p6.place == "after")) && (p6.slides == 2)) ("plan: slides after the selected one, got " + p6.place + " " + (to_string p6.slides)))
+        this.ok((p6.css == ".iso { font-size: 64px; }") ("plan: styles merged, got " + p6.css))
+        def p7:PresClipPlan (PresClip.plan(text "deck" false true lv "" ""))
+        this.ok(((p7.css == "") && (p7.place == "after")) "plan: without formatting: no styles")
+        def p8:PresClipPlan (PresClip.plan(text "deck" false false 1 "" ""))
+        this.ok(((startsWith p8.md "# Tulos") && (p8.slides == 2)) ("plan: headings moved to the deck's split level, got " + p8.md))
+        def p9:PresClipPlan (PresClip.plan(crlf "deck" false false lv "" ""))
+        this.ok(((p9.place == "into") && (p9.slides == 0)) "plan: an element onto the slide")
+        def p10:PresClipPlan (PresClip.plan("sequenceDiagram\n A->>B: hei" "deck" false false lv "" ""))
+        this.ok((((p10.place == "into") && p10.ask) && (startsWith p10.md "```mermaid")) "plan: a diagram onto the slide")
+        def p11:PresClipPlan (PresClip.plan("## A\n\n## B\n\n## C" "deck" false false lv "" ""))
+        this.ok(((p11.place == "after") && (p11.slides == 3)) "plan: Markdown with headings: new slides")
+        def p12:PresClipPlan (PresClip.plan("teksti\n\n## B" "deck" false false lv "" ""))
+        this.ok(((p12.place == "into") && (p12.slides == 1)) "plan: text above a heading goes onto the slide")
+
+        ; an element, and the words
+        def el:string "Teksti\n\n```vega-lite\n{}\n```\n{.iso}\n\nloppu"
+        this.ok(((PresClip.elementEnd(el 8 27)) == 34) ("element: its {.class} line taken along, got " + (to_string (PresClip.elementEnd(el 8 27)))))
+        this.ok(((PresClip.elementEnd(el 0 6)) == 6) "element: a blank line ends it")
+        this.ok((((PresClip.elementWord("img")) == "picture") && ((PresClip.elementWord("h2")) == "text")) "element: words")
+        this.ok(((PresClip.fill("{a}–{b} ({a})" "a" "5")) == "5–{b} (5)") "fill: every {a}")
+        this.ok(((PresClip.question(p6 5)) == "Add 2 slides as slides 5–6?\n1 style rule comes along; this presentation's own styles win.\n1 file comes along.") ("question: slides, got " + (PresClip.question(p6 5))))
+        this.ok(((PresClip.question(p10 3)) == "Add a Mermaid diagram to slide 3?") ("question: onto a slide, got " + (PresClip.question(p10 3))))
+        this.ok(((PresClip.question(p9 3)) == "Add the chart to slide 3?") "question: an element")
+        this.ok(((PresClip.question(p2 0)) == "Paste a Mermaid diagram as its own block at the caret?") "question: a diagram in the editor")
+        this.ok((((PresClip.altAnswer(p6)) == "Paste without formatting") && ((PresClip.altAnswer(p7)) == "")) "question: the second answer")
+        this.ok(((PresClip.altAnswer(p2)) == "Paste as text") "question: a diagram as text")
+
+        ; Undo takes the Markdown and the styles of a paste back together
+        def mb (new EditorBuffer())
+        mb.setText("# A\n")
+        def cb (new EditorBuffer())
+        cb.setText("h1 {}\n")
+        mb.replaceRange(0 0 0 0 "x" true)
+        def u (new PresClipUndo())
+        mb.replaceRange(1 0 1 0 "\n## B\n" true)
+        cb.replaceRange(1 0 1 0 ".uusi {}\n" true)
+        def pid:int (u.remember(mb true cb true))
+        this.ok((pid == 1) "undo: a paste remembered")
+        this.ok((((u.linked("md" true mb cb)) == pid) && u.other) "undo: the Markdown's top is the paste, the styles' too")
+        mb.undo()
+        cb.undo()
+        this.ok((((mb.getText()) == "x# A\n") && ((cb.getText()) == "h1 {}\n")) ("undo: both back, got " + (mb.getText()) + "|" + (cb.getText())))
+        this.ok((((u.linked("css" false mb cb)) == pid) && u.other) "redo: from the styles' side")
+        cb.redo()
+        mb.redo()
+        this.ok((((mb.getText()) == "x# A\n\n## B\n") && ((cb.getText()) == "h1 {}\n.uusi {}\n")) ("redo: both again, got " + (mb.getText()) + "|" + (cb.getText())))
+        cb.replaceRange(0 0 0 0 "/* */" true)
+        this.ok((((u.linked("md" true mb cb)) == pid) && (u.other == false)) "undo: the styles edited since: the Markdown alone")
+        this.ok(((u.linked("css" true mb cb)) == 0) "undo: an edit after the paste is its own")
+        mb.undo()
+        this.ok(((u.linked("md" true mb cb)) == 0) "undo: an earlier edit is no paste")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -3688,6 +3902,7 @@ class PresCheck {
         c.meeting()
         c.scrollInput()
         c.serverDecks()
+        c.clips()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
