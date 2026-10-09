@@ -165,6 +165,9 @@ class PresSlide {
     ; default, so two slides with waves are not the same picture)
     def art:string ""
     def artSeed:int -1
+    ; the art is the theme's (`deck { art: honeycomb }`): part of how the
+    ; theme looks, drawn for everyone; art named in the document is PRO
+    def artTheme:boolean false
     def fxNames:[string]
     def fxValues:[string]
     def notes:string ""
@@ -961,16 +964,30 @@ class PresDeck {
 
     ; The layout box a fence was laid out in, or -1.
     fn embedBox:int (page:int text:string) {
+        return (this.embedBoxAt(page text -1))
+    }
+
+    ; The box of the fence that starts at `srcStart` in the source: two
+    ; fences with the same text on one page (one machine in two looks) are
+    ; two boxes, and matched by text alone both found the first. -1 = the
+    ; first with that text.
+    fn embedBoxAt:int (page:int text:string srcStart:int) {
         def l:MdLayout (this.layout())
+        def first:int -1
         def i:int 0
         while (i < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes i)
             if (((b.page == page) && (b.kind == 3)) && (b.embedSource == text)) {
-                return i
+                if ((srcStart < 0) || (b.srcStart == srcStart)) {
+                    return i
+                }
+                if (first < 0) {
+                    first = i
+                }
             }
             i = (i + 1)
         }
-        return -1
+        return first
     }
 
     ; ------------------------------------------------------------------
@@ -1848,7 +1865,7 @@ class PresDeck {
         ; slide's colours (the engine's dark look on a dark slide) and as
         ; large as the room allows, chosen like the others
         def classic:boolean ((n.attrValue("diagram")) == "classic")
-        def bi:int (this.embedBox(page n.literal))
+        def bi:int (this.embedBoxAt(page n.literal n.srcStart))
         if (bi < 0) {
             return
         }
@@ -3365,6 +3382,16 @@ class PresDeck {
             s.fx = dFx
             s.art = dArt
             s.artSeed = dArtSeed
+            if ((strlen dArt) == 0) {
+                def tArt:string (trim (this.themeRule("deck" "art")))
+                if (((strlen tArt) > 0) && (tArt != "none")) {
+                    s.art = tArt
+                    s.artTheme = true
+                    if (dArtSeed < 0) {
+                        s.artSeed = (to_int (PresDeck.num((this.themeRule("deck" "art-seed")) -1.0)))
+                    }
+                }
+            }
             s.stepGap = dStep
             s.hold = dHold
             ; the template's effect, with its own parameters; not over a picture
@@ -3527,6 +3554,7 @@ class PresDeck {
         }
         if (h.hasAttr("art")) {
             s.art = (h.attrValue("art"))
+            s.artTheme = false
             if (s.art == "off") {
                 s.art = ""
             }
@@ -3793,10 +3821,17 @@ class PresDeck {
             def cmdFrom:int (array_length out.cmds)
             def use:int -1
             if (kb.kind == 3) {
+                ; the use of this very fence (`embedBoxAt`), else one
+                ; with its text
                 def du:int 0
+                def exact:boolean false
                 while (du < (array_length s.diagrams)) {
-                    if ((itemAt s.diagrams du).source == kb.embedSource) {
+                    def cand:PresDiaUse (itemAt s.diagrams du)
+                    if ((cand.source == kb.embedSource) && (exact == false)) {
                         use = du
+                        if ((kb.srcStart >= 0) && (cand.srcStart == kb.srcStart)) {
+                            exact = true
+                        }
                     }
                     du = (du + 1)
                 }
@@ -3944,9 +3979,10 @@ class PresDeck {
     }
 
     ; The slide's line art (`{art=waves}`), over its picture and under the
-    ; content, or nothing when it has none or art is not allowed (not PRO).
+    ; content, or nothing when it has none or art is not allowed (not PRO;
+    ; the theme's own art is always drawn).
     fn artScene:FlowScene (s:PresSlide i:int) {
-        if (((strlen s.art) == 0) || (artAllowed == false)) {
+        if (((strlen s.art) == 0) || ((artAllowed == false) && (s.artTheme == false))) {
             def none (new FlowScene)
             return none
         }

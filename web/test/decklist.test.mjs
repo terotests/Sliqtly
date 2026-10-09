@@ -102,3 +102,10 @@ test("a room's presentations on the server: a deck kept here is its own row, the
   ]);
   assert.deepEqual(roomShareRows(undefined, local, "b"), []);
 });
+
+test("byCloud: a deck in the cloud goes by its share, still the open one", () => {
+  const local = [{ id: "d1", name: "A", created: 1, updated: 2, cloud: "S1" }, { id: "d2", name: "B", created: 1, updated: 3 }];
+  const rows = deckRows(local, [{ id: "S1", name: "A", created: 1, updated: 5 }], "d1", { byCloud: true });
+  assert.deepEqual(rows.map((r) => [r.id, r.where, r.current]), [["cloud:S1", "both", true], ["d2", "browser", false]]);
+  assert.equal(deckRows(local, [], "d1")[0].id, "d1");
+});

@@ -64,8 +64,28 @@ the first `create_presentation`.
 ## Themes
 
 `aurora` (default), `nebula`, `carbon`, `ember`, `midnight` are dark;
-`corporate` is light slides; `editorial` is an A4 portrait document where
-`#` starts a page.
+`editorial` is an A4 portrait document where `#` starts a page.
+
+Light slides, white or near-white paper: `white` (plain white, no
+background), `corporate` (plain), `pearl`
+(soft pastel light from two corners), `hive` (fine honeycomb along the
+right edge), `lattice` (pale diagonal tiles, clear in the middle), `apex`
+(blue accent triangles and quarter circles in the corners), `tide` (blue
+line waves along the bottom), `mist` (halftone dots from two corners).
+
+Work themes, condensed Fjalla One headings and blocks of colour down the
+right edge: `forge` (white, charcoal and orange), `foundry` (dark charcoal,
+orange headings), `site` (light, charcoal and safety yellow).
+
+Health themes, Lato headings: `clinic` (white and teal, a heartbeat line
+along the bottom), `care` (pale blue, cyan honeycomb at the right edge),
+`vital` (white, cyan and mint light in two corners).
+
+The light themes' backgrounds are `deck { art: … }` in the theme CSS
+(`waves`, `honeycomb`, `lattice`, `corners`, `glow`, `halftone`, `tide`,
+`blocks`, `pulse`), drawn
+from the `figure { colors }` and kept as shapes in PDF and PPTX;
+`{art=off}` on a heading leaves it off that slide.
 
 `nebula` (starfield) and the `fx=` effects (`smoke`, `starfield`,
 `plasma-wave`…) are for show pieces; for an ordinary deck don't pick them
@@ -280,8 +300,15 @@ hold: 2.5               # seconds after the last step
   default. Readability comes first.
 - Line art: `art=waves` draws line art behind the slide; `art-seed=3` draws
   another picture of it, `art=off` none; `art: waves` in the front matter
-  puts it behind every slide. Line art is drawn only for signed-in PRO
-  decks.
+  puts it behind every slide. Line art named in the document is drawn only
+  for signed-in PRO decks.
+- Background art of a theme: `deck { art: honeycomb }` in its CSS (one of
+  `waves`, `honeycomb`, `lattice`, `corners`, `glow`, `halftone`, `tide`,
+  `blocks`, `pulse`;
+  `art-seed: 3` moves it) is drawn behind every slide for everyone, in the
+  `figure { colors }`. The light themes `pearl`, `hive`, `lattice`, `apex`,
+  `tide`, `mist` and the work themes `forge`, `foundry`, `site` and the health themes
+  `clinic`, `care`, `vital` use it; `art=off` on a heading leaves it off that slide.
 - `render_slide` and `render_overview` do not draw effects; the player
   does.
 

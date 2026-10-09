@@ -7,9 +7,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// an address as a membership names it: no spaces, one @, a dot in the
+// domain, nothing a document id cannot hold
+var emailLike = regexp.MustCompile(`^[^\s@/~]{1,64}@[^\s@/~]+\.[^\s@/~]+$`)
 
 // Rooms (ADR 0001): a room is Sliqtly's collaboration and authorization
 // boundary. It is small: a room document, its memberships, and content
@@ -17,7 +22,8 @@ import (
 // what in a room is a membership; a room link never gives access.
 //
 //	rooms/<id>               tenant, title, kind, archived, created
-//	room_members/<room>~<m>  tenant, room, member ("user:<id>" | "group:<id>"), role
+//	room_members/<room>~<m>  tenant, room, member ("user:<id>" | "group:<id>" |
+//	                         "email:<address>"), role
 //
 // An archived room is read only for everyone, its owners too, until it
 // is taken out of the archive; nothing in it is removed.
@@ -86,19 +92,43 @@ func memberNames(p Principal) []any {
 	for _, g := range p.Groups {
 		out = append(out, "group:"+g)
 	}
+	if p.Email != "" {
+		out = append(out, "email:"+strings.ToLower(p.Email))
+	}
 	return out
 }
 
 // Access is p's role in each room of their tenant: the highest of their own
 // and their groups' memberships; the tenant's admin is an owner of every
-// room. A room in the archive gives no more than Viewer.
+// room. A room in the archive gives no more than Viewer. Only the rooms p
+// is a member of are read (an admin's: all of the tenant's), so a tenant of
+// many rooms costs a member no more than their own.
 func (rs Rooms) Access(ctx context.Context, p Principal) (map[string]Role, error) {
 	out := map[string]Role{}
 	if p.UserID == "" || p.TenantID == "" {
 		return out, nil
 	}
 	e := rs.S.Privileged()
-	rooms, err := e.Query(ctx, Query{From: RoomsCol, Where: Eq("tenant", p.TenantID)})
+	ms, err := e.Query(ctx, Query{From: MembersCol, Where: And{Eq("tenant", p.TenantID), In("member", memberNames(p)...)}})
+	if err != nil {
+		return nil, err
+	}
+	roomQ := Query{From: RoomsCol, Where: Eq("tenant", p.TenantID)}
+	if !p.HasRole("admin") {
+		var ids []any
+		seen := map[string]bool{}
+		for _, m := range ms {
+			if room, _ := m.Doc["room"].(string); room != "" && !seen[room] {
+				seen[room] = true
+				ids = append(ids, room)
+			}
+		}
+		if len(ids) == 0 {
+			return out, nil
+		}
+		roomQ.Where = And{Eq("tenant", p.TenantID), In("_id", ids...)}
+	}
+	rooms, err := e.Query(ctx, roomQ)
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +138,6 @@ func (rs Rooms) Access(ctx context.Context, p Principal) (map[string]Role, error
 		if p.HasRole("admin") {
 			out[it.ID] = Owner
 		}
-	}
-	ms, err := e.Query(ctx, Query{From: MembersCol, Where: And{Eq("tenant", p.TenantID), In("member", memberNames(p)...)}})
-	if err != nil {
-		return nil, err
 	}
 	for _, m := range ms {
 		room, _ := m.Doc["room"].(string)
@@ -184,11 +210,18 @@ func (rs Rooms) Get(ctx context.Context, p Principal, id string) (Doc, Role, err
 	return rs.room(ctx, p, id)
 }
 
-// SetMember gives member ("user:<id>" or "group:<id>") a role in the room,
-// NoRole taking it away; owners only, and the last owner stays.
+// SetMember gives member ("user:<id>", "group:<id>" or "email:<address>")
+// a role in the room, NoRole taking it away; owners only, and the last owner
+// stays.
 func (rs Rooms) SetMember(ctx context.Context, p Principal, room, member string, role Role) error {
-	if !strings.HasPrefix(member, "user:") && !strings.HasPrefix(member, "group:") {
-		return fmt.Errorf("store: member %q is neither user: nor group:", member)
+	if addr, ok := strings.CutPrefix(member, "email:"); ok {
+		addr = strings.ToLower(strings.TrimSpace(addr))
+		if !emailLike.MatchString(addr) {
+			return fmt.Errorf("store: %q is not an e-mail address", addr)
+		}
+		member = "email:" + addr
+	} else if !strings.HasPrefix(member, "user:") && !strings.HasPrefix(member, "group:") {
+		return fmt.Errorf("store: member %q is neither user:, group: nor email:", member)
 	}
 	if role != NoRole && role.rank() == 0 {
 		return fmt.Errorf("store: no role %q", role)

@@ -143,6 +143,10 @@ type Env struct {
 	names atomic.Pointer[nameRule]
 	// rooms (roomsapi.go): with Store and LocalUser; nil elsewhere
 	rooms *roomService
+	// cloudRooms: the cloud's shared rooms and their chat, for the editor's
+	// signed-in people (POST /editor/api/rooms/<op>, editorrooms.go); nil
+	// elsewhere
+	cloudRooms *roomService
 	// Clients: the OAuth clients a server of one's own knows without
 	// registration (oidc.go builtinClient), as their client document; nil,
 	// or nil for an id: none
@@ -875,7 +879,7 @@ func (h *McpHost) ThemeCSS(theme string) string {
 	if e.Themes != nil {
 		css, ok := e.Themes(theme)
 		if !ok {
-			h.fail(fmt.Errorf("There is no theme %q; the themes are aurora, carbon, corporate, editorial, ember, midnight and nebula.", theme))
+			h.fail(fmt.Errorf("There is no theme %q; the themes are aurora, nebula, carbon, ember, midnight (dark) and white, corporate, editorial, pearl, hive, lattice, apex, tide, mist (light) and forge, foundry, site (work) and clinic, care, vital (health).", theme))
 		}
 		return css
 	}

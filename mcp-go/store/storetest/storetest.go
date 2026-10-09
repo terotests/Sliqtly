@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,11 +45,17 @@ func Run(t *testing.T, open func(t *testing.T) store.Engine) {
 		{"GuardTenant", guardTenant},
 		{"Links", links},
 		{"Rooms", rooms},
+		{"RoomsByEmail", roomsByEmail},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := open(t)
 			defer e.Close()
+			// a backend that tells no changes (Firestore, read by the
+			// pages' own listeners) is not asked to
+			if strings.Contains(tc.name, "Watch") && !e.Caps().Watch {
+				t.Skip("no Watch")
+			}
 			tc.fn(t, e)
 		})
 	}
@@ -322,6 +329,14 @@ func watchSlow(t *testing.T, e store.Engine) {
 }
 
 func closeEngine(t *testing.T, e store.Engine) {
+	if !e.Caps().Watch {
+		e.Close()
+		_, _, err := e.Get(ctx, "decks", "x")
+		isErr(t, err, store.ErrClosed, "get")
+		_, err = store.Put(ctx, e, "decks", "x", store.Doc{}, store.AnyRev)
+		isErr(t, err, store.ErrClosed, "put")
+		return
+	}
 	ch := must(e.Watch(ctx, e.Head()))
 	e.Close()
 	_, _, err := e.Get(ctx, "decks", "x")

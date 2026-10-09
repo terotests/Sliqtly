@@ -97,9 +97,11 @@ function noRight(why) {
   if (why === "not-yours") {
     return Object.assign(new Error(t("This presentation belongs to another account. Only its owner and the people they invite can edit it.")), { code: "no-edit-right" });
   }
+  // the editor keeps nothing in the browser past the page (web/main.js
+  // CLOUD_ONLY): what is not in the cloud is gone when the page closes
   const text = why === "expired"
-    ? t("Your license to edit has ended. Your presentations stay yours: you can open, present and export them. Changes are kept in this browser only.")
-    : t("Your license lets you edit {n} presentations in the cloud. Changes to this one are kept in this browser only.").replace("{n}", String(license?.maxDocs ?? 2));
+    ? t("Your license to edit has ended. Your presentations stay yours: you can open, present and export them. Changes are not saved; export before closing the page.")
+    : t("Your license lets you edit {n} presentations in the cloud. This one is not saved; export it before closing the page.").replace("{n}", String(license?.maxDocs ?? 2));
   return Object.assign(new Error(text), { code: "no-edit-right" });
 }
 

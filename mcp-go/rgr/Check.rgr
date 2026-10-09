@@ -338,6 +338,11 @@ class Check {
                     } {
                         where = (" on slide " + (page + 1))
                     }
+                    ; a page that holds several sections: the block's own
+                    def under:string (Check.headingBefore(md at))
+                    if (((strlen under) > 0) && (under != t)) {
+                        where = (where + ", under \"" + under + "\"")
+                    }
                 }
             }
             if e.ok {
@@ -370,7 +375,7 @@ class Check {
             push c.warnings (Guide.see(hn "text"))
         }
         if c.laidOut {
-            Check.contrast(c d l pics)
+            Check.contrast(c d l pics md)
             d.still = true
             for (Layout.slides(d md)) rs:RSlide ri {
                 push c.report (Report.slide(rs))
@@ -524,7 +529,73 @@ class Check {
         }
     }
 
-    sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic]) {
+    ; Each run that is a drawing's own text gets the heading it is under,
+    ; when the slide has more than one (an editorial page holds several
+    ; sections, and the slide's title is only the first).
+    sfn sections:void (low:[LowRun] rs:RSlide) {
+        def ys:[double]
+        def names:[string]
+        for rs.blocks b:RBlock bi {
+            if (b.kind == "heading") {
+                def t:string ""
+                for b.runs r:RRun ri {
+                    if ((strlen t) > 0) {
+                        t = (t + " ")
+                    }
+                    t = (t + (trim r.text))
+                }
+                push ys b.y
+                push names t
+            }
+        }
+        if ((array_length names) < 2) {
+            return
+        }
+        for low lr:LowRun li {
+            if lr.inDrawing {
+                def k:int 0
+                while (k < (array_length ys)) {
+                    if ((itemAt ys k) <= (lr.y + 0.5)) {
+                        lr.section = (itemAt names k)
+                    }
+                    k = (k + 1)
+                }
+            }
+        }
+    }
+
+    ; The heading a place in the source is under: the last heading line
+    ; before `at`, fenced code skipped. "" when there is none.
+    sfn headingBefore:string (md:string at:int) {
+        def lines:[string] (strsplit (substring md 0 at) "\n")
+        def fence:boolean false
+        def found:string ""
+        for lines ln:string i {
+            def t:string (trim ln)
+            if ((startsWith t "```") || (startsWith t "~~~")) {
+                fence = (! fence)
+                continue
+            }
+            if ((fence == false) && (startsWith t "#")) {
+                def k:int 0
+                while ((k < (strlen t)) && ((charAt t k) == 35)) {
+                    k = (k + 1)
+                }
+                if ((k <= 6) && ((k < (strlen t)) && ((charAt t k) == 32))) {
+                    def h:string (trim (substring t k (strlen t)))
+                    ; the heading's attributes, `{bg=…}`, are not its name
+                    def brace:int (indexOf h " {")
+                    if (brace > 0) {
+                        h = (trim (substring h 0 brace))
+                    }
+                    found = h
+                }
+            }
+        }
+        return found
+    }
+
+    sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic] md:string) {
         d.still = true
         def skip:[string]
         for l.embeds.entries e:MdEmbedEntry k {
@@ -543,6 +614,7 @@ class Check {
             def drawn:[boolean] (Check.inDrawing(d l (array_length list.cmds)))
             def low:[LowRun] (Contrast.lowRuns(list pics "" -1.0 skip quiet drawn))
             if ((array_length low) > 0) {
+                Check.sections(low (Layout.slide(d md i)))
                 def s:PresSlide (d.slideAt(i))
                 def bgSrc:string ""
                 def hasBg:boolean false

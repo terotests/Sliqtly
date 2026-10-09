@@ -22,6 +22,7 @@
 //	GET  /editor/api/license             the signed-in user's license
 //	POST /editor/api/claim    {id}       a presentation taken under the license
 //	GET  /editor/api/search?q=words      the user's own presentations holding them (searchapi.go)
+//	POST /editor/api/rooms/<op>          shared rooms and their chat (editorrooms.go)
 //
 // Licenses: licenses/{uid} in Firestore, written only here and by the
 // owner in the Firebase console (firestore.rules lets a user read their
@@ -475,6 +476,10 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 }
 
 func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
+	if room, ok := strings.CutPrefix(op, "rooms/"); ok {
+		serveCloudRooms(env, g, w, r, room)
+		return
+	}
 	limit := g.limit
 	if op == "search" && g.searchLimit != nil {
 		limit = g.searchLimit
