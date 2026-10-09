@@ -23,6 +23,10 @@
     "url": "https://github.com/terotests/RangerDiff",
     "ref": "main"
   },
+  "componentengine": {
+    "url": "https://github.com/terotests/componentengine",
+    "ref": "main"
+  },
   "evgsheets": {
     "base": "https://terotests.github.io/EVGSheets/"
   }

@@ -276,6 +276,15 @@ class Check {
         }
         d.setText(din.md)
         for (Check.chartData(host din d)) gone:string gi {
+            def lg:string (to_lowercase gone)
+            ; a program's stylesheet beside it is optional
+            if ((endsWith lg ".tsx.css") || (endsWith lg ".jsx.css")) {
+                continue
+            }
+            if ((endsWith lg ".tsx") || (endsWith lg ".jsx")) {
+                push c.warnings (Guide.see((gone + " is the program of an app block but the presentation has no such file: send it with files, { \"name\": \"" + gone + "\", \"text\": \"…\" }.") "apps"))
+                continue
+            }
             push c.warnings (Guide.see((gone + " is read by a chart or table but the presentation has no such file. list_files lists the names its files are read by; add the file with files.") "data"))
         }
         return d
