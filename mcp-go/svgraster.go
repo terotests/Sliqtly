@@ -243,6 +243,7 @@ type svgEntry struct {
 	key svgKey
 	img *image.RGBA
 	err error
+	png []byte // img as a PNG, once SvgPng has asked for it
 }
 
 // svgCache: drawn SVGs (and the reason one does not draw, so a picture
@@ -281,14 +282,41 @@ func (c *svgCache) put(k svgKey, img *image.RGBA, err error) {
 	if err != nil {
 		img = nil
 	}
-	c.at[k] = c.order.PushFront(&svgEntry{k, img, err})
+	c.at[k] = c.order.PushFront(&svgEntry{key: k, img: img, err: err})
 	c.bytes += entrySize(img)
+	c.trim()
+}
+
+// pngOf is the PNG kept for k, nil when there is none yet
+func (c *svgCache) pngOf(k svgKey) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.at[k]; ok {
+		return el.Value.(*svgEntry).png
+	}
+	return nil
+}
+
+// keepPng keeps b as k's drawing in PNG, when k is still kept
+func (c *svgCache) keepPng(k svgKey, b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.at[k]; ok {
+		if e := el.Value.(*svgEntry); e.png == nil {
+			e.png = b
+			c.bytes += len(b)
+			c.trim()
+		}
+	}
+}
+
+func (c *svgCache) trim() {
 	for c.bytes > svgCacheBytes && c.order.Len() > 1 {
 		el := c.order.Back()
 		e := el.Value.(*svgEntry)
 		c.order.Remove(el)
 		delete(c.at, e.key)
-		c.bytes -= entrySize(e.img)
+		c.bytes -= entrySize(e.img) + len(e.png)
 	}
 }
 
@@ -315,16 +343,22 @@ func (h *McpHost) SvgError(data []byte) string {
 // SvgPng is the SVG `data` drawn with its longer side `side` pixels as a
 // PNG: what web/picture.js decodePicture gives the exports in the editor
 // (SVG_RASTER for the slides and the PDF, SVG_FALLBACK beside the SVG in a
-// PPTX). Empty when it is not an SVG or does not draw.
+// PPTX). Empty when it is not an SVG or does not draw. The PNG is kept
+// with the drawing: every export of a deck asks for the same pictures again.
 func (h *McpHost) SvgPng(data []byte, side int64) []byte {
 	img, err := drawSvg(data, int(side))
 	if err != nil {
 		return []byte{}
 	}
+	k := svgKey{sha256.Sum256(data), int(side)}
+	if b := svgDrawn.pngOf(k); b != nil {
+		return b
+	}
 	var b bytes.Buffer
 	if png.Encode(&b, img) != nil {
 		return []byte{}
 	}
+	svgDrawn.keepPng(k, b.Bytes())
 	return b.Bytes()
 }
 

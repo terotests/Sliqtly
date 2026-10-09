@@ -3,8 +3,10 @@
 package main
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"image/png"
 	"os"
 	"strings"
 	"testing"
@@ -184,5 +186,29 @@ func TestRasterFaces(t *testing.T) {
 	}
 	if face("Georgia", "", false) != open {
 		t.Error("an unknown family should be Open Sans")
+	}
+}
+
+// every export asks for the deck's SVG pictures as PNGs again: the same
+// bytes come back, encoded once
+func TestSvgPngEncodedOnce(t *testing.T) {
+	h := &McpHost{}
+	a := h.SvgPng([]byte(svgBackground), 640)
+	if len(a) == 0 {
+		t.Fatal("no PNG")
+	}
+	im, err := png.Decode(bytes.NewReader(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := im.Bounds(); b.Dx() != 640 || b.Dy() != 360 {
+		t.Fatalf("drawn at %v", b)
+	}
+	b := h.SvgPng([]byte(svgBackground), 640)
+	if &a[0] != &b[0] {
+		t.Fatal("encoded again")
+	}
+	if c := h.SvgPng([]byte(svgBackground), 320); len(c) == 0 || &c[0] == &a[0] {
+		t.Fatal("another size is another PNG")
 	}
 }

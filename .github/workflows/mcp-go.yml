@@ -13,6 +13,15 @@ on:
 permissions:
   contents: read
 
+# a newer push to the same pull request makes the run before it moot
+concurrency:
+  group: mcp-go-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The three jobs below run side by side: the race-detector tests, the folder
+# server's build and the container each take minutes, one after another
+# they took about eight.
+
 jobs:
   # The MCP server is mcp-go/ only. The Node server that was mcp/ is retired
   # (two servers drifted apart with every change to one of them): a change
@@ -52,9 +61,33 @@ jobs:
       # deck model has a few self-assignments
       - run: go vet -structtag=false -assign=false ./...
       - run: go test -race ./...
-      # the folder server's build, without Google's libraries (packaging/build-deb.sh)
-      - run: go vet -tags nocloud -structtag=false -assign=false ./... && go test -tags nocloud ./...
-      - run: docker build --secret id=deps_token,env=DEPS_TOKEN -f mcp-go/Dockerfile -t sliqtly-mcp-go .
+  # the folder server's build, without Google's libraries (packaging/build-deb.sh)
+  nocloud:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-go
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
         working-directory: .
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-go/go.mod
+          cache-dependency-path: mcp-go/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: go generate ./...
+      - run: go vet -tags nocloud -structtag=false -assign=false ./... && go test -tags nocloud ./...
+  # the image Deploy MCP (Go) builds, with the editor's web/dist built in
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --secret id=deps_token,env=DEPS_TOKEN -f mcp-go/Dockerfile -t sliqtly-mcp-go .
         env:
           DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
