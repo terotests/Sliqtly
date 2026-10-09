@@ -34,6 +34,7 @@ Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "PresI18n.rgr"
 Import "PresControlsFade.rgr"
+Import "PresDiaFull.rgr"
 Import "../rangerflow/core/FlowLook.rgr"
 
 class PresDNode {
@@ -250,6 +251,15 @@ class PresDiagram {
     ; the buttons show while the pointer moves over the diagram and fade
     ; when it rests or leaves, like a video player's (PresControlsFade)
     def ctl:PresControlsFade (new PresControlsFade())
+    ; Opened over the whole slide with the magnifier (PresDiaFull); the deck
+    ; says whether the magnifier is offered (`canFull`: presenting, and the
+    ; diagram drawn small in its place).
+    def full:PresDiaFull (new PresDiaFull())
+    def canFull:boolean false
+    ; How far `fitOf` may enlarge the scene: a diagram on a slide among
+    ; other things stays near the text's size; over the whole slide it may
+    ; fill it.
+    def fitMax:double 2.2
     ; the box the viewer went to, the way on from it they have selected,
     ; and the boxes before (for back)
     def exNode:int -1
@@ -599,6 +609,67 @@ class PresDiagram {
             other = "TB"
         }
         return ((substring text 0 start) + kw + " " + other + (substring text end n))
+    }
+
+    ; A class or state diagram the other way round: its `direction` line
+    ; swapped between across (LR, RL) and down (TB, TD, BT), or one written
+    ; across when it has none (they run down by default). "" for others.
+    sfn turned:string (notation:string text:string) {
+        if (notation != "mermaid") {
+            return ""
+        }
+        def lines:[string] (strsplit text "\n")
+        def head:int -1
+        def i:int 0
+        while ((i < (array_length lines)) && (head < 0)) {
+            if ((strlen (trim (itemAt lines i))) > 0) {
+                head = i
+            }
+            i = (i + 1)
+        }
+        if (head < 0) {
+            return ""
+        }
+        def kw:string (trim (itemAt lines head))
+        def known:boolean false
+        if (((strlen kw) >= 12) && ((substring kw 0 12) == "classDiagram")) {
+            known = true
+        }
+        if (((strlen kw) >= 12) && ((substring kw 0 12) == "stateDiagram")) {
+            known = true
+        }
+        if (known == false) {
+            return ""
+        }
+        def out:string ""
+        def found:boolean false
+        i = 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            def tl:string (trim ln)
+            if (((found == false) && ((strlen tl) > 10)) && ((substring tl 0 10) == "direction ")) {
+                def dir:string (trim (substring tl 10 (strlen tl)))
+                def other:string "LR"
+                if ((dir == "LR") || (dir == "RL")) {
+                    other = "TB"
+                }
+                ln = ("  direction " + other)
+                found = true
+            }
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            out = (out + ln)
+            if ((i == head) && ((indexOf text "direction ") < 0)) {
+                out = (out + "\n  direction LR")
+                found = true
+            }
+            i = (i + 1)
+        }
+        if (found == false) {
+            return ""
+        }
+        return out
     }
 
     sfn swap:string (text:string a:string b:string) {
@@ -2939,6 +3010,10 @@ class PresDiagram {
         if ((up && (this.backVisible(t))) && (PresDiagram.near(px py (bx + 22.0) (by + 22.0) 20.0))) {
             return -2
         }
+        ; -12 the magnifier: over the whole slide, or back in its place
+        if ((up && canFull) && (PresDiagram.near(px py ((bx + bw) - 60.0) (by + 22.0) 17.0))) {
+            return -12
+        }
         def cy:double ((by + bh) - 24.0)
         ; -11 ▶ / ■: the tour, started or stopped
         if ((up && canTour) && (PresDiagram.near(px py ((bx + bw) - 188.0) cy 17.0))) {
@@ -3506,8 +3581,8 @@ class PresDiagram {
         if ((worldH * fit) > (bh * insetH)) {
             fit = ((bh * insetH) / worldH)
         }
-        if (fit > 2.2) {
-            fit = 2.2
+        if (fit > fitMax) {
+            fit = fitMax
         }
         return fit
     }
@@ -4172,7 +4247,7 @@ class PresDiagram {
     fn uiBusy:boolean () {
         ; a question pulses its choices on the wall clock; the buttons fade
         ctl.hold = (menuOpen || zoomOpen)
-        return ((waiting || (exploring && ((uiNow - exT0) < 0.7))) || (ctl.busy(uiNow)))
+        return (((waiting || (exploring && ((uiNow - exT0) < 0.7))) || (ctl.busy(uiNow))) || (full.busy(uiNow)))
     }
 
     ; The buttons take a press: showing, or the menu open.
@@ -4184,6 +4259,9 @@ class PresDiagram {
     ; (bx, by, bw, bh) at time t.
     fn onControls:boolean (t:double bx:double by:double bw:double bh:double px:double py:double) {
         if (PresDiagram.near(px py ((bx + bw) - 22.0) (by + 22.0) 17.0)) {
+            return true
+        }
+        if (canFull && (PresDiagram.near(px py ((bx + bw) - 60.0) (by + 22.0) 17.0))) {
             return true
         }
         if ((this.backVisible(t)) && (PresDiagram.near(px py (bx + 22.0) (by + 22.0) 20.0))) {
@@ -4318,6 +4396,13 @@ class PresDiagram {
             this.paintButton(ui ((bx + bw) - 112.0) cy 2)
             this.paintHome(ui ((bx + bw) - 46.0) cy l)
             this.paintZoomMenu(ui ((bx + bw) - 110.0) cy l)
+            if canFull {
+                def fk:int 6
+                if full.open {
+                    fk = 7
+                }
+                this.paintButton(ui ((bx + bw) - 60.0) (by + 22.0) fk)
+            }
             this.paintMenu(ui bx by bw l)
         }
         if (ua > 0.01) {
@@ -4827,6 +4912,7 @@ class PresDiagram {
         zoomOpen = o.zoomOpen
         uiNow = o.uiNow
         ctl.takeFrom(o.ctl)
+        full = o.full
         lastFit = o.lastFit
         lastBW = o.lastBW
         lastBH = o.lastBH
@@ -4894,6 +4980,31 @@ class PresDiagram {
             ; ■ stop it
             out.addPolyline(([] _:double ((cx - 5.0) (cy - 5.0) (cx + 5.0) (cy - 5.0) (cx + 5.0) (cy + 5.0) (cx - 5.0) (cy + 5.0) (cx - 5.0) (cy - 5.0))) 2.0 ink)
             PresDiagram.roundLast(out)
+        }
+        if ((kind == 6) || (kind == 7)) {
+            ; the magnifier: a lens and its handle, + to open over the slide,
+            ; − to put it back
+            def lx:double (cx - 1.5)
+            def ly:double (cy - 1.5)
+            def lr:double 5.5
+            def lens (new EVGDrawCmd())
+            lens.kind = 1
+            lens.x = (lx - lr)
+            lens.y = (ly - lr)
+            lens.w = (lr * 2.0)
+            lens.h = (lr * 2.0)
+            lens.radius = lr
+            lens.thickness = 1.6
+            PresDiagram.tint(lens ink 1.0)
+            push out.cmds lens
+            out.addPolyline(([] _:double ((lx + 4.0) (ly + 4.0) (cx + 6.5) (cy + 6.5))) 2.2 ink)
+            PresDiagram.roundLast(out)
+            out.addPolyline(([] _:double ((lx - 2.6) ly (lx + 2.6) ly)) 1.4 ink)
+            PresDiagram.roundLast(out)
+            if (kind == 6) {
+                out.addPolyline(([] _:double (lx (ly - 2.6) lx (ly + 2.6))) 1.4 ink)
+                PresDiagram.roundLast(out)
+            }
         }
         if (kind == 3) {
             def c:double 3.0

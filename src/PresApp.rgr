@@ -1359,8 +1359,10 @@ class PresApp {
             return false
         }
         def du:PresDiaUse (unwrap hitU)
+        ; over the whole slide, the big one's buttons and boxes
+        def dd:PresDiagram (du.active(deck.uiNow))
         if (what == "back") {
-            if (! (du.diagram.exploreBack())) {
+            if (! (dd.exploreBack())) {
                 this.diagramBack(k)
             }
             chromeRev = (chromeRev + 1)
@@ -1374,9 +1376,14 @@ class PresApp {
             this.skipQuestion(on)
             return true
         }
+        if (what == "full") {
+            deck.toggleFull(selected k)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (what == "menu") {
-            du.diagram.menuOpen = (! du.diagram.menuOpen)
-            du.diagram.zoomOpen = false
+            dd.menuOpen = (! dd.menuOpen)
+            dd.zoomOpen = false
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1385,8 +1392,8 @@ class PresApp {
             return true
         }
         if (what == "all") {
-            du.diagram.uiNow = deck.uiNow
-            du.diagram.showEverything()
+            dd.uiNow = deck.uiNow
+            dd.showEverything()
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1395,7 +1402,7 @@ class PresApp {
             return true
         }
         if (what == "restart") {
-            du.diagram.restart()
+            dd.restart()
             PresTimeline.plan((deck.slideAt(selected)))
             localT = du.start
             if (localT < 0.0) {
@@ -1406,36 +1413,36 @@ class PresApp {
             return true
         }
         if (what == "zin") {
-            du.diagram.zoomBy(1.4)
+            dd.zoomBy(1.4)
             chromeRev = (chromeRev + 1)
             return true
         }
         if (what == "zout") {
-            du.diagram.zoomBy((1.0 / 1.4))
+            dd.zoomBy((1.0 / 1.4))
             chromeRev = (chromeRev + 1)
             return true
         }
         if (what == "fit") {
-            du.diagram.zoomOpen = (! du.diagram.zoomOpen)
-            du.diagram.menuOpen = false
+            dd.zoomOpen = (! dd.zoomOpen)
+            dd.menuOpen = false
             chromeRev = (chromeRev + 1)
             return true
         }
         if (((strlen what) > 4) && ((substring what 0 4) == "zoom")) {
             def zp@(optional):int (str2int (substring what 4 (strlen what)))
-            du.diagram.zoomTo(((to_double (?? zp 100)) / 100.0))
+            dd.zoomTo(((to_double (?? zp 100)) / 100.0))
             chromeRev = (chromeRev + 1)
             return true
         }
         if (((strlen what) > 3) && ((substring what 0 3) == "way")) {
             def wi@(optional):int (str2int (substring what 3 (strlen what)))
-            du.diagram.exGo((?? wi -1) ((this.stageTime()) - du.start))
+            dd.exGo((?? wi -1) (du.activeTime((this.stageTime()) deck.uiNow)))
             chromeRev = (chromeRev + 1)
             return true
         }
         if (((strlen what) > 4) && ((substring what 0 4) == "node")) {
             def ni@(optional):int (str2int (substring what 4 (strlen what)))
-            du.diagram.explore((?? ni -1))
+            dd.explore((?? ni -1))
             chromeRev = (chromeRev + 1)
             return true
         }
@@ -1516,48 +1523,54 @@ class PresApp {
     ; Keys for a diagram that is asking, or for going back in one. True when
     ; the key was taken.
     fn diagramKey:boolean (name:string) {
+        ; Esc puts a diagram opened over the slide back first
+        if ((name == "escape") && (deck.closeFull(selected))) {
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         def t:double (this.stageTime())
         def k:int (deck.askingAt(selected t))
         def sl0:PresSlide (deck.slideAt(selected))
         if ((array_length sl0.diagrams) > 0) {
             def ue:PresDiaUse (itemAt sl0.diagrams 0)
+            def ued:PresDiagram (ue.active(deck.uiNow))
             if ((name == "+") || (name == "=")) {
-                ue.diagram.zoomBy(1.4)
+                ued.zoomBy(1.4)
                 chromeRev = (chromeRev + 1)
                 return true
             }
             if (name == "-") {
-                ue.diagram.zoomBy((1.0 / 1.4))
+                ued.zoomBy((1.0 / 1.4))
                 chromeRev = (chromeRev + 1)
                 return true
             }
             if (name == "0") {
-                ue.diagram.exploreOverview()
+                ued.exploreOverview()
                 chromeRev = (chromeRev + 1)
                 return true
             }
             ; exploring: arrows choose the way on, Enter takes it
-            def te:double (t - ue.start)
+            def te:double (ue.activeTime(t deck.uiNow))
             if ((name == "left") || (name == "up")) {
-                if (ue.diagram.exMoveSel(-1 te)) {
+                if (ued.exMoveSel(-1 te)) {
                     chromeRev = (chromeRev + 1)
                     return true
                 }
             }
             if ((name == "right") || (name == "down")) {
-                if (ue.diagram.exMoveSel(1 te)) {
+                if (ued.exMoveSel(1 te)) {
                     chromeRev = (chromeRev + 1)
                     return true
                 }
             }
             if ((name == "enter") || (name == "space")) {
-                if (ue.diagram.exGo(-1 te)) {
+                if (ued.exGo(-1 te)) {
                     chromeRev = (chromeRev + 1)
                     return true
                 }
             }
-            if ((name == "backspace") && ue.diagram.exploring) {
-                ue.diagram.exploreBack()
+            if ((name == "backspace") && ued.exploring) {
+                ued.exploreBack()
                 chromeRev = (chromeRev + 1)
                 return true
             }
@@ -3231,7 +3244,18 @@ class PresApp {
         return clock
     }
 
+    ; Where the page's presenting bar starts, in canvas pixels from the top
+    ; (-1: no bar): a diagram over the whole slide ends above it.
+    def barTop:double -1.0
+    fn setBarTop:void (y:double) {
+        barTop = y
+    }
+
     fn stageJson:string () {
+        deck.fullBottom = -1.0
+        if ((barTop > 0.0) && (mode == "present")) {
+            deck.fullBottom = ((barTop - slideRect.y) / (this.slideScale()))
+        }
         deck.live = (this.isPlaying())
         deck.showControls = true
         def l:EVGDisplayList (this.stageFrame())
@@ -3303,6 +3327,7 @@ class PresApp {
     }
 
     fn uiBusy:boolean () {
+        deck.showingSlide(selected)
         return ((deck.uiBusy(selected)) || reviewBusy)
     }
 

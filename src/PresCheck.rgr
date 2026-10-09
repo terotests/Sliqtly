@@ -12,6 +12,7 @@ Import "PresFlowModel.rgr"
 Import "PresThemeEdit.rgr"
 Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
+Import "PresDiaFull.rgr"
 Import "PresFollow.rgr"
 Import "PresReview.rgr"
 Import "PresColorPanel.rgr"
@@ -2240,6 +2241,116 @@ class PresCheck {
         this.ok(((deck.diagramHit(0 t px py)) == "0:zin") "fade: a tap brings it up")
     }
 
+    ; The magnifier: a small diagram opened over the whole slide while
+    ; presenting, and back in its place with a second press, Esc or another
+    ; slide.
+    fn diaFull:void () {
+        def f (new PresDiaFull())
+        this.ok(((f.amount(5.0)) == 0.0) "full: closed at first")
+        this.ok((! (f.shown(5.0))) "full: nothing over the slide")
+        f.toggle(10.0)
+        this.ok(f.open "full: a press opens it")
+        this.ok((f.busy(10.1)) "full: busy while growing")
+        def mid:double (f.amount(10.15))
+        this.ok(((mid > 0.4) && (mid < 0.6)) ("full: half way at half time: " + (to_string mid)))
+        this.ok(((f.amount(10.5)) == 1.0) "full: over the slide after the grow")
+        this.ok((! (f.busy(10.5))) "full: and still")
+        def b:[double] (f.boxAt(10.5 100.0 300.0 200.0 100.0 20.0 20.0 920.0 500.0))
+        this.ok((((itemAt b 0) == 20.0) && ((itemAt b 3) == 500.0)) "full: open, the whole slide's box")
+        def b0:[double] (f.boxAt(10.0 100.0 300.0 200.0 100.0 20.0 20.0 920.0 500.0))
+        this.ok((((itemAt b0 0) == 100.0) && ((itemAt b0 2) == 200.0)) "full: at the press, its own box")
+        ; turned back half way: from there, not from the end
+        f.toggle(20.0)
+        f.toggle(20.15)
+        def back:double (f.linear(20.15))
+        this.ok(((back > 0.45) && (back < 0.55)) ("full: a press half way turns it back from there: " + (to_string back)))
+        f.reset()
+        this.ok(((! f.open) && ((f.amount(30.0)) == 0.0)) "full: reset puts it back at once")
+        def fb0:[double] (PresDiaFull.fullBox(960.0 540.0 -1.0))
+        this.ok((((itemAt fb0 0) == 13.5) && ((itemAt fb0 2) == 933.0)) ("full: the page less a thin margin: " + (to_string (itemAt fb0 0))))
+        def fb1:[double] (PresDiaFull.fullBox(960.0 540.0 500.0))
+        this.ok((((itemAt fb1 1) + (itemAt fb1 3)) <= 500.0) ("full: ends above the host's bar: " + (to_string ((itemAt fb1 1) + (itemAt fb1 3)))))
+        def fb2:[double] (PresDiaFull.fullBox(960.0 540.0 600.0))
+        this.ok(((itemAt fb2 3) == (itemAt fb0 3)) "full: a bar below the slide changes nothing")
+        this.ok((PresDiaFull.worth(0.5 1.0)) "full: offered when it grows")
+        this.ok((! (PresDiaFull.worth(0.9 1.0))) "full: not when it already fills the slide")
+
+        ; on the stage: Tero's slide, a small class diagram under a title and
+        ; text under it
+        def text:string ("---\nslide-split-level: 1\npage: a4 landscape\n---\n\n# Tietomalli\n\n```mermaid\nclassDiagram\n  direction LR\n  class created_model_provenance {\n    +machineId()\n    +catalogKey()\n  }\n  class Project\n  class ManageLayer\n  ManageLayer --> created_model_provenance : uses\n  created_model_provenance --> Project : lookup\n```\n\n**Mitä malli tekee:** apufunktiot.\n\n**Tarkoitus:** pitää tämän.\n\n**Suunta:** kutsutaan.\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "full: the diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        ; the class names grown with the other labels stay whole (the
+        ; engine cut "Malli…" when its header grew past its box)
+        def cut:boolean false
+        def whole:boolean false
+        def si:int 0
+        while (si < (array_length u.diagram.scene.items)) {
+            def it:SceneItem (itemAt u.diagram.scene.items si)
+            if ((indexOf it.text "…") >= 0) {
+                cut = true
+            }
+            if (it.text == "ManageLayer") {
+                whole = true
+            }
+            si = (si + 1)
+        }
+        this.ok(((cut == false) && whole) "full: class names are not cut on the slide")
+        def t:double (u.start + 30.0)
+        deck.uiNow = 300.0
+        def g0:[int]
+        deck.slideList(0 g0 t)
+        this.ok((! u.diagram.canFull) "full: no magnifier in the editor")
+        deck.live = true
+        deck.showControls = true
+        def g1:[int]
+        deck.slideList(0 g1 t)
+        this.ok(u.diagram.canFull ("full: presenting, a small diagram offers it (" + (to_string u.bw) + " x " + (to_string u.bh) + ")"))
+        deck.diagramTouched(0 0)
+        deck.uiNow = 300.3
+        def mx:double ((u.bx + u.bw) - 60.0)
+        def my:double (u.by + 22.0)
+        this.ok(((deck.diagramHit(0 t mx my)) == "0:full") "full: the magnifier is pressed")
+        deck.toggleFull(0 0)
+        this.ok(((deck.fullAt(0)) == 0) "full: it is over the slide")
+        this.ok(u.big.ok "full: laid out again for the whole slide")
+        def fb:[double] (deck.fullBoxNow())
+        def was:double (PresDeck.drawnSize(u.diagram u.bw u.bh))
+        def grown:double (PresDeck.drawnSize(u.big (itemAt fb 2) (itemAt fb 3)))
+        this.ok((grown >= (was * 1.25)) ("full: its boxes draw bigger: " + (to_string was) + " -> " + (to_string grown)))
+        this.ok(((u.active(301.0)) == u.big) "full: the big one is on screen")
+        deck.uiNow = 301.0
+        def bn:[double] (u.boxNow(deck.uiNow (deck.fullBoxNow())))
+        this.ok(((itemAt bn 2) > (u.bw * 0.9)) "full: painted in the slide's box")
+        this.ok(((itemAt bn 3) > (u.bh * 1.5)) ("full: and taller than its place: " + (to_string (itemAt bn 3))))
+        def g2:[int]
+        def frame:EVGDisplayList (deck.slideList(0 g2 t))
+        this.ok(((array_length frame.cmds) > 0) "full: the slide paints with it open")
+        ; its own buttons are at the big box's corner now
+        deck.diagramTouched(0 0)
+        deck.uiNow = 301.3
+        this.ok(((deck.diagramHit(0 t (((itemAt bn 0) + (itemAt bn 2)) - 60.0) ((itemAt bn 1) + 22.0))) == "0:full") "full: the magnifier at the big box's corner closes it")
+        this.ok((deck.closeFull(0)) "full: Esc puts it back")
+        this.ok((! (deck.closeFull(0))) "full: a second Esc is not taken")
+        deck.uiNow = 302.0
+        this.ok(((deck.fullAt(0)) == -1) "full: back in its place")
+        ; left open, another slide on screen puts it back
+        deck.toggleFull(0 0)
+        deck.showingSlide(0)
+        this.ok(u.diagram.full.open "full: stays while its slide shows")
+        deck.showingSlide(1)
+        this.ok((! u.diagram.full.open) "full: another slide puts it back")
+        deck.live = false
+        deck.showControls = false
+    }
+
     ; A diagram's zoom pill: says the zoom in view, and a press opens a menu
     ; of levels; a level picked is where the view goes.
     fn zoomMenu:void () {
@@ -4010,6 +4121,7 @@ class PresCheck {
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
+        c.diaFull()
         c.flowchartFindings()
         c.roundNodes()
         c.chainRows()
