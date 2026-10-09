@@ -32,6 +32,7 @@ Import "PresTimeline.rgr"
 Import "PresSlideSpans.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
+Import "PresClip.rgr"
 Import "PresNav.rgr"
 Import "PresBook.rgr"
 Import "PresScrollInput.rgr"
@@ -202,6 +203,14 @@ class PresApp {
     ; click and Shift + click on the strip, Shift + an arrow on its keys.
     ; `pressCtrl` / `pressShift`: the keys held at the strip's press.
     def picks:PresPick (new PresPick())
+    ; copy and paste of slides and elements (PresClip): the copy being
+    ; made, the paste being asked about, the text pasted, the pastes Undo
+    ; takes back whole
+    def clipDoc:PresClipDoc (new PresClipDoc())
+    def clipPlan:PresClipPlan (new PresClipPlan())
+    def clipRaw:string ""
+    def clipFocus:string ""
+    def clipUndo:PresClipUndo (new PresClipUndo())
     def pressCtrl:boolean false
     def pressShift:boolean false
     ; The "+" after the last thumbnail: pressed, it offers an empty slide or
@@ -5058,6 +5067,7 @@ class PresApp {
             def op:EditorUndoOp (itemAt st (k - 1))
             line = op.startLine
         }
+        this.clipLink("md" back)
         if back {
             mdEditor.undo()
         } {
@@ -5382,6 +5392,9 @@ class PresApp {
         }
         if (((focus == "strip") || (focus == "stage")) && ((ch == "z") || (ch == "y"))) {
             return (this.stripUndo((ch == "z")))
+        }
+        if ((ch == "z") || (ch == "y")) {
+            this.clipLink((this.undoTarget()) (ch == "z"))
         }
         def took:boolean (editor.handleCtrlChar((charAt ch 0)))
         this.syncEditor()
@@ -10780,6 +10793,450 @@ class PresApp {
         return true
     }
 
+    ; --- copy and paste of slides and elements (PresClip) -----------------------------
+    ; Ctrl/⌘+C on the filmstrip copies the picked slides (else the selected
+    ; one), on the slide the picked element (else the slide), as PresClip's
+    ; text with the styles and the files they use; the page adds the files
+    ; (clipBegin, clipAddFile, clipText). A paste is read by PresClip.plan,
+    ; asked about first (clipAsk) and made as one edit of the Markdown and
+    ; one of the theme, which Undo takes back together (clipLink).
+
+    ; What Ctrl/⌘+C copies now: "slides", "element", or "" (the ordinary
+    ; copy of the selected text).
+    fn clipCopyKind:string () {
+        if (((mode == "present") || chart.isOpen) || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        if ((strlen (this.readSelection())) > 0) {
+            return ""
+        }
+        if (focus == "strip") {
+            return "slides"
+        }
+        if (focus == "stage") {
+            if (pick.on && (pick.srcA >= 0)) {
+                return "element"
+            }
+            return "slides"
+        }
+        return ""
+    }
+
+    ; A copy of `kind` ("slides", "element") begun: the Markdown and the
+    ; styles it uses. `paths`: the deck's files, a line each. Gives the ones
+    ; the copy names, a line each, for the page to add (clipAddFile) before
+    ; it takes clipText.
+    fn clipBegin:string (kind:string paths:string) {
+        def d (new PresClipDoc())
+        def text:string (mdEditor.text())
+        def lay:MdLayout (deck.layout())
+        d.from = toolbar.docTitle
+        d.splitLevel = lay.splitLevel
+        if (kind == "element") {
+            if (((pick.on == false) || (pick.srcA < 0)) || (pick.srcB > (strlen text))) {
+                clipDoc = d
+                return ""
+            }
+            d.kind = "element"
+            d.what = (PresClip.elementWord(pick.sel))
+            def b:int (PresClip.elementEnd(text pick.srcA pick.srcB))
+            push d.parts (PresClip.trimBlankLines((substring text pick.srcA b)))
+        } {
+            d.kind = "slides"
+            def pages:[int]
+            if (picks.active()) {
+                pages = picks.pages
+            } {
+                push pages selected
+            }
+            ; a slide the overflow went on to is its section's: once
+            def seen:[int]
+            def k:int 0
+            while (k < (array_length pages)) {
+                this.slideLines((itemAt pages k))
+                if ((linesFrom >= 0) && ((indexOf seen linesFrom) < 0)) {
+                    push seen linesFrom
+                    def ls:[string]
+                    def li:int linesFrom
+                    while (li < linesAt) {
+                        push ls (mdEditor.buf.lineAt(li))
+                        li = (li + 1)
+                    }
+                    def part:string (PresClip.trimBlankLines((join ls "\n")))
+                    if ((strlen part) > 0) {
+                        push d.parts part
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        def md:string (d.markdown())
+        d.css = (PresClip.cssFor((cssEditor.text()) md))
+        clipDoc = d
+        def all:[string] (strsplit paths "\n")
+        return (join (PresClip.filesUsed((md + "\n" + d.css) all)) "\n")
+    }
+
+    ; How many slides (or the one element) the copy has.
+    fn clipCount:int () {
+        return (array_length clipDoc.parts)
+    }
+
+    fn clipAddFile:void (name:string mime:string data:string) {
+        clipDoc.addFile(name mime data)
+    }
+
+    fn clipText:string () {
+        return (PresClip.write(clipDoc))
+    }
+
+    ; Where a paste goes now: "md", "css", "deck", or "" (a field, a window,
+    ; presenting: the ordinary paste).
+    fn clipWhere:string () {
+        if (((mode == "present") || chart.isOpen) || (((barH > 0.0) && toolbar.titleEditing) || (this.roomHasKeys()))) {
+            return ""
+        }
+        if (review.hasKeys()) {
+            return ""
+        }
+        if ((focus == "strip") || (focus == "stage")) {
+            if ((deck.slideCount()) == 0) {
+                return ""
+            }
+            return "deck"
+        }
+        if ((focus == "editor") && ((this.filesListShowing()) == false)) {
+            if ((edTab == "md") || (edTab == "css")) {
+                return edTab
+            }
+        }
+        return ""
+    }
+
+    ; A paste read (PresClip.plan); `plain` is Paste without formatting.
+    ; {"target": "md"|"css"|"deck"|"", "files": n}. With no target the page
+    ; pastes the text as before; with one it asks about the files
+    ; (clipFileSteps, clipAskPicture) and then the question (clipAsk).
+    fn clipPaste:string (text:string plain:boolean) {
+        def where:string (this.clipWhere())
+        def inFence:boolean false
+        if (where == "md") {
+            inFence = (PresClip.insideFence((mdEditor.text()) (this.offsetOf(mdEditor.sel.caret.line mdEditor.sel.caret.col))))
+        }
+        def lay:MdLayout (deck.layout())
+        clipPlan = (PresClip.plan(text where inFence plain lay.splitLevel (cssEditor.text()) (mdEditor.text())))
+        clipRaw = text
+        clipFocus = focus
+        def files:int 0
+        if ((clipPlan.target == "md") || (clipPlan.target == "deck")) {
+            files = (array_length clipPlan.doc.files)
+        }
+        return ("{\"target\":" + (PresApp.jsonStr(clipPlan.target)) + ",\"files\":" + (to_string files) + "}")
+    }
+
+    fn clipFileName:string (i:int) {
+        def f:PresClipFile (itemAt clipPlan.doc.files i)
+        return f.name
+    }
+
+    fn clipFileMime:string (i:int) {
+        def f:PresClipFile (itemAt clipPlan.doc.files i)
+        return f.mime
+    }
+
+    fn clipFileData:string (i:int) {
+        def f:PresClipFile (itemAt clipPlan.doc.files i)
+        return f.data
+    }
+
+    ; The page's word for each pasted file, a line each: "new", "same" or
+    ; "differs" (a file of that name here with other bytes). Answers
+    ; "add", "skip" or "ask", a line each.
+    fn clipFileSteps:string (states:string) {
+        def parts:[string] (strsplit states "\n")
+        def steps:[string] (PresClip.fileSteps(clipPlan.doc parts))
+        return (join steps "\n")
+    }
+
+    ; A picture of the same name: replace it ("confirm:clipimg") or keep
+    ; both (":alt"); Cancel leaves the paste.
+    fn clipAskPicture:boolean (name:string) {
+        def words:string (PresClip.fill((PresI18n.t("{file} is already in this presentation. Replace it with the pasted picture, or keep both?")) "file" name))
+        return (this.openChoice("clipimg" (PresI18n.t("Replace the picture?")) words (PresI18n.t("Replace")) (PresI18n.t("Keep both"))))
+    }
+
+    ; A pasted picture kept beside this deck's of the same name: its new
+    ; name (`taken`: the deck's files, a line each), the pasted text
+    ; pointed there.
+    fn clipKeepBoth:string (name:string taken:string) {
+        def to:string (PresClip.copyName(name (strsplit taken "\n")))
+        this.clipRename(name to)
+        return to
+    }
+
+    ; A pasted file kept under another name: the pasted text points there.
+    fn clipRename:void (from:string to:string) {
+        clipPlan.md = (PresClip.swapRefs(clipPlan.md from to))
+        clipPlan.css = (PresClip.swapRefs(clipPlan.css from to))
+    }
+
+    ; The question before the paste: "confirm:clip" pastes, "confirm:clip:alt"
+    ; is the second answer (without formatting, or the diagram as text).
+    fn clipAsk:boolean () {
+        def at:int 0
+        if (clipPlan.target == "deck") {
+            at = (selected + 1)
+            if (clipPlan.place == "after") {
+                this.slideLines(selected)
+                at = ((deck.slideCount()) + 1)
+                if ((linesFrom >= 0) && (linesAt < (mdEditor.buf.lineCount()))) {
+                    at = ((deck.pageOfOffset((this.offsetOf(linesAt 0)))) + 1)
+                }
+            }
+        }
+        def words:string (PresClip.question(clipPlan at))
+        def alt:string (PresClip.altAnswer(clipPlan))
+        def title:string (PresI18n.t("Paste"))
+        if ((strlen alt) > 0) {
+            return (this.openChoice("clip" title words (PresI18n.t("Paste")) alt))
+        }
+        if ((this.openConfirm("clip" title words (PresI18n.t("Paste")))) == false) {
+            return false
+        }
+        ; a paste is no deletion: its button is not the red one
+        chart.cfSafe = true
+        chart.rebuild()
+        return true
+    }
+
+    ; The paste made (`alt`: the question's second answer). The paste's
+    ; number, which the page keeps its files' undo under ("clip:undo:<n>",
+    ; "clip:redo:<n>"); 0 when nothing was pasted.
+    fn clipApply:int (alt:boolean) {
+        def p:PresClipPlan clipPlan
+        if alt {
+            if (p.target == "deck") {
+                p.css = ""
+                p.cssAdded = 0
+            }
+            if (p.target == "md") {
+                p.md = clipRaw
+            }
+        }
+        def mdDone:boolean false
+        def cssDone:boolean false
+        if ((p.target == "css") && ((strlen p.css) > 0)) {
+            this.showTab("css")
+            focus = "editor"
+            PresApp.putAtCaret(cssEditor p.css "\n")
+            cssDone = true
+        }
+        if ((p.target == "md") && ((strlen p.md) > 0)) {
+            this.showTab("md")
+            focus = "editor"
+            PresApp.putAtCaret(mdEditor p.md "\n\n")
+            mdDone = true
+        }
+        def firstLine:int -1
+        if ((p.target == "deck") && ((strlen p.md) > 0)) {
+            ; the keys back where the paste came (the question had them)
+            this.showTab("md")
+            focus = clipFocus
+            firstLine = (this.clipIntoDeck(p))
+            mdDone = true
+            if ((strlen p.css) > 0) {
+                this.clipAppendCss(p.css p.doc.from)
+                cssDone = true
+            }
+        }
+        if ((mdDone == false) && (cssDone == false)) {
+            return 0
+        }
+        def id:int (clipUndo.remember(mdEditor.buf mdDone cssEditor.buf cssDone))
+        this.syncBuffers()
+        if (firstLine >= 0) {
+            this.selectSlide((deck.pageOfOffset((this.offsetOf(firstLine 0)))))
+            if (focus == "strip") {
+                a11yFocus = ("thumb-" + (to_string selected))
+            }
+        }
+        clipPlan = (new PresClipPlan())
+        chromeRev = (chromeRev + 1)
+        return id
+    }
+
+    ; A block of text over the editor's selection (or at its caret) as one
+    ; edit, `gap` (a line break, or a blank line) between it and text left
+    ; on the same line before or after it.
+    sfn putAtCaret:void (ed:ScriptEditor block:string gap:string) {
+        def a:EditorPos ed.sel.anchor
+        def c:EditorPos ed.sel.caret
+        def sl:int a.line
+        def sc:int a.col
+        def el:int c.line
+        def ec:int c.col
+        if ((ed.buf.cmpPos(a.line a.col c.line c.col)) > 0) {
+            sl = c.line
+            sc = c.col
+            el = a.line
+            ec = a.col
+        }
+        def text:string block
+        if ((strlen (trim (substring (ed.buf.lineAt(sl)) 0 sc))) > 0) {
+            text = (gap + text)
+        }
+        def endLine:string (ed.buf.lineAt(el))
+        if ((strlen (trim (substring endLine ec (strlen endLine)))) > 0) {
+            text = (text + gap)
+        }
+        def after:EditorPos (ed.buf.replaceRange(sl sc el ec text true))
+        ed.moveCaret(after.line after.col false)
+        ed.sel.collapseToCaret()
+        ed.dirty = true
+    }
+
+    ; The pasted Markdown into the deck: new slides after the selected one
+    ; ("after"), or onto it ("into": after the picked element, else after
+    ; its last line). The line the first new slide starts on (-1: onto
+    ; the slide).
+    fn clipIntoDeck:int (p:PresClipPlan) {
+        def lc:int (mdEditor.buf.lineCount())
+        this.slideLines(selected)
+        if (p.place == "after") {
+            if ((linesFrom >= 0) && (linesAt < lc)) {
+                ; before the next slide, a blank line between
+                mdEditor.buf.replaceRange(linesAt 0 linesAt 0 (p.md + "\n\n") true)
+                mdEditor.moveCaret(linesAt 0 false)
+                mdEditor.dirty = true
+                return linesAt
+            }
+            def end:int (lc - 1)
+            def endText:string (mdEditor.buf.lineAt(end))
+            def first:int (end + 2)
+            def put:string ("\n\n" + p.md + "\n")
+            if ((strlen (trim (mdEditor.text()))) == 0) {
+                first = end
+                put = (p.md + "\n")
+            } {
+                if ((strlen (trim endText)) == 0) {
+                    first = (end + 1)
+                    put = ("\n" + p.md + "\n")
+                }
+            }
+            mdEditor.buf.replaceRange(end (strlen endText) end (strlen endText) put true)
+            mdEditor.moveCaret(first 0 false)
+            mdEditor.dirty = true
+            return first
+        }
+        def text:string (mdEditor.text())
+        def line:int (lc - 1)
+        if ((pick.on && (pick.page == selected)) && ((pick.srcA >= 0) && (pick.srcB <= (strlen text)))) {
+            def b:int (PresClip.elementEnd(text pick.srcA pick.srcB))
+            def lcol:[int] (PresApp.lineColOf(text b))
+            line = (itemAt lcol 0)
+        } {
+            if (linesFrom >= 0) {
+                def ls:[string]
+                def li:int 0
+                while (li < linesAt) {
+                    push ls (mdEditor.buf.lineAt(li))
+                    li = (li + 1)
+                }
+                def at:int (PresClip.intoLine(ls linesFrom linesAt))
+                if (at >= 0) {
+                    line = at
+                }
+            }
+        }
+        def col:int (strlen (mdEditor.buf.lineAt(line)))
+        def put:string ("\n\n" + p.md)
+        if (((line + 1) < lc) && ((strlen (trim (mdEditor.buf.lineAt((line + 1))))) > 0)) {
+            put = (put + "\n")
+        }
+        mdEditor.buf.replaceRange(line col line col put true)
+        mdEditor.moveCaret((line + 2) 0 false)
+        mdEditor.dirty = true
+        return -1
+    }
+
+    ; The pasted rules at the end of the theme, under a note of where they
+    ; came from.
+    fn clipAppendCss:void (css:string from:string) {
+        def lc:int (cssEditor.buf.lineCount())
+        def end:int (lc - 1)
+        def endText:string (cssEditor.buf.lineAt(end))
+        def name:string (PresClip.swapRefs((PresClip.oneLine(from)) "*/" "* /"))
+        def note:string (PresI18n.t("Pasted"))
+        if ((strlen name) > 0) {
+            note = (PresClip.fill((PresI18n.t("Pasted from {deck}")) "deck" name))
+        }
+        def put:string ("/* " + note + " */\n" + css + "\n")
+        if ((strlen (trim (cssEditor.text()))) > 0) {
+            if ((strlen (trim endText)) == 0) {
+                put = ("\n" + put)
+            } {
+                put = ("\n\n" + put)
+            }
+        }
+        cssEditor.buf.replaceRange(end (strlen endText) end (strlen endText) put true)
+        cssEditor.dirty = true
+    }
+
+    ; Both texts after an edit made to them from outside their own keys:
+    ; the slides and the theme follow.
+    fn syncBuffers:void () {
+        if (cssEditor.buf.version != cssSynced) {
+            cssSynced = cssEditor.buf.version
+            cssEditor.dirty = true
+            themeText = (cssEditor.text())
+            this.applyTheme(themeText)
+            push requests "theme-edited"
+        }
+        if (mdEditor.buf.version != bufSynced) {
+            bufSynced = mdEditor.buf.version
+            mdEditor.dirty = true
+            this.rebuildDeck()
+        }
+    }
+
+    ; Undo (`back`) or Redo about to happen in the Markdown ("md") or the
+    ; theme ("css"): a paste's other half goes with it, and the page is told
+    ; so its files follow.
+    fn clipLink:void (which:string back:boolean) {
+        def id:int (clipUndo.linked(which back mdEditor.buf cssEditor.buf))
+        if (id <= 0) {
+            return
+        }
+        if clipUndo.other {
+            def ed:ScriptEditor cssEditor
+            if (which == "css") {
+                ed = mdEditor
+            }
+            if back {
+                ed.undo()
+            } {
+                ed.redo()
+            }
+            this.syncBuffers()
+        }
+        if back {
+            push requests ("clip:undo:" + (to_string id))
+        } {
+            push requests ("clip:redo:" + (to_string id))
+        }
+    }
+
+    ; Which text an Undo now works on: "md", "css", or "".
+    fn undoTarget:string () {
+        if ((focus == "strip") || (focus == "stage")) {
+            return "md"
+        }
+        if ((focus == "editor") && ((edTab == "md") || (edTab == "css"))) {
+            return edTab
+        }
+        return ""
+    }
+
     ; --- the room chat's message menu ---------------------------------------------
     ; A right click on the open room's chat: the menu of the message under
     ; it. True when x, y is on the chat (no other menu there).
@@ -10893,6 +11350,10 @@ class PresApp {
         this.selectSlide(i)
         focus = "strip"
         def n:int (deck.slideCount())
+        toolbar.ctxElement = ""
+        if ((pick.on && (pick.page == i)) && (pick.srcA >= 0)) {
+            toolbar.ctxElement = (PresClip.elementWord(pick.sel))
+        }
         toolbar.openContext(x y (i > 0) (i < (n - 1)) (n > 1))
         chromeRev = (chromeRev + 1)
     }
@@ -11033,12 +11494,14 @@ class PresApp {
     }
 
     fn undo:void () {
+        this.clipLink((this.undoTarget()) true)
         editor.undo()
         this.syncEditor()
         chromeRev = (chromeRev + 1)
     }
 
     fn redo:void () {
+        this.clipLink((this.undoTarget()) false)
         editor.redo()
         this.syncEditor()
         chromeRev = (chromeRev + 1)

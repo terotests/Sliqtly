@@ -155,10 +155,7 @@ class PresClipPlan {
     ; ask before pasting
     def ask:boolean false
     ; this format's contents (files among them)
-    def doc:PresClipDoc
-    Constructor () {
-        doc = (new PresClipDoc())
-    }
+    def doc:PresClipDoc (new PresClipDoc())
 }
 
 class PresClip {
@@ -772,6 +769,56 @@ class PresClip {
             i = (i + 1)
         }
         return (join lines "\n")
+    }
+
+
+    ; Where a paste onto a slide goes: after the slide's last line of
+    ; content, `lines[from]` … `lines[to - 1]` being the slide; the speaker
+    ; notes (`::: notes` … `:::`) are not content, so it goes above them.
+    ; -1 when the slide has no line.
+    sfn intoLine:int (lines:[string] from:int to:int) {
+        def last:int -1
+        def depth:int 0
+        def notesAt:int -1
+        def fence:string ""
+        def i:int from
+        while (i < to) {
+            def t:string (trim (itemAt lines i))
+            def counts:boolean (notesAt < 0)
+            if ((strlen fence) > 0) {
+                if (startsWith t fence) {
+                    fence = ""
+                }
+            } {
+                if ((startsWith t "```") || (startsWith t "~~~")) {
+                    fence = (substring t 0 3)
+                } {
+                    def word:string (PresSource.openingWord(t))
+                    if ((strlen word) > 0) {
+                        if ((word == "notes") && (notesAt < 0)) {
+                            notesAt = depth
+                            counts = false
+                        }
+                        depth = (depth + 1)
+                    } {
+                        if ((t == ":::") && (depth > 0)) {
+                            depth = (depth - 1)
+                            if (depth == notesAt) {
+                                notesAt = -1
+                            }
+                        }
+                    }
+                }
+            }
+            if (counts && ((strlen t) > 0)) {
+                last = i
+            }
+            i = (i + 1)
+        }
+        if ((last < 0) && (to > from)) {
+            return from
+        }
+        return last
     }
 
     ; --- style sheets -------------------------------------------------------------
@@ -1478,10 +1525,16 @@ class PresClip {
         if (p.target == "css") {
             out = (PresI18n.t("Paste the copied styles at the caret?"))
         }
-        if (p.cssAdded > 0) {
+        if (p.cssAdded == 1) {
+            out = (out + "\n" + (PresI18n.t("1 style rule comes along; this presentation's own styles win.")))
+        }
+        if (p.cssAdded > 1) {
             out = (out + "\n" + (PresClip.fill((PresI18n.t("{n} style rules come along; this presentation's own styles win.")) "n" (to_string p.cssAdded))))
         }
-        if (p.cssSkipped > 0) {
+        if (p.cssSkipped == 1) {
+            out = (out + "\n" + (PresI18n.t("1 style rule is left out: this presentation already styles the same thing.")))
+        }
+        if (p.cssSkipped > 1) {
             out = (out + "\n" + (PresClip.fill((PresI18n.t("{n} style rules are left out: this presentation already styles the same things.")) "n" (to_string p.cssSkipped))))
         }
         def nf:int (array_length p.doc.files)
@@ -1617,6 +1670,8 @@ class PresClipEdit {
 class PresClipUndo {
     def edits:[PresClipEdit]
     def nextId:int 1
+    ; after `linked`: the other buffer's part goes too
+    def other:boolean false
 
     Constructor () {
         def e:[PresClipEdit]
@@ -1692,52 +1747,36 @@ class PresClipUndo {
         return -1
     }
 
-    ; Undo in `which` ("md" or "css") is about to take back its top edit:
-    ; when that is a paste's, the other buffer's part of it is undone too
-    ; (when it is still on top there). The paste's id, or 0.
-    fn undoWith:int (which:string md:EditorBuffer css:EditorBuffer) {
-        def stack:[EditorUndoOp] md.undoStack
+    ; Undo (`back`) or Redo in `which` ("md" or "css") is about to take its
+    ; top edit back or again. When that edit is a paste's, the paste's id
+    ; (else 0), and `other` says whether the other buffer's part of it is on
+    ; top there too, to go with it (the caller undoes or redoes that one).
+    fn linked:int (which:string back:boolean md:EditorBuffer css:EditorBuffer) {
+        other = false
+        def mine:[EditorUndoOp] md.undoStack
+        def theirs:[EditorUndoOp] css.undoStack
         if (which == "css") {
-            stack = css.undoStack
+            mine = css.undoStack
+            theirs = md.undoStack
         }
-        def k:int (this.editAt(which stack))
+        if (back == false) {
+            mine = md.redoStack
+            theirs = css.redoStack
+            if (which == "css") {
+                mine = css.redoStack
+                theirs = md.redoStack
+            }
+        }
+        def k:int (this.editAt(which mine))
         if (k < 0) {
             return 0
         }
         def e:PresClipEdit (itemAt edits k)
         if ((which == "md") && e.hasCss) {
-            if (PresClipUndo.same((PresClipUndo.top(css.undoStack)) e.cssLine e.cssCol e.cssText)) {
-                css.undo()
-            }
+            other = (PresClipUndo.same((PresClipUndo.top(theirs)) e.cssLine e.cssCol e.cssText))
         }
         if ((which == "css") && e.hasMd) {
-            if (PresClipUndo.same((PresClipUndo.top(md.undoStack)) e.mdLine e.mdCol e.mdText)) {
-                md.undo()
-            }
-        }
-        return e.id
-    }
-
-    ; The same for Redo: the edit on top of `which`'s redo stack.
-    fn redoWith:int (which:string md:EditorBuffer css:EditorBuffer) {
-        def stack:[EditorUndoOp] md.redoStack
-        if (which == "css") {
-            stack = css.redoStack
-        }
-        def k:int (this.editAt(which stack))
-        if (k < 0) {
-            return 0
-        }
-        def e:PresClipEdit (itemAt edits k)
-        if ((which == "md") && e.hasCss) {
-            if (PresClipUndo.same((PresClipUndo.top(css.redoStack)) e.cssLine e.cssCol e.cssText)) {
-                css.redo()
-            }
-        }
-        if ((which == "css") && e.hasMd) {
-            if (PresClipUndo.same((PresClipUndo.top(md.redoStack)) e.mdLine e.mdCol e.mdText)) {
-                md.redo()
-            }
+            other = (PresClipUndo.same((PresClipUndo.top(theirs)) e.mdLine e.mdCol e.mdText))
         }
         return e.id
     }
