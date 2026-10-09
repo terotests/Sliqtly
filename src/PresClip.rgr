@@ -1,0 +1,1744 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresClip.rgr — slides and elements on the clipboard, and what a paste is
+; ============================================================================
+;
+; Ctrl/⌘+C on the filmstrip copies the picked slides (else the selected
+; one); on a slide with an element picked, that element. What goes on the
+; clipboard is plain text a person can read, and Sliqtly reads back:
+;
+;   ===== Sliqtly clipboard v1: 2 slides =====
+;   from: Myynti 2026
+;   split-level: 2
+;
+;   ----- slide 1: markdown -----
+;   ## Tulos
+;   …
+;
+;   ----- slide 2: markdown -----
+;   ## Seuraavaksi
+;   …
+;
+;   ----- styles: css -----
+;   .iso { font-size: 64px; }
+;
+;   ----- file: media/logo.png (image/png, base64) -----
+;   iVBORw0KGgoAAAANSUhEUgAA…   (76 characters a line)
+;
+;   ===== end of Sliqtly clipboard =====
+;
+; An element is "1 element (chart)" in the first line and one
+; "element: markdown" section. A section's name is read loosely: a name with
+; "css" in it is styles, with "markdown" in it a slide's Markdown, "file:" a
+; file; a name it does not know is skipped, so a later version can add
+; sections. The lines before the first section are `key: value` notes.
+;
+; The styles are only the rules the copied Markdown can use: a rule whose
+; selector names a class or an id the Markdown has (`{.iso}`, `::: iso`,
+; a heading's `{#id}` or its words as the slide's anchor), and the
+; `:root` variables those rules read. The files are the deck's files the
+; Markdown or those rules name.
+;
+; A paste reads the clipboard text (`classify`): this format, a Mermaid,
+; PlantUML or Graphviz diagram, a Vega-Lite spec, Markdown or plain text. A
+; diagram or a spec pasted outside a code fence goes in as its fenced block
+; (`asMarkdown`).
+;
+; Between two presentations the one pasted INTO wins (`mergeCss`): a pasted
+; rule is added only when every selector in it names a class or an id this
+; presentation neither styles nor uses, so it can only reach what was
+; pasted. A rule for a selector this deck has, for an element (h1, p, page)
+; or for a name it uses is left out, and so is a `:root` variable it sets.
+; Files: one with the same name and the same bytes is the same file; a
+; different one keeps this deck's, except a picture, where the person is
+; asked whether to replace it or keep both (`copyName`, `swapRefs`).
+;
+; A paste is one edit of the Markdown and one of the theme CSS. `PresClipUndo`
+; keeps them together, so Undo takes both back at once.
+; ============================================================================
+
+Import "PresPick.rgr"
+Import "PresTraceSettings.rgr"
+Import "JsonValue.rgr"
+Import "PresI18n.rgr"
+Import "../datagrid/src/script/ScriptEditor.rgr"
+
+class PresClipFile {
+    ; the deck's path ("media/logo.png"), the MIME type and the bytes as
+    ; base64 with no line breaks
+    def name:string ""
+    def mime:string ""
+    def data:string ""
+}
+
+class PresClipDoc {
+    ; "slides" or "element"; "" when the text was not this format
+    def kind:string ""
+    ; an element's kind ("chart", "diagram", "table", "picture", "text")
+    def what:string ""
+    ; the presentation it came from
+    def from:string ""
+    ; the level slides broke at there (0: not said)
+    def splitLevel:int 0
+    ; each slide's Markdown, or the one element's
+    def parts:[string]
+    def css:string ""
+    def files:[PresClipFile]
+
+    Constructor () {
+        def p:[string]
+        parts = p
+        def f:[PresClipFile]
+        files = f
+    }
+
+    fn markdown:string () {
+        return (join parts "\n\n")
+    }
+
+    fn addFile:void (name:string mime:string data:string) {
+        def f (new PresClipFile())
+        f.name = name
+        f.mime = mime
+        f.data = (PresClip.noSpace(data))
+        push files f
+    }
+
+    fn fileNamed:int (name:string) {
+        def i:int 0
+        while (i < (array_length files)) {
+            def f:PresClipFile (itemAt files i)
+            if (f.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; One rule of a style sheet: the selector (or an at-rule's head) and the
+; whole text of the rule.
+class PresClipRule {
+    def selector:string ""
+    def body:string ""
+    def text:string ""
+    ; an at-rule (@media, @import, @font-face)
+    def at:boolean false
+}
+
+; What `mergeCss` adds, and how many rules it added and left out.
+class PresClipMerge {
+    def css:string ""
+    def added:int 0
+    def skipped:int 0
+}
+
+; What a paste does (`PresClip.plan`).
+class PresClipPlan {
+    ; what was pasted (`PresClip.classify`)
+    def kind:string ""
+    ; where it goes: "md" (the Markdown at the caret), "css" (the theme
+    ; CSS at the caret), "deck" (the slides); "" for an ordinary paste of
+    ; the text
+    def target:string ""
+    ; on the slides: "after" (new slides after the selected one) or "into"
+    ; (onto the selected slide)
+    def place:string ""
+    def md:string ""
+    def css:string ""
+    ; slides it starts
+    def slides:int 0
+    def cssAdded:int 0
+    def cssSkipped:int 0
+    ; ask before pasting
+    def ask:boolean false
+    ; this format's contents (files among them)
+    def doc:PresClipDoc
+    Constructor () {
+        doc = (new PresClipDoc())
+    }
+}
+
+class PresClip {
+    sfn startLine:string (head:string) {
+        return ("===== Sliqtly clipboard v1: " + head + " =====")
+    }
+
+    sfn endLine:string () {
+        return "===== end of Sliqtly clipboard ====="
+    }
+
+    ; --- writing --------------------------------------------------------------
+
+    sfn write:string (d:PresClipDoc) {
+        def head:string ""
+        def n:int (array_length d.parts)
+        if (d.kind == "element") {
+            head = "1 element"
+            if ((strlen d.what) > 0) {
+                head = (head + " (" + d.what + ")")
+            }
+        } {
+            head = ((to_string n) + " slide")
+            if (n != 1) {
+                head = (head + "s")
+            }
+        }
+        def out:string ((PresClip.startLine(head)) + "\n")
+        if ((strlen d.from) > 0) {
+            out = (out + "from: " + (PresClip.oneLine(d.from)) + "\n")
+        }
+        if (d.splitLevel > 0) {
+            out = (out + "split-level: " + (to_string d.splitLevel) + "\n")
+        }
+        def i:int 0
+        while (i < n) {
+            def label:string "element: markdown"
+            if (d.kind != "element") {
+                label = ("slide " + (to_string (i + 1)) + ": markdown")
+            }
+            out = (out + "\n----- " + label + " -----\n" + (PresClip.trimBlankLines((itemAt d.parts i))) + "\n")
+            i = (i + 1)
+        }
+        def css:string (PresClip.trimBlankLines(d.css))
+        if ((strlen css) > 0) {
+            out = (out + "\n----- styles: css -----\n" + css + "\n")
+        }
+        def k:int 0
+        while (k < (array_length d.files)) {
+            def f:PresClipFile (itemAt d.files k)
+            out = (out + "\n----- file: " + f.name + " (" + f.mime + ", base64) -----\n" + (PresClip.wrap(f.data 76)) + "\n")
+            k = (k + 1)
+        }
+        out = (out + "\n" + (PresClip.endLine()) + "\n")
+        return out
+    }
+
+    sfn oneLine:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c == 10) || (c == 13)) {
+                out = (out + " ")
+            } {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    sfn wrap:string (s:string width:int) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def j:int (i + width)
+            if (j > n) {
+                j = n
+            }
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            out = (out + (substring s i j))
+            i = j
+        }
+        return out
+    }
+
+    sfn noSpace:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def from:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((((c == 32) || (c == 10)) || (c == 13)) || (c == 9)) {
+                out = (out + (substring s from i))
+                from = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring s from n))
+    }
+
+    ; The text without the blank lines at its start and its end (a first
+    ; line's indent stays: it can be code).
+    sfn trimBlankLines:string (s:string) {
+        def lines:[string] (strsplit s "\n")
+        def a:int 0
+        def b:int ((array_length lines) - 1)
+        while ((a <= b) && ((strlen (trim (itemAt lines a))) == 0)) {
+            a = (a + 1)
+        }
+        while ((b >= a) && ((strlen (trim (itemAt lines b))) == 0)) {
+            b = (b - 1)
+        }
+        def keep:[string]
+        def i:int a
+        while (i <= b) {
+            def ln:string (itemAt lines i)
+            ; a line that ended in \r (text from Windows)
+            if (((strlen ln) > 0) && ((charAt ln ((strlen ln) - 1)) == 13)) {
+                ln = (substring ln 0 ((strlen ln) - 1))
+            }
+            push keep ln
+            i = (i + 1)
+        }
+        return (join keep "\n")
+    }
+
+    ; --- reading --------------------------------------------------------------
+
+    sfn plainLines:[string] (text:string) {
+        def t:string text
+        if (((strlen t) > 0) && ((charAt t 0) == 65279)) {
+            t = (substring t 1 (strlen t))
+        }
+        def lines:[string] (strsplit t "\n")
+        def out:[string]
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            if (((strlen ln) > 0) && ((charAt ln ((strlen ln) - 1)) == 13)) {
+                ln = (substring ln 0 ((strlen ln) - 1))
+            }
+            push out ln
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isStart:boolean (line:string) {
+        def t:string (trim line)
+        return ((((startsWith t "=====") && ((indexOf t "Sliqtly clipboard") > 0)) && ((indexOf t "end of") < 0)))
+    }
+
+    sfn isEnd:boolean (line:string) {
+        def t:string (trim line)
+        return ((startsWith t "=====") && ((indexOf t "end of Sliqtly clipboard") > 0))
+    }
+
+    ; A section line's name ("slide 1: markdown"), "" when it is no section
+    ; line.
+    sfn sectionName:string (line:string) {
+        def t:string (trim line)
+        if (((strlen t) < 12) || (((startsWith t "-----") && (endsWith t "-----")) == false)) {
+            return ""
+        }
+        def a:int 0
+        def b:int (strlen t)
+        while ((a < b) && ((charAt t a) == 45)) {
+            a = (a + 1)
+        }
+        while ((b > a) && ((charAt t (b - 1)) == 45)) {
+            b = (b - 1)
+        }
+        return (trim (substring t a b))
+    }
+
+    ; Is the text this format: its first line that is not blank the start?
+    sfn isEnvelope:boolean (text:string) {
+        def lines:[string] (PresClip.plainLines(text))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            if ((strlen (trim ln)) > 0) {
+                return (PresClip.isStart(ln))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn read:PresClipDoc (text:string) {
+        def d (new PresClipDoc())
+        def lines:[string] (PresClip.plainLines(text))
+        def n:int (array_length lines)
+        def i:int 0
+        while ((i < n) && ((strlen (trim (itemAt lines i))) == 0)) {
+            i = (i + 1)
+        }
+        if ((i >= n) || ((PresClip.isStart((itemAt lines i))) == false)) {
+            return d
+        }
+        def head:string (trim (itemAt lines i))
+        d.kind = "slides"
+        if ((indexOf head "element") > 0) {
+            d.kind = "element"
+            def po:int (indexOf head "(")
+            def pc:int (indexOf head ")")
+            if ((po > 0) && (pc > po)) {
+                d.what = (trim (substring head (po + 1) pc))
+            }
+        }
+        i = (i + 1)
+        def name:string ""
+        def inSection:boolean false
+        def buf:[string]
+        while (i < n) {
+            def ln:string (itemAt lines i)
+            if (PresClip.isEnd(ln)) {
+                i = n
+            } {
+                def sec:string (PresClip.sectionName(ln))
+                if ((strlen sec) > 0) {
+                    if inSection {
+                        PresClip.take(d name (join buf "\n"))
+                    }
+                    def fresh:[string]
+                    buf = fresh
+                    name = sec
+                    inSection = true
+                } {
+                    if inSection {
+                        push buf ln
+                    } {
+                        PresClip.note(d ln)
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        if inSection {
+            PresClip.take(d name (join buf "\n"))
+        }
+        return d
+    }
+
+    ; A `key: value` line above the sections.
+    sfn note:void (d:PresClipDoc line:string) {
+        def c:int (indexOf line ":")
+        if (c <= 0) {
+            return
+        }
+        def key:string (to_lowercase (trim (substring line 0 c)))
+        def value:string (trim (substring line (c + 1) (strlen line)))
+        if (key == "from") {
+            d.from = value
+        }
+        if (key == "split-level") {
+            def lv@(optional):int (str2int value)
+            if (!null? lv) {
+                def v:int (unwrap lv)
+                if ((v >= 1) && (v <= 6)) {
+                    d.splitLevel = v
+                }
+            }
+        }
+    }
+
+    sfn take:void (d:PresClipDoc name:string body:string) {
+        def low:string (to_lowercase name)
+        if (startsWith low "file:") {
+            ; "file: media/a b.png (image/png, base64)"
+            def rest:string (trim (substring name 5 (strlen name)))
+            def po:int (lastIndexOf rest " (")
+            def fname:string rest
+            def mime:string ""
+            if (po > 0) {
+                fname = (trim (substring rest 0 po))
+                def inner:string (substring rest (po + 2) (strlen rest))
+                def pc:int (indexOf inner ")")
+                if (pc >= 0) {
+                    inner = (substring inner 0 pc)
+                }
+                def cm:int (indexOf inner ",")
+                if (cm >= 0) {
+                    inner = (substring inner 0 cm)
+                }
+                mime = (trim inner)
+            }
+            if ((strlen fname) > 0) {
+                d.addFile(fname mime body)
+            }
+            return
+        }
+        if ((indexOf low "css") >= 0) {
+            def css:string (PresClip.trimBlankLines(body))
+            if ((strlen d.css) > 0) {
+                d.css = (d.css + "\n\n" + css)
+            } {
+                d.css = css
+            }
+            return
+        }
+        if ((indexOf low "markdown") >= 0) {
+            push d.parts (PresClip.trimBlankLines(body))
+        }
+    }
+
+    ; --- what was pasted --------------------------------------------------------
+    ; "sliqtly" (this format), "mermaid", "plantuml", "graphviz", "vega",
+    ; "markdown", "text", or "" for nothing.
+    sfn classify:string (text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return ""
+        }
+        if (PresClip.isEnvelope(text)) {
+            return "sliqtly"
+        }
+        def first:string (PresClip.firstCodeLine(t))
+        if (startsWith first "@start") {
+            return "plantuml"
+        }
+        def dot:string (PresClip.graphWord(t))
+        if (dot == "graphviz") {
+            return "graphviz"
+        }
+        if ((dot == "mermaid") || (PresClip.mermaidWord(first))) {
+            return "mermaid"
+        }
+        if (PresClip.vegaSpec(t)) {
+            return "vega"
+        }
+        if (PresClip.looksMarkdown(t)) {
+            return "markdown"
+        }
+        return "text"
+    }
+
+    ; The first line that is not blank, a Mermaid comment (%%) or a
+    ; Mermaid front matter (--- … ---) above the diagram.
+    sfn firstCodeLine:string (t:string) {
+        def lines:[string] (PresClip.plainLines(t))
+        def i:int 0
+        def n:int (array_length lines)
+        if ((n > 0) && ((trim (itemAt lines 0)) == "---")) {
+            def k:int 1
+            while ((k < n) && ((trim (itemAt lines k)) != "---")) {
+                k = (k + 1)
+            }
+            if (k < n) {
+                i = (k + 1)
+            }
+        }
+        while (i < n) {
+            def ln:string (trim (itemAt lines i))
+            if (((strlen ln) > 0) && ((startsWith ln "%%") == false)) {
+                return ln
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn mermaidWord:boolean (line:string) {
+        def sp:int (indexOf line " ")
+        def w:string line
+        if (sp >= 0) {
+            w = (substring line 0 sp)
+        }
+        def words:[string] ([] _:string ("flowchart" "sequenceDiagram" "classDiagram" "classDiagram-v2" "stateDiagram" "stateDiagram-v2" "erDiagram" "gantt" "pie" "journey" "mindmap" "timeline" "gitGraph" "quadrantChart" "requirementDiagram" "C4Context" "C4Container" "C4Component" "C4Dynamic" "C4Deployment" "sankey-beta" "xychart-beta" "block-beta" "packet-beta" "architecture-beta" "kanban"))
+        return ((indexOf words w) >= 0)
+    }
+
+    ; `graph` starts both a Mermaid flowchart (graph TD) and a Graphviz
+    ; graph (graph G { … }); `digraph` is Graphviz's. "graphviz",
+    ; "mermaid" or "".
+    sfn graphWord:string (t:string) {
+        def s:string (trim t)
+        if (startsWith s "strict ") {
+            s = (trim (substring s 7 (strlen s)))
+        }
+        def rest:string ""
+        if (startsWith s "digraph") {
+            rest = (substring s 7 (strlen s))
+        } {
+            if ((startsWith s "graph") == false) {
+                return ""
+            }
+            rest = (substring s 5 (strlen s))
+        }
+        ; the word must end there: "graphics" is no graph
+        if (((strlen rest) > 0) && (PresClip.nameChar((charAt rest 0)))) {
+            return ""
+        }
+        def r:string (trim rest)
+        if (startsWith r "{") {
+            return "graphviz"
+        }
+        if (startsWith s "digraph") {
+            return "graphviz"
+        }
+        ; graph's next word: a direction is Mermaid's, a name and then { is
+        ; Graphviz's
+        def k:int 0
+        while ((k < (strlen r)) && ((((charAt r k) != 32) && ((charAt r k) != 10)) && ((charAt r k) != 123))) {
+            k = (k + 1)
+        }
+        def word:string (substring r 0 k)
+        def dirs:[string] ([] _:string ("TD" "TB" "BT" "RL" "LR"))
+        if ((indexOf dirs word) >= 0) {
+            return "mermaid"
+        }
+        def after:string (trim (substring r k (strlen r)))
+        if (startsWith after "{") {
+            return "graphviz"
+        }
+        return "mermaid"
+    }
+
+    ; A JSON object a Vega-Lite (or Vega) reader would take.
+    sfn vegaSpec:boolean (t:string) {
+        if (((startsWith t "{") && (endsWith t "}")) == false) {
+            return false
+        }
+        def v:JVal (JVal.parse(t))
+        if (((v.valid()) == false) || (v.kind != 5)) {
+            return false
+        }
+        if (v.has("$schema")) {
+            def sc:JVal (v.get("$schema"))
+            if ((indexOf (to_lowercase sc.str) "vega") >= 0) {
+                return true
+            }
+        }
+        if (v.has("mark")) {
+            return true
+        }
+        def many:boolean ((((v.has("layer")) || (v.has("hconcat"))) || ((v.has("vconcat")) || (v.has("concat")))) || ((v.has("facet")) || (v.has("repeat"))))
+        return (many && ((v.has("data")) || (v.has("encoding"))))
+    }
+
+    sfn looksMarkdown:boolean (t:string) {
+        def lines:[string] (PresClip.plainLines(t))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (trim (itemAt lines i))
+            if ((PresPick.headingLevel(ln)) > 0) {
+                return true
+            }
+            if ((((startsWith ln "```") || (startsWith ln "~~~")) || ((startsWith ln ":::") || (startsWith ln "> "))) || (((startsWith ln "- ") || (startsWith ln "* ")) || ((startsWith ln "|") || (startsWith ln "![")))) {
+                return true
+            }
+            if (((indexOf ln "**") >= 0) || ((indexOf ln "](") > 0)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The fence word a kind is written with.
+    sfn fenceWord:string (kind:string) {
+        if (kind == "vega") {
+            return "vega-lite"
+        }
+        if (kind == "graphviz") {
+            return "dot"
+        }
+        if ((kind == "mermaid") || (kind == "plantuml")) {
+            return kind
+        }
+        return ""
+    }
+
+    ; The text as Markdown: a diagram or a spec as its fenced block, any
+    ; other text as it is.
+    sfn asMarkdown:string (text:string) {
+        def kind:string (PresClip.classify(text))
+        def word:string (PresClip.fenceWord(kind))
+        if ((strlen word) == 0) {
+            return text
+        }
+        def body:string (PresClip.trimBlankLines(text))
+        ; a fence the text cannot close by accident
+        def fence:string "```"
+        while ((indexOf body fence) >= 0) {
+            fence = (fence + "`")
+        }
+        return (fence + word + "\n" + body + "\n" + fence)
+    }
+
+    ; Is the offset inside a fenced code block (```mermaid … ```) of `md`?
+    sfn insideFence:boolean (md:string offset:int) {
+        def fence:string ""
+        def at:int 0
+        def len:int (strlen md)
+        while ((at < offset) && (at < len)) {
+            def nl:int (PresPick.lineEnd(md at))
+            def stop:int nl
+            if (nl < 0) {
+                stop = len
+            }
+            if (stop >= offset) {
+                ; the caret's own line: a fence line it is on does not count
+                return ((strlen fence) > 0)
+            }
+            def t:string (trim (substring md at stop))
+            if ((strlen fence) > 0) {
+                if ((startsWith t fence) && ((strlen (trim (substring t (strlen fence) (strlen t)))) == 0)) {
+                    fence = ""
+                }
+            } {
+                if ((startsWith t "```") || (startsWith t "~~~")) {
+                    def k:int 0
+                    def ch:int (charAt t 0)
+                    while ((k < (strlen t)) && ((charAt t k) == ch)) {
+                        k = (k + 1)
+                    }
+                    fence = (substring t 0 k)
+                }
+            }
+            if (nl < 0) {
+                at = len
+            } {
+                at = (nl + 1)
+            }
+        }
+        return ((strlen fence) > 0)
+    }
+
+    ; How many slides the Markdown starts with headings at or above the
+    ; deck's split level.
+    sfn slideCount:int (md:string level:int) {
+        def secs:[PresPickSection] (PresPick.sections(md level))
+        def n:int 0
+        def i:int 0
+        while (i < (array_length secs)) {
+            def s:PresPickSection (itemAt secs i)
+            if (s.key != "start") {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The level of the first heading of the Markdown (0: none).
+    sfn firstHeading:int (md:string) {
+        def secs:[PresPickSection] (PresPick.sections(md 6))
+        def i:int 0
+        while (i < (array_length secs)) {
+            def s:PresPickSection (itemAt secs i)
+            if (s.key != "start") {
+                def nl:int (PresPick.lineEnd(md s.start))
+                def stop:int nl
+                if (nl < 0) {
+                    stop = (strlen md)
+                }
+                return (PresPick.headingLevel((substring md s.start stop)))
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; Every heading outside code fences moved by `delta` levels (1 to 6).
+    ; Slides that broke at ## somewhere break at # here: their headings go
+    ; up one.
+    sfn shiftHeadings:string (md:string delta:int) {
+        if (delta == 0) {
+            return md
+        }
+        def lines:[string] (strsplit md "\n")
+        def fence:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            def t:string (trim ln)
+            if ((strlen fence) > 0) {
+                if (startsWith t fence) {
+                    fence = ""
+                }
+            } {
+                if ((startsWith t "```") || (startsWith t "~~~")) {
+                    fence = (substring t 0 3)
+                } {
+                    def h:int (PresPick.headingLevel(ln))
+                    if (h > 0) {
+                        def to:int (h + delta)
+                        if (to < 1) {
+                            to = 1
+                        }
+                        if (to > 6) {
+                            to = 6
+                        }
+                        def marks:string ""
+                        def k:int 0
+                        while (k < to) {
+                            marks = (marks + "#")
+                            k = (k + 1)
+                        }
+                        set lines i (marks + (substring ln h (strlen ln)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (join lines "\n")
+    }
+
+    ; --- style sheets -------------------------------------------------------------
+
+    ; The sheet's rules at its top level, comments left out.
+    sfn rules:[PresClipRule] (css:string) {
+        def out:[PresClipRule]
+        def n:int (strlen css)
+        def i:int 0
+        def start:int 0
+        def depth:int 0
+        def open:int -1
+        def clean:string ""
+        ; first the comments out
+        while (i < n) {
+            if ((((i + 1) < n) && ((charAt css i) == 47)) && ((charAt css (i + 1)) == 42)) {
+                def e:int (indexOfFrom css "*/" (i + 2))
+                if (e < 0) {
+                    i = n
+                } {
+                    i = (e + 2)
+                }
+            } {
+                clean = (clean + (substring css i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        n = (strlen clean)
+        i = 0
+        def quote:int 0
+        while (i < n) {
+            def c:int (charAt clean i)
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0
+                }
+            } {
+                if ((c == 34) || (c == 39)) {
+                    quote = c
+                }
+                if (c == 123) {
+                    if (depth == 0) {
+                        open = i
+                    }
+                    depth = (depth + 1)
+                }
+                if ((c == 125) && (depth > 0)) {
+                    depth = (depth - 1)
+                    if (depth == 0) {
+                        def r (new PresClipRule())
+                        r.selector = (PresClip.oneSpace((trim (substring clean start open))))
+                        r.body = (substring clean (open + 1) i)
+                        r.text = (trim (substring clean start (i + 1)))
+                        r.at = (startsWith r.selector "@")
+                        push out r
+                        start = (i + 1)
+                    }
+                }
+                ; @import …; at the top
+                if ((c == 59) && (depth == 0)) {
+                    def stmt:string (trim (substring clean start (i + 1)))
+                    if (startsWith stmt "@") {
+                        def r2 (new PresClipRule())
+                        r2.selector = (PresClip.oneSpace((substring stmt 0 ((strlen stmt) - 1))))
+                        r2.text = stmt
+                        r2.at = true
+                        push out r2
+                    }
+                    start = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn oneSpace:string (s:string) {
+        def out:string ""
+        def space:boolean false
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((((c == 32) || (c == 10)) || (c == 9)) || (c == 13)) {
+                space = true
+            } {
+                if (space && ((strlen out) > 0)) {
+                    out = (out + " ")
+                }
+                space = false
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn nameChar:boolean (c:int) {
+        if (((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 90))) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        return (((c == 45) || (c == 95)) || (c > 127))
+    }
+
+    ; The classes and ids a selector names, as ".iso" and "#tulos".
+    sfn selectorNames:[string] (sel:string) {
+        def out:[string]
+        def n:int (strlen sel)
+        def i:int 0
+        def bracket:int 0
+        while (i < n) {
+            def c:int (charAt sel i)
+            if (c == 91) {
+                bracket = (bracket + 1)
+            }
+            if ((c == 93) && (bracket > 0)) {
+                bracket = (bracket - 1)
+            }
+            if ((bracket == 0) && ((c == 46) || (c == 35))) {
+                def k:int (i + 1)
+                while ((k < n) && (PresClip.nameChar((charAt sel k)))) {
+                    k = (k + 1)
+                }
+                ; ".5em" is no class
+                if ((k > (i + 1)) && (((charAt sel (i + 1)) < 48) || ((charAt sel (i + 1)) > 57))) {
+                    def nm:string (substring sel i k)
+                    if ((indexOf out nm) < 0) {
+                        push out nm
+                    }
+                }
+                i = k
+            } {
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; The classes and ids the Markdown uses: `{.a #b}` attribute blocks,
+    ; `::: name` containers, and each heading's anchor (its `{#id}` or its
+    ; words), which is what a slide scope (`#tulos h2`) names.
+    sfn markdownNames:[string] (md:string) {
+        def out:[string]
+        def lines:[string] (PresClip.plainLines(md))
+        def fence:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            def t:string (trim ln)
+            if ((strlen fence) > 0) {
+                if (startsWith t fence) {
+                    fence = ""
+                }
+            } {
+                if ((startsWith t "```") || (startsWith t "~~~")) {
+                    fence = (substring t 0 3)
+                    ; ```chart {.iso}
+                    PresClip.attrNames(t out)
+                } {
+                    def word:string (PresSource.openingWord(t))
+                    if ((strlen word) > 0) {
+                        def cls:string ("." + word)
+                        if ((indexOf out cls) < 0) {
+                            push out cls
+                        }
+                    }
+                    if ((PresPick.headingLevel(t)) > 0) {
+                        def key:string ("#" + (PresPick.headingKey(t)))
+                        if ((indexOf out key) < 0) {
+                            push out key
+                        }
+                    }
+                    PresClip.attrNames(t out)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `{.a .b #c key=v}` blocks on a line: their classes and ids, added to
+    ; `out`.
+    sfn attrNames:void (line:string out:[string]) {
+        def at:int 0
+        def n:int (strlen line)
+        while (at < n) {
+            def o:int (indexOfFrom line "{" at)
+            if (o < 0) {
+                return
+            }
+            def e:int (indexOfFrom line "}" o)
+            if (e < 0) {
+                return
+            }
+            def toks:[string] (strsplit (substring line (o + 1) e) " ")
+            def k:int 0
+            while (k < (array_length toks)) {
+                def tk:string (trim (itemAt toks k))
+                if (((strlen tk) > 1) && ((startsWith tk ".") || (startsWith tk "#"))) {
+                    if ((indexOf out tk) < 0) {
+                        push out tk
+                    }
+                }
+                if (startsWith tk "class=") {
+                    def v:string (substring tk 6 (strlen tk))
+                    def cls:string ("." + (PresClip.unquote(v)))
+                    if (((strlen cls) > 1) && ((indexOf out cls) < 0)) {
+                        push out cls
+                    }
+                }
+                k = (k + 1)
+            }
+            at = (e + 1)
+        }
+    }
+
+    sfn unquote:string (v:string) {
+        if (((strlen v) >= 2) && (((startsWith v "\"") && (endsWith v "\"")) || ((startsWith v "'") && (endsWith v "'")))) {
+            return (substring v 1 ((strlen v) - 1))
+        }
+        return v
+    }
+
+    ; `--name: value;` pairs of a rule body, as "--name" and "value".
+    sfn varsOf:[string] (body:string) {
+        def out:[string]
+        def decls:[string] (strsplit body ";")
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:string (trim (itemAt decls i))
+            def c:int (indexOf d ":")
+            if ((startsWith d "--") && (c > 2)) {
+                push out (trim (substring d 0 c))
+                push out (trim (substring d (c + 1) (strlen d)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The `var(--x)` names a text reads.
+    sfn varsRead:[string] (text:string) {
+        def out:[string]
+        def at:int 0
+        def n:int (strlen text)
+        while (at < n) {
+            def v:int (indexOfFrom text "var(" at)
+            if (v < 0) {
+                return out
+            }
+            def s:int (v + 4)
+            while ((s < n) && ((charAt text s) == 32)) {
+                s = (s + 1)
+            }
+            def k:int s
+            while ((k < n) && (PresClip.nameChar((charAt text k)))) {
+                k = (k + 1)
+            }
+            def nm:string (substring text s k)
+            if ((startsWith nm "--") && ((indexOf out nm) < 0)) {
+                push out nm
+            }
+            at = k
+        }
+        return out
+    }
+
+    sfn isRoot:boolean (r:PresClipRule) {
+        return (r.selector == ":root")
+    }
+
+    ; Of the sheet, the rules the copied Markdown can use: a rule that names
+    ; one of its classes or ids, and the :root variables those read.
+    sfn cssFor:string (css:string md:string) {
+        def names:[string] (PresClip.markdownNames(md))
+        def all:[PresClipRule] (PresClip.rules(css))
+        def keep:[string]
+        def read:[string]
+        def i:int 0
+        while (i < (array_length all)) {
+            def r:PresClipRule (itemAt all i)
+            if ((PresClip.isRoot(r)) == false) {
+                def sn:[string] (PresClip.selectorNames(r.selector))
+                def hit:boolean false
+                def k:int 0
+                while (k < (array_length sn)) {
+                    if ((indexOf names (itemAt sn k)) >= 0) {
+                        hit = true
+                    }
+                    k = (k + 1)
+                }
+                if hit {
+                    push keep r.text
+                    def vr:[string] (PresClip.varsRead(r.body))
+                    def m:int 0
+                    while (m < (array_length vr)) {
+                        if ((indexOf read (itemAt vr m)) < 0) {
+                            push read (itemAt vr m)
+                        }
+                        m = (m + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; the variables, and the ones they read in turn
+        def decl:[string]
+        def j:int 0
+        while (j < (array_length all)) {
+            def rr:PresClipRule (itemAt all j)
+            if (PresClip.isRoot(rr)) {
+                def vs:[string] (PresClip.varsOf(rr.body))
+                def q:int 0
+                while (q < (array_length vs)) {
+                    push decl (itemAt vs q)
+                    push decl (itemAt vs (q + 1))
+                    q = (q + 2)
+                }
+            }
+            j = (j + 1)
+        }
+        def lines:[string]
+        def r2:int 0
+        while (r2 < (array_length read)) {
+            def nm:string (itemAt read r2)
+            def q2:int 0
+            while (q2 < (array_length decl)) {
+                if ((itemAt decl q2) == nm) {
+                    def val:string (itemAt decl (q2 + 1))
+                    push lines ("  " + nm + ": " + val + ";")
+                    def more:[string] (PresClip.varsRead(val))
+                    def m2:int 0
+                    while (m2 < (array_length more)) {
+                        if ((indexOf read (itemAt more m2)) < 0) {
+                            push read (itemAt more m2)
+                        }
+                        m2 = (m2 + 1)
+                    }
+                }
+                q2 = (q2 + 2)
+            }
+            r2 = (r2 + 1)
+        }
+        def out:[string]
+        if ((array_length lines) > 0) {
+            push out (":root {\n" + (join lines "\n") + "\n}")
+        }
+        def z:int 0
+        while (z < (array_length keep)) {
+            push out (itemAt keep z)
+            z = (z + 1)
+        }
+        return (join out "\n\n")
+    }
+
+    ; A selector list's parts ("a, b" → a and b), commas inside ( ) and [ ]
+    ; kept.
+    sfn selectorParts:[string] (sel:string) {
+        def out:[string]
+        def depth:int 0
+        def start:int 0
+        def i:int 0
+        while (i < (strlen sel)) {
+            def c:int (charAt sel i)
+            if ((c == 40) || (c == 91)) {
+                depth = (depth + 1)
+            }
+            if (((c == 41) || (c == 93)) && (depth > 0)) {
+                depth = (depth - 1)
+            }
+            if ((c == 44) && (depth == 0)) {
+                push out (trim (substring sel start i))
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (trim (substring sel start (strlen sel)))
+        return out
+    }
+
+    ; Does every selector of the list name a class or an id from `taken`'s
+    ; outside, so that it can only reach what was pasted?
+    sfn onlyNew:boolean (sel:string taken:[string]) {
+        def parts:[string] (PresClip.selectorParts(sel))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def sn:[string] (PresClip.selectorNames((itemAt parts i)))
+            def fresh:boolean false
+            def k:int 0
+            while (k < (array_length sn)) {
+                if ((indexOf taken (itemAt sn k)) < 0) {
+                    fresh = true
+                }
+                k = (k + 1)
+            }
+            if (fresh == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The pasted rules this presentation takes: its own sheet `master` and
+    ; its Markdown `masterMd` win (see the top of the file).
+    sfn mergeCss:PresClipMerge (master:string masterMd:string pasted:string) {
+        def res (new PresClipMerge())
+        def mine:[PresClipRule] (PresClip.rules(master))
+        def sels:[string]
+        def heads:[string]
+        def taken:[string] (PresClip.markdownNames(masterMd))
+        def vars:[string]
+        def i:int 0
+        while (i < (array_length mine)) {
+            def r:PresClipRule (itemAt mine i)
+            push sels r.selector
+            if r.at {
+                push heads r.text
+            }
+            if (PresClip.isRoot(r)) {
+                def vs:[string] (PresClip.varsOf(r.body))
+                def q:int 0
+                while (q < (array_length vs)) {
+                    push vars (itemAt vs q)
+                    q = (q + 2)
+                }
+            } {
+                def sn:[string] (PresClip.selectorNames(r.selector))
+                def k:int 0
+                while (k < (array_length sn)) {
+                    if ((indexOf taken (itemAt sn k)) < 0) {
+                        push taken (itemAt sn k)
+                    }
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[string]
+        def rootLines:[string]
+        def theirs:[PresClipRule] (PresClip.rules(pasted))
+        def j:int 0
+        while (j < (array_length theirs)) {
+            def p:PresClipRule (itemAt theirs j)
+            if (PresClip.isRoot(p)) {
+                def pv:[string] (PresClip.varsOf(p.body))
+                def q2:int 0
+                while (q2 < (array_length pv)) {
+                    if ((indexOf vars (itemAt pv q2)) < 0) {
+                        push rootLines ("  " + (itemAt pv q2) + ": " + (itemAt pv (q2 + 1)) + ";")
+                        push vars (itemAt pv q2)
+                        res.added = (res.added + 1)
+                    } {
+                        res.skipped = (res.skipped + 1)
+                    }
+                    q2 = (q2 + 2)
+                }
+            } {
+                def take:boolean false
+                if p.at {
+                    def low:string (to_lowercase p.selector)
+                    if ((startsWith low "@import") || (startsWith low "@font-face")) {
+                        ; a font: it styles nothing by itself
+                        take = ((indexOf heads p.text) < 0)
+                    } {
+                        if (startsWith low "@media") {
+                            take = (PresClip.mediaOwn(p taken sels))
+                        }
+                    }
+                } {
+                    take = (((indexOf sels p.selector) < 0) && (PresClip.onlyNew(p.selector taken)))
+                }
+                if take {
+                    push out p.text
+                    push heads p.text
+                    res.added = (res.added + 1)
+                } {
+                    res.skipped = (res.skipped + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        if ((array_length rootLines) > 0) {
+            insert out 0 (":root {\n" + (join rootLines "\n") + "\n}")
+        }
+        res.css = (join out "\n\n")
+        return res
+    }
+
+    ; An @media block whose rules all reach only what was pasted.
+    sfn mediaOwn:boolean (p:PresClipRule taken:[string] sels:[string]) {
+        def inner:[PresClipRule] (PresClip.rules(p.body))
+        if ((array_length inner) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length inner)) {
+            def r:PresClipRule (itemAt inner i)
+            if (r.at || ((PresClip.onlyNew(r.selector taken)) == false)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+
+    ; --- a paste ------------------------------------------------------------------
+    ; `where`: "md" (the Markdown editor has the keys), "css" (the theme
+    ; editor), "deck" (the filmstrip or the slide), anything else an
+    ; ordinary paste. `inFence`: the caret is inside a code fence. `plain`:
+    ; Paste without formatting (no styles). `level`: the deck's split level;
+    ; `masterCss`/`masterMd` the deck pasted into.
+    sfn plan:PresClipPlan (text:string where:string inFence:boolean plain:boolean level:int masterCss:string masterMd:string) {
+        def p (new PresClipPlan())
+        p.kind = (PresClip.classify(text))
+        if ((strlen p.kind) == 0) {
+            return p
+        }
+        if (p.kind == "sliqtly") {
+            p.doc = (PresClip.read(text))
+        }
+        def doc:PresClipDoc p.doc
+        if (where == "css") {
+            ; the styles alone, as they are, where the caret is
+            if ((p.kind == "sliqtly") && ((strlen doc.css) > 0)) {
+                p.target = "css"
+                p.css = doc.css
+                p.ask = true
+            }
+            return p
+        }
+        if (where == "md") {
+            if (p.kind == "sliqtly") {
+                p.target = "md"
+                p.md = (doc.markdown())
+                p.slides = (PresClip.slideCount(p.md level))
+                p.ask = true
+                return p
+            }
+            if (((strlen (PresClip.fenceWord(p.kind))) > 0) && (inFence == false)) {
+                p.target = "md"
+                p.md = (PresClip.asMarkdown(text))
+                p.ask = true
+            }
+            return p
+        }
+        if (where != "deck") {
+            return p
+        }
+        p.target = "deck"
+        p.ask = true
+        if (p.kind == "sliqtly") {
+            def parts:[string]
+            def i:int 0
+            while (i < (array_length doc.parts)) {
+                def part:string (itemAt doc.parts i)
+                if (((doc.kind == "slides") && (doc.splitLevel > 0)) && (level > 0)) {
+                    part = (PresClip.shiftHeadings(part (level - doc.splitLevel)))
+                }
+                push parts part
+                i = (i + 1)
+            }
+            p.md = (join parts "\n\n")
+            if ((plain == false) && ((strlen doc.css) > 0)) {
+                def m:PresClipMerge (PresClip.mergeCss(masterCss masterMd doc.css))
+                p.css = m.css
+                p.cssAdded = m.added
+                p.cssSkipped = m.skipped
+            }
+        } {
+            p.md = (PresClip.trimBlankLines((PresClip.asMarkdown(text))))
+        }
+        p.slides = (PresClip.slideCount(p.md level))
+        p.place = "into"
+        if ((p.slides > 0) && (PresClip.startsSlide(p.md level))) {
+            p.place = "after"
+        }
+        return p
+    }
+
+    ; Does the Markdown start with a slide's heading (nothing but blank
+    ; lines above it)?
+    sfn startsSlide:boolean (md:string level:int) {
+        def secs:[PresPickSection] (PresPick.sections(md level))
+        if ((array_length secs) == 0) {
+            return false
+        }
+        def s:PresPickSection (itemAt secs 0)
+        return (s.key != "start")
+    }
+
+
+    ; --- an element and the words for a paste --------------------------------------
+
+    ; The end of an element picked on the slide (PresSelect's srcA … srcB):
+    ; with the `{.class}` line under it, which is the element's own.
+    sfn elementEnd:int (text:string a:int b:int) {
+        def n:int (strlen text)
+        if ((b >= n) || (b < a)) {
+            return b
+        }
+        def ns:int (b + 1)
+        def ne:int (PresPick.lineEnd(text ns))
+        if (ne < 0) {
+            ne = n
+        }
+        def t:string (trim (substring text ns ne))
+        if ((((strlen t) > 2) && (startsWith t "{")) && (endsWith t "}")) {
+            return ne
+        }
+        return b
+    }
+
+    ; An element's word on the clipboard, from PresSelect's `sel`.
+    sfn elementWord:string (sel:string) {
+        if (((sel == "chart") || (sel == "diagram")) || ((sel == "table") || (sel == "code"))) {
+            return sel
+        }
+        if (sel == "img") {
+            return "picture"
+        }
+        if ((sel == "list") || (sel == "li")) {
+            return "list"
+        }
+        return "text"
+    }
+
+    ; `{n}` (and `{a}`, `{b}`) in a sentence filled in.
+    sfn fill:string (s:string key:string value:string) {
+        def out:string ""
+        def at:int 0
+        def k:string ("{" + key + "}")
+        while true {
+            def i:int (indexOfFrom s k at)
+            if (i < 0) {
+                return (out + (substring s at (strlen s)))
+            }
+            out = (out + (substring s at i) + value)
+            at = (i + (strlen k))
+        }
+        return out
+    }
+
+    ; What was pasted, in words: "the chart", "a Mermaid diagram", …
+    sfn whatWords:string (p:PresClipPlan) {
+        def k:string p.kind
+        if (k == "sliqtly") {
+            def w:string p.doc.what
+            ; i18n: "the chart" "the diagram" "the table" "the picture" "the code" "the list" "the text"
+            if ((strlen w) > 0) {
+                return (PresI18n.t(("the " + w)))
+            }
+            return (PresI18n.t("the text"))
+        }
+        if (k == "mermaid") {
+            return (PresI18n.t("a Mermaid diagram"))
+        }
+        if (k == "plantuml") {
+            return (PresI18n.t("a PlantUML diagram"))
+        }
+        if (k == "graphviz") {
+            return (PresI18n.t("a Graphviz diagram"))
+        }
+        if (k == "vega") {
+            return (PresI18n.t("a Vega-Lite chart"))
+        }
+        return (PresI18n.t("the text"))
+    }
+
+    ; The question before a paste. `at`: on the slides the number the first
+    ; new slide gets ("after") or the slide's number ("into").
+    sfn question:string (p:PresClipPlan at:int) {
+        def out:string ""
+        if (p.target == "deck") {
+            if (p.place == "after") {
+                if (p.slides == 1) {
+                    out = (PresClip.fill((PresI18n.t("Add 1 slide as slide {a}?")) "a" (to_string at)))
+                } {
+                    out = (PresI18n.t("Add {n} slides as slides {a}–{b}?"))
+                    out = (PresClip.fill(out "n" (to_string p.slides)))
+                    out = (PresClip.fill(out "a" (to_string at)))
+                    out = (PresClip.fill(out "b" (to_string ((at + p.slides) - 1))))
+                }
+            } {
+                out = (PresI18n.t("Add {what} to slide {a}?"))
+                out = (PresClip.fill(out "what" (PresClip.whatWords(p))))
+                out = (PresClip.fill(out "a" (to_string at)))
+            }
+        }
+        if (p.target == "md") {
+            if (p.kind == "sliqtly") {
+                if (p.slides > 1) {
+                    out = (PresClip.fill((PresI18n.t("Paste the Markdown of {n} slides at the caret?")) "n" (to_string p.slides)))
+                } {
+                    out = (PresI18n.t("Paste the copied Markdown at the caret?"))
+                }
+            } {
+                out = (PresClip.fill((PresI18n.t("Paste {what} as its own block at the caret?")) "what" (PresClip.whatWords(p))))
+            }
+        }
+        if (p.target == "css") {
+            out = (PresI18n.t("Paste the copied styles at the caret?"))
+        }
+        if (p.cssAdded > 0) {
+            out = (out + "\n" + (PresClip.fill((PresI18n.t("{n} style rules come along; this presentation's own styles win.")) "n" (to_string p.cssAdded))))
+        }
+        if (p.cssSkipped > 0) {
+            out = (out + "\n" + (PresClip.fill((PresI18n.t("{n} style rules are left out: this presentation already styles the same things.")) "n" (to_string p.cssSkipped))))
+        }
+        def nf:int (array_length p.doc.files)
+        if ((nf > 0) && (p.target != "css")) {
+            if (nf == 1) {
+                out = (out + "\n" + (PresI18n.t("1 file comes along.")))
+            } {
+                out = (out + "\n" + (PresClip.fill((PresI18n.t("{n} files come along.")) "n" (to_string nf))))
+            }
+        }
+        return out
+    }
+
+    ; The second answer of the question: without the styles (when there
+    ; are some), the diagram as plain text, else none.
+    sfn altAnswer:string (p:PresClipPlan) {
+        if ((p.target == "deck") && (p.cssAdded > 0)) {
+            return (PresI18n.t("Paste without formatting"))
+        }
+        if ((p.target == "md") && (p.kind != "sliqtly")) {
+            return (PresI18n.t("Paste as text"))
+        }
+        return ""
+    }
+
+    ; --- files --------------------------------------------------------------------
+
+    ; Of the deck's files `paths`, the ones the text names.
+    sfn filesUsed:[string] (text:string paths:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length paths)) {
+            def p:string (itemAt paths i)
+            if (((PresTraceRefs.countRefs(text p)) > 0) && ((indexOf out p) < 0)) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isImage:boolean (name:string mime:string) {
+        if (startsWith mime "image/") {
+            return true
+        }
+        def low:string (to_lowercase name)
+        def exts:[string] ([] _:string (".png" ".jpg" ".jpeg" ".gif" ".webp" ".svg"))
+        def i:int 0
+        while (i < (array_length exts)) {
+            if (endsWith low (itemAt exts i)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A name for a second file beside `name`: logo.png → logo-2.png, -3, …
+    ; the first one not in `taken`.
+    sfn copyName:string (name:string taken:[string]) {
+        def slash:int (lastIndexOf name "/")
+        def dot:int (lastIndexOf name ".")
+        def stem:string name
+        def ext:string ""
+        if (dot > (slash + 1)) {
+            stem = (substring name 0 dot)
+            ext = (substring name dot (strlen name))
+        }
+        def k:int 2
+        while true {
+            def cand:string (stem + "-" + (to_string k) + ext)
+            if ((indexOf taken cand) < 0) {
+                return cand
+            }
+            k = (k + 1)
+        }
+        return name
+    }
+
+    ; What to do with each pasted file, given `states` from the page, one a
+    ; file: "new" (no file of that name here), "same" (the same bytes) or
+    ; "differs". Answers: "add", "skip" (this deck's stays), "ask" (a
+    ; picture: replace it or keep both).
+    sfn fileSteps:[string] (d:PresClipDoc states:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length d.files)) {
+            def f:PresClipFile (itemAt d.files i)
+            def st:string "new"
+            if (i < (array_length states)) {
+                st = (itemAt states i)
+            }
+            if (st == "same") {
+                push out "skip"
+            } {
+                if (st == "differs") {
+                    if (PresClip.isImage(f.name f.mime)) {
+                        push out "ask"
+                    } {
+                        push out "skip"
+                    }
+                } {
+                    push out "add"
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Uses of `from` in the text pointed at `to`.
+    sfn swapRefs:string (text:string from:string to:string) {
+        return (PresTraceRefs.swapRef(text from to))
+    }
+}
+
+; A paste is one edit of the Markdown and one of the theme CSS; Undo (and
+; Redo) of one of them takes the other with it. A paste is known by its
+; edit: where it was made and what it put in, which the top of the buffer's
+; undo (or redo) stack still says while nothing came after it.
+class PresClipEdit {
+    def id:int 0
+    def hasMd:boolean false
+    def mdLine:int 0
+    def mdCol:int 0
+    def mdText:string ""
+    def hasCss:boolean false
+    def cssLine:int 0
+    def cssCol:int 0
+    def cssText:string ""
+}
+
+class PresClipUndo {
+    def edits:[PresClipEdit]
+    def nextId:int 1
+
+    Constructor () {
+        def e:[PresClipEdit]
+        edits = e
+    }
+
+    ; A paste's edits, read from the tops of the two undo stacks right after
+    ; it was made (`md`/`css` false: that one was not edited).
+    fn remember:int (md:EditorBuffer mdEdited:boolean css:EditorBuffer cssEdited:boolean) {
+        def e (new PresClipEdit())
+        e.id = nextId
+        nextId = (nextId + 1)
+        if mdEdited {
+            def op@(optional):EditorUndoOp (PresClipUndo.top(md.undoStack))
+            if (!null? op) {
+                e.hasMd = true
+                e.mdLine = op.startLine
+                e.mdCol = op.startCol
+                e.mdText = op.inserted
+            }
+        }
+        if cssEdited {
+            def op2@(optional):EditorUndoOp (PresClipUndo.top(css.undoStack))
+            if (!null? op2) {
+                e.hasCss = true
+                e.cssLine = op2.startLine
+                e.cssCol = op2.startCol
+                e.cssText = op2.inserted
+            }
+        }
+        push edits e
+        while ((array_length edits) > 50) {
+            remove_index edits 0
+        }
+        return e.id
+    }
+
+    sfn top@(optional):EditorUndoOp (stack:[EditorUndoOp]) {
+        def res@(optional):EditorUndoOp
+        def n:int (array_length stack)
+        if (n > 0) {
+            res = (itemAt stack (n - 1))
+        }
+        return res
+    }
+
+    sfn same:boolean (op@(optional):EditorUndoOp line:int col:int text:string) {
+        if (null? op) {
+            return false
+        }
+        def o:EditorUndoOp (unwrap op)
+        return (((o.startLine == line) && (o.startCol == col)) && (o.inserted == text))
+    }
+
+    ; The paste whose edit is at the top of `which`'s stack (`stack` of
+    ; that buffer, "md" or "css"), or -1.
+    fn editAt:int (which:string stack:[EditorUndoOp]) {
+        def op@(optional):EditorUndoOp (PresClipUndo.top(stack))
+        def i:int ((array_length edits) - 1)
+        while (i >= 0) {
+            def e:PresClipEdit (itemAt edits i)
+            if (which == "md") {
+                if (e.hasMd && (PresClipUndo.same(op e.mdLine e.mdCol e.mdText))) {
+                    return i
+                }
+            } {
+                if (e.hasCss && (PresClipUndo.same(op e.cssLine e.cssCol e.cssText))) {
+                    return i
+                }
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    ; Undo in `which` ("md" or "css") is about to take back its top edit:
+    ; when that is a paste's, the other buffer's part of it is undone too
+    ; (when it is still on top there). The paste's id, or 0.
+    fn undoWith:int (which:string md:EditorBuffer css:EditorBuffer) {
+        def stack:[EditorUndoOp] md.undoStack
+        if (which == "css") {
+            stack = css.undoStack
+        }
+        def k:int (this.editAt(which stack))
+        if (k < 0) {
+            return 0
+        }
+        def e:PresClipEdit (itemAt edits k)
+        if ((which == "md") && e.hasCss) {
+            if (PresClipUndo.same((PresClipUndo.top(css.undoStack)) e.cssLine e.cssCol e.cssText)) {
+                css.undo()
+            }
+        }
+        if ((which == "css") && e.hasMd) {
+            if (PresClipUndo.same((PresClipUndo.top(md.undoStack)) e.mdLine e.mdCol e.mdText)) {
+                md.undo()
+            }
+        }
+        return e.id
+    }
+
+    ; The same for Redo: the edit on top of `which`'s redo stack.
+    fn redoWith:int (which:string md:EditorBuffer css:EditorBuffer) {
+        def stack:[EditorUndoOp] md.redoStack
+        if (which == "css") {
+            stack = css.redoStack
+        }
+        def k:int (this.editAt(which stack))
+        if (k < 0) {
+            return 0
+        }
+        def e:PresClipEdit (itemAt edits k)
+        if ((which == "md") && e.hasCss) {
+            if (PresClipUndo.same((PresClipUndo.top(css.redoStack)) e.cssLine e.cssCol e.cssText)) {
+                css.redo()
+            }
+        }
+        if ((which == "css") && e.hasMd) {
+            if (PresClipUndo.same((PresClipUndo.top(md.redoStack)) e.mdLine e.mdCol e.mdText)) {
+                md.redo()
+            }
+        }
+        return e.id
+    }
+}
