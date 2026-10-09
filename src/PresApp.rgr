@@ -6745,6 +6745,10 @@ class PresApp {
             def path:string hint.picture
             hint.wantsPic = ""
             this.closeHint()
+            if (act == "draw") {
+                this.setSketching(true)
+                return
+            }
             if (act == "trace") {
                 push requests ("image-trace:" + path)
             } {
@@ -9268,7 +9272,7 @@ class PresApp {
             }
         }
         def m:PresImageModel (PresImageModel.read(t attr))
-        if ((m.ok()) == false) {
+        if ((m.editable()) == false) {
             return false
         }
         m.line = line

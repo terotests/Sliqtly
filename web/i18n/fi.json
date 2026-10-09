@@ -1136,6 +1136,7 @@
   "Document default": "Dokumentin oletus",
   "For charts and diagrams that choose none; a chart's own Style on slide or a diagram's {style=…} goes over it.": "Kaavioille ja vuokaavioille, joilla ei ole omaa tyyliä; kaavion oma tyyli tai vuokaavion {style=…} menee sen edelle.",
   "Draw on slide": "Piirrä diaan",
+  "A drawing made on the slide.": "Diaan tehty piirros.",
   "Drawing": "Piirros",
   "Select": "Valitse",
   "Pen": "Kynä",
