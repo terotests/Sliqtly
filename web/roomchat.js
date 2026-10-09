@@ -23,7 +23,14 @@
 //
 //   const chat = new RoomChat({ app, call, store, now, zone, t, toast,
 //                               openLink, openDeck, openRoom, copy, rooms,
-//                               put, pickFiles, sizeOf, load })
+//                               put, pickFiles, sizeOf, load,
+//                               chatOn, filesOn, listen })
+//
+// chatOn(room): the room has a chat here (a server of one's own: every
+// room; sliqtly.com/editor: a shared room). filesOn(): files can be put into
+// it. listen(room, since, onEvent) → stop: the new messages of the open room
+// as `chat` events, where no stream brings them (sliqtly.com reads them from
+// Firestore, web/cloudchat.js).
 //   chat.open(room)         a room pressed: its channel
 //   chat.close()           the room's chat steps aside (a presentation opened)
 //   chat.request(r)         one of the app's "roomchat:" requests
@@ -96,6 +103,21 @@ export class RoomChat {
     this.opening = 0;
     // the newest message number heard in the open room (replies count too)
     this.seen = 0;
+    // stops listening to the open room (deps.listen)
+    this.unlisten = null;
+  }
+
+  chatOn(room) {
+    return this.d.chatOn ? this.d.chatOn(room) : this.d.ownServer();
+  }
+
+  filesOn() {
+    return this.d.filesOn ? this.d.filesOn() : this.d.ownServer();
+  }
+
+  stopListening() {
+    if (this.unlisten) this.unlisten();
+    this.unlisten = null;
   }
 
   // the person as the server takes it ("as"): their id becomes p-<id>
@@ -123,13 +145,21 @@ export class RoomChat {
     // another Sliqtly (sliqtly.com) by that one, its link card's picture
     // (/api/card/<deck>.jpg, mcp-go/linkcard.go)
     app.roomChatPictures(this.d.ownServer() ? "/s/{deck}/{slide}.jpg" : "", "{origin}/api/card/{deck}.jpg?slide={slide}", globalThis.location?.origin || "");
-    if (!this.d.ownServer()) {
-      app.roomChatShow(room, info.title || "", info.description || "", true, this.d.t("The chat works on a Sliqtly server of your own (sliqtly serve) for now."));
+    if (!this.chatOn(room)) {
+      this.stopListening();
+      const why = this.d.chatOn
+        ? this.d.t("Invite people to this room (its ⚙ → Invite people…) to talk with them here.")
+        : this.d.t("The chat works on a Sliqtly server of your own (sliqtly serve) for now.");
+      app.roomChatShow(room, info.title || "", info.description || "", true, why);
       return;
     }
     app.roomChatShow(room, info.title || "", info.description || "", !!info.archived, "");
     if (same) return;
     this.seen = 0;
+    this.stopListening();
+    // what is posted or changed from now on, heard as it comes; a little
+    // before now, so nothing between the read and the listening is missed
+    if (this.d.listen) this.unlisten = this.d.listen(room, this.d.now() - 10000, (v) => this.event(v).catch(() => {}));
     app.roomChatReadUpTo(read(this.d.store, READ_KEY, {})[room] || 0);
     app.roomChatChannels((await this.d.rooms()).filter((r) => r.room_id !== room).map((r) => String(r.title || "").replace(/\s+/g, "_")).join("\n"));
     const got = await this.d.call("read_room_chat", { room_id: room });
@@ -150,7 +180,8 @@ export class RoomChat {
     app.roomChatHide();
     clearTimeout(this.timer);
     this.timer = 0;
-    if (this.room && this.d.ownServer()) this.d.call("chat_here", { room_id: this.room, as: this.as(), away: true }).catch(() => {});
+    this.stopListening();
+    if (this.room && this.chatOn(this.room)) this.d.call("chat_here", { room_id: this.room, as: this.as(), away: true }).catch(() => {});
   }
 
   // the names of presentations embedded in messages ([[slides:<id>]], a
@@ -247,7 +278,11 @@ export class RoomChat {
   async attach(files, inThread = false) {
     const { app } = this.d;
     const room = this.room;
-    if (!room || !app.roomChatOpen() || !this.d.ownServer()) return;
+    if (!room || !app.roomChatOpen()) return;
+    if (!this.filesOn()) {
+      this.d.toast(this.d.t("Files in the chat work on a Sliqtly server of your own for now."));
+      return;
+    }
     const key = inThread ? "thread" : "main";
     const list = [...files];
     this.up[key] += list.length;

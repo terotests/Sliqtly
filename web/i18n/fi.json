@@ -1451,6 +1451,16 @@
   "Those saved in your cloud stay there; one kept only in this browser is gone for good. The open presentation stays.": "Pilveesi tallennetut säilyvät siellä; vain tässä selaimessa oleva esitys poistuu lopullisesti. Avoinna oleva esitys jää.",
   "Removed from this browser: ": "Poistettu tästä selaimesta: ",
   "the open presentation stays": "avoinna oleva esitys jäi",
+  "People in the room": "Huoneen jäsenet",
+  "People": "Ihmiset",
+  "Invite people…": "Kutsu ihmisiä…",
+  "The people you invite see this room and talk in its chat. Each presentation keeps its own sharing.": "Kutsumasi ihmiset näkevät tämän huoneen ja keskustelevat sen chatissa. Jokaisen esityksen jakaminen pysyy ennallaan.",
+  "Only you are in this room.": "Vain sinä olet tässä huoneessa.",
+  "The people you invite sign in with that Google account and see this room and its chat. Your presentations stay yours: share each one on its own.": "Kutsumasi ihmiset kirjautuvat sillä Google-tilillä ja näkevät tämän huoneen ja sen chatin. Esityksesi pysyvät sinun: jaa kukin erikseen.",
+  "{n} people are in this room besides you.": "Huoneessa on sinun lisäksesi {n} ihmistä.",
+  "Could not save who is in the room: ": "Huoneen jäseniä ei voitu tallentaa: ",
+  "Invite people to this room (its ⚙ → Invite people…) to talk with them here.": "Kutsu ihmisiä tähän huoneeseen (sen ⚙ → Kutsu ihmisiä…), niin voitte keskustella täällä.",
+  "Files in the chat work on a Sliqtly server of your own for now.": "Tiedostot chatissa toimivat toistaiseksi vain omalla Sliqtly-palvelimella.",
   "Effect": "Efekti",
   "Effect: ": "Efekti: "
 }
