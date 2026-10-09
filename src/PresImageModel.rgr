@@ -91,6 +91,17 @@ class PresImageModel {
         return ((strlen path) > 0)
     }
 
+    ; What the image editor opens: a picture's pixels. A drawing made on the
+    ; slide (drawings/*.ink, PresSketch) is strokes: it is changed by drawing
+    ; on the slide, and a click on its line shows only its card.
+    fn editable:boolean () {
+        return ((this.ok()) && ((PresImageModel.isDrawing(path)) == false))
+    }
+
+    sfn isDrawing:boolean (p:string) {
+        return (endsWith (to_lowercase p) ".ink")
+    }
+
     ; A size as a percentage, or 0 when it is not one.
     sfn percent:int (v:string) {
         def n:int (strlen v)

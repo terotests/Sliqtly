@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/terotests/sliqtly/mcp-go/connectors"
 	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
@@ -36,6 +37,15 @@ func env(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// a yes/no setting from the environment: 1, true, yes or on
+func envBool(name string) bool {
+	switch strings.ToLower(os.Getenv(name)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func main() {
@@ -61,6 +71,8 @@ func main() {
 	oidcAllow := flag.String("oidc-allow", env("SLIQTLY_OIDC_ALLOW", ""), "who may sign in: emails and @domains, comma separated, or * for every account the provider signs in (SLIQTLY_OIDC_ALLOW)")
 	oidcScopes := flag.String("oidc-scopes", env("SLIQTLY_OIDC_SCOPES", "openid email profile"), "the scopes asked of the provider (SLIQTLY_OIDC_SCOPES)")
 	importDirsFlag := flag.String("import-dirs", env("SLIQTLY_IMPORT_DIRS", ""), "folders of this computer MCP tools may read pictures and data files from by path, comma separated, e.g. /Users/me/photoalbum; with -data only (SLIQTLY_IMPORT_DIRS)")
+	connectorsOn := flag.Bool("connectors", envBool("SLIQTLY_CONNECTORS"), "let scripts and workflows in decks use the services set in <data>/connectors/*.json, with the grants the admin approves (SLIQTLY_CONNECTORS=1)")
+	adminsFlag := flag.String("admin", env("SLIQTLY_ADMINS", ""), "signed-in accounts (emails, comma separated) that may approve connector grants; the server's own user on its own computer always may (SLIQTLY_ADMINS)")
 	flag.Parse()
 	applyMemoryLimit()
 	oidcCfg := oidcConfig{Issuer: *oidcIssuer, ClientID: *oidcClient, ClientSecret: *oidcSecret, Allow: splitList(*oidcAllow), Scopes: *oidcScopes}
@@ -149,6 +161,18 @@ func main() {
 		ls.cors = cors
 		if err := ls.useOIDC(oidcCfg); err != nil {
 			log.Fatal(err)
+		}
+		ls.admins = splitList(*adminsFlag)
+		if *connectorsOn {
+			g, err := connectors.Open(filepath.Join(*data, "connectors"), newPublicClient(), nil)
+			if err != nil {
+				log.Fatalf("connectors: %v", err)
+			}
+			ls.conn = g
+			for name, why := range g.Registry().Problems {
+				log.Printf("connectors/%s left out: %s", name, why)
+			}
+			log.Printf("connectors on: %s", strings.Join(g.Registry().IDs(), ", "))
 		}
 		if oidcCfg.on() {
 			log.Printf("sign-in through %s; register %s as the redirect URI there", oidcCfg.Issuer, ls.oidcRedirect())

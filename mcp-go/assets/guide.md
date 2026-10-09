@@ -966,9 +966,8 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
   a further create_presentation, since a new connection to Sliqtly does
   not carry it. It holds until it goes a day without a change. Keep it in
   the conversation; never put it in slides or links.
-- **The Sliqtly cloud (sliqtly.com) is an experimental demo, not for
-  private or confidential data.** A presentation is seen by anyone who has
-  its link: every slide, picture and file. Say so to the user when you give
+- A presentation with `visibility: "link"` is seen by anyone who has its
+  link: every slide, picture and file. Say so to the user when you give
   the link. Signed in, `visibility: "private"` keeps one for the user's
   Google account only (it opens at its link after signing in there with
   that account); `visibility: "link"` opens it again.

@@ -11,3 +11,16 @@
 
 /* the dimming under a window stays a dimming */
 .theme-dark .pn-backdrop { background-color: rgba(0, 0, 0, 0.55); }
+
+/* Windows and cards over the editor (dialogs, the presentations window, the
+   Style popover, the colour picker): their light grey edge turns nearly as
+   dark as the editor, and a black shadow on near-black is no shadow. A
+   light edge and a faint glow keep them apart from what is behind them.
+   EVGUI's skin does the same for its own windows (the chart window). */
+.theme-dark .pn-dialog,
+.theme-dark .pd-dialog,
+.theme-dark .hp-card,
+.theme-dark .ce-pickcard {
+  border-color: #71717a;
+  shadow-color: rgba(255, 255, 255, 0.16); shadow-radius: 24px; shadow-offset-y: 0px;
+}
