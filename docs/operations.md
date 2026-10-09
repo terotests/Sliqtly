@@ -1,9 +1,10 @@
 # Operations: the hosted sliqtly.com
 
 How the hosted service is set up: Firebase Hosting, sign-in, the share
-store and the domain. Only needed to run or redeploy sliqtly.com; building
+store, the domain, the MCP server on Cloud Run, the editor's licenses and
+the owner's dashboard. Only needed to run or redeploy sliqtly.com; building
 and running Sliqtly locally is in the [README](../README.md). The MCP
-server's Cloud Run deploy is in [mcp-go/README.md](../mcp-go/README.md).
+server's own build and options are in [mcp-go/README.md](../mcp-go/README.md).
 
 ## Deploy (Firebase Hosting)
 
@@ -70,3 +71,72 @@ Firebase Console, once:
 2. Add the TXT and A records Firebase shows in Cloudflare → DNS, proxy status
    **DNS only** (grey cloud), or Firebase cannot verify the domain or issue
    its certificate.
+
+## The MCP server on Cloud Run
+
+Actions → **Deploy MCP (Go)** (`.github/workflows/deploy-mcp-go.yml`) runs
+the tests, builds the image, deploys the service and checks that it answers
+(initialize, the sixteen tools, the OAuth metadata, `/api/hit`):
+```
+IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
+docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root
+docker push $IMAGE
+gcloud run deploy sliqtly-mcp --image $IMAGE \
+  --region europe-west1 --project sliqtly --allow-unauthenticated \
+  --cpu 1 --memory 512Mi --concurrency 80 --max-instances 10 --cpu-boost
+```
+Generating the Go code takes about 3.6 GB of memory (Node's heap is raised
+to 6 GB in `gen.mjs`), so the machine that builds the image needs more
+than 4 GB. The service runs as the project's default compute account, which
+needs Cloud Datastore User and Storage Object Admin on `sliqtly`; verifying
+Google ID tokens needs no role. The page's own Deploy (Hosting) needs the
+service to exist, since its rewrites point at it.
+
+## The editor at sliqtly.com/editor
+
+The public site is the viewer; the editor (web/dist, built into the image)
+comes only from this service, at `/editor`, and only to a request carrying a
+Google sign-in (editor.go). Anyone else gets a sign-in page with none of the
+editor's code. Sign-in is Google's by redirect, no popup; the sign-in is the
+`__session` cookie (the one cookie Hosting passes to Cloud Run), holding the
+page's Firebase ID token, which the page renews before its hour is up.
+Responses are `private`: the CDN keeps none. `/s/{id}?edit` on the site
+redirects to `/editor/s/{id}?edit`.
+
+Licenses are `licenses/{uid}` in Firestore, made at the first visit as a
+Trial: `plan: "trial"`, `maxDocs: 2`, `docs: []`, with the user's `email`.
+The owner changes them in the Firebase console: `maxDocs` (−1 = no limit),
+`plan` (a name shown to the user), `editUntil` (a timestamp; after it nothing
+is changed in the cloud). The accounts in `SLIQTLY_ADMIN_EMAILS` have no
+limit. A presentation is taken under the license (`docs`) when it is first
+saved to the cloud, while there is room; firestore.rules lets a page create or
+change a share only under its owner's license. Reading, presenting, exporting,
+making private and deleting are never limited: a license that ends takes
+nothing away. The MCP server writes with the Admin SDK and is not limited by
+licenses.
+
+## The owner's dashboard
+
+`sliqtly.com/main/admin` (web/admin.html, linked from nowhere) shows, per UTC
+day: visitors and page loads, presentations made (signed in, or by an
+assistant without sign-in), new and active signed-in accounts, and the Cloud
+bill. The page signs in with Google; the numbers come from
+`GET /main/admin/api/stats?days=7|30|90` (admin.go), which answers only a
+Firebase ID token whose verified email is in `SLIQTLY_ADMIN_EMAILS`. Without
+that variable the route does not exist. The deploy sets it from the
+repository variable `SLIQTLY_ADMIN_EMAILS` (Settings → Variables), or the
+owner's address when that is unset. A report is kept a minute per instance;
+Refresh reads again.
+
+What the service account needs for each part (a part it cannot read says so
+on the page, the rest still shows):
+
+- visitors, presentations: Cloud Datastore User (already there)
+- accounts: Firebase Authentication Viewer
+- the bill: Cloud Billing → Billing export → BigQuery export, "Standard usage
+  cost", into a dataset (e.g. `billing_export` in `sliqtly`). Give the
+  service account BigQuery Job User on the project and BigQuery Data Viewer
+  on that dataset, set the repository variable `SLIQTLY_BILLING_TABLE` to the
+  table it makes (`sliqtly.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX`),
+  and run Deploy MCP (Go). The export fills from the day it is turned on and
+  runs about a day behind.

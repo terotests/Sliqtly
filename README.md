@@ -5,10 +5,6 @@ The Markdown is on the left, in Ranger's code editor. On the right are the
 slides, a timeline for each slide and a filmstrip. Everything on the canvas is
 drawn by EVG through WebGL 2. The toolbar and the browser APIs are plain HTML.
 
-The plan is in [PLAN_UI.md](PLAN_UI.md). This is **phase 1**: the frame, the
-syntax, the player, pictures and effects. Speech (TTS) and the agent come
-later.
-
 ```
 npm install          # playwright-core, only for npm run check:web
 npm start            # builds when needed, serves http://localhost:8770/

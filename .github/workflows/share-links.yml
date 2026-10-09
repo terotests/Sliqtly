@@ -1,0 +1,22 @@
+# Fails a pull request (and main) that adds a link to a real shared deck on
+# sliqtly.com: npm run check:links (scripts/check-share-links.mjs). Runs on
+# every change, Markdown and docs included.
+name: Share links
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/check-share-links.mjs
