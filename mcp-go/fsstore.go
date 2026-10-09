@@ -171,6 +171,14 @@ func (d *engineDB) WhereEq(ctx context.Context, col, field string, value any) ([
 	default:
 		match = append(match, store.Eq(field, fmt.Sprint(v)))
 	}
+	return d.where(ctx, col, match)
+}
+
+func (d *engineDB) WhereHas(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {
+	return d.where(ctx, col, store.Has(field, value))
+}
+
+func (d *engineDB) where(ctx context.Context, col string, match store.Expr) ([]Doc, []string, error) {
 	items, err := d.e.Query(ctx, store.Query{From: col, Where: match})
 	if err != nil {
 		return nil, nil, err

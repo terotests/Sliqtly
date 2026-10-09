@@ -38,7 +38,8 @@ class View {
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
             return ""
         }
-        def doc:MfJ (Store.get(host id))
+        def sh:Shown (Store.shown(host id))
+        def doc:MfJ sh.doc
         if ((strlen (host_error host)) > 0) {
             host_log host ("view " + id + ": " + (host_error host))
             host_clear_error host
@@ -49,7 +50,7 @@ class View {
         }
         ; a private deck is its owner's only: "not found" to anyone else,
         ; like a missing one
-        if ((View.shows(doc uid)) == false) {
+        if ((sh.link == false) && ((View.shows(doc uid)) == false)) {
             return ""
         }
         def md:string (doc.str_("md"))
@@ -58,9 +59,9 @@ class View {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs sh.id))
         def din (new DeckIn)
-        din.deckId = id
+        din.deckId = sh.id
         din.stored = stored
         din.live = true
         din.md = md
@@ -169,7 +170,8 @@ class ViewExport {
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
             return out
         }
-        def doc:MfJ (Store.get(host id))
+        def sh:Shown (Store.shown(host id))
+        def doc:MfJ sh.doc
         if ((strlen (host_error host)) > 0) {
             host_log host ("export " + id + ": " + (host_error host))
             host_clear_error host
@@ -179,7 +181,7 @@ class ViewExport {
             return out
         }
         ; as /api/view: a private deck only for its owner
-        if ((View.shows(doc uid)) == false) {
+        if ((sh.link == false) && ((View.shows(doc uid)) == false)) {
             return out
         }
         def md:string (doc.str_("md"))
@@ -188,7 +190,7 @@ class ViewExport {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs sh.id))
         def css:MfJ (doc.field("css"))
         def theme:string (doc.str_("theme"))
         def hasCss:boolean (css.kind == 3)
@@ -196,7 +198,7 @@ class ViewExport {
         if ((strlen keys) > 0) {
             ; the view link's sections only, as /api/view shows them
             def pin (new DeckIn)
-            pin.deckId = id
+            pin.deckId = sh.id
             pin.stored = stored
             pin.live = true
             pin.md = md
@@ -221,7 +223,7 @@ class ViewExport {
             return out
         }
         def din (new DeckIn)
-        din.deckId = id
+        din.deckId = sh.id
         din.stored = stored
         din.live = true
         din.export = format
@@ -390,23 +392,24 @@ class PlainMd {
 
 class LinkCard {
     ; the deck when everyone with the link may see it, else an empty MfJ
-    sfn shown:MfJ (host:McpHost id:string) {
+    sfn shown:Shown (host:McpHost id:string) {
+        def none (new Shown)
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
-            return (new MfJ)
+            return none
         }
-        def doc:MfJ (Store.get(host id))
+        def sh:Shown (Store.shown(host id))
         if ((strlen (host_error host)) > 0) {
             host_log host ("card " + id + ": " + (host_error host))
             host_clear_error host
-            return (new MfJ)
+            return none
         }
-        if ((doc.isObj()) == false) {
-            return (new MfJ)
+        if ((sh.doc.isObj()) == false) {
+            return none
         }
-        if ((View.shows(doc "")) == false) {
-            return (new MfJ)
+        if ((sh.link == false) && ((View.shows(sh.doc "")) == false)) {
+            return none
         }
-        return doc
+        return sh
     }
 
     ; what changes when the deck does: the picture's address carries it, so
@@ -425,7 +428,8 @@ class LinkCard {
     ; carries that slide's display list, whose words the page's head takes
     ; (linkcard.go); the deck's link carries the deck's first words.
     sfn json:string (host:McpHost id:string keys:string slide:int) {
-        def doc:MfJ (LinkCard.shown(host id))
+        def sh:Shown (LinkCard.shown(host id))
+        def doc:MfJ sh.doc
         if ((doc.isObj()) == false) {
             return ""
         }
@@ -441,7 +445,7 @@ class LinkCard {
         def k:string (LinkCard.keysOf(keys))
         o.putStr("keys" k)
         if (slide > 0) {
-            def d:PresDeck (LinkCard.deckOf(host doc id k))
+            def d:PresDeck (LinkCard.deckOf(host doc sh.id k))
             def n:int (d.slideCount())
             if (n > 0) {
                 def at:int (LinkCard.indexOf(slide n))
@@ -693,11 +697,12 @@ class LinkCard {
     ; deck has no card or no slide could be drawn
     sfn image:buffer (host:McpHost id:string keys:string slide:int width:int) {
         def none:buffer (buffer_from_string "")
-        def doc:MfJ (LinkCard.shown(host id))
+        def sh:Shown (LinkCard.shown(host id))
+        def doc:MfJ sh.doc
         if ((doc.isObj()) == false) {
             return none
         }
-        def d:PresDeck (LinkCard.deckOf(host doc id (LinkCard.keysOf(keys))))
+        def d:PresDeck (LinkCard.deckOf(host doc sh.id (LinkCard.keysOf(keys))))
         def n:int (d.slideCount())
         if (n == 0) {
             return none

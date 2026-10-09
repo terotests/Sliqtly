@@ -110,7 +110,7 @@ func TestEditorOnlySignedIn(t *testing.T) {
 
 	// signed out (or a sign-in that ran out): the sign-in page, none of the editor
 	for _, cookie := range []string{"", "old"} {
-		for _, p := range []string{"/editor/", "/editor/s/abcdef1234"} {
+		for _, p := range []string{"/editor/", "/editor/d/abcdef1234", "/editor/s/abcdef1234"} {
 			res, body := editorDo(t, "GET", base+p, cookie, "", "")
 			eq(t, res.StatusCode, 200, p)
 			match(t, body, "Sign in to the editor")
@@ -128,7 +128,7 @@ func TestEditorOnlySignedIn(t *testing.T) {
 	}
 
 	// signed in: the page, its files under /editor/, who and the license
-	res, body := editorDo(t, "GET", base+"/editor/s/abcdef1234?edit", "anna", "", "")
+	res, body := editorDo(t, "GET", base+"/editor/d/abcdef1234", "anna", "", "")
 	eq(t, res.StatusCode, 200)
 	match(t, body, `<base href="/editor/" />`)
 	match(t, body, `name="sliqtly-editor"`)
@@ -214,11 +214,58 @@ func TestEditorClaim(t *testing.T) {
 	eq(t, []any{d["plan"], d["maxDocs"]}, []any{"admin", int64(-1)})
 }
 
+// someone else's presentation: not taken under one's license, and not
+// edited, unless its owner invited one's (verified) address
+func TestEditorClaimOthers(t *testing.T) {
+	e, base, stop := editorServer(t)
+	defer stop()
+	ctx := context.Background()
+	e.DB.Set(ctx, "shares", "teroDeck01", Doc{"owner": "u-tero", "md": "# T", "editors": []any{"anna@example.com"}})
+	e.DB.Set(ctx, "shares", "teroDeck02", Doc{"owner": "u-tero", "md": "# T2"})
+	e.DB.Set(ctx, "shares", "annaDeck01", Doc{"owner": "u-anna", "md": "# A"})
+	claim := func(who, id string) (int, map[string]any) {
+		res, body := editorDo(t, "POST", base+"/editor/api/claim", who, base, `{"id":"`+id+`"}`)
+		var out map[string]any
+		json.Unmarshal([]byte(body), &out)
+		return res.StatusCode, out
+	}
+	code, out := claim("anna", "teroDeck02")
+	eq(t, []any{code, out["code"], out["why"]}, []any{403, "no-edit-right", "not-yours"})
+	// invited: edited, and none of Anna's two presentations spent on it
+	code, _ = claim("anna", "teroDeck01")
+	eq(t, code, 200)
+	d, _ := e.DB.Get(ctx, "licenses", "u-anna")
+	eq(t, len(d["docs"].([]any)), 0)
+	// her own as before
+	code, _ = claim("anna", "annaDeck01")
+	eq(t, code, 200)
+	// the admin has no limit on his own, but Anna's is still hers
+	code, out = claim("tero", "annaDeck01")
+	eq(t, []any{code, out["why"]}, []any{403, "not-yours"})
+	// an invited user whose license ended edits nothing more
+	e.DB.Update(ctx, "licenses", "u-anna", Doc{"editUntil": editorNow.Add(-time.Minute).Format(time.RFC3339)})
+	code, out = claim("anna", "teroDeck01")
+	eq(t, []any{code, out["why"]}, []any{403, "expired"})
+}
+
+func TestInvitedTo(t *testing.T) {
+	share := Doc{"editors": []any{"anna@example.com"}}
+	eq(t, invitedTo(share, &IDToken{Email: "Anna@Example.com", Verified: true}), true)
+	eq(t, invitedTo(share, &IDToken{Email: "anna@example.com", Verified: false}), false)
+	eq(t, invitedTo(share, &IDToken{Email: "bo@example.com", Verified: true}), false)
+	eq(t, invitedTo(Doc{}, &IDToken{Email: "anna@example.com", Verified: true}), false)
+}
+
 func TestEditLinksGoToTheEditor(t *testing.T) {
 	_, base, stop := editorServer(t)
 	defer stop()
 	res, _ := editorDo(t, "GET", base+"/s/abcdef1234?edit", "", "", "")
-	eq(t, []any{res.StatusCode, res.Header.Get("Location")}, []any{302, "/editor/s/abcdef1234?edit"})
+	eq(t, []any{res.StatusCode, res.Header.Get("Location")}, []any{302, "/editor/d/abcdef1234"})
+	res, _ = editorDo(t, "GET", base+"/s/abcdef1234?edit&slide=3", "", "", "")
+	eq(t, []any{res.StatusCode, res.Header.Get("Location")}, []any{302, "/editor/d/abcdef1234?slide=3"})
+	// the editor's address before: to the document's own
+	res, _ = editorDo(t, "GET", base+"/editor/s/abcdef1234?edit", "anna", "", "")
+	eq(t, []any{res.StatusCode, res.Header.Get("Location")}, []any{302, "/editor/d/abcdef1234"})
 
 	// without the editor, /editor is nothing and an edit link the viewer's
 	f := fakeFirebase()

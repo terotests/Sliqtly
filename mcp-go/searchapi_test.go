@@ -75,14 +75,15 @@ func TestSearchPresentationsOnFolderServer(t *testing.T) {
 	}
 }
 
-// sliqtly.com's editor: the signed-in user's own decks and no one else's,
-// whether theirs are private or not
+// sliqtly.com's editor: the signed-in user's own decks and those they were
+// invited to edit, no one else's, whether private or not
 func TestEditorSearchOwnDecksOnly(t *testing.T) {
 	e, base, stop := editorServer(t)
 	defer stop()
 	ctx := context.Background()
 	e.DB.Set(ctx, "shares", "deckAAAAAA", Doc{"name": "Anna's", "owner": "u-anna", "md": searchDeck, "visibility": "private"})
 	e.DB.Set(ctx, "shares", "deckBBBBBB", Doc{"name": "Tero's", "owner": "u-tero", "md": searchDeck, "visibility": "link"})
+	e.DB.Set(ctx, "shares", "deckCCCCCC", Doc{"name": "Tero's, Anna invited", "owner": "u-tero", "md": "# Budget\n", "visibility": "private", "editors": []any{"anna@example.com"}})
 	search := func(who, q string) (int, []any) {
 		res, body := editorDo(t, "GET", base+"/editor/api/search?q="+url.QueryEscape(q), who, "", "")
 		var out map[string]any
@@ -97,6 +98,11 @@ func TestEditorSearchOwnDecksOnly(t *testing.T) {
 	_, found = search("tero", "warehouse")
 	eq(t, len(found), 1)
 	eq(t, mapOf(found[0])["deck_id"], "deckBBBBBB")
+	_, found = search("anna", "budget")
+	eq(t, len(found), 1, "invited")
+	eq(t, mapOf(found[0])["deck_id"], "deckCCCCCC")
+	_, found = search("tero", "budget")
+	eq(t, len(found), 1, "the owner's own")
 	_, found = search("anna", "")
 	eq(t, len(found), 0)
 }
