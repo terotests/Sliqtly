@@ -105,3 +105,7 @@ jobs:
           # files to no one without a sign-in
           curl -fsS "$URL/editor/" | grep -q 'Sign in to the editor'
           test "$(curl -sS -o /dev/null -w '%{http_code}' "$URL/editor/main.js")" = 401
+          # shared rooms and their chat (mcp-go/editorrooms.go): there, but
+          # nothing without a sign-in, nothing to another site's page
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/editor/api/rooms/list_rooms" -H 'Sec-Fetch-Site: same-origin' -H 'content-type: application/json' -d '{}')" = 401
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/editor/api/rooms/list_rooms" -H 'Origin: https://example.com' -H 'content-type: application/json' -d '{}')" = 403

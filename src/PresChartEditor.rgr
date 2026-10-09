@@ -204,6 +204,12 @@ class PresChartEditor {
     ; Share → People who can edit (ndAsk "editors"): the addresses, as the
     ; window edits them (PresInvite); `ndName` the one being written
     def inv:PresInvite (new PresInvite())
+    ; ...the same window for a shared room's people: the room's id ("" for a
+    ; presentation's editors)
+    def invRoom:string ""
+    ; the room's window offers "Invite people…" (sliqtly.com/editor: a room is
+    ; shared with the people invited, rmAct "invite")
+    def rmInvite:boolean false
     ; A question before something that cannot be undone (`mode` "confirm"):
     ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
     ; button sets `wantsConfirm` and closes; Cancel and Esc only close. With
@@ -393,6 +399,7 @@ class PresChartEditor {
         rmState = state
         ndDesc = desc
         rmAct = ""
+        rmInvite = false
         this.rebuild()
     }
 
@@ -414,10 +421,21 @@ class PresChartEditor {
     fn openInvite:void (list:string owner:string px:double py:double pw:double ph:double) {
         this.openDupDeck("" px py pw ph)
         ndAsk = "editors"
+        invRoom = ""
         def v (new PresInvite())
         v.owner = owner
         v.load(list)
         inv = v
+        this.rebuild()
+        this.focusInput("nd-name")
+    }
+
+    ; A room's gear → Invite people (sliqtly.com/editor): who is in the shared
+    ; room `room` besides its owner, edited as a presentation's editors are;
+    ; Save is "newdeck-create" with the plan's "invroom" the room.
+    fn openRoomInvite:void (room:string list:string owner:string px:double py:double pw:double ph:double) {
+        this.openInvite(list owner px py pw ph)
+        invRoom = room
         this.rebuild()
         this.focusInput("nd-name")
     }
@@ -1049,6 +1067,9 @@ class PresChartEditor {
             }
             if (ndAsk == "editors") {
                 win.name = (PresI18n.t("People who can edit"))
+                if ((strlen invRoom) > 0) {
+                    win.name = (PresI18n.t("People in the room"))
+                }
             }
             if (ndAsk == "room") {
                 win.name = (PresI18n.t("New room"))
@@ -1769,6 +1790,13 @@ class PresChartEditor {
         this.inputWith("nd-desc" (PresI18n.t("Description")) ndDesc (PresI18n.t("What the work is, a link to the ticket…")) "ce-wide" dr)
         sec.addChild(dr)
         sec.addChild((this.text("ce-doc" (PresI18n.t("A room holds one whole piece of work: a task, a Jira ticket, a user story. Its presentations are listed under it.")))))
+        if (rmInvite && (rmState != "archived")) {
+            def secP:EVGElement (this.section(pane (PresI18n.t("People"))))
+            def rowP:EVGElement (this.div("ce-chips"))
+            this.button("rm-invite" (PresI18n.t("Invite people…")) "outline" rowP)
+            secP.addChild(rowP)
+            secP.addChild((this.text("ce-doc" (PresI18n.t("The people you invite see this room and talk in its chat. Each presentation keeps its own sharing.")))))
+        }
         if ((strlen rmId) > 0) {
             def sec2:EVGElement (this.section(pane (PresI18n.t("Archive or delete"))))
             def row:EVGElement (this.div("ce-chips"))
@@ -1838,9 +1866,16 @@ class PresChartEditor {
     ; one more to write and Invite, and Save or Cancel.
     fn inviteBody:void (root:EVGElement) {
         def pane:EVGElement (this.div("ce-pane"))
-        def sec:EVGElement (this.section(pane (PresI18n.t("People who can edit"))))
+        def forRoom:boolean ((strlen invRoom) > 0)
+        def head:string (PresI18n.t("People who can edit"))
+        def none:string (PresI18n.t("Only you edit this presentation."))
+        if forRoom {
+            head = (PresI18n.t("People in the room"))
+            none = (PresI18n.t("Only you are in this room."))
+        }
+        def sec:EVGElement (this.section(pane head))
         if ((inv.count()) == 0) {
-            sec.addChild((this.text("ce-doc" (PresI18n.t("Only you edit this presentation.")))))
+            sec.addChild((this.text("ce-doc" none)))
         }
         def i:int 0
         while (i < (inv.count())) {
@@ -1871,7 +1906,11 @@ class PresChartEditor {
         if ((strlen why) > 0) {
             sec.addChild((this.text("ce-doc" why)))
         }
-        sec.addChild((this.text("ce-doc" (PresI18n.t("The people you invite sign in with that Google account and edit this same presentation. Anyone else who opens its address sees nothing; the Presentation link only shows it.")))))
+        def about:string (PresI18n.t("The people you invite sign in with that Google account and edit this same presentation. Anyone else who opens its address sees nothing; the Presentation link only shows it."))
+        if forRoom {
+            about = (PresI18n.t("The people you invite sign in with that Google account and see this room and its chat. Your presentations stay yours: share each one on its own."))
+        }
+        sec.addChild((this.text("ce-doc" about)))
         root.addChild(pane)
 
         def bottom:EVGElement (this.div("ce-foot"))
@@ -2557,7 +2596,7 @@ class PresChartEditor {
             wantsClose = true
             return true
         }
-        if ((((tid == "rm-archive") || (tid == "rm-unarchive")) || (tid == "rm-delete")) || (tid == "rm-clear")) {
+        if (((((tid == "rm-archive") || (tid == "rm-unarchive")) || (tid == "rm-delete")) || (tid == "rm-clear")) || (tid == "rm-invite")) {
             rmAct = (substring tid 3 (strlen tid))
             wantsCreate = true
             wantsClose = true

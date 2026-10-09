@@ -388,3 +388,49 @@ export function searchRooms(rows, query, max = 20) {
   if (!words.length) return [];
   return rows.filter((r) => words.every((w) => fold(r.title).includes(w))).slice(0, max);
 }
+
+// --- shared rooms (sliqtly.com/editor) -----------------------------------------
+// A room shared with other people is kept by the server (POST
+// /editor/api/rooms, mcp-go/editorrooms.go) with its members and its chat;
+// this browser keeps a copy of it among its rooms ({ shared: true, role }),
+// so its presentations, folders and order are this browser's as for any
+// other room (a presentation's own sharing stays its own).
+
+// The rooms as the server lists them now: each one this browser keeps a copy
+// of, its name, description and archive as the server has them; a shared room
+// the server no longer lists (one was taken out of it, or it was deleted) is
+// gone, its presentations in General again. rows: list_rooms' rooms.
+export function syncShared(state, rows) {
+  const listed = new Map((rows || []).filter((r) => r && typeof r.room_id === "string" && r.room_id && !BUILT_IN.includes(r.room_id)).map((r) => [r.room_id, r]));
+  let next = state;
+  for (const r of state.rooms) if (r.shared && !listed.has(r.id)) next = deleteRoom(next, r.id);
+  const rooms = next.rooms.filter((r) => !listed.has(r.id));
+  const had = new Map(next.rooms.map((r) => [r.id, r]));
+  for (const [id, row] of listed) {
+    const room = { ...(had.get(id) || {}), id, title: roomTitle(row.title) || "Room", created: Number(row.created) || had.get(id)?.created || 0, shared: true, role: String(row.role || "") };
+    if (roomText(row.description)) room.description = roomText(row.description);
+    else delete room.description;
+    if (row.archived) room.archived = true;
+    else delete room.archived;
+    rooms.push(room);
+  }
+  rooms.sort((a, b) => (a.created || 0) - (b.created || 0));
+  return { ...next, rooms };
+}
+
+// A room of this browser shared: the server made it under `sharedId`, and
+// everything this browser had under its old id (presentations, folders, use,
+// place in the order) is under the new one.
+export function adoptRoom(state, localId, sharedId, role = "owner") {
+  const old = state.rooms.find((r) => r.id === localId);
+  if (!old || !sharedId || BUILT_IN.includes(localId)) return state;
+  const swap = (id) => (id === localId ? sharedId : id);
+  const placed = Object.fromEntries(Object.entries(state.placed).map(([d, r]) => [d, swap(r)]));
+  const touched = Object.fromEntries(Object.entries(state.touched).map(([r, ms]) => [swap(r), ms]));
+  const folders = Object.fromEntries(Object.entries(state.folders || {}).map(([r, l]) => [swap(r), l]));
+  const rooms = state.rooms.filter((r) => r.id !== sharedId).map((r) => (r.id === localId ? { ...r, id: sharedId, shared: true, role } : r));
+  return { ...state, rooms, placed, touched, folders, order: (state.order || []).map(swap) };
+}
+
+// The room's copy here is a shared one
+export const isShared = (state, id) => state.rooms.some((r) => r.id === id && r.shared);
