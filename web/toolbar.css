@@ -190,9 +190,11 @@
 .theme-tb .tb-title-label { font-size: 16px; color: #ffffff; font-weight: 600; white-space: nowrap; overflow: hidden; }
 .theme-tb .tb-title-box { width: 100%; align-self: center; height: 32px; font-size: 15px; font-weight: 600; border: 1px solid #4f46e5; border-radius: 6px; padding: 0 8px; background-color: #ffffff; }
 
-/* Rooms beside the rail (a mock until the server keeps rooms) */
+/* Rooms beside the rail (a mock until the server keeps rooms). Its rows
+   keep their height in a short window (browser zoom): the panel cuts off
+   what does not fit instead of squeezing every row to a sliver. */
 .tb-rooms {
-  display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch;
+  display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; overflow: hidden;
   gap: 1px; padding: 10px 8px;
   background-color: #fafafa;
   border-right: 1px solid #e4e4e7;

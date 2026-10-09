@@ -6424,10 +6424,16 @@ class PresApp {
         def edit:boolean (mode != "present")
         layers.setOpen("room" (room.open && edit))
         layers.setOpen("bar" ((barH > 0.0) && edit))
+        ; Rooms over the page (a narrow window) floats over a room's chat
+        ; and the stage's drawing tools like a window
         if (this.toolbarOnTop()) {
             layers.setBand("bar" "menu")
         } {
-            layers.setBand("bar" "docked")
+            if (this.roomsOver()) {
+                layers.setBand("bar" "window")
+            } {
+                layers.setBand("bar" "docked")
+            }
         }
         layers.setOpen("panels" ((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
@@ -6451,6 +6457,9 @@ class PresApp {
             return (room.has(x y))
         }
         if (id == "bar") {
+            if (this.roomsOver()) {
+                return ((this.toolbarOnTop()) || ((y >= barH) && (x < toolbar.roomsW)))
+            }
             return (this.toolbarOnTop())
         }
         if (id == "panels") {
@@ -6500,6 +6509,14 @@ class PresApp {
         this.placeFiles()
         this.syncLayers()
         return (layers.paintOrderText())
+    }
+
+    fn roomsOver:boolean () {
+        if ((barH <= 0.0) || (mode == "present")) {
+            return false
+        }
+        toolbar.w = W
+        return (toolbar.roomsOver())
     }
 
     fn toolbarOnTop:boolean () {
@@ -7866,6 +7883,11 @@ class PresApp {
     ; =========================================================================
     fn placeRoom:void () {
         def L:double (this.leftW())
+        ; Rooms over the page: the chat beside it while that leaves a chat
+        ; to read, else under it until Rooms is closed
+        if ((this.roomsOver()) && ((W - toolbar.roomsW) >= 320.0)) {
+            L = toolbar.roomsW
+        }
         def top:double barH
         def rw:double ((W - L) - (this.dockW()))
         if (rw < 320.0) {
