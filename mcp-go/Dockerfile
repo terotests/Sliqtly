@@ -6,7 +6,9 @@
 # Ranger, cloned at the ref in presentation.config.json, with RangerFlow,
 # RangerMarkdown and RangerPPTX, which are private: give a token that can read them as a
 # build secret, docker build --secret id=deps_token,env=DEPS_TOKEN …
-FROM node:22 AS gen
+# Base images come through mirror.gcr.io (Google's Docker Hub mirror): Docker
+# Hub answers CI runners with 429 Too Many Requests.
+FROM mirror.gcr.io/library/node:22 AS gen
 WORKDIR /src
 COPY presentation.config.json ./
 COPY scripts/lib.mjs scripts/format-css.mjs scripts/
@@ -20,7 +22,7 @@ RUN --mount=type=secret,id=deps_token \
     if [ -s /run/secrets/deps_token ]; then DEPS_TOKEN=$(cat /run/secrets/deps_token) sh scripts/ci-git-auth.sh; fi && \
     node mcp-go/gen.mjs
 
-FROM golang:1.26 AS build
+FROM mirror.gcr.io/library/golang:1.26 AS build
 WORKDIR /src/mcp-go
 COPY mcp-go/go.mod mcp-go/go.sum ./
 RUN go mod download
@@ -34,7 +36,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /dat
 
 # A server of one's own with the editor and player built in (localweb.go):
 # web/dist is built here and copied in before the binary is built again.
-FROM node:22 AS web
+FROM mirror.gcr.io/library/node:22 AS web
 WORKDIR /src
 # Rust's WebAssembly target: the build makes cerxes.wasm, the engine that
 # runs the programs on slides (```app, scripts/lib.mjs ensureCerxes);
