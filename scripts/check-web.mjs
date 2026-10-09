@@ -1229,8 +1229,22 @@ try {
     check("…the pointer over a thumbnail is a hand that grabs", hand === "grab", hand);
     await page.mouse.move(p[0], p[1]);
     await page.mouse.down();
-    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
+    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] - p[0]) * k / 10, p[1]);
     const mid = await page.evaluate(() => [window.__app.stripReorder, window.__app.stripDrop]);
+    // a box the size of the slide under the pointer, drawn over the others,
+    // and slides 1 and 2 moved one place left out of its way
+    await page.waitForTimeout(400);
+    const carry = await page.evaluate(() => {
+      const a = window.__app;
+      const l = JSON.parse(a.layoutJson());
+      const at = (i) => (l.thumbs.find((t) => t[0] === i) || [])[1];
+      return { last: l.thumbs[l.thumbs.length - 1][0], x0: at(0), x1: at(1), x2: at(2), base0: a.thumbX(0), base1: a.thumbX(1), base2: a.thumbX(2) };
+    });
+    const near = (u, v) => Math.abs(u - v) < 3;
+    check("…the carried slide follows the pointer over the others, which move out of its way",
+      carry.last === 0 && near(carry.x0, carry.base2) && near(carry.x1, carry.base0) && near(carry.x2, carry.base1),
+      JSON.stringify(carry));
+    await shot("strip-drag.png");
     await page.mouse.up();
     const s10 = await st();
     check("a thumbnail dragged to another gap moves its slide there", mid[0] && mid[1] === 3 && s10.order === "BCAD" && s10.sel === 2 && s10.src === "# B\n\nbb\n\n# C\n\ncc\n\n# A\n\naa\n\n# D\n\ndd\n", JSON.stringify({ mid, ...s10 }));
@@ -2821,6 +2835,22 @@ try {
     await R(`c("cf-ok");`);
     const deleted = await until(() => { try { const s = window.__keptRooms(); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
     check("…a room's gear opens its settings: Archive hides it (search finds it), Delete asks and moves its decks to General", settings && archived && foundArchived && delAsked && deleted, JSON.stringify({ settings, archived, foundArchived, delAsked, deleted }));
+    // the search finds presentations by their words, not their syntax (the
+    // deck kept here says "teksti"; "fx-hue" is only in its
+    // headings' {attributes}); pressed, one opens
+    await R(`t("tb-roomsearch"); a.text("teksti");`);
+    const foundDeck = await until(() => window.__app.toolbar.roomFound.includes("teksti"));
+    const foundRow = await rp.evaluate(() => window.__app.toolbar.roomFound);
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("fx-hue");`);
+    await rp.waitForTimeout(800);
+    const syntaxNotFound = await rp.evaluate(() => window.__app.toolbar.roomFound === "");
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("teksti");`);
+    await until(() => window.__app.toolbar.roomFound.length > 0);
+    await R(`t("tb-found-" + a.toolbar.roomFound.split("\\t")[0]);`);
+    // open: the search closed, its room open with the deck as its open row
+    const foundOpened = await until(() => { const tb = window.__app.toolbar; return tb.roomFound === "" && tb.roomOpen === "general" && tb.roomDecks.split("\n").some((l) => l.split("\t")[2] === "1"); });
+    await rp.waitForTimeout(500);
+    check("…the rooms' search finds presentations by their words (not {attributes}), with the text around them, and opens one", foundDeck && syntaxNotFound && foundOpened, JSON.stringify({ foundRow, syntaxNotFound, foundOpened }));
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);
@@ -2962,7 +2992,7 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
-    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf and .zip, and the zip row is the page's ZIP button", fx.kids.join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-zip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep")).join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -4475,7 +4505,7 @@ try {
     await ctx.exposeFunction("__fakeFirebase", async (op, a) => {
       if (op === "get") return fakeDb.get(a.k) ?? null;
       if (op === "query") {
-        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).slice(0, a.n)
+        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && a.w.every(([f, op, v]) => (op === "array-contains" ? (d[f] || []).includes(v) : d[f] === v))).slice(0, a.n)
           .map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
       }
       if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
@@ -4498,11 +4528,15 @@ try {
         get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
       });
       const ms = (v) => (typeof v === "number" ? { toMillis: () => v } : v);
-      const query = (c, f, v, n) => ({
-        limit: (m) => query(c, f, v, m),
-        get: async () => ({ docs: (await call("query", { c, f, v, n: n || 1000 })).map((x) => ({ id: x.id, data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) })) }),
+      const query = (c, w, n) => ({
+        where: (f, op, v) => query(c, [...w, [f, op, v]], n),
+        limit: (m) => query(c, w, m),
+        get: async () => {
+          const docs = (await call("query", { c, w, n: n || 1000 })).map((x) => ({ id: x.id, ref: ref(c, x.id), data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) }));
+          return { docs, empty: docs.length === 0 };
+        },
       });
-      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, f, v, 0) }) };
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, [[f, op, v]], 0) }) };
       const firestore = () => db;
       firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
       const storage = () => ({ ref: (p) => ({
@@ -4547,8 +4581,8 @@ try {
     const ids = shareId();
     const id = ids[0] || "";
     const first = { ids, address: await pc.evaluate(() => location.pathname + location.search), share: fakeDb.get("shares/" + id) };
-    check("PRO: a changed deck is saved to the cloud, viewable by its link, and the address names it",
-      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "link" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
+    check("PRO: a changed deck is saved to the cloud, private, and the address names it",
+      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "private" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
       JSON.stringify({ ids, address: first.address, files: first.share?.files }));
 
     await pc.reload();
@@ -4572,12 +4606,13 @@ try {
     check("PRO: an edit in the editor is written to the cloud", edited.md.includes("## Editorin dia") && edited.md.includes("## Avustajan dia") && puts === putsBefore && shareId().length === 1,
       JSON.stringify({ puts: puts - putsBefore, shares: shareId().length }));
 
-    // Share links to the same cloud deck, no new copy
-    await pc.evaluate(() => { window.__lastShare = ""; document.getElementById("share").click(); });
-    await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+\?edit$/.test(window.__lastShare || ""), null, { timeout: 10000 }).catch(() => {});
-    const link = await pc.evaluate(() => window.__lastShare || "");
-    check("PRO: Share links to the deck's own cloud copy and opens it to anyone with the link",
-      link.endsWith("/s/" + id + "?edit") && shareId().length === 1 && fakeDb.get("shares/" + id).visibility === "link", link);
+    // Share: a viewing link of its own, no editing link, no new copy, the
+    // deck still private
+    await pc.evaluate(() => { window.__lastShare = ""; window.__lastShareShow = ""; document.getElementById("share").click(); });
+    await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+$/.test(window.__lastShareShow || ""), null, { timeout: 10000 }).catch(() => {});
+    const link = await pc.evaluate(() => ({ show: window.__lastShareShow || "", edit: window.__lastShare || "" }));
+    check("PRO: Share gives a viewing link of its own, never the deck's id, and the deck stays private",
+      /\/s\/[A-Za-z0-9]+$/.test(link.show) && !link.show.includes(id) && link.edit === "" && shareId().length === 1 && fakeDb.get("shares/" + id).visibility === "private", JSON.stringify(link));
     await pc.evaluate(() => window.__app.closeShare());
 
     // changed elsewhere meanwhile: not written over, the two merged here
@@ -4866,7 +4901,8 @@ try {
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
     await pc.waitForTimeout(2500);
     const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));
-    check("changed, the copy is kept, with no #doc in the address", !!changed.kept && !changed.hash.includes("doc="), JSON.stringify(changed));
+    // someone else's deck is shown, never copied: a change keeps nothing
+    check("changed, someone else's deck is still not copied, with no #doc in the address", !changed.kept && !changed.hash.includes("doc="), JSON.stringify(changed));
     check("no page errors opening someone else's deck", cerr.length === 0, cerr.join(" | "));
     await ctx.close();
   }
@@ -5173,6 +5209,7 @@ try {
         Object.assign(window.sliqtly, {
           user: () => ({ uid: "u1" }),
           signedIn: async () => ({ uid: "u1" }),
+          mayChange: (cur) => cur.owner === "u1",
           share: async (d) => call("share", await deckOf(d)),
           saveShare: async (id, d, since) => call("saveShare", id, await deckOf(d), { md: since.md }),
           loadShare: (id) => call("load", id),

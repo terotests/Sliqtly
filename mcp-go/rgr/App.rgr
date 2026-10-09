@@ -16,6 +16,8 @@ Import "Tools.rgr"
 Import "Mcp.rgr"
 Import "Stats.rgr"
 Import "View.rgr"
+; a deck's words for the Rooms search (searchapi.go)
+Import "../markdown/src/MdSearchText.rgr"
 
 class App {
     sfn cors:void (res:HttpResponse) {
@@ -163,7 +165,7 @@ class App {
         if ((indexOf id ".jpg") == ((strlen id) - 4)) {
             id = (substring id 0 ((strlen id) - 4))
         }
-        def doc:MfJ (LinkCard.shown(host id))
+        def doc:MfJ (LinkCard.shown(host id)).doc
         if ((doc.isObj()) == false) {
             http_set_header res "Cache-Control" "no-store"
             App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")

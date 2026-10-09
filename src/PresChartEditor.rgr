@@ -36,6 +36,7 @@ Import "PresTraceSettings.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "PresKeep.rgr"
+Import "PresInvite.rgr"
 Import "PresI18n.rgr"
 
 class PresChartEditor {
@@ -186,6 +187,9 @@ class PresChartEditor {
     def rmState:string ""
     def ndDesc:string ""
     def rmAct:string ""
+    ; Share → People who can edit (ndAsk "editors"): the addresses, as the
+    ; window edits them (PresInvite); `ndName` the one being written
+    def inv:PresInvite (new PresInvite())
     ; A question before something that cannot be undone (`mode` "confirm"):
     ; `cfKey` names it to the page, `cfOk` is the red button's word. The red
     ; button sets `wantsConfirm` and closes; Cancel and Esc only close. With
@@ -379,6 +383,20 @@ class PresChartEditor {
         this.rebuild()
     }
 
+    ; Share → People who can edit: `list` the invited addresses, one a line,
+    ; `owner` the owner's own (never invited). Save is "newdeck-create" with
+    ; the plan's "ask" "editors" and "editors" the list.
+    fn openInvite:void (list:string owner:string px:double py:double pw:double ph:double) {
+        this.openDupDeck("" px py pw ph)
+        ndAsk = "editors"
+        def v (new PresInvite())
+        v.owner = owner
+        v.load(list)
+        inv = v
+        this.rebuild()
+        this.focusInput("nd-name")
+    }
+
     ; Editing together: the name the others see, all selected.
     fn openAskName:void (name:string px:double py:double pw:double ph:double) {
         this.openDupDeck(name px py pw ph)
@@ -495,6 +513,15 @@ class PresChartEditor {
         isOpen = false
         focusTid = ""
         rev = (rev + 1)
+    }
+
+    ; The keys gone elsewhere, the window staying open: no field shows a caret.
+    fn blur:void () {
+        if ((strlen focusTid) == 0) {
+            return
+        }
+        focusTid = ""
+        this.rebuild()
     }
 
     ; Inside the window (its frame as last laid out).
@@ -994,6 +1021,9 @@ class PresChartEditor {
             }
             if (ndAsk == "name") {
                 win.name = (PresI18n.t("Your name"))
+            }
+            if (ndAsk == "editors") {
+                win.name = (PresI18n.t("People who can edit"))
             }
             if (ndAsk == "room") {
                 win.name = (PresI18n.t("New room"))
@@ -1656,6 +1686,10 @@ class PresChartEditor {
             this.askNameBody(root)
             return
         }
+        if (ndAsk == "editors") {
+            this.inviteBody(root)
+            return
+        }
         if (ndAsk == "room") {
             this.roomBody(root)
             return
@@ -1745,6 +1779,63 @@ class PresChartEditor {
         }
         this.button("nd-create" ok "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; Share → People who can edit: the addresses invited, each with Remove,
+    ; one more to write and Invite, and Save or Cancel.
+    fn inviteBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("People who can edit"))))
+        if ((inv.count()) == 0) {
+            sec.addChild((this.text("ce-doc" (PresI18n.t("Only you edit this presentation.")))))
+        }
+        def i:int 0
+        while (i < (inv.count())) {
+            def row:EVGElement (this.div("ce-chips"))
+            row.addChild((this.text("ce-doc" (inv.at(i)))))
+            row.addChild((this.div("ce-grow")))
+            this.button(("inv-rm-" + (to_string i)) (PresI18n.t("Remove")) "outline" row)
+            sec.addChild(row)
+            i = (i + 1)
+        }
+        def nr:EVGElement (this.field((PresI18n.t("E-mail"))))
+        this.inputWith("nd-name" (PresI18n.t("E-mail")) ndName (PresI18n.t("name@example.com")) "ce-wide" nr)
+        this.button("inv-add" (PresI18n.t("Invite")) "outline" nr)
+        sec.addChild(nr)
+        def why:string ""
+        if (inv.note == "address") {
+            why = (PresI18n.t("That is not an e-mail address."))
+        }
+        if (inv.note == "owner") {
+            why = (PresI18n.t("That is your own address: you edit it already."))
+        }
+        if (inv.note == "there") {
+            why = (PresI18n.t("That address is invited already."))
+        }
+        if (inv.note == "full") {
+            why = (PresI18n.t("At most 50 people can be invited."))
+        }
+        if ((strlen why) > 0) {
+            sec.addChild((this.text("ce-doc" why)))
+        }
+        sec.addChild((this.text("ce-doc" (PresI18n.t("The people you invite sign in with that Google account and edit this same presentation. Anyone else who opens its address sees nothing; the Presentation link only shows it.")))))
+        root.addChild(pane)
+
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("nd-create" (PresI18n.t("Save")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; the address written in goes in the list (the field empties); false,
+    ; with the note saying why, when it cannot
+    fn inviteWritten:boolean () {
+        if (inv.add(ndName)) {
+            ndName = ""
+            return true
+        }
+        return false
     }
 
     ; Editing together: one's name, as the others see it by the caret and in
@@ -1875,6 +1966,7 @@ class PresChartEditor {
         tabs.addItem("header" (PresI18n.t("Header")) "" false)
         tabs.addItem("footer" (PresI18n.t("Footer")) "" false)
         tabs.addItem("bg" (PresI18n.t("Background")) "" false)
+        tabs.addItem("meta" (PresI18n.t("Metadata")) "" false)
         tabs.value = dsTab
         tabs.build()
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
@@ -1884,13 +1976,15 @@ class PresChartEditor {
         if (dsTab == "bg") {
             this.docSetBg(pane)
         }
+        if (dsTab == "meta") {
+            this.dataSection(pane)
+        }
         if (dsTab == "deck") {
             def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
             def nr:EVGElement (this.field((PresI18n.t("Title"))))
             this.inputWith("ds-title" (PresI18n.t("Title")) ds.title (PresI18n.t("Write a title…")) "ce-wide" nr)
             sec.addChild(nr)
             sec.addChild((this.text("ce-doc" (PresI18n.t("{title} in a header or footer, and the name of an exported file.")))))
-            this.dataSection(pane)
             def sec2:EVGElement (this.section(pane (PresI18n.t("Transition"))))
             def tc:EVGElement (this.div("ce-chips"))
             def kinds:[string] (strsplit "fade,slide,zoom,none" ",")
@@ -1931,14 +2025,14 @@ class PresChartEditor {
                 }
             }
         } {
-            if (dsTab != "bg") {
+            if ((dsTab == "header") || (dsTab == "footer")) {
                 this.edgePane(pane (this.dsEdge()))
             }
         }
         root.addChild(pane)
 
         def bottom:EVGElement (this.div("ce-foot"))
-        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away; Ctrl+Z undoes them all.")))))
+        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away, and Ctrl+Z undoes them.")))))
         bottom.addChild((this.div("ce-grow")))
         this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)
@@ -2308,6 +2402,25 @@ class PresChartEditor {
         if (tid == "nd-cancel") {
             wantsClose = true
             return true
+        }
+        if ((ndAsk == "editors") && (tid == "inv-add")) {
+            this.inviteWritten()
+            this.rebuild()
+            this.focusInput("nd-name")
+            return true
+        }
+        if ((ndAsk == "editors") && ((indexOf tid "inv-rm-") == 0)) {
+            inv.remove((?? (str2int (substring tid 7 (strlen tid))) -1))
+            this.rebuild()
+            return true
+        }
+        ; an address still in the field goes with Save; one that is none
+        ; keeps the window open, saying why
+        if (((ndAsk == "editors") && (tid == "nd-create")) && ((strlen (trim ndName)) > 0)) {
+            if ((this.inviteWritten()) == false) {
+                this.rebuild()
+                return true
+            }
         }
         if (tid == "nd-create") {
             rmAct = ""

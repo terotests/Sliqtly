@@ -17,7 +17,8 @@
 
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
-import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
+import { openVfs, openOld, deleteOld, DB_NAME, kindOf, isText, placeFor, newId } from "./vfs.js";
+import { storeName, accountStorage, legacyChoice, declineLegacy, moveKeys, copyStore, ACCOUNT_KEYS, ACCOUNT_SESSION_KEYS, LEGACY_KEY } from "./account.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
 import { toBase64, fromBase64, fileBytes, fileState, plainChord } from "./slideclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
@@ -31,7 +32,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -47,10 +48,91 @@ import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPag
 
 // Where the editor's addresses start: sliqtly.com serves the editor at
 // /editor to signed-in people (mcp-go/editor.go), a server of one's own at
-// its root. A deck in it is EDITOR_ROOT + "/s/{id}".
+// its root. A deck in it is editAddress(id): /editor/d/{id} there (/d/: a
+// document, never a shared link; firestore.rules keeps it its owner's and
+// the invited editors'), /s/{id}?edit on a server of one's own. An older
+// /editor/s/{id}?edit still opens it.
 const EDITOR_ROOT = /^\/editor(\/|$)/.test(location.pathname) ? "/editor" : "";
-const DECK_PATH = /^(?:\/editor)?\/s\/([A-Za-z0-9]{6,32})\/?$/;
-const SHARED_PATH = /^(?:\/editor)?\/s\//;
+const DECK_PATH = /^(?:\/editor\/[sd]|\/s)\/([A-Za-z0-9]{6,32})\/?$/;
+const SHARED_PATH = /^(?:\/editor\/[sd]|\/s)\//;
+const DOC_PATH = /^\/editor\/d\//;
+function editAddress(id) {
+  return EDITOR_ROOT ? EDITOR_ROOT + "/d/" + id : "/s/" + id + "?edit";
+}
+// the address asks to edit the deck it names
+function editAsked() {
+  return DOC_PATH.test(location.pathname) || new URLSearchParams(location.search).has("edit");
+}
+
+// What this browser keeps for the account signed in (web/account.js): on
+// the editor each Google account has its own store and keys, so another
+// account in the same browser sees none of its decks, rooms or tabs.
+// account: "" until known (accountScope), then the account's id
+let account = "";
+function pageStorage(which) {
+  try {
+    const s = which === "session" ? sessionStorage : localStorage;
+    if (s) return s;
+  } catch (_) { /* refused: this page only */ }
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; } };
+}
+let mine = accountStorage(pageStorage("local"), "");
+let mineTab = accountStorage(pageStorage("session"), "");
+// The account the editor keeps things for: the signed-in user's id, or
+// "signed-out" (a store of its own, nobody's work). A server of one's own
+// and the pages without an editor keep the one store of old ("").
+async function accountScope() {
+  if (!EDITOR_ROOT || viewer) return "";
+  const p = await pro();
+  const u = await Promise.race([p.signedIn?.() ?? null, new Promise((ok) => setTimeout(() => ok(null), 8000))]);
+  return u?.uid || "signed-out";
+}
+function useAccount(scope) {
+  account = scope;
+  mine = accountStorage(pageStorage("local"), scope);
+  mineTab = accountStorage(pageStorage("session"), scope);
+  try { foldersOpen = new Set(JSON.parse(mine.getItem(FOLDERS_OPEN_KEY) || "[]")); } catch (_) { /* none kept */ }
+  try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { /* none kept */ }
+  Object.assign(collabMe, loadMe(mine));
+  // another account signed in on this page (or one where nobody was): its
+  // own store, from the start
+  if (scope && !accountWatched) {
+    accountWatched = true;
+    window.addEventListener("sliqtly:user", () => {
+      const u = window.sliqtly?.user?.();
+      if (u && u.uid !== account) location.reload();
+    });
+  }
+}
+let accountWatched = false;
+// The store this browser kept before accounts were apart: moved to this
+// account when its owner says it is theirs (asked once per account), else
+// left for the account it belongs to.
+async function offerOldStore() {
+  if (!account || account === "signed-out" || !vfs?.persistent) return;
+  const raw = pageStorage("local");
+  let old = null;
+  try { old = await openOld(); } catch (e) { console.warn("the old store did not open", e); return; }
+  if (!old) return;
+  const kept = await old.listDocs().then((d) => d.length, () => 0);
+  if (legacyChoice(raw, account, kept) !== "ask") return;
+  const who = window.sliqtly?.user?.();
+  const q = t("This browser keeps {n} presentations from before each Google account had its own. Are they yours, {account}?\n\nOK moves them to this account. Cancel leaves them for the account they belong to.")
+    .replace("{n}", String(kept)).replace("{account}", who?.email || "");
+  if (!confirm(q)) {
+    declineLegacy(raw, account);
+    return;
+  }
+  await copyStore(old, vfs);
+  moveKeys(raw, account, ACCOUNT_KEYS);
+  moveKeys(pageStorage("session"), account, ACCOUNT_SESSION_KEYS);
+  raw.setItem(LEGACY_KEY, "taken");
+  await deleteOld(old);
+  // started again over what was moved in (its open tabs too)
+  location.reload();
+  await new Promise(() => {});
+}
 
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
@@ -60,7 +142,7 @@ const SHARED_PATH = /^(?:\/editor)?\/s\//;
   if (!/^(sliqtly\.com|sliqtly\.web\.app)$/.test(location.hostname)) return;
   if (navigator.globalPrivacyControl || navigator.doNotTrack === "1") return;
   const shared = SHARED_PATH.test(location.pathname);
-  const p = !shared ? "editor" : new URLSearchParams(location.search).has("edit") ? "edit" : "view";
+  const p = !shared ? "editor" : editAsked() ? "edit" : "view";
   let r = "";
   try { r = document.referrer ? new URL(document.referrer).hostname : ""; } catch { /* no referrer */ }
   try { navigator.sendBeacon("/api/hit", new Blob([JSON.stringify({ p, r })], { type: "application/json" })); } catch { /* not counted */ }
@@ -824,12 +906,10 @@ let roomChatOne = null;
 let folderFor = null;
 const FOLDERS_OPEN_KEY = "sliqtly.openFolders";
 let foldersOpen = new Set();
-try { foldersOpen = new Set(JSON.parse(localStorage.getItem(FOLDERS_OPEN_KEY) || "[]")); } catch (_) { /* none kept */ }
 function keepFoldersOpen() {
-  try { localStorage.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...foldersOpen])); } catch (_) { /* this page only */ }
+  try { mine.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...foldersOpen])); } catch (_) { /* this page only */ }
 }
 let roomsHere = emptyRooms();
-try { roomsHere = readKept(localStorage, ROOMS_KEY); } catch (_) { /* none kept */ }
 function shownDoc(text, quiet = false) {
   app.setSource(text);
   doc.loading = false;
@@ -844,7 +924,7 @@ function shownDoc(text, quiet = false) {
 
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
 function keepTabs() {
-  if (!viewer) keepDeckTabs(sessionStorage, rowToKeep(app.deckTabsState(), shownKey && !canReturn(doc) ? shownKey : ""));
+  if (!viewer) keepDeckTabs(mineTab, rowToKeep(app.deckTabsState(), shownKey && !canReturn(doc) ? shownKey : ""));
 }
 function showDeckTab() {
   shownKey = deckKey(doc);
@@ -1084,7 +1164,7 @@ async function saveDocNow(force) {
     savedVersion = version;
     savedCss = css;
     savedTheme = key;
-    try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
+    try { mine.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
   })();
   let r;
   try { r = await saving; } finally { saving = null; }
@@ -1152,12 +1232,13 @@ async function newDeck(plan) {
 // A change to the rooms: only what it changes is written, over what
 // localStorage holds now (web/rooms.js changeKept: other tabs write too)
 function keepRooms(fn) {
-  try { roomsHere = changeKept(localStorage, ROOMS_KEY, fn); } catch (_) { roomsHere = fn(roomsHere); /* this page only */ }
+  try { roomsHere = changeKept(mine, ROOMS_KEY, fn); } catch (_) { roomsHere = fn(roomsHere); /* this page only */ }
 }
 // another tab changed the rooms: this one shows the same
 window.addEventListener("storage", (e) => {
-  if (e.key !== null && e.key !== ROOMS_KEY && !e.key.startsWith(ROOMS_KEY + "/")) return;
-  try { roomsHere = readKept(localStorage, ROOMS_KEY); } catch (_) { return; }
+  const k = e.key === null ? null : mine.own(e.key);
+  if (e.key !== null && (k === null || (k !== ROOMS_KEY && !k.startsWith(ROOMS_KEY + "/")))) return;
+  try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { return; }
   if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
 });
 async function roomsCall(op, args) {
@@ -1252,6 +1333,49 @@ async function docRooms() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// the presentations the search found, by id (deckSearch's rows)
+let foundDecks = new Map();
+// The Rooms search through the presentations' words, not their Markdown's
+// syntax (RangerMarkdown MdSearchText): on a server of one's own its
+// search_presentations; on sliqtly.com/editor the server searches the
+// signed-in user's own decks (GET /editor/api/search), and the decks kept
+// only in this browser are searched here, by the same model in the app.
+// → [{ id (as fileRequest's "doc:" takes it), name, room, roomTitle, snippet }]
+const searchTexts = new Map();
+async function deckSearch(q) {
+  if (ownServer()) {
+    const out = await roomsCall("search_presentations", { query: q });
+    return (out.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || "", room: p.room_id || GENERAL, roomTitle: p.room || "", snippet: p.snippet || "" }));
+  }
+  const [local, rooms] = await Promise.all([vfs.listDocs(), roomsList({ archived: true })]);
+  const titleOf = (id) => rooms.find((r) => r.room_id === id)?.title || "";
+  const row = (id, name, snippet) => {
+    const room = roomOf(roomsHere, id);
+    return { id, name, room, roomTitle: titleOf(room), snippet };
+  };
+  const out = [];
+  // the cloud's decks are the server's to search; a deck of this browser
+  // that is kept there too is opened as this browser's
+  let searched = null;
+  if (window.sliqtly?.searchDecks && window.sliqtly.user?.()) {
+    const kept = new Map(local.filter((d) => d.cloud).map((d) => [d.cloud, d]));
+    const hits = await window.sliqtly.searchDecks(q);
+    for (const p of hits) {
+      const d = kept.get(p.deck_id);
+      out.push(row(d ? d.id : "cloud:" + p.deck_id, d?.name || p.name || "", p.snippet || ""));
+    }
+    searched = new Set(kept.keys());
+  }
+  for (const d of local) {
+    if (searched && d.cloud && searched.has(d.cloud)) continue;
+    const md = String(d.md || "");
+    let t = searchTexts.get(d.id);
+    if (!t || t.md !== md) searchTexts.set(d.id, (t = { md, text: app.searchText(md) }));
+    const hit = app.searchSnippet(d.name || "", t.text, q);
+    if (hit) out.push(row(d.id, d.name || "", hit.slice(1)));
+  }
+  return out.slice(0, 50);
+}
 // the rooms the rail lists now (list_rooms' rows)
 let roomsListed = [];
 // The rail's room rows: "id TAB name TAB count TAB u", u when the room has
@@ -1259,7 +1383,7 @@ let roomsListed = [];
 // count ("0" says nothing the empty list does not).
 function showRoomRows() {
   let store = null;
-  try { store = localStorage; } catch (_) { store = { getItem: () => null }; }
+  try { store = mine; } catch (_) { store = { getItem: () => null }; }
   const reading = roomChatOne && app.roomChatOpen() ? roomChatOne.room : "";
   const unread = unreadRooms(roomsListed, store, reading);
   const rows = roomsListed.map((x) => [x.room_id, clean(x.title) + (x.archived ? " (" + t("archived") + ")" : ""), x.presentations || "", unread.has(x.room_id) ? "u" : ""].join("\t"));
@@ -1298,6 +1422,14 @@ async function roomsRequest(r) {
     const searching = q !== null && q.trim() !== "";
     if (searching) rooms = searchRooms(await roomsList({ archived: true }), q);
     else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    // ...and the presentations whose words hold it, under the rooms
+    let found = [];
+    if (searching) {
+      found = await deckSearch(q).catch((e) => { console.warn("deck search", e); return []; });
+      if (roomsQuery !== q) return;
+    }
+    foundDecks = new Map(found.map((x) => [x.id, x]));
+    app.setToolbarOptions("roomfound", found.map((x) => [x.id, clean(x.name) || t("presentation"), clean(x.roomTitle), clean(x.snippet)].join("\t")).join("\n"), "");
     if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
       const open = all.find((x) => x.room_id === roomShown);
       if (open) rooms = [...rooms, open];
@@ -1310,6 +1442,20 @@ async function roomsRequest(r) {
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
+    // the words are searched once typing pauses (the server parses decks)
+    if (what.trim()) await new Promise((ok) => setTimeout(ok, 200));
+    if (roomsQuery !== what) return;
+    await roomsRequest("room:list");
+  } else if (action === "found") {
+    // a presentation found: it opens, and its room with it
+    const hit = foundDecks.get(what);
+    roomsQuery = null;
+    if (hit?.room) {
+      roomShown = hit.room;
+      keepRooms((s) => touchRoom(s, hit.room));
+    }
+    roomChat().close();
+    await fileRequest("doc:" + what);
     await roomsRequest("room:list");
   } else if (action === "searchend") {
     roomsQuery = null;
@@ -1529,7 +1675,7 @@ async function roomsRequest(r) {
 function roomChat() {
   if (roomChatOne) return roomChatOne;
   let store = null;
-  try { store = localStorage; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
+  try { store = mine; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
   roomChatOne = new RoomChat({
     app, store, t, toast, ownServer,
     name: shownName(),
@@ -1690,9 +1836,15 @@ async function deleteDeck() {
     try {
       await window.sliqtly.deleteShare(cloud);
     } catch (e) {
-      doc.cloudHalt = false;
-      toast(t("Deleting from the cloud failed: ") + (e.message || e));
-      return;
+      // invited to edit someone else's: only this browser's copy goes, the
+      // presentation stays its owner's
+      if (e?.code === "permission-denied") {
+        toast(t("Removed from this browser. The presentation is its owner's and stays in the cloud."));
+      } else {
+        doc.cloudHalt = false;
+        toast(t("Deleting from the cloud failed: ") + (e.message || e));
+        return;
+      }
     }
   }
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
@@ -1711,7 +1863,7 @@ async function deleteDeck() {
     opened = !!next && (await openDoc(next.id));
   }
   if (!opened) {
-    try { localStorage.removeItem("evgp.doc"); } catch (_) { /* fine */ }
+    try { mine.removeItem("evgp.doc"); } catch (_) { /* fine */ }
     await newDeck({ name: t("New presentation"), theme: themeSel.value || "", data: "none" });
   }
   toast(t("Deleted ") + name);
@@ -1856,7 +2008,7 @@ function sampleChartSlide() {
 function plainAddress() {
   // a PRO deck: its own address, which a reload opens from the cloud
   if (doc.cloud) {
-    history.replaceState(null, "", EDITOR_ROOT + "/s/" + doc.cloud + "?edit");
+    history.replaceState(null, "", editAddress(doc.cloud));
     lastHash = "";
     return;
   }
@@ -1927,7 +2079,7 @@ async function openDocNow(id) {
   savedVersion = -1;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
-  try { localStorage.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
+  try { mine.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
   plainAddress();
   dropThumbs();
   needsPaint = true;
@@ -1947,7 +2099,9 @@ function whenText(t) {
 let cloudList = { uid: null, at: 0, rows: [], error: "" };
 let cloudListing = null;
 function readCloudList(uid) {
-  cloudListing ??= window.sliqtly.listMine()
+  // and the ones others invited the user to edit
+  cloudListing ??= Promise.all([window.sliqtly.listMine(), window.sliqtly.listInvited?.().catch(() => []) ?? []])
+    .then(([mine, invited]) => mine.concat(invited))
     .then((rows) => { cloudList = { uid, at: Date.now(), rows, error: "" }; })
     .catch((e) => {
       console.warn("listing the cloud decks failed", e);
@@ -2053,9 +2207,12 @@ window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
-  if (!vfs || app.editorTab() !== "files" || filesListing) return;
+  if (app.editorTab() !== "files" || filesListing) return;
   filesListing = true;
   try {
+    // no store in this browser (it did not open, or gave up on a call):
+    // said, never "Loading files…" for good
+    if (!vfs) throw new Error(t("this browser's storage did not open"));
     const all = await docFiles();
     const again = await retraceable(all);
     const take = all.find((f) => f.path === REC_JSON);
@@ -2120,6 +2277,13 @@ async function refreshFiles() {
     app.setFileList(JSON.stringify({
       doc: exportName(), files: head.concat(sorted), note,
       ...(promo ? { promo } : {}), ...(clip ? { clip: { count: clip.count, from: clip.from } } : {}),
+    }));
+    needsPaint = true;
+  } catch (e) {
+    console.warn("listing the files failed", e);
+    app.setFileList(JSON.stringify({
+      doc: exportName(), files: [],
+      note: t("The files of this presentation could not be read: ") + (e?.message || e) + ". " + t("Reload the page to try again."),
     }));
     needsPaint = true;
   } finally {
@@ -2453,13 +2617,13 @@ function fileClip() {
   if (!vfs) return null;
   if (!clipboard) {
     let storage = null;
-    try { storage = localStorage; } catch (_) { /* this page only */ }
+    try { storage = mine; } catch (_) { /* this page only */ }
     clipboard = fileClipboard(vfs, storage);
   }
   return clipboard;
 }
 // another tab copied: its Paste shows here too
-window.addEventListener("storage", (e) => { if (e.key === CLIP_KEY) refreshFiles(); });
+window.addEventListener("storage", (e) => { if (e.key !== null && mine.own(e.key) === CLIP_KEY) refreshFiles(); });
 
 async function copyFiles(paths) {
   const clip = fileClip();
@@ -3688,8 +3852,8 @@ function frame() {
 // their edits arrive as they type, their carets show in the Markdown, and a
 // chat sits beside the deck. In the bar: one's own name (pressed: renamed)
 // with how many others are here, and Chat with the count of unread messages.
-const collabStore = (() => { try { return localStorage; } catch (_) { return null; } })();
-const collabMe = loadMe(collabStore);
+// (read again for the account signed in: useAccount)
+const collabMe = loadMe(mine);
 let collab = null;
 let collabWant = "";
 let collabPeople = new Map();
@@ -3774,7 +3938,7 @@ function renameMe(name) {
   const n = cleanName(name);
   if (!n || n === shownName()) return;
   collabMe.name = n;
-  saveMe(collabStore, collabMe);
+  saveMe(mine, collabMe);
   app.chatRename(collabMe.who, n, collabOn() ? collab.me.color : collabMe.color);
   collab?.rename(n).catch(() => {});
   reviewMe();
@@ -4078,6 +4242,8 @@ function handleRequests() {
         roomsRequest("room:foldersave:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
       } else if (plan.ask === "name") {
         renameMe(plan.name);
+      } else if (plan.ask === "editors") {
+        saveEditors(plan.editors || "").catch((e) => toast(t("Could not save who can edit: ") + (e?.code || e?.message || e)));
       } else if (plan.dup) {
         makingDeck = duplicateDeck(plan.name).catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
       } else {
@@ -4089,6 +4255,10 @@ function handleRequests() {
         }
         makingDeck = newDeck(plan).catch(fail).finally(() => { makingDeck = null; });
       }
+    } else if (r === "share-invite") {
+      openInvite();
+    } else if (r === "share-stop") {
+      stopSharing().catch((e) => toast(t("Could not stop sharing: ") + (e?.code || e?.message || e)));
     } else if (r === "chat-send") {
       const text = app.chatTakeSent();
       collab?.say(text).catch((e) => toast(t("The message was not sent: ") + (e?.message || e)));
@@ -4709,7 +4879,9 @@ async function openOwnCloudNow(id) {
   const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
   if (!who || !vfs) return false;
   const shared = await p.loadShare(id);
-  if (!shared || shared.owner !== who.uid) return false;
+  // the owner's, or one its owner invited this user to edit (firestore.rules)
+  const mine = typeof p.mayChange === "function" ? p.mayChange(shared) : shared.owner === who.uid;
+  if (!shared || !mine) return false;
   const local = (await vfs.listDocs()).find((d) => d.cloud === id);
   // changes made here that the cloud does not have yet, and nobody changed
   // it since: this browser's copy is the newer, and goes up on the next save
@@ -5182,6 +5354,30 @@ function showShare(showUrl, editUrl, note, viewUrl = "", live = false) {
 
 // The dialog opens at once with the text packed into the link; signed in to
 // PRO, it says a short link is on its way and shows it when the cloud has it.
+// the addresses the owner invited to edit the deck open now, as Share last
+// read them (People who can edit… starts from these)
+let shareEditors = [];
+// Share → People who can edit…: the window, then the list saved on the share
+function openInvite() {
+  const u = window.sliqtly?.user?.();
+  if (!doc.cloud || !u) return;
+  if (app.openInvite(shareEditors.join("\n"), (u.email || "").toLowerCase())) needsPaint = true;
+}
+async function saveEditors(text) {
+  const list = text.split("\n").map((a) => a.trim()).filter(Boolean);
+  await window.sliqtly.setEditors(doc.cloud, list);
+  shareEditors = list;
+  toast(list.length
+    ? t("{n} people can edit this presentation besides you.").replace("{n}", String(list.length))
+    : t("Only you edit this presentation."));
+}
+// Share → Stop sharing: the viewing link stops showing it
+async function stopSharing() {
+  if (!doc.cloud) return;
+  await window.sliqtly.stopSharing(doc.cloud);
+  toast(t("The presentation link no longer shows this presentation. Share makes a new one."));
+}
+
 async function shareLink() {
   const text = app.source();
   const code = await packText(text);
@@ -5207,6 +5403,32 @@ async function shareLink() {
   const textNote = editUrl.length + t(" characters.") + pictures;
   if (!window.sliqtly?.user?.()) {
     showShare(showUrl, editUrl, textNote, viewUrl);
+    return;
+  }
+  const p = window.sliqtly;
+  // in the cloud editor: the presentation's own id is never handed out.
+  // Its owner shares a viewing link of its own; someone invited to edit it
+  // shares nothing
+  if (typeof p.viewLink === "function") {
+    app.setShareEditors(-1);
+    showShare("", "", t("Creating a short link in the cloud…"), "");
+    try {
+      const id = await shareCloud();
+      const cur = await p.loadShare(id);
+      if (cur && cur.owner !== p.user()?.uid) {
+        app.closeShare?.();
+        toast(t("Only the owner of this presentation shares it. You were invited to edit it."));
+        return;
+      }
+      const link = await p.viewLink(id);
+      const short = location.origin + "/s/" + link;
+      const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
+      shareEditors = cur?.editors || [];
+      app.setShareEditors(shareEditors.length);
+      showShare(short, "", t("A link of its own that shows the presentation, with its images and data, as you change it. Anyone with the link can view it; it never lets anyone edit."), view, true);
+    } catch (e) {
+      showShare("", "", cloudFailure(e), "");
+    }
     return;
   }
   showShare(showUrl, editUrl, t("Creating a short link in the cloud…"), viewUrl);
@@ -5268,7 +5490,7 @@ async function editInAI(which) {
     let prompt;
     if (id) {
       prompt = t("Edit my Sliqtly presentation {id} ({link}) with the Sliqtly connector. Load it with get_presentation (deck_id {id}), summarize it briefly and ask what to change. Save each change with update_presentation (deck_id {id}). If saving is refused, tell me why and ask before making a copy: a copy made with create_presentation is a separate presentation with its own link, and {link} stays as it was. After saving, give me the link {edit} to open it in the editor.")
-        .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + "/s/" + id + "?edit");
+        .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + (SITE === "https://sliqtly.com" || EDITOR_ROOT ? "/editor/d/" + id : "/s/" + id + "?edit"));
     } else {
       prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
         .replaceAll("{theme}", themeSel.value || "-");
@@ -6151,8 +6373,8 @@ function keepTabDoc() {
   if (id === tabDocKept) return;
   tabDocKept = id;
   try {
-    if (id) sessionStorage.setItem(TAB_DOC, id);
-    else sessionStorage.removeItem(TAB_DOC);
+    if (id) mineTab.setItem(TAB_DOC, id);
+    else mineTab.removeItem(TAB_DOC);
   } catch (_) { /* a reload opens the deck worked on last */ }
 }
 function followAddress() {
@@ -6245,7 +6467,11 @@ async function openFromShare() {
       toast(t("This shared presentation was not found."));
       return false;
     }
-    const editing = (!!m && new URLSearchParams(location.search).has("edit")) || !!own;
+    // someone else's in the cloud: shown, never copied into an editable deck.
+    // Only its owner and the people they invite edit it (openOwnCloud opened
+    // it for them before this)
+    const notMine = !!m && editAsked() && !own && !ownServer();
+    const editing = ((!!m && editAsked()) || !!own) && !notMine;
     // ?slides=…: a view of only some of its slides (PresPick), shown, never
     // edited
     const slides = m && !editing ? new URLSearchParams(location.search).get("slides") : null;
@@ -6296,12 +6522,15 @@ async function openFromShare() {
       // changed while it opened: followed now
       if (shareMoved) followShare(id);
     } else if (!own) notOwnerNotice(id, shared.owner || "");
+    if (notMine) toast(t("This presentation belongs to another account. Only its owner and the people they invite can edit it. You can view it here."));
     return true;
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
     console.warn(e);
     toast(e?.code === "private"
-      ? t("This presentation is private: sign in with the Google account that owns it.")
+      ? (EDITOR_ROOT
+        ? t("This presentation is private. Only its owner and the people they invite can open it: sign in with that Google account, or ask the owner to invite you.")
+        : t("This presentation is private: sign in with the Google account that owns it."))
       : t("Could not open the shared presentation."));
     return false;
   }
@@ -6323,7 +6552,7 @@ async function notOwnerNotice(id, owner) {
   // the owner signs in from here on (this question, or Sign in): theirs opens
   window.addEventListener("sliqtly:user", () => {
     const u = p.user?.();
-    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = EDITOR_ROOT + "/s/" + id + "?edit";
+    if (u && owner && u.uid === owner && u.uid !== who?.uid) location.href = editAddress(id);
   });
   let asked = false;
   try { asked = sessionStorage.getItem(SWITCH_FLAG) === id; sessionStorage.removeItem(SWITCH_FLAG); } catch (_) { /* ask */ }
@@ -7632,6 +7861,8 @@ async function start() {
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
+  // the signed-in account's own store and keys, before anything kept is read
+  useAccount(await accountScope().catch((e) => { console.warn("no account known", e); return EDITOR_ROOT && !viewer ? "signed-out" : ""; }));
   if (!viewer) {
     // the bar moves onto the canvas: the HTML one stays, hidden, as what it
     // presses (its buttons and selects keep every behaviour they had)
@@ -7641,7 +7872,7 @@ async function start() {
     canvasBar = true;
     // the presentations open in this tab, as they were before a reload
     app.useDeckTabs(true);
-    app.deckTabsRestore(readDeckTabs(sessionStorage));
+    app.deckTabsRestore(readDeckTabs(mineTab));
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
       { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas", "data-short"] });
@@ -7702,12 +7933,13 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
-  if (!viewer && !hashShare()) vfs = await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate, stalled: storeStalled });
+  if (!viewer && !hashShare()) vfs = await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate, stalled: storeStalled }, storeName(DB_NAME, account));
+  if (vfs) await offerOldStore().catch((e) => console.warn("the old store stays", e));
   const own = ownDeck();
   // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
   // own deck: opened from the cloud, where it lives
   const editId = DECK_PATH.exec(location.pathname)?.[1] || own?.from;
-  const editing = !!own || (!!editId && q.has("edit"));
+  const editing = !!own || (!!editId && editAsked());
   // the browser's store not answering (web/vfs.js gives up on a stuck
   // call) leaves no page behind the loader: the welcome deck opens, and the
   // notice says why one's own is not there
@@ -7733,12 +7965,12 @@ async function start() {
         // no sample asked for: the deck worked on last, if this browser kept one,
         // from the cloud when it lives there
         let last = null;
-        try { last = localStorage.getItem("evgp.doc"); } catch (_) { /* none */ }
+        try { last = mine.getItem("evgp.doc"); } catch (_) { /* none */ }
         // the deck this tab had (keepTabDoc), or an older link's #doc={id},
         // when this browser keeps it
         let asked = at.get("doc");
         if (!asked && !framed) {
-          try { asked = sessionStorage.getItem(TAB_DOC); } catch (_) { /* none */ }
+          try { asked = mineTab.getItem(TAB_DOC); } catch (_) { /* none */ }
         }
         if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
         const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;

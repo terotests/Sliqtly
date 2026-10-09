@@ -249,3 +249,10 @@
 .theme-tb .tb-roomsearch-label { font-size: 13px; font-weight: 400; color: #71717a; white-space: nowrap; }
 .tb-dragchip { padding: 4px 10px; border-radius: 6px; background-color: #4f46e5; font-family: Open Sans; }
 .tb-dragchip-label { font-size: 13px; color: #ffffff; white-space: nowrap; }
+/* searching: the presentations whose words hold the query, under the rooms
+   found; each its name, its room and the text around the first word */
+.tb-found-head { font-size: 11px; font-weight: 600; color: #71717a; padding: 2px 8px 4px 8px; }
+.theme-tb .tb-found { height: auto; padding: 5px 8px; border-radius: 6px; display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; justify-content: flex-start; gap: 1px; }
+.theme-tb .tb-found-name { text-align: left; font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
+.tb-found-room { font-size: 11px; color: #4f46e5; white-space: nowrap; }
+.tb-found-text { font-size: 11px; color: #71717a; white-space: nowrap; }

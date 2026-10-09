@@ -2,7 +2,8 @@ rules_version = '2';
 
 // A share's pictures and data files: read like the share (a private one by
 // its owner only, else anyone with its id; not its exports/), written and
-// deleted only by the owner its Firestore copy names.
+// deleted only by the owner its Firestore copy names and the people it
+// invites to edit (`editors`).
 // A user's own files: that user's alone.
 service firebase.storage {
   // What may be kept: pictures, sound, video, data, documents and the editor's
@@ -23,16 +24,21 @@ service firebase.storage {
       function owner() {
         return request.auth != null && share().owner == request.auth.uid;
       }
+      // one the owner invited to edit it (firestore.rules invited())
+      function invited() {
+        return request.auth != null && request.auth.token.get('email_verified', false) == true
+            && request.auth.token.get('email', '').lower() in share().get('editors', []);
+      }
       // firestore.rules: "private" only its owner, else (also no field) anyone
       function readable() {
-        return share().get('visibility', 'link') != 'private' || owner();
+        return share().get('visibility', 'link') != 'private' || owner() || invited();
       }
       // exports/ are the MCP server's (export_presentation), sent only
       // through its expiring sliqtly.com/d/… links (mcp-go/download.go)
       allow get: if !resource.name.matches('shares/[^/]+/exports/.*') && readable();
       allow list: if readable();
-      allow create, update: if owner() && request.resource.size < 20 * 1024 * 1024 && storedType();
-      allow delete: if owner();
+      allow create, update: if (owner() || invited()) && request.resource.size < 20 * 1024 * 1024 && storedType();
+      allow delete: if owner() || invited();
     }
 
     // The Personal package (.github/workflows/personal-package.yml): anyone

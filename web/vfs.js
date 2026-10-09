@@ -14,7 +14,9 @@
 // Where IndexedDB is not to be had (a private window that refuses it) the
 // same calls work on a store in memory that lasts as long as the page.
 
-const DB_NAME = "evg-presentation";
+// the store of old; on sliqtly.com/editor each account has its own
+// (web/account.js storeName)
+export const DB_NAME = "evg-presentation";
 const DB_VERSION = 2;
 
 function promised(req) {
@@ -32,9 +34,9 @@ function promised(req) {
 // memory: what this browser keeps would then be missing from this page.
 // Every tab lets go of its own copy when a newer page asks (`closed`), so a
 // tab of this version never holds the next update up.
-function openDb({ waiting, closed } = {}) {
+function openDb({ waiting, closed } = {}, name = DB_NAME) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(name, DB_VERSION);
     let told = false;
     const wait = () => {
       if (told) return;
@@ -238,17 +240,38 @@ function memoryStore() {
   };
 }
 
-// events: { waiting, closed } (openDb), { stalled } (idbStore)
-export async function openVfs(events) {
+// events: { waiting, closed } (openDb), { stalled } (idbStore); name: the
+// database (DB_NAME, or an account's)
+export async function openVfs(events, name = DB_NAME) {
   try {
     if (typeof indexedDB === "undefined") throw new Error("no IndexedDB");
-    const store = idbStore(() => openDb(events), events);
+    const store = idbStore(() => openDb(events, name), events);
     await store.ready();
     return store;
   } catch (e) {
     console.warn("files kept in memory only:", e);
     return memoryStore();
   }
+}
+
+// The store of old when this browser has one (null when it has none: it is
+// not made by asking), and its deletion once an account took it.
+export async function openOld() {
+  if (typeof indexedDB === "undefined") return null;
+  if (typeof indexedDB.databases === "function") {
+    const all = await indexedDB.databases();
+    if (!all.some((d) => d.name === DB_NAME)) return null;
+  }
+  const store = idbStore(() => openDb({}, DB_NAME));
+  await store.ready();
+  return store;
+}
+export function deleteOld(store) {
+  store?.letGo?.();
+  return new Promise((ok) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = req.onerror = req.onblocked = () => ok();
+  });
 }
 
 // What a file is, from its path and type: how the files tab shows it and

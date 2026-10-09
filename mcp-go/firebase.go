@@ -75,7 +75,15 @@ func (d firestoreDB) Take(ctx context.Context, col, id string) (Doc, error) {
 }
 
 func (d firestoreDB) WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {
-	it := d.c.Collection(col).Where(field, "==", value).Documents(ctx)
+	return d.where(ctx, col, field, "==", value)
+}
+
+func (d firestoreDB) WhereHas(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {
+	return d.where(ctx, col, field, "array-contains", value)
+}
+
+func (d firestoreDB) where(ctx context.Context, col, field, op string, value any) ([]Doc, []string, error) {
+	it := d.c.Collection(col).Where(field, op, value).Documents(ctx)
 	defer it.Stop()
 	docs, ids := []Doc{}, []string{}
 	for {

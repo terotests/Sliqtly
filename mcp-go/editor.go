@@ -21,6 +21,7 @@
 //	POST /editor/api/signout             clears it
 //	GET  /editor/api/license             the signed-in user's license
 //	POST /editor/api/claim    {id}       a presentation taken under the license
+//	GET  /editor/api/search?q=words      the user's own presentations holding them (searchapi.go)
 //
 // Licenses: licenses/{uid} in Firestore, written only here and by the
 // owner in the Firebase console (firestore.rules lets a user read their
@@ -45,6 +46,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -164,6 +166,8 @@ type editorGate struct {
 	verify func(ctx context.Context, idToken string) (*IDToken, error)
 	now    func() time.Time
 	limit  func(who string) string
+	// the Rooms search's own: it asks on every pause in typing
+	searchLimit func(who string) string
 }
 
 // The gate, when there is an editor to serve and sign-in to check it with;
@@ -181,7 +185,7 @@ func newEditorGate(web fs.FS, db DB, verify func(ctx context.Context, idToken st
 			list = append(list, e)
 		}
 	}
-	return &editorGate{web: web, admins: list, db: db, verify: verify, now: time.Now, limit: rateLimiter(120, 10*time.Minute)}
+	return &editorGate{web: web, admins: list, db: db, verify: verify, now: time.Now, limit: rateLimiter(120, 10*time.Minute), searchLimit: rateLimiter(600, 10*time.Minute)}
 }
 
 func (g *editorGate) admin(t *IDToken) bool {
@@ -234,8 +238,42 @@ func (g *editorGate) license(ctx context.Context, t *IDToken) (license, error) {
 
 var errLicenseBusy = errors.New("the license changed meanwhile")
 
-// presentation id taken under the user's license; why not when it cannot
+// invitedTo: the share's owner invited this user to edit it (`editors`,
+// lower-case addresses; firestore.rules invited()), by a verified address
+func invitedTo(share Doc, t *IDToken) bool {
+	if !t.Verified || t.Email == "" {
+		return false
+	}
+	list, _ := share["editors"].([]any)
+	for _, x := range list {
+		if s, ok := x.(string); ok && s == strings.ToLower(t.Email) {
+			return true
+		}
+	}
+	return false
+}
+
+// presentation id taken under the user's license; why not when it cannot.
+// Someone else's presentation is not taken: "not-yours", unless its owner
+// invited the user, who then edits it under a license that has not ended
+// and spends none of its presentations on it.
 func (g *editorGate) claim(ctx context.Context, t *IDToken, id string) (license, string, error) {
+	share, err := g.db.Get(ctx, "shares", id)
+	if err != nil {
+		return license{}, "", err
+	}
+	if share != nil {
+		if owner, _ := share["owner"].(string); owner != t.UID {
+			l, err := g.license(ctx, t)
+			if err != nil || !invitedTo(share, t) {
+				return l, "not-yours", err
+			}
+			if l.expired(g.now()) {
+				return l, "expired", nil
+			}
+			return l, "", nil
+		}
+	}
 	for try := 0; try < 4; try++ {
 		l, err := g.license(ctx, t)
 		if err != nil {
@@ -262,9 +300,29 @@ func (g *editorGate) claim(ctx context.Context, t *IDToken, id string) (license,
 
 // ------------------------------------------------------------------ route --
 
-var editorDeck = regexp.MustCompile(`^/editor/s/[A-Za-z0-9]{6,32}/?$`)
+var editorDeck = regexp.MustCompile(`^/editor/[sd]/[A-Za-z0-9]{6,32}/?$`)
 
-// the editor's page: /editor/, or a presentation in it, /editor/s/{id}
+// a presentation's own address in the editor: /editor/d/{id}. It is never a
+// shared link (that is /s/{linkId}, links/ in firestore.rules): only its
+// owner and the people they invite open it. /editor/s/{id}?edit, the
+// address before, leads there.
+var editorOldEdit = regexp.MustCompile(`^/editor/s/([A-Za-z0-9]{6,32})/?$`)
+
+// editDocPath: where the editor edits presentation id
+func editDocPath(id string) string {
+	return editorPath + "/d/" + id
+}
+
+// the query without "edit", which /editor/d/ says already
+func withoutEdit(q url.Values) string {
+	q.Del("edit")
+	if len(q) == 0 {
+		return ""
+	}
+	return "?" + q.Encode()
+}
+
+// the editor's page: /editor/, or a presentation in it, /editor/d/{id}
 func editorPage(p string) bool {
 	return p == editorPath+"/" || p == editorPath+"/index.html" || editorDeck.MatchString(p)
 }
@@ -311,6 +369,11 @@ func serveEditor(env *Env, w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, to, http.StatusFound)
+		return
+	}
+	if m := editorOldEdit.FindStringSubmatch(p); m != nil && r.URL.Query().Has("edit") {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, editDocPath(m[1])+withoutEdit(r.URL.Query()), http.StatusFound)
 		return
 	}
 	if strings.HasPrefix(p, editorPath+"/api/") {
@@ -412,7 +475,11 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 }
 
 func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
-	if why := g.limit(clientIP(r)); why != "" {
+	limit := g.limit
+	if op == "search" && g.searchLimit != nil {
+		limit = g.searchLimit
+	}
+	if why := limit(clientIP(r)); why != "" {
 		editorJSON(w, 429, map[string]string{"error": "Too many requests; try again in a few minutes."})
 		return
 	}
@@ -487,10 +554,52 @@ func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Requ
 			if why == "expired" {
 				msg = "Your license to edit has ended. Your presentations stay yours: open, present and export them as before."
 			}
+			if why == "not-yours" {
+				msg = "This presentation belongs to another account. Only its owner and the people they invite can edit it."
+			}
 			editorJSON(w, 403, map[string]any{"error": msg, "code": "no-edit-right", "why": why, "license": l.json(g.now())})
 			return
 		}
 		editorJSON(w, 200, map[string]any{"license": l.json(g.now())})
+	case "search":
+		// the signed-in user's own presentations and those they were
+		// invited to edit (by a verified address, invitedTo), whose text
+		// holds the words (searchapi.go); no one else's, whatever their
+		// visibility
+		t := g.user(r)
+		if t == nil {
+			editorJSON(w, 401, map[string]string{"error": "Sign in again.", "code": "signed-out"})
+			return
+		}
+		q := searchQuery(r.URL.Query().Get("q"))
+		if q == "" {
+			editorJSON(w, 200, map[string]any{"presentations": []deckHit{}})
+			return
+		}
+		docs, ids, err := g.db.WhereEq(r.Context(), "shares", "owner", t.UID)
+		if err != nil {
+			log.Printf("editor: search: %v", err)
+			editorJSON(w, 503, map[string]string{"error": "The search could not be made; try again in a moment."})
+			return
+		}
+		list := make([]deckDoc, 0, len(docs))
+		for i, d := range docs {
+			list = append(list, deckDoc{ids[i], d})
+		}
+		if t.Verified && t.Email != "" {
+			more, moreIDs, err := g.db.WhereHas(r.Context(), "shares", "editors", strings.ToLower(t.Email))
+			if err != nil {
+				log.Printf("editor: search: %v", err)
+				editorJSON(w, 503, map[string]string{"error": "The search could not be made; try again in a moment."})
+				return
+			}
+			for i, d := range more {
+				if fieldText(d, "owner") != t.UID && invitedTo(d, t) {
+					list = append(list, deckDoc{moreIDs[i], d})
+				}
+			}
+		}
+		editorJSON(w, 200, map[string]any{"presentations": searchDecks(list, q, searchMax, nil)})
 	default:
 		editorJSON(w, 404, map[string]string{"error": "No such call."})
 	}
@@ -503,5 +612,5 @@ func editLinkTarget(r *http.Request) (string, bool) {
 	if (r.Method != http.MethodGet && r.Method != http.MethodHead) || !shareEditPath.MatchString(r.URL.Path) || !r.URL.Query().Has("edit") {
 		return "", false
 	}
-	return editorPath + strings.TrimRight(r.URL.Path, "/") + "?" + r.URL.RawQuery, true
+	return editDocPath(strings.TrimPrefix(strings.TrimRight(r.URL.Path, "/"), "/s/")) + withoutEdit(r.URL.Query()), true
 }

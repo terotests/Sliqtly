@@ -118,6 +118,10 @@ var roomTools = []roomTool{
 			"limit":    map[string]any{"type": "integer", "description": "Rooms on the page (default and at most 1000)"},
 			"offset":   map[string]any{"type": "integer", "description": "Skip this many (next_offset of the page before)"},
 		}},
+	{name: "search_presentations", title: "Search presentations", readOnly: true,
+		desc:     "Find the presentations you may see whose name or text holds every word of query (any case): the words a reader sees, not front matter, {attributes}, link or picture addresses, CSS or diagram source. → each one's deck_id, name, room_id and room, folder_id, and the text around the first word found, last changed first, at most limit (default and at most 50).",
+		props:    map[string]any{"query": strProp("Words to find, e.g. a customer's name or a phrase from a slide"), "limit": map[string]any{"type": "integer", "description": "At most this many (default and at most 50)"}},
+		required: []string{"query"}},
 	{name: "get_room", title: "Show a room", readOnly: true,
 		desc:     "A room's members, folders (folder_id, name, how many presentations), presentations (deck_id, name and folder_id, \"\" at the room's top) and links.",
 		props:    map[string]any{"room_id": strProp("room_id from list_rooms")},
@@ -367,6 +371,33 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			out["next_offset"] = next
 		}
 		return out, nil
+
+	case "search_presentations":
+		q := searchQuery(argStr(a, "query"))
+		if q == "" {
+			return nil, roomErr{"query is empty"}
+		}
+		limit := searchMax
+		if v, ok := a["limit"].(float64); ok && v >= 1 && v < searchMax {
+			limit = int(v)
+		}
+		rs, err := s.rooms.List(ctx, p, true)
+		if err != nil {
+			return nil, err
+		}
+		titles := map[string]string{}
+		for _, r := range rs {
+			titles[r.ID], _ = r.Doc["title"].(string)
+		}
+		items, err := s.st.Query(ctx, p, store.Query{From: "shares"})
+		if err != nil {
+			return nil, err
+		}
+		docs := make([]deckDoc, 0, len(items))
+		for _, it := range items {
+			docs = append(docs, deckDoc{it.ID, it.Doc})
+		}
+		return map[string]any{"presentations": searchDecks(docs, q, limit, func(id string) string { return titles[id] })}, nil
 
 	case "get_room":
 		id := argStr(a, "room_id")

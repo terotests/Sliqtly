@@ -56,6 +56,8 @@ type DB interface {
 	Update(ctx context.Context, col, id string, d Doc) error
 	Delete(ctx context.Context, col, id string) error
 	WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error)
+	// WhereHas: the documents whose array field `field` holds value
+	WhereHas(ctx context.Context, col, field string, value any) ([]Doc, []string, error)
 	ServerTime() any
 	// Create writes d only when there is no such document; the one there
 	// already is returned when there is.

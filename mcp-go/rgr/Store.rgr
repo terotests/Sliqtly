@@ -83,6 +83,19 @@ class Saved {
     def changed:boolean false
 }
 
+; What a viewer's address shows: a share itself (shares/{id}), or the one
+; its owner's viewing link leads to (links/{id}: {of, owner}). A link shows
+; the presentation to anyone holding it, however private the presentation
+; is, and never gives its own id away (the editor's Share, web/sliqtly.js
+; shareLink; firestore.rules). `doc` is empty when there is neither.
+class Shown {
+    def doc:MfJ (new MfJ)
+    ; the share's own id: where its files and versions are
+    def id:string ""
+    ; shown through a viewing link
+    def link:boolean false
+}
+
 class Store {
     sfn serverTime:MfJ () {
         def t:MfJ (MfJ.newObj())
@@ -382,6 +395,45 @@ class Store {
             return (new MfJ)
         }
         return (J.parse((host_get_doc host "shares" id)))
+    }
+
+    sfn shown:Shown (host:McpHost id:string) {
+        def out (new Shown)
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return out
+        }
+        if (d.isObj()) {
+            out.doc = d
+            out.id = id
+            return out
+        }
+        if ((Store.validId(id)) == false) {
+            return out
+        }
+        def l:MfJ (J.parse((host_get_doc host "links" id)))
+        if ((strlen (host_error host)) > 0) {
+            return out
+        }
+        if ((l.isObj()) == false) {
+            return out
+        }
+        def of:string (l.str_("of"))
+        def s:MfJ (Store.get(host of))
+        if ((strlen (host_error host)) > 0) {
+            return out
+        }
+        ; a link only its owner made: to a presentation of their own
+        if (((s.isObj()) == false) || ((strlen (l.str_("owner"))) == 0)) {
+            return out
+        }
+        if ((s.str_("owner")) != (l.str_("owner"))) {
+            return out
+        }
+        out.doc = s
+        out.id = of
+        out.link = true
+        return out
     }
 
     ; the user's shares, newest first, at most 50

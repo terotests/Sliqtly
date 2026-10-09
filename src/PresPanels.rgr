@@ -26,6 +26,7 @@
 ; does the copying, since the clipboard is the browser's.
 ; ============================================================================
 
+Import "PresInvite.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChatCtl.rgr"
 Import "../evgui/src/ParticipantsCtl.rgr"
@@ -84,6 +85,11 @@ class PresPanels {
     def shareView:string ""
     def shareViewCount:int 0
     def shareViewLive:boolean false
+    ; a presentation in the cloud has no editing link: its owner invites
+    ; people instead (the editors window, "share-invite") and can stop
+    ; sharing ("share-stop"). How many are invited; -1: not the owner's,
+    ; so neither is offered
+    def shareEditors:int -1
     ; which modal dialog `shareOpen` shows: "share", or "open" (a file from
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
@@ -488,6 +494,12 @@ class PresPanels {
             helpSlide = slide
             this.rebuild()
         }
+    }
+
+    ; set before openShare: how many people the owner invited to edit
+    ; (-1: none of that is shown)
+    fn setShareEditors:void (n:int) {
+        shareEditors = n
     }
 
     ; set before openShare; "" for none
@@ -1524,7 +1536,25 @@ class PresPanels {
             }
             d.addChild((this.shareOption("view" title desc shareView "secondary")))
         }
-        d.addChild((this.shareOption("edit" (PresI18n.t("Editing")) (PresI18n.t("Opens in the editor: the recipient can edit their own copy.")) shareEdit "secondary")))
+        if ((strlen shareEdit) > 0) {
+            d.addChild((this.shareOption("edit" (PresI18n.t("Editing")) (PresI18n.t("Opens in the editor: the recipient can edit their own copy.")) shareEdit "secondary")))
+        } {
+            ; in the cloud: no editing link, only the people invited edit it
+            def o:EVGElement (this.div("pn-opt"))
+            o.addChild((this.words("pn-otitle" (PresI18n.t("Editing")))))
+            def who:string (PresI18n.t("Only you edit this presentation. The people you invite edit it too; nobody else."))
+            if (shareEditors > 0) {
+                who = (PresInvite.withCount((PresI18n.t("You and {n} people you invited edit this presentation; nobody else.")) shareEditors))
+            }
+            o.addChild((this.words("pn-odesc" who)))
+            if (shareEditors >= 0) {
+                def row:EVGElement (this.div("pn-orow"))
+                this.button("pn-share-invite" (PresI18n.t("People who can edit…")) "secondary" row)
+                this.button("pn-share-stop" (PresI18n.t("Stop sharing")) "secondary" row)
+                o.addChild(row)
+            }
+            d.addChild(o)
+        }
         def foot:EVGElement (this.div("pn-dfoot"))
         foot.addChild((this.copyable("pn-share-note" "pn-note" shareNote)))
         foot.addChild((this.div("pn-grow")))
@@ -2658,6 +2688,11 @@ class PresPanels {
             def c:string (this.ownerAt(px py))
             if (((c == "pn-copy-show") || (c == "pn-copy-edit")) || (c == "pn-copy-view")) {
                 push requests ("copy:" + (substring c 8 (strlen c)))
+                return
+            }
+            if ((c == "pn-share-invite") || (c == "pn-share-stop")) {
+                push requests (substring c 3 (strlen c))
+                this.closeShare()
                 return
             }
             if ((c == "pn-share-close") || ((this.inEl("pn-dialog" px py)) == false)) {
