@@ -372,12 +372,12 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome), `sheets-live.js` (live spreadsheets: EVGSheets over a ```sheet box, and the .xlsx editor dialog) |
 | `samples/*.md` | Example decks: talous (a Vega chart), ymparisto (a wrapped chain), urheilu and ohjelmointi (questions with a loop), kulttuuri (Graphviz). `<key>.en.md` is the English deck, shown unless the interface is in Finnish (`<key>.md`). `esittely.md` is the deck `check:web` drives (`?sample=esittely`) |
 | `themes/*.css` | Themes; `aurora` is the default (dark 16:9) |
-| `web/sliqtly.js` | PRO: Google sign-in through Firebase Auth, behind the bar's PRO button |
+| `web/sliqtly.js` | PRO: Google sign-in, behind the bar's PRO button |
 | `brand/` | The logo as SVG; `make_logo.py` writes them. The build copies the icon as `favicon.svg` |
-| `.github/workflows/deploy.yml` | On a push to `main`: build, checks, deploy `web/dist` to Firebase Hosting (`sliqtly.web.app`) |
+| `.github/workflows/` | CI checks and the deploys of the hosted service ([docs/operations.md](docs/operations.md)) |
 | `scripts/` | setup, build, start (local server), check, check-web |
-| `mcp-go/` | The MCP server for AI assistants: Ranger compiled to Go, on Cloud Run |
-| `ops/` | Scripts against the Firebase project: the Stats workflow's numbers, one-off fixes |
+| `mcp-go/` | The server: MCP for AI assistants, the share store and the web app; Ranger compiled to Go |
+| `ops/` | Maintenance scripts for the hosted service |
 | `web/connect.html` | How to connect Claude, ChatGPT, Cursor and others to it |
 
 ## For AI assistants (MCP)
@@ -402,69 +402,46 @@ A new language: copy `fi.json` to `<code>.json`, translate the values, add the
 code to `LANGS` in `web/i18n.js`. `npm run i18n` lists the strings a table
 lacks and the entries nothing uses any more.
 
-## Deploy (Firebase Hosting)
+## Running the server locally
 
-The project is `sliqtly` (`.firebaserc`); `firebase.json` serves `web/dist`.
-The Deploy workflow needs one secret, `FIREBASE_SERVICE_ACCOUNT`: the JSON key
-of a service account with the role **Firebase Hosting Admin**.
+`npm start` serves the editor alone. `npm run serve` builds and starts the
+whole server from the sources (the web app, the MCP endpoint at `/mcp` and
+the decks in a local folder); see [mcp-go/README.md](mcp-go/README.md) for
+its options.
 
-## Google sign-in (PRO)
+## Sliqtly Personal
 
-`web/sliqtly.js` loads Firebase from Google's CDN and the project's config from
-Hosting's reserved `/__/firebase/init.js`, so it works only when served by
-Firebase Hosting. In the Firebase Console, once:
+The Personal server runs on your own computer: the MCP endpoint your
+assistant writes presentations through, and a viewer that plays them. Out
+of the box only the computer itself can connect.
 
-1. Project settings → General → Your apps → add a **Web app**.
-2. Authentication → Sign-in method → enable **Google**.
-3. Authentication → Settings → Authorized domains: add `sliqtly.com` when the
-   domain is connected (`sliqtly.web.app` is there already).
-4. Google Cloud Console → APIs & Services → Credentials → the **Web client
-   (auto created by Google Service)** → Authorized redirect URIs: add
-   `https://sliqtly.com/__/auth/handler` and
-   `https://sliqtly.web.app/__/auth/handler`. When a phone's browser blocks
-   Google's sign-in window (or Sliqtly runs from the home screen), sign-in
-   goes by redirect through the site's own handler, since Safari keeps no
-   storage for `sliqtly.firebaseapp.com` inside `sliqtly.com`.
+```
+# Ubuntu / Debian
+curl -fLo /tmp/sliqtly-personal.deb https://sliqtly.com/download/sliqtly-personal_amd64.deb
+sudo apt install /tmp/sliqtly-personal.deb
 
-## Sharing (PRO)
+# macOS
+brew install terotests/sliqtly/sliqtly
+brew services start sliqtly
 
-Signed in, the deck is kept as its owner's in Firestore (`decks/{deckId}`)
-with a copy under a short random id (`shares/{id}`, its pictures and data
-files in Storage under `shares/{id}/`). The copy's `visibility` says who
-reads it: `private` only its owner's Google account, `link` anyone with
-`/s/{id}`. sliqtly.com is an open demo, so a deck starts `link` (Tero,
-2026-10-06: not for private data, every slide is reachable by its hidden
-link); `update_presentation` with `visibility: "private"` keeps one for its
-owner, who opens it at `/s/{id}` by signing in with Google on the page. A share without the field (made
-before it existed, or by an assistant without sign-in) is `link`. The id
-locates a deck and grants nothing: an assistant without sign-in changes its
-deck only within the MCP session that made it (`mcp_sessions`, keyed by the
-hash of the session id the server hands out in `Mcp-Session-Id`, gone when
-the session ends or after a day unused). Nobody can
-list the ids, only the owner can change or delete the copy
-(`firestore.rules`, `storage.rules`; the MCP read tools check the same
-field). `/s/{id}?edit` opens the copy as a new deck of the reader's own.
-Signed out, Share still packs the text into the link as before.
+# Docker
+docker run -d --name sliqtly --restart unless-stopped -p 127.0.0.1:8080:8080 \
+  -v sliqtly-data:/data -v sliqtly-backup:/backup ghcr.io/terotests/sliqtly-personal:latest
+```
 
-Firebase Console, once:
-1. Firestore Database → Create database (production mode).
-2. Storage → Get started (needs the Blaze plan). When the Storage rules are
-   first deployed, allow them to read Firestore if the console asks.
-3. The Deploy workflow then deploys both rule files (its last step). The
-   service account needs the role **Firebase Rules Admin** (the Admin SDK
-   account generated in Project settings → Service accounts has it).
-4. The bucket's CORS (`storage.cors.json`): a shared deck fetches its
-   pictures and data files from Storage, and without it the browser refuses
-   them (the slides open without their background images). Any origin may
-   read them, since the preview in an AI assistant runs the viewer on the
-   assistant's own domain (mcp-go/assets/preview.html). The Deploy
-   workflow sets it when its service account has the role **Storage Admin**;
-   by hand, in Cloud Shell:
-   `gcloud storage buckets update gs://sliqtly.firebasestorage.app --cors-file=storage.cors.json`
+Then open http://localhost:8080/ and connect an assistant to
+`http://localhost:8080/mcp`. Networks, firewall, backups and the rest:
+[sliqtly.com/local.html](https://sliqtly.com/local.html) (`web/local.html`).
 
-## Domain (Cloudflare)
+## Sharing
 
-1. Firebase Console → Hosting → Add custom domain → `sliqtly.com`.
-2. Add the TXT and A records Firebase shows in Cloudflare → DNS, proxy status
-   **DNS only** (grey cloud), or Firebase cannot verify the domain or issue
-   its certificate.
+Signed out, Share packs the Markdown into the link itself. Signed in (PRO),
+a shared deck is stored on the server under a short random id and opened at
+`/s/{id}`. A deck is either `link` (anyone with the link) or `private` (its
+owner, after signing in); only the owner can change or delete it, and
+`/s/{id}?edit` opens it as a new deck of the reader's own.
+
+## Hosting
+
+How sliqtly.com is deployed and configured (hosting, sign-in,
+storage rules, the domain) is in [docs/operations.md](docs/operations.md).

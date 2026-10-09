@@ -211,17 +211,17 @@ try {
   await page.close();
 
   // the front page: no editor; the MCP part, the way to the assistants'
-  // page and the experimental-service terms; no presentation's screen over it
+  // page and the feature list; no presentation's screen over it
   page = await open("/");
   await page.waitForTimeout(500);
   const home = await page.evaluate(() => ({
     connect: !!document.querySelector('.home a[href="/connect.html"]'),
     mcp: !!document.getElementById("mcp"),
-    terms: /experimental service[\s\S]*"AS IS"/i.test(document.getElementById("terms")?.textContent || ""),
+    features: document.querySelectorAll("#features .features > div").length > 0,
     intro: getComputedStyle(document.getElementById("brandIntro")).display,
     wide: document.documentElement.scrollWidth > window.innerWidth,
   }));
-  if (!home.connect || !home.mcp || !home.terms) fail(`the front page lacks a part: ${JSON.stringify(home)}`);
+  if (!home.connect || !home.mcp || !home.features) fail(`the front page lacks a part: ${JSON.stringify(home)}`);
   if (home.intro !== "none") fail("the presentation's screen covers the front page");
   await page.setViewportSize({ width: 360, height: 740 });
   await page.waitForTimeout(200);
