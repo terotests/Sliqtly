@@ -63,6 +63,7 @@
 .theme-retro .tb-roomname-box { background-color: var(--retro-screen); border: 1px solid var(--retro-hot-b); }
 
 /* --- the left rail and Rooms beside it: the player's dark side panel --------- */
+.theme-retro .tb-logo { background-color: rgba(0, 0, 0, 0); }
 .theme-retro .tb-railcol {
   background: linear-gradient(90deg, var(--retro-screen-2), var(--retro-screen));
   border-right: 2px solid var(--retro-shell-b);

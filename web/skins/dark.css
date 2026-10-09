@@ -24,3 +24,34 @@
   border-color: #71717a;
   shadow-color: rgba(255, 255, 255, 0.16); shadow-radius: 24px; shadow-offset-y: 0px;
 }
+
+/* The frame (the bar and the rail, toolbar.css): derived it would turn a
+   loud orange with black words. It stays the logo's terracotta, deepened
+   so it sits back from the work (9.4:1 under white) yet stands a step
+   above the near-black panels set into it (2.1:1), as Slack's dark frame
+   keeps its own tone against the sidebar. */
+.theme-dark .tb-bar,
+.theme-dark .tb-railcol,
+.theme-dark .tb-frameunder { background-color: #6b391e; }
+.theme-dark .tb-corner { fill: #6b391e; }
+.theme-dark .tb-logo { background-color: #fff8ef; }
+.theme-dark .tb-title-label,
+.theme-dark .tb-status { color: #ffffff; }
+.theme-dark .tb-title:hover { border: 1px solid rgba(255, 255, 255, 0.55); }
+.theme-dark .ui-dropdownmenu-trigger { color: #ffffff; background-color: rgba(0, 0, 0, 0); }
+.theme-dark .ui-dropdownmenu-trigger:hover { background-color: rgba(255, 255, 255, 0.14); }
+.theme-dark .ui-dropdownmenu-trigger-state-open { background-color: rgba(255, 255, 255, 0.22); }
+.theme-dark .tb-fb { background-color: rgba(0, 0, 0, 0); border: 1px solid rgba(255, 255, 255, 0.55); }
+.theme-dark .tb-fb:hover { background-color: rgba(255, 255, 255, 0.14); }
+.theme-dark .tb-fb-ghost { border-color: rgba(0, 0, 0, 0); }
+.theme-dark .tb-fb-label { color: #ffffff; }
+.theme-dark .tb-fb-primary,
+.theme-dark .tb-fb-accent { background-color: #fff8ef; border-color: #fff8ef; }
+.theme-dark .tb-fb-primary:hover,
+.theme-dark .tb-fb-accent:hover { background-color: #f3e3cf; border-color: #f3e3cf; }
+.theme-dark .tb-fb-label-primary,
+.theme-dark .tb-fb-label-accent { color: #5a2c14; }
+/* Rooms, the panel's own sidebar, a step lighter than the editor beside it
+   (Slack's sidebar over its message pane): not everything has to be the
+   darkest. */
+.theme-dark .tb-rooms { background-color: #1f1c1a; border-color: #2e2a27; }
