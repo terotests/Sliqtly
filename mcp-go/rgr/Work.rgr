@@ -20,7 +20,13 @@
 ;
 ;   {"stamp", "claims": [{"id", "agent", "note", "slides": [1-based],
 ;    "titles": [slide titles then], "started", "expires" (ms)}],
-;    "bases": [versions whose Markdown is kept, oldest first]}
+;    "bases": [versions whose Markdown is kept, oldest first],
+;    "seen": the version an assistant last read or wrote, "seenCss": the
+;    deck's own stylesheet then}
+;
+; What changed after "seen" was changed by hand (UserEdits.rgr): the next
+; read or save is told what the user changed, so the assistant follows it
+; rather than writing its own version back over it.
 ;
 ; A claim's slides are numbers, which move when slides are added before them:
 ; two claims also overlap when they name a slide by the same title.
@@ -187,6 +193,10 @@ class WorkBoard {
     def claims:[WorkClaim]
     ; versions whose Markdown is kept for merging, oldest first
     def bases:[string]
+    ; the version an assistant last read or wrote (kept in bases), and the
+    ; deck's own stylesheet then
+    def seen:string ""
+    def seenCss:string ""
 
     ; how many versions are kept for merging
     sfn KEEP:int () {
@@ -203,6 +213,8 @@ class WorkBoard {
             push b.claims (WorkClaim.fromJson(c))
         }
         b.bases = (J.strList((v.field("bases"))))
+        b.seen = (v.str_("seen"))
+        b.seenCss = (v.str_("seenCss"))
         return b
     }
 
@@ -215,7 +227,20 @@ class WorkBoard {
         }
         o.put("claims" a)
         o.put("bases" (J.strs(bases)))
+        o.putStr("seen" seen)
+        o.putStr("seenCss" seenCss)
         return o
+    }
+
+    ; an assistant read or wrote version v (css: its own stylesheet); false
+    ; when that is what the board already says
+    fn see:boolean (v:string css:string) {
+        if ((seen == v) && (seenCss == css)) {
+            return false
+        }
+        seen = v
+        seenCss = css
+        return true
     }
 
     ; claims that have run out are gone

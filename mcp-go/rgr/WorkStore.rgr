@@ -24,6 +24,10 @@ class WorkStep {
     ; a version handed out, whose Markdown is kept for merging
     def base:string ""
     def baseMd:string ""
+    ; the assistant was shown (or wrote) that version, with this stylesheet
+    ; of the deck's own: the board's "seen"
+    def seen:boolean false
+    def css:string ""
 
     ; what came of it
     def board:WorkBoard (new WorkBoard)
@@ -31,6 +35,9 @@ class WorkStep {
     def taken:boolean false
     def ended:boolean false
     def renewed:boolean false
+    ; what the board said an assistant had last seen, before this step
+    def prevSeen:string ""
+    def prevCss:string ""
     ; the store refused or failed (the error is on the host)
     def failed:boolean false
 }
@@ -88,6 +95,8 @@ class WorkStore {
             def now:int (host_now_ms host)
             b.prune(now)
             def write:boolean (had != (array_length b.claims))
+            step.prevSeen = b.seen
+            step.prevCss = b.seenCss
             step.taken = false
             step.ended = false
             step.renewed = false
@@ -113,6 +122,11 @@ class WorkStore {
                 gone = (b.keepBase(step.base))
                 newBase = true
                 write = true
+            }
+            if (step.seen && ((strlen step.base) > 0)) {
+                if (b.see(step.base step.css)) {
+                    write = true
+                }
             }
             if (write == false) {
                 step.board = b
@@ -170,6 +184,17 @@ class WorkStore {
         def step (new WorkStep)
         step.base = (WorkStore.version(host md))
         step.baseMd = md
+        WorkStore.run(host id step)
+    }
+
+    ; md (and css, the deck's own stylesheet) kept, and what an assistant
+    ; has now seen of the deck
+    sfn keepSeen:void (host:McpHost id:string md:string css:string) {
+        def step (new WorkStep)
+        step.base = (WorkStore.version(host md))
+        step.baseMd = md
+        step.seen = true
+        step.css = css
         WorkStore.run(host id step)
     }
 
