@@ -183,7 +183,8 @@ set (a later deploy without it keeps what the service has).
 
 `SLIQTLY_PLUGINS` (comma-separated, or `all`) turns plugins on: `code-review`
 offers `sliqtly_plugin` (rgr/Plugins.rgr). None is on by default. Deploy MCP
-(Go) sets it from the repository variable of the same name.
+(Go) sets it from the repository variable of the same name, `code-review`
+when the variable is unset (`none` turns them all off).
 
 ## A server of one's own (decks in a folder)
 
