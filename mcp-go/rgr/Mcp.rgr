@@ -57,7 +57,7 @@ class Mcp {
         out.putStr("protocolVersion" version)
         out.put("capabilities" caps)
         out.put("serverInfo" info)
-        out.putStr("instructions" "Sliqtly turns Markdown into animated slide presentations. Call sliqtly_guide once for the syntax (Core and its list of topics), then create_presentation; sliqtly_guide with topic explains one subject. Always give the user the returned presentation link.")
+        out.putStr("instructions" "Sliqtly turns Markdown into animated slide presentations. Call sliqtly_guide once for the syntax (Core and its list of topics), then create_presentation; sliqtly_guide with topic explains one subject. Always give the user the returned presentation link." + (Plugins.instructions(host)))
         return out
     }
 

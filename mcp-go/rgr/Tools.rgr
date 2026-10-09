@@ -24,6 +24,7 @@ Import "SvgCheck.rgr"
 Import "Edits.rgr"
 Import "WebPictures.rgr"
 Import "GitHub.rgr"
+Import "Plugins.rgr"
 Import "../presentation/PresReview.rgr"
 Import "../presentation/PresTrace.rgr"
 
@@ -235,6 +236,10 @@ class Tools {
         topic.put("enum" (J.strs((Guide.names((host_asset host "guide.md"))))))
         gp.put("topic" topic)
         tools.add((Tools.tool("sliqtly_guide" "Sliqtly syntax guide" "How to write a Sliqtly deck. Without topic: Core (slide structure, the work loop, themes, the list of topics); read it before the first create_presentation. With topic: one subject (layout, text, charts, diagrams, figures, smartart, pictures, css, data, editing, export, limits…). A warning ending with → topic=x names the topic that explains it." (Tools.schema(gp none)) (Tools.annotations(true -1 false false)) eitherMeta)))
+        def plug:MfJ (Plugins.tool(host))
+        if (plug.kind != 0) {
+            tools.add(plug)
+        }
 
         def cp:MfJ (MfJ.newObj())
         def title:MfJ (Tools.prop("string" (Tools.withNameRule(host "The presentation's name."))))
@@ -1387,8 +1392,14 @@ class Tools {
                     guide = (guide + "\n\n## Room for new presentations\n\n" + room + "\n")
                 }
             }
+            if ((strlen want) == 0) {
+                guide = (guide + (Plugins.coreSection(host)))
+            }
             g.put("content" (Tools.text(guide)))
             return g
+        }
+        if (name == "sliqtly_plugin") {
+            return (Plugins.call(host caller args))
         }
         if (host_has_tool host name) {
             def answer:string (host_call_tool host caller.uid caller.who name (JOut.text(args)))
@@ -3248,37 +3259,12 @@ class Tools {
         if ((strlen bad) > 0) {
             return (Tools.fail(bad))
         }
-        def ref:GhRef (GhRef.parse((a.str_("pr"))))
-        if ((strlen ref.err) > 0) {
-            return (Tools.fail(("Invalid arguments: " + ref.err)))
+        def got:GhFetched (Tools.fetchPr(host caller (a.str_("pr"))))
+        if ((strlen got.fail) > 0) {
+            return (Tools.fail(got.fail))
         }
-        def accept:string "application/vnd.github+json"
-        def got:MfJ (J.parse((host_fetch_github host (ref.api()) accept 1000000)))
-        def why:string (Tools.githubFailed(ref (got.int_("status" 0))))
-        if ((strlen why) > 0) {
-            return (Tools.fail(why))
-        }
-        def pr:MfJ (J.parse((got.str_("body"))))
-        if ((pr.isObj()) == false) {
-            return (Tools.fail(("GitHub's answer about " + (ref.name()) + " could not be read.")))
-        }
-        if ((pr.field("base")).isObj()) {
-            def brepo:MfJ ((pr.field("base")).field("repo"))
-            if ((brepo.bool_("private" false)) && ((host_github_private_ok host caller.uid) == false)) {
-                return (Tools.fail((Tools.privateRefused(caller (ref.owner + "/" + ref.repo)))))
-            }
-        }
-        def files:MfJ (MfJ.newArr())
-        def gf:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/files?per_page=100") accept 8000000)))
-        if ((gf.int_("status" 0)) == 200) {
-            files = (J.parse((gf.str_("body"))))
-        }
-        def commits:MfJ (MfJ.newArr())
-        def gc:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
-        if ((gc.int_("status" 0)) == 200) {
-            commits = (J.parse((gc.str_("body"))))
-        }
-        def p:GhPr (GhPr.read(ref pr files commits))
+        def p:GhPr got.pr
+        def ref:GhRef p.ref
         def md:string (GhDeck.draft(p))
         def out:MfJ (MfJ.newObj())
         out.putStr("pr" (ref.name()))
@@ -3329,6 +3315,48 @@ class Tools {
         r.put("content" (Tools.text((join lines "\n"))))
         r.put("structuredContent" out)
         return r
+    }
+
+    ; a pull request with its files and commits, read from GitHub's API;
+    ; a private one only for the users the server lets read them
+    sfn fetchPr:GhFetched (host:McpHost caller:Caller text:string) {
+        def out (new GhFetched)
+        def ref:GhRef (GhRef.parse(text))
+        if ((strlen ref.err) > 0) {
+            out.fail = ("Invalid arguments: " + ref.err)
+            return out
+        }
+        def accept:string "application/vnd.github+json"
+        def got:MfJ (J.parse((host_fetch_github host (ref.api()) accept 1000000)))
+        def why:string (Tools.githubFailed(ref (got.int_("status" 0))))
+        if ((strlen why) > 0) {
+            out.fail = why
+            return out
+        }
+        def pr:MfJ (J.parse((got.str_("body"))))
+        if ((pr.isObj()) == false) {
+            out.fail = ("GitHub's answer about " + (ref.name()) + " could not be read.")
+            return out
+        }
+        if ((pr.field("base")).isObj()) {
+            def brepo:MfJ ((pr.field("base")).field("repo"))
+            if ((brepo.bool_("private" false)) && ((host_github_private_ok host caller.uid) == false)) {
+                out.fail = (Tools.privateRefused(caller (ref.owner + "/" + ref.repo)))
+                return out
+            }
+        }
+        def files:MfJ (MfJ.newArr())
+        def gf:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/files?per_page=100") accept 8000000)))
+        if ((gf.int_("status" 0)) == 200) {
+            files = (J.parse((gf.str_("body"))))
+        }
+        def commits:MfJ (MfJ.newArr())
+        def gc:MfJ (J.parse((host_fetch_github host ((ref.api()) + "/commits?per_page=100") accept 2000000)))
+        if ((gc.int_("status" 0)) == 200) {
+            commits = (J.parse((gc.str_("body"))))
+        }
+        out.pr = (GhPr.read(ref pr files commits))
+        return out
     }
 
     ; a private repository read with the server's token is for the users

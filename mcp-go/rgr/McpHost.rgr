@@ -69,6 +69,12 @@ operators {
             go ( (e 1) ".EditorOn()" )
         }
     }
+    ; the plugins the admin turned on (SLIQTLY_PLUGINS), comma separated
+    host_plugins _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".Plugins()" )
+        }
+    }
     ; the folders files may be read from by path (SLIQTLY_IMPORT_DIRS on a
     ; server of one's own), comma separated; "" when none
     host_import_dirs _:string (h:McpHost) {

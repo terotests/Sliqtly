@@ -226,7 +226,7 @@ func main() {
 		if u == "" {
 			u = "https://sliqtly.com"
 		}
-		e := &Env{BaseURL: u, Client: newPublicClient(), GitHubToken: os.Getenv("SLIQTLY_GITHUB_TOKEN"), GitHubUsers: githubUsers(os.Getenv("SLIQTLY_GITHUB_USERS"))}
+		e := &Env{BaseURL: u, Client: newPublicClient(), GitHubToken: os.Getenv("SLIQTLY_GITHUB_TOKEN"), GitHubUsers: githubUsers(os.Getenv("SLIQTLY_GITHUB_USERS")), Plugins: splitList(os.Getenv("SLIQTLY_PLUGINS"))}
 		cloud := os.Getenv("K_SERVICE") != "" || os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" || os.Getenv("FIRESTORE_EMULATOR_HOST") != ""
 		if env("SLIQTLY_STORE", "") == "link" {
 			cloud = false

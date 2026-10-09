@@ -113,6 +113,12 @@ class GhCommit {
     def date:string ""
 }
 
+; a PR read from GitHub, or why it could not be (Tools.fetchPr)
+class GhFetched {
+    def pr:GhPr (new GhPr)
+    def fail:string ""
+}
+
 class GhPr {
     def ref:GhRef (new GhRef)
     def title:string ""
@@ -122,6 +128,8 @@ class GhPr {
     def state:string ""
     def base:string ""
     def head:string ""
+    ; the head commit, for links to lines as they are in the change
+    def headSha:string ""
     def additions:int 0
     def deletions:int 0
     def changedFiles:int 0
@@ -153,6 +161,7 @@ class GhPr {
         def head:MfJ (pr.field("head"))
         if (head.isObj()) {
             p.head = (head.str_("ref"))
+            p.headSha = (head.str_("sha"))
         }
         p.additions = (pr.int_("additions" 0))
         p.deletions = (pr.int_("deletions" 0))
