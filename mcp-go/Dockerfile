@@ -36,6 +36,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server . && mkdir /dat
 # web/dist is built here and copied in before the binary is built again.
 FROM node:22 AS web
 WORKDIR /src
+# Rust's WebAssembly target: the build makes cerxes.wasm, the engine that
+# runs the programs on slides (```app, scripts/lib.mjs ensureCerxes);
+# without it the editor shows their plates only
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --target wasm32-wasip1
+ENV PATH=/root/.cargo/bin:$PATH SLIQTLY_NEED_CERXES=1
 COPY . .
 RUN --mount=type=secret,id=deps_token \
     if [ -s /run/secrets/deps_token ]; then DEPS_TOKEN=$(cat /run/secrets/deps_token) sh scripts/ci-git-auth.sh; fi && \

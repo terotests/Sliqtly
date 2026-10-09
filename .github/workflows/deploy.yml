@@ -46,6 +46,8 @@ jobs:
         run: rustup target add wasm32-wasip1
       - name: Build the page
         run: node scripts/build.mjs
+        env:
+          SLIQTLY_NEED_CERXES: "1"
       - name: Check the deck and the timeline
         run: node scripts/check.mjs
       # Every sample deck, English and Finnish, opened in Chrome from the

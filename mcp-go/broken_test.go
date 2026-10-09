@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -101,4 +102,47 @@ func TestAppProgramFiles(t *testing.T) {
 	b64 := call(t, s, "create_presentation", map[string]any{"title": "D", "markdown": md,
 		"files": []any{map[string]any{"name": "game.tsx", "data_base64": "aGk="}}})
 	match(t, textOf(b64), `a program and its stylesheet are sent as text`)
+}
+
+// A program that does not run is said in the report (cerxescheck.go): its
+// syntax error, and what its first frames threw; one that runs is not.
+// Tried in the engine of the built page (npm run build: web/dist).
+func TestAppProgramRuns(t *testing.T) {
+	if _, err := os.Stat("../web/dist/cerxes.wasm"); err != nil {
+		t.Skip("no web/dist/cerxes.wasm (npm run build with Rust's wasm32-wasip1 target)")
+	}
+	t.Setenv("SLIQTLY_CERXES_DIR", "../web/dist")
+	cerxes = cerxesEngine{}
+	defer func() { cerxes = cerxesEngine{} }()
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# B\n\n## Play\n\n```app\nsrc: apps/game.tsx\nsize: 480x270\n```\n"
+	try := func(src string) string {
+		c := call(t, s, "create_presentation", map[string]any{"title": "B", "markdown": md,
+			"files": []any{map[string]any{"name": "game.tsx", "text": src}}})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		return fmt.Sprint(sc(c)["warnings"])
+	}
+	// spread, a default parameter, forEach into a JSX list, String.repeat
+	ok := try("function box(l: number, extra: any = {}) { return { left: l, ...extra }; }\n" +
+		"function view() {\n  const rows: any[] = [];\n  [1, 2].forEach((n) => rows.push(<span style={box(n, { opacity: 1 })}>{\"x\".repeat(n)}</span>));\n" +
+		"  return <div className=\"b\">{rows}</div>;\n}\n")
+	if strings.Contains(ok, "does not run") {
+		t.Fatal(ok)
+	}
+	match(t, try("function view() { return <div> }\n"), `Slide 2: apps/game\.tsx does not run: .+→ topic=apps`)
+	match(t, try("function view() { return nothing.here; }\n"), `apps/game\.tsx does not run: .*nothing`)
+
+	// a rule of its stylesheet the layout does not take is said too
+	c := call(t, s, "create_presentation", map[string]any{"title": "B", "markdown": md,
+		"files": []any{map[string]any{"name": "game.tsx", "text": "function view() { return <div className=\"b\" /> }\n"},
+			map[string]any{"name": "game.tsx.css", "text": ".b.c { color: red }\ndiv > .b { color: blue }\n"}}})
+	cw := fmt.Sprint(sc(c)["warnings"])
+	match(t, cw, `apps/game\.tsx\.css: Unsupported selector.*div > \.b.*→ topic=apps`)
+	if strings.Contains(cw, ".b.c") {
+		t.Fatal("classes written together were reported:", cw)
+	}
 }

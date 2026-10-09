@@ -9,7 +9,7 @@
 ; code.
 ;
 ;   { "deck": { "name", "width", "height", "slides",
-;               "files": [{ "path", "type", "url" }] },
+;               "files": [{ "path", "type", "url" }], "plays": [View.plays] },
 ;     "lists": [ <EVGDisplayList.toJson>, … ] }
 ;
 ; `files` are the deck's stored files a list draws (pictures, by the
@@ -86,6 +86,9 @@ class View {
         }
         ; at rest: every build step shown, charts grown (render_slide's state)
         d.still = true
+        ; a program's box is left empty: the page runs it and paints its
+        ; plate until it has a picture (web/viewplay.js)
+        d.platesOff = true
         def lists:[string]
         def n:int (d.slideCount())
         def i:int 0
@@ -136,7 +139,48 @@ class View {
             bj.put("spreads" spreads)
             deck.put("book" bj)
         }
+        deck.put("plays" (View.plays(host din d)))
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "]}")
+    }
+
+    ; The programs on the slides (```app), which the page runs itself
+    ; (web/view.js with web/apps.js): where each one's box is on its slide,
+    ; its size and grants, and its source and stylesheet as text.
+    ;   [{ "key", "slide", "src", "css", "w", "h", "allow": […],
+    ;      "box": [x, y, w, h], "text", "cssText" }]
+    sfn plays:MfJ (host:McpHost din:DeckIn d:PresDeck) {
+        def out:MfJ (MfJ.newArr())
+        def all:[PresPlayUse] (d.playUses())
+        def l:MdLayout (d.layout())
+        for all u:PresPlayUse ui {
+            def bi:int (d.embedBox(u.page u.source))
+            if (bi < 0) {
+                continue
+            }
+            def b:MdBox (itemAt l.boxes bi)
+            def o:MfJ (MfJ.newObj())
+            o.putStr("key" u.key)
+            o.putInt("slide" u.page)
+            o.putStr("src" u.spec.src)
+            o.putStr("css" u.spec.css)
+            o.putNum("w" u.spec.width)
+            o.putNum("h" u.spec.height)
+            def al:MfJ (MfJ.newArr())
+            for u.spec.allow a:string ai {
+                al.add((MfJ.ofStr(a)))
+            }
+            o.put("allow" al)
+            def bx:MfJ (MfJ.newArr())
+            bx.add((MfJ.ofNum(b.x)))
+            bx.add((MfJ.ofNum(b.y)))
+            bx.add((MfJ.ofNum(b.w)))
+            bx.add((MfJ.ofNum(b.h)))
+            o.put("box" bx)
+            o.putStr("text" (Check.dataText(host din u.spec.src)))
+            o.putStr("cssText" (Check.dataText(host din u.spec.css)))
+            out.add(o)
+        }
+        return out
     }
 }
 
