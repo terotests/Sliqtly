@@ -23,7 +23,7 @@ func TestViewerOnly(t *testing.T) {
 // every theme is built in: sliqtly.com no longer serves /themes/, and a
 // deck still lays out and its CSS can still change
 func TestThemesBuiltIn(t *testing.T) {
-	for _, name := range []string{"aurora", "carbon", "corporate", "editorial", "ember", "midnight", "nebula"} {
+	for _, name := range []string{"aurora", "carbon", "corporate", "editorial", "ember", "midnight", "nebula", "pearl", "hive", "lattice", "apex", "tide", "mist"} {
 		if _, ok := builtinTheme(name); !ok {
 			t.Fatalf("theme %s is not built in", name)
 		}

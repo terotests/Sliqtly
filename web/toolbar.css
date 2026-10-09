@@ -120,7 +120,6 @@
 .theme-tb .ui-drawer-close { font-family: Open Sans; font-size: 13px; background-color: #ffffff; border: 1px solid #e4e4e7; color: #09090b; }
 .theme-tb .ui-drawer-body { gap: 2px; }
 .theme-tb .tb-drb { width: 100%; justify-content: flex-start; }
-.theme-tb .tb-drsub { padding-left: 28px; }
 .tb-dr-label { font-size: 11px; font-weight: 600; color: #71717a; padding: 8px 6px 2px; }
 .tb-dr-sep { height: 1px; background-color: #f4f4f5; margin: 6px 0; flex-shrink: 0; }
 

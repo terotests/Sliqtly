@@ -42,6 +42,7 @@ import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
+import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
 // Where the editor's addresses start: sliqtly.com serves the editor at
@@ -95,7 +96,7 @@ const FACES = [
   ["Noto Sans", "NotoSans-Regular.ttf"],
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
-const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
+const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial", "pearl", "hive", "lattice", "apex", "tide", "mist"];
 // The sample decks in the interface's language: samples/<key>.md is Finnish,
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
@@ -1509,8 +1510,7 @@ async function roomsRequest(r) {
     await roomsRequest("room:list");
   } else if (action === "newin") {
     // File → New's window; the deck it makes goes to this room (newDeck)
-    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
-    app.openNewDeck(rows, themeSel.value || "", "");
+    app.openNewDeck(selectRows(themeSel), themeSel.value || "", "");
     roomForNew = what;
   }
   needsPaint = true;
@@ -2352,8 +2352,7 @@ async function fileRequest(r) {
   } else if (action === "new") {
     roomForNew = "";
     // asked first: an accidental press is cancelled and the deck stays
-    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
-    app.openNewDeck(rows, themeSel.value || "", "");
+    app.openNewDeck(selectRows(themeSel), themeSel.value || "", "");
   } else if (action === "newsheet") {
     await newSheet();
   } else if (action === "duplicate") {
@@ -2803,6 +2802,50 @@ function bookPage(page, b, pxW, rev) {
   const waiting = (doc.list.cmds || []).some((c) => c.k === 2 && c.src && !pictures.has(c.src));
   bookGl.setPage(page, bookPageCanvas, waiting ? "" : key);
 }
+
+// --- the theme picker's pictures ------------------------------------------------
+// Each theme's tile (Slide → Theme…, New presentation) shows a sample slide
+// laid out in it (PresApp.themeSampleJson), drawn by EVG into a canvas of
+// its own once and kept among the pictures under themePicture(key). One a
+// frame, so the window opens at once and fills in.
+const THEME_PIC = { w: 154, h: 87, dpr: 2 };
+const themePicDrawn = new Map();
+let themePicQueue = [];
+let themePicGl = null;
+const themePicCanvas = document.createElement("canvas");
+function queueThemePictures() {
+  themePicQueue = picturesToDraw(selectRows(themeSel), themePicDrawn, lang);
+  needsPaint = true;
+}
+function drawThemePicture() {
+  const key = themePicQueue.shift();
+  if (key === undefined) return;
+  // the theme as it ships: the tile shows what picking it gives
+  const text = app.themeSampleJson(key ? themeCss[key] || "" : "");
+  if (!text) return;
+  const doc = atRest(JSON.parse(text));
+  const at = fitPage(doc.width, doc.height, THEME_PIC.w, THEME_PIC.h);
+  const k = at.s * THEME_PIC.dpr;
+  themePicCanvas.width = Math.max(1, Math.round(doc.width * k));
+  themePicCanvas.height = Math.max(1, Math.round(doc.height * k));
+  if (!themePicGl) themePicGl = themePicCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!themePicGl) return;
+  const f = prepareDisplayList(themePicGl, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = THEME_PIC.w * THEME_PIC.dpr;
+  c.height = THEME_PIC.h * THEME_PIC.dpr;
+  const g = c.getContext("2d");
+  g.fillStyle = "#e4e4e7";
+  g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(themePicCanvas, Math.round(at.x * THEME_PIC.dpr), Math.round(at.y * THEME_PIC.dpr));
+  pictures.set(themePicture(key), asPicture(c));
+  themePicDrawn.set(themePicture(key), lang);
+  needsPaint = true;
+}
+// how many are drawn (scripts/check-web.mjs)
+window.__themePictures = () => themePicDrawn.size;
 
 function paintBookSpread(layout) {
   const b = layout.book;
@@ -3626,6 +3669,7 @@ function frame() {
     if (app.uiBusy()) needsPaint = true;
     // charts whose theme changed are drawn again a few a frame (PresApp.settle)
     if (app.settle()) needsPaint = true;
+    if (themePicQueue.length) drawThemePicture();
     if (app.isReplaying()) {
       // a recording played: its time drives the presentation (recFrame)
       needsPaint = true;
@@ -4025,6 +4069,11 @@ function handleRequests() {
         sel.value = rest.join(":");
         sel.dispatchEvent(new Event("change"));
       }
+    } else if (r === "themes") {
+      // Slide → Theme…: the themes as tiles with their pictures
+      if (app.openThemes(selectRows(themeSel), themeSel.value || "")) needsPaint = true;
+    } else if (r === "theme-pictures") {
+      queueThemePictures();
     } else if (r === "theme-edited") {
       editedCss[themeSel.value || ""] = app.themeCss();
       dropThumbs();

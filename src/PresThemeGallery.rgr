@@ -1,0 +1,105 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; The theme picker's model: the themes as tiles, each with a small picture of
+; a sample slide drawn in it (Slide → Theme…, and New presentation's Theme
+; tab, PresChartEditor). No drawing here: the tiles, their groups, the
+; picture each one asks the page for and the slide that picture shows.
+;
+; The page's theme select is the list ("value<TAB>label<TAB>group" lines,
+; main.js selectRows); its pictures are drawn by the page from
+; `PresApp.themeSampleJson` into its picture store under `picture(key)`.
+Import "PresI18n.rgr"
+
+class PresThemeTile {
+    def key:string ""
+    def label:string ""
+    def group:string ""
+}
+
+class PresThemeGallery {
+    ; The tiles in the select's order. A row with no value ("Document's
+    ; own": the deck's own CSS) is a tile too; a row without a label is not.
+    sfn tiles:[PresThemeTile] (rows:string) {
+        def out:[PresThemeTile]
+        def lines:[string] (strsplit rows (strfromcode 10))
+        for lines line:string i {
+            def cells:[string] (strsplit line (strfromcode 9))
+            if ((array_length cells) >= 2) {
+                def t (new PresThemeTile())
+                t.key = (trim (itemAt cells 0))
+                t.label = (trim (itemAt cells 1))
+                if ((array_length cells) >= 3) {
+                    t.group = (trim (itemAt cells 2))
+                }
+                if ((strlen t.label) > 0) {
+                    push out t
+                }
+            }
+        }
+        return out
+    }
+
+    ; The groups in the order they first come ("" for tiles in none).
+    sfn groups:[string] (tiles:[PresThemeTile]) {
+        def out:[string]
+        for tiles t:PresThemeTile i {
+            def seen:boolean false
+            for out g:string j {
+                if (g == t.group) {
+                    seen = true
+                }
+            }
+            if (seen == false) {
+                push out t.group
+            }
+        }
+        return out
+    }
+
+    ; The tiles of one group.
+    sfn inGroup:[PresThemeTile] (tiles:[PresThemeTile] group:string) {
+        def out:[PresThemeTile]
+        for tiles t:PresThemeTile i {
+            if (t.group == group) {
+                push out t
+            }
+        }
+        return out
+    }
+
+    ; The picture a theme's tile shows, in the page's picture store.
+    sfn picture:string (key:string) {
+        if ((strlen key) == 0) {
+            return "/__theme/-"
+        }
+        return ("/__theme/" + key)
+    }
+
+    ; The theme a picture is of; "" for the document's own, and for a picture
+    ; that is not a theme's (`isPicture` tells the two apart).
+    sfn keyOf:string (src:string) {
+        if ((PresThemeGallery.isPicture(src)) == false) {
+            return ""
+        }
+        def k:string (substring src 9 (strlen src))
+        if (k == "-") {
+            return ""
+        }
+        return k
+    }
+
+    sfn isPicture:boolean (src:string) {
+        return ((indexOf src "/__theme/") == 0)
+    }
+
+    ; The slide every tile shows, in the interface's language: a title
+    ; and a short list, so the theme's paper, ink, heading colour and
+    ; background art are all seen.
+    sfn sample:string () {
+        def nl:string (strfromcode 10)
+        def md:string ("# " + (PresI18n.t("Annual review")) + nl + nl)
+        md = (md + "- " + (PresI18n.t("Revenue grew 18 %")) + nl)
+        md = (md + "- " + (PresI18n.t("Two new customers")) + nl)
+        md = (md + "- " + (PresI18n.t("Next: the launch")) + nl)
+        return md
+    }
+}

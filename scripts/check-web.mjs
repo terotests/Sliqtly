@@ -2556,13 +2556,17 @@ try {
       press("tb-m-slide-trigger");
       // the sub-trigger's chevron at the row's far edge, its name at the start
       a.toolbarJson();
-      const row = find("tb-m-slide-item-theme");
+      const row = find("tb-m-slide-item-orientation");
       const [label, chev] = row.children || [];
       const edges = label && chev ? { rowL: row.calculatedX, rowR: row.calculatedX + row.calculatedWidth, labelL: label.calculatedX, label: label.textContent, chevR: chev.calculatedX + chev.calculatedWidth, chev: chev.textContent } : null;
-      press("tb-m-slide-item-theme");
+      press("tb-m-slide-item-orientation");
       const opened = t.openMenu() === "tb-m-slide";
-      press("tb-m-slide-item-theme-item-t-editorial");
+      press("tb-m-slide-item-orientation-item-o-portrait");
       const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      // Slide → Theme… asks the page for the theme picker
+      press("tb-m-slide-trigger");
+      press("tb-m-slide-item-themes");
       for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
       press("tb-m-help-trigger");
       press("tb-m-help-item-helpBtn");
@@ -2578,15 +2582,48 @@ try {
       return { edges, opened, reqs, help, closedAfter, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
     });
     check("the top bar is drawn on the canvas, the HTML one hidden", bar.drawn > 20 && bar.htmlBarHidden, JSON.stringify(bar));
-    check("…Slide → Theme opens and a theme chosen becomes the page's select change", bar.opened && bar.reqs.includes("select:theme:editorial"), JSON.stringify(bar));
+    check("…Slide → Orientation opens and a row chosen is the page's request", bar.opened && bar.reqs.includes("slide:portrait"), JSON.stringify(bar));
+    check("…Slide → Theme… asks for the theme picker", bar.reqs.includes("themes"), JSON.stringify(bar));
     const e = bar.edges;
-    check("…a submenu's arrow sits at its row's right edge, the name at the left", !!e && e.label === "Theme" && e.chev === "▸" && e.rowR - e.chevR <= 12 && e.labelL - e.rowL <= 12 && e.chevR - e.labelL > 150, JSON.stringify(e));
+    check("…a submenu's arrow sits at its row's right edge, the name at the left", !!e && e.label === "Orientation" && e.chev === "▸" && e.rowR - e.chevR <= 12 && e.labelL - e.rowL <= 12 && e.chevR - e.labelL > 150, JSON.stringify(e));
     check("…a menu's row is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
     check("…with a menu open, another button of the bar acts on the first press (and the menu closes)", bar.help.includes("after-menu:click:share") && bar.closedAfter, JSON.stringify(bar));
     await page.evaluate((th) => { const s = document.getElementById("theme"); s.value = th; s.dispatchEvent(new Event("change")); }, bar.theme0);
     await page.waitForTimeout(300);
 
-    // the pointer resting on Slide → Theme opens its submenu without a press
+    // The theme picker: a tile per theme with a picture of a sample slide
+    // drawn in it; a tile pressed is the page's theme select changed
+    {
+      const r = await page.evaluate(async () => {
+        const a = window.__app;
+        const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+        const tile = (id) => { a.chartJson(); return walk(a.chart.host.lastPage, id); };
+        const theme0 = document.getElementById("theme").value;
+        a.requests.push("themes");
+        a.chromeRev += 1;
+        // the page answers the request on its next frame and draws the pictures one a frame
+        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 13); n++) await new Promise((res) => setTimeout(res, 100));
+        const open = a.chartIsOpen() && a.chart.mode === "themes";
+        const pics = window.__themePictures ? window.__themePictures() : -1;
+        const ed = tile("th-pick-editorial");
+        const pearl = tile("th-pick-pearl");
+        const pic = pearl && pearl.children[0];
+        const hasPic = !!pic && pic.src === "/__theme/pearl";
+        if (pearl) { a.pointerDown(pearl.calculatedX + 20, pearl.calculatedY + 20, false, 1); a.pointerUp(); }
+        await new Promise((res) => setTimeout(res, 300));
+        const now = document.getElementById("theme").value;
+        const marked = (tile("th-pick-pearl")?.className || "").includes("ce-tile-on");
+        a.key("escape", false, false);
+        const s = document.getElementById("theme");
+        s.value = theme0;
+        s.dispatchEvent(new Event("change"));
+        return { open, pics, ed: !!ed, hasPic, now, marked };
+      });
+      check("Slide → Theme… opens the picker with a tile per theme, each with its picture", r.open && r.ed && r.hasPic && r.pics >= 13, JSON.stringify(r));
+      check("…a tile pressed changes the theme and is marked", r.now === "pearl" && r.marked, JSON.stringify(r));
+    }
+
+    // the pointer resting on Slide → Orientation opens its submenu without a press
     const find = (id) => `(() => { const a = window.__app; a.toolbarJson(); const w = (e) => { if (e.id === ${JSON.stringify(id)}) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); })()`;
     const rest = await page.evaluate(async (f) => {
       const a = window.__app;
@@ -2601,8 +2638,8 @@ try {
       for (let n = 0; n < 40 && !after; n++) { await new Promise((r) => setTimeout(r, 100)); after = !!at("sub"); }
       a.key("escape", false, false);
       return { before, after, closed: a.toolbar.openMenu() === "" };
-    }, { trig: find("tb-m-slide-trigger"), row: find("tb-m-slide-item-theme"), sub: find("tb-m-slide-item-theme-content") });
-    check("…resting the pointer on Theme opens its submenu, after a short delay", !rest.before && rest.after, JSON.stringify(rest));
+    }, { trig: find("tb-m-slide-trigger"), row: find("tb-m-slide-item-orientation"), sub: find("tb-m-slide-item-orientation-content") });
+    check("…resting the pointer on Orientation opens its submenu, after a short delay", !rest.before && rest.after, JSON.stringify(rest));
 
     // over the Files tab: the File menu is drawn on top and a row under it is pressed
     await page.evaluate(() => window.__app.showTab("files"));

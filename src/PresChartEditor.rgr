@@ -32,6 +32,7 @@ Import "PresImageModel.rgr"
 Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresDocSettings.rgr"
+Import "PresThemeGallery.rgr"
 Import "PresTraceSettings.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
@@ -173,6 +174,16 @@ class PresChartEditor {
     def ndData:string "none"
     def ndTab:string "name"
     def wantsCreate:boolean false
+    ; The theme picker (`mode` "themes", Slide → Theme…): the page's themes
+    ; as "value<TAB>label<TAB>group" lines and the one in use. A tile
+    ; pressed sets `wantsTheme` and `themePicked` (the page changes the
+    ; theme; the window stays open to compare); "Edit theme CSS…" sets
+    ; `wantsCss` and closes.
+    def thRows:string ""
+    def thValue:string ""
+    def wantsTheme:string ""
+    def themePicked:boolean false
+    def wantsCss:boolean false
     ; File → Duplicate asks only the copy's name: `ndDup` hides the theme and
     ; data tabs, the name starts as the page's suggestion, all selected
     def ndDup:boolean false
@@ -331,6 +342,16 @@ class PresChartEditor {
         wantsCreate = false
         this.openAt(px py pw ph)
         this.focusInput("nd-name")
+    }
+
+    fn openThemes:void (rows:string current:string px:double py:double pw:double ph:double) {
+        mode = "themes"
+        thRows = rows
+        thValue = current
+        wantsTheme = ""
+        themePicked = false
+        wantsCss = false
+        this.openAt(px py pw ph)
     }
 
     fn openDupDeck:void (name:string px:double py:double pw:double ph:double) {
@@ -999,6 +1020,10 @@ class PresChartEditor {
             }
             win.title = win.name
         }
+        if (mode == "themes") {
+            win.name = (PresI18n.t("Theme"))
+            win.title = win.name
+        }
         if (mode == "docset") {
             win.name = (PresI18n.t("Document settings"))
             win.title = (PresI18n.t("Document settings"))
@@ -1056,6 +1081,10 @@ class PresChartEditor {
         }
         if (mode == "newdeck") {
             this.newDeckBody(root)
+            return
+        }
+        if (mode == "themes") {
+            this.themesBody(root)
             return
         }
         if (mode == "docset") {
@@ -1781,21 +1810,8 @@ class PresChartEditor {
             sec.addChild((this.text("ce-doc" (PresI18n.t("The name becomes the first slide's heading. You can change it later in the Markdown.")))))
         }
         if (ndTab == "theme") {
-            def sec2:EVGElement (this.section(pane (PresI18n.t("Theme"))))
-            def chips:EVGElement (this.div("ce-chips"))
-            def rows:[string] (strsplit ndRows (strfromcode 10))
-            def i:int 0
-            while (i < (array_length rows)) {
-                def row:string (itemAt rows i)
-                def cells:[string] (strsplit row (strfromcode 9))
-                if ((array_length cells) >= 2) {
-                    def v:string (itemAt cells 0)
-                    this.chip(("nd-theme-" + v) (itemAt cells 1) (v == ndTheme) chips)
-                }
-                i = (i + 1)
-            }
-            sec2.addChild(chips)
-            sec2.addChild((this.text("ce-doc" (PresI18n.t("The theme sets the colours, fonts and layout of every slide. The Theme menu changes it later.")))))
+            pane.addChild((this.text("ce-doc" (PresI18n.t("The theme sets the colours, fonts and layout of every slide. Slide → Theme… changes it later.")))))
+            this.themeTiles(pane "nd-theme-" ndRows ndTheme)
         }
         if (ndTab == "data") {
             def sec3:EVGElement (this.section(pane (PresI18n.t("Start with"))))
@@ -1820,6 +1836,76 @@ class PresChartEditor {
         bottom.addChild((this.div("ce-grow")))
         this.button("nd-create" (PresI18n.t("Create")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- the themes ------------------------------------------------------------------
+    ; The themes as tiles under their groups' names, each a small picture of
+    ; a sample slide in it (`PresThemeGallery.picture`, drawn by the page),
+    ; the one in use outlined. A tile's id is `prefix` + the theme's key.
+    fn themeTiles:void (pane:EVGElement prefix:string rows:string current:string) {
+        def tiles:[PresThemeTile] (PresThemeGallery.tiles(rows))
+        def groups:[string] (PresThemeGallery.groups(tiles))
+        for groups g:string gi {
+            ; a theme in no group (the document's own CSS) comes last, unnamed
+            if ((strlen g) > 0) {
+                pane.addChild((this.text("ce-section" (PresI18n.t(g)))))
+            }
+            def row:EVGElement (this.div("ce-tiles"))
+            def these:[PresThemeTile] (PresThemeGallery.inGroup(tiles g))
+            for these t:PresThemeTile ti {
+                def b:ButtonCtl (new ButtonCtl())
+                b.tid = (prefix + t.key)
+                b.name = t.label
+                b.variant = "outline"
+                b.picture = (PresThemeGallery.picture(t.key))
+                b.picW = 154.0
+                b.picH = 87.0
+                b.build()
+                this.dressButton(b)
+                def r:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(r "ce-tile")
+                if (t.key == current) {
+                    UiTree.addClass(r "ce-tile-on")
+                }
+                this.put(b row)
+            }
+            pane.addChild(row)
+        }
+    }
+
+    fn themesBody:void (root:EVGElement) {
+        def pane:EVGElement (this.div("ce-pane"))
+        pane.addChild((this.text("ce-doc" (PresI18n.t("Pick a theme: every slide changes at once. Your own changes stay in the Theme (CSS) tab.")))))
+        this.themeTiles(pane "th-pick-" thRows thValue)
+        root.addChild(pane)
+        def bottom:EVGElement (this.div("ce-foot"))
+        this.button("th-css" (PresI18n.t("Edit theme CSS…")) "outline" bottom)
+        bottom.addChild((this.div("ce-grow")))
+        this.button("th-close" (PresI18n.t("Close")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn themesAct:boolean (tid:string) {
+        if ((indexOf tid "th-pick-") == 0) {
+            def key:string (substring tid 8 (strlen tid))
+            if (key != thValue) {
+                thValue = key
+                wantsTheme = key
+                themePicked = true
+                this.rebuild()
+            }
+            return true
+        }
+        if (tid == "th-css") {
+            wantsCss = true
+            wantsClose = true
+            return true
+        }
+        if (tid == "th-close") {
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     ; --- the document's settings --------------------------------------------------
@@ -3737,6 +3823,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "newdeck") && (this.newDeckAct(tid))) {
+            return
+        }
+        if ((mode == "themes") && (this.themesAct(tid))) {
             return
         }
         if ((mode == "docset") && (this.docSetAct(tid))) {
