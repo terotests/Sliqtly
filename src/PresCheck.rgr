@@ -14,6 +14,7 @@ Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresDiaFull.rgr"
 Import "PresFollow.rgr"
+Import "PresInvite.rgr"
 Import "PresReview.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
@@ -2517,6 +2518,42 @@ class PresCheck {
 
     ; Someone else's edits under the slide shown (PresFollow): it stays the
     ; slide shown, at the same time into it.
+    ; Who may edit a cloud presentation (PresInvite): the owner's list of
+    ; addresses, as the Share window edits it.
+    fn invites:void () {
+        def v (new PresInvite())
+        v.owner = "Tero@Example.com"
+        this.ok((v.add(" Anna@Example.COM ")) "invite: an address goes in")
+        this.ok(((v.at(0)) == "anna@example.com") ("invite: kept in lower case: " + (v.at(0))))
+        this.ok(((v.add("anna@example.com")) == false) "invite: not twice")
+        this.ok((v.note == "there") ("invite: note " + v.note))
+        this.ok(((v.add("tero@example.com")) == false) "invite: not the owner")
+        this.ok((v.note == "owner") ("invite: owner note " + v.note))
+        this.ok(((v.add("not an address")) == false) "invite: a name is no address")
+        this.ok(((v.add("a@b")) == false) "invite: a host without a domain")
+        this.ok(((v.add("a@b@c.fi")) == false) "invite: two @")
+        this.ok(((v.add("a,b@c.fi")) == false) "invite: a list is not one address")
+        this.ok(((v.add("")) == false) "invite: empty")
+        this.ok((v.note == "empty") "invite: empty note")
+        this.ok((v.add("bo@firma.fi")) "invite: a second")
+        this.ok(((v.text()) == "anna@example.com\nbo@firma.fi") ("invite: text " + (v.text())))
+        v.remove(0)
+        this.ok((((v.count()) == 1) && ((v.at(0)) == "bo@firma.fi")) "invite: removed")
+        v.remove(5)
+        this.ok(((v.count()) == 1) "invite: removing past the end does nothing")
+        def w (new PresInvite())
+        w.load("X@y.fi\n\nnope\nx@y.fi\nz@w.com\n")
+        this.ok(((w.text()) == "x@y.fi\nz@w.com") ("invite: load keeps addresses once: " + (w.text())))
+        def i:int 0
+        def f (new PresInvite())
+        while (i < 60) {
+            f.add((("p" + (to_string i)) + "@q.fi"))
+            i = (i + 1)
+        }
+        this.ok((((f.count()) == (PresInvite.most())) && (f.note == "full")) "invite: at most 50")
+        this.ok(((PresInvite.withCount("You and {n} people" 3)) == "You and 3 people") "invite: count in words")
+    }
+
     fn followEdits:void () {
         def head:string "---\nslide-split-level: 2\n---\n\n"
         def text:string (head + "## Yksi\n\na\n\n## Kaksi\n\nb\n\n## Kolme\n\nc\n")
@@ -4170,6 +4207,7 @@ class PresCheck {
         c.roundNodes()
         c.chainRows()
         c.followEdits()
+        c.invites()
         c.picks()
         c.navJumps()
         c.stageClicks()

@@ -5,7 +5,13 @@ rules_version = '2';
 // made through mcp-go/). `visibility` says who reads it: "private" only its
 // owner, "link" anyone holding the short id. A share without the field is
 // "link" (every share made before it existed). Only its owner lists its own
-// (a query on owner), changes or deletes it.
+// (a query on owner), changes or deletes it. `editors`: the e-mail
+// addresses (lower case) the owner invited to edit it (web/sliqtly.js
+// setEditors, src/PresInvite.rgr): they read it and change its content (not
+// who owns, reads or edits it), signed in with that address verified and
+// under a license of their own that has not ended; an invited deck takes
+// none of their license's presentations. Nobody else changes it, whatever
+// link they hold.
 // mcp_sessions, mcp_keys (older), mcp_oauth_*, mcp_work, mcp_bases: the MCP server's sessions and what they may change,
 // sign-in state, assistants' claims on a deck and the versions it merges
 // edits with (mcp-go/). No rule matches them, so only the Admin SDK reads or writes them.
@@ -32,7 +38,27 @@ service cloud.firestore {
     // only who reads it: allowed without a license, so a deck can still be
     // made private
     function visibilityOnly() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility']);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility', 'editors']);
+    }
+    function editorsOk(data) {
+      return !('editors' in data) || (data.editors is list && data.editors.size() <= 50);
+    }
+    // the signed-in user is one the owner invited to edit `data`
+    function invited(data) {
+      return signedIn() && request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', '').lower() in data.get('editors', []);
+    }
+    // an invited editor's license: there, and not ended
+    function stillLicensed() {
+      return exists(licensePath())
+          && (get(licensePath()).data.get('editUntil', null) == null
+              || request.time < get(licensePath()).data.editUntil);
+    }
+    // what an invited editor changes: the presentation, not its owner,
+    // readers or editors
+    function contentOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'md', 'theme', 'css', 'files', 'updated', 'head', 'log']);
     }
 
     match /decks/{deckId} {
@@ -45,16 +71,39 @@ service cloud.firestore {
     match /shares/{shareId} {
       // none by that id: the reader is told so (resource is null)
       allow get: if resource == null || visibility(resource.data) != 'private'
-                 || (signedIn() && resource.data.owner == request.auth.uid);
-      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+                 || (signedIn() && resource.data.owner == request.auth.uid)
+                 || invited(resource.data);
+      // the user's own (a query on owner), or the ones they were invited to
+      // (a query on editors array-contains their address)
+      allow list: if signedIn() && (resource.data.owner == request.auth.uid || invited(resource.data));
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid
                     && visibility(request.resource.data) in ['private', 'link']
+                    && editorsOk(request.resource.data)
+                    && !exists(/databases/$(database)/documents/links/$(shareId))
                     && licensed(shareId);
-      allow update: if signedIn() && resource.data.owner == request.auth.uid
+      allow update: if (signedIn() && resource.data.owner == request.auth.uid
                     && request.resource.data.owner == request.auth.uid
                     && visibility(request.resource.data) in ['private', 'link']
-                    && (visibilityOnly() || licensed(shareId));
+                    && editorsOk(request.resource.data)
+                    && (visibilityOnly() || licensed(shareId)))
+                 || (invited(resource.data) && contentOnly() && stillLicensed());
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    // links/{linkId}: {of: a share's id, owner, created}. The owner's viewing
+    // link to their presentation, under an id of its own: /s/{linkId} shows
+    // it to anyone holding the link (the server reads it, mcp-go/rgr/Store.rgr
+    // Store.shown), while the presentation's own id stays private. Made and
+    // removed (Stop sharing) by the presentation's owner only; read by that
+    // owner, who lists theirs (a query on owner).
+    match /links/{linkId} {
+      allow get, delete: if signedIn() && resource.data.owner == request.auth.uid;
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['of', 'owner', 'created'])
+                    && request.resource.data.of is string
+                    && get(/databases/$(database)/documents/shares/$(request.resource.data.of)).data.owner == request.auth.uid
+                    && !exists(/databases/$(database)/documents/shares/$(linkId));
     }
 
     match /licenses/{uid} {

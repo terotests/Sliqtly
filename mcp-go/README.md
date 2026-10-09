@@ -592,8 +592,24 @@ Google sign-in (editor.go). Anyone else gets a sign-in page with none of the
 editor's code. Sign-in is Google's by redirect, no popup; the sign-in is the
 `__session` cookie (the one cookie Hosting passes to Cloud Run), holding the
 page's Firebase ID token, which the page renews before its hour is up.
-Responses are `private`: the CDN keeps none. `/s/{id}?edit` on the site
-redirects to `/editor/s/{id}?edit`.
+Responses are `private`: the CDN keeps none. A presentation in the editor is
+at `/editor/d/{id}`; `/s/{id}?edit` and the older `/editor/s/{id}?edit`
+redirect there.
+
+Presentations made in the editor are private: only the owner and the people
+they invite (`editors` on the share, Google e-mail addresses in lower case)
+open and edit them; firestore.rules and storage.rules check the address of a
+verified sign-in, and `/editor/api/claim` answers `not-yours` to anyone else
+(a deck there is shown read-only, never copied). Share makes a viewing link of
+its own, `links/{linkId}` → `{ of, owner }`: `/s/{linkId}`, `/api/view`,
+`/api/card` and `/api/export` resolve it to the deck (`Store.shown`), so the
+deck's own id is never handed out. `ops/private-editor-decks.mjs` made the
+decks from before this private.
+
+What the browser keeps (IndexedDB, rooms, open tabs) is per Google account on
+the editor (web/account.js): another account in the same browser sees none of
+it. The store from before that is moved to an account only when it says the
+decks are its own.
 
 Licenses are `licenses/{uid}` in Firestore, made at the first visit as a
 Trial: `plan: "trial"`, `maxDocs: 2`, `docs: []`, with the user's `email`.

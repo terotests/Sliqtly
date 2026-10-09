@@ -8190,6 +8190,12 @@ class PresApp {
         panels.setShareView(url (picks.count()) live)
     }
 
+    ; How many people the owner invited to edit the presentation in the
+    ; cloud (-1: not the owner's, or not in the cloud); set before openShare
+    fn setShareEditors:void (n:int) {
+        panels.setShareEditors(n)
+    }
+
     fn openShare:void (showUrl:string editUrl:string note:string) {
         this.closeHint()
         panels.openShare(showUrl editUrl note)
@@ -9567,6 +9573,17 @@ class PresApp {
         return true
     }
 
+    ; Share → People who can edit: `list` the addresses invited (one a
+    ; line), `owner` the owner's own. Save is "newdeck-create" with the
+    ; plan's "ask" "editors" and "editors" the list (PresInvite).
+    fn openInvite:boolean (list:string owner:string) {
+        if ((this.openDupDeck("")) == false) {
+            return false
+        }
+        chart.openInvite(list owner chart.x chart.y W H)
+        return true
+    }
+
     ; Rooms' "+" (`id` "") or a room's gear: the room's window, its name and
     ; description; `state` "new", "made" or "archived". Save is
     ; "newdeck-create" with the plan's "ask" "room", "room", "desc" and "act"
@@ -9956,7 +9973,7 @@ class PresApp {
         if (chart.ndDup && (chart.ndAsk == "dup")) {
             dup = "true"
         }
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + "}")
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + ",\"editors\":" + (PresApp.jsonStr((chart.inv.text()))) + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,

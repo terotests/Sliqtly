@@ -1,0 +1,37 @@
+# One-off: the presentations made in the editor become private
+# (ops/private-editor-decks.mjs). Run by hand: Actions → Private editor decks
+# → Run workflow; "write" off only reports. Deck ids only, no names or emails.
+#
+# The FIREBASE_SERVICE_ACCOUNT secret's account needs Cloud Datastore User.
+name: Private editor decks
+
+on:
+  workflow_dispatch:
+    inputs:
+      write:
+        description: Make them private (off only reports)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  private:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ops
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Editor decks private
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          WRITE: ${{ inputs.write }}
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" node private-editor-decks.mjs $([ "$WRITE" = "true" ] && echo --write) | tee -a "$GITHUB_STEP_SUMMARY"
