@@ -1229,8 +1229,22 @@ try {
     check("…the pointer over a thumbnail is a hand that grabs", hand === "grab", hand);
     await page.mouse.move(p[0], p[1]);
     await page.mouse.down();
-    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
+    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] - p[0]) * k / 10, p[1]);
     const mid = await page.evaluate(() => [window.__app.stripReorder, window.__app.stripDrop]);
+    // a box the size of the slide under the pointer, drawn over the others,
+    // and slides 1 and 2 moved one place left out of its way
+    await page.waitForTimeout(400);
+    const carry = await page.evaluate(() => {
+      const a = window.__app;
+      const l = JSON.parse(a.layoutJson());
+      const at = (i) => (l.thumbs.find((t) => t[0] === i) || [])[1];
+      return { last: l.thumbs[l.thumbs.length - 1][0], x0: at(0), x1: at(1), x2: at(2), base0: a.thumbX(0), base1: a.thumbX(1), base2: a.thumbX(2) };
+    });
+    const near = (u, v) => Math.abs(u - v) < 3;
+    check("…the carried slide follows the pointer over the others, which move out of its way",
+      carry.last === 0 && near(carry.x0, carry.base2) && near(carry.x1, carry.base0) && near(carry.x2, carry.base1),
+      JSON.stringify(carry));
+    await shot("strip-drag.png");
     await page.mouse.up();
     const s10 = await st();
     check("a thumbnail dragged to another gap moves its slide there", mid[0] && mid[1] === 3 && s10.order === "BCAD" && s10.sel === 2 && s10.src === "# B\n\nbb\n\n# C\n\ncc\n\n# A\n\naa\n\n# D\n\ndd\n", JSON.stringify({ mid, ...s10 }));
@@ -2821,6 +2835,22 @@ try {
     await R(`c("cf-ok");`);
     const deleted = await until(() => { try { const s = window.__keptRooms(); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
     check("…a room's gear opens its settings: Archive hides it (search finds it), Delete asks and moves its decks to General", settings && archived && foundArchived && delAsked && deleted, JSON.stringify({ settings, archived, foundArchived, delAsked, deleted }));
+    // the search finds presentations by their words, not their syntax (the
+    // deck kept here says "teksti"; "fx-hue" is only in its
+    // headings' {attributes}); pressed, one opens
+    await R(`t("tb-roomsearch"); a.text("teksti");`);
+    const foundDeck = await until(() => window.__app.toolbar.roomFound.includes("teksti"));
+    const foundRow = await rp.evaluate(() => window.__app.toolbar.roomFound);
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("fx-hue");`);
+    await rp.waitForTimeout(800);
+    const syntaxNotFound = await rp.evaluate(() => window.__app.toolbar.roomFound === "");
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("teksti");`);
+    await until(() => window.__app.toolbar.roomFound.length > 0);
+    await R(`t("tb-found-" + a.toolbar.roomFound.split("\\t")[0]);`);
+    // open: the search closed, its room open with the deck as its open row
+    const foundOpened = await until(() => { const tb = window.__app.toolbar; return tb.roomFound === "" && tb.roomOpen === "general" && tb.roomDecks.split("\n").some((l) => l.split("\t")[2] === "1"); });
+    await rp.waitForTimeout(500);
+    check("…the rooms' search finds presentations by their words (not {attributes}), with the text around them, and opens one", foundDeck && syntaxNotFound && foundOpened, JSON.stringify({ foundRow, syntaxNotFound, foundOpened }));
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);

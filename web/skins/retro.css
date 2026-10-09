@@ -124,6 +124,8 @@
 .theme-retro .thumb:hover { background-color: var(--retro-ink-dim); }
 .theme-retro .thumb-on:hover { background-color: var(--accent); }
 .theme-retro .thumb-picked:hover { background-color: #f59e0b; }
+.theme-retro .thumb-carried,
+.theme-retro .thumb-carried:hover { background-color: var(--accent); }
 .theme-retro .thumb-add:hover,
 .theme-retro .thumb-add-btn:hover { background: linear-gradient(180deg, var(--retro-hot-a), var(--retro-hot-b)); }
 .theme-retro .sp-clock { color: var(--retro-hot-b); }

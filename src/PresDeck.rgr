@@ -925,16 +925,30 @@ class PresDeck {
 
     ; The layout box a fence was laid out in, or -1.
     fn embedBox:int (page:int text:string) {
+        return (this.embedBoxAt(page text -1))
+    }
+
+    ; The box of the fence that starts at `srcStart` in the source: two
+    ; fences with the same text on one page (one machine in two looks) are
+    ; two boxes, and matched by text alone both found the first. -1 = the
+    ; first with that text.
+    fn embedBoxAt:int (page:int text:string srcStart:int) {
         def l:MdLayout (this.layout())
+        def first:int -1
         def i:int 0
         while (i < (array_length l.boxes)) {
             def b:MdBox (itemAt l.boxes i)
             if (((b.page == page) && (b.kind == 3)) && (b.embedSource == text)) {
-                return i
+                if ((srcStart < 0) || (b.srcStart == srcStart)) {
+                    return i
+                }
+                if (first < 0) {
+                    first = i
+                }
             }
             i = (i + 1)
         }
-        return -1
+        return first
     }
 
     ; The chart fences in a block, nested ones too (a chart inside a `:::`).
@@ -1369,7 +1383,7 @@ class PresDeck {
         ; slide's colours (the engine's dark look on a dark slide) and as
         ; large as the room allows, chosen like the others
         def classic:boolean ((n.attrValue("diagram")) == "classic")
-        def bi:int (this.embedBox(page n.literal))
+        def bi:int (this.embedBoxAt(page n.literal n.srcStart))
         if (bi < 0) {
             return
         }
@@ -3301,10 +3315,17 @@ class PresDeck {
             }
             def use:int -1
             if (kb.kind == 3) {
+                ; the use of this very fence (`embedBoxAt`), else one
+                ; with its text
                 def du:int 0
+                def exact:boolean false
                 while (du < (array_length s.diagrams)) {
-                    if ((itemAt s.diagrams du).source == kb.embedSource) {
+                    def cand:PresDiaUse (itemAt s.diagrams du)
+                    if ((cand.source == kb.embedSource) && (exact == false)) {
                         use = du
+                        if ((kb.srcStart >= 0) && (cand.srcStart == kb.srcStart)) {
+                            exact = true
+                        }
                     }
                     du = (du + 1)
                 }

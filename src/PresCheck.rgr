@@ -34,6 +34,7 @@ Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
+Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -2158,6 +2159,59 @@ class PresCheck {
         this.ok((back.isMachine && ((back.machine.machine.stateCount()) == 3)) ("read back: " + out))
     }
 
+    ; Tero's test deck (2026-10-09): a parallel machine in the romantic look
+    ; was one black slab (its frames filled like boxes) and its tour was the
+    ; region "kassa" alone.
+    fn machineSlide:void () {
+        def q:string (strfromcode 34)
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }")
+        deck.setText(("## Kahvila\n\n```xstate {style=romantic}\n{ " + q + "initial" + q + ": " + q + "kiinni" + q + ", " + q + "states" + q + ": { " + q + "kiinni" + q + ": { " + q + "on" + q + ": { " + q + "AVAA" + q + ": " + q + "auki" + q + " } }, " + q + "auki" + q + ": { " + q + "type" + q + ": " + q + "parallel" + q + ", " + q + "on" + q + ": { " + q + "SULJE" + q + ": " + q + "kiinni" + q + " }, " + q + "states" + q + ": { " + q + "kone" + q + ": { " + q + "initial" + q + ": " + q + "valmis" + q + ", " + q + "states" + q + ": { " + q + "valmis" + q + ": { " + q + "on" + q + ": { " + q + "KEITA" + q + ": " + q + "keittaa" + q + " } }, " + q + "keittaa" + q + ": {} } }, " + q + "kassa" + q + ": { " + q + "initial" + q + ": " + q + "vapaa" + q + ", " + q + "states" + q + ": { " + q + "vapaa" + q + ": { " + q + "on" + q + ": { " + q + "ASIAKAS" + q + ": " + q + "palvelee" + q + " } }, " + q + "palvelee" + q + ": {} } } } } } }\n```\n"))
+        def hit@(optional):PresDiaUse (deck.diagramUse(0 0))
+        if (null? hit) {
+            this.ok(false "machine slide: the slide has its diagram")
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        def d:PresDiagram u.diagram
+        this.ok((d.style == "romantic") ("machine slide: romantic, got " + d.style))
+        def frames:int 0
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            if ((d.kindAt(i)) == "frame") {
+                frames = (frames + 1)
+            }
+            i = (i + 1)
+        }
+        this.ok((frames == 3) ("machine slide: auki, kone and kassa are frames, drawn as outlines: " + (to_string frames)))
+        def part:FlowLookPart (d.look.framePart())
+        this.ok(((strlen part.fill) == 0) "machine slide: a frame has no fill")
+        def tour:string (d.tourText())
+        this.ok((((indexOf tour "kiinni") > 0) && ((indexOf tour "kassa") != 0)) ("machine slide: the tour starts at the start dot, not a region: " + tour))
+        this.ok((((indexOf tour "valmis") > 0) && ((indexOf tour "vapaa") > 0)) ("machine slide: it goes into auki, both regions: " + tour))
+    }
+
+    ; One fence written twice on a page in two looks: two diagrams in two
+    ; boxes. Matched by their text, both were drawn in the second's look.
+    fn sameFenceTwice:void () {
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 1 }")
+        def fence:string "```mermaid\nflowchart LR\n  A --> B\n```\n"
+        deck.setText(("# Kaksi\n\n## Oletus\n\n" + fence + "\n## Cartoon\n\n" + fence + "{style=cartoon}\n"))
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) != 2) {
+            this.ok(false ("same fence twice: two diagrams on the page, got " + (to_string (array_length s.diagrams))))
+            return
+        }
+        def u0:PresDiaUse (itemAt s.diagrams 0)
+        def u1:PresDiaUse (itemAt s.diagrams 1)
+        this.ok(((u0.diagram.style != "cartoon") && (u1.diagram.style == "cartoon")) ("same fence twice: each its own look: " + u0.diagram.style + ", " + u1.diagram.style))
+        this.ok((u1.by > (u0.by + 10.0)) ("same fence twice: each in its own box: " + (to_string u0.by) + ", " + (to_string u1.by)))
+        def b1:int (deck.embedBoxAt(0 u1.source u1.srcStart))
+        def l:MdLayout (deck.layout())
+        this.ok(((b1 >= 0) && ((itemAt l.boxes b1).srcStart == u1.srcStart)) "same fence twice: the box is found by where the fence starts")
+    }
+
     ; The table window's model: cells, alignments, rows and columns.
     fn gridModel:void () {
         def src:string "| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n| Pohjoinen \\| itä | `a|b` |"
@@ -3993,6 +4047,66 @@ class PresCheck {
     }
 
     ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
+    ; PresStripDrag: a slide carried along the filmstrip, the others moving
+    ; out of its way, and the glide into place when let go
+    fn stripDrag:void () {
+        def d (new PresStripDrag())
+        d.start(5 1 1.0 10.0)
+        this.ok(d.busy(10.0) "strip drag: busy while carrying")
+        this.ok(((d.slot()) == -1) "strip drag: not moved yet, no slot")
+        this.ok(((d.place(3 10.0)) == 3.0) "strip drag: the others in their places")
+        ; carried to place 3.3: slides 2 and 3 step left
+        d.carry(3.3 10.0)
+        this.ok(((d.target()) == 3) ("strip drag: target 3, got " + (to_string (d.target()))))
+        this.ok(((d.slot()) == 4) ("strip drag: gap 4, got " + (to_string (d.slot()))))
+        this.ok(((d.place(1 10.0)) == 3.3) "strip drag: the box follows the pointer")
+        this.ok(((d.place(2 10.0)) == 2.0) "strip drag: a step starts where it was")
+        def mid:double (d.place(2 10.1))
+        this.ok(((mid < 2.0) && (mid > 1.0)) ("strip drag: half way at 0.1 s, got " + (to_string mid)))
+        this.ok(((d.place(2 10.5)) == 1.0) "strip drag: slide 2 now in place 1")
+        this.ok(((d.place(3 10.5)) == 2.0) "strip drag: slide 3 now in place 2")
+        this.ok(((d.place(4 10.5)) == 4.0) "strip drag: slide 4 stays")
+        this.ok(((d.place(0 10.5)) == 0.0) "strip drag: slide 0 stays")
+        ; back to the left of where it began: 0 steps right
+        d.carry(-0.2 11.0)
+        this.ok(((d.target()) == 0) "strip drag: target 0")
+        this.ok(((d.slot()) == 0) "strip drag: gap 0")
+        ; slide 2 turns back from place 1 to its own, slide 0 steps right
+        this.ok(((d.place(2 11.0)) == 1.0) "strip drag: a turn starts where it is")
+        this.ok(((d.place(2 12.0)) == 2.0) "strip drag: slide 2 back in its place")
+        this.ok(((d.place(0 12.0)) == 1.0) "strip drag: slide 0 stepped right")
+        ; past the ends it stays at the first / last place
+        d.carry(9.0 12.0)
+        this.ok(((d.target()) == 4) "strip drag: clamped to the last place")
+        this.ok(((d.slot()) == 5) "strip drag: after the last one")
+        d.carry(2.4 13.0)
+        ; let go at 2.4 over target 2: the deck now has the new order, slide
+        ; 1 is index 2 and glides from 2.4 into 2; old slide 2 is index 1
+        d.finish(true 13.0)
+        this.ok(((d.place(2 13.0)) == 2.4) "strip drag: dropped box starts at the pointer")
+        this.ok(((d.place(2 14.0)) == 2.0) "strip drag: dropped box glides into its gap")
+        this.ok(((d.place(1 14.0)) == 1.0) "strip drag: the others keep their new places")
+        this.ok(d.busy(13.05) "strip drag: busy while gliding")
+        this.ok(((d.busy(14.0)) == false) "strip drag: rests after the glide")
+        ; a drag let go where it began asks for no move and glides back
+        d.start(5 3 3.0 20.0)
+        d.carry(3.4 20.0)
+        this.ok(((d.slot()) == -1) "strip drag: dropped on its own place, no move")
+        d.finish(false 20.0)
+        this.ok(((d.place(3 20.0)) == 3.4) "strip drag: glides back from the pointer")
+        this.ok(((d.place(3 21.0)) == 3.0) "strip drag: back in its place")
+        ; a cancelled drag puts the others back
+        d.start(4 0 0.0 30.0)
+        d.carry(2.6 30.0)
+        d.finish(false 30.5)
+        this.ok(((d.place(1 30.5)) == 0.0) "strip drag: cancel starts where it is drawn")
+        this.ok(((d.place(1 31.5)) == 1.0) "strip drag: cancel puts the others back")
+        ; a deck that changed under it: unknown thumbnails are in place
+        this.ok(((d.place(7 31.5)) == 7.0) "strip drag: past the known ones, in place")
+        d.reset()
+        this.ok(((d.busy(31.5)) == false) "strip drag: reset rests")
+    }
+
     fn clips:void () {
         ; the format: written and read back
         def d (new PresClipDoc())
@@ -4227,6 +4341,8 @@ class PresCheck {
         c.staggered()
         c.flowModel()
         c.machineModel()
+        c.machineSlide()
+        c.sameFenceTwice()
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
@@ -4251,6 +4367,7 @@ class PresCheck {
         c.serverDecks()
         c.serverRooms()
         c.clips()
+        c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

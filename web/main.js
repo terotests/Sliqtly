@@ -32,7 +32,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -1324,6 +1324,49 @@ async function docRooms() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// the presentations the search found, by id (deckSearch's rows)
+let foundDecks = new Map();
+// The Rooms search through the presentations' words, not their Markdown's
+// syntax (RangerMarkdown MdSearchText): on a server of one's own its
+// search_presentations; on sliqtly.com/editor the server searches the
+// signed-in user's own decks (GET /editor/api/search), and the decks kept
+// only in this browser are searched here, by the same model in the app.
+// → [{ id (as fileRequest's "doc:" takes it), name, room, roomTitle, snippet }]
+const searchTexts = new Map();
+async function deckSearch(q) {
+  if (ownServer()) {
+    const out = await roomsCall("search_presentations", { query: q });
+    return (out.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || "", room: p.room_id || GENERAL, roomTitle: p.room || "", snippet: p.snippet || "" }));
+  }
+  const [local, rooms] = await Promise.all([vfs.listDocs(), roomsList({ archived: true })]);
+  const titleOf = (id) => rooms.find((r) => r.room_id === id)?.title || "";
+  const row = (id, name, snippet) => {
+    const room = roomOf(roomsHere, id);
+    return { id, name, room, roomTitle: titleOf(room), snippet };
+  };
+  const out = [];
+  // the cloud's decks are the server's to search; a deck of this browser
+  // that is kept there too is opened as this browser's
+  let searched = null;
+  if (window.sliqtly?.searchDecks && window.sliqtly.user?.()) {
+    const kept = new Map(local.filter((d) => d.cloud).map((d) => [d.cloud, d]));
+    const hits = await window.sliqtly.searchDecks(q);
+    for (const p of hits) {
+      const d = kept.get(p.deck_id);
+      out.push(row(d ? d.id : "cloud:" + p.deck_id, d?.name || p.name || "", p.snippet || ""));
+    }
+    searched = new Set(kept.keys());
+  }
+  for (const d of local) {
+    if (searched && d.cloud && searched.has(d.cloud)) continue;
+    const md = String(d.md || "");
+    let t = searchTexts.get(d.id);
+    if (!t || t.md !== md) searchTexts.set(d.id, (t = { md, text: app.searchText(md) }));
+    const hit = app.searchSnippet(d.name || "", t.text, q);
+    if (hit) out.push(row(d.id, d.name || "", hit.slice(1)));
+  }
+  return out.slice(0, 50);
+}
 // the rooms the rail lists now (list_rooms' rows)
 let roomsListed = [];
 // The rail's room rows: "id TAB name TAB count TAB u", u when the room has
@@ -1370,6 +1413,14 @@ async function roomsRequest(r) {
     const searching = q !== null && q.trim() !== "";
     if (searching) rooms = searchRooms(await roomsList({ archived: true }), q);
     else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    // ...and the presentations whose words hold it, under the rooms
+    let found = [];
+    if (searching) {
+      found = await deckSearch(q).catch((e) => { console.warn("deck search", e); return []; });
+      if (roomsQuery !== q) return;
+    }
+    foundDecks = new Map(found.map((x) => [x.id, x]));
+    app.setToolbarOptions("roomfound", found.map((x) => [x.id, clean(x.name) || t("presentation"), clean(x.roomTitle), clean(x.snippet)].join("\t")).join("\n"), "");
     if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
       const open = all.find((x) => x.room_id === roomShown);
       if (open) rooms = [...rooms, open];
@@ -1382,6 +1433,20 @@ async function roomsRequest(r) {
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
+    // the words are searched once typing pauses (the server parses decks)
+    if (what.trim()) await new Promise((ok) => setTimeout(ok, 200));
+    if (roomsQuery !== what) return;
+    await roomsRequest("room:list");
+  } else if (action === "found") {
+    // a presentation found: it opens, and its room with it
+    const hit = foundDecks.get(what);
+    roomsQuery = null;
+    if (hit?.room) {
+      roomShown = hit.room;
+      keepRooms((s) => touchRoom(s, hit.room));
+    }
+    roomChat().close();
+    await fileRequest("doc:" + what);
     await roomsRequest("room:list");
   } else if (action === "searchend") {
     roomsQuery = null;
