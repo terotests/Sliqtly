@@ -117,22 +117,7 @@ class PresChart {
         ; not columns
         def ramp:[boolean] (PresChart.rampStripes(tail))
         ; the columns, in the order they were drawn
-        def bars:[EVGDrawCmd]
-        def groundSeen:boolean false
-        def k:int 0
-        while (k < (array_length tail)) {
-            def c:EVGDrawCmd (itemAt tail k)
-            if (c.kind == 0) {
-                if (! groundSeen) {
-                    groundSeen = true
-                } {
-                    if (((PresChart.isBar(c)) && ((PresChart.rectChart(spec)) == false)) && ((itemAt ramp k) == false)) {
-                        push bars c
-                    }
-                }
-            }
-            k = (k + 1)
-        }
+        def bars:[EVGDrawCmd] (PresChart.columnsIn(tail ramp spec))
         def nb:int (array_length bars)
         ; Coloured by category: more than one fill among the columns. Then
         ; each keeps its own colour — the legend says what they mean — and
@@ -220,8 +205,8 @@ class PresChart {
 
         ; everything but the columns, restyled, in its own order
         def barAt:int 0
-        groundSeen = false
-        k = 0
+        def groundSeen:boolean false
+        def k:int 0
         while (k < (array_length tail)) {
             def c:EVGDrawCmd (itemAt tail k)
             if (c.kind == 0) {
@@ -450,22 +435,7 @@ class PresChart {
         ; a palette the chart chose (a scheme, a colour of its own) keeps its
         ; colours: the look then gives the shapes, the lines and the words
         def own:boolean (PresChart.ownPalette(spec))
-        def bars:[EVGDrawCmd]
-        def groundSeen:boolean false
-        def k:int 0
-        while (k < (array_length tail)) {
-            def c:EVGDrawCmd (itemAt tail k)
-            if (c.kind == 0) {
-                if (! groundSeen) {
-                    groundSeen = true
-                } {
-                    if (((PresChart.isBar(c)) && (cells == false)) && ((itemAt ramp k) == false)) {
-                        push bars c
-                    }
-                }
-            }
-            k = (k + 1)
-        }
+        def bars:[EVGDrawCmd] (PresChart.columnsIn(tail ramp spec))
         def nb:int (array_length bars)
         def growStart:double (PresChart.growStart())
         def growEach:double 0.1
@@ -480,8 +450,8 @@ class PresChart {
         def line:EVGColor (EVGColor.parse(look.edgeColor))
         def ink:EVGColor (EVGColor.parse(look.labelText))
         def barAt:int 0
-        groundSeen = false
-        k = 0
+        def groundSeen:boolean false
+        def k:int 0
         while (k < (array_length tail)) {
             def c:EVGDrawCmd (itemAt tail k)
             def si:int (PresChart.seriesOf(keys c))
@@ -1054,6 +1024,34 @@ class PresChart {
             i = (i + 1)
         }
         return out
+    }
+
+    ; A chart's columns among its commands as the markdown module drew them
+    ; (before any dressing), in the order they were drawn: rectangles past
+    ; the first (the chart's ground) that are bars, not a legend's ramp, in
+    ; a chart whose rectangles are not cells. What the dressings dress and
+    ; a slide script finds as `bar`.
+    sfn columnsIn:[EVGDrawCmd] (tail:[EVGDrawCmd] ramp:[boolean] spec:string) {
+        def bars:[EVGDrawCmd]
+        if (PresChart.rectChart(spec)) {
+            return bars
+        }
+        def groundSeen:boolean false
+        def k:int 0
+        while (k < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail k)
+            if (c.kind == 0) {
+                if (! groundSeen) {
+                    groundSeen = true
+                } {
+                    if ((PresChart.isBar(c)) && ((itemAt ramp k) == false)) {
+                        push bars c
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return bars
     }
 
     sfn isBar:boolean (c:EVGDrawCmd) {

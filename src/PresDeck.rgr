@@ -40,6 +40,7 @@ Import "PresTable.rgr"
 Import "PresSmartArt.rgr"
 Import "PresSketch.rgr"
 Import "PresPlay.rgr"
+Import "PresScript.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -196,8 +197,20 @@ class PresSlide {
     def smartArts:[PresSmartArtUse]
     def sketches:[PresSketchUse]
     def plays:[PresPlayUse]
+    ; A program that drives this slide's own display list (`{script=
+    ; apps/fx.tsx}` on its heading, PresScript): its file, what it may ask
+    ; (`allow="slide.nav deck.data"`), the moment an export shows
+    ; (`export-frame=3.5s`; -1: its final state), and whether it plays the
+    ; slide's build steps itself (its `build(n)`), so the default rise and
+    ; fade are left out
+    def script:string ""
+    def scriptAllow:[string]
+    def exportFrame:double -1.0
+    def scriptBuilds:boolean false
 
     Constructor () {
+        def sal:[string]
+        scriptAllow = sal
         def pu:[PresPlayUse]
         plays = pu
         def sau:[PresSmartArtUse]
@@ -319,8 +332,37 @@ class PresDeck {
     def tagEnd:[int]
     def tagId:[string]
     def tagCls:[string]
+    ; The slides' scripts (`{script=…}`, PresScript): their frames by key,
+    ; kept across rebuilds like the programs' pictures
+    def scriptRuns:[PresScriptRun]
+    ; true: slideList draws the slide as the Markdown has it, whatever a
+    ; script set (the tree a script is handed, the layout report)
+    def scriptsOff:boolean false
+    ; Every block node of the document with the source it spans and the
+    ; block it is inside (-1 for the document), for what kind of thing a
+    ; box of the layout is: what `find("li")` names
+    def blkStart:[int]
+    def blkEnd:[int]
+    def blkKind:[string]
+    def blkLevel:[int]
+    def blkParent:[int]
+    def blkId:[string]
+    def blkCls:[string]
+    def blkInfo:[string]
+    ; Beside `boxOfCmd`: the part of its block each command was painted for
+    ; (an index in `slideParts`: a chart's column, a diagram's node or
+    ; line), -1 for none. A part's `parent` is the layout box it is in.
+    def partOfCmd:[int]
+    def slideParts:[PresEnt]
+    ; the tree a script is handed, by slide, made once per revision
+    def treeRev:int -1
+    def treeJson:[string]
 
     Constructor () {
+        def sr:[PresScriptRun]
+        scriptRuns = sr
+        def tj:[string]
+        treeJson = tj
         def pv:[PresPlayView]
         playViews = pv
         def hf:[string:boolean]
@@ -1046,6 +1088,9 @@ class PresDeck {
     }
 
     fn playUse@(optional):PresPlayUse (key:string) {
+        if (PresDeck.isScriptKey(key)) {
+            return (this.scriptUse(key))
+        }
         def all:[PresPlayUse] (this.playUses())
         def i:int 0
         while (i < (array_length all)) {
@@ -1146,6 +1191,14 @@ class PresDeck {
                 push out u.spec.css
             }
             i = (i + 1)
+        }
+        def si:int 0
+        while (si < (array_length slides)) {
+            def ss:PresSlide (itemAt slides si)
+            if (((strlen ss.script) > 0) && ((indexOf out ss.script) < 0)) {
+                push out ss.script
+            }
+            si = (si + 1)
         }
         return out
     }
@@ -1327,6 +1380,8 @@ class PresDeck {
         playRefused = r
         def pv:[PresPlayView]
         playViews = pv
+        def sr:[PresScriptRun]
+        scriptRuns = sr
     }
 
     ; The program whose box holds slide point (px, py) on slide i, "" none.
@@ -1476,6 +1531,9 @@ class PresDeck {
             }
             i = (i + 1)
         }
+        for (this.scriptNotes()) sn:string sni {
+            push out sn
+        }
         def vi:int 0
         while (vi < (array_length all)) {
             def u3:PresPlayUse (itemAt all vi)
@@ -1494,6 +1552,790 @@ class PresDeck {
             r = (r + 1)
         }
         return out
+    }
+
+    ; ------------------------------------------------------------------
+    ; Slide scripts (`{script=apps/fx.tsx}` on a heading, PresScript)
+    ; ------------------------------------------------------------------
+
+    ; Slide i's script key, "script:<file>#<n>" (the n-th slide with that
+    ; file), "" for a slide without one.
+    fn scriptKeyOf:string (i:int) {
+        def s:PresSlide (itemAt slides i)
+        if ((strlen s.script) == 0) {
+            return ""
+        }
+        def same:int 1
+        def k:int 0
+        while (k < i) {
+            def o:PresSlide (itemAt slides k)
+            if (o.script == s.script) {
+                same = (same + 1)
+            }
+            k = (k + 1)
+        }
+        return ("script:" + s.script + "#" + (to_string same))
+    }
+
+    sfn isScriptKey:boolean (key:string) {
+        return ((indexOf key "script:") == 0)
+    }
+
+    ; The slide of a script key, -1 for none.
+    fn scriptPage:int (key:string) {
+        if ((PresDeck.isScriptKey(key)) == false) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length slides)) {
+            if ((this.scriptKeyOf(i)) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn scriptRun@(optional):PresScriptRun (key:string) {
+        def i:int 0
+        while (i < (array_length scriptRuns)) {
+            def r:PresScriptRun (itemAt scriptRuns i)
+            if (r.key == key) {
+                def hit@(optional):PresScriptRun r
+                return hit
+            }
+            i = (i + 1)
+        }
+        def none@(optional):PresScriptRun
+        return none
+    }
+
+    ; Every slide's script, in slide order: the runs of those still in the
+    ; deck kept (a keystroke does not start one over), new ones made.
+    fn keepScripts:void () {
+        def keep:[PresScriptRun]
+        def i:int 0
+        while (i < (array_length slides)) {
+            def key:string (this.scriptKeyOf(i))
+            if ((strlen key) > 0) {
+                def had@(optional):PresScriptRun (this.scriptRun(key))
+                def r:PresScriptRun (new PresScriptRun())
+                if (!null? had) {
+                    r = (unwrap had)
+                }
+                def s:PresSlide (itemAt slides i)
+                r.key = key
+                r.src = s.script
+                r.page = i
+                s.scriptBuilds = r.ownsBuild
+                push keep r
+            }
+            i = (i + 1)
+        }
+        scriptRuns = keep
+    }
+
+    ; A script as the programs' host sees one (web/apps.js, PresApp): its
+    ; slide, its file and its grants, as a program's use.
+    fn scriptUse@(optional):PresPlayUse (key:string) {
+        def pg:int (this.scriptPage(key))
+        if (pg < 0) {
+            def none@(optional):PresPlayUse
+            return none
+        }
+        def s:PresSlide (itemAt slides pg)
+        def u:PresPlayUse (new PresPlayUse())
+        u.key = key
+        u.page = pg
+        u.spec.src = s.script
+        u.spec.allow = s.scriptAllow
+        u.spec.width = pageW
+        u.spec.height = pageH
+        def hit@(optional):PresPlayUse u
+        return hit
+    }
+
+    ; A frame of script `key` ({p, a, build, click}): false when it was none.
+    fn setScriptFrame:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.live = f
+        r.hasLive = true
+        this.takeOwns(r f)
+        return true
+    }
+
+    ; Where script `key` ends, as its final() or its ticks run out say.
+    fn setScriptFinal:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.final = f
+        r.hasFinal = true
+        this.takeOwns(r f)
+        revision = (revision + 1)
+        return true
+    }
+
+    fn takeOwns:void (r:PresScriptRun f:PresScriptFrame) {
+        r.ownsClick = f.ownsClick
+        if (r.ownsBuild != f.ownsBuild) {
+            r.ownsBuild = f.ownsBuild
+            if ((r.page >= 0) && (r.page < (array_length slides))) {
+                def s:PresSlide (itemAt slides r.page)
+                s.scriptBuilds = f.ownsBuild
+            }
+            revision = (revision + 1)
+        }
+    }
+
+    ; The script left the stage (or was stopped): its slide is shown as it
+    ; ends again. `why` says why it was stopped, "" when it only left.
+    fn endScriptLive:void (key:string why:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return
+        }
+        def r:PresScriptRun (unwrap ro)
+        r.hasLive = false
+        r.live = (new PresScriptFrame())
+        r.stopped = why
+    }
+
+    ; What slide i is drawn with: the running frame on the stage, else where
+    ; the script ends; none for a slide without one, or while scriptsOff.
+    fn scriptFrameFor@(optional):PresScriptFrame (i:int) {
+        def none@(optional):PresScriptFrame
+        if scriptsOff {
+            return none
+        }
+        def key:string (this.scriptKeyOf(i))
+        if ((strlen key) == 0) {
+            return none
+        }
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return none
+        }
+        def r:PresScriptRun (unwrap ro)
+        if ((r.hasLive && showControls) && (still == false)) {
+            def lv@(optional):PresScriptFrame r.live
+            return lv
+        }
+        if r.hasFinal {
+            def fv@(optional):PresScriptFrame r.final
+            return fv
+        }
+        return none
+    }
+
+    ; The block nodes of the document (`blk*`), parents first.
+    fn readBlocks:void (doc:MdNode) {
+        def a:[int]
+        def b:[int]
+        def c:[string]
+        def d:[int]
+        def e:[int]
+        def f:[string]
+        def g:[string]
+        def h:[string]
+        blkStart = a
+        blkEnd = b
+        blkKind = c
+        blkLevel = d
+        blkParent = e
+        blkId = f
+        blkCls = g
+        blkInfo = h
+        this.blocksIn(doc -1)
+    }
+
+    sfn isBlockKind:boolean (k:string) {
+        return ((((((k == "heading") || (k == "paragraph")) || ((k == "item") || (k == "list"))) || ((k == "code_block") || (k == "blockquote"))) || ((k == "embed") || (k == "table"))) || (((k == "math_block") || (k == "html_block")) || (k == "container")))
+    }
+
+    fn blocksIn:void (n:MdNode parent:int) {
+        def me:int parent
+        if ((PresDeck.isBlockKind(n.kind)) && (n.srcStart >= 0)) {
+            push blkStart n.srcStart
+            push blkEnd n.srcEnd
+            push blkKind n.kind
+            push blkLevel n.level
+            push blkParent parent
+            push blkId n.nodeId
+            push blkCls (join n.classes " ")
+            push blkInfo n.info
+            me = ((array_length blkStart) - 1)
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            this.blocksIn((n.childAt(i)) me)
+            i = (i + 1)
+        }
+    }
+
+    ; The innermost block node at source offset `at`, -1 for none.
+    fn blockAt:int (at:int) {
+        def best:int -1
+        def i:int 0
+        while (i < (array_length blkStart)) {
+            if ((at >= (itemAt blkStart i)) && (at < (itemAt blkEnd i))) {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; What a box of the layout is part of, as a script names it: its kind,
+    ; its `{#id}` and classes, and (in `id`, for now) a key two boxes of one
+    ; block share. Kind "marker": a list's bullet, given to its item later.
+    fn boxBlock:PresEnt (b:MdBox bi:int) {
+        def e:PresEnt (PresEnt.of("text"))
+        if (b.furniture > 0) {
+            e.kind = "header"
+            if (b.furniture == 2) {
+                e.kind = "footer"
+            }
+            if (b.furniture == 3) {
+                e.kind = "note"
+            }
+            e.id = ("furniture:" + e.kind)
+            return e
+        }
+        if (b.kind == 4) {
+            e.kind = "image"
+            e.id = ("box:" + (to_string bi))
+            e.data = ((JVal.mkObj()).setStr("src" b.imagePath).toJson())
+            return e
+        }
+        def at:int (this.blockAt((PresDeck.boxSrc(b))))
+        def pick:int -1
+        def quote:int -1
+        def para:int -1
+        def list:int -1
+        def name:string ""
+        def cls:[string]
+        def k:int at
+        while (k >= 0) {
+            def kd:string (itemAt blkKind k)
+            if (pick < 0) {
+                if ((strlen name) == 0) {
+                    name = (itemAt blkId k)
+                }
+                def kc:[string] (strsplit (itemAt blkCls k) " ")
+                def ci:int 0
+                while (ci < (array_length kc)) {
+                    def cn:string (itemAt kc ci)
+                    if (((strlen cn) > 0) && ((indexOf cls cn) < 0)) {
+                        push cls cn
+                    }
+                    ci = (ci + 1)
+                }
+            }
+            if ((pick < 0) && ((((kd == "heading") || (kd == "item")) || ((kd == "embed") || (kd == "code_block"))) || (((kd == "table") || (kd == "math_block")) || (kd == "html_block")))) {
+                pick = k
+            }
+            if ((quote < 0) && (kd == "blockquote")) {
+                quote = k
+            }
+            if ((para < 0) && (kd == "paragraph")) {
+                para = k
+            }
+            if ((list < 0) && (kd == "list")) {
+                list = k
+            }
+            k = (itemAt blkParent k)
+        }
+        def use:int pick
+        if (use < 0) {
+            use = quote
+        }
+        if (use < 0) {
+            use = para
+        }
+        if (b.kind == 5) {
+            e.kind = "math"
+        } {
+            ; a bullet or number: no source text of its own, on an item's line
+            if ((list >= 0) && ((b.kind == 0) && (b.segSrc < 0))) {
+                use = -1
+            }
+            if (use < 0) {
+                if (list >= 0) {
+                    e.kind = "marker"
+                    e.id = ("list:" + (to_string list))
+                    return e
+                }
+                e.id = ("box:" + (to_string bi))
+                return e
+            }
+            def kind:string (itemAt blkKind use)
+            e.kind = "p"
+            if (kind == "heading") {
+                e.kind = ("h" + (to_string (itemAt blkLevel use)))
+            }
+            if (kind == "item") {
+                e.kind = "li"
+            }
+            if (kind == "code_block") {
+                e.kind = "code"
+            }
+            if (kind == "table") {
+                e.kind = "table"
+            }
+            if (kind == "math_block") {
+                e.kind = "math"
+            }
+            if (kind == "html_block") {
+                e.kind = "html"
+            }
+            if (kind == "blockquote") {
+                e.kind = "quote"
+            }
+            if (kind == "embed") {
+                def nt:string (MdEmbedKinds.notationOf((MdEmbedKinds.firstWord((itemAt blkInfo use)))))
+                e.kind = "diagram"
+                if (nt == "vega") {
+                    e.kind = "chart"
+                }
+                if (nt == "app") {
+                    e.kind = "app"
+                }
+                if (nt == "figure") {
+                    e.kind = "figure"
+                }
+            }
+        }
+        if (use >= 0) {
+            e.id = ("blk:" + (to_string use))
+        } {
+            e.id = ("box:" + (to_string bi))
+        }
+        e.name = name
+        e.classes = cls
+        return e
+    }
+
+    ; The block a layout box of slide i belongs to, as an index in `blocks`
+    ; (made when first met), -1 for none.
+    fn blockOfBox:int (i:int bi:int blocks:[PresEnt] seen:[string:int] l:MdLayout) {
+        def memo@(optional):int (get seen ("#" + (to_string bi)))
+        if (!null? memo) {
+            return (unwrap memo)
+        }
+        def b:MdBox (itemAt l.boxes bi)
+        def e:PresEnt (this.boxBlock(b bi))
+        def out:int -1
+        if (e.kind == "marker") {
+            ; a bullet: the item on its line
+            def best:int -1
+            def bestD:double (b.h * 0.75)
+            def mcy:double (b.y + (b.h * 0.5))
+            for (l.boxesOnPage(i)) oi:int oidx {
+                def ob:MdBox (itemAt l.boxes oi)
+                if ((oi != bi) && (ob.kind == 0)) {
+                    def oe:PresEnt (this.boxBlock(ob oi))
+                    if (oe.kind == "li") {
+                        def dd:double (fabs ((ob.y + (ob.h * 0.5)) - mcy))
+                        if (dd < bestD) {
+                            bestD = dd
+                            best = oi
+                        }
+                    }
+                }
+            }
+            if (best >= 0) {
+                out = (this.blockOfBox(i best blocks seen l))
+            }
+        } {
+            def had@(optional):int (get seen e.id)
+            if (!null? had) {
+                out = (unwrap had)
+            } {
+                push blocks e
+                out = ((array_length blocks) - 1)
+                set seen e.id out
+            }
+        }
+        set seen ("#" + (to_string bi)) out
+        return out
+    }
+
+    ; The entities of slide i's list `list` as slideList just drew it
+    ; (`boxOfCmd`, `partOfCmd` and `slideParts` are that list's).
+    fn sceneOfList:PresScene (i:int list:EVGDisplayList) {
+        def l:MdLayout (this.layout())
+        def blocks:[PresEnt]
+        def seen:[string:int]
+        def blockOfCmd:[int]
+        def n:int (array_length list.cmds)
+        def k:int 0
+        while (k < n) {
+            def bi:int -1
+            if (k < (array_length boxOfCmd)) {
+                bi = (itemAt boxOfCmd k)
+            }
+            if (bi >= 0) {
+                push blockOfCmd (this.blockOfBox(i bi blocks seen l))
+            } {
+                push blockOfCmd -1
+            }
+            k = (k + 1)
+        }
+        ; the parts the painters marked (a chart's bars, a diagram's nodes);
+        ; each command's part, -1 for none
+        def parts:[PresEnt]
+        def pi:int 0
+        while (pi < (array_length slideParts)) {
+            def pe:PresEnt (itemAt slideParts pi)
+            if (pe.ofBox >= 0) {
+                pe.parent = (this.blockOfBox(i pe.ofBox blocks seen l))
+            }
+            push parts pe
+            pi = (pi + 1)
+        }
+        def partOf:[int]
+        def bulletOf:[string:int]
+        def q:int 0
+        while (q < n) {
+            def pq:int -1
+            if (q < (array_length partOfCmd)) {
+                pq = (itemAt partOfCmd q)
+            }
+            ; an item's bullet or number: a part of the item, not its text
+            def qb:int -1
+            if (q < (array_length boxOfCmd)) {
+                qb = (itemAt boxOfCmd q)
+            }
+            if ((pq < 0) && (qb >= 0)) {
+                def mb:MdBox (itemAt l.boxes qb)
+                def me:PresEnt (this.boxBlock(mb qb))
+                if (me.kind == "marker") {
+                    def had@(optional):int (get bulletOf (to_string qb))
+                    if (!null? had) {
+                        pq = (unwrap had)
+                    } {
+                        push parts (PresEnt.of("marker"))
+                        pq = ((array_length parts) - 1)
+                        set bulletOf (to_string qb) pq
+                    }
+                }
+            }
+            push partOf pq
+            q = (q + 1)
+        }
+        return (PresScene.build(list blockOfCmd blocks partOf parts l.engine pageW pageH))
+    }
+
+    ; The tree script `key` is handed: its slide as the Markdown has it,
+    ; everything arrived, as JSON (PresScene.toJson). "" for no such script.
+    fn scriptTree:string (key:string) {
+        def pg:int (this.scriptPage(key))
+        if (pg < 0) {
+            return ""
+        }
+        if (treeRev != revision) {
+            def tj:[string]
+            treeJson = tj
+            def ti:int 0
+            while (ti < (array_length slides)) {
+                push treeJson ""
+                ti = (ti + 1)
+            }
+            treeRev = revision
+        }
+        if ((strlen (itemAt treeJson pg)) == 0) {
+            def sc:PresScene (this.sceneOfSlide(pg))
+            set_at treeJson pg (sc.toJson())
+        }
+        return (itemAt treeJson pg)
+    }
+
+    ; Slide i's entities as the Markdown lays them out, everything arrived
+    ; and still (no camera, no controls): the tree a script is handed, and
+    ; what get_display_list reads.
+    def sceneRev:int -1
+    def scenePage:int -1
+    def sceneHeld:PresScene (new PresScene())
+
+    fn sceneOfSlide:PresScene (i:int) {
+        if ((sceneRev == revision) && (scenePage == i)) {
+            return sceneHeld
+        }
+        def wasOff:boolean scriptsOff
+        def wasStill:boolean still
+        def wasControls:boolean showControls
+        scriptsOff = true
+        still = true
+        showControls = false
+        def s:PresSlide (itemAt slides i)
+        def g:[int]
+        def dl:EVGDisplayList (this.slideList(i g s.duration))
+        def sc:PresScene (this.sceneOfList(i dl))
+        scriptsOff = wasOff
+        still = wasStill
+        showControls = wasControls
+        sceneRev = revision
+        scenePage = i
+        sceneHeld = sc
+        return sc
+    }
+
+    ; The ids a selector names on slide i as the Markdown lays it out:
+    ; what a script's find() would give (PresSel), for an assistant and the
+    ; tests.
+    fn findOnSlide:[string] (i:int sel:string) {
+        def out:[string]
+        if ((i < 0) || (i >= (array_length slides))) {
+            return out
+        }
+        def sc:PresScene (this.sceneOfSlide(i))
+        for (PresSel.findIn(sc sel)) at:int ai {
+            def fe:PresEnt (sc.at(at))
+            push out fe.id
+        }
+        return out
+    }
+
+    ; The entity of slide i under slide point (px, py): the smallest whose
+    ; box holds it, not a letter; "" for none.
+    fn scriptEntityAt:string (i:int px:double py:double) {
+        def sc:PresScene (this.sceneOfSlide(i))
+        def best:string ""
+        def bestA:double 1000000000.0
+        def k:int 1
+        while (k < (sc.count())) {
+            def e:PresEnt (sc.at(k))
+            if ((e.kind != "char") && ((((px >= e.x) && (px <= (e.x + e.w))) && (py >= e.y)) && (py <= (e.y + e.h)))) {
+                def a:double (e.w * e.h)
+                if (a < bestA) {
+                    bestA = a
+                    best = e.id
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    ; What the slides' scripts got wrong: a file the deck does not have,
+    ; selectors in their find() calls that name nothing on their slide,
+    ; and why the page stopped one.
+    def scriptNotesRev:int -1
+    def scriptNotesHad:[string]
+
+    fn scriptNotes:[string] () {
+        if (scriptNotesRev == revision) {
+            return scriptNotesHad
+        }
+        def out:[string]
+        def i:int 0
+        while (i < (array_length scriptRuns)) {
+            def r:PresScriptRun (itemAt scriptRuns i)
+            def at:string ("Slide " + (to_string (r.page + 1)) + ": script " + r.src)
+            if ((indexOf dataMissing (MdVegaRender.resolveUrl(r.src))) >= 0) {
+                push out (at + ": no file " + r.src + " in this presentation")
+            } {
+                if (this.hasDataText(r.src)) {
+                    def sc:PresScene (this.sceneOfSlide(r.page))
+                    def miss:[string] (PresScriptCheck.misses((this.dataText(r.src)) sc))
+                    def m:int 0
+                    while (m < (array_length miss)) {
+                        push out (at + ": " + (itemAt miss m))
+                        m = (m + 1)
+                    }
+                }
+            }
+            if ((strlen r.stopped) > 0) {
+                push out (at + ": " + r.stopped)
+            }
+            i = (i + 1)
+        }
+        scriptNotesHad = out
+        scriptNotesRev = revision
+        return out
+    }
+
+    ; Where a chart's columns are and what drew them: the commands from
+    ; `before` on (the chart as drawn, then dressed) given to the columns
+    ; `bars` (as the markdown module drew them, before the dressing), each
+    ; label to the column it names, the rest of the words and the data's
+    ; lines as parts of their own. `bi` is the chart's layout box.
+    fn chartParts:void (out:EVGDisplayList before:int bars:[EVGDrawCmd] bi:int) {
+        def base:int (array_length slideParts)
+        def labels:[string]
+        def values:[string]
+        def j:int 0
+        while (j < (array_length bars)) {
+            def e:PresEnt (PresEnt.of("bar"))
+            e.ofBox = bi
+            push slideParts e
+            push labels ""
+            push values ""
+            j = (j + 1)
+        }
+        while ((array_length partOfCmd) < before) {
+            push partOfCmd -1
+        }
+        def k:int before
+        while (k < (array_length out.cmds)) {
+            def c:EVGDrawCmd (itemAt out.cmds k)
+            def part:int -1
+            if (c.kind == 3) {
+                def lb:int (PresChart.labelBar(c bars))
+                if (lb >= 0) {
+                    part = (base + lb)
+                    set_at values lb (trim c.text)
+                } {
+                    ; a category's name under its column
+                    def cx:double (c.x + (c.w * 0.5))
+                    def b2:int 0
+                    while (b2 < (array_length bars)) {
+                        def bb:EVGDrawCmd (itemAt bars b2)
+                        if ((((cx >= bb.x) && (cx <= (bb.x + bb.w))) && (c.y >= ((bb.y + bb.h) - 2.0))) && (c.y <= ((bb.y + bb.h) + 40.0))) {
+                            if ((strlen (itemAt labels b2)) == 0) {
+                                set_at labels b2 (trim c.text)
+                            }
+                        }
+                        b2 = (b2 + 1)
+                    }
+                    def le:PresEnt (PresEnt.of("label"))
+                    le.ofBox = bi
+                    push slideParts le
+                    part = ((array_length slideParts) - 1)
+                }
+            } {
+                if ((c.kind == 7) && (PresChart.isDataLine(c))) {
+                    def ln:PresEnt (PresEnt.of("line"))
+                    ln.ofBox = bi
+                    push slideParts ln
+                    part = ((array_length slideParts) - 1)
+                } {
+                    if ((c.kind != 4) && (c.kind != 5)) {
+                        def bx:[double] (PresScene.boundsOf(c))
+                        def b3:int 0
+                        while ((b3 < (array_length bars)) && (part < 0)) {
+                            def cb:EVGDrawCmd (itemAt bars b3)
+                            if ((((itemAt bx 0) >= (cb.x - 3.0)) && (((itemAt bx 0) + (itemAt bx 2)) <= ((cb.x + cb.w) + 3.0))) && ((((itemAt bx 1) + (itemAt bx 3)) >= (cb.y - 12.0)) && ((itemAt bx 1) <= ((cb.y + cb.h) + 3.0)))) {
+                                part = (base + b3)
+                            }
+                            b3 = (b3 + 1)
+                        }
+                    }
+                }
+            }
+            push partOfCmd part
+            k = (k + 1)
+        }
+        def d:int 0
+        while (d < (array_length bars)) {
+            def o:JVal (JVal.mkObj())
+            if ((strlen (itemAt labels d)) > 0) {
+                o.setStr("label" (itemAt labels d))
+            }
+            if ((strlen (itemAt values d)) > 0) {
+                o.setStr("value" (itemAt values d))
+            }
+            def be:PresEnt (itemAt slideParts (base + d))
+            be.data = (o.toJson())
+            if ((strlen (itemAt labels d)) > 0) {
+                be.text = (itemAt labels d)
+            }
+            d = (d + 1)
+        }
+    }
+
+    ; A diagram's nodes and lines as parts (PresDiagram.partTags): each
+    ; node by its id and label, each line by its ends. `bi` is its box.
+    fn diagramParts:void (out:EVGDisplayList d:PresDiagram bi:int) {
+        while ((array_length partOfCmd) < d.partFrom) {
+            push partOfCmd -1
+        }
+        def tags:[string]
+        def at:[int]
+        def k:int 0
+        while ((k < (array_length d.partTags)) && ((d.partFrom + k) < (array_length out.cmds))) {
+            def tag:string (itemAt d.partTags k)
+            def part:int -1
+            if ((strlen tag) > 0) {
+                def seen:int (indexOf tags tag)
+                if (seen >= 0) {
+                    part = (itemAt at seen)
+                } {
+                    def e:PresEnt (PresEnt.of("node"))
+                    e.ofBox = bi
+                    def name:string (substring tag 5 (strlen tag))
+                    def label:string ""
+                    if ((indexOf tag "node:") == 0) {
+                        e.name = name
+                        def ni:int 0
+                        while (ni < (array_length d.nodes)) {
+                            def nd:PresDNode (itemAt d.nodes ni)
+                            if (nd.id == name) {
+                                def ii:int 0
+                                while (ii < (array_length nd.items)) {
+                                    def it:SceneItem (itemAt nd.items ii)
+                                    if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                                        label = (trim (label + " " + it.text))
+                                    }
+                                    ii = (ii + 1)
+                                }
+                            }
+                            ni = (ni + 1)
+                        }
+                    } {
+                        e.kind = "edge"
+                        def ei:int 0
+                        while (ei < (array_length d.edges)) {
+                            def ed:PresDEdge (itemAt d.edges ei)
+                            if (ed.id == name) {
+                                if ((ed.from >= 0) && (ed.from < (array_length d.nodes))) {
+                                    def fn0:PresDNode (itemAt d.nodes ed.from)
+                                    e.from = fn0.id
+                                }
+                                if ((ed.to >= 0) && (ed.to < (array_length d.nodes))) {
+                                    def tn0:PresDNode (itemAt d.nodes ed.to)
+                                    e.to = tn0.id
+                                }
+                                def li:int 0
+                                while (li < (array_length ed.labels)) {
+                                    def lt:SceneItem (itemAt ed.labels li)
+                                    if ((lt.kind == 1) && ((strlen lt.text) > 0)) {
+                                        label = (trim (label + " " + lt.text))
+                                    }
+                                    li = (li + 1)
+                                }
+                            }
+                            ei = (ei + 1)
+                        }
+                    }
+                    e.text = label
+                    if ((strlen label) > 0) {
+                        e.data = ((JVal.mkObj()).setStr("label" label).toJson())
+                    }
+                    push slideParts e
+                    part = ((array_length slideParts) - 1)
+                    push tags tag
+                    push at part
+                }
+            }
+            push partOfCmd part
+            k = (k + 1)
+        }
     }
 
     ; The chart fences in a block, nested ones too (a chart inside a `:::`).
@@ -3675,6 +4517,8 @@ class PresDeck {
         this.readSketches(l)
         this.keepPlays()
         this.readTags(doc)
+        this.readBlocks(doc)
+        this.keepScripts()
         ; The notes and the audio go to the slide the block sits under.
         def k:int 0
         while (k < (array_length src.blocks)) {
@@ -3723,6 +4567,27 @@ class PresDeck {
     fn readHeading:void (s:PresSlide h:MdNode) {
         s.id = h.nodeId
         s.meta = (MdSlideMeta.of(h))
+        if (h.hasAttr("script")) {
+            s.script = (trim (h.attrValue("script")))
+        }
+        if (h.hasAttr("allow")) {
+            def words:[string] (strsplit (MdApp.replaceAll((h.attrValue("allow")) "," " ")) " ")
+            def wi:int 0
+            while (wi < (array_length words)) {
+                def wd:string (trim (itemAt words wi))
+                if ((strlen wd) > 0) {
+                    push s.scriptAllow wd
+                }
+                wi = (wi + 1)
+            }
+        }
+        if (h.hasAttr("export-frame")) {
+            def ef:string (trim (h.attrValue("export-frame")))
+            if (((strlen ef) > 1) && ((substring ef ((strlen ef) - 1) (strlen ef)) == "s")) {
+                ef = (substring ef 0 ((strlen ef) - 1))
+            }
+            s.exportFrame = (PresDeck.num(ef -1.0))
+        }
         if (h.hasAttr("transition")) {
             s.transition = (h.attrValue("transition"))
         }
@@ -3931,6 +4796,10 @@ class PresDeck {
     fn slideList:EVGDisplayList (i:int groupOfCmd:[int] t:double) {
         def owners:[int]
         boxOfCmd = owners
+        def parts0:[int]
+        partOfCmd = parts0
+        def sp0:[PresEnt]
+        slideParts = sp0
         def l:MdLayout (this.layout())
         def s:PresSlide (itemAt slides i)
         def out:EVGDisplayList (new EVGDisplayList())
@@ -4025,6 +4894,9 @@ class PresDeck {
             while ((array_length boxOfCmd) < (array_length out.cmds)) {
                 push boxOfCmd -1
             }
+            while ((array_length partOfCmd) < (array_length out.cmds)) {
+                push partOfCmd -1
+            }
             def cmdFrom:int (array_length out.cmds)
             def use:int -1
             if (kb.kind == 3) {
@@ -4067,6 +4939,8 @@ class PresDeck {
                         dia.diagram.canFull = (dia.diagram.full.open || (PresDiaFull.worth(was grown)))
                     }
                 }
+                def dBefore:int (array_length out.cmds)
+                dia.diagram.partFrom = -1
                 if still {
                     dia.diagram.paintStill(out (itemAt span 0) kb.y (itemAt span 1) room l.style.textColor paper l)
                 } {
@@ -4074,6 +4948,9 @@ class PresDeck {
                     if ((dia.diagram.full.shown(uiNow)) == false) {
                         dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
                     }
+                }
+                if (((strlen s.script) > 0) && (dia.diagram.partFrom >= dBefore)) {
+                    this.diagramParts(out dia.diagram (itemAt mineAt k))
                 }
             } {
                 def sa@(optional):PresSmartArtUse (this.smartArtOf(s kb))
@@ -4093,9 +4970,35 @@ class PresDeck {
                     painter.paintBox(out l kb 0.0)
                 }
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
+                    ; the columns as drawn, before a dressing makes them
+                    ; something else: what a script finds as `bar`
+                    def raw:[EVGDrawCmd]
+                    if ((strlen s.script) > 0) {
+                        def tail:[EVGDrawCmd]
+                        def ti:int before
+                        while (ti < (array_length out.cmds)) {
+                            push tail (itemAt out.cmds ti)
+                            ti = (ti + 1)
+                        }
+                        def cols:[EVGDrawCmd] (PresChart.columnsIn(tail (PresChart.rampStripes(tail)) kb.embedSource))
+                        def ci:int 0
+                        while (ci < (array_length cols)) {
+                            def col:EVGDrawCmd (itemAt cols ci)
+                            def r0:EVGDrawCmd (new EVGDrawCmd())
+                            r0.x = col.x
+                            r0.y = col.y
+                            r0.w = col.w
+                            r0.h = col.h
+                            push raw r0
+                            ci = (ci + 1)
+                        }
+                    }
                     this.dressChart(out before (t - (this.chartStart(s kb.embedSource))) still kb.embedSource i)
                     if still {
                         PresChart.flatten(out before paper)
+                    }
+                    if ((strlen s.script) > 0) {
+                        this.chartParts(out before raw (itemAt mineAt k))
                     }
                 }
                 }
@@ -4114,6 +5017,9 @@ class PresDeck {
             ; the commands just painted are this box's
             while ((array_length boxOfCmd) < (array_length out.cmds)) {
                 push boxOfCmd (itemAt mineAt k)
+            }
+            while ((array_length partOfCmd) < (array_length out.cmds)) {
+                push partOfCmd -1
             }
             k = (k + 1)
         }
@@ -4153,6 +5059,21 @@ class PresDeck {
             push boxOfCmd -1
         }
         this.clockParams(out s t)
+        while ((array_length partOfCmd) < (array_length out.cmds)) {
+            push partOfCmd -1
+        }
+        ; the slide's script: what it set laid over what was drawn
+        def sfo@(optional):PresScriptFrame (this.scriptFrameFor(i))
+        if (!null? sfo) {
+            def sf:PresScriptFrame (unwrap sfo)
+            if ((sf.count()) > 0) {
+                def sc:PresScene (this.sceneOfList(i out))
+                PresScriptApply.apply(out sc sf groupOfCmd boxOfCmd l.engine l.style.textColor (this.themeColour("chart" "accent-color")))
+                while ((array_length partOfCmd) < (array_length out.cmds)) {
+                    push partOfCmd -1
+                }
+            }
+        }
         return out
     }
 

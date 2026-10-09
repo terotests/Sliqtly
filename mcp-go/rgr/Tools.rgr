@@ -332,6 +332,12 @@ class Tools {
         rsp.put("fx" (Tools.prop("boolean" "false: leave the effects out (their fallback colour shows); default true")))
         tools.add((Tools.tool("render_slide" "Look at a slide" "A picture of one slide of a Sliqtly presentation (JPEG, 960×540 for a 16:9 slide) as the player draws it at the end of its animations, with the slide's layout report. The deck's own effects (```fx, a theme's @effect) are drawn, at their still or at `time`; built-in effects are not. Use it when the layout report on create/update looks suspect (small text, overlaps, empty space, crowded chart labels) and to check charts, diagrams and tables, whose look the report only measures." (Tools.schema(rsp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 true false)) eitherMeta)))
 
+        def dlp:MfJ (MfJ.newObj())
+        dlp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        dlp.put("slide" slideP)
+        dlp.put("selector" (Tools.prop("string" "Optional: a selector as a slide's script gives find() (li:2, chart:1 bar, diagram node#B, edge A->B, h2 word); the ids it finds on the slide")))
+        tools.add((Tools.tool("get_display_list" "List a slide's entities" "What a slide's script (heading {script=apps/x.tsx}, sliqtly_guide topic=scripts) can find on one slide: each heading, paragraph, item, word, chart bar and label, diagram node and edge, with its id, kind, text and box in slide px, as the slide is laid out before the script runs. With selector: the ids that selector finds there." (Tools.schema(dlp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 false false)) eitherMeta)))
+
         def rop:MfJ (MfJ.newObj())
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
@@ -1463,6 +1469,9 @@ class Tools {
         }
         if (name == "render_overview") {
             r = (Tools.render(host caller args true))
+        }
+        if (name == "get_display_list") {
+            r = (Tools.displayList(host caller args))
         }
         if (name == "read_file") {
             r = (Tools.readFile(host caller args))
@@ -3226,34 +3235,9 @@ class Tools {
     }
 
     ; the slide a `slide` argument names: a number from 1, or a title; -1
-    ; when there is no such slide
+    ; when there is no such slide (Check.slideIndex)
     sfn slideIndex:int (a:MfJ titles:[string]) {
-        def v:MfJ (a.field("slide"))
-        if (v.kind == 2) {
-            def n:int ((a.int_("slide" 0)) - 1)
-            if ((n >= 0) && (n < (array_length titles))) {
-                return n
-            }
-            return -1
-        }
-        if (v.kind == 3) {
-            def want:string (to_lowercase (trim v.str))
-            def num:int (?? (str2int want) 0)
-            if ((num >= 1) && (num <= (array_length titles))) {
-                return (num - 1)
-            }
-            for titles t:string i {
-                if ((to_lowercase (trim t)) == want) {
-                    return i
-                }
-            }
-            for titles t2:string i2 {
-                if (((strlen want) > 0) && ((indexOf (to_lowercase t2) want) >= 0)) {
-                    return i2
-                }
-            }
-        }
-        return -1
+        return (Check.slideIndex(a titles))
     }
 
     ; read_github_pr: the PR, its files and commits from GitHub's REST API,
@@ -3607,6 +3591,95 @@ class Tools {
             return "presentation"
         }
         return out
+    }
+
+    ; get_display_list: what a slide's script finds on its slide
+    sfn displayList:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def tool:string "get_display_list"
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured)."))
+        }
+        if ((a.kind != 5) || ((a.field("deck_id")).kind == 0)) {
+            return (Tools.fail("Invalid arguments: deck_id is required."))
+        }
+        if ((a.field("slide")).kind == 0) {
+            return (Tools.fail("Invalid arguments: slide is required."))
+        }
+        def sel:MfJ (a.field("selector"))
+        if ((sel.kind != 0) && (sel.kind != 3)) {
+            return (Tools.fail("Invalid arguments: selector is a string."))
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (Tools.fail("deck_id is the 10-character id in the share link."))
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def hid:string (Tools.hiddenFrom(caller d id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((strlen hid) > 0) {
+            return (Tools.fail(hid))
+        }
+        def md:string (d.str_("md"))
+        def stored:[string]
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.sceneOf = a
+        if (sel.kind == 3) {
+            din.sceneSel = (trim sel.str)
+        }
+        def css:MfJ (d.field("css"))
+        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        def at:int ck.scene
+        if (at < 0) {
+            return (Tools.fail(("No slide " + (JOut.text((a.field("slide")))) + ": the presentation has " + (to_string ck.slides) + " slides.")))
+        }
+        if ((strlen ck.sceneJson) == 0) {
+            return (Tools.fail("The presentation's slides could not be laid out (or its theme could not be read)."))
+        }
+        def lines:[string]
+        def title:string (itemAt ck.titles at)
+        def head:string ("Slide " + (to_string (at + 1)))
+        if ((strlen title) > 0) {
+            head = (head + " \"" + title + "\"")
+        }
+        push lines (head + ", " + (to_string ck.width) + "×" + (to_string ck.height) + " px. Each line: id, kind, \"text\", box x,y w×h; indented under what holds it. Words and letters are left out (find(\"h2 word\"), find(\"p char\") finds them).")
+        for ck.sceneLines sl:string sli {
+            push lines sl
+        }
+        def out:MfJ (MfJ.newObj())
+        out.put("entities" (J.parse(ck.sceneJson)))
+        if (sel.kind == 3) {
+            if ((strlen ck.sceneSelError) > 0) {
+                push lines ("find(\"" + din.sceneSel + "\"): " + ck.sceneSelError)
+            } {
+                push lines ("find(\"" + din.sceneSel + "\") → " + (to_string (array_length ck.sceneFound)) + " entities" + (? ((array_length ck.sceneFound) > 0) (": " + (join ck.sceneFound ", ")) ""))
+            }
+            out.put("found" (J.strs(ck.sceneFound)))
+        }
+        def content:MfJ (MfJ.newArr())
+        def tc:MfJ (MfJ.newObj())
+        tc.putStr("type" "text")
+        tc.putStr("text" (join lines "\n"))
+        content.add(tc)
+        def r:MfJ (MfJ.newObj())
+        r.put("content" content)
+        r.put("structuredContent" out)
+        return r
     }
 
     sfn render:MfJ (host:McpHost caller:Caller a:MfJ all:boolean) {

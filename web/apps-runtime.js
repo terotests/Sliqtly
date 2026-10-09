@@ -52,9 +52,7 @@ var machine = {
   state: "",
   send: function (event, data) { __asks.push({ k: "machine.send", event: String(event), data: data === undefined ? null : data }); }
 };
-function __deckFrame(arg) {
-  var a = JSON.parse(arg);
-  var d = a.deck || {};
+function __deckState(d) {
   deck.data = d.data || {};
   slide.number = d.slide || 1;
   slide.count = d.slides || 1;
@@ -62,6 +60,10 @@ function __deckFrame(arg) {
   slide.step = d.step || 0;
   slide.presenting = d.mode === "present";
   slide.focused = !!d.focused;
+}
+function __deckFrame(arg) {
+  var a = JSON.parse(arg);
+  __deckState(a.deck || {});
   __asks = [];
   var tree = __frame(arg);
   // JSON holds no raw line break: the page splits at the last one

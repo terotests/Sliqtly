@@ -106,6 +106,7 @@ by default. Readability comes first.
 | `css` | colours, fonts, spacing; selectors and properties |
 | `data` | Excel / CSV / JSON files, `table` and `sheet` blocks |
 | `apps` | a program or game running on a slide (`app` blocks, TSX + CSS) |
+| `scripts` | a program that moves the slide's own text, chart bars and diagram nodes (`{script=…}`) |
 | `editing` | `edits`, another assistant on the same deck, review comments, the layout report |
 | `export` | PDF, PPTX, DOCX, HTML, print pages with bleed |
 | `limits` | quotas, sign-in, privacy, deleting decks |
@@ -1014,6 +1015,73 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   3)`, or what it threw), and warns about a missing program file, rules of
   its stylesheet that are not taken, and lines of the block it did not
   understand.
+
+<!-- topic: scripts -->
+# Topic: scripts
+
+A slide's script moves and changes what the slide itself shows: its
+headings, items, words and letters, a chart's bars, a diagram's nodes and
+arrows. Name it on the slide's heading; one script a slide:
+
+````markdown
+## Sales grow {script=apps/fx.tsx}
+````
+
+- Send the file with `files`, as text (`{ "name": "fx.tsx", "text": "…" }`),
+  kept as `apps/<name>`. The language is the one `app` blocks run (topic
+  `apps`). It draws nothing of its own besides `add()`; it sets properties.
+- `find(selector)` gives the slide's entities, `tree()` the slide. The
+  selectors: a kind (`h2`, `p`, `li`, `quote`, `code`, `table`, `image`,
+  `chart`, `diagram`, `app`, `word`, `char`, `marker`, `bar`, `label`,
+  `line`, `node`, `edge`), `#id` (the `{#id}` of a block, a node's id),
+  `.class`, `:n` (the n:th of its kind under the same parent, 1 = first),
+  `*`, a space for "inside", and `edge B->D`. For example `li:2`,
+  `chart:1 bar`, `diagram node#B`, `edge A->B`, `h2 word`, `p.key char`.
+- An entity has `id`, `kind`, `text`, `box` (`{x, y, w, h}` in slide px),
+  `data` (a bar's `{label, value}`), `index`, `parent`, `children`, and
+  `set({…})`, `get(name)`, `reset()`, `remove()`, `clone({…})`,
+  `find(selector)` inside it. A list from `find()` has `set`, `reset`,
+  `remove`, `each(fn)` and `first()`.
+- Properties: `x`, `y` (where its box goes), `scale`, `rotate` (degrees),
+  `skew`, `origin` (`"left top"`, `"bottom"`, or `[0.5, 1]` as parts of
+  its box; the centre when left out),
+  `opacity`, `visible`, `color`, `fill`, `stroke`, `z` (drawn above
+  others), `clip` (`{x, y, w, h, r}` or `{circle: [cx, cy, r]}`).
+- `add("rect" | "circle" | "text" | "image", {x, y, w, h, text, size, src,
+  fill, color, …})` puts a shape on the slide, in the theme's colours
+  unless it names its own.
+- Hooks: `start()`, `tick(dt)` each frame, `build(n)` (the slide's build
+  step; with it the slide's own build animation is left out),
+  `onKeyDown(key)`, `onKeyUp(key)`, `onClick(entity)` (while presenting),
+  `final()`. `input.pointer`, `input.keys`, `env.reducedMotion`,
+  `env.export`.
+- Example:
+
+  ```tsx
+  let t = 0;
+  function tick(dt) {
+    t += dt;
+    find("chart:1 bar").each((b, i) =>
+      b.set({ scale: Math.min(1, Math.max(0, t - i * 0.3)), origin: "bottom" }));
+    find("li").each((e, i) => e.set({ opacity: Math.min(1, t - i * 0.5) }));
+  }
+  ```
+
+- `allow:` on the heading, as for `app` blocks: `slide.nav`
+  (`slide.next()`, `slide.prev()`), `deck.data` (`deck.set`). Without it
+  the script only changes its own slide's look.
+- It runs in the editor while its slide is on the stage, and is reset when
+  the slide is left. A frame over about 4 ms three times in a row stops it,
+  and the slide is shown as it ends.
+- Thumbnails and PDF show where the script ends: `final()`, else its ticks
+  run for `export-frame` (`{script=apps/fx.tsx export-frame=3.5s}`), else
+  the slide's duration (at most 20 s). render_slide, PPTX, Word and the
+  public viewer show the slide as the Markdown has it. Nothing a script
+  does changes the Markdown.
+- `get_display_list(deck_id, slide)` lists the slide's entities with their
+  ids and boxes, and `selector` tries a selector on it. The result of
+  create/update warns when a selector in a script finds nothing on its
+  slide (`find("chart:2 bar") → 0 entities`).
 
 <!-- topic: editing -->
 # Topic: editing

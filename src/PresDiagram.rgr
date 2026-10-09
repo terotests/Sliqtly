@@ -4390,6 +4390,34 @@ class PresDiagram {
     ; Into `out`, inside the box (bx, by, bw, bh) the layout gave the fence,
     ; at `t` seconds after the diagram started. `ink` is the slide's text
     ; colour and `paper` its ground.
+    ; What each command of the last paint was drawn for, beside the
+    ; commands from `partFrom` on: "node:<id>", "edge:<id>", "" for the
+    ; rest. A slide script finds a node or a line by it (PresScript).
+    def partTags:[string]
+    def partFrom:int 0
+
+    fn partMark:void (out:EVGDisplayList tag:string) {
+        while ((array_length partTags) < (array_length out.cmds)) {
+            push partTags tag
+        }
+    }
+
+    ; A scene item's tag as a part: a class's member rows are its node's.
+    fn partTagOf:string (tag:string) {
+        if (((strlen tag) > 4) && ((substring tag 0 4) == "row:")) {
+            def rest:string (substring tag 4 (strlen tag))
+            def cut:int (indexOf rest ":")
+            if (cut > 0) {
+                rest = (substring rest 0 cut)
+            }
+            return ("node:" + rest)
+        }
+        if (((indexOf tag "node:") == 0) || ((indexOf tag "edge:") == 0)) {
+            return tag
+        }
+        return ""
+    }
+
     fn paint:void (out:EVGDisplayList bx:double by:double bw:double bh:double t:double ink:string paper:string l:MdLayout) {
         if (! ok) {
             return
@@ -4412,6 +4440,8 @@ class PresDiagram {
         def dy:double ((by + (bh * 0.5)) - (camY * sc))
         def inkC:EVGColor (EVGColor.parse(ink))
         def world (new EVGDisplayList())
+        def pt:[string]
+        partTags = pt
         if (style == "classic") {
             this.paintClassic(world l)
         }
@@ -4451,6 +4481,8 @@ class PresDiagram {
         clip.w = bw
         clip.h = bh
         push out.cmds clip
+        this.partMark(world "")
+        partFrom = (array_length out.cmds)
         def i:int 0
         while (i < (array_length world.cmds)) {
             def c:EVGDrawCmd (itemAt world.cmds i)
@@ -4551,11 +4583,22 @@ class PresDiagram {
             }
             i = (i + 1)
         }
-        shapes.emitInto(out)
+        ; one item at a time, so each command knows its node or line
+        this.partMark(out "")
+        def si:int 0
+        while (si < (array_length shapes.items)) {
+            def one (new FlowScene)
+            def sit:SceneItem (itemAt shapes.items si)
+            push one.items sit
+            one.emitInto(out)
+            this.partMark(out (this.partTagOf(sit.tag)))
+            si = (si + 1)
+        }
         def k:int 0
         while (k < (array_length texts)) {
             def tx:SceneItem (itemAt texts k)
             this.textOf(out tx (EVGColor.parse(tx.fill)) tx.opacity l)
+            this.partMark(out (this.partTagOf(tx.tag)))
             k = (k + 1)
         }
     }
@@ -5479,6 +5522,7 @@ class PresDiagram {
     fn paintEdges:void (out:EVGDisplayList t:double ink:EVGColor paper:string boil:double l:MdLayout) {
         def paperC:EVGColor (EVGColor.parse(paper))
         def i:int 0
+        this.partMark(out "")
         while (i < (array_length edges)) {
             def e:PresDEdge (itemAt edges i)
             if (((array_length e.line) >= 4) && (t >= e.at)) {
@@ -5526,8 +5570,10 @@ class PresDiagram {
                     }
                 }
             }
+            this.partMark(out ("edge:" + e.id))
             i = (i + 1)
         }
+        this.partMark(out "")
     }
 
     ; A drawn arrowhead: two strokes from the tip, not a stamped triangle;
@@ -5577,6 +5623,7 @@ class PresDiagram {
         def dark:EVGColor (EVGColor.parse("#141833"))
         def shadow:EVGColor (EVGColor.rgba(0 0 0 0.4))
         def i:int 0
+        this.partMark(out "")
         while (i < (array_length nodes)) {
             def n:PresDNode (itemAt nodes i)
             if ((t >= n.at) && (n.w > 0.0)) {
@@ -5675,8 +5722,10 @@ class PresDiagram {
                     }
                 }
             }
+            this.partMark(out ("node:" + n.id))
             i = (i + 1)
         }
+        this.partMark(out "")
     }
 
     fn paintBall:void (out:EVGDisplayList ink:EVGColor) {
@@ -5990,6 +6039,7 @@ class PresDiagram {
             active = way
         }
         def i:int 0
+        this.partMark(out "")
         while (i < (array_length edges)) {
             def e:PresDEdge (itemAt edges i)
             if (((array_length e.line) >= 4) && (t >= e.at)) {
@@ -6040,8 +6090,10 @@ class PresDiagram {
                     this.holoLabel(out e la l on)
                 }
             }
+            this.partMark(out ("edge:" + e.id))
             i = (i + 1)
         }
+        this.partMark(out "")
     }
 
     ; The small words at a line's ends (a class diagram's "1..*"): they come
@@ -6445,6 +6497,7 @@ class PresDiagram {
     fn holoNodes:void (out:EVGDisplayList t:double l:MdLayout) {
         def active:int (this.activeNode(t))
         def i:int 0
+        this.partMark(out "")
         while (i < (array_length nodes)) {
             def n:PresDNode (itemAt nodes i)
             if ((t >= n.at) && (n.w > 0.0)) {
@@ -6610,8 +6663,10 @@ class PresDiagram {
                     c = (c + 1)
                 }
             }
+            this.partMark(out ("node:" + n.id))
             i = (i + 1)
         }
+        this.partMark(out "")
     }
 
     ; The ball, in this style: a packet of light gliding along the curve with
@@ -6863,6 +6918,7 @@ class PresDiagram {
         def ink:EVGColor (EVGColor.parse(look.edgeColor))
         def acc:EVGColor (EVGColor.parse(look.accent))
         def i:int 0
+        this.partMark(out "")
         while (i < (array_length edges)) {
             def e:PresDEdge (itemAt edges i)
             if (((array_length e.line) >= 4) && (t >= e.at)) {
@@ -6919,8 +6975,10 @@ class PresDiagram {
                     this.lookLabel(out e la paper l on)
                 }
             }
+            this.partMark(out ("edge:" + e.id))
             i = (i + 1)
         }
+        this.partMark(out "")
     }
 
     fn lookArrow:void (out:EVGDisplayList e:PresDEdge col:EVGColor th:double) {
@@ -7246,7 +7304,10 @@ class PresDiagram {
             while (i < (array_length nodes)) {
                 def isFrame:boolean ((i < (array_length kinds)) && ((itemAt kinds i) == "frame"))
                 if (isFrame == (pass == 0)) {
+                    this.partMark(out "")
                     this.lookNode(out t l i active)
+                    def ln:PresDNode (itemAt nodes i)
+                    this.partMark(out ("node:" + ln.id))
                 }
                 i = (i + 1)
             }

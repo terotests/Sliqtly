@@ -39,6 +39,11 @@ class DeckIn {
     ; the slides in `only` (0 = first) when it is not empty
     def export:string ""
     def only:[int]
+    ; the slide whose entities a slide's script finds (Checked.sceneJson):
+    ; the tool's arguments, their `slide` a number from 1 or a title; none
+    ; when it has no `slide`. `sceneSel`: a selector tried on it
+    def sceneOf:MfJ (new MfJ)
+    def sceneSel:string ""
 }
 
 class Checked {
@@ -67,6 +72,13 @@ class Checked {
     def height:double 540.0
     ; with DeckIn.export: the file
     def file:buffer (buffer_from_string "")
+    ; with DeckIn.scene: that slide's entities (PresScene.toJson), their
+    ; outline, and the ids DeckIn.sceneSel finds (or why it is no selector)
+    def scene:int -1
+    def sceneJson:string ""
+    def sceneLines:[string]
+    def sceneFound:[string]
+    def sceneSelError:string ""
 }
 
 class Check {
@@ -237,6 +249,58 @@ class Check {
         return ((indexOf head "<svg") >= 0)
     }
 
+    ; the slide a `slide` argument names: a number from 1, or a title; -1
+    ; when there is no such slide
+    sfn slideIndex:int (a:MfJ titles:[string]) {
+        def v:MfJ (a.field("slide"))
+        if (v.kind == 2) {
+            def n:int ((a.int_("slide" 0)) - 1)
+            if ((n >= 0) && (n < (array_length titles))) {
+                return n
+            }
+            return -1
+        }
+        if (v.kind == 3) {
+            def want:string (to_lowercase (trim v.str))
+            def num:int (?? (str2int want) 0)
+            if ((num >= 1) && (num <= (array_length titles))) {
+                return (num - 1)
+            }
+            for titles t:string i {
+                if ((to_lowercase (trim t)) == want) {
+                    return i
+                }
+            }
+            for titles t2:string i2 {
+                if (((strlen want) > 0) && ((indexOf (to_lowercase t2) want) >= 0)) {
+                    return i2
+                }
+            }
+        }
+        return -1
+    }
+
+    ; whether `file` is named by a slide's {script=…}
+    sfn isScript:boolean (d:PresDeck file:string) {
+        def i:int 0
+        while (i < (d.slideCount())) {
+            def s:PresSlide (d.slideAt(i))
+            if ((MdVegaRender.resolveUrl(s.script)) == (MdVegaRender.resolveUrl(file))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn baseName:string (path:string) {
+        def at:int (lastIndexOf path "/")
+        if (at < 0) {
+            return path
+        }
+        return (substring path (at + 1) (strlen path))
+    }
+
     sfn prepare:PresDeck (host:McpHost din:DeckIn c:Checked) {
         def d (new PresDeck)
         ; a cloud share opens with the PRO line art drawn
@@ -286,6 +350,10 @@ class Check {
             def lg:string (to_lowercase gone)
             ; a program's stylesheet beside it is optional
             if ((endsWith lg ".tsx.css") || (endsWith lg ".jsx.css")) {
+                continue
+            }
+            if (((endsWith lg ".tsx") || (endsWith lg ".jsx")) && (Check.isScript(d gone))) {
+                push c.warnings (Guide.see((gone + " is a slide's script ({script=" + gone + "}) but the presentation has no such file: send it with files, { \"name\": \"" + (Check.baseName(gone)) + "\", \"text\": \"…\" }.") "scripts"))
                 continue
             }
             if ((endsWith lg ".tsx") || (endsWith lg ".jsx")) {
@@ -435,6 +503,31 @@ class Check {
                 }
             }
             d.still = false
+            ; a selector in a slide's script that finds nothing on its slide
+            ; (a missing file is said above)
+            for (d.scriptNotes()) sn:string sni {
+                if ((indexOf sn ": no file ") < 0) {
+                    push c.warnings (Guide.see(sn "scripts"))
+                }
+            }
+            if ((din.sceneOf.field("slide")).kind != 0) {
+                c.scene = (Check.slideIndex(din.sceneOf c.titles))
+            }
+            if (c.scene >= 0) {
+                def sc:PresScene (d.sceneOfSlide(c.scene))
+                c.sceneJson = (sc.toJson())
+                c.sceneLines = (sc.outline(false))
+                if ((strlen din.sceneSel) > 0) {
+                    def ps:PresSel (PresSel.parse(din.sceneSel))
+                    c.sceneSelError = ps.error
+                    if ((strlen ps.error) == 0) {
+                        for (ps.find(sc 0)) fat:int fai {
+                            def fe:PresEnt (sc.at(fat))
+                            push c.sceneFound fe.id
+                        }
+                    }
+                }
+            }
             ; a deck with `@media print` rules: what the printing house would
             ; say about the pages it gets (PrintReport)
             if (d.hasPrint()) {
