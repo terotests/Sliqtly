@@ -509,7 +509,7 @@ class PresHelp {
                 if ((lang == "math") || (lang == "latex") || (lang == "tex")) {
                     sc.math = true
                 } {
-                    if ((lang == "mermaid") || ((lang == "dot") || ((lang == "graphviz") || ((lang == "d2") || ((lang == "plantuml") || (lang == "puml")))))) {
+                    if (PresHints.isDiagramLang(lang)) {
                         sc.diagram = true
                     } {
                         if ((lang == "vega-lite") || ((lang == "vegalite") || (lang == "vega"))) {

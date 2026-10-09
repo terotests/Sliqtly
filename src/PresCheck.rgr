@@ -2135,6 +2135,28 @@ class PresCheck {
         this.ok((seq.ok && (seq.editable == false)) "a sequence diagram too")
     }
 
+    ; The diagram window on a statechart: states and transitions edited as
+    ; the machine's config, the rest of the block kept.
+    fn machineModel:void () {
+        def src:string "```xstate\n{\n  \"id\": \"review\",\n  \"initial\": \"Draft\",\n  \"states\": {\n    \"Draft\": { \"on\": { \"submit\": \"Testing\" } },\n    \"Testing\": {}\n  }\n}\n```\n{style=holo}"
+        def m:PresFlowModel (PresFlowModel.read(src))
+        this.ok((m.ok && m.isMachine) "an xstate block reads as a machine")
+        this.ok(((m.notationName()) == "XState") "its notation")
+        this.ok(((m.markdown()) == src) ("read and written untouched it is the same text: " + (m.markdown())))
+        m.machine.renameState("Testing" "Review")
+        m.machine.addState("" "Accepted")
+        m.machine.setFinal("Accepted" true)
+        m.machine.addTransition("Review" "accept" "Accepted" "role:tester" "")
+        m.machineChanged()
+        def out:string (m.markdown())
+        this.ok(((indexOf out "\"submit\": \"Review\"") > 0) ("a renamed state's transitions follow it: " + out))
+        this.ok(((indexOf out "\"guard\": \"role:tester\"") > 0) ("a guarded transition: " + out))
+        this.ok(((indexOf out "\"type\": \"final\"") > 0) ("a final state: " + out))
+        this.ok(((indexOf out "{style=holo}") > 0) ("the options stay: " + out))
+        def back:PresFlowModel (PresFlowModel.read(out))
+        this.ok((back.isMachine && ((back.machine.machine.stateCount()) == 3)) ("read back: " + out))
+    }
+
     ; The table window's model: cells, alignments, rows and columns.
     fn gridModel:void () {
         def src:string "| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n| Pohjoinen \\| itä | `a|b` |"
@@ -4162,6 +4184,7 @@ class PresCheck {
         c.chartLeavesRoom()
         c.staggered()
         c.flowModel()
+        c.machineModel()
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
