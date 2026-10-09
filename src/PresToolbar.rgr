@@ -519,22 +519,59 @@ class PresToolbar {
         MenuCtl.addKid(parent "o-portrait" (pm + (PresI18n.t("Portrait"))) false)
     }
 
-    ; Export's rows: the Markdown, PowerPoint, Word, a web page, a player
-    ; that plays the deck from one file, PDF, and a zip of every file.
-    fn exportKids:void (parent:UiItem) {
-        MenuCtl.addKid(parent "x-save" (PresI18n.t("Markdown (.md)")) false)
-        MenuCtl.addKid(parent "x-pptx" (PresI18n.t("PowerPoint (.pptx)")) false)
-        MenuCtl.addKid(parent "x-docx" (PresI18n.t("Word (.docx)")) false)
-        MenuCtl.addKid(parent "x-html" (PresI18n.t("Web page (.html)")) false)
-        MenuCtl.addKid(parent "x-player" (PresI18n.t("Presentation player (.html)")) false)
-        MenuCtl.addKid(parent "x-pdf" (PresI18n.t("PDF (.pdf)")) false)
-        MenuCtl.addKid(parent "x-zip" (PresI18n.t("All files (.zip)")) false)
+    ; Export's file formats, as "value<TAB>label" rows ("" a separator): the
+    ; Markdown, PowerPoint, Word, a web page, a player that plays the deck
+    ; from one file, PDF, a zip of every file, and with slides picked the
+    ; picked slides' formats.
+    fn exportFormats:[string] () {
+        def t:string (strfromcode 9)
+        def out:[string]
+        push out ("x-save" + t + (PresI18n.t("Markdown (.md)")))
+        push out ("x-pptx" + t + (PresI18n.t("PowerPoint (.pptx)")))
+        push out ("x-docx" + t + (PresI18n.t("Word (.docx)")))
+        push out ("x-html" + t + (PresI18n.t("Web page (.html)")))
+        push out ("x-player" + t + (PresI18n.t("Presentation player (.html)")))
+        push out ("x-pdf" + t + (PresI18n.t("PDF (.pdf)")))
+        push out ("x-zip" + t + (PresI18n.t("All files (.zip)")))
         if (picked > 0) {
-            MenuCtl.addKidSeparator(parent)
-            MenuCtl.addKid(parent "x-pptxPicked" (this.pickedLabel("PowerPoint (.pptx)")) false)
-            MenuCtl.addKid(parent "x-docxPicked" (this.pickedLabel("Word (.docx)")) false)
-            MenuCtl.addKid(parent "x-htmlPicked" (this.pickedLabel("Web page (.html)")) false)
-            MenuCtl.addKid(parent "x-pdfPicked" (this.pickedLabel("PDF (.pdf)")) false)
+            push out ""
+            push out ("x-pptxPicked" + t + (this.pickedLabel("PowerPoint (.pptx)")))
+            push out ("x-docxPicked" + t + (this.pickedLabel("Word (.docx)")))
+            push out ("x-htmlPicked" + t + (this.pickedLabel("Web page (.html)")))
+            push out ("x-pdfPicked" + t + (this.pickedLabel("PDF (.pdf)")))
+        }
+        return out
+    }
+
+    ; The file formats as kids of the submenu `parent`.
+    fn exportKids:void (parent:UiItem) {
+        def rows:[string] (this.exportFormats())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def fr:[string] (strsplit (itemAt rows i) (strfromcode 9))
+            if ((array_length fr) < 2) {
+                MenuCtl.addKidSeparator(parent)
+            }
+            if ((array_length fr) >= 2) {
+                MenuCtl.addKid(parent (itemAt fr 0) (itemAt fr 1) false)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The file formats as the root rows of the menu `m`.
+    fn exportItems:void (m:MenuCtl) {
+        def rows:[string] (this.exportFormats())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def fr:[string] (strsplit (itemAt rows i) (strfromcode 9))
+            if ((array_length fr) < 2) {
+                m.addSeparator()
+            }
+            if ((array_length fr) >= 2) {
+                m.addItem((itemAt fr 0) (itemAt fr 1) false)
+            }
+            i = (i + 1)
         }
     }
 
@@ -563,10 +600,13 @@ class PresToolbar {
         MenuCtl.addKid(parent "cp-comments" (PresI18n.t("Open comments")) false)
     }
 
-    ; Export's two groups: Clipboard ▸ and File ▸.
-    fn exportGroups:void (clip:UiItem file:UiItem) {
+    ; Export's rows under the submenu `xs`: the file formats, then
+    ; Export to Clipboard ▸.
+    fn exportGroups:void (xs:UiItem) {
+        this.exportKids(xs)
+        MenuCtl.addKidSeparator(xs)
+        def clip:UiItem (MenuCtl.addKid(xs "x-clip" (PresI18n.t("Export to Clipboard")) false))
         this.clipboardKids(clip false)
-        this.exportKids(file)
     }
 
     ; "Copy slide", or "Copy 3 slides" with slides picked
@@ -720,9 +760,7 @@ class PresToolbar {
     fn deckRows:void (m:MenuCtl canDelete:boolean) {
         m.addItem("save" (PresI18n.t("Save .md")) false)
         def xs:UiItem (m.addSub("export" (PresI18n.t("Export")) false))
-        def xsClip:UiItem (MenuCtl.addKid(xs "x-clip" (PresI18n.t("Clipboard")) false))
-        def xsFile:UiItem (MenuCtl.addKid(xs "x-file" (PresI18n.t("File")) false))
-        this.exportGroups(xsClip xsFile)
+        this.exportGroups(xs)
         m.addSeparator()
         m.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
         m.addSeparator()
@@ -1810,9 +1848,10 @@ class PresToolbar {
                 rc2.setVariant("rec-delete" "destructive")
             }
             def ex:MenuCtl (this.dropdown("export" (PresI18n.t("Export"))))
-            def exClip:UiItem (ex.addSub("x-clip" (PresI18n.t("Clipboard")) false))
-            def exFile:UiItem (ex.addSub("x-file" (PresI18n.t("File")) false))
-            this.exportGroups(exClip exFile)
+            this.exportItems(ex)
+            ex.addSeparator()
+            def exClip:UiItem (ex.addSub("x-clip" (PresI18n.t("Export to Clipboard")) false))
+            this.clipboardKids(exClip false)
             def hp:MenuCtl (this.dropdown("help" (PresI18n.t("Help"))))
             hp.addItem("helpGuide" (PresI18n.t("How to use Sliqtly")) false)
             hp.addItem("helpBtn" (PresI18n.t("Help for this slide")) false)
