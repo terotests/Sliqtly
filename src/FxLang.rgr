@@ -1,0 +1,1701 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FxLang.rgr — a slide effect written by the deck, compiled to a GPU shader.
+; ============================================================================
+;
+; ````markdown
+; ```fx
+; effect embers source {
+;   param speed = 1 [0, 5]
+;   param heat = 0.6 [0, 1]
+;   still = 3
+;   fallback = #2a0f05
+;
+;   n = fbm(uv * 6 + vec2(0, -time * speed), 5)
+;   glow = smoothstep(1 - heat, 1, n)
+;   output = rgba(mix(#ff3d00, #ffd54f, glow), glow)
+; }
+; ```
+; ````
+;
+; and a slide uses it like a built-in one: `{fx=embers fx-speed=2}`. A theme
+; carries the same text after an `@`: `@effect embers source { … }`.
+;
+; THE PIPELINE IS  text → Effect IR → shader. The IR is `FxEffect`: the
+; name, the layer, the parameters with their ranges, the moment a still is
+; taken at, the colour shown where nothing draws it, and the body as typed
+; expression trees (`FxNode`). Only the last step knows a GPU API: `glsl()`
+; writes the `fxColor` function the WebGL2 painter's plugins are made of
+; (evg-webgl.js `registerSurfaceEffect`). A WGSL writer is a second walk over
+; the same trees.
+;
+; SAFE BY CONSTRUCTION, because a shared deck runs this on its viewers' GPU
+; (Tero 2026-10-09: a public deck never runs raw shader code, only this):
+;
+;   - no loops, no recursion, no functions of its own: a body is a list of
+;     single assignments ending in `output`, so it always finishes
+;   - the only loop is inside `fbm`, with a constant octave count, 1..8
+;   - no textures, no uniforms of its own: what an effect reads is the
+;     inputs below, its parameters and, in a filter, `source(uv)`, which
+;     reads inside the element's own box only (uv is clamped to 0..1)
+;   - every parameter is clamped to its range in the shader, whatever the
+;     slide wrote
+;   - a cost per pixel is added up from the trees (`COST_MAX`), and the text,
+;     the statements and the effects per deck are bounded
+;   - every name the deck chose is prefixed in the shader, so nothing it
+;     writes can reach a uniform or a function it was not given
+;
+; THE INPUTS every effect has:
+;   uv     vec2   0..1 across the element's box, y down
+;   p      vec2   the point in page pixels
+;   size   vec2   the box in page pixels
+;   time   float  seconds the slide has been on screen
+;   edge   float  distance to the box's edge in pixels, negative inside
+;   PI     float
+;
+; THE LAYERS are the painter's: `source` paints the element's background
+; (children on top; the alpha of `output` is its coverage), `filter` rewrites
+; what is already painted in the box, `backdrop` rewrites what is behind the
+; element and then draws the element on top. `source(uv)` reads the surface in
+; the latter two.
+; ============================================================================
+
+; One expression, typed. `kind`: num, var, bin, un, call, swz, sel.
+class FxNode {
+    def kind:string ""
+    ; the operator, the function, the variable or the swizzle letters
+    def op:string ""
+    ; a number's text, as GLSL wants it
+    def text:string ""
+    def kids:[FxNode]
+    ; float, vec2, vec3, vec4, bool
+    def type:string ""
+    def line:int 0
+
+    Constructor () {
+        def k:[FxNode]
+        kids = k
+    }
+}
+
+class FxParam {
+    def name:string ""
+    def value:double 0.0
+    def lo:double 0.0
+    def hi:double 1.0
+}
+
+; One effect: the Effect IR.
+class FxEffect {
+    def name:string ""
+    ; source, filter, backdrop
+    def layer:string "source"
+    def params:[FxParam]
+    ; the seconds a still (thumbnail, PDF, PPTX) shows it at
+    def still:double 2.0
+    ; #rrggbb drawn where no GPU draws the effect, "" for none
+    def fallback:string ""
+    ; the body: names and their expressions, in order; the last is `output`
+    def names:[string]
+    def values:[FxNode]
+    def cost:int 0
+    def line:int 0
+
+    Constructor () {
+        def p:[FxParam]
+        params = p
+        def n:[string]
+        names = n
+        def v:[FxNode]
+        values = v
+    }
+
+    fn paramAt@(optional):FxParam (name:string) {
+        def i:int 0
+        while (i < (array_length params)) {
+            def pp:FxParam (itemAt params i)
+            if (pp.name == name) {
+                def r@(optional):FxParam pp
+                return r
+            }
+            i = (i + 1)
+        }
+        def none@(optional):FxParam
+        return none
+    }
+
+    ; The `fxColor` function and what it calls, for the WebGL2 painter.
+    fn glsl:string () {
+        def lib:[string]
+        def body:string ""
+        def i:int 0
+        while (i < (array_length params)) {
+            def pp:FxParam (itemAt params i)
+            body = (body + "  float k_" + pp.name + " = clamp(p_" + pp.name + ", " + (FxLang.numText(pp.lo)) + ", " + (FxLang.numText(pp.hi)) + ");\n")
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def v:FxNode (itemAt values i)
+            FxLang.libOf(v lib)
+            def code:string (FxLang.emit(v))
+            if (nm == "output") {
+                if (v.type == "vec3") {
+                    code = ("vec4(" + code + ", 1.0)")
+                }
+                body = (body + "  return " + code + ";\n")
+            } {
+                body = (body + "  " + v.type + " v_" + nm + " = " + code + ";\n")
+            }
+            i = (i + 1)
+        }
+        def head:string ("#define PI 3.14159265358979\n" + (FxLang.libText(lib)))
+        return (head + "vec4 fxColor(vec2 p, vec2 local) {\n" + body + "}\n")
+    }
+
+    ; name=default pairs, `speed=1;heat=0.6`, as the page registers them
+    fn paramsText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length params)) {
+            def pp:FxParam (itemAt params i)
+            if (i > 0) {
+                out = (out + ";")
+            }
+            out = (out + pp.name + "=" + (FxLang.numText(pp.value)))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class FxLang {
+    ; what came out
+    def effects:[FxEffect]
+    ; "line N: message", the line counted from 1 in the text compiled
+    def errors:[string]
+    def errorLines:[int]
+
+    ; the tokens: kind (id num str color op nl end), text, line
+    def tk:[string]
+    def tv:[string]
+    def tl:[int]
+    def at:int 0
+    ; the effect being read, for the names it may use
+    def cur:FxEffect (new FxEffect())
+    ; the cost of the statement being read
+    def cost:int 0
+    ; the first error that came from the theme (PresDeck: the deck's text is
+    ; compiled first); past the end: none did
+    def themeFrom:int 1000000
+    ; a second effect of a name already defined is passed over quietly: the
+    ; theme's, when the deck defines its own
+    def keepFirst:boolean false
+
+    Constructor () {
+        def e:[FxEffect]
+        effects = e
+        def r:[string]
+        errors = r
+        def rl:[int]
+        errorLines = rl
+        def a:[string]
+        tk = a
+        def b:[string]
+        tv = b
+        def c:[int]
+        tl = c
+    }
+
+    ; LIMITS. A deck is text anyone can share, so every size is bounded.
+    sfn TEXT_MAX:int () {
+        return 12000
+    }
+    sfn EFFECTS_MAX:int () {
+        return 16
+    }
+    sfn STATEMENTS_MAX:int () {
+        return 48
+    }
+    sfn PARAMS_MAX:int () {
+        return 12
+    }
+    ; operations per pixel, `fbm(…, 8)` counting 8 noises of 10 each
+    sfn COST_MAX:int () {
+        return 600
+    }
+
+    ; The effects the painter has already: a deck's own may not take a name.
+    sfn builtinNames:[string] () {
+        def k:[string] ([] _:string ("ripple" "starfield" "liquid-glass" "plasma-wave" "bubbles" "raindrop" "drops" "raindrops2" "ambient-light" "smoke" "aurora" "none"))
+        return k
+    }
+
+    sfn isBuiltin:boolean (name:string) {
+        def k:[string] (FxLang.builtinNames())
+        def i:int 0
+        while (i < (array_length k)) {
+            if ((itemAt k i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Compile `text`; `firstLine` is the line the text starts on in the
+    ; document, so the errors point at the editor's lines.
+    sfn compile:FxLang (text:string firstLine:int) {
+        def c (new FxLang())
+        c.run(text firstLine)
+        return c
+    }
+
+    fn fail:void (line:int msg:string) {
+        push errors ("line " + (to_string line) + ": " + msg)
+        push errorLines line
+    }
+
+    fn run:void (text:string firstLine:int) {
+        if ((strlen text) > (FxLang.TEXT_MAX())) {
+            this.fail(firstLine ("effect text is longer than " + (to_string (FxLang.TEXT_MAX())) + " characters"))
+            return
+        }
+        if ((this.lex(text firstLine)) == false) {
+            return
+        }
+        at = 0
+        while ((this.kind()) != "end") {
+            if ((this.kind()) == "nl") {
+                at = (at + 1)
+                continue
+            }
+            if ((array_length effects) >= (FxLang.EFFECTS_MAX())) {
+                this.fail((this.line()) ("at most " + (to_string (FxLang.EFFECTS_MAX())) + " effects"))
+                return
+            }
+            if ((this.effect()) == false) {
+                return
+            }
+        }
+    }
+
+    ; ------------------------------------------------------------- lexer --
+
+    sfn isDigit:boolean (c:int) {
+        return ((c >= 48) && (c <= 57))
+    }
+    sfn isIdStart:boolean (c:int) {
+        return ((((c >= 65) && (c <= 90)) || ((c >= 97) && (c <= 122))) || (c == 95))
+    }
+    sfn isIdChar:boolean (c:int) {
+        return ((FxLang.isIdStart(c)) || (FxLang.isDigit(c)))
+    }
+    sfn isHex:boolean (c:int) {
+        return (((FxLang.isDigit(c)) || ((c >= 97) && (c <= 102))) || ((c >= 65) && (c <= 70)))
+    }
+
+    fn tok:void (k:string v:string line:int) {
+        push tk k
+        push tv v
+        push tl line
+    }
+
+    fn lex:boolean (s:string firstLine:int) {
+        clear tk
+        clear tv
+        clear tl
+        def n:int (strlen s)
+        def i:int 0
+        def line:int firstLine
+        ; a newline ends a statement only outside brackets
+        def depth:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 10) {
+                if (depth == 0) {
+                    this.tok("nl" "" line)
+                }
+                line = (line + 1)
+                i = (i + 1)
+                continue
+            }
+            if (((c == 32) || (c == 9)) || (c == 13)) {
+                i = (i + 1)
+                continue
+            }
+            ; a comment runs to the end of the line
+            if ((c == 47) && ((i + 1) < n)) {
+                if ((charAt s (i + 1)) == 47) {
+                    while ((i < n) && ((charAt s i) != 10)) {
+                        i = (i + 1)
+                    }
+                    continue
+                }
+            }
+            if (c == 59) {
+                this.tok("nl" "" line)
+                i = (i + 1)
+                continue
+            }
+            if (FxLang.isIdStart(c)) {
+                def b:int i
+                while ((i < n) && (FxLang.isIdChar((charAt s i)))) {
+                    i = (i + 1)
+                }
+                ; an effect's name may have dashes: liquid-wipe
+                while (((i + 1) < n) && (((charAt s i) == 45) && (FxLang.isIdStart((charAt s (i + 1)))))) {
+                    if ((array_length tv) == 0) {
+                        break
+                    }
+                    def prev:string (itemAt tv ((array_length tv) - 1))
+                    if (prev != "effect") {
+                        break
+                    }
+                    i = (i + 1)
+                    while ((i < n) && (FxLang.isIdChar((charAt s i)))) {
+                        i = (i + 1)
+                    }
+                }
+                this.tok("id" (substring s b i) line)
+                continue
+            }
+            if ((FxLang.isDigit(c)) || ((c == 46) && (((i + 1) < n) && (FxLang.isDigit((charAt s (i + 1))))))) {
+                def b2:int i
+                while ((i < n) && (FxLang.isDigit((charAt s i)))) {
+                    i = (i + 1)
+                }
+                if ((i < n) && ((charAt s i) == 46)) {
+                    i = (i + 1)
+                    while ((i < n) && (FxLang.isDigit((charAt s i)))) {
+                        i = (i + 1)
+                    }
+                }
+                if ((i < n) && (((charAt s i) == 101) || ((charAt s i) == 69))) {
+                    def j:int (i + 1)
+                    if ((j < n) && (((charAt s j) == 45) || ((charAt s j) == 43))) {
+                        j = (j + 1)
+                    }
+                    if ((j < n) && (FxLang.isDigit((charAt s j)))) {
+                        i = j
+                        while ((i < n) && (FxLang.isDigit((charAt s i)))) {
+                            i = (i + 1)
+                        }
+                    }
+                }
+                this.tok("num" (substring s b2 i) line)
+                continue
+            }
+            if (c == 35) {
+                def b3:int (i + 1)
+                i = (i + 1)
+                while ((i < n) && (FxLang.isHex((charAt s i)))) {
+                    i = (i + 1)
+                }
+                def hl:int (i - b3)
+                if ((((hl != 3) && (hl != 6)) && (hl != 8)) || ((i < n) && (FxLang.isIdChar((charAt s i))))) {
+                    this.fail(line "a colour is #rgb, #rrggbb or #rrggbbaa")
+                    return false
+                }
+                this.tok("color" (substring s b3 i) line)
+                continue
+            }
+            if (c == 34) {
+                def b4:int (i + 1)
+                i = (i + 1)
+                while (((i < n) && ((charAt s i) != 34)) && ((charAt s i) != 10)) {
+                    i = (i + 1)
+                }
+                if ((i >= n) || ((charAt s i) != 34)) {
+                    this.fail(line "a name in quotes needs its closing quote")
+                    return false
+                }
+                this.tok("str" (substring s b4 i) line)
+                i = (i + 1)
+                continue
+            }
+            ; two-character operators first
+            if ((i + 1) < n) {
+                def two:string (substring s i (i + 2))
+                if ((((two == "<=") || (two == ">=")) || ((two == "==") || (two == "!="))) || ((two == "&&") || (two == "||"))) {
+                    this.tok("op" two line)
+                    i = (i + 2)
+                    continue
+                }
+            }
+            def one:string (substring s i (i + 1))
+            if ((indexOf "+-*/(),.=[]{}<>?:!@" one) >= 0) {
+                if ((one == "(") || (one == "[")) {
+                    depth = (depth + 1)
+                }
+                if (((one == ")") || (one == "]")) && (depth > 0)) {
+                    depth = (depth - 1)
+                }
+                this.tok("op" one line)
+                i = (i + 1)
+                continue
+            }
+            this.fail(line ("unexpected character '" + one + "'"))
+            return false
+        }
+        this.tok("end" "" line)
+        return true
+    }
+
+    ; ------------------------------------------------------------ parser --
+
+    fn kind:string () {
+        return (itemAt tk at)
+    }
+    fn text:string () {
+        return (itemAt tv at)
+    }
+    fn line:int () {
+        return (itemAt tl at)
+    }
+    fn isOp:boolean (o:string) {
+        return (((itemAt tk at) == "op") && ((itemAt tv at) == o))
+    }
+    fn isWord:boolean (w:string) {
+        return (((itemAt tk at) == "id") && ((itemAt tv at) == w))
+    }
+    fn skipNl:void () {
+        while ((this.kind()) == "nl") {
+            at = (at + 1)
+        }
+    }
+    fn expectOp:boolean (o:string what:string) {
+        if (this.isOp(o)) {
+            at = (at + 1)
+            return true
+        }
+        this.fail((this.line()) ("expected '" + o + "' " + what))
+        return false
+    }
+    ; a statement ends at a newline, a `;` or the effect's `}`
+    fn endOfStatement:boolean () {
+        if ((this.kind()) == "nl") {
+            at = (at + 1)
+            return true
+        }
+        if (this.isOp("}")) {
+            return true
+        }
+        this.fail((this.line()) ("unexpected '" + (this.text()) + "' after the statement"))
+        return false
+    }
+
+    sfn validName:boolean (s:string) {
+        def n:int (strlen s)
+        if ((n < 1) || (n > 32)) {
+            return false
+        }
+        def c0:int (charAt s 0)
+        if ((c0 < 97) || (c0 > 122)) {
+            return false
+        }
+        def i:int 1
+        while (i < n) {
+            def c:int (charAt s i)
+            def ok:boolean ((((c >= 97) && (c <= 122)) || (FxLang.isDigit(c))) || (c == 45))
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; `effect NAME LAYER { … }`, `@` before it in a theme
+    fn effect:boolean () {
+        if (this.isOp("@")) {
+            at = (at + 1)
+        }
+        def l0:int (this.line())
+        if ((this.isWord("effect")) == false) {
+            this.fail(l0 "expected: effect name layer { … }")
+            return false
+        }
+        at = (at + 1)
+        def name:string ""
+        if (((this.kind()) == "id") || ((this.kind()) == "str")) {
+            name = (this.text())
+            at = (at + 1)
+        }
+        if ((FxLang.validName(name)) == false) {
+            this.fail(l0 "an effect's name is lowercase letters, digits and dashes, starting with a letter")
+            return false
+        }
+        if (FxLang.isBuiltin(name)) {
+            this.fail(l0 ("'" + name + "' is a built-in effect; choose another name"))
+            return false
+        }
+        def k:int 0
+        while (k < (array_length effects)) {
+            def other:FxEffect (itemAt effects k)
+            if (other.name == name) {
+                if keepFirst {
+                    return (this.skipEffect())
+                }
+                this.fail(l0 ("effect '" + name + "' is defined twice"))
+                return false
+            }
+            k = (k + 1)
+        }
+        def layer:string (this.text())
+        if ((this.kind()) != "id") {
+            layer = ""
+        }
+        if (layer == "transition") {
+            this.fail(l0 "transition effects are not supported yet; use source, filter or backdrop")
+            return false
+        }
+        if (((layer != "source") && (layer != "filter")) && (layer != "backdrop")) {
+            this.fail(l0 "the layer is source, filter or backdrop")
+            return false
+        }
+        at = (at + 1)
+        this.skipNl()
+        if ((this.expectOp("{" "to open the effect")) == false) {
+            return false
+        }
+        def e (new FxEffect())
+        e.name = name
+        e.layer = layer
+        e.line = l0
+        cur = e
+        def statements:int 0
+        def outputAt:int -1
+        while (true) {
+            this.skipNl()
+            if (this.isOp("}")) {
+                at = (at + 1)
+                break
+            }
+            if ((this.kind()) == "end") {
+                this.fail(l0 ("effect '" + name + "' has no closing '}'"))
+                return false
+            }
+            statements = (statements + 1)
+            if (statements > (FxLang.STATEMENTS_MAX())) {
+                this.fail((this.line()) ("at most " + (to_string (FxLang.STATEMENTS_MAX())) + " statements in an effect"))
+                return false
+            }
+            if ((this.statement(e)) == false) {
+                return false
+            }
+            if (outputAt >= 0) {
+                if ((array_length e.names) > outputAt) {
+                    this.fail((this.line()) "nothing may follow output")
+                    return false
+                }
+            }
+            if ((array_length e.names) > 0) {
+                if ((itemAt e.names ((array_length e.names) - 1)) == "output") {
+                    outputAt = (array_length e.names)
+                }
+            }
+            if ((this.endOfStatement()) == false) {
+                return false
+            }
+        }
+        if (outputAt < 0) {
+            this.fail(l0 ("effect '" + name + "' never sets output"))
+            return false
+        }
+        if (e.cost > (FxLang.COST_MAX())) {
+            this.fail(l0 ("effect '" + name + "' costs " + (to_string e.cost) + " per pixel, more than " + (to_string (FxLang.COST_MAX())) + " (fewer fbm octaves or noises)"))
+            return false
+        }
+        push effects e
+        return true
+    }
+
+    ; Past an effect not used, to the `}` that closes it.
+    fn skipEffect:boolean () {
+        def depth:int 0
+        while ((this.kind()) != "end") {
+            if (this.isOp("{")) {
+                depth = (depth + 1)
+            }
+            if (this.isOp("}")) {
+                depth = (depth - 1)
+                if (depth <= 0) {
+                    at = (at + 1)
+                    return true
+                }
+            }
+            at = (at + 1)
+        }
+        return true
+    }
+
+    ; a number, with an optional minus
+    fn number@(optional):double () {
+        def neg:boolean false
+        if (this.isOp("-")) {
+            neg = true
+            at = (at + 1)
+        }
+        if ((this.kind()) != "num") {
+            def none@(optional):double
+            return none
+        }
+        def d@(optional):double (str2double (this.text()))
+        at = (at + 1)
+        if (null? d) {
+            return d
+        }
+        def v:double (unwrap d)
+        if (neg) {
+            v = (0.0 - v)
+        }
+        def r@(optional):double v
+        return r
+    }
+
+    fn statement:boolean (e:FxEffect) {
+        def l:int (this.line())
+        if (this.isWord("param")) {
+            at = (at + 1)
+            def pname:string (this.text())
+            if (((this.kind()) != "id") || ((FxLang.validName(pname)) == false)) {
+                this.fail(l "a parameter's name is lowercase letters, digits and dashes")
+                return false
+            }
+            if ((indexOf pname "-") >= 0) {
+                this.fail(l "a parameter's name has no dashes")
+                return false
+            }
+            if (this.taken(e pname)) {
+                this.fail(l ("'" + pname + "' is already a name in this effect"))
+                return false
+            }
+            at = (at + 1)
+            if ((this.expectOp("=" "after the parameter's name")) == false) {
+                return false
+            }
+            def v@(optional):double (this.number())
+            if (null? v) {
+                this.fail(l "a parameter's default is a number")
+                return false
+            }
+            def pp (new FxParam())
+            pp.name = pname
+            pp.value = (unwrap v)
+            pp.lo = (0.0 - 1000000.0)
+            pp.hi = 1000000.0
+            if (this.isOp("[")) {
+                at = (at + 1)
+                def lo@(optional):double (this.number())
+                if ((this.expectOp("," "between the range's ends")) == false) {
+                    return false
+                }
+                def hi@(optional):double (this.number())
+                if ((null? lo) || (null? hi)) {
+                    this.fail(l "a range is [min, max] in numbers")
+                    return false
+                }
+                if ((this.expectOp("]" "to close the range")) == false) {
+                    return false
+                }
+                pp.lo = (unwrap lo)
+                pp.hi = (unwrap hi)
+                if (pp.lo > pp.hi) {
+                    this.fail(l "a range's min is above its max")
+                    return false
+                }
+                if ((pp.value < pp.lo) || (pp.value > pp.hi)) {
+                    this.fail(l "the default is outside the range")
+                    return false
+                }
+            }
+            if ((array_length e.params) >= (FxLang.PARAMS_MAX())) {
+                this.fail(l ("at most " + (to_string (FxLang.PARAMS_MAX())) + " parameters"))
+                return false
+            }
+            push e.params pp
+            return true
+        }
+        if ((this.kind()) != "id") {
+            this.fail(l "expected a name = expression")
+            return false
+        }
+        def name:string (this.text())
+        at = (at + 1)
+        if ((this.expectOp("=" ("after '" + name + "'"))) == false) {
+            return false
+        }
+        if (name == "still") {
+            def s@(optional):double (this.number())
+            if (null? s) {
+                this.fail(l "still is a number of seconds")
+                return false
+            }
+            def sv:double (unwrap s)
+            if ((sv < 0.0) || (sv > 600.0)) {
+                this.fail(l "still is between 0 and 600 seconds")
+                return false
+            }
+            e.still = sv
+            return true
+        }
+        if (name == "fallback") {
+            if ((this.kind()) != "color") {
+                this.fail(l "fallback is a colour, #rrggbb")
+                return false
+            }
+            e.fallback = ("#" + (FxLang.hex6((this.text()))))
+            at = (at + 1)
+            return true
+        }
+        if ((name != "output") && (this.taken(e name))) {
+            this.fail(l ("'" + name + "' already has a value; every name is set once"))
+            return false
+        }
+        if ((name == "output") && (this.taken(e name))) {
+            this.fail(l "output is set once")
+            return false
+        }
+        cost = 0
+        def x@(optional):FxNode (this.expr())
+        if (null? x) {
+            return false
+        }
+        def xn:FxNode (unwrap x)
+        if (name == "output") {
+            if ((xn.type != "vec4") && (xn.type != "vec3")) {
+                this.fail(l ("output is a colour (vec3 or vec4), not " + xn.type))
+                return false
+            }
+        } {
+            if (xn.type == "bool") {
+                this.fail(l "a name holds a number or a vector, not a comparison; use select(a < b, x, y)")
+                return false
+            }
+        }
+        e.cost = (e.cost + cost)
+        push e.names name
+        push e.values xn
+        return true
+    }
+
+    ; Is the name an input, a parameter or a value already set?
+    fn taken:boolean (e:FxEffect name:string) {
+        if ((strlen (FxLang.inputType(name))) > 0) {
+            return true
+        }
+        if (FxLang.isFunction(name)) {
+            return true
+        }
+        if ((name == "param") || ((name == "effect") || ((name == "still") || (name == "fallback")))) {
+            return true
+        }
+        def pp@(optional):FxParam (e.paramAt(name))
+        if (!null? pp) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length e.names)) {
+            if ((itemAt e.names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn inputType:string (name:string) {
+        if (name == "uv") { return "vec2" }
+        if (name == "p") { return "vec2" }
+        if (name == "size") { return "vec2" }
+        if (name == "time") { return "float" }
+        if (name == "edge") { return "float" }
+        if (name == "PI") { return "float" }
+        return ""
+    }
+
+    ; expr := or ; or := and (|| and)* ; and := cmp (&& cmp)* ;
+    ; cmp := add (op add)? ; add := mul ((+|-) mul)* ; mul := unary ((*|/) unary)*
+    fn expr@(optional):FxNode () {
+        return (this.logic(0))
+    }
+
+    fn logic@(optional):FxNode (level:int) {
+        def op:string "||"
+        if (level == 1) {
+            op = "&&"
+        }
+        def a@(optional):FxNode
+        if (level == 0) {
+            a = (this.logic(1))
+        } {
+            a = (this.compare())
+        }
+        if (null? a) {
+            return a
+        }
+        def left:FxNode (unwrap a)
+        while (this.isOp(op)) {
+            def l:int (this.line())
+            at = (at + 1)
+            def b@(optional):FxNode
+            if (level == 0) {
+                b = (this.logic(1))
+            } {
+                b = (this.compare())
+            }
+            if (null? b) {
+                return b
+            }
+            def right:FxNode (unwrap b)
+            if ((left.type != "bool") || (right.type != "bool")) {
+                this.fail(l (op + " joins comparisons"))
+                def none@(optional):FxNode
+                return none
+            }
+            left = (FxLang.node("bin" op "bool" l left right))
+            cost = (cost + 1)
+        }
+        def r@(optional):FxNode left
+        return r
+    }
+
+    fn compare@(optional):FxNode () {
+        def a@(optional):FxNode (this.additive())
+        if (null? a) {
+            return a
+        }
+        def left:FxNode (unwrap a)
+        def o:string (this.text())
+        if (((this.kind()) == "op") && ((((o == "<") || (o == ">")) || ((o == "<=") || (o == ">="))) || ((o == "==") || (o == "!=")))) {
+            def l:int (this.line())
+            at = (at + 1)
+            def b@(optional):FxNode (this.additive())
+            if (null? b) {
+                return b
+            }
+            def right:FxNode (unwrap b)
+            if ((left.type != "float") || (right.type != "float")) {
+                this.fail(l "comparisons are between numbers")
+                def none@(optional):FxNode
+                return none
+            }
+            cost = (cost + 1)
+            def r@(optional):FxNode (FxLang.node("bin" o "bool" l left right))
+            return r
+        }
+        def r2@(optional):FxNode left
+        return r2
+    }
+
+    ; float with vecN is vecN; vecN with vecN is vecN; else ""
+    sfn arith:string (a:string b:string) {
+        if ((a == "bool") || (b == "bool")) {
+            return ""
+        }
+        if (a == b) {
+            return a
+        }
+        if (a == "float") {
+            return b
+        }
+        if (b == "float") {
+            return a
+        }
+        return ""
+    }
+
+    fn additive@(optional):FxNode () {
+        def a@(optional):FxNode (this.multiplicative())
+        if (null? a) {
+            return a
+        }
+        def left:FxNode (unwrap a)
+        while ((this.isOp("+")) || (this.isOp("-"))) {
+            def o:string (this.text())
+            def l:int (this.line())
+            at = (at + 1)
+            def b@(optional):FxNode (this.multiplicative())
+            if (null? b) {
+                return b
+            }
+            def right:FxNode (unwrap b)
+            def t:string (FxLang.arith(left.type right.type))
+            if ((strlen t) == 0) {
+                this.fail(l ("cannot " + o + " " + left.type + " and " + right.type))
+                def none@(optional):FxNode
+                return none
+            }
+            left = (FxLang.node("bin" o t l left right))
+            cost = (cost + 1)
+        }
+        def r@(optional):FxNode left
+        return r
+    }
+
+    fn multiplicative@(optional):FxNode () {
+        def a@(optional):FxNode (this.unary())
+        if (null? a) {
+            return a
+        }
+        def left:FxNode (unwrap a)
+        while ((this.isOp("*")) || (this.isOp("/"))) {
+            def o:string (this.text())
+            def l:int (this.line())
+            at = (at + 1)
+            def b@(optional):FxNode (this.unary())
+            if (null? b) {
+                return b
+            }
+            def right:FxNode (unwrap b)
+            def t:string (FxLang.arith(left.type right.type))
+            if ((strlen t) == 0) {
+                this.fail(l ("cannot " + o + " " + left.type + " and " + right.type))
+                def none@(optional):FxNode
+                return none
+            }
+            left = (FxLang.node("bin" o t l left right))
+            cost = (cost + 1)
+        }
+        def r@(optional):FxNode left
+        return r
+    }
+
+    fn unary@(optional):FxNode () {
+        def l:int (this.line())
+        if ((this.isOp("-")) || (this.isOp("!"))) {
+            def o:string (this.text())
+            at = (at + 1)
+            def a@(optional):FxNode (this.unary())
+            if (null? a) {
+                return a
+            }
+            def x:FxNode (unwrap a)
+            if ((o == "-") && (x.type == "bool")) {
+                this.fail(l "cannot negate a comparison")
+                def none@(optional):FxNode
+                return none
+            }
+            if ((o == "!") && (x.type != "bool")) {
+                this.fail(l "! is for comparisons")
+                def none2@(optional):FxNode
+                return none2
+            }
+            cost = (cost + 1)
+            def n (FxLang.node("un" o x.type l x (new FxNode())))
+            n.kids = ([] _:FxNode (x))
+            def r@(optional):FxNode n
+            return r
+        }
+        return (this.postfix())
+    }
+
+    sfn swizzleIndex:int (c:int) {
+        if ((c == 120) || (c == 114)) { return 0 }
+        if ((c == 121) || (c == 103)) { return 1 }
+        if ((c == 122) || (c == 98)) { return 2 }
+        if ((c == 119) || (c == 97)) { return 3 }
+        return -1
+    }
+
+    sfn dims:int (t:string) {
+        if (t == "float") { return 1 }
+        if (t == "vec2") { return 2 }
+        if (t == "vec3") { return 3 }
+        if (t == "vec4") { return 4 }
+        return 0
+    }
+
+    sfn typeOfDims:string (n:int) {
+        if (n == 1) { return "float" }
+        if (n == 2) { return "vec2" }
+        if (n == 3) { return "vec3" }
+        if (n == 4) { return "vec4" }
+        return ""
+    }
+
+    fn postfix@(optional):FxNode () {
+        def a@(optional):FxNode (this.primary())
+        if (null? a) {
+            return a
+        }
+        def x:FxNode (unwrap a)
+        while (this.isOp(".")) {
+            def l:int (this.line())
+            at = (at + 1)
+            def sw:string (this.text())
+            if ((this.kind()) != "id") {
+                this.fail(l "expected components after '.', like .xy or .rgb")
+                def none@(optional):FxNode
+                return none
+            }
+            at = (at + 1)
+            def d:int (FxLang.dims(x.type))
+            def n:int (strlen sw)
+            def ok:boolean ((d >= 2) && ((n >= 1) && (n <= 4)))
+            def xyzw:boolean false
+            def rgba:boolean false
+            def i:int 0
+            while (ok && (i < n)) {
+                def c:int (charAt sw i)
+                def k:int (FxLang.swizzleIndex(c))
+                if ((k < 0) || (k >= d)) {
+                    ok = false
+                }
+                if ((((c == 120) || (c == 121)) || (c == 122)) || (c == 119)) {
+                    xyzw = true
+                } {
+                    rgba = true
+                }
+                i = (i + 1)
+            }
+            if (xyzw && rgba) {
+                ok = false
+            }
+            if (ok == false) {
+                this.fail(l ("." + sw + " is not a part of a " + x.type))
+                def none2@(optional):FxNode
+                return none2
+            }
+            def s (FxLang.node("swz" sw (FxLang.typeOfDims(n)) l x (new FxNode())))
+            s.kids = ([] _:FxNode (x))
+            x = s
+        }
+        def r@(optional):FxNode x
+        return r
+    }
+
+    sfn node:FxNode (kind:string op:string type:string line:int a:FxNode b:FxNode) {
+        def n (new FxNode())
+        n.kind = kind
+        n.op = op
+        n.type = type
+        n.line = line
+        n.kids = ([] _:FxNode (a b))
+        return n
+    }
+
+    sfn leaf:FxNode (kind:string op:string type:string line:int) {
+        def n (new FxNode())
+        n.kind = kind
+        n.op = op
+        n.type = type
+        n.line = line
+        return n
+    }
+
+    ; "ff7a1a" from "f7a", "ff7a1a" or "ff7a1aCC"
+    sfn hex6:string (h:string) {
+        def s:string (to_lowercase h)
+        if ((strlen s) == 3) {
+            def a:string (substring s 0 1)
+            def b:string (substring s 1 2)
+            def c:string (substring s 2 3)
+            return (a + a + b + b + c + c)
+        }
+        return (substring s 0 6)
+    }
+
+    sfn hexVal:int (c:int) {
+        if ((c >= 48) && (c <= 57)) { return (c - 48) }
+        if ((c >= 97) && (c <= 102)) { return (c - 87) }
+        if ((c >= 65) && (c <= 70)) { return (c - 55) }
+        return 0
+    }
+
+    ; 0..1 from two hex digits
+    sfn channel:string (s:string i:int) {
+        def v:int (((FxLang.hexVal((charAt s i))) * 16) + (FxLang.hexVal((charAt s (i + 1)))))
+        return (FxLang.numText(((to_double v) / 255.0)))
+    }
+
+    ; A number as GLSL reads one: always with a point, and short.
+    sfn numText:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if (neg) {
+            a = (0.0 - v)
+        }
+        ; four decimals are plenty for a shader constant
+        def scaled:int (to_int ((a * 10000.0) + 0.5))
+        def whole:int (idiv scaled 10000)
+        def frac:int (scaled - (whole * 10000))
+        def fs:string (to_string frac)
+        while ((strlen fs) < 4) {
+            fs = ("0" + fs)
+        }
+        while (((strlen fs) > 1) && ((substring fs ((strlen fs) - 1) (strlen fs)) == "0")) {
+            fs = (substring fs 0 ((strlen fs) - 1))
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if (neg && ((whole != 0) || (frac != 0))) {
+            out = ("-" + out)
+        }
+        return out
+    }
+
+    ; a number as typed: GLSL wants a point in it
+    sfn literal:string (t:string) {
+        if (((indexOf t ".") < 0) && (((indexOf t "e") < 0) && ((indexOf t "E") < 0))) {
+            return (t + ".0")
+        }
+        if ((indexOf t ".") == 0) {
+            return ("0" + t)
+        }
+        if ((indexOf t ".") == ((strlen t) - 1)) {
+            return (t + "0")
+        }
+        return t
+    }
+
+    fn primary@(optional):FxNode () {
+        def l:int (this.line())
+        def k:string (this.kind())
+        def t:string (this.text())
+        if (k == "num") {
+            at = (at + 1)
+            cost = (cost + 0)
+            def n (FxLang.leaf("num" "" "float" l))
+            n.text = (FxLang.literal(t))
+            def r@(optional):FxNode n
+            return r
+        }
+        if (k == "color") {
+            at = (at + 1)
+            def h:string (to_lowercase t)
+            if ((strlen h) == 3) {
+                h = (FxLang.hex6(h))
+            }
+            def c (FxLang.leaf("num" "" "vec3" l))
+            def body:string ((FxLang.channel(h 0)) + ", " + (FxLang.channel(h 2)) + ", " + (FxLang.channel(h 4)))
+            if ((strlen h) == 8) {
+                c.type = "vec4"
+                body = (body + ", " + (FxLang.channel(h 6)))
+            }
+            c.text = (c.type + "(" + body + ")")
+            def r2@(optional):FxNode c
+            return r2
+        }
+        if (this.isOp("(")) {
+            at = (at + 1)
+            def inner@(optional):FxNode (this.expr())
+            if (null? inner) {
+                return inner
+            }
+            if ((this.expectOp(")" "to close the bracket")) == false) {
+                def none@(optional):FxNode
+                return none
+            }
+            def inn:FxNode (unwrap inner)
+            def g (FxLang.leaf("un" "()" inn.type l))
+            g.kids = ([] _:FxNode (inn))
+            def r3@(optional):FxNode g
+            return r3
+        }
+        if (k == "id") {
+            at = (at + 1)
+            if (this.isOp("(")) {
+                return (this.call(t l))
+            }
+            def it:string (FxLang.inputType(t))
+            if ((strlen it) > 0) {
+                def r4@(optional):FxNode (FxLang.leaf("var" ("in:" + t) it l))
+                return r4
+            }
+            def pp@(optional):FxParam (cur.paramAt(t))
+            if (!null? pp) {
+                def r5@(optional):FxNode (FxLang.leaf("var" ("k_" + t) "float" l))
+                return r5
+            }
+            def i:int 0
+            while (i < (array_length cur.names)) {
+                if ((itemAt cur.names i) == t) {
+                    def v:FxNode (itemAt cur.values i)
+                    def r6@(optional):FxNode (FxLang.leaf("var" ("v_" + t) v.type l))
+                    return r6
+                }
+                i = (i + 1)
+            }
+            this.fail(l ("'" + t + "' has no value here"))
+            def none2@(optional):FxNode
+            return none2
+        }
+        if (k == "end") {
+            this.fail(l "the text ends inside an expression")
+        } {
+            if (k == "nl") {
+                this.fail(l "the line ends inside an expression")
+            } {
+                this.fail(l ("unexpected '" + t + "'"))
+            }
+        }
+        def none3@(optional):FxNode
+        return none3
+    }
+
+    ; ---------------------------------------------------------- functions --
+
+    ; Componentwise functions of one value, float or vector.
+    sfn isUnaryMath:boolean (f:string) {
+        def k:[string] ([] _:string ("sin" "cos" "tan" "asin" "acos" "abs" "floor" "ceil" "fract" "sqrt" "exp" "log" "sign" "normalize"))
+        def i:int 0
+        while (i < (array_length k)) {
+            if ((itemAt k i) == f) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isFunction:boolean (f:string) {
+        if (FxLang.isUnaryMath(f)) {
+            return true
+        }
+        def k:[string] ([] _:string ("min" "max" "mod" "pow" "step" "clamp" "mix" "smoothstep" "length" "distance" "dot" "atan" "vec2" "vec3" "vec4" "rgba" "hsv" "hash" "noise" "fbm" "voronoi" "rotate" "source" "select"))
+        def i:int 0
+        while (i < (array_length k)) {
+            if ((itemAt k i) == f) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn call@(optional):FxNode (f:string l:int) {
+        ; the opening bracket
+        at = (at + 1)
+        def args:[FxNode]
+        def argTexts:[string]
+        if ((this.isOp(")")) == false) {
+            while (true) {
+                ; fbm's octaves must be a number as written
+                push argTexts (this.text())
+                def a@(optional):FxNode (this.expr())
+                if (null? a) {
+                    return a
+                }
+                push args (unwrap a)
+                if (this.isOp(",")) {
+                    at = (at + 1)
+                    continue
+                }
+                break
+            }
+        }
+        if ((this.expectOp(")" ("to close " + f + "("))) == false) {
+            def none@(optional):FxNode
+            return none
+        }
+        if ((FxLang.isFunction(f)) == false) {
+            this.fail(l ("there is no function '" + f + "'"))
+            def none2@(optional):FxNode
+            return none2
+        }
+        def t:string (this.typeOfCall(f args argTexts l))
+        if ((strlen t) == 0) {
+            def none3@(optional):FxNode
+            return none3
+        }
+        def n (FxLang.leaf("call" f t l))
+        n.kids = args
+        if (f == "fbm") {
+            n.text = (itemAt argTexts 1)
+        }
+        def r@(optional):FxNode n
+        return r
+    }
+
+    fn argsWrong:string (f:string l:int what:string) {
+        this.fail(l (f + "(" + what + ")"))
+        return ""
+    }
+
+    sfn isNum:boolean (t:string) {
+        return ((FxLang.dims(t)) > 0)
+    }
+
+    ; The type a call returns, "" (after an error) when its arguments do not
+    ; fit. Adds the call's cost.
+    fn typeOfCall:string (f:string args:[FxNode] texts:[string] l:int) {
+        def n:int (array_length args)
+        def t0:string ""
+        def t1:string ""
+        def t2:string ""
+        if (n > 0) {
+            def a0:FxNode (itemAt args 0)
+            t0 = a0.type
+        }
+        if (n > 1) {
+            def a1:FxNode (itemAt args 1)
+            t1 = a1.type
+        }
+        if (n > 2) {
+            def a2:FxNode (itemAt args 2)
+            t2 = a2.type
+        }
+        cost = (cost + 2)
+        if (FxLang.isUnaryMath(f)) {
+            if ((n != 1) || ((FxLang.isNum(t0)) == false)) {
+                return (this.argsWrong(f l "one number or vector"))
+            }
+            return t0
+        }
+        if ((((f == "min") || (f == "max")) || (f == "mod")) || (f == "pow")) {
+            if ((n != 2) || ((FxLang.isNum(t0)) == false)) {
+                return (this.argsWrong(f l "x, y"))
+            }
+            if ((t1 != t0) && ((t1 != "float") || (f == "pow"))) {
+                return (this.argsWrong(f l ("y is a " + t0 + (FxLang.orFloat(f)))))
+            }
+            return t0
+        }
+        if (f == "step") {
+            if ((n != 2) || ((FxLang.isNum(t1)) == false)) {
+                return (this.argsWrong(f l "edge, x"))
+            }
+            if ((t0 != t1) && (t0 != "float")) {
+                return (this.argsWrong(f l "edge is a number or the same as x"))
+            }
+            return t1
+        }
+        if (f == "clamp") {
+            if ((n != 3) || ((FxLang.isNum(t0)) == false)) {
+                return (this.argsWrong(f l "x, min, max"))
+            }
+            if (((t1 != t0) && (t1 != "float")) || ((t2 != t1))) {
+                return (this.argsWrong(f l "min and max are numbers or the same as x"))
+            }
+            return t0
+        }
+        if (f == "mix") {
+            if ((n != 3) || (((FxLang.isNum(t0)) == false) || (t1 != t0))) {
+                return (this.argsWrong(f l "a, b, amount"))
+            }
+            if ((t2 != t0) && (t2 != "float")) {
+                return (this.argsWrong(f l "the amount is a number"))
+            }
+            return t0
+        }
+        if (f == "smoothstep") {
+            if ((n != 3) || ((FxLang.isNum(t2)) == false)) {
+                return (this.argsWrong(f l "edge0, edge1, x"))
+            }
+            if (((t0 != t2) && (t0 != "float")) || (t1 != t0)) {
+                return (this.argsWrong(f l "edges are numbers or the same as x"))
+            }
+            return t2
+        }
+        if (f == "length") {
+            if ((n != 1) || ((FxLang.isNum(t0)) == false)) {
+                return (this.argsWrong(f l "v"))
+            }
+            return "float"
+        }
+        if ((f == "distance") || (f == "dot")) {
+            if (((n != 2) || ((FxLang.isNum(t0)) == false)) || (t1 != t0)) {
+                return (this.argsWrong(f l "a, b of the same kind"))
+            }
+            return "float"
+        }
+        if (f == "atan") {
+            if (((n < 1) || (n > 2)) || ((t0 != "float") || ((n == 2) && (t1 != "float")))) {
+                return (this.argsWrong(f l "y, x as numbers"))
+            }
+            return "float"
+        }
+        if (((f == "vec2") || (f == "vec3")) || (f == "vec4")) {
+            def want:int (FxLang.dims(f))
+            def got:int 0
+            def i:int 0
+            while (i < n) {
+                def ai:FxNode (itemAt args i)
+                def d:int (FxLang.dims(ai.type))
+                if (d == 0) {
+                    return (this.argsWrong(f l "numbers and vectors"))
+                }
+                got = (got + d)
+                i = (i + 1)
+            }
+            if ((got != want) && ((n != 1) || (t0 != "float"))) {
+                return (this.argsWrong(f l ((to_string want) + " components")))
+            }
+            return f
+        }
+        if (f == "rgba") {
+            if (((n != 2) || (t0 != "vec3")) || (t1 != "float")) {
+                return (this.argsWrong(f l "colour, alpha"))
+            }
+            return "vec4"
+        }
+        if (f == "hsv") {
+            if (((n != 3) || (t0 != "float")) || ((t1 != "float") || (t2 != "float"))) {
+                return (this.argsWrong(f l "hue in degrees, saturation, value"))
+            }
+            cost = (cost + 6)
+            return "vec3"
+        }
+        if (f == "hash") {
+            if ((n != 1) || (t0 != "vec2")) {
+                return (this.argsWrong(f l "vec2"))
+            }
+            cost = (cost + 3)
+            return "float"
+        }
+        if (f == "noise") {
+            if ((n != 1) || (t0 != "vec2")) {
+                return (this.argsWrong(f l "vec2"))
+            }
+            cost = (cost + 10)
+            return "float"
+        }
+        if (f == "voronoi") {
+            if ((n != 1) || (t0 != "vec2")) {
+                return (this.argsWrong(f l "vec2"))
+            }
+            cost = (cost + 40)
+            return "float"
+        }
+        if (f == "fbm") {
+            if ((n != 2) || (t0 != "vec2")) {
+                return (this.argsWrong(f l "vec2, octaves 1..8"))
+            }
+            def oct:string (itemAt texts 1)
+            def a1k:FxNode (itemAt args 1)
+            def ok:boolean (((a1k.kind == "num") && ((strlen oct) == 1)) && (((charAt oct 0) >= 49) && ((charAt oct 0) <= 56)))
+            if (ok == false) {
+                return (this.argsWrong(f l "the octaves are a whole number 1..8 as written"))
+            }
+            cost = (cost + (12 * ((charAt oct 0) - 48)))
+            return "float"
+        }
+        if (f == "rotate") {
+            if (((n != 2) || (t0 != "vec2")) || (t1 != "float")) {
+                return (this.argsWrong(f l "vec2, degrees"))
+            }
+            cost = (cost + 4)
+            return "vec2"
+        }
+        if (f == "source") {
+            if (cur.layer == "source") {
+                this.fail(l "source(uv) reads the surface; it is for filter and backdrop effects")
+                return ""
+            }
+            if ((n != 1) || (t0 != "vec2")) {
+                return (this.argsWrong(f l "uv"))
+            }
+            cost = (cost + 4)
+            return "vec4"
+        }
+        if (f == "select") {
+            if ((n != 3) || ((t0 != "bool") || (((FxLang.isNum(t1)) == false) || (t2 != t1)))) {
+                return (this.argsWrong(f l "comparison, if true, if false"))
+            }
+            return t1
+        }
+        this.fail(l ("there is no function '" + f + "'"))
+        return ""
+    }
+
+    sfn orFloat:string (f:string) {
+        if (f == "pow") {
+            return ""
+        }
+        return " or a number"
+    }
+
+    ; ----------------------------------------------------------- emitting --
+
+    sfn emit:string (n:FxNode) {
+        if (n.kind == "num") {
+            return n.text
+        }
+        if (n.kind == "var") {
+            if (n.op == "in:uv") { return "local" }
+            if (n.op == "in:p") { return "p" }
+            if (n.op == "in:size") { return "uBox.zw" }
+            if (n.op == "in:time") { return "uTime" }
+            if (n.op == "in:edge") { return "fxBoxDistance(p)" }
+            if (n.op == "in:PI") { return "PI" }
+            return n.op
+        }
+        if (n.kind == "bin") {
+            return ("(" + (FxLang.emit((itemAt n.kids 0))) + " " + n.op + " " + (FxLang.emit((itemAt n.kids 1))) + ")")
+        }
+        if (n.kind == "un") {
+            if (n.op == "()") {
+                return ("(" + (FxLang.emit((itemAt n.kids 0))) + ")")
+            }
+            return ("(" + n.op + (FxLang.emit((itemAt n.kids 0))) + ")")
+        }
+        if (n.kind == "swz") {
+            return ((FxLang.emit((itemAt n.kids 0))) + "." + n.op)
+        }
+        if (n.kind == "call") {
+            def args:string ""
+            def count:int (array_length n.kids)
+            if (n.op == "fbm") {
+                count = 1
+            }
+            def i:int 0
+            while (i < count) {
+                if (i > 0) {
+                    args = (args + ", ")
+                }
+                args = (args + (FxLang.emit((itemAt n.kids i))))
+                i = (i + 1)
+            }
+            if (n.op == "select") {
+                return ("(" + (FxLang.emit((itemAt n.kids 0))) + " ? " + (FxLang.emit((itemAt n.kids 1))) + " : " + (FxLang.emit((itemAt n.kids 2))) + ")")
+            }
+            if (n.op == "fbm") {
+                return ("fxl_fbm" + n.text + "(" + args + ")")
+            }
+            if ((((n.op == "hash") || (n.op == "noise")) || ((n.op == "voronoi") || (n.op == "rotate"))) || ((n.op == "hsv") || ((n.op == "rgba") || (n.op == "source")))) {
+                return ("fxl_" + n.op + "(" + args + ")")
+            }
+            return (n.op + "(" + args + ")")
+        }
+        return "0.0"
+    }
+
+    sfn addLib:void (lib:[string] name:string) {
+        def i:int 0
+        while (i < (array_length lib)) {
+            if ((itemAt lib i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push lib name
+    }
+
+    ; The library functions a tree calls, and the ones they need.
+    sfn libOf:void (n:FxNode lib:[string]) {
+        if (n.kind == "call") {
+            if (n.op == "fbm") {
+                FxLang.addLib(lib "hash")
+                FxLang.addLib(lib "noise")
+                FxLang.addLib(lib ("fbm" + n.text))
+            }
+            if (n.op == "noise") {
+                FxLang.addLib(lib "hash")
+                FxLang.addLib(lib "noise")
+            }
+            if (n.op == "voronoi") {
+                FxLang.addLib(lib "hash")
+                FxLang.addLib(lib "voronoi")
+            }
+            if ((((n.op == "hash") || (n.op == "rotate")) || (n.op == "hsv")) || ((n.op == "rgba") || (n.op == "source"))) {
+                FxLang.addLib(lib n.op)
+            }
+        }
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            FxLang.libOf((itemAt n.kids i) lib)
+            i = (i + 1)
+        }
+    }
+
+    ; The library's GLSL, in an order where each comes after what it calls.
+    sfn libText:string (lib:[string]) {
+        def has:string ((FxLang.joinLib(lib)) + ",")
+        def out:string ""
+        if ((indexOf has ",hash,") >= 0) {
+            out = (out + "float fxl_hash(vec2 q) {\n  q = fract(q * vec2(127.31, 311.7));\n  q += dot(q, q + 34.53);\n  return fract(q.x * q.y);\n}\n")
+        }
+        if ((indexOf has ",noise,") >= 0) {
+            out = (out + "float fxl_noise(vec2 q) {\n  vec2 i = floor(q);\n  vec2 f = fract(q);\n  f = f * f * (3.0 - 2.0 * f);\n  float a = fxl_hash(i);\n  float b = fxl_hash(i + vec2(1.0, 0.0));\n  float c = fxl_hash(i + vec2(0.0, 1.0));\n  float d = fxl_hash(i + vec2(1.0, 1.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n")
+        }
+        def o:int 1
+        while (o <= 8) {
+            if ((indexOf has (",fbm" + (to_string o) + ",")) >= 0) {
+                out = (out + "float fxl_fbm" + (to_string o) + "(vec2 q) {\n  float s = 0.0;\n  float a = 0.5;\n  for (int i = 0; i < " + (to_string o) + "; i++) {\n    s += a * fxl_noise(q);\n    q = q * 2.03 + vec2(17.3, 9.1);\n    a *= 0.5;\n  }\n  return s;\n}\n")
+            }
+            o = (o + 1)
+        }
+        if ((indexOf has ",voronoi,") >= 0) {
+            out = (out + "float fxl_voronoi(vec2 q) {\n  vec2 i = floor(q);\n  vec2 f = fract(q);\n  float d = 8.0;\n  for (int y = -1; y <= 1; y++) {\n    for (int x = -1; x <= 1; x++) {\n      vec2 g = vec2(float(x), float(y));\n      vec2 o = vec2(fxl_hash(i + g), fxl_hash(i + g + 19.19));\n      d = min(d, length(g + o - f));\n    }\n  }\n  return d;\n}\n")
+        }
+        if ((indexOf has ",rotate,") >= 0) {
+            out = (out + "vec2 fxl_rotate(vec2 q, float deg) {\n  float a = radians(deg);\n  float c = cos(a);\n  float s = sin(a);\n  return vec2(c * q.x - s * q.y, s * q.x + c * q.y);\n}\n")
+        }
+        if ((indexOf has ",hsv,") >= 0) {
+            out = (out + "vec3 fxl_hsv(float h, float s, float v) {\n  vec3 k = clamp(abs(mod(h / 60.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);\n  return v * mix(vec3(1.0), k, clamp(s, 0.0, 1.0));\n}\n")
+        }
+        if ((indexOf has ",rgba,") >= 0) {
+            out = (out + "vec4 fxl_rgba(vec3 c, float a) {\n  return vec4(c, a);\n}\n")
+        }
+        if ((indexOf has ",source,") >= 0) {
+            out = (out + "vec4 fxl_source(vec2 q) {\n  vec2 pg = uBox.xy + clamp(q, 1.0 / uBox.zw, 1.0 - 1.0 / uBox.zw) * uBox.zw;\n  return texture(uSrc, vec2(pg.x, uRes.y - pg.y) / uRes);\n}\n")
+        }
+        return out
+    }
+
+    sfn joinLib:string (lib:[string]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lib)) {
+            out = (out + "," + (itemAt lib i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------- for the page --
+
+    ; The effects as JSON for the page to register:
+    ; [{"name":…,"layer":…,"params":{…},"still":…,"fallback":…,"frag":…}]
+    fn json:string () {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length effects)) {
+            def e:FxEffect (itemAt effects i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            def ps:string "{"
+            def k:int 0
+            while (k < (array_length e.params)) {
+                def pp:FxParam (itemAt e.params k)
+                if (k > 0) {
+                    ps = (ps + ",")
+                }
+                ps = (ps + "\"" + pp.name + "\":" + (FxLang.numText(pp.value)))
+                k = (k + 1)
+            }
+            ps = (ps + "}")
+            out = (out + "{\"name\":\"" + e.name + "\",\"layer\":\"" + e.layer + "\",\"params\":" + ps + ",\"still\":" + (FxLang.numText(e.still)) + ",\"fallback\":\"" + e.fallback + "\",\"frag\":" + (FxLang.quote((e.glsl()))) + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn quote:string (s:string) {
+        def out:string "\""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 10) {
+                out = (out + "\\n")
+            } {
+                if (c == 34) {
+                    out = (out + "\\\"")
+                } {
+                    if (c == 92) {
+                        out = (out + "\\\\")
+                    } {
+                        out = (out + (substring s i (i + 1)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+}
