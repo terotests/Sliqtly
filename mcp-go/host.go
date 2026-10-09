@@ -348,6 +348,8 @@ type McpHost struct {
 	next   int64
 	// pictures for render.go, by the name the lists give them
 	renderPics *renderPics
+	// the deck's own effects for render.go (fxvm.go RenderFx)
+	renderFx *renderFx
 }
 
 func (h *McpHost) fail(err error) {

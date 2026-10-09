@@ -326,7 +326,11 @@ class Tools {
         slideP.put("anyOf" slideOf)
         slideP.putStr("description" "Which slide: its number (1 = first) or its title")
         rsp.put("slide" slideP)
-        tools.add((Tools.tool("render_slide" "Look at a slide" "A picture of one slide of a Sliqtly presentation (JPEG, 960×540 for a 16:9 slide) as the player draws it at the end of its animations, with the slide's layout report. Use it when the layout report on create/update looks suspect (small text, overlaps, empty space, crowded chart labels) and to check charts, diagrams and tables, whose look the report only measures." (Tools.schema(rsp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 true false)) eitherMeta)))
+        def timeP:MfJ (Tools.prop("number" "Seconds into the slide to draw its own effects (```fx) at, their step/steptime/progress following; left out: each effect at its still"))
+        timeP.putInt("minimum" 0)
+        rsp.put("time" timeP)
+        rsp.put("fx" (Tools.prop("boolean" "false: leave the effects out (their fallback colour shows); default true")))
+        tools.add((Tools.tool("render_slide" "Look at a slide" "A picture of one slide of a Sliqtly presentation (JPEG, 960×540 for a 16:9 slide) as the player draws it at the end of its animations, with the slide's layout report. The deck's own effects (```fx, a theme's @effect) are drawn, at their still or at `time`; built-in effects are not. Use it when the layout report on create/update looks suspect (small text, overlaps, empty space, crowded chart labels) and to check charts, diagrams and tables, whose look the report only measures." (Tools.schema(rsp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 true false)) eitherMeta)))
 
         def rop:MfJ (MfJ.newObj())
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -3660,6 +3664,21 @@ class Tools {
         din.stored = stored
         din.live = true
         din.lists = true
+        def fxOn:boolean (a.bool_("fx" true))
+        def fxTime:double -1.0
+        if (((a.field("time")).kind) != 0) {
+            fxTime = (a.num_("time" -1.0))
+            if (fxTime < 0.0) {
+                return (Tools.fail("time is seconds into the slide, 0 or more."))
+            }
+        }
+        if ((all == false) && (fxTime >= 0.0)) {
+            def at0:int (a.int_("slide" 0))
+            if (at0 > 0) {
+                din.fxAt = (at0 - 1)
+                din.fxTime = fxTime
+            }
+        }
         def css:MfJ (d.field("css"))
         def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
         if ((array_length ck.lists) == 0) {
@@ -3667,6 +3686,9 @@ class Tools {
         }
         for bgs.pics p:CheckPic pi {
             host_render_pic host p.name (itemAt bgs.data pi)
+        }
+        if fxOn {
+            host_render_fx host ck.fxPrograms fxTime
         }
         def titles:[string]
         for ck.report o:RSlideOut oi {
@@ -3699,6 +3721,7 @@ class Tools {
                 }
             }
             def b64:string (host_render_grid host lists ck.width ck.height cols 1600)
+            host_render_fx host "" -1.0
             if ((strlen b64) == 0) {
                 return (Tools.fail("The slides could not be drawn."))
             }
@@ -3718,7 +3741,17 @@ class Tools {
             if (at < 0) {
                 return (Tools.fail(("No slide " + (JOut.text((a.field("slide")))) + ": the presentation has " + (to_string (array_length titles)) + " slides.")))
             }
+            if ((fxTime >= 0.0) && (din.fxAt != at)) {
+                ; the slide named by its title: its list again, on its clock
+                din.fxAt = at
+                din.fxTime = fxTime
+                def again:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+                if ((array_length again.lists) > at) {
+                    ck.lists = again.lists
+                }
+            }
             def b64s:string (host_render host (itemAt ck.lists at) ck.width ck.height 960)
+            host_render_fx host "" -1.0
             if ((strlen b64s) == 0) {
                 return (Tools.fail("The slide could not be drawn."))
             }
@@ -3731,7 +3764,7 @@ class Tools {
         if ((strlen svgs) > 0) {
             push lines svgs
         }
-        push lines "Drawn as the player shows each slide at the end of its animations. Effects (fx=) and picture corners are not drawn here; SVG pictures are."
+        push lines (Tools.fxDrawnText(ck.fxPrograms fxOn fxTime))
         def tc:MfJ (MfJ.newObj())
         tc.putStr("type" "text")
         tc.putStr("text" (join lines "\n"))
@@ -3739,6 +3772,22 @@ class Tools {
         def r:MfJ (MfJ.newObj())
         r.put("content" content)
         return r
+    }
+
+    ; what the picture says of the effects in it
+    sfn fxDrawnText:string (programs:string on:boolean t:double) {
+        def own:boolean ((strlen programs) > 2)
+        def out:string "Drawn as the player shows each slide at the end of its animations. Built-in effects (fx=starfield …) and picture corners are not drawn here; SVG pictures are."
+        if (own == false) {
+            return out
+        }
+        if (on == false) {
+            return (out + " The deck's own effects are left out (fx: false); their fallback colour shows.")
+        }
+        if (t >= 0.0) {
+            return (out + " The deck's own effects are drawn " + (to_string t) + " s into the slide, their step, steptime and progress as then; the text as at the end.")
+        }
+        return (out + " The deck's own effects are drawn at their still (step: the last, progress: 1).")
     }
 
     ; --- data files

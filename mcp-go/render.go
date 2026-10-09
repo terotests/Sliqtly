@@ -8,8 +8,8 @@
 // here (where a baseline goes, a border inside its box, object-fit: cover)
 // are taken from it.
 //
-// What is not drawn: GPU effects (an effect's rectangle is drawn as its
-// colour), backdrop blur, a picture's rounded corners and rotation. An SVG
+// What is not drawn: the built-in GPU effects (an effect's rectangle is
+// drawn as its colour; a deck's own are drawn by fxvm.go), backdrop blur, a picture's rounded corners and rotation. An SVG
 // picture is drawn by svgraster.go.
 
 package main
@@ -70,10 +70,12 @@ type dlCmd struct {
 	EO     int       `json:"eo"`
 	Dash   string    `json:"dash"`
 	Cap    int       `json:"cap"`
+	Efx    string    `json:"efx"`
 }
 
 type dlDoc struct {
-	Cmds []dlCmd `json:"cmds"`
+	Cmds    []dlCmd `json:"cmds"`
+	Effects []dlFx  `json:"effects"`
 }
 
 type pt struct{ x, y float64 }
@@ -87,6 +89,9 @@ type painter struct {
 	pics  *renderPics
 	z     vector.Rasterizer
 	buf   sfnt.Buffer
+	// the deck's own effects (fxvm.go) and the list's instances of them
+	fx     *renderFx
+	fxInst map[string]*dlFx
 }
 
 func colorOf(c []float64) color.NRGBA {
@@ -704,7 +709,13 @@ func (p *painter) paint(doc *dlDoc) {
 		c := &doc.Cmds[i]
 		switch c.K {
 		case 0:
+			if c.Efx != "" {
+				p.drawFx(c.Efx, "backdrop")
+			}
 			p.rect(c)
+			if c.Efx != "" {
+				p.drawFx(c.Efx, "source")
+			}
 		case 1:
 			p.border(c)
 		case 2:
@@ -726,10 +737,16 @@ func (p *painter) paint(doc *dlDoc) {
 		}
 	}
 	p.clips = p.clips[:base]
+	// a filter rewrites the finished slide in its box
+	for i := range doc.Cmds {
+		if c := &doc.Cmds[i]; c.K == 0 && c.Efx != "" {
+			p.drawFx(c.Efx, "filter")
+		}
+	}
 }
 
 // renderList paints one slide's list into a w×h-sized area of dst at off
-func renderList(dst *image.RGBA, listJSON string, slideW, slideH float64, area image.Rectangle, pics *renderPics) error {
+func renderList(dst *image.RGBA, listJSON string, slideW, slideH float64, area image.Rectangle, pics *renderPics, fx *renderFx) error {
 	var doc dlDoc
 	if err := json.Unmarshal([]byte(listJSON), &doc); err != nil {
 		return err
@@ -739,6 +756,15 @@ func renderList(dst *image.RGBA, listJSON string, slideW, slideH float64, area i
 		c.Text, c.Font, c.Src = utf8Of(c.Text), utf8Of(c.Font), utf8Of(c.Src)
 	}
 	p := &painter{dst: dst, k: float64(area.Dx()) / slideW, off: pt{float64(area.Min.X), float64(area.Min.Y)}, pics: pics}
+	if fx != nil && len(doc.Effects) > 0 {
+		p.fx = fx
+		p.fxInst = map[string]*dlFx{}
+		for i := range doc.Effects {
+			e := &doc.Effects[i]
+			e.Kind = utf8Of(e.Kind)
+			p.fxInst[e.ID] = e
+		}
+	}
 	// the area may reach past the picture (RenderCrop draws part of a slide)
 	p.clips = []image.Rectangle{area.Intersect(dst.Bounds())}
 	p.paint(&doc)
@@ -824,7 +850,7 @@ func (h *McpHost) Render(listJSON string, slideW, slideH float64, width int64) s
 	ht := int(math.Round(float64(width) * slideH / slideW))
 	dst := image.NewRGBA(image.Rect(0, 0, int(width), ht))
 	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
-	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics); err != nil {
+	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics, h.renderFx); err != nil {
 		h.Log("render: " + err.Error())
 		return ""
 	}
@@ -841,7 +867,7 @@ func (h *McpHost) RenderStill(listJSON string, slideW, slideH float64, width int
 	ht := int(math.Round(float64(width) * slideH / slideW))
 	dst := image.NewRGBA(image.Rect(0, 0, int(width), ht))
 	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
-	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics); err != nil {
+	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics, h.renderFx); err != nil {
 		h.Log("render: " + err.Error())
 		return nil
 	}
@@ -867,7 +893,7 @@ func (h *McpHost) RenderCrop(listJSON string, slideW, slideH, x, y, w, ht float6
 	// the whole slide, placed so the rectangle lands on the picture
 	ox, oy := int(math.Round(-x*k)), int(math.Round(-y*k))
 	area := image.Rect(ox, oy, ox+int(math.Round(slideW*k)), oy+int(math.Round(slideH*k)))
-	if err := renderList(dst, listJSON, slideW, slideH, area, h.renderPics); err != nil {
+	if err := renderList(dst, listJSON, slideW, slideH, area, h.renderPics, nil); err != nil {
 		h.Log("render: " + err.Error())
 		return nil
 	}
@@ -896,7 +922,7 @@ func (h *McpHost) RenderGrid(lists []string, slideW, slideH float64, cols, width
 		y := gap + (i/int(cols))*(th+gap)
 		area := image.Rect(x, y, x+tw, y+th)
 		draw.Draw(dst, area, image.White, image.Point{}, draw.Src)
-		if err := renderList(dst, l, slideW, slideH, area, h.renderPics); err != nil {
+		if err := renderList(dst, l, slideW, slideH, area, h.renderPics, h.renderFx); err != nil {
 			h.Log("render: " + err.Error())
 		}
 		label(dst, area, strconv.Itoa(i+1))

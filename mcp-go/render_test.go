@@ -14,7 +14,7 @@ func ink(t *testing.T, list string) int {
 	for i := range dst.Pix {
 		dst.Pix[i] = 255
 	}
-	if err := renderList(dst, list, 200, 60, dst.Bounds(), nil); err != nil {
+	if err := renderList(dst, list, 200, 60, dst.Bounds(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	n := 0
@@ -46,7 +46,7 @@ func inkRight(t *testing.T, list string) int {
 	for i := range dst.Pix {
 		dst.Pix[i] = 255
 	}
-	if err := renderList(dst, list, 400, 60, dst.Bounds(), nil); err != nil {
+	if err := renderList(dst, list, 400, 60, dst.Bounds(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	right := -1
