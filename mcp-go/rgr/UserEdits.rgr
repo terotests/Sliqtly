@@ -1,0 +1,360 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; UserEdits.rgr — what the user changed by hand since an assistant last saw
+; the deck
+; ============================================================================
+;
+; An assistant reads a deck, the user then fixes a chart title, restyles a
+; heading or rewrites a line in the editor, and the assistant's next save is
+; made on the text it remembers. Unless it is told, that save quietly puts
+; its own version back, and it never learns which way the user is steering.
+;
+; UserEdits compares three texts, line by line (RangerDiff):
+;
+;   seen   the text as an assistant last read or wrote it
+;   cur    the text as it is now: seen plus the user's changes
+;   saved  what this save makes of cur (cur itself when nothing is saved)
+;
+; Each change from seen to cur is one UserEdit: the lines as the assistant
+; had them, the user's lines, where they are (slide, block) and, when the
+; save changes those same lines again, what the save made of them
+; (overwritten). The same works on a stylesheet, by rule instead of slide.
+;
+; Nothing here knows a store, a version or a slide layout: the host gives the
+; texts and the line each slide of cur starts on.
+; ============================================================================
+
+Import "McpJson.rgr"
+Import "../rangerdiff/src/RdText.rgr"
+
+class UserEdit {
+    ; the slide (1 = first) of cur the change is on; 0 in a stylesheet
+    def slide:int 0
+    ; "```chart block", "front matter", "slide text", "css rule h2"
+    def where:string ""
+    ; the first line (0 = first) of the change in cur
+    def line:int 0
+    ; the lines as the assistant last saw them, and the user's lines now
+    def before:[string]
+    def user:[string]
+    ; this save changed the user's lines again: what it made of them
+    def overwritten:boolean false
+    def saved:[string]
+
+    fn toJson:MfJ () {
+        def o:MfJ (MfJ.newObj())
+        if (slide > 0) {
+            o.putInt("slide" slide)
+        }
+        o.putStr("where" where)
+        o.put("before" (J.strs(before)))
+        o.put("user" (J.strs(user)))
+        o.putBool("overwritten" overwritten)
+        if overwritten {
+            o.put("saved" (J.strs(saved)))
+        }
+        return o
+    }
+}
+
+class UserEdits {
+    def edits:[UserEdit]
+
+    fn any:boolean () {
+        return ((array_length edits) > 0)
+    }
+
+    ; the edits this save overwrote
+    fn overwritten:[UserEdit] () {
+        def out:[UserEdit]
+        for edits e:UserEdit i {
+            if e.overwritten {
+                push out e
+            }
+        }
+        return out
+    }
+
+    fn kept:[UserEdit] () {
+        def out:[UserEdit]
+        for edits e:UserEdit i {
+            if (e.overwritten == false) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    fn toJson:MfJ () {
+        def a:MfJ (MfJ.newArr())
+        for edits e:UserEdit i {
+            a.add((e.toJson()))
+        }
+        return a
+    }
+
+    ; seen → cur are the user's changes; cur → saved is this save. starts:
+    ; the line each slide of cur starts on (none: no slide numbers). css: the
+    ; texts are a stylesheet
+    sfn find:UserEdits (seen:string cur:string saved:string starts:[int] css:boolean) {
+        def out (new UserEdits)
+        if (seen == cur) {
+            return out
+        }
+        def du:RdLineDiff (RdText.diff(seen cur))
+        def ds:RdLineDiff (RdText.diff(cur saved))
+        for du.hunks hu:RdHunk i {
+            def e (new UserEdit)
+            e.before = (RdText.slice(du.a hu.aStart (hu.aStart + hu.aLen)))
+            e.user = (RdText.slice(du.b hu.bStart (hu.bStart + hu.bLen)))
+            if (UserEdits.sameText(e.before e.user)) {
+                ; blank lines or spaces only: not a change anyone means
+                continue
+            }
+            e.line = hu.bStart
+            if ((array_length starts) > 0) {
+                e.slide = (UserEdits.slideAt(starts hu.bStart))
+            }
+            if css {
+                e.where = (UserEdits.cssRule(du.b hu.bStart))
+            } {
+                e.where = (UserEdits.mdPlace(du.b hu.bStart))
+            }
+            for ds.hunks hs:RdHunk j {
+                if (UserEdits.meet(hu.bStart hu.bLen hs.aStart hs.aLen)) {
+                    e.overwritten = true
+                    RdText.appendAll(e.saved (RdText.slice(ds.b hs.bStart (hs.bStart + hs.bLen))))
+                }
+            }
+            push out.edits e
+        }
+        return out
+    }
+
+    ; two changes of the same lines [s, s+n): they overlap, start at the same
+    ; line, or one inserts (n = 0) inside the other
+    sfn meet:boolean (s1:int n1:int s2:int n2:int) {
+        if (s1 == s2) {
+            return true
+        }
+        def e1:int (s1 + n1)
+        def e2:int (s2 + n2)
+        if (n1 == 0) {
+            return ((s2 < s1) && (s1 < e2))
+        }
+        if (n2 == 0) {
+            return ((s1 < s2) && (s2 < e1))
+        }
+        return ((s1 < e2) && (s2 < e1))
+    }
+
+    ; the same words, blank lines and spaces at the ends aside
+    sfn sameText:boolean (a:[string] b:[string]) {
+        return ((UserEdits.words(a)) == (UserEdits.words(b)))
+    }
+
+    sfn words:string (lines:[string]) {
+        def out:[string]
+        for lines l:string i {
+            def t:string (trim l)
+            if ((strlen t) > 0) {
+                push out t
+            }
+        }
+        return (join out "\n")
+    }
+
+    sfn slideAt:int (starts:[int] line:int) {
+        def best:int 1
+        def i:int 0
+        while (i < (array_length starts)) {
+            if ((itemAt starts i) <= line) {
+                best = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; where line `at` of a Markdown deck is: in a fenced block (by its
+    ; language), the front matter, or the slide's own text
+    sfn mdPlace:string (lines:[string] line:int) {
+        def n:int (array_length lines)
+        def at:int line
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if (at < 0) {
+            return "slide text"
+        }
+        def i:int 0
+        def front:boolean false
+        def fence:string ""
+        def lang:string ""
+        while (i <= at) {
+            def t:string (trim (itemAt lines i))
+            if ((i == 0) && (t == "---")) {
+                front = true
+            } {
+                if front {
+                    if ((t == "---") || (t == "...")) {
+                        front = false
+                        if (i == at) {
+                            return "front matter"
+                        }
+                    }
+                } {
+                    def mark:string (UserEdits.fenceMark(t))
+                    if ((strlen fence) == 0) {
+                        if ((strlen mark) > 0) {
+                            fence = mark
+                            lang = (UserEdits.fenceLang((substring t (strlen mark) (strlen t))))
+                        }
+                    } {
+                        if ((t == fence) || ((((strlen mark) >= (strlen fence)) && ((strlen mark) == (strlen t))) && (startsWith t fence))) {
+                            if (i == at) {
+                                return (UserEdits.blockName(lang))
+                            }
+                            fence = ""
+                            lang = ""
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if front {
+            return "front matter"
+        }
+        if ((strlen fence) > 0) {
+            return (UserEdits.blockName(lang))
+        }
+        return "slide text"
+    }
+
+    ; "```" / "~~~~" at the start of a line, "" when it is not a fence
+    sfn fenceMark:string (t:string) {
+        def ch:string ""
+        if (startsWith t "```") {
+            ch = "`"
+        }
+        if (startsWith t "~~~") {
+            ch = "~"
+        }
+        if ((strlen ch) == 0) {
+            return ""
+        }
+        def k:int 0
+        while ((k < (strlen t)) && ((substring t k (k + 1)) == ch)) {
+            k = (k + 1)
+        }
+        return (substring t 0 k)
+    }
+
+    ; "chart {.wide}" → "chart"
+    sfn fenceLang:string (rest:string) {
+        def r:string (trim rest)
+        def k:int 0
+        while (k < (strlen r)) {
+            def c:string (substring r k (k + 1))
+            if (((c == " ") || (c == "{")) || (c == "\t")) {
+                return (substring r 0 k)
+            }
+            k = (k + 1)
+        }
+        return r
+    }
+
+    sfn blockName:string (lang:string) {
+        if ((strlen lang) == 0) {
+            return "code block"
+        }
+        return ("```" + lang + " block")
+    }
+
+    ; the rule line `at` of a stylesheet is in: the nearest selector above it
+    sfn cssRule:string (lines:[string] at:int) {
+        def i:int at
+        if (i >= (array_length lines)) {
+            i = ((array_length lines) - 1)
+        }
+        while (i >= 0) {
+            def t:string (trim (itemAt lines i))
+            def b:int (indexOf t "{")
+            if (b >= 0) {
+                def sel:string (trim (substring t 0 b))
+                if ((strlen sel) > 0) {
+                    return ("css rule " + sel)
+                }
+            }
+            if ((i < at) && ((indexOf t "}") >= 0)) {
+                return "stylesheet"
+            }
+            i = (i - 1)
+        }
+        return "stylesheet"
+    }
+
+    ; the edits as text for the assistant: each one a small diff (- as it
+    ; had them, + the user's), and, after a save (saving), whether the save
+    ; kept it and what it made of an overwritten one. At most maxLines lines;
+    ; the rest are counted.
+    fn text:string (maxLines:int saving:boolean) {
+        def out:[string]
+        def shown:int 0
+        for edits e:UserEdit i {
+            def block:[string]
+            def head:string "- "
+            if (e.slide > 0) {
+                head = (head + "slide " + (to_string e.slide) + ", ")
+            }
+            head = (head + e.where)
+            if saving {
+                if e.overwritten {
+                    head = (head + " (overwritten by this save)")
+                } {
+                    head = (head + " (kept)")
+                }
+            }
+            push block (head + ":")
+            push block "```diff"
+            for e.before b:string bi {
+                push block ("-" + (UserEdits.cut(b)))
+            }
+            for e.user u:string ui {
+                push block ("+" + (UserEdits.cut(u)))
+            }
+            push block "```"
+            if e.overwritten {
+                if ((array_length e.saved) == 0) {
+                    push block "  This save removed those lines."
+                } {
+                    push block "  This save made them:"
+                    push block "```"
+                    for e.saved s:string si {
+                        push block (UserEdits.cut(s))
+                    }
+                    push block "```"
+                }
+            }
+            if (((array_length out) + (array_length block)) > maxLines) {
+                break
+            }
+            RdText.appendAll(out block)
+            shown = (shown + 1)
+        }
+        def left:int ((array_length edits) - shown)
+        if (left > 0) {
+            push out ("- … and " + (to_string left) + " more (get_presentation shows the deck as it is now).")
+        }
+        return (join out "\n")
+    }
+
+    sfn cut:string (s:string) {
+        if ((strlen s) > 160) {
+            return ((substring s 0 157) + "...")
+        }
+        return s
+    }
+}

@@ -51,6 +51,8 @@ Speaker notes.
    charts, diagrams and any ⚠.
 4. Give the user the link and say anyone with it can see the deck (unless
    `visibility: "private"`).
+5. When a read or a save lists changes the user made by hand (`user_edits`),
+   keep them; a save that overwrote one says so → topic=editing.
 
 A warning that ends with `→ topic=x` names the topic that explains it.
 <!-- rooms -->
@@ -891,6 +893,27 @@ whether it is resolved, and its messages.
 `base_version`; a whole `markdown` without one is refused while someone
 else holds a claim on the deck. `get_presentation` and every update list
 the others' claims ("Also working on this deck").
+
+## When the user changed the deck by hand
+
+The user may change the deck in the editor between your calls: a chart
+title, a colour, a line of text. The server remembers the version an
+assistant last read or saved, and the next `get_presentation` or
+`update_presentation` lists what changed by hand since then: the slide,
+the place (`chart` block, front matter, slide text, a css rule) and a small
+diff, `-` as the assistant had it, `+` the user's version.
+`structuredContent.user_edits` has the same as data (`markdown`, `css`:
+`slide`, `where`, `before`, `user`, `overwritten`, `saved`).
+
+- On a read, the list is the user's changes since then. Make your next
+  change on that text.
+- On a save, each change is *kept* or *overwritten by this save* (with what
+  the save made of those lines). A whole `markdown` written from an older
+  read puts the old lines back; unless the user asked for that, restore the
+  user's version with `edits`.
+- With `base_version`, changes saved since are merged in and listed as kept;
+  a change to the same lines is refused, and the refusal shows the
+  current lines.
 
 <!-- topic: export -->
 # Topic: export

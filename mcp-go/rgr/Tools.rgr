@@ -19,6 +19,7 @@ Import "Guide.rgr"
 Import "Store.rgr"
 Import "Files.rgr"
 Import "WorkStore.rgr"
+Import "UserEdits.rgr"
 Import "SvgCheck.rgr"
 Import "Edits.rgr"
 Import "WebPictures.rgr"
@@ -1780,7 +1781,11 @@ class Tools {
         if (vis == "private") {
             out.putStr("preview_url" (Tools.textLink(host base md theme sh.hasCss sh.css)))
         }
-        WorkStore.keep(host made.id md)
+        def madeCss:string ""
+        if sh.hasCss {
+            madeCss = sh.css
+        }
+        WorkStore.keepSeen(host made.id md madeCss)
         if ((strlen (host_error host)) > 0) {
             host_log host ("create_presentation work board: " + (host_error host))
             host_clear_error host
@@ -1958,6 +1963,7 @@ class Tools {
         }
         def r:MfJ (Tools.updated(host caller id ws.saved (join notes "\n")))
         Tools.withWork(host r ws.version ws.others)
+        Tools.withUserEdits(r ws.changes true)
         return (Tools.withData(host r data.imgs))
     }
 
@@ -2005,6 +2011,13 @@ class Tools {
             return out
         }
         def others:[WorkClaim] (board.others(workId))
+        ; what the edit was made on: its base_version, or what an assistant
+        ; last read or wrote; changed by hand since when it is not the deck
+        def gaveBase:boolean ((strlen baseV) > 0)
+        def seenV:string baseV
+        if ((strlen seenV) == 0) {
+            seenV = board.seen
+        }
         def lead:[string]
         if (((strlen workId) > 0) && ((board.indexOf(workId)) < 0)) {
             push lead ("Your claim " + workId + " had ended or run out; call begin_work again if you go on working on this deck.")
@@ -2051,7 +2064,13 @@ class Tools {
                         if ((array_length by) > 0) {
                             msg = (msg + "; " + (join by "; "))
                         }
-                        out.fail = (msg + ". Nothing was written. Call get_presentation for the current text (version " + curV + "), make your change on it and update with that base_version, or ask the user which change to keep.")
+                        msg = (msg + ". Nothing was written. Call get_presentation for the current text (version " + curV + "), make your change on it and update with that base_version, or ask the user which change to keep.")
+                        def none:[int]
+                        def theirs:UserEdits (UserEdits.find(bt.md curMd curMd none false))
+                        if (theirs.any()) {
+                            msg = (msg + "\nWhat was changed since version " + baseV + " (- as you had it, + as it is now):\n" + (theirs.text(40 false)))
+                        }
+                        out.fail = msg
                         return out
                     }
                     p.md = wm.text
@@ -2099,9 +2118,19 @@ class Tools {
             return out
         }
         def saved:MfJ out.saved
+        def savedCss:string (Tools.storedCss(saved))
+        def curV2:string (WorkStore.version(host (cur.str_("md"))))
+        if ((strlen seenV) > 0) {
+            if ((seenV != curV2) || (board.seenCss != (Tools.storedCss(cur)))) {
+                out.changes = (Tools.userChanges(host id seenV board.seenCss cur (saved.str_("md")) savedCss))
+                out.changes.fromBase = gaveBase
+            }
+        }
         def step (new WorkStep)
         step.base = (WorkStore.version(host (saved.str_("md"))))
         step.baseMd = (saved.str_("md"))
+        step.seen = true
+        step.css = savedCss
         if ((strlen workId) > 0) {
             step.renew = workId
             step.until = ((host_now_ms host) + (((WorkStore.MINUTES()) * 60) * 1000))
@@ -2137,6 +2166,91 @@ class Tools {
             push add ("Also working on this deck: " + (WorkStore.line(host c)) + ".")
         }
         c0.putStr("text" ((c0.str_("text")) + "\n" + (join add "\n")))
+    }
+
+    ; --- what the user changed by hand (UserEdits.rgr)
+
+    ; the deck's own stylesheet, "" when it is shown with its theme's
+    sfn storedCss:string (d:MfJ) {
+        if ((d.field("css")).kind == 3) {
+            return (d.str_("css"))
+        }
+        return ""
+    }
+
+    ; the changes from version seenV (seenCss: the deck's own stylesheet then)
+    ; to the deck cur, and what savedMd/savedCss make of them (cur's own for
+    ; a read). Nothing when that version is not kept any more.
+    sfn userChanges:UserChanges (host:McpHost id:string seenV:string seenCss:string cur:MfJ savedMd:string savedCss:string) {
+        def out (new UserChanges)
+        if ((strlen seenV) == 0) {
+            return out
+        }
+        def curMd:string (cur.str_("md"))
+        def curCss:string (Tools.storedCss(cur))
+        def seenMd:string curMd
+        if (seenV != (WorkStore.version(host curMd))) {
+            def bt:WorkBase (WorkStore.baseText(host id seenV))
+            if ((strlen (host_error host)) > 0) {
+                host_log host ("user edits: " + (host_error host))
+                host_clear_error host
+                return out
+            }
+            if (bt.found == false) {
+                return out
+            }
+            seenMd = bt.md
+        }
+        out.since = seenV
+        if (seenMd != curMd) {
+            def starts:[int] (Tools.startsOf(host curMd (Tools.sheetOf(host cur))))
+            out.md = (UserEdits.find(seenMd curMd savedMd starts false))
+        }
+        def none:[int]
+        out.css = (UserEdits.find(seenCss curCss savedCss none true))
+        return out
+    }
+
+    ; the changes on a result: structuredContent.user_edits and a few lines
+    ; of text. saving: the result of a save, which kept or overwrote them
+    sfn withUserEdits:void (r:MfJ ch:UserChanges saving:boolean) {
+        if ((ch.any()) == false) {
+            return
+        }
+        def sc:MfJ (r.field("structuredContent"))
+        if (sc.isObj()) {
+            def o:MfJ (MfJ.newObj())
+            o.putStr("since_version" ch.since)
+            o.put("markdown" (ch.md.toJson()))
+            o.put("css" (ch.css.toJson()))
+            o.putInt("overwritten" (ch.overwritten()))
+            sc.put("user_edits" o)
+        }
+        def lines:[string]
+        if ch.fromBase {
+            push lines ("Changed since version " + ch.since + ", which your edit started from (by the user in the editor, or another assistant); - as you had it, + as it is now:")
+        } {
+            push lines ("The user changed this presentation by hand since an assistant last read it (version " + ch.since + "); - as the assistant had it, + the user's version:")
+        }
+        if (ch.md.any()) {
+            push lines (ch.md.text(40 saving))
+        }
+        if (ch.css.any()) {
+            push lines "In the stylesheet (css):"
+            push lines (ch.css.text(20 saving))
+        }
+        def n:int (ch.overwritten())
+        if (n > 0) {
+            def what:string "1 of those changes"
+            if (n > 1) {
+                what = ((to_string n) + " of those changes")
+            }
+            push lines ("This save overwrote " + what + ". Unless the user asked for that, put the user's version back (update_presentation edits) and follow it.")
+        } {
+            push lines "These are the user's choices: keep them, and follow them where they fit (the same wording, style or chart settings elsewhere)."
+        }
+        def c0:MfJ (itemAt (r.list("content")) 0)
+        c0.putStr("text" ((c0.str_("text")) + "\n" + (join lines "\n")))
     }
 
     ; the slides a begin_work names, 1-based, with their titles; fail says
@@ -3062,10 +3176,13 @@ class Tools {
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join parts "\n"))))
         r.put("structuredContent" out)
-        ; the version read is kept, to merge an edit made on it
+        ; the version read is kept, to merge an edit made on it, and is now
+        ; what an assistant has seen
         def step (new WorkStep)
         step.base = (WorkStore.version(host md))
         step.baseMd = md
+        step.seen = true
+        step.css = (Tools.storedCss(d))
         WorkStore.run(host id step)
         if ((strlen (host_error host)) > 0) {
             host_log host ("get_presentation work board: " + (host_error host))
@@ -3077,6 +3194,9 @@ class Tools {
             others = none
         }
         Tools.withWork(host r step.base others)
+        if ((step.failed == false) && ((step.prevSeen != step.base) || (step.prevCss != step.css))) {
+            Tools.withUserEdits(r (Tools.userChanges(host id step.prevSeen step.prevCss d md step.css)) false)
+        }
         return r
     }
 
@@ -4477,6 +4597,27 @@ class WorkSave {
     def saved:MfJ (new MfJ)
     def version:string ""
     def others:[WorkClaim]
+    ; what was changed by hand since the version the edit was made on
+    def changes:UserChanges (new UserChanges)
+}
+
+; the changes made to a deck by hand since an assistant last saw it
+; (UserEdits.rgr), in its Markdown and in its own stylesheet
+class UserChanges {
+    ; the version they are counted from, "" when there is none to count from
+    def since:string ""
+    ; the base was the edit's own base_version, not what an assistant last read
+    def fromBase:boolean false
+    def md:UserEdits (new UserEdits)
+    def css:UserEdits (new UserEdits)
+
+    fn any:boolean () {
+        return ((md.any()) || (css.any()))
+    }
+
+    fn overwritten:int () {
+        return ((array_length (md.overwritten())) + (array_length (css.overwritten())))
+    }
 }
 
 ; the deck's stylesheet: hasCss false stores none; err is the model's
