@@ -497,6 +497,15 @@ class PresChartEditor {
         rev = (rev + 1)
     }
 
+    ; The keys gone elsewhere, the window staying open: no field shows a caret.
+    fn blur:void () {
+        if ((strlen focusTid) == 0) {
+            return
+        }
+        focusTid = ""
+        this.rebuild()
+    }
+
     ; Inside the window (its frame as last laid out).
     fn has:boolean (px:double py:double) {
         if ((strlen pickFor) > 0) {
@@ -1941,7 +1950,7 @@ class PresChartEditor {
         root.addChild(pane)
 
         def bottom:EVGElement (this.div("ce-foot"))
-        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away; Ctrl+Z undoes them all.")))))
+        bottom.addChild((this.text("ce-doc" (PresI18n.t("Changes show on the slides right away, and Ctrl+Z undoes them.")))))
         bottom.addChild((this.div("ce-grow")))
         this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
         root.addChild(bottom)

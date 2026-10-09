@@ -322,6 +322,8 @@ class PresApp {
     def chartUndoBase:int -1
     ; the undo stack's length when the document settings opened
     def docUndoBase:int -1
+    ; the editor's text version when Document settings last gave up the keys
+    def docSetSeen:int -1
     def panelsKey:string ""
     def barH:double 0.0
     def chartWinY:double -1.0
@@ -733,6 +735,10 @@ class PresApp {
 
     fn setSource:void (text:string) {
         deck.held = false
+        ; Document settings are the deck's before: closed, not written into this one
+        if chart.isOpen {
+            this.closeChart()
+        }
         this.showTab("md")
         ; the slides of the deck before say nothing about this one's
         sourceNew = true
@@ -758,6 +764,7 @@ class PresApp {
 
     fn rebuildDeck:void () {
         this.rebuildWith((? (mode == "edit") 2 -1) true)
+        this.docSetFollow()
     }
 
     ; One rebuild that draws again at most `budget` charts and figures whose
@@ -3889,7 +3896,9 @@ class PresApp {
         ; the surfaces over the chrome, the top one first (`layerAt`): an
         ; open menu or list of the bar takes every press (a row, or anywhere
         ; else to close it); a window pressed comes to the front; a press
-        ; outside a window closes it, unless it lands in a dialog over it
+        ; outside a window closes it, unless it lands in a dialog over it;
+        ; Document settings stays open (docSetLeave), so the slides it
+        ; changes can be picked and looked at
         def top:string (this.layerAt(x y))
         if (top == "bar") {
             toolbar.pressWith(x y clicks shift)
@@ -3903,6 +3912,9 @@ class PresApp {
         }
         if chart.isOpen {
             if (top == "chart") {
+                if (chart.mode == "docset") {
+                    this.docSetEnter()
+                }
                 layers.raise("chart")
                 chart.touch = touch
                 chart.press(x y clicks shift)
@@ -3910,7 +3922,11 @@ class PresApp {
                 return "chart"
             }
             if (top != "dialog") {
-                this.closeChart()
+                if (chart.mode == "docset") {
+                    this.docSetLeave()
+                } {
+                    this.closeChart()
+                }
             }
         }
         if hint.isOpen {
@@ -4979,7 +4995,7 @@ class PresApp {
                 return usedH
             }
         }
-        if (chart.isOpen && (mode != "present")) {
+        if ((this.chartHasKeys()) && (mode != "present")) {
             def used:boolean (chart.key(name shift ctrl))
             this.afterChart()
             return used
@@ -5239,7 +5255,7 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
-        if (chart.isOpen && (mode != "present")) {
+        if ((this.chartHasKeys()) && (mode != "present")) {
             chart.type(s)
             this.afterChart()
             return
@@ -5337,7 +5353,7 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
-        if (chart.isOpen && (mode != "present")) {
+        if ((this.chartHasKeys()) && (mode != "present")) {
             chart.type(s)
             this.afterChart()
             return
@@ -5414,7 +5430,7 @@ class PresApp {
         }
         ; the editor's fields have no undo of their own, and an undo in the
         ; Markdown under it would move the fence it is writing
-        if chart.isOpen {
+        if (this.chartHasKeys()) {
             if (ch == "a") {
                 chart.selectAllInField()
                 chromeRev = (chromeRev + 1)
@@ -10449,6 +10465,59 @@ class PresApp {
         return chart.isOpen
     }
 
+    ; The keys are the window's while it is open; Document settings' only
+    ; while it was pressed last (a press on the editor or a slide gives
+    ; them back, the window staying open).
+    fn chartHasKeys:boolean () {
+        if (chart.isOpen == false) {
+            return false
+        }
+        return ((chart.mode != "docset") || (focus == "chart"))
+    }
+
+    ; A press outside Document settings: its changes so far one undo step,
+    ; the keys back to the editor; the window stays open.
+    fn docSetLeave:void () {
+        this.writeChart()
+        if (docUndoBase >= 0) {
+            def keepBase:int chartUndoBase
+            chartUndoBase = docUndoBase
+            this.mergeChartUndo()
+            chartUndoBase = keepBase
+            docUndoBase = -1
+        }
+        docSetSeen = mdEditor.buf.version
+        chart.blur()
+        focus = "editor"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A press back on Document settings: its next changes a new undo step.
+    fn docSetEnter:void () {
+        if (focus == "chart") {
+            return
+        }
+        this.docSetFollow()
+        focus = "chart"
+        if (docUndoBase < 0) {
+            docUndoBase = (array_length mdEditor.buf.undoStack)
+        }
+    }
+
+    ; Document settings open while the text changes under it (typed by hand,
+    ; undone): the window reads the front matter again.
+    fn docSetFollow:void () {
+        if (((chart.isOpen == false) || (chart.mode != "docset")) || (focus == "chart")) {
+            return
+        }
+        if (mdEditor.buf.version == docSetSeen) {
+            return
+        }
+        docSetSeen = mdEditor.buf.version
+        chart.ds.read((MdFrontMatter.of(deck.md.edit.doc)))
+        chart.rebuild()
+    }
+
     ; What a routed input asked for, and the fence rewritten when the model
     ; changed.
     fn afterChart:void () {
@@ -11734,8 +11803,9 @@ class PresApp {
     }
 
     fn setFocus:void (where:string) {
-        ; the keys stay with the chart editor while it is open
-        if (chart.isOpen && (where == "editor")) {
+        ; the keys stay with the chart editor while it is open (Document
+        ; settings lets them go: a press outside it gave them back)
+        if ((chart.isOpen && (chart.mode != "docset")) && (where == "editor")) {
             focus = "chart"
             return
         }

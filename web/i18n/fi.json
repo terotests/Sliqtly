@@ -215,7 +215,7 @@
   "Changes made elsewhere were combined with yours.": "Muualla tehdyt muutokset yhdistettiin sinun muutoksiisi.",
   "Changes show on the slide right away.": "Muutokset näkyvät dialla heti.",
   "Changes show on the slide right away. Ctrl+Z undoes them after you close the window.": "Muutokset näkyvät diassa heti. Ctrl+Z kumoaa ne ikkunan sulkemisen jälkeen.",
-  "Changes show on the slides right away; Ctrl+Z undoes them all.": "Muutokset näkyvät dioilla heti; Ctrl+Z kumoaa ne kaikki.",
+  "Changes show on the slides right away, and Ctrl+Z undoes them.": "Muutokset näkyvät dioilla heti, ja Ctrl+Z kumoaa ne.",
   "chart": "kaavio",
   "Chart": "Kaavio",
   "Chart color": "Kaavion väri",
