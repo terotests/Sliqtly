@@ -39,6 +39,8 @@ class PresRoomView {
     def zoneMin:int 0
     ; a press in a text field, while the button is down
     def selecting:boolean false
+    ; a press on the line left of the thread, dragging the thread's width
+    def resizing:boolean false
     def built:boolean false
     def rev:int 0
 
@@ -413,6 +415,8 @@ class PresRoomView {
         }
         ch.width = w
         ch.height = h
+        ; the thread's default width; one dragged wider is the reader's own
+        ; (ChannelCtl.split, kept by the page as sliqtly.chatThreadW)
         ch.threadW = 380.0
         if (w < 1000.0) {
             ch.threadW = 320.0
@@ -522,6 +526,12 @@ class PresRoomView {
         }
         def tid:string (this.hitAt(px py))
         selecting = false
+        resizing = false
+        if (ch.splitPointerDown(tid px clicks)) {
+            resizing = (ch.splitDragging())
+            this.changed()
+            return true
+        }
         if (ch.textPointerDownAt(tid px py clicks shift)) {
             selecting = true
             this.changed()
@@ -554,7 +564,18 @@ class PresRoomView {
         }
     }
 
+    ; the button is down on a text field or the thread's line
+    fn dragging:boolean () {
+        return (selecting || resizing)
+    }
+
     fn dragTo:void (px:double py:double) {
+        if resizing {
+            if (ch.splitDrag(px)) {
+                this.changed()
+            }
+            return
+        }
         if selecting {
             ch.textPointerDragAt(px py)
             rev = (rev + 1)
@@ -562,16 +583,28 @@ class PresRoomView {
         }
     }
 
-    fn release:void () {
+    ; → true when the channel has a request for the page (`take`): the
+    ; thread's new width to keep
+    fn release:boolean () {
         if selecting {
             ch.textPointerUp()
             selecting = false
         }
+        if resizing {
+            resizing = false
+            def moved:boolean (ch.splitUp())
+            this.changed()
+            return moved
+        }
+        return false
     }
 
     ; the pointer moved over the channel: the message under it shows its
     ; actions. → true when that changed.
     fn hoverAt:boolean (px:double py:double) {
+        ; before the host's hover, which hovers the channel too (UiHost.hover
+        ; tells its controls)
+        def before:string (this.hoverState())
         ; what the pointer is over shows its hover look
         if (host.hoverTo(px py (this.has(px py)))) {
             rev = (rev + 1)
@@ -584,7 +617,6 @@ class PresRoomView {
             }
             return false
         }
-        def before:string (this.hoverState())
         def tid:string (this.hitAt(px py))
         ch.hover(tid)
         if ((this.hoverState()) != before) {
@@ -596,7 +628,7 @@ class PresRoomView {
 
     ; what the pointer lights up: a message, or the menu's row and submenu
     fn hoverState:string () {
-        return ((ch.hoverWhere) + (to_string ch.hoverSeq) + "|" + ch.menu.activeTid + "|" + (to_string (array_length ch.menu.openPath)))
+        return ((ch.hoverWhere) + (to_string ch.hoverSeq) + (? ch.splitHot "|s" "") + "|" + ch.menu.activeTid + "|" + (to_string (array_length ch.menu.openPath)))
     }
 
     fn wheel:boolean (px:double py:double dy:double) {
@@ -604,7 +636,7 @@ class PresRoomView {
             return false
         }
         this.closeMenu()
-        def inThread:boolean (((strlen ch.threadId) > 0) && (px >= ((x + w) - ch.threadW)))
+        def inThread:boolean (((strlen ch.threadId) > 0) && (px >= ((x + w) - ch.threadShown)))
         if (((strlen ch.threadId) > 0) && (w < 720.0)) {
             inThread = true
         }
@@ -614,6 +646,9 @@ class PresRoomView {
     }
 
     fn cursorAt:string (px:double py:double) {
+        if resizing {
+            return "col-resize"
+        }
         if ((this.has(px py)) == false) {
             return ""
         }
