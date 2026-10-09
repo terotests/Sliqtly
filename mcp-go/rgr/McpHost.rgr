@@ -288,6 +288,14 @@ operators {
             go ( (e 1) ".SvgPng(" (e 2) ", " (e 3) ")" )
         }
     }
+    ; why the program of an app block does not run (cerxescheck.go): its
+    ; syntax error, what its first frames threw, "" when it runs, "-" when
+    ; there is no engine here to try it in
+    host_app_check _:string (h:McpHost src:string w:double hgt:double) {
+        templates {
+            go ( (e 1) ".AppCheck(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
     ; --- slides as pictures (render.go)
 
     ; a picture the display lists name (/media/<name>), for the painter

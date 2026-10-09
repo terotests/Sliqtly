@@ -916,16 +916,32 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   `{ "name": "counter.tsx.css", "text": "…" }`. They are kept as
   `apps/<name>`.
 - The program defines `view()`, which returns JSX; optionally
-  `tick(dt, input)` (each frame; `input.keys`, `input.pointer`),
-  `onKeyDown(key)`, `onKeyUp(key)`, and `onClick` on an element. Its
-  elements are `div`, and `span`, `p`, `b`, `label` for text; `className`
-  and `style` (numbers are px) as in React. The stylesheet is laid out like
-  the slide's CSS (topic `css`): absolute positions, flex, sizes, colours,
-  borders, radius.
-- It runs in the viewer's browser, only while its slide is shown, in a
+  `tick(dt, input)` (each frame; `dt` is the seconds since the last frame,
+  at most 0.1; `input.keys`, `input.pointer`), `onKeyDown(key)`,
+  `onKeyUp(key)`, and `onClick` on an element.
+- The language is TypeScript with JSX: types, interfaces and enums are
+  dropped, and the rest is modern JavaScript (`let`/`const`, arrow
+  functions, classes, destructuring, spread `...`, default parameters,
+  template strings, `?.` and `??`, `for…of`, `Map`/`Set`, the array and
+  string methods such as `map`, `forEach`, `filter`, `repeat`, `slice`,
+  and `Math`). A list of JSX elements can be a child (`{rows}`), and so
+  can a fragment `<>…</>`. There is no `fetch`, DOM or timer: time comes
+  from `tick`.
+- Its elements are `div`, and `span`, `p`, `b`, `label` for text;
+  `className` and `style` as in React. A number in `style` is px, except
+  `opacity`, `zIndex`, `flex`, `fontWeight` and `lineHeight`.
+- The stylesheet is laid out like the slide's CSS (topic `css`): absolute
+  positions, flex, sizes, colours, borders, radius, fonts. Its selectors
+  are a class (`.box`), classes written together (`.node.end`), either
+  with `:hover`, `:focus` or `:active`. A tag, an id or a child selector
+  (`div.box`, `#a`, `.a > .b`, `.a .b`) is not taken; the result of
+  create/update lists such rules. Text is drawn in the slide's fonts, and
+  emoji by the viewer's browser.
+- It runs in the browser of whoever views the deck, in the public viewer
+  (the share link) and in the editor, only while its slide is shown, in a
   sandbox with no page, network or storage; one that does not answer in
-  3 s is stopped. A click on the box gives it the keyboard; Esc gives it
-  back to the slides.
+  3 s is stopped. A click on the box gives it the keyboard (the arrow keys
+  too); Esc gives it back to the slides.
 - What it may ask of the deck, each by its word on `allow:` (anything else
   is refused and reported):
   - `deck.data`: `deck.get("key")` reads the deck's own keys (front matter,
@@ -957,11 +973,16 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     font-size: 64px; color: #ffffff; text-align: center }
   ```
 
-- `render_slide`, PDF, PPTX, Word and the public viewer show a plate with
-  the program's name in the box (the editor's thumbnails and exports show
-  its last picture). The program itself runs in the Sliqtly editor.
-- The result of create/update warns about a missing program file and
-  about lines of the block it did not understand.
+- `render_slide`, PDF, PPTX and Word show a plate with the program's name
+  in the box (the editor's thumbnails and exports show its last picture).
+  A program that does not start shows why on its plate.
+- In the public viewer `slide.nav` works; `deck.set` and `el()` change the
+  slides, which the viewer shows as saved: they work in the editor.
+- The result of create/update runs each program's first frames and says
+  why one does not run (`apps/x.tsx does not run: SyntaxError: … (line
+  3)`, or what it threw), and warns about a missing program file, rules of
+  its stylesheet that are not taken, and lines of the block it did not
+  understand.
 
 <!-- topic: editing -->
 # Topic: editing

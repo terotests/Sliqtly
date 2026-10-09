@@ -56,6 +56,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     return { key, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "" };
   }
 
+  // why: what went wrong, said in a toast and on the program's plate
   function stopRun(r, why) {
     if (r.worker) r.worker.terminate();
     r.worker = null;
@@ -63,7 +64,11 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.waiting = false;
     if (why) {
       r.stopped = why;
-      say(why);
+      say(name(r) + ": " + why);
+      if (app.setPlayStopped) {
+        app.setPlayStopped(r.key, why);
+        repaint();
+      }
     }
   }
 
@@ -82,7 +87,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     const w = new Worker(new URL("./cerxes-worker.js" + new URL(import.meta.url).search, import.meta.url), { type: "module" });
     w.onmessage = (ev) => reply(r, w, ev.data);
     w.onerror = (e) => {
-      if (r.worker === w) stopRun(r, r.key.split("#")[0] + ": " + t("the program's engine did not start") + " (" + (e.message || "worker") + ")");
+      if (r.worker === w) stopRun(r, t("the program's engine did not start") + " (" + (e.message || "worker") + ")");
     };
     r.worker = w;
     r.waiting = true;
@@ -99,18 +104,19 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.waiting = false;
     if (m.output) for (const line of m.output.split("\n")) if (line) console.log(name(r) + ": " + line);
     if (!m.ok) {
-      stopRun(r, name(r) + ": " + m.error);
+      stopRun(r, m.error);
       return;
     }
     if (m.type === "loaded") {
       r.running = true;
+      if (app.setPlayStopped) app.setPlayStopped(r.key, "");
       r.last = performance.now();
       return;
     }
     const { tree, asks } = splitFrame(m.out);
     let changed = app.setPlayFrame(r.key, tree);
     if (!changed) {
-      stopRun(r, name(r) + ": " + t("view() did not give an element tree"));
+      stopRun(r, t("view() did not give an element tree"));
       return;
     }
     if (asks !== "[]") {
@@ -179,7 +185,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         continue;
       }
       if (r.waiting) {
-        if (now > r.deadline) stopRun(r, name(r) + ": " + t("did not answer within 3 s (an endless loop?), so it was stopped"));
+        if (now > r.deadline) stopRun(r, t("did not answer within 3 s (an endless loop?), so it was stopped"));
         continue;
       }
       if (!r.worker) {

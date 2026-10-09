@@ -131,6 +131,8 @@ const pictures = new Map();
 let at = 0;
 let shownAt = 0;
 let raf = 0;
+// the programs on the slides (```app, web/viewplay.js), null when none
+let plays = null;
 // the slide seen closer by a pinch ({ x, y, scale }), or null: fitted
 let zoom = null;
 
@@ -187,6 +189,12 @@ function paint() {
     const f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: true });
     f.draw(null, null, { clear: false });
     f.dispose();
+    // its programs' pictures over it (each one's plate until it has one)
+    if (plays) for (const pl of plays.listsFor(page, doc.view)) {
+      const pf = prepareDisplayList(gl, { ...doc, list: pl }, { dpr, images: pictures });
+      pf.draw(null, null, { clear: false });
+      pf.dispose();
+    }
   }
   // a surface effect moves: drawn again on the next frame
   if (moving) raf = requestAnimationFrame(paint);
@@ -634,6 +642,20 @@ async function start() {
   lists = got.lists;
   // the deck's own effects, compiled on the server from its ```fx blocks
   if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
+  // a program runs in the page; its engine and the little it is painted
+  // with are loaded only for a deck that has one
+  if ((deck.plays || []).length && !realistic()) {
+    try {
+      const { startPlays } = await import("./viewplay.js");
+      plays = await startPlays({
+        plays: deck.plays, canvas, current: () => at, count: () => lists.length,
+        shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
+        go: (i) => go(i), repaint,
+      });
+    } catch (e) {
+      console.warn("programs on slides", e);
+    }
+  }
   await shown;
   bar.hidden = false;
   shownAt = performance.now();

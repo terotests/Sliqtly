@@ -307,6 +307,27 @@ class Check {
             push c.starts ts.srcStart
             ti = (ti + 1)
         }
+        ; each program of an app block tried in the engine the page runs it
+        ; in: one that does not run says why here, not as a blank box
+        for (d.playUses()) pu:PresPlayUse pui {
+            def ptext:string (Check.dataText(host din pu.spec.src))
+            if ((strlen ptext) == 0) {
+                continue
+            }
+            def why:string (host_app_check host ptext pu.spec.width pu.spec.height)
+            if (((strlen why) > 0) && (why != "-")) {
+                push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " does not run: " + why) "apps"))
+            }
+            ; its stylesheet's rules the layout does not take
+            def ptcss:string (Check.dataText(host din pu.spec.css))
+            if ((strlen ptcss) > 0) {
+                def psheet:EVGStyleSheet (new EVGStyleSheet())
+                psheet.parse(ptcss)
+                for psheet.errors perr:string pei {
+                    push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.css + ": " + perr) "apps"))
+                }
+            }
+        }
         ; a slide that runs over goes on in untitled slides after it
         def i:int 0
         while (i < c.slides) {
