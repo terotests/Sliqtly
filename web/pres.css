@@ -68,9 +68,10 @@
 .thumb { background-color: var(--line); border-radius: 4px; cursor: pointer; }
 .thumb-on { background-color: var(--accent); }
 /* the keys are on the strip: a ring round the selected slide; a slide being
-   dragged, and the gap it would land in */
+   dragged (lifted over the others), and the gap it would land in */
 .thumb-ring { border: 2px solid var(--accent); border-radius: 7px; background-color: rgba(0,0,0,0); }
-.thumb-carried { opacity: 0.45; }
+.thumb-carried { background-color: var(--accent); shadow-color: rgba(0, 0, 0, 0.45); shadow-radius: 14px; shadow-offset-y: 4px; }
+.thumb-carried:hover { background-color: var(--accent); }
 /* picked for an export or a shared view (Ctrl/⌘ or Shift + click), its
    number ticked */
 .thumb-picked { background-color: #f59e0b; }
@@ -79,7 +80,7 @@
 .thumb:hover { background-color: var(--ink-mute); }
 .thumb-on:hover { background-color: var(--accent); }
 .thumb-picked:hover { background-color: #f59e0b; }
-.thumb-drop { background-color: var(--accent); border-radius: 2px; }
+.thumb-drop { background-color: rgba(0, 0, 0, 0); border: 2px dashed var(--accent); border-radius: 6px; }
 .thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
 /* the "+" after the last thumbnail, and its two choices once pressed */
 .thumb-add { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink-dim); font-size: 40px; text-align: center; cursor: pointer; }

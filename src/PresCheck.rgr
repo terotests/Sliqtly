@@ -33,6 +33,7 @@ Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
+Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -3956,6 +3957,66 @@ class PresCheck {
     }
 
     ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
+    ; PresStripDrag: a slide carried along the filmstrip, the others moving
+    ; out of its way, and the glide into place when let go
+    fn stripDrag:void () {
+        def d (new PresStripDrag())
+        d.start(5 1 1.0 10.0)
+        this.ok(d.busy(10.0) "strip drag: busy while carrying")
+        this.ok(((d.slot()) == -1) "strip drag: not moved yet, no slot")
+        this.ok(((d.place(3 10.0)) == 3.0) "strip drag: the others in their places")
+        ; carried to place 3.3: slides 2 and 3 step left
+        d.carry(3.3 10.0)
+        this.ok(((d.target()) == 3) ("strip drag: target 3, got " + (to_string (d.target()))))
+        this.ok(((d.slot()) == 4) ("strip drag: gap 4, got " + (to_string (d.slot()))))
+        this.ok(((d.place(1 10.0)) == 3.3) "strip drag: the box follows the pointer")
+        this.ok(((d.place(2 10.0)) == 2.0) "strip drag: a step starts where it was")
+        def mid:double (d.place(2 10.1))
+        this.ok(((mid < 2.0) && (mid > 1.0)) ("strip drag: half way at 0.1 s, got " + (to_string mid)))
+        this.ok(((d.place(2 10.5)) == 1.0) "strip drag: slide 2 now in place 1")
+        this.ok(((d.place(3 10.5)) == 2.0) "strip drag: slide 3 now in place 2")
+        this.ok(((d.place(4 10.5)) == 4.0) "strip drag: slide 4 stays")
+        this.ok(((d.place(0 10.5)) == 0.0) "strip drag: slide 0 stays")
+        ; back to the left of where it began: 0 steps right
+        d.carry(-0.2 11.0)
+        this.ok(((d.target()) == 0) "strip drag: target 0")
+        this.ok(((d.slot()) == 0) "strip drag: gap 0")
+        ; slide 2 turns back from place 1 to its own, slide 0 steps right
+        this.ok(((d.place(2 11.0)) == 1.0) "strip drag: a turn starts where it is")
+        this.ok(((d.place(2 12.0)) == 2.0) "strip drag: slide 2 back in its place")
+        this.ok(((d.place(0 12.0)) == 1.0) "strip drag: slide 0 stepped right")
+        ; past the ends it stays at the first / last place
+        d.carry(9.0 12.0)
+        this.ok(((d.target()) == 4) "strip drag: clamped to the last place")
+        this.ok(((d.slot()) == 5) "strip drag: after the last one")
+        d.carry(2.4 13.0)
+        ; let go at 2.4 over target 2: the deck now has the new order, slide
+        ; 1 is index 2 and glides from 2.4 into 2; old slide 2 is index 1
+        d.finish(true 13.0)
+        this.ok(((d.place(2 13.0)) == 2.4) "strip drag: dropped box starts at the pointer")
+        this.ok(((d.place(2 14.0)) == 2.0) "strip drag: dropped box glides into its gap")
+        this.ok(((d.place(1 14.0)) == 1.0) "strip drag: the others keep their new places")
+        this.ok(d.busy(13.05) "strip drag: busy while gliding")
+        this.ok(((d.busy(14.0)) == false) "strip drag: rests after the glide")
+        ; a drag let go where it began asks for no move and glides back
+        d.start(5 3 3.0 20.0)
+        d.carry(3.4 20.0)
+        this.ok(((d.slot()) == -1) "strip drag: dropped on its own place, no move")
+        d.finish(false 20.0)
+        this.ok(((d.place(3 20.0)) == 3.4) "strip drag: glides back from the pointer")
+        this.ok(((d.place(3 21.0)) == 3.0) "strip drag: back in its place")
+        ; a cancelled drag puts the others back
+        d.start(4 0 0.0 30.0)
+        d.carry(2.6 30.0)
+        d.finish(false 30.5)
+        this.ok(((d.place(1 30.5)) == 0.0) "strip drag: cancel starts where it is drawn")
+        this.ok(((d.place(1 31.5)) == 1.0) "strip drag: cancel puts the others back")
+        ; a deck that changed under it: unknown thumbnails are in place
+        this.ok(((d.place(7 31.5)) == 7.0) "strip drag: past the known ones, in place")
+        d.reset()
+        this.ok(((d.busy(31.5)) == false) "strip drag: reset rests")
+    }
+
     fn clips:void () {
         ; the format: written and read back
         def d (new PresClipDoc())
@@ -4213,6 +4274,7 @@ class PresCheck {
         c.serverDecks()
         c.serverRooms()
         c.clips()
+        c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

@@ -1229,8 +1229,22 @@ try {
     check("…the pointer over a thumbnail is a hand that grabs", hand === "grab", hand);
     await page.mouse.move(p[0], p[1]);
     await page.mouse.down();
-    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
+    for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] - p[0]) * k / 10, p[1]);
     const mid = await page.evaluate(() => [window.__app.stripReorder, window.__app.stripDrop]);
+    // a box the size of the slide under the pointer, drawn over the others,
+    // and slides 1 and 2 moved one place left out of its way
+    await page.waitForTimeout(400);
+    const carry = await page.evaluate(() => {
+      const a = window.__app;
+      const l = JSON.parse(a.layoutJson());
+      const at = (i) => (l.thumbs.find((t) => t[0] === i) || [])[1];
+      return { last: l.thumbs[l.thumbs.length - 1][0], x0: at(0), x1: at(1), x2: at(2), base0: a.thumbX(0), base1: a.thumbX(1), base2: a.thumbX(2) };
+    });
+    const near = (u, v) => Math.abs(u - v) < 3;
+    check("…the carried slide follows the pointer over the others, which move out of its way",
+      carry.last === 0 && near(carry.x0, carry.base2) && near(carry.x1, carry.base0) && near(carry.x2, carry.base1),
+      JSON.stringify(carry));
+    await shot("strip-drag.png");
     await page.mouse.up();
     const s10 = await st();
     check("a thumbnail dragged to another gap moves its slide there", mid[0] && mid[1] === 3 && s10.order === "BCAD" && s10.sel === 2 && s10.src === "# B\n\nbb\n\n# C\n\ncc\n\n# A\n\naa\n\n# D\n\ndd\n", JSON.stringify({ mid, ...s10 }));
