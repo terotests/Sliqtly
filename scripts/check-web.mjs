@@ -2607,7 +2607,7 @@ try {
         a.requests.push("themes");
         a.chromeRev += 1;
         // the page answers the request on its next frame and draws the pictures one a frame
-        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 14); n++) await new Promise((res) => setTimeout(res, 100));
+        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 20); n++) await new Promise((res) => setTimeout(res, 100));
         const open = a.chartIsOpen() && a.chart.mode === "themes";
         const pics = window.__themePictures ? window.__themePictures() : -1;
         // the window opens on the tab of the theme in use; Effects shows its tiles
@@ -2631,7 +2631,7 @@ try {
         s.dispatchEvent(new Event("change"));
         return { open, pics, tab0, own, ed, tab1, hasPic, now, marked };
       });
-      check("Slide → Theme… opens the picker on the theme's own tab, a picture drawn per theme", r.open && r.tab0 === "Dark" && r.own && r.ed && r.pics >= 14, JSON.stringify(r));
+      check("Slide → Theme… opens the picker on the theme's own tab, a picture drawn per theme", r.open && r.tab0 === "Dark" && r.own && r.ed && r.pics >= 20, JSON.stringify(r));
       check("…the Effects tab shows its tiles, each with its picture", r.tab1 === "Effects" && r.hasPic, JSON.stringify(r));
       check("…a tile pressed changes the theme and is marked", r.now === "pearl" && r.marked, JSON.stringify(r));
     }

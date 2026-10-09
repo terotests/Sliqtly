@@ -96,7 +96,7 @@ const FACES = [
   ["Noto Sans", "NotoSans-Regular.ttf"],
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
-const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "white", "corporate", "editorial", "pearl", "hive", "lattice", "apex", "tide", "mist"];
+const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "white", "corporate", "editorial", "pearl", "hive", "lattice", "apex", "tide", "mist", "forge", "foundry", "site", "clinic", "care", "vital"];
 // The sample decks in the interface's language: samples/<key>.md is Finnish,
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
@@ -183,7 +183,7 @@ if (typeof globalThis.PresApp !== "function") {
 // built in it
 handOver(globalThis.PresI18n);
 translateDom();
-// i18n: "Basic" "Effects" "Dark" (the theme list's groups)
+// i18n: "Basic" "Work" "Health" "Effects" "Dark" (the theme list's groups)
 for (const g of document.querySelectorAll("optgroup[label]")) g.label = t(g.label);
 const app = new globalThis.PresApp();
 window.__app = app;
