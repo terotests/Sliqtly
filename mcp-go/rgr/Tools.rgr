@@ -149,7 +149,7 @@ class Tools {
 
     ; said with every presentation sliqtly.com keeps by link
     sfn DEMO_WARNING:string () {
-        return "Warning: the Sliqtly cloud is an experimental demo, not for private or confidential data. Anyone who has this presentation's link can open every slide, its pictures and its files (visibility link). Tell the user."
+        return "Visibility link: anyone who has this presentation's link can open every slide, its pictures and its files. Tell the user."
     }
 
     sfn deckFields:void (host:McpHost p:MfJ) {

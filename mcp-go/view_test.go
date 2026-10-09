@@ -121,6 +121,23 @@ func TestViewLists(t *testing.T) {
 	code, _, _ = getAs(t, s.root+"/api/view/"+id, "forged")
 	eq(t, code, 404)
 
+	// the owner's viewing link (links/{id}): the private deck to anyone with
+	// it, its files from the deck's own place; a link to someone else's deck
+	// shows nothing
+	d, _ := f.db.Get(ctx, "shares", id)
+	f.db.Set(ctx, "links", "LinkToIt01", Doc{"of": id, "owner": d["owner"]})
+	f.db.Set(ctx, "links", "NotTheirs1", Doc{"of": id, "owner": "someone-else"})
+	code, _, lv, _ := getView(t, s.root+"/api/view/LinkToIt01")
+	eq(t, []any{code, lv.Deck.Name, lv.Deck.Slides}, []any{200, "Viewed", n})
+	code, _, _, _ = getView(t, s.root+"/api/view/NotTheirs1")
+	eq(t, code, 404)
+	res, err := http.Get(s.root + "/api/export/LinkToIt01/md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	eq(t, res.StatusCode, 200)
+
 	// no such presentation, and an id that is not one
 	for _, bad := range []string{"/api/view/AbCdEf1234", "/api/view/../x", "/api/view/", "/api/view/a"} {
 		code, h, _, body := getView(t, s.root+bad)

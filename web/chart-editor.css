@@ -133,6 +133,7 @@
 /* the diagram window: a box's words, a link's ends and words */
 .ce-flowlabel { width: 320px; }
 .ce-flowedge { width: 170px; }
+.ce-depth { width: 72px; min-width: 72px; font-size: 13px; color: #3f3f46; }
 .ce-flowends { width: 240px; min-width: 240px; font-size: 13px; color: #3f3f46; }
 .theme-ce .ce-sel { border-color: #18181b; }
 

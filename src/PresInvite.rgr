@@ -1,0 +1,179 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresInvite.rgr — who the owner of a cloud presentation lets edit it
+; ============================================================================
+;
+; A presentation in the cloud is edited by its owner and by the people the
+; owner invites, by their Google account's e-mail address. Anyone else who
+; opens its link sees it (or nothing, when it is private), and edits
+; nothing. The list is kept on the share as `editors` (web/sliqtly.js
+; setEditors); firestore.rules and storage.rules let those addresses write
+; it, and the editor's gate (mcp-go/editor.go claim) lets them in.
+;
+; This is the list as the Share window edits it, before it is saved:
+;
+;   load(text)      the saved list, one address a line
+;   add(text)       an address written in: false, with `note` saying why,
+;                   when it is not one, is there already or is the owner's
+;   remove(i)       the i'th address out
+;   text()          the list to save, one address a line
+;
+; Addresses are kept in lower case, as Google's sign-in gives them and the
+; rules compare them.
+; ============================================================================
+
+class PresInvite {
+    ; the addresses, in the order they were added
+    def list:[string]
+    ; the owner's own address, never invited ("" when not known)
+    def owner:string ""
+    ; why the last add was refused ("" when it was not)
+    def note:string ""
+
+    Constructor () {
+    }
+
+    ; at most this many: a share is one Firestore document
+    sfn most:int () {
+        return 50
+    }
+
+    ; an address as it is kept: no spaces around it, lower case
+    sfn clean:string (text:string) {
+        return (to_lowercase (trim text))
+    }
+
+    ; something@host.tld, without spaces, one @
+    sfn isAddress:boolean (text:string) {
+        def s:string (PresInvite.clean(text))
+        def n:int (strlen s)
+        if ((n < 6) || (n > 254)) {
+            return false
+        }
+        def at:int (indexOf s "@")
+        if (at < 1) {
+            return false
+        }
+        def host:string (substring s (at + 1) n)
+        if ((indexOf host "@") >= 0) {
+            return false
+        }
+        def dot:int (lastIndexOf host ".")
+        if ((dot < 1) || (dot >= ((strlen host) - 2))) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (((c == 32) || (c == 9)) || ((c == 44) || (c == 59))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; `{n}` in a sentence, n written in
+    sfn withCount:string (sentence:string n:int) {
+        def i:int (indexOf sentence "{n}")
+        if (i < 0) {
+            return sentence
+        }
+        return ((substring sentence 0 i) + (to_string n) + (substring sentence (i + 3) (strlen sentence)))
+    }
+
+    fn load:void (text:string) {
+        def none:[string]
+        list = none
+        note = ""
+        def rows:[string] (strsplit text (strfromcode 10))
+        def i:int 0
+        while (i < (array_length rows)) {
+            def a:string (PresInvite.clean((itemAt rows i)))
+            if ((PresInvite.isAddress(a)) && ((this.has(a)) == false)) {
+                push list a
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn has:boolean (text:string) {
+        def a:string (PresInvite.clean(text))
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == a) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn count:int () {
+        return (array_length list)
+    }
+
+    fn at:string (i:int) {
+        if ((i < 0) || (i >= (array_length list))) {
+            return ""
+        }
+        return (itemAt list i)
+    }
+
+    fn add:boolean (text:string) {
+        note = ""
+        def a:string (PresInvite.clean(text))
+        if ((strlen a) == 0) {
+            note = "empty"
+            return false
+        }
+        if ((PresInvite.isAddress(a)) == false) {
+            note = "address"
+            return false
+        }
+        if (((strlen owner) > 0) && (a == (PresInvite.clean(owner)))) {
+            note = "owner"
+            return false
+        }
+        if (this.has(a)) {
+            note = "there"
+            return false
+        }
+        if ((array_length list) >= (PresInvite.most())) {
+            note = "full"
+            return false
+        }
+        push list a
+        return true
+    }
+
+    fn remove:void (i:int) {
+        if ((i < 0) || (i >= (array_length list))) {
+            return
+        }
+        def kept:[string]
+        def k:int 0
+        while (k < (array_length list)) {
+            if (k != i) {
+                push kept (itemAt list k)
+            }
+            k = (k + 1)
+        }
+        list = kept
+        note = ""
+    }
+
+    fn text:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length list)) {
+            if (i > 0) {
+                out = (out + (strfromcode 10))
+            }
+            out = (out + (itemAt list i))
+            i = (i + 1)
+        }
+        return out
+    }
+}

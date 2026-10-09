@@ -7,9 +7,12 @@
 //
 // Sharing (window.sliqtly.share / loadShare, used by main.js):
 //   decks/{deckId}     the presentation, its owner's alone (firestore.rules)
-//   shares/{shareId}   a copy made when it is shared, under a short random
-//                      id: anyone with the id reads it, nobody can list the
-//                      ids, only the owner changes or deletes it
+//   shares/{shareId}   the presentation in the cloud, under a short random
+//                      id: read and changed by its owner and the people
+//                      the owner invites (`editors`), nobody else
+//   links/{linkId}     the owner's viewing link to it (Share), under an id
+//                      of its own: /s/{linkId} shows it to anyone with the
+//                      link, and the presentation's own id stays private
 //   shares/{shareId}/… in Storage: the copy's pictures and data files, read
 //                      like the copy, written only by its owner
 //   users/{uid}/decks/{deckId}/… in Storage: a signed-in user's pictures as
@@ -91,6 +94,9 @@ function gateTokens(a) {
 }
 
 function noRight(why) {
+  if (why === "not-yours") {
+    return Object.assign(new Error(t("This presentation belongs to another account. Only its owner and the people they invite can edit it.")), { code: "no-edit-right" });
+  }
   const text = why === "expired"
     ? t("Your license to edit has ended. Your presentations stay yours: you can open, present and export them. Changes are kept in this browser only.")
     : t("Your license lets you edit {n} presentations in the cloud. Changes to this one are kept in this browser only.").replace("{n}", String(license?.maxDocs ?? 2));
@@ -100,15 +106,17 @@ function noRight(why) {
 // The license lets this page change share `id` (taking it under the
 // license when there is room), or throws with code "no-edit-right". The
 // rules check the same (firestore.rules); this only says so first.
+// ids the server let this page change: its own, and the ones it was invited to
+const allowed = new Set();
 async function editRight(id, again = true) {
   if (!gate) return;
   const fresh = Date.now() - licenseAt < 60000;
-  if (license?.canEdit && (license.maxDocs < 0 || license.docs.includes(id))) return;
+  if (license?.canEdit && (license.maxDocs < 0 || license.docs.includes(id) || allowed.has(id))) return;
   if (fresh && license && !license.canEdit) throw noRight("expired");
-  if (fresh && license && license.maxDocs >= 0 && license.docs.length >= license.maxDocs) throw noRight("full");
   const res = await gateCall("claim", { id });
   const out = await res.json().catch(() => ({}));
   keepLicense(out);
+  if (res.ok) allowed.add(id);
   if (res.status === 401 && again && user) {
     await renewSession(user);
     return editRight(id, false);
@@ -292,7 +300,8 @@ function shortId() {
 }
 
 // Keeps the deck as its owner's and makes its copy in the cloud, private to
-// the owner until Share opens it by link (setVisibility; firestore.rules):
+// the owner and the people they invite (setEditors); Share gives a viewing
+// link of its own (viewLink), never this id (firestore.rules):
 // { deckId, name, md, theme, css, files: [{ path, type, data }] } → the
 // share's id. made(id), when given, is told the id as soon as the share
 // exists, before its files go.
@@ -307,7 +316,7 @@ async function share(deck, made) {
   await db.collection("decks").doc(deck.deckId).set({ ...body, owner: user.uid, updated: now }, { merge: true });
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
-  await doc.set({ ...body, owner: user.uid, visibility: "link", deck: deck.deckId, files: [], created: now });
+  await doc.set({ ...body, owner: user.uid, visibility: "private", deck: deck.deckId, files: [], created: now });
   // the share exists from here: a file that fails names it (e.shareId), so
   // the deck keeps it and the next save sends the files again instead of
   // making another share
@@ -353,6 +362,65 @@ async function setVisibility(id, visibility) {
   await db.collection("shares").doc(id).update({ visibility });
 }
 
+// The signed-in user's address as the rules compare it ("" when it is not
+// verified): an invitation names it
+function myAddress() {
+  return user && user.emailVerified && user.email ? user.email.toLowerCase() : "";
+}
+// the share was the user's to change: theirs, or they were invited to it
+function mayChange(cur) {
+  return cur.owner === user.uid || (!!myAddress() && (cur.editors || []).includes(myAddress()));
+}
+
+// Who besides its owner edits the share: the addresses (lower case,
+// src/PresInvite.rgr), the owner's to set.
+async function setEditors(id, editors) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  await db.collection("shares").doc(id).update({ editors: [...new Set(editors.map((e) => String(e).trim().toLowerCase()).filter(Boolean))] });
+}
+
+// The owner's viewing link to share `id`: the one made before, or a new
+// one (links/{linkId}, firestore.rules). → the link's id, for /s/{linkId}.
+async function viewLink(id) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).limit(1).get();
+  if (!had.empty) return had.docs[0].id;
+  for (let tries = 0; tries < 3; tries++) {
+    const linkId = shortId();
+    try {
+      await db.collection("links").doc(linkId).set({ of: id, owner: user.uid, created: globalThis.firebase.firestore.FieldValue.serverTimestamp() });
+      return linkId;
+    } catch (e) {
+      // the id is taken (by a share): another
+      if (e?.code !== "permission-denied" || tries === 2) throw e;
+    }
+  }
+  throw new Error("no link id");
+}
+
+// Stop sharing: the share's viewing links go, so /s/{linkId} shows nothing.
+async function stopSharing(id) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get();
+  await Promise.all(had.docs.map((d) => d.ref.delete()));
+}
+
+// The shares the user was invited to edit: [{ id, name, owner, updated }]
+async function listInvited() {
+  const me = myAddress();
+  if (!me) return [];
+  const { db } = await store();
+  const snap = await db.collection("shares").where("editors", "array-contains", me).limit(200).get();
+  const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  return snap.docs
+    .filter((d) => d.data().owner !== user.uid)
+    .map((d) => ({ id: d.id, name: d.data().name || "", invited: true, created: ms(d.data().created), updated: ms(d.data().updated) || ms(d.data().created) }))
+    .sort((a, b) => b.updated - a.updated);
+}
+
 // The signed-in user's own shares, newest first: [{ id, name, updated }]
 // (updated in ms). The rules let an owner list only a query on owner.
 async function listMine() {
@@ -394,7 +462,7 @@ async function saveShare(id, deck, since) {
   const check = (snap) => {
     if (!snap.exists) throw Object.assign(new Error("share not found"), { code: "not-found" });
     const cur = snap.data();
-    if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+    if (!mayChange(cur)) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
     if (since.md != null && cur.md !== since.md) throw elsewhere("changed elsewhere");
     return cur;
   };
@@ -446,6 +514,9 @@ async function deleteShare(id) {
     // the version history's objects (putObject)
     const kept = await files.ref(`shares/${id}/.versions`).listAll().catch(() => null);
     if (kept) await Promise.all(kept.items.map((r) => r.delete().catch(() => {})));
+    // its viewing links show nothing more
+    const links = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get().catch(() => null);
+    if (links) await Promise.all(links.docs.map((d) => d.ref.delete().catch(() => {})));
     await ref.delete();
     if (cur.deck) await db.collection("decks").doc(cur.deck).delete().catch(() => {});
   }
@@ -619,5 +690,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 window.dispatchEvent(new Event("sliqtly:ready"));

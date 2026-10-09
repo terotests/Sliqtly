@@ -46,8 +46,6 @@
   pre { position: relative; font: 13.5px/1.65 var(--mono); color: var(--paper); background: #0e0e10; border: 1px solid var(--line-2); padding: 14px 16px; overflow-x: auto; margin: 12px 0 18px; }
   pre code { background: none; border: 0; padding: 0; font-size: 13.5px; }
   pre button.copy { position: absolute; top: 8px; right: 8px; background: #0e0e10; }
-  .demo-warn { margin: 0 0 16px; padding: 14px 18px; border: 1px solid #ff6b5a; color: var(--paper); font-size: 15px; }
-  .demo-warn b, .demo-warn strong { color: #ff8a7d; }
   .note { color: var(--dimmer); font-size: 15px; }
   .note.local { border-left: 2px solid var(--accent); padding-left: 12px; color: var(--dim); }
   blockquote { margin: 10px 0; padding: 4px 0 4px 16px; border-left: 2px solid var(--accent); color: var(--paper); }
@@ -62,7 +60,6 @@
   <p class="lead">Connect Sliqtly to your assistant and ask it for a presentation. It writes the slides in Markdown, picks a theme, adds CSS, pictures, charts and diagrams, and gives you a link that opens the finished presentation.</p>
 
   <div class="url"><code id="server">https://sliqtly.com/mcp</code><button class="copy" data-copy="server">Copy</button></div>
-  <p class="demo-warn"><strong>The cloud service at sliqtly.com is a demo, not for private data.</strong> Every presentation made there can be opened by anyone who has its link, even though the link is not listed anywhere. For private material, <a href="/local.html">run Sliqtly locally</a>.</p>
   <p class="note local">Running Sliqtly locally? The address is <code>http://localhost:8080/mcp</code> (another port if you chose one). A local server has no sign-in and nothing on it expires: every agent connected to it can change every presentation, and you keep and clean up the data yourself. See <a href="/local.html">how to run it locally</a>.</p>
 
   <nav class="clients" aria-label="Clients">

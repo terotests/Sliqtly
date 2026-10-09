@@ -226,7 +226,7 @@ class PresSelect {
         if ((lang == "vega-lite") || (lang == "vegalite")) {
             return "chart"
         }
-        if ((((lang == "mermaid") || (lang == "dot")) || ((lang == "d2") || (lang == "plantuml"))) || (lang == "graphviz")) {
+        if (PresHints.isDiagramLang(lang)) {
             return "diagram"
         }
         return "code"

@@ -1,0 +1,225 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresStripDrag.rgr — a slide carried along the filmstrip
+; ============================================================================
+;
+; A mouse drag on a thumbnail picks the slide up: a slide-sized box follows
+; the pointer, and the other thumbnails slide out of its way to where they
+; would be if it were dropped there, so the gap left open is the place it
+; lands. Let go, the moved slide glides from the pointer into that gap; a
+; cancelled drag glides it back to where it was.
+;
+; Places are in thumbnail steps, not pixels: 0 is the first thumbnail's
+; place, 1 the next, and the carried box is at a fraction between them. The
+; host turns a place into x (first thumbnail's x + place × step), so the
+; strip may scroll under a drag without anything here knowing. Time is the
+; host's wall clock in seconds; nothing here draws.
+;
+;   start(n from at now)   slide `from` of `n` picked up, its box at `at`
+;   carry(at now)          the box moved; the others start for their places
+;   place(i now)           where thumbnail i is drawn (during a carry, i is
+;                          its index before the move)
+;   target()               the index the carried slide would get
+;   slot()                 that as a gap for the editor's move (0 before the
+;                          first .. n after the last), -1 when it stays put
+;   finish(moved now)      let go: `moved` says the deck now has the new
+;                          order; every thumbnail glides from where it is
+;                          drawn to its own place
+;   busy(now)              a carry, or a glide still on its way
+
+class PresStripMotion {
+    ; from `p0` at time `t0` to `p1`
+    def p0:double 0.0
+    def p1:double 0.0
+    def t0:double -100.0
+}
+
+class PresStripDrag {
+    ; seconds a thumbnail takes to its new place
+    def dur:double 0.2
+    def n:int 0
+    def carrying:boolean false
+    def from:int -1
+    def dest:int -1
+    ; the carried box's place
+    def at:double 0.0
+    def moves:[PresStripMotion]
+
+    Constructor () {
+        def none:[PresStripMotion]
+        moves = none
+    }
+
+    ; 0 → 1 slowing down at the end (an ease-out cubic)
+    sfn ease:double (v:double) {
+        if (v <= 0.0) {
+            return 0.0
+        }
+        if (v >= 1.0) {
+            return 1.0
+        }
+        def u:double (1.0 - v)
+        return (1.0 - ((u * u) * u))
+    }
+
+    fn motionPlace:double (m:PresStripMotion now:double) {
+        def k:double (PresStripDrag.ease(((now - m.t0) / dur)))
+        return (m.p0 + ((m.p1 - m.p0) * k))
+    }
+
+    ; Thumbnail i's place now. Past the thumbnails this knows of (the deck
+    ; changed under it) a thumbnail is in its own place.
+    fn place:double (i:int now:double) {
+        if (carrying && (i == from)) {
+            return at
+        }
+        if ((i < 0) || (i >= (array_length moves))) {
+            return (to_double i)
+        }
+        def m:PresStripMotion (itemAt moves i)
+        return (this.motionPlace(m now))
+    }
+
+    ; Where thumbnail i goes with the carried one at `dest`: those between
+    ; its old and its new index move one step toward the gap it left.
+    fn finalIndex:int (i:int) {
+        if (i == from) {
+            return dest
+        }
+        if ((i < from) && (i >= dest)) {
+            return (i + 1)
+        }
+        if ((i > from) && (i <= dest)) {
+            return (i - 1)
+        }
+        return i
+    }
+
+    fn start:void (count:int f:int a:double now:double) {
+        ; a thumbnail still gliding from the last drop goes on from where it is
+        def was:[PresStripMotion]
+        def i:int 0
+        while (i < count) {
+            def m (new PresStripMotion())
+            def p:double (to_double i)
+            if ((array_length moves) == count) {
+                p = (this.place(i now))
+            }
+            m.p0 = p
+            m.p1 = (to_double i)
+            m.t0 = now
+            push was m
+            i = (i + 1)
+        }
+        moves = was
+        n = count
+        from = f
+        dest = f
+        at = a
+        carrying = ((f >= 0) && (f < count))
+    }
+
+    fn carry:void (a:double now:double) {
+        if (carrying == false) {
+            return
+        }
+        at = a
+        ; the place under the box's middle
+        def d:int (floor (a + 0.5))
+        if (d < 0) {
+            d = 0
+        }
+        if (d > (n - 1)) {
+            d = (n - 1)
+        }
+        if (d == dest) {
+            return
+        }
+        dest = d
+        def i:int 0
+        while (i < n) {
+            if (i != from) {
+                def m:PresStripMotion (itemAt moves i)
+                def want:double (to_double (this.finalIndex(i)))
+                if (want != m.p1) {
+                    m.p0 = (this.motionPlace(m now))
+                    m.p1 = want
+                    m.t0 = now
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn target:int () {
+        return dest
+    }
+
+    fn slot:int () {
+        if ((carrying == false) || (dest == from)) {
+            return -1
+        }
+        if (dest < from) {
+            return dest
+        }
+        return (dest + 1)
+    }
+
+    ; Let go. The motions are listed again by the indices the slides have
+    ; now: the new order when `moved`, the old one otherwise.
+    fn finish:void (moved:boolean now:double) {
+        if (carrying == false) {
+            return
+        }
+        def next:[PresStripMotion]
+        def i:int 0
+        while (i < n) {
+            push next (new PresStripMotion())
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < n) {
+            def k:int j
+            if moved {
+                k = (this.finalIndex(j))
+            }
+            def m:PresStripMotion (itemAt next k)
+            m.p0 = (this.place(j now))
+            m.p1 = (to_double k)
+            m.t0 = now
+            j = (j + 1)
+        }
+        moves = next
+        carrying = false
+        from = -1
+        dest = -1
+    }
+
+    ; Dropped without a glide (a second finger, the deck replaced).
+    fn reset:void () {
+        def none:[PresStripMotion]
+        moves = none
+        carrying = false
+        from = -1
+        dest = -1
+        n = 0
+    }
+
+    fn busy:boolean (now:double) {
+        if carrying {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length moves)) {
+            def m:PresStripMotion (itemAt moves i)
+            if ((now - m.t0) < dur) {
+                if (m.p0 != m.p1) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

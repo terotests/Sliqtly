@@ -28,6 +28,7 @@ Import "PresI18n.rgr"
 Import "../markdown/src/MdHtml.rgr"
 Import "PresRange.rgr"
 Import "../markdown/src/MdSlideMeta.rgr"
+Import "../markdown/src/MdEmbedKinds.rgr"
 
 class PresHints {
     ; --- what the Markdown knows ----------------------------------------------
@@ -335,10 +336,14 @@ class PresHints {
         return (PresHints.attrAt(line col))
     }
 
-    ; The fence languages drawn as a diagram.
+    ; The fence languages drawn as a diagram: the markdown module's own
+    ; table (MdEmbedKinds), less the charts and the list figures.
     sfn isDiagramLang:boolean (lang:string) {
-        def l:string (to_lowercase (trim lang))
-        return ((((l == "mermaid") || (l == "dot")) || ((l == "graphviz") || (l == "d2"))) || ((l == "plantuml") || (l == "puml")))
+        def n:string (MdEmbedKinds.notationOf((to_lowercase (trim lang))))
+        if (((strlen n) == 0) || ((n == "vega") || (n == "figure"))) {
+            return false
+        }
+        return true
     }
 
     ; What kind of block a fence's language makes: "diagram", "figure",

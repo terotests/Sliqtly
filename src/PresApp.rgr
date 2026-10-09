@@ -34,6 +34,7 @@ Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresClip.rgr"
 Import "PresNav.rgr"
+Import "PresStripDrag.rgr"
 Import "PresStageClick.rgr"
 Import "PresBook.rgr"
 Import "PresScrollInput.rgr"
@@ -196,10 +197,15 @@ class PresApp {
     def stripIdx:int -1
     def stripDownX:double 0.0
     def stripLastX:double 0.0
-    ; A mouse drag that began on a thumbnail moves that slide: `stripDrop` is
-    ; the gap it would land in (0 = before the first, n = after the last).
+    ; A mouse drag that began on a thumbnail moves that slide: a box the
+    ; size of the slide follows the pointer (held where it was grabbed,
+    ; `stripGrabDx` from its left edge) and the others move out of its way
+    ; (PresStripDrag). `stripDrop` is the gap it would land in (0 = before
+    ; the first, n = after the last), -1 where it stays.
     def stripReorder:boolean false
     def stripDrop:int -1
+    def stripGrabDx:double 0.0
+    def stripMove:PresStripDrag (new PresStripDrag())
     ; Slides picked for an export or a shared view (PresPick): Ctrl/⌘ +
     ; click and Shift + click on the strip, Shift + an arrow on its keys.
     ; `pressCtrl` / `pressShift`: the keys held at the strip's press.
@@ -322,6 +328,8 @@ class PresApp {
     def chartUndoBase:int -1
     ; the undo stack's length when the document settings opened
     def docUndoBase:int -1
+    ; the editor's text version when Document settings last gave up the keys
+    def docSetSeen:int -1
     def panelsKey:string ""
     def barH:double 0.0
     def chartWinY:double -1.0
@@ -733,6 +741,10 @@ class PresApp {
 
     fn setSource:void (text:string) {
         deck.held = false
+        ; Document settings are the deck's before: closed, not written into this one
+        if chart.isOpen {
+            this.closeChart()
+        }
         this.showTab("md")
         ; the slides of the deck before say nothing about this one's
         sourceNew = true
@@ -758,6 +770,7 @@ class PresApp {
 
     fn rebuildDeck:void () {
         this.rebuildWith((? (mode == "edit") 2 -1) true)
+        this.docSetFollow()
     }
 
     ; One rebuild that draws again at most `budget` charts and figures whose
@@ -3067,6 +3080,9 @@ class PresApp {
         stagePanning = false
         stripPressed = false
         stripDragging = false
+        if stripReorder {
+            stripMove.finish(false deck.uiNow)
+        }
         stripReorder = false
         stripDrop = -1
         stripAdd = ""
@@ -3102,6 +3118,17 @@ class PresApp {
     ; A thumbnail with any part inside the strip is drawn; one cut by an
     ; edge is clipped there (the chrome by the strip's own box, the slide by
     ; the host, see `thumbWhole`).
+    ; Where thumbnail i is drawn: its own place, or on its way to one while
+    ; a slide is carried along the strip or glides into its gap.
+    fn thumbDrawX:double (i:int) {
+        return ((this.thumbX(0)) + ((stripMove.place(i deck.uiNow)) * (thumbW + thumbGap)))
+    }
+
+    ; The carried box's place (in thumbnail steps) with the pointer at x.
+    fn stripCarryAt:double (x:double) {
+        return (((x - stripGrabDx) - (this.thumbX(0))) / (thumbW + thumbGap))
+    }
+
     fn thumbFits:boolean (x:double) {
         return (((x + thumbW) > (stripRect.x + 4.0)) && (x < ((stripRect.x + stripRect.w) - 4.0)))
     }
@@ -3165,15 +3192,23 @@ class PresApp {
                 ts = (thumbH / deck.pageH)
             }
             def inset:double ((thumbW - (deck.pageW * ts)) / 2.0)
+            ; the one carried along the strip last, drawn over the others
+            def carried:int (? stripReorder stripIdx -1)
             def i:int 0
-            while (i < (deck.slideCount())) {
-                def x:double (this.thumbX(i))
-                if (this.thumbFits(x)) {
-                    if (! first) {
-                        out = (out + ",")
+            while (i <= (deck.slideCount())) {
+                def k:int i
+                if (i == (deck.slideCount())) {
+                    k = carried
+                }
+                if ((k >= 0) && ((k != carried) || (i == (deck.slideCount())))) {
+                    def x:double (this.thumbDrawX(k))
+                    if ((k < (deck.slideCount())) && (this.thumbFits(x))) {
+                        if (! first) {
+                            out = (out + ",")
+                        }
+                        first = false
+                        out = (out + "[" + (to_string k) + "," + (PresApp.placeAt((x + inset) (this.thumbY()) ts)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
                     }
-                    first = false
-                    out = (out + "[" + (to_string i) + "," + (PresApp.placeAt((x + inset) (this.thumbY()) ts)) + "," + (? (this.thumbWhole(x)) "0" "1") + "]")
                 }
                 i = (i + 1)
             }
@@ -3329,7 +3364,7 @@ class PresApp {
 
     fn uiBusy:boolean () {
         deck.showingSlide(selected)
-        return ((deck.uiBusy(selected)) || reviewBusy)
+        return (((deck.uiBusy(selected)) || reviewBusy) || (stripMove.busy(deck.uiNow)))
     }
 
     ; Called by the page each frame: one more rebuild while charts are still
@@ -3695,37 +3730,21 @@ class PresApp {
         def box:EVGElement (PresApp.div("strip-in" "" ox r.y (r.w - 8.0) r.h))
         box.setAttribute("overflow" "hidden")
         root.addChild(box)
+        ; where a carried slide would land: the gap the others leave open
+        if stripReorder {
+            def gx:double (this.thumbX((stripMove.target())))
+            box.addChild((PresApp.div("thumb-drop" "thumb-drop" ((gx - 3.0) - ox) (((this.thumbY()) - 3.0) - r.y) (thumbW + 6.0) (thumbH + 6.0))))
+        }
         def i:int 0
         while (i < (deck.slideCount())) {
-            def x:double (this.thumbX(i))
-            if (this.thumbFits(x)) {
-                def cls:string "thumb"
-                if (i == selected) {
-                    cls = "thumb thumb-on"
-                }
-                if (picks.has(i)) {
-                    cls = (cls + " thumb-picked")
-                }
-                if (stripReorder && (i == stripIdx)) {
-                    cls = (cls + " thumb-carried")
-                }
-                box.addChild((PresApp.div(("thumb" + (to_string i)) cls ((x - 3.0) - ox) (((this.thumbY()) - 3.0) - r.y) (thumbW + 6.0) (thumbH + 6.0))))
-                ; the keys are on the strip: a ring round the selected slide
-                if ((focus == "strip") && (i == selected)) {
-                    box.addChild((PresApp.div("thumb-ring" "thumb-ring" ((x - 6.0) - ox) (((this.thumbY()) - 6.0) - r.y) (thumbW + 12.0) (thumbH + 12.0))))
-                }
-                def num:string (to_string (i + 1))
-                if (picks.has(i)) {
-                    num = ("✓ " + num)
-                }
-                box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" num (x - ox) 4.0)))
+            if ((stripReorder && (i == stripIdx)) == false) {
+                this.thumbFrame(box i)
             }
             i = (i + 1)
         }
-        ; where a carried slide would land: a bar in the gap
-        if (stripReorder && (stripDrop >= 0)) {
-            def dx:double (((this.thumbX(stripDrop)) - (thumbGap / 2.0)) - 2.0)
-            box.addChild((PresApp.div("thumb-drop" "thumb-drop" (dx - ox) (((this.thumbY()) - 6.0) - r.y) 4.0 (thumbH + 12.0))))
+        ; the carried one over the others
+        if (stripReorder && ((stripIdx >= 0) && (stripIdx < (deck.slideCount())))) {
+            this.thumbFrame(box stripIdx)
         }
         ; the "+" after the last one, or its two choices once pressed
         def ax:double (this.thumbX((deck.slideCount())))
@@ -3739,6 +3758,36 @@ class PresApp {
                 box.addChild((PresApp.box("slide-add" "thumb-add" "+" (ax - ox) ay thumbW thumbH)))
             }
         }
+    }
+
+    ; Thumbnail i's frame and number, where it is drawn (thumbDrawX).
+    fn thumbFrame:void (box:EVGElement i:int) {
+        def r:PresRect stripRect
+        def ox:double (r.x + 4.0)
+        def x:double (this.thumbDrawX(i))
+        if ((this.thumbFits(x)) == false) {
+            return
+        }
+        def cls:string "thumb"
+        if (i == selected) {
+            cls = "thumb thumb-on"
+        }
+        if (picks.has(i)) {
+            cls = (cls + " thumb-picked")
+        }
+        if (stripReorder && (i == stripIdx)) {
+            cls = (cls + " thumb-carried")
+        }
+        box.addChild((PresApp.div(("thumb" + (to_string i)) cls ((x - 3.0) - ox) (((this.thumbY()) - 3.0) - r.y) (thumbW + 6.0) (thumbH + 6.0))))
+        ; the keys are on the strip: a ring round the selected slide
+        if (((focus == "strip") && (i == selected)) && (stripReorder == false)) {
+            box.addChild((PresApp.div("thumb-ring" "thumb-ring" ((x - 6.0) - ox) (((this.thumbY()) - 6.0) - r.y) (thumbW + 12.0) (thumbH + 12.0))))
+        }
+        def num:string (to_string (i + 1))
+        if (picks.has(i)) {
+            num = ("✓ " + num)
+        }
+        box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" num (x - ox) 4.0)))
     }
 
     ; A box with its words in the middle (`line-height` is its height).
@@ -3889,7 +3938,9 @@ class PresApp {
         ; the surfaces over the chrome, the top one first (`layerAt`): an
         ; open menu or list of the bar takes every press (a row, or anywhere
         ; else to close it); a window pressed comes to the front; a press
-        ; outside a window closes it, unless it lands in a dialog over it
+        ; outside a window closes it, unless it lands in a dialog over it;
+        ; Document settings stays open (docSetLeave), so the slides it
+        ; changes can be picked and looked at
         def top:string (this.layerAt(x y))
         if (top == "bar") {
             toolbar.pressWith(x y clicks shift)
@@ -3903,6 +3954,9 @@ class PresApp {
         }
         if chart.isOpen {
             if (top == "chart") {
+                if (chart.mode == "docset") {
+                    this.docSetEnter()
+                }
                 layers.raise("chart")
                 chart.touch = touch
                 chart.press(x y clicks shift)
@@ -3910,7 +3964,11 @@ class PresApp {
                 return "chart"
             }
             if (top != "dialog") {
-                this.closeChart()
+                if (chart.mode == "docset") {
+                    this.docSetLeave()
+                } {
+                    this.closeChart()
+                }
             }
         }
         if hint.isOpen {
@@ -4466,6 +4524,12 @@ class PresApp {
                 }
                 stripDragging = true
                 stripReorder = (((stripIdx >= 0) && (touch == false)) && ((deck.slideCount()) > 1))
+                if stripReorder {
+                    ; picked up where it is drawn, held where it was grabbed
+                    def sx:double (this.thumbDrawX(stripIdx))
+                    stripGrabDx = (stripDownX - sx)
+                    stripMove.start((deck.slideCount()) stripIdx (this.stripCarryAt(stripDownX)) deck.uiNow)
+                }
             }
             if stripReorder {
                 ; near an edge the strip scrolls under the slide being carried
@@ -4475,7 +4539,8 @@ class PresApp {
                 if (x > ((stripRect.x + stripRect.w) - 40.0)) {
                     this.scrollStrip(12.0)
                 }
-                stripDrop = (this.dropSlotAt(x))
+                stripMove.carry((this.stripCarryAt(x)) deck.uiNow)
+                stripDrop = (stripMove.slot())
                 stripLastX = x
                 chromeRev = (chromeRev + 1)
                 return
@@ -4577,8 +4642,13 @@ class PresApp {
                     this.addSlide((stripAdd == "dup"))
                 }
             }
-            if (stripReorder && (stripDrop >= 0)) {
-                this.moveSlideTo(stripIdx stripDrop)
+            if stripReorder {
+                ; let go: the slide glides from the pointer into its gap
+                def moved:boolean false
+                if (stripDrop >= 0) {
+                    moved = (this.moveSlideTo(stripIdx stripDrop))
+                }
+                stripMove.finish(moved deck.uiNow)
             }
             stripAdd = ""
             stripDragging = false
@@ -4619,21 +4689,6 @@ class PresApp {
             i = (i + 1)
         }
         return -1
-    }
-
-    ; The gap between thumbnails nearest to x: 0 before the first, n after
-    ; the last.
-    fn dropSlotAt:int (x:double) {
-        def n:int (deck.slideCount())
-        def u:double (((x - (stripRect.x + 12.0)) + stripScroll) + (thumbGap / 2.0))
-        def slot:int (floor ((u / (thumbW + thumbGap)) + 0.5))
-        if (slot < 0) {
-            slot = 0
-        }
-        if (slot > n) {
-            slot = n
-        }
-        return slot
     }
 
     fn scrollStrip:void (d:double) {
@@ -4979,7 +5034,7 @@ class PresApp {
                 return usedH
             }
         }
-        if (chart.isOpen && (mode != "present")) {
+        if ((this.chartHasKeys()) && (mode != "present")) {
             def used:boolean (chart.key(name shift ctrl))
             this.afterChart()
             return used
@@ -5239,7 +5294,7 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
-        if (chart.isOpen && (mode != "present")) {
+        if ((this.chartHasKeys()) && (mode != "present")) {
             chart.type(s)
             this.afterChart()
             return
@@ -5337,7 +5392,7 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
-        if (chart.isOpen && (mode != "present")) {
+        if ((this.chartHasKeys()) && (mode != "present")) {
             chart.type(s)
             this.afterChart()
             return
@@ -5414,7 +5469,7 @@ class PresApp {
         }
         ; the editor's fields have no undo of their own, and an undo in the
         ; Markdown under it would move the fence it is writing
-        if chart.isOpen {
+        if (this.chartHasKeys()) {
             if (ch == "a") {
                 chart.selectAllInField()
                 chromeRev = (chromeRev + 1)
@@ -6745,6 +6800,10 @@ class PresApp {
             def path:string hint.picture
             hint.wantsPic = ""
             this.closeHint()
+            if (act == "draw") {
+                this.setSketching(true)
+                return
+            }
             if (act == "trace") {
                 push requests ("image-trace:" + path)
             } {
@@ -8190,6 +8249,12 @@ class PresApp {
         panels.setShareView(url (picks.count()) live)
     }
 
+    ; How many people the owner invited to edit the presentation in the
+    ; cloud (-1: not the owner's, or not in the cloud); set before openShare
+    fn setShareEditors:void (n:int) {
+        panels.setShareEditors(n)
+    }
+
     fn openShare:void (showUrl:string editUrl:string note:string) {
         this.closeHint()
         panels.openShare(showUrl editUrl note)
@@ -9268,7 +9333,7 @@ class PresApp {
             }
         }
         def m:PresImageModel (PresImageModel.read(t attr))
-        if ((m.ok()) == false) {
+        if ((m.editable()) == false) {
             return false
         }
         m.line = line
@@ -9609,6 +9674,17 @@ class PresApp {
             return false
         }
         chart.openAskName(name chart.x chart.y W H)
+        return true
+    }
+
+    ; Share → People who can edit: `list` the addresses invited (one a
+    ; line), `owner` the owner's own. Save is "newdeck-create" with the
+    ; plan's "ask" "editors" and "editors" the list (PresInvite).
+    fn openInvite:boolean (list:string owner:string) {
+        if ((this.openDupDeck("")) == false) {
+            return false
+        }
+        chart.openInvite(list owner chart.x chart.y W H)
         return true
     }
 
@@ -10001,7 +10077,7 @@ class PresApp {
         if (chart.ndDup && (chart.ndAsk == "dup")) {
             dup = "true"
         }
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + "}")
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + ",\"editors\":" + (PresApp.jsonStr((chart.inv.text()))) + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
@@ -10488,6 +10564,59 @@ class PresApp {
 
     fn chartIsOpen:boolean () {
         return chart.isOpen
+    }
+
+    ; The keys are the window's while it is open; Document settings' only
+    ; while it was pressed last (a press on the editor or a slide gives
+    ; them back, the window staying open).
+    fn chartHasKeys:boolean () {
+        if (chart.isOpen == false) {
+            return false
+        }
+        return ((chart.mode != "docset") || (focus == "chart"))
+    }
+
+    ; A press outside Document settings: its changes so far one undo step,
+    ; the keys back to the editor; the window stays open.
+    fn docSetLeave:void () {
+        this.writeChart()
+        if (docUndoBase >= 0) {
+            def keepBase:int chartUndoBase
+            chartUndoBase = docUndoBase
+            this.mergeChartUndo()
+            chartUndoBase = keepBase
+            docUndoBase = -1
+        }
+        docSetSeen = mdEditor.buf.version
+        chart.blur()
+        focus = "editor"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A press back on Document settings: its next changes a new undo step.
+    fn docSetEnter:void () {
+        if (focus == "chart") {
+            return
+        }
+        this.docSetFollow()
+        focus = "chart"
+        if (docUndoBase < 0) {
+            docUndoBase = (array_length mdEditor.buf.undoStack)
+        }
+    }
+
+    ; Document settings open while the text changes under it (typed by hand,
+    ; undone): the window reads the front matter again.
+    fn docSetFollow:void () {
+        if (((chart.isOpen == false) || (chart.mode != "docset")) || (focus == "chart")) {
+            return
+        }
+        if (mdEditor.buf.version == docSetSeen) {
+            return
+        }
+        docSetSeen = mdEditor.buf.version
+        chart.ds.read((MdFrontMatter.of(deck.md.edit.doc)))
+        chart.rebuild()
     }
 
     ; What a routed input asked for, and the fence rewritten when the model
@@ -11785,8 +11914,9 @@ class PresApp {
     }
 
     fn setFocus:void (where:string) {
-        ; the keys stay with the chart editor while it is open
-        if (chart.isOpen && (where == "editor")) {
+        ; the keys stay with the chart editor while it is open (Document
+        ; settings lets them go: a press outside it gave them back)
+        if ((chart.isOpen && (chart.mode != "docset")) && (where == "editor")) {
             focus = "chart"
             return
         }

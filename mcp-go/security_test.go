@@ -158,7 +158,7 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 		t.Fatal(textOf(open))
 	}
 	eq(t, sc(open)["visibility"], "link")
-	match(t, textOf(open), `not for private or confidential data\. Anyone who has this presentation's link can open every slide`)
+	match(t, textOf(open), `Visibility link: anyone who has this presentation's link can open every slide`)
 
 	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.", "visibility": "private",
 		"files": []any{map[string]any{"name": "d.csv", "text": "a,b\nx,1\n"}}})
@@ -229,12 +229,12 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	// asked for by link at creation
 	l := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open", "visibility": "link"})
 	eq(t, sc(l)["visibility"], "link")
-	match(t, textOf(l), `Anyone who has this presentation.s link can open every slide`)
+	match(t, textOf(l), `anyone who has this presentation.s link can open every slide`)
 
 	// without sign-in: always by link; private needs sign-in
 	a := call(t, anon, "create_presentation", map[string]any{"title": "Anon", "markdown": "# Anon"})
 	eq(t, sc(a)["visibility"], "link")
-	match(t, textOf(a), `not for private or confidential data`)
+	match(t, textOf(a), `Visibility link: anyone who has this presentation.s link`)
 	eq(t, f.db.doc("shares/" + str(sc(a)["deck_id"]))["visibility"], "link")
 	match(t, textOf(call(t, anon, "create_presentation", map[string]any{"title": "P", "markdown": "# P", "visibility": "private"})), `A private presentation needs sign-in`)
 	match(t, textOf(call(t, anon, "update_presentation", map[string]any{"deck_id": sc(a)["deck_id"], "visibility": "private"})), `made without sign-in`)

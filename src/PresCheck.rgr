@@ -15,6 +15,7 @@ Import "PresGridModel.rgr"
 Import "PresControlsFade.rgr"
 Import "PresDiaFull.rgr"
 Import "PresFollow.rgr"
+Import "PresInvite.rgr"
 Import "PresReview.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
@@ -34,6 +35,7 @@ Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
+Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -2204,6 +2206,28 @@ class PresCheck {
         this.ok((seq.ok && (seq.editable == false)) "a sequence diagram too")
     }
 
+    ; The diagram window on a statechart: states and transitions edited as
+    ; the machine's config, the rest of the block kept.
+    fn machineModel:void () {
+        def src:string "```xstate\n{\n  \"id\": \"review\",\n  \"initial\": \"Draft\",\n  \"states\": {\n    \"Draft\": { \"on\": { \"submit\": \"Testing\" } },\n    \"Testing\": {}\n  }\n}\n```\n{style=holo}"
+        def m:PresFlowModel (PresFlowModel.read(src))
+        this.ok((m.ok && m.isMachine) "an xstate block reads as a machine")
+        this.ok(((m.notationName()) == "XState") "its notation")
+        this.ok(((m.markdown()) == src) ("read and written untouched it is the same text: " + (m.markdown())))
+        m.machine.renameState("Testing" "Review")
+        m.machine.addState("" "Accepted")
+        m.machine.setFinal("Accepted" true)
+        m.machine.addTransition("Review" "accept" "Accepted" "role:tester" "")
+        m.machineChanged()
+        def out:string (m.markdown())
+        this.ok(((indexOf out "\"submit\": \"Review\"") > 0) ("a renamed state's transitions follow it: " + out))
+        this.ok(((indexOf out "\"guard\": \"role:tester\"") > 0) ("a guarded transition: " + out))
+        this.ok(((indexOf out "\"type\": \"final\"") > 0) ("a final state: " + out))
+        this.ok(((indexOf out "{style=holo}") > 0) ("the options stay: " + out))
+        def back:PresFlowModel (PresFlowModel.read(out))
+        this.ok((back.isMachine && ((back.machine.machine.stateCount()) == 3)) ("read back: " + out))
+    }
+
     ; The table window's model: cells, alignments, rows and columns.
     fn gridModel:void () {
         def src:string "| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n| Pohjoinen \\| itä | `a|b` |"
@@ -2586,6 +2610,42 @@ class PresCheck {
 
     ; Someone else's edits under the slide shown (PresFollow): it stays the
     ; slide shown, at the same time into it.
+    ; Who may edit a cloud presentation (PresInvite): the owner's list of
+    ; addresses, as the Share window edits it.
+    fn invites:void () {
+        def v (new PresInvite())
+        v.owner = "Tero@Example.com"
+        this.ok((v.add(" Anna@Example.COM ")) "invite: an address goes in")
+        this.ok(((v.at(0)) == "anna@example.com") ("invite: kept in lower case: " + (v.at(0))))
+        this.ok(((v.add("anna@example.com")) == false) "invite: not twice")
+        this.ok((v.note == "there") ("invite: note " + v.note))
+        this.ok(((v.add("tero@example.com")) == false) "invite: not the owner")
+        this.ok((v.note == "owner") ("invite: owner note " + v.note))
+        this.ok(((v.add("not an address")) == false) "invite: a name is no address")
+        this.ok(((v.add("a@b")) == false) "invite: a host without a domain")
+        this.ok(((v.add("a@b@c.fi")) == false) "invite: two @")
+        this.ok(((v.add("a,b@c.fi")) == false) "invite: a list is not one address")
+        this.ok(((v.add("")) == false) "invite: empty")
+        this.ok((v.note == "empty") "invite: empty note")
+        this.ok((v.add("bo@firma.fi")) "invite: a second")
+        this.ok(((v.text()) == "anna@example.com\nbo@firma.fi") ("invite: text " + (v.text())))
+        v.remove(0)
+        this.ok((((v.count()) == 1) && ((v.at(0)) == "bo@firma.fi")) "invite: removed")
+        v.remove(5)
+        this.ok(((v.count()) == 1) "invite: removing past the end does nothing")
+        def w (new PresInvite())
+        w.load("X@y.fi\n\nnope\nx@y.fi\nz@w.com\n")
+        this.ok(((w.text()) == "x@y.fi\nz@w.com") ("invite: load keeps addresses once: " + (w.text())))
+        def i:int 0
+        def f (new PresInvite())
+        while (i < 60) {
+            f.add((("p" + (to_string i)) + "@q.fi"))
+            i = (i + 1)
+        }
+        this.ok((((f.count()) == (PresInvite.most())) && (f.note == "full")) "invite: at most 50")
+        this.ok(((PresInvite.withCount("You and {n} people" 3)) == "You and 3 people") "invite: count in words")
+    }
+
     fn followEdits:void () {
         def head:string "---\nslide-split-level: 2\n---\n\n"
         def text:string (head + "## Yksi\n\na\n\n## Kaksi\n\nb\n\n## Kolme\n\nc\n")
@@ -3366,6 +3426,11 @@ class PresCheck {
         mv.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
         mv.moveTo(150.0 120.0)
         this.ok(((mv.outAlign == "left") && (mv.x == 0.0)) ("image drag: to the left third: " + mv.outAlign))
+        ; a drawing's line is a picture to handles, but the image editor leaves it be
+        def ink:PresImageModel (PresImageModel.read("![](drawings/sales-by-region-2.ink)" ""))
+        this.ok(((ink.ok()) && ((ink.editable()) == false)) "image model: a drawing (.ink) does not open the image editor")
+        this.ok((PresImageModel.isDrawing("drawings/A.INK")) "image model: .ink in any case is a drawing")
+        this.ok((m.editable()) "image model: a picture opens the image editor")
         def m2:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
         this.ok((mv.apply(m2)) "image drag: align written")
         this.ok(((m2.markdown()) == "![a](media/x.png)\n{align=left}") ("image drag: " + (m2.markdown())))
@@ -3998,6 +4063,66 @@ class PresCheck {
     }
 
     ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
+    ; PresStripDrag: a slide carried along the filmstrip, the others moving
+    ; out of its way, and the glide into place when let go
+    fn stripDrag:void () {
+        def d (new PresStripDrag())
+        d.start(5 1 1.0 10.0)
+        this.ok(d.busy(10.0) "strip drag: busy while carrying")
+        this.ok(((d.slot()) == -1) "strip drag: not moved yet, no slot")
+        this.ok(((d.place(3 10.0)) == 3.0) "strip drag: the others in their places")
+        ; carried to place 3.3: slides 2 and 3 step left
+        d.carry(3.3 10.0)
+        this.ok(((d.target()) == 3) ("strip drag: target 3, got " + (to_string (d.target()))))
+        this.ok(((d.slot()) == 4) ("strip drag: gap 4, got " + (to_string (d.slot()))))
+        this.ok(((d.place(1 10.0)) == 3.3) "strip drag: the box follows the pointer")
+        this.ok(((d.place(2 10.0)) == 2.0) "strip drag: a step starts where it was")
+        def mid:double (d.place(2 10.1))
+        this.ok(((mid < 2.0) && (mid > 1.0)) ("strip drag: half way at 0.1 s, got " + (to_string mid)))
+        this.ok(((d.place(2 10.5)) == 1.0) "strip drag: slide 2 now in place 1")
+        this.ok(((d.place(3 10.5)) == 2.0) "strip drag: slide 3 now in place 2")
+        this.ok(((d.place(4 10.5)) == 4.0) "strip drag: slide 4 stays")
+        this.ok(((d.place(0 10.5)) == 0.0) "strip drag: slide 0 stays")
+        ; back to the left of where it began: 0 steps right
+        d.carry(-0.2 11.0)
+        this.ok(((d.target()) == 0) "strip drag: target 0")
+        this.ok(((d.slot()) == 0) "strip drag: gap 0")
+        ; slide 2 turns back from place 1 to its own, slide 0 steps right
+        this.ok(((d.place(2 11.0)) == 1.0) "strip drag: a turn starts where it is")
+        this.ok(((d.place(2 12.0)) == 2.0) "strip drag: slide 2 back in its place")
+        this.ok(((d.place(0 12.0)) == 1.0) "strip drag: slide 0 stepped right")
+        ; past the ends it stays at the first / last place
+        d.carry(9.0 12.0)
+        this.ok(((d.target()) == 4) "strip drag: clamped to the last place")
+        this.ok(((d.slot()) == 5) "strip drag: after the last one")
+        d.carry(2.4 13.0)
+        ; let go at 2.4 over target 2: the deck now has the new order, slide
+        ; 1 is index 2 and glides from 2.4 into 2; old slide 2 is index 1
+        d.finish(true 13.0)
+        this.ok(((d.place(2 13.0)) == 2.4) "strip drag: dropped box starts at the pointer")
+        this.ok(((d.place(2 14.0)) == 2.0) "strip drag: dropped box glides into its gap")
+        this.ok(((d.place(1 14.0)) == 1.0) "strip drag: the others keep their new places")
+        this.ok(d.busy(13.05) "strip drag: busy while gliding")
+        this.ok(((d.busy(14.0)) == false) "strip drag: rests after the glide")
+        ; a drag let go where it began asks for no move and glides back
+        d.start(5 3 3.0 20.0)
+        d.carry(3.4 20.0)
+        this.ok(((d.slot()) == -1) "strip drag: dropped on its own place, no move")
+        d.finish(false 20.0)
+        this.ok(((d.place(3 20.0)) == 3.4) "strip drag: glides back from the pointer")
+        this.ok(((d.place(3 21.0)) == 3.0) "strip drag: back in its place")
+        ; a cancelled drag puts the others back
+        d.start(4 0 0.0 30.0)
+        d.carry(2.6 30.0)
+        d.finish(false 30.5)
+        this.ok(((d.place(1 30.5)) == 0.0) "strip drag: cancel starts where it is drawn")
+        this.ok(((d.place(1 31.5)) == 1.0) "strip drag: cancel puts the others back")
+        ; a deck that changed under it: unknown thumbnails are in place
+        this.ok(((d.place(7 31.5)) == 7.0) "strip drag: past the known ones, in place")
+        d.reset()
+        this.ok(((d.busy(31.5)) == false) "strip drag: reset rests")
+    }
+
     fn clips:void () {
         ; the format: written and read back
         def d (new PresClipDoc())
@@ -4231,6 +4356,7 @@ class PresCheck {
         c.chartLeavesRoom()
         c.staggered()
         c.flowModel()
+        c.machineModel()
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
@@ -4239,6 +4365,7 @@ class PresCheck {
         c.roundNodes()
         c.chainRows()
         c.followEdits()
+        c.invites()
         c.picks()
         c.navJumps()
         c.stageClicks()
@@ -4254,6 +4381,7 @@ class PresCheck {
         c.serverDecks()
         c.serverRooms()
         c.clips()
+        c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

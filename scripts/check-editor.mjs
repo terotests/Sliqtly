@@ -7,8 +7,15 @@
  *   - the page and every file it loads come from under /editor/ (Hosting's
  *     own files have none of the editor), with no request failing
  *   - a deck saved to the cloud is first taken under the license
- *     (/editor/api/claim) and its address is /editor/s/{id}?edit
+ *     (/editor/api/claim), kept private, and its address is /editor/d/{id}
  *   - a reload there opens it from the cloud
+ *   - Share gives a viewing link of its own (/s/{linkId}), never the deck's
+ *     id, and People who can edit… keeps the addresses on the deck
+ *   - someone else's deck at /editor/d/{id} is shown, not copied, and
+ *     nothing of it is saved under the other user
+ *   - invited to someone else's deck, the user edits that same deck
+ *   - another Google account in the same browser has a store of its own:
+ *     none of the first one's decks, rooms or tabs (web/account.js)
  *   - with the Trial's two presentations taken, a new deck is not saved to
  *     the cloud and the Files tab says why
  *   - signed out in the page, it goes back through the sign-in page
@@ -40,7 +47,9 @@ function check(name, ok, note = "") {
 }
 
 // the gate as editor.go keeps it: one user, their license, signed in or not
-const gate = { signedIn: true, license: { plan: "trial", maxDocs: 2, docs: [], canEdit: true }, claims: [], signouts: 0 };
+const gate = { signedIn: true, license: { plan: "trial", maxDocs: 2, docs: [], canEdit: true }, claims: [], signouts: 0, uid: "u1", email: "t@example.com" };
+// the cloud as the page and the gate see it (the fake Firebase below)
+const fakeDb = new Map();
 const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".csv": "text/csv", ".md": "text/markdown", ".svg": "image/svg+xml", ".png": "image/png", ".ttf": "font/ttf" };
 const outside = []; // requests for the editor's files outside /editor/
 
@@ -53,13 +62,19 @@ const server = http.createServer(async (req, res) => {
     let body = "";
     for await (const c of req) body += c;
     if (op === "signout") { gate.signedIn = false; gate.signouts += 1; return json(200, { ok: true }); }
-    if (op === "session") return json(200, { uid: "u1", license: gate.license });
+    if (op === "session") return json(200, { uid: gate.uid, license: gate.license });
     if (!gate.signedIn) return json(401, { code: "signed-out" });
     if (op === "license") return json(200, { license: gate.license });
     if (op === "claim") {
       const { id } = JSON.parse(body || "{}");
       gate.claims.push(id);
       const l = gate.license;
+      // someone else's: only when its owner invited this user (editor.go)
+      const share = fakeDb.get("shares/" + id);
+      if (share && share.owner !== gate.uid) {
+        if ((share.editors || []).includes(gate.email)) return json(200, { license: l });
+        return json(403, { code: "no-edit-right", why: "not-yours", license: l });
+      }
       if (!l.docs.includes(id)) {
         if (l.docs.length >= l.maxDocs) return json(403, { code: "no-edit-right", why: "full", license: l });
         l.docs.push(id);
@@ -68,10 +83,10 @@ const server = http.createServer(async (req, res) => {
     }
     return json(404, {});
   }
-  if (p === "/editor/" || /^\/editor\/s\/[A-Za-z0-9]+\/?$/.test(p)) {
+  if (p === "/editor/" || /^\/editor\/[sd]\/[A-Za-z0-9]+\/?$/.test(p)) {
     res.writeHead(200, { "content-type": "text/html" });
     if (!gate.signedIn) return res.end("<!doctype html><title>Sliqtly editor</title><h1>Sign in to the editor</h1>");
-    const info = JSON.stringify({ uid: "u1", email: "t@example.com", license: gate.license }).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    const info = JSON.stringify({ uid: gate.uid, email: gate.email, license: gate.license }).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
     const html = fs.readFileSync(path.join(distDir, "index.html"), "utf8")
       .replace('<base href="/" />', '<base href="/editor/" />')
       .replace("</head>", `<meta name="sliqtly-editor" content="${info}" />\n</head>`);
@@ -96,32 +111,47 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 const browser = await chromium.launch({ ...chromiumOpts(), args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 try {
-  const fakeDb = new Map();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   await ctx.exposeFunction("__fakeFirebase", async (op, a) => {
     if (op === "get") return fakeDb.get(a.k) ?? null;
-    if (op === "query") return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
+    if (op === "me") return { uid: gate.uid, email: gate.email };
+    if (op === "query") {
+      return [...fakeDb.entries()]
+        .filter(([k, d]) => k.startsWith(a.c + "/") && a.w.every(([f, o, v]) => (o === "array-contains" ? (d[f] || []).includes(v) : d[f] === v)))
+        .map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
+    }
+    if (op === "delete") { fakeDb.delete(a.k); return null; }
     if (op === "set") fakeDb.set(a.k, a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data);
     else if (op === "update") fakeDb.set(a.k, { ...fakeDb.get(a.k), ...a.data });
     return null;
   });
   // Firebase as the page uses it, signed in as u1 until signOut()
   const fake = `(() => {
-    let user = { uid: "u1", displayName: "Testi", email: "t@example.com", getIdToken: async () => "token" };
+    let user = null;
     const listeners = [];
     const call = (op, a) => window.__fakeFirebase(op, a);
+    const me = call("me").then((m) => { user = { uid: m.uid, displayName: "Testi", email: m.email, emailVerified: true, getIdToken: async () => "token" }; });
     const ref = (c, id) => ({
+      id,
+      delete: () => call("delete", { k: c + "/" + id }),
       set: (data, o) => call("set", { k: c + "/" + id, data, merge: !!(o && o.merge) }),
       update: (data) => call("update", { k: c + "/" + id, data }),
       get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
     });
-    const query = (c, f, v) => ({ limit: () => query(c, f, v), get: async () => ({ docs: (await call("query", { c, f, v })).map((x) => ({ id: x.id, data: () => x.d })) }) });
-    const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, f, v) }), runTransaction: async (fn) => fn({ get: (r) => r.get(), update: (r, d) => r.update(d) }) };
+    const query = (c, w) => ({
+      where: (f, op, v) => query(c, w.concat([[f, op, v]])),
+      limit: () => query(c, w),
+      get: async () => {
+        const docs = (await call("query", { c, w })).map((x) => ({ id: x.id, data: () => x.d, ref: ref(c, x.id) }));
+        return { docs, empty: docs.length === 0 };
+      },
+    });
+    const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, [[f, op, v]]) }), runTransaction: async (fn) => fn({ get: (r) => r.get(), update: (r, d) => r.update(d) }) };
     const firestore = () => db;
     firestore.FieldValue = { serverTimestamp: () => Date.now() };
     const storage = () => ({ ref: () => ({ put: async () => {}, getDownloadURL: async () => "", delete: async () => {}, listAll: async () => ({ items: [] }) }) });
     const auth = () => ({
-      onAuthStateChanged(cb) { listeners.push(cb); setTimeout(() => cb(user), 0); return () => {}; },
+      onAuthStateChanged(cb) { listeners.push(cb); me.then(() => cb(user)); return () => {}; },
       onIdTokenChanged(cb) { return () => {}; },
       get currentUser() { return user; },
       async signOut() { user = null; for (const cb of listeners) cb(null); },
@@ -148,12 +178,32 @@ try {
 
   // a change: taken under the license, saved, the address names it
   await pg.evaluate(() => window.__app.setSource("# Ensimmäinen\n\n## Dia\n"));
-  await pg.waitForFunction(() => /^\/editor\/s\/[A-Za-z0-9]+$/.test(location.pathname), null, { timeout: 15000 }).catch(() => {});
+  await pg.waitForFunction(() => /^\/editor\/d\/[A-Za-z0-9]+$/.test(location.pathname), null, { timeout: 15000 }).catch(() => {});
   const shares = () => [...fakeDb.keys()].filter((k) => k.startsWith("shares/")).map((k) => k.slice(7));
+  const links = () => [...fakeDb.entries()].filter(([k]) => k.startsWith("links/")).map(([k, d]) => ({ id: k.slice(6), ...d }));
   const first = { shares: shares(), claims: [...gate.claims], at: await pg.evaluate(() => location.pathname + location.search) };
   const id = first.shares[0] || "";
-  check("a deck is taken under the license, then saved to the cloud at /editor/s/{id}?edit",
-    first.shares.length === 1 && gate.license.docs.includes(id) && first.claims[0] === id && first.at === "/editor/s/" + id + "?edit", JSON.stringify(first));
+  check("a deck is taken under the license, then saved to the cloud, private, at /editor/d/{id}",
+    first.shares.length === 1 && gate.license.docs.includes(id) && first.claims[0] === id && first.at === "/editor/d/" + id
+      && fakeDb.get("shares/" + id)?.visibility === "private", JSON.stringify(first));
+
+  // Share: a viewing link of its own, never the deck's id
+  await pg.evaluate(() => document.getElementById("share").click());
+  await pg.waitForFunction(() => /\/s\/[A-Za-z0-9]+$/.test(window.__lastShareShow || ""), null, { timeout: 15000 }).catch(() => {});
+  const shown = await pg.evaluate(() => ({ show: window.__lastShareShow || "", edit: window.__lastShare || "" }));
+  const link = links()[0];
+  check("Share gives a link of its own to view the deck, and no editing link",
+    !!link && link.of === id && link.owner === "u1" && shown.show.endsWith("/s/" + link.id) && !shown.show.includes(id) && shown.edit === "",
+    JSON.stringify({ shown, link }));
+  // People who can edit…: the window, an address, Save
+  await pg.evaluate(() => window.__app.closeShare());
+  await pg.evaluate(() => window.__app.openInvite("", "t@example.com"));
+  await pg.evaluate(() => window.__app.chartSetInput?.("nd-name", "Anna@Example.com"));
+  const invited = await pg.evaluate(async () => {
+    await window.sliqtly.setEditors(location.pathname.split("/").pop(), ["Anna@Example.com"]);
+    return (await window.sliqtly.loadShare(location.pathname.split("/").pop())).editors;
+  });
+  check("the people invited are kept on the deck, in lower case", JSON.stringify(invited) === '["anna@example.com"]', JSON.stringify(invited));
 
   await pg.reload();
   await started();
@@ -172,6 +222,53 @@ try {
     shares().length === before && /^no-edit-right: .*2/.test(made), made);
   const note = await pg.evaluate(() => document.getElementById("pro")?.title || "");
   check("the PRO button tells the license", /Trial: 2 \/ 2/.test(note), note);
+
+  // another Google account in the same browser: a store of its own, none of
+  // the first one's decks, rooms or tabs
+  const docsIn = (name) => pg.evaluate((n) => new Promise((ok) => {
+    const req = indexedDB.open(n);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("docs")) { db.close(); return ok([]); }
+      const g = db.transaction("docs").objectStore("docs").getAll();
+      g.onsuccess = () => { db.close(); ok(g.result.map((d) => JSON.stringify(d))); };
+      g.onerror = () => ok(["?"]);
+    };
+    req.onerror = () => ok(["?"]);
+  }), name);
+  Object.assign(gate, { uid: "u2", email: "other@example.com" });
+  await pg.goto(base + "/editor/");
+  await started();
+  const otherSees = await pg.evaluate(() => window.__app.source());
+  const u1Docs = await docsIn("evg-presentation@u1");
+  const u2Docs = await docsIn("evg-presentation@u2");
+  const keys = await pg.evaluate(() => Object.keys(localStorage).filter((k) => /^sliqtly\.rooms|^evgp\.doc/.test(k)));
+  check("another account in the same browser sees none of the first one's decks",
+    u1Docs.some((x) => x.includes("Ensimmäinen")) && !u2Docs.some((x) => x.includes("Ensimmäinen")) && !otherSees.includes("Ensimmäinen") && keys.length === 0,
+    JSON.stringify({ u1: u1Docs.length, u2: u2Docs.map((x) => x.slice(0, 20)), keys, otherSees: otherSees.slice(0, 30) }));
+  // the first one's deck at its address: shown, nothing of it saved anywhere
+  const count = shares().length;
+  await pg.goto(base + "/editor/d/" + id);
+  await started();
+  await pg.evaluate(() => window.__app.setSource("# Toisen muutos\n"));
+  await pg.waitForTimeout(3000);
+  const theirs = [...fakeDb.values()].filter((d) => d && d.owner === "u2");
+  check("someone else's deck at /editor/d/{id} is shown, not copied, nothing saved",
+    shares().length === count && !String(fakeDb.get("shares/" + id)?.md).includes("Toisen") && theirs.length === 0,
+    JSON.stringify({ count, now: shares().length, theirs: theirs.length }));
+  // invited: the same deck, edited
+  fakeDb.get("shares/" + id).editors = ["anna@example.com", "other@example.com"];
+  await pg.goto(base + "/editor/d/" + id);
+  await started();
+  await pg.evaluate(() => window.__app.setSource("# Kutsuttu muokkaa\n"));
+  const t0 = Date.now();
+  while (Date.now() - t0 < 15000 && !String(fakeDb.get("shares/" + id)?.md).includes("Kutsuttu")) await new Promise((ok) => setTimeout(ok, 250));
+  check("invited to someone else's deck, the user edits that same deck",
+    String(fakeDb.get("shares/" + id)?.md).includes("Kutsuttu") && shares().length === count && fakeDb.get("shares/" + id)?.owner === "u1",
+    JSON.stringify({ md: String(fakeDb.get("shares/" + id)?.md).slice(0, 30), shares: shares().length }));
+  Object.assign(gate, { uid: "u1", email: "t@example.com" });
+  await pg.goto(base + "/editor/");
+  await started();
 
   // signed out in the page: back through the sign-in page
   await pg.evaluate(() => window.sliqtly.auth().then((a) => a.signOut()));

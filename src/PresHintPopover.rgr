@@ -28,6 +28,7 @@
 ; ============================================================================
 
 Import "PresI18n.rgr"
+Import "PresImageModel.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/EmojiPickerCtl.rgr"
@@ -530,11 +531,16 @@ class PresHintPopover {
         if ((strlen picture) > 0) {
             def pf:EVGElement (this.div("hp-foot"))
             def low:string (to_lowercase picture)
-            if ((endsWith low ".svg") == false) {
-                this.button("hp-pic-edit" (PresI18n.t("Edit image…")) "secondary" pf)
-                this.button("hp-pic-trace" (PresI18n.t("Vectorize…")) "secondary" pf)
+            if (PresImageModel.isDrawing(low)) {
+                pf.addChild((this.words("hp-doc" (PresI18n.t("A drawing made on the slide.")))))
+                this.button("hp-pic-draw" (PresI18n.t("Draw on slide")) "secondary" pf)
             } {
-                pf.addChild((this.words("hp-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+                if ((endsWith low ".svg") == false) {
+                    this.button("hp-pic-edit" (PresI18n.t("Edit image…")) "secondary" pf)
+                    this.button("hp-pic-trace" (PresI18n.t("Vectorize…")) "secondary" pf)
+                } {
+                    pf.addChild((this.words("hp-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+                }
             }
             card.addChild(pf)
         }
@@ -1071,6 +1077,10 @@ class PresHintPopover {
         }
         if (ctlTid == "hp-pic-edit") {
             wantsPic = "edit"
+            return
+        }
+        if (ctlTid == "hp-pic-draw") {
+            wantsPic = "draw"
             return
         }
         if (ctlTid == "hp-pic-trace") {

@@ -19,6 +19,8 @@ await env.withSecurityRulesDisabled(async (c) => {
   await setDoc(doc(db, "shares/priv"), { owner: "u1", md: "# P", visibility: "private" });
   await setDoc(doc(db, "shares/open"), { owner: "u1", md: "# O", visibility: "link" });
   await setDoc(doc(db, "shares/old"), { owner: "u1", md: "# Old" });
+  // what u1's editor license covers (firestore.rules licensed())
+  await setDoc(doc(db, "licenses/u1"), { plan: "admin", maxDocs: -1, docs: [] });
   const st = c.storage();
   for (const id of ["priv", "open", "old"]) await uploadBytes(ref(st, `shares/${id}/media/a.png`), new Uint8Array([1, 2]), { contentType: "image/png" });
 });
