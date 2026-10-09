@@ -34,6 +34,17 @@ effect heat-haze backdrop {
   q = uv + vec2(noise(uv * 18 + vec2(0, time * 2)) - 0.5, 0) * amount * 2
   output = source(q)
 }
+
+effect dawn source {
+  still = 2
+  fallback = #0b1026
+
+  rise = (max(step - 1, 0) + smoothstep(0, 1.2, steptime) * min(step, 1)) / max(steps, 1)
+  aspect = size.x / size.y
+  sun = 1 - smoothstep(0, 0.35, distance(uv * vec2(aspect, 1), vec2(0.5 * aspect, 1.2 - rise * 0.45)))
+  sky = mix(#0b1026, mix(#7c3aed, #fb923c, uv.y), rise * (0.35 + 0.65 * uv.y))
+  output = vec4(sky + #ffd27a * sun * rise * 0.7, 1)
+}
 ```
 
 # Effects of your own
@@ -68,3 +79,10 @@ A `backdrop` effect reads the finished slide with `source(uv)` and bends it.
 
 - The text shimmers like air over a road
 - Thumbnails, PDF and PPTX show a still of it
+
+## Dawn {fx=dawn}
+
+- `step` and `steps`: the build step shown and how many
+- `steptime`: seconds since that step began
+- `progress`: 0..1 through the slide
+{.build}

@@ -24,7 +24,7 @@
     font: 13px/1.4 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     overflow: hidden; overscroll-behavior: none;
   }
-  body { display: flex; flex-direction: column; }
+  body { display: flex; flex-direction: column; overflow: auto; }
   /* The toolbar is HTML: buttons, selects and the file input are the
      browser's own. Everything under it is one canvas drawn by EVG. */
   #bar {
@@ -43,7 +43,9 @@
   #bar button.primary { background: var(--accent); border-color: var(--accent); color: #fafafa; font-weight: 600; }
   #bar .sepbar { width: 1px; height: 22px; background: var(--line); }
   #status { color: var(--dim); white-space: nowrap; }
-  #stage { position: relative; flex: 1; min-height: 0; }
+  /* The app is laid out for at least 320×240 (main.js resize); a smaller
+     window (a browser zoomed to 500%) scrolls rather than squeezing it. */
+  #stage { position: relative; flex: 1; min-width: 320px; min-height: 240px; }
   #c { display: block; width: 100%; height: 100%; touch-action: none; }
   #keys {
     position: absolute; top: 0; left: 0; width: 1px; height: 1px;
@@ -516,9 +518,10 @@
   </div>
 </div>
 <div id="err"></div>
-<input id="filepick" type="file" multiple accept=".md,.markdown,.txt,text/markdown,text/plain,.xlsx,.csv,.tsv,.json,image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden />
+<input id="filepick" type="file" multiple accept=".md,.markdown,.txt,text/markdown,text/plain,.xlsx,.csv,.tsv,.json,image/png,image/jpeg,image/gif,image/webp,image/svg+xml,audio/*,.mp3,.ogg,.m4a,.wav" hidden />
 <input id="fileadd" type="file" multiple hidden />
 <script src="./pres_app.js?v=__BUILD__"></script>
+<script src="./pres_beat.js?v=__BUILD__"></script>
 <script type="module" src="./main.js?v=__BUILD__"></script>
 <script type="module" src="./sliqtly.js?v=__BUILD__"></script>
 </body>

@@ -149,7 +149,7 @@ func paintJSON(t *testing.T, cmds ...map[string]any) *image.RGBA {
 	t.Helper()
 	b, _ := json.Marshal(map[string]any{"cmds": cmds})
 	dst := image.NewRGBA(image.Rect(0, 0, 192, 108))
-	if err := renderList(dst, string(b), 96, 54, dst.Bounds(), nil); err != nil {
+	if err := renderList(dst, string(b), 96, 54, dst.Bounds(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	return dst

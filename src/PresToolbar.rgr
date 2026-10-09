@@ -2213,9 +2213,15 @@ class PresToolbar {
         return ((((sample.open || theme.open) || langSel.open) || (((strlen (this.openMenu())) > 0) || drawerOpen)) || titleEditing)
     }
 
+    ; Rooms over the page's left edge: a narrow window has no rail, so the
+    ; panel lies over what is under the bar instead of beside it.
+    fn roomsOver:boolean () {
+        return (roomsOpen && (this.compact()))
+    }
+
     ; The bar, or anywhere while a list is open (a press outside closes it).
     fn has:boolean (px:double py:double) {
-        if ((roomsOpen && (this.compact())) && (px < roomsW)) {
+        if ((this.roomsOver()) && (px < roomsW)) {
             return true
         }
         return (((py < barH) || (this.listOpen())) || (px < (this.leftW())))

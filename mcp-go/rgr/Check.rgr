@@ -31,6 +31,10 @@ class DeckIn {
     def live:boolean false
     ; keep each slide's display list as JSON, for drawing it
     def lists:boolean false
+    ; with lists: slide `fxAt` (0 = first) with its own effects' clock at
+    ; `fxTime` seconds into it (PresDeck.fxClockAt); -1: the end state
+    def fxAt:int -1
+    def fxTime:double -1.0
     ; "pdf", "pptx", "docx" or "html": the deck exported as that file (Checked.file), only
     ; the slides in `only` (0 = first) when it is not empty
     def export:string ""
@@ -61,6 +65,9 @@ class Checked {
     def deckData:string ""
     ; with DeckIn.lists: each slide's display list as JSON
     def lists:[string]
+    ; with DeckIn.lists: the deck's own effects as register code, for the
+    ; painter (FxLang.programsJson, mcp-go/fxvm.go)
+    def fxPrograms:string "[]"
     def width:double 960.0
     def height:double 540.0
     ; with DeckIn.export: the file
@@ -465,6 +472,10 @@ class Check {
         for (d.fxNotes()) fxn:string fxi {
             push c.warnings (Guide.see(fxn "effects"))
         }
+        def fxCost:string (d.fx.costText())
+        if ((strlen fxCost) > 0) {
+            push c.warnings fxCost
+        }
         for (d.htmlNotes()) hn:string hi {
             push c.warnings (Guide.see(hn "text"))
         }
@@ -475,10 +486,18 @@ class Check {
                 push c.report (Report.slide(rs))
             }
             if din.lists {
+                c.fxPrograms = (d.fx.programsJson())
+                if (din.fxTime >= 0.0) {
+                    PresTimeline.planAll(d)
+                }
                 def li:int 0
                 while (li < c.slides) {
                     def groups:[int]
+                    if ((li == din.fxAt) && (din.fxTime >= 0.0)) {
+                        d.fxClockAt = din.fxTime
+                    }
                     def sl:EVGDisplayList (d.slideList(li groups 0.0))
+                    d.fxClockAt = -1.0
                     push c.lists (sl.toJson())
                     li = (li + 1)
                 }

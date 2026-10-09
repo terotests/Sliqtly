@@ -1,0 +1,708 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Pres3D.rgr — 3-D worlds on a slide, drawn with Ranger's Three.js port.
+; ============================================================================
+;
+; A program on a slide (```app, `allow: 3d`) puts a <scene3d> in its view():
+;
+;   <scene3d class="world">
+;     <camera fov={45} z={5} />
+;     <mesh shape="knot" color="#e8e8f0" metal={0.85} ry={t * 40} />
+;     <mesh shape="sphere" r={0.6} x={-2} color="tomato" />
+;     <light kind="sun" x={2} y={3} z={4} intensity={1.1} />
+;   </scene3d>
+;
+; PresPlay lays the element out like any box and shows the picture named
+; after it; the page (web/three3d.js) hands each frame's element here and
+; this draws it with ThreeWebGLRenderer + ThreeGLBackend
+; (gallery/game_engine/three) into one canvas the page copies from.
+;
+; The world is lit by the slide around it: Pres3DEnv makes a cube map of a
+; small picture of the slide (the slide on the walls in front and behind,
+; its edges drawn out over the sides, its top and bottom rows over the
+; ceiling and the floor), so a shiny surface mirrors the deck's own
+; colours, and the ambient light is the slide's mean colour. What no mesh
+; covers is left transparent: the slide shows through.
+;
+; Everything but `attach` and `draw` (which need a GPU) is plain data and
+; is checked under Node (PresCheck.worlds).
+; ============================================================================
+
+Import "JsonValue.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "../game_engine/three/src/three_scene.rgr"
+Import "../game_engine/three/src/three_mesh.rgr"
+Import "../game_engine/three/src/three_light.rgr"
+Import "../game_engine/three/src/three_perspective_camera.rgr"
+Import "../game_engine/three/src/three_box_geometry.rgr"
+Import "../game_engine/three/src/three_primitive_geometries.rgr"
+Import "../game_engine/three/src/three_teapot_geometry.rgr"
+Import "../game_engine/three/src/three_mesh_phong_material.rgr"
+Import "../game_engine/three/src/three_cube_texture.rgr"
+Import "../game_engine/three/src/three_webgl_renderer.rgr"
+Import "../game_engine/three/src/three_gl_backend.rgr"
+
+; The room a world stands in, made of a picture of its slide.
+class Pres3DEnv {
+    ; the picture: RGBA, rows from the top
+    def px:buffer (buffer_alloc 0)
+    def w:int 0
+    def h:int 0
+    ; the same, averaged down to a few cells: the soft walls
+    def soft:[double]
+    def sw:int 8
+    def sh:int 5
+    ; how much further from grey the room's colours are than the slide's
+    def saturate:double 1.7
+    ; the picture's mean colour, 0..1
+    def meanR:double 0.5
+    def meanG:double 0.5
+    def meanB:double 0.5
+
+    Constructor () {
+    }
+
+    sfn of:Pres3DEnv (px:buffer w:int h:int) {
+        def e:Pres3DEnv (new Pres3DEnv())
+        e.px = px
+        e.w = w
+        e.h = h
+        e.average()
+        return e
+    }
+
+    fn average:void () {
+        def cells:[double]
+        def tr:double 0.0
+        def tg:double 0.0
+        def tb:double 0.0
+        def total:int 0
+        def cy:int 0
+        while (cy < sh) {
+            def cx:int 0
+            while (cx < sw) {
+                def x0:int (idiv (cx * w) sw)
+                def x1:int (idiv ((cx + 1) * w) sw)
+                def y0:int (idiv (cy * h) sh)
+                def y1:int (idiv ((cy + 1) * h) sh)
+                def r:double 0.0
+                def g:double 0.0
+                def b:double 0.0
+                def n:int 0
+                def y:int y0
+                while (y < y1) {
+                    def x:int x0
+                    while (x < x1) {
+                        def o:int (((y * w) + x) * 4)
+                        r = (r + (to_double (buffer_get px o)))
+                        g = (g + (to_double (buffer_get px (o + 1))))
+                        b = (b + (to_double (buffer_get px (o + 2))))
+                        n = (n + 1)
+                        x = (x + 1)
+                    }
+                    y = (y + 1)
+                }
+                if (n == 0) {
+                    n = 1
+                }
+                push cells (r / (to_double n))
+                push cells (g / (to_double n))
+                push cells (b / (to_double n))
+                tr = (tr + r)
+                tg = (tg + g)
+                tb = (tb + b)
+                total = (total + n)
+                cx = (cx + 1)
+            }
+            cy = (cy + 1)
+        }
+        soft = cells
+        if ((w * h) > 0) {
+            meanR = ((tr / (to_double total)) / 255.0)
+            meanG = ((tg / (to_double total)) / 255.0)
+            meanB = ((tb / (to_double total)) / 255.0)
+        }
+    }
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    ; The picture at (u, v), 0..1 from the top left: [r, g, b] 0..255.
+    fn sharp:[double] (u:double v:double) {
+        if ((w * h) == 0) {
+            return ([] _:double (128.0 128.0 128.0))
+        }
+        def x:int (floor ((Pres3DEnv.clamp01(u)) * (to_double (w - 1))))
+        def y:int (floor ((Pres3DEnv.clamp01(v)) * (to_double (h - 1))))
+        def o:int (((y * w) + x) * 4)
+        return ([] _:double ((to_double (buffer_get px o)) (to_double (buffer_get px (o + 1))) (to_double (buffer_get px (o + 2)))))
+    }
+
+    ; The soft picture at (u, v), blended between its cells.
+    fn blurred:[double] (u:double v:double) {
+        def fx:double (((Pres3DEnv.clamp01(u)) * (to_double sw)) - 0.5)
+        def fy:double (((Pres3DEnv.clamp01(v)) * (to_double sh)) - 0.5)
+        def x0:int (floor fx)
+        def y0:int (floor fy)
+        def ax:double (fx - (to_double x0))
+        def ay:double (fy - (to_double y0))
+        def out:[double]
+        def c:int 0
+        while (c < 3) {
+            def a:double (this.cell(x0 y0 c))
+            def b:double (this.cell((x0 + 1) y0 c))
+            def d:double (this.cell(x0 (y0 + 1) c))
+            def e:double (this.cell((x0 + 1) (y0 + 1) c))
+            def top:double (a + ((b - a) * ax))
+            def bot:double (d + ((e - d) * ax))
+            push out (top + ((bot - top) * ay))
+            c = (c + 1)
+        }
+        return out
+    }
+
+    fn cell:double (x:int y:int c:int) {
+        if ((array_length soft) == 0) {
+            return 128.0
+        }
+        def cx:int x
+        def cy:int y
+        if (cx < 0) {
+            cx = 0
+        }
+        if (cx >= sw) {
+            cx = (sw - 1)
+        }
+        if (cy < 0) {
+            cy = 0
+        }
+        if (cy >= sh) {
+            cy = (sh - 1)
+        }
+        return (itemAt soft ((((cy * sw) + cx) * 3) + c))
+    }
+
+    ; What the room shows in direction (dx, dy, dz), the viewer at the
+    ; middle looking down -z at the slide: [r, g, b] 0..255.
+    ;   -z  the slide itself, as wide as the wall and centred on it
+    ;   +z  the slide again, behind the viewer (what a mirror ball facing
+    ;       us shows), as it reads from inside the room
+    ;   ±x  the slide's left / right edge drawn out, soft and a little dark
+    ;   ±y  its top row over the ceiling, its bottom row over the floor
+    fn look:[double] (dx:double dy:double dz:double) {
+        def ax:double dx
+        if (ax < 0.0) {
+            ax = (0.0 - ax)
+        }
+        def ay:double dy
+        if (ay < 0.0) {
+            ay = (0.0 - ay)
+        }
+        def az:double dz
+        if (az < 0.0) {
+            az = (0.0 - az)
+        }
+        ; the slide's shape on a square wall
+        def aspect:double 1.0
+        if (h > 0) {
+            aspect = ((to_double w) / (to_double h))
+        }
+        if ((az >= ax) && (az >= ay)) {
+            def s:double (dx / az)
+            if (dz > 0.0) {
+                s = (0.0 - s)
+            }
+            def t:double (((0.0 - dy) / az) * aspect)
+            def u:double ((s + 1.0) * 0.5)
+            def v:double ((t + 1.0) * 0.5)
+            if ((((u < 0.0) || (u > 1.0)) || (v < 0.0)) || (v > 1.0)) {
+                return (this.blurred(u v))
+            }
+            return (this.sharp(u v))
+        }
+        if (ax >= ay) {
+            ; the depth runs from the front wall (dz -1) to the back (+1)
+            def edge:double 0.0
+            if (dx > 0.0) {
+                edge = 1.0
+            }
+            def v2:double (((((0.0 - dy) / ax) * aspect) + 1.0) * 0.5)
+            def side:[double] (this.blurred(edge v2))
+            return (this.shade(side 0.82))
+        }
+        def row:double 0.0
+        def k:double 1.08
+        if (dy < 0.0) {
+            row = 1.0
+            k = 0.62
+        }
+        def u2:double (((dx / ay) + 1.0) * 0.5)
+        def flat:[double] (this.blurred(u2 row))
+        return (this.shade(flat k))
+    }
+
+    fn shade:[double] (c:[double] k:double) {
+        def out:[double]
+        def i:int 0
+        while (i < 3) {
+            def v:double ((itemAt c i) * k)
+            if (v > 255.0) {
+                v = 255.0
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A colour's own hue pushed further from its grey: thin coloured lines
+    ; of a slide, averaged into a few texels, still read as colour in a
+    ; reflection.
+    fn vivid:[double] (c:[double]) {
+        def r:double (itemAt c 0)
+        def g:double (itemAt c 1)
+        def b:double (itemAt c 2)
+        def grey:double (((r * 0.299) + (g * 0.587)) + (b * 0.114))
+        def out:[double]
+        def i:int 0
+        while (i < 3) {
+            def v:double (grey + (((itemAt c i) - grey) * saturate))
+            if (v < 0.0) {
+                v = 0.0
+            }
+            if (v > 255.0) {
+                v = 255.0
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The room as a cube map, `size` texels a side.
+    fn cube:ThreeCubeTexture (size:int) {
+        def t:ThreeCubeTexture (new ThreeCubeTexture)
+        t.size = size
+        def f:int 0
+        while (f < 6) {
+            def face:buffer (buffer_alloc ((size * size) * 4))
+            def y:int 0
+            while (y < size) {
+                def x:int 0
+                while (x < size) {
+                    def u:double ((((to_double x) + 0.5) / (to_double size)) * 2.0 - 1.0)
+                    def v:double ((((to_double y) + 0.5) / (to_double size)) * 2.0 - 1.0)
+                    def d:[double] (ThreeCubeTexture.faceDir(f u v))
+                    def c:[double] (this.vivid((this.look((itemAt d 0) (itemAt d 1) (itemAt d 2)))))
+                    def o:int (((y * size) + x) * 4)
+                    buffer_set face o (floor (itemAt c 0))
+                    buffer_set face (o + 1) (floor (itemAt c 1))
+                    buffer_set face (o + 2) (floor (itemAt c 2))
+                    buffer_set face (o + 3) 255
+                    x = (x + 1)
+                }
+                y = (y + 1)
+            }
+            push t.faces face
+            f = (f + 1)
+        }
+        return t
+    }
+}
+
+; One <scene3d>: the Three scene its last frame described.
+class Pres3DWorld {
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    ; geometries kept across frames (a GPU copy is made once per shape)
+    def geoKeys:[string]
+    def geos:[ThreeBufferGeometry]
+    def meshes:int 0
+    def lights:int 0
+    ; what the last frame got wrong, "" when nothing
+    def error:string ""
+    ; how bright the slide's own light is, 0 for none
+    def roomLight:double 0.45
+
+    Constructor () {
+        camera.setPerspective(45.0 1.0 0.1 200.0)
+    }
+
+    ; A number attribute: JSX gives numbers, a string attribute gives text.
+    sfn num:double (a:JVal key:string fallback:double) {
+        def v:JVal (a.get(key))
+        if (v.kind == 2) {
+            return v.num
+        }
+        if (v.kind == 3) {
+            def t:string (trim v.str)
+            if ((strlen t) == 0) {
+                return fallback
+            }
+            def d@(optional):double (to_double t)
+            if (null? d) {
+                return fallback
+            }
+            return (unwrap d)
+        }
+        return fallback
+    }
+
+    sfn text:string (a:JVal key:string fallback:string) {
+        def v:JVal (a.get(key))
+        if ((v.kind == 3) || (v.kind == 2)) {
+            return (v.asStr(fallback))
+        }
+        return fallback
+    }
+
+    sfn flag:boolean (a:JVal key:string) {
+        def v:JVal (a.get(key))
+        if (v.kind == 1) {
+            return v.flag
+        }
+        if (v.kind == 3) {
+            return ((v.str != "false") && (v.str != "0"))
+        }
+        if (v.kind == 2) {
+            return (v.num != 0.0)
+        }
+        return false
+    }
+
+    ; A colour attribute, 0..1 [r, g, b]; the fallback when it does not parse.
+    sfn rgb:[double] (a:JVal key:string fallback:string) {
+        def s:string (Pres3DWorld.text(a key fallback))
+        def c:EVGColor (EVGColor.parse(s))
+        if (c.isSet == false) {
+            c = (EVGColor.parse(fallback))
+        }
+        return ([] _:double (((to_double (c.red())) / 255.0) ((to_double (c.green())) / 255.0) ((to_double (c.blue())) / 255.0)))
+    }
+
+    ; A shape's geometry, made once per shape and size.
+    fn geometry:ThreeBufferGeometry (shape:string a:JVal) {
+        def size:double (Pres3DWorld.num(a "size" 1.0))
+        def r:double (Pres3DWorld.num(a "r" (size * 0.5)))
+        def key:string ""
+        def tube:double (Pres3DWorld.num(a "tube" (r * 0.3)))
+        def bw:double (Pres3DWorld.num(a "w" size))
+        def bh:double (Pres3DWorld.num(a "h" size))
+        def bd:double (Pres3DWorld.num(a "d" size))
+        key = (shape + "|" + (to_string r) + "|" + (to_string tube) + "|" + (to_string bw) + "|" + (to_string bh) + "|" + (to_string bd))
+        def at:int (indexOf geoKeys key)
+        if (at >= 0) {
+            return (itemAt geos at)
+        }
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def pi:double 3.141592653589793
+        if (shape == "box") {
+            def b:ThreeBoxGeometry (new ThreeBoxGeometry)
+            b.setSize(bw bh bd)
+            g = b
+        } {
+            if (shape == "sphere") {
+                def s:ThreeSphereGeometry (new ThreeSphereGeometry)
+                s.build(r 48 32 0.0 (2.0 * pi) 0.0 pi)
+                g = s
+            } {
+                if (shape == "torus") {
+                    def t:ThreeTorusGeometry (new ThreeTorusGeometry)
+                    t.build(r tube 24 96 (2.0 * pi))
+                    g = t
+                } {
+                    if (shape == "knot") {
+                        def k:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
+                        k.build(r tube 180 20 2 3)
+                        g = k
+                    } {
+                        if (shape == "cylinder") {
+                            def c:ThreeCylinderGeometry (new ThreeCylinderGeometry)
+                            c.build(r r bh 48 1 false 0.0 (2.0 * pi))
+                            g = c
+                        } {
+                            if (shape == "cone") {
+                                ; the port's cone is a cylinder it makes and hands back
+                                def cn:ThreeConeGeometry (new ThreeConeGeometry)
+                                g = (cn.build(r bh 48 1 false 0.0 (2.0 * pi)))
+                            } {
+                                if (shape == "plane") {
+                                    def p:ThreePlaneGeometry (new ThreePlaneGeometry)
+                                    p.build(bw bh 1 1)
+                                    g = p
+                                } {
+                                    if (shape == "teapot") {
+                                        def tp:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+                                        tp.setTeapot((size * 0.7) 10 true true true true true)
+                                        g = tp
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        push geoKeys key
+        push geos g
+        return g
+    }
+
+    sfn shapeNames:[string] () {
+        return ([] _:string ("box" "sphere" "torus" "knot" "cylinder" "cone" "plane" "teapot"))
+    }
+
+    ; One frame's <scene3d> (its JSON as PresPlay keeps it): the scene built
+    ; again from it, the geometries kept. False when it was no scene.
+    fn setScene:boolean (json:string env:Pres3DEnv) {
+        def n:JVal (JVal.parse(json))
+        error = ""
+        if (((n.isObj()) == false) || ((n.strOr("t" "")) != "scene3d")) {
+            error = "not a <scene3d>"
+            return false
+        }
+        def keepEnv:boolean scene.hasEnvCube
+        def env3:ThreeCubeTexture scene.envCube
+        scene = (new ThreeScene)
+        if keepEnv {
+            scene.setEnvironment(env3)
+        }
+        meshes = 0
+        lights = 0
+        def root:JVal (n.get("a"))
+        roomLight = (Pres3DWorld.num(root "ambient" 0.45))
+        def cam:boolean false
+        def kids:JVal (n.get("c"))
+        def i:int 0
+        while (i < (kids.len())) {
+            def k:JVal (kids.at(i))
+            i = (i + 1)
+            if ((k.isObj()) == false) {
+                continue
+            }
+            def tag:string (k.strOr("t" ""))
+            def a:JVal (k.get("a"))
+            if ((tag == "mesh") || (tag == "group")) {
+                this.addPart(k scene)
+            }
+            if (tag == "light") {
+                this.addLight(a)
+            }
+            if (tag == "camera") {
+                cam = true
+                camera.fov = (Pres3DWorld.num(a "fov" 45.0))
+                camera.position.set((Pres3DWorld.num(a "x" 0.0)) (Pres3DWorld.num(a "y" 0.0)) (Pres3DWorld.num(a "z" 5.0)))
+                camera.lookAt((Pres3DWorld.num(a "lookX" 0.0)) (Pres3DWorld.num(a "lookY" 0.0)) (Pres3DWorld.num(a "lookZ" 0.0)))
+            }
+        }
+        if (cam == false) {
+            camera.fov = 45.0
+            camera.position.set(0.0 0.0 5.0)
+            camera.lookAt(0.0 0.0 0.0)
+        }
+        ; the slide's light: its mean colour all round
+        if (roomLight > 0.0) {
+            def amb:ThreeAmbientLight (new ThreeAmbientLight)
+            amb.color.setRGB((env.meanR * 0.6 + 0.4) (env.meanG * 0.6 + 0.4) (env.meanB * 0.6 + 0.4))
+            amb.intensity = roomLight
+            scene.add(amb)
+        }
+        ; a world that names no light of its own gets a key and a fill
+        if (lights == 0) {
+            def key:ThreeDirectionalLight (new ThreeDirectionalLight)
+            key.setDirection(0.5 0.8 0.6)
+            key.intensity = 0.9
+            scene.add(key)
+            def fill:ThreeDirectionalLight (new ThreeDirectionalLight)
+            fill.setDirection(-0.7 -0.2 0.4)
+            fill.color.setRGB((env.meanR * 0.5 + 0.5) (env.meanG * 0.5 + 0.5) (env.meanB * 0.5 + 0.5))
+            fill.intensity = 0.35
+            scene.add(fill)
+        }
+        return true
+    }
+
+    ; A <mesh>, or a <group> of them that moves as one: its parts are placed
+    ; in the group's own frame, so an arm is a group whose rotation turns
+    ; everything on it (an excavator's boom, its stick and bucket inside).
+    fn addPart:void (k:JVal parent:ThreeObject3D) {
+        def tag:string (k.strOr("t" ""))
+        def a:JVal (k.get("a"))
+        if (tag == "mesh") {
+            this.addMesh(a parent)
+            return
+        }
+        if (tag != "group") {
+            return
+        }
+        def g:ThreeObject3D (new ThreeObject3D)
+        Pres3DWorld.place(g a)
+        parent.add(g)
+        def kids:JVal (k.get("c"))
+        def i:int 0
+        while (i < (kids.len())) {
+            def c:JVal (kids.at(i))
+            i = (i + 1)
+            if (c.isObj()) {
+                this.addPart(c g)
+            }
+        }
+    }
+
+    ; x y z, rx ry rz in degrees, scale
+    sfn place:void (o:ThreeObject3D a:JVal) {
+        def deg:double 0.017453292519943295
+        o.position.set((Pres3DWorld.num(a "x" 0.0)) (Pres3DWorld.num(a "y" 0.0)) (Pres3DWorld.num(a "z" 0.0)))
+        o.rotation.set(((Pres3DWorld.num(a "rx" 0.0)) * deg) ((Pres3DWorld.num(a "ry" 0.0)) * deg) ((Pres3DWorld.num(a "rz" 0.0)) * deg))
+        def k:double (Pres3DWorld.num(a "scale" 1.0))
+        o.scale.set(k k k)
+    }
+
+    fn addMesh:void (a:JVal parent:ThreeObject3D) {
+        def shape:string (Pres3DWorld.text(a "shape" "box"))
+        def names:[string] (Pres3DWorld.shapeNames())
+        if ((indexOf names shape) < 0) {
+            error = ("mesh: no shape \"" + shape + "\" (" + (join names ", ") + ")")
+            return
+        }
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometry(shape a)))
+        def mat:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        def c:[double] (Pres3DWorld.rgb(a "color" "#d8dbe6"))
+        mat.setColor((itemAt c 0) (itemAt c 1) (itemAt c 2))
+        def metal:double (Pres3DEnv.clamp01((Pres3DWorld.num(a "metal" 0.0))))
+        mat.setShininess((Pres3DWorld.num(a "shine" (20.0 + (metal * 80.0)))))
+        mat.setSpecular((0.2 + (metal * 0.6)) (0.2 + (metal * 0.6)) (0.2 + (metal * 0.6)))
+        if (metal > 0.0) {
+            mat.setReflective(true)
+            mat.setReflectivity(metal)
+            ; the room brightest at the rims, the way polished things are
+            mat.setEnvFresnel((Pres3DWorld.num(a "fresnel" 1.0)))
+        }
+        mat.setFlatShading((Pres3DWorld.flag(a "flat")))
+        mat.setWireframe((Pres3DWorld.flag(a "wire")))
+        if (shape == "plane") {
+            mat.setSide(2)
+        }
+        m.setMaterial(mat)
+        Pres3DWorld.place(m a)
+        parent.add(m)
+        meshes = (meshes + 1)
+    }
+
+    fn addLight:void (a:JVal) {
+        def kind:string (Pres3DWorld.text(a "kind" "sun"))
+        def c:[double] (Pres3DWorld.rgb(a "color" "#ffffff"))
+        def power:double (Pres3DWorld.num(a "intensity" 1.0))
+        if (kind == "ambient") {
+            def amb:ThreeAmbientLight (new ThreeAmbientLight)
+            amb.color.setRGB((itemAt c 0) (itemAt c 1) (itemAt c 2))
+            amb.intensity = power
+            scene.add(amb)
+            lights = (lights + 1)
+            return
+        }
+        def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
+        sun.color.setRGB((itemAt c 0) (itemAt c 1) (itemAt c 2))
+        sun.intensity = power
+        sun.setDirection((Pres3DWorld.num(a "x" 0.5)) (Pres3DWorld.num(a "y" 0.8)) (Pres3DWorld.num(a "z" 0.6)))
+        scene.add(sun)
+        lights = (lights + 1)
+    }
+}
+
+; Every world of the slide on the stage, drawn into one canvas.
+class Pres3D {
+    def worldKeys:[string]
+    def worlds:[Pres3DWorld]
+    def env:Pres3DEnv (new Pres3DEnv())
+    def envCube:ThreeCubeTexture (new ThreeCubeTexture)
+    def hasEnv:boolean false
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def ready:boolean false
+
+    Constructor () {
+    }
+
+    ; The canvas (by id) every world is drawn in. False without WebGL.
+    fn attach:boolean (canvasId:string) {
+        ready = (gl.init(canvasId))
+        if ready {
+            renderer.setBackend(gl)
+            renderer.setClearAlpha(0.0)
+        }
+        return ready
+    }
+
+    ; The slide around the worlds: a small picture of it, RGBA from the top.
+    fn setSlide:void (px:buffer w:int h:int) {
+        env = (Pres3DEnv.of(px w h))
+        envCube = (env.cube(48))
+        hasEnv = true
+        def i:int 0
+        while (i < (array_length worlds)) {
+            def wo:Pres3DWorld (itemAt worlds i)
+            wo.scene.setEnvironment(envCube)
+            i = (i + 1)
+        }
+    }
+
+    fn world:Pres3DWorld (key:string) {
+        def at:int (indexOf worldKeys key)
+        if (at >= 0) {
+            return (itemAt worlds at)
+        }
+        def wo:Pres3DWorld (new Pres3DWorld())
+        if hasEnv {
+            wo.scene.setEnvironment(envCube)
+        }
+        push worldKeys key
+        push worlds wo
+        return wo
+    }
+
+    ; World `key` from its frame's <scene3d>, "" when taken, else why not.
+    fn setScene:string (key:string json:string) {
+        def wo:Pres3DWorld (this.world(key))
+        wo.setScene(json env)
+        return wo.error
+    }
+
+    ; World `key` drawn into the canvas at w x h device pixels (the page
+    ; has sized the canvas). False when there is no GPU or no such world.
+    fn draw:boolean (key:string w:int h:int) {
+        if ((ready == false) || ((indexOf worldKeys key) < 0)) {
+            return false
+        }
+        def wo:Pres3DWorld (this.world(key))
+        wo.camera.aspect = ((to_double w) / (to_double h))
+        renderer.setSize(w h)
+        renderer.render(wo.scene wo.camera)
+        return true
+    }
+
+    ; The worlds no longer on the stage, forgotten.
+    fn keepOnly:void (keys:[string]) {
+        def nk:[string]
+        def nw:[Pres3DWorld]
+        def i:int 0
+        while (i < (array_length worldKeys)) {
+            if ((indexOf keys (itemAt worldKeys i)) >= 0) {
+                push nk (itemAt worldKeys i)
+                push nw (itemAt worlds i)
+            }
+            i = (i + 1)
+        }
+        worldKeys = nk
+        worlds = nw
+    }
+}

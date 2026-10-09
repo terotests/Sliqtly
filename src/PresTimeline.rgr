@@ -241,6 +241,41 @@ class PresTimeline {
         return out
     }
 
+    ; A slide's clock at local time t, as an own effect reads it (FxLang):
+    ; [the build step shown, the steps, seconds since that step began,
+    ; 0..1 through the slide].
+    sfn fxClock:[double] (s:PresSlide t:double) {
+        def step:int 0
+        def k:int 1
+        while (k <= s.steps) {
+            ; strictly after: a step held for its click (the clock stopped
+            ; at its start, give or take the sums' rounding) is not shown yet
+            if (((PresTimeline.stepTime(s k)) + 0.001) < t) {
+                step = k
+            }
+            k = (k + 1)
+        }
+        def since:double t
+        if (step > 0) {
+            since = (t - (PresTimeline.stepTime(s step)))
+        }
+        if (since < 0.0) {
+            since = 0.0
+        }
+        def progress:double 1.0
+        if (s.duration > 0.0) {
+            progress = (t / s.duration)
+        }
+        if (progress < 0.0) {
+            progress = 0.0
+        }
+        if (progress > 1.0) {
+            progress = 1.0
+        }
+        def out:[double] ([] _:double ((to_double step) (to_double s.steps) since progress))
+        return out
+    }
+
     sfn slideStart:double (deck:PresDeck i:int) {
         def t:double 0.0
         def k:int 0
