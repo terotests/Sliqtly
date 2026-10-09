@@ -66,17 +66,11 @@ the first `create_presentation`.
 `aurora` (default), `nebula`, `carbon`, `ember`, `midnight` are dark;
 `editorial` is an A4 portrait document where `#` starts a page.
 
-Light slides, white or near-white paper:
-
-| theme | background |
-|---|---|
-| `corporate` | plain white |
-| `pearl` | soft pastel light from two corners |
-| `hive` | fine honeycomb along the right edge |
-| `lattice` | pale diagonal tiles, clear in the middle |
-| `apex` | blue accent triangles and quarter circles in the corners |
-| `tide` | blue line waves along the bottom |
-| `mist` | halftone dots fading from two corners |
+Light slides, white or near-white paper: `corporate` (plain), `pearl`
+(soft pastel light from two corners), `hive` (fine honeycomb along the
+right edge), `lattice` (pale diagonal tiles, clear in the middle), `apex`
+(blue accent triangles and quarter circles in the corners), `tide` (blue
+line waves along the bottom), `mist` (halftone dots from two corners).
 
 The light themes' backgrounds are `deck { art: … }` in the theme CSS
 (`waves`, `honeycomb`, `lattice`, `corners`, `glow`, `halftone`, `tide`), drawn
