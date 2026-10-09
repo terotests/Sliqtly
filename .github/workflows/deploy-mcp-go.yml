@@ -75,11 +75,13 @@ jobs:
           # renders its report (seconds of CPU and tens of MB each); more
           # at once on one CPU only queue and pile up memory, while a new
           # instance (up to 10) takes them.
-          ENV_VARS="GOMEMLIMIT=400MiB@SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS@SLIQTLY_BILLING_TABLE=$BILLING_TABLE"
+          # The pairs are joined by "|" (gcloud's ^|^): an e-mail address has
+          # an @, and a list of them commas.
+          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE"
           if [ -n "$GH_TOKEN_SECRET" ]; then
-            ENV_VARS="$ENV_VARS@SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET@SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
+            ENV_VARS="$ENV_VARS|SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET|SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
           fi
-          ENV_ARGS=(--update-env-vars "^@^$ENV_VARS")
+          ENV_ARGS=(--update-env-vars "^|^$ENV_VARS")
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
             --region "$REGION" --project "$PROJECT" --allow-unauthenticated \
             --cpu 1 --memory 512Mi --concurrency 8 --max-instances 10 --cpu-boost "${ENV_ARGS[@]}"
