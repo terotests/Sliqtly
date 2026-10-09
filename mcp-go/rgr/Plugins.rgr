@@ -1,0 +1,164 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Plugins: work an assistant does step by step with the server, installed
+; on the server rather than on the assistant's side. The assistant sees one
+; line per plugin (in sliqtly_plugin's description, Core's table and the
+; server's instructions): when it is for. The instructions and operations
+; are read only when the task comes up, with sliqtly_plugin(name) and run
+; with sliqtly_plugin(name, op, args).
+;
+; The server's admin turns plugins on: SLIQTLY_PLUGINS=code-review (or
+; "all"); none are on by default. A plugin's instructions are
+; assets/plugins/<name>.md. Tested in plugins_test.go.
+
+Import "McpHost.rgr"
+Import "McpJson.rgr"
+Import "plugins/CodeReview.rgr"
+
+class PluginInfo {
+    def name:string ""
+    def title:string ""
+    ; when an assistant should call it, one line
+    def when:string ""
+    def ops:[string]
+    ; bumped when the instructions or operations change
+    def version:string ""
+}
+
+class Plugins {
+    sfn all:[PluginInfo] () {
+        def out:[PluginInfo]
+        def cr (new PluginInfo)
+        cr.name = "code-review"
+        cr.title = "Code review"
+        cr.when = "reviewing a pull request or a code change: what changed, what it affects, where data flows and rests, what can fail, who waits for whom"
+        cr.ops = ([] _:string ("start" "build"))
+        cr.version = "2026-10-09"
+        push out cr
+        return out
+    }
+
+    ; the plugins this server has on
+    sfn on:[PluginInfo] (host:McpHost) {
+        def out:[PluginInfo]
+        def names:[string]
+        for (strsplit (host_plugins host) ",") n:string ni {
+            def t:string (trim (to_lowercase n))
+            if ((strlen t) > 0) {
+                push names t
+            }
+        }
+        def every:boolean (((indexOf names "all") >= 0) || ((indexOf names "*") >= 0))
+        for (Plugins.all()) p:PluginInfo pi {
+            if (every || ((indexOf names p.name) >= 0)) {
+                push out p
+            }
+        }
+        return out
+    }
+
+    sfn names:[string] (list:[PluginInfo]) {
+        def out:[string]
+        for list p:PluginInfo i {
+            push out p.name
+        }
+        return out
+    }
+
+    ; sliqtly_plugin for tools/list; a null value when no plugin is on
+    sfn tool:MfJ (host:McpHost) {
+        def list:[PluginInfo] (Plugins.on(host))
+        if ((array_length list) == 0) {
+            return (new MfJ)
+        }
+        def lines:[string]
+        for list p:PluginInfo i {
+            push lines ("`" + p.name + "`: when " + p.when + ". Call sliqtly_plugin(name=\"" + p.name + "\") before starting.")
+        }
+        def desc:string ("Plugins on this server: guided work done together with Sliqtly, read only when the task comes up. " + (join lines " ") + " Without op: the plugin's instructions and its operations; with op and args: runs one operation.")
+        def props:MfJ (MfJ.newObj())
+        def np:MfJ (Tools.prop("string" "The plugin"))
+        np.put("enum" (J.strs((Plugins.names(list)))))
+        props.put("name" np)
+        props.put("op" (Tools.prop("string" "An operation the plugin's instructions name; left out: the instructions")))
+        props.put("args" (Tools.prop("object" "The operation's arguments, as its instructions describe")))
+        def meta:MfJ (MfJ.newObj())
+        meta.put("securitySchemes" (Tools.either()))
+        return (Tools.tool("sliqtly_plugin" "Sliqtly plugins" desc (Tools.schema(props ([] _:string ("name")))) (Tools.annotations(true -1 false true)) meta))
+    }
+
+    ; Core's section on the plugins, "" when none is on
+    sfn coreSection:string (host:McpHost) {
+        def list:[PluginInfo] (Plugins.on(host))
+        if ((array_length list) == 0) {
+            return ""
+        }
+        def rows:[string]
+        push rows "| Plugin | Call it when |\n|---|---|"
+        for list p:PluginInfo i {
+            push rows ("| `" + p.name + "` | " + p.when + " |")
+        }
+        return ("\n\n## Plugins\n\nThis server has plugins: step-by-step work done together with the server. Call `sliqtly_plugin(name)` when the task comes up; it returns the plugin's instructions.\n\n" + (join rows "\n") + "\n")
+    }
+
+    ; a sentence for the server's instructions, "" when none is on
+    sfn instructions:string (host:McpHost) {
+        def list:[PluginInfo] (Plugins.on(host))
+        if ((array_length list) == 0) {
+            return ""
+        }
+        def parts:[string]
+        for list p:PluginInfo i {
+            push parts ("for " + p.when + ", call sliqtly_plugin(name=\"" + p.name + "\") first")
+        }
+        return (" Plugins: " + (join parts "; ") + ".")
+    }
+
+    sfn call:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def list:[PluginInfo] (Plugins.on(host))
+        def name:string (trim (to_lowercase (a.str_("name"))))
+        def found:boolean false
+        def info (new PluginInfo)
+        for list p:PluginInfo i {
+            if (p.name == name) {
+                info = p
+                found = true
+            }
+        }
+        if (found == false) {
+            if ((array_length list) == 0) {
+                return (Tools.fail("This server has no plugins on."))
+            }
+            return (Tools.fail(("There is no plugin \"" + name + "\" on this server. Plugins: " + (join (Plugins.names(list)) ", ") + ".")))
+        }
+        def op:string (trim (a.str_("op")))
+        def args:MfJ (a.field("args"))
+        if ((args.kind != 0) && ((args.isObj()) == false)) {
+            return (Tools.fail("Invalid arguments: args is an object."))
+        }
+        if (args.kind == 0) {
+            args = (MfJ.newObj())
+        }
+        if ((strlen op) == 0) {
+            def text:string (host_asset host ("plugins/" + name + ".md"))
+            def out:MfJ (MfJ.newObj())
+            out.putStr("plugin" name)
+            out.putStr("plugin_version" info.version)
+            out.put("ops" (J.strs(info.ops)))
+            def r:MfJ (MfJ.newObj())
+            r.put("content" (Tools.text(((trim text) + "\n\nplugin_version " + info.version))))
+            r.put("structuredContent" out)
+            return r
+        }
+        if ((indexOf info.ops op) < 0) {
+            return (Tools.fail(("The plugin " + name + " has no operation \"" + op + "\". Operations: " + (join info.ops ", ") + ".")))
+        }
+        if (name == "code-review") {
+            if (op == "start") {
+                return (CodeReview.start(host caller args))
+            }
+            return (CodeReview.build(host caller args))
+        }
+        return (Tools.fail(("The plugin " + name + " cannot run " + op + ".")))
+    }
+}

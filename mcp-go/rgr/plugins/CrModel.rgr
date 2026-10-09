@@ -1,0 +1,802 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The code review plugin's model: a change as a software semantic graph
+; (actors, states, transitions, flows, stores, events, waits, failures,
+; effects, slices), read from the JSON an assistant writes. Every item
+; names the source lines it comes from; check() marks the ones whose lines
+; do not exist as inferred. From the model: the suggested review order and
+; the risks, both deterministic. No fetching, no drawing (CrViews.rgr);
+; tested in review_test.go.
+
+Import "../McpJson.rgr"
+
+class CrItem {
+    ; actor state transition flow store event wait failure effect
+    def sect:string ""
+    def id:string ""
+    def label:string ""
+    ; actor: user service worker db external scheduler queue; store: db
+    ; file cache queue blob memory
+    def kind:string ""
+    ; added changed removed same
+    def change:string "same"
+    ; "path:line", "path:a-b" or "path", as written
+    def refs:[string]
+    ; refs check() found no such line for
+    def badRefs:[string]
+    ; no ref names a line that exists
+    def inferred:boolean false
+    ; transition, flow: from/to; wait: who/on; failure, effect: at; event: from
+    def src:string ""
+    def dst:string ""
+    ; event: the actors it reaches
+    def reaches:[string]
+    ; transition: its event; event: its name
+    def trigger:string ""
+    def guard:string ""
+    def payload:string ""
+    def transform:string ""
+    def critical:boolean false
+    def blocking:boolean false
+    def timeout:string ""
+    ; wait, effect: what
+    def what:string ""
+    ; failure: when, then, path (normal error retry compensation)
+    def whenText:string ""
+    def thenText:string ""
+    def path:string ""
+    def external:boolean false
+    def durable:boolean false
+    def fields:[string]
+    ; state: the thing it is a state of (one machine per owner)
+    def owner:string ""
+
+    fn changed:boolean () {
+        return (change != "same")
+    }
+
+    ; its first ref, "" without one
+    fn firstRef:string () {
+        for refs r:string i {
+            if ((indexOf badRefs r) < 0) {
+                return r
+            }
+        }
+        return ""
+    }
+}
+
+class CrSlice {
+    def id:string ""
+    def label:string ""
+    def items:[string]
+}
+
+; one step of the suggested review order
+class CrStep {
+    def title:string ""
+    def why:string ""
+    def items:[string]
+    ; "path:line" places to read, each file once in the whole order
+    def places:[string]
+}
+
+class CrRisk {
+    ; high medium low
+    def level:string ""
+    def text:string ""
+    def item:string ""
+    def ref:string ""
+}
+
+; a ref split: path and lines (0 when not given)
+class CrRef {
+    def path:string ""
+    def from:int 0
+    def to:int 0
+    def ok:boolean false
+
+    sfn parse:CrRef (s:string) {
+        def r (new CrRef)
+        def t:string (trim s)
+        def colon:int (lastIndexOf t ":")
+        if (colon < 0) {
+            r.path = t
+            r.ok = ((strlen t) > 0)
+            return r
+        }
+        r.path = (substring t 0 colon)
+        def nums:string (substring t (colon + 1) (strlen t))
+        def dash:int (indexOf nums "-")
+        def a:string nums
+        def b:string nums
+        if (dash >= 0) {
+            a = (substring nums 0 dash)
+            b = (substring nums (dash + 1) (strlen nums))
+        }
+        r.from = (CrRef.digits(a))
+        r.to = (CrRef.digits(b))
+        r.ok = (((strlen r.path) > 0) && ((r.from > 0) && (r.to >= r.from)))
+        return r
+    }
+
+    ; a whole positive number, -1 when s is not one
+    sfn digits:int (s:string) {
+        def t:string (trim s)
+        if (((strlen t) == 0) || ((strlen t) > 7)) {
+            return -1
+        }
+        def n:int 0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            n = ((n * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return n
+    }
+}
+
+class CrModel {
+    def title:string ""
+    def summary:string ""
+    def critical:[string]
+    def items:[CrItem]
+    def slices:[CrSlice]
+    def warnings:[string]
+
+    sfn SECTIONS:[string] () {
+        return ([] _:string ("actors" "states" "stores" "events" "transitions" "flows" "waits" "failures" "effects"))
+    }
+
+    ; "flows" → "flow"
+    sfn single:string (section:string) {
+        if (section == "actors") {
+            return "actor"
+        }
+        if (section == "states") {
+            return "state"
+        }
+        if (section == "stores") {
+            return "store"
+        }
+        if (section == "events") {
+            return "event"
+        }
+        if (section == "transitions") {
+            return "transition"
+        }
+        if (section == "flows") {
+            return "flow"
+        }
+        if (section == "waits") {
+            return "wait"
+        }
+        if (section == "failures") {
+            return "failure"
+        }
+        return "effect"
+    }
+
+    sfn strList:[string] (v:MfJ) {
+        def out:[string]
+        if (v.kind == 3) {
+            if ((strlen (trim v.str)) > 0) {
+                push out (trim v.str)
+            }
+            return out
+        }
+        if (v.isArr()) {
+            def i:int 0
+            while (i < (v.count())) {
+                def e:MfJ (v.item(i))
+                if ((e.kind == 3) && ((strlen (trim e.str)) > 0)) {
+                    push out (trim e.str)
+                }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; the first of the keys that holds a string
+    sfn firstStr:string (o:MfJ keys:[string]) {
+        for keys k:string i {
+            def v:MfJ (o.field(k))
+            if (v.kind == 3) {
+                return (trim v.str)
+            }
+        }
+        return ""
+    }
+
+    sfn read:CrModel (m:MfJ) {
+        def out (new CrModel)
+        if ((m.isObj()) == false) {
+            push out.warnings "model is a JSON object with actors, states, transitions, flows, stores, events, waits, failures, effects and slices."
+            return out
+        }
+        out.title = (m.str_("title"))
+        def nar:MfJ (m.field("narrative"))
+        if (nar.isObj()) {
+            out.summary = (nar.str_("summary"))
+            out.critical = (CrModel.strList((nar.field("critical_path"))))
+        }
+        def seen:[string]
+        for (CrModel.SECTIONS()) section:string si {
+            def arr:MfJ (m.field(section))
+            if (arr.kind == 0) {
+                continue
+            }
+            if ((arr.isArr()) == false) {
+                push out.warnings (section + " is a list.")
+                continue
+            }
+            def sect:string (CrModel.single(section))
+            def i:int 0
+            while (i < (arr.count())) {
+                def o:MfJ (arr.item(i))
+                i = (i + 1)
+                if ((o.isObj()) == false) {
+                    push out.warnings (section + " " + i + " is not an object.")
+                    continue
+                }
+                def it (new CrItem)
+                it.sect = sect
+                it.id = (o.str_("id"))
+                if ((strlen it.id) == 0) {
+                    it.id = (sect + i)
+                }
+                if ((indexOf seen it.id) >= 0) {
+                    push out.warnings ("Two items have the id \"" + it.id + "\"; ids are one namespace for every section.")
+                    continue
+                }
+                push seen it.id
+                it.label = (CrModel.firstStr(o ([] _:string ("label" "name"))))
+                it.kind = (to_lowercase (o.str_("kind")))
+                def ch:string (to_lowercase (o.str_("change")))
+                if ((((ch == "added") || (ch == "changed")) || (ch == "removed")) || (ch == "same")) {
+                    it.change = ch
+                } {
+                    if ((strlen ch) > 0) {
+                        push out.warnings (it.id + ": change is added, changed, removed or same.")
+                    }
+                }
+                it.refs = (CrModel.strList((o.field("refs"))))
+                if (sect == "wait") {
+                    it.src = (o.str_("who"))
+                    it.dst = (o.str_("on"))
+                } {
+                    if ((sect == "failure") || (sect == "effect")) {
+                        it.src = (o.str_("at"))
+                    } {
+                        it.src = (o.str_("from"))
+                        if (sect == "event") {
+                            it.reaches = (CrModel.strList((o.field("to"))))
+                        } {
+                            it.dst = (o.str_("to"))
+                        }
+                    }
+                }
+                it.trigger = (CrModel.firstStr(o ([] _:string ("trigger" "event"))))
+                if (sect == "event") {
+                    it.trigger = (CrModel.firstStr(o ([] _:string ("name" "label"))))
+                }
+                it.guard = (o.str_("guard"))
+                it.payload = (o.str_("payload"))
+                it.transform = (o.str_("transform"))
+                it.critical = (o.bool_("critical" false))
+                it.blocking = (o.bool_("blocking" false))
+                it.timeout = (o.str_("timeout"))
+                it.what = (o.str_("what"))
+                it.whenText = (o.str_("when"))
+                it.thenText = (o.str_("then"))
+                it.path = (to_lowercase (o.str_("path")))
+                if ((sect == "failure") && ((strlen it.path) == 0)) {
+                    it.path = "error"
+                }
+                it.external = (o.bool_("external" false))
+                it.durable = (o.bool_("durable" false))
+                it.fields = (CrModel.strList((o.field("fields"))))
+                it.owner = (CrModel.firstStr(o ([] _:string ("of" "belongsTo"))))
+                if ((strlen it.label) == 0) {
+                    it.label = it.trigger
+                }
+                if (((strlen it.label) == 0) && (sect == "flow")) {
+                    it.label = it.payload
+                }
+                if (((strlen it.label) == 0) && (sect == "failure")) {
+                    it.label = it.whenText
+                }
+                if (((strlen it.label) == 0) && ((sect == "wait") || (sect == "effect"))) {
+                    it.label = it.what
+                }
+                if ((strlen it.label) == 0) {
+                    it.label = it.id
+                }
+                push out.items it
+            }
+        }
+        def sl:MfJ (m.field("slices"))
+        if (sl.isArr()) {
+            def j:int 0
+            while (j < (sl.count())) {
+                def so:MfJ (sl.item(j))
+                j = (j + 1)
+                if ((so.isObj()) == false) {
+                    continue
+                }
+                def s (new CrSlice)
+                s.id = (so.str_("id"))
+                s.label = (so.str_("label"))
+                s.items = (CrModel.strList((so.field("items"))))
+                if ((strlen s.id) == 0) {
+                    s.id = ("slice" + j)
+                }
+                if ((strlen s.label) == 0) {
+                    s.label = s.id
+                }
+                push out.slices s
+            }
+        }
+        out.links()
+        return out
+    }
+
+    fn find@(optional):CrItem (id:string) {
+        def found@(optional):CrItem
+        for items it:CrItem i {
+            if (it.id == id) {
+                found = it
+                return found
+            }
+        }
+        return found
+    }
+
+    fn has:boolean (id:string) {
+        for items it:CrItem i {
+            if (it.id == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn of:[CrItem] (sect:string) {
+        def out:[CrItem]
+        for items it:CrItem i {
+            if (it.sect == sect) {
+                push out it
+            }
+        }
+        return out
+    }
+
+    fn sectOf:string (id:string) {
+        for items it:CrItem i {
+            if (it.id == id) {
+                return it.sect
+            }
+        }
+        return ""
+    }
+
+    fn labelOf:string (id:string) {
+        for items it:CrItem i {
+            if (it.id == id) {
+                return it.label
+            }
+        }
+        return id
+    }
+
+    ; the ids items point at name items of the right kind
+    fn links:void () {
+        for items it:CrItem i {
+            def ends:[string]
+            if ((strlen it.src) > 0) {
+                push ends it.src
+            }
+            if ((strlen it.dst) > 0) {
+                push ends it.dst
+            }
+            for it.reaches r:string ri {
+                push ends r
+            }
+            if ((((it.sect == "flow") || (it.sect == "transition")) || (it.sect == "wait")) && ((strlen it.src) == 0)) {
+                push warnings (it.sect + " " + it.id + " names no from.")
+            }
+            for ends e:string ei {
+                if ((this.has(e)) == false) {
+                    push warnings (it.sect + " " + it.id + " points at \"" + e + "\", which is no item.")
+                }
+            }
+            if (it.sect == "transition") {
+                for ends e2:string e2i {
+                    def s:string (this.sectOf(e2))
+                    if (((strlen s) > 0) && (s != "state")) {
+                        push warnings ("transition " + it.id + " goes to or from " + s + " \"" + e2 + "\"; transitions join states.")
+                    }
+                }
+            }
+        }
+        for critical c:string ci {
+            if ((this.has(c)) == false) {
+                push warnings ("narrative.critical_path names \"" + c + "\", which is no item.")
+            }
+        }
+        for slices s:CrSlice si {
+            for s.items x:string xi {
+                if ((this.has(x)) == false) {
+                    push warnings ("slice " + s.id + " names \"" + x + "\", which is no item.")
+                }
+            }
+        }
+    }
+
+    ; the refs against the files read: paths is each file's path, lines its
+    ; line count there (-1 when it could not be read). An item without one
+    ; ref to an existing line is inferred.
+    fn check:void (paths:[string] lines:[int]) {
+        def guessed:[string]
+        for items it:CrItem i {
+            def good:int 0
+            it.badRefs = ([] _:string ())
+            for it.refs r:string ri {
+                def ref:CrRef (CrRef.parse(r))
+                def at:int (indexOf paths ref.path)
+                def ok:boolean ref.ok
+                if (ok && (at < 0)) {
+                    ok = false
+                }
+                if (ok) {
+                    def n:int (itemAt lines at)
+                    if ((n < 0) || (ref.to > n)) {
+                        ok = false
+                    }
+                }
+                if ok {
+                    good = (good + 1)
+                } {
+                    push it.badRefs r
+                }
+            }
+            it.inferred = (good == 0)
+            if it.inferred {
+                push guessed it.id
+            }
+            for it.badRefs b:string bi {
+                push warnings (it.id + ": " + b + " is no line of the change's files (refs are path:line or path:a-b at the PR's head).")
+            }
+        }
+        if ((array_length guessed) > 0) {
+            push warnings ("Inferred (no source line): " + (join guessed ", ") + ". They are drawn dashed.")
+        }
+    }
+
+    ; the paths of every ref, each once
+    fn refPaths:[string] () {
+        def out:[string]
+        for items it:CrItem i {
+            for it.refs r:string ri {
+                def ref:CrRef (CrRef.parse(r))
+                if ((ref.ok || ((strlen ref.path) > 0)) && ((indexOf out ref.path) < 0)) {
+                    push out ref.path
+                }
+            }
+        }
+        return out
+    }
+
+    ; only the slice's items and what touches them, one step away
+    fn slice:CrModel (id:string) {
+        def out (new CrModel)
+        out.title = title
+        out.summary = summary
+        def want:[string]
+        for slices s:CrSlice si {
+            if (s.id == id) {
+                want = s.items
+                out.title = s.label
+                push out.slices s
+            }
+        }
+        def keep:[string]
+        for want w:string wi {
+            push keep w
+        }
+        ; the joints (flows, transitions, …) between kept items, and the
+        ; items at their other end
+        for items it:CrItem i {
+            def touches:boolean ((indexOf want it.src) >= 0)
+            if ((indexOf want it.dst) >= 0) {
+                touches = true
+            }
+            for it.reaches r:string ri {
+                if ((indexOf want r) >= 0) {
+                    touches = true
+                }
+            }
+            if (touches && ((indexOf keep it.id) < 0)) {
+                push keep it.id
+            }
+            if ((indexOf want it.id) >= 0) {
+                if (((strlen it.src) > 0) && ((indexOf keep it.src) < 0)) {
+                    push keep it.src
+                }
+                if (((strlen it.dst) > 0) && ((indexOf keep it.dst) < 0)) {
+                    push keep it.dst
+                }
+            }
+        }
+        for items it2:CrItem i2 {
+            if ((indexOf keep it2.id) >= 0) {
+                push out.items it2
+            }
+        }
+        for critical c:string ci {
+            if ((indexOf keep c) >= 0) {
+                push out.critical c
+            }
+        }
+        return out
+    }
+
+    ; the critical path: narrative.critical_path, else the critical flows'
+    ; ends and the flows in order
+    fn criticalIds:[string] () {
+        if ((array_length critical) > 0) {
+            return critical
+        }
+        def out:[string]
+        for items it:CrItem i {
+            if ((it.sect == "flow") && it.critical) {
+                if ((indexOf out it.src) < 0) {
+                    push out it.src
+                }
+                push out it.id
+                if ((indexOf out it.dst) < 0) {
+                    push out it.dst
+                }
+            }
+        }
+        return out
+    }
+
+    ; --- the review order
+
+    fn order:[CrStep] () {
+        def steps:[CrStep]
+        def done:[string]
+        def crit:[string] (this.criticalIds())
+        ; 1. where it starts: actors with flows out and none in
+        def entry:[string]
+        for (this.of("actor")) a:CrItem ai {
+            def out:boolean false
+            def into:boolean false
+            for (this.of("flow")) f:CrItem fi {
+                if (f.src == a.id) {
+                    out = true
+                }
+                if (f.dst == a.id) {
+                    into = true
+                }
+            }
+            if (out && ((into == false) || (((a.kind == "user") || (a.kind == "external")) || (a.kind == "scheduler")))) {
+                push entry a.id
+            }
+        }
+        this.step(steps done "Entry point" "where a request or job comes in" entry)
+        this.step(steps done "Critical path" "the path the change matters most on" crit)
+        def states:[string]
+        for (this.of("transition")) t:CrItem ti {
+            if (t.changed()) {
+                push states t.id
+                if ((indexOf states t.src) < 0) {
+                    push states t.src
+                }
+                if ((indexOf states t.dst) < 0) {
+                    push states t.dst
+                }
+            }
+        }
+        for (this.of("state")) s:CrItem si {
+            if ((s.changed()) && ((indexOf states s.id) < 0)) {
+                push states s.id
+            }
+        }
+        this.step(steps done "State changes" "new or changed states and transitions" states)
+        def stores:[string]
+        for (this.of("store")) st:CrItem sti {
+            def written:boolean false
+            for (this.of("flow")) f2:CrItem f2i {
+                if (f2.dst == st.id) {
+                    written = true
+                }
+            }
+            if (written || (st.changed())) {
+                push stores st.id
+            }
+        }
+        this.step(steps done "Persistence" "where the data comes to rest" stores)
+        def effects:[string]
+        for items it:CrItem i {
+            if ((it.sect == "event") || (it.sect == "effect")) {
+                push effects it.id
+            }
+        }
+        this.step(steps done "Side effects" "what leaves the system: events, calls, messages" effects)
+        def fails:[string]
+        for ([] _:string ("error" "retry" "compensation" "normal")) kind:string ki {
+            for (this.of("failure")) x:CrItem xi {
+                if ((x.path == kind) || ((kind == "normal") && ((((x.path != "error") && (x.path != "retry")) && (x.path != "compensation"))))) {
+                    push fails x.id
+                }
+            }
+        }
+        for (this.of("wait")) w:CrItem wi {
+            push fails w.id
+        }
+        this.step(steps done "Failure handling" "what happens when something fails or waits too long" fails)
+        return steps
+    }
+
+    fn step:void (steps:[CrStep] done:[string] title:string why:string ids:[string]) {
+        def s (new CrStep)
+        s.title = title
+        s.why = why
+        def files:[string]
+        for steps prev:CrStep pi {
+            for prev.places p:string ppi {
+                push files ((CrRef.parse(p)).path)
+            }
+        }
+        for ids id:string i {
+            if (((indexOf s.items id) >= 0) || ((indexOf done id) >= 0)) {
+                continue
+            }
+            def found@(optional):CrItem (this.find(id))
+            if (null? found) {
+                continue
+            }
+            push s.items id
+            push done id
+            def place:string (found.firstRef())
+            if ((strlen place) > 0) {
+                def path:string ((CrRef.parse(place)).path)
+                if ((indexOf files path) < 0) {
+                    push files path
+                    push s.places place
+                }
+            }
+        }
+        if ((array_length s.items) > 0) {
+            push steps s
+        }
+    }
+
+    ; --- the risks
+
+    fn risk:void (out:[CrRisk] level:string text:string it:CrItem) {
+        def r (new CrRisk)
+        r.level = level
+        r.text = text
+        r.item = it.id
+        r.ref = (it.firstRef())
+        push out r
+    }
+
+    fn risks:[CrRisk] () {
+        def out:[CrRisk]
+        def flows:[CrItem] (this.of("flow"))
+        def fails:[CrItem] (this.of("failure"))
+        for flows f:CrItem fi {
+            if ((this.sectOf(f.dst)) != "store") {
+                continue
+            }
+            ; validated on the way: this flow or one into its source
+            def checked:boolean ((indexOf (to_lowercase f.transform) "valid") >= 0)
+            for flows g:CrItem gi {
+                if ((g.dst == f.src) && ((indexOf (to_lowercase g.transform) "valid") >= 0)) {
+                    checked = true
+                }
+            }
+            if (checked == false) {
+                this.risk(out "medium" ((this.labelOf(f.src)) + " writes to " + (this.labelOf(f.dst)) + " with no validation on the way") f)
+            }
+            def handled:boolean false
+            for fails x:CrItem xi {
+                if (((x.src == f.id) || (x.src == f.dst)) || (x.src == f.src)) {
+                    handled = true
+                }
+            }
+            if (handled == false) {
+                this.risk(out "medium" ("no failure path for the write to " + (this.labelOf(f.dst))) f)
+            }
+        }
+        for (this.of("wait")) w:CrItem wi {
+            def on@(optional):CrItem (this.find(w.dst))
+            def ext:boolean false
+            if (!null? on) {
+                ext = ((on.kind == "external") || on.external)
+            }
+            if (w.blocking && ext) {
+                this.risk(out "high" ((this.labelOf(w.src)) + " blocks on the outside service " + (this.labelOf(w.dst))) w)
+            }
+            if ((strlen w.timeout) == 0) {
+                this.risk(out "medium" ((this.labelOf(w.src)) + " waits for " + (this.waitWhat(w)) + " with no timeout") w)
+            }
+        }
+        for fails x2:CrItem x2i {
+            if ((strlen (trim x2.thenText)) == 0) {
+                this.risk(out "high" ("nothing says what happens when " + (this.failWhen(x2))) x2)
+            }
+        }
+        def crit:[string] (this.criticalIds())
+        for (this.of("effect")) e:CrItem ei {
+            if ((e.external && (e.changed())) && ((indexOf crit e.src) >= 0)) {
+                this.risk(out "low" ("an outside effect (" + e.label + ") on the critical path") e)
+            }
+        }
+        for (this.of("transition")) t:CrItem ti {
+            if ((t.changed()) && ((strlen t.guard) == 0)) {
+                this.risk(out "low" ("the " + (t.change) + " transition " + (this.labelOf(t.src)) + " → " + (this.labelOf(t.dst)) + " has no guard") t)
+            }
+        }
+        for items it:CrItem i {
+            if (it.inferred && (it.changed())) {
+                this.risk(out "low" (it.label + " is inferred: no source line backs it") it)
+            }
+        }
+        ; high first
+        def sorted:[CrRisk]
+        for ([] _:string ("high" "medium" "low")) lv:string li {
+            for out r:CrRisk ri {
+                if (r.level == lv) {
+                    push sorted r
+                }
+            }
+        }
+        return sorted
+    }
+
+    fn waitWhat:string (w:CrItem) {
+        if ((strlen w.what) > 0) {
+            return w.what
+        }
+        return (this.labelOf(w.dst))
+    }
+
+    fn failWhen:string (x:CrItem) {
+        if ((strlen x.whenText) > 0) {
+            return x.whenText
+        }
+        return ((this.labelOf(x.src)) + " fails")
+    }
+
+    ; high, medium or low for the change as a whole
+    sfn level:string (risks:[CrRisk]) {
+        def score:int 0
+        for risks r:CrRisk i {
+            if (r.level == "high") {
+                return "high"
+            }
+            if (r.level == "medium") {
+                score = (score + 2)
+            } {
+                score = (score + 1)
+            }
+        }
+        if (score >= 6) {
+            return "high"
+        }
+        if (score >= 2) {
+            return "medium"
+        }
+        return "low"
+    }
+}

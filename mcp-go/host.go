@@ -15,7 +15,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -43,6 +43,11 @@ var guideMD string
 
 //go:embed assets/preview.html
 var previewHTML string
+
+// the plugins' instructions (rgr/Plugins.rgr)
+//
+//go:embed assets/plugins/*.md
+var pluginDocs embed.FS
 
 // Doc is a Firestore document as plain values: string, int64, float64, bool,
 // time.Time, []any, map[string]any, nil.
@@ -138,6 +143,9 @@ type Env struct {
 	// read from by path (importdirs.go); only on a server of one's own
 	// started with SLIQTLY_IMPORT_DIRS, empty elsewhere
 	ImportDirs importDirs
+	// Plugins: the plugins sliqtly_plugin offers (SLIQTLY_PLUGINS, comma
+	// separated, or "all"); none by default
+	Plugins []string
 	// the form a presentation's name must have (names.go): only on a server
 	// of one's own, set from its settings page; nil: any name
 	names atomic.Pointer[nameRule]
@@ -431,8 +439,16 @@ func (h *McpHost) Asset(name string) string {
 	case "preview.html":
 		return previewHTML
 	}
+	if strings.HasPrefix(name, "plugins/") && !strings.Contains(name[8:], "/") {
+		if b, err := pluginDocs.ReadFile("assets/" + name); err == nil {
+			return string(b)
+		}
+	}
 	return ""
 }
+
+// Plugins: the plugins the admin turned on, comma separated
+func (h *McpHost) Plugins() string { return strings.Join(h.env.Plugins, ",") }
 
 // what a caller hears when a theme cannot be had; the cause goes to the log
 func themeUnavailable(theme string) error {

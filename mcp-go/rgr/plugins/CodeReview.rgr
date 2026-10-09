@@ -1,0 +1,353 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The code review plugin's operations (sliqtly_plugin name="code-review"):
+;
+;   start {pr}               the PR's facts, its changed files, and lines in
+;                            the change that look like storage, network,
+;                            waits, failures, states and events
+;   build {pr, model, slice} the assistant's model (CrModel) checked against
+;                            the files at the PR's head, the review order,
+;                            the risks and a review deck (CrViews)
+;
+; The assistant reads the code and writes the model; the server checks it
+; and draws it. Tested in review_test.go.
+
+Import "CrModel.rgr"
+Import "CrViews.rgr"
+
+class CrHint {
+    def ref:string ""
+    def kinds:[string]
+    def code:string ""
+}
+
+class CodeReview {
+    ; the most files build reads to check refs, and their size
+    sfn MAX_FILES:int () {
+        return 20
+    }
+    sfn MAX_FILE_BYTES:int () {
+        return 2000000
+    }
+    sfn MAX_HINTS_FILE:int () {
+        return 15
+    }
+    sfn MAX_HINTS:int () {
+        return 150
+    }
+
+    ; what a line of code looks like it does, by words in it
+    sfn kindsOf:[string] (code:string) {
+        def c:string (to_lowercase code)
+        def out:[string]
+        if (CodeReview.any(c ([] _:string ("throw " "catch" "err != nil" "except" "panic(" "reject(" "retry" "fallback" "rollback" "on_error" "onerror")))) {
+            push out "failure"
+        }
+        if (CodeReview.any(c ([] _:string ("await " "settimeout" "setinterval" "promise" ".then(" "queue" "<-" "go func" "sleep(" "time.after" "chan " "worker" "job" "timeout" "waitgroup" "mutex" "lock(")))) {
+            push out "wait"
+        }
+        if (CodeReview.any(c ([] _:string ("insert into" "update " "delete from" ".save(" ".put(" ".set(" "writefile" "write_file" ".create(" ".insert(" "firestore" ".upsert(" "localstorage" "redis" "bucket" "transaction")))) {
+            push out "store"
+        }
+        if (CodeReview.any(c ([] _:string ("fetch(" "http." "https." "axios" "request(" "grpc" ".post(" "websocket" "client.do(" "api.")))) {
+            push out "network"
+        }
+        if (CodeReview.any(c ([] _:string ("emit(" "publish(" "dispatch(" "subscribe(" "addeventlistener" ".on(" "notify" "webhook")))) {
+            push out "event"
+        }
+        if (CodeReview.any(c ([] _:string ("state" "status" "transition" "case ")))) {
+            push out "state"
+        }
+        return out
+    }
+
+    sfn any:boolean (text:string words:[string]) {
+        for words w:string i {
+            if ((indexOf text w) >= 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; the added lines of a unified diff that look like something, with
+    ; their line numbers at the head
+    sfn hints:[CrHint] (path:string patch:string max:int) {
+        def out:[CrHint]
+        def lines:[string] (strsplit patch "\n")
+        def n:int 0
+        for lines line:string i {
+            if ((array_length out) >= max) {
+                break
+            }
+            if ((indexOf line "@@") == 0) {
+                def plus:int (indexOf line "+")
+                if (plus > 0) {
+                    def k:int (plus + 1)
+                    def v:int 0
+                    while ((k < (strlen line)) && (((charAt line k) >= 48) && ((charAt line k) <= 57))) {
+                        v = ((v * 10) + ((charAt line k) - 48))
+                        k = (k + 1)
+                    }
+                    n = v
+                }
+                continue
+            }
+            if ((strlen line) == 0) {
+                n = (n + 1)
+                continue
+            }
+            def first:string (substring line 0 1)
+            if (first == "-") {
+                continue
+            }
+            if (first == "\\") {
+                continue
+            }
+            if (first == "+") {
+                def code:string (trim (substring line 1 (strlen line)))
+                def kinds:[string] (CodeReview.kindsOf(code))
+                if (((array_length kinds) > 0) && ((strlen code) > 2)) {
+                    def h (new CrHint)
+                    h.ref = (path + ":" + n)
+                    h.kinds = kinds
+                    if ((strlen code) > 120) {
+                        code = ((substring code 0 120) + "…")
+                    }
+                    h.code = code
+                    push out h
+                }
+            }
+            n = (n + 1)
+        }
+        return out
+    }
+
+    ; lines in a file's text
+    sfn lineCount:int (text:string) {
+        if ((strlen text) == 0) {
+            return 0
+        }
+        def n:int 0
+        def at:int (indexOf text "\n")
+        while (at >= 0) {
+            n = (n + 1)
+            at = (indexOfFrom text "\n" (at + 1))
+        }
+        if ((substring text ((strlen text) - 1) (strlen text)) != "\n") {
+            n = (n + 1)
+        }
+        return n
+    }
+
+    sfn source:CrSource (p:GhPr) {
+        def s (new CrSource)
+        s.repo = (p.ref.owner + "/" + p.ref.repo)
+        s.sha = p.headSha
+        s.name = (p.ref.name())
+        s.url = (p.ref.web())
+        return s
+    }
+
+    ; --- start
+
+    sfn start:MfJ (host:McpHost caller:Caller a:MfJ) {
+        if ((a.str_("pr")) == "") {
+            return (Tools.fail("Invalid arguments: args.pr is the pull request's link or owner/repo#12."))
+        }
+        def got:GhFetched (Tools.fetchPr(host caller (a.str_("pr"))))
+        if ((strlen got.fail) > 0) {
+            return (Tools.fail(got.fail))
+        }
+        def p:GhPr got.pr
+        def out:MfJ (MfJ.newObj())
+        out.putStr("pr" (p.ref.name()))
+        out.putStr("url" (p.ref.web()))
+        out.putStr("title" p.title)
+        out.putStr("description" p.body)
+        out.putStr("head_sha" p.headSha)
+        def fl:MfJ (MfJ.newArr())
+        def all:[CrHint]
+        def lines:[string]
+        push lines ((p.ref.name()) + ": \"" + p.title + "\" by " + p.author + ", " + p.state + "; " + p.changedFiles + " files, +" + p.additions + " −" + p.deletions + ". Head " + p.headSha + ".")
+        push lines ""
+        push lines "Changed files:"
+        for (p.byChange()) f:GhFile fi {
+            def fo:MfJ (MfJ.newObj())
+            fo.putStr("file" f.name)
+            fo.putStr("status" f.status)
+            fo.putInt("additions" f.additions)
+            fo.putInt("deletions" f.deletions)
+            def patch:string f.patch
+            if ((strlen patch) > 6000) {
+                patch = ((substring patch 0 6000) + "\n…")
+            }
+            fo.putStr("patch" patch)
+            fl.add(fo)
+            push lines ("- " + f.name + " (" + f.status + ", +" + f.additions + " −" + f.deletions + ")")
+            def room:int ((CodeReview.MAX_HINTS()) - (array_length all))
+            if (room > (CodeReview.MAX_HINTS_FILE())) {
+                room = (CodeReview.MAX_HINTS_FILE())
+            }
+            if (room > 0) {
+                for (CodeReview.hints(f.name f.patch room)) h:CrHint hi {
+                    push all h
+                }
+            }
+        }
+        out.put("files" fl)
+        def ev:MfJ (MfJ.newArr())
+        if ((array_length all) > 0) {
+            push lines ""
+            push lines "Lines in the change that look like storage, network calls, waits, failures, states or events (hints to check, not findings):"
+            for all h2:CrHint h2i {
+                def ho:MfJ (MfJ.newObj())
+                ho.putStr("ref" h2.ref)
+                ho.put("kinds" (J.strs(h2.kinds)))
+                ho.putStr("code" h2.code)
+                ev.add(ho)
+                push lines ("- " + h2.ref + " [" + (join h2.kinds ",") + "] " + h2.code)
+            }
+        }
+        out.put("evidence" ev)
+        push lines ""
+        push lines "Next: read the changed code (the patches are in the structured result; read whole files with your own access to the repository when you have it), write the model as the plugin's instructions describe, every item with refs to lines at this head, then sliqtly_plugin(name=\"code-review\", op=\"build\", args={pr, model})."
+        def r:MfJ (MfJ.newObj())
+        r.put("content" (Tools.text((join lines "\n"))))
+        r.put("structuredContent" out)
+        return r
+    }
+
+    ; --- build
+
+    sfn build:MfJ (host:McpHost caller:Caller a:MfJ) {
+        if ((a.str_("pr")) == "") {
+            return (Tools.fail("Invalid arguments: args.pr is the pull request's link or owner/repo#12."))
+        }
+        def mj:MfJ (a.field("model"))
+        if ((mj.isObj()) == false) {
+            return (Tools.fail("Invalid arguments: args.model is the review model, a JSON object (see sliqtly_plugin(name=\"code-review\"))."))
+        }
+        def got:GhFetched (Tools.fetchPr(host caller (a.str_("pr"))))
+        if ((strlen got.fail) > 0) {
+            return (Tools.fail(got.fail))
+        }
+        def p:GhPr got.pr
+        def m:CrModel (CrModel.read(mj))
+        if ((array_length m.items) == 0) {
+            return (Tools.fail(("The model has no items. " + (join m.warnings " "))))
+        }
+        def want:string (a.str_("slice"))
+        if ((strlen want) > 0) {
+            def known:[string]
+            for m.slices s:CrSlice si {
+                push known s.id
+            }
+            if ((indexOf known want) < 0) {
+                return (Tools.fail(("The model has no slice \"" + want + "\". Slices: " + (join known ", ") + ".")))
+            }
+            def warns:[string] m.warnings
+            m = (m.slice(want))
+            m.warnings = warns
+        }
+        ; the files the refs name, at the head
+        def paths:[string] (m.refPaths())
+        def counts:[int]
+        def read:int 0
+        def owner:string p.ref.owner
+        def repo:string p.ref.repo
+        for paths path:string pi {
+            if ((read >= (CodeReview.MAX_FILES())) || ((strlen p.headSha) == 0)) {
+                ; not read: its refs are taken as written
+                push counts -2
+                continue
+            }
+            read = (read + 1)
+            def segs:[string]
+            for (strsplit path "/") seg:string si2 {
+                push segs (host_uri_encode host seg)
+            }
+            def url:string ("https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + (join segs "/") + "?ref=" + p.headSha)
+            def fg:MfJ (J.parse((host_fetch_github host url "application/vnd.github.raw" (CodeReview.MAX_FILE_BYTES()))))
+            if ((fg.int_("status" 0)) == 200) {
+                push counts (CodeReview.lineCount((fg.str_("body"))))
+            } {
+                push counts -1
+            }
+        }
+        if (read < (array_length paths)) {
+            push m.warnings ("Only the first " + (CodeReview.MAX_FILES()) + " files the refs name were read; refs to the others are taken as written.")
+        }
+        m.check(paths counts)
+        def src:CrSource (CodeReview.source(p))
+        def md:string (CrViews.deck(m src))
+        def risks:[CrRisk] (m.risks())
+        def level:string (CrModel.level(risks))
+        def steps:[CrStep] (m.order())
+        def out:MfJ (MfJ.newObj())
+        out.putStr("pr" (p.ref.name()))
+        out.putStr("head_sha" p.headSha)
+        out.putStr("risk" level)
+        def rl:MfJ (MfJ.newArr())
+        for risks r:CrRisk ri {
+            def ro:MfJ (MfJ.newObj())
+            ro.putStr("level" r.level)
+            ro.putStr("text" r.text)
+            ro.putStr("item" r.item)
+            ro.putStr("ref" r.ref)
+            rl.add(ro)
+        }
+        out.put("risks" rl)
+        def ol:MfJ (MfJ.newArr())
+        for steps s2:CrStep s2i {
+            def so:MfJ (MfJ.newObj())
+            so.putStr("step" s2.title)
+            so.put("items" (J.strs(s2.items)))
+            so.put("places" (J.strs(s2.places)))
+            ol.add(so)
+        }
+        out.put("order" ol)
+        def inferred:[string]
+        for m.items it:CrItem ii {
+            if it.inferred {
+                push inferred it.id
+            }
+        }
+        out.put("inferred" (J.strs(inferred)))
+        out.put("warnings" (J.strs(m.warnings)))
+        def sl:MfJ (MfJ.newArr())
+        for m.slices s3:CrSlice s3i {
+            def slo:MfJ (MfJ.newObj())
+            slo.putStr("id" s3.id)
+            slo.putStr("label" s3.label)
+            sl.add(slo)
+        }
+        out.put("slices" sl)
+        out.putStr("markdown" md)
+        def lines:[string]
+        push lines ((p.ref.name()) + ": risk " + level + ", " + (array_length risks) + " findings, " + (array_length m.items) + " items (" + (array_length inferred) + " inferred).")
+        if ((array_length m.warnings) > 0) {
+            push lines ""
+            push lines "Fix in the model and build again:"
+            for m.warnings w:string wi {
+                push lines ("- " + w)
+            }
+        }
+        if (((strlen want) == 0) && ((array_length m.slices) > 0)) {
+            def names:[string]
+            for m.slices s4:CrSlice s4i {
+                push names s4.id
+            }
+            push lines ""
+            push lines ("Slices (args.slice builds the deck for one): " + (join names ", ") + ".")
+        }
+        push lines ""
+        push lines "The review deck, to pass to create_presentation (put the story of the change under \"What changed\"; keep the views as they are, they come from the model):"
+        push lines ""
+        push lines md
+        def res:MfJ (MfJ.newObj())
+        res.put("content" (Tools.text((join lines "\n"))))
+        res.put("structuredContent" out)
+        return res
+    }
+}
