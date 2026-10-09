@@ -249,7 +249,6 @@ func TestLayoutReportAndRender(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	text := textOf(c)
-	t.Log(text)
 	match(t, text, `Layout \(px of a 1920×1080 screen`)
 	match(t, text, `Slide 2 "Twenty months": the elements cover \d+% of the slide`)
 	match(t, text, `⚠ chart \(Vega-Lite\): \d+ pairs of labels drawn over each other, e\.g\. "Month number 1"/"Month number 2"`)
@@ -320,6 +319,27 @@ func TestLayoutReportFlowchartErrorsAndTour(t *testing.T) {
 	match(t, text, `  tour: Start → In stock\? ⟨yes: Pick \| no: Order → In stock\? \(back\)⟩`)
 }
 
+// An xstate block is drawn as a statechart through the MCP render path; a
+// target naming no state is reported, a function in the config refused.
+func TestLayoutReportXState(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	deck := "# Flow\n\n## Review\n\n```xstate\n{\"id\": \"r\", \"initial\": \"draft\", \"states\": {\n" +
+		"  \"draft\": {\"on\": {\"SUBMIT\": \"testing\"}},\n" +
+		"  \"testing\": {\"on\": {\"ACCEPT\": {\"target\": \"accepted\", \"guard\": \"role:tester\"}, \"LOST\": \"nowhere\"}},\n" +
+		"  \"accepted\": {\"type\": \"final\"}}}\n```\n{tour=on}\n\n" +
+		"## Code\n\n```xstate\ncreateMachine({ initial: 'a', states: { a: { on: { GO: { target: 'a', guard: () => true } } } } })\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Flow", "markdown": deck})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	match(t, text, `nowhere`)
+	match(t, text, `tour: `)
+	match(t, text, `function in the config`)
+}
+
 // Every symbol a slide commonly uses has a glyph in some face the painter
 // falls back to; a missing one would be drawn as an empty box ("52 ms ▯ 0,01 ms").
 func TestPainterSymbolsHaveGlyphs(t *testing.T) {
@@ -349,7 +369,6 @@ func TestReportHTMLTableAndStruckText(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	text := textOf(c)
-	t.Log(text)
 	match(t, text, `Slide 2 "Plans".*\n- heading "Plans".*\n- table at`)
 	ws := fmt.Sprint(sc(c)["warnings"])
 	for _, struck := range []string{"twenty euros", "fifteen", "twelve"} {
@@ -518,7 +537,6 @@ func TestReportTableContinuationWithCard(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	text := textOf(c)
-	t.Log(text)
 	match(t, text, `Slide 2 "Asiakkaat \(continued\)": .*\n- heading "Asiakkaat" .*\n- table at 108,`)
 	match(t, text, `Slide \d+ "Asiakkaat \(continued\)": .*\n- heading "Asiakkaat" .*\n- table at .*\n- list "•" at 1\d\d\d,`)
 	if strings.Contains(text, "overlap") {
@@ -544,7 +562,6 @@ func TestReportChartFindings(t *testing.T) {
 		t.Fatal(textOf(c))
 	}
 	text := textOf(c)
-	t.Log(text)
 	match(t, text, `encoding x reads field "alueet", which the data does not have \(did you mean "alue"\?\)`)
 	match(t, text, `chart \(Vega-Lite\) is not drawn: that is not JSON\.`)
 	if strings.Contains(text, `"Rikki": the elements`) && strings.Contains(text, "most of the slide is empty") {
