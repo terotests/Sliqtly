@@ -11038,6 +11038,44 @@ class PresApp {
         return (PresClip.write(clipDoc))
     }
 
+    ; The picture that goes on the clipboard beside the text, for apps that
+    ; do not read Sliqtly's format: {"pages": [i…], "box": [x, y, w, h]}.
+    ; Slides: the picked ones (else the selected one), whole; an element: its
+    ; slide, cut to the element's box (slide units). {} when there is none.
+    fn clipPictureJson:string (kind:string) {
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return "{}"
+        }
+        if (kind == "element") {
+            if (((pick.on == false) || (pick.srcA < 0)) || (((pick.page < 0) || (pick.page >= n)) || ((pick.w <= 0.0) || (pick.h <= 0.0)))) {
+                return "{}"
+            }
+            return ("{\"pages\":[" + (to_string pick.page) + "],\"box\":[" + (to_string pick.x) + "," + (to_string pick.y) + "," + (to_string pick.w) + "," + (to_string pick.h) + "]}")
+        }
+        def pages:[int]
+        if (picks.active()) {
+            pages = picks.pages
+        } {
+            push pages selected
+        }
+        def out:[string]
+        for pages p:int i {
+            if ((p >= 0) && (p < n)) {
+                push out (to_string p)
+            }
+        }
+        if ((array_length out) == 0) {
+            return "{}"
+        }
+        return ("{\"pages\":[" + (join out ",") + "]}")
+    }
+
+    ; What a pasted text is (PresClip.classify): "sliqtly", "mermaid", …
+    fn clipKindOf:string (text:string) {
+        return (PresClip.classify(text))
+    }
+
     ; Where a paste goes now: "md", "css", "deck", or "" (a field, a window,
     ; presenting: the ordinary paste).
     fn clipWhere:string () {

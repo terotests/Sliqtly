@@ -5452,10 +5452,30 @@ try {
     await page.mouse.click(th[1] + 30, th[2] + 20);
     await page.waitForTimeout(300);
     check("strip has the keys", (await app("focusTarget")) === "strip", await app("focusTarget"));
+    // the copy is written once its picture is drawn (slow on a software GPU)
+    const copied = async (before) => {
+      for (let i = 0; i < 60; i++) {
+        await page.waitForTimeout(500);
+        const now = await clip();
+        if (now && now !== before) return now;
+      }
+      return await clip();
+    };
+    const before1 = await clip();
     await page.keyboard.press(`${mod}+c`);
-    await page.waitForTimeout(800);
-    const c1 = await clip();
+    const c1 = await copied(before1);
     check("Ctrl+C on the strip copies the slide as Sliqtly text", c1.startsWith("===== Sliqtly clipboard v1: 1 slide ====="), c1.slice(0, 200));
+    // …and a picture of the slide beside it, for apps that do not read the text
+    const pic = () => page.evaluate(async () => {
+      const items = await navigator.clipboard.read();
+      const it = items[0];
+      if (!it || !it.types.includes("image/png")) return { types: it ? it.types : [] };
+      const bmp = await createImageBitmap(await it.getType("image/png"));
+      const html = it.types.includes("text/html") ? await (await it.getType("text/html")).text() : "";
+      return { types: it.types, w: bmp.width, h: bmp.height, html: html.includes("data:image/png;base64,") };
+    });
+    const p1 = await pic();
+    check("…with a PNG of the slide and the same in HTML", p1.types.includes("text/plain") && p1.w >= 1200 && Math.abs(p1.w / p1.h - 16 / 9) < 0.05 && p1.html, JSON.stringify(p1));
     await page.keyboard.press(`${mod}+v`);
     await page.waitForTimeout(800);
     check("Ctrl+V on the strip asks first", await isConfirm(), await confirmText());
@@ -5493,10 +5513,12 @@ try {
     await page.waitForTimeout(300);
     await page.mouse.click(880, 500);
     await page.waitForTimeout(500);
+    const before2 = await clip();
     await page.keyboard.press(`${mod}+c`);
-    await page.waitForTimeout(800);
-    const e1 = await clip();
+    const e1 = await copied(before2);
     check("Ctrl+C on a picked diagram copies the element", e1.startsWith("===== Sliqtly clipboard v1: 1 element (diagram) =====") && e1.includes("```mermaid"), e1.slice(0, 300));
+    const p2 = await pic();
+    check("…and a picture of the diagram alone, not the whole slide", p2.w > 0 && Math.abs(p2.w / p2.h - 16 / 9) > 0.05, JSON.stringify(p2));
     l = await lay();
     const t4 = l.thumbs.find((t) => t[0] === 3);
     await page.mouse.click(t4[1] + 30, t4[2] + 20);
