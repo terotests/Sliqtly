@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-08.** If a result names a newer version, read Core
+**Guide version 2026-10-09.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -79,7 +79,7 @@ by default. Readability comes first.
 | `effects` | transitions, build steps, background effects, line art |
 | `text` | lists, quotes, inline HTML, code, diffs, math, tables |
 | `charts` | Vega-Lite charts, data sources, number formats |
-| `diagrams` | Mermaid, Graphviz DOT, D2, PlantUML; styles and tours |
+| `diagrams` | Mermaid, Graphviz DOT, D2, PlantUML, XState statecharts; styles and tours |
 | `figures` | `process` `timeline` `swot` `cards` `stats` list layouts |
 | `smartart` | PowerPoint SmartArt diagrams |
 | `pictures` | photos, SVG, backgrounds, galleries |
@@ -380,7 +380,7 @@ repositories work as they are; a private one needs separate access.
 <!-- topic: diagrams -->
 # Topic: diagrams
 
-Fences: `mermaid`, `dot` / `graphviz`, `d2`, `plantuml` / `puml`. The
+Fences: `mermaid`, `dot` / `graphviz`, `d2`, `plantuml` / `puml`, `xstate`. The
 diagram fills the room under the heading; keep the slide to the diagram.
 
 **Options** on the line under the fence:
@@ -443,6 +443,35 @@ deployment, use case, activity (`start`, `:action;`, `if (…) then (…)` /
 timing, mind map, WBS, Gantt, JSON/YAML, salt, ditaa; `!` lines,
 `skinparam` and colours are dropped; only the first `@startuml` block is
 drawn.
+
+**XState** (`xstate`): an XState v5 machine config, as JSON or as a
+Stately `createMachine({...})` export, drawn as a statechart: nested and
+parallel states, the initial state of each level as a dot, `type: "final"`
+states with a double border, and transitions labelled
+`event [guard] / actions`. Several alternatives for one event are numbered,
+and the unguarded last one reads `[else]`. Also drawn: `always`, `after`
+(delays as `after 5s`), `onDone`, `invoke`, `entry`/`exit`, and the
+machine's own `on` as "any state". Guards and actions are names (a string or
+`{ type }`); a config with a function in it is refused. A target naming no
+state is reported and its arrow left out. Styles and `tour=on` work as for
+flowcharts.
+
+```xstate
+{
+  "id": "review",
+  "initial": "draft",
+  "states": {
+    "draft": { "on": { "SUBMIT": "testing" } },
+    "testing": {
+      "on": {
+        "ACCEPT": { "target": "accepted", "guard": "role:tester" },
+        "REJECT": { "target": "draft", "actions": ["addComment"] }
+      }
+    },
+    "accepted": { "type": "final" }
+  }
+}
+```
 
 When a diagram cannot be read, its place shows the reason with the line
 number, and the layout report flags it. A Mermaid flowchart is refused
@@ -966,9 +995,8 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
   a further create_presentation, since a new connection to Sliqtly does
   not carry it. It holds until it goes a day without a change. Keep it in
   the conversation; never put it in slides or links.
-- **The Sliqtly cloud (sliqtly.com) is an experimental demo, not for
-  private or confidential data.** A presentation is seen by anyone who has
-  its link: every slide, picture and file. Say so to the user when you give
+- A presentation with `visibility: "link"` is seen by anyone who has its
+  link: every slide, picture and file. Say so to the user when you give
   the link. Signed in, `visibility: "private"` keeps one for the user's
   Google account only (it opens at its link after signing in there with
   that account); `visibility: "link"` opens it again.

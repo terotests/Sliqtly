@@ -312,6 +312,7 @@ label.opt { font-weight: 400; align-items: baseline; }
 textarea { width: 100%; box-sizing: border-box; font: 14px/1.4 ui-monospace, monospace; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 table { border-collapse: collapse; font-size: .9rem; margin-top: 8px; }
 td, th { text-align: left; padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); }
+select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 input[type=text] { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 input.mono { font-family: ui-monospace, monospace; }
 button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--fg); color: var(--bg); cursor: pointer; margin-top: 18px; }
@@ -355,6 +356,10 @@ ul { padding-left: 20px; }
 </fieldset>
 </form>
 <p id="listnote" class="muted"></p>
+
+<h2 id="connectors">Connectors</h2>
+<p class="muted">Services outside Sliqtly that scripts and workflows in presentations may use, through this server. Each is a file in the data folder's connectors/ folder; every presentation that wants one needs the admin's grant here.</p>
+<div id="conn"><p class="muted">Loading…</p></div>
 
 <h2>Names of presentations</h2>
 <p class="muted" style="margin-top:0">Whoever can connect can change this.</p>
@@ -489,6 +494,119 @@ $("lf").addEventListener("submit", async (e) => {
   $("lsaved").textContent = r.ok ? "Saved." : out.error;
   if (r.ok) { showList(out); load(); }
 });
+function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
+async function connApi(path, method, body) {
+  const r = await fetch("/api/settings/connectors" + path, { method: method || "GET", cache: "no-store", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  let out = {};
+  try { out = await r.json(); } catch (e) {}
+  return { ok: r.ok, status: r.status, out };
+}
+function when(ms) { return new Date(ms).toLocaleString(); }
+async function loadConn() {
+  const box = $("conn");
+  const { ok, out } = await connApi("");
+  box.textContent = "";
+  if (!ok) { box.append(el("p", out.error || "Not available.", "muted")); return; }
+  if (!out.connectors.length) box.append(el("p", "No connectors yet. Put one in the data folder's connectors/ folder (see docs/connectors.md) and restart the server.", "muted"));
+  for (const [file, why] of Object.entries(out.problems || {})) box.append(el("p", "connectors/" + file + " was left out: " + why, "bad"));
+  if (out.admin && out.callback && out.connectors.some((c) => c.oauth)) {
+    const p = el("p", "Callback address to register at the service: ", "muted");
+    p.append(el("code", out.callback));
+    box.append(p);
+  }
+  for (const c of out.connectors) {
+    const h = el("h3", c.title);
+    h.style.margin = "16px 0 4px";
+    box.append(h);
+    if (c.oauth) {
+      const p = el("p", c.connected ? "Connected" + (c.account ? " as " + c.account : "") + "." : "Your account is not connected.");
+      const b = el("button", c.connected ? "Disconnect" : "Connect " + c.title);
+      b.style.marginTop = "0";
+      b.onclick = async () => {
+        if (c.connected) { await connApi("/" + c.id + "/connection", "DELETE", {}); loadConn(); return; }
+        const r = await connApi("/" + c.id + "/connect", "POST", {});
+        if (!r.ok) { p.textContent = r.out.error; p.className = "bad"; return; }
+        window.open(r.out.url, "sliqtly-connect", "width=720,height=760");
+      };
+      box.append(p, b);
+    }
+    const ul = el("ul");
+    for (const op of c.operations) ul.append(el("li", op.name + " (" + op.effect + ")" + (op.title ? ": " + op.title : "")));
+    box.append(ul);
+    if (out.admin) box.append(tryForm(c));
+  }
+  if (out.admin) loadGrants(box);
+}
+function tryForm(c) {
+  const f = el("form");
+  const sel = el("select");
+  for (const op of c.operations) { const o = el("option", op.name); o.value = op.name; sel.append(o); }
+  const args = el("textarea");
+  args.rows = 2; args.spellcheck = false;
+  const fill = () => {
+    const op = c.operations.find((o) => o.name === sel.value);
+    const ex = {};
+    for (const [k, v] of Object.entries((op && op.in && op.in.properties) || {})) if ((op.in.required || []).includes(k)) ex[k] = v.type === "string" ? "" : 0;
+    args.value = JSON.stringify(ex);
+  };
+  sel.onchange = fill; fill();
+  const out = el("pre");
+  out.style.cssText = "white-space:pre-wrap;font:13px/1.4 ui-monospace,monospace;max-height:320px;overflow:auto";
+  const b = el("button", "Try");
+  const l1 = el("label", "Try an operation (as you, without a presentation)");
+  f.append(l1, sel, el("label", "Arguments (JSON)"), args, b, out);
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    let a;
+    try { a = JSON.parse(args.value || "{}"); } catch (err) { out.textContent = "Arguments are not JSON: " + err.message; return; }
+    const r = await connApi("/call", "POST", { test: true, connector: c.id, op: sel.value, args: a });
+    out.className = r.ok ? "" : "bad";
+    out.textContent = r.ok ? JSON.stringify(r.out.result, null, 2) : (r.out.code ? r.out.code + ": " : "") + (r.out.error || r.status);
+  };
+  return f;
+}
+async function loadGrants(box) {
+  const { ok, out } = await connApi("/grants");
+  if (!ok) return;
+  const sec = el("div");
+  sec.append(el("h3", "Waiting for your approval"));
+  if (!out.requests.length) sec.append(el("p", "Nothing.", "muted"));
+  for (const r of out.requests) {
+    const p = el("p");
+    p.append(el("span", "Presentation " + r.deck + " wants " + r.connector + "." + r.op + " (" + r.count + "×, last " + when(r.last) + ") "));
+    const ok = el("button", "Approve"), no = el("button", "Dismiss");
+    ok.style.margin = no.style.margin = "0 6px 0 0";
+    ok.onclick = async () => { await connApi("/grants", "POST", { deck: r.deck, connector: r.connector, ops: [r.op] }); loadConn(); };
+    no.onclick = async () => { await connApi("/grants", "DELETE", { deck: r.deck, connector: r.connector, op: r.op }); loadConn(); };
+    p.append(ok, no);
+    sec.append(p);
+  }
+  sec.append(el("h3", "Granted"));
+  if (!out.grants.length) sec.append(el("p", "Nothing yet.", "muted"));
+  for (const g of out.grants) {
+    const p = el("p");
+    p.append(el("span", (g.deck === "*" ? "Every presentation" : "Presentation " + g.deck) + ": " + g.connector + " " + g.ops.join(", ") + " "));
+    const x = el("button", "Revoke");
+    x.style.margin = "0";
+    x.onclick = async () => { await connApi("/grants", "DELETE", { deck: g.deck, connector: g.connector, ops: [] }); loadConn(); };
+    p.append(x);
+    sec.append(p);
+  }
+  if (out.recent && out.recent.length) {
+    sec.append(el("h3", "Recent calls"));
+    const t = el("table");
+    t.innerHTML = "<tr><th>When</th><th>Presentation</th><th>Call</th><th>Result</th></tr>";
+    for (const e of out.recent) {
+      const tr = el("tr");
+      for (const v of [new Date(e.at).toLocaleString(), e.deck || "", e.connector + "." + e.op, e.status + (e.remote ? " " + e.remote : "")]) tr.append(el("td", v));
+      t.append(tr);
+    }
+    sec.append(t);
+  }
+  box.append(sec);
+}
+window.addEventListener("message", (e) => { if (e.origin === location.origin && e.data && e.data.sliqtly === "connector") loadConn(); });
+loadConn();
 loadNet();
 loadList();
 load().then(tryName);

@@ -7,7 +7,7 @@
 ; Every frame is a PURE FUNCTION of (deck, slide, t). There is no clock in
 ; here and nothing is advanced by a delta: the host says what time it is and
 ; gets the picture for that time. That is what lets a scrub, a jump back and
-; a video capture frame N all draw the same thing — `PLAN_UI.md` §5c.
+; a video capture frame N all draw the same thing.
 ;
 ;   slide start ─┬─ transition (seconds) ─┬─ step 1 ── step 2 ── … ─┬─ hold ─┤
 ;                │  previous slide leaves │  groups arrive          │        │

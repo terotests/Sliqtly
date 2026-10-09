@@ -2136,6 +2136,28 @@ class PresCheck {
         this.ok((seq.ok && (seq.editable == false)) "a sequence diagram too")
     }
 
+    ; The diagram window on a statechart: states and transitions edited as
+    ; the machine's config, the rest of the block kept.
+    fn machineModel:void () {
+        def src:string "```xstate\n{\n  \"id\": \"review\",\n  \"initial\": \"Draft\",\n  \"states\": {\n    \"Draft\": { \"on\": { \"submit\": \"Testing\" } },\n    \"Testing\": {}\n  }\n}\n```\n{style=holo}"
+        def m:PresFlowModel (PresFlowModel.read(src))
+        this.ok((m.ok && m.isMachine) "an xstate block reads as a machine")
+        this.ok(((m.notationName()) == "XState") "its notation")
+        this.ok(((m.markdown()) == src) ("read and written untouched it is the same text: " + (m.markdown())))
+        m.machine.renameState("Testing" "Review")
+        m.machine.addState("" "Accepted")
+        m.machine.setFinal("Accepted" true)
+        m.machine.addTransition("Review" "accept" "Accepted" "role:tester" "")
+        m.machineChanged()
+        def out:string (m.markdown())
+        this.ok(((indexOf out "\"submit\": \"Review\"") > 0) ("a renamed state's transitions follow it: " + out))
+        this.ok(((indexOf out "\"guard\": \"role:tester\"") > 0) ("a guarded transition: " + out))
+        this.ok(((indexOf out "\"type\": \"final\"") > 0) ("a final state: " + out))
+        this.ok(((indexOf out "{style=holo}") > 0) ("the options stay: " + out))
+        def back:PresFlowModel (PresFlowModel.read(out))
+        this.ok((back.isMachine && ((back.machine.machine.stateCount()) == 3)) ("read back: " + out))
+    }
+
     ; The table window's model: cells, alignments, rows and columns.
     fn gridModel:void () {
         def src:string "| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n| Pohjoinen \\| itä | `a|b` |"
@@ -3334,6 +3356,11 @@ class PresCheck {
         mv.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
         mv.moveTo(150.0 120.0)
         this.ok(((mv.outAlign == "left") && (mv.x == 0.0)) ("image drag: to the left third: " + mv.outAlign))
+        ; a drawing's line is a picture to handles, but the image editor leaves it be
+        def ink:PresImageModel (PresImageModel.read("![](drawings/sales-by-region-2.ink)" ""))
+        this.ok(((ink.ok()) && ((ink.editable()) == false)) "image model: a drawing (.ink) does not open the image editor")
+        this.ok((PresImageModel.isDrawing("drawings/A.INK")) "image model: .ink in any case is a drawing")
+        this.ok((m.editable()) "image model: a picture opens the image editor")
         def m2:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
         this.ok((mv.apply(m2)) "image drag: align written")
         this.ok(((m2.markdown()) == "![a](media/x.png)\n{align=left}") ("image drag: " + (m2.markdown())))
@@ -4199,6 +4226,7 @@ class PresCheck {
         c.chartLeavesRoom()
         c.staggered()
         c.flowModel()
+        c.machineModel()
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()

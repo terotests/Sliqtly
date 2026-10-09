@@ -289,7 +289,7 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
 | `/healthz` | `ok`, or 503 while the folder is not ready |
 
-The folder (`fsstore.go`), since data format 4 (ADR 0002):
+The folder (`fsstore.go`), since data format 4:
 
 | | |
 | --- | --- |
@@ -483,6 +483,21 @@ files change (a renewal), so nothing needs installing on the computers that
 connect. `/api/v1/info` says which (`tls.ownCA`) and, for the server's own,
 its fingerprint for a client to pin.
 
+### Connectors (trial)
+
+`-connectors` (`SLIQTLY_CONNECTORS=1`) lets scripts and workflows in decks
+use services outside Sliqtly through the server, never directly: the
+connectors are files in `<data>/connectors/` (address, allowed hosts,
+sign-in, operations with argument schemas and the fields handed back),
+the admin approves each deck's grant, each person connects their own
+account by OAuth (tokens encrypted on the server), and every call is
+checked, limited and logged. Model and tests in `connectors/`, the routes
+in `connectorsapi.go`, the settings page's Connectors section in
+`localsettings.go`; how to try it with GitHub in
+[`docs/connectors.md`](../docs/connectors.md). `-admin` names signed-in
+accounts that may approve grants; the server's own user on its own
+computer always may.
+
 ### A Debian/Ubuntu package
 
 `packaging/build-deb.sh <version> <amd64|arm64>` (after `npm run build` and
@@ -566,85 +581,6 @@ that is only on a laptop or inside a network.
 
 ## Deploy
 
-Actions → **Deploy MCP (Go)** (`.github/workflows/deploy-mcp-go.yml`) runs
-the tests, builds the image, deploys the service and checks that it answers
-(initialize, the sixteen tools, the OAuth metadata, `/api/hit`):
-```
-IMAGE=europe-west1-docker.pkg.dev/sliqtly/mcp/sliqtly-mcp-go
-docker build -f mcp-go/Dockerfile -t $IMAGE .     # from the repository root
-docker push $IMAGE
-gcloud run deploy sliqtly-mcp --image $IMAGE \
-  --region europe-west1 --project sliqtly --allow-unauthenticated \
-  --cpu 1 --memory 512Mi --concurrency 80 --max-instances 10 --cpu-boost
-```
-Generating the Go code takes about 3.6 GB of memory (Node's heap is raised
-to 6 GB in `gen.mjs`), so the machine that builds the image needs more
-than 4 GB. The service runs as the project's default compute account, which
-needs Cloud Datastore User and Storage Object Admin on `sliqtly`; verifying
-Google ID tokens needs no role. The page's own Deploy (Hosting) needs the
-service to exist, since its rewrites point at it.
-
-### The editor at sliqtly.com/editor
-
-The public site is the viewer; the editor (web/dist, built into the image)
-comes only from this service, at `/editor`, and only to a request carrying a
-Google sign-in (editor.go). Anyone else gets a sign-in page with none of the
-editor's code. Sign-in is Google's by redirect, no popup; the sign-in is the
-`__session` cookie (the one cookie Hosting passes to Cloud Run), holding the
-page's Firebase ID token, which the page renews before its hour is up.
-Responses are `private`: the CDN keeps none. A presentation in the editor is
-at `/editor/d/{id}`; `/s/{id}?edit` and the older `/editor/s/{id}?edit`
-redirect there.
-
-Presentations made in the editor are private: only the owner and the people
-they invite (`editors` on the share, Google e-mail addresses in lower case)
-open and edit them; firestore.rules and storage.rules check the address of a
-verified sign-in, and `/editor/api/claim` answers `not-yours` to anyone else
-(a deck there is shown read-only, never copied). Share makes a viewing link of
-its own, `links/{linkId}` → `{ of, owner }`: `/s/{linkId}`, `/api/view`,
-`/api/card` and `/api/export` resolve it to the deck (`Store.shown`), so the
-deck's own id is never handed out. `ops/private-editor-decks.mjs` made the
-decks from before this private.
-
-What the browser keeps (IndexedDB, rooms, open tabs) is per Google account on
-the editor (web/account.js): another account in the same browser sees none of
-it. The store from before that is moved to an account only when it says the
-decks are its own.
-
-Licenses are `licenses/{uid}` in Firestore, made at the first visit as a
-Trial: `plan: "trial"`, `maxDocs: 2`, `docs: []`, with the user's `email`.
-The owner changes them in the Firebase console: `maxDocs` (−1 = no limit),
-`plan` (a name shown to the user), `editUntil` (a timestamp; after it nothing
-is changed in the cloud). The accounts in `SLIQTLY_ADMIN_EMAILS` have no
-limit. A presentation is taken under the license (`docs`) when it is first
-saved to the cloud, while there is room; firestore.rules lets a page create or
-change a share only under its owner's license. Reading, presenting, exporting,
-making private and deleting are never limited: a license that ends takes
-nothing away. The MCP server writes with the Admin SDK and is not limited by
-licenses.
-
-### The owner's dashboard
-
-`sliqtly.com/main/admin` (web/admin.html, linked from nowhere) shows, per UTC
-day: visitors and page loads, presentations made (signed in, or by an
-assistant without sign-in), new and active signed-in accounts, and the Cloud
-bill. The page signs in with Google; the numbers come from
-`GET /main/admin/api/stats?days=7|30|90` (admin.go), which answers only a
-Firebase ID token whose verified email is in `SLIQTLY_ADMIN_EMAILS`. Without
-that variable the route does not exist. The deploy sets it from the
-repository variable `SLIQTLY_ADMIN_EMAILS` (Settings → Variables), or the
-owner's address when that is unset. A report is kept a minute per instance;
-Refresh reads again.
-
-What the service account needs for each part (a part it cannot read says so
-on the page, the rest still shows):
-
-- visitors, presentations: Cloud Datastore User (already there)
-- accounts: Firebase Authentication Viewer
-- the bill: Cloud Billing → Billing export → BigQuery export, "Standard usage
-  cost", into a dataset (e.g. `billing_export` in `sliqtly`). Give the
-  service account BigQuery Job User on the project and BigQuery Data Viewer
-  on that dataset, set the repository variable `SLIQTLY_BILLING_TABLE` to the
-  table it makes (`sliqtly.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX`),
-  and run Deploy MCP (Go). The export fills from the day it is turned on and
-  runs about a day behind.
+How the hosted service on sliqtly.com is deployed, the editor's sign-in and
+licenses, and the owner's dashboard are in
+[docs/operations.md](../docs/operations.md#the-mcp-server-on-cloud-run).
