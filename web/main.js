@@ -19,6 +19,7 @@ import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
+import { toBase64, fromBase64, fileBytes, fileState, plainChord } from "./slideclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
 import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
@@ -3948,6 +3949,14 @@ function handleRequests() {
       needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
+    } else if (r.startsWith("edit:")) {
+      editRequest(r.slice(5)).catch(fail);
+    } else if (r === "confirm:clip" || r === "confirm:clip:alt") {
+      clipAnswered("clip", r.endsWith(":alt"));
+    } else if (r === "confirm:clipimg" || r === "confirm:clipimg:alt") {
+      clipAnswered("clipimg", r.endsWith(":alt"));
+    } else if (r.startsWith("clip:undo:") || r.startsWith("clip:redo:")) {
+      clipFilesBack(Number(r.slice(10)), r.startsWith("clip:undo:")).catch(fail);
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
@@ -6707,6 +6716,12 @@ keys.addEventListener("input", (ev) => {
 });
 
 keys.addEventListener("copy", (ev) => {
+  const kind = app.clipCopyKind();
+  if (kind) {
+    ev.preventDefault();
+    clipCopy(kind).catch(fail);
+    return;
+  }
   const text = app.copySelection();
   if (!text) return;
   ev.preventDefault();
@@ -6739,6 +6754,8 @@ keys.addEventListener("paste", (ev) => {
     return;
   }
   const text = ev.clipboardData?.getData("text/plain") || "";
+  // slides, an element, a diagram or a spec: asked about, then pasted
+  if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
   if (text && app.focusTarget() === "editor" && dataLink(text)) {
     linkData(text.trim()).catch(fail);
     return;
@@ -6750,6 +6767,184 @@ keys.addEventListener("paste", (ev) => {
 });
 keys.addEventListener("focus", () => { composing = false; mirrorLine(); needsPaint = true; });
 keys.addEventListener("blur", () => { composing = false; });
+
+// --- Copy and paste of slides and elements (src/PresClip.rgr) ----------------------
+// Ctrl/⌘+C on the filmstrip or the slide copies the picked slides (else the
+// selected one) or the element picked on the slide as Sliqtly's clipboard
+// text: the Markdown, the theme rules it uses and its files in base64. A
+// paste of that, or of a Mermaid / PlantUML / Graphviz diagram or a
+// Vega-Lite spec, is asked about first (the app's question window), files
+// before the text so the slides find them; Undo takes the text back and the
+// files with it (clip:undo:<n>).
+let clipAnswer = null;
+let plainAt = -1e9;
+const clipFiles = new Map();
+
+// The app's question for a key ("clip", "clipimg"): "ok", "alt", or null
+// (not asked, or a newer question took its place; Cancel sends nothing).
+function clipAsk(key, open) {
+  if (clipAnswer) clipAnswer.resolve(null);
+  return new Promise((resolve) => {
+    clipAnswer = { key, resolve };
+    if (!open()) {
+      clipAnswer = null;
+      resolve(null);
+    }
+    needsPaint = true;
+  });
+}
+function clipAnswered(key, alt) {
+  if (!clipAnswer || clipAnswer.key !== key) return;
+  const { resolve } = clipAnswer;
+  clipAnswer = null;
+  resolve(alt ? "alt" : "ok");
+}
+
+async function clipCopy(kind) {
+  const files = await docFiles();
+  const names = app.clipBegin(kind, files.map((f) => f.path).join("\n"));
+  const n = app.clipCount();
+  if (!n) return;
+  for (const p of names.split("\n").filter(Boolean)) {
+    const f = files.find((x) => x.path === p);
+    if (f) app.clipAddFile(p, f.type || "", toBase64(await fileBytes(f)));
+  }
+  const ok = await writeClip(app.clipText());
+  if (!ok) toast(t("Could not copy"));
+  else if (kind === "element") toast(t("Copied"));
+  else toast(n === 1 ? t("Copied 1 slide.") : t("Copied {n} slides.").replace("{n}", n));
+}
+
+// A pasted file into the deck, as Files → Paste puts one.
+async function clipStore(path, type, bytes) {
+  if (kindOf(path, type) === "image") {
+    await addPicture("/" + path, bytes.slice(0), type || "");
+  } else if (isText(path, type)) {
+    const text = new TextDecoder().decode(bytes);
+    chartFiles.set(path, Promise.resolve(text));
+    app.setChartData(path, text);
+  }
+  await keepFile({ path, type: type || "", size: bytes.byteLength, data: new Blob([bytes], { type: type || "" }) });
+}
+async function clipDrop(path) {
+  pending.delete(path);
+  if (doc.persisted && vfs) await vfs.deleteFile(doc.id, path);
+  refreshFiles();
+  cloudSoon();
+}
+
+// Text pasted: true when it is the app's to take (a target of PresClip's),
+// which then goes on by itself.
+function clipPaste(text, plain) {
+  if (viewer) return false;
+  const info = JSON.parse(app.clipPaste(text, plain));
+  if (!info.target) return false;
+  pasteClip(info).catch(fail);
+  return true;
+}
+async function pasteClip(info) {
+  const have = new Map((await docFiles()).map((f) => [f.path, f]));
+  let steps = [];
+  if (info.files) {
+    const states = [];
+    for (let i = 0; i < info.files; i += 1) states.push(await fileState(have.get(app.clipFileName(i)), app.clipFileData(i)));
+    steps = app.clipFileSteps(states.join("\n")).split("\n");
+  }
+  const answer = await clipAsk("clip", () => app.clipAsk());
+  if (!answer) return;
+  const put = [];
+  for (let i = 0; i < steps.length; i += 1) {
+    const name = app.clipFileName(i);
+    if (steps[i] === "add") put.push({ i, to: name });
+    else if (steps[i] === "ask") {
+      const a = await clipAsk("clipimg", () => app.clipAskPicture(name.split("/").pop()));
+      if (!a) return;
+      if (a === "ok") put.push({ i, to: name });
+      else put.push({ i, to: app.clipKeepBoth(name, [...have.keys(), ...put.map((p) => p.to)].join("\n")) });
+    }
+  }
+  const undo = [];
+  for (const p of put) {
+    const type = app.clipFileMime(p.i);
+    const bytes = fromBase64(app.clipFileData(p.i));
+    const prev = have.get(p.to) || null;
+    undo.push({ path: p.to, type, bytes, prev: prev ? { type: prev.type || "", bytes: await fileBytes(prev) } : null });
+    await clipStore(p.to, type, bytes);
+  }
+  const id = app.clipApply(answer === "alt");
+  if (id && undo.length) clipFiles.set(id, undo);
+  dropThumbs();
+  afterInput();
+  focusApp();
+}
+
+// Undo / Redo of a paste: its files back as they were, or in again.
+async function clipFilesBack(id, back) {
+  const list = clipFiles.get(id);
+  if (!list) return;
+  for (const f of back ? [...list].reverse() : list) {
+    if (!back) await clipStore(f.path, f.type, f.bytes);
+    else if (f.prev) await clipStore(f.path, f.prev.type, f.prev.bytes);
+    else await clipDrop(f.path);
+  }
+  dropThumbs();
+  needsPaint = true;
+}
+
+// Edit's rows and the slide menu's Copy / Paste.
+async function editRequest(what) {
+  if (what === "undo" || what === "redo") {
+    app.chord(what === "undo" ? "z" : "y");
+    afterInput();
+  } else if (what === "copySlides" || what === "copyElement") {
+    await clipCopy(what === "copySlides" ? "slides" : "element");
+  } else if (what === "copy") {
+    const kind = app.clipCopyKind();
+    if (kind) await clipCopy(kind);
+    else {
+      const text = app.copySelection();
+      if (text) await writeClip(text);
+    }
+  } else if (what === "cut") {
+    const text = app.cutSelection();
+    if (text) await writeClip(text);
+    afterInput();
+  } else if (what === "paste" || what === "pastePlain") {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (_) {
+      toast(t("The browser did not let the page read the clipboard: press Ctrl+V (⌘V on a Mac) instead."));
+      return;
+    }
+    if (!text) return;
+    if (!clipPaste(text, what === "pastePlain")) {
+      app.pasteText(text);
+      afterInput();
+    }
+  }
+  needsPaint = true;
+}
+
+document.addEventListener("keydown", (ev) => {
+  if (plainChord(ev)) plainAt = performance.now();
+}, true);
+// The filmstrip's slides have the keyboard on the a11y mirror, not on the
+// hidden field: their copy and paste arrive here.
+document.addEventListener("copy", (ev) => {
+  if (ev.target === keys || !mirror.root.contains(ev.target)) return;
+  const kind = app.clipCopyKind();
+  if (!kind) return;
+  ev.preventDefault();
+  clipCopy(kind).catch(fail);
+});
+document.addEventListener("paste", (ev) => {
+  if (ev.target === keys || !mirror.root.contains(ev.target)) return;
+  const text = ev.clipboardData?.getData("text/plain") || "";
+  if (!text) return;
+  ev.preventDefault();
+  clipPaste(text, performance.now() - plainAt < 1500);
+});
 
 // --- the pointer ----------------------------------------------------------------------
 function at(ev) {

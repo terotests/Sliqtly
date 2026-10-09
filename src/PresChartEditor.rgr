@@ -199,6 +199,8 @@ class PresChartEditor {
     ; other one's word): `ok` is then the main button, not a red one, and the
     ; other sets `wantsAlt` ("confirm:<key>:alt" to the page).
     def cfAlt:string ""
+    ; a question that deletes nothing (a paste): its button is not red
+    def cfSafe:boolean false
     def wantsAlt:boolean false
     ; The document's settings (`mode` "docset"): the front matter's title,
     ; transition, header and footer (`ds`), the tab showing ("header",
@@ -423,6 +425,7 @@ class PresChartEditor {
         cfText = words
         cfOk = ok
         cfAlt = ""
+        cfSafe = false
         wantsConfirm = false
         wantsAlt = false
         this.openAt(px py pw ph)
@@ -2252,8 +2255,10 @@ class PresChartEditor {
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((this.div("ce-grow")))
-        if ((strlen cfAlt) > 0) {
-            this.button("cf-alt" cfAlt "outline" bottom)
+        if (((strlen cfAlt) > 0) || cfSafe) {
+            if ((strlen cfAlt) > 0) {
+                this.button("cf-alt" cfAlt "outline" bottom)
+            }
             this.button("cf-ok" cfOk "primary" bottom)
         } {
             this.button("cf-ok" cfOk "danger" bottom)
