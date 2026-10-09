@@ -483,6 +483,21 @@ files change (a renewal), so nothing needs installing on the computers that
 connect. `/api/v1/info` says which (`tls.ownCA`) and, for the server's own,
 its fingerprint for a client to pin.
 
+### Connectors (trial)
+
+`-connectors` (`SLIQTLY_CONNECTORS=1`) lets scripts and workflows in decks
+use services outside Sliqtly through the server, never directly: the
+connectors are files in `<data>/connectors/` (address, allowed hosts,
+sign-in, operations with argument schemas and the fields handed back),
+the admin approves each deck's grant, each person connects their own
+account by OAuth (tokens encrypted on the server), and every call is
+checked, limited and logged. Model and tests in `connectors/`, the routes
+in `connectorsapi.go`, the settings page's Connectors section in
+`localsettings.go`; how to try it with GitHub in
+[`docs/connectors.md`](../docs/connectors.md). `-admin` names signed-in
+accounts that may approve grants; the server's own user on its own
+computer always may.
+
 ### A Debian/Ubuntu package
 
 `packaging/build-deb.sh <version> <amd64|arm64>` (after `npm run build` and

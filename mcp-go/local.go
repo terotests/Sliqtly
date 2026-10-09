@@ -43,6 +43,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/connectors"
 )
 
 //go:embed themes/*.css
@@ -83,6 +85,11 @@ type localServer struct {
 	// the decks are listed on / and /decks (settings/listing); off unless
 	// turned on, so a deck opens only by its link
 	listing atomic.Bool
+	// connectors for scripts and workflows in decks (-connectors,
+	// connectorsapi.go); nil: off
+	conn *connectors.Gateway
+	// signed-in accounts that may approve connector grants (-admin)
+	admins []string
 }
 
 // the env of a server whose decks are in dir, reached at baseURL
@@ -227,6 +234,14 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st, _ := s.board.get()
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		writeStatus(w, st, 200)
+		return
+	}
+	if strings.HasPrefix(p, "/api/settings/connectors") {
+		s.settingsConnectors(w, r)
+		return
+	}
+	if p == "/connectors/oauth/callback" && s.conn != nil && r.Method == http.MethodGet {
+		s.connectorCallback(w, r)
 		return
 	}
 	if p == "/api/settings" || p == "/api/settings/check" || p == "/api/settings/network" || p == "/api/settings/listing" {

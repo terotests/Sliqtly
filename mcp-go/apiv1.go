@@ -167,6 +167,10 @@ func (s *localServer) apiV1(w http.ResponseWriter, r *http.Request) {
 		v1Error(w, 415, "send JSON (Content-Type: application/json)")
 		return
 	}
+	if p == "/api/v1/connectors" || strings.HasPrefix(p, "/api/v1/connectors/") {
+		s.connectorsAPI(w, r, who)
+		return
+	}
 	var out any
 	status := 200
 	switch m := v1DeckPath.FindStringSubmatch(p); {
