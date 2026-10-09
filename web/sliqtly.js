@@ -692,7 +692,7 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 // sliqtly.com/editor's Rooms search: the signed-in user's own presentations
 // and those they were invited to edit, whose words hold q, searched by
 // the server (mcp-go/searchapi.go)

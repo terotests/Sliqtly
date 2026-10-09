@@ -29,7 +29,7 @@ function collect() {
     const s = fs.readFileSync(path.join(root, "src", f), "utf8");
     for (const m of s.matchAll(new RegExp(String.raw`PresI18n\.(?:t|plain)\(\s*` + LIT, "g"))) keys.add(unquote(m[1]));
   }
-  for (const f of ["main.js", "sliqtly.js", "sheets-live.js", "versions-ui.js", "decklist.js", "rooms.js", "roomchat.js"]) {
+  for (const f of ["main.js", "sliqtly.js", "sheets-live.js", "versions-ui.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js"]) {
     const s = fs.readFileSync(path.join(root, "web", f), "utf8");
     for (const m of s.matchAll(new RegExp(String.raw`\bt\(\s*` + LIT, "g"))) keys.add(unquote(m[1]));
   }

@@ -9871,6 +9871,24 @@ class PresApp {
         return true
     }
 
+    ; A shared room's people (sliqtly.com/editor): `list` the addresses in it
+    ; besides `owner`'s, one a line. Save is "newdeck-create" with the plan's
+    ; "ask" "editors", "invroom" the room and "editors" the list.
+    fn openRoomInvite:boolean (room:string list:string owner:string) {
+        if ((this.openDupDeck("")) == false) {
+            return false
+        }
+        chart.openRoomInvite(room list owner chart.x chart.y W H)
+        return true
+    }
+
+    ; The room's window just opened offers "Invite people…" (its plan's "act"
+    ; "invite")
+    fn roomDialogInvite:void () {
+        chart.rmInvite = true
+        chart.rebuild()
+    }
+
     ; Rooms' "+" (`id` "") or a room's gear: the room's window, its name and
     ; description; `state` "new", "made" or "archived". Save is
     ; "newdeck-create" with the plan's "ask" "room", "room", "desc" and "act"
@@ -10260,7 +10278,7 @@ class PresApp {
         if (chart.ndDup && (chart.ndAsk == "dup")) {
             dup = "true"
         }
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + ",\"editors\":" + (PresApp.jsonStr((chart.inv.text()))) + "}")
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + ",\"editors\":" + (PresApp.jsonStr((chart.inv.text()))) + ",\"invroom\":" + (PresApp.jsonStr(chart.invRoom)) + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
