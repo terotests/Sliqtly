@@ -2561,7 +2561,12 @@ try {
       const edges = label && chev ? { rowL: row.calculatedX, rowR: row.calculatedX + row.calculatedWidth, labelL: label.calculatedX, label: label.textContent, chevR: chev.calculatedX + chev.calculatedWidth, chev: chev.textContent } : null;
       press("tb-m-slide-item-orientation");
       const opened = t.openMenu() === "tb-m-slide";
-      press("tb-m-slide-item-orientation-item-o-portrait");
+      // the other way round from the deck's: the app turns the deck itself
+      const ori0 = a.orientation();
+      const other = ori0 === "portrait" ? "landscape" : "portrait";
+      press("tb-m-slide-item-orientation-item-o-" + other);
+      const turned = a.orientation() === other;
+      a.request("slide:" + ori0);
       const reqs = [];
       for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
       // Slide → Theme… asks the page for the theme picker
@@ -2579,10 +2584,10 @@ try {
       for (;;) { const r = a.takeRequest(); if (!r) break; through.push(r); }
       help.push(...through.map((r) => "after-menu:" + r));
       const closedAfter = t.openMenu() === "";
-      return { edges, opened, reqs, help, closedAfter, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
+      return { edges, opened, turned, reqs, help, closedAfter, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
     });
     check("the top bar is drawn on the canvas, the HTML one hidden", bar.drawn > 20 && bar.htmlBarHidden, JSON.stringify(bar));
-    check("…Slide → Orientation opens and a row chosen is the page's request", bar.opened && bar.reqs.includes("slide:portrait"), JSON.stringify(bar));
+    check("…Slide → Orientation opens and a row chosen turns the deck", bar.opened && bar.turned, JSON.stringify(bar));
     check("…Slide → Theme… asks for the theme picker", bar.reqs.includes("themes"), JSON.stringify(bar));
     const e = bar.edges;
     check("…a submenu's arrow sits at its row's right edge, the name at the left", !!e && e.label === "Orientation" && e.chev === "▸" && e.rowR - e.chevR <= 12 && e.labelL - e.rowL <= 12 && e.chevR - e.labelL > 150, JSON.stringify(e));
