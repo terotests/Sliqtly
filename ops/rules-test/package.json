@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore,storage --project demo-sliqtly \"node rules.test.mjs && node editors.test.mjs\""
+    "test": "firebase emulators:exec --only firestore,storage --project demo-sliqtly \"node rules.test.mjs && node editors.test.mjs && node roomchat.test.mjs\"",
+    "test:go": "firebase emulators:exec --only firestore --project demo-sliqtly \"cd ../../mcp-go && go test -run 'TestFS|TestCloudRoomsFirestore' -count=1 .\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.0",

@@ -140,7 +140,7 @@ func (s *roomService) putFile(ctx context.Context, uid, room, name, contentType 
 	if !roomIDPattern.MatchString(room) {
 		return roomFileOut{}, store.ErrNotFound
 	}
-	p, err := s.principal(ctx, uid)
+	p, err := s.rooms.For(ctx, s.localPrincipal(uid))
 	if err != nil {
 		return roomFileOut{}, err
 	}
