@@ -4475,7 +4475,7 @@ try {
     await ctx.exposeFunction("__fakeFirebase", async (op, a) => {
       if (op === "get") return fakeDb.get(a.k) ?? null;
       if (op === "query") {
-        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).slice(0, a.n)
+        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && a.w.every(([f, op, v]) => (op === "array-contains" ? (d[f] || []).includes(v) : d[f] === v))).slice(0, a.n)
           .map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
       }
       if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
@@ -4498,11 +4498,15 @@ try {
         get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
       });
       const ms = (v) => (typeof v === "number" ? { toMillis: () => v } : v);
-      const query = (c, f, v, n) => ({
-        limit: (m) => query(c, f, v, m),
-        get: async () => ({ docs: (await call("query", { c, f, v, n: n || 1000 })).map((x) => ({ id: x.id, data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) })) }),
+      const query = (c, w, n) => ({
+        where: (f, op, v) => query(c, [...w, [f, op, v]], n),
+        limit: (m) => query(c, w, m),
+        get: async () => {
+          const docs = (await call("query", { c, w, n: n || 1000 })).map((x) => ({ id: x.id, ref: ref(c, x.id), data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) }));
+          return { docs, empty: docs.length === 0 };
+        },
       });
-      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, f, v, 0) }) };
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, [[f, op, v]], 0) }) };
       const firestore = () => db;
       firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
       const storage = () => ({ ref: (p) => ({
