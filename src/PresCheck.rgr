@@ -38,6 +38,7 @@ Import "PresMeet.rgr"
 Import "PresClip.rgr"
 Import "PresPlay.rgr"
 Import "Pres3D.rgr"
+Import "PresSceneModel.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -4739,6 +4740,229 @@ class PresCheck {
         this.ok(((hi > 0.8) && (lo < 0.45)) ("beats: the history rows hold the kicks as they came and went, " + (to_string lo) + ".." + (to_string hi)))
     }
 
+    ; --- JSON Patch (RFC 6902) and JSON Pointer (RFC 6901) -------------------
+
+    ; The patch on the document as text: the result's JSON, or "ERROR"
+    sfn patched:string (doc:string patch:string) {
+        def r:JsonPatchResult (JsonPatch.apply((JVal.parse(doc)) (JVal.parse(patch))))
+        if (r.ok) {
+            return (r.doc.toJson())
+        }
+        return "ERROR"
+    }
+
+    fn patchCase:void (doc:string patch:string want:string what:string) {
+        def got:string (PresCheck.patched(doc patch))
+        if (want == "ERROR") {
+            this.ok((got == "ERROR") ("json patch: " + what + " fails, got " + got))
+            return
+        }
+        def same:boolean false
+        if (got != "ERROR") {
+            same = (JsonPatch.equal((JVal.parse(got)) (JVal.parse(want))))
+        }
+        this.ok(same ("json patch: " + what + ", got " + got))
+    }
+
+    fn diffCase:void (a:string b:string what:string) {
+        def va:JVal (JVal.parse(a))
+        def vb:JVal (JVal.parse(b))
+        def d:JVal (JsonPatch.diff(va vb))
+        def r:JsonPatchResult (JsonPatch.apply(va d))
+        this.ok((r.ok && (JsonPatch.equal(r.doc vb))) ("json diff: " + what + " rebuilds, patch " + (d.toJson())))
+    }
+
+    fn jsonPatch:void () {
+        ; RFC 6901 section 5
+        def d:JVal (JVal.parse("{\"foo\":[\"bar\",\"baz\"],\"\":0,\"a/b\":1,\"c%d\":2,\"e^f\":3,\"g|h\":4,\"i\\\\j\":5,\"k\\\"l\":6,\" \":7,\"m~n\":8}"))
+        this.ok(((JsonPatch.find(d "")).kind == 5) "pointer: \"\" is the whole document")
+        this.ok((((JsonPatch.find(d "/foo/0")).asStr("")) == "bar") "pointer: /foo/0")
+        this.ok((((JsonPatch.find(d "/")).asNum(-1.0)) == 0.0) "pointer: / is the empty key")
+        this.ok((((JsonPatch.find(d "/a~1b")).asNum(-1.0)) == 1.0) "pointer: ~1 is /")
+        this.ok((((JsonPatch.find(d "/m~0n")).asNum(-1.0)) == 8.0) "pointer: ~0 is ~")
+        this.ok((((JsonPatch.find(d "/i\\j")).asNum(-1.0)) == 5.0) "pointer: a backslash is itself")
+        this.ok((((JsonPatch.find(d "/ ")).asNum(-1.0)) == 7.0) "pointer: a space is a key")
+        this.ok(((JsonPatch.find(d "/foo/2")).kind < 0) "pointer: past the end is nothing")
+        this.ok(((JsonPatch.find(d "/foo/01")).kind < 0) "pointer: no leading zero")
+        this.ok(((JsonPatch.validPointer("foo") == false) && (JsonPatch.validPointer("/a~2") == false)) "pointer: no slash or a bad ~ is no pointer")
+        this.ok(((JsonPatch.pointer(([] _:string ("a/b" "m~n")))) == "/a~1b/m~0n") "pointer: escaped on the way out")
+        ; RFC 6902 appendix A
+        this.patchCase("{\"foo\":\"bar\"}" "[{\"op\":\"add\",\"path\":\"/baz\",\"value\":\"qux\"}]" "{\"baz\":\"qux\",\"foo\":\"bar\"}" "A.1 add a member")
+        this.patchCase("{\"foo\":[\"bar\",\"baz\"]}" "[{\"op\":\"add\",\"path\":\"/foo/1\",\"value\":\"qux\"}]" "{\"foo\":[\"bar\",\"qux\",\"baz\"]}" "A.2 add an element")
+        this.patchCase("{\"baz\":\"qux\",\"foo\":\"bar\"}" "[{\"op\":\"remove\",\"path\":\"/baz\"}]" "{\"foo\":\"bar\"}" "A.3 remove a member")
+        this.patchCase("{\"foo\":[\"bar\",\"qux\",\"baz\"]}" "[{\"op\":\"remove\",\"path\":\"/foo/1\"}]" "{\"foo\":[\"bar\",\"baz\"]}" "A.4 remove an element")
+        this.patchCase("{\"baz\":\"qux\",\"foo\":\"bar\"}" "[{\"op\":\"replace\",\"path\":\"/baz\",\"value\":\"boo\"}]" "{\"baz\":\"boo\",\"foo\":\"bar\"}" "A.5 replace")
+        this.patchCase("{\"foo\":{\"bar\":\"baz\",\"waldo\":\"fred\"},\"qux\":{\"corge\":\"grault\"}}" "[{\"op\":\"move\",\"from\":\"/foo/waldo\",\"path\":\"/qux/thud\"}]" "{\"foo\":{\"bar\":\"baz\"},\"qux\":{\"corge\":\"grault\",\"thud\":\"fred\"}}" "A.6 move a value")
+        this.patchCase("{\"foo\":[\"all\",\"grass\",\"cows\",\"eat\"]}" "[{\"op\":\"move\",\"from\":\"/foo/1\",\"path\":\"/foo/3\"}]" "{\"foo\":[\"all\",\"cows\",\"eat\",\"grass\"]}" "A.7 move an element")
+        this.patchCase("{\"baz\":\"qux\",\"foo\":[\"a\",2,\"c\"]}" "[{\"op\":\"test\",\"path\":\"/baz\",\"value\":\"qux\"},{\"op\":\"test\",\"path\":\"/foo/1\",\"value\":2}]" "{\"baz\":\"qux\",\"foo\":[\"a\",2,\"c\"]}" "A.8 test holds")
+        this.patchCase("{\"baz\":\"qux\"}" "[{\"op\":\"test\",\"path\":\"/baz\",\"value\":\"bar\"}]" "ERROR" "A.9 test")
+        this.patchCase("{\"foo\":\"bar\"}" "[{\"op\":\"add\",\"path\":\"/child\",\"value\":{\"grandchild\":{}}}]" "{\"foo\":\"bar\",\"child\":{\"grandchild\":{}}}" "A.10 add a nested object")
+        this.patchCase("{\"foo\":\"bar\"}" "[{\"op\":\"add\",\"path\":\"/baz\",\"value\":\"qux\",\"xyz\":123}]" "{\"foo\":\"bar\",\"baz\":\"qux\"}" "A.11 unknown members are ignored")
+        this.patchCase("{\"foo\":\"bar\"}" "[{\"op\":\"add\",\"path\":\"/baz/bat\",\"value\":\"qux\"}]" "ERROR" "A.12 add under nothing")
+        this.patchCase("{\"/\":9,\"~1\":10}" "[{\"op\":\"test\",\"path\":\"/~01\",\"value\":10}]" "{\"/\":9,\"~1\":10}" "A.14 ~01 is ~1")
+        this.patchCase("{\"/\":9,\"~1\":10}" "[{\"op\":\"test\",\"path\":\"/~01\",\"value\":\"10\"}]" "ERROR" "A.15 a string is not a number")
+        this.patchCase("{\"foo\":[\"bar\"]}" "[{\"op\":\"add\",\"path\":\"/foo/-\",\"value\":[\"abc\",\"def\"]}]" "{\"foo\":[\"bar\",[\"abc\",\"def\"]]}" "A.16 add to the end")
+        this.patchCase("{\"a\":{\"b\":1}}" "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a/c\"}]" "ERROR" "a value does not move into itself")
+        this.patchCase("{\"a\":[1,2]}" "[{\"op\":\"add\",\"path\":\"/a/3\",\"value\":9}]" "ERROR" "add past the end")
+        this.patchCase("{\"a\":1}" "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/b\"}]" "{\"a\":1,\"b\":1}" "copy")
+        this.patchCase("{\"a\":1}" "[{\"op\":\"jump\",\"path\":\"/a\"}]" "ERROR" "an unknown op")
+        this.patchCase("{\"a\":{\"x\":1,\"y\":2}}" "[{\"op\":\"test\",\"path\":\"/a\",\"value\":{\"y\":2,\"x\":1}}]" "{\"a\":{\"x\":1,\"y\":2}}" "objects equal in any key order")
+        ; all or nothing: the first ops do not stay when a later one fails
+        def before:JVal (JVal.parse("{\"a\":1}"))
+        def r:JsonPatchResult (JsonPatch.apply(before (JVal.parse("[{\"op\":\"replace\",\"path\":\"/a\",\"value\":2},{\"op\":\"test\",\"path\":\"/a\",\"value\":3}]"))))
+        this.ok(((r.ok == false) && ((r.at == 1) && ((before.toJson()) == "{\"a\":1}"))) ("json patch: a failed patch changes nothing and names op 1, " + r.error))
+        ; diff
+        this.diffCase("{\"a\":1,\"b\":[1,2,3]}" "{\"b\":[1,5],\"c\":true}" "members and a shorter array")
+        this.diffCase("{\"n\":[{\"name\":\"a\",\"x\":1},{\"name\":\"b\"},{\"name\":\"c\",\"x\":2}]}" "{\"n\":[{\"name\":\"a\",\"x\":1},{\"name\":\"c\",\"x\":3},{\"name\":\"d\"}]}" "named elements")
+        this.diffCase("{\"n\":[{\"name\":\"a\"},{\"name\":\"b\"}]}" "{\"n\":[{\"name\":\"b\"},{\"name\":\"a\"}]}" "named elements swapped")
+        this.diffCase("[1,2]" "{\"a\":1}" "a different kind")
+        def one:JVal (JsonPatch.diff((JVal.parse("{\"n\":[{\"name\":\"a\"},{\"name\":\"b\",\"v\":1},{\"name\":\"c\"}]}")) (JVal.parse("{\"n\":[{\"name\":\"a\"},{\"name\":\"c\"}]}"))))
+        this.ok(((one.toJson()) == "[{\"op\":\"remove\",\"path\":\"/n/1\"}]") ("json diff: removing a named element is one op, got " + (one.toJson())))
+    }
+
+    ; --- 3-D scenes as glTF (PresSceneModel) ----------------------------------
+
+    sfn bytesText:string (b:[int]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length b)) {
+            push parts (to_string (itemAt b i))
+            i = (i + 1)
+        }
+        return (join parts ",")
+    }
+
+    sfn f32Text:string (v:double) {
+        def b:[int]
+        SceneGeom.f32(b v)
+        return (PresCheck.bytesText(b))
+    }
+
+    ; A scene with api and db, a link between them and a camera
+    sfn sceneSample:PresSceneModel () {
+        def m:PresSceneModel (PresSceneModel.blank())
+        m.edit((JVal.parse("[{\"op\":\"add_service\",\"name\":\"api\",\"label\":\"API\"},{\"op\":\"add_database\",\"name\":\"db\",\"label\":\"Tietokanta\",\"at\":[4,0,0]},{\"op\":\"connect\",\"from\":\"api\",\"to\":\"db\",\"label\":\"SQL\"},{\"op\":\"camera\",\"at\":[2,4,9],\"look\":[2,0,0]}]")))
+        return m
+    }
+
+    fn sceneEdit:SceneEdit (m:PresSceneModel ops:string) {
+        return (m.edit((JVal.parse(ops))))
+    }
+
+    fn scenes:void () {
+        ; bytes
+        this.ok(((PresCheck.f32Text(0.5)) == "0,0,0,63") ("scenes: 0.5 as float32, got " + (PresCheck.f32Text(0.5))))
+        this.ok(((PresCheck.f32Text(1.0)) == "0,0,128,63") "scenes: 1 as float32")
+        this.ok(((PresCheck.f32Text(-2.0)) == "0,0,0,192") "scenes: -2 as float32")
+        this.ok(((PresCheck.f32Text(0.1)) == "205,204,204,61") ("scenes: 0.1 as float32, got " + (PresCheck.f32Text(0.1))))
+        this.ok(((PresCheck.f32Text(0.0)) == "0,0,0,0") "scenes: 0 as float32")
+        this.ok((((SceneGeom.base64(([] _:int (77 97 110)))) == "TWFu") && (((SceneGeom.base64(([] _:int (77 97)))) == "TWE=") && ((SceneGeom.base64(([] _:int (77)))) == "TQ=="))) "scenes: base64 with and without padding")
+        ; a new scene: glTF 2.0 with the five unit shapes
+        def b:PresSceneModel (PresSceneModel.blank())
+        this.ok((((b.doc.get("asset")).strOr("version" "")) == "2.0") "scenes: a new scene is glTF 2.0")
+        def shapes:JVal (b.ensureShapes())
+        this.ok((((shapes.intOr("box" -1)) == 0) && ((shapes.intOr("plane" -1)) == 12)) "scenes: three accessors per shape, box first, plane last")
+        def accs:JVal (b.doc.get("accessors"))
+        this.ok(((accs.len()) == 15) "scenes: fifteen accessors")
+        def cone:JVal (accs.at(9))
+        this.ok(((((cone.get("max")).at(1)).asNum(0.0)) == 0.5) "scenes: the cone stands up to y 0.5")
+        def buf:JVal ((b.doc.get("buffers")).at(0))
+        def uri:string (buf.strOr("uri" ""))
+        def b64:string (substring uri ((indexOf uri ",") + 1) (strlen uri))
+        this.ok((((idiv (strlen b64) 4) * 3) == (buf.intOr("byteLength" 0))) "scenes: byteLength is the data's length")
+        def views:JVal (b.doc.get("bufferViews"))
+        def last:JVal (views.at(2))
+        this.ok((((last.intOr("byteOffset" 0)) + (last.intOr("byteLength" 0))) <= (buf.intOr("byteLength" 0))) "scenes: the index view fits in the buffer")
+        ; prints the same after a read back
+        def text:string (b.print())
+        def again:PresSceneModel (PresSceneModel.parse(text))
+        this.ok((((strlen again.error) == 0) && ((again.print()) == text)) "scenes: print, parse, print is the same text")
+        this.ok(((strlen ((PresSceneModel.parse("{\"asset\":{\"version\":\"1.0\"}}")).error)) > 0) "scenes: glTF 1 is refused")
+        this.ok(((strlen ((PresSceneModel.parse("not json")).error)) > 0) "scenes: text that is not JSON is refused")
+        ; edits
+        def m:PresSceneModel (PresCheck.sceneSample())
+        def info:JVal (m.inspect())
+        this.ok((((info.get("nodes")).len()) == 2) ("scenes: api and db are the nodes, " + (info.toJson())))
+        this.ok((((info.get("links")).len()) == 1) "scenes: one link")
+        def db:JVal ((info.get("nodes")).at(1))
+        this.ok((((db.strOr("kind" "")) == "database") && (((db.strOr("label" "")) == "Tietokanta") && ((db.strOr("color" "")) == "#38bdf8"))) "scenes: a database has its kind, label and colour")
+        this.ok(((((info.get("camera")).get("at")).toJson()) == "[2,4,9]") "scenes: the camera is where it was put")
+        this.ok(((((db.get("size")).toJson()) == "[1.2,1.2,1.2]")) "scenes: a database's size")
+        ; the link reaches from api's side to db's side
+        def li:int (m.indexOf("api->db"))
+        def linkNode:JVal (m.node(li))
+        def linkAt:string ((linkNode.get("translation")).toJson())
+        this.ok((linkAt == "[0.8,0,0]") ("scenes: the link starts at api's right side, " + linkAt))
+        def shaft:JVal (m.node((m.indexOf("api->db/shaft"))))
+        this.ok((((shaft.get("scale")).toJson()) == "[0.05,2.3,0.05]") ("scenes: the shaft runs to the head, " + ((shaft.get("scale")).toJson())))
+        ; a move is a few replaces, guarded by the names
+        def before:JVal (JsonPatch.clone(m.doc))
+        def mv:SceneEdit (this.sceneEdit(m "[{\"op\":\"update\",\"name\":\"db\",\"at\":[5,1,0]}]"))
+        this.ok(mv.ok "scenes: update db")
+        def first:JVal (mv.patch.at(0))
+        this.ok((((first.strOr("op" "")) == "test") && ((first.strOr("path" "")) == "/nodes/1/name")) ("scenes: the patch first tests db's name, " + (mv.patch.toJson())))
+        def r:JsonPatchResult (JsonPatch.apply(before mv.patch))
+        this.ok((r.ok && (JsonPatch.equal(r.doc m.doc))) "scenes: the patch on the old scene makes the new one")
+        this.ok((((JsonPatch.diff(before m.doc)).len()) < 16) "scenes: a move is a handful of ops")
+        def shaft2:JVal (m.node((m.indexOf("api->db/shaft"))))
+        this.ok((((shaft2.get("scale")).toJson()) != "[0.05,2.3,0.05]") "scenes: the link follows db")
+        ; a patch made for an older scene does not land on the wrong node
+        def other:PresSceneModel (PresCheck.sceneSample())
+        def rm:SceneEdit (this.sceneEdit(other "[{\"op\":\"remove\",\"name\":\"api\"}]"))
+        this.ok(rm.ok ("scenes: remove api, " + rm.error))
+        def stale:string (other.apply(mv.patch))
+        this.ok(((indexOf stale "test failed") >= 0) ("scenes: an old patch fails its test, " + stale))
+        ; removing api took its link, meshes and materials with it
+        def left:JVal (other.inspect())
+        this.ok(((((left.get("nodes")).len()) == 1) && (((left.get("links")).len()) == 0)) "scenes: api and its link are gone")
+        this.ok(((((other.doc.get("meshes")).len()) == 1) && (((other.doc.get("materials")).len()) == 1)) "scenes: only db's mesh and material stay")
+        def dbi:int (other.indexOf("db"))
+        def dbMat:JVal (other.materialOf(dbi))
+        this.ok((((dbMat.strOr("name" "")) == "db") && ((((other.rootList()).toJson()) == "[0,1]"))) ("scenes: indices renumbered, " + ((other.rootList()).toJson())))
+        ; a group keeps where its members are
+        def g:PresSceneModel (PresCheck.sceneSample())
+        def ge:SceneEdit (this.sceneEdit(g "[{\"op\":\"group\",\"name\":\"backend\",\"members\":[\"db\"],\"at\":[1,0,0]}]"))
+        this.ok(ge.ok ("scenes: group, " + ge.error))
+        def gdb:int (g.indexOf("db"))
+        this.ok(((((g.node(gdb)).get("translation")).toJson()) == "[3,0,0]") "scenes: db is 3 from the group at 1")
+        def gw:JVal (PresSceneModel.vec((g.worldOf(gdb)) 10000.0))
+        this.ok(((gw.toJson()) == "[4,0,0]") "scenes: ... and still at 4 in the scene")
+        def gi:JVal (g.inspect())
+        this.ok(((((gi.get("nodes")).at(1)).strOr("parent" "")) == "backend") ("scenes: inspect names the group, " + (gi.toJson())))
+        ; colour, rotation, label
+        def c:SceneEdit (this.sceneEdit(g "[{\"op\":\"update\",\"name\":\"api\",\"color\":\"white\",\"rotate\":[0,90,0],\"label\":\"\"}]"))
+        this.ok(c.ok ("scenes: update colour, rotation and label, " + c.error))
+        def api:JVal (g.node((g.indexOf("api"))))
+        this.ok((((api.get("rotation")).toJson()) == "[0,0.707107,0,0.707107]") ("scenes: 90 degrees round y, " + ((api.get("rotation")).toJson())))
+        def apiMat:JVal (g.materialOf((g.indexOf("api"))))
+        this.ok(((((apiMat.get("pbrMetallicRoughness")).get("baseColorFactor")).toJson()) == "[1,1,1,1]") "scenes: white is 1, 1, 1 in linear light")
+        this.ok((((PresSceneModel.r4((PresSceneModel.linear(0.5)))) == 0.214)) ("scenes: sRGB 0.5 is linear 0.214, " + (to_string (PresSceneModel.linear(0.5)))))
+        this.ok(((((g.info((g.indexOf("api")))).has("label")) == false)) "scenes: an empty label is taken away")
+        ; refused edits change nothing
+        def keep:string (g.print())
+        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]"))
+        def k:int 0
+        while (k < (array_length bad)) {
+            def be:SceneEdit (this.sceneEdit(g (itemAt bad k)))
+            this.ok(((be.ok == false) && (((strlen be.error) > 0) && ((g.print()) == keep))) ("scenes: refused, scene as it was: " + (itemAt bad k) + " → " + be.error))
+            k = (k + 1)
+        }
+        ; the camera looking straight ahead does not turn
+        def q:[double] (PresSceneModel.quatLook(0.0 0.0 10.0 0.0 0.0 0.0))
+        this.ok((((PresSceneModel.r6((itemAt q 3))) == 1.0) && ((PresSceneModel.r6((itemAt q 1))) == 0.0)) "scenes: a camera on +z looking at the middle is not turned")
+        def f:SceneEdit (this.sceneEdit(g "[{\"op\":\"focus\",\"name\":\"api\"}]"))
+        this.ok((f.ok && ((((g.info((g.indexOf("camera")))).get("look")).toJson()) == "[0,0,0]")) "scenes: focus points the camera at api")
+        ; boxes cutting into each other are reported
+        def o:SceneEdit (this.sceneEdit(g "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"lid\",\"at\":[0.2,0,0]}]"))
+        this.ok((((array_length o.warnings) == 1) && ((itemAt o.warnings 0) == "api and lid overlap")) "scenes: an overlap is a warning")
+        ; a glTF from somewhere else gets the shapes when it is first edited
+        def ext:PresSceneModel (PresSceneModel.parse("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"tree\"}]}"))
+        def xe:SceneEdit (this.sceneEdit(ext "[{\"op\":\"add\",\"kind\":\"sphere\",\"name\":\"ball\"}]"))
+        this.ok((xe.ok && ((((ext.doc.get("accessors")).len()) == 15) && ((ext.indexOf("ball")) == 1))) ("scenes: another tool's glTF can be added to, " + xe.error))
+        def xi:JVal (ext.inspect())
+        this.ok(((((xi.get("nodes")).at(0)).strOr("kind" "x")) == "") "scenes: its own nodes have no kind")
+    }
+
     fn worlds:void () {
         def text:string "# Kolmas\n\n```app\nsrc: apps/w.tsx\nsize: 200x100\nallow: 3d\n```\n\n# Ilman\n\n```app\nsrc: apps/x.tsx\nsize: 200x100\n```\n"
         def deck (new PresDeck())
@@ -4931,6 +5155,8 @@ class PresCheck {
         c.plays()
         c.worlds()
         c.beats()
+        c.jsonPatch()
+        c.scenes()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
