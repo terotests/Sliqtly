@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -31,8 +32,11 @@ type roomService struct {
 	links store.Links
 	types *store.LinkTypes
 	// the rooms' chat (roomchat.go): nil where none is kept
-	chat     store.ChatLog
-	presence chatPresence
+	chat store.ChatLog
+	// cloud: sliqtly.com, where everyone is a Google account of their own
+	// in one tenant and sees only the rooms they are members of (invited
+	// by e-mail address); the folder server's caller is its admin
+	cloud bool
 	// tells the pages a chat event of a room (localevents.go); nil: none
 	notify func(room string, v map[string]any)
 	// the rooms' own files (roomfiles.go) and their address; nil: none
@@ -72,6 +76,30 @@ func newRoomService(env *Env) *roomService {
 	return rs
 }
 
+// cloudTenant: the one tenant of the cloud, where a Google account is the
+// boundary: what an account sees is the rooms it is a member of
+const cloudTenant = "cloud"
+
+// the most members a cloud room has (memberships, its maker's included)
+const cloudRoomMembers = 50
+
+// the cloud's rooms (sliqtly.com): kept in e (Firestore) with their chat,
+// for signed-in accounts only
+func newCloudRoomService(env *Env, e store.Engine, chat store.ChatLog) *roomService {
+	st := store.New(e, store.RoomPolicy{Cols: map[string]bool{"shares": true}})
+	types := store.DefaultLinkTypes()
+	return &roomService{
+		st:     st,
+		rooms:  store.Rooms{S: st},
+		links:  store.Links{S: st, Types: types, Resolve: resolveRef},
+		types:  types,
+		chat:   chat,
+		cloud:  true,
+		client: env.Client,
+		ownURL: env.BaseURL,
+	}
+}
+
 // where a ref's document is kept; other kinds (jira:, url:) are told of by
 // their own services
 func resolveRef(r store.Ref) (string, string, bool) {
@@ -84,10 +112,9 @@ func resolveRef(r store.Ref) (string, string, bool) {
 	return "", "", false
 }
 
-func (s *roomService) principal(ctx context.Context, uid string) (store.Principal, error) {
-	// everyone sees everything on the folder server, for now
-	p := store.Principal{UserID: uid, TenantID: localTenant, Roles: []string{"admin"}}
-	return s.rooms.For(ctx, p)
+// the folder server's caller: everyone sees everything there, for now
+func (s *roomService) localPrincipal(uid string) store.Principal {
+	return store.Principal{UserID: uid, TenantID: localTenant, Roles: []string{"admin"}}
 }
 
 // roomTool is one operation: the MCP tool's description and arguments
@@ -156,7 +183,7 @@ var roomTools = []roomTool{
 		required: []string{"room_id", "folder_id"}},
 	{name: "set_room_member", title: "Set a room member's role", destructive: true,
 		desc:     "Give a user or group a role in a room (owners only): viewer reads, editor also changes presentations, owner also manages members. An empty role removes them; the last owner stays.",
-		props:    map[string]any{"room_id": strProp("The room"), "member": strProp("user:<id> or group:<id>"), "role": map[string]any{"type": "string", "enum": []string{"viewer", "editor", "owner", ""}}},
+		props:    map[string]any{"room_id": strProp("The room"), "member": strProp("user:<id>, group:<id> or email:<address> (whoever signs in with that address)"), "role": map[string]any{"type": "string", "enum": []string{"viewer", "editor", "owner", ""}}},
 		required: []string{"room_id", "member", "role"}},
 	{name: "archive_room", title: "Archive a room", destructive: true,
 		desc:     "Archive a room (owners only): it becomes read only for everyone and nothing in it is removed. archived false takes it out of the archive.",
@@ -258,14 +285,23 @@ const (
 )
 
 func (s *roomService) callVia(ctx context.Context, uid, via, op string, a map[string]any) (any, error) {
+	return s.callFor(ctx, s.localPrincipal(uid), via, op, a)
+}
+
+// callFor runs op for p (with no rooms read yet): the folder server's
+// admin, or a signed-in account of the cloud
+func (s *roomService) callFor(ctx context.Context, p store.Principal, via, op string, a map[string]any) (any, error) {
 	t, ok := roomToolOf(op)
 	if !ok || (t.pageOnly && via != viaPage) {
 		return nil, roomErr{"no such operation: " + op}
 	}
-	if uid == "" {
+	if p.UserID == "" {
 		return nil, roomErr{"rooms need sign-in"}
 	}
-	p, err := s.principal(ctx, uid)
+	if s.cloud && !cloudRoomOps[op] {
+		return nil, roomErr{op + " is not on sliqtly.com yet"}
+	}
+	p, err := s.rooms.For(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +326,15 @@ func (s *roomService) callVia(ctx context.Context, uid, via, op string, a map[st
 		s.tell("", map[string]any{"t": "rooms"})
 	}
 	return out, err
+}
+
+// what the cloud's rooms do for now: shared rooms and their chat. Where
+// presentations are, their folders and links stay in each browser there.
+var cloudRoomOps = map[string]bool{
+	"list_rooms": true, "get_room": true, "create_room": true, "update_room": true,
+	"delete_room": true, "set_room_member": true, "archive_room": true,
+	"read_room_chat": true, "post_room_message": true,
+	"chat_delete": true, "chat_react": true, "chat_here": true,
 }
 
 // the operations after which the room lists differ: every page is told
@@ -473,6 +518,15 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		if err != nil {
 			return nil, err
 		}
+		// in the cloud the members are told by address: its maker's too
+		if s.cloud && p.Email != "" {
+			if p, err = s.rooms.For(ctx, p); err != nil {
+				return nil, err
+			}
+			if err := s.rooms.SetMember(ctx, p, id, "email:"+p.Email, store.Owner); err != nil {
+				return nil, err
+			}
+		}
 		if about != "" {
 			if p, err = s.rooms.For(ctx, p); err != nil {
 				return nil, err
@@ -626,6 +680,22 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 
 	case "set_room_member":
 		role := store.Role(argStr(a, "role"))
+		if s.cloud {
+			// people are invited by address in the cloud, a room holds 50
+			if !strings.HasPrefix(argStr(a, "member"), "email:") {
+				return nil, roomErr{"invite people by address: member email:<address>"}
+			}
+			if role != store.NoRole {
+				ms, err := s.st.Privileged().Query(ctx, store.Query{From: store.MembersCol, Where: store.And{store.Eq("tenant", p.TenantID), store.Eq("room", argStr(a, "room_id"))}})
+				if err != nil {
+					return nil, err
+				}
+				want := strings.ToLower(strings.TrimSpace(argStr(a, "member")))
+				if len(ms) >= cloudRoomMembers && !slices.ContainsFunc(ms, func(m store.Item) bool { return m.Doc["member"] == want }) {
+					return nil, roomErr{fmt.Sprintf("a room holds %d members at most", cloudRoomMembers)}
+				}
+			}
+		}
 		if err := s.rooms.SetMember(ctx, p, argStr(a, "room_id"), argStr(a, "member"), role); err != nil {
 			if strings.HasPrefix(err.Error(), "store: ") {
 				return nil, roomErr{strings.TrimPrefix(err.Error(), "store: ")}

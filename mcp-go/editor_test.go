@@ -68,6 +68,9 @@ func editorServer(t *testing.T) (*Env, string, func()) {
 			return &IDToken{UID: "u-tero", Email: "teroktolonen@gmail.com", Name: "Tero", Verified: true}, nil
 		case "anna":
 			return &IDToken{UID: "u-anna", Email: "anna@example.com", Name: "Anna", Verified: true}, nil
+		case "mallory":
+			// claims Anna's address, unverified
+			return &IDToken{UID: "u-mallory", Email: "Anna@example.com", Name: "Anna", Verified: false}, nil
 		}
 		return nil, errors.New("expired")
 	}

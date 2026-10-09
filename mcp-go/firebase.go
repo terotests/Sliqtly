@@ -239,6 +239,8 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 		verified, _ := t.Claims["email_verified"].(bool)
 		return &IDToken{UID: t.UID, Name: name, Email: email, Verified: verified}, nil
 	}
+	// shared rooms and their chat for the editor (editorrooms.go)
+	env.cloudRooms = newCloudRoomService(env, newFSEngine(fs, ""), newFSChat(fs, ""))
 	// the owner's dashboard (admin.go), for the accounts listed
 	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
 	return nil
