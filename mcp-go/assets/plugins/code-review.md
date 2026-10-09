@@ -21,9 +21,8 @@ risks, and draws the views as a review deck.
    warnings about the model (fix them and build again), the review order,
    the risks and the deck in Markdown. `args.slice` builds the deck for one
    slice.
-5. Write the story of the change under "What changed" in the deck, then
-   `create_presentation` with it. The views come from the model: change
-   the model rather than the diagrams.
+5. `create_presentation` with the deck. The views come from the model:
+   change the model rather than the diagrams.
 
 `pr` is a pull request's link or `owner/repo#12`.
 
@@ -68,7 +67,16 @@ them.
   "slices": [
     {"id": "approve", "label": "Reviewer approves", "items": ["user", "api", "f2", "db", "t1"]}
   ],
-  "narrative": {"summary": "Adds an Approved state ...", "critical_path": ["user", "f1", "api", "f2", "db"]}
+  "narrative": {
+    "summary": "Adds an Approved state ...",
+    "critical_path": ["user", "f1", "api", "f2", "db"],
+    "story": [
+      {"text": "Reviewers could only reject; approving meant a message to the author."},
+      {"link": "therefore", "text": "The API gets an Approved state.", "refs": ["src/review/machine.ts:22"]},
+      {"link": "but", "text": "The mail goes out before the row is saved, so a failed save still tells the author it was approved.", "refs": ["src/api/review.ts:61-72"]},
+      {"link": "therefore", "text": "Read the save first."}
+    ]
+  }
 }
 ```
 
@@ -87,6 +95,21 @@ them.
 Items that did not change but explain the change (the store a new flow
 writes to, the state a new transition leaves) belong in the model with
 `change` left out; they are drawn as context.
+
+## The story
+
+`narrative.story` tells the change as a story, beat by beat, on the
+deck's second slide. Each beat after the first is joined to the one
+before by **but** (what gets in the way: a failure, a wait, a guard, an
+old behaviour to keep) or **therefore** (what follows from it), never by
+"and then": a reader keeps reading to see how the tension resolves.
+Vary the length of the beats, a short one after long ones and a long one
+after short; three of about the same length in a row read as a drone.
+`link` takes `but` or `therefore` (also `however`, `so`, `mutta`,
+`siksi`, `joten`). Build warns about a beat joined any other way, beats
+of one length in a row, and a story with no "but". Without a story, build
+drafts one from the model (the critical path as "therefore", its failures
+and waits without a timeout as "but"); rewrite it as the change's own.
 
 ## What build gives
 

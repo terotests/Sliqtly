@@ -341,6 +341,10 @@ class CodeReview {
             push lines ""
             push lines ("Slices (args.slice builds the deck for one): " + (join names ", ") + ".")
         }
+        if m.storyDrafted {
+            push lines ""
+            push lines "The story was drafted from the model. Write narrative.story yourself: beats joined by \"but\" (what gets in the way) or \"therefore\" (what follows), never \"and then\"."
+        }
         push lines ""
         push lines "The review deck, to pass to create_presentation (put the story of the change under \"What changed\"; keep the views as they are, they come from the model):"
         push lines ""

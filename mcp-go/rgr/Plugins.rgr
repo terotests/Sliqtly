@@ -33,7 +33,7 @@ class Plugins {
         cr.title = "Code review"
         cr.when = "reviewing a pull request or a code change: what changed, what it affects, where data flows and rests, what can fail, who waits for whom"
         cr.ops = ([] _:string ("start" "build"))
-        cr.version = "2026-10-09"
+        cr.version = "2026-10-09.2"
         push out cr
         return out
     }

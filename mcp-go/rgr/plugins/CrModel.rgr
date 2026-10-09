@@ -66,6 +66,29 @@ class CrItem {
     }
 }
 
+; one beat of the change's story. Beats are joined by "but" (what gets in
+; the way) or "therefore" (what follows from it), never "and then".
+class CrBeat {
+    ; the word joining it to the beat before: "" on the first
+    def link:string ""
+    def text:string ""
+    def refs:[string]
+
+    ; "but", "therefore" or "" when the word is neither
+    sfn kindOf:string (word:string) {
+        def w:string (trim (to_lowercase word))
+        def buts:[string] ([] _:string ("but" "however" "yet" "except" "unless" "mutta" "paitsi" "kuitenkin" "vaan"))
+        def sos:[string] ([] _:string ("therefore" "so" "which means" "because of that" "thus" "siksi" "joten" "niinpä" "siis"))
+        if ((indexOf buts w) >= 0) {
+            return "but"
+        }
+        if ((indexOf sos w) >= 0) {
+            return "therefore"
+        }
+        return ""
+    }
+}
+
 class CrSlice {
     def id:string ""
     def label:string ""
@@ -144,6 +167,9 @@ class CrModel {
     def title:string ""
     def summary:string ""
     def critical:[string]
+    ; the change's story; drafted from the model when the assistant gave none
+    def story:[CrBeat]
+    def storyDrafted:boolean false
     def items:[CrItem]
     def slices:[CrSlice]
     def warnings:[string]
@@ -224,6 +250,26 @@ class CrModel {
         if (nar.isObj()) {
             out.summary = (nar.str_("summary"))
             out.critical = (CrModel.strList((nar.field("critical_path"))))
+            def st:MfJ (nar.field("story"))
+            if (st.isArr()) {
+                def bi:int 0
+                while (bi < (st.count())) {
+                    def bo:MfJ (st.item(bi))
+                    bi = (bi + 1)
+                    def b (new CrBeat)
+                    if (bo.kind == 3) {
+                        b.text = (trim bo.str)
+                    }
+                    if (bo.isObj()) {
+                        b.link = (trim (bo.str_("link")))
+                        b.text = (trim (bo.str_("text")))
+                        b.refs = (CrModel.strList((bo.field("refs"))))
+                    }
+                    if ((strlen b.text) > 0) {
+                        push out.story b
+                    }
+                }
+            }
         }
         def seen:[string]
         for (CrModel.SECTIONS()) section:string si {
@@ -343,7 +389,142 @@ class CrModel {
             }
         }
         out.links()
+        out.checkStory()
         return out
+    }
+
+    ; a story told as "but" and "therefore", not "and then"
+    fn checkStory:void () {
+        def buts:int 0
+        def i:int 0
+        for story b:CrBeat bi {
+            i = (i + 1)
+            def kind:string (CrBeat.kindOf(b.link))
+            if (kind == "but") {
+                buts = (buts + 1)
+            }
+            if ((i > 1) && (kind == "")) {
+                def word:string b.link
+                if ((strlen word) == 0) {
+                    word = "nothing"
+                }
+                push warnings ("narrative.story beat " + i + " is joined by " + word + ": say what gets in the way (\"but\") or what follows from the beat before (\"therefore\"), never \"and then\".")
+            }
+        }
+        ; rhythm: three beats in a row of about the same length drone
+        def run:int 1
+        def prev:int -100
+        def j:int 0
+        for story b2:CrBeat b2i {
+            j = (j + 1)
+            def n:int (CrModel.words(b2.text))
+            def d:int (n - prev)
+            if (d < 0) {
+                d = (0 - d)
+            }
+            if (d <= 2) {
+                run = (run + 1)
+            } {
+                run = 1
+            }
+            if (run == 3) {
+                push warnings ("narrative.story beats " + (j - 2) + "–" + j + " are all about " + n + " words long: vary the length, a short beat after long ones, a long one after short.")
+            }
+            prev = n
+        }
+        if (((array_length story) >= 3) && (buts == 0)) {
+            push warnings "narrative.story has no \"but\": where does the change meet resistance (a failure, a wait, a guard, an old behaviour it must keep)?"
+        }
+    }
+
+    sfn words:int (text:string) {
+        def n:int 0
+        for (strsplit (trim text) " ") w:string i {
+            if ((strlen (trim w)) > 0) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    fn beat:void (link:string text:string ref:string) {
+        def b (new CrBeat)
+        b.link = link
+        b.text = text
+        if ((strlen ref) > 0) {
+            push b.refs ref
+        }
+        push story b
+    }
+
+    ; a first story from the model, for the assistant to rewrite: the
+    ; critical path as "therefore", what can go wrong on it as "but"
+    fn draftStory:void () {
+        if ((array_length story) > 0) {
+            return
+        }
+        storyDrafted = true
+        def flows:[CrItem]
+        def crit:[string] (this.criticalIds())
+        for crit c:string ci {
+            def f@(optional):CrItem (this.find(c))
+            if (!null? f) {
+                if (f.sect == "flow") {
+                    push flows (unwrap f)
+                }
+            }
+        }
+        if ((array_length flows) == 0) {
+            for (this.of("flow")) f2:CrItem f2i {
+                if ((array_length flows) < 3) {
+                    push flows f2
+                }
+            }
+        }
+        for flows f3:CrItem fi {
+            def what:string f3.payload
+            if ((strlen what) == 0) {
+                what = "data"
+            }
+            def verb:string "passes "
+            if ((this.sectOf(f3.dst)) == "store") {
+                verb = "writes "
+            }
+            def text:string ((this.labelOf(f3.src)) + " " + verb + what + " to " + (this.labelOf(f3.dst)))
+            if ((strlen f3.transform) > 0) {
+                text = (text + " (" + f3.transform + ")")
+            }
+            def link:string "therefore"
+            if ((array_length story) == 0) {
+                link = ""
+            }
+            this.beat(link text (f3.firstRef()))
+        }
+        for (this.of("transition")) t:CrItem ti {
+            if (t.changed()) {
+                def how:string t.trigger
+                if ((strlen how) == 0) {
+                    how = "the change"
+                }
+                def link2:string "therefore"
+                if ((array_length story) == 0) {
+                    link2 = ""
+                }
+                this.beat(link2 (how + " moves it from " + (this.labelOf(t.src)) + " to " + (this.labelOf(t.dst))) (t.firstRef()))
+            }
+        }
+        for (this.of("failure")) x:CrItem xi {
+            def thenL:string x.thenText
+            if ((strlen thenL) == 0) {
+                thenL = "nothing says what happens"
+            }
+            this.beat("but" ("when " + (this.failWhen(x)) + ", " + thenL) (x.firstRef()))
+        }
+        for (this.of("wait")) w:CrItem wi {
+            if ((strlen w.timeout) == 0) {
+                this.beat("but" ((this.labelOf(w.src)) + " waits for " + (this.waitWhat(w)) + " with no timeout") (w.firstRef()))
+            }
+        }
     }
 
     fn find@(optional):CrItem (id:string) {
