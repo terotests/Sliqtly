@@ -4,8 +4,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	pngenc "image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -108,6 +113,68 @@ func TestRoomFiles(t *testing.T) {
 	}
 	res.Body.Close()
 	eq(t, res.StatusCode, 404)
+}
+
+// An assistant puts a picture into the room's files (put_room_file) and
+// shows it in the chat by name; the message carries the picture's size.
+func TestPutRoomFile(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	s := &testServer{root: srv.URL, session: session}
+	ok := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		r := call(t, s, name, args)
+		if r.IsError {
+			t.Fatalf("%s: %s", name, textOf(r))
+		}
+		return sc(r)
+	}
+	bad := func(name string, args map[string]any, want string) {
+		t.Helper()
+		r := call(t, s, name, args)
+		if !r.IsError {
+			t.Fatalf("%s worked: %s", name, textOf(r))
+		}
+		match(t, textOf(r), want)
+	}
+	room := ok("create_room", map[string]any{"title": "Pictures"})["room_id"].(string)
+	var png bytes.Buffer
+	if err := pngenc.Encode(&png, image.NewRGBA(image.Rect(0, 0, 12, 7))); err != nil {
+		t.Fatal(err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(png.Bytes())
+
+	f := ok("put_room_file", map[string]any{"room_id": room, "name": "dot.png", "data_base64": b64})
+	eq(t, []any{f["name"], f["type"], f["size"], f["w"], f["h"]}, []any{"dot.png", "image/png", float64(png.Len()), 12.0, 7.0})
+	// a data: URL, and the same name again: kept beside it
+	f2 := ok("put_room_file", map[string]any{"room_id": room, "name": "dot.png", "data_base64": "data:image/png;base64," + b64})
+	eq(t, f2["name"], "dot (2).png")
+	// replace keeps the name
+	eq(t, ok("put_room_file", map[string]any{"room_id": room, "name": "dot.png", "data_base64": b64, "replace": true})["name"], "dot.png")
+	svg := ok("put_room_file", map[string]any{"room_id": room, "name": "box.svg", "text": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"/>`})
+	eq(t, []any{svg["type"], svg["w"]}, []any{"image/svg+xml", nil})
+
+	bad("put_room_file", map[string]any{"room_id": room, "name": "x.png", "data_base64": "not base64!"}, `not valid base64`)
+	bad("put_room_file", map[string]any{"room_id": room, "name": "x.png", "data_base64": base64.StdEncoding.EncodeToString([]byte("PNGDATA"))}, `not a picture that can be read`)
+	bad("put_room_file", map[string]any{"room_id": room, "name": "x.png", "data_base64": b64, "text": "x"}, `give one of`)
+	bad("put_room_file", map[string]any{"room_id": room, "name": "x.png", "path": "/tmp/x.png"}, `import folders`)
+	bad("put_room_file", map[string]any{"room_id": room, "name": "x.png", "url": "http://example.com/x.png"}, `only public https`)
+	bad("put_room_file", map[string]any{"room_id": "nothere", "name": "x.png", "data_base64": b64}, `not found`)
+
+	// shown by name; the size comes from the picture
+	ok("post_room_message", map[string]any{"room_id": room, "text": "The picture", "agent": "Claude", "files": []any{"dot.png", "box.svg"}})
+	msgs := list(ok("read_room_chat", map[string]any{"room_id": room})["messages"])
+	fs := list(msgs[0].(map[string]any)["files"])
+	pic, vec := fs[0].(map[string]any), fs[1].(map[string]any)
+	eq(t, []any{pic["name"], pic["w"], pic["h"], vec["name"], vec["w"]}, []any{"dot.png", 12.0, 7.0, "box.svg", nil})
+	res, err := http.Get(pic["url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	eq(t, []any{res.StatusCode, bytes.Equal(got, png.Bytes())}, []any{200, true})
 }
 
 func TestRoomFileNames(t *testing.T) {

@@ -1031,4 +1031,9 @@ assistants working for them talk.
   lists them with their addresses. Show some with a message by `files`
   (their names) on `post_room_message`; the text may then be empty. Links
   in a message get a preview shortly after it is posted.
+- Your own picture or file: `put_room_file` with `name` and one of
+  `data_base64`, `text` (an SVG, CSV …), a public https `url` or, on a
+  server with import folders, `path`; then `files: ["<name it answered>"]`
+  on `post_room_message`. A name the room has already gets "(2)" unless
+  `replace` is true.
 <!-- /rooms -->

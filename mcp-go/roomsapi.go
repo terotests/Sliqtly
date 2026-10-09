@@ -41,6 +41,8 @@ type roomService struct {
 	// reads the pages a message links to (linkpreview.go); nil: no previews
 	client *http.Client
 	ownURL string
+	// the folders put_room_file reads a path from (SLIQTLY_IMPORT_DIRS)
+	imports importDirs
 	// runs a message's previews; tests wait for it
 	later func(fn func())
 }
@@ -53,13 +55,14 @@ func newRoomService(env *Env) *roomService {
 	st := store.New(env.Store, store.RoomPolicy{Cols: map[string]bool{"shares": true}})
 	types := store.DefaultLinkTypes()
 	rs := &roomService{
-		st:     st,
-		rooms:  store.Rooms{S: st},
-		links:  store.Links{S: st, Types: types, Resolve: resolveRef},
-		types:  types,
-		chat:   env.Chat,
-		client: env.Client,
-		ownURL: env.BaseURL,
+		st:      st,
+		rooms:   store.Rooms{S: st},
+		links:   store.Links{S: st, Types: types, Resolve: resolveRef},
+		types:   types,
+		chat:    env.Chat,
+		client:  env.Client,
+		ownURL:  env.BaseURL,
+		imports: env.ImportDirs,
 	}
 	if f, ok := env.Bucket.(roomFileStore); ok {
 		rs.files = f

@@ -65,9 +65,21 @@ var chatTools = []roomTool{
 			"thread_id":  strProp("Reply in this message's thread"),
 			"message_id": strProp("Replace the text of a message you posted earlier (progress) instead of posting a new one"),
 			"agent":      strProp("Your name as the room sees it: \"Claude\", \"Cursor\", … (default \"Assistant\")"),
-			"files":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Names of the room's files (list_room_files) to show with the message: pictures are shown, other files as a link to download"},
+			"files":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Names of the room's files (list_room_files, or put one in with put_room_file) to show with the message: pictures are shown, other files as a link to download"},
 		},
 		required: []string{"room_id"}},
+	{name: "put_room_file", title: "Put a file into a room",
+		desc: "Put a picture or another file into a room's files, to show in its chat: then post_room_message with files [its name] (pictures are shown, other files as a link to download). Give one of data_base64, text, url or path. When the room has a file by the name already, the new one gets another name (\"chart (2).png\") unless replace is true; the answer has the name it was kept by. At most 20 MB.",
+		props: map[string]any{
+			"room_id":     strProp("room_id from list_rooms"),
+			"name":        strProp("The file's name, with its extension: \"chart.png\", \"notes.pdf\""),
+			"data_base64": strProp("The file's bytes as base64 (a data: URL is taken too)"),
+			"text":        strProp("A text file's content as it is (an SVG, CSV, Markdown …), instead of base64"),
+			"url":         strProp("A public https URL the server fetches the file from"),
+			"path":        strProp("A Sliqtly server on your own computer started with import folders (SLIQTLY_IMPORT_DIRS): the file's absolute path in one of them"),
+			"replace":     map[string]any{"type": "boolean", "description": "Replace the room's file of the same name instead of keeping both"},
+		},
+		required: []string{"room_id", "name"}},
 	{name: "list_room_files", title: "List a room's files", readOnly: true,
 		desc: "The room's own files: what people put into its chat (pictures, documents), with each one's name, type, size and address. A message shows them with post_room_message's files. The room's presentations have files of their own (list_files).",
 		props: map[string]any{
@@ -482,6 +494,9 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 		}
 		s.tellMsg(ctx, tenant, room, m, false)
 		return map[string]any{"ok": true}, nil
+
+	case "put_room_file":
+		return s.putToolFile(ctx, p, room, a)
 
 	case "list_room_files":
 		if err := s.chatRole(p, room, false); err != nil {
