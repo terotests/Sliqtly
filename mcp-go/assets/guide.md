@@ -1027,6 +1027,10 @@ lands in General, and the user then has to move it by hand.
   give `room_id` to `create_presentation`.
 - `list_rooms` gives at most 1000 rooms a page; `next_offset` is where the
   next page starts (`offset`). `move_presentation` moves a deck later.
+- `search_presentations` finds presentations by the words in their
+  slides and notes (not their Markdown's syntax), each with its room and
+  the text around the first word: use it when the user names what a deck
+  said rather than what it is called.
 - `get_room` lists a room's presentations; `update_room` renames or
   describes it; `archive_room` puts finished work away (read only, nothing
   removed); `delete_room` removes the room and moves its decks to General.

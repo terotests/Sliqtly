@@ -16,6 +16,8 @@ Import "Tools.rgr"
 Import "Mcp.rgr"
 Import "Stats.rgr"
 Import "View.rgr"
+; a deck's words for the Rooms search (searchapi.go)
+Import "../markdown/src/MdSearchText.rgr"
 
 class App {
     sfn cors:void (res:HttpResponse) {

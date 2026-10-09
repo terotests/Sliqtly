@@ -620,4 +620,15 @@ async function readSheet(gviz, ask) {
 }
 
 window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+// sliqtly.com/editor's Rooms search: the signed-in user's own presentations
+// whose words hold q, searched by the server (mcp-go/searchapi.go)
+// → [{ deck_id, name, snippet, updated }]
+if (gate) {
+  window.sliqtly.searchDecks = async (q) => {
+    const res = await fetch("/editor/api/search?q=" + encodeURIComponent(q), { cache: "no-store" });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || String(res.status));
+    return out.presentations || [];
+  };
+}
 window.dispatchEvent(new Event("sliqtly:ready"));

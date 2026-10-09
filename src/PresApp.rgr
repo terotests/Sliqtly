@@ -46,6 +46,7 @@ Import "../datagrid/src/script/ScriptEditor.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 Import "../markdown/src/R5MdLanguage.rgr"
+Import "../markdown/src/MdSearchText.rgr"
 Import "PresCssLanguage.rgr"
 Import "../datagrid/src/script/lang/JsLanguage.rgr"
 Import "PresHints.rgr"
@@ -10443,6 +10444,22 @@ class PresApp {
         chart.close()
         focus = "editor"
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The Rooms search through a deck kept only in this browser (web/main.js
+    ; deckSearch; the server searches the others the same way): the words a
+    ; reader sees in its Markdown, one block to a line (RangerMarkdown
+    ; MdSearchText), and the text around the query's first word in them,
+    ; "+" first, or "" when the name and the words do not hold every word.
+    fn searchText:string (md:string) {
+        return (MdSearchText.of(md))
+    }
+
+    fn searchSnippet:string (name:string text:string query:string) {
+        if ((MdSearchText.find((name + "\n" + text) query)) < 0) {
+            return ""
+        }
+        return ("+" + (MdSearchText.snippet(text query 90)))
     }
 
     fn chartIsOpen:boolean () {

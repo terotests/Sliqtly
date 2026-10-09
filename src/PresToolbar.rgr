@@ -133,6 +133,9 @@ class PresToolbar {
     ; the Rooms panel's search row ("Search rooms…", with how many rooms
     ; only search finds), from the page
     def roomSearchLabel:string ""
+    ; while searching, the presentations whose words hold the query, from
+    ; the page: "id TAB name TAB room TAB text around the first word"
+    def roomFound:string ""
     ; a presentation of a room's list pressed: dragged onto another room it
     ; moves there, let go where it was pressed it opens
     def dragDeck:string ""
@@ -184,6 +187,9 @@ class PresToolbar {
         }
         if (id == "roomsearch") {
             roomSearchLabel = current
+        }
+        if (id == "roomfound") {
+            roomFound = rows
         }
         if (id == "roomdecks") {
             roomDecks = rows
@@ -1292,7 +1298,52 @@ class PresToolbar {
             sel.addChild((this.div("tb-grow")))
         }
         this.liveRooms(pane)
+        if fieldOn {
+            this.foundDecks(pane)
+        }
         root.addChild(pane)
+    }
+
+    ; Searching: under the rooms found, the presentations whose words hold
+    ; the query, each with its room and the text around the first word.
+    ; Pressed, one opens in its room.
+    fn foundDecks:void (pane:EVGElement) {
+        def lines:[string] (strsplit roomFound (strfromcode 10))
+        def w:double (roomsW - 40.0)
+        def head:boolean false
+        for lines line:string i {
+            def parts:[string] (strsplit line (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                if (head == false) {
+                    pane.addChild((this.div("tb-rooms-sep")))
+                    pane.addChild((this.text("tb-found-head" (PresI18n.t("Presentations")))))
+                    head = true
+                }
+                def id:string (itemAt parts 0)
+                def b:ButtonCtl (this.button(("found-" + id) (UiText.fit((this.engine()) (itemAt parts 1) "Open Sans" 13.0 w)) "ghost" pane))
+                def el:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(el "tb-found")
+                if ((el.getChildCount()) > 0) {
+                    UiTree.addClass((el.getChild(0)) "tb-found-name")
+                }
+                if (((array_length parts) >= 3) && ((strlen (itemAt parts 2)) > 0)) {
+                    el.addChild((this.text("tb-found-room" (UiText.fit((this.engine()) ("# " + (itemAt parts 2)) "Open Sans" 11.0 w)))))
+                }
+                if (((array_length parts) >= 4) && ((strlen (itemAt parts 3)) > 0)) {
+                    ; two lines at most, the second cut with "…"
+                    def wrapped:[string] (UiText.wrapLines((this.engine()) (itemAt parts 3) "Open Sans" 11.0 w))
+                    def k:int 0
+                    while ((k < (array_length wrapped)) && (k < 2)) {
+                        def words:string (itemAt wrapped k)
+                        if ((k == 1) && ((array_length wrapped) > 2)) {
+                            words = (UiText.fit((this.engine()) (words + " " + (itemAt wrapped 2)) "Open Sans" 11.0 w))
+                        }
+                        el.addChild((this.text("tb-found-text" words)))
+                        k = (k + 1)
+                    }
+                }
+            }
+        }
     }
 
     ; The presentation being dragged, drawn at the pointer.
@@ -2162,8 +2213,16 @@ class PresToolbar {
                 rev = (rev + 1)
                 return
             }
-            ; searching, a room found is opened by its press
+            ; searching, a room found is opened by its press, and a
+            ; presentation found in its room
             if (editFor == "search") {
+                if ((indexOf ctlTid "tb-found-") == 0) {
+                    titleEditing = false
+                    roomFound = ""
+                    push requests ("room:found:" + (substring ctlTid 9 (strlen ctlTid)))
+                    this.rebuild()
+                    return
+                }
                 if (((indexOf ctlTid "tb-room-") == 0) && (ctlTid != "tb-room-close")) {
                     titleEditing = false
                     roomOpen = (substring ctlTid 8 (strlen ctlTid))
