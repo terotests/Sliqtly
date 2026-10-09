@@ -4475,7 +4475,7 @@ try {
     await ctx.exposeFunction("__fakeFirebase", async (op, a) => {
       if (op === "get") return fakeDb.get(a.k) ?? null;
       if (op === "query") {
-        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && d[a.f] === a.v).slice(0, a.n)
+        return [...fakeDb.entries()].filter(([k, d]) => k.startsWith(a.c + "/") && a.w.every(([f, op, v]) => (op === "array-contains" ? (d[f] || []).includes(v) : d[f] === v))).slice(0, a.n)
           .map(([k, d]) => ({ id: k.slice(a.c.length + 1), d }));
       }
       if (op === "set") fakeDb.set(a.k, stamp(a.merge ? { ...fakeDb.get(a.k), ...a.data } : a.data));
@@ -4498,11 +4498,15 @@ try {
         get: async () => { const d = await call("get", { k: c + "/" + id }); return { exists: d != null, data: () => d }; },
       });
       const ms = (v) => (typeof v === "number" ? { toMillis: () => v } : v);
-      const query = (c, f, v, n) => ({
-        limit: (m) => query(c, f, v, m),
-        get: async () => ({ docs: (await call("query", { c, f, v, n: n || 1000 })).map((x) => ({ id: x.id, data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) })) }),
+      const query = (c, w, n) => ({
+        where: (f, op, v) => query(c, [...w, [f, op, v]], n),
+        limit: (m) => query(c, w, m),
+        get: async () => {
+          const docs = (await call("query", { c, w, n: n || 1000 })).map((x) => ({ id: x.id, ref: ref(c, x.id), data: () => ({ ...x.d, updated: ms(x.d.updated), created: ms(x.d.created) }) }));
+          return { docs, empty: docs.length === 0 };
+        },
       });
-      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, f, v, 0) }) };
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, [[f, op, v]], 0) }) };
       const firestore = () => db;
       firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
       const storage = () => ({ ref: (p) => ({
@@ -4547,8 +4551,8 @@ try {
     const ids = shareId();
     const id = ids[0] || "";
     const first = { ids, address: await pc.evaluate(() => location.pathname + location.search), share: fakeDb.get("shares/" + id) };
-    check("PRO: a changed deck is saved to the cloud, viewable by its link, and the address names it",
-      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "link" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
+    check("PRO: a changed deck is saved to the cloud, private, and the address names it",
+      ids.length === 1 && first.address === "/s/" + id + "?edit" && first.share?.owner === "u1" && first.share.visibility === "private" && first.share.md.includes("## Kuva") && (first.share.files || []).some((f) => f.path === "media/cloud-pic.png"),
       JSON.stringify({ ids, address: first.address, files: first.share?.files }));
 
     await pc.reload();
@@ -4572,12 +4576,13 @@ try {
     check("PRO: an edit in the editor is written to the cloud", edited.md.includes("## Editorin dia") && edited.md.includes("## Avustajan dia") && puts === putsBefore && shareId().length === 1,
       JSON.stringify({ puts: puts - putsBefore, shares: shareId().length }));
 
-    // Share links to the same cloud deck, no new copy
-    await pc.evaluate(() => { window.__lastShare = ""; document.getElementById("share").click(); });
-    await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+\?edit$/.test(window.__lastShare || ""), null, { timeout: 10000 }).catch(() => {});
-    const link = await pc.evaluate(() => window.__lastShare || "");
-    check("PRO: Share links to the deck's own cloud copy and opens it to anyone with the link",
-      link.endsWith("/s/" + id + "?edit") && shareId().length === 1 && fakeDb.get("shares/" + id).visibility === "link", link);
+    // Share: a viewing link of its own, no editing link, no new copy, the
+    // deck still private
+    await pc.evaluate(() => { window.__lastShare = ""; window.__lastShareShow = ""; document.getElementById("share").click(); });
+    await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+$/.test(window.__lastShareShow || ""), null, { timeout: 10000 }).catch(() => {});
+    const link = await pc.evaluate(() => ({ show: window.__lastShareShow || "", edit: window.__lastShare || "" }));
+    check("PRO: Share gives a viewing link of its own, never the deck's id, and the deck stays private",
+      /\/s\/[A-Za-z0-9]+$/.test(link.show) && !link.show.includes(id) && link.edit === "" && shareId().length === 1 && fakeDb.get("shares/" + id).visibility === "private", JSON.stringify(link));
     await pc.evaluate(() => window.__app.closeShare());
 
     // changed elsewhere meanwhile: not written over, the two merged here
@@ -4866,7 +4871,8 @@ try {
     await pc.evaluate(() => window.__app.setSource(window.__app.source() + "\n## Oma lisäys\n"));
     await pc.waitForTimeout(2500);
     const changed = await pc.evaluate(() => ({ kept: localStorage.getItem("evgp.doc"), hash: location.hash }));
-    check("changed, the copy is kept, with no #doc in the address", !!changed.kept && !changed.hash.includes("doc="), JSON.stringify(changed));
+    // someone else's deck is shown, never copied: a change keeps nothing
+    check("changed, someone else's deck is still not copied, with no #doc in the address", !changed.kept && !changed.hash.includes("doc="), JSON.stringify(changed));
     check("no page errors opening someone else's deck", cerr.length === 0, cerr.join(" | "));
     await ctx.close();
   }
@@ -5173,6 +5179,7 @@ try {
         Object.assign(window.sliqtly, {
           user: () => ({ uid: "u1" }),
           signedIn: async () => ({ uid: "u1" }),
+          mayChange: (cur) => cur.owner === "u1",
           share: async (d) => call("share", await deckOf(d)),
           saveShare: async (id, d, since) => call("saveShare", id, await deckOf(d), { md: since.md }),
           loadShare: (id) => call("load", id),

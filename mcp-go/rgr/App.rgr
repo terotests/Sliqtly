@@ -163,7 +163,7 @@ class App {
         if ((indexOf id ".jpg") == ((strlen id) - 4)) {
             id = (substring id 0 ((strlen id) - 4))
         }
-        def doc:MfJ (LinkCard.shown(host id))
+        def doc:MfJ (LinkCard.shown(host id)).doc
         if ((doc.isObj()) == false) {
             http_set_header res "Cache-Control" "no-store"
             App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")
