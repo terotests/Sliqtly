@@ -2159,6 +2159,59 @@ class PresCheck {
         this.ok((back.isMachine && ((back.machine.machine.stateCount()) == 3)) ("read back: " + out))
     }
 
+    ; Tero's test deck (2026-10-09): a parallel machine in the romantic look
+    ; was one black slab (its frames filled like boxes) and its tour was the
+    ; region "kassa" alone.
+    fn machineSlide:void () {
+        def q:string (strfromcode 34)
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }")
+        deck.setText(("## Kahvila\n\n```xstate {style=romantic}\n{ " + q + "initial" + q + ": " + q + "kiinni" + q + ", " + q + "states" + q + ": { " + q + "kiinni" + q + ": { " + q + "on" + q + ": { " + q + "AVAA" + q + ": " + q + "auki" + q + " } }, " + q + "auki" + q + ": { " + q + "type" + q + ": " + q + "parallel" + q + ", " + q + "on" + q + ": { " + q + "SULJE" + q + ": " + q + "kiinni" + q + " }, " + q + "states" + q + ": { " + q + "kone" + q + ": { " + q + "initial" + q + ": " + q + "valmis" + q + ", " + q + "states" + q + ": { " + q + "valmis" + q + ": { " + q + "on" + q + ": { " + q + "KEITA" + q + ": " + q + "keittaa" + q + " } }, " + q + "keittaa" + q + ": {} } }, " + q + "kassa" + q + ": { " + q + "initial" + q + ": " + q + "vapaa" + q + ", " + q + "states" + q + ": { " + q + "vapaa" + q + ": { " + q + "on" + q + ": { " + q + "ASIAKAS" + q + ": " + q + "palvelee" + q + " } }, " + q + "palvelee" + q + ": {} } } } } } }\n```\n"))
+        def hit@(optional):PresDiaUse (deck.diagramUse(0 0))
+        if (null? hit) {
+            this.ok(false "machine slide: the slide has its diagram")
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        def d:PresDiagram u.diagram
+        this.ok((d.style == "romantic") ("machine slide: romantic, got " + d.style))
+        def frames:int 0
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            if ((d.kindAt(i)) == "frame") {
+                frames = (frames + 1)
+            }
+            i = (i + 1)
+        }
+        this.ok((frames == 3) ("machine slide: auki, kone and kassa are frames, drawn as outlines: " + (to_string frames)))
+        def part:FlowLookPart (d.look.framePart())
+        this.ok(((strlen part.fill) == 0) "machine slide: a frame has no fill")
+        def tour:string (d.tourText())
+        this.ok((((indexOf tour "kiinni") > 0) && ((indexOf tour "kassa") != 0)) ("machine slide: the tour starts at the start dot, not a region: " + tour))
+        this.ok((((indexOf tour "valmis") > 0) && ((indexOf tour "vapaa") > 0)) ("machine slide: it goes into auki, both regions: " + tour))
+    }
+
+    ; One fence written twice on a page in two looks: two diagrams in two
+    ; boxes. Matched by their text, both were drawn in the second's look.
+    fn sameFenceTwice:void () {
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 1 }")
+        def fence:string "```mermaid\nflowchart LR\n  A --> B\n```\n"
+        deck.setText(("# Kaksi\n\n## Oletus\n\n" + fence + "\n## Cartoon\n\n" + fence + "{style=cartoon}\n"))
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) != 2) {
+            this.ok(false ("same fence twice: two diagrams on the page, got " + (to_string (array_length s.diagrams))))
+            return
+        }
+        def u0:PresDiaUse (itemAt s.diagrams 0)
+        def u1:PresDiaUse (itemAt s.diagrams 1)
+        this.ok(((u0.diagram.style != "cartoon") && (u1.diagram.style == "cartoon")) ("same fence twice: each its own look: " + u0.diagram.style + ", " + u1.diagram.style))
+        this.ok((u1.by > (u0.by + 10.0)) ("same fence twice: each in its own box: " + (to_string u0.by) + ", " + (to_string u1.by)))
+        def b1:int (deck.embedBoxAt(0 u1.source u1.srcStart))
+        def l:MdLayout (deck.layout())
+        this.ok(((b1 >= 0) && ((itemAt l.boxes b1).srcStart == u1.srcStart)) "same fence twice: the box is found by where the fence starts")
+    }
+
     ; The table window's model: cells, alignments, rows and columns.
     fn gridModel:void () {
         def src:string "| Alue | Myynti |\n| :--- | ---: |\n| Etelä | 120 |\n| Pohjoinen \\| itä | `a|b` |"
@@ -4288,6 +4341,8 @@ class PresCheck {
         c.staggered()
         c.flowModel()
         c.machineModel()
+        c.machineSlide()
+        c.sameFenceTwice()
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()

@@ -9,6 +9,8 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -338,6 +340,34 @@ func TestLayoutReportXState(t *testing.T) {
 	match(t, text, `nowhere`)
 	match(t, text, `tour: `)
 	match(t, text, `function in the config`)
+}
+
+// Tero's test deck (2026-10-09): an editorial page holds several sections,
+// so a note names the section under the page's title; the parallel machine's
+// tour starts at its start dot and goes into both regions; the default
+// look's text reads on its fills; a six-state machine across a wide strip is
+// not 3 px text.
+func TestLayoutReportXStateStyles(t *testing.T) {
+	md, err := os.ReadFile("testdata/xstate-styles.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "XS", "theme": "editorial", "markdown": string(md)})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	text := textOf(c)
+	match(t, text, `under "XState: virhetesti": a: HUKU: no state "eiOle"`)
+	match(t, text, `tour: • → kiinni → auki → • → lammittyy .* → • → vapaa`)
+	if strings.Contains(text, `"uutaEspresso"`) {
+		t.Errorf("the default look's text should read on its fills:\n%s", text)
+	}
+	if regexp.MustCompile(`smallest text [1-9] px`).MatchString(text) {
+		t.Errorf("no XState diagram should be drawn under 10 px:\n%s", text)
+	}
 }
 
 // Every symbol a slide commonly uses has a glyph in some face the painter
