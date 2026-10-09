@@ -356,6 +356,17 @@
 .theme-rvg .chat-msg { background-color: rgba(255, 255, 255, 0.10); margin-right: 0; }
 .theme-rvg .chat-msg-mine { background-color: rgba(20, 184, 166, 0.18); margin-left: 0; }
 .theme-rvg .chat-text { font-size: 16px; color: #f4f4f5; }
+/* a formatted comment (ChatCtl markup, EVGUI's ch-* lines) on the dark glass */
+.theme-rvg .ch-run,
+.theme-rvg .ch-w,
+.theme-rvg .ch-bullet { font-size: 16px; line-height: 24px; color: #f4f4f5; }
+.theme-rvg .ch-quote { border-color: rgba(255, 255, 255, 0.3); }
+.theme-rvg .ch-icode { font-size: 14px; color: #fda4af; background-color: rgba(255, 255, 255, 0.12); }
+.theme-rvg .ch-link { color: #93c5fd; }
+.theme-rvg .ch-mention { color: #c7d2fe; background-color: rgba(99, 102, 241, 0.3); }
+.theme-rvg .ch-code { background-color: rgba(0, 0, 0, 0.3); border-color: rgba(255, 255, 255, 0.2); }
+.theme-rvg .ch-code-l { color: #f4f4f5; }
+.theme-rvg .chat-rich-sel { background-color: rgba(20, 184, 166, 0.3); }
 .theme-rvg .chat-time { color: rgba(255, 255, 255, 0.5); }
 .theme-rvg .chat-empty { font-size: 14px; color: rgba(255, 255, 255, 0.6); }
 .theme-rvg .chat-acts { border-width: 0; padding: 4px 12px 0; }

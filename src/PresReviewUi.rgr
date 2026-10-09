@@ -730,7 +730,8 @@ class PresReviewUi {
             def r:EVGElement (UiTree.div(rid cls))
             def top1:string ("[" + (to_string (i + 1)) + "] " + (this.slideName(t.slide)))
             r.addChild((this.label((rid + "-s") "rv-row-slide" top1)))
-            def say:string (PresReviewUi.oneLine((t.firstText())))
+            ; the words as read, without their markup (**, `, …)
+            def say:string (PresReviewUi.oneLine((chat.chatText.plainOf((t.firstText())))))
             if ((t.count()) > 1) {
                 say = (say + "  (" + (to_string (t.count())) + ")")
             }
@@ -1153,8 +1154,12 @@ class PresReviewUi {
         def tid:string (host.hitTest(px py))
         def c:string chat.tid
         if (chat.owns(tid) && ((indexOf tid ((c + "-m-"))) == 0)) {
-            ; a message's words: select them
+            ; a message's words: select them; a link in it opens
             selecting = (chat.textPointerDownAt(tid px py clicks shift))
+            def lk:string (chat.takeLink())
+            if ((strlen lk) > 0) {
+                push requests ("openlink:" + lk)
+            }
             this.changed()
             return
         }
