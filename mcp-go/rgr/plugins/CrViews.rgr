@@ -76,6 +76,14 @@ class CrViews {
         return t
     }
 
+    sfn capital:string (s:string) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return t
+        }
+        return ((to_uppercase (substring t 0 1)) + (substring t 1 (strlen t)))
+    }
+
     sfn oneLine:string (s:string) {
         def t:string (replace (replace s "\r" " ") "\n" " ")
         return (trim t)
@@ -671,6 +679,38 @@ class CrViews {
             lead = ("[" + src.name + "](" + src.url + ") · " + lead)
         }
         push out (lead + "\n{.lead}")
+        ; the story, beat by beat
+        m.draftStory()
+        def beats:[string]
+        for m.story b:CrBeat bi {
+            def line:string (CrViews.oneLine(b.text))
+            if ((strlen b.link) > 0) {
+                line = ("**" + (CrViews.capital(b.link)) + "** " + line)
+            }
+            def where:[string]
+            for b.refs r:string ri {
+                push where (src.link(r))
+            }
+            if ((array_length where) > 0) {
+                line = (line + " · " + (join where ", "))
+            }
+            push beats ("- " + line)
+        }
+        def part:int 0
+        while ((part * 5) < (array_length beats)) {
+            def chunk:[string]
+            def k:int (part * 5)
+            while ((k < ((part + 1) * 5)) && (k < (array_length beats))) {
+                push chunk (itemAt beats k)
+                k = (k + 1)
+            }
+            def notes:string ""
+            if (m.storyDrafted && (part == 0)) {
+                notes = "\n\n::: notes\nDrafted from the model: tell it as the change's own story, beats joined by but and therefore.\n:::"
+            }
+            push out ("## The story\n\n" + (join chunk "\n") + "\n{.build}" + notes)
+            part = (part + 1)
+        }
         ; what changed
         def facts:[string]
         def crit:[string]

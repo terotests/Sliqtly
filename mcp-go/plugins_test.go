@@ -60,7 +60,7 @@ func TestPluginsOn(t *testing.T) {
 		t.Fatal(textOf(r))
 	}
 	match(t, textOf(r), `^# Plugin: code-review\n`)
-	match(t, textOf(r), `plugin_version \d{4}-\d\d-\d\d$`)
+	match(t, textOf(r), `plugin_version \d{4}-\d\d-\d\d(\.\d+)?$`)
 	eq(t, sc(r)["ops"], []any{"start", "build"})
 
 	match(t, textOf(call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "merge"})), `has no operation "merge"\. Operations: start, build\.`)
@@ -238,6 +238,43 @@ func TestCodeReviewPlugin(t *testing.T) {
 		}
 	}
 	match(t, textOf(b), `Slices \(args\.slice builds the deck for one\): approve\.`)
+
+	// no story given: one drafted from the model, the critical path as
+	// "therefore", what can go wrong on it as "but"
+	match(t, textOf(b), `The story was drafted from the model\.`)
+	for _, want := range []string{
+		"## The story\n\n- Reviewer passes ApproveRequest to Review API · ",
+		"\n- **Therefore** Review API writes review row to reviews table (map) · ",
+		"\n- **Therefore** APPROVE moves it from In review to Approved · ",
+		"\n- **But** when DB write fails, return 500",
+		"{.build}\n\n::: notes\nDrafted from the model",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("the deck has no %q:\n%s", want, md)
+		}
+	}
+
+	// a story told "and then", in beats of one length, is told so
+	told := reviewModel()
+	told["narrative"] = map[string]any{"summary": "x", "story": []any{
+		map[string]any{"text": "A reviewer approves the draft now."},
+		map[string]any{"link": "then", "text": "The API saves the new state."},
+		map[string]any{"link": "therefore", "text": "The mailer sends the author mail."},
+		map[string]any{"link": "but", "text": "Nobody waits.", "refs": []any{"src/api.ts:4"}},
+	}}
+	tb := call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"pr": "tero/app#5", "model": told}})
+	tw, _ := json.Marshal(sc(tb)["warnings"])
+	match(t, string(tw), `narrative\.story beat 2 is joined by then: say what gets in the way`)
+	match(t, string(tw), `narrative\.story beats 1–3 are all about 6 words long: vary the length`)
+	if strings.Contains(textOf(tb), "drafted from the model") {
+		t.Fatal("a story given is the story told")
+	}
+	match(t, sc(tb)["markdown"].(string), `## The story
+
+- A reviewer approves the draft now\.
+- \*\*Then\*\* The API saves the new state\.
+- \*\*Therefore\*\* The mailer sends the author mail\.
+- \*\*But\*\* Nobody waits\. · \[src/api\.ts:4\]`)
 
 	// the deck is drawn without a block it cannot show
 	f := fakeFirebase()
