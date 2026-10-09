@@ -875,7 +875,7 @@ func (h *McpHost) ThemeCSS(theme string) string {
 	if e.Themes != nil {
 		css, ok := e.Themes(theme)
 		if !ok {
-			h.fail(fmt.Errorf("There is no theme %q; the themes are aurora, carbon, corporate, editorial, ember, midnight and nebula.", theme))
+			h.fail(fmt.Errorf("There is no theme %q; the themes are aurora, nebula, carbon, ember, midnight (dark) and white, corporate, editorial, pearl, hive, lattice, apex, tide, mist (light) and forge, foundry, site (work) and clinic, care, vital (health).", theme))
 		}
 		return css
 	}

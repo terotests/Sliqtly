@@ -9616,8 +9616,53 @@ class PresApp {
         chart.measurer = measurer
         chart.openNewDeck(rows theme name px py W H)
         focus = "chart"
+        push requests "theme-pictures"
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; Slide → Theme…: the themes as tiles, each a picture of a sample slide
+    ; in it. `rows` are the page's theme select ("value<TAB>label<TAB>group"
+    ; lines), `current` the one in use; the page draws the pictures
+    ; ("theme-pictures", from `themeSampleJson`).
+    fn openThemes:boolean (rows:string current:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openThemes(rows current px py W H)
+        focus = "chart"
+        push requests "theme-pictures"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The sample slide of the theme pictures (PresThemeGallery.sample) laid
+    ; out under `css`, as the display list a thumbnail is drawn from. A deck
+    ; of its own, so the open presentation is not touched.
+    def themeDeck:PresDeck (new PresDeck())
+
+    fn themeSampleJson:string (css:string) {
+        themeDeck.setStyleSheet(css)
+        themeDeck.setText((PresThemeGallery.sample()))
+        PresTimeline.planAll(themeDeck)
+        if ((themeDeck.slideCount()) == 0) {
+            return ""
+        }
+        def l:EVGDisplayList (PresTimeline.finalFrame(themeDeck 0))
+        return ("{\"width\":" + (EVGDisplayList.num(themeDeck.pageW)) + ",\"height\":" + (EVGDisplayList.num(themeDeck.pageH)) + ",\"list\":" + (l.toJson()) + "}")
     }
 
     ; File → Duplicate: the same window, asking only the copy's name (`name`,
@@ -10629,6 +10674,10 @@ class PresApp {
                 chart.wantsCreate = false
                 push requests "newdeck-create"
             }
+            if ((chart.mode == "themes") && chart.wantsCss) {
+                chart.wantsCss = false
+                push requests "showtab:css"
+            }
             if ((chart.mode == "confirm") && chart.wantsConfirm) {
                 chart.wantsConfirm = false
                 push requests ("confirm:" + chart.cfKey)
@@ -10645,6 +10694,12 @@ class PresApp {
                     push requests "picture-cancel"
                 }
             }
+        }
+        ; a theme's tile: the page's select changes, and with it the slides
+        if chart.themePicked {
+            chart.themePicked = false
+            push requests ("select:theme:" + chart.wantsTheme)
+            chart.wantsTheme = ""
         }
         ; the chart's data file, in the files tab's editor
         if ((strlen chart.wantsFile) > 0) {

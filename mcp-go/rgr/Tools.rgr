@@ -153,7 +153,7 @@ class Tools {
     }
 
     sfn deckFields:void (host:McpHost p:MfJ) {
-        def theme:MfJ (Tools.prop("string" "Theme: aurora (default), nebula, carbon, ember, midnight (dark); corporate, editorial (light)"))
+        def theme:MfJ (Tools.prop("string" "Theme: aurora (default), nebula, carbon, ember, midnight (dark); white, corporate, editorial, pearl, hive, lattice, apex, tide, mist (light); forge, foundry, site (work); clinic, care, vital (health)"))
         theme.put("enum" (J.strs((Deck.THEMES()))))
         p.put("theme" theme)
         p.put("css" (Tools.prop("string" "CSS rules added on top of the theme (selectors: page, document, h1, h2, p, list, li, code, table, chart, diagram, .lead …). See sliqtly_guide.")))

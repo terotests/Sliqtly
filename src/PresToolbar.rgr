@@ -52,12 +52,10 @@ class PresToolbar {
     ; File and Help (a wide window), and the drawer the menu button opens
     ; (a narrow one, or a finger)
     ; File, Slide, Export and Help: dropdown menus (MenuCtl, which has
-    ; submenus: Slide → Theme → the themes)
+    ; submenus: Slide → Orientation)
     def menus:[MenuCtl]
     def drawer:DrawerCtl (new DrawerCtl())
     def drawerOpen:boolean false
-    ; the drawer's Theme row opened: the themes listed under it
-    def drawerThemes:boolean false
     ; "value<TAB>label<TAB>group" rows, per select
     def sampleRows:string ""
     def themeRows:string ""
@@ -392,6 +390,10 @@ class PresToolbar {
         if (id == "css") {
             return "showtab:css"
         }
+        ; the theme picker's window (PresChartEditor "themes")
+        if (id == "themes") {
+            return "themes"
+        }
         ; Edit's rows, and the slide menu's Copy and Paste
         if ((indexOf id "ed-") == 0) {
             return ("edit:" + (substring id 3 (strlen id)))
@@ -457,34 +459,6 @@ class PresToolbar {
         m.name = name
         push menus m
         return m
-    }
-
-    ; A select's rows as a submenu's rows: a group's name a heading
-    ; (disabled), the current one ticked.
-    fn subRows:void (parent:UiItem prefix:string rows:string current:string) {
-        def lines:[string] (strsplit rows (strfromcode 10))
-        def group:string ""
-        def i:int 0
-        while (i < (array_length lines)) {
-            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
-            if ((array_length parts) >= 2) {
-                def g:string ""
-                if ((array_length parts) >= 3) {
-                    g = (itemAt parts 2)
-                }
-                if ((g != group) && ((strlen g) > 0)) {
-                    MenuCtl.addKid(parent ((("h-" + prefix) + "-") + g) g true)
-                }
-                group = g
-                def v:string (itemAt parts 0)
-                def mark:string "    "
-                if (v == current) {
-                    mark = "✓  "
-                }
-                MenuCtl.addKid(parent (prefix + v) (mark + (itemAt parts 1)) false)
-            }
-            i = (i + 1)
-        }
     }
 
     ; A chord with the platform's command key: ⌘ on a Mac, Ctrl elsewhere,
@@ -938,25 +912,6 @@ class PresToolbar {
         }
         ctxOpen = false
         rev = (rev + 1)
-    }
-
-    ; A select's rows as the drawer's rows, the current one ticked.
-    fn drawerRows:void (body:EVGElement prefix:string rows:string current:string) {
-        def lines:[string] (strsplit rows (strfromcode 10))
-        def i:int 0
-        while (i < (array_length lines)) {
-            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
-            if ((array_length parts) >= 2) {
-                def v:string (itemAt parts 0)
-                def mark:string "    "
-                if (v == current) {
-                    mark = "✓  "
-                }
-                def rb:ButtonCtl (this.button((("dr-" + prefix) + v) (mark + (itemAt parts 1)) "ghost" body))
-                UiTree.addClass((unwrap rb.rootEl) "tb-drsub")
-            }
-            i = (i + 1)
-        }
     }
 
     ; The page's own buttons (PresApp.setToolbarExtras), in order.
@@ -1880,8 +1835,7 @@ class PresToolbar {
             def ori:UiItem (slide.addSub("orientation" (PresI18n.t("Orientation")) false))
             this.orientationKids(ori)
             slide.addSeparator()
-            def th:UiItem (slide.addSub("theme" (PresI18n.t("Theme")) false))
-            this.subRows(th "t-" themeRows themeValue)
+            slide.addItem("themes" (PresI18n.t("Theme…")) false)
             slide.addSeparator()
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
             ; Record: the presentation with the voice, the pointer and what is
@@ -2020,10 +1974,6 @@ class PresToolbar {
                 UiTree.addClass((delEl.getChild(0)) "tb-danger")
             }
             body.addChild((this.div("tb-dr-sep")))
-            def arrow:string "▸  "
-            if drawerThemes {
-                arrow = "▾  "
-            }
             this.button("dr-slideNew" (PresI18n.t("New slide")) "ghost" body)
             this.button("dr-slideDuplicate" (PresI18n.t("Duplicate slide")) "ghost" body)
             this.button("dr-slideDelete" (PresI18n.t("Delete slide")) "ghost" body)
@@ -2036,10 +1986,7 @@ class PresToolbar {
             }
             this.button(("dr-" + otherWay) (((PresI18n.t("Orientation")) + ": ") + otherName) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
-            this.button("dr-themes" (arrow + (PresI18n.t("Theme"))) "ghost" body)
-            if drawerThemes {
-                this.drawerRows(body "t-" themeRows themeValue)
-            }
+            this.button("dr-themes" (PresI18n.t("Theme…")) "ghost" body)
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Clipboard")))))
             this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
@@ -2443,11 +2390,6 @@ class PresToolbar {
                 drawerOpen = false
                 this.rebuild()
             }
-            return
-        }
-        if (ctlTid == "tb-dr-themes") {
-            drawerThemes = (drawerThemes == false)
-            this.rebuild()
             return
         }
         if ((indexOf ctlTid "tb-dr-") == 0) {
