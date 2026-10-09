@@ -524,6 +524,12 @@ class PresApp {
         return out
     }
 
+    ; The 3-D worlds on the slide the stage shows, for the page to draw:
+    ; [{src, scene, x, y, w, h}] in slide units, "[]" for none.
+    fn playScenesJson:string () {
+        return ((deck.playScenes(selected)).toJson())
+    }
+
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {

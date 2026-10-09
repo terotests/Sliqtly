@@ -36,6 +36,7 @@ Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
 Import "PresPlay.rgr"
+Import "Pres3D.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -4497,6 +4498,133 @@ class PresCheck {
         this.ok((((array_length deck.liveKeys) == 0) && ((deck.playStyle.count()) == 0)) "plays: cleared with the deck")
     }
 
+    ; 3-D worlds on slides: a <scene3d> in a program's frame (allow: 3d), the
+    ; room made of the slide, the scene built from the element.
+    fn worlds:void () {
+        def text:string "# Kolmas\n\n```app\nsrc: apps/w.tsx\nsize: 200x100\nallow: 3d\n```\n\n# Ilman\n\n```app\nsrc: apps/x.tsx\nsize: 200x100\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        deck.setChartData("apps/w.tsx" "function view() { return null }")
+        deck.setChartData("apps/x.tsx" "function view() { return null }")
+        PresTimeline.planAll(deck)
+        def scene:string "{\"t\":\"scene3d\",\"s\":{\"position\":\"absolute\",\"left\":\"100px\",\"top\":\"0px\",\"width\":\"100px\",\"height\":\"100px\"},\"c\":[{\"t\":\"camera\",\"a\":{\"z\":6,\"fov\":40}},{\"t\":\"mesh\",\"a\":{\"shape\":\"knot\",\"metal\":0.9,\"ry\":\"30\",\"color\":\"tomato\"}},{\"t\":\"light\",\"a\":{\"kind\":\"sun\",\"x\":1,\"y\":2,\"z\":3}}]}"
+        def tree:string ("{\"t\":\"div\",\"s\":{\"width\":\"200px\",\"height\":\"100px\"},\"c\":[" + scene + "]}")
+        def v@(optional):PresPlayView (deck.playView("apps/w.tsx#1"))
+        def x@(optional):PresPlayView (deck.playView("apps/x.tsx#1"))
+        this.ok(((!null? v) && (!null? x)) "worlds: views for both programs")
+        if ((null? v) || (null? x)) {
+            return
+        }
+        def view:PresPlayView (unwrap v)
+        def other:PresPlayView (unwrap x)
+        this.ok((view.allow3d && (other.allow3d == false)) "worlds: allow: 3d reaches the view")
+        view.setTree(tree)
+        other.setTree(tree)
+        this.ok(((array_length view.scenes) == 1) "worlds: the <scene3d> is a world")
+        this.ok(((array_length other.scenes) == 0) "worlds: none without allow: 3d")
+        def sc:PresPlayScene (itemAt view.scenes 0)
+        this.ok((sc.src == "three:apps/w.tsx#1:1") ("worlds: named after the program, got " + sc.src))
+        this.ok((sc.el.src == sc.src) "worlds: the element shows that picture")
+        def f0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def drawn:int 0
+        def ci:int 0
+        while (ci < (array_length f0.cmds)) {
+            def cmd:EVGDrawCmd (itemAt f0.cmds ci)
+            if ((cmd.kind == 2) && (cmd.src == sc.src)) {
+                drawn = (drawn + 1)
+            }
+            ci = (ci + 1)
+        }
+        this.ok((drawn == 1) "worlds: the slide draws the world's picture")
+        def at:JVal (deck.playScenes(0))
+        this.ok(((at.len()) == 1) "worlds: the page is told of one world on slide 1")
+        if ((at.len()) == 1) {
+            def w0:JVal (at.at(0))
+            def bw:double (w0.numOr("w" 0.0))
+            def bx:double (w0.numOr("x" 0.0))
+            def u0:PresPlayUse (itemAt (deck.playUses()) 0)
+            def bi:int (deck.embedBox(0 u0.source))
+            def lay:MdLayout (deck.layout())
+            def b:MdBox (itemAt lay.boxes bi)
+            this.ok(((bw > ((b.w * 0.45) - 1.0)) && (bw < ((b.w * 0.55) + 1.0))) ("worlds: half the box wide, got " + (to_string bw)))
+            this.ok((bx > (b.x + (b.w * 0.4))) "worlds: at its right half")
+            def sj:JVal (w0.get("scene"))
+            this.ok(((sj.strOr("t" "")) == "scene3d") "worlds: with its element")
+        }
+        def notes:[string] (deck.playNotes())
+        def said:boolean false
+        def ni:int 0
+        while (ni < (array_length notes)) {
+            if ((indexOf (itemAt notes ni) "needs allow: 3d") > 0) {
+                said = true
+            }
+            ni = (ni + 1)
+        }
+        this.ok(said "worlds: a <scene3d> without the grant is said")
+
+        ; the room: a slide red on the left, blue on the right, white along the top
+        def pw:int 16
+        def ph:int 9
+        def px:buffer (buffer_alloc ((pw * ph) * 4))
+        def y:int 0
+        while (y < ph) {
+            def xx:int 0
+            while (xx < pw) {
+                def o:int (((y * pw) + xx) * 4)
+                def r:int 220
+                def g:int 30
+                def b2:int 40
+                if (xx >= 8) {
+                    r = 30
+                    g = 60
+                    b2 = 230
+                }
+                if (y == 0) {
+                    r = 255
+                    g = 255
+                    b2 = 255
+                }
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b2
+                buffer_set px (o + 3) 255
+                xx = (xx + 1)
+            }
+            y = (y + 1)
+        }
+        def env:Pres3DEnv (Pres3DEnv.of(px pw ph))
+        def left:[double] (env.look(-1.0 0.0 0.0))
+        def right:[double] (env.look(1.0 0.0 0.0))
+        this.ok(((itemAt left 0) > (itemAt left 2)) "worlds: the left wall is the slide's red edge")
+        this.ok(((itemAt right 2) > (itemAt right 0)) "worlds: the right wall its blue edge")
+        def front:[double] (env.look(-0.3 0.0 -1.0))
+        def back:[double] (env.look(-0.3 0.0 1.0))
+        this.ok(((itemAt front 0) > 150.0) "worlds: in front, the slide's left is red")
+        this.ok(((itemAt back 2) > 150.0) "worlds: behind the viewer it reads from inside the room")
+        def up:[double] (env.look(0.0 1.0 0.0))
+        def down:[double] (env.look(0.0 -1.0 0.0))
+        this.ok((((itemAt up 1) > (itemAt down 1)) && ((itemAt up 1) > 200.0)) "worlds: the ceiling is the white top row")
+        this.ok(((env.meanR > 0.3) && (env.meanB > 0.3)) "worlds: the mean colour is both halves")
+        def cube:ThreeCubeTexture (env.cube(8))
+        this.ok((((cube.faceCount()) == 6) && ((buffer_length (cube.face(0))) == 256)) "worlds: a cube map of six faces")
+
+        ; the scene from the element
+        def p3:Pres3D (new Pres3D())
+        p3.setSlide(px pw ph)
+        this.ok(((p3.setScene("k" scene)) == "") "worlds: a scene taken")
+        def wo:Pres3DWorld (p3.world("k"))
+        this.ok(((wo.meshes == 1) && (wo.lights == 1)) "worlds: one mesh, one light of its own")
+        this.ok(((wo.camera.position.z == 6.0) && (wo.camera.fov == 40.0)) "worlds: its camera")
+        this.ok((wo.scene.hasEnvCube && (wo.scene.envBackground == false)) "worlds: the room in the reflections, not behind")
+        p3.setScene("k" scene)
+        this.ok(((array_length wo.geos) == 1) "worlds: the knot made once over two frames")
+        def bad:string (p3.setScene("k" "{\"t\":\"scene3d\",\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"donut\"}}]}"))
+        this.ok(((indexOf bad "donut") >= 0) ("worlds: an unknown shape is said, got " + bad))
+        this.ok(((p3.setScene("k" "{\"t\":\"div\"}")) != "") "worlds: no scene, said")
+        this.ok(((p3.draw("k" 10 10)) == false) "worlds: nothing drawn without a GPU")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -4546,6 +4674,7 @@ class PresCheck {
         c.serverRooms()
         c.clips()
         c.plays()
+        c.worlds()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

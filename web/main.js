@@ -15,7 +15,7 @@
 //
 // What anything MEANS is PresApp.rgr's.
 
-import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, fontSpec, textObstacles, imageChanged } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { accountStorage } from "./account.js";
@@ -44,6 +44,7 @@ import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createApps } from "./apps.js";
+import { createThree3d } from "./three3d.js";
 import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
@@ -180,6 +181,9 @@ const SAMPLES = {
   // programs on slides (```app), with their files (samples/pelit/apps/…)
   pelit: [...sample("pelit", "Games: programs on slides", "Pelit: ohjelmat kalvoilla"), "",
     ["apps/scaffold.tsx", "apps/scaffold.tsx.css", "apps/target.tsx", "apps/target.tsx.css"]],
+  // 3-D worlds in programs (```app with allow: 3d), on Aurora
+  maailmat: [...sample("maailmat", "3D worlds on slides", "3D-maailmat kalvoilla"), "aurora",
+    ["apps/chrome.tsx", "apps/chrome.tsx.css", "apps/shapes.tsx", "apps/shapes.tsx.css"]],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -308,6 +312,18 @@ const pictures = new Map();
 // the decks' pictures, decoded once for every deck that has them (a switch
 // back to a deck hands over the same files again)
 const decodeKept = pictureCache();
+// 3-D worlds in programs on slides (web/three3d.js): their pictures are
+// canvases in `pictures`, drawn again as the programs' frames come in
+const three3d = createThree3d({
+  app,
+  pictures,
+  imageChanged,
+  slidePicture,
+  scale: () => (lastLayout ? lastLayout.stage[2] : 1),
+  repaint: () => { needsPaint = true; },
+  toast,
+  build: BUILD.startsWith("__") ? "" : BUILD,
+});
 async function registerPicture(path, bytes, type) {
   if (isSmartArt(type, path)) return;
   pictures.set(path, (await decodeKept(bytes, type, path)).img);
@@ -841,6 +857,7 @@ function beginDoc(text) {
   pictures.clear();
   app.clearImages();
   apps.reset();
+  three3d.reset();
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
@@ -3022,6 +3039,30 @@ function drawThemePicture() {
   themePicDrawn.set(themePicture(key), lang);
   needsPaint = true;
 }
+// The slide on the stage as a small picture (its worlds left out), the room
+// its 3-D worlds stand in (web/three3d.js): an ImageData, null without one.
+let roomGl = null;
+const roomCanvas = document.createElement("canvas");
+function slidePicture(w, h) {
+  const text = app.slideJson(app.selectedSlide());
+  if (!text) return null;
+  const doc = atRest(JSON.parse(text));
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
+  const f = prepareDisplayList(roomGl, doc, { dpr: Math.min(w / doc.width, h / doc.height), images });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
+}
+
 // how many are drawn (scripts/check-web.mjs)
 window.__themePictures = () => themePicDrawn.size;
 
@@ -3869,6 +3910,7 @@ function frame() {
     collab?.tick();
     meet.tick();
     apps.tick(app.revision());
+    if (three3d.tick(app.revision(), gl, dpr)) needsPaint = true;
     const rev = app.revision();
     const effects = window.__lastStage && window.__lastStage.list && window.__lastStage.list.effects && window.__lastStage.list.effects.length > 0;
     if (needsPaint || rev !== lastRev || effects) {

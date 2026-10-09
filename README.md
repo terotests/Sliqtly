@@ -342,6 +342,12 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     `el("#id")` / `el(".class")` `.style({ color, background, opacity, translate, display })`,
     `.show()`, `.hide()`, `.reset()` over the slide's blocks, without changing
     the Markdown (`slide.style`). `machine.send` waits for state machines.
+  - **3-D worlds** (`allow: 3d`, experimental): a `<scene3d>` element with
+    `<mesh>`, `<light>` and `<camera>` children is drawn by Ranger's Three.js
+    port (`src/Pres3D.rgr`, `web/three3d.js`, bundle `pres_3d.js` loaded on
+    first use). Shiny meshes (`metal`) reflect a cube map made of a small
+    picture of the slide; the background stays transparent. Sample deck
+    `maailmat`.
   - **Exports and thumbnails** show the program's last picture, or a plate with
     its name before it has run. The public viewer shows the plate.
   - The fence is read by RangerMarkdown (`MdApp`), the picture laid out and

@@ -892,6 +892,14 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     `.show()`, `.hide()`, `.reset()` changes the look of the slide's blocks
     with that id or class (`{#id}` on the line after a paragraph) without
     changing the Markdown.
+  - `3d` (experimental): a `<scene3d>` element in `view()` is a 3-D world,
+    drawn over the slide with a transparent background. Its children:
+    `<mesh shape="box|sphere|torus|knot|cylinder|cone|plane|teapot" size r
+    tube w h d x y z rx ry rz scale color metal fresnel flat wire />` (angles
+    in degrees; `metal` 0-1 mirrors the slide around the world),
+    `<camera x y z fov lookX lookY lookZ />`, `<light kind="sun|ambient" x y z
+    color intensity />` (none: a key and a fill light). Animate by changing
+    the attributes in `tick`.
 - Example:
 
   ```tsx

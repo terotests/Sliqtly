@@ -1,0 +1,8 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+.stage { position: relative; width: 960px; height: 300px }
+.world { position: absolute; left: 0px; top: 0px; width: 960px; height: 250px }
+.btn { position: absolute; top: 258px; width: 96px; height: 34px; border-radius: 17px; background-color: #334155 }
+.matte { left: 380px }
+.mirror { left: 484px }
+.on { background-color: #2563eb }
+.label { position: absolute; left: 0px; top: 7px; width: 96px; font-size: 16px; color: #ffffff; text-align: center }
