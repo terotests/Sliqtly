@@ -289,7 +289,7 @@ What it serves besides `/mcp` (`local.go`, `localweb.go`):
 | `/api/socket` | the page's one stream, a WebSocket: the server's state, decks changed, the room of a deck edited together (`localevents.go`, `web/eventline.js`). A browser opens at most six HTTP/1.1 connections to a server for all its tabs, and WebSockets are counted apart from them. `/api/events` is the same as Server-Sent Events, which a page uses when a proxy in front does not pass WebSockets on |
 | `/healthz` | `ok`, or 503 while the folder is not ready |
 
-The folder (`fsstore.go`), since data format 4 (ADR 0002):
+The folder (`fsstore.go`), since data format 4:
 
 | | |
 | --- | --- |
