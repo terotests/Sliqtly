@@ -54,11 +54,26 @@
 ;   edge   float  distance to the box's edge in pixels, negative inside
 ;   PI     float
 ;
+; and the slide's clock (PresTimeline.fxClock), for an effect tied to the
+; slide's rhythm rather than to the seconds:
+;   step      float  the build step shown, 0 before the first
+;   steps     float  how many build steps the slide has
+;   steptime  float  seconds since the shown step began (the slide, at 0)
+;   progress  float  0..1 through the slide's duration
+; They reach the shader as hidden parameters (`clock-step` …): the display
+; list carries them, at the slide's end state in a still and at the moment
+; shown while playing (PresDeck.clockParams).
+;
 ; THE LAYERS are the painter's: `source` paints the element's background
 ; (children on top; the alpha of `output` is its coverage), `filter` rewrites
 ; what is already painted in the box, `backdrop` rewrites what is behind the
 ; element and then draws the element on top. `source(uv)` reads the surface in
-; the latter two.
+; the latter two, and there too `output`'s alpha is how much of it covers
+; what was there (`fxl_over`), so `rgba(c, 0)` leaves the pixel as it was.
+;
+; THE SAME IR RUNS WITHOUT A GPU: `program()` flattens the trees into
+; register code that mcp-go/fxvm.go runs per pixel, so render_slide draws
+; the deck's own effects as the player does.
 ; ============================================================================
 
 ; One expression, typed. `kind`: num, var, bin, un, call, swz, sel.
@@ -101,6 +116,8 @@ class FxEffect {
     def values:[FxNode]
     def cost:int 0
     def line:int 0
+    ; reads step, steps, steptime or progress: carries the clock parameters
+    def clock:boolean false
 
     Constructor () {
         def p:[FxParam]
@@ -145,6 +162,10 @@ class FxEffect {
                 if (v.type == "vec3") {
                     code = ("vec4(" + code + ", 1.0)")
                 }
+                if (layer != "source") {
+                    FxLang.addLib(lib "over")
+                    code = ("fxl_over(" + code + ")")
+                }
                 body = (body + "  return " + code + ";\n")
             } {
                 body = (body + "  " + v.type + " v_" + nm + " = " + code + ";\n")
@@ -153,6 +174,45 @@ class FxEffect {
         }
         def head:string ("#define PI 3.14159265358979\n" + (FxLang.libText(lib)))
         return (head + "vec4 fxColor(vec2 p, vec2 local) {\n" + body + "}\n")
+    }
+
+    ; The effect as register code (FxCode), JSON:
+    ; {"name","layer","still","fallback","cost","clock","params":[[name, default, lo, hi]…],
+    ;  "regs","out","outDims","code":[…]}
+    fn program:string () {
+        def c (new FxCode())
+        c.regs = (10 + (array_length params))
+        def ps:string ""
+        def i:int 0
+        while (i < (array_length params)) {
+            def pp:FxParam (itemAt params i)
+            push c.params pp.name
+            if (i > 0) {
+                ps = (ps + ",")
+            }
+            ps = (ps + "[\"" + pp.name + "\"," + (FxLang.numText(pp.value)) + "," + (FxLang.numText(pp.lo)) + "," + (FxLang.numText(pp.hi)) + "]")
+            i = (i + 1)
+        }
+        def outReg:int 0
+        def outDims:int 4
+        i = 0
+        while (i < (array_length names)) {
+            def nm:string (itemAt names i)
+            def v:FxNode (itemAt values i)
+            def r:int (c.walk(v))
+            if (nm == "output") {
+                outReg = r
+                outDims = (FxLang.dims(v.type))
+            } {
+                push c.names nm
+                push c.nameRegs r
+            }
+            i = (i + 1)
+        }
+        def out:string ("{\"name\":\"" + name + "\",\"layer\":\"" + layer + "\",\"still\":" + (FxLang.numText(still)))
+        out = (out + ",\"fallback\":\"" + fallback + "\",\"cost\":" + (to_string cost) + ",\"clock\":" + (? clock "true" "false"))
+        out = (out + ",\"params\":[" + ps + "],\"regs\":" + (to_string c.regs) + ",\"out\":" + (to_string outReg) + ",\"outDims\":" + (to_string outDims))
+        return (out + ",\"code\":[" + (join c.code ",") + "]}")
     }
 
     ; name=default pairs, `speed=1;heat=0.6`, as the page registers them
@@ -168,6 +228,146 @@ class FxEffect {
             i = (i + 1)
         }
         return out
+    }
+}
+
+; THE IR AS REGISTER CODE, for a painter without a GPU (mcp-go/fxvm.go).
+; Every value is a register of up to four numbers. Registers 0..9 are the
+; inputs (uv p size time edge PI step steps steptime progress), set per
+; pixel; 10.. the parameters, clamped once; then one per operation. An
+; instruction is `[op, dst, dims, extra, a, aDims, b, bDims, …]`: `op` the
+; operator or function (`neg`, `not` for the unary ones), `extra` a
+; swizzle's letters or fbm's octaves; `const` has its numbers in place of
+; the arguments. Comparisons give 1 or 0.
+class FxCode {
+    def regs:int 0
+    def code:[string]
+    def names:[string]
+    def nameRegs:[int]
+    def params:[string]
+
+    Constructor () {
+        def c:[string]
+        code = c
+        def n:[string]
+        names = n
+        def r:[int]
+        nameRegs = r
+        def p:[string]
+        params = p
+    }
+
+    sfn inputReg:int (name:string) {
+        def k:[string] ([] _:string ("uv" "p" "size" "time" "edge" "PI" "step" "steps" "steptime" "progress"))
+        def i:int 0
+        while (i < (array_length k)) {
+            if ((itemAt k i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    sfn dimsOf:int (n:FxNode) {
+        if (n.type == "bool") {
+            return 1
+        }
+        return (FxLang.dims(n.type))
+    }
+
+    fn ins:int (op:string dims:int extra:string args:[int] argDims:[int]) {
+        def dst:int regs
+        regs = (regs + 1)
+        def t:string ("[\"" + op + "\"," + (to_string dst) + "," + (to_string dims) + "," + extra)
+        def i:int 0
+        while (i < (array_length args)) {
+            t = (t + "," + (to_string (itemAt args i)) + "," + (to_string (itemAt argDims i)))
+            i = (i + 1)
+        }
+        push code (t + "]")
+        return dst
+    }
+
+    ; the numbers of a constant as written: `0.5` or `vec3(1.0, 0.5, 0.0)`
+    fn constant:int (n:FxNode) {
+        def dst:int regs
+        regs = (regs + 1)
+        def body:string n.text
+        def open:int (indexOf body "(")
+        if (open >= 0) {
+            body = (substring body (open + 1) ((strlen body) - 1))
+        }
+        def parts:[string] (strsplit body ",")
+        def t:string ("[\"const\"," + (to_string dst) + "," + (to_string (array_length parts)) + ",0")
+        def i:int 0
+        while (i < (array_length parts)) {
+            t = (t + "," + (trim (itemAt parts i)))
+            i = (i + 1)
+        }
+        push code (t + "]")
+        return dst
+    }
+
+    fn walk:int (n:FxNode) {
+        if (n.kind == "num") {
+            return (this.constant(n))
+        }
+        if (n.kind == "var") {
+            if ((indexOf n.op "in:") == 0) {
+                return (FxCode.inputReg((substring n.op 3 (strlen n.op))))
+            }
+            if ((indexOf n.op "k_") == 0) {
+                def pn:string (substring n.op 2 (strlen n.op))
+                def i:int 0
+                while (i < (array_length params)) {
+                    if ((itemAt params i) == pn) {
+                        return (10 + i)
+                    }
+                    i = (i + 1)
+                }
+                return 0
+            }
+            def vn:string (substring n.op 2 (strlen n.op))
+            def j:int 0
+            while (j < (array_length names)) {
+                if ((itemAt names j) == vn) {
+                    return (itemAt nameRegs j)
+                }
+                j = (j + 1)
+            }
+            return 0
+        }
+        if ((n.kind == "un") && (n.op == "()")) {
+            return (this.walk((itemAt n.kids 0)))
+        }
+        def args:[int]
+        def argDims:[int]
+        def count:int (array_length n.kids)
+        def extra:string "0"
+        def op:string n.op
+        if (n.kind == "un") {
+            op = "neg"
+            if (n.op == "!") {
+                op = "not"
+            }
+        }
+        if (n.kind == "swz") {
+            extra = ("\"" + n.op + "\"")
+            op = "swz"
+        }
+        if ((n.kind == "call") && (n.op == "fbm")) {
+            extra = n.text
+            count = 1
+        }
+        def i2:int 0
+        while (i2 < count) {
+            def kid:FxNode (itemAt n.kids i2)
+            push args (this.walk(kid))
+            push argDims (FxCode.dimsOf(kid))
+            i2 = (i2 + 1)
+        }
+        return (this.ins(op (FxCode.dimsOf(n)) extra args argDims))
     }
 }
 
@@ -814,7 +1014,18 @@ class FxLang {
         if (name == "time") { return "float" }
         if (name == "edge") { return "float" }
         if (name == "PI") { return "float" }
+        if (FxLang.isClock(name)) { return "float" }
         return ""
+    }
+
+    ; the slide's clock inputs, each a hidden parameter `clock-<name>`
+    sfn clockNames:[string] () {
+        def k:[string] ([] _:string ("step" "steps" "steptime" "progress"))
+        return k
+    }
+
+    sfn isClock:boolean (name:string) {
+        return ((((name == "step") || (name == "steps")) || (name == "steptime")) || (name == "progress"))
     }
 
     ; expr := or ; or := and (|| and)* ; and := cmp (&& cmp)* ;
@@ -1202,6 +1413,9 @@ class FxLang {
             }
             def it:string (FxLang.inputType(t))
             if ((strlen it) > 0) {
+                if (FxLang.isClock(t)) {
+                    cur.clock = true
+                }
                 def r4@(optional):FxNode (FxLang.leaf("var" ("in:" + t) it l))
                 return r4
             }
@@ -1521,6 +1735,9 @@ class FxLang {
             if (n.op == "in:time") { return "uTime" }
             if (n.op == "in:edge") { return "fxBoxDistance(p)" }
             if (n.op == "in:PI") { return "PI" }
+            if ((indexOf n.op "in:") == 0) {
+                return ("p_clock_" + (substring n.op 3 (strlen n.op)))
+            }
             return n.op
         }
         if (n.kind == "bin") {
@@ -1630,6 +1847,9 @@ class FxLang {
         if ((indexOf has ",rgba,") >= 0) {
             out = (out + "vec4 fxl_rgba(vec3 c, float a) {\n  return vec4(c, a);\n}\n")
         }
+        if ((indexOf has ",over,") >= 0) {
+            out = (out + "vec4 fxl_over(vec4 c) {\n  vec4 h = texture(uSrc, vUV);\n  return vec4(mix(h.rgb, c.rgb, c.a), mix(h.a, 1.0, c.a));\n}\n")
+        }
         if ((indexOf has ",source,") >= 0) {
             out = (out + "vec4 fxl_source(vec2 q) {\n  vec2 pg = uBox.xy + clamp(q, 1.0 / uBox.zw, 1.0 - 1.0 / uBox.zw) * uBox.zw;\n  return texture(uSrc, vec2(pg.x, uRes.y - pg.y) / uRes);\n}\n")
         }
@@ -1668,11 +1888,46 @@ class FxLang {
                 ps = (ps + "\"" + pp.name + "\":" + (FxLang.numText(pp.value)))
                 k = (k + 1)
             }
+            if e.clock {
+                ; the end state, what a list without the clock shows
+                if ((array_length e.params) > 0) {
+                    ps = (ps + ",")
+                }
+                ps = (ps + "\"clock-step\":0.0,\"clock-steps\":0.0,\"clock-steptime\":" + (FxLang.numText(e.still)) + ",\"clock-progress\":1.0")
+            }
             ps = (ps + "}")
             out = (out + "{\"name\":\"" + e.name + "\",\"layer\":\"" + e.layer + "\",\"params\":" + ps + ",\"still\":" + (FxLang.numText(e.still)) + ",\"fallback\":\"" + e.fallback + "\",\"frag\":" + (FxLang.quote((e.glsl()))) + "}")
             i = (i + 1)
         }
         return (out + "]")
+    }
+
+    ; What each effect costs per pixel against the limit, for the check:
+    ; `Own effects, cost per pixel (limit 600): embers 70, cells 52.`
+    fn costText:string () {
+        if ((array_length effects) == 0) {
+            return ""
+        }
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length effects)) {
+            def e:FxEffect (itemAt effects i)
+            push parts (e.name + " " + (to_string e.cost))
+            i = (i + 1)
+        }
+        return ("Own effects, cost per pixel (limit " + (to_string (FxLang.COST_MAX())) + "): " + (join parts ", ") + ".")
+    }
+
+    ; Every effect as register code (FxEffect.program), for render_slide.
+    fn programsJson:string () {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length effects)) {
+            def e:FxEffect (itemAt effects i)
+            push parts (e.program())
+            i = (i + 1)
+        }
+        return ("[" + (join parts ",") + "]")
     }
 
     sfn quote:string (s:string) {

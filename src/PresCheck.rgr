@@ -143,6 +143,7 @@ class PresCheck {
         this.cssNotes()
         this.fxLang()
         this.fxDeck()
+        this.fxClock()
     }
 
     ; A deck's own effect, compiled (FxLang): the IR, the shader text and
@@ -196,6 +197,72 @@ class PresCheck {
 
     ; ```fx in the deck and @effect in the theme: masked out of the slides,
     ; compiled, and the slide's `fx=` reaches them.
+    ; An own effect on the slide's clock: the hidden parameters at the end
+    ; state in a still, at the moment asked for otherwise; the register code
+    ; for render_slide; a backdrop's alpha covers what is behind it
+    fn fxClock:void () {
+        def text:string "```fx\neffect burn source {\n  output = rgba(vec3(1, 0.5, 0), step / max(steps, 1) * progress + steptime * 0)\n}\neffect veil backdrop {\n  output = rgba(source(uv).rgb * 0.5, 0.5)\n}\n```\n\n## Eka {fx=burn}\n\n- yksi\n- kaksi\n- kolme\n{.build}\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        this.ok(((array_length deck.fx.errors) == 0) ("fx clock: no errors " + (PresCheck.firstOf(deck.fx.errors))))
+        def burn@(optional):FxEffect (deck.ownEffect("burn"))
+        if (null? burn) {
+            this.ok(false "fx clock: burn")
+            return
+        }
+        def b:FxEffect (unwrap burn)
+        this.ok(b.clock "fx clock: burn reads the clock")
+        def g:string (b.glsl())
+        this.ok(((indexOf g "p_clock_steptime") > 0) "fx clock: steptime is a hidden parameter")
+        this.ok(((indexOf (deck.effectsJson()) "\"clock-progress\":1.0") > 0) "fx clock: registered with the end state")
+        PresTimeline.planAll(deck)
+        def s:PresSlide (deck.slideAt(0))
+        this.ok((s.steps == 3) ("fx clock: three steps, got " + (to_string s.steps)))
+        def groups:[int]
+        def end:EVGDisplayList (deck.slideList(0 groups 0.0))
+        this.ok(((PresCheck.fxParam(end "clock-step")) == 3.0) ("fx clock: a still shows the last step, got " + (to_string (PresCheck.fxParam(end "clock-step")))))
+        this.ok(((PresCheck.fxParam(end "clock-progress")) == 1.0) "fx clock: a still is at the end")
+        def t1:double (PresTimeline.stepTime(s 1))
+        deck.fxClockAt = (t1 + 0.25)
+        def g2:[int]
+        def mid:EVGDisplayList (deck.slideList(0 g2 0.0))
+        deck.fxClockAt = -1.0
+        this.ok(((PresCheck.fxParam(mid "clock-step")) == 1.0) ("fx clock: at step 1, got " + (to_string (PresCheck.fxParam(mid "clock-step")))))
+        def since:double (PresCheck.fxParam(mid "clock-steptime"))
+        this.ok(((since > 0.2) && (since < 0.3)) ("fx clock: a quarter second into it, got " + (to_string since)))
+        def c:[double] (PresTimeline.fxClock(s 0.0))
+        this.ok(((itemAt c 0) == 0.0) "fx clock: before the first step, 0")
+        def code:string (b.program())
+        this.ok(((indexOf code "\"code\":[[") > 0) ("fx clock: register code " + code))
+        this.ok(((indexOf code "[\"/\",") > 0) "fx clock: the division is an instruction")
+        def veil@(optional):FxEffect (deck.ownEffect("veil"))
+        if (!null? veil) {
+            this.ok(((indexOf (veil.glsl()) "return fxl_over(") > 0) "fx clock: a backdrop's alpha covers what is behind")
+        }
+        def plain (new PresDeck())
+        plain.setText("```fx\neffect calm source {\n  output = vec3(uv, 0)\n}\n```\n\n## A {fx=calm}\n")
+        def g3:[int]
+        def pl:EVGDisplayList (plain.slideList(0 g3 0.0))
+        this.ok(((PresCheck.fxParam(pl "clock-step")) == -1.0) "fx clock: an effect without the clock carries no clock")
+    }
+
+    ; the first effect's parameter of that name in a list, -1 when none
+    sfn fxParam:double (l:EVGDisplayList name:string) {
+        if ((array_length l.fxIds) == 0) {
+            return -1.0
+        }
+        def ps:int (itemAt l.fxParamStart 0)
+        def pn:int (itemAt l.fxParamCount 0)
+        def k:int 0
+        while (k < pn) {
+            if ((itemAt l.fxParamNames (ps + k)) == name) {
+                return (itemAt l.fxParamValues (ps + k))
+            }
+            k = (k + 1)
+        }
+        return -1.0
+    }
+
     fn fxDeck:void () {
         def text:string "---\ntitle: T\n---\n\n```fx\neffect embers source {\n  fallback = #2a0f05\n  output = vec3(uv, 0.5)\n}\n```\n\n## Eka {fx=embers}\n\nteksti\n\n## Toka {fx=glass}\n\nlisää\n"
         def deck (new PresDeck())

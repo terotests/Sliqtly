@@ -4152,7 +4152,78 @@ class PresDeck {
         while ((array_length boxOfCmd) < (array_length out.cmds)) {
             push boxOfCmd -1
         }
+        this.clockParams(out s t)
         return out
+    }
+
+    ; The slide's clock at `t` while it plays (`live`, or `fxClockAt` for a
+    ; picture of one moment), else its end state, as the hidden parameters of
+    ; every own effect on it that reads the clock (FxLang: step, steps,
+    ; steptime, progress). Nothing changes for a list without one.
+    def fxClockAt:double -1.0
+
+    fn clockParams:void (out:EVGDisplayList s:PresSlide t:double) {
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length out.fxIds)) {
+            def own@(optional):FxEffect (this.ownEffect((itemAt out.fxKinds i)))
+            if (!null? own) {
+                if own.clock {
+                    any = true
+                }
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def clock:[double]
+        if live {
+            clock = (PresTimeline.fxClock(s t))
+        } {
+            if (fxClockAt >= 0.0) {
+                clock = (PresTimeline.fxClock(s fxClockAt))
+            }
+        }
+        def names:[string]
+        def values:[double]
+        def starts:[int]
+        def counts:[int]
+        i = 0
+        while (i < (array_length out.fxIds)) {
+            def start:int (array_length names)
+            push starts start
+            def ps:int (itemAt out.fxParamStart i)
+            def pn:int (itemAt out.fxParamCount i)
+            def k:int 0
+            while (k < pn) {
+                push names (itemAt out.fxParamNames (ps + k))
+                push values (itemAt out.fxParamValues (ps + k))
+                k = (k + 1)
+            }
+            def own2@(optional):FxEffect (this.ownEffect((itemAt out.fxKinds i)))
+            if (!null? own2) {
+                if own2.clock {
+                    def c:[double] clock
+                    if ((array_length c) == 0) {
+                        c = ([] _:double ((to_double s.steps) (to_double s.steps) own2.still 1.0))
+                    }
+                    def cn:[string] (FxLang.clockNames())
+                    def j:int 0
+                    while (j < 4) {
+                        push names ("clock-" + (itemAt cn j))
+                        push values (itemAt c j)
+                        j = (j + 1)
+                    }
+                }
+            }
+            push counts ((array_length names) - start)
+            i = (i + 1)
+        }
+        out.fxParamNames = names
+        out.fxParamValues = values
+        out.fxParamStart = starts
+        out.fxParamCount = counts
     }
 
     ; The diagram of slide i shown over the whole slide (PresDiaFull), if any:

@@ -293,8 +293,9 @@ hold: 2.5               # seconds after the last step
   `anim=fade|rise|fly|zoom` and `seconds=0.8` set how. A code fence with
   `.build` steps through its highlighted lines (topic `text`).
 - Effects (`fx=`): `starfield`, `plasma-wave`, `smoke`, `ambient-light`,
-  `liquid-glass`, `drops` (rain running down a window), `raindrops2` (rain
-  whose running drops leave lines of water), `bubbles` (round drops).
+  `aurora`, `ripple`, `liquid-glass`, `raindrop`, `drops` (rain running down
+  a window), `raindrops2` (rain whose running drops leave lines of water),
+  `bubbles` (round drops); `none` turns a theme's effect off on a slide.
   Parameters as `fx-density=1.6`, `fx-hue=228`, `fx-rain=2`.
 - Music: `music: media/song.mp3` in the front matter (an mp3 in the deck's
   files or an https address) plays while presenting; M turns it off and on.
@@ -315,8 +316,8 @@ hold: 2.5               # seconds after the last step
   `figure { colors }`. The light themes `pearl`, `hive`, `lattice`, `apex`,
   `tide`, `mist` and the work themes `forge`, `foundry`, `site` and the health themes
   `clinic`, `care`, `vital` use it; `art=off` on a heading leaves it off that slide.
-- `render_slide` and `render_overview` do not draw effects; the player
-  does.
+- `render_slide` and `render_overview` draw the deck's own effects
+  (below), not the built-in ones; the player draws both.
 
 ## Own effects (```fx)
 
@@ -342,25 +343,39 @@ effect embers source {
 ````
 
 - `effect <name> <layer> { … }`: the name is lowercase letters, digits and
-  dashes, not a built-in effect's. Layers: `source` paints the slide's
-  background (the text over it; `output`'s alpha is how much shows),
-  `backdrop` rewrites the finished slide (read it with `source(uv)`),
-  `filter` the same for an element.
+  dashes, not a built-in effect's name (the list above). Layers: `source`
+  paints the slide's background (the text over it), `backdrop` rewrites the
+  finished slide (read it with `source(uv)`), `filter` the same for an
+  element. In all three `output`'s alpha is how much covers what was
+  there: `rgba(c, 0)` leaves the pixel as it was.
 - The body is assignments, one per line, each name set once, ending in
   `output = <vec3 or vec4 colour>`. No loops or functions of one's own.
 - Inputs: `uv` (vec2, 0..1, y down), `p` (page pixels), `size` (vec2),
-  `time` (seconds on screen), `edge` (pixels to the edge, negative
-  inside), `PI`.
-- Values: numbers, `#rrggbb` / `#rrggbbaa` colours, `vec2(…)`, `vec3(…)`,
-  `vec4(…)`, `.x .xy .rgb` parts, `+ - * /`, comparisons only inside
+  `time` (seconds since the slide came on screen), `edge` (pixels to the
+  edge, negative inside), `PI`.
+- The slide's clock, for an effect tied to its build steps: `step` (the
+  step shown, 0 before the first), `steps` (how many), `steptime` (seconds
+  since the shown step began), `progress` (0..1 through the slide). A
+  reveal on a click: `a = smoothstep(0, 1.5, steptime) * select(step >= 1,
+  1, 0)`. A still (thumbnail, PDF, PPTX) shows the last step, progress 1,
+  `time` and `steptime` at `still`. `time` keeps running while a step
+  waits for a click; `steptime` stops with the slide's clock.
+- Values: numbers, `#rgb` / `#rrggbb` colours (a vec3, usable in sums:
+  `#ff8800 * 0.5`), `#rrggbbaa` (a vec4), `vec2(…)`, `vec3(…)`, `vec4(…)`,
+  parts `.x .y .xy .rgb .a` (letters of one set, `xyzw` or `rgba`),
+  `+ - * /`, unary minus (`-x`), comparisons only inside
   `select(a < b, x, y)`.
 - Functions: `sin cos tan asin acos atan abs floor ceil fract sqrt exp log
   sign normalize min max mod pow step clamp mix smoothstep length distance
   dot`, and `hash(v2)`, `noise(v2)`, `fbm(v2, octaves 1..8)`,
   `voronoi(v2)`, `rotate(v2, degrees)`, `hsv(hue°, s, v)`,
   `rgba(colour, alpha)`, `source(uv)` (backdrop and filter only).
-- A body has a cost per pixel; too many noises or octaves is refused.
-  Errors name the line and come back in the check's warnings.
+- A body has a cost per pixel, limit 600: an operation 1, a function 2,
+  `hash` 5, `noise` 12, `voronoi` 42, `fbm` 12 per octave. The check
+  reports each effect's cost; more than the limit is refused. Errors name
+  the line and come back in the check's warnings.
+- `render_slide` draws them as the player does, at `still`; pass `time`
+  (seconds into the slide) to see a moment, the clock with it.
 - A shared deck shows these effects to its viewers; raw shader code is not
   accepted.
 

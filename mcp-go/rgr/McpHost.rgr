@@ -311,6 +311,14 @@ operators {
             go ( (e 1) ".RenderStill(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; the deck's own effects as register code (FxLang.programsJson) for the
+    ; renders that follow, drawn `time` seconds in (-1: each at its still);
+    ; "" forgets them
+    host_render_fx _:void (h:McpHost programs:string time:double) {
+        templates {
+            go ( (e 1) ".RenderFx(" (e 2) ", " (e 3) ")" nl )
+        }
+    }
     ; one slide's display list (EVGDisplayList.toJson) painted `width`
     ; pixels wide: base64 JPEG, "" when it could not be drawn
     host_render _:string (h:McpHost list:string w:double ht:double width:int) {
