@@ -521,6 +521,46 @@ try {
     check("an open comment's buttons all show, the first message under the last of them", r.n === 6 && r.first >= r.lowest, JSON.stringify(r));
   }
 
+  // A comment's Markdown is drawn, not shown as typed (EVGUI ChatCtl
+  // markup): **bold** bold without its stars, `code` as code; while
+  // presenting the words are light on the dark callout. The bug: comments
+  // showed ** and ` as they were typed.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const el = (id) => { a.reviewJson(); return walk(rv.host.lastPage, id); };
+      const wasOn = a.reviewMode();
+      a.setReviewMode(true);
+      a.takeRequest();
+      rv.startDraft(a.slideShown(), 0.3, 0.4);
+      a.text("**Fix** the `title` first");
+      a.key("enter", false, false);
+      const t = rv.model.threads[rv.model.threads.length - 1];
+      rv.openThread(t.id);
+      const m = rv.chat.msgTid(0);
+      const b = el(m + "-b0-s0"), c = el(m + "-b0-s2");
+      const out = {
+        rich: !!el(m + "-rich"),
+        bold: b && [b.textContent, b.fontWeight],
+        code: c && [c.textContent, c.className],
+      };
+      rv.closePanel();
+      a.present(true);
+      a.takeRequest();
+      rv.openThread(t.id);
+      const w = el(m + "-b0-s0");
+      out.light = w && w.color.r > 200;
+      rv.closePanel();
+      a.key("escape", false, false);
+      rv.model.setClosed(t.id, true, "", 0); rv.model.remove(t.id); rv.save();
+      a.setReviewMode(wasOn);
+      return out;
+    });
+    check("a comment's **bold** and `code` are drawn, not typed out", r.rich && r.bold && r.bold[0] === "Fix" && /bold|700/.test(String(r.bold[1])) && r.code && r.code[0] === "title" && /ch-icode/.test(r.code[1]), JSON.stringify(r));
+    check("…and read light on the dark callout while presenting", r.light, JSON.stringify(r));
+  }
+
   // Tips: hovering a button says what it does, the presenting bar's (its
   // title, sooner and larger than the browser's) and review mode's
   {

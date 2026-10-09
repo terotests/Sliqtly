@@ -3969,6 +3969,10 @@ function handleRequests() {
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
+    } else if (r.startsWith("openlink:")) {
+      // a link in a comment (review mode): web addresses only, in a new tab
+      const u = r.slice(9);
+      if (/^https?:\/\//i.test(u)) window.open(u, "_blank", "noopener");
     } else if (r === "review-copy") {
       // a comment thread, or the open comments with their slides (review mode)
       writeClip(app.reviewClip()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
