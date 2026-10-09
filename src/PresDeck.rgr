@@ -88,6 +88,41 @@ class PresDiaUse {
     def by:double 0.0
     def bw:double 0.0
     def bh:double 0.0
+
+    ; The box it is painted in at wall-clock `now`: its own, or growing over
+    ; the whole page (PresDiaFull). [x, y, w, h].
+    ; For the view over the whole slide: the fence, and its diagram laid out
+    ; again for the slide's shape (`PresDeck.bigOf`, built when first
+    ; wanted). A wide strip over a whole slide grows only by the width; laid
+    ; out for the slide it can use the height too.
+    def fence:MdNode (new MdNode())
+    def page:int 0
+    def notation:string ""
+    def classic:boolean false
+    def big:PresDiagram (new PresDiagram())
+    def bigTried:boolean false
+
+    ; The diagram on screen: the big one while it is over the slide.
+    fn active:PresDiagram (now:double) {
+        def d:PresDiagram diagram
+        if ((diagram.full.shown(now)) && big.ok) {
+            d = big
+        }
+        return d
+    }
+
+    ; The time `active` is at: the big one is shown whole, its walk done.
+    fn activeTime:double (t:double now:double) {
+        if ((diagram.full.shown(now)) && big.ok) {
+            return 1000000.0
+        }
+        return (t - start)
+    }
+
+    fn boxNow:[double] (now:double pageW:double pageH:double) {
+        def f:[double] (PresDiaFull.fullBox(pageW pageH))
+        return (diagram.full.boxAt(now bx by bw bh (itemAt f 0) (itemAt f 1) (itemAt f 2) (itemAt f 3)))
+    }
 }
 
 ; A drawing on a slide: its file, where its reference is written, and when
@@ -299,11 +334,22 @@ class PresDeck {
             return ""
         }
         def s:PresSlide (itemAt slides i)
+        ; one over the whole slide covers the others
+        def only:int (this.fullAt(i))
         def k:int 0
         while (k < (array_length s.diagrams)) {
             def u:PresDiaUse (itemAt s.diagrams k)
             u.diagram.uiNow = uiNow
-            def r:int (u.diagram.hit((t - u.start) u.bx u.by u.bw u.bh px py))
+            def b:[double] (u.boxNow(uiNow pageW pageH))
+            def r:int -1
+            if ((only < 0) || (only == k)) {
+                def dd:PresDiagram (u.active(uiNow))
+                dd.uiNow = uiNow
+                r = (dd.hit((u.activeTime(t uiNow)) (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) px py))
+            }
+            if (r == -12) {
+                return ((to_string k) + ":full")
+            }
             if (r == -2) {
                 return ((to_string k) + ":back")
             }
@@ -519,6 +565,10 @@ class PresDeck {
             return -1
         }
         def s:PresSlide (itemAt slides i)
+        def only:int (this.fullAt(i))
+        if (only >= 0) {
+            return only
+        }
         def k:int 0
         while (k < (array_length s.diagrams)) {
             def u:PresDiaUse (itemAt s.diagrams k)
@@ -528,6 +578,104 @@ class PresDeck {
             k = (k + 1)
         }
         return -1
+    }
+
+    ; The diagram on slide i shown over the whole slide (opened, or still
+    ; growing or shrinking), or -1.
+    fn fullAt:int (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return -1
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if (u.diagram.full.shown(uiNow)) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    ; Diagram use u of slide s laid out for the whole slide's box, built the
+    ; first time it is wanted: shown whole (no tour, no questions), sharing
+    ; the small one's magnifier state. Not `ok` when it cannot be drawn.
+    fn bigOf:PresDiagram (s:PresSlide u:PresDiaUse) {
+        if (u.bigTried == false) {
+            u.bigTried = true
+            def fb:[double] (PresDiaFull.fullBox(pageW pageH))
+            def b:PresDiagram (this.diagramIn(s u.fence u.page u.notation u.classic (itemAt fb 2) (itemAt fb 2) (itemAt fb 3) true))
+            if b.ok {
+                b.tour = false
+                b.canTour = false
+                b.choose = false
+                b.plan()
+                b.full = u.diagram.full
+                b.canFull = true
+                b.fitMax = 4.0
+                u.big = b
+            }
+        }
+        def out:PresDiagram u.big
+        return out
+    }
+
+    ; How big diagram d's boxes draw in a box w x h (slide units).
+    sfn drawnSize:double (d:PresDiagram w:double h:double) {
+        return ((d.fitOf(w h)) * (d.boxSize()))
+    }
+
+    ; The magnifier of diagram k on slide i: over the whole slide, or back.
+    fn toggleFull:void (i:int k:int) {
+        def hit@(optional):PresDiaUse (this.diagramUse(i k))
+        if (null? hit) {
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        def s:PresSlide (itemAt slides i)
+        this.bigOf(s u)
+        u.diagram.full.toggle(uiNow)
+        u.diagram.menuOpen = false
+        u.diagram.zoomOpen = false
+        if u.diagram.full.open {
+            fullSlide = i
+        }
+    }
+
+    ; Esc: a diagram open over slide i goes back to its place. True when one
+    ; was open.
+    fn closeFull:boolean (i:int) {
+        def k:int (this.fullAt(i))
+        if (k < 0) {
+            return false
+        }
+        def s:PresSlide (itemAt slides i)
+        def u:PresDiaUse (itemAt s.diagrams k)
+        if (! u.diagram.full.open) {
+            return false
+        }
+        u.diagram.full.setOpen(uiNow false)
+        return true
+    }
+
+    ; The slide on screen is i: a diagram left open over another slide is
+    ; back in its place when that slide shows again.
+    def fullSlide:int -1
+    fn showingSlide:void (i:int) {
+        if ((fullSlide < 0) || (fullSlide == i)) {
+            return
+        }
+        if (fullSlide < (array_length slides)) {
+            def s:PresSlide (itemAt slides fullSlide)
+            def k:int 0
+            while (k < (array_length s.diagrams)) {
+                def u:PresDiaUse (itemAt s.diagrams k)
+                u.diagram.full.reset()
+                k = (k + 1)
+            }
+        }
+        fullSlide = -1
     }
 
     ; The pointer at slide point (px, py) on slide i, at slide time t: over
@@ -541,7 +689,10 @@ class PresDeck {
         while (j < (array_length s.diagrams)) {
             def u:PresDiaUse (itemAt s.diagrams j)
             u.diagram.uiNow = uiNow
-            u.diagram.pointerAt((j == k) (t - u.start) u.bx u.by u.bw u.bh px py)
+            def b:[double] (u.boxNow(uiNow pageW pageH))
+            def dd:PresDiagram (u.active(uiNow))
+            dd.uiNow = uiNow
+            dd.pointerAt((j == k) (u.activeTime(t uiNow)) (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) px py)
             j = (j + 1)
         }
     }
@@ -551,7 +702,8 @@ class PresDeck {
         def hit@(optional):PresDiaUse (this.diagramUse(i k))
         if (!null? hit) {
             def u:PresDiaUse (unwrap hit)
-            u.diagram.ctl.press(uiNow)
+            def dd:PresDiagram (u.active(uiNow))
+            dd.ctl.press(uiNow)
         }
     }
 
@@ -653,8 +805,10 @@ class PresDeck {
         def k:int 0
         while (k < (array_length s.diagrams)) {
             def u:PresDiaUse (itemAt s.diagrams k)
+            def dd:PresDiagram (u.active(uiNow))
+            dd.uiNow = uiNow
             u.diagram.uiNow = uiNow
-            if (u.diagram.uiBusy()) {
+            if ((dd.uiBusy()) || (u.diagram.uiBusy())) {
                 return true
             }
             k = (k + 1)
@@ -1042,31 +1196,20 @@ class PresDeck {
         return out
     }
 
-    fn readDiagram:void (s:PresSlide n:MdNode page:int) {
-        if (n.kind != "embed") {
-            return
-        }
-        def notation:string (MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info))))
-        if ((((strlen notation) == 0) || (notation == "vega")) || (notation == "figure")) {
-            return
-        }
-        ; `{diagram=classic}`: the document's own drawing, still, in the
-        ; slide's colours (the engine's dark look on a dark slide) and as
-        ; large as the room allows, chosen like the others
-        def classic:boolean ((n.attrValue("diagram")) == "classic")
-        def bi:int (this.embedBox(page n.literal))
-        if (bi < 0) {
-            return
-        }
+    ; The diagram of fence `n` on slide s (page `page`), laid out for a room
+    ; roomW x roomH (the shape picks among the layouts), its scene `width`
+    ; slide units wide, with the fence's options. Not `ok` when it cannot
+    ; be drawn. `turn`: a class or state diagram may be turned too
+    ; (`PresDiagram.turned`), as a flowchart always may.
+    fn diagramIn:PresDiagram (s:PresSlide n:MdNode page:int notation:string classic:boolean width:double roomW:double roomH:double turn:boolean) {
         def lay:MdLayout (this.layout())
-        def box:MdBox (itemAt lay.boxes bi)
         def look:string "default"
         if (classic && (! (PresDiagram.isLight(lay.style.pageBackground)))) {
             look = "dark"
         }
-        def base:PresDiagram (this.diagramFor(notation n.literal box.w look))
+        def base:PresDiagram (this.diagramFor(notation n.literal width look))
         if (! base.ok) {
-            return
+            return base
         }
         ; The layout that draws largest in the room it has, among: the
         ; direction as written, the other direction, and each of them
@@ -1078,11 +1221,9 @@ class PresDeck {
         ; `{layout=keep}` keeps what was written, and so does a diagram
         ; whose author placed its boxes (`PresDiagram.arranged`).
         if (((n.attrValue("layout")) != "keep") && ((PresDiagram.arranged(notation n.literal)) == false)) {
-            def room:double (this.roomBelow(page box))
-            def span0:[double] (this.diagramSpan(page box))
             def aspect:double 1.5
-            if (room > 0.0) {
-                aspect = ((itemAt span0 1) / room)
+            if (roomH > 0.0) {
+                aspect = (roomW / roomH)
             }
             ; Toured, the camera goes in close, and a squarer shape reads
             ; better; shown whole, the room's own shape decides, so the
@@ -1103,8 +1244,11 @@ class PresDeck {
             push cands base
             push texts n.literal
             def other:string (PresDiagram.flipped(notation n.literal))
+            if (((strlen other) == 0) && turn) {
+                other = (PresDiagram.turned(notation n.literal))
+            }
             if ((strlen other) > 0) {
-                def alt:PresDiagram (this.diagramFor(notation other box.w look))
+                def alt:PresDiagram (this.diagramFor(notation other width look))
                 if alt.ok {
                     push cands alt
                     push texts other
@@ -1114,7 +1258,7 @@ class PresDeck {
             def ci:int 0
             def m:int (array_length cands)
             while (ci < m) {
-                def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) box.w aspect look))
+                def wr:PresDiagram (this.diagramAs(notation (itemAt texts ci) width aspect look))
                 if wr.ok {
                     push cands wr
                 }
@@ -1203,6 +1347,33 @@ class PresDeck {
             d.useLook(lookName)
             this.wantLookFaces(d.look)
         }
+        return d
+    }
+
+    fn readDiagram:void (s:PresSlide n:MdNode page:int) {
+        if (n.kind != "embed") {
+            return
+        }
+        def notation:string (MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(n.info))))
+        if ((((strlen notation) == 0) || (notation == "vega")) || (notation == "figure")) {
+            return
+        }
+        ; `{diagram=classic}`: the document's own drawing, still, in the
+        ; slide's colours (the engine's dark look on a dark slide) and as
+        ; large as the room allows, chosen like the others
+        def classic:boolean ((n.attrValue("diagram")) == "classic")
+        def bi:int (this.embedBox(page n.literal))
+        if (bi < 0) {
+            return
+        }
+        def lay:MdLayout (this.layout())
+        def box:MdBox (itemAt lay.boxes bi)
+        def room0:double (this.roomBelow(page box))
+        def span0:[double] (this.diagramSpan(page box))
+        def d:PresDiagram (this.diagramIn(s n page notation classic box.w (itemAt span0 1) room0 false))
+        if (! d.ok) {
+            return
+        }
         def oi:int (this.takeOldUse(n.literal))
         if (oi >= 0) {
             def was:PresDiaUse (itemAt oldUses oi)
@@ -1222,6 +1393,10 @@ class PresDeck {
         u.diagram = d
         u.source = n.literal
         u.srcStart = n.srcStart
+        u.fence = n
+        u.page = page
+        u.notation = notation
+        u.classic = classic
         def span:[double] (this.diagramSpan(page box))
         u.bx = (itemAt span 0)
         u.by = box.y
@@ -3139,10 +3314,25 @@ class PresDeck {
                 ; camera zoomed into a strip shows a slot.
                 def room:double (this.roomBelow(i kb))
                 def span:[double] (this.diagramSpan(i kb))
+                ; the magnifier: presenting, and the diagram drawn small here
+                ; (laid out for the whole slide its boxes draw bigger)
+                dia.diagram.canFull = false
+                if ((live && showControls) && (still == false)) {
+                    def big:PresDiagram (this.bigOf(s dia))
+                    if big.ok {
+                        def fb:[double] (PresDiaFull.fullBox(pageW pageH))
+                        def was:double (PresDeck.drawnSize(dia.diagram (itemAt span 1) room))
+                        def grown:double (PresDeck.drawnSize(big (itemAt fb 2) (itemAt fb 3)))
+                        dia.diagram.canFull = (dia.diagram.full.open || (PresDiaFull.worth(was grown)))
+                    }
+                }
                 if still {
                     dia.diagram.paintStill(out (itemAt span 0) kb.y (itemAt span 1) room l.style.textColor paper l)
                 } {
-                    dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
+                    ; over the whole slide it is painted last, over everything
+                    if ((dia.diagram.full.shown(uiNow)) == false) {
+                        dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
+                    }
                 }
             } {
                 def sa@(optional):PresSmartArtUse (this.smartArtOf(s kb))
@@ -3191,6 +3381,13 @@ class PresDeck {
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
         }
+        ; a diagram opened over the whole slide, on a veil of the slide's colour
+        if (still == false) {
+            this.paintFull(out i s t l paper)
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
+        }
         ; a chart's cut words under the pointer, over everything: on the
         ; stage only (not in a thumbnail or an export)
         if (((i == tipSlide) && (still == false)) && showControls) {
@@ -3206,6 +3403,36 @@ class PresDeck {
             push boxOfCmd -1
         }
         return out
+    }
+
+    ; The diagram of slide i shown over the whole slide (PresDiaFull), if any:
+    ; the slide fades under a veil of its own colour as the box grows.
+    fn paintFull:void (out:EVGDisplayList i:int s:PresSlide t:double l:MdLayout paper:string) {
+        def k:int (this.fullAt(i))
+        if (k < 0) {
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams k)
+        def a:double (u.diagram.full.amount(uiNow))
+        def pc:EVGColor (EVGColor.parse(paper))
+        def veil (new EVGDrawCmd())
+        veil.kind = 0
+        veil.x = 0.0
+        veil.y = 0.0
+        veil.w = pageW
+        veil.h = pageH
+        veil.r = (pc.red())
+        veil.g = (pc.green())
+        veil.b = (pc.blue())
+        veil.a = a
+        push out.cmds veil
+        def b:[double] (u.boxNow(uiNow pageW pageH))
+        def dd:PresDiagram (u.active(uiNow))
+        dd.uiNow = uiNow
+        dd.showControls = showControls
+        dd.live = live
+        dd.rimFade = u.diagram.rimFade
+        dd.paint(out (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) (u.activeTime(t uiNow)) l.style.textColor paper l)
     }
 
     ; The slide's line art (`{art=waves}`), over its picture and under the
