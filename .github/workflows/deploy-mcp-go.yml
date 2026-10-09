@@ -66,9 +66,9 @@ jobs:
           # BigQuery table (project.dataset.table; unset: no costs shown)
           ADMIN_EMAILS: ${{ vars.SLIQTLY_ADMIN_EMAILS || 'teroktolonen@gmail.com' }}
           BILLING_TABLE: ${{ vars.SLIQTLY_BILLING_TABLE }}
-          # sliqtly_plugin's plugins (mcp-go/rgr/Plugins.rgr), e.g.
-          # code-review; unset: none
-          PLUGINS: ${{ vars.SLIQTLY_PLUGINS }}
+          # sliqtly_plugin's plugins (mcp-go/rgr/Plugins.rgr); unset:
+          # code-review, "none" turns them all off
+          PLUGINS: ${{ vars.SLIQTLY_PLUGINS || 'code-review' }}
         run: |
           # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
           # Run's sandbox need not show the cgroup limit memlimit.go reads,
