@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Build from the repository root:
 #   docker build -f mcp-go/Dockerfile -t sliqtly-mcp-go .                  # Cloud Run, editor at /editor
 #   docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .   # with the editor
@@ -7,7 +6,9 @@
 # RangerMarkdown and RangerPPTX, which are private: give a token that can read them as a
 # build secret, docker build --secret id=deps_token,env=DEPS_TOKEN …
 # Base images come through mirror.gcr.io (Google's Docker Hub mirror): Docker
-# Hub answers CI runners with 429 Too Many Requests.
+# Hub answers CI runners with 429 Too Many Requests. No `# syntax=` line for
+# the same reason: it pulls docker/dockerfile from Docker Hub, and BuildKit's
+# built-in frontend has RUN --mount=type=secret.
 FROM mirror.gcr.io/library/node:22 AS gen
 WORKDIR /src
 COPY presentation.config.json ./

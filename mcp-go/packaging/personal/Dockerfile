@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # The Personal image (ghcr.io/terotests/sliqtly-personal): the server with
 # the public viewer built in and no editor, as in the Personal .deb. Built by
 # .github/workflows/personal-package.yml from binaries it compiled already:
