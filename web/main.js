@@ -20,7 +20,7 @@ import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { accountStorage } from "./account.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
-import { toBase64, fromBase64, fileBytes, fileState, plainChord } from "./slideclip.js";
+import { toBase64, fromBase64, fileBytes, fileState, plainChord, clipImgHtml } from "./slideclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
 import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
@@ -7099,13 +7099,16 @@ keys.addEventListener("paste", (ev) => {
       return;
     }
   }
+  const text = ev.clipboardData?.getData("text/plain") || "";
+  // Sliqtly's own copy carries a picture of itself for other apps: here the
+  // text is what is pasted
+  const ours = !!text && app.clipKindOf(text) === "sliqtly";
   const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(it.type));
-  if (picture) {
+  if (picture && !ours) {
     const file = picture.getAsFile();
     if (file) addPictureFile(file).catch(fail);
     return;
   }
-  const text = ev.clipboardData?.getData("text/plain") || "";
   // slides, an element, a diagram or a spec: asked about, then pasted
   if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
   if (text && app.focusTarget() === "editor" && dataLink(text)) {
@@ -7152,19 +7155,113 @@ function clipAnswered(key, alt) {
   resolve(alt ? "alt" : "ok");
 }
 
-async function clipCopy(kind) {
+// The copy goes on the clipboard as Sliqtly's text and, for apps that do not
+// read it (chat, mail, Word, an image editor), as a PNG of the slides or the
+// element, also in HTML as an <img>. The ClipboardItem is made at once, in
+// the key's own turn, with promises of its parts: Safari takes a write only
+// then. Without ClipboardItem, or when the write is refused, the text alone.
+function clipCopy(kind) {
+  const spec = JSON.parse(app.clipPictureJson(kind));
+  const text = clipCopyText(kind);
+  const png = spec.pages ? text.then((s) => (s ? clipPicture(spec) : null)) : Promise.resolve(null);
+  let rich = null;
+  if (spec.pages && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+    const need = (p) => p.then((v) => v || Promise.reject(new Error("nothing to copy")));
+    const parts = {
+      "text/plain": need(text).then((s) => new Blob([s], { type: "text/plain" })),
+      "image/png": need(png),
+    };
+    if (!ClipboardItem.supports || ClipboardItem.supports("text/html")) {
+      parts["text/html"] = need(png).then(async (b) => new Blob([clipImgHtml(toBase64(await b.arrayBuffer()))], { type: "text/html" }));
+    }
+    try {
+      rich = navigator.clipboard.write([new ClipboardItem(parts)]).then(() => true, () => false);
+    } catch (_) {
+      rich = null;
+    }
+  }
+  return (async () => {
+    const s = await text;
+    if (!s) return;
+    let ok = rich ? await rich : false;
+    if (!ok) ok = await writeClip(s);
+    const n = app.clipCount();
+    if (!ok) toast(t("Could not copy"));
+    else if (kind === "element") toast(t("Copied"));
+    else toast(n === 1 ? t("Copied 1 slide.") : t("Copied {n} slides.").replace("{n}", n));
+  })();
+}
+
+// Sliqtly's clipboard text of the copy, "" when there is nothing to copy.
+async function clipCopyText(kind) {
   const files = await docFiles();
   const names = app.clipBegin(kind, files.map((f) => f.path).join("\n"));
-  const n = app.clipCount();
-  if (!n) return;
+  if (!app.clipCount()) return "";
   for (const p of names.split("\n").filter(Boolean)) {
     const f = files.find((x) => x.path === p);
     if (f) app.clipAddFile(p, f.type || "", toBase64(await fileBytes(f)));
   }
-  const ok = await writeClip(app.clipText());
-  if (!ok) toast(t("Could not copy"));
-  else if (kind === "element") toast(t("Copied"));
-  else toast(n === 1 ? t("Copied 1 slide.") : t("Copied {n} slides.").replace("{n}", n));
+  return app.clipText();
+}
+
+// The copy's picture (app.clipPictureJson): each slide at rest as the stage
+// draws it, one under another, or the element's box of its slide; a PNG
+// Blob, null when there is no GPU for it.
+const CLIP_PIC_W = 1920;
+const CLIP_PIC_MAX_H = 16000;
+const CLIP_PIC_GAP = 24;
+async function clipPicture(spec) {
+  app.settleAll();
+  const docs = spec.pages.map((i) => atRest(JSON.parse(app.slideJson(i))));
+  if (!docs.length) return null;
+  const box = spec.box || null;
+  const bw = box ? box[2] : docs[0].width;
+  const bh = box ? box[3] : docs[0].height;
+  // one slide sharp, many smaller; within the GPU's 4096 and a picture the
+  // apps take
+  let k = Math.min((docs.length > 1 ? 1280 : CLIP_PIC_W) / bw, 4096 / docs[0].width, 4096 / docs[0].height);
+  if (box) k = Math.min(4, k);
+  const tall = (h) => docs.length * h + (docs.length - 1) * CLIP_PIC_GAP;
+  if (!box && tall(bh * k) > CLIP_PIC_MAX_H) k = (CLIP_PIC_MAX_H - (docs.length - 1) * CLIP_PIC_GAP) / docs.length / bh;
+  const w = Math.max(1, Math.round(bw * k));
+  const h = Math.max(1, Math.round(bh * k));
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = box ? h : tall(h);
+  const og = out.getContext("2d");
+  og.fillStyle = "#ffffff";
+  og.fillRect(0, 0, out.width, out.height);
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return null;
+  const cut = document.createElement("canvas");
+  const cg = cut.getContext("2d");
+  docs.forEach((doc, n) => {
+    c.width = Math.round(doc.width * k);
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+    f.draw(null, null);
+    const x = box ? Math.max(0, Math.floor(box[0] * k)) : 0;
+    const y = box ? Math.max(0, Math.floor(box[1] * k)) : 0;
+    const cw = Math.min(c.width - x, w);
+    const ch = Math.min(c.height - y, h);
+    if (cw > 0 && ch > 0) {
+      // GL rows run bottom up
+      const up = new Uint8Array(cw * ch * 4);
+      g.readPixels(x, c.height - y - ch, cw, ch, g.RGBA, g.UNSIGNED_BYTE, up);
+      const rgba = new Uint8ClampedArray(cw * ch * 4);
+      for (let r = 0; r < ch; r++) rgba.set(up.subarray((ch - 1 - r) * cw * 4, (ch - r) * cw * 4), r * cw * 4);
+      for (let p = 3; p < rgba.length; p += 4) rgba[p] = 255;
+      cut.width = cw;
+      cut.height = ch;
+      cg.putImageData(new ImageData(rgba, cw, ch), 0, 0);
+      og.drawImage(cut, 0, n * (h + CLIP_PIC_GAP));
+    }
+    f.dispose();
+  });
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+  return new Promise((r) => out.toBlob(r, "image/png"));
 }
 
 // A pasted file into the deck, as Files → Paste puts one.

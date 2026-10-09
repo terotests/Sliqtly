@@ -14,6 +14,15 @@ in `src/PresClip.rgr` (checked in `PresCheck.clips`); the page's part is in
 | the slide, nothing picked           | the selected slide                                |
 | the Markdown or the theme editor    | the selected text, as before                      |
 
+A picture goes on the clipboard with the text, for apps that do not read it
+(chat, mail, Word, an image editor): a PNG of the copied slides, one under
+another, as the stage draws them at rest, or of the copied element alone (its
+box cut from the slide). It is there as `image/png` and as `text/html` with an
+inline `<img>`; Sliqtly itself pastes the text. The page writes one
+`ClipboardItem` in the key's own turn with promises of its parts, as Safari
+requires; a browser without `ClipboardItem`, or one that refuses the write,
+gets the text alone.
+
 The same commands are in **Edit** (Copy slide) and in the slide's right-click
 menu (Copy slide, Copy the chart…). The old **Copy ▸** submenu is now
 **Copy as ▸** (Markdown, Markdown + comments, open comments).
