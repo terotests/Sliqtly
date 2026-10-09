@@ -31,6 +31,10 @@ jobs:
         with:
           node-version: 20
       - run: npm ci --no-audit --no-fund
+      # programs on slides (```app) run in CErXes built to WebAssembly
+      # (scripts/lib.mjs ensureCerxes); the runner has cargo, not this target
+      - name: Rust's WebAssembly target
+        run: rustup target add wasm32-wasip1
       - name: Build the page
         run: node scripts/build.mjs
       - name: Check the deck and the timeline

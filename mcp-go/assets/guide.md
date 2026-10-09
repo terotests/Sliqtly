@@ -64,8 +64,28 @@ the first `create_presentation`.
 ## Themes
 
 `aurora` (default), `nebula`, `carbon`, `ember`, `midnight` are dark;
-`corporate` is light slides; `editorial` is an A4 portrait document where
-`#` starts a page.
+`editorial` is an A4 portrait document where `#` starts a page.
+
+Light slides, white or near-white paper: `white` (plain white, no
+background), `corporate` (plain), `pearl`
+(soft pastel light from two corners), `hive` (fine honeycomb along the
+right edge), `lattice` (pale diagonal tiles, clear in the middle), `apex`
+(blue accent triangles and quarter circles in the corners), `tide` (blue
+line waves along the bottom), `mist` (halftone dots from two corners).
+
+Work themes, condensed Fjalla One headings and blocks of colour down the
+right edge: `forge` (white, charcoal and orange), `foundry` (dark charcoal,
+orange headings), `site` (light, charcoal and safety yellow).
+
+Health themes, Lato headings: `clinic` (white and teal, a heartbeat line
+along the bottom), `care` (pale blue, cyan honeycomb at the right edge),
+`vital` (white, cyan and mint light in two corners).
+
+The light themes' backgrounds are `deck { art: … }` in the theme CSS
+(`waves`, `honeycomb`, `lattice`, `corners`, `glow`, `halftone`, `tide`,
+`blocks`, `pulse`), drawn
+from the `figure { colors }` and kept as shapes in PDF and PPTX;
+`{art=off}` on a heading leaves it off that slide.
 
 `nebula` (starfield) and the `fx=` effects (`smoke`, `starfield`,
 `plasma-wave`…) are for show pieces; for an ordinary deck don't pick them
@@ -85,6 +105,7 @@ by default. Readability comes first.
 | `pictures` | photos, SVG, backgrounds, galleries |
 | `css` | colours, fonts, spacing; selectors and properties |
 | `data` | Excel / CSV / JSON files, `table` and `sheet` blocks |
+| `apps` | a program or game running on a slide (`app` blocks, TSX + CSS) |
 | `editing` | `edits`, another assistant on the same deck, review comments, the layout report |
 | `export` | PDF, PPTX, DOCX, HTML, print pages with bleed |
 | `limits` | quotas, sign-in, privacy, deleting decks |
@@ -279,8 +300,15 @@ hold: 2.5               # seconds after the last step
   default. Readability comes first.
 - Line art: `art=waves` draws line art behind the slide; `art-seed=3` draws
   another picture of it, `art=off` none; `art: waves` in the front matter
-  puts it behind every slide. Line art is drawn only for signed-in PRO
-  decks.
+  puts it behind every slide. Line art named in the document is drawn only
+  for signed-in PRO decks.
+- Background art of a theme: `deck { art: honeycomb }` in its CSS (one of
+  `waves`, `honeycomb`, `lattice`, `corners`, `glow`, `halftone`, `tide`,
+  `blocks`, `pulse`;
+  `art-seed: 3` moves it) is drawn behind every slide for everyone, in the
+  `figure { colors }`. The light themes `pearl`, `hive`, `lattice`, `apex`,
+  `tide`, `mist` and the work themes `forge`, `foundry`, `site` and the health themes
+  `clinic`, `care`, `vital` use it; `art=off` on a heading leaves it off that slide.
 - `render_slide` and `render_overview` do not draw effects; the player
   does.
 
@@ -822,6 +850,73 @@ safe-area: 8mm; } deck { crop-marks: on; } }` (topic `export`).
 - `bind_chart_data` points an existing chart at a CSV/JSON URL or a Google
   Sheet (topic `charts`).
 
+<!-- topic: apps -->
+# Topic: apps
+
+A slide can run a small program: a game, a calculator, an interactive
+explanation. It is a TypeScript + JSX file of the deck with an optional
+stylesheet beside it, shown in the box of an `app` block:
+
+````markdown
+```app
+src: apps/counter.tsx       # its stylesheet: apps/counter.tsx.css (or css:)
+size: 480x270               # the program's own units, scaled to the box
+allow: deck.data, slide.nav # what it may ask of the deck (optional)
+```
+````
+
+- Send the files with `files` (signed in), as text:
+  `{ "name": "counter.tsx", "text": "…" }` and
+  `{ "name": "counter.tsx.css", "text": "…" }`. They are kept as
+  `apps/<name>`.
+- The program defines `view()`, which returns JSX; optionally
+  `tick(dt, input)` (each frame; `input.keys`, `input.pointer`),
+  `onKeyDown(key)`, `onKeyUp(key)`, and `onClick` on an element. Its
+  elements are `div`, and `span`, `p`, `b`, `label` for text; `className`
+  and `style` (numbers are px) as in React. The stylesheet is laid out like
+  the slide's CSS (topic `css`): absolute positions, flex, sizes, colours,
+  borders, radius.
+- It runs in the viewer's browser, only while its slide is shown, in a
+  sandbox with no page, network or storage; one that does not answer in
+  3 s is stopped. A click on the box gives it the keyboard; Esc gives it
+  back to the slides.
+- What it may ask of the deck, each by its word on `allow:` (anything else
+  is refused and reported):
+  - `deck.data`: `deck.get("key")` reads the deck's own keys (front matter,
+    topic `layout`), `deck.set("score", 3)` fills `{score}` in headers and
+    footers while the deck is open.
+  - `slide.nav`: `slide.next()`, `slide.prev()`, `slide.go(n)`,
+    `slide.build()`; `slide.number` and `slide.count` are read without it.
+  - `slide.style`: `el("#id")` or `el(".class")` with
+    `.style({ color, background, opacity, translate: "10px 0", display })`,
+    `.show()`, `.hide()`, `.reset()` changes the look of the slide's blocks
+    with that id or class (`{#id}` on the line after a paragraph) without
+    changing the Markdown.
+- Example:
+
+  ```tsx
+  let n = 0;
+  function view() {
+    return (
+      <div className="box" onClick={() => { n++; deck.set("count", n); }}>
+        <span className="big">{String(n)}</span>
+      </div>
+    );
+  }
+  ```
+
+  ```css
+  .box { width: 480px; height: 270px; background-color: #1e293b }
+  .big { position: absolute; left: 0px; top: 90px; width: 480px;
+    font-size: 64px; color: #ffffff; text-align: center }
+  ```
+
+- `render_slide`, PDF, PPTX, Word and the public viewer show a plate with
+  the program's name in the box (the editor's thumbnails and exports show
+  its last picture). The program itself runs in the Sliqtly editor.
+- The result of create/update warns about a missing program file and
+  about lines of the block it did not understand.
+
 <!-- topic: editing -->
 # Topic: editing
 
@@ -1027,6 +1122,10 @@ lands in General, and the user then has to move it by hand.
   give `room_id` to `create_presentation`.
 - `list_rooms` gives at most 1000 rooms a page; `next_offset` is where the
   next page starts (`offset`). `move_presentation` moves a deck later.
+- `search_presentations` finds presentations by the words in their
+  slides and notes (not their Markdown's syntax), each with its room and
+  the text around the first word: use it when the user names what a deck
+  said rather than what it is called.
 - `get_room` lists a room's presentations; `update_room` renames or
   describes it; `archive_room` puts finished work away (read only, nothing
   removed); `delete_room` removes the room and moves its decks to General.

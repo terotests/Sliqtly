@@ -100,3 +100,22 @@ func rooms(t *testing.T, e store.Engine) {
 	eq(t, len(must(e.Query(ctx, store.Query{From: store.MembersCol, Where: store.Eq("room", pay)}))), 0, "its members are gone")
 	isErr(t, rs.Remove(ctx, alice, store.GeneralRoom, "decks"), store.ErrDenied, "General removed")
 }
+
+// invited by e-mail address (the cloud): the membership counts for whoever
+// signs in with that address verified, whatever their user id
+func roomsByEmail(t *testing.T, e store.Engine) {
+	s := store.New(e, store.RoomPolicy{Cols: map[string]bool{"decks": true}})
+	rs := store.Rooms{S: s}
+	room := must(rs.Create(ctx, alice, "Launch", ""))
+	if rs.SetMember(ctx, alice, room, "email:not an address", store.Editor) == nil {
+		t.Fatal("a member named by something that is no address")
+	}
+	must(0, rs.SetMember(ctx, alice, room, "email: Dana@Example.com ", store.Editor))
+	dana := store.Principal{UserID: "u-dana", TenantID: "A", Email: "dana@example.com"}
+	other := store.Principal{UserID: "u-dana", TenantID: "A"}
+	eq(t, must(rs.For(ctx, dana)).Rooms[room], store.Editor, "dana by address, kept in lower case")
+	eq(t, must(rs.For(ctx, other)).Rooms[room], store.NoRole, "the same user without the address")
+	eq(t, len(must(rs.List(ctx, dana, false))), 1, "dana's rooms")
+	must(0, rs.SetMember(ctx, alice, room, "email:dana@example.com", store.NoRole))
+	eq(t, must(rs.For(ctx, dana)).Rooms[room], store.NoRole, "taken away")
+}

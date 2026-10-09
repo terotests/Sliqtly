@@ -9,13 +9,15 @@
 // → [{ id, name, created, updated, where: "browser" | "cloud" | "both", current }]
 // A deck kept here and in the cloud is one row, opened from here; its times
 // are the later of the two, since an assistant may have changed the share.
-export function deckRows(local, cloud, currentId) {
+// byCloud: a deck kept here that is in the cloud goes by "cloud:<id>" (the
+// editor on sliqtly.com, whose store lasts as long as the page)
+export function deckRows(local, cloud, currentId, { byCloud = false } = {}) {
   const shares = new Map((cloud || []).map((r) => [r.id, r]));
   const rows = (local || []).map((d) => {
     const share = d.cloud ? shares.get(d.cloud) : null;
     if (share) shares.delete(d.cloud);
     return {
-      id: d.id,
+      id: byCloud && d.cloud ? "cloud:" + d.cloud : d.id,
       name: d.name || share?.name || "",
       created: d.created || share?.created || d.updated || 0,
       updated: Math.max(d.updated || 0, share?.updated || 0) || d.created || 0,

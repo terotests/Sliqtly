@@ -65,3 +65,40 @@ func TestMissingPictureStandIn(t *testing.T) {
 		t.Fatal(ws)
 	}
 }
+
+// A program for an app block is kept under apps/ with its stylesheet; one
+// the block names and nobody sent is said, its optional stylesheet is not.
+func TestAppProgramFiles(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# B\n\n## Play\n\n```app\nsrc: apps/game.tsx\nsize: 480x270\nallow: deck.data\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "B", "markdown": md,
+		"files": []any{
+			map[string]any{"name": "game.tsx", "text": "function view() { return <div className=\"b\" /> }\n"},
+			map[string]any{"name": "apps/game.tsx.css", "text": ".b { width: 480px; height: 270px }\n"},
+		}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	ws := fmt.Sprint(sc(c)["warnings"])
+	if strings.Contains(ws, "no such file") || strings.Contains(ws, "app:") {
+		t.Fatal(ws)
+	}
+	id := sc(c)["deck_id"].(string)
+	files := textOf(call(t, s, "list_files", map[string]any{"deck_id": id}))
+	match(t, files, `apps/game\.tsx`)
+	match(t, files, `apps/game\.tsx\.css`)
+
+	gone := call(t, s, "create_presentation", map[string]any{"title": "C", "markdown": "# C\n\n## Play\n\n```app\nsrc: apps/none.tsx\ncolour: red\n```\n"})
+	gw := fmt.Sprint(sc(gone)["warnings"])
+	match(t, gw, `apps/none\.tsx is the program of an app block but the presentation has no such file`)
+	match(t, gw, `unknown key "colour".*→ topic=apps`)
+	if strings.Contains(gw, "none.tsx.css") {
+		t.Fatal("the optional stylesheet was reported:", gw)
+	}
+
+	b64 := call(t, s, "create_presentation", map[string]any{"title": "D", "markdown": md,
+		"files": []any{map[string]any{"name": "game.tsx", "data_base64": "aGk="}}})
+	match(t, textOf(b64), `a program and its stylesheet are sent as text`)
+}

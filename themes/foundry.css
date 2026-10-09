@@ -1,0 +1,132 @@
+/* ---------------------------------------------------------------------------
+   foundry.css — dark charcoal, orange headings and blocks.
+
+   A work theme: condensed Fjalla One headings, Open Sans text. The
+   background is `deck { art: blocks }`: a band down the right edge and
+   accent blocks from the `figure` colours, flat shapes the PDF and the
+   PowerPoint keep. A slide's own {art=off} leaves it out.
+   --------------------------------------------------------------------------- */
+
+/* The stage's charts and diagrams: `color` the series and the marks a chart
+   highlights, `accent-color` the grid, the axes and the other marks. */
+chart {
+  color: #ff8a1f;
+  accent-color: #78716c;
+  chart-style: flat;
+}
+
+diagram {
+  color: #ff8a1f;
+  accent-color: #ff8a1f;
+}
+
+/* The list layouts (```process, ```swot, ```timeline) and the background
+   art: the colours in order. */
+figure {
+  colors: #333333 #f07f1a #a8a29e #fbbf24;
+}
+
+container {
+  background-color: #2a2a2a;
+}
+
+page {
+  width: 13.333in;
+  height: 7.5in;
+  padding: 0.8in;
+  background-color: #1f1f1f;
+}
+
+deck {
+  split-level: 2;
+  overflow: split;
+  aspect-ratio: 16 / 9;
+  art: blocks;
+}
+
+document {
+  font-family: Open Sans;
+  font-size: 18pt;
+  line-height: 1.4;
+  color: #e7e5e4;
+}
+
+heading {
+  font-family: Fjalla One;
+  font-weight: normal;
+  margin-top: 12pt;
+  margin-bottom: 16pt;
+  color: #ff8a1f;
+}
+
+h1 {
+  font-size: 48pt;
+  text-transform: uppercase;
+}
+
+h2 {
+  font-size: 32pt;
+}
+
+h3 {
+  font-size: 22pt;
+}
+
+p {
+  margin-bottom: 13pt;
+}
+
+a {
+  color: #ffa64d;
+}
+
+hr {
+  color: #3a3a3a;
+}
+
+list {
+  padding-left: 28pt;
+  margin-left: 10pt;
+}
+
+li {
+  margin-bottom: 8pt;
+}
+
+blockquote {
+  color: #4b5563;
+  border-color: #f07f1a;
+  border-width: 4pt;
+  padding-left: 22pt;
+  padding-top: 8pt;
+}
+
+code {
+  font-family: Noto Sans;
+  font-size: 13pt;
+  line-height: 1.4;
+  padding: 12pt;
+  background-color: #2a2a2a;
+  border-color: #3a3a3a;
+}
+
+table {
+  border-color: #3a3a3a;
+  background-color: #2a2a2a;
+  padding-left: 10pt;
+  padding-top: 7pt;
+}
+
+.lead {
+  font-size: 23pt;
+}
+
+.c2 {
+  column-count: 2;
+  column-gap: 36pt;
+}
+
+.c3 {
+  column-count: 3;
+  column-gap: 28pt;
+}

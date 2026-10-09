@@ -28,6 +28,10 @@
  * The version history (web/versions.js) uses RangerDiff's built module,
  * dist/rangerdiff.mjs, cloned into .deps/RangerDiff unless RANGERDIFF_DIR
  * points at a checkout.
+ *
+ * Programs on slides (```app) run in CErXes, componentengine's TypeScript +
+ * JSX engine, built here to WebAssembly from a clone in .deps/componentengine
+ * (COMPONENTENGINE_DIR for a checkout of your own): see ensureCerxes.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -152,6 +156,7 @@ const CHECKOUT_HAS = {
   rangerflow: "layout/FlowWrap.rgr",
   rangermarkdown: "src/MdLayout.rgr",
   rangerpptx: "src/PptxModel.rgr",
+  componentengine: "cerxes/Cargo.toml",
 };
 
 /**
@@ -174,6 +179,46 @@ export function ensureCheckout(key, { update = false, into = null } = {}) {
   if (must && !fs.existsSync(path.join(dir, must))) throw new Error(`${dir} is not a ${name} checkout (no ${must})`);
   used.set(name, { dir, ref });
   return dir;
+}
+
+/**
+ * CErXes for programs on slides: componentengine's playground/cerxes-wasm
+ * built with cargo for wasm32-wasip1 (cargo keeps the build in
+ * .deps/cerxes-target and redoes only what changed), and the two scripts the
+ * page runs around it. { wasm, runtime, wasi } paths; `wasm` is null when
+ * cargo or its wasm32-wasip1 target is missing (`why` says which): the page
+ * then shows the fences' plates and says the engine did not start.
+ */
+export function ensureCerxes({ update = false } = {}) {
+  const dir = ensureCheckout("componentengine", { update });
+  const crate = path.join(dir, "playground", "cerxes-wasm");
+  const out = {
+    wasm: null,
+    why: "",
+    runtime: path.join(dir, "playground", "src", "evg", "runtime.js"),
+    wasi: path.join(dir, "playground", "src", "wasi.js"),
+  };
+  const target = path.join(depsDir, "cerxes-target");
+  const r = spawnSync("cargo", ["build", "--release", "--target", "wasm32-wasip1"], {
+    cwd: crate,
+    env: { ...process.env, CARGO_TARGET_DIR: target },
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.error) {
+    out.why = "no cargo (https://rustup.rs, then rustup target add wasm32-wasip1)";
+    return out;
+  }
+  if (r.status !== 0) {
+    const text = (r.stderr || "").trim();
+    if (/wasm32-wasip1/.test(text) && /target may not be installed|can't find crate for `(core|std)`/.test(text)) {
+      out.why = "cargo has no wasm32-wasip1 target (rustup target add wasm32-wasip1)";
+      return out;
+    }
+    throw new Error(`cargo build of ${crate} failed:\n${text.split("\n").slice(-30).join("\n")}`);
+  }
+  out.wasm = path.join(target, "wasm32-wasip1", "release", "cerxes_wasm.wasm");
+  return out;
 }
 
 /** RangerDiff (deltas and versions): RANGERDIFF_DIR, or a clone in .deps at config.rangerdiff.ref. */

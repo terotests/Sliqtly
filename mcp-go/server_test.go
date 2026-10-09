@@ -131,6 +131,25 @@ func (f *fakeDB) WhereEq(_ context.Context, col, field string, value any) ([]Doc
 	}
 	return docs, ids, nil
 }
+func (f *fakeDB) WhereHas(_ context.Context, col, field string, value any) ([]Doc, []string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	docs, ids := []Doc{}, []string{}
+	for k, v := range f.data {
+		if !strings.HasPrefix(k, col+"/") {
+			continue
+		}
+		list, _ := v[field].([]any)
+		for _, x := range list {
+			if x == value {
+				docs = append(docs, clone(v))
+				ids = append(ids, k[len(col)+1:])
+				break
+			}
+		}
+	}
+	return docs, ids, nil
+}
 func (f *fakeDB) ServerTime() any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -458,7 +477,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	if !bad.IsError {
 		t.Fatal("an unknown topic was answered")
 	}
-	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, editing, export, limits\.`)
+	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, apps, editing, export, limits\.`)
 }
 
 // every topic Core lists is there, and every topic is listed in Core

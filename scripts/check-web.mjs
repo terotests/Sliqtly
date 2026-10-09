@@ -2570,13 +2570,22 @@ try {
       press("tb-m-slide-trigger");
       // the sub-trigger's chevron at the row's far edge, its name at the start
       a.toolbarJson();
-      const row = find("tb-m-slide-item-theme");
+      const row = find("tb-m-slide-item-orientation");
       const [label, chev] = row.children || [];
       const edges = label && chev ? { rowL: row.calculatedX, rowR: row.calculatedX + row.calculatedWidth, labelL: label.calculatedX, label: label.textContent, chevR: chev.calculatedX + chev.calculatedWidth, chev: chev.textContent } : null;
-      press("tb-m-slide-item-theme");
+      press("tb-m-slide-item-orientation");
       const opened = t.openMenu() === "tb-m-slide";
-      press("tb-m-slide-item-theme-item-t-editorial");
+      // the other way round from the deck's: the app turns the deck itself
+      const ori0 = a.orientation();
+      const other = ori0 === "portrait" ? "landscape" : "portrait";
+      press("tb-m-slide-item-orientation-item-o-" + other);
+      const turned = a.orientation() === other;
+      a.request("slide:" + ori0);
       const reqs = [];
+      for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
+      // Slide → Theme… asks the page for the theme picker
+      press("tb-m-slide-trigger");
+      press("tb-m-slide-item-themes");
       for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
       press("tb-m-help-trigger");
       press("tb-m-help-item-helpBtn");
@@ -2589,18 +2598,59 @@ try {
       for (;;) { const r = a.takeRequest(); if (!r) break; through.push(r); }
       help.push(...through.map((r) => "after-menu:" + r));
       const closedAfter = t.openMenu() === "";
-      return { edges, opened, reqs, help, closedAfter, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
+      return { edges, opened, turned, reqs, help, closedAfter, drawn: JSON.parse(a.toolbarJson()).list.cmds.length, theme0, htmlBarHidden: getComputedStyle(document.getElementById("bar")).display === "none" };
     });
     check("the top bar is drawn on the canvas, the HTML one hidden", bar.drawn > 20 && bar.htmlBarHidden, JSON.stringify(bar));
-    check("…Slide → Theme opens and a theme chosen becomes the page's select change", bar.opened && bar.reqs.includes("select:theme:editorial"), JSON.stringify(bar));
+    check("…Slide → Orientation opens and a row chosen turns the deck", bar.opened && bar.turned, JSON.stringify(bar));
+    check("…Slide → Theme… asks for the theme picker", bar.reqs.includes("themes"), JSON.stringify(bar));
     const e = bar.edges;
-    check("…a submenu's arrow sits at its row's right edge, the name at the left", !!e && e.label === "Theme" && e.chev === "▸" && e.rowR - e.chevR <= 12 && e.labelL - e.rowL <= 12 && e.chevR - e.labelL > 150, JSON.stringify(e));
+    check("…a submenu's arrow sits at its row's right edge, the name at the left", !!e && e.label === "Orientation" && e.chev === "▸" && e.rowR - e.chevR <= 12 && e.labelL - e.rowL <= 12 && e.chevR - e.labelL > 150, JSON.stringify(e));
     check("…a menu's row is the page's button pressed", bar.help.includes("click:helpBtn"), JSON.stringify(bar));
     check("…with a menu open, another button of the bar acts on the first press (and the menu closes)", bar.help.includes("after-menu:click:share") && bar.closedAfter, JSON.stringify(bar));
     await page.evaluate((th) => { const s = document.getElementById("theme"); s.value = th; s.dispatchEvent(new Event("change")); }, bar.theme0);
     await page.waitForTimeout(300);
 
-    // the pointer resting on Slide → Theme opens its submenu without a press
+    // The theme picker: a tile per theme with a picture of a sample slide
+    // drawn in it; a tile pressed is the page's theme select changed
+    {
+      const r = await page.evaluate(async () => {
+        const a = window.__app;
+        const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+        const tile = (id) => { a.chartJson(); return walk(a.chart.host.lastPage, id); };
+        const theme0 = document.getElementById("theme").value;
+        a.requests.push("themes");
+        a.chromeRev += 1;
+        // the page answers the request on its next frame and draws the pictures one a frame
+        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 20); n++) await new Promise((res) => setTimeout(res, 100));
+        const open = a.chartIsOpen() && a.chart.mode === "themes";
+        const pics = window.__themePictures ? window.__themePictures() : -1;
+        // the window opens on the tab of the theme in use; Effects shows its tiles
+        const tab0 = a.chart.tabs.value;
+        const own = !!tile("th-pick-" + theme0);
+        const ed = !tile("th-pick-editorial");
+        const fx = tile("th-tabs-tab-Effects");
+        if (fx) { a.pointerDown(fx.calculatedX + 10, fx.calculatedY + 8, false, 1); a.pointerUp(); }
+        await new Promise((res) => setTimeout(res, 100));
+        const tab1 = a.chart.tabs.value;
+        const pearl = tile("th-pick-pearl");
+        const pic = pearl && pearl.children[0];
+        const hasPic = !!pic && pic.src === "/__theme/pearl";
+        if (pearl) { a.pointerDown(pearl.calculatedX + 20, pearl.calculatedY + 20, false, 1); a.pointerUp(); }
+        await new Promise((res) => setTimeout(res, 300));
+        const now = document.getElementById("theme").value;
+        const marked = (tile("th-pick-pearl")?.className || "").includes("ce-tile-on");
+        a.key("escape", false, false);
+        const s = document.getElementById("theme");
+        s.value = theme0;
+        s.dispatchEvent(new Event("change"));
+        return { open, pics, tab0, own, ed, tab1, hasPic, now, marked };
+      });
+      check("Slide → Theme… opens the picker on the theme's own tab, a picture drawn per theme", r.open && r.tab0 === "Dark" && r.own && r.ed && r.pics >= 20, JSON.stringify(r));
+      check("…the Effects tab shows its tiles, each with its picture", r.tab1 === "Effects" && r.hasPic, JSON.stringify(r));
+      check("…a tile pressed changes the theme and is marked", r.now === "pearl" && r.marked, JSON.stringify(r));
+    }
+
+    // the pointer resting on Slide → Orientation opens its submenu without a press
     const find = (id) => `(() => { const a = window.__app; a.toolbarJson(); const w = (e) => { if (e.id === ${JSON.stringify(id)}) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); })()`;
     const rest = await page.evaluate(async (f) => {
       const a = window.__app;
@@ -2615,8 +2665,8 @@ try {
       for (let n = 0; n < 40 && !after; n++) { await new Promise((r) => setTimeout(r, 100)); after = !!at("sub"); }
       a.key("escape", false, false);
       return { before, after, closed: a.toolbar.openMenu() === "" };
-    }, { trig: find("tb-m-slide-trigger"), row: find("tb-m-slide-item-theme"), sub: find("tb-m-slide-item-theme-content") });
-    check("…resting the pointer on Theme opens its submenu, after a short delay", !rest.before && rest.after, JSON.stringify(rest));
+    }, { trig: find("tb-m-slide-trigger"), row: find("tb-m-slide-item-orientation"), sub: find("tb-m-slide-item-orientation-content") });
+    check("…resting the pointer on Orientation opens its submenu, after a short delay", !rest.before && rest.after, JSON.stringify(rest));
 
     // over the Files tab: the File menu is drawn on top and a row under it is pressed
     await page.evaluate(() => window.__app.showTab("files"));
@@ -2835,6 +2885,22 @@ try {
     await R(`c("cf-ok");`);
     const deleted = await until(() => { try { const s = window.__keptRooms(); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
     check("…a room's gear opens its settings: Archive hides it (search finds it), Delete asks and moves its decks to General", settings && archived && foundArchived && delAsked && deleted, JSON.stringify({ settings, archived, foundArchived, delAsked, deleted }));
+    // the search finds presentations by their words, not their syntax (the
+    // deck kept here says "teksti"; "fx-hue" is only in its
+    // headings' {attributes}); pressed, one opens
+    await R(`t("tb-roomsearch"); a.text("teksti");`);
+    const foundDeck = await until(() => window.__app.toolbar.roomFound.includes("teksti"));
+    const foundRow = await rp.evaluate(() => window.__app.toolbar.roomFound);
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("fx-hue");`);
+    await rp.waitForTimeout(800);
+    const syntaxNotFound = await rp.evaluate(() => window.__app.toolbar.roomFound === "");
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("teksti");`);
+    await until(() => window.__app.toolbar.roomFound.length > 0);
+    await R(`t("tb-found-" + a.toolbar.roomFound.split("\\t")[0]);`);
+    // open: the search closed, its room open with the deck as its open row
+    const foundOpened = await until(() => { const tb = window.__app.toolbar; return tb.roomFound === "" && tb.roomOpen === "general" && tb.roomDecks.split("\n").some((l) => l.split("\t")[2] === "1"); });
+    await rp.waitForTimeout(500);
+    check("…the rooms' search finds presentations by their words (not {attributes}), with the text around them, and opens one", foundDeck && syntaxNotFound && foundOpened, JSON.stringify({ foundRow, syntaxNotFound, foundOpened }));
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);
@@ -2906,6 +2972,20 @@ try {
       press(find("tb-room-close"));
       for (const k of Object.keys(localStorage)) if (k.startsWith("sliqtly.rooms")) localStorage.removeItem(k);
     }, findJs);
+    // General's gear: no name to change, Clear asks first and takes this
+    // browser's copies out of it, the open presentation kept
+    await R(`t("tb-rail-rooms");`);
+    await pageHas("tb-room-general");
+    const countOf = (id) => window.__app.toolbar.roomRows.split("\n").map((l) => l.split("\t")).find((x) => x[0] === id)?.[2] || "";
+    const genBefore = await rp.evaluate(countOf, "general");
+    await R(`t("tb-roomgear-general");`);
+    const builtin = await until(() => { const ch = window.__app.chart; return ch.isOpen && ch.ndAsk === "room" && ch.rmState === "builtin"; });
+    await R(`c("rm-clear");`);
+    const clearAsked = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey === "roomclear:general");
+    await R(`c("cf-ok");`);
+    const cleared = await until((f) => new Function("return " + f)()("general") === "1", countOf.toString());
+    check("…General's gear: Clear asks, then takes the room's presentations out of this browser, the open one kept", builtin && clearAsked && cleared && Number(genBefore) > 1,
+      JSON.stringify({ genBefore, builtin, clearAsked, now: await rp.evaluate(countOf, "general") }));
     await rctx.close();
 
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
@@ -5466,10 +5546,30 @@ try {
     await page.mouse.click(th[1] + 30, th[2] + 20);
     await page.waitForTimeout(300);
     check("strip has the keys", (await app("focusTarget")) === "strip", await app("focusTarget"));
+    // the copy is written once its picture is drawn (slow on a software GPU)
+    const copied = async (before) => {
+      for (let i = 0; i < 60; i++) {
+        await page.waitForTimeout(500);
+        const now = await clip();
+        if (now && now !== before) return now;
+      }
+      return await clip();
+    };
+    const before1 = await clip();
     await page.keyboard.press(`${mod}+c`);
-    await page.waitForTimeout(800);
-    const c1 = await clip();
+    const c1 = await copied(before1);
     check("Ctrl+C on the strip copies the slide as Sliqtly text", c1.startsWith("===== Sliqtly clipboard v1: 1 slide ====="), c1.slice(0, 200));
+    // …and a picture of the slide beside it, for apps that do not read the text
+    const pic = () => page.evaluate(async () => {
+      const items = await navigator.clipboard.read();
+      const it = items[0];
+      if (!it || !it.types.includes("image/png")) return { types: it ? it.types : [] };
+      const bmp = await createImageBitmap(await it.getType("image/png"));
+      const html = it.types.includes("text/html") ? await (await it.getType("text/html")).text() : "";
+      return { types: it.types, w: bmp.width, h: bmp.height, html: html.includes("data:image/png;base64,") };
+    });
+    const p1 = await pic();
+    check("…with a PNG of the slide and the same in HTML", p1.types.includes("text/plain") && p1.w >= 1200 && Math.abs(p1.w / p1.h - 16 / 9) < 0.05 && p1.html, JSON.stringify(p1));
     await page.keyboard.press(`${mod}+v`);
     await page.waitForTimeout(800);
     check("Ctrl+V on the strip asks first", await isConfirm(), await confirmText());
@@ -5507,10 +5607,12 @@ try {
     await page.waitForTimeout(300);
     await page.mouse.click(880, 500);
     await page.waitForTimeout(500);
+    const before2 = await clip();
     await page.keyboard.press(`${mod}+c`);
-    await page.waitForTimeout(800);
-    const e1 = await clip();
+    const e1 = await copied(before2);
     check("Ctrl+C on a picked diagram copies the element", e1.startsWith("===== Sliqtly clipboard v1: 1 element (diagram) =====") && e1.includes("```mermaid"), e1.slice(0, 300));
+    const p2 = await pic();
+    check("…and a picture of the diagram alone, not the whole slide", p2.w > 0 && Math.abs(p2.w / p2.h - 16 / 9) > 0.05, JSON.stringify(p2));
     l = await lay();
     const t4 = l.thumbs.find((t) => t[0] === 3);
     await page.mouse.click(t4[1] + 30, t4[2] + 20);

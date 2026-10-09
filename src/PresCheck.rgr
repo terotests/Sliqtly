@@ -3,6 +3,7 @@
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
+Import "PresThemeGallery.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresTerm.rgr"
@@ -34,6 +35,7 @@ Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
+Import "PresPlay.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -172,6 +174,9 @@ class PresCheck {
         this.ok(((indexOf (PresFonts.note(o)) "heading { font-family") > 0) "fonts: h2 font-family points at heading")
         def plain:PresFontsOut (PresFonts.read("document { font-family: Open Sans } code { font-family: monospace }"))
         this.ok((((array_length plain.faces) == 0) && ((strlen (PresFonts.note(plain))) == 0)) "fonts: the faces every page has ask for nothing")
+        def fj:PresFontsOut (PresFonts.read("heading { font-family: Fjalla One; font-weight: normal }"))
+        this.ok((((array_length fj.faces) == 1) && ((itemAt fj.faces 0) == "Fjalla One")) "fonts: Fjalla One is one face, asked of the page alone")
+        this.ok(((array_length fj.unknown) == 0) "fonts: Fjalla One is a face Sliqtly has")
         def deck (new PresDeck())
         deck.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } document { font-family: Lato }")
         this.ok(((indexOf deck.wantFaces "Lato-Italic") >= 0) ("fonts: a deck in Lato asks for its faces: " + deck.wantFaces))
@@ -1525,6 +1530,71 @@ class PresCheck {
         this.ok(((itemAt fs.colors 0) == "#ffa546") "the figure rule's colours")
         this.ok((fs.paper == "#0b1030") "the page's paper")
         this.ok((fs.ink == "#e8ecff") "the document's ink")
+        this.themeArt()
+        this.themeGallery()
+    }
+
+    ; The theme picker's tiles from the page's select rows, their groups and
+    ; pictures, and the sample slide each picture is drawn from.
+    fn themeGallery:void () {
+        def rows:string "pearl\tpearl\tLight\ncorporate\tcorporate\tLight\naurora\taurora\tDark\n\tDocument's own\n\t\n"
+        def tiles:[PresThemeTile] (PresThemeGallery.tiles(rows))
+        this.ok(((array_length tiles) == 4) ("four tiles (a row with no label is none), got " + (to_string (array_length tiles))))
+        def groups:[string] (PresThemeGallery.groups(tiles))
+        this.ok(((array_length groups) == 3) "groups: Light, Dark and none")
+        this.ok((((itemAt groups 0) == "Light") && ((itemAt groups 2) == "")) "groups in the order they come")
+        def light:[PresThemeTile] (PresThemeGallery.inGroup(tiles "Light"))
+        this.ok(((array_length light) == 2) "two light tiles")
+        def tabs:[string] (PresThemeGallery.tabs(tiles))
+        this.ok((((array_length tabs) == 2) && ((itemAt tabs 0) == "Light")) "tabs: the named groups only")
+        def first:[PresThemeTile] (PresThemeGallery.onTab(tiles "Light"))
+        this.ok((((array_length first) == 3) && ((itemAt first 2).key == "")) "the document's own goes last on the first tab")
+        def dark:[PresThemeTile] (PresThemeGallery.onTab(tiles "Dark"))
+        this.ok(((array_length dark) == 1) "one dark tile")
+        this.ok(((PresThemeGallery.tabOf(tiles "aurora")) == "Dark") "a theme opens its own tab")
+        this.ok(((PresThemeGallery.tabOf(tiles "")) == "Light") "the document's own opens the first tab")
+        this.ok(((PresThemeGallery.tabOf(tiles "gone")) == "Light") "an unknown theme opens the first tab")
+        this.ok(((PresThemeGallery.picture("pearl")) == "/__theme/pearl") "a theme's picture")
+        this.ok(((PresThemeGallery.keyOf((PresThemeGallery.picture("")))) == "") "the document's own picture names no theme")
+        this.ok(((PresThemeGallery.keyOf("/__theme/hive")) == "hive") "a picture's theme")
+        this.ok(((PresThemeGallery.isPicture("media/x.png")) == false) "a deck's picture is not a theme's")
+        def deck (new PresDeck())
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.8in; background-color: #ffffff } deck { split-level: 2; art: honeycomb } document { color: #1f2933 }"
+        deck.setStyleSheet(css)
+        deck.setText((PresThemeGallery.sample()))
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 1) ("the sample is one slide, got " + (to_string (deck.slideCount()))))
+        def l:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l "Annual review")) == 1) "the sample's title is drawn")
+        def art:FlowScene (deck.artScene((deck.slideAt(0)) 0))
+        this.ok(((array_length art.items) > 2) "and the theme's art behind it")
+    }
+
+    ; `deck { art: corners }`: the theme's art is drawn without PRO, a
+    ; slide's own {art=…} still is not, and {art=off} takes it away.
+    fn themeArt:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## Yksi\n\nTeksti\n\n## Kaksi {art=waves}\n\nTeksti\n\n## Kolme {art=off}\n\nTeksti\n"
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.85in; background-color: #ffffff } deck { split-level: 2; art: corners } document { color: #1f2937 } figure { colors: #1d4ed8 #38bdf8 }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) ("three theme-art slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def a0:FlowScene (deck.artScene((deck.slideAt(0)) 0))
+        this.ok(((array_length a0.items) > 2) "the theme's art is drawn without PRO")
+        this.ok(((deck.slideAt(0)).artTheme) "and is marked the theme's")
+        def a1:FlowScene (deck.artScene((deck.slideAt(1)) 1))
+        this.ok(((array_length a1.items) == 0) "a slide's own art is still PRO")
+        def a2:FlowScene (deck.artScene((deck.slideAt(2)) 2))
+        this.ok(((array_length a2.items) == 0) "{art=off} takes the theme's art away")
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l0 "Teksti")) == 1) "the slide's text is drawn over it")
+        def notes:[string] (PresCssSupport.lines(css 12))
+        this.ok(((array_length notes) == 0) ("deck { art } is a rule the deck reads, notes: " + (to_string (array_length notes))))
     }
 
     ; A plain list with `{list-style=swot}`, or a theme's `#anchor list`
@@ -2157,6 +2227,59 @@ class PresCheck {
         this.ok(((indexOf out "{style=holo}") > 0) ("the options stay: " + out))
         def back:PresFlowModel (PresFlowModel.read(out))
         this.ok((back.isMachine && ((back.machine.machine.stateCount()) == 3)) ("read back: " + out))
+    }
+
+    ; Tero's test deck (2026-10-09): a parallel machine in the romantic look
+    ; was one black slab (its frames filled like boxes) and its tour was the
+    ; region "kassa" alone.
+    fn machineSlide:void () {
+        def q:string (strfromcode 34)
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }")
+        deck.setText(("## Kahvila\n\n```xstate {style=romantic}\n{ " + q + "initial" + q + ": " + q + "kiinni" + q + ", " + q + "states" + q + ": { " + q + "kiinni" + q + ": { " + q + "on" + q + ": { " + q + "AVAA" + q + ": " + q + "auki" + q + " } }, " + q + "auki" + q + ": { " + q + "type" + q + ": " + q + "parallel" + q + ", " + q + "on" + q + ": { " + q + "SULJE" + q + ": " + q + "kiinni" + q + " }, " + q + "states" + q + ": { " + q + "kone" + q + ": { " + q + "initial" + q + ": " + q + "valmis" + q + ", " + q + "states" + q + ": { " + q + "valmis" + q + ": { " + q + "on" + q + ": { " + q + "KEITA" + q + ": " + q + "keittaa" + q + " } }, " + q + "keittaa" + q + ": {} } }, " + q + "kassa" + q + ": { " + q + "initial" + q + ": " + q + "vapaa" + q + ", " + q + "states" + q + ": { " + q + "vapaa" + q + ": { " + q + "on" + q + ": { " + q + "ASIAKAS" + q + ": " + q + "palvelee" + q + " } }, " + q + "palvelee" + q + ": {} } } } } } }\n```\n"))
+        def hit@(optional):PresDiaUse (deck.diagramUse(0 0))
+        if (null? hit) {
+            this.ok(false "machine slide: the slide has its diagram")
+            return
+        }
+        def u:PresDiaUse (unwrap hit)
+        def d:PresDiagram u.diagram
+        this.ok((d.style == "romantic") ("machine slide: romantic, got " + d.style))
+        def frames:int 0
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            if ((d.kindAt(i)) == "frame") {
+                frames = (frames + 1)
+            }
+            i = (i + 1)
+        }
+        this.ok((frames == 3) ("machine slide: auki, kone and kassa are frames, drawn as outlines: " + (to_string frames)))
+        def part:FlowLookPart (d.look.framePart())
+        this.ok(((strlen part.fill) == 0) "machine slide: a frame has no fill")
+        def tour:string (d.tourText())
+        this.ok((((indexOf tour "kiinni") > 0) && ((indexOf tour "kassa") != 0)) ("machine slide: the tour starts at the start dot, not a region: " + tour))
+        this.ok((((indexOf tour "valmis") > 0) && ((indexOf tour "vapaa") > 0)) ("machine slide: it goes into auki, both regions: " + tour))
+    }
+
+    ; One fence written twice on a page in two looks: two diagrams in two
+    ; boxes. Matched by their text, both were drawn in the second's look.
+    fn sameFenceTwice:void () {
+        def deck (new PresDeck())
+        deck.md.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 1 }")
+        def fence:string "```mermaid\nflowchart LR\n  A --> B\n```\n"
+        deck.setText(("# Kaksi\n\n## Oletus\n\n" + fence + "\n## Cartoon\n\n" + fence + "{style=cartoon}\n"))
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) != 2) {
+            this.ok(false ("same fence twice: two diagrams on the page, got " + (to_string (array_length s.diagrams))))
+            return
+        }
+        def u0:PresDiaUse (itemAt s.diagrams 0)
+        def u1:PresDiaUse (itemAt s.diagrams 1)
+        this.ok(((u0.diagram.style != "cartoon") && (u1.diagram.style == "cartoon")) ("same fence twice: each its own look: " + u0.diagram.style + ", " + u1.diagram.style))
+        this.ok((u1.by > (u0.by + 10.0)) ("same fence twice: each in its own box: " + (to_string u0.by) + ", " + (to_string u1.by)))
+        def b1:int (deck.embedBoxAt(0 u1.source u1.srcStart))
+        def l:MdLayout (deck.layout())
+        this.ok(((b1 >= 0) && ((itemAt l.boxes b1).srcStart == u1.srcStart)) "same fence twice: the box is found by where the fence starts")
     }
 
     ; The table window's model: cells, alignments, rows and columns.
@@ -4266,6 +4389,114 @@ class PresCheck {
         this.ok(((u.linked("md" true mb cb)) == 0) "undo: an earlier edit is no paste")
     }
 
+    ; text drawn starting with `start` in a colour nearer green than red
+    sfn greenText:int (l:EVGDisplayList start:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (((c.kind == 3) && ((indexOf c.text start) == 0)) && (c.g > (c.r + 80))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn redRects:int (l:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (((c.kind == 0) && (c.r > 230)) && ((c.g < 25) && (c.b < 25))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Programs on slides (```app, PresPlay): the fence read, the files asked
+    ; for, a frame painted in the box, and what a program may ask of the deck.
+    fn plays:void () {
+        def text:string ("---\nscore: 0\nfooter-left: \"Pisteet: {score}\"\n---\n\n"
+            + "# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\nallow: deck.data, slide.style\n```\n\n"
+            + "Osu maaliin\n{#tulos}\n\n# Toinen\n\nTeksti\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def uses:[PresPlayUse] (deck.playUses())
+        this.ok(((array_length uses) == 1) ("plays: one program, got " + (to_string (array_length uses))))
+        if ((array_length uses) != 1) {
+            return
+        }
+        def u:PresPlayUse (itemAt uses 0)
+        this.ok(((u.key == "apps/g.tsx#1") && (u.page == 0)) ("plays: keyed by file and use, got " + u.key))
+        this.ok(((u.spec.allows("deck.data")) && ((u.spec.allows("slide.nav")) == false)) "plays: its fence's grants")
+        def files:[string] (deck.playFiles())
+        this.ok((((indexOf files "apps/g.tsx") >= 0) && ((indexOf files "apps/g.tsx.css") >= 0)) "plays: the program and its stylesheet are asked for")
+        def f0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(f0 "▶ g.tsx")) == 1) "plays: a plate with the name before a frame")
+        deck.setChartData("apps/g.tsx" "function view() { return null }")
+        deck.setChartData("apps/g.tsx.css" ".x { background-color: #ff0000 }")
+        PresTimeline.planAll(deck)
+        this.ok(((deck.dataText("apps/g.tsx")) == "function view() { return null }") "plays: the source as the page gave it")
+        def v@(optional):PresPlayView (deck.playView("apps/g.tsx#1"))
+        this.ok((!null? v) "plays: a view for the program")
+        if (null? v) {
+            return
+        }
+        def view:PresPlayView (unwrap v)
+        this.ok(((view.setTree("not json")) == false) "plays: a frame that is no tree is said")
+        def tree:string "{\"t\":\"div\",\"cls\":\"x\",\"s\":{\"width\":\"200px\",\"height\":\"100px\"},\"c\":[{\"t\":\"div\",\"id\":\"b\",\"s\":{\"position\":\"absolute\",\"left\":\"10px\",\"top\":\"10px\",\"width\":\"20px\",\"height\":\"20px\",\"background-color\":\"#0000ff\"}}]}"
+        this.ok((view.setTree(tree)) "plays: a frame laid out")
+        def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(f1 "▶ g.tsx")) == 0) "plays: the frame replaces the plate")
+        this.ok(((PresCheck.redRects(f1)) >= 1) "plays: the program's stylesheet paints it")
+        ; a point of the box in the program's own units, with the id there
+        def bi:int (deck.embedBox(0 u.source))
+        this.ok((bi >= 0) "plays: the fence has a box")
+        if (bi >= 0) {
+            def lay:MdLayout (deck.layout())
+            def b:MdBox (itemAt lay.boxes bi)
+            def at:string (deck.playPoint(u.key (b.x + ((20.0 * b.w) / 200.0)) (b.y + ((20.0 * b.h) / 100.0))))
+            this.ok(((indexOf at "\"id\":\"b\"") >= 0) ("plays: the element under the pointer, got " + at))
+            this.ok(((deck.playPoint(u.key (b.x - 5.0) b.y)) == "") "plays: nothing outside the box")
+            this.ok(((deck.playAt(0 (b.x + 1.0) (b.y + 1.0))) == u.key) "plays: the box names its program")
+        }
+        ; the deck kept the view across a rebuild
+        deck.setText((text + "\nLisää\n"))
+        PresTimeline.planAll(deck)
+        def v2@(optional):PresPlayView (deck.playView("apps/g.tsx#1"))
+        this.ok(((!null? v2) && ((unwrap v2).drawn)) "plays: the picture outlives an edit")
+
+        ; what it asks: granted by the fence, the rest refused and said
+        def moves:[PresPlayAsk] (deck.takeAsks(u.key "[{\"k\":\"deck.set\",\"key\":\"Score\",\"value\":\"7\"},{\"k\":\"el.style\",\"sel\":\"#tulos\",\"style\":{\"color\":\"#00ff00\"}},{\"k\":\"slide.next\"},{\"k\":\"network\"},{\"k\":\"el.hide\",\"sel\":\"div p\"}]"))
+        this.ok(((array_length moves) == 0) "plays: no move without slide.nav")
+        this.ok(deck.playRebuilt "plays: deck.set lays the deck out again")
+        PresTimeline.planAll(deck)
+        def notes:[string] (deck.playNotes())
+        this.ok(((array_length notes) == 3) ("plays: three refusals said, got " + (to_string (array_length notes))))
+        def f2:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(f2 "Pisteet: 7")) == 1) "plays: {score} in the footer follows deck.set")
+        this.ok(((PresCheck.greenText(f2 "Osu")) >= 1) "plays: el(\"#tulos\").style colours its block")
+        def f3:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(f3 "Pisteet: 7")) == 1) "plays: on every slide's footer")
+        deck.takeAsks(u.key "[{\"k\":\"el.hide\",\"sel\":\"#tulos\"}]")
+        def f4:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.textsLike(f4 "Osu")) == 0) "plays: el.hide takes the block off the slide")
+        deck.takeAsks(u.key "[{\"k\":\"el.reset\",\"sel\":\"#tulos\"}]")
+        def f5:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok((((PresCheck.textsLike(f5 "Osu")) >= 1) && ((PresCheck.greenText(f5 "Osu")) == 0)) "plays: el.reset gives it back as written")
+        ; a program granted slide.nav gets its moves handed back
+        def spec:MdAppSpec (MdApp.read("src: a.tsx\nallow: slide.nav"))
+        def asks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"slide.go\",\"n\":3},{\"k\":\"machine.send\",\"event\":\"GO\"}]" spec "a.tsx"))
+        this.ok((((array_length asks.granted) == 1) && ((array_length asks.refused) == 1)) "plays: slide.go granted, machine.send refused")
+        ; another deck: nothing of this one's programs stays
+        deck.clearPlays()
+        this.ok((((array_length deck.liveKeys) == 0) && ((deck.playStyle.count()) == 0)) "plays: cleared with the deck")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -4288,6 +4519,8 @@ class PresCheck {
         c.staggered()
         c.flowModel()
         c.machineModel()
+        c.machineSlide()
+        c.sameFenceTwice()
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
@@ -4312,6 +4545,7 @@ class PresCheck {
         c.serverDecks()
         c.serverRooms()
         c.clips()
+        c.plays()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

@@ -20,7 +20,9 @@
 export const DECK_TABS_KEY = "sliqtly.deckTabs";
 
 /** The tab key of the deck shown: { persisted, id, src }. */
-export function deckKey(doc) {
+export function deckKey(doc, byCloud = false) {
+  // the cloud's copy when this browser keeps none past the page
+  if (byCloud && doc.cloud) return "cloud:" + doc.cloud;
   if (doc.persisted) return doc.id;
   return doc.src || doc.id;
 }

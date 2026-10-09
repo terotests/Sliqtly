@@ -118,7 +118,6 @@
 .theme-tb .ui-drawer-close { font-family: Open Sans; font-size: 13px; background-color: #ffffff; border: 1px solid #e4e4e7; color: #09090b; }
 .theme-tb .ui-drawer-body { gap: 2px; }
 .theme-tb .tb-drb { width: 100%; justify-content: flex-start; }
-.theme-tb .tb-drsub { padding-left: 28px; }
 .tb-dr-label { font-size: 11px; font-weight: 600; color: #71717a; padding: 8px 6px 2px; }
 .tb-dr-sep { height: 1px; background-color: #f4f4f5; margin: 6px 0; flex-shrink: 0; }
 
@@ -265,3 +264,10 @@
 .theme-tb .tb-fb-accent:hover { background-color: #f3e3cf; border-color: #f3e3cf; }
 .theme-tb .tb-fb-label-primary,
 .theme-tb .tb-fb-label-accent { color: #5a2c14; font-weight: 600; }
+/* searching: the presentations whose words hold the query, under the rooms
+   found; each its name, its room and the text around the first word */
+.tb-found-head { font-size: 11px; font-weight: 600; color: #71717a; padding: 2px 8px 4px 8px; }
+.theme-tb .tb-found { height: auto; padding: 5px 8px; border-radius: 6px; display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; justify-content: flex-start; gap: 1px; }
+.theme-tb .tb-found-name { text-align: left; font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
+.tb-found-room { font-size: 11px; color: #4f46e5; white-space: nowrap; }
+.tb-found-text { font-size: 11px; color: #71717a; white-space: nowrap; }

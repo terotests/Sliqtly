@@ -17,10 +17,10 @@
 
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
-import { openVfs, openOld, deleteOld, DB_NAME, kindOf, isText, placeFor, newId } from "./vfs.js";
-import { storeName, accountStorage, legacyChoice, declineLegacy, moveKeys, copyStore, ACCOUNT_KEYS, ACCOUNT_SESSION_KEYS, LEGACY_KEY } from "./account.js";
+import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
+import { accountStorage } from "./account.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
-import { toBase64, fromBase64, fileBytes, fileState, plainChord } from "./slideclip.js";
+import { toBase64, fromBase64, fileBytes, fileState, plainChord, clipImgHtml } from "./slideclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
 import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
@@ -32,7 +32,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -43,6 +43,8 @@ import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
+import { createApps } from "./apps.js";
+import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
 // Where the editor's addresses start: sliqtly.com serves the editor at
@@ -55,6 +57,11 @@ const EDITOR_ROOT = /^\/editor(\/|$)/.test(location.pathname) ? "/editor" : "";
 const DECK_PATH = /^(?:\/editor\/[sd]|\/s)\/([A-Za-z0-9]{6,32})\/?$/;
 const SHARED_PATH = /^(?:\/editor\/[sd]|\/s)\//;
 const DOC_PATH = /^\/editor\/d\//;
+// sliqtly.com's editor keeps nothing in IndexedDB (Tero, 2026-10-09: the
+// browser's store hung the page): its decks live in the cloud, the page's
+// store lasts as long as the page, and a deck goes by its cloud id
+// ("cloud:<id>") in tabs, the Rooms and the deck opened next time.
+const CLOUD_ONLY = !!EDITOR_ROOT;
 function editAddress(id) {
   return EDITOR_ROOT ? EDITOR_ROOT + "/d/" + id : "/s/" + id + "?edit";
 }
@@ -64,8 +71,8 @@ function editAsked() {
 }
 
 // What this browser keeps for the account signed in (web/account.js): on
-// the editor each Google account has its own store and keys, so another
-// account in the same browser sees none of its decks, rooms or tabs.
+// the editor each Google account has its own keys, so another account in
+// the same browser sees none of its rooms or tabs.
 // account: "" until known (accountScope), then the account's id
 let account = "";
 function pageStorage(which) {
@@ -79,8 +86,8 @@ function pageStorage(which) {
 let mine = accountStorage(pageStorage("local"), "");
 let mineTab = accountStorage(pageStorage("session"), "");
 // The account the editor keeps things for: the signed-in user's id, or
-// "signed-out" (a store of its own, nobody's work). A server of one's own
-// and the pages without an editor keep the one store of old ("").
+// "signed-out" (keys of their own, nobody's work). A server of one's own
+// and the pages without an editor keep the keys of old ("").
 async function accountScope() {
   if (!EDITOR_ROOT || viewer) return "";
   const p = await pro();
@@ -95,7 +102,7 @@ function useAccount(scope) {
   try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { /* none kept */ }
   Object.assign(collabMe, loadMe(mine));
   // another account signed in on this page (or one where nobody was): its
-  // own store, from the start
+  // own keys, from the start
   if (scope && !accountWatched) {
     accountWatched = true;
     window.addEventListener("sliqtly:user", () => {
@@ -105,34 +112,6 @@ function useAccount(scope) {
   }
 }
 let accountWatched = false;
-// The store this browser kept before accounts were apart: moved to this
-// account when its owner says it is theirs (asked once per account), else
-// left for the account it belongs to.
-async function offerOldStore() {
-  if (!account || account === "signed-out" || !vfs?.persistent) return;
-  const raw = pageStorage("local");
-  let old = null;
-  try { old = await openOld(); } catch (e) { console.warn("the old store did not open", e); return; }
-  if (!old) return;
-  const kept = await old.listDocs().then((d) => d.length, () => 0);
-  if (legacyChoice(raw, account, kept) !== "ask") return;
-  const who = window.sliqtly?.user?.();
-  const q = t("This browser keeps {n} presentations from before each Google account had its own. Are they yours, {account}?\n\nOK moves them to this account. Cancel leaves them for the account they belong to.")
-    .replace("{n}", String(kept)).replace("{account}", who?.email || "");
-  if (!confirm(q)) {
-    declineLegacy(raw, account);
-    return;
-  }
-  await copyStore(old, vfs);
-  moveKeys(raw, account, ACCOUNT_KEYS);
-  moveKeys(pageStorage("session"), account, ACCOUNT_SESSION_KEYS);
-  raw.setItem(LEGACY_KEY, "taken");
-  await deleteOld(old);
-  // started again over what was moved in (its open tabs too)
-  location.reload();
-  await new Promise(() => {});
-}
-
 // One beacon per page load for the visitor counts (mcp-go/rgr/Stats.rgr): the
 // page, mobile or desktop on the server's side, and the site the visitor
 // came from. No cookie, nothing kept in the browser; not sent when the
@@ -177,7 +156,7 @@ const FACES = [
   ["Noto Sans", "NotoSans-Regular.ttf"],
   ["Noto Sans-Bold", "NotoSans-Bold.ttf"],
 ];
-const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "corporate", "editorial"];
+const THEMES = ["aurora", "nebula", "carbon", "ember", "midnight", "white", "corporate", "editorial", "pearl", "hive", "lattice", "apex", "tide", "mist", "forge", "foundry", "site", "clinic", "care", "vital"];
 // The sample decks in the interface's language: samples/<key>.md is Finnish,
 // samples/<key>.en.md English (any other language gets the English ones).
 const sample = (key, en, fi) => lang === "fi" ? [fi, `./samples/${key}.md`] : [en, `./samples/${key}.en.md`];
@@ -198,6 +177,9 @@ const SAMPLES = {
   tyonkulku: sample("tyonkulku", "Workflows: XState statecharts", "Työnkulut: XState-tilakaaviot"),
   // the newest themes and features, on Nebula
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
+  // programs on slides (```app), with their files (samples/pelit/apps/…)
+  pelit: [...sample("pelit", "Games: programs on slides", "Pelit: ohjelmat kalvoilla"), "",
+    ["apps/scaffold.tsx", "apps/scaffold.tsx.css", "apps/target.tsx", "apps/target.tsx.css"]],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -265,7 +247,7 @@ if (typeof globalThis.PresApp !== "function") {
 // built in it
 handOver(globalThis.PresI18n);
 translateDom();
-// i18n: "Dark" "Light" (the theme list's groups)
+// i18n: "Basic" "Work" "Health" "Effects" "Dark" (the theme list's groups)
 for (const g of document.querySelectorAll("optgroup[label]")) g.label = t(g.label);
 const app = new globalThis.PresApp();
 window.__app = app;
@@ -296,6 +278,9 @@ let W = 0;
 let H = 0;
 let needsPaint = true;
 let lastRev = "";
+// programs on slides (```app, web/apps.js): CErXes in workers, painted by the app
+const apps = createApps({ app, repaint: () => { needsPaint = true; }, toast, t });
+window.__apps = apps;
 
 function resize() {
   const r = stageEl.getBoundingClientRect();
@@ -855,6 +840,7 @@ function beginDoc(text) {
   dropPasting();
   pictures.clear();
   app.clearImages();
+  apps.reset();
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
@@ -914,12 +900,18 @@ function shownDoc(text, quiet = false) {
   if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
 }
 
+// The deck opened next time when nothing else is asked: its id here, its
+// cloud's on sliqtly.com's editor (nothing kept here past the page).
+function lastKey() {
+  return CLOUD_ONLY && doc.cloud ? "cloud:" + doc.cloud : doc.id;
+}
+
 // --- the open presentations' tabs (web/decktabs.js) ------------------------------
 function keepTabs() {
   if (!viewer) keepDeckTabs(mineTab, rowToKeep(app.deckTabsState(), shownKey && !canReturn(doc) ? shownKey : ""));
 }
 function showDeckTab() {
-  shownKey = deckKey(doc);
+  shownKey = deckKey(doc, CLOUD_ONLY);
   if (openingKey && openingKey !== shownKey) app.deckTabRename(openingKey, shownKey, tabLabel(exportName()));
   openingKey = null;
   app.deckTabOpen(shownKey, tabLabel(exportName()));
@@ -929,7 +921,7 @@ function showDeckTab() {
 // time is its id from now on
 function updateDeckTab() {
   if (viewer || !shownKey) return;
-  const k = deckKey(doc);
+  const k = deckKey(doc, CLOUD_ONLY);
   app.deckTabRename(shownKey, k, tabLabel(exportName()));
   shownKey = k;
   keepTabs();
@@ -1156,7 +1148,7 @@ async function saveDocNow(force) {
     savedVersion = version;
     savedCss = css;
     savedTheme = key;
-    try { mine.setItem("evgp.doc", doc.id); } catch (_) { /* the next start opens a sample */ }
+    try { mine.setItem("evgp.doc", lastKey()); } catch (_) { /* the next start opens a sample */ }
   })();
   let r;
   try { r = await saving; } finally { saving = null; }
@@ -1285,6 +1277,22 @@ async function roomView(room) {
 async function roomRows(room) {
   return (await roomView(room)).rows;
 }
+// A room's presentations kept in this browser taken out of it (the room's
+// gear → Clear, confirmed): each one's copy here deleted, the open one kept.
+// Those only in the cloud are not this browser's to remove.
+async function clearRoom(room) {
+  if (ownServer() || !vfs) return;
+  let gone = 0, kept = 0;
+  for (const r of await roomRows(room)) {
+    if (r.id.startsWith("cloud:") || r.id.startsWith("sample:")) continue;
+    if (r.id === doc.id) { kept++; continue; }
+    await vfs.deleteDoc(r.id);
+    gone++;
+  }
+  toast(t("Removed from this browser: ") + gone + (kept ? " · " + t("the open presentation stays") : ""));
+  await refreshDecks().catch(() => {});
+  await roomsRequest("room:list");
+}
 // The open room's presentations listed again (the open deck renamed).
 function roomDecksAgain() {
   if (roomShown) roomsRequest("room:decks:" + roomShown).catch(() => {});
@@ -1325,6 +1333,49 @@ async function docRooms() {
 }
 // the search field's text while it is open (null: the rooms one is active in)
 let roomsQuery = null;
+// the presentations the search found, by id (deckSearch's rows)
+let foundDecks = new Map();
+// The Rooms search through the presentations' words, not their Markdown's
+// syntax (RangerMarkdown MdSearchText): on a server of one's own its
+// search_presentations; on sliqtly.com/editor the server searches the
+// signed-in user's own decks (GET /editor/api/search), and the decks kept
+// only in this browser are searched here, by the same model in the app.
+// → [{ id (as fileRequest's "doc:" takes it), name, room, roomTitle, snippet }]
+const searchTexts = new Map();
+async function deckSearch(q) {
+  if (ownServer()) {
+    const out = await roomsCall("search_presentations", { query: q });
+    return (out.presentations || []).map((p) => ({ id: "cloud:" + p.deck_id, name: p.name || "", room: p.room_id || GENERAL, roomTitle: p.room || "", snippet: p.snippet || "" }));
+  }
+  const [local, rooms] = await Promise.all([vfs.listDocs(), roomsList({ archived: true })]);
+  const titleOf = (id) => rooms.find((r) => r.room_id === id)?.title || "";
+  const row = (id, name, snippet) => {
+    const room = roomOf(roomsHere, id);
+    return { id, name, room, roomTitle: titleOf(room), snippet };
+  };
+  const out = [];
+  // the cloud's decks are the server's to search; a deck of this browser
+  // that is kept there too is opened as this browser's
+  let searched = null;
+  if (window.sliqtly?.searchDecks && window.sliqtly.user?.()) {
+    const kept = new Map(local.filter((d) => d.cloud).map((d) => [d.cloud, d]));
+    const hits = await window.sliqtly.searchDecks(q);
+    for (const p of hits) {
+      const d = kept.get(p.deck_id);
+      out.push(row(d ? d.id : "cloud:" + p.deck_id, d?.name || p.name || "", p.snippet || ""));
+    }
+    searched = new Set(kept.keys());
+  }
+  for (const d of local) {
+    if (searched && d.cloud && searched.has(d.cloud)) continue;
+    const md = String(d.md || "");
+    let t = searchTexts.get(d.id);
+    if (!t || t.md !== md) searchTexts.set(d.id, (t = { md, text: app.searchText(md) }));
+    const hit = app.searchSnippet(d.name || "", t.text, q);
+    if (hit) out.push(row(d.id, d.name || "", hit.slice(1)));
+  }
+  return out.slice(0, 50);
+}
 // the rooms the rail lists now (list_rooms' rows)
 let roomsListed = [];
 // The rail's room rows: "id TAB name TAB count TAB u", u when the room has
@@ -1371,6 +1422,14 @@ async function roomsRequest(r) {
     const searching = q !== null && q.trim() !== "";
     if (searching) rooms = searchRooms(await roomsList({ archived: true }), q);
     else ({ shown: rooms, hidden } = activeRooms(all, roomsHere));
+    // ...and the presentations whose words hold it, under the rooms
+    let found = [];
+    if (searching) {
+      found = await deckSearch(q).catch((e) => { console.warn("deck search", e); return []; });
+      if (roomsQuery !== q) return;
+    }
+    foundDecks = new Map(found.map((x) => [x.id, x]));
+    app.setToolbarOptions("roomfound", found.map((x) => [x.id, clean(x.name) || t("presentation"), clean(x.roomTitle), clean(x.snippet)].join("\t")).join("\n"), "");
     if (!searching && !rooms.some((x) => x.room_id === roomShown)) {
       const open = all.find((x) => x.room_id === roomShown);
       if (open) rooms = [...rooms, open];
@@ -1383,6 +1442,20 @@ async function roomsRequest(r) {
     else app.setToolbarOptions("roomdecks", "", roomShown);
   } else if (action === "search") {
     roomsQuery = what;
+    // the words are searched once typing pauses (the server parses decks)
+    if (what.trim()) await new Promise((ok) => setTimeout(ok, 200));
+    if (roomsQuery !== what) return;
+    await roomsRequest("room:list");
+  } else if (action === "found") {
+    // a presentation found: it opens, and its room with it
+    const hit = foundDecks.get(what);
+    roomsQuery = null;
+    if (hit?.room) {
+      roomShown = hit.room;
+      keepRooms((s) => touchRoom(s, hit.room));
+    }
+    roomChat().close();
+    await fileRequest("doc:" + what);
     await roomsRequest("room:list");
   } else if (action === "searchend") {
     roomsQuery = null;
@@ -1437,11 +1510,17 @@ async function roomsRequest(r) {
     app.openRoomDialog("", "new", "", "");
   } else if (action === "settings") {
     const x = (await roomsList({ archived: true })).find((r) => r.room_id === what);
-    if (x && !isBuiltIn(what)) app.openRoomDialog(what, x.archived ? "archived" : "made", x.title, x.description || "");
+    if (x && what !== ONBOARDING) app.openRoomDialog(what, isBuiltIn(what) ? "builtin" : x.archived ? "archived" : "made", x.title, x.description || "");
   } else if (action === "save") {
     // the room's window answered (newdeck-create, "ask" "room")
     const plan = JSON.parse(what);
     const id = plan.room;
+    if (plan.act === "clear") {
+      const x = (await roomsList({ archived: true })).find((r) => r.room_id === id);
+      app.openConfirm("roomclear:" + id, t("Clear room"),
+        t("Remove this browser's copies of the presentations in ") + "\"" + (x?.title || "") + "\"? " + t("Those saved in your cloud stay there; one kept only in this browser is gone for good. The open presentation stays."), t("Clear"));
+      return;
+    }
     if (plan.act === "delete") {
       const x = (await roomsList({ archived: true })).find((r) => r.room_id === id);
       app.openConfirm("roomdelete:" + id, t("Delete room"),
@@ -1591,8 +1670,7 @@ async function roomsRequest(r) {
     await roomsRequest("room:list");
   } else if (action === "newin") {
     // File → New's window; the deck it makes goes to this room (newDeck)
-    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
-    app.openNewDeck(rows, themeSel.value || "", "");
+    app.openNewDeck(selectRows(themeSel), themeSel.value || "", "");
     roomForNew = what;
   }
   needsPaint = true;
@@ -2006,7 +2084,7 @@ async function openDocNow(id) {
   savedVersion = -1;
   savedCss = d.css == null ? null : d.css;
   savedTheme = d.theme || "";
-  try { mine.setItem("evgp.doc", doc.id); } catch (_) { /* fine */ }
+  try { mine.setItem("evgp.doc", lastKey()); } catch (_) { /* fine */ }
   plainAddress();
   dropThumbs();
   needsPaint = true;
@@ -2051,7 +2129,7 @@ async function cloudShares(fresh = false) {
 // Every deck: this browser's and the cloud's, one row each (web/decklist.js).
 async function allDocs(fresh = false) {
   const local = await vfs.listDocs();
-  return deckRows(local, await cloudShares(fresh), doc.id);
+  return deckRows(local, await cloudShares(fresh), doc.id, { byCloud: CLOUD_ONLY });
 }
 
 // File → Presentations…: the window over the editor, last changed first
@@ -2452,8 +2530,7 @@ async function fileRequest(r) {
   } else if (action === "new") {
     roomForNew = "";
     // asked first: an accidental press is cancelled and the deck stays
-    const rows = [...themeSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n");
-    app.openNewDeck(rows, themeSel.value || "", "");
+    app.openNewDeck(selectRows(themeSel), themeSel.value || "", "");
   } else if (action === "newsheet") {
     await newSheet();
   } else if (action === "duplicate") {
@@ -2903,6 +2980,50 @@ function bookPage(page, b, pxW, rev) {
   const waiting = (doc.list.cmds || []).some((c) => c.k === 2 && c.src && !pictures.has(c.src));
   bookGl.setPage(page, bookPageCanvas, waiting ? "" : key);
 }
+
+// --- the theme picker's pictures ------------------------------------------------
+// Each theme's tile (Slide → Theme…, New presentation) shows a sample slide
+// laid out in it (PresApp.themeSampleJson), drawn by EVG into a canvas of
+// its own once and kept among the pictures under themePicture(key). One a
+// frame, so the window opens at once and fills in.
+const THEME_PIC = { w: 110, h: 62, dpr: 2 };
+const themePicDrawn = new Map();
+let themePicQueue = [];
+let themePicGl = null;
+const themePicCanvas = document.createElement("canvas");
+function queueThemePictures() {
+  themePicQueue = picturesToDraw(selectRows(themeSel), themePicDrawn, lang);
+  needsPaint = true;
+}
+function drawThemePicture() {
+  const key = themePicQueue.shift();
+  if (key === undefined) return;
+  // the theme as it ships: the tile shows what picking it gives
+  const text = app.themeSampleJson(key ? themeCss[key] || "" : "");
+  if (!text) return;
+  const doc = atRest(JSON.parse(text));
+  const at = fitPage(doc.width, doc.height, THEME_PIC.w, THEME_PIC.h);
+  const k = at.s * THEME_PIC.dpr;
+  themePicCanvas.width = Math.max(1, Math.round(doc.width * k));
+  themePicCanvas.height = Math.max(1, Math.round(doc.height * k));
+  if (!themePicGl) themePicGl = themePicCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!themePicGl) return;
+  const f = prepareDisplayList(themePicGl, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = THEME_PIC.w * THEME_PIC.dpr;
+  c.height = THEME_PIC.h * THEME_PIC.dpr;
+  const g = c.getContext("2d");
+  g.fillStyle = "#e4e4e7";
+  g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(themePicCanvas, Math.round(at.x * THEME_PIC.dpr), Math.round(at.y * THEME_PIC.dpr));
+  pictures.set(themePicture(key), asPicture(c));
+  themePicDrawn.set(themePicture(key), lang);
+  needsPaint = true;
+}
+// how many are drawn (scripts/check-web.mjs)
+window.__themePictures = () => themePicDrawn.size;
 
 function paintBookSpread(layout) {
   const b = layout.book;
@@ -3700,7 +3821,8 @@ function fetchChartFiles(rev) {
     chartFiles.set(url, got);
     got.then((text) => {
       if (text == null) {
-        toast(t("Could not load the chart file: ") + url);
+        // a program's stylesheet beside it (app.tsx.css) is optional
+        if (!/\.tsx\.css$/i.test(url)) toast(t("Could not load the chart file: ") + url);
         app.setChartDataMissing(url);
         needsPaint = true;
         return;
@@ -3726,6 +3848,7 @@ function frame() {
     if (app.uiBusy()) needsPaint = true;
     // charts whose theme changed are drawn again a few a frame (PresApp.settle)
     if (app.settle()) needsPaint = true;
+    if (themePicQueue.length) drawThemePicture();
     if (app.isReplaying()) {
       // a recording played: its time drives the presentation (recFrame)
       needsPaint = true;
@@ -3745,6 +3868,7 @@ function frame() {
     if ((doc.cloud || "") !== collabWant) collabFollow();
     collab?.tick();
     meet.tick();
+    apps.tick(app.revision());
     const rev = app.revision();
     const effects = window.__lastStage && window.__lastStage.list && window.__lastStage.list.effects && window.__lastStage.list.effects.length > 0;
     if (needsPaint || rev !== lastRev || effects) {
@@ -4125,6 +4249,11 @@ function handleRequests() {
         sel.value = rest.join(":");
         sel.dispatchEvent(new Event("change"));
       }
+    } else if (r === "themes") {
+      // Slide → Theme…: the themes as tiles with their pictures
+      if (app.openThemes(selectRows(themeSel), themeSel.value || "")) needsPaint = true;
+    } else if (r === "theme-pictures") {
+      queueThemePictures();
     } else if (r === "theme-edited") {
       editedCss[themeSel.value || ""] = app.themeCss();
       dropThumbs();
@@ -4151,6 +4280,8 @@ function handleRequests() {
       keepFile({ path, type: "application/json", size: text.length, data: text }).catch(fail);
       chartFiles.set(path, Promise.resolve(text));
       dropThumbs();
+    } else if (r.startsWith("confirm:roomclear:")) {
+      clearRoom(r.slice("confirm:roomclear:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("confirm:roomdelete:")) {
       roomsRequest("room:delete:" + r.slice("confirm:roomdelete:".length)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("confirm:roomdrop:")) {
@@ -4672,8 +4803,16 @@ let cloudTimer = 0;
 function cloudSoon() {
   if (!cloudReady() || doc.cloudHalt) return;
   clearTimeout(cloudTimer);
-  cloudTimer = setTimeout(() => { cloudSync().catch(cloudTrouble); }, 2000);
+  cloudTimer = setTimeout(() => { cloudTimer = 0; cloudSync().catch(cloudTrouble); }, 2000);
 }
+// sliqtly.com's editor keeps nothing past the page: leaving it before the
+// deck is in the cloud (not saved there at all, or its last change on the
+// way) asks first.
+window.addEventListener("beforeunload", (e) => {
+  if (!CLOUD_ONLY || viewer || !doc.persisted || doc.loading) return;
+  const changed = savedText !== null && app.source() !== savedText;
+  if (!doc.cloud || cloudTimer || cloudBusy || changed) e.preventDefault();
+});
 let cloudBusy = null;
 let cloudWarned = false;
 let cloudError = "";
@@ -6611,16 +6750,19 @@ async function openSample(key) {
 
 // A sample's own files (samples/<key>/<path>), the deck's files as a shared
 // one's are: shown at once, kept with the deck on its first change.
-const SAMPLE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE };
+const SAMPLE_TYPES = { tsx: "text/plain", css: "text/css", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE };
 async function useSampleFiles(key, paths) {
   const got = await Promise.all(paths.map(async (path) => {
     const res = await fetch(fresh(`./samples/${key}/${path}`));
     if (!res.ok) throw new Error(path + " → " + res.status);
-    return { path, data: await res.blob() };
+    // text (a program and its stylesheet) as text, as a file added by hand is
+    return { path, data: isText(path, "") ? await res.text() : await res.blob() };
   }));
   for (const { path, data } of got) {
-    const type = SAMPLE_TYPES[path.split(".").pop().toLowerCase()] || data.type;
-    const rec = { doc: doc.id, path, type, size: data.size, data: new Blob([data], { type }), updated: Date.now() };
+    const type = SAMPLE_TYPES[path.split(".").pop().toLowerCase()] || data.type || "text/plain";
+    const rec = typeof data === "string"
+      ? { doc: doc.id, path, type, size: data.length, data, updated: Date.now() }
+      : { doc: doc.id, path, type, size: data.size, data: new Blob([data], { type }), updated: Date.now() };
     pending.set(rec.path, rec);
     await useFile(rec);
   }
@@ -6970,13 +7112,16 @@ keys.addEventListener("paste", (ev) => {
       return;
     }
   }
+  const text = ev.clipboardData?.getData("text/plain") || "";
+  // Sliqtly's own copy carries a picture of itself for other apps: here the
+  // text is what is pasted
+  const ours = !!text && app.clipKindOf(text) === "sliqtly";
   const picture = items.find((it) => it.kind === "file" && /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(it.type));
-  if (picture) {
+  if (picture && !ours) {
     const file = picture.getAsFile();
     if (file) addPictureFile(file).catch(fail);
     return;
   }
-  const text = ev.clipboardData?.getData("text/plain") || "";
   // slides, an element, a diagram or a spec: asked about, then pasted
   if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
   if (text && app.focusTarget() === "editor" && dataLink(text)) {
@@ -7023,19 +7168,113 @@ function clipAnswered(key, alt) {
   resolve(alt ? "alt" : "ok");
 }
 
-async function clipCopy(kind) {
+// The copy goes on the clipboard as Sliqtly's text and, for apps that do not
+// read it (chat, mail, Word, an image editor), as a PNG of the slides or the
+// element, also in HTML as an <img>. The ClipboardItem is made at once, in
+// the key's own turn, with promises of its parts: Safari takes a write only
+// then. Without ClipboardItem, or when the write is refused, the text alone.
+function clipCopy(kind) {
+  const spec = JSON.parse(app.clipPictureJson(kind));
+  const text = clipCopyText(kind);
+  const png = spec.pages ? text.then((s) => (s ? clipPicture(spec) : null)) : Promise.resolve(null);
+  let rich = null;
+  if (spec.pages && typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+    const need = (p) => p.then((v) => v || Promise.reject(new Error("nothing to copy")));
+    const parts = {
+      "text/plain": need(text).then((s) => new Blob([s], { type: "text/plain" })),
+      "image/png": need(png),
+    };
+    if (!ClipboardItem.supports || ClipboardItem.supports("text/html")) {
+      parts["text/html"] = need(png).then(async (b) => new Blob([clipImgHtml(toBase64(await b.arrayBuffer()))], { type: "text/html" }));
+    }
+    try {
+      rich = navigator.clipboard.write([new ClipboardItem(parts)]).then(() => true, () => false);
+    } catch (_) {
+      rich = null;
+    }
+  }
+  return (async () => {
+    const s = await text;
+    if (!s) return;
+    let ok = rich ? await rich : false;
+    if (!ok) ok = await writeClip(s);
+    const n = app.clipCount();
+    if (!ok) toast(t("Could not copy"));
+    else if (kind === "element") toast(t("Copied"));
+    else toast(n === 1 ? t("Copied 1 slide.") : t("Copied {n} slides.").replace("{n}", n));
+  })();
+}
+
+// Sliqtly's clipboard text of the copy, "" when there is nothing to copy.
+async function clipCopyText(kind) {
   const files = await docFiles();
   const names = app.clipBegin(kind, files.map((f) => f.path).join("\n"));
-  const n = app.clipCount();
-  if (!n) return;
+  if (!app.clipCount()) return "";
   for (const p of names.split("\n").filter(Boolean)) {
     const f = files.find((x) => x.path === p);
     if (f) app.clipAddFile(p, f.type || "", toBase64(await fileBytes(f)));
   }
-  const ok = await writeClip(app.clipText());
-  if (!ok) toast(t("Could not copy"));
-  else if (kind === "element") toast(t("Copied"));
-  else toast(n === 1 ? t("Copied 1 slide.") : t("Copied {n} slides.").replace("{n}", n));
+  return app.clipText();
+}
+
+// The copy's picture (app.clipPictureJson): each slide at rest as the stage
+// draws it, one under another, or the element's box of its slide; a PNG
+// Blob, null when there is no GPU for it.
+const CLIP_PIC_W = 1920;
+const CLIP_PIC_MAX_H = 16000;
+const CLIP_PIC_GAP = 24;
+async function clipPicture(spec) {
+  app.settleAll();
+  const docs = spec.pages.map((i) => atRest(JSON.parse(app.slideJson(i))));
+  if (!docs.length) return null;
+  const box = spec.box || null;
+  const bw = box ? box[2] : docs[0].width;
+  const bh = box ? box[3] : docs[0].height;
+  // one slide sharp, many smaller; within the GPU's 4096 and a picture the
+  // apps take
+  let k = Math.min((docs.length > 1 ? 1280 : CLIP_PIC_W) / bw, 4096 / docs[0].width, 4096 / docs[0].height);
+  if (box) k = Math.min(4, k);
+  const tall = (h) => docs.length * h + (docs.length - 1) * CLIP_PIC_GAP;
+  if (!box && tall(bh * k) > CLIP_PIC_MAX_H) k = (CLIP_PIC_MAX_H - (docs.length - 1) * CLIP_PIC_GAP) / docs.length / bh;
+  const w = Math.max(1, Math.round(bw * k));
+  const h = Math.max(1, Math.round(bh * k));
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = box ? h : tall(h);
+  const og = out.getContext("2d");
+  og.fillStyle = "#ffffff";
+  og.fillRect(0, 0, out.width, out.height);
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return null;
+  const cut = document.createElement("canvas");
+  const cg = cut.getContext("2d");
+  docs.forEach((doc, n) => {
+    c.width = Math.round(doc.width * k);
+    c.height = Math.round(doc.height * k);
+    const f = prepareDisplayList(g, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+    f.draw(null, null);
+    const x = box ? Math.max(0, Math.floor(box[0] * k)) : 0;
+    const y = box ? Math.max(0, Math.floor(box[1] * k)) : 0;
+    const cw = Math.min(c.width - x, w);
+    const ch = Math.min(c.height - y, h);
+    if (cw > 0 && ch > 0) {
+      // GL rows run bottom up
+      const up = new Uint8Array(cw * ch * 4);
+      g.readPixels(x, c.height - y - ch, cw, ch, g.RGBA, g.UNSIGNED_BYTE, up);
+      const rgba = new Uint8ClampedArray(cw * ch * 4);
+      for (let r = 0; r < ch; r++) rgba.set(up.subarray((ch - 1 - r) * cw * 4, (ch - r) * cw * 4), r * cw * 4);
+      for (let p = 3; p < rgba.length; p += 4) rgba[p] = 255;
+      cut.width = cw;
+      cut.height = ch;
+      cg.putImageData(new ImageData(rgba, cw, ch), 0, 0);
+      og.drawImage(cut, 0, n * (h + CLIP_PIC_GAP));
+    }
+    f.dispose();
+  });
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+  return new Promise((r) => out.toBlob(r, "image/png"));
 }
 
 // A pasted file into the deck, as Files → Paste puts one.
@@ -7320,6 +7559,11 @@ canvas.addEventListener("pointerdown", (ev) => {
     needsPaint = true;
     return;
   }
+  // a program's box (```app) takes the press, and the keyboard with it
+  if (apps.pointerDown(x, y, !!(lastLayout && lastLayout.mode === "present"))) {
+    ev.preventDefault();
+    return;
+  }
   // a finger wobbles: it has to travel further than a mouse before a tap
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
@@ -7384,6 +7628,7 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  apps.pointerMove(x, y);
   if (touches.has(ev.pointerId)) touches.set(ev.pointerId, [x, y]);
   if (pinch) {
     if (touches.size >= 2) {
@@ -7558,6 +7803,7 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 let diagramTold = false;
 let diagramTimer = 0;
 canvas.addEventListener("pointerup", endPointer);
+window.addEventListener("pointerup", () => apps.pointerUp());
 // A right click on a slide of the strip: New, Duplicate, Move, Delete; on
 // a room's chat, a message's menu; on a presentation in Rooms or a deck tab:
 // the File menu's rows for it.
@@ -7848,8 +8094,7 @@ async function start() {
   const theme = q.has("theme") ? q.get("theme") : "aurora";
   themeSel.value = theme;
   app.setStyleSheet(theme ? themeCss[theme] || "" : "");
-  if (!viewer && !hashShare()) vfs = await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate, stalled: storeStalled }, storeName(DB_NAME, account));
-  if (vfs) await offerOldStore().catch((e) => console.warn("the old store stays", e));
+  if (!viewer && !hashShare()) vfs = CLOUD_ONLY ? memoryStore() : await openVfs({ waiting: tabsInTheWay, closed: closedByUpdate, stalled: storeStalled });
   const own = ownDeck();
   // /s/{id}?edit (or an older ?deck=…&from={id}) of the signed-in owner's
   // own deck: opened from the cloud, where it lives
@@ -7888,7 +8133,7 @@ async function start() {
           try { asked = mineTab.getItem(TAB_DOC); } catch (_) { /* none */ }
         }
         if (asked && /^[A-Za-z0-9_-]{1,64}$/.test(asked) && vfs && (await vfs.getDoc(asked))) last = asked;
-        const lastCloud = !want && last && vfs ? (await vfs.getDoc(last))?.cloud : null;
+        const lastCloud = want || !last || !vfs ? null : last.startsWith("cloud:") ? last.slice(6) : (await vfs.getDoc(last))?.cloud;
         if (lastCloud && (await openOwnCloud(lastCloud).catch(() => false))) { /* opened */ }
         else if (want || !last || !(await openDoc(last))) {
           const sample = SAMPLES[want] || HIDDEN_SAMPLES[want] ? want : "welcome";

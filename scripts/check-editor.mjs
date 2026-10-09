@@ -223,29 +223,23 @@ try {
   const note = await pg.evaluate(() => document.getElementById("pro")?.title || "");
   check("the PRO button tells the license", /Trial: 2 \/ 2/.test(note), note);
 
-  // another Google account in the same browser: a store of its own, none of
-  // the first one's decks, rooms or tabs
-  const docsIn = (name) => pg.evaluate((n) => new Promise((ok) => {
-    const req = indexedDB.open(n);
-    req.onsuccess = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains("docs")) { db.close(); return ok([]); }
-      const g = db.transaction("docs").objectStore("docs").getAll();
-      g.onsuccess = () => { db.close(); ok(g.result.map((d) => JSON.stringify(d))); };
-      g.onerror = () => ok(["?"]);
-    };
-    req.onerror = () => ok(["?"]);
-  }), name);
+  // another Google account in the same browser: the editor keeps no deck in
+  // the browser at all (cloud only), so none of the first one's decks, rooms
+  // or tabs
+  const browserDecks = () => pg.evaluate(async () => {
+    const names = (await indexedDB.databases?.() || []).map((d) => d.name).filter((n) => /^evg-presentation/.test(n || ""));
+    return names;
+  });
+  const u1Stores = await browserDecks();
   Object.assign(gate, { uid: "u2", email: "other@example.com" });
   await pg.goto(base + "/editor/");
   await started();
   const otherSees = await pg.evaluate(() => window.__app.source());
-  const u1Docs = await docsIn("evg-presentation@u1");
-  const u2Docs = await docsIn("evg-presentation@u2");
+  const u2Stores = await browserDecks();
   const keys = await pg.evaluate(() => Object.keys(localStorage).filter((k) => /^sliqtly\.rooms|^evgp\.doc/.test(k)));
-  check("another account in the same browser sees none of the first one's decks",
-    u1Docs.some((x) => x.includes("Ensimmäinen")) && !u2Docs.some((x) => x.includes("Ensimmäinen")) && !otherSees.includes("Ensimmäinen") && keys.length === 0,
-    JSON.stringify({ u1: u1Docs.length, u2: u2Docs.map((x) => x.slice(0, 20)), keys, otherSees: otherSees.slice(0, 30) }));
+  check("the editor keeps no presentations in the browser, and another account sees none of the first one's",
+    u1Stores.length === 0 && u2Stores.length === 0 && !otherSees.includes("Ensimmäinen") && keys.length === 0,
+    JSON.stringify({ u1Stores, u2Stores, keys, otherSees: otherSees.slice(0, 30) }));
   // the first one's deck at its address: shown, nothing of it saved anywhere
   const count = shares().length;
   await pg.goto(base + "/editor/d/" + id);

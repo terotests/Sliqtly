@@ -55,12 +55,10 @@ class PresToolbar {
     ; File and Help (a wide window), and the drawer the menu button opens
     ; (a narrow one, or a finger)
     ; File, Slide, Export and Help: dropdown menus (MenuCtl, which has
-    ; submenus: Slide → Theme → the themes)
+    ; submenus: Slide → Orientation)
     def menus:[MenuCtl]
     def drawer:DrawerCtl (new DrawerCtl())
     def drawerOpen:boolean false
-    ; the drawer's Theme row opened: the themes listed under it
-    def drawerThemes:boolean false
     ; "value<TAB>label<TAB>group" rows, per select
     def sampleRows:string ""
     def themeRows:string ""
@@ -136,6 +134,9 @@ class PresToolbar {
     ; the Rooms panel's search row ("Search rooms…", with how many rooms
     ; only search finds), from the page
     def roomSearchLabel:string ""
+    ; while searching, the presentations whose words hold the query, from
+    ; the page: "id TAB name TAB room TAB text around the first word"
+    def roomFound:string ""
     ; a presentation of a room's list pressed: dragged onto another room it
     ; moves there, let go where it was pressed it opens
     def dragDeck:string ""
@@ -187,6 +188,9 @@ class PresToolbar {
         }
         if (id == "roomsearch") {
             roomSearchLabel = current
+        }
+        if (id == "roomfound") {
+            roomFound = rows
         }
         if (id == "roomdecks") {
             roomDecks = rows
@@ -396,6 +400,10 @@ class PresToolbar {
         if (id == "css") {
             return "showtab:css"
         }
+        ; the theme picker's window (PresChartEditor "themes")
+        if (id == "themes") {
+            return "themes"
+        }
         ; Edit's rows, and the slide menu's Copy and Paste
         if ((indexOf id "ed-") == 0) {
             return ("edit:" + (substring id 3 (strlen id)))
@@ -461,34 +469,6 @@ class PresToolbar {
         m.name = name
         push menus m
         return m
-    }
-
-    ; A select's rows as a submenu's rows: a group's name a heading
-    ; (disabled), the current one ticked.
-    fn subRows:void (parent:UiItem prefix:string rows:string current:string) {
-        def lines:[string] (strsplit rows (strfromcode 10))
-        def group:string ""
-        def i:int 0
-        while (i < (array_length lines)) {
-            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
-            if ((array_length parts) >= 2) {
-                def g:string ""
-                if ((array_length parts) >= 3) {
-                    g = (itemAt parts 2)
-                }
-                if ((g != group) && ((strlen g) > 0)) {
-                    MenuCtl.addKid(parent ((("h-" + prefix) + "-") + g) g true)
-                }
-                group = g
-                def v:string (itemAt parts 0)
-                def mark:string "    "
-                if (v == current) {
-                    mark = "✓  "
-                }
-                MenuCtl.addKid(parent (prefix + v) (mark + (itemAt parts 1)) false)
-            }
-            i = (i + 1)
-        }
     }
 
     ; A chord with the platform's command key: ⌘ on a Mac, Ctrl elsewhere,
@@ -944,25 +924,6 @@ class PresToolbar {
         rev = (rev + 1)
     }
 
-    ; A select's rows as the drawer's rows, the current one ticked.
-    fn drawerRows:void (body:EVGElement prefix:string rows:string current:string) {
-        def lines:[string] (strsplit rows (strfromcode 10))
-        def i:int 0
-        while (i < (array_length lines)) {
-            def parts:[string] (strsplit (itemAt lines i) (strfromcode 9))
-            if ((array_length parts) >= 2) {
-                def v:string (itemAt parts 0)
-                def mark:string "    "
-                if (v == current) {
-                    mark = "✓  "
-                }
-                def rb:ButtonCtl (this.button((("dr-" + prefix) + v) (mark + (itemAt parts 1)) "ghost" body))
-                UiTree.addClass((unwrap rb.rootEl) "tb-drsub")
-            }
-            i = (i + 1)
-        }
-    }
-
     ; The page's own buttons (PresApp.setToolbarExtras), in order.
     fn extraButtons:void (parent:EVGElement) {
         def rows:[string] (strsplit extras (strfromcode 10))
@@ -1245,8 +1206,9 @@ class PresToolbar {
             def add:ButtonCtl (this.iconButton(("roomadd-" + id) (PresI18n.t("New presentation in this room")) "ghost" "M12 5v14M5 12h14" rel))
             UiTree.addClass((unwrap add.rootEl) "tb-roomgear")
         }
-        ; a room made here: its settings (name, archive, delete) at the end
-        if ((PresToolbar.builtInRoom(id)) == false) {
+        ; its settings at the end: a room made here its name, archive and
+        ; delete; every room but Onboarding clearing its presentations
+        if (id != "onboarding") {
             def gear:ButtonCtl (this.iconButton(("roomgear-" + id) (PresI18n.t("Room settings")) "ghost" (PresToolbar.railIcon("gear")) rel))
             UiTree.addClass((unwrap gear.rootEl) "tb-roomgear")
         }
@@ -1380,7 +1342,52 @@ class PresToolbar {
             sel.addChild((this.div("tb-grow")))
         }
         this.liveRooms(pane)
+        if fieldOn {
+            this.foundDecks(pane)
+        }
         root.addChild(pane)
+    }
+
+    ; Searching: under the rooms found, the presentations whose words hold
+    ; the query, each with its room and the text around the first word.
+    ; Pressed, one opens in its room.
+    fn foundDecks:void (pane:EVGElement) {
+        def lines:[string] (strsplit roomFound (strfromcode 10))
+        def w:double (roomsW - 40.0)
+        def head:boolean false
+        for lines line:string i {
+            def parts:[string] (strsplit line (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                if (head == false) {
+                    pane.addChild((this.div("tb-rooms-sep")))
+                    pane.addChild((this.text("tb-found-head" (PresI18n.t("Presentations")))))
+                    head = true
+                }
+                def id:string (itemAt parts 0)
+                def b:ButtonCtl (this.button(("found-" + id) (UiText.fit((this.engine()) (itemAt parts 1) "Open Sans" 13.0 w)) "ghost" pane))
+                def el:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(el "tb-found")
+                if ((el.getChildCount()) > 0) {
+                    UiTree.addClass((el.getChild(0)) "tb-found-name")
+                }
+                if (((array_length parts) >= 3) && ((strlen (itemAt parts 2)) > 0)) {
+                    el.addChild((this.text("tb-found-room" (UiText.fit((this.engine()) ("# " + (itemAt parts 2)) "Open Sans" 11.0 w)))))
+                }
+                if (((array_length parts) >= 4) && ((strlen (itemAt parts 3)) > 0)) {
+                    ; two lines at most, the second cut with "…"
+                    def wrapped:[string] (UiText.wrapLines((this.engine()) (itemAt parts 3) "Open Sans" 11.0 w))
+                    def k:int 0
+                    while ((k < (array_length wrapped)) && (k < 2)) {
+                        def words:string (itemAt wrapped k)
+                        if ((k == 1) && ((array_length wrapped) > 2)) {
+                            words = (UiText.fit((this.engine()) (words + " " + (itemAt wrapped 2)) "Open Sans" 11.0 w))
+                        }
+                        el.addChild((this.text("tb-found-text" words)))
+                        k = (k + 1)
+                    }
+                }
+            }
+        }
     }
 
     ; The presentation being dragged, drawn at the pointer.
@@ -1889,8 +1896,7 @@ class PresToolbar {
             def ori:UiItem (slide.addSub("orientation" (PresI18n.t("Orientation")) false))
             this.orientationKids(ori)
             slide.addSeparator()
-            def th:UiItem (slide.addSub("theme" (PresI18n.t("Theme")) false))
-            this.subRows(th "t-" themeRows themeValue)
+            slide.addItem("themes" (PresI18n.t("Theme…")) false)
             slide.addSeparator()
             slide.addItem("css" (PresI18n.t("Edit theme CSS…")) false)
             ; Record: the presentation with the voice, the pointer and what is
@@ -2036,10 +2042,6 @@ class PresToolbar {
                 UiTree.addClass((delEl.getChild(0)) "tb-danger")
             }
             body.addChild((this.div("tb-dr-sep")))
-            def arrow:string "▸  "
-            if drawerThemes {
-                arrow = "▾  "
-            }
             this.button("dr-slideNew" (PresI18n.t("New slide")) "ghost" body)
             this.button("dr-slideDuplicate" (PresI18n.t("Duplicate slide")) "ghost" body)
             this.button("dr-slideDelete" (PresI18n.t("Delete slide")) "ghost" body)
@@ -2052,10 +2054,7 @@ class PresToolbar {
             }
             this.button(("dr-" + otherWay) (((PresI18n.t("Orientation")) + ": ") + otherName) "ghost" body)
             body.addChild((this.div("tb-dr-sep")))
-            this.button("dr-themes" (arrow + (PresI18n.t("Theme"))) "ghost" body)
-            if drawerThemes {
-                this.drawerRows(body "t-" themeRows themeValue)
-            }
+            this.button("dr-themes" (PresI18n.t("Theme…")) "ghost" body)
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
             body.addChild((this.text("tb-dr-label" (PresI18n.t("Clipboard")))))
             this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
@@ -2268,8 +2267,16 @@ class PresToolbar {
                 rev = (rev + 1)
                 return
             }
-            ; searching, a room found is opened by its press
+            ; searching, a room found is opened by its press, and a
+            ; presentation found in its room
             if (editFor == "search") {
+                if ((indexOf ctlTid "tb-found-") == 0) {
+                    titleEditing = false
+                    roomFound = ""
+                    push requests ("room:found:" + (substring ctlTid 9 (strlen ctlTid)))
+                    this.rebuild()
+                    return
+                }
                 if (((indexOf ctlTid "tb-room-") == 0) && (ctlTid != "tb-room-close")) {
                     titleEditing = false
                     roomOpen = (substring ctlTid 8 (strlen ctlTid))
@@ -2451,11 +2458,6 @@ class PresToolbar {
                 drawerOpen = false
                 this.rebuild()
             }
-            return
-        }
-        if (ctlTid == "tb-dr-themes") {
-            drawerThemes = (drawerThemes == false)
-            this.rebuild()
             return
         }
         if ((indexOf ctlTid "tb-dr-") == 0) {
