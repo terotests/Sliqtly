@@ -17,6 +17,7 @@
 
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
+import { canvasDpr } from "./pixels.js";
 import { openVfs, openOld, deleteOld, DB_NAME, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { storeName, accountStorage, legacyChoice, declineLegacy, moveKeys, copyStore, ACCOUNT_KEYS, ACCOUNT_SESSION_KEYS, LEGACY_KEY } from "./account.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
@@ -292,6 +293,8 @@ function setText(el, text) {
 }
 
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
+// the longest drawing buffer the GPU takes (web/pixels.js)
+const maxCanvasSide = gl ? Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS)) : 8192;
 let W = 0;
 let H = 0;
 let needsPaint = true;
@@ -299,9 +302,11 @@ let lastRev = "";
 
 function resize() {
   const r = stageEl.getBoundingClientRect();
+  // #stage is never smaller (index.html): the page scrolls instead of the
+  // canvas being squeezed into less room than it was laid out for
   W = Math.max(320, Math.floor(r.width));
   H = Math.max(240, Math.floor(r.height));
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  dpr = canvasDpr(window.devicePixelRatio || 1, W, H, maxCanvasSide);
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
   app.setPageSize(W, H);
