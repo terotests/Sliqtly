@@ -1,0 +1,3 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+.stage { position: relative; width: 960px; height: 480px }
+.world { position: absolute; left: 0px; top: 0px; width: 960px; height: 480px }

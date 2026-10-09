@@ -1,0 +1,535 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+;
+; The deck's music, heard: what the page's Web Audio analyser says each frame
+; (web/music.js) turned into the numbers the beat effects draw from
+; (web/beatfx.js). No audio and no GL in here, so it is tested with made-up
+; spectra in PresCheck.beats().
+;
+;   feed(freq, wave, dt)   one frame of the analyser: magnitudes 0..1 per FFT
+;                          bin, the waveform -1..1, seconds since the last
+;   idle(dt)               a frame while nothing plays: everything settles
+;   pack(t)                the state as RGBA float texels for the shader
+;
+; Beats are onsets in the low end: the rise of the bass bands over the last
+; frame (spectral flux), against a threshold that follows how busy the music
+; has been for the last second, at most one every BEAT_GAP seconds. The tempo
+; is the median of the gaps between the last beats, folded into 80..170 BPM.
+
+class PresBeat {
+    ; bands across the spectrum, log spaced, LO_HZ..HI_HZ
+    sfn BANDS:int () {
+        return 64
+    }
+    sfn WAVE:int () {
+        return 128
+    }
+    ; rows of spectrum history (the ridges), one every ROW_GAP seconds
+    sfn ROWS:int () {
+        return 24
+    }
+    sfn ROW_GAP:double () {
+        return 0.06
+    }
+    sfn LO_HZ:double () {
+        return 40.0
+    }
+    sfn HI_HZ:double () {
+        return 14000.0
+    }
+    ; the bass the beats are heard in: bands under this frequency
+    sfn BASS_HZ:double () {
+        return 160.0
+    }
+    sfn BEAT_GAP:double () {
+        return 0.28
+    }
+    ; frames of flux the threshold looks back over (about a second)
+    sfn FLUX_N:int () {
+        return 60
+    }
+    ; where things are in pack(), in floats
+    sfn AT_BANDS:int () {
+        return 8
+    }
+    sfn AT_PEAKS:int () {
+        return 72
+    }
+    sfn AT_WAVE:int () {
+        return 136
+    }
+    sfn AT_ROWS:int () {
+        return 264
+    }
+
+    def rate:double 44100.0
+    def bins:int 1024
+    ; each band's first and last FFT bin
+    def lo:[int]
+    def hi:[int]
+    ; each band's middle as a fractional bin, for the bass bands narrower
+    ; than a bin, which are read between two bins rather than all the same
+    def centre:[double]
+    def bassBands:int 1
+    def raw:[double]
+    def prevRaw:[double]
+    def bands:[double]
+    def peaks:[double]
+    def wave:[double]
+    def rows:[double]
+    def rowTop:int 0
+    def rowAcc:double 0.0
+    def flux:[double]
+    def fluxTop:int 0
+    def fluxN:int 0
+    def level:double 0.0
+    def bass:double 0.0
+    def mid:double 0.0
+    def high:double 0.0
+    def pulse:double 0.0
+    def beats:int 0
+    def clock:double 0.0
+    def lastBeat:double -10.0
+    def gaps:[double]
+    def bpm:double 0.0
+    def playing:boolean false
+
+    Constructor () {
+        this.setup(44100.0 1024)
+    }
+
+    ; e^-x for x >= 0, close enough for the decays here
+    sfn decay:double (x:double) {
+        if (x <= 0.0) {
+            return 1.0
+        }
+        if (x > 30.0) {
+            return 0.0
+        }
+        ; e^-x = (e^-(x/8))^8, and the series is good for x/8 under 4
+        def y:double (x / 8.0)
+        def y2:double (y * y)
+        def s:double (1.0 / ((1.0 + y) + ((y2 * 0.5) + (((y2 * y) / 6.0) + ((y2 * y2) / 24.0)))))
+        s = (s * s)
+        s = (s * s)
+        return (s * s)
+    }
+
+    ; r with r^n == v, v > 1
+    sfn root:double (v:double n:int) {
+        def a:double 1.0
+        def b:double v
+        def k:int 0
+        while (k < 60) {
+            def half:double ((a + b) * 0.5)
+            def p:double 1.0
+            def j:int 0
+            while (j < n) {
+                p = (p * half)
+                j = (j + 1)
+            }
+            if (p > v) {
+                b = half
+            } {
+                a = half
+            }
+            k = (k + 1)
+        }
+        return ((a + b) * 0.5)
+    }
+
+    sfn zeros:[double] (n:int) {
+        def out:[double]
+        def i:int 0
+        while (i < n) {
+            push out 0.0
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The analyser's sample rate and how many frequency bins it gives
+    ; (fftSize / 2). Clears what was heard.
+    fn setup:void (sampleRate:double binCount:int) {
+        rate = sampleRate
+        bins = binCount
+        if (bins < 8) {
+            bins = 8
+        }
+        clear lo
+        clear hi
+        clear centre
+        def r:double (PresBeat.root(((PresBeat.HI_HZ()) / (PresBeat.LO_HZ())) (PresBeat.BANDS())))
+        def binHz:double (rate / (2.0 * (to_double bins)))
+        def f:double (PresBeat.LO_HZ())
+        def b:int 0
+        bassBands = 1
+        while (b < (PresBeat.BANDS())) {
+            def f2:double (f * r)
+            def a:int (floor (f / binHz))
+            def z:int (floor (f2 / binHz))
+            if (a >= bins) {
+                a = (bins - 1)
+            }
+            if (z >= bins) {
+                z = (bins - 1)
+            }
+            if (z < a) {
+                z = a
+            }
+            push lo a
+            push hi z
+            push centre ((f * (PresBeat.root(r 2))) / binHz)
+            if (f2 <= (PresBeat.BASS_HZ())) {
+                bassBands = (b + 1)
+            }
+            f = f2
+            b = (b + 1)
+        }
+        raw = (PresBeat.zeros((PresBeat.BANDS())))
+        prevRaw = (PresBeat.zeros((PresBeat.BANDS())))
+        bands = (PresBeat.zeros((PresBeat.BANDS())))
+        peaks = (PresBeat.zeros((PresBeat.BANDS())))
+        wave = (PresBeat.zeros((PresBeat.WAVE())))
+        rows = (PresBeat.zeros(((PresBeat.ROWS()) * (PresBeat.BANDS()))))
+        rowTop = 0
+        rowAcc = 0.0
+        flux = (PresBeat.zeros((PresBeat.FLUX_N())))
+        fluxTop = 0
+        fluxN = 0
+        clear gaps
+        level = 0.0
+        bass = 0.0
+        mid = 0.0
+        high = 0.0
+        pulse = 0.0
+        beats = 0
+        clock = 0.0
+        lastBeat = -10.0
+        bpm = 0.0
+        playing = false
+    }
+
+    ; the band a frequency falls in, -1 outside LO_HZ..HI_HZ
+    fn bandOf:int (hz:double) {
+        def binHz:double (rate / (2.0 * (to_double bins)))
+        def bin:int (floor (hz / binHz))
+        def b:int 0
+        while (b < (PresBeat.BANDS())) {
+            if ((bin >= (itemAt lo b)) && (bin <= (itemAt hi b))) {
+                return b
+            }
+            b = (b + 1)
+        }
+        return -1
+    }
+
+    ; One frame of the analyser. freq: a magnitude 0..1 per bin (the byte
+    ; spectrum / 255), wave: the samples -1..1, dt: seconds since the last.
+    fn feed:void (freq:[double] samples:[double] dt:double) {
+        playing = true
+        def step:double dt
+        if (step < 0.0) {
+            step = 0.0
+        }
+        if (step > 0.25) {
+            step = 0.25
+        }
+        clock = (clock + step)
+        def n:int (array_length freq)
+        ; each band: the loudest bin in it
+        def b:int 0
+        while (b < (PresBeat.BANDS())) {
+            def m:double 0.0
+            def i:int (itemAt lo b)
+            def z:int (itemAt hi b)
+            if ((z - i) <= 1) {
+                def c:double (itemAt centre b)
+                def k:int (floor c)
+                if ((k + 1) < n) {
+                    def u:double (c - (to_double k))
+                    m = (((itemAt freq k) * (1.0 - u)) + ((itemAt freq (k + 1)) * u))
+                }
+            } {
+                while ((i <= z) && (i < n)) {
+                    def v:double (itemAt freq i)
+                    if (v > m) {
+                        m = v
+                    }
+                    i = (i + 1)
+                }
+            }
+            set prevRaw b (itemAt raw b)
+            set raw b m
+            b = (b + 1)
+        }
+        ; the bars: up at once, down over a fifth of a second
+        def fall:double (PresBeat.decay((step * 5.0)))
+        def peakFall:double (PresBeat.decay((step * 1.2)))
+        def sumAll:double 0.0
+        def sumBass:double 0.0
+        def sumMid:double 0.0
+        def sumHigh:double 0.0
+        def nMid:int 0
+        def nHigh:int 0
+        def rise:double 0.0
+        def nb:int (PresBeat.BANDS())
+        def halfBands:int (idiv nb 2)
+        b = 0
+        while (b < (PresBeat.BANDS())) {
+            def v:double (itemAt raw b)
+            def was:double (itemAt bands b)
+            def now:double (was * fall)
+            if (v > now) {
+                now = v
+            }
+            set bands b now
+            def pk:double ((itemAt peaks b) * peakFall)
+            if (now > pk) {
+                pk = now
+            }
+            set peaks b pk
+            sumAll = (sumAll + v)
+            if (b < bassBands) {
+                sumBass = (sumBass + v)
+                def d:double (v - (itemAt prevRaw b))
+                if (d > 0.0) {
+                    rise = (rise + d)
+                }
+            }
+            if ((b >= bassBands) && (b < halfBands)) {
+                sumMid = (sumMid + v)
+                nMid = (nMid + 1)
+            }
+            if (b >= halfBands) {
+                sumHigh = (sumHigh + v)
+                nHigh = (nHigh + 1)
+            }
+            b = (b + 1)
+        }
+        level = (sumAll / (to_double (PresBeat.BANDS())))
+        bass = (sumBass / (to_double bassBands))
+        mid = 0.0
+        if (nMid > 0) {
+            mid = (sumMid / (to_double nMid))
+        }
+        high = 0.0
+        if (nHigh > 0) {
+            high = (sumHigh / (to_double nHigh))
+        }
+        rise = (rise / (to_double bassBands))
+        this.onset(rise)
+        pulse = (pulse * (PresBeat.decay((step * 6.0))))
+        this.takeWave(samples)
+        this.addRow(step)
+    }
+
+    ; Is this frame's rise of the bass a beat? Against the mean and spread of
+    ; the last second's rises, so a loud song and a quiet one both beat.
+    fn onset:void (rise:double) {
+        def mean:double 0.0
+        def i:int 0
+        while (i < fluxN) {
+            mean = (mean + (itemAt flux i))
+            i = (i + 1)
+        }
+        def sd:double 0.0
+        if (fluxN > 0) {
+            mean = (mean / (to_double fluxN))
+            i = 0
+            while (i < fluxN) {
+                def d:double ((itemAt flux i) - mean)
+                sd = (sd + (d * d))
+                i = (i + 1)
+            }
+            sd = (sqrt (sd / (to_double fluxN)))
+        }
+        set flux fluxTop rise
+        fluxTop = ((fluxTop + 1) % (PresBeat.FLUX_N()))
+        if (fluxN < (PresBeat.FLUX_N())) {
+            fluxN = (fluxN + 1)
+        }
+        def need:double ((mean + (1.6 * sd)) + 0.04)
+        if ((fluxN < 8) || (rise <= need)) {
+            return
+        }
+        if ((clock - lastBeat) < (PresBeat.BEAT_GAP())) {
+            return
+        }
+        def gap:double (clock - lastBeat)
+        lastBeat = clock
+        beats = (beats + 1)
+        pulse = 1.0
+        if ((gap >= 0.3) && (gap <= 1.6)) {
+            push gaps gap
+            if ((array_length gaps) > 12) {
+                remove_index gaps 0
+            }
+            bpm = (PresBeat.tempoOf(gaps))
+        }
+    }
+
+    ; the tempo of these gaps between beats: their median, as beats per
+    ; minute, doubled or halved into 80..170
+    sfn tempoOf:double (gaps:[double]) {
+        def n:int (array_length gaps)
+        if (n < 3) {
+            return 0.0
+        }
+        def s:[double]
+        def i:int 0
+        while (i < n) {
+            def v:double (itemAt gaps i)
+            def j:int 0
+            while ((j < (array_length s)) && ((itemAt s j) < v)) {
+                j = (j + 1)
+            }
+            insert s j v
+            i = (i + 1)
+        }
+        def half:int (idiv n 2)
+        def med:double (itemAt s half)
+        if ((n % 2) == 0) {
+            med = (((itemAt s (half - 1)) + (itemAt s half)) * 0.5)
+        }
+        def t:double (60.0 / med)
+        while (t < 80.0) {
+            t = (t * 2.0)
+        }
+        while (t >= 170.0) {
+            t = (t * 0.5)
+        }
+        return t
+    }
+
+    ; the waveform, WAVE points taken evenly from the samples
+    fn takeWave:void (samples:[double]) {
+        def n:int (array_length samples)
+        def nw:int (PresBeat.WAVE())
+        def i:int 0
+        while (i < (PresBeat.WAVE())) {
+            def v:double 0.0
+            if (n > 0) {
+                v = (itemAt samples (idiv (i * n) nw))
+            }
+            set wave i v
+            i = (i + 1)
+        }
+    }
+
+    ; one row of the history every ROW_GAP seconds
+    fn addRow:void (step:double) {
+        rowAcc = (rowAcc + step)
+        if (rowAcc < (PresBeat.ROW_GAP())) {
+            return
+        }
+        rowAcc = (rowAcc - (PresBeat.ROW_GAP()))
+        if (rowAcc > (PresBeat.ROW_GAP())) {
+            rowAcc = 0.0
+        }
+        rowTop = ((rowTop + 1) % (PresBeat.ROWS()))
+        def o:int (rowTop * (PresBeat.BANDS()))
+        def b:int 0
+        while (b < (PresBeat.BANDS())) {
+            set rows (o + b) (itemAt bands b)
+            b = (b + 1)
+        }
+    }
+
+    ; A frame while nothing plays: the bars fall, the pulse fades.
+    fn idle:void (dt:double) {
+        playing = false
+        def k:double (PresBeat.decay((dt * 4.0)))
+        def b:int 0
+        while (b < (PresBeat.BANDS())) {
+            set bands b ((itemAt bands b) * k)
+            set peaks b ((itemAt peaks b) * k)
+            set raw b 0.0
+            b = (b + 1)
+        }
+        def i:int 0
+        while (i < (PresBeat.WAVE())) {
+            set wave i ((itemAt wave i) * k)
+            i = (i + 1)
+        }
+        pulse = (pulse * k)
+        level = (level * k)
+        bass = (bass * k)
+        mid = (mid * k)
+        high = (high * k)
+        this.addRow(dt)
+    }
+
+    ; What the shader reads, as floats, four to a texel:
+    ;   0  pulse level bass mid      4  high beats bpm playing
+    ;   AT_BANDS  the bars           AT_PEAKS  their peaks
+    ;   AT_WAVE   the waveform       AT_ROWS   history rows, newest first
+    ; While nothing plays the bars breathe slowly by themselves (t, seconds),
+    ; so a slide with a music effect is not an empty one, in the editor or a
+    ; picture of the slide.
+    fn pack:[double] (t:double) {
+        def out:[double]
+        def calm:double 1.0
+        if (playing) {
+            calm = 0.0
+        } {
+            ; the music's own bars, while they fall, over the calm ones
+            calm = (1.0 - (level * 4.0))
+            if (calm < 0.0) {
+                calm = 0.0
+            }
+        }
+        push out pulse
+        push out level
+        push out bass
+        push out mid
+        push out high
+        push out (to_double beats)
+        push out bpm
+        if (playing) {
+            push out 1.0
+        } {
+            push out 0.0
+        }
+        def b:int 0
+        while (b < (PresBeat.BANDS())) {
+            push out (this.blend((itemAt bands b) (PresBeat.calmBar(b t)) calm))
+            b = (b + 1)
+        }
+        b = 0
+        while (b < (PresBeat.BANDS())) {
+            push out (this.blend((itemAt peaks b) ((PresBeat.calmBar(b t)) + 0.04) calm))
+            b = (b + 1)
+        }
+        def i:int 0
+        while (i < (PresBeat.WAVE())) {
+            def x:double ((to_double i) / (to_double (PresBeat.WAVE())))
+            def still:double ((0.18 * (sin ((x * 18.85) + (t * 1.3)))) * (sin ((x * 3.1416))))
+            push out (this.blend((itemAt wave i) still calm))
+            i = (i + 1)
+        }
+        def r:int 0
+        while (r < (PresBeat.ROWS())) {
+            def row:int (((rowTop - r) + (PresBeat.ROWS())) % (PresBeat.ROWS()))
+            def o:int (row * (PresBeat.BANDS()))
+            b = 0
+            while (b < (PresBeat.BANDS())) {
+                def tr:double (t - ((to_double r) * (PresBeat.ROW_GAP())))
+                push out (this.blend((itemAt rows (o + b)) (PresBeat.calmBar(b tr)) calm))
+                b = (b + 1)
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    fn blend:double (live:double still:double calm:double) {
+        return ((live * (1.0 - calm)) + (still * calm))
+    }
+
+    ; a band's height while nothing plays: a slow swell, higher in the bass
+    sfn calmBar:double (b:int t:double) {
+        def x:double ((to_double b) / (to_double (PresBeat.BANDS())))
+        def w:double ((0.5 + (0.5 * (sin (((x * 9.0) - (t * 0.9)))))) * (0.5 + (0.5 * (sin (((x * 4.0) + (t * 0.4)) + 1.0)))))
+        return ((0.08 + (0.22 * (1.0 - x))) + (0.2 * w))
+    }
+}

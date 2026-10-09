@@ -12282,6 +12282,12 @@ class PresApp {
         return (PresDocx.titleOf(deck.md.edit.doc))
     }
 
+    ; The deck's music, the front matter's `music: media/song.mp3` (a file
+    ; of the deck or an https address), "" when it has none (web/music.js).
+    fn musicSrc:string () {
+        return (trim (PresDeck.frontValue((this.source()) "music")))
+    }
+
     ; The slides with an effect, "[1,3]", for the host to render before an
     ; export.
     fn fxSlidesJson:string () {

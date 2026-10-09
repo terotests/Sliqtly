@@ -30,6 +30,17 @@ size: 960x300
 allow: 3d
 ```
 
+## Excavator {art=waves art-seed=3}
+
+```app
+src: apps/excavator.tsx
+size: 960x480
+allow: 3d
+```
+
+An excavator from plain shapes: a `<group>` moves everything in it, so the boom, stick and bucket are groups inside each other. Click to stop
+{.kicker}
+
 ## How it is written
 
 ```markdown

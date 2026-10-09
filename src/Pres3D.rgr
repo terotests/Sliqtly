@@ -490,8 +490,8 @@ class Pres3DWorld {
             }
             def tag:string (k.strOr("t" ""))
             def a:JVal (k.get("a"))
-            if (tag == "mesh") {
-                this.addMesh(a)
+            if ((tag == "mesh") || (tag == "group")) {
+                this.addPart(k scene)
             }
             if (tag == "light") {
                 this.addLight(a)
@@ -530,7 +530,43 @@ class Pres3DWorld {
         return true
     }
 
-    fn addMesh:void (a:JVal) {
+    ; A <mesh>, or a <group> of them that moves as one: its parts are placed
+    ; in the group's own frame, so an arm is a group whose rotation turns
+    ; everything on it (an excavator's boom, its stick and bucket inside).
+    fn addPart:void (k:JVal parent:ThreeObject3D) {
+        def tag:string (k.strOr("t" ""))
+        def a:JVal (k.get("a"))
+        if (tag == "mesh") {
+            this.addMesh(a parent)
+            return
+        }
+        if (tag != "group") {
+            return
+        }
+        def g:ThreeObject3D (new ThreeObject3D)
+        Pres3DWorld.place(g a)
+        parent.add(g)
+        def kids:JVal (k.get("c"))
+        def i:int 0
+        while (i < (kids.len())) {
+            def c:JVal (kids.at(i))
+            i = (i + 1)
+            if (c.isObj()) {
+                this.addPart(c g)
+            }
+        }
+    }
+
+    ; x y z, rx ry rz in degrees, scale
+    sfn place:void (o:ThreeObject3D a:JVal) {
+        def deg:double 0.017453292519943295
+        o.position.set((Pres3DWorld.num(a "x" 0.0)) (Pres3DWorld.num(a "y" 0.0)) (Pres3DWorld.num(a "z" 0.0)))
+        o.rotation.set(((Pres3DWorld.num(a "rx" 0.0)) * deg) ((Pres3DWorld.num(a "ry" 0.0)) * deg) ((Pres3DWorld.num(a "rz" 0.0)) * deg))
+        def k:double (Pres3DWorld.num(a "scale" 1.0))
+        o.scale.set(k k k)
+    }
+
+    fn addMesh:void (a:JVal parent:ThreeObject3D) {
         def shape:string (Pres3DWorld.text(a "shape" "box"))
         def names:[string] (Pres3DWorld.shapeNames())
         if ((indexOf names shape) < 0) {
@@ -557,12 +593,8 @@ class Pres3DWorld {
             mat.setSide(2)
         }
         m.setMaterial(mat)
-        def deg:double 0.017453292519943295
-        m.position.set((Pres3DWorld.num(a "x" 0.0)) (Pres3DWorld.num(a "y" 0.0)) (Pres3DWorld.num(a "z" 0.0)))
-        m.rotation.set(((Pres3DWorld.num(a "rx" 0.0)) * deg) ((Pres3DWorld.num(a "ry" 0.0)) * deg) ((Pres3DWorld.num(a "rz" 0.0)) * deg))
-        def k:double (Pres3DWorld.num(a "scale" 1.0))
-        m.scale.set(k k k)
-        scene.add(m)
+        Pres3DWorld.place(m a)
+        parent.add(m)
         meshes = (meshes + 1)
     }
 

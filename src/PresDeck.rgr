@@ -3716,7 +3716,14 @@ class PresDeck {
             s.stepGap = (PresDeck.num((h.attrValue("step")) s.stepGap))
         }
         if (h.hasAttr("fx")) {
-            s.fx = (h.attrValue("fx"))
+            def named:string (h.attrValue("fx"))
+            ; another effect than the deck's or the theme's: their settings
+            ; (fx-hue: 280 for a starfield) were for that one, not this
+            if (named != s.fx) {
+                clear s.fxNames
+                clear s.fxValues
+            }
+            s.fx = named
         }
         ; a heading below the level slides break at is a section of the page,
         ; and its picture is the section's band (`readBands`), not the page's

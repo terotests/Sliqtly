@@ -30,6 +30,17 @@ size: 960x300
 allow: 3d
 ```
 
+## Kaivuri {art=waves art-seed=3}
+
+```app
+src: apps/excavator.tsx
+size: 960x480
+allow: 3d
+```
+
+Kaivuri on tehty perusmuodoista: `<group>` liikuttaa kaikkea sisällään, joten puomi, varsi ja kauha ovat ryhmiä toistensa sisällä. Klikkaa pysäyttääksesi
+{.kicker}
+
 ## Näin se kirjoitetaan
 
 ```markdown
