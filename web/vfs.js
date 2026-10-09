@@ -259,6 +259,7 @@ export function kindOf(path, type) {
   const p = path.toLowerCase();
   // a SmartArt diagram (media/steps.xml) is kept and referenced like a picture
   if (/^image\//.test(type || "") || /\.(png|jpe?g|gif|webp|svg|xml)$/.test(p) || /drawingml\.diagramData/.test(type || "")) return "image";
+  if (/^audio\//.test(type || "") || /\.(mp3|ogg|oga|m4a|aac|wav|flac|opus)$/.test(p)) return "audio";
   if (/\.vl\.json$|\.vg\.json$/.test(p) || p.startsWith("charts/")) return "chart";
   if (/\.(csv|tsv|json|topojson|geojson|txt|xlsx)$/.test(p)) return "data";
   if (/\.css$/.test(p)) return "css";
@@ -271,13 +272,13 @@ export function isText(path, type) {
   return /\.(csv|tsv|json|topojson|geojson|txt|css|md|markdown|tsx|ts|jsx)$/i.test(path);
 }
 
-// Where a file added from the computer goes: pictures under media/, a chart
+// Where a file added from the computer goes: pictures and music under media/, a chart
 // spec under charts/, a program (```app) and its stylesheet under apps/,
 // other data under data/.
 export function placeFor(name, type) {
   const clean = name.replace(/[\\/:*?"<>|]+/g, "-");
   const k = kindOf(clean, type);
-  if (k === "image") return "media/" + clean;
+  if (k === "image" || k === "audio") return "media/" + clean;
   if (k === "chart") return "charts/" + clean;
   if (/\.(tsx|jsx)(\.css)?$/i.test(clean)) return "apps/" + clean;
   if (/\.json$/i.test(clean)) {

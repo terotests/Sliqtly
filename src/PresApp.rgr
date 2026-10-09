@@ -524,6 +524,12 @@ class PresApp {
         return out
     }
 
+    ; The 3-D worlds on the slide the stage shows, for the page to draw:
+    ; [{src, scene, x, y, w, h}] in slide units, "[]" for none.
+    fn playScenesJson:string () {
+        return ((deck.playScenes(selected)).toJson())
+    }
+
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {
@@ -533,6 +539,21 @@ class PresApp {
         }
         def view:PresPlayView (unwrap v)
         return (view.setTree(tree))
+    }
+
+    ; Why the page stopped program `key` or could not start it, "" when it
+    ; runs: said on its plate while it has no picture.
+    fn setPlayStopped:void (key:string why:string) {
+        def v@(optional):PresPlayView (deck.playView(key))
+        if (null? v) {
+            return
+        }
+        def view:PresPlayView (unwrap v)
+        if (view.stopped != why) {
+            view.stopped = why
+            deck.revision = (deck.revision + 1)
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; What a program reads each frame beside the keys and the pointer: where
@@ -12296,6 +12317,12 @@ class PresApp {
     ; matter's `title`, or the first heading when there is none, or "".
     fn docTitle:string () {
         return (PresDocx.titleOf(deck.md.edit.doc))
+    }
+
+    ; The deck's music, the front matter's `music: media/song.mp3` (a file
+    ; of the deck or an https address), "" when it has none (web/music.js).
+    fn musicSrc:string () {
+        return (trim (PresDeck.frontValue((this.source()) "music")))
     }
 
     ; The slides with an effect, "[1,3]", for the host to render before an

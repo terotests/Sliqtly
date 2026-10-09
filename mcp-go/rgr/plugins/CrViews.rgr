@@ -1,0 +1,826 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The code review plugin's views of a CrModel, as blocks the slides already
+; draw: Mermaid flowcharts (overview, data flow, failures), XState
+; statecharts (states), a Mermaid sequence diagram (who waits for whom) and
+; a table (where data rests); and the review deck built from them. A view
+; with nothing in it is left out. Tested in review_test.go.
+
+Import "CrModel.rgr"
+
+; where the change is: links to its lines at the PR's head
+class CrSource {
+    ; owner/repo
+    def repo:string ""
+    def sha:string ""
+    ; owner/repo#12 and its page
+    def name:string ""
+    def url:string ""
+
+    ; text as a link to the ref's lines
+    fn linkAs:string (text:string ref:string) {
+        def l:string (this.link(ref))
+        if ((indexOf l "](") < 0) {
+            return text
+        }
+        return ("[" + text + (substring l (indexOf l "](") (strlen l)))
+    }
+
+    ; a ref as a Markdown link to its lines, the ref itself without a repo
+    fn link:string (ref:string) {
+        def r:CrRef (CrRef.parse(ref))
+        if (((strlen repo) == 0) || ((strlen sha) == 0)) {
+            return ("`" + ref + "`")
+        }
+        def u:string ("https://github.com/" + repo + "/blob/" + sha + "/" + r.path)
+        if (r.from > 0) {
+            u = (u + "#L" + r.from)
+            if (r.to > r.from) {
+                u = (u + "-L" + r.to)
+            }
+        }
+        return ("[" + ref + "](" + u + ")")
+    }
+}
+
+class CrViews {
+    ; the most boxes a drawing keeps (the guide: about 10–12 read best)
+    sfn MAX_NODES:int () {
+        return 12
+    }
+
+    ; a Mermaid id for an item id
+    sfn nid:string (id:string) {
+        def out:string "n_"
+        def i:int 0
+        while (i < (strlen id)) {
+            def c:int (charAt id i)
+            def ok:boolean ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57)))
+            if ok {
+                out = (out + (substring id i (i + 1)))
+            } {
+                out = (out + "_")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; text inside a Mermaid label or message
+    sfn esc:string (s:string) {
+        def t:string (CrViews.oneLine(s))
+        t = (replace t "\"" "'")
+        t = (replace t "|" "/")
+        t = (replace t ";" ",")
+        t = (replace t "#" "")
+        return t
+    }
+
+    sfn capital:string (s:string) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return t
+        }
+        return ((to_uppercase (substring t 0 1)) + (substring t 1 (strlen t)))
+    }
+
+    sfn oneLine:string (s:string) {
+        def t:string (replace (replace s "\r" " ") "\n" " ")
+        return (trim t)
+    }
+
+    ; a table cell
+    sfn cell:string (s:string) {
+        return (replace (CrViews.oneLine(s)) "|" "\\|")
+    }
+
+    ; a Mermaid box for an item, by what it is
+    sfn box:string (m:CrModel id:string) {
+        def found@(optional):CrItem (m.find(id))
+        def label:string (CrViews.esc((m.labelOf(id))))
+        def n:string (CrViews.nid(id))
+        if (null? found) {
+            return (n + "[\"" + label + "\"]")
+        }
+        def it:CrItem (unwrap found)
+        if (it.sect == "store") {
+            return (n + "[(\"" + label + "\")]")
+        }
+        if ((it.kind == "user") || (it.kind == "scheduler")) {
+            return (n + "([\"" + label + "\"])")
+        }
+        if ((it.kind == "external") || it.external) {
+            return (n + "{{\"" + label + "\"}}")
+        }
+        if ((it.sect == "event") || (it.kind == "queue")) {
+            return (n + ">\"" + label + "\"]")
+        }
+        if (it.sect == "state") {
+            return (n + "([\"" + label + "\"])")
+        }
+        return (n + "[\"" + label + "\"]")
+    }
+
+    ; the class lines for changed, removed and inferred boxes
+    sfn classes:string (m:CrModel ids:[string]) {
+        def lines:[string]
+        push lines "  classDef changed stroke-width:3px"
+        push lines "  classDef removed stroke-dasharray:6 4,opacity:0.6"
+        push lines "  classDef inferred stroke-dasharray:3 3"
+        def ch:[string]
+        def rm:[string]
+        def inf:[string]
+        for ids id:string i {
+            def found@(optional):CrItem (m.find(id))
+            if (null? found) {
+                continue
+            }
+            def it:CrItem (unwrap found)
+            if (it.change == "removed") {
+                push rm (CrViews.nid(id))
+            } {
+                if (it.inferred) {
+                    push inf (CrViews.nid(id))
+                } {
+                    if (it.changed()) {
+                        push ch (CrViews.nid(id))
+                    }
+                }
+            }
+        }
+        if ((array_length ch) > 0) {
+            push lines ("  class " + (join ch ",") + " changed")
+        }
+        if ((array_length rm) > 0) {
+            push lines ("  class " + (join rm ",") + " removed")
+        }
+        if ((array_length inf) > 0) {
+            push lines ("  class " + (join inf ",") + " inferred")
+        }
+        return (join lines "\n")
+    }
+
+    ; the boxes a drawing keeps: the critical ones and the changed ones
+    ; first, then the rest in order, up to MAX_NODES
+    sfn pick:[string] (m:CrModel ids:[string]) {
+        if ((array_length ids) <= (CrViews.MAX_NODES())) {
+            return ids
+        }
+        def crit:[string] (m.criticalIds())
+        def out:[string]
+        for ([] _:int (0 1 2)) pass:int pi {
+            for ids id:string i {
+                if (((array_length out) >= (CrViews.MAX_NODES())) || ((indexOf out id) >= 0)) {
+                    continue
+                }
+                def found@(optional):CrItem (m.find(id))
+                def changed:boolean false
+                if (!null? found) {
+                    changed = (found.changed())
+                }
+                def take:boolean (pass == 2)
+                if ((pass == 0) && ((indexOf crit id) >= 0)) {
+                    take = true
+                }
+                if ((pass == 1) && changed) {
+                    take = true
+                }
+                if take {
+                    push out id
+                }
+            }
+        }
+        return out
+    }
+
+    sfn addOnce:void (list:[string] id:string) {
+        if (((strlen id) > 0) && ((indexOf list id) < 0)) {
+            push list id
+        }
+    }
+
+    sfn fence:string (lang:string body:string) {
+        return ("```" + lang + "\n" + body + "\n```")
+    }
+
+    ; --- overview: actors, flows, stores, events and the failure branches
+
+    sfn overview:string (m:CrModel) {
+        def flows:[CrItem] (m.of("flow"))
+        if ((array_length flows) == 0) {
+            return ""
+        }
+        def ids:[string]
+        for flows f:CrItem fi {
+            CrViews.addOnce(ids f.src)
+            CrViews.addOnce(ids f.dst)
+        }
+        for (m.of("event")) e:CrItem ei {
+            if ((indexOf ids e.src) >= 0) {
+                CrViews.addOnce(ids e.id)
+            }
+        }
+        def kept:[string] (CrViews.pick(m ids))
+        def lines:[string]
+        push lines "flowchart TD"
+        for kept id:string ki {
+            push lines ("  " + (CrViews.box(m id)))
+        }
+        def crit:[string] (m.criticalIds())
+        def red:[int]
+        def link:int 0
+        for flows f2:CrItem f2i {
+            if (((indexOf kept f2.src) < 0) || ((indexOf kept f2.dst) < 0)) {
+                continue
+            }
+            def arrow:string "-->"
+            if (f2.critical || ((indexOf crit f2.id) >= 0)) {
+                arrow = "==>"
+            }
+            ; the transform only: payloads are the data flow's boxes
+            def label:string (CrViews.esc(f2.transform))
+            if ((strlen label) > 0) {
+                push lines ("  " + (CrViews.nid(f2.src)) + " " + arrow + "|" + label + "| " + (CrViews.nid(f2.dst)))
+            } {
+                push lines ("  " + (CrViews.nid(f2.src)) + " " + arrow + " " + (CrViews.nid(f2.dst)))
+            }
+            link = (link + 1)
+        }
+        for (m.of("event")) e2:CrItem e2i {
+            if (((indexOf kept e2.id) < 0) || ((indexOf kept e2.src) < 0)) {
+                continue
+            }
+            push lines ("  " + (CrViews.nid(e2.src)) + " -.->|emit| " + (CrViews.nid(e2.id)))
+            link = (link + 1)
+        }
+        ; each failure as a branch from where it happens
+        def marked:[string]
+        for kept k2:string k2i {
+            push marked k2
+        }
+        for (m.of("failure")) x:CrItem xi {
+            def at:string (CrViews.endOf(m x.src))
+            if ((indexOf kept at) < 0) {
+                continue
+            }
+            push marked x.id
+            def thenL:string (CrViews.esc(x.thenText))
+            if ((strlen thenL) == 0) {
+                thenL = "?"
+            }
+            push lines ("  " + (CrViews.nid(x.id)) + "[\"" + thenL + "\"]")
+            push lines ("  " + (CrViews.nid(at)) + " -.->|" + (CrViews.esc((CrViews.whenOf(x)))) + "| " + (CrViews.nid(x.id)))
+            push red link
+            link = (link + 1)
+        }
+        for red r:int ri {
+            push lines ("  linkStyle " + r + " stroke:#c0392b")
+        }
+        push lines (CrViews.classes(m marked))
+        return (CrViews.fence("mermaid" (join lines "\n")))
+    }
+
+    ; a failure "at" a flow happens at the flow's source
+    sfn endOf:string (m:CrModel id:string) {
+        def found@(optional):CrItem (m.find(id))
+        if (null? found) {
+            return id
+        }
+        def it:CrItem (unwrap found)
+        if (((it.sect == "flow") || (it.sect == "transition")) || (it.sect == "wait")) {
+            return it.src
+        }
+        return id
+    }
+
+    sfn whenOf:string (x:CrItem) {
+        if ((strlen x.whenText) > 0) {
+            return x.whenText
+        }
+        return "fails"
+    }
+
+    ; --- data flow: what moves, in what shape, where it branches. Each
+    ; payload is a box of its own between where it comes from and where it
+    ; goes, so the shapes the data takes read down the drawing.
+
+    sfn dataFlow:string (m:CrModel) {
+        def flows:[CrItem]
+        for (m.of("flow")) f:CrItem fi {
+            if ((strlen f.payload) > 0) {
+                push flows f
+            }
+        }
+        if ((array_length flows) < 2) {
+            return ""
+        }
+        def ids:[string]
+        for flows f2:CrItem f2i {
+            CrViews.addOnce(ids f2.src)
+            CrViews.addOnce(ids f2.dst)
+        }
+        def kept:[string] (CrViews.pick(m ids))
+        def lines:[string]
+        push lines "flowchart LR"
+        for kept id:string ki {
+            push lines ("  " + (CrViews.box(m id)))
+        }
+        def marked:[string]
+        for kept k2:string k2i {
+            push marked k2
+        }
+        for flows f3:CrItem f3i {
+            if (((indexOf kept f3.src) < 0) || ((indexOf kept f3.dst) < 0)) {
+                continue
+            }
+            def pid:string (CrViews.nid(f3.id))
+            push marked f3.id
+            push lines ("  " + pid + "[/\"" + (CrViews.esc(f3.payload)) + "\"/]")
+            def arrow:string "-->"
+            if f3.critical {
+                arrow = "==>"
+            }
+            push lines ("  " + (CrViews.nid(f3.src)) + " " + arrow + " " + pid)
+            if ((strlen f3.transform) > 0) {
+                push lines ("  " + pid + " " + arrow + "|" + (CrViews.esc(f3.transform)) + "| " + (CrViews.nid(f3.dst)))
+            } {
+                push lines ("  " + pid + " " + arrow + " " + (CrViews.nid(f3.dst)))
+            }
+        }
+        push lines (CrViews.classes(m marked))
+        return (CrViews.fence("mermaid" (join lines "\n")))
+    }
+
+    ; --- failures: the critical path and every way off it
+
+    sfn failures:string (m:CrModel) {
+        def fails:[CrItem] (m.of("failure"))
+        if ((array_length fails) == 0) {
+            return ""
+        }
+        def lines:[string]
+        push lines "flowchart TD"
+        def boxes:[string]
+        def links:[string]
+        def styles:[string]
+        def n:int 0
+        ; the critical path as one chain of boxes
+        def chain:[string]
+        for (m.criticalIds()) c:string ci {
+            if (((m.sectOf(c)) != "flow") && ((m.sectOf(c)) != "transition")) {
+                CrViews.addOnce(chain c)
+            }
+        }
+        def i:int 1
+        while (i < (array_length chain)) {
+            push links ("  " + (CrViews.nid((itemAt chain (i - 1)))) + " ==> " + (CrViews.nid((itemAt chain i))))
+            n = (n + 1)
+            i = (i + 1)
+        }
+        for fails x:CrItem xi {
+            def at:string (CrViews.endOf(m x.src))
+            CrViews.addOnce(chain at)
+            def thenL:string (CrViews.esc(x.thenText))
+            if ((strlen thenL) == 0) {
+                thenL = "? nothing handles it"
+            }
+            push boxes ("  " + (CrViews.nid(x.id)) + "[\"" + thenL + "\"]")
+            push links ("  " + (CrViews.nid(at)) + " -.->|" + (CrViews.esc((CrViews.whenOf(x)))) + "| " + (CrViews.nid(x.id)))
+            def colour:string "#c0392b"
+            if (x.path == "retry") {
+                colour = "#d68910"
+            }
+            if (x.path == "compensation") {
+                colour = "#7d3c98"
+            }
+            if (x.path == "normal") {
+                colour = "#1e8449"
+            }
+            push styles ("  linkStyle " + n + " stroke:" + colour)
+            n = (n + 1)
+        }
+        for chain id:string ii {
+            push lines ("  " + (CrViews.box(m id)))
+        }
+        for boxes b:string bi {
+            push lines b
+        }
+        for links l:string li {
+            push lines l
+        }
+        for styles s:string si {
+            push lines s
+        }
+        def marked:[string]
+        for chain c2:string c2i {
+            push marked c2
+        }
+        for fails x2:CrItem x2i {
+            push marked x2.id
+        }
+        push lines (CrViews.classes(m marked))
+        return (CrViews.fence("mermaid" (join lines "\n")))
+    }
+
+    ; --- states: one XState machine per owner
+
+    sfn owners:[string] (m:CrModel) {
+        def out:[string]
+        for (m.of("state")) s:CrItem si {
+            def o:string s.owner
+            if ((indexOf out o) < 0) {
+                push out o
+            }
+        }
+        return out
+    }
+
+    sfn machine:string (m:CrModel owner:string) {
+        def states:[CrItem]
+        def ids:[string]
+        for (m.of("state")) s:CrItem si {
+            if (s.owner == owner) {
+                push states s
+                push ids s.id
+            }
+        }
+        if ((array_length states) == 0) {
+            return ""
+        }
+        def trans:[CrItem]
+        for (m.of("transition")) t:CrItem ti {
+            if (((indexOf ids t.src) >= 0) && ((indexOf ids t.dst) >= 0)) {
+                push trans t
+            }
+        }
+        ; the first state nothing goes into starts it
+        def initial:string ""
+        for states s2:CrItem s2i {
+            def into:boolean false
+            for trans t2:CrItem t2i {
+                if ((t2.dst == s2.id) && (t2.src != s2.id)) {
+                    into = true
+                }
+            }
+            if ((into == false) && ((strlen initial) == 0)) {
+                initial = s2.label
+            }
+        }
+        if ((strlen initial) == 0) {
+            def first:CrItem (itemAt states 0)
+            initial = first.label
+        }
+        def mach:MfJ (MfJ.newObj())
+        def name:string owner
+        if ((strlen name) == 0) {
+            name = "states"
+        }
+        mach.putStr("id" name)
+        mach.putStr("initial" initial)
+        def all:MfJ (MfJ.newObj())
+        for states s3:CrItem s3i {
+            def so:MfJ (MfJ.newObj())
+            def on:MfJ (MfJ.newObj())
+            def always:MfJ (MfJ.newArr())
+            def outs:int 0
+            for trans t3:CrItem t3i {
+                if (t3.src != s3.id) {
+                    continue
+                }
+                outs = (outs + 1)
+                def tgt:MfJ (MfJ.newObj())
+                tgt.putStr("target" (m.labelOf(t3.dst)))
+                if ((strlen t3.guard) > 0) {
+                    tgt.putStr("guard" t3.guard)
+                }
+                if ((strlen t3.trigger) == 0) {
+                    always.add(tgt)
+                    continue
+                }
+                def ev:string t3.trigger
+                def had:MfJ (on.field(ev))
+                if (had.kind == 0) {
+                    on.put(ev tgt)
+                } {
+                    if (had.isArr()) {
+                        had.add(tgt)
+                    } {
+                        def two:MfJ (MfJ.newArr())
+                        two.add(had)
+                        two.add(tgt)
+                        on.put(ev two)
+                    }
+                }
+            }
+            if ((array_length on.ks) > 0) {
+                so.put("on" on)
+            }
+            if ((always.count()) > 0) {
+                so.put("always" always)
+            }
+            if (outs == 0) {
+                def reached:boolean false
+                for trans t4:CrItem t4i {
+                    if (t4.dst == s3.id) {
+                        reached = true
+                    }
+                }
+                if reached {
+                    so.putStr("type" "final")
+                }
+            }
+            all.put(s3.label so)
+        }
+        mach.put("states" all)
+        return (CrViews.fence("xstate" (JOut.pretty(mach))))
+    }
+
+    ; --- who waits for whom
+
+    sfn sequence:string (m:CrModel) {
+        def waits:[CrItem] (m.of("wait"))
+        if ((array_length waits) == 0) {
+            return ""
+        }
+        def who:[string]
+        def lines:[string]
+        for (m.of("flow")) f:CrItem fi {
+            if ((m.sectOf(f.src)) == "actor") {
+                CrViews.addOnce(who f.src)
+            }
+            if ((m.sectOf(f.dst)) == "actor") {
+                CrViews.addOnce(who f.dst)
+            }
+        }
+        for waits w:CrItem wi {
+            CrViews.addOnce(who w.src)
+            CrViews.addOnce(who w.dst)
+        }
+        def body:[string]
+        def shown:[string]
+        for (m.of("flow")) f2:CrItem f2i {
+            if (((indexOf who f2.src) < 0) || ((indexOf who f2.dst) < 0)) {
+                continue
+            }
+            def msg:string (CrViews.esc(f2.payload))
+            if ((strlen msg) == 0) {
+                msg = (CrViews.esc(f2.label))
+            }
+            push body ("  " + (CrViews.nid(f2.src)) + "->>" + (CrViews.nid(f2.dst)) + ": " + msg)
+            CrViews.addOnce(shown f2.src)
+            CrViews.addOnce(shown f2.dst)
+        }
+        for waits w2:CrItem w2i {
+            def what:string (CrViews.esc(w2.what))
+            if ((strlen what) == 0) {
+                what = "result"
+            }
+            if w2.blocking {
+                push body ("  " + (CrViews.nid(w2.src)) + "->>" + (CrViews.nid(w2.dst)) + ": waits for " + what)
+                push body ("  " + (CrViews.nid(w2.dst)) + "-->>" + (CrViews.nid(w2.src)) + ": " + what)
+            } {
+                push body ("  " + (CrViews.nid(w2.src)) + "-)" + (CrViews.nid(w2.dst)) + ": " + what + " (async)")
+            }
+            def note:string "no timeout"
+            if ((strlen w2.timeout) > 0) {
+                note = ("timeout " + (CrViews.esc(w2.timeout)))
+            }
+            push body ("  Note over " + (CrViews.nid(w2.src)) + "," + (CrViews.nid(w2.dst)) + ": " + note)
+            CrViews.addOnce(shown w2.src)
+            CrViews.addOnce(shown w2.dst)
+        }
+        push lines "sequenceDiagram"
+        for shown id:string si {
+            push lines ("  participant " + (CrViews.nid(id)) + " as " + (CrViews.esc((m.labelOf(id)))))
+        }
+        for body b:string bi {
+            push lines b
+        }
+        return (CrViews.fence("mermaid" (join lines "\n")))
+    }
+
+    ; --- where data rests
+
+    sfn storage:string (m:CrModel src:CrSource) {
+        def stores:[CrItem] (m.of("store"))
+        if ((array_length stores) == 0) {
+            return ""
+        }
+        def rows:[string]
+        push rows "| Store | Kind | Fields | Written by | Change |\n|---|---|---|---|---|"
+        for stores s:CrItem si {
+            def by:[string]
+            for (m.of("flow")) f:CrItem fi {
+                if ((f.dst == s.id) && ((indexOf by (m.labelOf(f.src))) < 0)) {
+                    push by (m.labelOf(f.src))
+                }
+            }
+            def kind:string (CrViews.cell(s.kind))
+            if s.durable {
+                kind = (kind + ", durable")
+            }
+            def fields:[string]
+            for s.fields fd:string fdi {
+                push fields ("`" + (replace (CrViews.oneLine(fd)) "`" "'") + "`")
+            }
+            def name:string ("**" + (CrViews.cell(s.label)) + "**")
+            def r:string (s.firstRef())
+            if ((strlen r) > 0) {
+                name = ("**" + (src.linkAs((CrViews.cell(s.label)) r)) + "**")
+            }
+            push rows ("| " + name + " | " + kind + " | " + (join fields ", ") + " | " + (CrViews.cell((join by ", "))) + " | " + s.change + " |")
+        }
+        return (join rows "\n")
+    }
+
+    ; --- the deck
+
+    sfn quoted:string (s:string) {
+        return (replace (replace (CrViews.oneLine(s)) "\\" "\\\\") "\"" "\\\"")
+    }
+
+    ; the items a view shows and where they are, as speaker notes
+    sfn notes:string (m:CrModel src:CrSource sects:[string]) {
+        def lines:[string]
+        for m.items it:CrItem i {
+            if ((indexOf sects it.sect) < 0) {
+                continue
+            }
+            def where:[string]
+            for it.refs r:string ri {
+                if ((indexOf it.badRefs r) < 0) {
+                    push where (src.link(r))
+                }
+            }
+            def place:string "inferred, no source line"
+            if ((array_length where) > 0) {
+                place = (join where ", ")
+            }
+            push lines ("- " + it.sect + " **" + (CrViews.cell(it.label)) + "** (" + it.change + "): " + place)
+        }
+        if ((array_length lines) == 0) {
+            return ""
+        }
+        return ("\n\n::: notes\n" + (join lines "\n") + "\n:::")
+    }
+
+    sfn deck:string (m:CrModel src:CrSource) {
+        def risks:[CrRisk] (m.risks())
+        def level:string (CrModel.level(risks))
+        def out:[string]
+        def title:string m.title
+        if ((strlen title) == 0) {
+            title = src.name
+        }
+        push out ("---\ntitle: \"" + (CrViews.quoted(("Review: " + title))) + "\"\nfooter-left: \"" + (CrViews.quoted(src.name)) + "\"\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first\n---")
+        push out ("# " + (CrViews.oneLine(title)))
+        def lead:string ("Risk: **" + level + "**")
+        if ((strlen src.url) > 0) {
+            lead = ("[" + src.name + "](" + src.url + ") · " + lead)
+        }
+        push out (lead + "\n{.lead}")
+        ; the story, beat by beat
+        m.draftStory()
+        def beats:[string]
+        for m.story b:CrBeat bi {
+            def line:string (CrViews.oneLine(b.text))
+            if ((strlen b.link) > 0) {
+                line = ("**" + (CrViews.capital(b.link)) + "** " + line)
+            }
+            def where:[string]
+            for b.refs r:string ri {
+                push where (src.link(r))
+            }
+            if ((array_length where) > 0) {
+                line = (line + " · " + (join where ", "))
+            }
+            push beats ("- " + line)
+        }
+        def part:int 0
+        while ((part * 5) < (array_length beats)) {
+            def chunk:[string]
+            def k:int (part * 5)
+            while ((k < ((part + 1) * 5)) && (k < (array_length beats))) {
+                push chunk (itemAt beats k)
+                k = (k + 1)
+            }
+            def notes:string ""
+            if (m.storyDrafted && (part == 0)) {
+                notes = "\n\n::: notes\nDrafted from the model: tell it as the change's own story, beats joined by but and therefore.\n:::"
+            }
+            push out ("## The story\n\n" + (join chunk "\n") + "\n{.build}" + notes)
+            part = (part + 1)
+        }
+        ; what changed
+        def facts:[string]
+        def crit:[string]
+        for (m.criticalIds()) c:string ci {
+            if (((m.sectOf(c)) != "flow") && ((m.sectOf(c)) != "transition")) {
+                push crit (m.labelOf(c))
+            }
+        }
+        if ((array_length crit) > 0) {
+            push facts ("- **Critical path:** " + (join crit " → "))
+        }
+        def touched:[string]
+        def stores:[string]
+        def news:[string]
+        for m.items it:CrItem i {
+            if ((it.changed()) == false) {
+                continue
+            }
+            if (it.sect == "actor") {
+                push touched it.label
+            }
+            if (it.sect == "store") {
+                push stores it.label
+            }
+            if ((it.change == "added") && ((it.sect == "state") || (it.sect == "event"))) {
+                push news it.label
+            }
+        }
+        if ((array_length touched) > 0) {
+            push facts ("- **Actors changed:** " + (join touched ", "))
+        }
+        if ((array_length stores) > 0) {
+            push facts ("- **Storage changed:** " + (join stores ", "))
+        }
+        if ((array_length news) > 0) {
+            push facts ("- **New states and events:** " + (join news ", "))
+        }
+        push facts ("- **Risk:** " + level + " (" + (array_length risks) + " findings)")
+        def summary:string (trim m.summary)
+        if ((strlen summary) == 0) {
+            summary = "What this change does, in a sentence or two."
+        }
+        push out ("## What changed\n\n" + summary + "\n\n" + (join facts "\n"))
+        ; the review order
+        def steps:[CrStep] (m.order())
+        if ((array_length steps) > 0) {
+            def rows:[string]
+            def k:int 1
+            for steps s:CrStep si {
+                def names:[string]
+                for s.items id:string ii {
+                    if (((array_length names) < 4) && ((m.sectOf(id)) != "flow")) {
+                        push names (m.labelOf(id))
+                    }
+                }
+                def where:[string]
+                for s.places p:string pi {
+                    push where (src.link(p))
+                }
+                def line:string (k + ". **" + s.title + "**: " + (join names ", "))
+                if ((array_length where) > 0) {
+                    line = (line + " · " + (join where ", "))
+                }
+                push rows line
+                k = (k + 1)
+            }
+            push out ("## Review path\n\n" + (join rows "\n"))
+        }
+        def ov:string (CrViews.overview(m))
+        if ((strlen ov) > 0) {
+            push out ("## Overview\n\n" + ov + (CrViews.notes(m src ([] _:string ("actor" "flow" "store" "event")))))
+        }
+        for (CrViews.owners(m)) owner:string oi {
+            def sm:string (CrViews.machine(m owner))
+            if ((strlen sm) > 0) {
+                def head:string "States"
+                if ((strlen owner) > 0) {
+                    head = ("States of " + (CrViews.oneLine(owner)))
+                }
+                push out ("## " + head + "\n\n" + sm + (CrViews.notes(m src ([] _:string ("state" "transition")))))
+            }
+        }
+        def df:string (CrViews.dataFlow(m))
+        if ((strlen df) > 0) {
+            push out ("## Data flow\n\n" + df)
+        }
+        def fx:string (CrViews.failures(m))
+        if ((strlen fx) > 0) {
+            push out ("## When something fails\n\n" + fx + (CrViews.notes(m src ([] _:string ("failure")))))
+        }
+        def sq:string (CrViews.sequence(m))
+        if ((strlen sq) > 0) {
+            push out ("## Who waits for whom\n\n" + sq + (CrViews.notes(m src ([] _:string ("wait")))))
+        }
+        def st:string (CrViews.storage(m src))
+        if ((strlen st) > 0) {
+            push out ("## Where data rests\n\n" + st)
+        }
+        if ((array_length risks) > 0) {
+            def rl:[string]
+            for risks r:CrRisk ri {
+                def where:string ""
+                if ((strlen r.ref) > 0) {
+                    where = (" · " + (src.link(r.ref)))
+                }
+                push rl ("- **" + r.level + "** " + (CrViews.oneLine(r.text)) + where)
+            }
+            push out ("## Risks\n\n" + (join rl "\n"))
+        }
+        push out "## Decision\n\n- Approve\n- Request changes\n{.build}"
+        return ((join out "\n\n") + "\n")
+    }
+}

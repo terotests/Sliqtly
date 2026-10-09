@@ -42,7 +42,7 @@ export function buildPlayer(dist) {
     logLevel: "silent",
   }).outputFiles[0].contents;
   put("main.js", main, TYPES[".js"]);
-  for (const f of ["pres_app.js", "pres_data.js", "pres.css", "ui.css", "chart-editor.css", "hint.css", "panels.css"]) {
+  for (const f of ["pres_app.js", "pres_beat.js", "pres_data.js", "pres.css", "ui.css", "chart-editor.css", "hint.css", "panels.css"]) {
     put(f, read(f), TYPES[path.extname(f)]);
   }
   for (const dir of ["skins", "themes", "fonts", "i18n"]) {
@@ -57,7 +57,7 @@ export function buildPlayer(dist) {
   // the faces come from the table, not ahead of it from the network
   html = html.replace(/^.*<link rel="preload"[^>]*\.ttf[^>]*>\s*\n/gm, "");
   html = html.split("./favicon.svg").join(icon);
-  const scripts = /<script src="\.\/pres_app\.js[^"]*"><\/script>\s*\n<script type="module" src="\.\/main\.js[^"]*"><\/script>\s*\n<script type="module" src="\.\/sliqtly\.js[^"]*"><\/script>\s*\n/;
+  const scripts = /<script src="\.\/pres_app\.js[^"]*"><\/script>\s*\n<script src="\.\/pres_beat\.js[^"]*"><\/script>\s*\n<script type="module" src="\.\/main\.js[^"]*"><\/script>\s*\n<script type="module" src="\.\/sliqtly\.js[^"]*"><\/script>\s*\n/;
   if (!scripts.test(html)) throw new Error("player: index.html's scripts are not where player.mjs expects them");
   // JSON inside a script element: no "<" in it may end the element
   const table = JSON.stringify(assets).replace(/</g, "\\u003c");
@@ -72,9 +72,11 @@ async function own(key) {
   const text = await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
   return URL.createObjectURL(new Blob([text], { type: "text/javascript" }));
 }
-const engine = document.createElement("script");
-engine.src = await own("pres_app.js");
-await new Promise((done, bad) => { engine.onload = done; engine.onerror = bad; document.head.appendChild(engine); });
+for (const key of ["pres_app.js", "pres_beat.js"]) {
+  const engine = document.createElement("script");
+  engine.src = await own(key);
+  await new Promise((done, bad) => { engine.onload = done; engine.onerror = bad; document.head.appendChild(engine); });
+}
 await import(await own("main.js"));
 </script>
 `;

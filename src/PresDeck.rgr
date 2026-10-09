@@ -1114,6 +1114,7 @@ class PresDeck {
                 v = (unwrap had)
             }
             v.key = u.key
+            v.allow3d = (u.spec.allows("3d"))
             def resized:boolean ((v.width != u.spec.width) || (v.height != u.spec.height))
             v.width = u.spec.width
             v.height = u.spec.height
@@ -1380,9 +1381,43 @@ class PresDeck {
         return (o.toJson())
     }
 
+    ; The 3-D worlds the programs on slide i drew in their last frames,
+    ; where they are on the slide: [{src, scene, x, y, w, h}] (PresPlayView
+    ; scenesIn).
+    fn playScenes:JVal (i:int) {
+        def out:JVal (JVal.mkArr())
+        if ((i < 0) || (i >= (array_length slides))) {
+            return out
+        }
+        def s:PresSlide (itemAt slides i)
+        def k:int 0
+        while (k < (array_length s.plays)) {
+            def u:PresPlayUse (itemAt s.plays k)
+            k = (k + 1)
+            def bi:int (this.embedBox(i u.source))
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if ((bi >= 0) && (!null? v)) {
+                def lay:MdLayout (this.layout())
+                def b:MdBox (itemAt lay.boxes bi)
+                def got:JVal ((unwrap v).scenesIn(b.x b.y b.w b.h))
+                def j:int 0
+                while (j < (got.len())) {
+                    out.add((got.at(j)))
+                    j = (j + 1)
+                }
+            }
+        }
+        return out
+    }
+
     ; A program's box painted: its picture when it has one (a still list —
     ; a thumbnail, the PDF — shows the last), else the fence's plate; a ring
     ; when it has the keyboard. False when the box is no program's.
+    ; true: a program's box is left empty where it has no picture yet (the
+    ; public viewer, mcp-go/rgr/View.rgr, paints the plate itself and runs
+    ; the program over it)
+    def platesOff:boolean false
+
     fn paintPlay:boolean (out:EVGDisplayList s:PresSlide b:MdBox painter:MdToEvg l:MdLayout) {
         def k:int 0
         while (k < (array_length s.plays)) {
@@ -1390,10 +1425,17 @@ class PresDeck {
             if (u.source == b.embedSource) {
                 def v@(optional):PresPlayView (this.playView(u.key))
                 def shown:boolean false
+                def said:string ""
                 if (!null? v) {
-                    shown = ((unwrap v).paint(out b.x b.y b.w b.h))
+                    def pv:PresPlayView (unwrap v)
+                    shown = (pv.paint(out b.x b.y b.w b.h))
+                    said = (pv.note())
+                    if ((shown == false) && ((strlen said) > 0)) {
+                        pv.paintPlate(out u.spec b.x b.y b.w b.h)
+                        shown = true
+                    }
                 }
-                if (shown == false) {
+                if ((shown == false) && (platesOff == false)) {
                     painter.paintBox(out l b 0.0)
                 }
                 if ((((!null? v) && (u.key == playFocus)) && showControls) && (still == false)) {
@@ -1424,7 +1466,27 @@ class PresDeck {
             if (((strlen u.spec.src) > 0) && ((indexOf dataMissing (MdVegaRender.resolveUrl(u.spec.src))) >= 0)) {
                 push out ("Slide " + (to_string (u.page + 1)) + ": app: no file " + u.spec.src + " in this presentation")
             }
+            ; its stylesheet's rules the layout does not take
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if (!null? v) {
+                def view:PresPlayView (unwrap v)
+                for (view.cssErrors()) ce:string cei {
+                    push out ("Slide " + (to_string (u.page + 1)) + ": " + u.spec.css + ": " + ce)
+                }
+            }
             i = (i + 1)
+        }
+        def vi:int 0
+        while (vi < (array_length all)) {
+            def u3:PresPlayUse (itemAt all vi)
+            def v3@(optional):PresPlayView (this.playView(u3.key))
+            if (!null? v3) {
+                def pv3:PresPlayView (unwrap v3)
+                if (pv3.asked3d && (pv3.allow3d == false)) {
+                    push out ("Slide " + (to_string (u3.page + 1)) + ": app: " + u3.spec.src + " draws a <scene3d>, which needs allow: 3d")
+                }
+            }
+            vi = (vi + 1)
         }
         def r:int 0
         while (r < (array_length playRefused)) {
@@ -3674,7 +3736,14 @@ class PresDeck {
             s.stepGap = (PresDeck.num((h.attrValue("step")) s.stepGap))
         }
         if (h.hasAttr("fx")) {
-            s.fx = (h.attrValue("fx"))
+            def named:string (h.attrValue("fx"))
+            ; another effect than the deck's or the theme's: their settings
+            ; (fx-hue: 280 for a starfield) were for that one, not this
+            if (named != s.fx) {
+                clear s.fxNames
+                clear s.fxValues
+            }
+            s.fx = named
         }
         ; a heading below the level slides break at is a section of the page,
         ; and its picture is the section's band (`readBands`), not the page's

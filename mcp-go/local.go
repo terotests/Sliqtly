@@ -113,6 +113,7 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 	e.FilesURL = e.BaseURL + "/files"
 	e.rooms = newRoomService(e)
 	e.GitHubToken = os.Getenv("SLIQTLY_GITHUB_TOKEN")
+	e.Plugins = splitList(os.Getenv("SLIQTLY_PLUGINS"))
 	return e, bucket, nil
 }
 

@@ -37,10 +37,14 @@ if (!fs.existsSync(path.join(viewDir, "index.html"))) {
 const ID = "Fixture123";
 const deck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-deck.json"));
 const slides = JSON.parse(deck).deck.slides;
+// a deck with a program on its first slide (```app): its box, source and
+// stylesheet as the server sends them (mcp-go/view_test.go TestViewPlays)
+const APP_ID = "AppFixture1";
+const appDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app.json"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".ttf": "font/ttf" };
+const types = { ".wasm": "application/wasm", ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".ttf": "font/ttf" };
 const missing = [];
 const server = http.createServer((req, res) => {
   let rel = decodeURIComponent(new URL(req.url, "http://x").pathname);
@@ -56,9 +60,9 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const found = rel === "/api/view/" + ID;
+    const found = rel === "/api/view/" + ID || rel === "/api/view/" + APP_ID;
     res.writeHead(found ? 200 : 404, { "content-type": "application/json" });
-    res.end(found ? deck : '{"error":"This shared presentation was not found."}');
+    res.end(found ? (rel.endsWith(APP_ID) ? appDeck : deck) : '{"error":"This shared presentation was not found."}');
     return;
   }
   // Hosting's Firebase config (viewauth.js): not here, as where sign-in is off
@@ -145,6 +149,34 @@ try {
   await page.waitForFunction(() => /failed|epäonnistui/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
     .catch(() => fail("a refused PDF export was not said"));
   if (!(await page.evaluate(() => document.getElementById("vMenu").hidden))) fail("the Export menu stayed open");
+  await page.close();
+
+  // a program on a slide runs in the viewer: its picture (the green field
+  // its stylesheet gives it) is painted in its box, a click is its own and
+  // not the next slide, and a key it asks slide.next() with moves on
+  page = await open("/s/" + APP_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  const green = () => page.evaluate(() => {
+    const c = document.getElementById("c");
+    const g = document.createElement("canvas");
+    g.width = 128;
+    g.height = 72;
+    const x = g.getContext("2d");
+    x.drawImage(c, 0, 0, 128, 72);
+    const d = x.getImageData(0, 0, 128, 72).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - 0x12) < 24 && Math.abs(d[i + 1] - 0xa3) < 24 && Math.abs(d[i + 2] - 0x4b) < 24) n++;
+    return n;
+  });
+  let greenAt = 0;
+  for (let i = 0; i < 40 && !(greenAt = await green()); i++) await page.waitForTimeout(250);
+  if (!greenAt) fail("the program on the slide painted nothing in its box");
+  await page.mouse.click(640, 400);
+  await page.waitForTimeout(300);
+  if ((await text(page, "vCount")) !== "1 / 2") fail("a click on the program went to another slide");
+  await page.keyboard.press("n");
+  await page.waitForFunction(() => document.getElementById("vCount").textContent === "2 / 2", null, { timeout: 5000 })
+    .catch(() => fail("the program's slide.next() did not go to slide 2"));
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other
@@ -267,4 +299,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program run, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
