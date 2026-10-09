@@ -33,6 +33,7 @@ Import "PresSketch.rgr"
 Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
+Import "PresPlay.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -4141,6 +4142,114 @@ class PresCheck {
         this.ok(((u.linked("md" true mb cb)) == 0) "undo: an earlier edit is no paste")
     }
 
+    ; text drawn starting with `start` in a colour nearer green than red
+    sfn greenText:int (l:EVGDisplayList start:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (((c.kind == 3) && ((indexOf c.text start) == 0)) && (c.g > (c.r + 80))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn redRects:int (l:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (((c.kind == 0) && (c.r > 230)) && ((c.g < 25) && (c.b < 25))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Programs on slides (```app, PresPlay): the fence read, the files asked
+    ; for, a frame painted in the box, and what a program may ask of the deck.
+    fn plays:void () {
+        def text:string ("---\nscore: 0\nfooter-left: \"Pisteet: {score}\"\n---\n\n"
+            + "# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\nallow: deck.data, slide.style\n```\n\n"
+            + "Osu maaliin\n{#tulos}\n\n# Toinen\n\nTeksti\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def uses:[PresPlayUse] (deck.playUses())
+        this.ok(((array_length uses) == 1) ("plays: one program, got " + (to_string (array_length uses))))
+        if ((array_length uses) != 1) {
+            return
+        }
+        def u:PresPlayUse (itemAt uses 0)
+        this.ok(((u.key == "apps/g.tsx#1") && (u.page == 0)) ("plays: keyed by file and use, got " + u.key))
+        this.ok(((u.spec.allows("deck.data")) && ((u.spec.allows("slide.nav")) == false)) "plays: its fence's grants")
+        def files:[string] (deck.playFiles())
+        this.ok((((indexOf files "apps/g.tsx") >= 0) && ((indexOf files "apps/g.tsx.css") >= 0)) "plays: the program and its stylesheet are asked for")
+        def f0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(f0 "▶ g.tsx")) == 1) "plays: a plate with the name before a frame")
+        deck.setChartData("apps/g.tsx" "function view() { return null }")
+        deck.setChartData("apps/g.tsx.css" ".x { background-color: #ff0000 }")
+        PresTimeline.planAll(deck)
+        this.ok(((deck.dataText("apps/g.tsx")) == "function view() { return null }") "plays: the source as the page gave it")
+        def v@(optional):PresPlayView (deck.playView("apps/g.tsx#1"))
+        this.ok((!null? v) "plays: a view for the program")
+        if (null? v) {
+            return
+        }
+        def view:PresPlayView (unwrap v)
+        this.ok(((view.setTree("not json")) == false) "plays: a frame that is no tree is said")
+        def tree:string "{\"t\":\"div\",\"cls\":\"x\",\"s\":{\"width\":\"200px\",\"height\":\"100px\"},\"c\":[{\"t\":\"div\",\"id\":\"b\",\"s\":{\"position\":\"absolute\",\"left\":\"10px\",\"top\":\"10px\",\"width\":\"20px\",\"height\":\"20px\",\"background-color\":\"#0000ff\"}}]}"
+        this.ok((view.setTree(tree)) "plays: a frame laid out")
+        def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(f1 "▶ g.tsx")) == 0) "plays: the frame replaces the plate")
+        this.ok(((PresCheck.redRects(f1)) >= 1) "plays: the program's stylesheet paints it")
+        ; a point of the box in the program's own units, with the id there
+        def bi:int (deck.embedBox(0 u.source))
+        this.ok((bi >= 0) "plays: the fence has a box")
+        if (bi >= 0) {
+            def lay:MdLayout (deck.layout())
+            def b:MdBox (itemAt lay.boxes bi)
+            def at:string (deck.playPoint(u.key (b.x + ((20.0 * b.w) / 200.0)) (b.y + ((20.0 * b.h) / 100.0))))
+            this.ok(((indexOf at "\"id\":\"b\"") >= 0) ("plays: the element under the pointer, got " + at))
+            this.ok(((deck.playPoint(u.key (b.x - 5.0) b.y)) == "") "plays: nothing outside the box")
+            this.ok(((deck.playAt(0 (b.x + 1.0) (b.y + 1.0))) == u.key) "plays: the box names its program")
+        }
+        ; the deck kept the view across a rebuild
+        deck.setText((text + "\nLisää\n"))
+        PresTimeline.planAll(deck)
+        def v2@(optional):PresPlayView (deck.playView("apps/g.tsx#1"))
+        this.ok(((!null? v2) && ((unwrap v2).drawn)) "plays: the picture outlives an edit")
+
+        ; what it asks: granted by the fence, the rest refused and said
+        def moves:[PresPlayAsk] (deck.takeAsks(u.key "[{\"k\":\"deck.set\",\"key\":\"Score\",\"value\":\"7\"},{\"k\":\"el.style\",\"sel\":\"#tulos\",\"style\":{\"color\":\"#00ff00\"}},{\"k\":\"slide.next\"},{\"k\":\"network\"},{\"k\":\"el.hide\",\"sel\":\"div p\"}]"))
+        this.ok(((array_length moves) == 0) "plays: no move without slide.nav")
+        this.ok(deck.playRebuilt "plays: deck.set lays the deck out again")
+        PresTimeline.planAll(deck)
+        def notes:[string] (deck.playNotes())
+        this.ok(((array_length notes) == 3) ("plays: three refusals said, got " + (to_string (array_length notes))))
+        def f2:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(f2 "Pisteet: 7")) == 1) "plays: {score} in the footer follows deck.set")
+        this.ok(((PresCheck.greenText(f2 "Osu")) >= 1) "plays: el(\"#tulos\").style colours its block")
+        def f3:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.texts(f3 "Pisteet: 7")) == 1) "plays: on every slide's footer")
+        deck.takeAsks(u.key "[{\"k\":\"el.hide\",\"sel\":\"#tulos\"}]")
+        def f4:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.textsLike(f4 "Osu")) == 0) "plays: el.hide takes the block off the slide")
+        deck.takeAsks(u.key "[{\"k\":\"el.reset\",\"sel\":\"#tulos\"}]")
+        def f5:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok((((PresCheck.textsLike(f5 "Osu")) >= 1) && ((PresCheck.greenText(f5 "Osu")) == 0)) "plays: el.reset gives it back as written")
+        ; a program granted slide.nav gets its moves handed back
+        def spec:MdAppSpec (MdApp.read("src: a.tsx\nallow: slide.nav"))
+        def asks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"slide.go\",\"n\":3},{\"k\":\"machine.send\",\"event\":\"GO\"}]" spec "a.tsx"))
+        this.ok((((array_length asks.granted) == 1) && ((array_length asks.refused) == 1)) "plays: slide.go granted, machine.send refused")
+        ; another deck: nothing of this one's programs stays
+        deck.clearPlays()
+        this.ok((((array_length deck.liveKeys) == 0) && ((deck.playStyle.count()) == 0)) "plays: cleared with the deck")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -4185,6 +4294,7 @@ class PresCheck {
         c.serverDecks()
         c.serverRooms()
         c.clips()
+        c.plays()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

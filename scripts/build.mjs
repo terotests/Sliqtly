@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { ensureRanger, ensureRangerDiff, depsUsed, compile, root, webDir, distDir, log } from "./lib.mjs";
+import { ensureRanger, ensureRangerDiff, ensureCerxes, depsUsed, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
 import { buildPlayer } from "./player.mjs";
@@ -100,7 +100,18 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "sliqtly.js", "storedtype.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "cerxes-worker.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
+  // frames go through, and the WASI the engine needs, from componentengine
+  const cerxes = ensureCerxes();
+  copy(cerxes.runtime, path.join(distDir, "cerxes-runtime.js"));
+  copy(cerxes.wasi, path.join(distDir, "cerxes-wasi.js"));
+  if (cerxes.wasm) {
+    copy(cerxes.wasm, path.join(distDir, "cerxes.wasm"));
+  } else {
+    fs.rmSync(path.join(distDir, "cerxes.wasm"), { force: true });
+    log(`cerxes not built: ${cerxes.why}; programs on slides show their plates`);
+  }
   // versions and deltas (web/versions.js): RangerDiff's built module
   copy(path.join(ensureRangerDiff(), "dist", "rangerdiff.mjs"), path.join(distDir, "rangerdiff.mjs"));
   // the interface in other languages (web/i18n.js)

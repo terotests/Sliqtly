@@ -453,6 +453,188 @@ class PresApp {
     ; (PresDeck.clearImages); the page hands over the new one's.
     fn clearImages:void () {
         deck.clearImages()
+        deck.clearPlays()
+    }
+
+    ; =========================================================================
+    ; Programs on slides (```app): web/apps.js runs each in CErXes and hands
+    ; its frames, its stylesheet and what it asks in here (PresPlay)
+    ; =========================================================================
+
+    ; Every program of the deck: [{key, slide, src, css, w, h, allow}].
+    fn playsJson:string () {
+        def out:JVal (JVal.mkArr())
+        def all:[PresPlayUse] (deck.playUses())
+        def i:int 0
+        while (i < (array_length all)) {
+            def u:PresPlayUse (itemAt all i)
+            def o:JVal (JVal.mkObj())
+            o.setStr("key" u.key)
+            o.setInt("slide" u.page)
+            o.setStr("src" u.spec.src)
+            o.setStr("css" u.spec.css)
+            o.setNum("w" u.spec.width)
+            o.setNum("h" u.spec.height)
+            o.setBool("loaded" (deck.hasDataText(u.spec.src)))
+            def al:JVal (JVal.mkArr())
+            def k:int 0
+            while (k < (array_length u.spec.allow)) {
+                al.add((JVal.mkStr((itemAt u.spec.allow k))))
+                k = (k + 1)
+            }
+            o.set("allow" al)
+            out.add(o)
+            i = (i + 1)
+        }
+        return (out.toJson())
+    }
+
+    ; A program's source as the page handed it over, "" before.
+    fn playSource:string (key:string) {
+        def u@(optional):PresPlayUse (deck.playUse(key))
+        if (null? u) {
+            return ""
+        }
+        def use:PresPlayUse (unwrap u)
+        return (deck.dataText(use.spec.src))
+    }
+
+    ; The programs on the slide the stage shows, one key a line: these run.
+    fn playsShown:string () {
+        if (((deck.slideCount()) == 0) || (selected >= (deck.slideCount()))) {
+            return ""
+        }
+        def s:PresSlide (deck.slideAt(selected))
+        def out:string ""
+        def k:int 0
+        while (k < (array_length s.plays)) {
+            def u:PresPlayUse (itemAt s.plays k)
+            out = (out + u.key + (strfromcode 10))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; A frame of program `key`: its view() as JSON. False when that was no
+    ; element tree (the program's error then says so).
+    fn setPlayFrame:boolean (key:string tree:string) {
+        def v@(optional):PresPlayView (deck.playView(key))
+        if (null? v) {
+            return false
+        }
+        def view:PresPlayView (unwrap v)
+        return (view.setTree(tree))
+    }
+
+    ; What a program reads each frame beside the keys and the pointer: where
+    ; the deck is and its data. {slide, slides, step, mode, data}
+    fn playState:string (key:string) {
+        def o:JVal (JVal.mkObj())
+        def page:int selected
+        def u@(optional):PresPlayUse (deck.playUse(key))
+        if (!null? u) {
+            def use:PresPlayUse (unwrap u)
+            o.setInt("home" (use.page + 1))
+        }
+        o.setInt("slide" (selected + 1))
+        o.setInt("slides" (deck.slideCount()))
+        o.setInt("step" pStep)
+        o.setStr("mode" mode)
+        o.setBool("focused" (deck.playFocus == key))
+        o.set("data" (deck.playData(page)))
+        return (o.toJson())
+    }
+
+    ; What a frame of program `key` asked of the deck (a JSON list), done as
+    ; far as its fence allows: looks and values in the deck, moves between
+    ; slides here. True when the stage changed.
+    fn playAsks:boolean (key:string json:string) {
+        if ((strlen json) < 3) {
+            return false
+        }
+        def was:int deck.revision
+        def moves:[PresPlayAsk] (deck.takeAsks(key json))
+        if deck.playRebuilt {
+            ; the slides are new objects: timed again (see setChartData)
+            deck.playRebuilt = false
+            PresTimeline.planAll(deck)
+            chromeRev = (chromeRev + 1)
+        }
+        def i:int 0
+        while (i < (array_length moves)) {
+            def a:PresPlayAsk (itemAt moves i)
+            this.playMove(a)
+            i = (i + 1)
+        }
+        if ((array_length moves) > 0) {
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        return (deck.revision != was)
+    }
+
+    fn playMove:void (a:PresPlayAsk) {
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return
+        }
+        if (mode == "present") {
+            if (a.kind == "slide.next") {
+                this.pageNext()
+            }
+            if (a.kind == "slide.prev") {
+                this.pagePrev()
+            }
+            if (a.kind == "slide.step") {
+                this.next()
+            }
+            if (a.kind == "slide.go") {
+                this.goToSlide((to_string a.n))
+            }
+            return
+        }
+        if (a.kind == "slide.next") {
+            this.selectSlide((selected + 1))
+        }
+        if (a.kind == "slide.prev") {
+            this.selectSlide((selected - 1))
+        }
+        if (a.kind == "slide.go") {
+            this.selectSlide((a.n - 1))
+        }
+    }
+
+    ; The program under window point (x, y) on the stage, "" for none.
+    fn playAt:string (x:double y:double) {
+        if (((deck.slideCount()) == 0) || ((slideRect.has(x y)) == false)) {
+            return ""
+        }
+        this.slidePoint(x y)
+        return (deck.playAt(selected spX spY))
+    }
+
+    ; Window point (x, y) in program `key`'s units with the id under it
+    ; ({"x", "y", "id"}), "" outside it.
+    fn playPoint:string (key:string x:double y:double) {
+        this.slidePoint(x y)
+        return (deck.playPoint(key spX spY))
+    }
+
+    ; The program that has the keyboard ("" gives it back to the deck).
+    fn setPlayFocus:void (key:string) {
+        if (deck.playFocus != key) {
+            deck.playFocus = key
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn playFocus:string () {
+        return deck.playFocus
+    }
+
+    ; What the deck's programs got wrong, one line each.
+    fn playNotes:string () {
+        return (join (deck.playNotes()) (strfromcode 10))
     }
 
     ; An SVG picture's own text and bytes, and a small PNG of it, beside the
