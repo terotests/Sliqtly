@@ -36,6 +36,7 @@ Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
 Import "PresPlay.rgr"
+Import "PresScript.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -4504,6 +4505,201 @@ class PresCheck {
 
     ; Programs on slides (```app, PresPlay): the fence read, the files asked
     ; for, a frame painted in the box, and what a program may ask of the deck.
+    ; ------------------------------------------------------------------
+    ; Slide scripts (`{script=…}`, PresScript): the slide's entities, the
+    ; selectors, and a frame laid over the commands
+    ; ------------------------------------------------------------------
+    sfn countText:int (l:EVGDisplayList text:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 3) && ((trim c.text) == text)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn allTexts:string (l:EVGDisplayList) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if (c.kind == 3) {
+                push out ("[" + c.text + "]")
+            }
+            i = (i + 1)
+        }
+        return (join out " ")
+    }
+
+    sfn textCmd@(optional):EVGDrawCmd (l:EVGDisplayList text:string) {
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            def c:EVGDrawCmd (itemAt l.cmds i)
+            if ((c.kind == 3) && ((trim c.text) == text)) {
+                def hit@(optional):EVGDrawCmd c
+                return hit
+            }
+            i = (i + 1)
+        }
+        def none@(optional):EVGDrawCmd
+        return none
+    }
+
+    fn scripts:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n"
+            + "## Sales grow {script=apps/fx.tsx allow=\"slide.nav, deck.data\" export-frame=3.5s}\n\n"
+            + "- Saturday record\n- Buns sell\n- Coffee\n\nCoffee pays\n{#kahvi .key}\n\n"
+            + "```vega-lite\n{\"data\":{\"values\":[{\"k\":\"Mon\",\"n\":4},{\"k\":\"Tue\",\"n\":7},{\"k\":\"Wed\",\"n\":5}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"n\",\"type\":\"quantitative\"}}}\n```\n\n"
+            + "## Flow {script=apps/flow.tsx}\n\n```mermaid\nflowchart LR\n  A[Order] --> B[Bake]\n  B --> C[Sell]\n```\n\n"
+            + "## Plain\n\nNothing runs here\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) ("scripts: three slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) != 3) {
+            return
+        }
+        def s0:PresSlide (deck.slideAt(0))
+        this.ok((s0.script == "apps/fx.tsx") ("scripts: the heading names the file, got " + s0.script))
+        this.ok((((array_length s0.scriptAllow) == 2) && ((indexOf s0.scriptAllow "slide.nav") >= 0)) "scripts: its grants")
+        this.ok((s0.exportFrame == 3.5) "scripts: export-frame in seconds")
+        this.ok(((s0.meta.has("script")) == false) "scripts: not the slide's data")
+        this.ok(((deck.scriptKeyOf(0)) == "script:apps/fx.tsx#1") ("scripts: keyed by file, got " + (deck.scriptKeyOf(0))))
+        this.ok(((deck.scriptKeyOf(2)) == "") "scripts: a slide without one has no key")
+        this.ok(((array_length deck.scriptRuns) == 2) "scripts: a run per script")
+        def files:[string] (deck.playFiles())
+        this.ok(((indexOf files "apps/fx.tsx") >= 0) "scripts: the page is asked for the file")
+        ; the slide's entities
+        def sc:PresScene (deck.sceneOfSlide(0))
+        def heads:[int] (PresSel.findIn(sc "h2"))
+        this.ok(((array_length heads) == 1) ("scripts: one h2, got " + (to_string (array_length heads))))
+        if ((array_length heads) == 1) {
+            def h:PresEnt (sc.at((itemAt heads 0)))
+            this.ok((h.text == "Sales grow") ("scripts: the heading's text, got " + h.text))
+            this.ok(((h.w > 50.0) && (h.h > 10.0)) "scripts: the heading's box")
+        }
+        def items:[int] (PresSel.findIn(sc "li"))
+        this.ok(((array_length items) == 3) ("scripts: three items, got " + (to_string (array_length items)) + "\n" + (join (sc.outline(false)) "\n")))
+        def second:[int] (PresSel.findIn(sc "li:2"))
+        if ((array_length second) == 1) {
+            def e2:PresEnt (sc.at((itemAt second 0)))
+            this.ok((e2.text == "Buns sell") ("scripts: li:2 is the second, got " + e2.text))
+        } {
+            this.ok(false "scripts: li:2 names one item")
+        }
+        def kahvi:[int] (PresSel.findIn(sc "#kahvi"))
+        this.ok(((array_length kahvi) == 1) "scripts: #id names a block")
+        if ((array_length kahvi) == 1) {
+            this.ok(((sc.at((itemAt kahvi 0))).id == "kahvi") "scripts: the block's own id is its id")
+        }
+        this.ok(((array_length (PresSel.findIn(sc "p.key"))) == 1) "scripts: .class")
+        def words:[int] (PresSel.findIn(sc "h2 word"))
+        this.ok(((array_length words) == 2) ("scripts: the heading in words, got " + (to_string (array_length words))))
+        if ((array_length words) == 2) {
+            def w0:PresEnt (sc.at((itemAt words 0)))
+            def w1:PresEnt (sc.at((itemAt words 1)))
+            this.ok(((w0.text == "Sales") && (w1.text == "grow")) "scripts: the words")
+            this.ok(((w1.x > (w0.x + w0.w)) && (w0.w > 10.0)) "scripts: each word where it is drawn")
+        }
+        this.ok(((array_length (PresSel.findIn(sc "h2 char"))) == 9) "scripts: the heading in letters")
+        def bars:[int] (PresSel.findIn(sc "chart:1 bar"))
+        this.ok(((array_length bars) == 3) ("scripts: the chart's columns, got " + (to_string (array_length bars))))
+        if ((array_length bars) == 3) {
+            def b1:PresEnt (sc.at((itemAt bars 1)))
+            this.ok(((indexOf b1.data "Tue") >= 0) ("scripts: a column knows its category, got " + b1.data))
+            def b0:PresEnt (sc.at((itemAt bars 0)))
+            this.ok((b1.h > b0.h) "scripts: a column's box is its own")
+        }
+        this.ok(((array_length (PresSel.findIn(sc "chart:2 bar"))) == 0) "scripts: no second chart")
+        def bad:PresSel (PresSel.parse("li:x"))
+        this.ok(((strlen bad.error) > 0) "scripts: a bad selector is said")
+        ; a diagram's nodes and lines
+        def sc1:PresScene (deck.sceneOfSlide(1))
+        def nb:[int] (PresSel.findIn(sc1 "diagram:1 node#B"))
+        this.ok(((array_length nb) == 1) ("scripts: node#B, got " + (to_string (array_length nb)) + "\n" + (join (sc1.outline(false)) "\n")))
+        if ((array_length nb) == 1) {
+            def nbe:PresEnt (sc1.at((itemAt nb 0)))
+            this.ok((nbe.text == "Bake") ("scripts: the node's label, got " + nbe.text))
+        }
+        this.ok(((array_length (PresSel.findIn(sc1 "edge A->B"))) == 1) "scripts: an edge by its ends")
+        this.ok(((array_length (PresSel.findIn(sc1 "diagram node"))) == 3) "scripts: every node")
+        ; the tree a script is handed
+        def tree:string (deck.scriptTree("script:apps/fx.tsx#1"))
+        this.ok(((indexOf tree "\"k\":\"bar\"") > 0) "scripts: the tree carries the columns")
+        ; a frame laid over the slide: the second item down 50, a word
+        ; turned red, the third item hidden
+        def before:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def buns0@(optional):EVGDrawCmd (PresCheck.textCmd(before "Buns sell"))
+        def frame:string "{\"p\":{\"li-2\":{\"y\":0},\"kahvi\":{\"visible\":false},\"h2-1/word-2\":{\"color\":\"#ff0000\",\"scale\":2}},\"a\":[{\"id\":\"dot\",\"k\":\"circle\",\"x\":10,\"y\":10,\"w\":40,\"h\":40}]}"
+        this.ok((deck.setScriptFinal("script:apps/fx.tsx#1" frame)) "scripts: a final frame taken")
+        def after:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def buns1@(optional):EVGDrawCmd (PresCheck.textCmd(after "Buns sell"))
+        if ((!null? buns0) && (!null? buns1)) {
+            def bb0:EVGDrawCmd (unwrap buns0)
+            def bb1:EVGDrawCmd (unwrap buns1)
+            this.ok(((bb1.y < bb0.y) && (bb1.y < 5.0)) ("scripts: y moves the item, " + (to_string bb0.y) + " → " + (to_string bb1.y)))
+        } {
+            this.ok(false ("scripts: the item is drawn before and after: " + (PresCheck.allTexts(after))))
+        }
+        def grow@(optional):EVGDrawCmd (PresCheck.textCmd(after "grow"))
+        this.ok((!null? grow) ("scripts: a changed word is cut out of its line: " + (PresCheck.allTexts(after))))
+        if (!null? grow) {
+            def gc:EVGDrawCmd (unwrap grow)
+            this.ok(((gc.r == 255) && (gc.g == 0)) "scripts: …in its colour")
+            def sales@(optional):EVGDrawCmd (PresCheck.textCmd(after "Sales"))
+            if (!null? sales) {
+                def sa:EVGDrawCmd (unwrap sales)
+                this.ok((gc.fontSize > (sa.fontSize * 1.9)) "scripts: …at its scale")
+            }
+        }
+        def coffee@(optional):EVGDrawCmd (PresCheck.textCmd(after "Coffee pays"))
+        if (!null? coffee) {
+            def cf:EVGDrawCmd (unwrap coffee)
+            this.ok((cf.a == 0.0) "scripts: visible:false makes it clear")
+        }
+        this.ok(((array_length after.cmds) > (array_length before.cmds)) "scripts: what it added is drawn")
+        ; a thumbnail is the final state; the PDF too
+        def bad2:string "{\"p\":{\"chart-1/bar-2\":{\"fill\":\"#00ff00\"}}}"
+        deck.setScriptFinal("script:apps/fx.tsx#1" bad2)
+        def green:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def gn:int 0
+        def gi:int 0
+        while (gi < (array_length green.cmds)) {
+            def gcmd:EVGDrawCmd (itemAt green.cmds gi)
+            if ((((gcmd.kind == 0) || (gcmd.kind == 6)) && (gcmd.g == 255)) && ((gcmd.r == 0) && (gcmd.b == 0))) {
+                gn = (gn + 1)
+            }
+            gi = (gi + 1)
+        }
+        this.ok((gn >= 1) ("scripts: a column filled, " + (to_string gn) + " green"))
+        ; build(n): the default animation left out
+        this.ok((s0.scriptBuilds == false) "scripts: the steps are the deck's by default")
+        deck.setScriptFrame("script:apps/fx.tsx#1" "{\"p\":{},\"build\":true}")
+        def s0b:PresSlide (deck.slideAt(0))
+        this.ok(s0b.scriptBuilds "scripts: build(n) takes the steps")
+        ; selectors that name nothing, said before the script runs
+        deck.setChartData("apps/fx.tsx" "function tick(dt) { find(\"chart:2 bar\").set({y: 1}); find('li').set({opacity: 0.5}) }")
+        PresTimeline.planAll(deck)
+        def notes:[string] (deck.playNotes())
+        def said:boolean false
+        def ni:int 0
+        while (ni < (array_length notes)) {
+            if ((indexOf (itemAt notes ni) "find(\"chart:2 bar\") → 0 entities") >= 0) {
+                said = true
+            }
+            this.ok(((indexOf (itemAt notes ni) "find(\"li\")") < 0) "scripts: a selector that names something is not said")
+            ni = (ni + 1)
+        }
+        this.ok(said ("scripts: a selector naming nothing is said: " + (join notes " | ")))
+        ; the selectors read off the source
+        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' )"))
+        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, got " + (join sels " | ")))
+    }
+
     fn plays:void () {
         def text:string ("---\nscore: 0\nfooter-left: \"Pisteet: {score}\"\n---\n\n"
             + "# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\nallow: deck.data, slide.style\n```\n\n"
@@ -4632,6 +4828,7 @@ class PresCheck {
         c.serverRooms()
         c.clips()
         c.plays()
+        c.scripts()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

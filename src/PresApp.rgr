@@ -495,6 +495,30 @@ class PresApp {
             out.add(o)
             i = (i + 1)
         }
+        ; the slides' scripts (`{script=…}`), on the whole slide
+        def si:int 0
+        while (si < (deck.slideCount())) {
+            def key:string (deck.scriptKeyOf(si))
+            if ((strlen key) > 0) {
+                def ss:PresSlide (deck.slideAt(si))
+                def so:JVal (JVal.mkObj())
+                so.setStr("key" key)
+                so.setInt("slide" si)
+                so.setStr("src" ss.script)
+                so.setStr("css" "")
+                so.setNum("w" deck.pageW)
+                so.setNum("h" deck.pageH)
+                so.setBool("loaded" (deck.hasDataText(ss.script)))
+                so.setBool("script" true)
+                def sal:JVal (JVal.mkArr())
+                for ss.scriptAllow ga:string gai {
+                    sal.add((JVal.mkStr(ga)))
+                }
+                so.set("allow" sal)
+                out.add(so)
+            }
+            si = (si + 1)
+        }
         return (out.toJson())
     }
 
@@ -521,7 +545,90 @@ class PresApp {
             out = (out + u.key + (strfromcode 10))
             k = (k + 1)
         }
+        def sk:string (deck.scriptKeyOf(selected))
+        if ((strlen sk) > 0) {
+            out = (out + sk + (strfromcode 10))
+        }
         return out
+    }
+
+    ; ---- a slide's script (`{script=…}`, PresScript) ----
+
+    ; A frame of script `key` ({p, a, k, build, click}): false when it was
+    ; none.
+    fn setScriptFrame:boolean (key:string json:string) {
+        def was:int deck.revision
+        def ok:boolean (deck.setScriptFrame(key json))
+        if (deck.revision != was) {
+            PresTimeline.planAll(deck)
+            chromeRev = (chromeRev + 1)
+        }
+        return ok
+    }
+
+    ; Where script `key` ends: the slide as thumbnails and exports show it.
+    fn setScriptFinal:boolean (key:string json:string) {
+        def ok:boolean (deck.setScriptFinal(key json))
+        if ok {
+            PresTimeline.planAll(deck)
+            chromeRev = (chromeRev + 1)
+        }
+        return ok
+    }
+
+    ; Script `key` left the stage, or was stopped (`why`).
+    fn endScriptLive:void (key:string why:string) {
+        deck.endScriptLive(key why)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The entities script `key` is handed (PresScene.toJson), "" for none.
+    fn scriptTree:string (key:string) {
+        return (deck.scriptTree(key))
+    }
+
+    ; What the final frame of script `key` runs to: {steps, seconds} — its
+    ; slide's build steps, and `export-frame` or the slide's length.
+    fn scriptFinalArgs:string (key:string) {
+        def o:JVal (JVal.mkObj())
+        def pg:int (deck.scriptPage(key))
+        if (pg >= 0) {
+            def s:PresSlide (deck.slideAt(pg))
+            o.setInt("steps" s.steps)
+            def secs:double s.duration
+            if (s.exportFrame >= 0.0) {
+                secs = s.exportFrame
+            }
+            o.setNum("seconds" secs)
+        }
+        return (o.toJson())
+    }
+
+    ; Whether script `key` has onClick: then a press on its slide, while
+    ; presenting, is its.
+    fn scriptOwnsClick:boolean (key:string) {
+        def ro@(optional):PresScriptRun (deck.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        return r.ownsClick
+    }
+
+    ; Window point (x, y) on the stage in slide px, with the entity of
+    ; script `key`'s slide under it (the smallest, a word before its line),
+    ; {"x", "y", "id"}; "" off the slide or when the stage shows another.
+    fn scriptHit:string (key:string x:double y:double) {
+        def pg:int (deck.scriptPage(key))
+        if (((pg < 0) || (pg != selected)) || ((slideRect.has(x y)) == false)) {
+            return ""
+        }
+        this.slidePoint(x y)
+        def o:JVal (JVal.mkObj())
+        o.setNum("x" spX)
+        o.setNum("y" spY)
+        o.setStr("id" (deck.scriptEntityAt(pg spX spY)))
+        return (o.toJson())
     }
 
     ; A frame of program `key`: its view() as JSON. False when that was no

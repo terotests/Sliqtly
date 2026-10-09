@@ -440,7 +440,9 @@ class PresTimeline {
         while (i < (array_length list.cmds)) {
             def c:EVGDrawCmd (itemAt list.cmds i)
             def gi:int (itemAt groupOfCmd i)
-            if (gi < 0) {
+            ; a script with build(n) plays the steps itself: everything is
+            ; there, as it set it
+            if ((gi < 0) || s.scriptBuilds) {
                 push out.cmds c
             } {
                 def pose:PresPose (itemAt poses gi)
