@@ -221,6 +221,11 @@ function resize() {
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
   app.setPageSize(W, H);
+  // the presenting bar lies over the slide's foot: a diagram opened over the
+  // whole slide keeps its buttons above it
+  const vb = document.getElementById("viewBar");
+  const vr = vb && getComputedStyle(vb).display !== "none" ? vb.getBoundingClientRect() : null;
+  app.setBarTop(vr && vr.height > 0 ? vr.top - r.top : -1);
   dropThumbs();
   needsPaint = true;
 }

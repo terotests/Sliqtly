@@ -3244,7 +3244,18 @@ class PresApp {
         return clock
     }
 
+    ; Where the page's presenting bar starts, in canvas pixels from the top
+    ; (-1: no bar): a diagram over the whole slide ends above it.
+    def barTop:double -1.0
+    fn setBarTop:void (y:double) {
+        barTop = y
+    }
+
     fn stageJson:string () {
+        deck.fullBottom = -1.0
+        if ((barTop > 0.0) && (mode == "present")) {
+            deck.fullBottom = ((barTop - slideRect.y) / (this.slideScale()))
+        }
         deck.live = (this.isPlaying())
         deck.showControls = true
         def l:EVGDisplayList (this.stageFrame())

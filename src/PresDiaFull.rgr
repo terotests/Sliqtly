@@ -85,14 +85,23 @@ class PresDiaFull {
     }
 
     ; The whole slide's box: the page less a thin margin, room for the
-    ; diagram's own buttons along its edges.
-    sfn fullBox:[double] (pageW:double pageH:double) {
+    ; diagram's own buttons along its edges, and ending above `bottom` (a
+    ; bar the host lays over the slide's foot, in slide units; 0 or less:
+    ; none) so its buttons are not under the bar's.
+    sfn fullBox:[double] (pageW:double pageH:double bottom:double) {
         def m:double (pageW * 0.025)
         if ((pageH * 0.025) < m) {
             m = (pageH * 0.025)
         }
+        def foot:double (pageH - m)
+        if ((bottom > 0.0) && ((bottom - (m * 0.5)) < foot)) {
+            foot = (bottom - (m * 0.5))
+        }
+        if (foot < (pageH * 0.5)) {
+            foot = (pageH * 0.5)
+        }
         def w:double (pageW - (m * 2.0))
-        def h:double (pageH - (m * 2.0))
+        def h:double (foot - m)
         return ([] _:double (m m w h))
     }
 
