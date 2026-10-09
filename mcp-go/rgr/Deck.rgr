@@ -33,7 +33,7 @@ class Outline {
 
 class Deck {
     sfn THEMES:[string] () {
-        return ([] _:string ("aurora" "nebula" "carbon" "ember" "midnight" "corporate" "editorial"))
+        return ([] _:string ("aurora" "nebula" "carbon" "ember" "midnight" "white" "corporate" "editorial" "pearl" "hive" "lattice" "apex" "tide" "mist" "forge" "foundry" "site" "clinic" "care" "vital"))
     }
     sfn MAX_MD:int () {
         return 307200

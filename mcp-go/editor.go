@@ -21,6 +21,8 @@
 //	POST /editor/api/signout             clears it
 //	GET  /editor/api/license             the signed-in user's license
 //	POST /editor/api/claim    {id}       a presentation taken under the license
+//	GET  /editor/api/search?q=words      the user's own presentations holding them (searchapi.go)
+//	POST /editor/api/rooms/<op>          shared rooms and their chat (editorrooms.go)
 //
 // Licenses: licenses/{uid} in Firestore, written only here and by the
 // owner in the Firebase console (firestore.rules lets a user read their
@@ -165,6 +167,8 @@ type editorGate struct {
 	verify func(ctx context.Context, idToken string) (*IDToken, error)
 	now    func() time.Time
 	limit  func(who string) string
+	// the Rooms search's own: it asks on every pause in typing
+	searchLimit func(who string) string
 }
 
 // The gate, when there is an editor to serve and sign-in to check it with;
@@ -182,7 +186,7 @@ func newEditorGate(web fs.FS, db DB, verify func(ctx context.Context, idToken st
 			list = append(list, e)
 		}
 	}
-	return &editorGate{web: web, admins: list, db: db, verify: verify, now: time.Now, limit: rateLimiter(120, 10*time.Minute)}
+	return &editorGate{web: web, admins: list, db: db, verify: verify, now: time.Now, limit: rateLimiter(120, 10*time.Minute), searchLimit: rateLimiter(600, 10*time.Minute)}
 }
 
 func (g *editorGate) admin(t *IDToken) bool {
@@ -472,7 +476,15 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 }
 
 func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
-	if why := g.limit(clientIP(r)); why != "" {
+	if room, ok := strings.CutPrefix(op, "rooms/"); ok {
+		serveCloudRooms(env, g, w, r, room)
+		return
+	}
+	limit := g.limit
+	if op == "search" && g.searchLimit != nil {
+		limit = g.searchLimit
+	}
+	if why := limit(clientIP(r)); why != "" {
 		editorJSON(w, 429, map[string]string{"error": "Too many requests; try again in a few minutes."})
 		return
 	}
@@ -554,6 +566,45 @@ func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Requ
 			return
 		}
 		editorJSON(w, 200, map[string]any{"license": l.json(g.now())})
+	case "search":
+		// the signed-in user's own presentations and those they were
+		// invited to edit (by a verified address, invitedTo), whose text
+		// holds the words (searchapi.go); no one else's, whatever their
+		// visibility
+		t := g.user(r)
+		if t == nil {
+			editorJSON(w, 401, map[string]string{"error": "Sign in again.", "code": "signed-out"})
+			return
+		}
+		q := searchQuery(r.URL.Query().Get("q"))
+		if q == "" {
+			editorJSON(w, 200, map[string]any{"presentations": []deckHit{}})
+			return
+		}
+		docs, ids, err := g.db.WhereEq(r.Context(), "shares", "owner", t.UID)
+		if err != nil {
+			log.Printf("editor: search: %v", err)
+			editorJSON(w, 503, map[string]string{"error": "The search could not be made; try again in a moment."})
+			return
+		}
+		list := make([]deckDoc, 0, len(docs))
+		for i, d := range docs {
+			list = append(list, deckDoc{ids[i], d})
+		}
+		if t.Verified && t.Email != "" {
+			more, moreIDs, err := g.db.WhereHas(r.Context(), "shares", "editors", strings.ToLower(t.Email))
+			if err != nil {
+				log.Printf("editor: search: %v", err)
+				editorJSON(w, 503, map[string]string{"error": "The search could not be made; try again in a moment."})
+				return
+			}
+			for i, d := range more {
+				if fieldText(d, "owner") != t.UID && invitedTo(d, t) {
+					list = append(list, deckDoc{moreIDs[i], d})
+				}
+			}
+		}
+		editorJSON(w, 200, map[string]any{"presentations": searchDecks(list, q, searchMax, nil)})
 	default:
 		editorJSON(w, 404, map[string]string{"error": "No such call."})
 	}

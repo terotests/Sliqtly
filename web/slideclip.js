@@ -40,3 +40,9 @@ export async function fileState(rec, b64) {
 export function plainChord(ev) {
   return !!(ev.ctrlKey || ev.metaKey) && !!ev.shiftKey && !ev.altKey && (ev.key === "v" || ev.key === "V");
 }
+
+// The copy's picture as HTML, for apps that paste HTML (mail, Word, Docs):
+// the PNG inline.
+export function clipImgHtml(b64) {
+  return '<img src="data:image/png;base64,' + b64 + '" alt="">';
+}

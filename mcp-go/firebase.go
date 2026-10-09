@@ -75,7 +75,15 @@ func (d firestoreDB) Take(ctx context.Context, col, id string) (Doc, error) {
 }
 
 func (d firestoreDB) WhereEq(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {
-	it := d.c.Collection(col).Where(field, "==", value).Documents(ctx)
+	return d.where(ctx, col, field, "==", value)
+}
+
+func (d firestoreDB) WhereHas(ctx context.Context, col, field string, value any) ([]Doc, []string, error) {
+	return d.where(ctx, col, field, "array-contains", value)
+}
+
+func (d firestoreDB) where(ctx context.Context, col, field, op string, value any) ([]Doc, []string, error) {
+	it := d.c.Collection(col).Where(field, op, value).Documents(ctx)
 	defer it.Stop()
 	docs, ids := []Doc{}, []string{}
 	for {
@@ -231,6 +239,8 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 		verified, _ := t.Claims["email_verified"].(bool)
 		return &IDToken{UID: t.UID, Name: name, Email: email, Verified: verified}, nil
 	}
+	// shared rooms and their chat for the editor (editorrooms.go)
+	env.cloudRooms = newCloudRoomService(env, newFSEngine(fs, ""), newFSChat(fs, ""))
 	// the owner's dashboard (admin.go), for the accounts listed
 	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
 	return nil

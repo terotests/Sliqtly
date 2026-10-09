@@ -1053,8 +1053,16 @@ class PresDiagram {
         }
     }
 
-    ; Which node is nearest a point, by distance to its box.
+    ; Which node is nearest a point, by distance to its box. A frame round
+    ; other boxes (a compound state) is measured to its border: a line
+    ; ending on a box inside it is inside the frame too, and taken as the
+    ; frame's, a parallel machine's tour went round its regions' frame.
     fn nearestNode:int (px:double py:double) {
+        def frames:[boolean]
+        return (this.nearestNodeOf(px py frames))
+    }
+
+    fn nearestNodeOf:int (px:double py:double frames:[boolean]) {
         def best:int -1
         def bestD:double 1000000000.0
         def i:int 0
@@ -1067,6 +1075,10 @@ class PresDiagram {
             if (py < n.y) { dy = (n.y - py) }
             if (py > (n.y + n.h)) { dy = (py - (n.y + n.h)) }
             def d:double ((dx * dx) + (dy * dy))
+            if (((d <= 0.0) && (i < (array_length frames))) && (itemAt frames i)) {
+                def rim:double (PresDiagram.lesser((PresDiagram.lesser((px - n.x) ((n.x + n.w) - px))) (PresDiagram.lesser((py - n.y) ((n.y + n.h) - py)))))
+                d = (rim * rim)
+            }
             if (d < bestD) {
                 bestD = d
                 best = i
@@ -1077,13 +1089,19 @@ class PresDiagram {
     }
 
     fn joinEdges:void () {
+        def frames:[boolean]
+        def f:int 0
+        while (f < (array_length nodes)) {
+            push frames (this.holdsOther(f))
+            f = (f + 1)
+        }
         def i:int 0
         while (i < (array_length edges)) {
             def e:PresDEdge (itemAt edges i)
             def n:int (array_length e.line)
             if (n >= 4) {
-                e.from = (this.nearestNode((itemAt e.line 0) (itemAt e.line 1)))
-                e.to = (this.nearestNode((itemAt e.line (n - 2)) (itemAt e.line (n - 1))))
+                e.from = (this.nearestNodeOf((itemAt e.line 0) (itemAt e.line 1) frames))
+                e.to = (this.nearestNodeOf((itemAt e.line (n - 2)) (itemAt e.line (n - 1)) frames))
                 clear e.route
                 def k:int 0
                 while (k < n) {
@@ -1362,12 +1380,16 @@ class PresDiagram {
         ; breadth first from the nodes nothing points at, in the order the
         ; source wrote them; whatever that does not reach comes after
         def queue:[int]
-        def r:int 0
-        while (r < nn) {
-            if ((this.incoming(r)) == 0) {
-                push queue r
+        def rp:int 0
+        while (rp < 2) {
+            def r:int 0
+            while (r < nn) {
+                if (((this.incoming(r)) == 0) && ((this.startsAt(r)) == (rp == 0))) {
+                    push queue r
+                }
+                r = (r + 1)
             }
-            r = (r + 1)
+            rp = (rp + 1)
         }
         if (((array_length queue) == 0) && (nn > 0)) {
             push queue 0
@@ -1627,13 +1649,16 @@ class PresDiagram {
         gT = 0.0
         gCur = -1
         this.keyframe(0.0 -1)
-        ; the roots first, in the order the source wrote them, then anything
-        ; the walk did not reach
+        ; the starts first (`startsAt`), then the other roots, in the order
+        ; the source wrote them, then anything the walk did not reach
         def pass:int 0
-        while (pass < 2) {
+        while (pass < 3) {
             def r:int 0
             while (r < nn) {
-                def root:boolean ((pass == 1) || ((this.incoming(r)) == 0))
+                def root:boolean ((pass == 2) || ((this.incoming(r)) == 0))
+                if (pass == 0) {
+                    root = (this.startsAt(r))
+                }
                 if (root && ((itemAt gShown r) == false)) {
                     if (gCur < 0) {
                         this.show(r 0.3)
@@ -1783,14 +1808,22 @@ class PresDiagram {
         }
         this.keyframe(0.0 -1)
         def root:int 0
-        def r:int 0
         def found:boolean false
-        while ((r < nn) && (! found)) {
-            if ((this.incoming(r)) == 0) {
-                root = r
-                found = true
+        def rp:int 0
+        while ((rp < 2) && (! found)) {
+            def r:int 0
+            while ((r < nn) && (! found)) {
+                if ((rp == 0) && (this.startsAt(r))) {
+                    root = r
+                    found = true
+                }
+                if ((rp == 1) && ((this.incoming(r)) == 0)) {
+                    root = r
+                    found = true
+                }
+                r = (r + 1)
             }
-            r = (r + 1)
+            rp = (rp + 1)
         }
         if (nn == 0) {
             return
@@ -1809,11 +1842,41 @@ class PresDiagram {
         ; the nodes visited since the last choice, for the loop guard
         def since:[int]
         push since root
+        ; A frame (a compound state) is gone into at the starts inside it,
+        ; each region of a parallel one in turn; a way that ends there
+        ; goes on at the next start still waiting.
+        def pending:[int]
+        def entered:[int]
         def guard:int 0
         while (guard < 400) {
             guard = (guard + 1)
+            if ((this.holdsOther(gCur)) && ((indexOf entered gCur) < 0)) {
+                push entered gCur
+                def inner:[int] (this.startsIn(gCur))
+                def ii:int ((array_length inner) - 1)
+                while (ii >= 0) {
+                    insert pending 0 (itemAt inner ii)
+                    ii = (ii - 1)
+                }
+            }
+            if (((array_length pending) > 0) && (this.holdsOther(gCur))) {
+                def into:int (itemAt pending 0)
+                remove_index pending 0
+                this.hopTo(into)
+                clear since
+                push since into
+                continue
+            }
             def outs:[int] (this.outsOf(gCur))
             if ((array_length outs) == 0) {
+                if ((array_length pending) > 0) {
+                    def nextStart:int (itemAt pending 0)
+                    remove_index pending 0
+                    this.hopTo(nextStart)
+                    clear since
+                    push since nextStart
+                    continue
+                }
                 break
             }
             def take:int (itemAt outs 0)
@@ -1852,6 +1915,14 @@ class PresDiagram {
             }
             this.travel(take used)
             if (seenHere && (! asked)) {
+                if ((array_length pending) > 0) {
+                    def again:int (itemAt pending 0)
+                    remove_index pending 0
+                    this.hopTo(again)
+                    clear since
+                    push since again
+                    continue
+                }
                 break
             }
             push since te.to
@@ -2747,6 +2818,11 @@ class PresDiagram {
         if (this.onLabel(x y w h)) {
             return true
         }
+        ; outside the picture it is cut off where the diagram's room ends
+        ; (a name over the topmost line, MENE)
+        if ((worldW > 0.0) && ((((x < worldX) || (y < worldY)) || ((x + w) > (worldX + worldW))) || ((y + h) > (worldY + worldH)))) {
+            return true
+        }
         if (avoidLines && (this.onLine(x y w h))) {
             return true
         }
@@ -3129,6 +3205,37 @@ class PresDiagram {
             i = (i + 1)
         }
         return found
+    }
+
+    ; Where a walk starts: nothing points at it, it leads somewhere, and it
+    ; is not a frame round other boxes. A parallel machine's regions are
+    ; frames nothing points at, written before the start dot, and its tour
+    ; was the region "kassa" and nothing else.
+    fn startsAt:boolean (n:int) {
+        if ((this.incoming(n)) > 0) {
+            return false
+        }
+        if ((this.outgoing(n)) == 0) {
+            return false
+        }
+        return ((this.holdsOther(n)) == false)
+    }
+
+    ; The starts inside frame `f` (`startsAt`), in the order written.
+    fn startsIn:[int] (f:int) {
+        def out:[int]
+        def fr:PresDNode (itemAt nodes f)
+        def j:int 0
+        while (j < (array_length nodes)) {
+            def o:PresDNode (itemAt nodes j)
+            if ((j != f) && (this.startsAt(j))) {
+                if ((((o.x >= fr.x) && (o.y >= fr.y)) && ((o.x + o.w) <= (fr.x + fr.w))) && ((o.y + o.h) <= (fr.y + fr.h))) {
+                    push out j
+                }
+            }
+            j = (j + 1)
+        }
+        return out
     }
 
     fn outgoing:int (n:int) {
@@ -5857,6 +5964,13 @@ class PresDiagram {
         }
     }
 
+    sfn lesser:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
     sfn mixI:int (a:int b:int f:double) {
         return (to_int ((to_double a) + (((to_double b) - (to_double a)) * f)))
     }
@@ -6386,17 +6500,28 @@ class PresDiagram {
                 ; A frame round other boxes (a subgraph) stays glass, its
                 ; title in the text colour: filled, it would hide the boxes.
                 def frame:boolean (this.holdsOther(i))
-                def fr:int (PresDiagram.mixI(cr deepR 0.15))
-                def fg:int (PresDiagram.mixI(cg deepG 0.15))
-                def fb:int (PresDiagram.mixI(cb deepB 0.15))
-                def ink:EVGColor (PresDiagram.inkOn(fr fg fb))
+                ; The body runs from the colour down to it deepened; the ink
+                ; reads over all of it, and when neither ink would the body
+                ; is moved until one does (`FlowLook.readableRamp`): white on
+                ; a mid blue was 3.5:1 at its light top.
+                def bTop:EVGColor (PresDiagram.rgba(cr cg cb 1.0))
+                def bLow:EVGColor (PresDiagram.rgba((PresDiagram.mixI(cr deepR 0.3)) (PresDiagram.mixI(cg deepG 0.3)) (PresDiagram.mixI(cb deepB 0.3)) 1.0))
+                def ink:EVGColor (PresDiagram.rgba(txR txG txB 1.0))
                 def topA:double 1.0
                 def lowA:double 1.0
                 if frame {
-                    ink = (PresDiagram.rgba(txR txG txB 1.0))
                     topA = 0.18
                     lowA = 0.4
+                    bLow = (PresDiagram.rgba(deepR deepG deepB 1.0))
+                } {
+                    def ramp:[string] (FlowLook.readableRamp((bTop.toHexString()) (bLow.toHexString()) 4.5))
+                    bTop = (EVGColor.parse((itemAt ramp 0)))
+                    bLow = (EVGColor.parse((itemAt ramp 1)))
+                    ink = (EVGColor.parse((itemAt ramp 2)))
                 }
+                def fr:int (PresDiagram.mixI((bTop.red()) (bLow.red()) 0.5))
+                def fg:int (PresDiagram.mixI((bTop.green()) (bLow.green()) 0.5))
+                def fb:int (PresDiagram.mixI((bTop.blue()) (bLow.blue()) 0.5))
                 def shaped:boolean ((array_length n.ring) >= 6)
                 if shaped {
                     ; the node's own outline, filled with its colour
@@ -6411,19 +6536,14 @@ class PresDiagram {
                     body.radius = n.radius
                     body.hasGrad = true
                     body.gradDir = 0
-                    body.r = cr
-                    body.g = cg
-                    body.b = cb
+                    body.r = (bTop.red())
+                    body.g = (bTop.green())
+                    body.b = (bTop.blue())
                     body.a = topA
-                    body.r2 = (PresDiagram.mixI(cr deepR 0.3))
-                    body.g2 = (PresDiagram.mixI(cg deepG 0.3))
-                    body.b2 = (PresDiagram.mixI(cb deepB 0.3))
+                    body.r2 = (bLow.red())
+                    body.g2 = (bLow.green())
+                    body.b2 = (bLow.blue())
                     body.a2 = lowA
-                    if frame {
-                        body.r2 = deepR
-                        body.g2 = deepG
-                        body.b2 = deepB
-                    }
                     push one.cmds body
                 }
                 if (shaped || (n.dash > 0.0)) {
@@ -6552,7 +6672,8 @@ class PresDiagram {
     ; then its words are set in Open Sans.
     def look:FlowLook (new FlowLook())
     def looked:boolean false
-    ; per node: "box", "round", "decision" or "start"
+    ; per node: "box", "round", "decision", "start", or "frame" (a box
+    ; round other boxes: a compound state, a group)
     def kinds:[string]
     ; the faces the page has loaded (shared with the deck, filled as they come)
     def haveFaces:[string:boolean]
@@ -6568,6 +6689,9 @@ class PresDiagram {
             def k:string (FlowLook.kindOf(n.ring n.x n.y n.w n.h n.radius))
             if ((k == "round") && ((this.incoming(i)) == 0)) {
                 k = "start"
+            }
+            if (this.holdsOther(i)) {
+                k = "frame"
             }
             push ks k
             i = (i + 1)
@@ -7112,109 +7236,138 @@ class PresDiagram {
         return out
     }
 
+    ; Frames first, as outlines, so what they hold is drawn over them: a
+    ; frame filled like a box covered its states (`FlowLook.framePart`).
     fn lookNodes:void (out:EVGDisplayList t:double l:MdLayout) {
         def active:int (this.activeNode(t))
-        def i:int 0
-        while (i < (array_length nodes)) {
-            def n:PresDNode (itemAt nodes i)
-            if ((t >= n.at) && (n.w > 0.0)) {
-                def grow:double (PresDiagram.backOut(((t - n.at) / 0.45)))
-                def k:int 0
-                while (k < (array_length n.landings)) {
-                    def lt:double (itemAt n.landings k)
-                    if ((t >= lt) && (t < (lt + 0.4))) {
-                        grow = (grow * (1.0 + (0.1 * (sin (((t - lt) / 0.4) * 3.14159265)))))
-                    }
-                    k = (k + 1)
+        def pass:int 0
+        while (pass < 2) {
+            def i:int 0
+            while (i < (array_length nodes)) {
+                def isFrame:boolean ((i < (array_length kinds)) && ((itemAt kinds i) == "frame"))
+                if (isFrame == (pass == 0)) {
+                    this.lookNode(out t l i active)
                 }
-                if (grow > 0.01) {
-                    def on:boolean ((i == active) && ((t > tourStart) && (t < (tourEnd + 0.5))))
-                    def kind:string "box"
-                    if (i < (array_length kinds)) {
-                        kind = (itemAt kinds i)
+                i = (i + 1)
+            }
+            pass = (pass + 1)
+        }
+    }
+
+    fn lookNode:void (out:EVGDisplayList t:double l:MdLayout i:int active:int) {
+        def n:PresDNode (itemAt nodes i)
+        if ((t >= n.at) && (n.w > 0.0)) {
+            def grow:double (PresDiagram.backOut(((t - n.at) / 0.45)))
+            def k:int 0
+            while (k < (array_length n.landings)) {
+                def lt:double (itemAt n.landings k)
+                if ((t >= lt) && (t < (lt + 0.4))) {
+                    grow = (grow * (1.0 + (0.1 * (sin (((t - lt) / 0.4) * 3.14159265)))))
+                }
+                k = (k + 1)
+            }
+            if (grow > 0.01) {
+                def on:boolean ((i == active) && ((t > tourStart) && (t < (tourEnd + 0.5))))
+                def kind:string "box"
+                if (i < (array_length kinds)) {
+                    kind = (itemAt kinds i)
+                }
+                def frame:boolean (kind == "frame")
+                def part:FlowLookPart (look.partFor(kind))
+                def fill:string (look.fillOf(kind n.order))
+                def stroke:string (look.strokeOf(kind n.order))
+                if frame {
+                    part = (look.framePart())
+                    fill = ""
+                    stroke = part.stroke
+                }
+                if ((strlen n.own) > 0) {
+                    fill = n.own
+                }
+                def text:string part.text
+                if ((strlen text) == 0) {
+                    text = (FlowLook.textOn(fill))
+                    ; the look's own fill moved until its words read (the
+                    ; cartoon's plum was 4.4:1 under white); a colour the
+                    ; diagram gave the box is kept
+                    if (((strlen fill) > 0) && ((strlen n.own) == 0)) {
+                        def flat:[string] (FlowLook.readableRamp(fill fill 4.5))
+                        fill = (itemAt flat 0)
+                        text = (itemAt flat 2)
                     }
-                    def part:FlowLookPart (look.partFor(kind))
-                    def fill:string (look.fillOf(kind n.order))
-                    if ((strlen n.own) > 0) {
-                        fill = n.own
-                    }
-                    def stroke:string (look.strokeOf(kind n.order))
-                    def text:string part.text
-                    if ((strlen text) == 0) {
-                        text = (FlowLook.textOn(fill))
-                    }
-                    def one (new EVGDisplayList())
-                    def ring:[double] (this.lookRing(n part))
+                }
+                def one (new EVGDisplayList())
+                def ring:[double] (this.lookRing(n part))
+                if ((strlen fill) > 0) {
                     def sh:string (look.shadowOf(fill))
                     if ((strlen sh) > 0) {
                         one.addPolygon((PresDiagram.shifted(ring look.shadowDx look.shadowDy)) ((EVGColor.parse(sh)).withAlpha(look.shadowAlpha)))
                     }
                     one.addPolygon(ring (EVGColor.parse(fill)))
-                    def sw:double part.strokeWidth
-                    def scol:EVGColor (EVGColor.parse(stroke))
-                    if on {
-                        sw = (sw + 1.5)
-                        scol = (EVGColor.parse(look.accent))
-                    }
-                    if (sw > 0.0) {
-                        PresDiagram.strokeRing(one (PresDiagram.closed(ring)) sw scol n.dash)
-                    }
-                    if look.shine {
-                        this.lookShine(one n part)
-                    }
-                    def mk:int 0
-                    while (mk < (array_length n.marks)) {
-                        def mit:SceneItem (itemAt n.marks mk)
-                        one.addPolyline(mit.pts sw scol)
-                        PresDiagram.roundLast(one)
-                        mk = (mk + 1)
-                    }
-                    def face:string (this.faceOf(part.font part.bold part.italic))
-                    def tcol:EVGColor (EVGColor.parse(text))
-                    def m:int 0
-                    while (m < (array_length n.items)) {
-                        def it:SceneItem (itemAt n.items m)
-                        if ((it.kind == 1) && ((strlen it.text) > 0)) {
-                            def room:double it.w
-                            if ((room <= 0.0) || (room > n.w)) {
-                                room = (n.w - 8.0)
-                            }
-                            def a:double 1.0
-                            def ttag:string it.tag
-                            def tl:int (strlen ttag)
-                            if ((tl > 5) && ((substring ttag (tl - 5) tl) == ":type")) {
-                                a = 0.7
-                            }
-                            def cx:double (it.x + (it.w * 0.5))
-                            if (it.align == "left") {
-                                cx = (it.x + ((l.measureStyled(it.text "Open Sans" it.fontSize it.bold it.italic)) * 0.5))
-                            }
-                            this.lookText(one (PresDiagram.upperIf(it.text part.upper)) cx it.y it.h room it.fontSize face tcol a l)
+                }
+                def sw:double part.strokeWidth
+                def scol:EVGColor (EVGColor.parse(stroke))
+                if on {
+                    sw = (sw + 1.5)
+                    scol = (EVGColor.parse(look.accent))
+                }
+                if (sw > 0.0) {
+                    PresDiagram.strokeRing(one (PresDiagram.closed(ring)) sw scol n.dash)
+                }
+                if (look.shine && (! frame)) {
+                    this.lookShine(one n part)
+                }
+                def mk:int 0
+                while (mk < (array_length n.marks)) {
+                    def mit:SceneItem (itemAt n.marks mk)
+                    one.addPolyline(mit.pts sw scol)
+                    PresDiagram.roundLast(one)
+                    mk = (mk + 1)
+                }
+                def face:string (this.faceOf(part.font part.bold part.italic))
+                def tcol:EVGColor (EVGColor.parse(text))
+                def m:int 0
+                while (m < (array_length n.items)) {
+                    def it:SceneItem (itemAt n.items m)
+                    if ((it.kind == 1) && ((strlen it.text) > 0)) {
+                        def room:double it.w
+                        if ((room <= 0.0) || (room > n.w)) {
+                            room = (n.w - 8.0)
                         }
-                        m = (m + 1)
-                    }
-                    if look.numbers {
-                        def num:string (to_string (n.order + 1))
-                        if ((strlen num) < 2) {
-                            num = ("0" + num)
+                        def a:double 1.0
+                        def ttag:string it.tag
+                        def tl:int (strlen ttag)
+                        if ((tl > 5) && ((substring ttag (tl - 5) tl) == ":type")) {
+                            a = 0.7
                         }
-                        def nsz:double boxText
-                        if (nsz <= 0.0) {
-                            nsz = 14.0
+                        def cx:double (it.x + (it.w * 0.5))
+                        if (it.align == "left") {
+                            cx = (it.x + ((l.measureStyled(it.text "Open Sans" it.fontSize it.bold it.italic)) * 0.5))
                         }
-                        this.lookText(one num (n.x - (nsz * 0.2)) ((n.y - (nsz * 1.3)) - 4.0) (nsz * 1.3) 0.0 (nsz * 1.1) (this.faceOf(part.font false false)) (EVGColor.parse(look.edgeColor)) 1.0 l)
+                        this.lookText(one (PresDiagram.upperIf(it.text part.upper)) cx it.y it.h room it.fontSize face tcol a l)
                     }
-                    def fadeIn:double (PresDiagram.clamp01(((t - n.at) / 0.2)))
-                    def c:int 0
-                    while (c < (array_length one.cmds)) {
-                        def cmd:EVGDrawCmd (itemAt one.cmds c)
-                        PresDiagram.xf(cmd (n.cx()) (n.cy()) grow 0.0 0.0 fadeIn)
-                        push out.cmds cmd
-                        c = (c + 1)
+                    m = (m + 1)
+                }
+                if (look.numbers && (! frame)) {
+                    def num:string (to_string (n.order + 1))
+                    if ((strlen num) < 2) {
+                        num = ("0" + num)
                     }
+                    def nsz:double boxText
+                    if (nsz <= 0.0) {
+                        nsz = 14.0
+                    }
+                    this.lookText(one num (n.x - (nsz * 0.2)) ((n.y - (nsz * 1.3)) - 4.0) (nsz * 1.3) 0.0 (nsz * 1.1) (this.faceOf(part.font false false)) (EVGColor.parse(look.edgeColor)) 1.0 l)
+                }
+                def fadeIn:double (PresDiagram.clamp01(((t - n.at) / 0.2)))
+                def c:int 0
+                while (c < (array_length one.cmds)) {
+                    def cmd:EVGDrawCmd (itemAt one.cmds c)
+                    PresDiagram.xf(cmd (n.cx()) (n.cy()) grow 0.0 0.0 fadeIn)
+                    push out.cmds cmd
+                    c = (c + 1)
                 }
             }
-            i = (i + 1)
         }
     }
 

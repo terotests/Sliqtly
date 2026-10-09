@@ -314,6 +314,40 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   is EVGUI's `DrawToolsCtl` (compact), the editing `src/PresSketchUi.rgr`. PDF shows
   the drawings; the PPTX, Word and HTML exports and the MCP server do not
   include them yet.
+- **Programs on a slide** (games, small apps): a TypeScript + JSX file of the
+  deck, with its stylesheet beside it, runs in the box of an `app` fence. The
+  sample deck *Games* has two.
+
+  ````markdown
+  ```app
+  src: apps/scaffold.tsx      # its stylesheet: apps/scaffold.tsx.css (or css:)
+  size: 640x480               # the program's own units, scaled to the box
+  allow: deck.data, slide.nav # what it may ask of the deck
+  ```
+  ````
+
+  - **The program** defines `view()` (JSX), and optionally `tick(dt, input)`,
+    `onKeyDown(key)`, `onKeyUp(key)` and `onClick` handlers on elements, as in
+    componentengine's playground. Its CSS is laid out by EVG like the slide.
+  - **Running:** each program runs in [CErXes](https://github.com/terotests/componentengine)
+    (built to WebAssembly) in a Worker of its own, only while its slide is on
+    the stage. It has no page, network or storage. One that does not answer in
+    3 s is stopped.
+  - **Keyboard:** a click on the box gives the program the keys; Esc gives them
+    back, and while editing a double click then edits the block.
+  - **The deck** (each needs its word on `allow:`, the rest is refused and said):
+    `deck.data` / `deck.get(key)` read the deck's own keys, `deck.set(key, v)`
+    fills `{key}` in headers and footers (`deck.data`); `slide.next()`,
+    `slide.prev()`, `slide.go(n)`, `slide.build()` (`slide.nav`);
+    `el("#id")` / `el(".class")` `.style({ color, background, opacity, translate, display })`,
+    `.show()`, `.hide()`, `.reset()` over the slide's blocks, without changing
+    the Markdown (`slide.style`). `machine.send` waits for state machines.
+  - **Exports and thumbnails** show the program's last picture, or a plate with
+    its name before it has run. The public viewer shows the plate.
+  - The fence is read by RangerMarkdown (`MdApp`), the picture laid out and
+    painted by `src/PresPlay.rgr`, the workers driven by `web/apps.js`. The
+    build clones componentengine and builds `cerxes.wasm` with cargo (`rustup
+    target add wasm32-wasip1`); without it the boxes keep their plates.
 
 ## Using it
 
@@ -348,7 +382,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | ▶ Play / ⛶ Present | the diagrams start again from their own camera |
 | In a diagram: + / − / 100 % buttons, keys + − 0 | zoom in, out; 100 % shows the whole diagram (‹ or a choice returns to the walk) |
 | Markdown / Teema (CSS) tabs over the editor | the deck's text, or the theme's stylesheet (Ranger UI TabsCtl). An edit to the theme shows on the slides as you type; the edited theme is kept for the session under its name and travels in a share link (`&css=…`). Chart and diagram colours are CSS: `chart { color: …; accent-color: … }` (columns; grid, axes, labels) and `diagram { color: …; accent-color: … }` (the active line and packet; boxes and lines). `chart { chart-style: … }` picks the look: `flat` (plain columns, the default), `forge` (warm burning into rust, grooves, a glowing cap, a scan pass), `neon` (lit edges round a faint body), `glass` (a clear gradient with a bright rim); the PDF and PPTX exports draw the same style. The older `/* pres: warm=… accent=… */` comment still works as a fallback |
-| Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; light corporate, editorial. A theme sets chart and diagram colours with `chart { … }` / `diagram { … }` rules and its background effect with `deck { fx: starfield; fx-hue: 280 }` (a slide's own `{fx=…}` wins, `fx: none` turns it off; the older `/* pres: fx=… */` comment is still read) |
+| Teema | dark themes aurora, nebula (starfield), carbon, ember (ambient light), midnight; work forge, foundry (dark), site; health clinic, care, vital; light white (plain), corporate, editorial, pearl (soft glow), hive (honeycomb), lattice (diagonal tiles), apex (accent corners), tide (line waves), mist (halftone dots). A theme sets chart and diagram colours with `chart { … }` / `diagram { … }` rules and its background effect with `deck { fx: starfield; fx-hue: 280 }` (a slide's own `{fx=…}` wins, `fx: none` turns it off; the older `/* pres: fx=… */` comment is still read), and its background art with `deck { art: honeycomb }` (waves, honeycomb, lattice, corners, glow, halftone, tide; drawn for everyone, a slide's `{art=off}` leaves it out) |
 | 🔗 Jaa | a dialog with two links, each with its own Kopioi: **Esitys** opens straight into the presentation (no toolbar or editor; ◀ ▶ ⛶ in a corner that fades; Esc only leaves full screen), **Muokkaus** opens the editor. The Markdown is compressed into the link (`#md=…`, `&mode=show` for the presentation) |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph, and opens in Keynote; its text is set in Arial (the page's own faces are not on every machine) |
 

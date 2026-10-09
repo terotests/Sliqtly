@@ -15,6 +15,10 @@ type Principal struct {
 	TenantID string
 	Groups   []string
 	Roles    []string
+	// Email is an address the sign-in provider vouched for (lower case):
+	// a room's "email:<address>" membership counts for whoever signs in
+	// with it, so someone can be invited before they have an account
+	Email string
 	// Rooms is what p may do in each room, read at the start of the
 	// request (Rooms.Access): RoomPolicy decides from it
 	Rooms map[string]Role

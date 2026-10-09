@@ -67,6 +67,9 @@
 .ce-about { font-size: 18px; font-weight: bold; margin-bottom: 6px; }
 .ce-row { display: flex; flex-direction: row; align-items: center; gap: 8px; }
 .ce-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+/* the theme picker's tiles (PresChartEditor.themeTiles): a picture of a
+   sample slide over the theme's name, the one in use outlined */
+.ce-tiles { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; width: 100%; }
 
 /* tabs: a grey track with the active one lifted out of it */
 .theme-ce .ui-tabs { gap: 0; }
@@ -427,3 +430,8 @@
 .theme-ce .ui-select-trigger { min-width: 170px; }
 .theme-ce .ui-select-content { width: 200px; }
 .theme-ce .ui-select-item { white-space: nowrap; width: 100%; }
+
+/* the theme tiles, after the buttons' rules they change; a wrapped row is
+   laid out from its children's set sizes, so a tile says its own */
+.theme-ce .ce-tile { align-self: flex-start; justify-content: flex-start; width: 122px; height: 100px; border-radius: 10px; padding: 6px 6px 8px 6px; gap: 4px; }
+.theme-ce .ce-tile-on { border: 2px solid #18181b; padding: 5px 5px 7px 5px; }
