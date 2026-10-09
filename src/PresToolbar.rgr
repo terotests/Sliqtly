@@ -22,12 +22,15 @@
 Import "../evgui/src/UiHost.rgr"
 Import "PresI18n.rgr"
 Import "../evgui/src/UiText.rgr"
+Import "../evgui/src/UiShapes.rgr"
 
 class PresToolbar {
     def host:UiHost (new UiHost())
     def css:string ""
     ; The editor's skin ("" or "retro"): a theme name added to this host's own.
     def skin:string ""
+    ; while the bar is built: its buttons stand on the brand's frame
+    def onFrame:boolean false
     ; the name at the start of the bar: the page's own (PresApp.setAppName)
     def brand:string "EVG Presentation"
     ; the page's own buttons after Ohje: "id<TAB>label<TAB>variant" rows
@@ -264,6 +267,13 @@ class PresToolbar {
         }
         if (((variant == "primary") || (variant == "accent")) && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "tb-onprimary")
+        }
+        ; on the frame: drawn light on its colour (toolbar.css .tb-fb-*)
+        if onFrame {
+            UiTree.addClass(r ("tb-fb tb-fb-" + variant))
+            if ((r.getChildCount()) > 0) {
+                UiTree.addClass((r.getChild(0)) ("tb-fb-label tb-fb-label-" + variant))
+            }
         }
         this.put(c parent)
         return c
@@ -1064,9 +1074,10 @@ class PresToolbar {
         return box
     }
 
-    fn railCtl:RailCtl () {
+    fn railCtl:RailCtl (tone:string) {
         def r (new RailCtl())
         r.tid = "tb-rail"
+        r.tone = tone
         r.name = (PresI18n.t("Places"))
         r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
@@ -1087,10 +1098,49 @@ class PresToolbar {
         return r
     }
 
+    ; The frame's piece over the work's top left corner at (x, y): it
+    ; rounds the corner of whatever is there (Rooms, the tab row).
+    fn frameCorner:EVGElement (x:double y:double) {
+        def r:double 12.0
+        def el (EVGElement.createPath())
+        el.id = "tb-corner"
+        el.className = "tb-corner"
+        el.a11yHidden = true
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((EVGDisplayList.num(x)) + "px"))
+        el.setAttribute("top" ((EVGDisplayList.num(y)) + "px"))
+        el.setAttribute("width" ((EVGDisplayList.num(r)) + "px"))
+        el.setAttribute("height" ((EVGDisplayList.num(r)) + "px"))
+        el.setAttribute("viewBox" ("0 0 " + (EVGDisplayList.num(r)) + " " + (EVGDisplayList.num(r))))
+        el.setAttribute("preserveAspectRatio" "none")
+        el.setAttribute("d" (UiShapes.corner(r "tl")))
+        return el
+    }
+
+    ; The rail's tone: on the brand's frame, except in the retro skin, which
+    ; draws its own panel there.
+    fn frameTone:string () {
+        if ((indexOf skin "retro") >= 0) {
+            return ""
+        }
+        return "frame"
+    }
+
+    fn frameUnder:EVGElement (x:double y:double fw:double fh:double) {
+        def el:EVGElement (this.div("tb-frameunder"))
+        el.a11yHidden = true
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((EVGDisplayList.num(x)) + "px"))
+        el.setAttribute("top" ((EVGDisplayList.num(y)) + "px"))
+        el.setAttribute("width" ((EVGDisplayList.num(fw)) + "px"))
+        el.setAttribute("height" ((EVGDisplayList.num(fh)) + "px"))
+        return el
+    }
+
     fn buildRail:void (root:EVGElement) {
         def col:EVGElement (this.div("tb-railcol"))
         col.addChild((this.logoEl()))
-        def r:RailCtl (this.railCtl())
+        def r:RailCtl (this.railCtl((this.frameTone())))
         ; the column's height under the mark: the bottom places at its foot
         def re:EVGElement (unwrap r.rootEl)
         re.setAttribute("height" ((EVGDisplayList.num((h - 66.0))) + "px"))
@@ -1100,7 +1150,7 @@ class PresToolbar {
 
     ; A phone's drawer: the same places, as a grid at its top.
     fn drawerRail:void (body:EVGElement) {
-        def r:RailCtl (this.railCtl())
+        def r:RailCtl (this.railCtl(""))
         def dre:EVGElement (unwrap r.rootEl)
         UiTree.addClass(dre "tb-drawer-rail")
         def g:int 0
@@ -1762,7 +1812,17 @@ class PresToolbar {
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root tb-page"
+        ; under the frame's bar and rail, one pixel past their edges: every
+        ; box's edge is smoothed, and over the light work below it would
+        ; show as a pale seam between the frame and the work
+        if ((this.frameTone()) == "frame") {
+            root.addChild((this.frameUnder(0.0 0.0 w (barH + 1.0))))
+            if ((this.compact()) == false) {
+                root.addChild((this.frameUnder(0.0 0.0 (railW + 1.0) h)))
+            }
+        }
         def bar:EVGElement (this.div("tb-bar"))
+        onFrame = ((this.frameTone()) == "frame")
         def play:string (PresI18n.t("▶ Play"))
         if playing {
             play = (PresI18n.t("⏸ Pause"))
@@ -1882,6 +1942,7 @@ class PresToolbar {
         }
         root.addChild(bar)
         barEl = bar
+        onFrame = false
         if (small && roomsOpen) {
             this.buildRooms(root)
             def rp:EVGElement (root.getChild(((root.getChildCount()) - 1)))
@@ -1911,6 +1972,12 @@ class PresToolbar {
                 rmEl.setAttribute("top" ((EVGDisplayList.num(barH)) + "px"))
                 rmEl.setAttribute("width" ((EVGDisplayList.num(roomsW)) + "px"))
                 rmEl.setAttribute("height" ((EVGDisplayList.num(((h - barH) - 20.0))) + "px"))
+            }
+            ; the bar and the rail are a frame in the brand's colour; the
+            ; work under the bar and right of the rail is set into it, its
+            ; top left corner rounded (Slack's window)
+            if ((this.frameTone()) == "frame") {
+                root.addChild((this.frameCorner(railW barH)))
             }
         }
         if dragOn {
