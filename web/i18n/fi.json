@@ -566,6 +566,7 @@
   "Mermaid": "Mermaid",
   "Mermaid, DOT, D2 and PlantUML diagrams on stage.": "Mermaid-, DOT-, D2- ja PlantUML-kaaviot lavalla.",
   "Mermaid, DOT, D2 and PlantUML diagrams, shown whole. ▶ next to the zoom buttons (T in the presentation) walks through the diagram; tour=on starts the tour on its own. style= picks the look: holo, sketch, mermaid, jurassic, cartoon or romantic. Per-diagram settings go in braces on the block's first line.": "Mermaid-, DOT-, D2- ja PlantUML-kaaviot, kokonaisina. ▶ zoom-nappien vieressä (esityksessä T) käy kaavion läpi; tour=on aloittaa kierroksen itsestään. style= valitsee ulkoasun: holo, sketch, mermaid, jurassic, cartoon tai romantic. Kaaviokohtaiset asetukset aaltosulkeissa lohkon ensimmäisellä rivillä.",
+  "Metadata": "Metatiedot",
   "Modified": "Muokattu",
   "More": "Lisää",
   "more columns": "saraketta lisää",

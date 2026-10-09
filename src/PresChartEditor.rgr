@@ -1875,6 +1875,7 @@ class PresChartEditor {
         tabs.addItem("header" (PresI18n.t("Header")) "" false)
         tabs.addItem("footer" (PresI18n.t("Footer")) "" false)
         tabs.addItem("bg" (PresI18n.t("Background")) "" false)
+        tabs.addItem("meta" (PresI18n.t("Metadata")) "" false)
         tabs.value = dsTab
         tabs.build()
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
@@ -1884,13 +1885,15 @@ class PresChartEditor {
         if (dsTab == "bg") {
             this.docSetBg(pane)
         }
+        if (dsTab == "meta") {
+            this.dataSection(pane)
+        }
         if (dsTab == "deck") {
             def sec:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
             def nr:EVGElement (this.field((PresI18n.t("Title"))))
             this.inputWith("ds-title" (PresI18n.t("Title")) ds.title (PresI18n.t("Write a title…")) "ce-wide" nr)
             sec.addChild(nr)
             sec.addChild((this.text("ce-doc" (PresI18n.t("{title} in a header or footer, and the name of an exported file.")))))
-            this.dataSection(pane)
             def sec2:EVGElement (this.section(pane (PresI18n.t("Transition"))))
             def tc:EVGElement (this.div("ce-chips"))
             def kinds:[string] (strsplit "fade,slide,zoom,none" ",")
@@ -1931,7 +1934,7 @@ class PresChartEditor {
                 }
             }
         } {
-            if (dsTab != "bg") {
+            if ((dsTab == "header") || (dsTab == "footer")) {
                 this.edgePane(pane (this.dsEdge()))
             }
         }
