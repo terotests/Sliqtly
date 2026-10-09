@@ -35,6 +35,20 @@ Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGHitTest.rgr"
 
+; A 3-D world a frame asked for with a <scene3d> element (`allow: 3d`):
+; the element is laid out like any box and shows the picture named `src`,
+; which the page draws from `json` (the element and its <mesh>, <light>
+; and <camera> children as the frame gave them) with the Three port
+; (src/Pres3D.rgr, web/three3d.js).
+class PresPlayScene {
+    def src:string ""
+    def json:string ""
+    def el:EVGElement (EVGElement.createDiv())
+
+    Constructor () {
+    }
+}
+
 ; One running program's picture: its stylesheet and the last tree its
 ; view() gave, laid out at the program's own size.
 class PresPlayView {
@@ -56,6 +70,11 @@ class PresPlayView {
     ; error, what it threw, the watchdog), "" while it runs
     def stopped:string ""
     def lay:EVGLayout (new EVGLayout())
+    ; the fence allows 3-D worlds (`allow: 3d`): a <scene3d> shows one
+    def allow3d:boolean false
+    ; the last frame's worlds, and whether it asked for one at all
+    def scenes:[PresPlayScene]
+    def asked3d:boolean false
 
     Constructor () {
         sheet.parse("")
@@ -88,7 +107,10 @@ class PresPlayView {
             error = "the frame was not an element tree"
             return false
         }
-        root = (PresPlayView.build(v))
+        def none:[PresPlayScene]
+        scenes = none
+        asked3d = false
+        root = (this.build(v))
         error = ""
         this.relayout()
         drawn = true
@@ -125,7 +147,7 @@ class PresPlayView {
         return d
     }
 
-    sfn build:EVGElement (n:JVal) {
+    fn build:EVGElement (n:JVal) {
         if (n.kind == 3) {
             def t:EVGElement (EVGElement.createSpan())
             t.tagName = "span"
@@ -142,6 +164,12 @@ class PresPlayView {
         def id:string (n.strOr("id" ""))
         if ((strlen id) > 0) {
             el.setAttribute("id" id)
+        }
+        ; a 3-D world: a box showing the picture the page draws of it; its
+        ; children describe the world and are not laid out
+        def world:boolean (tag == "scene3d")
+        if world {
+            asked3d = true
         }
         def a:JVal (n.get("a"))
         if (a.isObj()) {
@@ -160,6 +188,17 @@ class PresPlayView {
                 el.markInline(name)
                 si = (si + 1)
             }
+        }
+        if world {
+            if allow3d {
+                def sc:PresPlayScene (new PresPlayScene())
+                sc.src = ("three:" + key + ":" + (to_string ((array_length scenes) + 1)))
+                sc.json = (n.toJson())
+                sc.el = el
+                el.src = sc.src
+                push scenes sc
+            }
+            return el
         }
         def kids:JVal (n.get("c"))
         if (kids.isArr()) {
@@ -180,7 +219,7 @@ class PresPlayView {
             while (ci < (kids.len())) {
                 def k:JVal (kids.at(ci))
                 if ((text == false) || (k.kind != 3)) {
-                    el.addChild((PresPlayView.build(k)))
+                    el.addChild((this.build(k)))
                 }
                 ci = (ci + 1)
             }
@@ -225,6 +264,32 @@ class PresPlayView {
         pop.kind = 5
         push out.cmds pop
         return true
+    }
+
+    ; The worlds of the last frame where the page draws them: [{src, scene,
+    ; x, y, w, h}], the element's box in slide units when the program is
+    ; fitted in the box (bx, by, bw, bh).
+    fn scenesIn:JVal (bx:double by:double bw:double bh:double) {
+        def out:JVal (JVal.mkArr())
+        if (drawn == false) {
+            return out
+        }
+        def f:[double] (this.fitIn(bx by bw bh))
+        def k:double (itemAt f 2)
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            def o:JVal (JVal.mkObj())
+            o.setStr("src" sc.src)
+            o.set("scene" (JVal.parse(sc.json)))
+            o.setNum("x" ((itemAt f 0) + (sc.el.calculatedX * k)))
+            o.setNum("y" ((itemAt f 1) + (sc.el.calculatedY * k)))
+            o.setNum("w" (sc.el.calculatedWidth * k))
+            o.setNum("h" (sc.el.calculatedHeight * k))
+            out.add(o)
+            i = (i + 1)
+        }
+        return out
     }
 
     ; What the plate says under the program's name: why it is not running,

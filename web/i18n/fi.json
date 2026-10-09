@@ -1462,5 +1462,12 @@
   "Invite people to this room (its ⚙ → Invite people…) to talk with them here.": "Kutsu ihmisiä tähän huoneeseen (sen ⚙ → Kutsu ihmisiä…), niin voitte keskustella täällä.",
   "Files in the chat work on a Sliqtly server of your own for now.": "Tiedostot chatissa toimivat toistaiseksi vain omalla Sliqtly-palvelimella.",
   "Effect": "Efekti",
-  "Effect: ": "Efekti: "
+  "Effect: ": "Efekti: ",
+  "♪ Music on: M turns it off and on": "♪ Musiikki soi: M laittaa sen pois ja päälle",
+  "♪ Music on": "♪ Musiikki päällä",
+  "♪ Music off": "♪ Musiikki pois",
+  "Music added: ": "Musiikki lisätty: ",
+  ". Put music: ": ". Kirjoita alkuun music: ",
+  " in the front matter.": ".",
+  "The music file is not in the deck: ": "Musiikkitiedostoa ei ole esityksessä: "
 }

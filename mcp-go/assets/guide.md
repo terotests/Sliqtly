@@ -296,6 +296,12 @@ hold: 2.5               # seconds after the last step
   `liquid-glass`, `drops` (rain running down a window), `raindrops2` (rain
   whose running drops leave lines of water), `bubbles` (round drops).
   Parameters as `fx-density=1.6`, `fx-hue=228`, `fx-rain=2`.
+- Music: `music: media/song.mp3` in the front matter (an mp3 in the deck's
+  files or an https address) plays while presenting; M turns it off and on.
+  Effects that move with it: `spectrum` (a ring of bars; `fx-x`, `fx-y`,
+  `fx-size`, `fx-bars`), `kaleido` (`fx-segments`, `fx-twist`, `fx-speed`),
+  `ridges` (`fx-rows`, `fx-height`, `fx-line`); all take `fx-hue` and
+  `fx-dark` 0-1. Without music they move calmly by themselves.
 - Effects are for show pieces; for an ordinary deck don't pick them by
   default. Readability comes first.
 - Line art: `art=waves` draws line art behind the slide; `art-seed=3` draws
@@ -954,6 +960,16 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     `.show()`, `.hide()`, `.reset()` changes the look of the slide's blocks
     with that id or class (`{#id}` on the line after a paragraph) without
     changing the Markdown.
+  - `3d` (experimental): a `<scene3d>` element in `view()` is a 3-D world,
+    drawn over the slide with a transparent background. Its children:
+    `<mesh shape="box|sphere|torus|knot|cylinder|cone|plane|teapot" size r
+    tube w h d x y z rx ry rz scale color metal fresnel flat wire />` (angles
+    in degrees; `metal` 0-1 mirrors the slide around the world),
+    `<group x y z rx ry rz scale>…</group>` (its children placed in its
+    own frame and moved with it: an arm is groups inside groups),
+    `<camera x y z fov lookX lookY lookZ />`, `<light kind="sun|ambient" x y z
+    color intensity />` (none: a key and a fill light). Animate by changing
+    the attributes in `tick`.
 - Example:
 
   ```tsx

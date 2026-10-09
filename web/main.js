@@ -15,7 +15,7 @@
 //
 // What anything MEANS is PresApp.rgr's.
 
-import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, fontSpec, textObstacles, imageChanged, registerSurfaceEffect } from "./gl/evg-webgl.js";
 import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
@@ -46,6 +46,9 @@ import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createApps } from "./apps.js";
+import { createThree3d } from "./three3d.js";
+import { createMusic } from "./music.js";
+import { registerBeatEffects } from "./beatfx.js";
 import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
@@ -183,6 +186,12 @@ const SAMPLES = {
   // programs on slides (```app), with their files (samples/pelit/apps/…)
   pelit: [...sample("pelit", "Games: programs on slides", "Pelit: ohjelmat kalvoilla"), "",
     ["apps/scaffold.tsx", "apps/scaffold.tsx.css", "apps/target.tsx", "apps/target.tsx.css"]],
+  // 3-D worlds in programs (```app with allow: 3d), on Aurora
+  maailmat: [...sample("maailmat", "3D worlds on slides", "3D-maailmat kalvoilla"), "aurora",
+    ["apps/chrome.tsx", "apps/chrome.tsx.css", "apps/shapes.tsx", "apps/shapes.tsx.css", "apps/excavator.tsx", "apps/excavator.tsx.css"]],
+  // music and beat effects (front matter music:, {fx=spectrum}), on Nebula
+  bileet: [...sample("bileet", "Party: music and beat effects", "Bileet: musiikki ja biittiefektit"), "nebula",
+    ["media/bileet.mp3"]],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
 };
 
@@ -311,6 +320,25 @@ const pictures = new Map();
 // the decks' pictures, decoded once for every deck that has them (a switch
 // back to a deck hands over the same files again)
 const decodeKept = pictureCache();
+// 3-D worlds in programs on slides (web/three3d.js): their pictures are
+// canvases in `pictures`, drawn again as the programs' frames come in
+const three3d = createThree3d({
+  app,
+  pictures,
+  imageChanged,
+  slidePicture,
+  scale: () => (lastLayout ? lastLayout.stage[2] : 1),
+  repaint: () => { needsPaint = true; },
+  toast,
+  build: BUILD.startsWith("__") ? "" : BUILD,
+});
+// The deck's music (front matter `music:`, web/music.js), played while
+// presenting; the beat effects ({fx=spectrum}, web/beatfx.js) move with it.
+const music = createMusic({ app, readDocFile, toast, t });
+registerBeatEffects(registerSurfaceEffect, (time) => music.frame(time));
+let musicRev = -1;
+let musicPresenting = false;
+let musicAt = 0;
 async function registerPicture(path, bytes, type) {
   if (isSmartArt(type, path)) return;
   pictures.set(path, (await decodeKept(bytes, type, path)).img);
@@ -844,6 +872,9 @@ function beginDoc(text) {
   pictures.clear();
   app.clearImages();
   apps.reset();
+  three3d.reset();
+  music.reset();
+  musicRev = -1;
   doc.loading = true;
   doc.id = newId();
   doc.persisted = false;
@@ -2452,6 +2483,16 @@ async function addDocFile(file, ask = false) {
     await keepFile({ path, type: kept, size: bytes.byteLength, data: new Blob([bytes], { type: kept }) });
     return;
   }
+  // music (front matter `music: media/song.mp3`, web/music.js) is kept as
+  // it came
+  if (kindOf(file.name, type) === "audio") {
+    const bytes = await file.arrayBuffer();
+    const path = placeFor(file.name, type);
+    const kept = type || "audio/mpeg";
+    await keepFile({ path, type: kept, size: bytes.byteLength, data: new Blob([bytes], { type: kept }) });
+    toast(t("Music added: ") + path + t(". Put music: ") + path + t(" in the front matter."));
+    return;
+  }
   if ((ask || /\.xlsx$/i.test(file.name)) && /\.(csv|json|xlsx)$/i.test(file.name) && (await importData(file, ask))) return;
   const text = await file.text();
   let path = placeFor(file.name, type);
@@ -3167,6 +3208,30 @@ function drawThemePicture() {
   themePicDrawn.set(themePicture(key), lang);
   needsPaint = true;
 }
+// The slide on the stage as a small picture (its worlds left out), the room
+// its 3-D worlds stand in (web/three3d.js): an ImageData, null without one.
+let roomGl = null;
+const roomCanvas = document.createElement("canvas");
+function slidePicture(w, h) {
+  const text = app.slideJson(app.selectedSlide());
+  if (!text) return null;
+  const doc = atRest(JSON.parse(text));
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
+  const f = prepareDisplayList(roomGl, doc, { dpr: Math.min(w / doc.width, h / doc.height), images });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
+}
+
 // how many are drawn (scripts/check-web.mjs)
 window.__themePictures = () => themePicDrawn.size;
 
@@ -3986,6 +4051,27 @@ function fetchChartFiles(rev) {
   }
 }
 
+// Presenting starts the deck's music and leaving stops it; each frame the
+// analyser is heard (web/music.js).
+function musicFrame(now) {
+  const rev = app.revision();
+  if (rev !== musicRev) {
+    musicRev = rev;
+    music.sync();
+  }
+  const presenting = !!(lastLayout && lastLayout.mode === "present");
+  if (presenting !== musicPresenting) {
+    musicPresenting = presenting;
+    if (presenting && music.has()) {
+      music.play();
+      toast(t("♪ Music on: M turns it off and on"));
+    } else if (!presenting) music.pause();
+  }
+  const dt = musicAt ? Math.min(0.25, (now - musicAt) / 1000) : 0;
+  musicAt = now;
+  if (music.tick(dt)) needsPaint = true;
+}
+
 function frame() {
   try {
     const now = performance.now();
@@ -4015,6 +4101,8 @@ function frame() {
     collab?.tick();
     meet.tick();
     apps.tick(app.revision());
+    if (three3d.tick(app.revision(), gl, dpr)) needsPaint = true;
+    musicFrame(now);
     const rev = app.revision();
     const effects = window.__lastStage && window.__lastStage.list && window.__lastStage.list.effects && window.__lastStage.list.effects.length > 0;
     if (needsPaint || rev !== lastRev || effects) {
@@ -6898,7 +6986,7 @@ async function openSample(key) {
 
 // A sample's own files (samples/<key>/<path>), the deck's files as a shared
 // one's are: shown at once, kept with the deck on its first change.
-const SAMPLE_TYPES = { tsx: "text/plain", css: "text/css", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE };
+const SAMPLE_TYPES = { tsx: "text/plain", css: "text/css", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE, mp3: "audio/mpeg" };
 async function useSampleFiles(key, paths) {
   const got = await Promise.all(paths.map(async (path) => {
     const res = await fetch(fresh(`./samples/${key}/${path}`));
@@ -7139,6 +7227,11 @@ keys.addEventListener("keydown", (ev) => {
   if (presenting) {
     // with the text tool (Aa) letters write on the slide
     const writing = app.inkWrites();
+    if ((ev.key === "m" || ev.key === "M") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing && music.has()) {
+      ev.preventDefault();
+      toast(music.toggle() ? t("♪ Music on") : t("♪ Music off"));
+      return;
+    }
     if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
       ev.preventDefault();
       refreshLiveData();

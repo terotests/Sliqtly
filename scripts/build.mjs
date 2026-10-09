@@ -92,15 +92,31 @@ export function build({ ranger } = {}) {
   compile(ranger, "PresTrace.rgr", traceJs);
   fs.writeFileSync(traceJs, "// loaded on demand by trace-worker.js: a picture traced into an SVG.\n"
     + "(function () {\n" + fs.readFileSync(traceJs, "utf8") + "\n;globalThis.PresTrace = PresTrace;\n})();\n");
+  // 3-D worlds on slides (src/Pres3D.rgr, the Three port in Ranger's
+  // gallery/game_engine/three): loaded by web/three3d.js when a program on
+  // the shown slide draws a <scene3d>.
+  const threeJs = path.join(distDir, "pres_3d.js");
+  compile(ranger, "Pres3D.rgr", threeJs);
+  fs.writeFileSync(threeJs, "// loaded on demand by three3d.js: 3-D worlds on slides.\n"
+    + "(function () {\n" + fs.readFileSync(threeJs, "utf8") + "\n;globalThis.Pres3D = Pres3D;\n})();\n");
+  // The deck's music heard (src/PresBeat.rgr): bars, beats and tempo for
+  // the beat effects (web/music.js, web/beatfx.js). Small, loaded with the
+  // page.
+  const beatJs = path.join(distDir, "pres_beat.js");
+  compile(ranger, "PresBeat.rgr", beatJs);
+  fs.writeFileSync(beatJs, "// the deck's music: bars, beats and tempo for the beat effects.\n"
+    + "(function () {\n" + fs.readFileSync(beatJs, "utf8") + "\n;globalThis.PresBeat = PresBeat;\n})();\n");
   minify(appJs);
+  minify(beatJs);
   minify(dataJs);
   minify(traceJs);
+  minify(threeJs);
 
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "cerxes-worker.js", "fxdeck.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "three3d.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
   // frames go through, and the WASI the engine needs, from componentengine
   const cerxes = ensureCerxes();
@@ -196,7 +212,7 @@ export function build({ ranger } = {}) {
   // every relative import of every module we ship carries the stamp
   // (scripts/stamp.mjs); the two compiled bundles are classic scripts, and
   // EVGSheets' own build (sheets/) is left as it came
-  const classic = new Set(["pres_app.js", "pres_data.js", "pres_trace.js", "trace-worker.js"]);
+  const classic = new Set(["pres_app.js", "pres_beat.js", "pres_data.js", "pres_trace.js", "trace-worker.js"]);
   const modules = distFiles().filter((f) => /\.m?js$/.test(f) && !classic.has(f) && !f.startsWith("sheets/"));
   for (const f of modules) {
     const file = path.join(distDir, f);

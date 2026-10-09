@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
+Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresThemeGallery.rgr"
@@ -36,6 +37,7 @@ Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
 Import "PresPlay.rgr"
+Import "Pres3D.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -4583,6 +4585,301 @@ class PresCheck {
         this.ok((((array_length deck.liveKeys) == 0) && ((deck.playStyle.count()) == 0)) "plays: cleared with the deck")
     }
 
+    ; 3-D worlds on slides: a <scene3d> in a program's frame (allow: 3d), the
+    ; room made of the slide, the scene built from the element.
+    ; A made-up analyser frame at time t: a floor with some grain, and when
+    ; period > 0 a kick in the lowest bins every period seconds that falls off
+    ; over a third of a second.
+    sfn beatFrame:[double] (t:double period:double) {
+        def out:[double]
+        def i:int 0
+        def kick:double 0.3
+        if (period > 0.0) {
+            def ph:double (t - ((to_double (floor (t / period))) * period))
+            kick = (0.95 - (ph * 3.0))
+            if (ph < 0.08) {
+                kick = 0.95
+            }
+            if (kick < 0.3) {
+                kick = 0.3
+            }
+        }
+        while (i < 1024) {
+            def g:double (sin (((to_double i) * 12.9898) + (t * 78.233)))
+            def v:double (0.3 + (0.03 * g))
+            if ((i >= 1) && (i < 7)) {
+                v = kick
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; seconds of made-up music at 60 frames a second
+    sfn beatRun:PresBeat (period:double secs:double) {
+        def b (new PresBeat())
+        b.setup(44100.0 1024)
+        def wave:[double]
+        push wave 0.0
+        push wave 0.5
+        push wave -0.5
+        def t:double 0.0
+        def f:int 0
+        def n:int (floor (secs * 60.0))
+        while (f < n) {
+            b.feed((PresCheck.beatFrame(t period)) wave (1.0 / 60.0))
+            t = (t + (1.0 / 60.0))
+            f = (f + 1)
+        }
+        return b
+    }
+
+    fn beats:void () {
+        def b120:PresBeat (PresCheck.beatRun(0.5 10.0))
+        this.ok(((b120.beats >= 18) && (b120.beats <= 20)) ("beats: a kick every half second for 10 s is 19 beats, got " + (to_string b120.beats)))
+        this.ok(((fabs (b120.bpm - 120.0)) < 2.0) ("beats: ... at 120 BPM, got " + (to_string b120.bpm)))
+        def b90:PresBeat (PresCheck.beatRun((60.0 / 90.0) 10.0))
+        this.ok(((fabs (b90.bpm - 90.0)) < 2.0) ("beats: 90 BPM, got " + (to_string b90.bpm)))
+        def fast:PresBeat (PresCheck.beatRun(0.2 6.0))
+        this.ok(((fabs (fast.bpm - 150.0)) < 3.0) ("beats: 300 kicks a minute fold to 150 BPM, got " + (to_string fast.bpm)))
+        def calm:PresBeat (PresCheck.beatRun(0.0 10.0))
+        this.ok(((calm.beats == 0) && (calm.bpm == 0.0)) ("beats: no kick, no beat, got " + (to_string calm.beats)))
+        ; the pulse: 1 on a beat, fading before the next
+        def p:PresBeat (PresCheck.beatRun(0.5 2.05))
+        this.ok((p.pulse > 0.7) ("beats: the pulse is up just after a beat, " + (to_string p.pulse)))
+        this.ok((p.playing && (p.bass > p.high)) "beats: playing, the bass louder than the highs")
+        def q:PresBeat (PresCheck.beatRun(0.5 2.4))
+        this.ok((q.pulse < 0.2) ("beats: ... and down before the next, " + (to_string q.pulse)))
+        ; bands: log spaced, the bass ones first
+        def b (new PresBeat())
+        b.setup(44100.0 1024)
+        this.ok(((b.bandOf(10.0)) == -1) "beats: the lowest bin is no band")
+        this.ok((((b.bandOf(100.0)) < b.bassBands) && ((b.bandOf(1000.0)) > b.bassBands)) "beats: 100 Hz is bass, 1 kHz is not")
+        this.ok((((b.bandOf(1000.0)) < (b.bandOf(4000.0))) && ((b.bandOf(4000.0)) < (b.bandOf(12000.0)))) "beats: the bands rise with the pitch")
+        def tone:[double]
+        def i:int 0
+        def at:int (floor (1000.0 / (44100.0 / 2048.0)))
+        while (i < 1024) {
+            if (i == at) {
+                push tone 0.9
+            } {
+                push tone 0.0
+            }
+            i = (i + 1)
+        }
+        def w:[double]
+        b.feed(tone w (1.0 / 60.0))
+        def k:int (b.bandOf(1000.0))
+        this.ok(((itemAt b.bands k) > 0.85) "beats: a 1 kHz tone lifts its band")
+        this.ok(((itemAt b.bands 0) < 0.01) "beats: ... and not the lowest")
+        ; the bass bands, narrower than a bin, read between bins: a rising
+        ; spectrum gives rising bars, not steps of the same height
+        def ramp:[double]
+        def ri:int 0
+        while (ri < 1024) {
+            push ramp ((to_double ri) / 1024.0)
+            ri = (ri + 1)
+        }
+        def rb (new PresBeat())
+        rb.setup(44100.0 1024)
+        rb.feed(ramp w (1.0 / 60.0))
+        def rising:boolean true
+        def bi:int 1
+        while (bi < rb.bassBands) {
+            if ((itemAt rb.raw bi) <= (itemAt rb.raw (bi - 1))) {
+                rising = false
+            }
+            bi = (bi + 1)
+        }
+        this.ok(rising "beats: the bass bands rise with a rising spectrum")
+        ; a slide's own effect does not take the deck's effect's settings
+        def fxd (new PresDeck())
+        fxd.setText("---\nfx: starfield\nfx-hue: 280\n---\n\n# A\n\na\n\n# B {fx=kaleido}\n\nb\n\n# C {fx=starfield fx-density=2}\n\nc\n\n# D {fx=spectrum fx-hue=40}\n\nd\n")
+        PresTimeline.planAll(fxd)
+        def sa:PresSlide (fxd.slideAt(0))
+        def sb:PresSlide (fxd.slideAt(1))
+        def sc:PresSlide (fxd.slideAt(2))
+        def sd:PresSlide (fxd.slideAt(3))
+        this.ok(((sa.fx == "starfield") && ((array_length sa.fxNames) == 1)) "beats: the deck's starfield with its hue")
+        this.ok(((sb.fx == "kaleido") && ((array_length sb.fxNames) == 0)) "beats: a slide's kaleido without the starfield's hue")
+        this.ok(((array_length sc.fxNames) == 2) "beats: a slide's starfield keeps the deck's hue beside its own density")
+        this.ok((((array_length sd.fxNames) == 1) && ((itemAt sd.fxValues 0) == "40")) "beats: a slide's own settings stay")
+        ; packed for the shader
+        def pk:[double] (b.pack(0.0))
+        this.ok(((array_length pk) == ((PresBeat.AT_ROWS()) + ((PresBeat.ROWS()) * (PresBeat.BANDS())))) ("beats: pack size " + (to_string (array_length pk))))
+        this.ok((((itemAt pk 7) == 1.0) && ((itemAt pk ((PresBeat.AT_BANDS()) + k)) > 0.85)) "beats: pack says playing and carries the band")
+        ; stopped: the bars fall and calm bars breathe in their place
+        def s:int 0
+        while (s < 120) {
+            b.idle((1.0 / 60.0))
+            s = (s + 1)
+        }
+        this.ok(((b.playing == false) && ((itemAt b.bands k) < 0.01)) "beats: stopped, the bars fall")
+        def c0:[double] (b.pack(0.0))
+        def c1:[double] (b.pack(2.0))
+        def j:int (PresBeat.AT_BANDS())
+        this.ok((((itemAt c0 7) == 0.0) && ((itemAt c0 j) > 0.05) && ((itemAt c0 j) != (itemAt c1 j))) "beats: ... and calm bars move in their place")
+        ; the history rows, newest first
+        def h:PresBeat (PresCheck.beatRun(0.5 3.0))
+        def hp:[double] (h.pack(0.0))
+        def hi:double 0.0
+        def lo:double 1.0
+        def r:int 0
+        while (r < (PresBeat.ROWS())) {
+            def v:double (itemAt hp ((PresBeat.AT_ROWS()) + (r * (PresBeat.BANDS()))))
+            if (v > hi) {
+                hi = v
+            }
+            if (v < lo) {
+                lo = v
+            }
+            r = (r + 1)
+        }
+        this.ok(((hi > 0.8) && (lo < 0.45)) ("beats: the history rows hold the kicks as they came and went, " + (to_string lo) + ".." + (to_string hi)))
+    }
+
+    fn worlds:void () {
+        def text:string "# Kolmas\n\n```app\nsrc: apps/w.tsx\nsize: 200x100\nallow: 3d\n```\n\n# Ilman\n\n```app\nsrc: apps/x.tsx\nsize: 200x100\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        deck.setChartData("apps/w.tsx" "function view() { return null }")
+        deck.setChartData("apps/x.tsx" "function view() { return null }")
+        PresTimeline.planAll(deck)
+        def scene:string "{\"t\":\"scene3d\",\"s\":{\"position\":\"absolute\",\"left\":\"100px\",\"top\":\"0px\",\"width\":\"100px\",\"height\":\"100px\"},\"c\":[{\"t\":\"camera\",\"a\":{\"z\":6,\"fov\":40}},{\"t\":\"mesh\",\"a\":{\"shape\":\"knot\",\"metal\":0.9,\"ry\":\"30\",\"color\":\"tomato\"}},{\"t\":\"light\",\"a\":{\"kind\":\"sun\",\"x\":1,\"y\":2,\"z\":3}}]}"
+        def tree:string ("{\"t\":\"div\",\"s\":{\"width\":\"200px\",\"height\":\"100px\"},\"c\":[" + scene + "]}")
+        def v@(optional):PresPlayView (deck.playView("apps/w.tsx#1"))
+        def x@(optional):PresPlayView (deck.playView("apps/x.tsx#1"))
+        this.ok(((!null? v) && (!null? x)) "worlds: views for both programs")
+        if ((null? v) || (null? x)) {
+            return
+        }
+        def view:PresPlayView (unwrap v)
+        def other:PresPlayView (unwrap x)
+        this.ok((view.allow3d && (other.allow3d == false)) "worlds: allow: 3d reaches the view")
+        view.setTree(tree)
+        other.setTree(tree)
+        this.ok(((array_length view.scenes) == 1) "worlds: the <scene3d> is a world")
+        this.ok(((array_length other.scenes) == 0) "worlds: none without allow: 3d")
+        def sc:PresPlayScene (itemAt view.scenes 0)
+        this.ok((sc.src == "three:apps/w.tsx#1:1") ("worlds: named after the program, got " + sc.src))
+        this.ok((sc.el.src == sc.src) "worlds: the element shows that picture")
+        def f0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def drawn:int 0
+        def ci:int 0
+        while (ci < (array_length f0.cmds)) {
+            def cmd:EVGDrawCmd (itemAt f0.cmds ci)
+            if ((cmd.kind == 2) && (cmd.src == sc.src)) {
+                drawn = (drawn + 1)
+            }
+            ci = (ci + 1)
+        }
+        this.ok((drawn == 1) "worlds: the slide draws the world's picture")
+        def at:JVal (deck.playScenes(0))
+        this.ok(((at.len()) == 1) "worlds: the page is told of one world on slide 1")
+        if ((at.len()) == 1) {
+            def w0:JVal (at.at(0))
+            def bw:double (w0.numOr("w" 0.0))
+            def bx:double (w0.numOr("x" 0.0))
+            def u0:PresPlayUse (itemAt (deck.playUses()) 0)
+            def bi:int (deck.embedBox(0 u0.source))
+            def lay:MdLayout (deck.layout())
+            def b:MdBox (itemAt lay.boxes bi)
+            this.ok(((bw > ((b.w * 0.45) - 1.0)) && (bw < ((b.w * 0.55) + 1.0))) ("worlds: half the box wide, got " + (to_string bw)))
+            this.ok((bx > (b.x + (b.w * 0.4))) "worlds: at its right half")
+            def sj:JVal (w0.get("scene"))
+            this.ok(((sj.strOr("t" "")) == "scene3d") "worlds: with its element")
+        }
+        def notes:[string] (deck.playNotes())
+        def said:boolean false
+        def ni:int 0
+        while (ni < (array_length notes)) {
+            if ((indexOf (itemAt notes ni) "needs allow: 3d") > 0) {
+                said = true
+            }
+            ni = (ni + 1)
+        }
+        this.ok(said "worlds: a <scene3d> without the grant is said")
+
+        ; the room: a slide red on the left, blue on the right, white along the top
+        def pw:int 16
+        def ph:int 9
+        def px:buffer (buffer_alloc ((pw * ph) * 4))
+        def y:int 0
+        while (y < ph) {
+            def xx:int 0
+            while (xx < pw) {
+                def o:int (((y * pw) + xx) * 4)
+                def r:int 220
+                def g:int 30
+                def b2:int 40
+                if (xx >= 8) {
+                    r = 30
+                    g = 60
+                    b2 = 230
+                }
+                if (y == 0) {
+                    r = 255
+                    g = 255
+                    b2 = 255
+                }
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b2
+                buffer_set px (o + 3) 255
+                xx = (xx + 1)
+            }
+            y = (y + 1)
+        }
+        def env:Pres3DEnv (Pres3DEnv.of(px pw ph))
+        def left:[double] (env.look(-1.0 0.0 0.0))
+        def right:[double] (env.look(1.0 0.0 0.0))
+        this.ok(((itemAt left 0) > (itemAt left 2)) "worlds: the left wall is the slide's red edge")
+        this.ok(((itemAt right 2) > (itemAt right 0)) "worlds: the right wall its blue edge")
+        def front:[double] (env.look(-0.3 0.0 -1.0))
+        def back:[double] (env.look(-0.3 0.0 1.0))
+        this.ok(((itemAt front 0) > 150.0) "worlds: in front, the slide's left is red")
+        this.ok(((itemAt back 2) > 150.0) "worlds: behind the viewer it reads from inside the room")
+        def up:[double] (env.look(0.0 1.0 0.0))
+        def down:[double] (env.look(0.0 -1.0 0.0))
+        this.ok((((itemAt up 1) > (itemAt down 1)) && ((itemAt up 1) > 200.0)) "worlds: the ceiling is the white top row")
+        this.ok(((env.meanR > 0.3) && (env.meanB > 0.3)) "worlds: the mean colour is both halves")
+        def cube:ThreeCubeTexture (env.cube(8))
+        this.ok((((cube.faceCount()) == 6) && ((buffer_length (cube.face(0))) == 256)) "worlds: a cube map of six faces")
+
+        ; the scene from the element
+        def p3:Pres3D (new Pres3D())
+        p3.setSlide(px pw ph)
+        this.ok(((p3.setScene("k" scene)) == "") "worlds: a scene taken")
+        def wo:Pres3DWorld (p3.world("k"))
+        this.ok(((wo.meshes == 1) && (wo.lights == 1)) "worlds: one mesh, one light of its own")
+        this.ok(((wo.camera.position.z == 6.0) && (wo.camera.fov == 40.0)) "worlds: its camera")
+        this.ok((wo.scene.hasEnvCube && (wo.scene.envBackground == false)) "worlds: the room in the reflections, not behind")
+        p3.setScene("k" scene)
+        this.ok(((array_length wo.geos) == 1) "worlds: the knot made once over two frames")
+        def bad:string (p3.setScene("k" "{\"t\":\"scene3d\",\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"donut\"}}]}"))
+        this.ok(((indexOf bad "donut") >= 0) ("worlds: an unknown shape is said, got " + bad))
+        this.ok(((p3.setScene("k" "{\"t\":\"div\"}")) != "") "worlds: no scene, said")
+        this.ok(((p3.draw("k" 10 10)) == false) "worlds: nothing drawn without a GPU")
+        ; a group moves its parts: a mesh 1 along x in a group at x 2 turned
+        ; 90 degrees round z stands at (2, 1)
+        def grouped:string "{\"t\":\"scene3d\",\"c\":[{\"t\":\"group\",\"a\":{\"x\":\"2\",\"rz\":\"90\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"box\",\"x\":\"1\"}},{\"t\":\"group\",\"a\":{\"y\":\"1\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"sphere\"}}]}]}]}"
+        this.ok(((p3.setScene("g" grouped)) == "") "worlds: a scene with groups taken")
+        def wg:Pres3DWorld (p3.world("g"))
+        this.ok((wg.meshes == 2) ("worlds: the meshes inside groups count, got " + (to_string wg.meshes)))
+        wg.scene.updateMatrixWorld()
+        def outer:ThreeObject3D (wg.scene.getChild(0))
+        def boxM:ThreeObject3D (outer.getChild(0))
+        def inner:ThreeObject3D (outer.getChild(1))
+        def ball:ThreeObject3D (inner.getChild(0))
+        def bx:double (itemAt boxM.matrixWorld.elements 12)
+        def by:double (itemAt boxM.matrixWorld.elements 13)
+        this.ok((((fabs (bx - 2.0)) < 0.001) && ((fabs (by - 1.0)) < 0.001)) ("worlds: the box stands at (2, 1), got " + (to_string bx) + ", " + (to_string by)))
+        def sx:double (itemAt ball.matrixWorld.elements 12)
+        this.ok(((fabs (sx - 1.0)) < 0.001) ("worlds: the nested group turns with its parent, x " + (to_string sx)))
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -4632,6 +4929,8 @@ class PresCheck {
         c.serverRooms()
         c.clips()
         c.plays()
+        c.worlds()
+        c.beats()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
