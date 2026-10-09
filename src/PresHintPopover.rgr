@@ -373,10 +373,10 @@ class PresHintPopover {
 
     fn rebuild:void () {
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         ; what the pointer is over stays hovered across a rebuild
         fresh.hoverTid = host.hoverTid
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("hp " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)

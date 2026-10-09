@@ -90,6 +90,9 @@ class PresToolbar {
     def ctxLeft:boolean true
     def ctxRight:boolean true
     def ctxDelete:boolean true
+    ; the element picked on the slide the menu is for ("chart", "text", …;
+    ; "" none): its Copy row
+    def ctxElement:string ""
     ; a presentation of the Rooms panel the context menu is for ("" the
     ; strip's slide menu): the File menu's rows for that deck
     def ctxDeck:string ""
@@ -383,6 +386,10 @@ class PresToolbar {
         if (id == "css") {
             return "showtab:css"
         }
+        ; Edit's rows, and the slide menu's Copy and Paste
+        if ((indexOf id "ed-") == 0) {
+            return ("edit:" + (substring id 3 (strlen id)))
+        }
         if (id == "slideNew") {
             return "slide:new"
         }
@@ -560,6 +567,14 @@ class PresToolbar {
     fn exportGroups:void (clip:UiItem file:UiItem) {
         this.clipboardKids(clip false)
         this.exportKids(file)
+    }
+
+    ; "Copy slide", or "Copy 3 slides" with slides picked
+    fn copySlidesLabel:string () {
+        if (picked > 1) {
+            return (join (strsplit (PresI18n.t("Copy {n} slides")) "{n}") (to_string picked))
+        }
+        return (PresI18n.t("Copy slide"))
     }
 
     ; "PDF (.pdf) – 3 selected slides"
@@ -837,7 +852,14 @@ class PresToolbar {
         cm.addSeparator()
         cm.addItem("slideDelete" (PresI18n.t("Delete slide")) (ctxDelete == false))
         cm.addSeparator()
-        def cp:UiItem (cm.addSub("ctx-copy" (PresI18n.t("Copy")) false))
+        cm.addItem("ed-copySlides" (this.copySlidesLabel()) false)
+        if ((strlen ctxElement) > 0) {
+            ; i18n: "Copy the chart" "Copy the diagram" "Copy the table" "Copy the picture" "Copy the code" "Copy the list" "Copy the text"
+            cm.addItem("ed-copyElement" (PresI18n.t(("Copy the " + ctxElement))) false)
+        }
+        cm.addItem("ed-paste" (PresI18n.t("Paste")) false)
+        cm.addItem("ed-pastePlain" (PresI18n.t("Paste without formatting")) false)
+        def cp:UiItem (cm.addSub("ctx-copy" (PresI18n.t("Copy as")) false))
         this.clipboardKids(cp true)
         if (picked > 0) {
             cm.addSeparator()
@@ -852,6 +874,9 @@ class PresToolbar {
         cm.setShortcut("slideLeft" (this.modKey("ArrowLeft")))
         cm.setShortcut("slideRight" (this.modKey("ArrowRight")))
         cm.setShortcut("slideDelete" "Delete")
+        cm.setShortcut("ed-copySlides" (this.modKey("C")))
+        cm.setShortcut("ed-paste" (this.modKey("V")))
+        cm.setShortcut("ed-pastePlain" (this.modKey("Shift+V")))
     }
 
     ; The context menu closed itself (a row chosen, Esc): it is not drawn again.
@@ -1691,10 +1716,10 @@ class PresToolbar {
         def noMenus:[MenuCtl]
         menus = noMenus
         def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
         ; what the pointer is over stays hovered across a rebuild
         fresh.hoverTid = host.hoverTid
         host = fresh
-        host.addStyleSheet(css)
         host.setTheme((trim ("tb " + skin)))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
@@ -1736,6 +1761,24 @@ class PresToolbar {
             this.deckRows(file true)
             file.setShortcut("openbox" (this.modKey("O")))
             file.setShortcut("save" (this.modKey("S")))
+            ; Edit: the keys' commands as rows, Paste without formatting
+            ; among them (the theme's styles not taken along)
+            def ed:MenuCtl (this.dropdown("edit" (PresI18n.t("Edit"))))
+            ed.addItem("ed-undo" (PresI18n.t("Undo")) false)
+            ed.addItem("ed-redo" (PresI18n.t("Redo")) false)
+            ed.addSeparator()
+            ed.addItem("ed-cut" (PresI18n.t("Cut")) false)
+            ed.addItem("ed-copy" (PresI18n.t("Copy")) false)
+            ed.addItem("ed-paste" (PresI18n.t("Paste")) false)
+            ed.addItem("ed-pastePlain" (PresI18n.t("Paste without formatting")) false)
+            ed.addSeparator()
+            ed.addItem("ed-copySlides" (this.copySlidesLabel()) false)
+            ed.setShortcut("ed-undo" (this.modKey("Z")))
+            ed.setShortcut("ed-redo" (this.modKey("Y")))
+            ed.setShortcut("ed-cut" (this.modKey("X")))
+            ed.setShortcut("ed-copy" (this.modKey("C")))
+            ed.setShortcut("ed-paste" (this.modKey("V")))
+            ed.setShortcut("ed-pastePlain" (this.modKey("Shift+V")))
             def slide:MenuCtl (this.dropdown("slide" (PresI18n.t("Slide"))))
             slide.addItem("slideNew" (PresI18n.t("New slide")) false)
             slide.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)

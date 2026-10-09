@@ -1182,9 +1182,11 @@ try {
     check("…Shift+F10 opens it from the keyboard, Esc closes it back to the slide", s8.menu === "tb-m-ctx" && /^tb-m-ctx-item-/.test(s8.on) && s9.menu === "" && s9.on === "thumb-2", JSON.stringify([s8.on, s9.on, s9.menu]));
     await page.evaluate((t) => window.__app.setSource(t), md);
 
-    // a drag puts the slide in another place
+    // a drag puts the slide in another place; the hand over a thumbnail says so
     p = await thumbAt(0);
     const q = await thumbAt(2);
+    const hand = await page.evaluate(([x, y]) => { const c = document.getElementById("c").getBoundingClientRect(); return window.__app.cursorAt(x - c.left, y - c.top); }, p);
+    check("…the pointer over a thumbnail is a hand that grabs", hand === "grab", hand);
     await page.mouse.move(p[0], p[1]);
     await page.mouse.down();
     for (let k = 1; k <= 10; k += 1) await page.mouse.move(p[0] + (q[0] + 70 - p[0]) * k / 10, p[1]);
@@ -5316,6 +5318,185 @@ try {
     check("deck tabs: a swipe to the right brings the deck on the left", swiped[0] === "sample:esittely", swiped.join(" | "));
     check("no page errors with deck tabs", derr.length === 0, derr.join(" | "));
     await phone.close();
+    await ctx.close();
+  }
+
+  // Slides and elements copied and pasted (src/PresClip.rgr, docs/clipboard.md):
+  // Ctrl+C on the strip or a picked element writes Sliqtly's clipboard text,
+  // Ctrl+V asks first and puts slides after the selected one, an element or a
+  // diagram onto it, the format's Markdown alone into the editor and its
+  // styles alone into the theme; the deck pasted into keeps its styles, a
+  // picture of the same name is replaced or kept beside, Ctrl+Z takes it all
+  // back, Ctrl+Shift+V leaves the styles out.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: url });
+    const page = await ctx.newPage();
+    await page.goto(url + "?sample=esittely");
+    await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await page.waitForTimeout(1500);
+    const app = (f, ...a) => page.evaluate(([f, a]) => window.__app[f](...a), [f, a]);
+    const lay = () => page.evaluate(() => JSON.parse(window.__app.layoutJson()));
+    const count = () => page.evaluate(() => window.__app.deck.slideCount());
+    const md = () => page.evaluate(() => window.__app.source());
+    const clip = () => page.evaluate(() => navigator.clipboard.readText());
+    const setClip = (t) => page.evaluate((t) => navigator.clipboard.writeText(t), t);
+    const btn = (id) => page.evaluate((id) => {
+      const a = window.__app; a.chartJson();
+      const walk = (e) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+      const d = a.chart.host.lastPage && walk(a.chart.host.lastPage);
+      return d ? [d.calculatedX + d.calculatedWidth / 2, d.calculatedY + d.calculatedHeight / 2] : null;
+    }, id);
+    const press = async (id) => { const b = await btn(id); if (!b) return false; await page.mouse.click(b[0], b[1]); await page.waitForTimeout(400); return true; };
+    const isConfirm = () => page.evaluate(() => window.__app.chart.isOpen && window.__app.chart.mode === "confirm");
+    const confirmText = () => page.evaluate(() => window.__app.chart.cfText);
+    const mod = "Control";
+
+    let l = await lay();
+    const n0 = await count();
+    // click thumb 1
+    const th = l.thumbs.find((t) => t[0] === 1);
+    await page.mouse.click(th[1] + 30, th[2] + 20);
+    await page.waitForTimeout(300);
+    check("strip has the keys", (await app("focusTarget")) === "strip", await app("focusTarget"));
+    await page.keyboard.press(`${mod}+c`);
+    await page.waitForTimeout(800);
+    const c1 = await clip();
+    check("Ctrl+C on the strip copies the slide as Sliqtly text", c1.startsWith("===== Sliqtly clipboard v1: 1 slide ====="), c1.slice(0, 200));
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("Ctrl+V on the strip asks first", await isConfirm(), await confirmText());
+    const md0 = await md();
+    await press("cf-ok");
+    await page.waitForTimeout(800);
+    check("the slide was pasted after the selected one", (await count()) === n0 + 1, `${n0} → ${await count()}`);
+    check("the new slide is selected", (await lay()).slide === 2, String((await lay()).slide));
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(800);
+    check("Ctrl+Z takes the paste back", (await md()) === md0 && (await count()) === n0, `${await count()}`);
+    await page.keyboard.press(`${mod}+y`);
+    await page.waitForTimeout(800);
+    check("Ctrl+Y puts it in again", (await count()) === n0 + 1);
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(500);
+
+    // a Mermaid diagram onto the slide
+    await setClip("flowchart LR\n  A[Idea] --> B[Slide]");
+    l = await lay();
+    await page.mouse.click(l.thumbs.find((t) => t[0] === 1)[1] + 30, l.thumbs.find((t) => t[0] === 1)[2] + 20);
+    await page.waitForTimeout(300);
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("a Mermaid diagram is asked about", await isConfirm(), await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(800);
+    const m1 = await md();
+    check("the diagram went onto slide 2 as a mermaid block", m1.includes("```mermaid\nflowchart LR\n  A[Idea] --> B[Slide]\n```") && (await count()) === n0, `${await count()}`);
+    await page.waitForTimeout(800);
+
+    // element copy: pick the diagram on slide 2, Ctrl+C
+    l = await lay();
+    await page.mouse.click(l.thumbs.find((t) => t[0] === 1)[1] + 30, l.thumbs.find((t) => t[0] === 1)[2] + 20);
+    await page.waitForTimeout(300);
+    await page.mouse.click(880, 500);
+    await page.waitForTimeout(500);
+    await page.keyboard.press(`${mod}+c`);
+    await page.waitForTimeout(800);
+    const e1 = await clip();
+    check("Ctrl+C on a picked diagram copies the element", e1.startsWith("===== Sliqtly clipboard v1: 1 element (diagram) =====") && e1.includes("```mermaid"), e1.slice(0, 300));
+    l = await lay();
+    const t4 = l.thumbs.find((t) => t[0] === 3);
+    await page.mouse.click(t4[1] + 30, t4[2] + 20);
+    await page.waitForTimeout(300);
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("an element is asked about", (await confirmText()) === "Add the diagram to slide 4?", await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(500);
+    const m2 = await md();
+    check("the element went onto slide 4", (m2.split("A[Idea] --> B[Slide]").length - 1) === 2 && (await count()) === n0);
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(500);
+
+    // the Markdown editor: the copied element's Markdown alone at the caret
+    await app("showTab", "md");
+    await page.evaluate(() => { const a = window.__app; a.setFocus("editor"); a.mdEditor.moveCaret(0, 0, false); });
+    await page.evaluate(() => document.getElementById("keys").focus());
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("the format in the editor is asked about", await isConfirm(), await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(500);
+    const m3 = await md();
+    check("…and its Markdown went in at the caret, no headers", m3.startsWith("```mermaid\nflowchart LR") && !m3.includes("Sliqtly clipboard"), m3.slice(0, 80));
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(500);
+    check("…and Ctrl+Z takes it out", (await md()).startsWith("---"), (await md()).slice(0, 40));
+
+    // a slide copied from another deck with styles and a picture
+    const png1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const png2 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+    const env = (png) => [
+      "===== Sliqtly clipboard v1: 1 slide =====", "from: Toinen esitys", "split-level: 2", "",
+      "----- slide 1: markdown -----", "## Liitetty {.iso}", "", "![logo](media/logo.png)", "",
+      "----- styles: css -----", ".iso { color: #e11; }", "h2 { color: lime; }", "",
+      `----- file: media/logo.png (image/png, base64) -----`, png, "", "===== end of Sliqtly clipboard =====", ""].join("\n");
+    await setClip(env(png1));
+    l = await lay();
+    await page.mouse.click(l.thumbs.find((t) => t[0] === 0)[1] + 30, l.thumbs.find((t) => t[0] === 0)[2] + 20);
+    await page.waitForTimeout(300);
+    const css0 = await app("themeCss");
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("a slide with styles and a file: the question says so", (await confirmText()).includes("1 style rule comes along") && (await confirmText()).includes("left out") && (await confirmText()).includes("1 file comes along"), await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(1000);
+    const css1 = await app("themeCss");
+    check("the new class's rule went to the theme, h2 did not", css1.includes(".iso { color: #e11; }") && !css1.includes("lime") && css1.includes("Pasted from Toinen esitys"), css1.slice(-200));
+    const files1 = await page.evaluate(() => window.__app.source().includes("![logo](media/logo.png)"));
+    check("the slide is in", files1 && (await count()) === n0 + 1);
+    // the same name with other bytes: replace or keep both
+    await setClip(env(png2));
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("2nd paste: question, the strip still has the keys", (await confirmText()).startsWith("Add 1 slide as slide 3?"), await confirmText());
+    check("…the style rule is here already", !(await confirmText()).includes("come along;"), await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(800);
+    check("a picture of the same name: asked to replace or keep both", (await confirmText()).includes("logo.png is already in this presentation"), await confirmText());
+    await press("cf-alt");
+    await page.waitForTimeout(1000);
+    const m4 = await md();
+    check("keep both: the pasted slide points at logo-2.png", m4.includes("![logo](media/logo-2.png)") && m4.includes("![logo](media/logo.png)"), "");
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(800);
+    check("undo: the 2nd slide out", !(await md()).includes("logo-2.png"));
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(800);
+    check("undo: the 1st paste out with its styles", (await count()) === n0 && (await app("themeCss")) === css0, (await app("themeCss")).slice(-120));
+
+    // Paste without formatting: Ctrl+Shift+V
+    await setClip(env(png1));
+    await page.keyboard.press(`${mod}+Shift+v`);
+    await page.waitForTimeout(800);
+    check("without formatting: no styles in the question", (await confirmText()).startsWith("Add 1 slide") && !(await confirmText()).includes("come along;"), await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(800);
+    check("without formatting: the theme as it was", (await app("themeCss")) === css0);
+    await page.keyboard.press(`${mod}+z`);
+    await page.waitForTimeout(500);
+
+    // the theme tab: the styles alone at the caret
+    await setClip(env(png1));
+    await app("showTab", "css");
+    await page.evaluate(() => { const a = window.__app; a.setFocus("editor"); a.cssEditor.moveCaret(0, 0, false); });
+    await page.evaluate(() => document.getElementById("keys").focus());
+    await page.keyboard.press(`${mod}+v`);
+    await page.waitForTimeout(800);
+    check("the theme tab: asked", (await confirmText()) === "Paste the copied styles at the caret?", await confirmText());
+    await press("cf-ok");
+    await page.waitForTimeout(500);
+    check("the theme tab: the styles alone at the top", (await app("themeCss")).startsWith(".iso { color: #e11; }\nh2 { color: lime; }\n/*"), (await app("themeCss")).slice(0, 80));
     await ctx.close();
   }
 

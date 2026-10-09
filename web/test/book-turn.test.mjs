@@ -2,7 +2,7 @@
 // turned by its corner (no GL: where every point of the leaf goes).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt, clampPointer, curl, bend, letGo, turnPath } from "../book.js";
+import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt, clampPointer, curl, bend, letGo, turnPath, leafMesh } from "../book.js";
 
 const W = 400;
 const H = 560;
@@ -101,4 +101,55 @@ test("a turn by itself starts at the corner and ends on the other side", () => {
   assert.ok(mid.y < H, "lifted on the way");
   const back = turnPath(W, H, 120, 400, 1, false, H);
   assert.ok(near(back.x, W) && near(back.y, H));
+});
+
+const area = (t) => Math.abs((t[1][3] - t[0][3]) * (t[2][4] - t[0][4]) - (t[2][3] - t[0][3]) * (t[1][4] - t[0][4])) / 2;
+const triangles = (m) => { const out = []; for (let i = 0; i < m.length; i += 3) out.push([m[i], m[i + 1], m[i + 2]]); return out; };
+// where a triangle's corners are on the page (u, v back to page units)
+const sOfVertex = (c, xa, v) => (xa + v[3] * W - c.px) * c.dx + (v[4] * H - c.py) * c.dy;
+
+test("the leaf: the whole page, cut along the fold, in the order it lies", () => {
+  for (const u of [0.2, 0.5, 0.8, 0.9, 0.95, 0.98, 0.995]) {
+    const q = turnPath(W, H, W, H, u, true, H);
+    const c = curl(W, H, q.x, q.y, W, H);
+    const tris = triangles(leafMesh(c, 0, W, H));
+    // the page, all of it once
+    const sum = tris.reduce((a, t) => a + area(t), 0);
+    assert.ok(near(sum, 1, 1e-6), `u=${u}: the page's area ${sum}`);
+    // drawn in the order of distance past the fold: what lies over comes later
+    let last = -Infinity;
+    for (const t of tris) {
+      const s = Math.min(...t.map((v) => sOfVertex(c, 0, v)));
+      assert.ok(s >= last - 1e-6, `u=${u}: a strip before one it lies on`);
+      last = s;
+    }
+    // the roll is cut finely however narrow it is: no triangle spans more
+    // of it than one step
+    const arc = Math.PI * c.R;
+    for (const t of tris) {
+      const s = t.map((v) => sOfVertex(c, 0, v));
+      const a = Math.max(0, Math.min(...s));
+      const b = Math.min(arc, Math.max(...s));
+      if (b > a) assert.ok(b - a <= arc / 24 + 1e-6, `u=${u}: a facet over ${b - a} of a roll of ${arc}`);
+    }
+  }
+});
+
+test("the leaf ending its turn: the rolled part rises with its distance past the fold", () => {
+  const q = turnPath(W, H, W, H, 0.97, true, H);
+  const c = curl(W, H, q.x, q.y, W, H);
+  assert.ok(c.R < W / 48, "by the end the roll is narrower than a cell of the old grid");
+  const vs = leafMesh(c, 0, W, H);
+  let s0 = -Infinity;
+  let z0 = -Infinity;
+  for (const v of [...vs].sort((a, b) => sOfVertex(c, 0, a) - sOfVertex(c, 0, b))) {
+    const s = sOfVertex(c, 0, v);
+    if (s > s0 + 1e-9) assert.ok(v[2] >= z0 - 1e-9, "higher further on");
+    s0 = s;
+    z0 = v[2];
+  }
+  // a left-hand page turned back is the mirror of it
+  const cb = curl(-W, H, -q.x, q.y, W, H);
+  const back = triangles(leafMesh(cb, -W, W, H));
+  assert.ok(near(back.reduce((a, t) => a + area(t), 0), 1, 1e-6));
 });

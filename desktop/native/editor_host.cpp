@@ -243,6 +243,16 @@ struct Host {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
   }
 
+  // A finger on the window itself (not a trackpad's, SDL_MOUSE_TOUCHID).
+  static bool touchScreen(SDL_TouchID id) {
+    if (id == SDL_MOUSE_TOUCHID) return false;
+#if SDL_VERSION_ATLEAST(2, 0, 10)
+    return SDL_GetTouchDeviceType(id) == SDL_TOUCH_DEVICE_DIRECT;
+#else
+    return true;
+#endif
+  }
+
   bool mod(Uint16 km) const { return (km & (KMOD_CTRL | KMOD_GUI)) != 0; }
 
   void setCursor(const std::string& css) {
@@ -613,7 +623,13 @@ struct Host {
       case SDL_FINGERMOTION:
       case SDL_FINGERUP: {
         // a finger is a press the app reads as a touch (web/main.js: setTouch,
-        // a wider drag slop); SDL's own mouse copy of it is ignored above
+        // a wider drag slop); SDL's own mouse copy of it is ignored above.
+        // Only a touch screen's fingers: a Mac trackpad reports its fingers
+        // too, at their place on the pad (not in the window), alongside the
+        // mouse events it already sends, so they would press and drag
+        // wherever the pad's position falls (a slide dragged on the strip
+        // landed in a gap the pad picked).
+        if (!touchScreen(ev.tfinger.touchId)) break;
         double x = ev.tfinger.x * W, y = ev.tfinger.y * H;
         if (ev.type == SDL_FINGERDOWN) {
           scroll->halt();

@@ -1,7 +1,7 @@
 // node --test: an SVG's size and the size it is drawn at (web/picture.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isSvg, isSmartArt, SMARTART_TYPE, svgLength, svgSize, svgSizedTo, rasterSize, SVG_RASTER } from "../picture.js";
+import { isSvg, isSmartArt, SMARTART_TYPE, svgLength, svgSize, svgSizedTo, rasterSize, SVG_RASTER, contentKey, pictureCache } from "../picture.js";
 
 test("an SVG is told by its type or its name", () => {
   assert.equal(isSvg("image/svg+xml", "x.bin"), true);
@@ -65,4 +65,67 @@ test("a SmartArt file is told apart, and is not a picture to decode", () => {
 
 test("a root that closes itself keeps its slash last", () => {
   assert.equal(svgSizedTo('<svg viewBox="0 0 20 10" />', 40, 20), '<svg viewBox="0 0 20 10" width="40" height="20"/>');
+});
+
+// a decoder that counts, its picture `px` pixels square
+function counting(px = 10) {
+  const calls = [];
+  const decode = async (bytes, type, path) => {
+    calls.push(path);
+    return { img: { width: px, height: px }, w: px, h: px, bytes, type };
+  };
+  return { calls, decode };
+}
+const bytesOf = (s) => new TextEncoder().encode(s).buffer;
+
+test("a file's key is what it holds", async () => {
+  assert.equal(await contentKey(bytesOf("abc")), await contentKey(new TextEncoder().encode("abc")));
+  assert.notEqual(await contentKey(bytesOf("abc")), await contentKey(bytesOf("abd")));
+});
+
+test("a picture is decoded once for every deck that has it", async () => {
+  const { calls, decode } = counting();
+  const kept = pictureCache(decode);
+  const a = await kept(bytesOf("png-1"), "image/png", "/media/a.png");
+  // the deck opened again, or another deck with the same file under another name
+  const b = await kept(bytesOf("png-1"), "image/png", "/media/b.png");
+  assert.equal(calls.length, 1);
+  assert.equal(a, b);
+  // the same name holding something else is decoded
+  await kept(bytesOf("png-2"), "image/png", "/media/a.png");
+  assert.equal(calls.length, 2);
+  // and the same bytes as an SVG are another picture than as a PNG
+  await kept(bytesOf("png-1"), "image/svg+xml", "/media/a.svg");
+  assert.equal(calls.length, 3);
+});
+
+test("two asks at once decode once", async () => {
+  const { calls, decode } = counting();
+  const kept = pictureCache(decode);
+  await Promise.all([kept(bytesOf("x"), "image/png", "/a.png"), kept(bytesOf("x"), "image/png", "/a.png")]);
+  assert.equal(calls.length, 1);
+});
+
+test("the least recently used go when the pixels pass the budget", async () => {
+  const { calls, decode } = counting(10);
+  const kept = pictureCache(decode, 250);
+  await kept(bytesOf("1"), "image/png", "/1.png");
+  await kept(bytesOf("2"), "image/png", "/2.png");
+  await kept(bytesOf("1"), "image/png", "/1.png");
+  // 300 px: "2", used least lately, goes
+  await kept(bytesOf("3"), "image/png", "/3.png");
+  assert.equal(calls.length, 3);
+  await kept(bytesOf("1"), "image/png", "/1.png");
+  assert.equal(calls.length, 3);
+  await kept(bytesOf("2"), "image/png", "/2.png");
+  assert.equal(calls.length, 4);
+});
+
+test("a picture that did not decode is tried again", async () => {
+  let n = 0;
+  const kept = pictureCache(async () => (++n === 1 ? { img: null, w: 0, h: 0 } : { img: { width: 1, height: 1 }, w: 1, h: 1 }));
+  assert.equal((await kept(bytesOf("x"), "image/png", "/a.png")).img, null);
+  assert.ok((await kept(bytesOf("x"), "image/png", "/a.png")).img);
+  const failing = pictureCache(async () => { throw new Error("broken"); });
+  await assert.rejects(failing(bytesOf("y"), "image/png", "/b.png"));
 });
