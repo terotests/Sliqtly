@@ -34,6 +34,7 @@ Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresClip.rgr"
 Import "PresNav.rgr"
+Import "PresStageClick.rgr"
 Import "PresBook.rgr"
 Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
@@ -4071,15 +4072,18 @@ class PresApp {
             return "stage"
         }
         if (slideRect.has(x y)) {
-            ; a double click on a chart opens its settings
+            ; a double click on a chart picks it and opens its settings
             if ((clicks == 2) && (this.openChartAt(x y))) {
+                this.pickAt(x y)
                 return "chart"
             }
             ; …and on a picture, the picture's
             if ((clicks == 2) && (this.openImageAt(x y))) {
+                this.pickAt(x y)
                 return "chart"
             }
             focus = "stage"
+            downClicks = clicks
             this.stageDown(x y)
             chromeRev = (chromeRev + 1)
             return "stage"
@@ -4132,6 +4136,8 @@ class PresApp {
         }
     }
     def tapDia:int -1
+    ; how many clicks the stage's press was (2 a double click)
+    def downClicks:int 1
 
     def dragSlop:double 6.0
     ; how far a finger moves sideways for a swipe to change the slide
@@ -4258,7 +4264,14 @@ class PresApp {
                 return
             }
             if (! (this.stagePress(downX downY))) {
-                this.next()
+                ; a link on the slide goes where it points; elsewhere on
+                ; it, the next step
+                def plink:string (this.linkUnder(downX downY))
+                if ((strlen plink) > 0) {
+                    push requests ("link:" + plink)
+                } {
+                    this.next()
+                }
             }
         } {
             if swiped {
@@ -4267,9 +4280,9 @@ class PresApp {
                 return
             }
             ; a diagram's or a table's own controls take the press first; the
-            ; block under it is picked all the same
+            ; click is the slide's all the same (PresStageClick)
             this.stagePress(downX downY)
-            this.pickAt(downX downY)
+            this.stageClick(downX downY)
         }
         chromeRev = (chromeRev + 1)
     }
@@ -4794,6 +4807,9 @@ class PresApp {
             if ((this.inkActive()) && (slideRect.has(x y))) {
                 return "none"
             }
+            if ((strlen (this.linkUnder(x y))) > 0) {
+                return "pointer"
+            }
             return "default"
         }
         ; the surface on top under the pointer says (the bar's open menu
@@ -4851,6 +4867,9 @@ class PresApp {
             }
         }
         if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
+            return "pointer"
+        }
+        if (((playing == false) && ((this.inkActive()) == false)) && ((strlen (this.linkUnder(x y))) > 0)) {
             return "pointer"
         }
         if (edRect.has(x y)) {
@@ -6329,6 +6348,77 @@ class PresApp {
         pick.markSet((this.themeCss()))
         pick.hoverOn = false
         chromeRev = (chromeRev + 1)
+    }
+
+    ; A click on the slide in the editor (PresStageClick): a double click
+    ; picks, a single one follows a link or lets the pick go.
+    fn stageClick:void (x:double y:double) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || ((slideRect.has(x y)) == false)) {
+            return
+        }
+        def link:string (this.linkUnder(x y))
+        def a:string (PresStageClick.action(downClicks touch link (this.onPickAt(x y))))
+        if (a == "follow") {
+            push requests ("link:" + link)
+            return
+        }
+        if (a == "pick") {
+            this.pickAt(x y)
+            return
+        }
+        if ((a == "drop") && pick.on) {
+            pick.clear()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; The link of the text under a point of the stage, "" for none.
+    fn linkUnder:string (x:double y:double) {
+        if (((deck.slideCount()) == 0) || ((slideRect.has(x y)) == false)) {
+            return ""
+        }
+        this.slidePoint(x y)
+        return (PresStageClick.linkAt((deck.layout()) selected spX spY))
+    }
+
+    ; The point is on the block picked now (a diagram as drawn).
+    fn onPickAt:boolean (x:double y:double) {
+        if ((this.pickValid()) == false) {
+            return false
+        }
+        this.slidePoint(x y)
+        def src:int -1
+        def dk:int (deck.diagramAt(selected spX spY))
+        if (dk >= 0) {
+            def ds:PresSlide (deck.slideAt(selected))
+            def u:PresDiaUse (itemAt ds.diagrams dk)
+            src = u.srcStart
+        } {
+            def l:MdLayout (deck.layout())
+            def k:int (PresSelect.boxAt(l selected spX spY))
+            if (k < 0) {
+                return (pick.sel == "page")
+            }
+            def b:MdBox (itemAt l.boxes k)
+            src = b.srcStart
+        }
+        return ((src >= pick.srcA) && (src <= pick.srcB))
+    }
+
+    ; The page follows a link after the double-click time: one to this
+    ; deck's own slide is followed here (true), the rest is the page's.
+    fn followLink:boolean (href:string) {
+        def k:int (PresStageClick.slideOf(deck href))
+        if (k < 0) {
+            return false
+        }
+        if (mode == "present") {
+            this.jump((PresNav.start(deck k)))
+        } {
+            this.selectSlide(k)
+        }
+        chromeRev = (chromeRev + 1)
+        return true
     }
 
     fn pickHover:void (x:double y:double) {

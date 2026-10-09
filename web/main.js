@@ -39,6 +39,7 @@ import { RoomChat, unreadRooms } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
+import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
@@ -3863,6 +3864,35 @@ async function openAbout() {
   if (app.openAbout(t("About"), lines.join("\n"))) needsPaint = true;
 }
 
+// A link on a slide (src/PresStageClick.rgr, web/stagelink.js): this deck's
+// own slide in the app; a Sliqtly presentation of one's own opens here, as
+// from the presentations window, someone else's in a new tab, as does any
+// other web address.
+let linkTimer = 0;
+async function followLink(href) {
+  if (app.followLink(href)) {
+    needsPaint = true;
+    return;
+  }
+  const to = linkTarget(href, location.origin, SITE);
+  if (!to) return;
+  if (to.deck) {
+    if (to.deck === doc.cloud) {
+      app.selectSlide(to.slide);
+      needsPaint = true;
+      return;
+    }
+    const opened = await loadingScreen(() => openOwnCloud(to.deck).catch((e) => { console.warn(e); return false; }));
+    if (opened) {
+      if (to.slide > 0) app.selectSlide(to.slide);
+      refreshFiles();
+      needsPaint = true;
+      return;
+    }
+  }
+  window.open(to.url, "_blank", "noopener");
+}
+
 function handleRequests() {
   for (;;) {
     const r = app.takeRequest();
@@ -3885,6 +3915,13 @@ function handleRequests() {
       refreshCollabBar();
     } else if (recRequest(r)) {
       // Record, Play recording, the voice (above)
+    } else if (r.startsWith("link:")) {
+      // a link clicked on the slide: followed once it is not the first click
+      // of a double click (which picks the block); presenting, at once
+      clearTimeout(linkTimer);
+      const href = r.slice(5);
+      const presenting = lastLayout && lastLayout.mode === "present";
+      linkTimer = setTimeout(() => followLink(href).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
     } else if (r.startsWith("click:")) {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
@@ -7100,6 +7137,9 @@ canvas.addEventListener("pointerdown", (ev) => {
     return;
   }
   const now = performance.now();
+  // the second click of a double click on a link: the block is picked, the
+  // link stays where it is
+  clearTimeout(linkTimer);
   const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < 40;
   clicks = now - lastDown < 400 && (!finger || near) ? clicks + 1 : 1;
   lastDown = now;

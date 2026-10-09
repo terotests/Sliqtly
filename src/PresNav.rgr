@@ -49,6 +49,25 @@ class PresNav {
         return at
     }
 
+    ; Slide i (held inside the deck) at its start: a link to it.
+    sfn start:PresNavAt (deck:PresDeck i:int) {
+        def at (new PresNavAt())
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return at
+        }
+        def k:int i
+        if (k < 0) {
+            k = 0
+        }
+        if (k > (n - 1)) {
+            k = (n - 1)
+        }
+        at.slide = k
+        at.clock = (PresTimeline.slideStart(deck k))
+        return at
+    }
+
     ; Slide i (held inside the deck) with everything on it shown.
     sfn whole:PresNavAt (deck:PresDeck i:int) {
         def at (new PresNavAt())

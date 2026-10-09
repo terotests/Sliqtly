@@ -1,0 +1,110 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresStageClick.rgr — what a click on the slide does in the editor
+; ============================================================================
+;
+; A single click reads the slide: a link under it is followed, a click
+; elsewhere lets the pick go (a click on the pick keeps it, so a picked
+; picture can still be dragged). A double click picks the block under it
+; and brings up its Edit content / Settings / Style tabs (PresSelect). A
+; finger has no double click to spare (a double tap zooms the slide), so a
+; tap picks as before, a link aside.
+;
+; A link is followed after the double-click time has passed (the page
+; waits, web/stagelink.js), so the first click of a double click on a link
+; does not leave the slide. `#heading`, `#slide=3` and `#3` are this
+; deck's own slides (`slideOf`); anything else is the page's to open: a
+; Sliqtly share opens that presentation, other addresses a new tab.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "../markdown/src/MdAnchor.rgr"
+
+class PresStageClick {
+
+    ; "follow" the link, "pick" the block, "keep" the pick, "drop" it
+    sfn action:string (clicks:int touch:boolean link:string onPick:boolean) {
+        if (clicks >= 2) {
+            return "pick"
+        }
+        if ((strlen link) > 0) {
+            return "follow"
+        }
+        if touch {
+            return "pick"
+        }
+        if onPick {
+            return "keep"
+        }
+        return "drop"
+    }
+
+    ; The link of the text under a point on page `pg` (slide units), "" when
+    ; there is none. A line's height around the text counts: a link is
+    ; thin to aim at.
+    sfn linkAt:string (l:MdLayout pg:int px:double py:double) {
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (((b.page == pg) && (b.kind == 0)) && ((strlen b.link) > 0)) {
+                if (((px >= (b.x - 1.0)) && (px <= ((b.x + b.w) + 1.0))) && ((py >= (b.y - 2.0)) && (py <= ((b.y + b.h) + 2.0)))) {
+                    return b.link
+                }
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; The slide of this deck a link goes to, -1 when it goes elsewhere:
+    ; `#slide=3` / `#3` by number, `#name` a slide's heading (its anchor,
+    ; MdAnchor) or id.
+    sfn slideOf:int (deck:PresDeck href:string) {
+        def n:int (deck.slideCount())
+        if (((strlen href) < 2) || ((substring href 0 1) != "#") || (n == 0)) {
+            return -1
+        }
+        def name:string (substring href 1 (strlen href))
+        if ((indexOf name "slide=") == 0) {
+            name = (substring name 6 (strlen name))
+        }
+        def k:int (PresStageClick.number(name n))
+        if (k >= 0) {
+            return k
+        }
+        def want:string (MdAnchor.slug(name))
+        def i:int 0
+        while (i < n) {
+            def s:PresSlide (deck.slideAt(i))
+            if ((s.id == name) || (((strlen want) > 0) && ((MdAnchor.slug(s.title)) == want))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; "3" → 2 when the deck has that slide, -1 otherwise (not a number, or
+    ; past the end: then it may be a heading's name)
+    sfn number:int (t:string n:int) {
+        def len:int (strlen t)
+        if ((len == 0) || (len > 6)) {
+            return -1
+        }
+        def v:int 0
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        if ((v < 1) || (v > n)) {
+            return -1
+        }
+        return (v - 1)
+    }
+}
