@@ -1,0 +1,130 @@
+/* ---------------------------------------------------------------------------
+   pearl.css — white paper with soft pastel light in two corners.
+
+   A light theme for business decks. The background is `deck { art: glow }`:
+   flat shapes drawn behind every slide from the `figure` colours, so the PDF
+   and the PowerPoint keep it as it is. A slide's own {art=off} leaves it
+   out. MdCss.rgr lists what the layout honours.
+   --------------------------------------------------------------------------- */
+
+/* The stage's charts and diagrams: `color` the series and the marks a chart
+   highlights, `accent-color` the grid, the axes and the other marks. */
+chart {
+  color: #4f46e5;
+  accent-color: #a5b4fc;
+  chart-style: flat;
+}
+
+diagram {
+  color: #4f46e5;
+  accent-color: #4f46e5;
+}
+
+/* The list layouts (```process, ```swot, ```timeline) and the background
+   art: the colours in order. */
+figure {
+  colors: #6366f1 #14b8a6 #f59e0b #ec4899;
+}
+
+container {
+  background-color: #f4f5ff;
+}
+
+page {
+  width: 13.333in;
+  height: 7.5in;
+  padding: 0.8in;
+  background-color: #ffffff;
+}
+
+deck {
+  split-level: 2;
+  overflow: split;
+  aspect-ratio: 16 / 9;
+  art: glow;
+}
+
+document {
+  font-family: Open Sans;
+  font-size: 18pt;
+  line-height: 1.4;
+  color: #1e2433;
+}
+
+heading {
+  font-family: Open Sans;
+  margin-top: 12pt;
+  margin-bottom: 16pt;
+  color: #312e81;
+}
+
+h1 {
+  font-size: 44pt;
+}
+
+h2 {
+  font-size: 32pt;
+}
+
+h3 {
+  font-size: 22pt;
+}
+
+p {
+  margin-bottom: 13pt;
+}
+
+a {
+  color: #4f46e5;
+}
+
+hr {
+  color: #dfe2f5;
+}
+
+list {
+  padding-left: 28pt;
+  margin-left: 10pt;
+}
+
+li {
+  margin-bottom: 8pt;
+}
+
+blockquote {
+  color: #4b5563;
+  border-color: #6366f1;
+  border-width: 4pt;
+  padding-left: 22pt;
+  padding-top: 8pt;
+}
+
+code {
+  font-family: Noto Sans;
+  font-size: 13pt;
+  line-height: 1.4;
+  padding: 12pt;
+  background-color: #f4f5ff;
+  border-color: #dfe2f5;
+}
+
+table {
+  border-color: #dfe2f5;
+  background-color: #f4f5ff;
+  padding-left: 10pt;
+  padding-top: 7pt;
+}
+
+.lead {
+  font-size: 23pt;
+}
+
+.c2 {
+  column-count: 2;
+  column-gap: 36pt;
+}
+
+.c3 {
+  column-count: 3;
+  column-gap: 28pt;
+}

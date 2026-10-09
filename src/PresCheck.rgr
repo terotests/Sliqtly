@@ -3,6 +3,7 @@
 Import "PresTimeline.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
+Import "PresThemeGallery.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresTerm.rgr"
@@ -258,6 +259,9 @@ class PresCheck {
         this.ok(((indexOf (PresFonts.note(o)) "heading { font-family") > 0) "fonts: h2 font-family points at heading")
         def plain:PresFontsOut (PresFonts.read("document { font-family: Open Sans } code { font-family: monospace }"))
         this.ok((((array_length plain.faces) == 0) && ((strlen (PresFonts.note(plain))) == 0)) "fonts: the faces every page has ask for nothing")
+        def fj:PresFontsOut (PresFonts.read("heading { font-family: Fjalla One; font-weight: normal }"))
+        this.ok((((array_length fj.faces) == 1) && ((itemAt fj.faces 0) == "Fjalla One")) "fonts: Fjalla One is one face, asked of the page alone")
+        this.ok(((array_length fj.unknown) == 0) "fonts: Fjalla One is a face Sliqtly has")
         def deck (new PresDeck())
         deck.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 } document { font-family: Lato }")
         this.ok(((indexOf deck.wantFaces "Lato-Italic") >= 0) ("fonts: a deck in Lato asks for its faces: " + deck.wantFaces))
@@ -1611,6 +1615,71 @@ class PresCheck {
         this.ok(((itemAt fs.colors 0) == "#ffa546") "the figure rule's colours")
         this.ok((fs.paper == "#0b1030") "the page's paper")
         this.ok((fs.ink == "#e8ecff") "the document's ink")
+        this.themeArt()
+        this.themeGallery()
+    }
+
+    ; The theme picker's tiles from the page's select rows, their groups and
+    ; pictures, and the sample slide each picture is drawn from.
+    fn themeGallery:void () {
+        def rows:string "pearl\tpearl\tLight\ncorporate\tcorporate\tLight\naurora\taurora\tDark\n\tDocument's own\n\t\n"
+        def tiles:[PresThemeTile] (PresThemeGallery.tiles(rows))
+        this.ok(((array_length tiles) == 4) ("four tiles (a row with no label is none), got " + (to_string (array_length tiles))))
+        def groups:[string] (PresThemeGallery.groups(tiles))
+        this.ok(((array_length groups) == 3) "groups: Light, Dark and none")
+        this.ok((((itemAt groups 0) == "Light") && ((itemAt groups 2) == "")) "groups in the order they come")
+        def light:[PresThemeTile] (PresThemeGallery.inGroup(tiles "Light"))
+        this.ok(((array_length light) == 2) "two light tiles")
+        def tabs:[string] (PresThemeGallery.tabs(tiles))
+        this.ok((((array_length tabs) == 2) && ((itemAt tabs 0) == "Light")) "tabs: the named groups only")
+        def first:[PresThemeTile] (PresThemeGallery.onTab(tiles "Light"))
+        this.ok((((array_length first) == 3) && ((itemAt first 2).key == "")) "the document's own goes last on the first tab")
+        def dark:[PresThemeTile] (PresThemeGallery.onTab(tiles "Dark"))
+        this.ok(((array_length dark) == 1) "one dark tile")
+        this.ok(((PresThemeGallery.tabOf(tiles "aurora")) == "Dark") "a theme opens its own tab")
+        this.ok(((PresThemeGallery.tabOf(tiles "")) == "Light") "the document's own opens the first tab")
+        this.ok(((PresThemeGallery.tabOf(tiles "gone")) == "Light") "an unknown theme opens the first tab")
+        this.ok(((PresThemeGallery.picture("pearl")) == "/__theme/pearl") "a theme's picture")
+        this.ok(((PresThemeGallery.keyOf((PresThemeGallery.picture("")))) == "") "the document's own picture names no theme")
+        this.ok(((PresThemeGallery.keyOf("/__theme/hive")) == "hive") "a picture's theme")
+        this.ok(((PresThemeGallery.isPicture("media/x.png")) == false) "a deck's picture is not a theme's")
+        def deck (new PresDeck())
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.8in; background-color: #ffffff } deck { split-level: 2; art: honeycomb } document { color: #1f2933 }"
+        deck.setStyleSheet(css)
+        deck.setText((PresThemeGallery.sample()))
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 1) ("the sample is one slide, got " + (to_string (deck.slideCount()))))
+        def l:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l "Annual review")) == 1) "the sample's title is drawn")
+        def art:FlowScene (deck.artScene((deck.slideAt(0)) 0))
+        this.ok(((array_length art.items) > 2) "and the theme's art behind it")
+    }
+
+    ; `deck { art: corners }`: the theme's art is drawn without PRO, a
+    ; slide's own {art=…} still is not, and {art=off} takes it away.
+    fn themeArt:void () {
+        def text:string "---\nslide-split-level: 2\n---\n\n## Yksi\n\nTeksti\n\n## Kaksi {art=waves}\n\nTeksti\n\n## Kolme {art=off}\n\nTeksti\n"
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.85in; background-color: #ffffff } deck { split-level: 2; art: corners } document { color: #1f2937 } figure { colors: #1d4ed8 #38bdf8 }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) ("three theme-art slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 3) {
+            return
+        }
+        def a0:FlowScene (deck.artScene((deck.slideAt(0)) 0))
+        this.ok(((array_length a0.items) > 2) "the theme's art is drawn without PRO")
+        this.ok(((deck.slideAt(0)).artTheme) "and is marked the theme's")
+        def a1:FlowScene (deck.artScene((deck.slideAt(1)) 1))
+        this.ok(((array_length a1.items) == 0) "a slide's own art is still PRO")
+        def a2:FlowScene (deck.artScene((deck.slideAt(2)) 2))
+        this.ok(((array_length a2.items) == 0) "{art=off} takes the theme's art away")
+        def l0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        this.ok(((PresCheck.texts(l0 "Teksti")) == 1) "the slide's text is drawn over it")
+        def notes:[string] (PresCssSupport.lines(css 12))
+        this.ok(((array_length notes) == 0) ("deck { art } is a rule the deck reads, notes: " + (to_string (array_length notes))))
     }
 
     ; A plain list with `{list-style=swot}`, or a theme's `#anchor list`

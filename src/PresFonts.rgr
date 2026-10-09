@@ -22,7 +22,13 @@ class PresFontsOut {
 class PresFonts {
     ; the families, as the layout names them
     sfn FAMILIES:[string] () {
-        return ([] _:string ("Open Sans" "Noto Sans" "Lato" "Droid Serif"))
+        return ([] _:string ("Open Sans" "Noto Sans" "Lato" "Droid Serif" "Fjalla One"))
+    }
+
+    ; a family with one face only (a condensed display face: no bold, no
+    ; italic of its own; the work themes' headings set it at normal weight)
+    sfn oneFace:boolean (family:string) {
+        return (family == "Fjalla One")
     }
 
     ; the ones every page loads; the others are fetched when a deck uses them
@@ -68,6 +74,12 @@ class PresFonts {
 
     sfn addFaces:void (out:PresFontsOut family:string) {
         if (PresFonts.loadedAlways(family)) {
+            return
+        }
+        if (PresFonts.oneFace(family)) {
+            if ((indexOf out.faces family) < 0) {
+                push out.faces family
+            }
             return
         }
         for ([] _:string ("" "-Bold" "-Italic" "-BoldItalic")) suffix:string si {
@@ -195,7 +207,7 @@ class PresFonts {
     sfn note:string (out:PresFontsOut) {
         def lines:[string]
         if ((array_length out.unknown) > 0) {
-            push lines ("font-family " + (join out.unknown ", ") + ": not a face Sliqtly has, so the text is set in another one. The faces are Open Sans, Noto Sans, Lato and Droid Serif; serif means Droid Serif and sans-serif Open Sans.")
+            push lines ("font-family " + (join out.unknown ", ") + ": not a face Sliqtly has, so the text is set in another one. The faces are Open Sans, Noto Sans, Lato, Droid Serif and Fjalla One (headings, one weight); serif means Droid Serif and sans-serif Open Sans.")
         }
         if ((array_length out.headingRules) > 0) {
             push lines ("font-family under " + (join out.headingRules ", ") + " is not read: a heading's face is set with heading { font-family: … } (all levels).")

@@ -28,7 +28,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -41,7 +40,11 @@ const (
 	// a page that has not said it is here for this long is not
 	chatHereFor = 75 * time.Second
 	// the people of a room (chat_people): one document per person per
-	// tenant, with the rooms they were seen in
+	// tenant, with the rooms they were seen in (rooms: room → when; in: the
+	// same rooms as a list, which a query asks for) and the rooms they have
+	// open now (here: room → when they last said so). Kept with the
+	// documents, not in the server's memory, so every instance of a cloud
+	// server tells the same.
 	chatPeopleCol = "chat_people"
 )
 
@@ -105,46 +108,6 @@ func isChatTool(name string) bool {
 		}
 	}
 	return false
-}
-
-// who is here: room → person → last said
-type chatPresence struct {
-	mu   sync.Mutex
-	seen map[string]map[string]time.Time
-}
-
-func (c *chatPresence) mark(room, who string, away bool, now time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.seen == nil {
-		c.seen = map[string]map[string]time.Time{}
-	}
-	r := c.seen[room]
-	if r == nil {
-		r = map[string]time.Time{}
-		c.seen[room] = r
-	}
-	if away {
-		delete(r, who)
-		return
-	}
-	r[who] = now
-}
-
-// the people here now, sorted
-func (c *chatPresence) here(room string, now time.Time) []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var out []string
-	for who, at := range c.seen[room] {
-		if now.Sub(at) <= chatHereFor {
-			out = append(out, who)
-		} else {
-			delete(c.seen[room], who)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 var (
@@ -260,8 +223,9 @@ type chatPerson struct {
 func (s *roomService) now() time.Time { return time.Now() }
 
 // remember who spoke or came in this room (their name, avatar and colour
-// as they are now, for @mentions and the member count)
-func (s *roomService) seePerson(ctx context.Context, tenant, room string, f store.ChatFrom, at time.Time) error {
+// as they are now, for @mentions and the member count); here: they have the
+// room's chat open now (chat_here), or, false, not any more; nil: as it was
+func (s *roomService) seePerson(ctx context.Context, tenant, room string, f store.ChatFrom, at time.Time, here *bool) error {
 	_, _, err := s.st.Privileged().Update(ctx, chatPeopleCol, tenant+"~"+f.ID, func(cur store.Doc, _ store.Rev) (store.Doc, error) {
 		if cur == nil {
 			cur = store.Doc{}
@@ -274,6 +238,24 @@ func (s *roomService) seePerson(ctx context.Context, tenant, room string, f stor
 		}
 		rooms[room] = at.UnixMilli()
 		cur["rooms"] = rooms
+		in := []any{}
+		for r := range rooms {
+			in = append(in, r)
+		}
+		sort.Slice(in, func(i, j int) bool { return in[i].(string) < in[j].(string) })
+		cur["in"] = in
+		if here != nil {
+			open, _ := cur["here"].(map[string]any)
+			if open == nil {
+				open = map[string]any{}
+			}
+			if *here {
+				open[room] = at.UnixMilli()
+			} else {
+				delete(open, room)
+			}
+			cur["here"] = open
+		}
 		return cur, nil
 	})
 	return err
@@ -281,14 +263,11 @@ func (s *roomService) seePerson(ctx context.Context, tenant, room string, f stor
 
 // the room's people, here first, then the latest seen
 func (s *roomService) people(ctx context.Context, tenant, room string) ([]chatPerson, error) {
-	items, err := s.st.Privileged().Query(ctx, store.Query{From: chatPeopleCol, Where: store.Eq("tenant", tenant)})
+	items, err := s.st.Privileged().Query(ctx, store.Query{From: chatPeopleCol, Where: store.And{store.Eq("tenant", tenant), store.Has("in", room)}})
 	if err != nil {
 		return nil, err
 	}
-	here := map[string]bool{}
-	for _, w := range s.presence.here(room, s.now()) {
-		here[w] = true
-	}
+	now := s.now().UnixMilli()
 	out := []chatPerson{}
 	for _, it := range items {
 		rooms, _ := it.Doc["rooms"].(map[string]any)
@@ -296,16 +275,33 @@ func (s *roomService) people(ctx context.Context, tenant, room string) ([]chatPe
 		if !ok {
 			continue
 		}
+		open, _ := it.Doc["here"].(map[string]any)
+		at, isOpen := open[room]
+		here := isOpen && now-millis(at) <= chatHereFor.Milliseconds()
 		str := func(k string) string { v, _ := it.Doc[k].(string); return v }
-		out = append(out, chatPerson{ID: str("id"), Name: str("name"), Kind: str("kind"), Avatar: str("avatar"), Color: str("color"), Here: here[str("id")], Seen: millis(seen)})
+		out = append(out, chatPerson{ID: str("id"), Name: str("name"), Kind: str("kind"), Avatar: str("avatar"), Color: str("color"), Here: here, Seen: millis(seen)})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Here != out[j].Here {
 			return out[i].Here
 		}
-		return out[i].Seen > out[j].Seen
+		if out[i].Seen != out[j].Seen {
+			return out[i].Seen > out[j].Seen
+		}
+		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// how many of them are here
+func hereCount(ps []chatPerson) int {
+	n := 0
+	for _, p := range ps {
+		if p.Here {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *roomService) tell(room string, v map[string]any) {
@@ -313,17 +309,6 @@ func (s *roomService) tell(room string, v map[string]any) {
 		v["room"] = room
 		s.notify(room, v)
 	}
-}
-
-func (s *roomService) tellHere(ctx context.Context, tenant, room string) {
-	if s.notify == nil {
-		return
-	}
-	ps, err := s.people(ctx, tenant, room)
-	if err != nil {
-		return
-	}
-	s.tell(room, map[string]any{"t": "here", "here": len(s.presence.here(room, s.now())), "people": ps})
 }
 
 func mentions(text, name string) bool {
@@ -391,7 +376,7 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 		title, _ := d["title"].(string)
 		about, _ := d["description"].(string)
 		out := map[string]any{
-			"room":     map[string]any{"room_id": room, "title": title, "description": about, "here": len(s.presence.here(room, s.now())), "members": len(ps), "archived": d["archived"] == true},
+			"room":     map[string]any{"room_id": room, "title": title, "description": about, "here": hereCount(ps), "members": len(ps), "archived": d["archived"] == true},
 			"messages": s.outMsgs(ms),
 			"last_seq": last,
 			"people":   ps,
@@ -449,7 +434,7 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 		if err != nil {
 			return nil, err
 		}
-		if err := s.seePerson(ctx, tenant, room, from, time.UnixMilli(m.At)); err != nil {
+		if err := s.seePerson(ctx, tenant, room, from, time.UnixMilli(m.At), nil); err != nil {
 			return nil, err
 		}
 		s.tellMsg(ctx, tenant, room, m, edit == "")
@@ -520,20 +505,21 @@ func (s *roomService) runChat(ctx context.Context, p store.Principal, via, op st
 			return nil, err
 		}
 		away := argBool(a, "away", false)
-		before := len(s.presence.here(room, s.now()))
-		s.presence.mark(room, from.ID, away, s.now())
-		if !away {
-			if err := s.seePerson(ctx, tenant, room, from, s.now()); err != nil {
-				return nil, err
-			}
-		}
-		here := len(s.presence.here(room, s.now()))
-		if here != before || away {
-			s.tellHere(ctx, tenant, room)
-		}
 		ps, err := s.people(ctx, tenant, room)
 		if err != nil {
 			return nil, err
+		}
+		before := hereCount(ps)
+		open := !away
+		if err := s.seePerson(ctx, tenant, room, from, s.now(), &open); err != nil {
+			return nil, err
+		}
+		if ps, err = s.people(ctx, tenant, room); err != nil {
+			return nil, err
+		}
+		here := hereCount(ps)
+		if here != before || away {
+			s.tell(room, map[string]any{"t": "here", "here": here, "people": ps})
 		}
 		last, err := s.chat.Last(ctx, tenant, room)
 		if err != nil {

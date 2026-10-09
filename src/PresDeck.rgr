@@ -151,6 +151,9 @@ class PresSlide {
     ; default, so two slides with waves are not the same picture)
     def art:string ""
     def artSeed:int -1
+    ; the art is the theme's (`deck { art: honeycomb }`): part of how the
+    ; theme looks, drawn for everyone; art named in the document is PRO
+    def artTheme:boolean false
     def fxNames:[string]
     def fxValues:[string]
     def notes:string ""
@@ -3029,6 +3032,16 @@ class PresDeck {
             s.fx = dFx
             s.art = dArt
             s.artSeed = dArtSeed
+            if ((strlen dArt) == 0) {
+                def tArt:string (trim (this.themeRule("deck" "art")))
+                if (((strlen tArt) > 0) && (tArt != "none")) {
+                    s.art = tArt
+                    s.artTheme = true
+                    if (dArtSeed < 0) {
+                        s.artSeed = (to_int (PresDeck.num((this.themeRule("deck" "art-seed")) -1.0)))
+                    }
+                }
+            }
             s.stepGap = dStep
             s.hold = dHold
             ; the template's effect, with its own parameters; not over a picture
@@ -3188,6 +3201,7 @@ class PresDeck {
         }
         if (h.hasAttr("art")) {
             s.art = (h.attrValue("art"))
+            s.artTheme = false
             if (s.art == "off") {
                 s.art = ""
             }
@@ -3602,9 +3616,10 @@ class PresDeck {
     }
 
     ; The slide's line art (`{art=waves}`), over its picture and under the
-    ; content, or nothing when it has none or art is not allowed (not PRO).
+    ; content, or nothing when it has none or art is not allowed (not PRO;
+    ; the theme's own art is always drawn).
     fn artScene:FlowScene (s:PresSlide i:int) {
-        if (((strlen s.art) == 0) || (artAllowed == false)) {
+        if (((strlen s.art) == 0) || ((artAllowed == false) && (s.artTheme == false))) {
             def none (new FlowScene)
             return none
         }

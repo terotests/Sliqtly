@@ -25,7 +25,7 @@ class PresCssSupport {
         ; PresDeck.figureStyle
         s.addElement("figure" "color,accent-color,colors,card-background,box-shadow,font-size" "list figures (list-style: process, swot, timeline, cards, stats)")
         ; PresDeck.setTheme: the theme's effect
-        s.addElement("deck" "fx,fx-*,warm,accent" "")
+        s.addElement("deck" "fx,fx-*,warm,accent,art,art-seed" "")
         ; `#anchor chart { font-size }`: the charts under one heading
         s.readsUnderScope("chart")
         return s

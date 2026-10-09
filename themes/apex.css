@@ -1,0 +1,130 @@
+/* ---------------------------------------------------------------------------
+   apex.css — white paper with blue accent triangles and quarter circles in the corners.
+
+   A light theme for business decks. The background is `deck { art: corners }`:
+   flat shapes drawn behind every slide from the `figure` colours, so the PDF
+   and the PowerPoint keep it as it is. A slide's own {art=off} leaves it
+   out. MdCss.rgr lists what the layout honours.
+   --------------------------------------------------------------------------- */
+
+/* The stage's charts and diagrams: `color` the series and the marks a chart
+   highlights, `accent-color` the grid, the axes and the other marks. */
+chart {
+  color: #1d4ed8;
+  accent-color: #93c5fd;
+  chart-style: flat;
+}
+
+diagram {
+  color: #1d4ed8;
+  accent-color: #1d4ed8;
+}
+
+/* The list layouts (```process, ```swot, ```timeline) and the background
+   art: the colours in order. */
+figure {
+  colors: #1d4ed8 #38bdf8 #0f172a #60a5fa;
+}
+
+container {
+  background-color: #eff5ff;
+}
+
+page {
+  width: 13.333in;
+  height: 7.5in;
+  padding: 0.9in;
+  background-color: #ffffff;
+}
+
+deck {
+  split-level: 2;
+  overflow: split;
+  aspect-ratio: 16 / 9;
+  art: corners;
+}
+
+document {
+  font-family: Open Sans;
+  font-size: 18pt;
+  line-height: 1.4;
+  color: #1b2433;
+}
+
+heading {
+  font-family: Open Sans;
+  margin-top: 12pt;
+  margin-bottom: 16pt;
+  color: #0b2a6f;
+}
+
+h1 {
+  font-size: 44pt;
+}
+
+h2 {
+  font-size: 32pt;
+}
+
+h3 {
+  font-size: 22pt;
+}
+
+p {
+  margin-bottom: 13pt;
+}
+
+a {
+  color: #1d4ed8;
+}
+
+hr {
+  color: #d6e2f5;
+}
+
+list {
+  padding-left: 28pt;
+  margin-left: 10pt;
+}
+
+li {
+  margin-bottom: 8pt;
+}
+
+blockquote {
+  color: #4b5563;
+  border-color: #1d4ed8;
+  border-width: 4pt;
+  padding-left: 22pt;
+  padding-top: 8pt;
+}
+
+code {
+  font-family: Noto Sans;
+  font-size: 13pt;
+  line-height: 1.4;
+  padding: 12pt;
+  background-color: #eff5ff;
+  border-color: #d6e2f5;
+}
+
+table {
+  border-color: #d6e2f5;
+  background-color: #eff5ff;
+  padding-left: 10pt;
+  padding-top: 7pt;
+}
+
+.lead {
+  font-size: 23pt;
+}
+
+.c2 {
+  column-count: 2;
+  column-gap: 36pt;
+}
+
+.c3 {
+  column-count: 3;
+  column-gap: 28pt;
+}

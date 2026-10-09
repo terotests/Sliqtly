@@ -32,3 +32,9 @@ test("the row is kept for the tab of the browser, and an empty one is not", () =
   assert.equal(readDeckTabs(null), "");
   assert.equal(readDeckTabs({ getItem: () => { throw new Error("blocked"); } }), "");
 });
+
+test("deckKey byCloud: a deck in the cloud is keyed by its share", () => {
+  assert.equal(deckKey({ persisted: true, id: "d1", cloud: "S1" }, true), "cloud:S1");
+  assert.equal(deckKey({ persisted: true, id: "d1", cloud: "S1" }), "d1");
+  assert.equal(deckKey({ persisted: true, id: "d1" }, true), "d1");
+});

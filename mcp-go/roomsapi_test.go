@@ -77,7 +77,7 @@ func TestRoomTools(t *testing.T) {
 	// members: the last owner stays
 	ok("set_room_member", map[string]any{"room_id": room, "member": "user:bob", "role": "editor"})
 	bad("set_room_member", map[string]any{"room_id": room, "member": "user:local", "role": ""}, `one owner`)
-	bad("set_room_member", map[string]any{"room_id": room, "member": "bob", "role": "editor"}, `neither user: nor group:`)
+	bad("set_room_member", map[string]any{"room_id": room, "member": "bob", "role": "editor"}, `neither user:, group: nor email:`)
 
 	// archived: read only, and listed only when asked
 	ok("archive_room", map[string]any{"room_id": room})
