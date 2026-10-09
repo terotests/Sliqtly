@@ -1195,8 +1195,9 @@ class PresToolbar {
             def add:ButtonCtl (this.iconButton(("roomadd-" + id) (PresI18n.t("New presentation in this room")) "ghost" "M12 5v14M5 12h14" rel))
             UiTree.addClass((unwrap add.rootEl) "tb-roomgear")
         }
-        ; a room made here: its settings (name, archive, delete) at the end
-        if ((PresToolbar.builtInRoom(id)) == false) {
+        ; its settings at the end: a room made here its name, archive and
+        ; delete; every room but Onboarding clearing its presentations
+        if (id != "onboarding") {
             def gear:ButtonCtl (this.iconButton(("roomgear-" + id) (PresI18n.t("Room settings")) "ghost" (PresToolbar.railIcon("gear")) rel))
             UiTree.addClass((unwrap gear.rootEl) "tb-roomgear")
         }

@@ -2892,6 +2892,20 @@ try {
       press(find("tb-room-close"));
       for (const k of Object.keys(localStorage)) if (k.startsWith("sliqtly.rooms")) localStorage.removeItem(k);
     }, findJs);
+    // General's gear: no name to change, Clear asks first and takes this
+    // browser's copies out of it, the open presentation kept
+    await R(`t("tb-rail-rooms");`);
+    await pageHas("tb-room-general");
+    const countOf = (id) => window.__app.toolbar.roomRows.split("\n").map((l) => l.split("\t")).find((x) => x[0] === id)?.[2] || "";
+    const genBefore = await rp.evaluate(countOf, "general");
+    await R(`t("tb-roomgear-general");`);
+    const builtin = await until(() => { const ch = window.__app.chart; return ch.isOpen && ch.ndAsk === "room" && ch.rmState === "builtin"; });
+    await R(`c("rm-clear");`);
+    const clearAsked = await until(() => window.__app.chart.isOpen && window.__app.chart.cfKey === "roomclear:general");
+    await R(`c("cf-ok");`);
+    const cleared = await until((f) => new Function("return " + f)()("general") === "1", countOf.toString());
+    check("…General's gear: Clear asks, then takes the room's presentations out of this browser, the open one kept", builtin && clearAsked && cleared && Number(genBefore) > 1,
+      JSON.stringify({ genBefore, builtin, clearAsked, now: await rp.evaluate(countOf, "general") }));
     await rctx.close();
 
     // the File menu's groups: new | open | save | the assistants | settings, lines between them
