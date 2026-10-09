@@ -183,3 +183,47 @@ func TestViewBook(t *testing.T) {
 		t.Fatal("a deck of slides has no book")
 	}
 }
+
+// A deck's own effect (```fx, src/FxLang.rgr): the viewer is sent the shader
+// the deck's compiler wrote, and a block that does not compile is a warning
+// with its line, not an effect
+func TestViewDeckEffects(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Effects\n\n```fx\neffect embers source {\n  param heat = 0.6 [0, 1]\n  output = rgba(#ff3d00, heat)\n}\n```\n\n## Hot {fx=embers}\n\nText\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Fx", "markdown": md, "visibility": "link"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	code, _, _, body := getView(t, s.root+"/api/view/"+id)
+	eq(t, code, 200)
+	var v struct {
+		Effects []struct {
+			Name, Layer, Frag string
+			Params            map[string]float64
+		} `json:"effects"`
+	}
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, len(v.Effects), 1)
+	eq(t, v.Effects[0].Name, "embers")
+	eq(t, v.Effects[0].Layer, "source")
+	eq(t, v.Effects[0].Params["heat"], 0.6)
+	if !strings.Contains(v.Effects[0].Frag, "vec4 fxColor(vec2 p, vec2 local)") || !strings.Contains(v.Effects[0].Frag, "clamp(p_heat, 0.0, 1.0)") {
+		t.Fatalf("frag: %s", v.Effects[0].Frag)
+	}
+	if strings.Contains(body, "effect embers") {
+		t.Fatal("the block's text is on a slide")
+	}
+
+	bad := call(t, s, "create_presentation", map[string]any{"title": "Bad", "markdown": "# A\n\n```fx\neffect x source {\n  output = nope\n}\n```\n"})
+	if bad.IsError {
+		t.Fatal(textOf(bad))
+	}
+	if !strings.Contains(textOf(bad), "line 5: 'nope' has no value here") {
+		t.Fatalf("no warning: %s", textOf(bad))
+	}
+}

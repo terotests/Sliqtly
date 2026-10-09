@@ -1434,5 +1434,7 @@
   "Type a state's name; a nested one as parent › child.": "Kirjoita tilan nimi; sisäkkäinen muodossa ylätila › alatila.",
   "New state": "Uusi tila",
   "Type the state the transition leaves and the state it goes to.": "Kirjoita tila, josta siirtymä lähtee, ja tila, johon se menee.",
-  "Type the event that starts the transition.": "Kirjoita tapahtuma, joka käynnistää siirtymän."
+  "Type the event that starts the transition.": "Kirjoita tapahtuma, joka käynnistää siirtymän.",
+  "Effect": "Efekti",
+  "Effect: ": "Efekti: "
 }

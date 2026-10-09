@@ -284,6 +284,52 @@ hold: 2.5               # seconds after the last step
 - `render_slide` and `render_overview` do not draw effects; the player
   does.
 
+## Own effects (```fx)
+
+A deck can define its own effect in a ```fx block anywhere in the
+Markdown (it draws nothing where it is written); a theme can carry the same
+text as `@effect …`. A slide uses it like a built-in one.
+
+````markdown
+```fx
+effect embers source {
+  param speed = 1 [0, 5]     // name = default [min, max], a number
+  param heat = 0.6 [0, 1]
+  still = 3                  // seconds a still (thumbnail, PDF, PPTX) shows
+  fallback = #1a0a04         // the colour under the effect
+
+  n = fbm(uv * vec2(4, 6) + vec2(0, time * 0.4 * speed), 5)
+  glow = smoothstep(1 - heat, 1, n + (1 - uv.y) * 0.35)
+  output = rgba(mix(#ff3d00, #ffd54f, glow), glow)
+}
+```
+
+## Hot {fx=embers fx-heat=0.75}
+````
+
+- `effect <name> <layer> { … }`: the name is lowercase letters, digits and
+  dashes, not a built-in effect's. Layers: `source` paints the slide's
+  background (the text over it; `output`'s alpha is how much shows),
+  `backdrop` rewrites the finished slide (read it with `source(uv)`),
+  `filter` the same for an element.
+- The body is assignments, one per line, each name set once, ending in
+  `output = <vec3 or vec4 colour>`. No loops or functions of one's own.
+- Inputs: `uv` (vec2, 0..1, y down), `p` (page pixels), `size` (vec2),
+  `time` (seconds on screen), `edge` (pixels to the edge, negative
+  inside), `PI`.
+- Values: numbers, `#rrggbb` / `#rrggbbaa` colours, `vec2(…)`, `vec3(…)`,
+  `vec4(…)`, `.x .xy .rgb` parts, `+ - * /`, comparisons only inside
+  `select(a < b, x, y)`.
+- Functions: `sin cos tan asin acos atan abs floor ceil fract sqrt exp log
+  sign normalize min max mod pow step clamp mix smoothstep length distance
+  dot`, and `hash(v2)`, `noise(v2)`, `fbm(v2, octaves 1..8)`,
+  `voronoi(v2)`, `rotate(v2, degrees)`, `hsv(hue°, s, v)`,
+  `rgba(colour, alpha)`, `source(uv)` (backdrop and filter only).
+- A body has a cost per pixel; too many noises or octaves is refused.
+  Errors name the line and come back in the check's warnings.
+- A shared deck shows these effects to its viewers; raw shader code is not
+  accepted.
+
 <!-- topic: text -->
 # Topic: text
 
