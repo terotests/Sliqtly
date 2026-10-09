@@ -2835,6 +2835,22 @@ try {
     await R(`c("cf-ok");`);
     const deleted = await until(() => { try { const s = window.__keptRooms(); return !s.rooms.some((r) => r.title === "Team room") && Object.keys(s.placed).length === 0; } catch (_) { return false; } });
     check("…a room's gear opens its settings: Archive hides it (search finds it), Delete asks and moves its decks to General", settings && archived && foundArchived && delAsked && deleted, JSON.stringify({ settings, archived, foundArchived, delAsked, deleted }));
+    // the search finds presentations by their words, not their syntax (the
+    // deck kept here says "teksti"; "fx-hue" is only in its
+    // headings' {attributes}); pressed, one opens
+    await R(`t("tb-roomsearch"); a.text("teksti");`);
+    const foundDeck = await until(() => window.__app.toolbar.roomFound.includes("teksti"));
+    const foundRow = await rp.evaluate(() => window.__app.toolbar.roomFound);
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("fx-hue");`);
+    await rp.waitForTimeout(800);
+    const syntaxNotFound = await rp.evaluate(() => window.__app.toolbar.roomFound === "");
+    await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("teksti");`);
+    await until(() => window.__app.toolbar.roomFound.length > 0);
+    await R(`t("tb-found-" + a.toolbar.roomFound.split("\\t")[0]);`);
+    // open: the search closed, its room open with the deck as its open row
+    const foundOpened = await until(() => { const tb = window.__app.toolbar; return tb.roomFound === "" && tb.roomOpen === "general" && tb.roomDecks.split("\n").some((l) => l.split("\t")[2] === "1"); });
+    await rp.waitForTimeout(500);
+    check("…the rooms' search finds presentations by their words (not {attributes}), with the text around them, and opens one", foundDeck && syntaxNotFound && foundOpened, JSON.stringify({ foundRow, syntaxNotFound, foundOpened }));
     // "+ Add new presentation" under a room: File → New's window, and the
     // deck it makes is in that room
     await R(`t("tb-room-playground");`);
