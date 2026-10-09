@@ -11,10 +11,29 @@ rules_version = '2';
 // edits with (mcp-go/). No rule matches them, so only the Admin SDK reads or writes them.
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
 // rule either.
+// licenses/{uid}: what the editor at /editor lets a signed-in user change
+// (mcp-go/editor.go): written by the server and by the owner in the console,
+// read by its user. A share is created or changed from a page only under
+// its owner's license: maxDocs -1, or the share's id in `docs`, and
+// `editUntil` not passed. Reading and deleting are never limited: a license
+// that ends stops changes, it takes nothing away. The MCP server writes with
+// the Admin SDK and is not held by these rules.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function visibility(data) { return data.get('visibility', 'link'); }
+    function licensePath() { return /databases/$(database)/documents/licenses/$(request.auth.uid); }
+    function editRight(shareId) {
+      let l = get(licensePath()).data;
+      return (l.get('editUntil', null) == null || request.time < l.editUntil)
+          && (l.get('maxDocs', 0) < 0 || shareId in l.get('docs', []));
+    }
+    function licensed(shareId) { return exists(licensePath()) && editRight(shareId); }
+    // only who reads it: allowed without a license, so a deck can still be
+    // made private
+    function visibilityOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility']);
+    }
 
     match /decks/{deckId} {
       allow read, delete: if signedIn() && resource.data.owner == request.auth.uid;
@@ -29,11 +48,17 @@ service cloud.firestore {
                  || (signedIn() && resource.data.owner == request.auth.uid);
       allow list: if signedIn() && resource.data.owner == request.auth.uid;
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid
-                    && visibility(request.resource.data) in ['private', 'link'];
+                    && visibility(request.resource.data) in ['private', 'link']
+                    && licensed(shareId);
       allow update: if signedIn() && resource.data.owner == request.auth.uid
                     && request.resource.data.owner == request.auth.uid
-                    && visibility(request.resource.data) in ['private', 'link'];
+                    && visibility(request.resource.data) in ['private', 'link']
+                    && (visibilityOnly() || licensed(shareId));
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    match /licenses/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
     }
   }
 }

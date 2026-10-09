@@ -215,6 +215,13 @@ func main() {
 			kind = "cloud"
 			e.Quota = dailyQuota(e.DB, 50, 500, time.Now)
 			e.Renders = dailyRenders(e.DB, 100, 500, time.Now)
+			// the editor at /editor, for signed-in people (editor.go), when
+			// the binary has it built in
+			e.EditorGate = newEditorGate(webFiles(*web), e.DB, e.VerifyIDToken, splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")))
+			if e.EditorGate != nil {
+				e.Editor = true
+				kind += ", editor at /editor"
+			}
 		} else {
 			e.TrustHost = true
 		}

@@ -28,6 +28,94 @@ const pro = document.getElementById("pro");
 let user = null;
 let ready = null;
 
+// --- sliqtly.com/editor --------------------------------------------------------------
+// The server sent this page to a signed-in user (mcp-go/editor.go), and says
+// who and under which license in <meta name="sliqtly-editor">; elsewhere
+// (a server of one's own, the checks) there is no such tag and none of this
+// applies. The sign-in the server checks is a cookie holding the user's ID
+// token, an hour long: this page sends a fresh one whenever Firebase renews
+// it. Signed out here, or another account here, the page goes back through
+// the sign-in page.
+const gate = (() => {
+  try { return JSON.parse(document.querySelector('meta[name="sliqtly-editor"]')?.content || "null"); } catch (_) { return null; }
+})();
+let license = gate?.license || null;
+let licenseAt = Date.now();
+// the sign-in page's guard against a loop: in, so cleared
+try { sessionStorage.removeItem("sliqtly:editor-entered"); } catch (_) { /* none */ }
+
+function gateCall(op, body) {
+  return fetch("/editor/api/" + op, body === undefined
+    ? { cache: "no-store" }
+    : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+function keepLicense(out) {
+  if (out?.license) {
+    license = out.license;
+    licenseAt = Date.now();
+    show();
+  }
+}
+
+let renewedAt = 0;
+async function renewSession(u) {
+  const res = await gateCall("session", { idToken: await u.getIdToken() });
+  renewedAt = Date.now();
+  if (res.ok) keepLicense(await res.json().catch(() => null));
+}
+
+let leaving = false;
+function gateUser(u) {
+  if (!gate || leaving) return;
+  if (!u) {
+    leaving = true;
+    gateCall("signout", {}).finally(() => location.reload());
+  } else if (u.uid !== gate.uid) {
+    leaving = true;
+    renewSession(u).finally(() => location.reload());
+  }
+}
+
+function gateTokens(a) {
+  if (!gate) return;
+  a.onIdTokenChanged((u) => {
+    if (u && u.uid === gate.uid && !leaving) renewSession(u).catch((e) => console.warn("sign-in not renewed", e));
+  });
+  // a renewal before the hour is up, also after the tab slept
+  const renew = () => {
+    if (a.currentUser && Date.now() - renewedAt > 40 * 60000) a.currentUser.getIdToken(true).catch(() => {});
+  };
+  setInterval(renew, 5 * 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) renew(); });
+}
+
+function noRight(why) {
+  const text = why === "expired"
+    ? t("Your license to edit has ended. Your presentations stay yours: you can open, present and export them. Changes are kept in this browser only.")
+    : t("Your license lets you edit {n} presentations in the cloud. Changes to this one are kept in this browser only.").replace("{n}", String(license?.maxDocs ?? 2));
+  return Object.assign(new Error(text), { code: "no-edit-right" });
+}
+
+// The license lets this page change share `id` (taking it under the
+// license when there is room), or throws with code "no-edit-right". The
+// rules check the same (firestore.rules); this only says so first.
+async function editRight(id, again = true) {
+  if (!gate) return;
+  const fresh = Date.now() - licenseAt < 60000;
+  if (license?.canEdit && (license.maxDocs < 0 || license.docs.includes(id))) return;
+  if (fresh && license && !license.canEdit) throw noRight("expired");
+  if (fresh && license && license.maxDocs >= 0 && license.docs.length >= license.maxDocs) throw noRight("full");
+  const res = await gateCall("claim", { id });
+  const out = await res.json().catch(() => ({}));
+  keepLicense(out);
+  if (res.status === 401 && again && user) {
+    await renewSession(user);
+    return editRight(id, false);
+  }
+  if (!res.ok) throw out.code === "no-edit-right" ? noRight(out.why) : new Error(out.error || "HTTP " + res.status);
+}
+
 // An AI assistant's preview (mcp-go/assets/preview.html) may load scripts only
 // from blob: URLs, and gives the page its own loader for that.
 function load(src) {
@@ -74,8 +162,10 @@ function auth() {
     a.onAuthStateChanged((u) => {
       user = u;
       show();
+      gateUser(u);
       window.dispatchEvent(new Event("sliqtly:user"));
     });
+    gateTokens(a);
     authNow = a;
     return a;
   })();
@@ -86,7 +176,16 @@ function show() {
   const first = (user?.displayName || user?.email || "").split(/[\s@]/)[0];
   // signed out it asks to sign in: a bare "PRO" read as being signed in
   pro.textContent = user ? `PRO · ${first}` : t("Sign in");
-  pro.title = user ? t("Signed in as ") + (user.displayName || user.email) : t("Sign in with Google");
+  pro.title = user ? t("Signed in as ") + (user.displayName || user.email) + licenseNote() : t("Sign in with Google");
+}
+
+// the license, after who is signed in: " · Trial: 1 / 2 presentations"
+function licenseNote() {
+  if (!license) return "";
+  const plan = license.plan ? license.plan[0].toUpperCase() + license.plan.slice(1) : "";
+  if (!license.canEdit) return " · " + plan + ": " + t("editing has ended");
+  if (license.maxDocs < 0) return " · " + plan;
+  return " · " + plan + ": " + t("{n} / {max} presentations").replace("{n}", String(license.docs.length)).replace("{max}", String(license.maxDocs));
 }
 
 // --- sign-in on phones -------------------------------------------------------------
@@ -203,8 +302,9 @@ async function share(deck, made) {
   const fb = globalThis.firebase;
   const now = fb.firestore.FieldValue.serverTimestamp();
   const body = { name: deck.name, md: deck.md, theme: deck.theme || "", css: deck.css ?? null };
-  await db.collection("decks").doc(deck.deckId).set({ ...body, owner: user.uid, updated: now }, { merge: true });
   const id = shortId();
+  await editRight(id);
+  await db.collection("decks").doc(deck.deckId).set({ ...body, owner: user.uid, updated: now }, { merge: true });
   const doc = db.collection("shares").doc(id);
   // the copy first: Storage lets only the owner it names write its files
   await doc.set({ ...body, owner: user.uid, visibility: "link", deck: deck.deckId, files: [], created: now });
@@ -288,6 +388,7 @@ function signedIn() {
 const elsewhere = (msg) => Object.assign(new Error(msg), { code: "changed-elsewhere" });
 async function saveShare(id, deck, since) {
   if (!user) throw new Error("not signed in");
+  await editRight(id);
   const { db, files } = await store();
   const ref = db.collection("shares").doc(id);
   const check = (snap) => {
@@ -357,6 +458,7 @@ async function deleteShare(id) {
 // list on another device).
 async function putObject(shareId, objId, bytes) {
   if (!user) throw new Error("not signed in");
+  await editRight(shareId);
   const { files } = await store();
   await files.ref(`shares/${shareId}/.versions/${objId}`).put(new Blob([bytes]), { contentType: "application/octet-stream" });
 }
@@ -380,6 +482,7 @@ async function getObject(shareId, objId) {
 const LOG_MAX = 300;
 async function pushHead(shareId, expect, head, entries) {
   if (!user) throw new Error("not signed in");
+  await editRight(shareId);
   const { db } = await store();
   const ref = db.collection("shares").doc(shareId);
   return db.runTransaction(async (tx) => {
@@ -516,5 +619,5 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 window.dispatchEvent(new Event("sliqtly:ready"));

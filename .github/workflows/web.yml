@@ -37,6 +37,10 @@ jobs:
         run: node scripts/check.mjs
       - name: Check the sample decks load cleanly
         run: node scripts/check-samples.mjs
+      # sliqtly.com/editor: the editor under /editor/ for a signed-in user,
+      # its saves under the license (mcp-go/editor.go)
+      - name: Check the editor at /editor
+        run: node scripts/check-editor.mjs
       # The public site is the viewer's build (firebase.json "public"): the
       # front page and /s/{id} painted from the server's display lists, no
       # editor and no engine. Opened in Chrome like the samples above.

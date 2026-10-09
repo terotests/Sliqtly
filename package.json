@@ -19,7 +19,8 @@
     "check:call": "node scripts/check-call.mjs",
     "i18n": "node scripts/i18n.mjs",
     "check:samples": "node scripts/check-samples.mjs",
-    "check:view": "node scripts/check-view.mjs"
+    "check:view": "node scripts/check-view.mjs",
+    "check:editor": "node scripts/check-editor.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.0",

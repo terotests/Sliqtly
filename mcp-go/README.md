@@ -583,6 +583,29 @@ needs Cloud Datastore User and Storage Object Admin on `sliqtly`; verifying
 Google ID tokens needs no role. The page's own Deploy (Hosting) needs the
 service to exist, since its rewrites point at it.
 
+### The editor at sliqtly.com/editor
+
+The public site is the viewer; the editor (web/dist, built into the image)
+comes only from this service, at `/editor`, and only to a request carrying a
+Google sign-in (editor.go). Anyone else gets a sign-in page with none of the
+editor's code. Sign-in is Google's by redirect, no popup; the sign-in is the
+`__session` cookie (the one cookie Hosting passes to Cloud Run), holding the
+page's Firebase ID token, which the page renews before its hour is up.
+Responses are `private`: the CDN keeps none. `/s/{id}?edit` on the site
+redirects to `/editor/s/{id}?edit`.
+
+Licenses are `licenses/{uid}` in Firestore, made at the first visit as a
+Trial: `plan: "trial"`, `maxDocs: 2`, `docs: []`, with the user's `email`.
+The owner changes them in the Firebase console: `maxDocs` (−1 = no limit),
+`plan` (a name shown to the user), `editUntil` (a timestamp; after it nothing
+is changed in the cloud). The accounts in `SLIQTLY_ADMIN_EMAILS` have no
+limit. A presentation is taken under the license (`docs`) when it is first
+saved to the cloud, while there is room; firestore.rules lets a page create or
+change a share only under its owner's license. Reading, presenting, exporting,
+making private and deleting are never limited: a license that ends takes
+nothing away. The MCP server writes with the Admin SDK and is not limited by
+licenses.
+
 ### The owner's dashboard
 
 `sliqtly.com/main/admin` (web/admin.html, linked from nowhere) shows, per UTC
