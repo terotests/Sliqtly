@@ -16,6 +16,7 @@
 // What anything MEANS is PresApp.rgr's.
 
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
+import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { accountStorage } from "./account.js";
@@ -176,6 +177,7 @@ const SAMPLES = {
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
   mallit: sample("mallit", "Layouts: steps, SWOT, timeline", "Asettelut: vaiheet, SWOT, aikajana"),
   tyonkulku: sample("tyonkulku", "Workflows: XState statecharts", "Työnkulut: XState-tilakaaviot"),
+  efektit: sample("efektit", "Effects of your own: ```fx", "Omat efektit: ```fx"),
   // the newest themes and features, on Nebula
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   // programs on slides (```app), with their files (samples/pelit/apps/…)
@@ -3074,7 +3076,18 @@ function withTime(doc, t) {
 // rest two seconds in, as they always were.
 const FX_STILL_T = { drops: 30, raindrops2: 30 };
 function atRest(doc) {
-  return withTime(doc, (e) => FX_STILL_T[e.kind] ?? 2.0);
+  syncDeckEffects();
+  return withTime(doc, (e) => FX_STILL_T[e.kind] ?? deckEffectStill(e.kind) ?? 2.0);
+}
+
+// The deck's own effects (```fx, the theme's @effect), registered with the
+// painter before anything that may draw them (web/fxdeck.js).
+function syncDeckEffects() {
+  try {
+    registerDeckEffects(app.deckEffectsJson());
+  } catch (e) {
+    console.warn("deck effects", e);
+  }
 }
 
 // --- a realistic book, presented ------------------------------------------------
@@ -3223,6 +3236,7 @@ function paintOnce() {
   errEl.textContent = "";
   const layout = JSON.parse(app.layoutJson());
   lastLayout = layout;
+  syncDeckEffects();
   liveSheets.sync(layout);
   if (layout.rev !== thumbRev) {
     dropThumbs();

@@ -139,6 +139,92 @@ class PresCheck {
         this.helpGuide()
         this.fonts()
         this.cssNotes()
+        this.fxLang()
+        this.fxDeck()
+    }
+
+    ; A deck's own effect, compiled (FxLang): the IR, the shader text and
+    ; what is refused.
+    fn fxLang:void () {
+        def src:string "effect embers source {\n  param speed = 1 [0, 5]\n  still = 3\n  fallback = #2a0f05\n  n = fbm(uv * 6 + vec2(0, -time * speed), 5)\n  output = rgba(mix(#ff3d00, #ffd54f, n), n)\n}\n"
+        def c:FxLang (FxLang.compile(src 1))
+        this.ok(((array_length c.errors) == 0) ("fx: compiles, got " + (to_string (array_length c.errors))))
+        if ((array_length c.effects) != 1) {
+            this.ok(false "fx: one effect")
+            return
+        }
+        def e:FxEffect (itemAt c.effects 0)
+        this.ok((e.name == "embers") "fx: name")
+        this.ok((e.layer == "source") "fx: layer")
+        this.ok((e.still == 3.0) "fx: still")
+        this.ok((e.fallback == "#2a0f05") "fx: fallback")
+        this.ok(((array_length e.params) == 1) "fx: one parameter")
+        def g:string (e.glsl())
+        this.ok(((indexOf g "clamp(p_speed, 0.0, 5.0)") > 0) "fx: a parameter is clamped to its range")
+        this.ok(((indexOf g "float fxl_fbm5(vec2 q)") >= 0) "fx: fbm with its octaves")
+        this.ok(((indexOf g "fxl_voronoi") < 0) "fx: only the library it uses")
+        this.ok(((indexOf g "vec4 fxColor(vec2 p, vec2 local)") > 0) "fx: the plugin's function")
+        this.ok(((indexOf (c.json()) "\"params\":{\"speed\":1.0}") > 0) "fx: json params")
+        ; dashes in the name, a filter reading the surface, a swizzle
+        def f:FxLang (FxLang.compile("effect warm-glass backdrop {\n  c = source(uv + vec2(sin(uv.y * 20 + time) * 0.01, 0))\n  output = vec4(c.rgb * vec3(1.1, 1, 0.9), 1)\n}" 1))
+        this.ok(((array_length f.errors) == 0) ("fx: backdrop compiles " + (PresCheck.firstOf(f.errors))))
+        def bad:[string] ([] _:string ("effect a source {\n  output = vec3(1)\n  x = 1\n}" "effect drops source {\n  output = vec3(1)\n}" "effect a source {\n  x = y\n  output = vec3(x)\n}" "effect a source {\n  c = source(uv)\n  output = c\n}" "effect a source {\n  output = fbm(uv, 9)\n}" "effect a source {\n  n = fbm(uv,8) + fbm(uv*2,8) + fbm(uv*3,8) + fbm(uv*4,8) + fbm(uv*5,8) + fbm(uv*6,8) + fbm(uv*7,8)\n  output = vec3(n)\n}" "effect a source {\n  output = vec2(1, 2)\n}" "effect a source {\n  param s = 2 [0, 1]\n  output = vec3(s)\n}" "effect a source {\n  x = uv.xr\n  output = vec3(1)\n}" "effect a transition {\n  output = vec3(1)\n}" "effect a source {\n  output = vec3(1) + vec2(1)\n}"))
+        def bi:int 0
+        while (bi < (array_length bad)) {
+            def bc:FxLang (FxLang.compile((itemAt bad bi) 1))
+            this.ok((((array_length bc.errors) > 0) && ((array_length bc.effects) == 0)) ("fx: refused #" + (to_string bi)))
+            bi = (bi + 1)
+        }
+        ; the error's line is the line in the text it came from
+        def lined:FxLang (FxLang.compile("effect a source {\n  x = 1\n  y = nope\n  output = vec3(x)\n}" 10))
+        this.ok(((array_length lined.errorLines) == 1) "fx: one error")
+        if ((array_length lined.errorLines) == 1) {
+            this.ok(((itemAt lined.errorLines 0) == 12) ("fx: error on line 12, got " + (to_string (itemAt lined.errorLines 0))))
+        }
+        this.ok(((FxLang.numText(0.6)) == "0.6") "fx: number text")
+        this.ok(((FxLang.numText(-2.0)) == "-2.0") "fx: negative number text")
+    }
+
+    sfn firstOf:string (xs:[string]) {
+        if ((array_length xs) == 0) {
+            return ""
+        }
+        return (itemAt xs 0)
+    }
+
+    ; ```fx in the deck and @effect in the theme: masked out of the slides,
+    ; compiled, and the slide's `fx=` reaches them.
+    fn fxDeck:void () {
+        def text:string "---\ntitle: T\n---\n\n```fx\neffect embers source {\n  fallback = #2a0f05\n  output = vec3(uv, 0.5)\n}\n```\n\n## Eka {fx=embers}\n\nteksti\n\n## Toka {fx=glass}\n\nlisää\n"
+        def deck (new PresDeck())
+        deck.setStyleSheet("page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }\n@effect glass backdrop {\n  output = source(uv)\n}\n@effect embers source {\n  output = vec3(1)\n}\nh2 { color: #123456 }")
+        deck.setText(text)
+        this.ok(((array_length deck.fx.errors) == 0) ("fx deck: no errors " + (PresCheck.firstOf(deck.fx.errors))))
+        this.ok(((array_length deck.fx.effects) == 2) ("fx deck: the deck's and the theme's, got " + (to_string (array_length deck.fx.effects))))
+        def own@(optional):FxEffect (deck.ownEffect("embers"))
+        if (!null? own) {
+            this.ok((own.fallback == "#2a0f05") "fx deck: the deck's embers wins over the theme's")
+        } {
+            this.ok(false "fx deck: embers")
+        }
+        this.ok(((indexOf deck.src.masked "effect embers") < 0) "fx deck: the block is masked out of the slides")
+        this.ok(((strlen deck.src.masked) == (strlen text)) "fx deck: masking keeps the length")
+        this.ok(((deck.slideCount()) == 2) ("fx deck: two slides, got " + (to_string (deck.slideCount()))))
+        this.ok(((indexOf deck.themeFx "@effect glass") >= 0) "fx deck: the theme's block")
+        this.ok(((indexOf (join deck.cssNotes "\n") "effect") < 0) ("fx deck: the CSS notes say nothing of @effect: " + (join deck.cssNotes " | ")))
+        this.ok(((deck.fxOnTop("glass")) == true) "fx deck: a backdrop goes over the slide")
+        this.ok(((deck.fxOnTop("embers")) == false) "fx deck: a source goes under it")
+        def fr:EVGDisplayList (PresTimeline.frame(deck 0 1.0))
+        this.ok(((PresCheck.texts(fr "effect")) == 0) "fx deck: the effect's text is not on a slide")
+        this.ok(((array_length fr.fxIds) == 1) "fx deck: slide 1 has the effect")
+        ; an error points at the editor's line
+        def d2 (new PresDeck())
+        d2.setText("## A\n\n```fx\neffect x source {\n  output = nope\n}\n```\n")
+        this.ok(((array_length d2.fx.errorLines) == 1) "fx deck: one error")
+        if ((array_length d2.fx.errorLines) == 1) {
+            this.ok(((itemAt d2.fx.errorLines 0) == 5) ("fx deck: on line 5, got " + (to_string (itemAt d2.fx.errorLines 0))))
+        }
+        this.ok(((array_length (d2.fxNotes())) == 1) "fx deck: a note for the report")
     }
 
     ; A theme line the slides do not use is said, with where it is; the

@@ -17,6 +17,10 @@
 ;
 ; What a block said is kept here, with where it started, so the deck can give
 ; it to the slide it sits under.
+;
+; A ```fx fence is the deck's too: an effect the deck defines (FxLang), which
+; draws nothing where it is written. It is masked the same way, kind "fx",
+; and its body is the effect's text.
 ; ============================================================================
 
 class PresBlock {
@@ -30,6 +34,10 @@ class PresBlock {
     def start:int 0
     ; offset just past the closing fence's line (or the end of the text)
     def end:int 0
+    ; the line the body starts on, counted from 1
+    def bodyLine:int 1
+    ; a ```fx block's fence (``` or ~~~): its closing line starts with it
+    def fence:string ""
 }
 
 class PresSource {
@@ -80,6 +88,32 @@ class PresSource {
         return (t == ":::")
     }
 
+    ; ```fx or ~~~fx (the word may be followed by attributes): the fence,
+    ; or "" when the line opens no effect block.
+    sfn fxFence:string (t:string) {
+        if ((strlen t) < 5) {
+            return ""
+        }
+        def head:string (substring t 0 3)
+        if ((head != "```") && (head != "~~~")) {
+            return ""
+        }
+        def rest:string (trim (substring t 3 (strlen t)))
+        if ((strlen rest) < 2) {
+            return ""
+        }
+        if ((substring rest 0 2) != "fx") {
+            return ""
+        }
+        if ((strlen rest) > 2) {
+            def c:int (charAt rest 2)
+            if (((c != 32) && (c != 9)) && (c != 123)) {
+                return ""
+            }
+        }
+        return head
+    }
+
     ; Spaces for every character in [a, b) that is not a newline.
     sfn blank:string (text:string a:int b:int) {
         def out:string ""
@@ -111,6 +145,7 @@ class PresSource {
         def bodyStart:int 0
         ; inside a ``` fence nothing is a block
         def inFence:boolean false
+        def lineNo:int 1
         while (lineStart < n) {
             def nl:int lineStart
             while ((nl < n) && ((charAt text nl) != 10)) {
@@ -121,47 +156,74 @@ class PresSource {
                 next = (next + 1)
             }
             def line:string (trim (substring text lineStart nl))
-            if (null? open) {
-                if ((strlen line) >= 3) {
-                    def head:string (substring line 0 3)
-                    if ((head == "```") || (head == "~~~")) {
-                        inFence = (! inFence)
-                    }
-                }
-                if (! inFence) {
-                    def word:string (PresSource.openingWord(line))
-                    if (PresSource.isDeckBlock(word)) {
-                        def b (new PresBlock())
-                        b.kind = word
-                        b.args = (PresSource.openingArgs(line))
-                        b.start = lineStart
-                        open = b
-                        bodyStart = next
-                    }
-                }
+            def fxAt:string ""
+            if ((null? open) && (inFence == false)) {
+                fxAt = (PresSource.fxFence(line))
+            }
+            if ((strlen fxAt) > 0) {
+                def fb (new PresBlock())
+                fb.kind = "fx"
+                fb.fence = fxAt
+                fb.start = lineStart
+                fb.bodyLine = (lineNo + 1)
+                open = fb
+                bodyStart = next
             } {
-                if (PresSource.isClosing(line)) {
-                    def ob:PresBlock (unwrap open)
-                    def body:string ""
-                    if (lineStart > bodyStart) {
-                        body = (substring text bodyStart lineStart)
+                if (null? open) {
+                    if ((strlen line) >= 3) {
+                        def head:string (substring line 0 3)
+                        if ((head == "```") || (head == "~~~")) {
+                            inFence = (! inFence)
+                        }
                     }
-                    ob.body = (trim body)
-                    ob.end = next
-                    push blocks ob
-                    out = (out + (substring text copied ob.start) + (PresSource.blank(text ob.start next)))
-                    copied = next
-                    def none@(optional):PresBlock
-                    open = none
+                    if (! inFence) {
+                        def word:string (PresSource.openingWord(line))
+                        if (PresSource.isDeckBlock(word)) {
+                            def b (new PresBlock())
+                            b.kind = word
+                            b.args = (PresSource.openingArgs(line))
+                            b.start = lineStart
+                            b.bodyLine = (lineNo + 1)
+                            open = b
+                            bodyStart = next
+                        }
+                    }
+                } {
+                    def cur:PresBlock (unwrap open)
+                    def closes:boolean (PresSource.isClosing(line))
+                    if ((strlen cur.fence) > 0) {
+                        closes = (line == cur.fence)
+                    }
+                    if closes {
+                        def ob:PresBlock (unwrap open)
+                        def body:string ""
+                        if (lineStart > bodyStart) {
+                            body = (substring text bodyStart lineStart)
+                        }
+                        ob.body = body
+                        if ((strlen ob.fence) == 0) {
+                            ob.body = (trim body)
+                        }
+                        ob.end = next
+                        push blocks ob
+                        out = (out + (substring text copied ob.start) + (PresSource.blank(text ob.start next)))
+                        copied = next
+                        def none@(optional):PresBlock
+                        open = none
+                    }
                 }
             }
             lineStart = next
+            lineNo = (lineNo + 1)
         }
         ; An unclosed block runs to the end of the text, the way an unclosed
         ; code fence does.
         if (!null? open) {
             def ob2:PresBlock (unwrap open)
-            ob2.body = (trim (substring text bodyStart n))
+            ob2.body = (substring text bodyStart n)
+            if ((strlen ob2.fence) == 0) {
+                ob2.body = (trim ob2.body)
+            }
             ob2.end = n
             push blocks ob2
             out = (out + (substring text copied ob2.start) + (PresSource.blank(text ob2.start n)))

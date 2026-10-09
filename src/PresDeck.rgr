@@ -33,6 +33,7 @@ Import "PresFonts.rgr"
 Import "PresCssSupport.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
+Import "FxLang.rgr"
 Import "PresDiagram.rgr"
 Import "PresChart.rgr"
 Import "PresTable.rgr"
@@ -1942,7 +1943,8 @@ class PresDeck {
     }
 
     fn setStyleSheet:void (css:string) {
-        this.lintCss(css)
+        ; the lint reads the CSS only, its `@effect` blocks blanked
+        this.lintCss((this.takeEffects(css)))
         def own:string (this.useFonts(css))
         this.setTheme(own)
         md.edit.setStyleSheet(own)
@@ -1953,7 +1955,10 @@ class PresDeck {
     ; every page asked of it, and a line on what could not be had.
     def fontNote:string ""
 
-    fn useFonts:string (css:string) {
+    fn useFonts:string (css0:string) {
+        ; the theme's own effects (`@effect … { … }`) are not CSS: lifted out
+        ; here, where every way a theme arrives passes (FxLang)
+        def css:string (this.takeEffects(css0))
         def f:PresFontsOut (PresFonts.read(css))
         fontNote = (PresFonts.note(f))
         for f.faces face:string fi {
@@ -1991,6 +1996,138 @@ class PresDeck {
 
     ; The theme's CSS as it was given, read again when the medium changes.
     def themeCss:string ""
+
+    ; ------------------------------------------------------------------
+    ; The deck's own effects (FxLang): ```fx blocks in the text and
+    ; `@effect` blocks in the theme, compiled on every rebuild. A deck's
+    ; block wins over the theme's of the same name.
+    ; ------------------------------------------------------------------
+    def fx:FxLang (new FxLang())
+    ; the theme's effect text: the CSS with all but its `@effect` blocks
+    ; blanked, so a line in it is the line in the theme
+    def themeFx:string ""
+
+    ; The CSS with its `@effect … { … }` blocks blanked (newlines kept, so
+    ; every line and offset stays where the editor has it); the blocks go to
+    ; `themeFx`.
+    fn takeEffects:string (css:string) {
+        def n:int (strlen css)
+        def keep:string ""
+        def fxOut:string ""
+        def copied:int 0
+        def i:int 0
+        def any:boolean false
+        while (i < n) {
+            def c:int (charAt css i)
+            ; a comment is skipped whole
+            if (((c == 47) && ((i + 1) < n)) && ((charAt css (i + 1)) == 42)) {
+                def close:int (indexOf (substring css (i + 2) n) "*/")
+                if (close < 0) {
+                    i = n
+                } {
+                    i = ((i + 4) + close)
+                }
+                continue
+            }
+            if ((c == 64) && (((i + 7) <= n) && ((substring css i (i + 7)) == "@effect"))) {
+                ; to the brace that closes the block
+                def j:int i
+                while ((j < n) && ((charAt css j) != 123)) {
+                    j = (j + 1)
+                }
+                def depth:int 0
+                while (j < n) {
+                    def cj:int (charAt css j)
+                    if (cj == 123) {
+                        depth = (depth + 1)
+                    }
+                    if (cj == 125) {
+                        depth = (depth - 1)
+                        if (depth == 0) {
+                            j = (j + 1)
+                            break
+                        }
+                    }
+                    j = (j + 1)
+                }
+                keep = ((keep + (substring css copied i)) + (PresSource.blank(css i j)))
+                fxOut = ((fxOut + (PresSource.blank(css copied i))) + (substring css i j))
+                copied = j
+                i = j
+                any = true
+                continue
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            themeFx = ""
+            return css
+        }
+        keep = (keep + (substring css copied n))
+        themeFx = fxOut
+        return keep
+    }
+
+    fn compileFx:void () {
+        def c (new FxLang())
+        def k:int 0
+        while (k < (array_length src.blocks)) {
+            def blk:PresBlock (itemAt src.blocks k)
+            if (blk.kind == "fx") {
+                c.run(blk.body blk.bodyLine)
+            }
+            k = (k + 1)
+        }
+        def deckErrors:int (array_length c.errors)
+        if ((strlen themeFx) > 0) {
+            c.themeFrom = deckErrors
+            c.keepFirst = true
+            c.run(themeFx 1)
+        }
+        fx = c
+        fxJsonText = ""
+    }
+
+    ; The deck's own effect of that name, if it has one.
+    fn ownEffect@(optional):FxEffect (name:string) {
+        def i:int 0
+        while (i < (array_length fx.effects)) {
+            def e:FxEffect (itemAt fx.effects i)
+            if (e.name == name) {
+                def r@(optional):FxEffect e
+                return r
+            }
+            i = (i + 1)
+        }
+        def none@(optional):FxEffect
+        return none
+    }
+
+    ; The deck's effects for the page to register (FxLang.json), made once
+    ; per compile.
+    def fxJsonText:string ""
+
+    fn effectsJson:string () {
+        if ((strlen fxJsonText) == 0) {
+            fxJsonText = (fx.json())
+        }
+        return fxJsonText
+    }
+
+    ; What is wrong in the deck's effects, a line each, for the report.
+    fn fxNotes:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length fx.errors)) {
+            def where:string "In a ```fx block, "
+            if (i >= fx.themeFrom) {
+                where = "In the theme's @effect, "
+            }
+            push out (where + (itemAt fx.errors i) + ".")
+            i = (i + 1)
+        }
+        return out
+    }
 
     fn setTheme:void (css:string) {
         themeCss = css
@@ -2951,6 +3088,7 @@ class PresDeck {
             return
         }
         src.read(text)
+        this.compileFx()
         ; the tables, masked into charts of their own (PresTable)
         def k0:int 0
         while (k0 < (array_length tables)) {
@@ -3752,7 +3890,7 @@ class PresDeck {
                 push groupOfCmd -1
             }
         }
-        if ((((strlen s.fx) > 0) && ((PresDeck.fxOnTop(s.fx)) == false)) && (useStill == false)) {
+        if ((((strlen s.fx) > 0) && ((this.fxOnTop(s.fx)) == false)) && (useStill == false)) {
             this.addFx(out s (PresDeck.fxPaper(s paper)))
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
@@ -3913,7 +4051,7 @@ class PresDeck {
         ; An effect that refracts what is behind it goes over the finished
         ; slide, with no background of its own: under the content it read the
         ; bare paper and the slide was then painted over it, so nothing showed.
-        if ((((strlen s.fx) > 0) && (PresDeck.fxOnTop(s.fx))) && (useStill == false)) {
+        if ((((strlen s.fx) > 0) && (this.fxOnTop(s.fx))) && (useStill == false)) {
             this.addFx(out s "")
             while ((array_length groupOfCmd) < (array_length out.cmds)) {
                 push groupOfCmd -1
@@ -4348,7 +4486,7 @@ class PresDeck {
         painter.paperAt(out l (l.pictureOf(i)) 0.0 0.0 pageW pageH)
         this.slideBackground(out l s paper)
         if ((strlen s.fx) > 0) {
-            if (PresDeck.fxOnTop(s.fx)) {
+            if (this.fxOnTop(s.fx)) {
                 this.addFx(out s "")
             } {
                 this.addFx(out s (PresDeck.fxPaper(s paper)))
@@ -4359,7 +4497,11 @@ class PresDeck {
 
     ; The effects that read the page under them (a `backdrop` layer in the
     ; WebGL painter) rather than paint a picture of their own.
-    sfn fxOnTop:boolean (fx:string) {
+    fn fxOnTop:boolean (fx:string) {
+        def own@(optional):FxEffect (this.ownEffect(fx))
+        if (!null? own) {
+            return (own.layer != "source")
+        }
         return ((((fx == "liquid-glass") || (fx == "raindrop")) || (fx == "bubbles")) || (fx == "drops")) || (fx == "raindrops2")
     }
 
@@ -4377,7 +4519,16 @@ class PresDeck {
     ; the same `evg-surface-effect` CSS the rest of EVG reads, laid out and
     ; built into commands. Its id is the slide's so two slides on screen at
     ; once (a transition) keep two instances apart.
-    fn addFx:void (out:EVGDisplayList s:PresSlide paper:string) {
+    fn addFx:void (out:EVGDisplayList s:PresSlide paper0:string) {
+        def paper:string paper0
+        ; a deck's own effect paints over its `fallback` colour, which is
+        ; also all that shows where no GPU draws it
+        def own@(optional):FxEffect (this.ownEffect(s.fx))
+        if (!null? own) {
+            if (((strlen own.fallback) > 0) && ((strlen paper0) > 0)) {
+                paper = own.fallback
+            }
+        }
         def css:string (".pres-fx { evg-surface-effect: " + s.fx + "; evg-effect-on: always;")
         if ((strlen paper) > 0) {
             css = (".pres-fx { background-color: " + paper + "; evg-surface-effect: " + s.fx + "; evg-effect-on: always;")

@@ -1460,5 +1460,7 @@
   "{n} people are in this room besides you.": "Huoneessa on sinun lisäksesi {n} ihmistä.",
   "Could not save who is in the room: ": "Huoneen jäseniä ei voitu tallentaa: ",
   "Invite people to this room (its ⚙ → Invite people…) to talk with them here.": "Kutsu ihmisiä tähän huoneeseen (sen ⚙ → Kutsu ihmisiä…), niin voitte keskustella täällä.",
-  "Files in the chat work on a Sliqtly server of your own for now.": "Tiedostot chatissa toimivat toistaiseksi vain omalla Sliqtly-palvelimella."
+  "Files in the chat work on a Sliqtly server of your own for now.": "Tiedostot chatissa toimivat toistaiseksi vain omalla Sliqtly-palvelimella.",
+  "Effect": "Efekti",
+  "Effect: ": "Efekti: "
 }
