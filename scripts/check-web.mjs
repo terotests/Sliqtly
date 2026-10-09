@@ -1684,11 +1684,14 @@ try {
     const st = JSON.parse(a.layoutJson()).stage;
     const im = JSON.parse(a.stageJson()).list.cmds.find((c) => c.k === 2 && String(c.src || "").includes("liitetty"));
     if (!im) return { none: true };
-    a.pointerDown(st[0] + (im.x + im.w / 2) * st[2], st[1] + (im.y + im.h / 2) * st[2], false, 1);
+    { const [px, py] = [st[0] + (im.x + im.w / 2) * st[2], st[1] + (im.y + im.h / 2) * st[2]]; a.pointerDown(px, py, false, 1); a.pointerUp(); a.pointerDown(px, py, false, 2); }
     a.pointerUp();
+    // the double click picked it and opened its settings, as before
+    const opened = a.chartIsOpen();
+    a.closeChart();
     a.pickJson();
     const p = a.pick;
-    const out = { picked: p.on && p.sel === "img" };
+    const out = { picked: p.on && p.sel === "img", opened };
     const ex = p.ox + p.ow - 3, ey = p.oy + p.oh / 2;
     out.cursor = a.cursorAt(ex, ey);
     a.pointerDown(ex, ey, false, 1);
@@ -1709,7 +1712,7 @@ try {
     a.setSource(before);
     return out;
   });
-  check("a picked picture shows a resize pointer on its edge", hand.picked && hand.cursor === "ew-resize", JSON.stringify(hand));
+  check("a double-clicked picture is picked, its settings open, and its edge shows a resize pointer", hand.picked && hand.opened && hand.cursor === "ew-resize", JSON.stringify(hand));
   check("…its side dragged writes a width", /^\{width=\d+%\}$/.test(hand.sized) && hand.ghost, JSON.stringify(hand));
   check("…dragged to the right, align=right", /align=right/.test(hand.moved), JSON.stringify(hand));
   check("…and Delete takes it out", !/liitetty/.test(hand.deleted) && /Teksti\./.test(hand.deleted), JSON.stringify(hand.deleted));
@@ -2029,8 +2032,12 @@ try {
     const r = a.slideRect, sc = a.slideScale();
     const boxes = l.boxes.filter((b) => b.page === a.selected && b.kind === 0);
     const at = (t) => { const b = boxes.find((b) => b.text.startsWith(t)); return [r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc]; };
-    const click = ([x, y]) => { a.pointerDown(x, y, false, 1); a.pointerUp(); };
+    // a double click picks (a single one lets the pick go, or follows a link)
+    const click = ([x, y]) => { a.pointerDown(x, y, false, 1); a.pointerUp(); a.pointerDown(x, y, false, 2); a.pointerUp(); };
+    const single = ([x, y]) => { a.pointerDown(x, y, false, 1); a.pointerUp(); };
     const out = {};
+    single(at("Otsikko"));
+    out.single = a.pick.on;
     click(at("Otsikko"));
     out.head = [a.pick.sel, a.pick.bands.map((b) => b.sel + ":" + b.prop + (b.isSet ? "=" : "+")).join(" ")];
     out.drawn = /sel-box|"text":"Style"/.test(a.pickJson()) || a.pickJson().length > 100;
@@ -2078,6 +2085,10 @@ try {
     a.pointerDown(sa.x + 4, sa.y + sa.h - 4, false, 1);
     a.pointerUp();
     out.offSlide = !a.pick.on;
+    // …and a single click on another block of the slide
+    click(at("Kappale"));
+    single(at("kaksi"));
+    out.singleDrops = !a.pick.on;
     click(at("Kappale"));
     a.play();
     out.onPlay = !a.pick.on && a.pickJson() === "";
@@ -2086,7 +2097,42 @@ try {
     a.setStyleSheet(css0);
     return out;
   });
-  check("a click on a heading picks it with the headings' margins as bands", pk.head[0] === "h2" && pk.head[1] === "heading:margin-top= heading:margin-bottom=" && pk.drawn, JSON.stringify(pk.head));
+  check("a single click on a heading does not bring up its tabs; another block's lets the pick go", pk.single === false && pk.singleDrops === true, JSON.stringify([pk.single, pk.singleDrops]));
+  check("a double click on a heading picks it with the headings' margins as bands", pk.head[0] === "h2" && pk.head[1] === "heading:margin-top= heading:margin-bottom=" && pk.drawn, JSON.stringify(pk.head));
+
+  // A link on the slide: a single click follows it (after the double-click
+  // time, web/stagelink.js), a double click picks its paragraph
+  const lk = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    a.showTab("md");
+    a.setSource("# D\n\n## Eka\n\nKatso [kolmas](#kolmas) tästä.\n\n## Toka\n\nx\n\n## Kolmas\n\ny\n");
+    a.selectSlide(1);
+    a.place();
+    const l = a.deck.layout();
+    const r = a.slideRect, sc = a.slideScale();
+    const b = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.link === "#kolmas");
+    if (!b) return { none: true };
+    const x = r.x + (b.x + b.w / 2) * sc, y = r.y + (b.y + b.h / 2) * sc;
+    const out = { cursor: a.cursorAt(x, y) };
+    while (a.takeRequest()) { /* earlier ones */ }
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    out.req = a.takeRequest();
+    out.picked = a.pick.on;
+    a.pointerDown(x, y, false, 2); a.pointerUp();
+    out.dbl = [a.pick.on, a.pick.sel, a.takeRequest() || ""];
+    a.pick.clear();
+    out.follow = [a.followLink("#kolmas"), a.selected, a.followLink("https://example.com/")];
+    // through the page: after the wait, on the slide the link names
+    a.selectSlide(1);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    window.__handleRequests();
+    await new Promise((ok) => setTimeout(ok, 600));
+    out.landed = a.selected;
+    a.setSource(src0);
+    return out;
+  });
+  check("a single click on a link on the slide follows it, a double click picks its paragraph", lk.cursor === "pointer" && lk.req === "link:#kolmas" && lk.picked === false && lk.dbl.join(",") === "true,p," && lk.follow.join(",") === "true,3,false" && lk.landed === 3, JSON.stringify(lk));
   check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
   check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
   check("…and its card does not cover the element", pk.offElement === true);
@@ -2111,7 +2157,7 @@ try {
       const ti = bx.findIndex((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Lyhyt"));
       const plate = bx[pi], text = bx[ti];
       const r = a.slideRect, sc = a.slideScale();
-      a.pointerDown(r.x + (text.x + 4) * sc, r.y + (text.y + text.h / 2) * sc, false, 1);
+      { const [px, py] = [r.x + (text.x + 4) * sc, r.y + (text.y + text.h / 2) * sc]; a.pointerDown(px, py, false, 1); a.pointerUp(); a.pointerDown(px, py, false, 2); }
       a.pointerUp();
       const props = a.pick.cascade(a.themeCss()).facets.map((f) => f.own + ">" + f.prop);
       const pick = a.pick.plate;
@@ -2142,7 +2188,7 @@ try {
     await page.mouse.move(at[0] - 30, at[1]);
     await page.mouse.move(at[0], at[1]);
     const hov = await page.evaluate(() => { const a = window.__app; return [a.pick.on, a.pick.hoverOn, /sel-hover/.test(a.pickJson()) || a.pickJson().length > 0, a.pick.hoverOn]; });
-    await page.mouse.click(at[0], at[1]);
+    await page.mouse.dblclick(at[0], at[1]);
     const btn = await page.evaluate(() => {
       const a = window.__app;
       a.pickJson();
@@ -2214,7 +2260,7 @@ try {
     const l = a.deck.layout();
     const r = a.slideRect, sc = a.slideScale();
     const b = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Otsikko"));
-    a.pointerDown(r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc, false, 1);
+    { const [px, py] = [r.x + (b.x + 4) * sc, r.y + (b.y + b.h / 2) * sc]; a.pointerDown(px, py, false, 1); a.pointerUp(); a.pointerDown(px, py, false, 2); }
     a.pointerUp();
     a.pickStyle();
     a.hintJson();
@@ -2251,7 +2297,7 @@ try {
     const l = a.deck.layout();
     const r = a.slideRect, sc = a.slideScale();
     const bx = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Otsikko"));
-    a.pointerDown(r.x + (bx.x + 4) * sc, r.y + (bx.y + bx.h / 2) * sc, false, 1);
+    { const [px, py] = [r.x + (bx.x + 4) * sc, r.y + (bx.y + bx.h / 2) * sc]; a.pointerDown(px, py, false, 1); a.pointerUp(); a.pointerDown(px, py, false, 2); }
     a.pointerUp();
     a.pickStyle();
     const walk = (e, f) => { if (f(e)) return e; for (const k of e.children || []) { const x = walk(k, f); if (x) return x; } return null; };
@@ -2300,7 +2346,7 @@ try {
       const l = a.deck.layout();
       const r = a.slideRect, sc = a.slideScale();
       const bx = l.boxes.find((b) => b.page === a.selected && b.kind === 0 && b.text.startsWith("Otsikko"));
-      a.pointerDown(r.x + (bx.x + 4) * sc, r.y + (bx.y + bx.h / 2) * sc, false, 1);
+      { const [px, py] = [r.x + (bx.x + 4) * sc, r.y + (bx.y + bx.h / 2) * sc]; a.pointerDown(px, py, false, 1); a.pointerUp(); a.pointerDown(px, py, false, 2); }
       a.pointerUp();
       a.pickJson();
       const b = a.pick.bands.find((b) => b.prop === "margin-top");
@@ -4902,7 +4948,7 @@ try {
       a.selectSlide(1);
       a.place();
       const r = a.slideRect;
-      a.pointerDown(r.x + r.w * 0.8, r.y + r.h * 0.75, false, 1);
+      { const [px, py] = [r.x + r.w * 0.8, r.y + r.h * 0.75]; a.pointerDown(px, py, false, 1); a.pointerUp(); a.pointerDown(px, py, false, 2); }
       a.pointerUp();
       out.page = [a.pick.sel, a.pickJson().includes("Document settings")];
       a.pickContent();

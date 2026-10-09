@@ -20,6 +20,7 @@ Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
+Import "PresStageClick.rgr"
 Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
 Import "PresRecord.rgr"
@@ -2847,6 +2848,49 @@ class PresCheck {
         this.ok((((back.cutCount()) == 1) && ((back.cutStart(0)) == 15.0)) "cut: put back")
     }
 
+    ; A click on the slide in the editor: a double click picks, a single one
+    ; follows a link (PresStageClick).
+    fn stageClicks:void () {
+        this.ok(((PresStageClick.action(1 false "" false)) == "drop") "click: a single click lets the pick go")
+        this.ok(((PresStageClick.action(1 false "" true)) == "keep") "click: on the pick it stays")
+        this.ok(((PresStageClick.action(1 false "#b" false)) == "follow") "click: a link is followed")
+        this.ok(((PresStageClick.action(2 false "#b" false)) == "pick") "click: a double click picks, a link too")
+        this.ok(((PresStageClick.action(2 false "" true)) == "pick") "click: a double click picks")
+        this.ok(((PresStageClick.action(1 true "" false)) == "pick") "click: a tap picks")
+        this.ok(((PresStageClick.action(1 true "#b" false)) == "follow") "click: a tap on a link follows it")
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Eka\n\nKatso [Mihin raha menee?](#mihin-raha-menee) ja [kolmas](#slide=3).\n\n"
+            + "## Mihin raha menee?\n\n[Toinen deck](https://sliqtly.com/s/AbCdEf1234)\n\n## Kolmas\n\nteksti\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 3) "click: three slides")
+        this.ok(((PresStageClick.slideOf(deck "#mihin-raha-menee")) == 1) "click: #heading is its slide")
+        this.ok(((PresStageClick.slideOf(deck "#Mihin raha menee?")) == 1) "click: a heading's own words too")
+        this.ok(((PresStageClick.slideOf(deck "#slide=3")) == 2) "click: #slide=3")
+        this.ok(((PresStageClick.slideOf(deck "#2")) == 1) "click: #2")
+        this.ok(((PresStageClick.slideOf(deck "#9")) == -1) "click: no ninth slide")
+        this.ok(((PresStageClick.slideOf(deck "#ei-ole")) == -1) "click: no such heading")
+        this.ok(((PresStageClick.slideOf(deck "https://sliqtly.com/s/AbCdEf1234")) == -1) "click: another deck is the page's")
+        ; the link's words on the slide are where it is clicked
+        def l:MdLayout (deck.layout())
+        def found:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 0) && ((strlen b.link) > 0)) && ((strlen (trim b.text)) > 0)) {
+                def got:string (PresStageClick.linkAt(l b.page (b.x + (b.w / 2.0)) (b.y + (b.h / 2.0))))
+                if (got == b.link) {
+                    found = (found + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.ok((found >= 3) ("click: the links are found where they are drawn, " + (to_string found)))
+        this.ok(((PresStageClick.linkAt(l 0 -50.0 -50.0)) == "") "click: no link off the text")
+        def at:PresNavAt (PresNav.start(deck 2))
+        this.ok(((at.slide == 2) && (at.step == 0)) "click: a link while presenting goes to the slide's start")
+    }
+
     fn navJumps:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n## Eka\n\n1. a\n2. b\n3. c\n{.build}\n\n"
             + "## Toka {transition=slide seconds=0.8}\n\nteksti\n\n## Kolmas\n\n1. x\n2. y\n{.build}\n")
@@ -4128,6 +4172,7 @@ class PresCheck {
         c.followEdits()
         c.picks()
         c.navJumps()
+        c.stageClicks()
         c.recording()
         c.docx()
         c.htmlPage()
