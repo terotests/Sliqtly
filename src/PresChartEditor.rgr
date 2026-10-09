@@ -193,8 +193,9 @@ class PresChartEditor {
     ; ...the same window asking one's own name for editing together ("name"),
     ; or a room's name and description ("room")
     def ndAsk:string ""
-    ; The room's window: `rmId` "" for a new room; `rmState` "new", "made" or
-    ; "archived"; `ndDesc` its description. Archive and Delete set `rmAct`
+    ; The room's window: `rmId` "" for a new room; `rmState` "new", "made",
+    ; "archived" or "builtin" (General, Playground: not renamed, archived or
+    ; deleted); `ndDesc` its description. Archive, Delete and Clear set `rmAct`
     ; and answer as Save does ("newdeck-create", the plan's "act").
     def rmId:string ""
     def rmState:string ""
@@ -1751,6 +1752,15 @@ class PresChartEditor {
     ; General).
     fn roomBody:void (root:EVGElement) {
         def pane:EVGElement (this.div("ce-pane"))
+        if (rmState == "builtin") {
+            this.roomClear(pane)
+            root.addChild(pane)
+            def foot:EVGElement (this.div("ce-foot"))
+            foot.addChild((this.div("ce-grow")))
+            this.button("nd-cancel" (PresI18n.t("Close")) "outline" foot)
+            root.addChild(foot)
+            return
+        }
         def sec:EVGElement (this.section(pane (PresI18n.t("Room"))))
         def nr:EVGElement (this.field((PresI18n.t("Name"))))
         this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("e.g. PROJ-123 Checkout retry")) "ce-wide" nr)
@@ -1770,6 +1780,7 @@ class PresChartEditor {
             this.button("rm-delete" (PresI18n.t("Delete room…")) "danger" row)
             sec2.addChild(row)
             sec2.addChild((this.text("ce-doc" (PresI18n.t("An archived room is out of the list and read only; search still finds it. Deleting a room moves its presentations to General; none of them is deleted.")))))
+            this.roomClear(pane)
         }
         root.addChild(pane)
 
@@ -1782,6 +1793,16 @@ class PresChartEditor {
         }
         this.button("nd-create" ok "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; The room's presentations kept in this browser taken out of it: asked
+    ; again before (the page's confirm), as a deck kept only here is gone.
+    fn roomClear:void (pane:EVGElement) {
+        def sec:EVGElement (this.section(pane (PresI18n.t("Presentations"))))
+        def row:EVGElement (this.div("ce-chips"))
+        this.button("rm-clear" (PresI18n.t("Clear presentations from the room…")) "danger" row)
+        sec.addChild(row)
+        sec.addChild((this.text("ce-doc" (PresI18n.t("Removes this browser's copies of the room's presentations. Those saved in your cloud stay there; one kept only in this browser is gone for good.")))))
     }
 
     ; A folder of a room (one level): its name; a folder that is there can be
@@ -2536,7 +2557,7 @@ class PresChartEditor {
             wantsClose = true
             return true
         }
-        if (((tid == "rm-archive") || (tid == "rm-unarchive")) || (tid == "rm-delete")) {
+        if ((((tid == "rm-archive") || (tid == "rm-unarchive")) || (tid == "rm-delete")) || (tid == "rm-clear")) {
             rmAct = (substring tid 3 (strlen tid))
             wantsCreate = true
             wantsClose = true

@@ -1336,8 +1336,8 @@
   "---   jira: ACME-400   ---      ## Revenue {jira=ACME-412}": "---   jira: ACME-400   ---      ## Myynti {jira=ACME-412}",
   "A key Sliqtly does not know is your own data: a ticket number, an owner, a status. In the front matter it is the presentation's (File → Document settings → Data), on a heading one slide's, and the slide's goes over the presentation's. It is not drawn; a header or footer prints it as {jira}, and the presenter's screen shows a slide's. meta-title: … carries a key Sliqtly would otherwise read as a setting.": "Avain, jota Sliqtly ei tunne, on omaa tietoasi: tiketin numero, vastuuhenkilö, tila. Alkutiedoissa (front matter) se koskee koko esitystä (Tiedosto → Asiakirjan asetukset → Tiedot), otsikossa yhtä diaa, ja dian arvo menee esityksen arvon edelle. Sitä ei piirretä; ylä- tai alatunniste tulostaa sen muodossa {jira}, ja esittäjän näyttö näyttää dian arvon. meta-title: … kantaa avaimen, jonka Sliqtly muuten lukisi asetukseksi.",
   "Your own data, e.g. a ticket number: in the front matter for the presentation, on a heading for one slide. It is not drawn; a header or footer prints it as ": "Omaa tietoasi, esimerkiksi tiketin numero: alkutiedoissa koko esitykselle, otsikossa yhdelle dialle. Sitä ei piirretä; ylä- tai alatunniste tulostaa sen muodossa ",
-  "Your license to edit has ended. Your presentations stay yours: you can open, present and export them. Changes are kept in this browser only.": "Muokkausoikeutesi on päättynyt. Esityksesi pysyvät sinun: voit avata, esittää ja viedä niitä. Muutokset säilyvät vain tässä selaimessa.",
-  "Your license lets you edit {n} presentations in the cloud. Changes to this one are kept in this browser only.": "Lisenssisi sallii {n} esityksen muokkaamisen pilvessä. Tämän esityksen muutokset säilyvät vain tässä selaimessa.",
+  "Your license to edit has ended. Your presentations stay yours: you can open, present and export them. Changes are not saved; export before closing the page.": "Muokkauslisenssisi on päättynyt. Esityksesi pysyvät sinun: voit avata, esittää ja viedä ne. Muutoksia ei tallenneta; vie esitys ennen kuin suljet sivun.",
+  "Your license lets you edit {n} presentations in the cloud. This one is not saved; export it before closing the page.": "Lisenssisi sallii {n} esityksen muokkaamisen pilvessä. Tätä ei tallenneta; vie se ennen kuin suljet sivun.",
   "editing has ended": "muokkausoikeus päättynyt",
   "{n} / {max} presentations": "{n} / {max} esitystä",
   "{file} is already in this presentation. Replace it with the pasted picture, or keep both?": "{file} on jo tässä esityksessä. Korvataanko se liitetyllä kuvalla, vai pidetäänkö molemmat?",
@@ -1410,7 +1410,6 @@
   "The files of this presentation could not be read: ": "Esityksen tiedostoja ei voitu lukea: ",
   "The people you invite sign in with that Google account and edit this same presentation. Anyone else who opens its address sees nothing; the Presentation link only shows it.": "Kutsumasi henkilöt kirjautuvat sillä Google-tilillä ja muokkaavat tätä samaa esitystä. Muut eivät näe sen osoitteesta mitään; esityslinkki vain näyttää sen.",
   "The presentation link no longer shows this presentation. Share makes a new one.": "Esityslinkki ei enää näytä tätä esitystä. Jaa tekee uuden.",
-  "This browser keeps {n} presentations from before each Google account had its own. Are they yours, {account}?\n\nOK moves them to this account. Cancel leaves them for the account they belong to.": "Tähän selaimeen on tallennettu {n} esitystä ajalta, jolloin Google-tileillä ei vielä ollut omia tallennuksiaan. Ovatko ne sinun, {account}?\n\nOK siirtää ne tälle tilille. Peruuta jättää ne sille tilille, jolle ne kuuluvat.",
   "This presentation belongs to another account. Only its owner and the people they invite can edit it.": "Tämä esitys kuuluu toiselle tilille. Vain omistaja ja hänen kutsumansa voivat muokata sitä.",
   "This presentation belongs to another account. Only its owner and the people they invite can edit it. You can view it here.": "Tämä esitys kuuluu toiselle tilille. Vain omistaja ja hänen kutsumansa voivat muokata sitä. Voit katsoa sitä täällä.",
   "This presentation is private. Only its owner and the people they invite can open it: sign in with that Google account, or ask the owner to invite you.": "Tämä esitys on yksityinen. Vain omistaja ja hänen kutsumansa voivat avata sen: kirjaudu sillä Google-tilillä tai pyydä omistajaa kutsumaan sinut.",
@@ -1444,5 +1443,12 @@
   "Type a state's name; a nested one as parent › child.": "Kirjoita tilan nimi; sisäkkäinen muodossa ylätila › alatila.",
   "New state": "Uusi tila",
   "Type the state the transition leaves and the state it goes to.": "Kirjoita tila, josta siirtymä lähtee, ja tila, johon se menee.",
-  "Type the event that starts the transition.": "Kirjoita tapahtuma, joka käynnistää siirtymän."
+  "Type the event that starts the transition.": "Kirjoita tapahtuma, joka käynnistää siirtymän.",
+  "Clear presentations from the room…": "Tyhjennä roomin esitykset…",
+  "Removes this browser's copies of the room's presentations. Those saved in your cloud stay there; one kept only in this browser is gone for good.": "Poistaa roomin esitysten kopiot tästä selaimesta. Pilveesi tallennetut säilyvät siellä; vain tässä selaimessa oleva esitys poistuu lopullisesti.",
+  "Clear room": "Tyhjennä room",
+  "Remove this browser's copies of the presentations in ": "Poistetaanko tästä selaimesta esitysten kopiot roomista ",
+  "Those saved in your cloud stay there; one kept only in this browser is gone for good. The open presentation stays.": "Pilveesi tallennetut säilyvät siellä; vain tässä selaimessa oleva esitys poistuu lopullisesti. Avoinna oleva esitys jää.",
+  "Removed from this browser: ": "Poistettu tästä selaimesta: ",
+  "the open presentation stays": "avoinna oleva esitys jäi"
 }
