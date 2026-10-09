@@ -24,6 +24,11 @@
 ;   a flowchart's  direction (`flowchart LR` / TD / RL / BT), its boxes
 ;                  (words and shape) and its links (words and line), boxes
 ;                  and links added and taken out
+;   a statechart's states (named, nested, final, where each level starts)
+;   (```xstate)    and transitions (event, target, guard, actions), through
+;                  RangerFlow's `XsEdit`: the machine config is written
+;                  again as JSON, and what the window does not edit in it
+;                  (context, meta, descriptions) stays
 ;
 ; Only the lines an edit touches are written again; every other line (a
 ; subgraph, a classDef, a comment, a statement this does not read) stays as
@@ -33,6 +38,7 @@
 ; ============================================================================
 
 Import "../rangerflow/core/FlowLook.rgr"
+Import "../rangerflow/domains/xstate/XsEdit.rgr"
 
 class PresFlowNode {
     def id:string ""
@@ -88,6 +94,10 @@ class PresFlowModel {
     def edges:[PresFlowEdge]
     ; a Mermaid flowchart, whose boxes and links can be edited here
     def editable:boolean false
+    ; an XState machine (```xstate) whose config reads: its states and
+    ; transitions are edited through `machine`
+    def isMachine:boolean false
+    def machine:XsEdit (new XsEdit)
     ; the `flowchart LR` line (-1: none) and its direction ("" unsaid)
     def headLine:int -1
     def headWord:string "flowchart"
@@ -211,7 +221,25 @@ class PresFlowModel {
         if ((m.lang == "mermaid") || (m.lang == "flowchart")) {
             m.readFlowchart()
         }
+        if (m.lang == "xstate") {
+            m.machine = (XsEdit.of((m.bodyText())))
+            m.isMachine = (m.machine.ok())
+        }
         return m
+    }
+
+    ; After an edit of the machine: the body is its config, written again.
+    fn machineChanged:void () {
+        clear lines
+        def all:[string] (strsplit (machine.text()) "\n")
+        def i:int 0
+        while (i < (array_length all)) {
+            def l (new PresFlowLine())
+            l.text = (itemAt all i)
+            l.indent = (PresFlowModel.indentOf(l.text))
+            push lines l
+            i = (i + 1)
+        }
     }
 
     fn readFlowchart:void () {
@@ -1196,6 +1224,9 @@ class PresFlowModel {
     fn notationName:string () {
         if editable {
             return "Mermaid flowchart"
+        }
+        if (lang == "xstate") {
+            return "XState"
         }
         if (lang == "mermaid") {
             return "Mermaid"

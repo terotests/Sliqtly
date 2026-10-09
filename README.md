@@ -133,7 +133,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   `bubbles` is the round-drop effect that was called `raindrop`, and
   `raindrop` still draws it. An effect's clock is the time its slide has been
   on screen and goes on while the slide waits for a click.
-- Diagrams (```mermaid, ```dot, ```d2, ```plantuml) are animated on the
+- Diagrams (```mermaid, ```dot, ```d2, ```plantuml, ```xstate) are animated on the
   slide as one guided pass. The camera zooms in on each box as it appears and
   holds it for its reading time (15 characters a second, at least 1.3 s). A
   packet of light then travels the next arrow and draws it as it goes. The
