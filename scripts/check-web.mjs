@@ -2607,10 +2607,17 @@ try {
         a.requests.push("themes");
         a.chromeRev += 1;
         // the page answers the request on its next frame and draws the pictures one a frame
-        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 13); n++) await new Promise((res) => setTimeout(res, 100));
+        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 14); n++) await new Promise((res) => setTimeout(res, 100));
         const open = a.chartIsOpen() && a.chart.mode === "themes";
         const pics = window.__themePictures ? window.__themePictures() : -1;
-        const ed = tile("th-pick-editorial");
+        // the window opens on the tab of the theme in use; Effects shows its tiles
+        const tab0 = a.chart.tabs.value;
+        const own = !!tile("th-pick-" + theme0);
+        const ed = !tile("th-pick-editorial");
+        const fx = tile("th-tabs-tab-Effects");
+        if (fx) { a.pointerDown(fx.calculatedX + 10, fx.calculatedY + 8, false, 1); a.pointerUp(); }
+        await new Promise((res) => setTimeout(res, 100));
+        const tab1 = a.chart.tabs.value;
         const pearl = tile("th-pick-pearl");
         const pic = pearl && pearl.children[0];
         const hasPic = !!pic && pic.src === "/__theme/pearl";
@@ -2622,9 +2629,10 @@ try {
         const s = document.getElementById("theme");
         s.value = theme0;
         s.dispatchEvent(new Event("change"));
-        return { open, pics, ed: !!ed, hasPic, now, marked };
+        return { open, pics, tab0, own, ed, tab1, hasPic, now, marked };
       });
-      check("Slide → Theme… opens the picker with a tile per theme, each with its picture", r.open && r.ed && r.hasPic && r.pics >= 13, JSON.stringify(r));
+      check("Slide → Theme… opens the picker on the theme's own tab, a picture drawn per theme", r.open && r.tab0 === "Dark" && r.own && r.ed && r.pics >= 14, JSON.stringify(r));
+      check("…the Effects tab shows its tiles, each with its picture", r.tab1 === "Effects" && r.hasPic, JSON.stringify(r));
       check("…a tile pressed changes the theme and is marked", r.now === "pearl" && r.marked, JSON.stringify(r));
     }
 

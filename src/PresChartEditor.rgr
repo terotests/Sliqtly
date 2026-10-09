@@ -181,6 +181,8 @@ class PresChartEditor {
     ; `wantsCss` and closes.
     def thRows:string ""
     def thValue:string ""
+    ; the tab showing (a group of the select: Basic, Effects, Dark)
+    def thTab:string ""
     def wantsTheme:string ""
     def themePicked:boolean false
     def wantsCss:boolean false
@@ -348,6 +350,7 @@ class PresChartEditor {
         mode = "themes"
         thRows = rows
         thValue = current
+        thTab = (PresThemeGallery.tabOf((PresThemeGallery.tiles(rows)) current))
         wantsTheme = ""
         themePicked = false
         wantsCss = false
@@ -1850,33 +1853,52 @@ class PresChartEditor {
             if ((strlen g) > 0) {
                 pane.addChild((this.text("ce-section" (PresI18n.t(g)))))
             }
-            def row:EVGElement (this.div("ce-tiles"))
-            def these:[PresThemeTile] (PresThemeGallery.inGroup(tiles g))
-            for these t:PresThemeTile ti {
-                def b:ButtonCtl (new ButtonCtl())
-                b.tid = (prefix + t.key)
-                b.name = t.label
-                b.variant = "outline"
-                b.picture = (PresThemeGallery.picture(t.key))
-                b.picW = 154.0
-                b.picH = 87.0
-                b.build()
-                this.dressButton(b)
-                def r:EVGElement (unwrap b.rootEl)
-                UiTree.addClass(r "ce-tile")
-                if (t.key == current) {
-                    UiTree.addClass(r "ce-tile-on")
-                }
-                this.put(b row)
-            }
-            pane.addChild(row)
+            pane.addChild((this.tileRow(prefix (PresThemeGallery.inGroup(tiles g)) current)))
         }
     }
 
+    ; One row of theme tiles, wrapping four to a line.
+    fn tileRow:EVGElement (prefix:string these:[PresThemeTile] current:string) {
+        def row:EVGElement (this.div("ce-tiles"))
+        for these t:PresThemeTile ti {
+            def b:ButtonCtl (new ButtonCtl())
+            b.tid = (prefix + t.key)
+            b.name = t.label
+            b.variant = "outline"
+            b.picture = (PresThemeGallery.picture(t.key))
+            b.picW = 110.0
+            b.picH = 62.0
+            b.build()
+            this.dressButton(b)
+            def r:EVGElement (unwrap b.rootEl)
+            UiTree.addClass(r "ce-tile")
+            if (t.key == current) {
+                UiTree.addClass(r "ce-tile-on")
+            }
+            this.put(b row)
+        }
+        return row
+    }
+
+    ; The themes on tabs, one group each (the select's groups: Basic first,
+    ; the ones with background effects, the dark ones).
     fn themesBody:void (root:EVGElement) {
+        def tiles:[PresThemeTile] (PresThemeGallery.tiles(thRows))
+        def t0 (new TabsCtl())
+        tabs = t0
+        tabs.tid = "th-tabs"
+        tabs.name = (PresI18n.t("Theme"))
+        def names:[string] (PresThemeGallery.tabs(tiles))
+        for names g:string gi {
+            tabs.addItem(g (PresI18n.t(g)) "" false)
+        }
+        tabs.value = thTab
+        tabs.build()
+        UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
+        this.put(tabs root)
         def pane:EVGElement (this.div("ce-pane"))
         pane.addChild((this.text("ce-doc" (PresI18n.t("Pick a theme: every slide changes at once. Your own changes stay in the Theme (CSS) tab.")))))
-        this.themeTiles(pane "th-pick-" thRows thValue)
+        pane.addChild((this.tileRow("th-pick-" (PresThemeGallery.onTab(tiles thTab)) thValue)))
         root.addChild(pane)
         def bottom:EVGElement (this.div("ce-foot"))
         this.button("th-css" (PresI18n.t("Edit theme CSS…")) "outline" bottom)
@@ -3537,6 +3559,16 @@ class PresChartEditor {
             if (tabs.value != deTab) {
                 deTab = tabs.value
                 listPage = 0
+                focusTid = ""
+                this.rebuild()
+            }
+            return
+        }
+        if ((mode == "themes") && (ctlTid == tabs.tid)) {
+            host.click(tid)
+            keep.restore()
+            if (tabs.value != thTab) {
+                thTab = tabs.value
                 focusTid = ""
                 this.rebuild()
             }

@@ -432,5 +432,5 @@
 
 /* the theme tiles, after the buttons' rules they change; a wrapped row is
    laid out from its children's set sizes, so a tile says its own */
-.theme-ce .ce-tile { align-self: flex-start; justify-content: flex-start; width: 168px; height: 128px; border-radius: 10px; padding: 6px 6px 8px 6px; }
+.theme-ce .ce-tile { align-self: flex-start; justify-content: flex-start; width: 122px; height: 100px; border-radius: 10px; padding: 6px 6px 8px 6px; gap: 4px; }
 .theme-ce .ce-tile-on { border: 2px solid #18181b; padding: 5px 5px 7px 5px; }

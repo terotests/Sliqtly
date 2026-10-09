@@ -66,6 +66,53 @@ class PresThemeGallery {
         return out
     }
 
+    ; The picker's tabs: the groups in order, a tile in none (the document's
+    ; own CSS) going on the first tab.
+    sfn tabs:[string] (tiles:[PresThemeTile]) {
+        def out:[string]
+        def all:[string] (PresThemeGallery.groups(tiles))
+        for all g:string i {
+            if ((strlen g) > 0) {
+                push out g
+            }
+        }
+        if ((array_length out) == 0) {
+            push out ""
+        }
+        return out
+    }
+
+    ; The tiles on one tab: its group's, and on the first tab the ones in
+    ; no group after them.
+    sfn onTab:[PresThemeTile] (tiles:[PresThemeTile] tab:string) {
+        def out:[PresThemeTile] (PresThemeGallery.inGroup(tiles tab))
+        def all:[string] (PresThemeGallery.tabs(tiles))
+        if ((itemAt all 0) == tab) {
+            if ((strlen tab) > 0) {
+                def loose:[PresThemeTile] (PresThemeGallery.inGroup(tiles ""))
+                for loose t:PresThemeTile i {
+                    push out t
+                }
+            }
+        }
+        return out
+    }
+
+    ; The tab a theme is on: the one in use opens its tab; a key on no tab
+    ; opens the first.
+    sfn tabOf:string (tiles:[PresThemeTile] key:string) {
+        def all:[string] (PresThemeGallery.tabs(tiles))
+        for all g:string i {
+            def these:[PresThemeTile] (PresThemeGallery.onTab(tiles g))
+            for these t:PresThemeTile j {
+                if (t.key == key) {
+                    return g
+                }
+            }
+        }
+        return (itemAt all 0)
+    }
+
     ; The picture a theme's tile shows, in the page's picture store.
     sfn picture:string (key:string) {
         if ((strlen key) == 0) {

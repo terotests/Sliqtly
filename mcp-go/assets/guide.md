@@ -66,7 +66,8 @@ the first `create_presentation`.
 `aurora` (default), `nebula`, `carbon`, `ember`, `midnight` are dark;
 `editorial` is an A4 portrait document where `#` starts a page.
 
-Light slides, white or near-white paper: `corporate` (plain), `pearl`
+Light slides, white or near-white paper: `white` (plain white, no
+background), `corporate` (plain), `pearl`
 (soft pastel light from two corners), `hive` (fine honeycomb along the
 right edge), `lattice` (pale diagonal tiles, clear in the middle), `apex`
 (blue accent triangles and quarter circles in the corners), `tide` (blue
