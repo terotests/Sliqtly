@@ -3319,6 +3319,11 @@ class PresCheck {
         mv.begin("move" 300.0 50.0 200.0 100.0 0.0 800.0 400.0 "" 400.0 100.0)
         mv.moveTo(150.0 120.0)
         this.ok(((mv.outAlign == "left") && (mv.x == 0.0)) ("image drag: to the left third: " + mv.outAlign))
+        ; a drawing's line is a picture to handles, but the image editor leaves it be
+        def ink:PresImageModel (PresImageModel.read("![](drawings/sales-by-region-2.ink)" ""))
+        this.ok(((ink.ok()) && ((ink.editable()) == false)) "image model: a drawing (.ink) does not open the image editor")
+        this.ok((PresImageModel.isDrawing("drawings/A.INK")) "image model: .ink in any case is a drawing")
+        this.ok((m.editable()) "image model: a picture opens the image editor")
         def m2:PresImageModel (PresImageModel.read("![a](media/x.png)" ""))
         this.ok((mv.apply(m2)) "image drag: align written")
         this.ok(((m2.markdown()) == "![a](media/x.png)\n{align=left}") ("image drag: " + (m2.markdown())))
