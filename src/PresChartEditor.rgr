@@ -2997,7 +2997,7 @@ class PresChartEditor {
             }
             def name:string (this.freshState(parent))
             this.machineDone((flow.machine.addState(parent name)))
-            selState = (this.indexOfState((XsMachine.join(parent name))))
+            selState = (this.indexOfState((XsMachine.pathOf(parent name))))
             listPage = (idiv (selState - 1) 8)
             focusTid = ("xs-s-" + (to_string selState))
             this.rebuild()
@@ -3009,7 +3009,7 @@ class PresChartEditor {
                 def ps2:XsState (itemAt m.states selState)
                 def name2:string (this.freshState(ps2.path))
                 this.machineDone((flow.machine.addState(ps2.path name2)))
-                selState = (this.indexOfState((XsMachine.join(ps2.path name2))))
+                selState = (this.indexOfState((XsMachine.pathOf(ps2.path name2))))
                 listPage = (idiv (selState - 1) 8)
                 focusTid = ("xs-s-" + (to_string selState))
             }
@@ -3082,7 +3082,7 @@ class PresChartEditor {
         def base:string (PresI18n.t("New state"))
         def name:string base
         def n:int 2
-        while (flow.machine.machine.hasState((XsMachine.join(parent name)))) {
+        while (flow.machine.machine.hasState((XsMachine.pathOf(parent name)))) {
             name = (base + " " + (to_string n))
             n = (n + 1)
         }
