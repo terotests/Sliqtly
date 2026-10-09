@@ -105,6 +105,7 @@ by default. Readability comes first.
 | `pictures` | photos, SVG, backgrounds, galleries |
 | `css` | colours, fonts, spacing; selectors and properties |
 | `data` | Excel / CSV / JSON files, `table` and `sheet` blocks |
+| `apps` | a program or game running on a slide (`app` blocks, TSX + CSS) |
 | `editing` | `edits`, another assistant on the same deck, review comments, the layout report |
 | `export` | PDF, PPTX, DOCX, HTML, print pages with bleed |
 | `limits` | quotas, sign-in, privacy, deleting decks |
@@ -894,6 +895,73 @@ safe-area: 8mm; } deck { crop-marks: on; } }` (topic `export`).
   `write_workbook`.
 - `bind_chart_data` points an existing chart at a CSV/JSON URL or a Google
   Sheet (topic `charts`).
+
+<!-- topic: apps -->
+# Topic: apps
+
+A slide can run a small program: a game, a calculator, an interactive
+explanation. It is a TypeScript + JSX file of the deck with an optional
+stylesheet beside it, shown in the box of an `app` block:
+
+````markdown
+```app
+src: apps/counter.tsx       # its stylesheet: apps/counter.tsx.css (or css:)
+size: 480x270               # the program's own units, scaled to the box
+allow: deck.data, slide.nav # what it may ask of the deck (optional)
+```
+````
+
+- Send the files with `files` (signed in), as text:
+  `{ "name": "counter.tsx", "text": "…" }` and
+  `{ "name": "counter.tsx.css", "text": "…" }`. They are kept as
+  `apps/<name>`.
+- The program defines `view()`, which returns JSX; optionally
+  `tick(dt, input)` (each frame; `input.keys`, `input.pointer`),
+  `onKeyDown(key)`, `onKeyUp(key)`, and `onClick` on an element. Its
+  elements are `div`, and `span`, `p`, `b`, `label` for text; `className`
+  and `style` (numbers are px) as in React. The stylesheet is laid out like
+  the slide's CSS (topic `css`): absolute positions, flex, sizes, colours,
+  borders, radius.
+- It runs in the viewer's browser, only while its slide is shown, in a
+  sandbox with no page, network or storage; one that does not answer in
+  3 s is stopped. A click on the box gives it the keyboard; Esc gives it
+  back to the slides.
+- What it may ask of the deck, each by its word on `allow:` (anything else
+  is refused and reported):
+  - `deck.data`: `deck.get("key")` reads the deck's own keys (front matter,
+    topic `layout`), `deck.set("score", 3)` fills `{score}` in headers and
+    footers while the deck is open.
+  - `slide.nav`: `slide.next()`, `slide.prev()`, `slide.go(n)`,
+    `slide.build()`; `slide.number` and `slide.count` are read without it.
+  - `slide.style`: `el("#id")` or `el(".class")` with
+    `.style({ color, background, opacity, translate: "10px 0", display })`,
+    `.show()`, `.hide()`, `.reset()` changes the look of the slide's blocks
+    with that id or class (`{#id}` on the line after a paragraph) without
+    changing the Markdown.
+- Example:
+
+  ```tsx
+  let n = 0;
+  function view() {
+    return (
+      <div className="box" onClick={() => { n++; deck.set("count", n); }}>
+        <span className="big">{String(n)}</span>
+      </div>
+    );
+  }
+  ```
+
+  ```css
+  .box { width: 480px; height: 270px; background-color: #1e293b }
+  .big { position: absolute; left: 0px; top: 90px; width: 480px;
+    font-size: 64px; color: #ffffff; text-align: center }
+  ```
+
+- `render_slide`, PDF, PPTX, Word and the public viewer show a plate with
+  the program's name in the box (the editor's thumbnails and exports show
+  its last picture). The program itself runs in the Sliqtly editor.
+- The result of create/update warns about a missing program file and
+  about lines of the block it did not understand.
 
 <!-- topic: editing -->
 # Topic: editing

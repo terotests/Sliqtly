@@ -268,16 +268,18 @@ export function kindOf(path, type) {
 
 export function isText(path, type) {
   if (/^text\//.test(type || "") || /json/.test(type || "")) return true;
-  return /\.(csv|tsv|json|topojson|geojson|txt|css|md|markdown)$/i.test(path);
+  return /\.(csv|tsv|json|topojson|geojson|txt|css|md|markdown|tsx|ts|jsx)$/i.test(path);
 }
 
 // Where a file added from the computer goes: pictures under media/, a chart
-// spec under charts/, other data under data/.
+// spec under charts/, a program (```app) and its stylesheet under apps/,
+// other data under data/.
 export function placeFor(name, type) {
   const clean = name.replace(/[\\/:*?"<>|]+/g, "-");
   const k = kindOf(clean, type);
   if (k === "image") return "media/" + clean;
   if (k === "chart") return "charts/" + clean;
+  if (/\.(tsx|jsx)(\.css)?$/i.test(clean)) return "apps/" + clean;
   if (/\.json$/i.test(clean)) {
     return "data/" + clean;
   }

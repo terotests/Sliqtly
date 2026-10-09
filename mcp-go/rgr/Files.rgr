@@ -63,6 +63,12 @@ class Files {
         return (startsWith path "media/")
     }
 
+    ; a program on a slide (```app) or its stylesheet: kept as apps/<name>
+    sfn isProgram:boolean (name:string) {
+        def n:string (to_lowercase name)
+        return ((((endsWith n ".tsx") || (endsWith n ".jsx")) || (endsWith n ".tsx.css")) || (endsWith n ".jsx.css"))
+    }
+
     ; picture, workbook, chart, data or file
     sfn kindOf:string (path:string) {
         if (Files.isPicture(path)) {
@@ -77,12 +83,21 @@ class Files {
         if (startsWith path "data/") {
             return "data"
         }
+        if (startsWith path "apps/") {
+            return "program"
+        }
         return "file"
     }
 
     ; the type a data file is kept with, "" for a name that is not data
     sfn dataType:string (name:string) {
         def n:string (to_lowercase name)
+        if ((endsWith n ".tsx.css") || (endsWith n ".jsx.css")) {
+            return "text/css"
+        }
+        if ((endsWith n ".tsx") || (endsWith n ".jsx")) {
+            return "text/plain"
+        }
         if (endsWith n ".xlsx") {
             return (Files.XLSX_MIME())
         }
@@ -434,14 +449,21 @@ class Files {
             if (startsWith bare "data/") {
                 bare = (substring bare 5 (strlen bare))
             }
+            if (startsWith bare "apps/") {
+                bare = (substring bare 5 (strlen bare))
+            }
             def name:string (Deck.cleanName(bare))
+            def folder:string "data/"
+            if (Files.isProgram(name)) {
+                folder = "apps/"
+            }
             if ((strlen name) == 0) {
                 res.err = ("File name \"" + given + "\" is not usable: use letters, digits, \".\", \"-\" and \"_\".")
                 return res
             }
             def type:string (Files.dataType(name))
             if ((strlen type) == 0) {
-                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json or .txt.")
+                res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json or .txt; a program for an app block is .tsx (or .jsx) with its .tsx.css.")
                 return res
             }
             def hasText:boolean ((f.field("text")).kind == 3)
@@ -490,6 +512,10 @@ class Files {
                 }
                 handle = (got.int_("handle" 0))
                 size = (got.int_("size" 0))
+            }
+            if ((Files.isProgram(name)) && (((strlen b64) > 0) || ((strlen url) > 0))) {
+                res.err = ("File " + name + ": a program and its stylesheet are sent as text.")
+                return res
             }
             if ((strlen url) > 0) {
                 def u:MfJ (J.parse((host_parse_url host url)))
@@ -560,7 +586,7 @@ class Files {
             }
             def im (new Img)
             im.name = name
-            im.path = ("data/" + name)
+            im.path = (folder + name)
             im.type = type
             im.handle = handle
             im.size = size
