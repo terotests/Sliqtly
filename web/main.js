@@ -16,6 +16,7 @@
 // What anything MEANS is PresApp.rgr's.
 
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles } from "./gl/evg-webgl.js";
+import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { accountStorage } from "./account.js";
@@ -32,7 +33,8 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
+import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -175,6 +177,7 @@ const SAMPLES = {
   raportti: sample("raportti", "Report: header, footer, page numbers", "Raportti: ylä- ja alaosa, sivunumerot"),
   mallit: sample("mallit", "Layouts: steps, SWOT, timeline", "Asettelut: vaiheet, SWOT, aikajana"),
   tyonkulku: sample("tyonkulku", "Workflows: XState statecharts", "Työnkulut: XState-tilakaaviot"),
+  efektit: sample("efektit", "Effects of your own: ```fx", "Omat efektit: ```fx"),
   // the newest themes and features, on Nebula
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   // programs on slides (```app), with their files (samples/pelit/apps/…)
@@ -1239,7 +1242,98 @@ function sampleRows() {
 // then as dragged): [{ room_id, title, description, archived, presentations }]
 async function roomsList({ archived = false } = {}) {
   if (ownServer()) return orderRooms((await roomsCall("list_rooms", { archived })).rooms || [], roomsHere.order);
-  return listRooms(roomsHere, await allDocs(), sampleRows(), { archived });
+  const seq = new Map((await sharedRooms()).map((r) => [r.room_id, Number(r.chat_seq) || 0]));
+  return listRooms(roomsHere, await allDocs(), sampleRows(), { archived }).map((r) => (seq.get(r.room_id) ? { ...r, chat_seq: seq.get(r.room_id) } : r));
+}
+// sliqtly.com/editor: the rooms shared with the people invited to them live
+// on the server (POST /editor/api/rooms/<op>, mcp-go/editorrooms.go) and
+// their chat in Firestore (web/cloudchat.js); this browser keeps a copy of
+// each among its rooms (web/rooms.js syncShared), its presentations placed
+// here as in any other room. The server's list is read again after a
+// change and at most every 20 seconds; while it cannot be read, the copies
+// stay as they were.
+const cloudCall = CLOUD_ONLY ? cloudRoomsCall() : null;
+let sharedRows = null;
+let sharedAt = 0;
+let sharedReading = null;
+// raised by each change made here: a list read before it is not the
+// server's now, so it does not take the room just shared off again
+let sharedGen = 0;
+function sharedChanged() {
+  sharedGen++;
+  sharedAt = 0;
+}
+async function sharedRooms() {
+  if (!cloudCall || !window.sliqtly?.user?.()) return [];
+  if (sharedRows && Date.now() - sharedAt < 20000) return sharedRows;
+  const gen = sharedGen;
+  sharedReading ??= cloudCall("list_rooms", { archived: true }).then((out) => {
+    if (gen !== sharedGen) return sharedRows || [];
+    sharedRows = out.rooms || [];
+    sharedAt = Date.now();
+    keepRooms((s) => syncShared(s, sharedRows));
+    return sharedRows;
+  }).finally(() => { sharedReading = null; });
+  try {
+    return await sharedReading;
+  } catch (_) {
+    // asked again in a while, not at every list
+    sharedAt = Date.now();
+    sharedRows ??= [];
+    return sharedRows;
+  }
+}
+// the room is a shared one (sliqtly.com/editor)
+const sharedHere = (id) => !!cloudCall && isShared(roomsHere, id);
+// the people invited to a shared room, by address, oneself left out
+async function roomPeople(room, me) {
+  const g = await cloudCall("get_room", { room_id: room });
+  return (g.members || []).map((m) => String(m.member || "")).filter((m) => m.startsWith("email:")).map((m) => m.slice(6)).filter((a) => a && a !== me);
+}
+// The room's ⚙ → Invite people… (sliqtly.com/editor): who is in it, edited
+// in the window Share → People who can edit uses
+async function openRoomPeople(room) {
+  const u = window.sliqtly?.user?.();
+  if (!cloudCall || !u) return;
+  const me = (u.email || "").toLowerCase();
+  const list = sharedHere(room) ? await roomPeople(room, me) : [];
+  if (app.openRoomInvite(room, list.join("\n"), me)) needsPaint = true;
+}
+// ...saved: a room of this browser's own is made on the server the first
+// time someone is invited (its presentations, folders and place kept,
+// web/rooms.js adoptRoom); then each address added or taken out. Those
+// invited edit with it: they read and talk in the chat, the owner manages
+// who is in it.
+async function saveRoomPeople(room, text) {
+  const u = window.sliqtly?.user?.();
+  if (!cloudCall || !u) return;
+  const me = (u.email || "").toLowerCase();
+  const want = [...new Set(text.split("\n").map((a) => a.trim().toLowerCase()).filter((a) => a && a !== me))];
+  let id = room;
+  let had = [];
+  if (sharedHere(room)) {
+    had = await roomPeople(room, me);
+  } else {
+    const x = roomsHere.rooms.find((r) => r.id === room);
+    if (!x || !want.length) return;
+    id = (await cloudCall("create_room", { title: x.title, description: x.description || "" })).room_id;
+    if (!id) return;
+    sharedChanged();
+    const reading = roomChatOne && app.roomChatOpen() && roomChatOne.room === room;
+    keepRooms((s) => adoptRoom(s, room, id));
+    if (roomShown === room) roomShown = id;
+    if (reading) {
+      roomChatOne.close();
+      await roomChat().open(id);
+    }
+  }
+  sharedChanged();
+  for (const a of had) if (!want.includes(a)) await cloudCall("set_room_member", { room_id: id, member: "email:" + a, role: "" });
+  for (const a of want) if (!had.includes(a)) await cloudCall("set_room_member", { room_id: id, member: "email:" + a, role: "editor" });
+  toast(want.length
+    ? t("{n} people are in this room besides you.").replace("{n}", String(want.length))
+    : t("Only you are in this room."));
+  await roomsRequest("room:list");
 }
 // A deck's tab key (web/decktabs.js) as the room lists name it: a kept
 // deck's id, on a server of one's own "cloud:<share>"; "" when not kept.
@@ -1510,11 +1604,20 @@ async function roomsRequest(r) {
     app.openRoomDialog("", "new", "", "");
   } else if (action === "settings") {
     const x = (await roomsList({ archived: true })).find((r) => r.room_id === what);
-    if (x && what !== ONBOARDING) app.openRoomDialog(what, isBuiltIn(what) ? "builtin" : x.archived ? "archived" : "made", x.title, x.description || "");
+    if (x && what !== ONBOARDING) {
+      app.openRoomDialog(what, isBuiltIn(what) ? "builtin" : x.archived ? "archived" : "made", x.title, x.description || "");
+      // only a room's owner chooses who is in it
+      const mineHere = roomsHere.rooms.find((r) => r.id === what);
+      if (cloudCall && window.sliqtly?.user?.() && !isBuiltIn(what) && !x.archived && (!mineHere?.shared || mineHere.role === "owner")) app.roomDialogInvite();
+    }
   } else if (action === "save") {
     // the room's window answered (newdeck-create, "ask" "room")
     const plan = JSON.parse(what);
     const id = plan.room;
+    if (plan.act === "invite") {
+      await openRoomPeople(id);
+      return;
+    }
     if (plan.act === "clear") {
       const x = (await roomsList({ archived: true })).find((r) => r.room_id === id);
       app.openConfirm("roomclear:" + id, t("Clear room"),
@@ -1530,12 +1633,24 @@ async function roomsRequest(r) {
     if (plan.act === "archive" || plan.act === "unarchive") {
       const on = plan.act === "archive";
       if (ownServer()) await roomsCall("archive_room", { room_id: id, archived: on });
-      else keepRooms((s) => archiveRoom(s, id, on));
+      else {
+        if (sharedHere(id)) {
+          await cloudCall("archive_room", { room_id: id, archived: on });
+          sharedChanged();
+        }
+        keepRooms((s) => archiveRoom(s, id, on));
+      }
       if (on && roomShown === id) roomShown = "";
       toast(on ? t("Room archived. Search finds it.") : t("Room restored."));
     } else if (id) {
       if (ownServer()) await roomsCall("update_room", { room_id: id, title: plan.name, description: plan.desc });
-      else keepRooms((s) => updateRoom(s, id, { title: plan.name, description: plan.desc }));
+      else {
+        if (sharedHere(id)) {
+          await cloudCall("update_room", { room_id: id, title: plan.name, description: plan.desc });
+          sharedChanged();
+        }
+        keepRooms((s) => updateRoom(s, id, { title: plan.name, description: plan.desc }));
+      }
     } else {
       await roomsRequest("room:create:" + JSON.stringify({ title: plan.name, description: plan.desc }));
       return;
@@ -1543,7 +1658,13 @@ async function roomsRequest(r) {
     await roomsRequest("room:list");
   } else if (action === "delete") {
     if (ownServer()) await roomsCall("delete_room", { room_id: what });
-    else keepRooms((s) => deleteRoom(s, what));
+    else {
+      if (sharedHere(what)) {
+        await cloudCall("delete_room", { room_id: what });
+        sharedChanged();
+      }
+      keepRooms((s) => deleteRoom(s, what));
+    }
     if (roomShown === what) roomShown = "";
     await roomsRequest("room:list");
   } else if (action === "moveid") {
@@ -1684,7 +1805,20 @@ function roomChat() {
   roomChatOne = new RoomChat({
     app, store, t, toast, ownServer,
     name: shownName(),
-    call: roomsCall,
+    call: (op, a) => (ownServer() || !cloudCall ? roomsCall : cloudCall)(op, a),
+    chatOn: (room) => ownServer() || sharedHere(room),
+    filesOn: () => ownServer(),
+    listen: cloudCall ? (room, since, on) => {
+      let stop = null;
+      let gone = false;
+      window.sliqtly.roomChatDb().then((db) => {
+        if (!gone) stop = listenRoomChat(db, room, since, on, (e) => toast(t("Chat: ") + (e.message || e)));
+      }).catch((e) => toast(t("Chat: ") + (e.message || e)));
+      return () => {
+        gone = true;
+        if (stop) stop();
+      };
+    } : null,
     now: () => Date.now(),
     zone: () => -new Date().getTimezoneOffset(),
     rooms: () => roomsList({ archived: true }),
@@ -2942,7 +3076,18 @@ function withTime(doc, t) {
 // rest two seconds in, as they always were.
 const FX_STILL_T = { drops: 30, raindrops2: 30 };
 function atRest(doc) {
-  return withTime(doc, (e) => FX_STILL_T[e.kind] ?? 2.0);
+  syncDeckEffects();
+  return withTime(doc, (e) => FX_STILL_T[e.kind] ?? deckEffectStill(e.kind) ?? 2.0);
+}
+
+// The deck's own effects (```fx, the theme's @effect), registered with the
+// painter before anything that may draw them (web/fxdeck.js).
+function syncDeckEffects() {
+  try {
+    registerDeckEffects(app.deckEffectsJson());
+  } catch (e) {
+    console.warn("deck effects", e);
+  }
 }
 
 // --- a realistic book, presented ------------------------------------------------
@@ -3091,6 +3236,7 @@ function paintOnce() {
   errEl.textContent = "";
   const layout = JSON.parse(app.layoutJson());
   lastLayout = layout;
+  syncDeckEffects();
   liveSheets.sync(layout);
   if (layout.rev !== thumbRev) {
     dropThumbs();
@@ -4298,6 +4444,8 @@ function handleRequests() {
         roomsRequest("room:foldersave:" + JSON.stringify(plan)).catch((e) => toast(t("Rooms: ") + (e.message || e)));
       } else if (plan.ask === "name") {
         renameMe(plan.name);
+      } else if (plan.ask === "editors" && plan.invroom) {
+        saveRoomPeople(plan.invroom, plan.editors || "").catch((e) => toast(t("Could not save who is in the room: ") + (e?.message || e)));
       } else if (plan.ask === "editors") {
         saveEditors(plan.editors || "").catch((e) => toast(t("Could not save who can edit: ") + (e?.code || e?.message || e)));
       } else if (plan.dup) {

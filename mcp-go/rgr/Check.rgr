@@ -392,6 +392,11 @@ class Check {
         for (d.slideMetaWarnings()) smw:string smi {
             push c.warnings (Guide.see(smw "layout"))
         }
+        ; the deck's own effects (```fx, the theme's @effect) that did not
+        ; compile: the slide that names one draws none
+        for (d.fxNotes()) fxn:string fxi {
+            push c.warnings (Guide.see(fxn "effects"))
+        }
         for (d.htmlNotes()) hn:string hi {
             push c.warnings (Guide.see(hn "text"))
         }

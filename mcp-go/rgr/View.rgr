@@ -10,7 +10,8 @@
 ;
 ;   { "deck": { "name", "width", "height", "slides",
 ;               "files": [{ "path", "type", "url" }], "plays": [View.plays] },
-;     "lists": [ <EVGDisplayList.toJson>, … ] }
+;     "lists": [ <EVGDisplayList.toJson>, … ],
+;     "effects": [ <FxLang.json: the deck's own effects> ] }
 ;
 ; `files` are the deck's stored files a list draws (pictures, by the
 ; "/media/<name>" a command's src names). `slides`: a view of only those
@@ -140,7 +141,9 @@ class View {
             deck.put("book" bj)
         }
         deck.put("plays" (View.plays(host din d)))
-        return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "]}")
+        ; the deck's own effects (```fx, the theme's @effect) as shader
+        ; text the deck's compiler wrote (FxLang), for the page to register
+        return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + "}")
     }
 
     ; The programs on the slides (```app), which the page runs itself

@@ -13,6 +13,7 @@
 // painter runs them.
 
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
@@ -212,7 +213,7 @@ function ensurePage(page, pxW) {
   pageCanvas.width = pxW;
   pageCanvas.height = Math.round(deck.height * k);
   const list = lists[page];
-  for (const e of list.effects || []) e.time = 2;
+  for (const e of list.effects || []) e.time = deckEffectStill(e.kind) ?? 2;
   const f = prepareDisplayList(pageGl, { width: deck.width, height: deck.height, list }, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: true });
   f.draw(null, null);
   f.dispose();
@@ -639,6 +640,8 @@ async function start() {
   const looks = lookFacesOf(got.lists).map((name) => [name, LOOK_FACES[name]]);
   await Promise.all([fonts.then(() => looks.length && loadFaces(looks)), ...picturesOf(deck).map(pictureOf)]);
   lists = got.lists;
+  // the deck's own effects, compiled on the server from its ```fx blocks
+  if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
   // a program runs in the page; its engine and the little it is painted
   // with are loaded only for a deck that has one
   if ((deck.plays || []).length && !realistic()) {

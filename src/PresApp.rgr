@@ -3363,6 +3363,12 @@ class PresApp {
     }
 
     ; Where the host draws what: the stage and every thumbnail on screen.
+    ; The deck's own effects (```fx, the theme's @effect) for the page to
+    ; register with the painter: [{name, layer, params, still, fallback, frag}]
+    fn deckEffectsJson:string () {
+        return (deck.effectsJson())
+    }
+
     fn layoutJson:string () {
         this.place()
         def sc:double (this.slideScale())
@@ -8741,6 +8747,7 @@ class PresApp {
             }
             i = (i + 1)
         }
+        this.fxDiagnostics(mdOut cssOut)
         mdEditor.setHostDiagnostics(mdOut)
         cssEditor.setHostDiagnostics(cssOut)
         if ((array_length cssOut) != cssContrastCount) {
@@ -8749,6 +8756,24 @@ class PresApp {
         }
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; What is wrong in the deck's own effects (```fx in the Markdown,
+    ; `@effect` in the theme), on the line it is on: FxLang counts lines
+    ; from 1, the editors from 0.
+    fn fxDiagnostics:void (mdOut:[EditorDiagnostic] cssOut:[EditorDiagnostic]) {
+        def fx:FxLang deck.fx
+        def i:int 0
+        while (i < (array_length fx.errors)) {
+            def line:int ((itemAt fx.errorLines i) - 1)
+            def msg:string ((PresI18n.t("Effect: ")) + (itemAt fx.errors i))
+            if (i >= fx.themeFrom) {
+                push cssOut (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.error()) msg "fx"))
+            } {
+                push mdOut (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.error()) msg "fx"))
+            }
+            i = (i + 1)
+        }
     }
 
     ; One warning per line: a second run from the same line says nothing new.
@@ -8783,12 +8808,18 @@ class PresApp {
             return ""
         }
         def lead:string (PresI18n.t("Low contrast: "))
+        def title:string (PresI18n.t("Low contrast"))
         if ((indexOf note lead) == 0) {
             note = (substring note (strlen lead) (strlen note))
         }
+        def fxLead:string (PresI18n.t("Effect: "))
+        if ((indexOf note fxLead) == 0) {
+            note = (substring note (strlen fxLead) (strlen note))
+            title = (PresI18n.t("Effect"))
+        }
         def y0:int (editor.layout.caretPixelY(line))
         def gx:int (editor.layout.x + 4)
-        return ("{\"kind\":\"warn\",\"name\":" + (PresHint.q((PresI18n.t("Low contrast")))) + ",\"warn\":" + (PresHint.q(note)) + ",\"start\":0,\"end\":0,\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string gx) + ",\"y\":" + (to_string y0) + ",\"w\":12,\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":\"\"}")
+        return ("{\"kind\":\"warn\",\"name\":" + (PresHint.q(title)) + ",\"warn\":" + (PresHint.q(note)) + ",\"start\":0,\"end\":0,\"line\":" + (to_string line) + ",\"tab\":\"" + edTab + "\",\"x\":" + (to_string gx) + ",\"y\":" + (to_string y0) + ",\"w\":12,\"h\":" + (to_string editor.layout.lineHeight) + ",\"text\":\"\"}")
     }
 
     ; The warning on a line of the editor showing, or "".
@@ -9886,6 +9917,24 @@ class PresApp {
         return true
     }
 
+    ; A shared room's people (sliqtly.com/editor): `list` the addresses in it
+    ; besides `owner`'s, one a line. Save is "newdeck-create" with the plan's
+    ; "ask" "editors", "invroom" the room and "editors" the list.
+    fn openRoomInvite:boolean (room:string list:string owner:string) {
+        if ((this.openDupDeck("")) == false) {
+            return false
+        }
+        chart.openRoomInvite(room list owner chart.x chart.y W H)
+        return true
+    }
+
+    ; The room's window just opened offers "Invite people…" (its plan's "act"
+    ; "invite")
+    fn roomDialogInvite:void () {
+        chart.rmInvite = true
+        chart.rebuild()
+    }
+
     ; Rooms' "+" (`id` "") or a room's gear: the room's window, its name and
     ; description; `state` "new", "made" or "archived". Save is
     ; "newdeck-create" with the plan's "ask" "room", "room", "desc" and "act"
@@ -10275,7 +10324,7 @@ class PresApp {
         if (chart.ndDup && (chart.ndAsk == "dup")) {
             dup = "true"
         }
-        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + ",\"editors\":" + (PresApp.jsonStr((chart.inv.text()))) + "}")
+        return ("{\"name\":" + (PresApp.jsonStr(chart.ndName)) + ",\"theme\":" + (PresApp.jsonStr(chart.ndTheme)) + ",\"data\":" + (PresApp.jsonStr(chart.ndData)) + ",\"dup\":" + dup + ",\"ask\":" + (PresApp.jsonStr(chart.ndAsk)) + ",\"room\":" + (PresApp.jsonStr(chart.rmId)) + ",\"desc\":" + (PresApp.jsonStr(chart.ndDesc)) + ",\"act\":" + (PresApp.jsonStr(chart.rmAct)) + ",\"editors\":" + (PresApp.jsonStr((chart.inv.text()))) + ",\"invroom\":" + (PresApp.jsonStr(chart.invRoom)) + "}")
     }
 
     ; {"to": "slide"|"bg-slide"|"bg-all", "crop": "x,y,w,h" in pixels,
