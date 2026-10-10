@@ -1509,5 +1509,13 @@
   "Reading ": "Luetaan ",
   "Side by side": "Rinnakkain",
   "Source code comment": "Lähdekoodikommentti",
-  "‹ Back": "‹ Takaisin"
+  "‹ Back": "‹ Takaisin",
+  "Order of presentations": "Esitysten järjestys",
+  "How a room lists its presentations. Drag a presentation onto another to put them in your own order.": "Missä järjestyksessä huone näyttää esityksensä. Raahaa esitys toisen päälle, niin saat oman järjestyksen.",
+  "Oldest first": "Vanhin ensin",
+  "Newest first": "Uusin ensin",
+  "Last edited": "Viimeksi muokattu",
+  "A–Z": "A–Ö",
+  "Own order": "Oma järjestys",
+  "Presentations are in your own order now: File → Settings changes it.": "Esitykset ovat nyt omassa järjestyksessäsi: Tiedosto → Asetukset muuttaa sen."
 }

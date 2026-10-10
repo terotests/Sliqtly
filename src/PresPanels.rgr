@@ -558,6 +558,8 @@ class PresPanels {
     def autoContrast:boolean true
     ; review mode (comments on the slides); a comment's colour is picked
     ; with it (how serious, PresReviewUi), not here
+    ; how a room lists its presentations (web/rooms.js sortDecks)
+    def deckOrder:string "created"
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -1994,6 +1996,19 @@ class PresPanels {
             lk.addChild(hr)
         }
         d.addChild(lk)
+        ; the order of a room's presentations in the rail; dragging one
+        ; onto another is the own order
+        def ow:EVGElement (UiKit.div("pn-opt"))
+        ow.addChild((UiKit.words("pn-otitle" (PresI18n.t("Order of presentations")))))
+        ow.addChild((UiKit.words("pn-odesc" (PresI18n.t("How a room lists its presentations. Drag a presentation onto another to put them in your own order.")))))
+        def orr:EVGElement (UiKit.div("pn-orow"))
+        this.button("pn-set-order-created" (PresI18n.t("Oldest first")) (? (deckOrder == "created") "primary" "secondary") orr)
+        this.button("pn-set-order-newest" (PresI18n.t("Newest first")) (? (deckOrder == "newest") "primary" "secondary") orr)
+        this.button("pn-set-order-edited" (PresI18n.t("Last edited")) (? (deckOrder == "edited") "primary" "secondary") orr)
+        this.button("pn-set-order-name" (PresI18n.t("A–Z")) (? (deckOrder == "name") "primary" "secondary") orr)
+        this.button("pn-set-order-custom" (PresI18n.t("Own order")) (? (deckOrder == "custom") "primary" "secondary") orr)
+        ow.addChild(orr)
+        d.addChild(ow)
         ; what a room is called (PresTerm); written as it is, not swapped
         def tw:EVGElement (UiKit.div("pn-opt"))
         tw.addChild((UiKit.words("pn-otitle" (PresI18n.plain("Name for rooms")))))
@@ -2613,6 +2628,12 @@ class PresPanels {
                 if (want != (PresI18n.term())) {
                     push requests ("setting:term:" + want)
                 }
+                return
+            }
+            if ((indexOf sc "pn-set-order-") == 0) {
+                deckOrder = (substring sc 13 (strlen sc))
+                push requests ("setting:order:" + deckOrder)
+                this.rebuild()
                 return
             }
             if ((indexOf sc "pn-set-hue-") == 0) {
