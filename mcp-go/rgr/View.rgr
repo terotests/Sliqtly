@@ -169,6 +169,26 @@ class View {
     ; (PresDeck.scriptBaseJson).
     ;   [{ "key", "slide", "src", "allow": […], "text", "steps", "tree",
     ;      "base": {"list", "scene", "ink", "accent"} }]
+    ; Slide i's script as it opens: start(), onEnter(from) and its build
+    ; steps run, no tick (__scriptOpen). "" when it does not run here.
+    sfn scriptOpen:string (host:McpHost text:string tree:string i:int n:int steps:int) {
+        def dk:JVal (JVal.mkObj())
+        dk.setInt("home" (i + 1))
+        dk.setInt("slide" (i + 1))
+        dk.setInt("from" i)
+        dk.setInt("slides" n)
+        dk.setInt("step" steps)
+        dk.setStr("mode" "present")
+        def a:JVal (JVal.mkObj())
+        a.set("deck" dk)
+        a.set("env" (JVal.mkObj()))
+        def out:string (host_script_run host text "__scriptOpen" (Check.withTree(tree a)))
+        if (((strlen out) == 0) || ((out == "-") || (startsWith out "!"))) {
+            return ""
+        }
+        return out
+    }
+
     sfn scripts:string (host:McpHost din:DeckIn d:PresDeck) {
         def out:[string]
         def i:int 0
@@ -192,7 +212,15 @@ class View {
                     o.putInt("steps" s.steps)
                     def head:string (JOut.text(o))
                     def tree:string (d.scriptTree(key))
-                    push out ((substring head 0 ((strlen head) - 1)) + ",\"tree\":" + tree + ",\"base\":" + (d.scriptBaseJson(i)) + "}")
+                    ; how it opens (__scriptOpen, as web/apps.js openArg asks
+                    ; it): the page shows the slide so from its first paint,
+                    ; not where the script ends and then its start
+                    def open:string (View.scriptOpen(host text tree i (d.slideCount()) s.steps))
+                    def withOpen:string ""
+                    if ((strlen open) > 0) {
+                        withOpen = (",\"open\":" + open)
+                    }
+                    push out ((substring head 0 ((strlen head) - 1)) + ",\"tree\":" + tree + ",\"base\":" + (d.scriptBaseJson(i)) + withOpen + "}")
                 }
             }
             i = (i + 1)

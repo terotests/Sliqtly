@@ -240,7 +240,7 @@ try {
   // runs, drawn from the slide the server sent with the frame laid over it
   page = await open("/s/" + SCRIPT_ID);
   await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
-  const red = () => page.evaluate(() => {
+  const count = (blue) => page.evaluate((blue) => {
     const c = document.getElementById("c");
     const g = document.createElement("canvas");
     g.width = 640;
@@ -249,9 +249,16 @@ try {
     x.drawImage(c, 0, 0, 640, 360);
     const d = x.getImageData(0, 0, 640, 360).data;
     let n = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 90 && d[i + 2] < 90) n++;
+    for (let i = 0; i < d.length; i += 4) {
+      const hot = blue ? d[i + 2] > 200 && d[i] < 90 && d[i + 1] < 90 : d[i] > 200 && d[i + 1] < 90 && d[i + 2] < 90;
+      if (hot) n++;
+    }
     return n;
-  });
+  }, blue);
+  const red = () => count(false);
+  // the first paint shows the slide as the script opens it (start() turns
+  // the heading blue), not where it ends: the server sends that pose
+  if (!(await count(true))) fail("the slide's first paint is not the script's opening pose (its heading is not blue)");
   let redAt = 0;
   for (let i = 0; i < 40 && !(redAt = await red()); i++) await page.waitForTimeout(250);
   if (!redAt) fail("the slide's script did not run in the viewer (its heading never turned red)");

@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10c.** If a result names a newer version, read Core
+**Guide version 2026-10-10d.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1201,11 +1201,23 @@ arrows. Name it on the slide's heading; one script a slide:
   slide's look.
 - The old globals (`find`, `add`, `tree`, `slide`, `deck`) still work; the
   page notes once in the console that `find()` is the old form.
-- The slide arrives as the script opens it: what its top level,
+- Entering: the slide arrives as the script opens it. What its top level,
   `start()`, `onEnter(from)` and `build(n)` set is worked out before the
-  slide is shown, so set the starting look there (a list hidden, bars at
-  0), not in the first `tick`. While presenting, `tick` starts once the
-  slide's transition is over.
+  slide is shown, also for the first slide when the page loads (or is
+  reloaded), so set the starting look there (a list hidden, bars at 0),
+  not in the first `tick`. The slide's transition (`transition=` on the
+  heading or in the front matter) carries it in from that look, and `tick`
+  starts once the transition is over. For an entrance the script draws
+  whole, give the slide `transition=none`: `tick` starts at once, from the
+  opening look (words from `opacity: 0` and `y` lower, for example).
+- Leaving: `onLeave(to)` sets how the slide looks while the next slide
+  comes in; the transition goes from that look. It is a look, not an
+  animation: no `tick` runs after it, and the next slide is not held back.
+  For texts that leave one by one, take the keys with `input.take(…)` and
+  move on with `presentation.next()` (`allow: slide.nav`) once they are gone.
+- The shared presentation (sliqtly.com/s/…) changes slides without
+  transitions: each slide is shown at once in its opening look, then
+  ticks; `onLeave` does not run there.
 - It runs while its slide is shown, in the editor and in the shared
   presentation (sliqtly.com/s/…), and starts again each time the slide
   comes back. A frame over its time budget three times in a row stops it,

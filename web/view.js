@@ -132,7 +132,9 @@ let gl = null;
 let deck = null;
 let lists = [];
 const pictures = new Map();
-let at = 0;
+// the slide shown; -1 until the intro is over, so no slide's script runs
+// (and a page's first look is not spent) behind it
+let at = -1;
 let shownAt = 0;
 let raf = 0;
 // the programs on the slides (```app, web/viewplay.js), null when none
@@ -157,7 +159,7 @@ const realistic = () => !!(book && book.render === "realistic" && bookGl && !zoo
 
 function paint() {
   raf = 0;
-  if (!gl || !lists.length) return;
+  if (!gl || !lists.length || at < 0) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
