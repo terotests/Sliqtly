@@ -1,0 +1,49 @@
+/* The optional terracotta frame (File → Settings → Look, PresToolbar.frame):
+   the bar and the rail in the logo's terracotta, white words on it (5.8:1),
+   the work set into it with its rounded corner as in the white frame. The
+   toolbar host carries the theme terracotta, and terracotta-dark as well
+   under the dark look; these go after the derived dark overlay, so they
+   win over it. */
+.theme-terracotta .tb-bar,
+.theme-terracotta .tb-railcol,
+.theme-terracotta .tb-frameunder { background-color: #9a5229; }
+.theme-terracotta .tb-corner { fill: #9a5229; }
+/* the mark on a light tile, as a workspace's icon on Slack's frame */
+.theme-terracotta .tb-logo { background-color: #fff8ef; border-radius: 9px; }
+.theme-terracotta .tb-title-label,
+.theme-terracotta .tb-status { color: #ffffff; }
+.theme-terracotta .tb-title:hover { border: 1px solid rgba(255, 255, 255, 0.55); }
+.theme-terracotta .ui-dropdownmenu-trigger { color: #ffffff; background-color: rgba(0, 0, 0, 0); }
+.theme-terracotta .ui-dropdownmenu-trigger:hover { background-color: rgba(255, 255, 255, 0.14); }
+.theme-terracotta .ui-dropdownmenu-trigger-state-open { background-color: rgba(255, 255, 255, 0.22); }
+/* the bar's buttons (PresToolbar.button while onFrame): Play, Share and the
+   quiet ones outlined in white, Present and Sign in cream with the frame's
+   deep brown on them (11:1) */
+.theme-terracotta .tb-fb { background-color: rgba(0, 0, 0, 0); border: 1px solid rgba(255, 255, 255, 0.55); }
+.theme-terracotta .tb-fb:hover { background-color: rgba(255, 255, 255, 0.14); }
+.theme-terracotta .tb-fb-ghost { border-color: rgba(0, 0, 0, 0); }
+.theme-terracotta .tb-fb-label { color: #ffffff; }
+.theme-terracotta .tb-fb-primary,
+.theme-terracotta .tb-fb-accent { background-color: #fff8ef; border-color: #fff8ef; }
+.theme-terracotta .tb-fb-primary:hover,
+.theme-terracotta .tb-fb-accent:hover { background-color: #f3e3cf; border-color: #f3e3cf; }
+.theme-terracotta .tb-fb-label-primary,
+.theme-terracotta .tb-fb-label-accent { color: #5a2c14; font-weight: 600; }
+/* the rail's open place in white over the frame: the white frame's faint
+   terracotta (toolbar.css .theme-tb .ui-rail-*) would outrank EVGUI's
+   ui-rail-frame-* rules */
+.theme-terracotta .ui-rail-frame-item:hover { background-color: rgba(255, 255, 255, 0.12); }
+.theme-terracotta .ui-rail-frame-pad-state-active { background-color: rgba(255, 255, 255, 0.24); }
+.theme-terracotta .ui-rail-frame-icon-state-active { stroke: #ffffff; }
+.theme-terracotta .ui-rail-frame-label-state-active { color: #ffffff; font-weight: 600; }
+/* Rooms as in the white frame's light look: the corner reads on it */
+.theme-terracotta .tb-rooms { background-color: #fafafa; }
+
+/* Dark: the terracotta deepened so it sits back from the work (9.4:1 under
+   white) yet a step above the near-black panels set into it (2.1:1); Rooms
+   a step lighter than the editor beside it (Slack's sidebar). */
+.theme-terracotta-dark .tb-bar,
+.theme-terracotta-dark .tb-railcol,
+.theme-terracotta-dark .tb-frameunder { background-color: #6b391e; }
+.theme-terracotta-dark .tb-corner { fill: #6b391e; }
+.theme-terracotta-dark .tb-rooms { background-color: #1f1c1a; border-color: #2e2a27; }

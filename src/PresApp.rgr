@@ -8726,6 +8726,23 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; File → Settings → Look: the frame around the work, "" white or
+    ; "terracotta" (the logo's colour).
+    fn setLookFrame:void (frame:string) {
+        if (panels.lookFrame == frame) {
+            return
+        }
+        panels.lookFrame = frame
+        toolbar.frame = frame
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        if ((strlen panels.css) > 0) {
+            panels.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     ; File → Settings → Look. Every host is built again under the new theme;
     ; the code editors have no stylesheet, so their palette is set here from
     ; the skin's hue (the page puts the same hue in the sheets as

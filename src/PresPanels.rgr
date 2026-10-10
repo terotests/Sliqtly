@@ -59,6 +59,8 @@ class PresPanels {
     def skin:string ""
     ; the standard skin's colours as chosen: "light", "dark" or "system"
     def lookMode:string "light"
+    ; the frame around the work: "" white, "terracotta" the logo's colour
+    def lookFrame:string ""
     ; ...and its base colour, as a hue (`--retro-hue`).
     def skinHue:double 88.0
     def w:double 1200.0
@@ -1983,6 +1985,11 @@ class PresPanels {
             this.button("pn-set-mode-light" (PresI18n.t("Light mode")) (? (lookMode == "light") "primary" "secondary") mr)
             this.button("pn-set-mode-dark" (PresI18n.t("Dark mode")) (? (lookMode == "dark") "primary" "secondary") mr)
             lk.addChild(mr)
+            ; the frame (the bar and the left rail) white or in the logo's terracotta
+            def fr:EVGElement (this.div("pn-orow"))
+            this.button("pn-set-frame-white" (PresI18n.t("White frame")) (? (lookFrame != "terracotta") "primary" "secondary") fr)
+            this.button("pn-set-frame-terracotta" (PresI18n.t("Terracotta frame")) (? (lookFrame == "terracotta") "primary" "secondary") fr)
+            lk.addChild(fr)
         }
         if (skin == "retro") {
             ; the skin's base colour: one hue every shade of it follows
@@ -2642,6 +2649,10 @@ class PresPanels {
             }
             if ((indexOf sc "pn-set-mode-") == 0) {
                 push requests ("setting:mode:" + (substring sc 12 (strlen sc)))
+                return
+            }
+            if ((indexOf sc "pn-set-frame-") == 0) {
+                push requests ("setting:frame:" + (substring sc 13 (strlen sc)))
                 return
             }
             if ((sc == "pn-set-skin-light") || (sc == "pn-set-skin-retro")) {
