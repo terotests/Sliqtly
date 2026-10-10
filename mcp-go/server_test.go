@@ -429,11 +429,14 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := []string{}
-	var create *mcp.Tool
+	var create, export *mcp.Tool
 	for _, x := range tools.Tools {
 		names = append(names, x.Name)
 		if x.Name == "create_presentation" {
 			create = x
+		}
+		if x.Name == "export_presentation" {
+			export = x
 		}
 	}
 	sort.Strings(names)
@@ -441,6 +444,9 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
+	// the preview's Download calls export_presentation (ChatGPT asks this)
+	eq(t, export.Meta["openai/widgetAccessible"], true)
+	eq(t, create.Meta["openai/widgetAccessible"], false)
 	schema, _ := json.Marshal(create.InputSchema)
 	match(t, string(schema), `"enum":\[[^\]]*"editorial"`)
 	r, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
