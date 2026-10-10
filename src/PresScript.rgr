@@ -676,6 +676,14 @@ class PresScriptAdd {
     def size:double 32.0
     def bold:boolean false
     def src:string ""
+    ; an image: the window into its picture (0..1 of it), a sprite's frame
+    ; in its sheet (web/sprite-runtime.js), and drawn mirrored
+    def hasCrop:boolean false
+    def cropX:double 0.0
+    def cropY:double 0.0
+    def cropW:double 1.0
+    def cropH:double 1.0
+    def flipH:boolean false
     def props:PresEntProps (new PresEntProps())
 
     Constructor () {
@@ -754,6 +762,12 @@ class PresScriptFrame {
                 ad.size = (o.numOr("size" 32.0))
                 ad.bold = (o.boolOr("bold" false))
                 ad.src = (o.strOr("src" ""))
+                ad.hasCrop = (o.has("cropW"))
+                ad.cropX = (o.numOr("cropX" 0.0))
+                ad.cropY = (o.numOr("cropY" 0.0))
+                ad.cropW = (o.numOr("cropW" 1.0))
+                ad.cropH = (o.numOr("cropH" 1.0))
+                ad.flipH = (o.boolOr("flipH" false))
                 ad.props = (PresEntProps.read(o))
                 push f.adds ad
                 k = (k + 1)
@@ -1388,6 +1402,12 @@ class PresScriptApply {
             p.h = ad.h
             p.src = ad.src
             p.radius = ad.radius
+            p.hasCrop = ad.hasCrop
+            p.cropX = ad.cropX
+            p.cropY = ad.cropY
+            p.cropW = ad.cropW
+            p.cropH = ad.cropH
+            p.flipH = ad.flipH
             p.a = 1.0
             push out p
         }
