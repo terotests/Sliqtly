@@ -560,6 +560,9 @@ class PresPanels {
     ; with it (how serious, PresReviewUi), not here
     ; how a room lists its presentations (web/rooms.js sortDecks)
     def deckOrder:string "created"
+    ; experimental: the 3-D flight while presenting (web/flight3d.js), off
+    ; until turned on here
+    def flight3d:boolean false
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -2019,6 +2022,15 @@ class PresPanels {
         this.button("pn-set-term-project" (PresI18n.plain("Project")) (? (word == "project") "primary" "secondary") tr)
         tw.addChild(tr)
         d.addChild(tw)
+        ; features still being tried out, off unless turned on
+        def xw:EVGElement (UiKit.div("pn-opt"))
+        xw.addChild((UiKit.words("pn-otitle" (PresI18n.t("Experimental: 3-D flight")))))
+        xw.addChild((UiKit.words("pn-odesc" (PresI18n.t("While presenting, G or ⋯ → 3-D flight flies through the presentation in full screen, its diagrams and charts as holograms. Esc comes back.")))))
+        def xr:EVGElement (UiKit.div("pn-orow"))
+        this.button("pn-set-flight-off" (PresI18n.t("Off")) (? flight3d "secondary" "primary") xr)
+        this.button("pn-set-flight-on" (PresI18n.t("On")) (? flight3d "primary" "secondary") xr)
+        xw.addChild(xr)
+        d.addChild(xw)
         def foot:EVGElement (UiKit.div("pn-dfoot"))
         foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
@@ -2617,6 +2629,12 @@ class PresPanels {
         }
         if ((shareOpen && (quiet == false)) && (dialogKind == "settings")) {
             def sc:string (this.ownerAt(px py))
+            if ((sc == "pn-set-flight-on") || (sc == "pn-set-flight-off")) {
+                flight3d = (sc == "pn-set-flight-on")
+                push requests ("setting:flight:" + (? flight3d "on" "off"))
+                this.rebuild()
+                return
+            }
             if (sc == "pn-set-contrast") {
                 autoContrast = (autoContrast == false)
                 push requests ("setting:contrast:" + (? autoContrast "on" "off"))

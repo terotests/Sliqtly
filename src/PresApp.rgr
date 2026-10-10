@@ -54,6 +54,7 @@ Import "../datagrid/src/script/lang/JsLanguage.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
 Import "PresChartEditor.rgr"
+Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
@@ -682,6 +683,12 @@ class PresApp {
     ; [{src, scene, x, y, w, h}] in slide units, "[]" for none.
     fn playScenesJson:string () {
         return ((deck.playScenes(selected)).toJson())
+    }
+
+    ; The presentation as a world to fly through (src/PresFlight.rgr), for
+    ; the page's 3-D flight (web/flight3d.js).
+    fn flightJson:string () {
+        return ((PresFlightScene.of(deck)).toJson())
     }
 
     ; Every slide's 3-D worlds as their programs last drew them, for an
@@ -9338,6 +9345,11 @@ class PresApp {
     fn openSettings:void (contrast:boolean) {
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Settings → Experimental: 3-D flight, as the page keeps it.
+    fn setFlight3d:void (on:boolean) {
+        panels.flight3d = on
     }
 
     ; File → Settings → Order of presentations: how a room lists them, as
