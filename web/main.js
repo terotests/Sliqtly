@@ -1025,6 +1025,18 @@ async function keepFile(rec) {
 const SHEETS_BASE = "__SHEETS_BASE__";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+// Files under code/ for the source viewer (PresCodeViewUi): text, or "not
+// in the deck" for each one asked.
+async function readCodeFiles(paths) {
+  for (const p of paths) {
+    if (!p) continue;
+    const blob = await readDocFile(p);
+    if (blob) app.setCodeFile(p, await blob.text());
+    else app.setCodeGone(p);
+  }
+  needsPaint = true;
+}
+
 async function readDocFile(path) {
   const f = (await docFiles()).find((x) => x.path === bare(path));
   if (!f) return null;
@@ -1135,6 +1147,8 @@ window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 window.__docState = () => ({ id: doc.id, cloud: doc.cloud });
 window.__allDocs = () => allDocs(true);
 window.__docFile = (path) => readDocFile(path);
+// for the checks: a text file into the deck's files
+window.__keepText = (path, text) => keepFile({ path, type: "text/plain", size: text.length, data: text });
 
 async function docFiles() {
   const out = new Map();
@@ -2449,6 +2463,8 @@ async function refreshRecent() {
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
+  // the source viewer reads its code/ files again when next wanted
+  app.codeFilesChanged();
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
   if (app.editorTab() !== "files" || filesListing) return;
@@ -3549,6 +3565,9 @@ function paintOnce() {
         roomChatOne.want((d.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src));
         paintList(d, roomChatOne.pictures);
       } else paintList(j);
+    } else if (layer === "code") {
+      // presenting: the source viewer over the slide, or the diagrams' ‹/› badges
+      paintList(app.codeJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -4554,6 +4573,9 @@ function handleRequests() {
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
+    } else if (r.startsWith("code-files:")) {
+      // the source viewer's files (code/…): handed over as they are read
+      readCodeFiles(r.slice(11).split("|")).catch(fail);
     } else if (r.startsWith("openlink:")) {
       // a link in a comment (review mode): web addresses only, in a new tab
       const u = r.slice(9);
@@ -7307,6 +7329,19 @@ keys.addEventListener("keydown", (ev) => {
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
+    return;
+  }
+  if (presenting && app.codeViewOpen() && !app.reviewHasKeys()) {
+    // the source viewer over the slide: its keys (Ctrl/Cmd + / - / 0 zoom
+    // it, not the page; D the view, N the next change, Ctrl/Cmd+C copies)
+    const steps = mod ? editorZoomStep(ev) : null;
+    const name = steps === 1 ? "+" : steps === -1 ? "-" : steps === 0 ? "0"
+      : ev.key === " " ? "space" : ev.key.length === 1 ? (mod ? ev.key.toLowerCase() : ev.key) : "";
+    if (name) {
+      ev.preventDefault();
+      app.key(name, ev.shiftKey, mod);
+      afterInput();
+    }
     return;
   }
   if (presenting) {

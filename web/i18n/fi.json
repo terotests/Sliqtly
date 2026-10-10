@@ -1479,5 +1479,16 @@
   "The questionnaire has warnings: ": "Kyselyssä on varoituksia: ",
   "No answer link: ": "Vastauslinkkiä ei saatu: ",
   "Responses are kept by a Sliqtly server; this presentation is not saved to one.": "Vastaukset säilyttää Sliqtly-serveri, eikä tätä esitystä ole tallennettu sellaiselle.",
-  "The responses could not be read: ": "Vastauksia ei voitu lukea: "
+  "The responses could not be read: ": "Vastauksia ei voitu lukea: ",
+  " is not in the deck's files": " ei ole esityksen tiedostoissa",
+  "  ·  the change does not read: ": "  ·  muutosta ei voi lukea: ",
+  "Before": "Ennen",
+  "Change": "Muutos",
+  "Compare ↗": "Vertaa ↗",
+  "Now": "Nyt",
+  "Open in repo ↗": "Avaa repossa ↗",
+  "Reading ": "Luetaan ",
+  "Side by side": "Rinnakkain",
+  "Source code comment": "Lähdekoodikommentti",
+  "‹ Back": "‹ Takaisin"
 }

@@ -9,7 +9,7 @@
 ;   :::
 ;
 ; A `:::` block is not CommonMark. Before the markdown sees the text, every
-; `::: notes` and `::: audio` block (isDeckBlock; any other word is the
+; `::: notes`, `::: audio` and `::: code` block (isDeckBlock; any other word is the
 ; markdown's own container) is MASKED: its characters become spaces and its
 ; newlines stay. The masked text has exactly the length and the line breaks of the original, so
 ; every offset the layout hands back (a box's `srcStart`, a click's caret)
@@ -24,7 +24,7 @@
 ; ============================================================================
 
 class PresBlock {
-    ; "notes" or "audio"
+    ; "notes", "audio" or "code" (links from boxes to source files, PresCodeLinks)
     def kind:string ""
     ; the rest of the opening line, e.g. `src=puhe-3.mp3`
     def args:string ""
@@ -81,7 +81,7 @@ class PresSource {
     ; containers: `::: warning`, `::: tip`) is the markdown's, a plate
     ; around its content, and stays in the text.
     sfn isDeckBlock:boolean (word:string) {
-        return ((word == "notes") || (word == "audio"))
+        return ((word == "notes") || ((word == "audio") || (word == "code")))
     }
 
     sfn isClosing:boolean (t:string) {
