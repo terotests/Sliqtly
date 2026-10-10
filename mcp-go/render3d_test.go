@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"image"
 	"os"
@@ -337,5 +338,47 @@ func TestRangerThreeFileRunsAsItIs(t *testing.T) {
 	}
 	if sand < 1500 || len(colours) < 3 {
 		t.Fatalf("want the floor and the coloured boxes, got %d floor points and %v", sand, colours)
+	}
+}
+
+// export_presentation pdf and pptx run the program as render_slide does and
+// carry its 3-D world as a picture (Check.worldPictures), not the fence's
+// plate; the PDF keeps the world's see-through pixels in a soft mask.
+func TestExportCarriesTheWorld(t *testing.T) {
+	if _, err := os.Stat("../web/dist/cerxes.wasm"); err != nil {
+		t.Skip("no web/dist/cerxes.wasm (npm run build with Rust's wasm32-wasip1 target)")
+	}
+	t.Setenv("SLIQTLY_CERXES_DIR", "../web/dist")
+	cerxes = cerxesEngine{}
+	defer func() { cerxes = cerxesEngine{} }()
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# B\n\n## Play\n\n```app\nsrc: apps/w.tsx\nsize: 480x270\nallow: 3d\n```\n"
+	prog := "function view() {\n  return (\n    <scene3d>\n" +
+		"      <perspectiveCamera position={[0, 0, 3]} />\n" +
+		"      <mesh><sphereGeometry args={[0.5]} /><meshBasicMaterial color=\"#ff0000\" /></mesh>\n" +
+		"    </scene3d>\n  );\n}\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "W", "markdown": md,
+		"files": []any{map[string]any{"name": "w.tsx", "text": prog}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	p := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pdf"})
+	if p.IsError {
+		t.Fatal(textOf(p))
+	}
+	pdf := f.bucket.saved["shares/"+id+"/exports/W.pdf"].data
+	if !regexp.MustCompile(`/SMask \d+ 0 R`).Match(pdf) {
+		t.Fatal("the PDF has no world with see-through pixels (no /SMask)")
+	}
+	x := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pptx"})
+	if x.IsError {
+		t.Fatal(textOf(x))
+	}
+	pptx := f.bucket.saved["shares/"+id+"/exports/W.pptx"].data
+	if !bytes.Contains(pptx, []byte("ppt/media/")) {
+		t.Fatal("the PPTX has no picture of the world")
 	}
 }

@@ -1443,6 +1443,13 @@ class PresDeck {
         return (o.toJson())
     }
 
+    ; Whether a program on slide i drew a 3-D world in its last frame: the
+    ; PPTX then takes the slide from its display list (PresExport), the
+    ; world's picture with it.
+    fn hasWorlds:boolean (i:int) {
+        return (((this.playScenes(i)).len()) > 0)
+    }
+
     ; The 3-D worlds the programs on slide i drew in their last frames,
     ; where they are on the slide: [{src, scene, x, y, w, h}] (PresPlayView
     ; scenesIn).

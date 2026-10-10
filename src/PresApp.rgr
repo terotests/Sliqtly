@@ -684,6 +684,27 @@ class PresApp {
         return ((deck.playScenes(selected)).toJson())
     }
 
+    ; Every slide's 3-D worlds as their programs last drew them, for an
+    ; export (web/main.js renderWorldStills): {"pw": the slide's width,
+    ; "scenes": [playScenes]}.
+    fn allPlayScenesJson:string () {
+        def all:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def got:JVal (deck.playScenes(i))
+            def j:int 0
+            while (j < (got.len())) {
+                all.add((got.at(j)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def o:JVal (JVal.mkObj())
+        o.setNum("pw" deck.pageW)
+        o.set("scenes" all)
+        return (o.toJson())
+    }
+
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {

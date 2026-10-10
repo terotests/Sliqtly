@@ -6720,7 +6720,8 @@ class PresCheck {
                     firstAt = ci
                 }
                 lastAt = ci
-                wholeSlide = (wholeSlide && (((cmd.x == 0.0) && (cmd.y == 0.0)) && ((cmd.w == deck.pageW) && (cmd.h == deck.pageH))))
+                ; a window of the whole-slide picture, where it falls on the slide
+                wholeSlide = (wholeSlide && (cmd.hasCrop && (((fabs ((cmd.cropX * deck.pageW) - cmd.x)) < 0.01) && ((fabs ((cmd.cropW * deck.pageW) - cmd.w)) < 0.01))))
             }
             if ((cmd.kind == 3) && (firstText < 0)) {
                 firstText = ci
@@ -6736,7 +6737,7 @@ class PresCheck {
         def groups0:[int]
         def l0:EVGDisplayList (deck.slideList(0 groups0 0.0))
         def atW:int deck.worldsAt
-        this.ok((((atW > 0) && ((itemAt l0.cmds atW).kind == 4)) && ((itemAt l0.cmds (atW + 1)).src == sc.src)) ("worlds: worldsAt says where, got " + (to_string atW)))
+        this.ok(((atW > 0) && ((itemAt l0.cmds atW).src == sc.src)) ("worlds: worldsAt says where, got " + (to_string atW)))
         def groups1:[int]
         deck.slideList(1 groups1 0.0)
         this.ok((deck.worldsAt < 0) "worlds: no worldsAt on a slide without allow: 3d")

@@ -217,6 +217,33 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     return true;
   }
 
+  // An export's worlds (PDF, PPTX): each in `list` ({src, scene, x, y, w,
+  // h, clip, sw, sh}, the slides' worlds as their programs last drew them)
+  // drawn at k device pixels per slide unit, as PNG bytes with their alpha.
+  // The stage's own pictures are drawn again on the next tick.
+  async function stills(list, k) {
+    if (!list.length) return [];
+    await load();
+    if (!p3) return [];
+    const out = [];
+    for (const s of list) {
+      if (!(s.w > 0 && s.h > 0)) continue;
+      p3.setScene(s.src, JSON.stringify(s.scene));
+      const { w, h, view } = worldPicture(s, k);
+      glCanvas.width = w;
+      glCanvas.height = h;
+      if (!p3.draw(s.src, w, h, view[0], view[1], view[2], view[3])) continue;
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      c.getContext("2d").drawImage(glCanvas, 0, 0);
+      const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+      if (blob) out.push({ src: s.src, w, h, bytes: await blob.arrayBuffer() });
+    }
+    lastJson = "";
+    return out;
+  }
+
   // Another deck: its worlds go with it.
   function reset() {
     if (p3) {
@@ -232,5 +259,5 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     said.clear();
   }
 
-  return { tick, reset };
+  return { tick, reset, stills };
 }
