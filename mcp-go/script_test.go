@@ -136,6 +136,22 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 		"files": []any{map[string]any{"name": "fx.tsx", "text": far}}})
 	match(t, fmt.Sprint(sc(fc)["warnings"]), `Slide 2: script apps/fx\.tsx: 1 shape\(s\) it adds are off the slide, which is 960 × 540`)
 
+	// the viewer gets how each script opens (start(), onEnter, its build
+	// steps), so a reloaded page paints the slide so from its first frame
+	op := "import { presentation } from \"Sliqtly\";\nconst s = presentation.activeSlide;\nexport function start() { s.find(\"li\").set({ opacity: 0 }); }\nexport function tick() { s.find(\"li\").set({ opacity: 1 }); }\nexport function final() { s.find(\"li\").set({ opacity: 1 }); }\n"
+	oc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md, "visibility": "link",
+		"files": []any{map[string]any{"name": "fx.tsx", "text": op}}})
+	_, _, _, ob := getView(t, s.root+"/api/view/"+sc(oc)["deck_id"].(string))
+	var ov struct {
+		Scripts []struct {
+			Open map[string]any `json:"open"`
+		} `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(ob), &ov); err != nil || len(ov.Scripts) != 1 {
+		t.Fatalf("scripts: %v %.300s", err, ob)
+	}
+	match(t, fmt.Sprint(ov.Scripts[0].Open["p"]), `li-1:map\[opacity:0\]`)
+
 	// a picture only a script names (add("image")) is the deck's too: drawn
 	// where the script ends, and handed to the viewer
 	pic := "import { presentation } from \"Sliqtly\";\npresentation.activeSlide.add(\"image\", { src: \"media/dot.png\", x: 20, y: 20, w: 40, h: 40 });\nexport function tick() {}\n"
@@ -224,11 +240,11 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 		t.Fatalf("the script's base is not the slide as the Markdown has it: %.600s", base)
 	}
 
-	// scripts/check-view.mjs's deck: a heading the script turns red while
-	// it runs (final() leaves it as the Markdown has it)
+	// scripts/check-view.mjs's deck: a heading the script opens blue and
+	// turns red while it runs (final() leaves it as the Markdown has it)
 	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
 		red := call(t, s, "create_presentation", map[string]any{"title": "Script", "markdown": "## Turns red {script=apps/red.tsx}\n\n- One\n- Two\n",
-			"files": []any{map[string]any{"name": "red.tsx", "text": "let t = 0;\nfunction tick(dt) { t += dt; if (t > 0.2) find(\"h2\").set({ color: \"#ff2020\" }); }\nfunction final() {}\n"}}})
+			"files": []any{map[string]any{"name": "red.tsx", "text": "let t = 0;\nfunction start() { find(\"h2\").set({ color: \"#2020ff\" }); }\nfunction tick(dt) { t += dt; if (t > 1) find(\"h2\").set({ color: \"#ff2020\" }); }\nfunction final() { find(\"h2\").set({ color: null }); }\n"}}})
 		_, _, _, rb := getView(t, s.root+"/api/view/"+sc(red)["deck_id"].(string))
 		if err := os.WriteFile("../scripts/fixtures/view-script.json", []byte(rb), 0o644); err != nil {
 			t.Fatal(err)

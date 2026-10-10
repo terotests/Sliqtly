@@ -110,7 +110,7 @@ func TestSvgPicturesFixedOnTheWayIn(t *testing.T) {
 // a chart's image marks name the deck's pictures: used, and missed when not sent
 func TestChartPicturesCountAsUsed(t *testing.T) {
 	md := "## A\n\n```vega-lite\n{\"data\": {\"values\": [{\"img\": \"media/logo.svg\"}, {\"img\": \"media/gone.svg\"}]}, \"mark\": \"image\"}\n```\n"
-	ws := strings.Join(Deck_static_warnings(md, []string{"logo.svg"}, []string{}), "\n")
+	ws := strings.Join(Deck_static_warnings(md, "", []string{"logo.svg"}, []string{}), "\n")
 	if strings.Contains(ws, "logo.svg was sent but") {
 		t.Fatal(ws)
 	}

@@ -2878,6 +2878,31 @@ class PresDeck {
         return out
     }
 
+    ; A `:::` line that closed no container and is shown as text
+    ; (`MdContainer.strayFences`): most often `::: col` blocks inside a
+    ; `::: columns` with as many colons, whose first `:::` closed the outer
+    ; one. A sentence per slide it is on.
+    fn fenceNotes:[string] () {
+        def out:[string]
+        def seen:[int]
+        for (MdContainer.strayFences(md.edit.doc md.edit.source)) at:int fi {
+            def page:int (this.pageOfOffset(at))
+            if ((indexOf seen page) >= 0) {
+                continue
+            }
+            push seen page
+            def where:string ("slide " + (to_string (page + 1)))
+            if ((page >= 0) && (page < (array_length slides))) {
+                def t:string ((itemAt slides page).title)
+                if ((strlen t) > 0) {
+                    where = ("slide \"" + t + "\"")
+                }
+            }
+            push out ("A `:::` line on " + where + " closes no container and is shown as text. A `:::` closes the outer container first, so `::: col` blocks inside `::: columns` need more colons on the outer one: `:::: columns` … `::::` (or leave the wrapper out: `::: col` blocks one after another are columns too).")
+        }
+        return out
+    }
+
     ; What the HTML in the Markdown does not show as written (a tag nobody
     ; draws, a style property nothing reads, a script handler or address),
     ; as sentences naming the slide (`MdLayout.htmlNotes`).

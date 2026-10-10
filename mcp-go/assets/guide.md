@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10c.** If a result names a newer version, read Core
+**Guide version 2026-10-10d.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -192,7 +192,9 @@ const total = sum(rows);
 
 - `::: columns` … `:::` puts what is in it side by side. The columns are
   read from what is inside, the first rule that applies: `::: col` blocks
-  (one column each; nest them in `:::: columns` with four colons, or write
+  (one column each; nest them in `:::: columns` with four colons — a
+  `:::` closes the outer container first, so `::: columns` with three
+  leaves its last `:::` on the slide as text — or write
   `::: col` blocks one after another without a wrapper; `::: col Title`
   sets a title over the column); `---` lines between the parts; headings
   (a column starts at each heading of the highest level there, text
@@ -704,6 +706,17 @@ can edit.
   call's `images` with the same `name`: a public `https` URL, base64 data,
   or an SVG's (or a SmartArt file's) source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each,
   at most 20 pictures in one call (send more with `update_presentation`).
+- **A photo or any large picture: give its `url`** (`{ "name":
+  "cover.jpg", "url": "https://…/cover.jpg" }`); the server fetches the
+  bytes itself, so there is no base64 to copy and nothing to corrupt. Long
+  base64 copied by hand is easily changed on the way (a few characters in
+  a long `AAAA…` run, and the picture breaks).
+- With `data_base64`, add `sha256`: the SHA-256 of the picture's bytes in
+  hex (`sha256sum cover.jpg`). The server compares it with the bytes it
+  got and refuses the picture, saying so, when they differ; send it again.
+- A picture is kept with the deck even when no slide uses it yet; the
+  result notes which ones are not used yet. Pictures can be sent first
+  (`update_presentation` with only `images`) and used in a later call.
 - A picture written with a web address (`![Logo](https://…/logo.png)`, or
   `![Logo][id]` with `[id]: https://…`) is fetched into `media/` when the
   deck is saved and the Markdown is pointed at it.
@@ -1201,11 +1214,23 @@ arrows. Name it on the slide's heading; one script a slide:
   slide's look.
 - The old globals (`find`, `add`, `tree`, `slide`, `deck`) still work; the
   page notes once in the console that `find()` is the old form.
-- The slide arrives as the script opens it: what its top level,
+- Entering: the slide arrives as the script opens it. What its top level,
   `start()`, `onEnter(from)` and `build(n)` set is worked out before the
-  slide is shown, so set the starting look there (a list hidden, bars at
-  0), not in the first `tick`. While presenting, `tick` starts once the
-  slide's transition is over.
+  slide is shown, also for the first slide when the page loads (or is
+  reloaded), so set the starting look there (a list hidden, bars at 0),
+  not in the first `tick`. The slide's transition (`transition=` on the
+  heading or in the front matter) carries it in from that look, and `tick`
+  starts once the transition is over. For an entrance the script draws
+  whole, give the slide `transition=none`: `tick` starts at once, from the
+  opening look (words from `opacity: 0` and `y` lower, for example).
+- Leaving: `onLeave(to)` sets how the slide looks while the next slide
+  comes in; the transition goes from that look. It is a look, not an
+  animation: no `tick` runs after it, and the next slide is not held back.
+  For texts that leave one by one, take the keys with `input.take(…)` and
+  move on with `presentation.next()` (`allow: slide.nav`) once they are gone.
+- The shared presentation (sliqtly.com/s/…) changes slides without
+  transitions: each slide is shown at once in its opening look, then
+  ticks; `onLeave` does not run there.
 - It runs while its slide is shown, in the editor and in the shared
   presentation (sliqtly.com/s/…), and starts again each time the slide
   comes back. A frame over its time budget three times in a row stops it,

@@ -61,6 +61,8 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
   const web = new globalThis.PresPlayWeb();
   const scriptWeb = new globalThis.PresScriptWeb();
   const byKey = new Map();
+  // a script's slide while it runs: its list with the last frame laid over
+  const live = new Map();
   for (const p of plays) {
     const [x, y, w, h] = p.box;
     web.add(p.key, p.src, p.w, p.h, x, y, w, h);
@@ -68,12 +70,13 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     web.setAllow3d(p.key, (p.allow || []).includes("3d"));
     byKey.set(p.key, p);
   }
-  // a script's slide while it runs: its list with the last frame laid over
-  const live = new Map();
   for (const s of scripts) {
     const b = s.base || {};
     scriptWeb.add(s.key, JSON.stringify(b.list || {}), JSON.stringify(b.scene || {}), b.ink || "", b.accent || "");
     byKey.set(s.key, { ...s, script: true, w: 0, h: 0, css: "" });
+    // how it opens, worked out on the server (View.scriptOpen): the slide's
+    // first paint already shows it, not where the script ends
+    if (s.open && scriptWeb.setFrame(s.key, JSON.stringify(s.open))) live.set(s.slide, s.key);
   }
   // where each page was painted last, for the pointer
   const placed = new Map();
@@ -119,9 +122,11 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
       repaint();
       return true;
     },
+    // the run stopped (its slide left): the slide comes back as it opens
     endScriptLive: (key) => {
       const p = byKey.get(key);
-      if (p && live.get(p.slide) === key) live.delete(p.slide);
+      if (!p || live.get(p.slide) !== key) return;
+      if (!p.open || !scriptWeb.setFrame(key, JSON.stringify(p.open))) live.delete(p.slide);
     },
     // how the script opens (web/apps.js works it out): the slide as it
     // arrives, until the script's first frame
