@@ -31,6 +31,7 @@ Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
 Import "PresExport.rgr"
+Import "PresScriptWeb.rgr"
 Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
@@ -4783,6 +4784,34 @@ class PresCheck {
             this.ok(((hc.a > 0.4) && (hc.a < 0.6)) ("scripts: the moment is drawn, alpha " + (to_string hc.a)))
         }
         deck.clearScriptAt()
+        ; the public viewer lays the same frame over the slide it was sent
+        ; (View.scripts, PresScriptWeb): the heading at half alpha there too
+        def wire:JVal (JVal.parse((deck.scriptBaseJson(0))))
+        def sw (new PresScriptWeb())
+        sw.add("script:apps/fx.tsx#1" ((wire.get("list")).toJson()) ((wire.get("scene")).toJson()) (wire.strOr("ink" "")) (wire.strOr("accent" "")))
+        this.ok((sw.setFrame("script:apps/fx.tsx#1" "{\"p\":{\"h2-1\":{\"opacity\":0.5}}}")) "scripts: the viewer takes a frame")
+        def webList:EVGDisplayList (new EVGDisplayList())
+        webList.cmds = (PresListRead.cmds((sw.listJson("script:apps/fx.tsx#1"))))
+        def wh@(optional):EVGDrawCmd (PresCheck.textCmd(webList "Sales grow"))
+        if (!null? wh) {
+            def whc:EVGDrawCmd (unwrap wh)
+            this.ok(((whc.a > 0.4) && (whc.a < 0.6)) ("scripts: the viewer draws the frame, alpha " + (to_string whc.a)))
+        } {
+            this.ok(false "scripts: the viewer's list has the heading")
+        }
+        def baseCmds:[EVGDrawCmd] (PresListRead.cmds(((wire.get("list")).toJson())))
+        def again:EVGDisplayList (new EVGDisplayList())
+        again.cmds = baseCmds
+        def twice:EVGDisplayList (new EVGDisplayList())
+        twice.cmds = (PresListRead.cmds((again.toJson())))
+        this.ok(((array_length baseCmds) > 3) "scripts: the viewer's list has commands")
+        this.ok(((again.toJson()) == (twice.toJson())) "scripts: a list read back writes the same JSON")
+        def hb@(optional):EVGDrawCmd (PresCheck.textCmd(again "Sales grow"))
+        if (!null? hb) {
+            def hbc:EVGDrawCmd (unwrap hb)
+            def hit:string (sw.entityAt("script:apps/fx.tsx#1" (hbc.x + 4.0) (hbc.y + (hbc.h * 0.5))))
+            this.ok(((indexOf hit "h2-1") == 0) ("scripts: the viewer finds the heading under the pointer, got " + hit))
+        }
         ; a thumbnail is the final state; the PDF too
         def bad2:string "{\"p\":{\"chart-1/bar-2\":{\"fill\":\"#00ff00\"}}}"
         deck.setScriptFinal("script:apps/fx.tsx#1" bad2)

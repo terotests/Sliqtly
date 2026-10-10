@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -97,6 +99,58 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	match(t, text, `Its script apps/fx\.tsx run to each moment`)
 	if _, ok := st.Content[0].(*mcp.ImageContent); !ok {
 		t.Fatal("no picture")
+	}
+
+	// the public viewer: the slide at rest where the script ends (li-2
+	// gone), and the script with the slide as the Markdown has it to run
+	code, _, v, body := getView(t, s.root+"/api/view/"+id)
+	if code != 200 {
+		t.Fatalf("view: %d", code)
+	}
+	var got struct {
+		Scripts []struct {
+			Key   string         `json:"key"`
+			Slide int            `json:"slide"`
+			Text  string         `json:"text"`
+			Tree  []any          `json:"tree"`
+			Base  map[string]any `json:"base"`
+		} `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Scripts) != 1 || got.Scripts[0].Key != "script:apps/fx.tsx#1" || got.Scripts[0].Slide != 1 || got.Scripts[0].Text != src || len(got.Scripts[0].Tree) < 3 {
+		t.Fatalf("view scripts: %.400s", body)
+	}
+	for _, k := range []string{"list", "scene", "ink", "accent"} {
+		if _, ok := got.Scripts[0].Base[k]; !ok {
+			t.Fatalf("view script base has no %s", k)
+		}
+	}
+	var raw struct {
+		Lists []json.RawMessage `json:"lists"`
+	}
+	if err := json.Unmarshal([]byte(body), &raw); err != nil || len(raw.Lists) != v.Deck.Slides {
+		t.Fatalf("view lists: %v", err)
+	}
+	gone := regexp.MustCompile(`"c":\[\d+,\d+,\d+,0(\.0+)?\],"text":"Buns sell"`)
+	if !gone.Match(raw.Lists[1]) {
+		t.Fatalf("the slide at rest is not where its script ends: %.600s", raw.Lists[1])
+	}
+	base, _ := json.Marshal(got.Scripts[0].Base["list"])
+	if gone.Match(base) || !strings.Contains(string(base), `"Buns sell"`) {
+		t.Fatalf("the script's base is not the slide as the Markdown has it: %.600s", base)
+	}
+
+	// scripts/check-view.mjs's deck: a heading the script turns red while
+	// it runs (final() leaves it as the Markdown has it)
+	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
+		red := call(t, s, "create_presentation", map[string]any{"title": "Script", "markdown": "## Turns red {script=apps/red.tsx}\n\n- One\n- Two\n",
+			"files": []any{map[string]any{"name": "red.tsx", "text": "let t = 0;\nfunction tick(dt) { t += dt; if (t > 0.2) find(\"h2\").set({ color: \"#ff2020\" }); }\nfunction final() {}\n"}}})
+		_, _, _, rb := getView(t, s.root+"/api/view/"+sc(red)["deck_id"].(string))
+		if err := os.WriteFile("../scripts/fixtures/view-script.json", []byte(rb), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	bad := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,

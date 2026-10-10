@@ -182,7 +182,8 @@ function paint() {
   const shown = book ? spreadPages(book.spreads, spreadNow()) : [{ page: at, x: 0 }];
   let moving = false;
   for (const { page, x } of shown) {
-    const list = lists[page];
+    // a slide's script, while it runs, lays its frames over the list
+    const list = (plays && plays.listOf(page)) || lists[page];
     for (const e of list.effects || []) e.time = t;
     moving = moving || (list.effects || []).length > 0;
     const doc = { width: w, height: h, view: { x: view.x + x * deck.width * view.scale, y: view.y, scale: view.scale }, list };
@@ -642,13 +643,13 @@ async function start() {
   lists = got.lists;
   // the deck's own effects, compiled on the server from its ```fx blocks
   if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
-  // a program runs in the page; its engine and the little it is painted
-  // with are loaded only for a deck that has one
-  if ((deck.plays || []).length && !realistic()) {
+  // a program (or a slide's script) runs in the page; its engine and the
+  // little it is painted with are loaded only for a deck that has one
+  if (((deck.plays || []).length || (got.scripts || []).length) && !realistic()) {
     try {
       const { startPlays } = await import("./viewplay.js");
       plays = await startPlays({
-        plays: deck.plays, canvas, current: () => at, count: () => lists.length,
+        plays: deck.plays || [], scripts: got.scripts || [], lists, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
       });

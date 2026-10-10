@@ -2288,25 +2288,30 @@ class PresDeck {
         return out
     }
 
+    ; Slide i for a page that runs its script itself (the public viewer,
+    ; PresScriptWeb): its list at rest as the Markdown has it, that list's
+    ; scene (PresScene.wireJson), and the theme's text and accent colours,
+    ; {"list", "scene", "ink", "accent"}.
+    fn scriptBaseJson:string (i:int) {
+        def l:MdLayout (this.layout())
+        def wasOff:boolean scriptsOff
+        scriptsOff = true
+        def g:[int]
+        def dl:EVGDisplayList (this.slideList(i g 0.0))
+        def sc:PresScene (this.sceneOfList(i dl))
+        scriptsOff = wasOff
+        def o:JVal (JVal.mkObj())
+        o.setStr("ink" l.style.textColor)
+        o.setStr("accent" (this.themeColour("chart" "accent-color")))
+        def a:string (o.toJson())
+        return ("{\"list\":" + (dl.toJson()) + ",\"scene\":" + (sc.wireJson()) + "," + (substring a 1 (strlen a)))
+    }
+
     ; The entity of slide i under slide point (px, py): the smallest whose
     ; box holds it, not a letter; "" for none.
     fn scriptEntityAt:string (i:int px:double py:double) {
         def sc:PresScene (this.sceneOfSlide(i))
-        def best:string ""
-        def bestA:double 1000000000.0
-        def k:int 1
-        while (k < (sc.count())) {
-            def e:PresEnt (sc.at(k))
-            if ((e.kind != "char") && ((((px >= e.x) && (px <= (e.x + e.w))) && (py >= e.y)) && (py <= (e.y + e.h)))) {
-                def a:double (e.w * e.h)
-                if (a < bestA) {
-                    bestA = a
-                    best = e.id
-                }
-            }
-            k = (k + 1)
-        }
-        return best
+        return (sc.entityAt(px py))
     }
 
     ; What the slides' scripts got wrong: a file the deck does not have,

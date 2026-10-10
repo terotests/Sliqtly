@@ -481,6 +481,120 @@ class PresScene {
         return (out.toJson())
     }
 
+    ; The entity under slide point (px, py): the smallest one, not a letter
+    ; (a word before its line); "" for none.
+    fn entityAt:string (px:double py:double) {
+        def best:string ""
+        def bestA:double 1000000000.0
+        def k:int 1
+        while (k < (array_length ents)) {
+            def e:PresEnt (itemAt ents k)
+            if ((e.kind != "char") && ((((px >= e.x) && (px <= (e.x + e.w))) && (py >= e.y)) && (py <= (e.y + e.h)))) {
+                def a:double (e.w * e.h)
+                if (a < bestA) {
+                    bestA = a
+                    best = e.id
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    ; The scene whole, for a page that lays a program's frames over the list
+    ; itself (the public viewer, PresScriptWeb): every field, unrounded, and
+    ; the owner of each command. fromWire reads it back.
+    fn wireJson:string () {
+        def o:JVal (JVal.mkObj())
+        o.setNum("w" pageW)
+        o.setNum("h" pageH)
+        def es:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length ents)) {
+            def e:PresEnt (itemAt ents i)
+            def a:JVal (JVal.mkArr())
+            a.add((JVal.mkStr(e.id)))
+            a.add((JVal.mkStr(e.kind)))
+            a.add((JVal.mkStr(e.name)))
+            a.add((JVal.mkStr((join e.classes " "))))
+            a.add((JVal.mkStr(e.text)))
+            a.add((JVal.mkStr(e.data)))
+            a.add((JVal.mkNum(e.x)))
+            a.add((JVal.mkNum(e.y)))
+            a.add((JVal.mkNum(e.w)))
+            a.add((JVal.mkNum(e.h)))
+            a.add((JVal.mkBool(e.hasBox)))
+            a.add((JVal.mkInt(e.index)))
+            a.add((JVal.mkInt(e.parent)))
+            a.add((JVal.mkInt(e.ofBox)))
+            a.add((JVal.mkInt(e.src)))
+            a.add((JVal.mkInt(e.srcEnd)))
+            a.add((JVal.mkStr(e.from)))
+            a.add((JVal.mkStr(e.to)))
+            a.add((JVal.mkInt(e.cmd)))
+            a.add((JVal.mkInt(e.at)))
+            a.add((JVal.mkInt(e.len)))
+            es.add(a)
+            i = (i + 1)
+        }
+        o.set("e" es)
+        def ow:JVal (JVal.mkArr())
+        for ownerOfCmd v:int vi {
+            ow.add((JVal.mkInt(v)))
+        }
+        o.set("o" ow)
+        return (o.toJson())
+    }
+
+    sfn fromWire:PresScene (json:string) {
+        def sc:PresScene (new PresScene())
+        def o:JVal (JVal.parse(json))
+        if ((o.isObj()) == false) {
+            return sc
+        }
+        sc.pageW = (o.numOr("w" 960.0))
+        sc.pageH = (o.numOr("h" 540.0))
+        def es:JVal (o.get("e"))
+        def i:int 0
+        while (i < (es.len())) {
+            def a:JVal (es.at(i))
+            def e:PresEnt (new PresEnt())
+            e.id = ((a.at(0)).asStr(""))
+            e.kind = ((a.at(1)).asStr(""))
+            e.name = ((a.at(2)).asStr(""))
+            def cls:string ((a.at(3)).asStr(""))
+            if ((strlen cls) > 0) {
+                e.classes = (strsplit cls " ")
+            }
+            e.text = ((a.at(4)).asStr(""))
+            e.data = ((a.at(5)).asStr(""))
+            e.x = ((a.at(6)).asNum(0.0))
+            e.y = ((a.at(7)).asNum(0.0))
+            e.w = ((a.at(8)).asNum(0.0))
+            e.h = ((a.at(9)).asNum(0.0))
+            e.hasBox = ((a.at(10)).asBool(false))
+            e.index = (to_int ((a.at(11)).asNum(0.0)))
+            e.parent = (to_int ((a.at(12)).asNum(-1.0)))
+            e.ofBox = (to_int ((a.at(13)).asNum(-1.0)))
+            e.src = (to_int ((a.at(14)).asNum(-1.0)))
+            e.srcEnd = (to_int ((a.at(15)).asNum(-1.0)))
+            e.from = ((a.at(16)).asStr(""))
+            e.to = ((a.at(17)).asStr(""))
+            e.cmd = (to_int ((a.at(18)).asNum(-1.0)))
+            e.at = (to_int ((a.at(19)).asNum(0.0)))
+            e.len = (to_int ((a.at(20)).asNum(0.0)))
+            push sc.ents e
+            i = (i + 1)
+        }
+        def ow:JVal (o.get("o"))
+        def k:int 0
+        while (k < (ow.len())) {
+            push sc.ownerOfCmd (to_int ((ow.at(k)).asNum(0.0)))
+            k = (k + 1)
+        }
+        return sc
+    }
+
     ; One line per entity, indented by depth, for a person or an assistant
     ; reading the tree: `h2-1 h2 "Sales grow" @ 60,40 840x52`.
     fn outline:[string] (withLetters:boolean) {

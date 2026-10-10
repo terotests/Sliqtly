@@ -296,7 +296,8 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       if (r.script) {
         // where it ends, for the slide while it is not running
         const tree = app.scriptTree(p.key);
-        if (tree) wantFinal(p.key, source, tree);
+        // (a page without setScriptFinal had it worked out for it: the viewer)
+        if (tree && app.setScriptFinal) wantFinal(p.key, source, tree);
         // a script runs only while its slide is on the stage, from the start
         // each time it comes back
         if (!shown.has(p.key)) {

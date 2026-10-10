@@ -41,6 +41,10 @@ const slides = JSON.parse(deck).deck.slides;
 // stylesheet as the server sends them (mcp-go/view_test.go TestViewPlays)
 const APP_ID = "AppFixture1";
 const appDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app.json"));
+// a slide with a script ({script=apps/red.tsx}) that turns its heading red
+// while it runs (mcp-go/script_test.go writes it with SLIQTLY_WRITE_FIXTURES)
+const SCRIPT_ID = "ScriptFix1";
+const scriptDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-script.json"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -60,9 +64,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const found = rel === "/api/view/" + ID || rel === "/api/view/" + APP_ID;
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [SCRIPT_ID]: scriptDeck };
+    const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json" });
-    res.end(found ? (rel.endsWith(APP_ID) ? appDeck : deck) : '{"error":"This shared presentation was not found."}');
+    res.end(found || '{"error":"This shared presentation was not found."}');
     return;
   }
   // Hosting's Firebase config (viewauth.js): not here, as where sign-in is off
@@ -177,6 +182,27 @@ try {
   await page.keyboard.press("n");
   await page.waitForFunction(() => document.getElementById("vCount").textContent === "2 / 2", null, { timeout: 5000 })
     .catch(() => fail("the program's slide.next() did not go to slide 2"));
+  await page.close();
+
+  // a slide's script runs in the viewer: the heading turns red while it
+  // runs, drawn from the slide the server sent with the frame laid over it
+  page = await open("/s/" + SCRIPT_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  const red = () => page.evaluate(() => {
+    const c = document.getElementById("c");
+    const g = document.createElement("canvas");
+    g.width = 640;
+    g.height = 360;
+    const x = g.getContext("2d");
+    x.drawImage(c, 0, 0, 640, 360);
+    const d = x.getImageData(0, 0, 640, 360).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 90 && d[i + 2] < 90) n++;
+    return n;
+  });
+  let redAt = 0;
+  for (let i = 0; i < 40 && !(redAt = await red()); i++) await page.waitForTimeout(250);
+  if (!redAt) fail("the slide's script did not run in the viewer (its heading never turned red)");
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other
@@ -299,4 +325,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program run, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
