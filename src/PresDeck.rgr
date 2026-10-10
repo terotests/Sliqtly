@@ -1685,6 +1685,7 @@ class PresDeck {
         }
         r.final = f
         r.hasFinal = true
+        r.finalJson = json
         this.takeOwns(r f)
         revision = (revision + 1)
         return true
@@ -1700,6 +1701,68 @@ class PresDeck {
             }
             revision = (revision + 1)
         }
+    }
+
+    ; One moment of script `key` (__scriptAt), drawn instead of its others
+    ; until `clearScriptAt`: the server's picture of the slide at a time.
+    fn setScriptAt:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.at = f
+        r.hasAt = true
+        this.takeOwns(r f)
+        revision = (revision + 1)
+        return true
+    }
+
+    fn clearScriptAt:void () {
+        def i:int 0
+        while (i < (array_length scriptRuns)) {
+            def r:PresScriptRun (itemAt scriptRuns i)
+            if r.hasAt {
+                r.hasAt = false
+                r.at = (new PresScriptFrame())
+                revision = (revision + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; What script `key`'s final frame runs to (__scriptFinal's argument
+    ; without the tree): {steps, seconds}, its slide's build steps and
+    ; `export-frame` or the slide's length.
+    fn scriptFinalArgs:JVal (key:string) {
+        def o:JVal (JVal.mkObj())
+        def pg:int (this.scriptPage(key))
+        if (pg >= 0) {
+            def s:PresSlide (itemAt slides pg)
+            o.setInt("steps" s.steps)
+            def secs:double s.duration
+            if (s.exportFrame >= 0.0) {
+                secs = s.exportFrame
+            }
+            o.setNum("seconds" secs)
+        }
+        return o
+    }
+
+    ; The scripts' keys, for a host that runs them itself (the server).
+    fn scriptKeys:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length scriptRuns)) {
+            def r:PresScriptRun (itemAt scriptRuns i)
+            push out r.key
+            i = (i + 1)
+        }
+        return out
     }
 
     ; The script left the stage (or was stopped): its slide is shown as it
@@ -1731,6 +1794,10 @@ class PresDeck {
             return none
         }
         def r:PresScriptRun (unwrap ro)
+        if r.hasAt {
+            def av@(optional):PresScriptFrame r.at
+            return av
+        }
         if ((r.hasLive && showControls) && (still == false)) {
             def lv@(optional):PresScriptFrame r.live
             return lv

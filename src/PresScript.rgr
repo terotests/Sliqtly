@@ -482,17 +482,17 @@ class PresScene {
     ; reading the tree: `h2-1 h2 "Sales grow" @ 60,40 840x52`.
     fn outline:[string] (withLetters:boolean) {
         def out:[string]
+        this.outlineUnder(0 0 withLetters out)
+        return out
+    }
+
+    ; the lines of `at`'s children, in tree order, `depth` deep; words and
+    ; letters only `withLetters`
+    fn outlineUnder:void (at:int depth:int withLetters:boolean out:[string]) {
         def i:int 1
         while (i < (array_length ents)) {
             def e:PresEnt (itemAt ents i)
-            if ((e.kind != "char") || withLetters) {
-                def depth:int 0
-                def up:int e.parent
-                while (up > 0) {
-                    depth = (depth + 1)
-                    def ue:PresEnt (itemAt ents up)
-                    up = ue.parent
-                }
+            if ((e.parent == at) && (((e.kind != "char") && (e.kind != "word")) || withLetters)) {
                 def pad:string ""
                 def d:int 0
                 while (d < depth) {
@@ -508,10 +508,10 @@ class PresScene {
                     what = (" \"" + t + "\"")
                 }
                 push out (pad + e.id + " " + e.kind + what + " @ " + (to_string (to_int e.x)) + "," + (to_string (to_int e.y)) + " " + (to_string (to_int e.w)) + "x" + (to_string (to_int e.h)))
+                this.outlineUnder(i (depth + 1) withLetters out)
             }
             i = (i + 1)
         }
-        return out
     }
 }
 
@@ -1693,6 +1693,12 @@ class PresScriptRun {
     ; the PDF, the stage before its first frame
     def final:PresScriptFrame (new PresScriptFrame())
     def hasFinal:boolean false
+    ; …as the script gave it ({p, a, …})
+    def finalJson:string ""
+    ; one moment of it, run elsewhere (the server's render_slide(time)):
+    ; drawn over the others while set
+    def at:PresScriptFrame (new PresScriptFrame())
+    def hasAt:boolean false
     ; it has `build(n)` (the slide's steps are its own) and `onClick`
     def ownsBuild:boolean false
     def ownsClick:boolean false

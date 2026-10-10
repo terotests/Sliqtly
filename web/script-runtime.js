@@ -26,6 +26,7 @@
 // __scriptFrame(arg) -> {p: {id: props}, a: [added], k: [asks], build, click}
 // __scriptFinal(arg) -> the same, for where the script ends: final(), or its
 // ticks run to the end (`seconds`).
+// __scriptAt(arg) -> the same, `time` seconds in (no final()).
 export const SCRIPT_RUNTIME = String.raw`
 var __ents = [];
 var __byId = {};
@@ -292,23 +293,40 @@ function __scriptFinal(arg) {
   env["export"] = true;
   __begin(a);
   env["export"] = true;
-  var build = __hook("build");
-  if (build) {
-    __lastStep = a.steps || 0;
-    slide.step = __lastStep;
-    build(__lastStep);
-  }
+  __buildTo(a.steps || 0);
   var fin = __hook("final");
-  var tick = __hook("tick");
   if (fin) fin();
-  else if (tick) {
-    var secs = Math.min(20, Math.max(0, Number(a.seconds) || 0));
-    var n = Math.round(secs * 30);
-    for (var i = 0; i < n; i++) {
-      env.time = i / 30;
-      tick(1 / 30);
-    }
-  }
+  else __tickFor(a.seconds);
   return __out();
+}
+
+// The slide a.time seconds after it arrived, at build step a.steps: its
+// ticks run that long (at 30 a second, at most 20 s) and final() is not
+// called. render_slide(time) and render_strip draw this.
+function __scriptAt(arg) {
+  var a = JSON.parse(arg);
+  __begin(a);
+  __buildTo(a.steps || 0);
+  __tickFor(a.time);
+  return __out();
+}
+
+function __buildTo(step) {
+  var build = __hook("build");
+  if (!build) return;
+  __lastStep = step;
+  slide.step = step;
+  build(step);
+}
+
+function __tickFor(seconds) {
+  var tick = __hook("tick");
+  if (!tick) return;
+  var secs = Math.min(20, Math.max(0, Number(seconds) || 0));
+  var n = Math.round(secs * 30);
+  for (var i = 0; i < n; i++) {
+    env.time = i / 30;
+    tick(1 / 30);
+  }
 }
 `;

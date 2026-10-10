@@ -590,18 +590,7 @@ class PresApp {
     ; What the final frame of script `key` runs to: {steps, seconds} — its
     ; slide's build steps, and `export-frame` or the slide's length.
     fn scriptFinalArgs:string (key:string) {
-        def o:JVal (JVal.mkObj())
-        def pg:int (deck.scriptPage(key))
-        if (pg >= 0) {
-            def s:PresSlide (deck.slideAt(pg))
-            o.setInt("steps" s.steps)
-            def secs:double s.duration
-            if (s.exportFrame >= 0.0) {
-                secs = s.exportFrame
-            }
-            o.setNum("seconds" secs)
-        }
-        return (o.toJson())
+        return ((deck.scriptFinalArgs(key)).toJson())
     }
 
     ; Whether script `key` has onClick: then a press on its slide, while

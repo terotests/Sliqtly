@@ -35,6 +35,12 @@ class DeckIn {
     ; `fxTime` seconds into it (PresDeck.fxClockAt); -1: the end state
     def fxAt:int -1
     def fxTime:double -1.0
+    ; with lists: slide `fxAt` also drawn at each of these seconds into it
+    ; (its effects' clock and its script at that moment): Checked.strip
+    def strip:[double]
+    ; …or this many times, evenly from 0 to where the slide ends
+    ; (`export-frame`, else its length, at most 20 s)
+    def stripCount:int 0
     ; "pdf", "pptx", "docx" or "html": the deck exported as that file (Checked.file), only
     ; the slides in `only` (0 = first) when it is not empty
     def export:string ""
@@ -79,6 +85,13 @@ class Checked {
     def sceneLines:[string]
     def sceneFound:[string]
     def sceneSelError:string ""
+    ; where that slide's script ends ({p, a}, as it gave it), "" for none
+    def sceneFinal:string ""
+    ; with DeckIn.strip: slide fxAt's display list at each of those times
+    def strip:[string]
+    def stripTimes:[double]
+    ; the strip's slide's script file, "" for none
+    def stripScript:string ""
 }
 
 class Check {
@@ -280,6 +293,71 @@ class Check {
         return -1
     }
 
+    ; Each slide's script run where it ends (__scriptFinal in CErXes,
+    ; host_script_run): its frame kept as the slide's final state. One that
+    ; does not run is said; without an engine the slides show the Markdown.
+    sfn scriptFinals:void (host:McpHost din:DeckIn d:PresDeck c:Checked) {
+        for (d.scriptKeys()) key:string ki {
+            def pg:int (d.scriptPage(key))
+            def s:PresSlide (d.slideAt(pg))
+            def text:string (Check.dataText(host din s.script))
+            if ((strlen text) == 0) {
+                continue
+            }
+            def arg:string (Check.withTree((d.scriptTree(key)) (d.scriptFinalArgs(key))))
+            def out:string (host_script_run host text "__scriptFinal" arg)
+            if (out == "-") {
+                continue
+            }
+            if (startsWith out "!") {
+                push c.warnings (Guide.see(("Slide " + (to_string (pg + 1)) + ": script " + s.script + " does not run: " + (substring out 1 (strlen out))) "scripts"))
+                continue
+            }
+            d.setScriptFinal(key out)
+        }
+    }
+
+    ; Slide i's script `t` seconds in (__scriptAt), drawn until
+    ; d.clearScriptAt(): its build step then, its ticks run that long.
+    sfn scriptAt:void (host:McpHost din:DeckIn d:PresDeck i:int t:double) {
+        def key:string (d.scriptKeyOf(i))
+        if ((strlen key) == 0) {
+            return
+        }
+        def s:PresSlide (d.slideAt(i))
+        def text:string (Check.dataText(host din s.script))
+        if ((strlen text) == 0) {
+            return
+        }
+        def o:JVal (JVal.mkObj())
+        def step:int 0
+        def k:int 1
+        while (k <= s.steps) {
+            if ((PresTimeline.stepTime(s k)) <= t) {
+                step = k
+            }
+            k = (k + 1)
+        }
+        o.setInt("steps" step)
+        o.setNum("time" t)
+        def out:string (host_script_run host text "__scriptAt" (Check.withTree((d.scriptTree(key)) o)))
+        if (((out != "-") && ((startsWith out "!") == false)) && ((strlen out) > 0)) {
+            d.setScriptAt(key out)
+        }
+    }
+
+    ; `args` (an object) with "tree" set to the JSON text `tree`
+    sfn withTree:string (tree:string args:JVal) {
+        def a:string (args.toJson())
+        if ((strlen tree) == 0) {
+            return a
+        }
+        if (a == "{}") {
+            return ("{\"tree\":" + tree + "}")
+        }
+        return ("{\"tree\":" + tree + "," + (substring a 1 (strlen a)))
+    }
+
     ; whether `file` is named by a slide's {script=…}
     sfn isScript:boolean (d:PresDeck file:string) {
         def i:int 0
@@ -403,6 +481,9 @@ class Check {
                 }
             }
         }
+        ; each slide's script run to where it ends, in the engine the page
+        ; runs it in: what the PDF, the PPTX and the pictures show
+        Check.scriptFinals(host din d c)
         ; a slide that runs over goes on in untitled slides after it
         def i:int 0
         while (i < c.slides) {
@@ -490,16 +571,57 @@ class Check {
                 if (din.fxTime >= 0.0) {
                     PresTimeline.planAll(d)
                 }
+                if (((din.fxTime >= 0.0) || ((array_length din.strip) > 0)) || (din.stripCount > 0)) {
+                    PresTimeline.planAll(d)
+                }
                 def li:int 0
                 while (li < c.slides) {
                     def groups:[int]
-                    if ((li == din.fxAt) && (din.fxTime >= 0.0)) {
+                    def timed:boolean ((li == din.fxAt) && (din.fxTime >= 0.0))
+                    if timed {
                         d.fxClockAt = din.fxTime
+                        Check.scriptAt(host din d li din.fxTime)
                     }
                     def sl:EVGDisplayList (d.slideList(li groups 0.0))
                     d.fxClockAt = -1.0
+                    d.clearScriptAt()
                     push c.lists (sl.toJson())
                     li = (li + 1)
+                }
+                if ((din.fxAt >= 0) && (din.fxAt < c.slides)) {
+                    c.stripTimes = din.strip
+                    def stripSlide:PresSlide (d.slideAt(din.fxAt))
+                    c.stripScript = stripSlide.script
+                    if (((array_length c.stripTimes) == 0) && (din.stripCount > 0)) {
+                        PresTimeline.planAll(d)
+                        def ss:PresSlide (d.slideAt(din.fxAt))
+                        def secs:double ss.duration
+                        if (ss.exportFrame >= 0.0) {
+                            secs = ss.exportFrame
+                        }
+                        if (secs > 20.0) {
+                            secs = 20.0
+                        }
+                        def sn:int din.stripCount
+                        def sk:int 0
+                        while (sk < sn) {
+                            if (sn == 1) {
+                                push c.stripTimes secs
+                            } {
+                                push c.stripTimes (((to_double sk) * secs) / (to_double (sn - 1)))
+                            }
+                            sk = (sk + 1)
+                        }
+                    }
+                    for c.stripTimes st:double sti {
+                        def sg:[int]
+                        d.fxClockAt = st
+                        Check.scriptAt(host din d din.fxAt st)
+                        def sdl:EVGDisplayList (d.slideList(din.fxAt sg 0.0))
+                        d.fxClockAt = -1.0
+                        d.clearScriptAt()
+                        push c.strip (sdl.toJson())
+                    }
                 }
             }
             d.still = false
@@ -516,6 +638,14 @@ class Check {
             if (c.scene >= 0) {
                 def sc:PresScene (d.sceneOfSlide(c.scene))
                 c.sceneJson = (sc.toJson())
+                def sk:string (d.scriptKeyOf(c.scene))
+                if ((strlen sk) > 0) {
+                    def sro@(optional):PresScriptRun (d.scriptRun(sk))
+                    if (!null? sro) {
+                        def srun:PresScriptRun (unwrap sro)
+                        c.sceneFinal = srun.finalJson
+                    }
+                }
                 c.sceneLines = (sc.outline(false))
                 if ((strlen din.sceneSel) > 0) {
                     def ps:PresSel (PresSel.parse(din.sceneSel))
