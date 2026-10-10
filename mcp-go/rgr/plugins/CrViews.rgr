@@ -7,6 +7,7 @@
 ; with nothing in it is left out. Tested in review_test.go.
 
 Import "CrModel.rgr"
+Import "CrCode.rgr"
 
 ; where the change is: links to its lines at the PR's head
 class CrSource {
@@ -82,6 +83,20 @@ class CrViews {
             return t
         }
         return ((to_uppercase (substring t 0 1)) + (substring t 1 (strlen t)))
+    }
+
+    ; a sentence going on after a joining word: "The mailer" → "the
+    ; mailer", but "API" and "X-1a" stay as they are
+    sfn goingOn:string (s:string) {
+        def t:string (trim s)
+        if ((strlen t) < 2) {
+            return t
+        }
+        def second:string (substring t 1 2)
+        if ((to_lowercase second) != second) {
+            return t
+        }
+        return ((to_lowercase (substring t 0 1)) + (substring t 1 (strlen t)))
     }
 
     sfn oneLine:string (s:string) {
@@ -633,6 +648,125 @@ class CrViews {
         return (join rows "\n")
     }
 
+    ; --- links to the code
+
+    ; the words of a diagram's text, as its node ids are written
+    sfn words:[string] (text:string) {
+        def out:[string]
+        def w:string ""
+        def i:int 0
+        while (i <= (strlen text)) {
+            def c:int 32
+            if (i < (strlen text)) {
+                c = (charAt text i)
+            }
+            def ok:boolean (((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57))) || (c == 95))
+            if ok {
+                w = (w + (substring text i (i + 1)))
+            } {
+                if ((strlen w) > 0) {
+                    push out w
+                }
+                w = ""
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a ref as a source viewer address: path#La-b
+    sfn codeAddr:string (ref:string) {
+        def r:CrRef (CrRef.parse(ref))
+        if ((r.from < 1) || (r.ok == false)) {
+            return r.path
+        }
+        if (r.to > r.from) {
+            return (r.path + "#L" + r.from + "-" + r.to)
+        }
+        return (r.path + "#L" + r.from)
+    }
+
+    ; a `::: code` block under a diagram: each item of the sections that has
+    ; a line in the deck's files, on its box when the diagram draws one, else
+    ; on the whole diagram
+    sfn codeLinks:string (m:CrModel code:CrCode diagram:string sects:[string]) {
+        def ws:[string] (CrViews.words(diagram))
+        def lines:[string]
+        for m.items it:CrItem i {
+            if ((indexOf sects it.sect) < 0) {
+                continue
+            }
+            def box:string "-"
+            def n:string (CrViews.nid(it.id))
+            if ((indexOf ws n) >= 0) {
+                box = n
+            }
+            if ((box == "-") && (it.sect == "state")) {
+                def lw:[string] (CrViews.words(it.label))
+                if (((array_length lw) == 1) && ((itemAt lw 0) == (trim it.label))) {
+                    box = (trim it.label)
+                }
+            }
+            def kept:int 0
+            for it.refs r:string ri {
+                if ((kept >= 2) || ((indexOf it.badRefs r) >= 0)) {
+                    continue
+                }
+                def path:string ((CrRef.parse(r)).path)
+                def got@(optional):CrCodeFile (code.find(path))
+                if (null? got) {
+                    continue
+                }
+                push lines (box + " " + (CrViews.codeAddr(r)) + " \"" + (replace (CrViews.oneLine(it.label)) "\"" "'") + "\"")
+                kept = (kept + 1)
+            }
+            if ((array_length lines) >= 24) {
+                break
+            }
+        }
+        if ((array_length lines) == 0) {
+            return ""
+        }
+        return ("\n\n::: code\n" + (join lines "\n") + "\n:::")
+    }
+
+    ; a slide of code for each place of the review path: the lines as the
+    ; change has them, a link to them on GitHub, and the file in the source
+    ; viewer
+    sfn codeSlides:[string] (m:CrModel src:CrSource code:CrCode steps:[CrStep]) {
+        def out:[string]
+        for steps s:CrStep si {
+            for s.places place:string pi {
+                if ((array_length out) >= 8) {
+                    break
+                }
+                def snip:string (code.snippet(place))
+                if ((strlen snip) == 0) {
+                    continue
+                }
+                def label:string ""
+                for s.items id:string ii {
+                    def f@(optional):CrItem (m.find(id))
+                    if (!null? f) {
+                        if (((f.firstRef()) == place) && ((strlen label) == 0)) {
+                            label = f.label
+                        }
+                    }
+                }
+                def head:string s.title
+                if ((strlen label) > 0) {
+                    head = (s.title + ": " + (CrViews.oneLine(label)))
+                }
+                def cl:string ("- " + (CrViews.codeAddr(place)))
+                if ((strlen label) > 0) {
+                    cl = (cl + " \"" + (replace (CrViews.oneLine(label)) "\"" "'") + "\"")
+                }
+                push out ("## " + head + "\n\n" + (src.link(place)) + "\n\n" + snip + "\n\n::: code\n" + cl + "\n:::\n\n::: notes\n" + (CrViews.capital(s.why)) + ". The whole file opens in the source viewer while presenting; " + (src.link(place)) + " on GitHub.\n:::")
+            }
+        }
+        return out
+    }
+
     ; --- the deck
 
     sfn quoted:string (s:string) {
@@ -664,7 +798,7 @@ class CrViews {
         return ("\n\n::: notes\n" + (join lines "\n") + "\n:::")
     }
 
-    sfn deck:string (m:CrModel src:CrSource) {
+    sfn deck:string (m:CrModel src:CrSource code:CrCode) {
         def risks:[CrRisk] (m.risks())
         def level:string (CrModel.level(risks))
         def out:[string]
@@ -679,36 +813,45 @@ class CrViews {
             lead = ("[" + src.name + "](" + src.url + ") · " + lead)
         }
         push out (lead + "\n{.lead}")
-        ; the story, beat by beat
+        ; the story, beat by beat: the presenter tells it (`::: story`, its
+        ; joining word first), and the lines to read are under the slide's
+        ; title
         m.draftStory()
-        def beats:[string]
+        def says:[string]
+        def reads:[string]
         for m.story b:CrBeat bi {
             def line:string (CrViews.oneLine(b.text))
             if ((strlen b.link) > 0) {
-                line = ("**" + (CrViews.capital(b.link)) + "** " + line)
+                line = (((CrViews.capital(b.link)) + " ") + (CrViews.goingOn(line)))
             }
+            push says line
             def where:[string]
             for b.refs r:string ri {
                 push where (src.link(r))
             }
-            if ((array_length where) > 0) {
-                line = (line + " · " + (join where ", "))
-            }
-            push beats ("- " + line)
+            push reads (join where ", ")
         }
         def part:int 0
-        while ((part * 5) < (array_length beats)) {
+        while ((part * 5) < (array_length says)) {
             def chunk:[string]
+            def links:[string]
             def k:int (part * 5)
-            while ((k < ((part + 1) * 5)) && (k < (array_length beats))) {
-                push chunk (itemAt beats k)
+            while ((k < ((part + 1) * 5)) && (k < (array_length says))) {
+                push chunk (itemAt says k)
+                if ((strlen (itemAt reads k)) > 0) {
+                    push links ("- " + (itemAt reads k))
+                }
                 k = (k + 1)
+            }
+            def body:string ""
+            if ((array_length links) > 0) {
+                body = ("Where to read:\n\n" + (join links "\n") + "\n\n")
             }
             def notes:string ""
             if (m.storyDrafted && (part == 0)) {
                 notes = "\n\n::: notes\nDrafted from the model: tell it as the change's own story, beats joined by but and therefore.\n:::"
             }
-            push out ("## The story\n\n" + (join chunk "\n") + "\n{.build}" + notes)
+            push out ((("## The story\n\n" + body) + "::: story\n" + (join chunk "\n")) + "\n:::" + notes)
             part = (part + 1)
         }
         ; what changed
@@ -778,10 +921,13 @@ class CrViews {
                 k = (k + 1)
             }
             push out ("## Review path\n\n" + (join rows "\n"))
+            for (CrViews.codeSlides(m src code steps)) cs:string csi {
+                push out cs
+            }
         }
         def ov:string (CrViews.overview(m))
         if ((strlen ov) > 0) {
-            push out ("## Overview\n\n" + ov + (CrViews.notes(m src ([] _:string ("actor" "flow" "store" "event")))))
+            push out ("## Overview\n\n" + ov + (CrViews.codeLinks(m code ov ([] _:string ("actor" "store" "event")))) + (CrViews.notes(m src ([] _:string ("actor" "flow" "store" "event")))))
         }
         for (CrViews.owners(m)) owner:string oi {
             def sm:string (CrViews.machine(m owner))
@@ -790,20 +936,20 @@ class CrViews {
                 if ((strlen owner) > 0) {
                     head = ("States of " + (CrViews.oneLine(owner)))
                 }
-                push out ("## " + head + "\n\n" + sm + (CrViews.notes(m src ([] _:string ("state" "transition")))))
+                push out ("## " + head + "\n\n" + sm + (CrViews.codeLinks(m code sm ([] _:string ("state")))) + (CrViews.notes(m src ([] _:string ("state" "transition")))))
             }
         }
         def df:string (CrViews.dataFlow(m))
         if ((strlen df) > 0) {
-            push out ("## Data flow\n\n" + df)
+            push out ("## Data flow\n\n" + df + (CrViews.codeLinks(m code df ([] _:string ("flow")))))
         }
         def fx:string (CrViews.failures(m))
         if ((strlen fx) > 0) {
-            push out ("## When something fails\n\n" + fx + (CrViews.notes(m src ([] _:string ("failure")))))
+            push out ("## When something fails\n\n" + fx + (CrViews.codeLinks(m code fx ([] _:string ("failure")))) + (CrViews.notes(m src ([] _:string ("failure")))))
         }
         def sq:string (CrViews.sequence(m))
         if ((strlen sq) > 0) {
-            push out ("## Who waits for whom\n\n" + sq + (CrViews.notes(m src ([] _:string ("wait")))))
+            push out ("## Who waits for whom\n\n" + sq + (CrViews.codeLinks(m code sq ([] _:string ("actor" "wait")))) + (CrViews.notes(m src ([] _:string ("wait")))))
         }
         def st:string (CrViews.storage(m src))
         if ((strlen st) > 0) {

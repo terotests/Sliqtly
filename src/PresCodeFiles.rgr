@@ -1,0 +1,942 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresCodeFiles.rgr — the source files a deck keeps under code/
+; ============================================================================
+;
+; A code review deck can carry the files it talks about: a C++ handler, a
+; FlatBuffers schema, a SQL table. They are kept under code/ by the path they
+; have in their repository (code/src/server/api.cpp), and code/sources.json
+; says where each came from:
+;
+;   {"version": 1,
+;    "repos": {"server": {"url", "host" ("github", "gitlab", "bitbucket",
+;               "azure", "gitiles"; or "link"/"compare" templates of its
+;               own), "base", "head" (commits), "change", "change_url"}},
+;    "files": [{"path" (under code/), "repo", "repo_path", "commit",
+;               "base_commit", "status" (added|modified|deleted|renamed|
+;               same), "old_path", "diff" (a unified diff, under code/),
+;               "lines" (the whole file's length), "ranges" [[40, 88], …]
+;               (left out: the whole file), "sha1", "source", "at"}]}
+;
+; Usually only the part of a file that matters is brought in: lines 40–88
+; and 200–260 of a 1840-line file. The file under code/ then holds just those
+; lines, one range after the other, and keeps their ORIGINAL numbers through
+; `ranges`: line 41 of the file is line 41 here too, as it is in the
+; developer's editor and in a link to the repository.
+;
+; A link to the repository is made from the repo's template (`link`), where
+; {url} {commit} {base} {path} {line} {to} are filled in and a part in square
+; brackets is left out when a name in it has no value: `#L{line}[-L{to}]` is
+; `#L41` for one line and `#L41-L44` for four.
+;
+; Nothing here draws; PresCodeRows lays the lines out for the viewer.
+; ============================================================================
+
+Import "../vela/src/VlJson.rgr"
+
+class PresCodeRepo {
+    def id:string ""
+    def url:string ""
+    def host:string ""
+    def base:string ""
+    def head:string ""
+    def change:string ""
+    def changeUrl:string ""
+    ; templates of its own; "" = the host's
+    def link:string ""
+    def compare:string ""
+}
+
+class PresCodeFile {
+    ; under code/
+    def path:string ""
+    def repo:string ""
+    ; in the repository; "" = the same as path
+    def repoPath:string ""
+    def commit:string ""
+    def baseCommit:string ""
+    def status:string ""
+    def oldPath:string ""
+    ; the unified diff's path under code/, "" = no change known
+    def diff:string ""
+    ; the whole file's length, 0 = not known
+    def lines:int 0
+    ; [from, to, from, to, …], 1-based and inclusive, in order and apart;
+    ; empty = the whole file
+    def ranges:[int]
+    def sha1:string ""
+    def source:string ""
+    def at:double 0.0
+
+    fn whole:boolean () {
+        return ((array_length ranges) == 0)
+    }
+
+    ; The original number of the n'th line kept (0 = first). Past the end,
+    ; the numbering goes on from the last range.
+    fn lineOf:int (n:int) {
+        if (this.whole()) {
+            return (n + 1)
+        }
+        def left:int n
+        def i:int 0
+        def k:int (array_length ranges)
+        def last:int 0
+        while ((i + 1) < k) {
+            def a:int (itemAt ranges i)
+            def b:int (itemAt ranges (i + 1))
+            def len:int ((b - a) + 1)
+            if (left < len) {
+                return (a + left)
+            }
+            left = (left - len)
+            last = b
+            i = (i + 2)
+        }
+        return ((last + left) + 1)
+    }
+
+    ; Which kept line holds original line `line`; -1 when it was not brought in.
+    fn indexOfLine:int (line:int) {
+        if (this.whole()) {
+            if (line < 1) {
+                return -1
+            }
+            return (line - 1)
+        }
+        def before:int 0
+        def i:int 0
+        def k:int (array_length ranges)
+        while ((i + 1) < k) {
+            def a:int (itemAt ranges i)
+            def b:int (itemAt ranges (i + 1))
+            if ((line >= a) && (line <= b)) {
+                return (before + (line - a))
+            }
+            before = (before + ((b - a) + 1))
+            i = (i + 2)
+        }
+        return -1
+    }
+
+    fn has:boolean (line:int) {
+        return ((this.indexOfLine(line)) >= 0)
+    }
+
+    ; The first line kept: where a link with no anchor opens.
+    fn firstLine:int () {
+        if (this.whole()) {
+            return 1
+        }
+        return (itemAt ranges 0)
+    }
+
+    fn inRepo:string () {
+        if ((strlen repoPath) > 0) {
+            return repoPath
+        }
+        return path
+    }
+
+    ; "40–88, 200–260 of 1840", "whole file"
+    fn rangeText:string () {
+        if (this.whole()) {
+            return "whole file"
+        }
+        def s:string ""
+        def i:int 0
+        def k:int (array_length ranges)
+        while ((i + 1) < k) {
+            if (i > 0) {
+                s = (s + ", ")
+            }
+            s = (s + (to_string (itemAt ranges i)) + "–" + (to_string (itemAt ranges (i + 1))))
+            i = (i + 2)
+        }
+        if (lines > 0) {
+            s = (s + " of " + (to_string lines))
+        }
+        return s
+    }
+}
+
+class PresCodeFiles {
+    def repos:[PresCodeRepo]
+    def files:[PresCodeFile]
+
+    ; the limits a deck keeps (Tero 2026-10-10)
+    sfn MAX_FILE_BYTES:int () {
+        return 2097152
+    }
+    sfn MAX_TOTAL_BYTES:int () {
+        return 20971520
+    }
+    sfn MAX_FILES:int () {
+        return 300
+    }
+
+    ; "code/src/a.cpp" and "src/a.cpp" are the same file; "./" and "/" in
+    ; front are left out. "" when the path climbs out (..).
+    sfn clean:string (p:string) {
+        def s:string (trim p)
+        def again:boolean true
+        while again {
+            again = false
+            if ((strlen s) >= 2) {
+                if ((substring s 0 2) == "./") {
+                    s = (substring s 2 (strlen s))
+                    again = true
+                }
+            }
+            if ((strlen s) >= 1) {
+                if ((substring s 0 1) == "/") {
+                    s = (substring s 1 (strlen s))
+                    again = true
+                }
+            }
+        }
+        if ((strlen s) >= 5) {
+            if ((substring s 0 5) == "code/") {
+                s = (substring s 5 (strlen s))
+            }
+        }
+        if ((indexOf s "..") >= 0) {
+            def parts:[string] (strsplit s "/")
+            for parts part:string i {
+                if (part == "..") {
+                    return ""
+                }
+            }
+        }
+        return s
+    }
+
+    fn file@(optional):PresCodeFile (path:string) {
+        def p:string (PresCodeFiles.clean(path))
+        def none@(optional):PresCodeFile
+        def i:int 0
+        while (i < (array_length files)) {
+            def f@(optional):PresCodeFile (itemAt files i)
+            def fp:PresCodeFile (unwrap f)
+            if (fp.path == p) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
+    fn repo@(optional):PresCodeRepo (id:string) {
+        def none@(optional):PresCodeRepo
+        def i:int 0
+        while (i < (array_length repos)) {
+            def r@(optional):PresCodeRepo (itemAt repos i)
+            def rp:PresCodeRepo (unwrap r)
+            if (rp.id == id) {
+                return r
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
+    ; --- ranges --------------------------------------------------------------
+
+    ; "40-88, 200-260" or "40–88,7" → [40, 88, 200, 260] / [7, 7, 40, 88]:
+    ; sorted, touching and overlapping ranges joined. Nonsense is left out.
+    sfn parseRanges:[int] (text:string) {
+        def out:[int]
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return out
+        }
+        def parts:[string] (strsplit t ",")
+        for parts part:string i {
+            def p:string (trim part)
+            def dash:int (indexOf p "-")
+            if (dash < 0) {
+                dash = (indexOf p "–")
+            }
+            if ((strlen p) > 0) {
+                if (dash > 0) {
+                    def a:int (?? (to_int (trim (substring p 0 dash))) -1)
+                    def b:int (?? (to_int (trim (substring p (dash + 1) (strlen p)))) -1)
+                    if ((indexOf p "–") > 0) {
+                        b = (?? (to_int (trim (substring p (dash + (strlen "–")) (strlen p)))) -1)
+                    }
+                    push out a
+                    push out b
+                } {
+                    def one:int (?? (to_int p) -1)
+                    push out one
+                    push out one
+                }
+            }
+        }
+        return (PresCodeFiles.joinRanges(out))
+    }
+
+    ; Pairs sorted by their start, the ones that overlap or touch joined,
+    ; ones that start below 1 or end before they start dropped.
+    sfn joinRanges:[int] (pairs:[int]) {
+        def a:[int]
+        def b:[int]
+        def i:int 0
+        def k:int (array_length pairs)
+        while ((i + 1) < k) {
+            def x:int (itemAt pairs i)
+            def y:int (itemAt pairs (i + 1))
+            if ((x >= 1) && (y >= x)) {
+                ; insert in order of the start
+                def at:int (array_length a)
+                def j:int 0
+                def found:boolean false
+                while ((j < (array_length a)) && (found == false)) {
+                    if ((itemAt a j) > x) {
+                        at = j
+                        found = true
+                    }
+                    j = (j + 1)
+                }
+                def na:[int]
+                def nb:[int]
+                def m:int 0
+                while (m < (array_length a)) {
+                    if (m == at) {
+                        push na x
+                        push nb y
+                    }
+                    push na (itemAt a m)
+                    push nb (itemAt b m)
+                    m = (m + 1)
+                }
+                if (at == (array_length a)) {
+                    push na x
+                    push nb y
+                }
+                a = na
+                b = nb
+            }
+            i = (i + 2)
+        }
+        def out:[int]
+        def n:int 0
+        while (n < (array_length a)) {
+            def x2:int (itemAt a n)
+            def y2:int (itemAt b n)
+            def len:int (array_length out)
+            if (len >= 2) {
+                def lastEnd:int (itemAt out (len - 1))
+                if (x2 <= (lastEnd + 1)) {
+                    if (y2 > lastEnd) {
+                        def keep:[int]
+                        def q:int 0
+                        while (q < (len - 1)) {
+                            push keep (itemAt out q)
+                            q = (q + 1)
+                        }
+                        push keep y2
+                        out = keep
+                    }
+                } {
+                    push out x2
+                    push out y2
+                }
+            } {
+                push out x2
+                push out y2
+            }
+            n = (n + 1)
+        }
+        return out
+    }
+
+    ; The text kept for `ranges` of a whole file's text: the lines of each
+    ; range, one after the other. Lines past the file's end are not there.
+    sfn cut:string (whole:string ranges:[int]) {
+        if ((array_length ranges) == 0) {
+            return whole
+        }
+        def lines:[string] (strsplit whole "\n")
+        def n:int (array_length lines)
+        def out:string ""
+        def first:boolean true
+        def i:int 0
+        while ((i + 1) < (array_length ranges)) {
+            def a:int (itemAt ranges i)
+            def b:int (itemAt ranges (i + 1))
+            def l:int a
+            while ((l <= b) && (l <= n)) {
+                if (first == false) {
+                    out = (out + "\n")
+                }
+                out = (out + (itemAt lines (l - 1)))
+                first = false
+                l = (l + 1)
+            }
+            i = (i + 2)
+        }
+        return out
+    }
+
+    ; The ranges really kept when a whole file of `total` lines is cut by
+    ; `ranges`: ends past the file are pulled in, ranges wholly past it go.
+    sfn clip:[int] (ranges:[int] total:int) {
+        def out:[int]
+        def i:int 0
+        while ((i + 1) < (array_length ranges)) {
+            def a:int (itemAt ranges i)
+            def b:int (itemAt ranges (i + 1))
+            if (a <= total) {
+                push out a
+                if (b > total) {
+                    push out total
+                } {
+                    push out b
+                }
+            }
+            i = (i + 2)
+        }
+        return out
+    }
+
+    sfn lineCount:int (text:string) {
+        if ((strlen text) == 0) {
+            return 0
+        }
+        return (array_length (strsplit text "\n"))
+    }
+
+    ; --- symbols -------------------------------------------------------------
+
+    ; The original line where `name` is declared in a file's kept text, 0
+    ; when nothing declares it. A light look by the file's kind, not a parse:
+    ; `table|struct|enum|union|union X` in .fbs, `message|enum|service X` in
+    ; .proto, `CREATE TABLE|VIEW|INDEX X` in SQL, `class|struct|enum X` and
+    ; `X::m(` / `X(` at a definition in C-like code, `func X`, `fn X`,
+    ; `def X`, `class X`, `type X`. The first line that declares it wins.
+    sfn symbolLine:int (f:PresCodeFile text:string name:string) {
+        def n:string (trim name)
+        if ((strlen n) == 0) {
+            return 0
+        }
+        def lines:[string] (strsplit text "\n")
+        def lower:string (to_lowercase n)
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (itemAt lines i)
+            if (PresCodeFiles.declares(raw n lower)) {
+                return (f.lineOf(i))
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; How many lines of the kept text declare `name`: more than one is
+    ; worth a word in the check.
+    sfn symbolCount:int (text:string name:string) {
+        def n:string (trim name)
+        if ((strlen n) == 0) {
+            return 0
+        }
+        def lower:string (to_lowercase n)
+        def c:int 0
+        for (strsplit text "\n") raw:string i {
+            if (PresCodeFiles.declares(raw n lower)) {
+                c = (c + 1)
+            }
+        }
+        return c
+    }
+
+    sfn isWordChar:boolean (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if ((c >= 65) && (c <= 90)) {
+            return true
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return true
+        }
+        return (c == 95)
+    }
+
+    ; Does `line` hold `name` as a whole word at `at`?
+    sfn wordAt:boolean (line:string name:string at:int) {
+        if (at < 0) {
+            return false
+        }
+        if (at > 0) {
+            if (PresCodeFiles.isWordChar((charAt line (at - 1)))) {
+                return false
+            }
+        }
+        def end:int (at + (strlen name))
+        if (end < (strlen line)) {
+            if (PresCodeFiles.isWordChar((charAt line end))) {
+                return false
+            }
+        }
+        return true
+    }
+
+    sfn declares:boolean (raw:string name:string lower:string) {
+        def t:string (trim raw)
+        if ((strlen t) == 0) {
+            return false
+        }
+        def first:string (substring t 0 1)
+        if ((first == "/") || ((first == "*") || ((first == "#") || (first == "-")))) {
+            ; a comment, a preprocessor line or a SQL comment
+            if ((indexOf t "#define ") != 0) {
+                return false
+            }
+        }
+        def tl:string (to_lowercase t)
+        def words:[string] ([] _:string ("table " "struct " "enum " "union " "message " "service " "class " "interface " "func " "fn " "def " "type " "trait " "impl " "create table " "create view " "create index " "create unique index " "create or replace view " "create function " "create procedure " "#define " "namespace " "typedef struct "))
+        for words w:string j {
+            def at:int (indexOf tl w)
+            while (at >= 0) {
+                def after:string (trim (substring t (at + (strlen w)) (strlen t)))
+                ; `create table if not exists x`, `fn pub x` are not likely;
+                ; `if not exists` is
+                def al:string (to_lowercase after)
+                if ((indexOf al "if not exists ") == 0) {
+                    after = (trim (substring after 14 (strlen after)))
+                }
+                if ((indexOf after name) == 0) {
+                    if (PresCodeFiles.wordAt(after name 0)) {
+                        return true
+                    }
+                }
+                ; a schema-qualified SQL name: public.reviews
+                def dot:int (indexOf after ".")
+                if ((dot > 0) && (dot < 40)) {
+                    def rest:string (substring after (dot + 1) (strlen after))
+                    if ((indexOf rest name) == 0) {
+                        if (PresCodeFiles.wordAt(rest name 0)) {
+                            return true
+                        }
+                    }
+                }
+                def next:int (indexOf (substring tl (at + 1) (strlen tl)) w)
+                if (next < 0) {
+                    at = -1
+                } {
+                    at = ((at + 1) + next)
+                }
+            }
+        }
+        ; C++: `Status Api::submit(` or `Api::Api(` defines a member; `submit(`
+        ; with a type in front at the start of a line defines a function
+        def qual:int (indexOf t ("::" + name + "("))
+        if (qual > 0) {
+            return ((indexOf t ";") < 0)
+        }
+        def call:int (indexOf t (name + "("))
+        if (call > 0) {
+            if (PresCodeFiles.wordAt(t name call)) {
+                def before:string (trim (substring t 0 call))
+                def lastC:int (charAt before ((strlen before) - 1))
+                ; a type, a pointer or a reference just before the name, and
+                ; no `=`, `return` or `.`/`->` that would make it a call
+                def typed:boolean ((PresCodeFiles.isWordChar(lastC)) || ((lastC == 42) || (lastC == 38)))
+                def isCall:boolean (((indexOf before "=") >= 0) || (((indexOf before "return") >= 0) || (((indexOf before ".") >= 0) || ((indexOf before "->") >= 0))))
+                def kw:boolean (((indexOf before "if") == 0) || (((indexOf before "while") == 0) || ((indexOf before "for") == 0)))
+                if ((typed && (isCall == false)) && (kw == false)) {
+                    return ((indexOf t ";") < 0)
+                }
+            }
+        }
+        return false
+    }
+
+    ; --- links to the repository ----------------------------------------------
+
+    sfn lineTemplate:string (host:string) {
+        if (host == "gitlab") {
+            return "{url}/-/blob/{commit}/{path}#L{line}[-{to}]"
+        }
+        if (host == "bitbucket") {
+            return "{url}/src/{commit}/{path}#lines-{line}[:{to}]"
+        }
+        if (host == "azure") {
+            return "{url}?path=/{path}&version=GC{commit}&line={line}[&lineEnd={to}]"
+        }
+        if (host == "gitiles") {
+            return "{url}/+/{commit}/{path}#{line}"
+        }
+        return "{url}/blob/{commit}/{path}#L{line}[-L{to}]"
+    }
+
+    sfn compareTemplate:string (host:string) {
+        if (host == "gitlab") {
+            return "{url}/-/compare/{base}...{commit}"
+        }
+        if (host == "bitbucket") {
+            return "{url}/branches/compare/{commit}%0D{base}"
+        }
+        if (host == "azure") {
+            return "{url}/branchCompare?baseVersion=GC{base}&targetVersion=GC{commit}"
+        }
+        if (host == "gitiles") {
+            return "{url}/+log/{base}..{commit}"
+        }
+        return "{url}/compare/{base}...{commit}"
+    }
+
+    ; Fill a template: {name} from `names`/`values`; a [part] is left out when
+    ; any {name} in it has no value. "" when a {name} outside brackets has
+    ; none (a link that would point nowhere is no link).
+    sfn fill:string (tpl:string names:[string] values:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen tpl)
+        while (i < n) {
+            def c:int (charAt tpl i)
+            if (c == 91) {
+                def close:int (indexOf (substring tpl i n) "]")
+                if (close < 0) {
+                    return ""
+                }
+                def part:string (substring tpl (i + 1) (i + close))
+                def got:string (PresCodeFiles.fill(part names values))
+                if ((strlen got) > 0) {
+                    out = (out + got)
+                }
+                i = ((i + close) + 1)
+            } {
+                if (c == 123) {
+                    def close2:int (indexOf (substring tpl i n) "}")
+                    if (close2 < 0) {
+                        return ""
+                    }
+                    def key:string (substring tpl (i + 1) (i + close2))
+                    def v:string ""
+                    for names nm:string k {
+                        if (nm == key) {
+                            v = (itemAt values k)
+                        }
+                    }
+                    if ((strlen v) == 0) {
+                        return ""
+                    }
+                    out = (out + v)
+                    i = ((i + close2) + 1)
+                } {
+                    out = (out + (substring tpl i (i + 1)))
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    sfn trimSlash:string (u:string) {
+        def s:string (trim u)
+        while (((strlen s) > 0) && ((substring s ((strlen s) - 1) (strlen s)) == "/")) {
+            s = (substring s 0 ((strlen s) - 1))
+        }
+        return s
+    }
+
+    ; A link to lines `line`..`to` of a file at its commit; `old` links the
+    ; base side (base_commit and old_path). "" when the file has no repo, the
+    ; repo no url or the side no commit.
+    fn link:string (path:string line:int to:int old:boolean) {
+        def fo@(optional):PresCodeFile (this.file(path))
+        if (null? fo) {
+            return ""
+        }
+        def f:PresCodeFile fo
+        def ro@(optional):PresCodeRepo (this.repo(f.repo))
+        if (null? ro) {
+            return ""
+        }
+        def r:PresCodeRepo ro
+        def commit:string f.commit
+        if ((strlen commit) == 0) {
+            commit = r.head
+        }
+        def p:string (f.inRepo())
+        if old {
+            commit = f.baseCommit
+            if ((strlen commit) == 0) {
+                commit = r.base
+            }
+            if ((strlen f.oldPath) > 0) {
+                p = f.oldPath
+            }
+        }
+        def tpl:string r.link
+        if ((strlen tpl) == 0) {
+            tpl = (PresCodeFiles.lineTemplate(r.host))
+        }
+        def toS:string ""
+        if (to > line) {
+            toS = (to_string to)
+        }
+        def lineS:string ""
+        if (line > 0) {
+            lineS = (to_string line)
+        }
+        def names:[string] ([] _:string ("url" "commit" "path" "line" "to" "base"))
+        def values:[string] ([] _:string ((PresCodeFiles.trimSlash(r.url)) commit p lineS toS r.base))
+        return (PresCodeFiles.fill(tpl names values))
+    }
+
+    ; The repository's view of the whole change: base...head.
+    fn compareLink:string (path:string) {
+        def fo@(optional):PresCodeFile (this.file(path))
+        if (null? fo) {
+            return ""
+        }
+        def f:PresCodeFile fo
+        def ro@(optional):PresCodeRepo (this.repo(f.repo))
+        if (null? ro) {
+            return ""
+        }
+        def r:PresCodeRepo ro
+        def commit:string f.commit
+        if ((strlen commit) == 0) {
+            commit = r.head
+        }
+        def base:string f.baseCommit
+        if ((strlen base) == 0) {
+            base = r.base
+        }
+        def tpl:string r.compare
+        if ((strlen tpl) == 0) {
+            tpl = (PresCodeFiles.compareTemplate(r.host))
+        }
+        def names:[string] ([] _:string ("url" "commit" "base" "path"))
+        def values:[string] ([] _:string ((PresCodeFiles.trimSlash(r.url)) commit base (f.inRepo())))
+        return (PresCodeFiles.fill(tpl names values))
+    }
+
+    ; "acme/server · 9a1b3c7 → 4f2c1e0 · PR #482": the footer of the viewer.
+    fn originText:string (path:string) {
+        def fo@(optional):PresCodeFile (this.file(path))
+        if (null? fo) {
+            return ""
+        }
+        def f:PresCodeFile fo
+        def parts:[string]
+        def ro@(optional):PresCodeRepo (this.repo(f.repo))
+        def head:string f.commit
+        def base:string f.baseCommit
+        def change:string ""
+        if (!null? ro) {
+            def r:PresCodeRepo ro
+            def name:string (PresCodeFiles.trimSlash(r.url))
+            def gh:int (indexOf name "://")
+            if (gh >= 0) {
+                name = (substring name (gh + 3) (strlen name))
+                def slash:int (indexOf name "/")
+                if (slash >= 0) {
+                    name = (substring name (slash + 1) (strlen name))
+                }
+            }
+            if ((strlen name) > 0) {
+                push parts name
+            }
+            if ((strlen head) == 0) {
+                head = r.head
+            }
+            if ((strlen base) == 0) {
+                base = r.base
+            }
+            change = r.change
+        }
+        if (((strlen base) > 0) && ((strlen head) > 0)) {
+            push parts ((PresCodeFiles.short(base)) + " → " + (PresCodeFiles.short(head)))
+        } {
+            if ((strlen head) > 0) {
+                push parts (PresCodeFiles.short(head))
+            }
+        }
+        if ((strlen change) > 0) {
+            push parts change
+        }
+        if ((f.whole()) == false) {
+            push parts "partial"
+        }
+        return (join parts " · ")
+    }
+
+    sfn short:string (commit:string) {
+        if ((strlen commit) > 7) {
+            return (substring commit 0 7)
+        }
+        return commit
+    }
+
+    ; --- sources.json --------------------------------------------------------
+
+    sfn parse:PresCodeFiles (text:string) {
+        def c (new PresCodeFiles())
+        if ((strlen (trim text)) == 0) {
+            return c
+        }
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(text))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            return c
+        }
+        def rs:VlJson (root.get("repos"))
+        if (rs.isObject()) {
+            for rs.keys key:string i {
+                def o:VlJson (rs.get(key))
+                if (o.isObject()) {
+                    def r (new PresCodeRepo())
+                    r.id = key
+                    r.url = (o.stringOr("url" ""))
+                    r.host = (to_lowercase (o.stringOr("host" "")))
+                    r.base = (o.stringOr("base" ""))
+                    r.head = (o.stringOr("head" ""))
+                    r.change = (o.stringOr("change" ""))
+                    r.changeUrl = (o.stringOr("change_url" ""))
+                    r.link = (o.stringOr("link" ""))
+                    r.compare = (o.stringOr("compare" ""))
+                    push c.repos r
+                }
+            }
+        }
+        def fs:VlJson (root.get("files"))
+        def j:int 0
+        while (j < (fs.count())) {
+            def o:VlJson (fs.at(j))
+            def path:string (PresCodeFiles.clean((o.stringOr("path" ""))))
+            if (((o.isObject()) && ((strlen path) > 0)) && (null? (c.file(path)))) {
+                def f (new PresCodeFile())
+                f.path = path
+                f.repo = (o.stringOr("repo" ""))
+                f.repoPath = (o.stringOr("repo_path" ""))
+                f.commit = (o.stringOr("commit" ""))
+                f.baseCommit = (o.stringOr("base_commit" ""))
+                f.status = (o.stringOr("status" ""))
+                f.oldPath = (o.stringOr("old_path" ""))
+                f.diff = (PresCodeFiles.clean((o.stringOr("diff" ""))))
+                f.lines = (o.intOr("lines" 0))
+                f.sha1 = (o.stringOr("sha1" ""))
+                f.source = (o.stringOr("source" ""))
+                f.at = (o.doubleOr("at" 0.0))
+                def rg:VlJson (o.get("ranges"))
+                def pairs:[int]
+                def k:int 0
+                while (k < (rg.count())) {
+                    def pr:VlJson (rg.at(k))
+                    if ((pr.count()) >= 2) {
+                        push pairs ((pr.at(0)).asInt())
+                        push pairs ((pr.at(1)).asInt())
+                    }
+                    k = (k + 1)
+                }
+                f.ranges = (PresCodeFiles.joinRanges(pairs))
+                push c.files f
+            }
+            j = (j + 1)
+        }
+        return c
+    }
+
+    sfn putStr:void (o:VlJson key:string v:string) {
+        if ((strlen v) > 0) {
+            o.setMember(key (VlJson.stringValue(v)))
+        }
+    }
+
+    fn toJson:string () {
+        def root:VlJson (VlJson.objectValue())
+        root.setMember("version" (VlJson.intValue(1)))
+        def rs:VlJson (VlJson.objectValue())
+        for repos r:PresCodeRepo i {
+            def o:VlJson (VlJson.objectValue())
+            PresCodeFiles.putStr(o "url" r.url)
+            PresCodeFiles.putStr(o "host" r.host)
+            PresCodeFiles.putStr(o "base" r.base)
+            PresCodeFiles.putStr(o "head" r.head)
+            PresCodeFiles.putStr(o "change" r.change)
+            PresCodeFiles.putStr(o "change_url" r.changeUrl)
+            PresCodeFiles.putStr(o "link" r.link)
+            PresCodeFiles.putStr(o "compare" r.compare)
+            rs.setMember(r.id o)
+        }
+        root.setMember("repos" rs)
+        def fs:VlJson (VlJson.arrayValue())
+        for files f:PresCodeFile j {
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("path" (VlJson.stringValue(f.path)))
+            PresCodeFiles.putStr(o "repo" f.repo)
+            PresCodeFiles.putStr(o "repo_path" f.repoPath)
+            PresCodeFiles.putStr(o "commit" f.commit)
+            PresCodeFiles.putStr(o "base_commit" f.baseCommit)
+            PresCodeFiles.putStr(o "status" f.status)
+            PresCodeFiles.putStr(o "old_path" f.oldPath)
+            PresCodeFiles.putStr(o "diff" f.diff)
+            if (f.lines > 0) {
+                o.setMember("lines" (VlJson.intValue(f.lines)))
+            }
+            if ((f.whole()) == false) {
+                def rg:VlJson (VlJson.arrayValue())
+                def k:int 0
+                while ((k + 1) < (array_length f.ranges)) {
+                    def pr:VlJson (VlJson.arrayValue())
+                    push pr.arr (VlJson.intValue((itemAt f.ranges k)))
+                    push pr.arr (VlJson.intValue((itemAt f.ranges (k + 1))))
+                    push rg.arr pr
+                    k = (k + 2)
+                }
+                o.setMember("ranges" rg)
+            }
+            PresCodeFiles.putStr(o "sha1" f.sha1)
+            PresCodeFiles.putStr(o "source" f.source)
+            if (f.at > 0.0) {
+                o.setMember("at" (VlJson.numberValue(f.at)))
+            }
+            push fs.arr o
+        }
+        root.setMember("files" fs)
+        def w (new VlJsonWriter())
+        return (w.writePretty(root))
+    }
+
+    ; A file brought in (again): its entry is replaced, or added.
+    fn put:void (f:PresCodeFile) {
+        f.path = (PresCodeFiles.clean(f.path))
+        def out:[PresCodeFile]
+        def done:boolean false
+        for files g:PresCodeFile i {
+            if (g.path == f.path) {
+                push out f
+                done = true
+            } {
+                push out g
+            }
+        }
+        if (done == false) {
+            push out f
+        }
+        files = out
+    }
+
+    fn putRepo:void (r:PresCodeRepo) {
+        def out:[PresCodeRepo]
+        def done:boolean false
+        for repos g:PresCodeRepo i {
+            if (g.id == r.id) {
+                push out r
+                done = true
+            } {
+                push out g
+            }
+        }
+        if (done == false) {
+            push out r
+        }
+        repos = out
+    }
+}

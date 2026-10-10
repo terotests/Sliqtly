@@ -19,13 +19,17 @@
 // (app.scriptTree, again whenever an edit changes them), its frames come back
 // as properties for them (app.setScriptFrame), and it stops when its slide
 // leaves the stage. Where it ends (app.setScriptFinal: thumbnails, the PDF)
-// is worked out by a worker of its own (finals below). A frame over
+// is worked out by a worker of its own (finals below), and so is how it
+// opens (app.setScriptOpen: start(), onEnter, its first build step): its
+// slide arrives in that pose, and while presenting the script ticks once
+// the slide's transition is over (app.scriptArriving). A frame over
 // BUDGET_MS three times running stops it, and the slide shows where it ends.
 import { RUNTIME } from "./cerxes-runtime.js";
 import { DECK_RUNTIME } from "./apps-runtime.js";
 import { workerUrl } from "./sitescript.js";
 import { SCRIPT_RUNTIME } from "./script-runtime.js";
 import { SPRITE_RUNTIME } from "./sprite-runtime.js";
+import { PRESENTER_RUNTIME } from "./presenter-runtime.js";
 
 const LIMIT_MS = 3000;
 // the first load fetches and compiles the engine
@@ -58,6 +62,20 @@ export function overBudget(over, ms, budget = BUDGET_MS) {
  */
 export function treeFirst(tree) {
   return tree ? "\n__setTree(" + tree + ");" : "";
+}
+
+/**
+ * __scriptOpen's argument: the deck as the script's slide will have it when
+ * it arrives from the slide before it, at build step `step` (the editor's
+ * first; the viewer shows every step). state: the deck's playState (JSON
+ * text), tree: the slide's entities (JSON text).
+ */
+export function openArg(state, tree, reduced = false, step = 0) {
+  let deck = {};
+  try { deck = JSON.parse(state); } catch (_) { /* defaults */ }
+  const home = deck.home || 1;
+  deck = { ...deck, slide: home, from: home - 1, step };
+  return JSON.stringify({ tree: tree ? JSON.parse(tree) : null, deck, env: { reducedMotion: reduced, export: false } });
 }
 
 /** A script's frame: what it set (passed on whole) and what it asked. */
@@ -102,7 +120,9 @@ export function sortAsks(asks, held) {
   return now;
 }
 
-export function createApps({ app, repaint, toast, t = (s) => s }) {
+// opaqueAt(src, u, v): whether 3-D world `src` drew anything at (u, v) of
+// its picture (web/three3d.js), for a press past a program's box
+export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null }) {
   const runs = new Map(); // key -> run
   let plays = [];
   let playsRev = -1;
@@ -113,12 +133,25 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   let skipKey = "";
 
   function newRun(key, script = false) {
-    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false, budget: BUDGET_MS, take: [] };
+    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false, budget: BUDGET_MS, take: [], framed: false, opened: false };
   }
 
-  // Where each script ends, worked out one at a time in a worker of their
-  // own, so a thumbnail or the PDF shows it before the slide was ever shown.
+  // Where each script ends (__scriptFinal), and how it opens
+  // (__scriptOpen), worked out one at a time in a worker of their own, so a
+  // thumbnail or the PDF shows it before the slide was ever shown, and the
+  // slide arrives as the script starts it.
   const finals = { worker: null, queue: [], busy: null, deadline: 0, done: new Map() };
+  // key -> how the script opens: { source, out } (__scriptOpen's frame)
+  const opens = new Map();
+
+  // the stage shows script r's slide as the script opens it (until its
+  // first frame), when that was worked out for this source
+  function applyOpen(r, source) {
+    const o = opens.get(r.key);
+    if (!r.script || !o || o.source !== source || !app.setScriptOpen) return;
+    r.opened = true;
+    if (app.setScriptOpen(r.key, o.out)) repaint();
+  }
 
   function finalArg(key, tree) {
     let f = {};
@@ -126,12 +159,17 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     return JSON.stringify({ tree: JSON.parse(tree), deck: JSON.parse(app.playState(key)), steps: f.steps || 0, seconds: f.seconds || 0, env: { reducedMotion: reducedMotion(), export: true } });
   }
 
-  function wantFinal(key, source, tree) {
+  // fn: "__scriptFinal" or "__scriptOpen"; how it opens goes first, as the
+  // stage needs it before a thumbnail does
+  function wantFinal(key, source, tree, fn = "__scriptFinal") {
     const want = source + "\u0000" + tree;
-    if (finals.done.get(key) === want) return;
-    if (finals.busy && finals.busy.key === key && finals.busy.want === want) return;
-    finals.queue = finals.queue.filter((q) => q.key !== key);
-    finals.queue.push({ key, source, tree, want });
+    const job = fn + " " + key;
+    if (finals.done.get(job) === want) return;
+    if (finals.busy && finals.busy.job === job && finals.busy.want === want) return;
+    finals.queue = finals.queue.filter((q) => q.job !== job);
+    const q = { key, source, tree, want, fn, job };
+    if (fn === "__scriptOpen") finals.queue.unshift(q);
+    else finals.queue.push(q);
   }
 
   function pumpFinals(now) {
@@ -142,7 +180,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       finals.busy = null;
       if (finals.worker) finals.worker.terminate();
       finals.worker = null;
-      finals.done.set(b.key, b.want);
+      finals.done.set(b.job, b.want);
       say(name({ key: b.key }) + ": " + t("did not reach its end within 3 s (an endless loop?)"));
     }
     const next = finals.queue.shift();
@@ -153,7 +191,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         w = new Worker(workerUrl("cerxes-worker.js"), { type: "module" });
       } catch (e) {
         // no engine here: the slide keeps its Markdown, and says why
-        finals.done.set(next.key, next.want);
+        finals.done.set(next.job, next.want);
         say(name({ key: next.key }) + ": " + t("the program's engine did not start") + " (" + ((e && e.message) || "worker") + ")");
         return;
       }
@@ -165,17 +203,27 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       finals.deadline = now + LIMIT_MS;
     }
     finals.busy = next;
-    finals.worker.postMessage({ type: "final", runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + treeFirst(next.tree), source: next.source, arg: finalArg(next.key, next.tree) });
+    const arg = next.fn === "__scriptOpen" ? openArg(app.playState(next.key), next.tree, reducedMotion(), app.scriptOpenStep ? app.scriptOpenStep(next.key) : 0) : finalArg(next.key, next.tree);
+    finals.worker.postMessage({ type: "final", fn: next.fn, runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + "\n" + PRESENTER_RUNTIME + treeFirst(next.tree), source: next.source, arg });
   }
 
   function finalReply(w, m) {
     if (finals.worker !== w || !finals.busy) return;
     const b = finals.busy;
     finals.busy = null;
-    finals.done.set(b.key, b.want);
-    if (m.output) for (const line of m.output.split("\n")) if (line) console.log(name({ key: b.key }) + " (final): " + line);
+    finals.done.set(b.job, b.want);
+    const opening = b.fn === "__scriptOpen";
+    if (m.output && !opening) for (const line of m.output.split("\n")) if (line) console.log(name({ key: b.key }) + " (final): " + line);
     if (!m.ok) {
+      // the run on the stage says it too; said once
       say(name({ key: b.key }) + ": " + m.error);
+      return;
+    }
+    if (opening) {
+      opens.set(b.key, { source: b.source, out: m.out });
+      // arrived late: the slide is on the stage with no frame yet
+      const r = runs.get(b.key);
+      if (r && r.worker && !r.framed) applyOpen(r, r.source);
       return;
     }
     if (app.setScriptFinal(b.key, m.out)) repaint();
@@ -192,6 +240,8 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.leaves = false;
     r.leaving = false;
     r.take = [];
+    r.framed = false;
+    r.opened = false;
     if (r.script && app.endScriptLive) {
       app.endScriptLive(r.key, why || "");
       repaint();
@@ -214,6 +264,8 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
 
   function load(r, source) {
     stopRun(r, "");
+    // (stopping cleared the stage's frames) the slide as the script opens it
+    applyOpen(r, source);
     r.source = source;
     r.stopped = "";
     r.events = [];
@@ -232,7 +284,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.worker = w;
     r.waiting = true;
     r.deadline = performance.now() + FIRST_LIMIT_MS;
-    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + treeFirst(app.scriptTree(r.key)) : ""), source, calibrate: r.script });
+    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + "\n" + PRESENTER_RUNTIME + treeFirst(app.scriptTree(r.key)) : ""), source, calibrate: r.script });
   }
 
   function name(r) {
@@ -276,6 +328,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         stopRun(r, t("its frame was not one a script gives"));
         return;
       }
+      r.framed = true;
       asks = JSON.stringify(f.asks);
     } else {
       ({ tree, asks } = splitFrame(m.out));
@@ -348,6 +401,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         const tree = app.scriptTree(p.key);
         // (a page without setScriptFinal had it worked out for it: the viewer)
         if (tree && app.setScriptFinal) wantFinal(p.key, source, tree);
+        if (tree && app.setScriptOpen) wantFinal(p.key, source, tree, "__scriptOpen");
         // a script runs only while its slide is on the stage, from the start
         // each time it comes back
         if (!shown.has(p.key)) {
@@ -371,6 +425,9 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         }
       }
       if (r.stopped && source === r.source) continue;
+      // the slide arrives as the script opens it, before its engine has
+      // given a frame (it may still be loading)
+      if (shown.has(p.key) && !r.framed && !r.opened) applyOpen(r, source);
       // a program starts the first time its slide is shown, and again
       // whenever its file changes
       if (source !== r.source) {
@@ -386,6 +443,11 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         continue;
       }
       if (!r.running || !shown.has(p.key) || document.hidden) continue;
+      // its slide still coming in: it holds its opening pose until then
+      if (r.script && app.scriptArriving && app.scriptArriving(p.key)) {
+        r.last = now;
+        continue;
+      }
       flushSets(r);
       const dt = Math.min(0.1, (now - r.last) / 1000);
       r.last = now;
@@ -422,9 +484,23 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     }
   }
 
+  // A program on the stage whose 3-D world drew at window point (x, y) past
+  // its box (app.playPast, opaqueAt: whether the world's picture has
+  // anything there), "" for none.
+  function worldAt(x, y) {
+    if (!app.playPast || !opaqueAt) return "";
+    let past = [];
+    try { past = JSON.parse(app.playPast(x, y)); } catch (_) { /* none */ }
+    const shown = new Set(shownKeys());
+    for (const c of past) if (shown.has(c.key) && runs.has(c.key) && opaqueAt(c.src, c.u, c.v)) return c.key;
+    return "";
+  }
+
   // A press on the stage: a program's box takes it, and the keyboard with
-  // it (every press, however quick: a game is clicked fast). While editing,
-  // after Esc the box is a block like any other until a press elsewhere.
+  // it (every press, however quick: a game is clicked fast). While
+  // presenting, so does what its 3-D world draws past the box (the world
+  // looks like the program, all of it). While editing, after Esc the box is
+  // a block like any other until a press elsewhere.
   // True when the program took it.
   function pointerDown(x, y, presenting) {
     if (!plays.length) return false;
@@ -440,7 +516,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         return true;
       }
     }
-    const key = app.playAt(x, y);
+    const key = app.playAt(x, y) || (presenting ? worldAt(x, y) : "");
     if (!key) {
       skipKey = "";
       release();

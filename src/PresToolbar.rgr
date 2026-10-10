@@ -119,6 +119,12 @@ class PresToolbar {
     def reviewDot:boolean false
     ; Rooms beside the rail (a mock over ADR 0001 until the server has them)
     def roomsOpen:boolean false
+    ; the shared Files (a server of one's own keeps them): the place on the
+    ; rail when `filesOn`, its panel where Rooms' is, one of the two at a time
+    def filesOn:boolean false
+    def filesOpen:boolean false
+    ; a file a row: "id \t name \t note \t status" (web/sharedfiles.js)
+    def fileRows:string ""
     def roomsW:double 248.0
     def roomOpen:string "general"
     ; the server's rooms ("<id>\t<title>\t<presentations>" a line) and the
@@ -157,6 +163,9 @@ class PresToolbar {
     def dropRoom:string ""
     ; ...or onto a folder of the open room (its id): the deck is filed there
     def dropFolder:string ""
+    ; ...or onto another presentation of the open room (its id): it goes
+    ; before that one, in one's own order
+    def dropDeck:string ""
     ; a made room's row pressed: dragged, it goes before the room it is let
     ; go on (onto a built-in one: first); let go where it was pressed, the
     ; room opens
@@ -203,6 +212,13 @@ class PresToolbar {
         if (id == "roomdecks") {
             roomDecks = rows
             roomOpen = current
+        }
+        if (id == "files") {
+            fileRows = rows
+            filesOn = (current == "1")
+            if (filesOn == false) {
+                filesOpen = false
+            }
         }
         this.rebuild()
     }
@@ -367,6 +383,9 @@ class PresToolbar {
         }
         if (id == "newSheet") {
             return "files:newsheet"
+        }
+        if (id == "newForm") {
+            return "files:newform"
         }
         if (id == "duplicate") {
             return "files:duplicate"
@@ -985,7 +1004,7 @@ class PresToolbar {
         if ((this.railShown()) == false) {
             return 0.0
         }
-        if roomsOpen {
+        if (this.sideOpen()) {
             return (railW + roomsW)
         }
         return railW
@@ -993,10 +1012,18 @@ class PresToolbar {
 
     ; The open place, whether there are open comments and the deck's name, from PresApp each
     ; frame: the bar is built again only when one of them changed.
+    ; Rooms or Files beside the rail
+    fn sideOpen:boolean () {
+        return (roomsOpen || filesOpen)
+    }
+
     fn setRailState:void (open:string review:boolean title:string) {
         def v:string open
         if roomsOpen {
             v = "rooms"
+        }
+        if filesOpen {
+            v = "files"
         }
         if (((v != railValue) || (review != reviewDot)) || ((title != docTitle) && (titleEditing == false))) {
             railValue = v
@@ -1018,6 +1045,9 @@ class PresToolbar {
         }
         if (id == "rooms") {
             return "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"
+        }
+        if (id == "files") {
+            return "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"
         }
         if (id == "review") {
             return "M4 5h16v11H10l-5 4v-4H4zM8 9h8M8 12h5"
@@ -1069,6 +1099,9 @@ class PresToolbar {
         r.tone = tone
         r.name = (PresI18n.t("Places"))
         r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
+        if filesOn {
+            r.addItem("files" (PresI18n.t("Files")) (PresToolbar.railIcon("files")))
+        }
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
         r.addItem("history" (PresI18n.t("Versions")) (PresToolbar.railIcon("history")))
         ; the editor's dark or light look, switched in one press
@@ -1270,6 +1303,12 @@ class PresToolbar {
         }
         ; the name at the start, as the room's own row has it
         el.addChild((UiKit.div("tb-grow")))
+        ; a presentation dragged over it goes before it
+        if (dragOn && ((strlen dropDeck) > 0)) {
+            if (id == ("d-" + dropDeck)) {
+                UiTree.addClass(el "tb-room-before")
+            }
+        }
         if current {
             UiTree.addClass(el "tb-roomdeck-current")
             if ((el.getChildCount()) > 0) {
@@ -1347,6 +1386,53 @@ class PresToolbar {
             }
         }
         return ""
+    }
+
+    fn buildSide:void (root:EVGElement) {
+        if filesOpen {
+            this.buildFiles(root)
+            return
+        }
+        this.buildRooms(root)
+    }
+
+    ; The shared Files: what everyone on this server can put on a slide
+    ; (design files first: a Figma file's screens). "+" adds one; a row
+    ; opens its window (PresChartEditor's "figma").
+    fn buildFiles:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("tb-rooms"))
+        def head:EVGElement (UiKit.div("tb-rooms-head"))
+        def close:ButtonCtl (this.iconButton("files-close" (PresI18n.t("Close")) "ghost" "M15 5l-7 7 7 7" head))
+        UiTree.addClass((unwrap close.rootEl) "tb-rooms-close")
+        head.addChild((UiKit.words("tb-rooms-title" (PresI18n.t("Files")))))
+        head.addChild((UiKit.div("tb-grow")))
+        def add:ButtonCtl (this.iconButton("files-add" (PresI18n.t("Add a file")) "ghost" "M12 5v14M5 12h14" head))
+        UiTree.addClass((unwrap add.rootEl) "tb-rooms-add")
+        pane.addChild(head)
+        def w:double (roomsW - 40.0)
+        def any:boolean false
+        for (strsplit fileRows (strfromcode 10)) line:string i {
+            def parts:[string] (strsplit line (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                any = true
+                def id:string (itemAt parts 0)
+                def b:ButtonCtl (this.button(("sfile-" + id) (UiText.fit((this.engine()) (itemAt parts 1) "Open Sans" 13.0 w)) "ghost" pane))
+                def el:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(el "tb-found")
+                if ((el.getChildCount()) > 0) {
+                    UiTree.addClass((el.getChild(0)) "tb-found-name")
+                }
+                if (((array_length parts) >= 3) && ((strlen (itemAt parts 2)) > 0)) {
+                    el.addChild((UiKit.words("tb-found-text" (UiText.fit((this.engine()) (itemAt parts 2) "Open Sans" 11.0 w)))))
+                }
+            }
+        }
+        if (any == false) {
+            for (UiText.wrapLines((this.engine()) (PresI18n.t("Files everyone on this server can use in a presentation. Add a Figma file (.fig) with +: its screens can then be put on a slide.")) "Open Sans" 12.0 w)) ln:string li {
+                pane.addChild((UiKit.words("tb-found-text" ln)))
+            }
+        }
+        root.addChild(pane)
     }
 
     fn buildRooms:void (root:EVGElement) {
@@ -1485,8 +1571,15 @@ class PresToolbar {
         dropRoom = (this.roomAt(px py))
         ; a presentation onto a folder of its room (a room is not dropped in one)
         dropFolder = ""
+        dropDeck = ""
         if ((strlen dragDeck) > 0) {
             dropFolder = (this.folderAt(px py))
+            if ((strlen dropFolder) == 0) {
+                def over:string (this.roomDeckAt(px py))
+                if ((over != dragDeck) && ((indexOf over "sample:") != 0)) {
+                    dropDeck = over
+                }
+            }
         }
         this.rebuild()
     }
@@ -1510,9 +1603,13 @@ class PresToolbar {
             if dragOn {
                 ; onto a folder: filed there; onto its own room: out of its
                 ; folder to the room's top; onto another room: Move or Copy
+                if ((strlen dropDeck) > 0) {
+                    push requests ((((("room:place:" + roomOpen) + ":") + dragDeck) + (strfromcode 9)) + dropDeck)
+                }
                 if ((strlen dropFolder) > 0) {
                     push requests ("room:file:" + roomOpen + ":" + dropFolder + ":" + dragDeck)
-                } {
+                }
+                if (((strlen dropFolder) == 0) && ((strlen dropDeck) == 0)) {
                     if (((strlen dropRoom) > 0) && (dropRoom != roomOpen)) {
                         push requests ("room:drop:" + dropRoom + ":" + dragDeck)
                     }
@@ -1529,6 +1626,7 @@ class PresToolbar {
         dragOn = false
         dropRoom = ""
         dropFolder = ""
+        dropDeck = ""
         this.rebuild()
     }
 
@@ -1885,11 +1983,13 @@ class PresToolbar {
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
             ; groups as in a desktop app: new | open | save and export | the
             ; assistants | settings | delete, red and last
-            ; New ▸ a presentation (the window) or a datasheet (the spreadsheet
-            ; editor, its workbook kept in the deck's data/)
+            ; New ▸ a presentation (the window), a datasheet (the spreadsheet
+            ; editor, its workbook kept in the deck's data/) or a questionnaire
+            ; (forms/<name>.form.md, opened as text)
             def nw:UiItem (file.addSub("new" (PresI18n.t("New")) false))
             MenuCtl.addKid(nw "newPres" (PresI18n.t("Presentation…")) false)
             MenuCtl.addKid(nw "newSheet" (PresI18n.t("Datasheet…")) false)
+            MenuCtl.addKid(nw "newForm" (PresI18n.t("Questionnaire…")) false)
             file.addItem("rename" (PresI18n.t("Rename…")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()
@@ -1983,8 +2083,8 @@ class PresToolbar {
         root.addChild(bar)
         barEl = bar
         onFrame = false
-        if (small && roomsOpen) {
-            this.buildRooms(root)
+        if (small && (this.sideOpen())) {
+            this.buildSide(root)
             def rp:EVGElement (root.getChild(((root.getChildCount()) - 1)))
             def pw:double roomsW
             if (pw > w) {
@@ -2004,8 +2104,8 @@ class PresToolbar {
             colEl.setAttribute("top" "0px")
             colEl.setAttribute("width" ((EVGDisplayList.num(railW)) + "px"))
             colEl.setAttribute("height" ((EVGDisplayList.num(h)) + "px"))
-            if roomsOpen {
-                this.buildRooms(root)
+            if (this.sideOpen()) {
+                this.buildSide(root)
                 def rmEl:EVGElement (root.getChild(((root.getChildCount()) - 1)))
                 rmEl.setAttribute("position" "absolute")
                 rmEl.setAttribute("left" ((EVGDisplayList.num(railW)) + "px"))
@@ -2251,7 +2351,7 @@ class PresToolbar {
     ; Rooms over the page's left edge: a narrow window has no rail, so the
     ; panel lies over what is under the bar instead of beside it.
     fn roomsOver:boolean () {
-        return (roomsOpen && (this.compact()))
+        return ((this.sideOpen()) && (this.compact()))
     }
 
     ; The bar, or anywhere while a list is open (a press outside closes it).
@@ -2340,8 +2440,19 @@ class PresToolbar {
             this.closeLists()
             host.click(tid)
             def place:string (rail.takePressed())
+            if (place == "files") {
+                filesOpen = (filesOpen == false)
+                roomsOpen = false
+                push requests "rail:layout"
+                if filesOpen {
+                    push requests "shared:list"
+                }
+                this.rebuild()
+                return
+            }
             if (place == "rooms") {
                 roomsOpen = (roomsOpen == false)
+                filesOpen = false
                 push requests "rail:layout"
                 if roomsOpen {
                     push requests "room:list"
@@ -2353,6 +2464,20 @@ class PresToolbar {
                 push requests ("rail:" + place)
             }
             this.rebuild()
+            return
+        }
+        if (ctlTid == "tb-files-close") {
+            filesOpen = false
+            push requests "rail:layout"
+            this.rebuild()
+            return
+        }
+        if (ctlTid == "tb-files-add") {
+            push requests "shared:add"
+            return
+        }
+        if ((indexOf ctlTid "tb-sfile-") == 0) {
+            push requests ("shared:open:" + (substring ctlTid 9 (strlen ctlTid)))
             return
         }
         if (ctlTid == "tb-room-close") {
@@ -2408,6 +2533,7 @@ class PresToolbar {
             dragY = py
             dragOn = false
             dropRoom = ""
+            dropDeck = ""
             return
         }
         if (ctlTid == "tb-roomsearch") {

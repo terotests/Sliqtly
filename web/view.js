@@ -12,7 +12,8 @@
 // growing, a diagram tour); surface effects (waves, rain) still run, as the
 // painter runs them.
 
-import { prepareDisplayList, setFontFallback, imageChanged } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, imageChanged, fontSpec } from "./gl/evg-webgl.js";
+import { slideText, sideBySide, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
 import { registerDeckEffects, effectStill, reducedMotion, holdStill } from "./fxdeck.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
@@ -20,6 +21,7 @@ import { currentUser, signIn, authHeaders } from "./viewauth.js";
 import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } from "./book.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
+import { facesFor, PictureQueue } from "./viewload.js";
 import { linkOf, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
@@ -30,6 +32,7 @@ document.documentElement.lang = fi ? "fi" : "en";
 const canvas = document.getElementById("c");
 const intro = document.getElementById("brandIntro");
 const note = document.getElementById("note");
+const picWait = document.getElementById("picWait");
 const bar = document.getElementById("viewBar");
 const vCount = document.getElementById("vCount");
 const vGo = document.getElementById("vGo");
@@ -91,6 +94,7 @@ async function loadFaces(names) {
 
 function showNote(html) {
   note.innerHTML = html;
+  intro.classList.remove("loading");
   intro.hidden = false;
   started();
 }
@@ -102,6 +106,9 @@ function started() {
 }
 
 // --- the intro: Sliqtly's logo and name before the slides (web/brand.js) ----
+// Resolves when the intro has had its time (or a tap or key skipped it); the
+// screen stays up until the first slide is ready (hideIntro), with a bar
+// running under the name while it still loads.
 function playIntro() {
   return new Promise((done) => {
     let timer = 0;
@@ -113,12 +120,6 @@ function playIntro() {
       clearTimeout(timer);
       window.removeEventListener("pointerdown", end, true);
       window.removeEventListener("keydown", end, true);
-      intro.classList.add("out");
-      // a note said meanwhile (not found, no WebGL) keeps the screen up
-      setTimeout(() => {
-        intro.classList.remove("out");
-        if (!note.textContent) intro.hidden = true;
-      }, 350);
       done();
     };
     window.addEventListener("pointerdown", end, true);
@@ -127,12 +128,24 @@ function playIntro() {
   });
 }
 
+function hideIntro() {
+  intro.classList.remove("loading");
+  intro.classList.add("out");
+  // a note said meanwhile (not found, no WebGL) keeps the screen up
+  setTimeout(() => {
+    intro.classList.remove("out");
+    if (!note.textContent) intro.hidden = true;
+  }, 350);
+}
+
 // --- painting -----------------------------------------------------------------
 let gl = null;
 let deck = null;
 let lists = [];
 const pictures = new Map();
-let at = 0;
+// the slide shown; -1 until the intro is over, so no slide's script runs
+// (and a page's first look is not spent) behind it
+let at = -1;
 let shownAt = 0;
 let raf = 0;
 // the programs on the slides (```app, web/viewplay.js), null when none
@@ -157,7 +170,7 @@ const realistic = () => !!(book && book.render === "realistic" && bookGl && !zoo
 
 function paint() {
   raf = 0;
-  if (!gl || !lists.length) return;
+  if (!gl || !lists.length || at < 0) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
@@ -187,9 +200,16 @@ function paint() {
   let moving = false;
   // less motion asked for: every effect held at its still, drawn once
   const still = reducedMotion();
-  for (const { page, x } of shown) {
-    // a slide's script, while it runs, lays its frames over the list
-    const list = (plays && plays.listOf(page)) || lists[page];
+  // a slide's script, while it runs, lays its frames over the list
+  const items = shown.map(({ page, x }) => {
+    const atRest = (plays && plays.listOf(page)) || lists[page];
+    return { page, x, list: plays ? plays.withWorlds(page, atRest) : atRest };
+  });
+  painted = { items, view };
+  const read = sel.has() ? shownText() : null;
+  for (const { page, x, list: drawn } of items) {
+    // the text selected with the mouse: its band under the letters
+    const list = read ? { ...drawn, cmds: withBand(drawn.cmds, read.st, sel.start(), sel.end(), { from: read.from[items.findIndex((it) => it.page === page)], dx: x * deck.width }) } : drawn;
     for (const e of list.effects || []) {
       if (still) holdStill(e);
       else e.time = t;
@@ -208,6 +228,38 @@ function paint() {
   }
   // a surface effect moves: drawn again on the next frame
   if (moving) raf = requestAnimationFrame(paint);
+}
+
+// --- selecting the slide's text with the mouse (web/slidetext.js) ---------------
+// A drag over text selects it, Ctrl/Cmd+C copies it, Ctrl/Cmd+A takes the
+// whole slide's, Esc lets go. A plain click is still the next slide. The
+// front matter's `select-text: off` turns it off (deck.selectText false).
+const sel = new TextSelection();
+// what the last paint showed: [{ page, x, list }] at view
+let painted = null;
+let shownCache = null;
+const measureCtx = document.createElement("canvas").getContext("2d");
+function measure(text, c) {
+  measureCtx.font = fontSpec(c, 1);
+  return measureCtx.measureText(text).width;
+}
+const selectable = () => !!deck && deck.selectText !== false && !realistic() && !!painted;
+// The shown pages' text, read again only when what is painted changed (a
+// slide's script lays new frames over it).
+function shownText() {
+  if (!painted) return null;
+  const lists = painted.items.map((it) => it.list);
+  if (shownCache && shownCache.lists.length === lists.length && shownCache.lists.every((l, i) => l === lists[i])) return shownCache;
+  const { cmds, from } = sideBySide(painted.items.map((it) => ({ cmds: it.list.cmds, dx: it.x * deck.width })));
+  shownCache = { lists, st: slideText(cmds, measure), from };
+  // a script that changed the words lets go of the selection
+  sel.setText(shownCache.st.text);
+  return shownCache;
+}
+function slidePointOf(ev) {
+  const r = canvas.getBoundingClientRect();
+  const v = painted.view;
+  return { x: (ev.clientX - r.left - v.x) / v.scale, y: (ev.clientY - r.top - v.y) / v.scale };
 }
 
 // --- a realistic book ------------------------------------------------------------
@@ -309,8 +361,10 @@ function go(i) {
   if (i !== at) {
     shownAt = performance.now();
     zoom = null;
+    sel.clear();
   }
   at = i;
+  waitForPictures();
   vCount.textContent = book ? spreadLabel(book.spreads, spreadNow(), n) : (at + 1) + " / " + n;
   if (!given) {
     const q = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -575,6 +629,76 @@ const letHold = (ev) => {
 };
 canvas.addEventListener("pointerup", letHold);
 canvas.addEventListener("pointercancel", letHold);
+// The mouse over the slide's text: its press is the selection's, and the
+// tap below does not see it (a click on text is let through as one).
+let selPress = null;
+canvas.addEventListener("pointerdown", (ev) => {
+  if (ev.pointerType !== "mouse" || ev.button !== 0 || !selectable()) return;
+  const read = shownText();
+  if (!read || !read.st.text) return;
+  const p = slidePointOf(ev);
+  const what = sel.press(indexAt(read.st, p.x, p.y), ev.shiftKey, runAt(read.st, p.x, p.y, 2) >= 0);
+  if (!what) return;
+  ev.stopImmediatePropagation();
+  if (what === "select") {
+    selPress = { id: ev.pointerId, x: ev.clientX, y: ev.clientY };
+    canvas.setPointerCapture(ev.pointerId);
+  }
+  repaint();
+});
+canvas.addEventListener("pointermove", (ev) => {
+  if (ev.pointerType !== "mouse" || !selectable()) return;
+  const read = shownText();
+  if (!read) return;
+  const p = slidePointOf(ev);
+  if (selPress && selPress.id === ev.pointerId) {
+    ev.stopImmediatePropagation();
+    if (sel.drag(indexAt(read.st, p.x, p.y))) repaint();
+    return;
+  }
+  if (!ev.buttons) canvas.style.cursor = runAt(read.st, p.x, p.y, 2) >= 0 ? "text" : "";
+});
+const letSelPress = (ev) => {
+  if (!selPress || selPress.id !== ev.pointerId) return;
+  ev.stopImmediatePropagation();
+  const far = Math.hypot(ev.clientX - selPress.x, ev.clientY - selPress.y) >= 10;
+  selPress = null;
+  // a plain click on text: the next slide (the previous on the left third),
+  // as a click anywhere else
+  if (sel.release() === "click" && !far && ev.type === "pointerup") step(ev.clientX < canvas.clientWidth / 3 ? -1 : 1);
+  repaint();
+};
+canvas.addEventListener("pointerup", letSelPress);
+canvas.addEventListener("pointercancel", letSelPress);
+window.addEventListener("keydown", (ev) => {
+  if (!selectable() || ev.target.closest?.("input, textarea")) return;
+  const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
+  if (mod && (ev.key === "a" || ev.key === "A")) {
+    const read = shownText();
+    if (!read || !read.st.text) return;
+    ev.preventDefault();
+    sel.selectAll();
+    repaint();
+  } else if (mod && (ev.key === "c" || ev.key === "C") && sel.has()) {
+    // the copy event below writes it; a browser that sends none for a page
+    // with nothing selected in it is written to here
+    copyPending = sel.selected();
+    setTimeout(() => {
+      if (copyPending) navigator.clipboard?.writeText(copyPending).catch((e) => console.warn("copy", e));
+      copyPending = "";
+    }, 0);
+  } else if (ev.key === "Escape" && sel.has()) {
+    sel.clear();
+    repaint();
+  }
+});
+let copyPending = "";
+document.addEventListener("copy", (ev) => {
+  if (!sel.has() || ev.target.closest?.("input, textarea")) return;
+  ev.clipboardData.setData("text/plain", sel.selected());
+  ev.preventDefault();
+  copyPending = "";
+});
 canvas.addEventListener("pointerdown", (ev) => {
   down = { x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY };
   if (ev.pointerType === "mouse") return;
@@ -647,6 +771,30 @@ async function pictureOf(p) {
   }
 }
 
+// The deck's pictures, fetched nearest the shown slide first
+// (web/viewload.js); null until the deck is known.
+let queue = null;
+const shownPages = (i) => (book ? spreadPages(book.spreads, spreadOfPage(book.spreads, i)).map((p) => p.page) : [i]);
+const pagesReady = (pages) => Promise.all(pages.map((p) => queue.whenReady(p)));
+
+// A picture is in: painted at once when the slide shown draws it.
+function pictureIn(src) {
+  if (at < 0) return;
+  const on = queue.slidesOf.get(src);
+  // a realistic book keeps its pages as pictures of their own, the next
+  // ones too: all drawn again
+  if (bookGl) bookGl.clear();
+  if (bookGl || !on || shownPages(at).some((p) => on.includes(p))) repaint();
+  if (shownPages(at).every((p) => queue.ready(p))) picWait.hidden = true;
+}
+
+// The slide shown goes first; a spinner while its pictures are on the way.
+function waitForPictures() {
+  if (!queue) return;
+  queue.focus(at);
+  picWait.hidden = shownPages(at).every((p) => queue.ready(p));
+}
+
 // who is signed in on the page, when a private presentation needed it
 let user = null;
 
@@ -689,7 +837,6 @@ async function start() {
     return;
   }
   const shown = playIntro();
-  const fonts = loadFaces(FACES);
   let got;
   try {
     let res = await fetch(viewUrl(link));
@@ -724,8 +871,16 @@ async function start() {
     }
   }
   if (deck.name) document.title = deck.name + " · Sliqtly";
+  // the faces the slides are set in, and the first slide's pictures: the
+  // rest follow while it is shown (web/viewload.js)
   const looks = lookFacesOf(got.lists).map((name) => [name, LOOK_FACES[name]]);
-  await Promise.all([fonts.then(() => looks.length && loadFaces(looks)), ...picturesOf(deck).map(pictureOf)]);
+  const faceSets = facesFor(got.lists, FACES);
+  const first = Math.max(0, Math.min(link.slide, got.lists.length - 1));
+  queue = new PictureQueue(picturesOf(deck), got.lists, { load: pictureOf, loaded: pictureIn, at: first, parallel: 4 });
+  shown.then(() => {
+    if (!lists.length && !note.textContent) intro.classList.add("loading");
+  });
+  await Promise.all([loadFaces(faceSets.need.concat(looks)), pagesReady(shownPages(first))]);
   lists = got.lists;
   // the deck's own effects, compiled on the server from its ```fx blocks
   if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
@@ -735,10 +890,11 @@ async function start() {
     try {
       const { startPlays } = await import("./viewplay.js");
       plays = await startPlays({
-        plays: deck.plays || [], scripts: got.scripts || [], lists, canvas, current: () => at, count: () => lists.length,
+        plays: deck.plays || [], scripts: got.scripts || [], lists, slideW: deck.width, slideH: deck.height, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
         pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
+        onStage: (on) => document.body.classList.toggle("game-stage", on),
         readFile: (path) => deckFileText(deck, path),
       });
     } catch (e) {
@@ -746,11 +902,14 @@ async function start() {
     }
   }
   await shown;
+  hideIntro();
   bar.hidden = false;
   shownAt = performance.now();
   at = -1;
-  go(Math.min(link.slide, lists.length - 1));
+  go(first);
   wake();
   started();
+  // the other base faces: what a glyph the slides' faces lack is drawn with
+  if (faceSets.rest.length) loadFaces(faceSets.rest).then(repaint);
 }
 start();

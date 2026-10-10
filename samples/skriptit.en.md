@@ -67,7 +67,8 @@ Sales this year
 ## The total {transition=morph}
 ```
 
-- `find("chart:1 bar")`, `find("p word")`, `find("diagram node")`: the slide's own entities
-- `e.set({ x, y, scale, rotate, opacity, color, fill, clip })` in `tick(dt)`, `build(n)` or `onClick(e)`
+- `import { presentation } from "Sliqtly"`, then `presentation.activeSlide.find("chart:1 bar")`, `find("p word")`, `find("diagram node")`: the slide's own entities
+- `e.set({ x, y, scale, rotate, opacity, color, fill, clip })` in `start()`, `tick(dt)`, `build(n)` or `onClick(e)`
+- What `start()` sets is how the slide arrives: its opening pose, before the first `tick`
 - `transition=morph`: the same `{#id}` on two slides moves to its new place
 - Thumbnails, the PDF, the PPTX and the shared link show where each script ends

@@ -54,13 +54,18 @@ export function viewerAsks(play, asks) {
  * repaint() when a picture changed. For 3-D worlds: pictures, the viewer's
  * src → picture map; gl() its WebGL context; dpr() its device pixel ratio;
  * imageChanged(gl, src) the painter's; slidePicture(page, w, h) a page as
- * an ImageData without its programs.
+ * an ImageData without its programs; slideW, slideH the slide's size in
+ * its units (a world may draw over all of it). onStage(on): a game that
+ * has the keyboard took the whole stage (true) or gave it back.
  */
-export async function startPlays({ plays = [], scripts = [], lists = [], canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile }) {
+export async function startPlays({ plays = [], scripts = [], lists = [], slideW = 0, slideH = 0, canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile, onStage = null }) {
   await loadScript("pres_play.js");
   const web = new globalThis.PresPlayWeb();
+  web.setSlide(slideW, slideH);
   const scriptWeb = new globalThis.PresScriptWeb();
   const byKey = new Map();
+  // a script's slide while it runs: its list with the last frame laid over
+  const live = new Map();
   for (const p of plays) {
     const [x, y, w, h] = p.box;
     web.add(p.key, p.src, p.w, p.h, x, y, w, h);
@@ -68,12 +73,13 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     web.setAllow3d(p.key, (p.allow || []).includes("3d"));
     byKey.set(p.key, p);
   }
-  // a script's slide while it runs: its list with the last frame laid over
-  const live = new Map();
   for (const s of scripts) {
     const b = s.base || {};
     scriptWeb.add(s.key, JSON.stringify(b.list || {}), JSON.stringify(b.scene || {}), b.ink || "", b.accent || "");
     byKey.set(s.key, { ...s, script: true, w: 0, h: 0, css: "" });
+    // how it opens, worked out on the server (View.scriptOpen): the slide's
+    // first paint already shows it, not where the script ends
+    if (s.open && scriptWeb.setFrame(s.key, JSON.stringify(s.open))) live.set(s.slide, s.key);
   }
   // where each page was painted last, for the pointer
   const placed = new Map();
@@ -119,10 +125,23 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
       repaint();
       return true;
     },
+    // the run stopped (its slide left): the slide comes back as it opens
     endScriptLive: (key) => {
       const p = byKey.get(key);
-      if (p && live.get(p.slide) === key) live.delete(p.slide);
+      if (!p || live.get(p.slide) !== key) return;
+      if (!p.open || !scriptWeb.setFrame(key, JSON.stringify(p.open))) live.delete(p.slide);
     },
+    // how the script opens (web/apps.js works it out): the slide as it
+    // arrives, until the script's first frame
+    setScriptOpen: (key, json) => {
+      const p = byKey.get(key);
+      if (!p || !scriptWeb.setFrame(key, json)) return false;
+      live.set(p.slide, key);
+      repaint();
+      return true;
+    },
+    // the viewer shows every build step
+    scriptOpenStep: (key) => byKey.get(key)?.steps || 0,
     scriptOwnsClick: (key) => scriptWeb.ownsClick(key),
     scriptHit: (key, cx, cy) => {
       const p = byKey.get(key);
@@ -157,7 +176,20 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     playPoint: (key, cx, cy) => {
       const p = byKey.get(key);
       const at = p && slidePoint(placed.get(p.slide), canvas.getBoundingClientRect(), cx, cy);
-      return at ? web.point(key, at.x, at.y) : "";
+      return at ? web.pointPast(key, at.x, at.y) : "";
+    },
+    // the worlds programs on the pages shown draw past their boxes under a
+    // window point: [{key, src, u, v}]
+    playPast: (cx, cy) => {
+      const rect = canvas.getBoundingClientRect();
+      const pages = shownPages();
+      const out = [];
+      for (const p of plays) {
+        if (!pages.includes(p.slide)) continue;
+        const at = slidePoint(placed.get(p.slide), rect, cx, cy);
+        if (at) for (const c of JSON.parse(web.pastAt(p.key, at.x, at.y))) out.push({ ...c, key: p.key });
+      }
+      return JSON.stringify(out);
     },
     setPlayFocus: (key) => { focus = key; },
     playFocus: () => focus,
@@ -165,7 +197,7 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
   };
 
   // the viewer has no toasts: what went wrong is on the plate and here
-  const apps = createApps({ app, repaint, toast: (line) => console.warn(line) });
+  const apps = createApps({ app, repaint, toast: (line) => console.warn(line), opaqueAt: (src, u, v) => (worlds ? worlds.opaqueAt(src, u, v) : false) });
   // the worlds on the slide shown, placed in the slide's units
   const worlds = plays.some((p) => (p.allow || []).includes("3d")) ? createThree3d({
     app: {
@@ -185,8 +217,18 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     toast: (line) => console.warn(line),
     readFile,
   }) : null;
+  // the game that has the keyboard takes the stage: the page hides its
+  // controls (onStage) while it does
+  const stageTaken = () => !!focus && byKey.has(focus) && !byKey.get(focus).script && web.takesStage(focus);
+  let staged = false;
   const loop = () => {
     apps.tick(1);
+    const now = stageTaken();
+    if (now !== staged) {
+      staged = now;
+      if (onStage) onStage(now);
+      repaint();
+    }
     if (worlds && worlds.tick(0, gl(), dpr())) repaint();
     requestAnimationFrame(loop);
   };
@@ -212,6 +254,19 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
       if (!key || !lists[page]) return null;
       const { cmds } = JSON.parse(scriptWeb.listJson(key));
       return { ...lists[page], cmds };
+    },
+    // page's list with its programs' 3-D worlds put where the server said
+    // (list.worldsAt: over the ground, under the text); the list itself
+    // when it has none
+    // A game that has the keyboard and takes the stage
+    // (PresPlayWeb.takesStage) is painted over the slide's text too.
+    withWorlds(page, list) {
+      if (!worlds || !(list.worldsAt >= 0) || page !== current()) return list;
+      const cmds = [];
+      for (const p of plays) if (p.slide === page) cmds.push(...JSON.parse(web.worldsJson(p.key)).cmds);
+      if (!cmds.length) return list;
+      const over = stageTaken() && byKey.get(focus).slide === page ? JSON.parse(web.overJson(focus)).cmds : [];
+      return { ...list, cmds: [...list.cmds.slice(0, list.worldsAt), ...cmds, ...list.cmds.slice(list.worldsAt), ...over] };
     },
     // page painted at {x, y, scale} (CSS px of the canvas): its programs'
     // pictures as display lists in the slide's units

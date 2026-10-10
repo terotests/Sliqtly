@@ -130,6 +130,8 @@ class GhPr {
     def head:string ""
     ; the head commit, for links to lines as they are in the change
     def headSha:string ""
+    ; the base branch's commit the change was opened against
+    def baseSha:string ""
     def additions:int 0
     def deletions:int 0
     def changedFiles:int 0
@@ -157,6 +159,7 @@ class GhPr {
         def base:MfJ (pr.field("base"))
         if (base.isObj()) {
             p.base = (base.str_("ref"))
+            p.baseSha = (base.str_("sha"))
         }
         def head:MfJ (pr.field("head"))
         if (head.isObj()) {

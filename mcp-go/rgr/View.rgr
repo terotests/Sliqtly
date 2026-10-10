@@ -9,7 +9,8 @@
 ; code.
 ;
 ;   { "deck": { "name", "width", "height", "slides",
-;               "files": [{ "path", "type", "url" }], "plays": [View.plays] },
+;               "files": [{ "path", "type", "url" }], "plays": [View.plays],
+;               "selectText": false when the front matter says so },
 ;     "lists": [ <EVGDisplayList.toJson>, … ],
 ;     "effects": [ <FxLang.json: the deck's own effects> ] }
 ;
@@ -61,7 +62,7 @@ class View {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs sh.id))
+        def bgs:CheckPics (Tools.backgrounds(host md (doc.str_("css")) noImgs sh.id))
         def din (new DeckIn)
         din.deckId = sh.id
         din.stored = stored
@@ -99,10 +100,17 @@ class View {
         def i:int 0
         while (i < n) {
             def groups:[int]
-            push lists ((d.slideList(i groups 0.0)).toJson())
+            def lj:string ((d.slideList(i groups 0.0)).toJson())
+            ; where the page puts its programs' 3-D worlds: over the
+            ; slide's ground, under its text (PresDeck.worldsAt)
+            if ((d.worldsAt >= 0) && ((strlen lj) > 1)) {
+                lj = ("{\"worldsAt\":" + (to_string d.worldsAt) + "," + (substring lj 1 (strlen lj)))
+            }
+            push lists lj
             i = (i + 1)
         }
         def all:string (join lists ",")
+        def scripts:string (View.scripts(host din d))
         def plays:MfJ (View.plays(host din d))
         ; the programs' text: a .gltf one names (<SliqGltf src>) goes along
         def progs:string ""
@@ -110,20 +118,29 @@ class View {
             progs = (progs + (pj.str_("text")))
         }
         def files:MfJ (MfJ.newArr())
+        def public:boolean (sh.link || (View.shows(doc "")))
         for (doc.list("files")) f2:MfJ f2i {
             def path:string (f2.str_("path"))
             def url:string (f2.str_("url"))
             if (((strlen path) == 0) || ((strlen url) == 0)) {
                 continue
             }
+            ; drawn at rest, a .gltf a program names, or a picture a slide's
+            ; script names (add("image", …))
             def drawn:boolean ((indexOf all ("\"/" + path + "\"")) >= 0)
             def model:boolean ((endsWith (to_lowercase path) ".gltf") && ((indexOf progs path) >= 0))
-            if ((drawn == false) && (model == false)) {
+            def scripted:boolean ((indexOf scripts path) >= 0)
+            if (((drawn == false) && (model == false)) && (scripted == false)) {
                 continue
             }
             def o:MfJ (MfJ.newObj())
             o.putStr("path" path)
             o.putStr("type" (f2.str_("type")))
+            ; a picture anyone with the link sees comes made for the
+            ; screen (View.picture); a private deck's from Storage as it is
+            if (public && (View.madeForScreen(path (f2.str_("type"))))) {
+                url = (View.pictureUrl(host id path (View.fileStamp(doc url))))
+            }
             o.putStr("url" url)
             files.add(o)
         }
@@ -133,6 +150,11 @@ class View {
         deck.putNum("height" d.pageH)
         deck.putInt("slides" n)
         deck.put("files" files)
+        ; `select-text: off`: the page lets nobody select the slides' text
+        ; (web/slidetext.js); by default it does
+        if (PresDeck.selectTextOff(md)) {
+            deck.putBool("selectText" false)
+        }
         ; `mode: book`: the pages that face each other, [left, right] with
         ; -1 for none, and how the book is drawn (PresBook)
         def book:MdBook (d.book())
@@ -153,10 +175,43 @@ class View {
             deck.put("book" bj)
         }
         deck.put("plays" plays)
-        def scripts:string (View.scripts(host din d))
         ; the deck's own effects (```fx, the theme's @effect) as shader
         ; text the deck's compiler wrote (FxLang), for the page to register
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + ",\"scripts\":" + scripts + "}")
+    }
+
+    ; a picture the viewer gets made for the screen: PNG, JPEG or WebP
+    sfn madeForScreen:boolean (path:string type:string) {
+        def t:string (to_lowercase type)
+        if (((t == "image/png") || (t == "image/jpeg")) || (t == "image/webp")) {
+            return true
+        }
+        def p:string (to_lowercase path)
+        return ((((endsWith p ".png") || (endsWith p ".jpg")) || (endsWith p ".jpeg")) || (endsWith p ".webp"))
+    }
+
+    sfn pictureUrl:string (host:McpHost id:string path:string stamp:string) {
+        return ("/api/view/" + id + "/pic?path=" + (host_uri_encode host path) + "&v=" + stamp)
+    }
+
+    ; what changes when a stored file is replaced: its download token (a new
+    ; one with every upload), else the deck's own stamp
+    sfn fileStamp:string (doc:MfJ url:string) {
+        def at:int (indexOf url "token=")
+        if (at >= 0) {
+            def tok:string (substring url (at + 6) (strlen url))
+            def amp:int (indexOf tok "&")
+            if (amp >= 0) {
+                tok = (substring tok 0 amp)
+            }
+            if ((strlen tok) > 12) {
+                tok = (substring tok 0 12)
+            }
+            if ((strlen tok) > 0) {
+                return tok
+            }
+        }
+        return (LinkCard.stamp(doc))
     }
 
     ; The slides' scripts ({script=…}), which the page runs itself while
@@ -166,6 +221,26 @@ class View {
     ; (PresDeck.scriptBaseJson).
     ;   [{ "key", "slide", "src", "allow": […], "text", "steps", "tree",
     ;      "base": {"list", "scene", "ink", "accent"} }]
+    ; Slide i's script as it opens: start(), onEnter(from) and its build
+    ; steps run, no tick (__scriptOpen). "" when it does not run here.
+    sfn scriptOpen:string (host:McpHost text:string tree:string i:int n:int steps:int) {
+        def dk:JVal (JVal.mkObj())
+        dk.setInt("home" (i + 1))
+        dk.setInt("slide" (i + 1))
+        dk.setInt("from" i)
+        dk.setInt("slides" n)
+        dk.setInt("step" steps)
+        dk.setStr("mode" "present")
+        def a:JVal (JVal.mkObj())
+        a.set("deck" dk)
+        a.set("env" (JVal.mkObj()))
+        def out:string (host_script_run host text "__scriptOpen" (Check.withTree(tree a)))
+        if (((strlen out) == 0) || ((out == "-") || (startsWith out "!"))) {
+            return ""
+        }
+        return out
+    }
+
     sfn scripts:string (host:McpHost din:DeckIn d:PresDeck) {
         def out:[string]
         def i:int 0
@@ -173,7 +248,7 @@ class View {
             def key:string (d.scriptKeyOf(i))
             if ((strlen key) > 0) {
                 def s:PresSlide (d.slideAt(i))
-                def text:string (Check.dataText(host din s.script))
+                def text:string (Check.programText(host din s.script))
                 if ((strlen text) > 0) {
                     def o:MfJ (MfJ.newObj())
                     o.putStr("key" key)
@@ -189,7 +264,15 @@ class View {
                     o.putInt("steps" s.steps)
                     def head:string (JOut.text(o))
                     def tree:string (d.scriptTree(key))
-                    push out ((substring head 0 ((strlen head) - 1)) + ",\"tree\":" + tree + ",\"base\":" + (d.scriptBaseJson(i)) + "}")
+                    ; how it opens (__scriptOpen, as web/apps.js openArg asks
+                    ; it): the page shows the slide so from its first paint,
+                    ; not where the script ends and then its start
+                    def open:string (View.scriptOpen(host text tree i (d.slideCount()) s.steps))
+                    def withOpen:string ""
+                    if ((strlen open) > 0) {
+                        withOpen = (",\"open\":" + open)
+                    }
+                    push out ((substring head 0 ((strlen head) - 1)) + ",\"tree\":" + tree + ",\"base\":" + (d.scriptBaseJson(i)) + withOpen + "}")
                 }
             }
             i = (i + 1)
@@ -230,7 +313,7 @@ class View {
             bx.add((MfJ.ofNum(b.w)))
             bx.add((MfJ.ofNum(b.h)))
             o.put("box" bx)
-            o.putStr("text" (Check.dataText(host din u.spec.src)))
+            o.putStr("text" (Check.programText(host din u.spec.src)))
             o.putStr("cssText" (Check.dataText(host din u.spec.css)))
             out.add(o)
         }
@@ -246,6 +329,76 @@ class View {
 ; animations); md is the deck's text without Sliqtly's styling (PlainMd).
 ; Nothing is stored: the file goes straight to the browser.
 ; =============================================================================
+
+; --- the viewer's pictures: GET /api/view/<id>/pic?path=<path>&v=<stamp>
+;
+; A deck keeps its pictures as they were given (often PNGs of 1–2 MB), and
+; the page fetched them all before it showed a slide. A raster picture of a
+; deck anyone with the link sees is sent made for the screen instead
+; (host_view_picture: a JPEG, scaled when large), at an address that
+; changes with the file (`v`), so the CDN keeps it for good.
+
+class ViewPic {
+    ; 200, 302 (`url`: the address with the file's own stamp) or 404
+    def status:int 404
+    def type:string ""
+    def bytes:buffer (buffer_from_string "")
+    def url:string ""
+}
+
+class ViewPictures {
+    sfn picture:ViewPic (host:McpHost id:string path:string v:string) {
+        def out (new ViewPic)
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return out
+        }
+        def sh:Shown (Store.shown(host id))
+        def doc:MfJ sh.doc
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view picture " + id + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        ; only a deck anyone with the link sees (a private one's page gets
+        ; its pictures from Storage, View.json)
+        if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
+            return out
+        }
+        def type:string ""
+        def stamp:string ""
+        def found:boolean false
+        for (doc.list("files")) f:MfJ fi {
+            if ((f.str_("path")) == path) {
+                found = true
+                type = (f.str_("type"))
+                stamp = (View.fileStamp(doc (f.str_("url"))))
+            }
+        }
+        if ((found == false) || ((View.madeForScreen(path type)) == false)) {
+            return out
+        }
+        if (v != stamp) {
+            out.status = 302
+            out.url = (View.pictureUrl(host id path stamp))
+            return out
+        }
+        def got:MfJ (J.parse((host_file_bytes host sh.id path)))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view picture " + id + "/" + path + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        def data:buffer (host_image_bytes host (got.int_("handle" 0)))
+        def made:buffer (host_view_picture host data 2048)
+        if ((buffer_length made) > 0) {
+            data = made
+        }
+        out.status = 200
+        out.type = (host_content_type host data)
+        out.bytes = data
+        return out
+    }
+}
 
 class ViewFile {
     ; 200, 400 (no such format), 404 (no such shared presentation) or 500
@@ -288,7 +441,7 @@ class ViewExport {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs sh.id))
+        def bgs:CheckPics (Tools.backgrounds(host md (doc.str_("css")) noImgs sh.id))
         def css:MfJ (doc.field("css"))
         def theme:string (doc.str_("theme"))
         def hasCss:boolean (css.kind == 3)
@@ -598,7 +751,7 @@ class LinkCard {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (doc.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored

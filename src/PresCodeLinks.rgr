@@ -1,0 +1,472 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresCodeLinks.rgr — which source lines a diagram's boxes are about
+; ============================================================================
+;
+; Under a diagram, a `::: code` block says which files (kept under code/, see
+; PresCodeFiles) each box is about:
+;
+;   ::: code
+;   api  src/server/api.cpp#L40-88   "submit handler"
+;   api  proto/review.fbs#ReviewDTO
+;   q    src/worker/queue.cpp diff
+;   -    CMakeLists.txt
+;   :::
+;
+; One link a line: `<box> <path>[#anchor] [mode] ["label"]`.
+;
+; - box: the diagram node's id (Mermaid `api`, a PlantUML alias, a D2 key,
+;   an xstate state); when no node has that id, a node whose text is that.
+;   `-` (or `*`) is the whole diagram.
+; - path: under code/.
+; - anchor: `L40`, `L40-88` (or `L40-L88`), `hunk2` (the change's second
+;   hunk) or a name the file declares (`ReviewDTO`). None: the file's first
+;   kept line.
+; - mode: `diff`, `split`, `before` or `now`: how the viewer opens it. None:
+;   the change when the file has one, else the file.
+; - label: a few words shown in the chooser.
+; Blank lines and lines starting with `;` are skipped.
+;
+; The block belongs to the nearest diagram above it on the same slide; on a
+; slide with no diagram above it, its links are the slide's own.
+;
+; Mermaid's `click` lines say the same where the address starts with `code:`:
+;
+;   click api "code:src/server/api.cpp#L40-88" "submit handler"
+;
+; and a text link `[ReviewDTO](code:proto/review.fbs#ReviewDTO)` opens the
+; file from anywhere on a slide (`parseUrl`).
+; ============================================================================
+
+Import "PresCodeFiles.rgr"
+
+class PresCodeLink {
+    ; 0-based slide, the diagram's index on it (-1: the slide's own)
+    def slide:int 0
+    def dia:int -1
+    ; the box, "" = the whole diagram
+    def node:string ""
+    def path:string ""
+    ; lines, 0 = not said
+    def from:int 0
+    def to:int 0
+    def symbol:string ""
+    ; 1-based hunk, 0 = none
+    def hunk:int 0
+    def mode:string ""
+    def label:string ""
+    ; where it was written: the line in the deck's text, 1-based (0 = not known)
+    def srcLine:int 0
+    ; what was wrong with it ("" = nothing): such a link is kept for the check
+    ; and never opened
+    def problem:string ""
+
+    fn whole:boolean () {
+        return ((strlen node) == 0)
+    }
+
+    ; "api.cpp · 40–88 · submit handler": a row of the chooser
+    fn caption:string () {
+        def name:string path
+        def slash:int (lastIndexOf path "/")
+        if (slash >= 0) {
+            name = (substring path (slash + 1) (strlen path))
+        }
+        def parts:[string]
+        push parts name
+        if (from > 0) {
+            if (to > from) {
+                push parts ((to_string from) + "–" + (to_string to))
+            } {
+                push parts (to_string from)
+            }
+        }
+        if ((strlen symbol) > 0) {
+            push parts symbol
+        }
+        if (hunk > 0) {
+            push parts ("change " + (to_string hunk))
+        }
+        if ((strlen label) > 0) {
+            push parts label
+        }
+        return (join parts " · ")
+    }
+}
+
+class PresCodeLinks {
+    def links:[PresCodeLink]
+
+    sfn isMode:boolean (w:string) {
+        return ((w == "diff") || ((w == "split") || ((w == "before") || (w == "now"))))
+    }
+
+    ; Digits only, at least one.
+    sfn isNumber:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; "#L40-88", "#hunk2", "#ReviewDTO" (without the #) onto a link.
+    sfn readAnchor:void (k:PresCodeLink anchor:string) {
+        def a:string (trim anchor)
+        if ((strlen a) == 0) {
+            return
+        }
+        def lower:string (to_lowercase a)
+        if ((indexOf lower "hunk") == 0) {
+            def n:string (substring a 4 (strlen a))
+            if (PresCodeLinks.isNumber(n)) {
+                k.hunk = (?? (to_int n) 0)
+                return
+            }
+        }
+        if ((indexOf a "L") == 0) {
+            def rest:string (substring a 1 (strlen a))
+            def dash:int (indexOf rest "-")
+            def first:string rest
+            def second:string ""
+            if (dash >= 0) {
+                first = (substring rest 0 dash)
+                second = (substring rest (dash + 1) (strlen rest))
+                if ((indexOf second "L") == 0) {
+                    second = (substring second 1 (strlen second))
+                }
+            }
+            if ((PresCodeLinks.isNumber(first)) && ((dash < 0) || (PresCodeLinks.isNumber(second)))) {
+                k.from = (?? (to_int first) 0)
+                k.to = k.from
+                if (dash >= 0) {
+                    k.to = (?? (to_int second) 0)
+                }
+                if ((k.from < 1) || (k.to < k.from)) {
+                    k.problem = ("lines " + a + " run backwards")
+                }
+                return
+            }
+        }
+        k.symbol = a
+    }
+
+    ; "src/a.cpp#L4-9" (a path and its anchor) onto a link.
+    sfn readTarget:void (k:PresCodeLink target:string) {
+        def hash:int (indexOf target "#")
+        def p:string target
+        if (hash >= 0) {
+            p = (substring target 0 hash)
+            PresCodeLinks.readAnchor(k (substring target (hash + 1) (strlen target)))
+        }
+        k.path = (PresCodeFiles.clean(p))
+        if ((strlen k.path) == 0) {
+            k.problem = "no file named"
+        }
+    }
+
+    ; A line of a `::: code` block; a link with `problem` set when it does not
+    ; read, so the check can say which line.
+    sfn parseLine:PresCodeLink (line:string) {
+        def k (new PresCodeLink())
+        def t:string (trim line)
+        ; the label: the first double-quoted part
+        def q:int (indexOf t "\"")
+        if (q >= 0) {
+            def rest:string (substring t (q + 1) (strlen t))
+            def q2:int (indexOf rest "\"")
+            if (q2 >= 0) {
+                k.label = (trim (substring rest 0 q2))
+            } {
+                k.label = (trim rest)
+            }
+            t = (trim (substring t 0 q))
+        }
+        def words:[string]
+        for (strsplit (replace t "\t" " ") " ") w:string i {
+            if ((strlen w) > 0) {
+                push words w
+            }
+        }
+        if ((array_length words) < 2) {
+            k.problem = "a link is `<box> <file>[#lines]`"
+            return k
+        }
+        def box:string (itemAt words 0)
+        if ((box != "-") && (box != "*")) {
+            k.node = box
+        }
+        PresCodeLinks.readTarget(k (itemAt words 1))
+        if ((array_length words) >= 3) {
+            def m:string (to_lowercase (itemAt words 2))
+            if (PresCodeLinks.isMode(m)) {
+                k.mode = m
+            } {
+                k.problem = ("unknown word \"" + (itemAt words 2) + "\" (diff, split, before or now)")
+            }
+        }
+        return k
+    }
+
+    ; The links of one `::: code` block whose body starts on deck line
+    ; `firstLine` (1-based).
+    fn addBlock:void (body:string slide:int dia:int firstLine:int) {
+        def lines:[string] (strsplit body "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            if ((strlen raw) > 0) {
+                if ((substring raw 0 1) != ";") {
+                    def k:PresCodeLink (PresCodeLinks.parseLine(raw))
+                    k.slide = slide
+                    k.dia = dia
+                    k.srcLine = (firstLine + i)
+                    push links k
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; `code:src/a.cpp#L4` → a link of the slide; one with `problem` set when
+    ; the address is no code address.
+    sfn parseUrl:PresCodeLink (url:string) {
+        def k (new PresCodeLink())
+        def u:string (trim url)
+        if ((indexOf u "code:") != 0) {
+            k.problem = "not a code: address"
+            return k
+        }
+        PresCodeLinks.readTarget(k (substring u 5 (strlen u)))
+        return k
+    }
+
+    ; Mermaid's `click <id> "code:…" ["tooltip"]` lines of a diagram's text.
+    ; Other click lines (web addresses, callbacks) are not ours.
+    fn addMermaid:void (text:string slide:int dia:int firstLine:int) {
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def t:string (trim (itemAt lines i))
+            if ((indexOf t "click ") == 0) {
+                def rest:string (trim (substring t 6 (strlen t)))
+                def sp:int (indexOf rest " ")
+                if (sp > 0) {
+                    def id:string (substring rest 0 sp)
+                    def after:string (trim (substring rest sp (strlen rest)))
+                    if ((indexOf after "href ") == 0) {
+                        after = (trim (substring after 5 (strlen after)))
+                    }
+                    if ((indexOf after "\"code:") == 0) {
+                        def inner:string (substring after 1 (strlen after))
+                        def close:int (indexOf inner "\"")
+                        if (close > 0) {
+                            def k:PresCodeLink (PresCodeLinks.parseUrl((substring inner 0 close)))
+                            def tail:string (trim (substring inner (close + 1) (strlen inner)))
+                            if ((indexOf tail "\"") == 0) {
+                                def tip:string (substring tail 1 (strlen tail))
+                                def c2:int (indexOf tip "\"")
+                                if (c2 >= 0) {
+                                    tip = (substring tip 0 c2)
+                                }
+                                k.label = (trim tip)
+                            }
+                            k.node = id
+                            k.slide = slide
+                            k.dia = dia
+                            k.srcLine = (firstLine + i)
+                            push links k
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- what a box, a diagram and a slide have ---------------------------------
+
+    ; Does a link written for `want` name the box with this id and text?
+    sfn names:boolean (want:string id:string text:string) {
+        if (want == id) {
+            return true
+        }
+        return ((to_lowercase (trim want)) == (to_lowercase (trim text)))
+    }
+
+    ; The links of one box of diagram `dia` on `slide` (not the diagram's
+    ; whole-diagram links), in the order written. Broken ones are left out.
+    fn forNode:[PresCodeLink] (slide:int dia:int id:string text:string) {
+        def out:[PresCodeLink]
+        for links k:PresCodeLink i {
+            if ((((k.slide == slide) && (k.dia == dia)) && ((k.whole()) == false)) && ((strlen k.problem) == 0)) {
+                if (PresCodeLinks.names(k.node id text)) {
+                    push out k
+                }
+            }
+        }
+        return out
+    }
+
+    ; All good links of a diagram (dia -1: the slide's own), boxes and whole.
+    fn forDiagram:[PresCodeLink] (slide:int dia:int) {
+        def out:[PresCodeLink]
+        for links k:PresCodeLink i {
+            if (((k.slide == slide) && (k.dia == dia)) && ((strlen k.problem) == 0)) {
+                push out k
+            }
+        }
+        return out
+    }
+
+    ; The different files a diagram is about: the count on its badge.
+    fn fileCount:int (slide:int dia:int) {
+        def seen:[string]
+        for (this.forDiagram(slide dia)) k:PresCodeLink i {
+            def known:boolean false
+            for seen p:string j {
+                if (p == k.path) {
+                    known = true
+                }
+            }
+            if (known == false) {
+                push seen k.path
+            }
+        }
+        return (array_length seen)
+    }
+
+    ; The diagrams of a slide that have links, by index.
+    fn diagramsOn:[int] (slide:int) {
+        def out:[int]
+        for links k:PresCodeLink i {
+            if ((k.slide == slide) && (k.dia >= 0)) {
+                def known:boolean false
+                for out d:int j {
+                    if (d == k.dia) {
+                        known = true
+                    }
+                }
+                if (known == false) {
+                    push out k.dia
+                }
+            }
+        }
+        return out
+    }
+
+    ; --- where a link opens ------------------------------------------------------
+
+    ; The first and last line a link opens at in its file: its lines, the
+    ; line its name is declared on, else the file's first kept line. [0, 0]
+    ; when the file is not there. A hunk's lines come from the change
+    ; (PresCodeRows), not from here.
+    sfn span:[int] (k:PresCodeLink files:PresCodeFiles text:string) {
+        def out:[int]
+        ; a file sources.json does not list is all of it, from line 1
+        def f:PresCodeFile (new PresCodeFile())
+        f.path = k.path
+        def fo@(optional):PresCodeFile (files.file(k.path))
+        if (!null? fo) {
+            f = (unwrap fo)
+        }
+        if (k.from > 0) {
+            push out k.from
+            push out k.to
+            return out
+        }
+        if ((strlen k.symbol) > 0) {
+            def at:int (PresCodeFiles.symbolLine(f text k.symbol))
+            if (at > 0) {
+                push out at
+                push out at
+                return out
+            }
+        }
+        def first:int (f.firstLine())
+        push out first
+        push out first
+        return out
+    }
+
+    ; --- the check ----------------------------------------------------------
+
+    ; What is wrong with the links, a line each: "line 12: …". `textOf` holds
+    ; the kept text of each file in `files.files`' order; `nodes` the boxes
+    ; of each linked diagram as "slide:dia\tid\ttext" lines.
+    fn check:[string] (files:PresCodeFiles texts:[string] nodes:[string]) {
+        def out:[string]
+        for links k:PresCodeLink i {
+            def at:string ""
+            if (k.srcLine > 0) {
+                at = ("line " + (to_string k.srcLine) + ": ")
+            }
+            if ((strlen k.problem) > 0) {
+                push out (at + k.problem)
+            } {
+                def fo@(optional):PresCodeFile (files.file(k.path))
+                if (null? fo) {
+                    push out (at + "code/" + k.path + " is not in the deck's files")
+                } {
+                    def f:PresCodeFile fo
+                    def text:string ""
+                    def fi:int 0
+                    while (fi < (array_length files.files)) {
+                        def g:PresCodeFile (itemAt files.files fi)
+                        if ((g.path == f.path) && (fi < (array_length texts))) {
+                            text = (itemAt texts fi)
+                        }
+                        fi = (fi + 1)
+                    }
+                    if (k.from > 0) {
+                        if (((f.has(k.from)) == false) || ((f.has(k.to)) == false)) {
+                            push out (at + k.path + " lines " + (to_string k.from) + "–" + (to_string k.to) + " were not brought in (" + (f.rangeText()) + ")")
+                        }
+                    }
+                    if ((strlen k.symbol) > 0) {
+                        def c:int (PresCodeFiles.symbolCount(text k.symbol))
+                        if (c == 0) {
+                            push out (at + k.path + " declares no \"" + k.symbol + "\" in its kept lines")
+                        }
+                        if (c > 1) {
+                            push out (at + k.path + " declares \"" + k.symbol + "\" " + (to_string c) + " times; the first is opened")
+                        }
+                    }
+                    if ((k.hunk > 0) && ((strlen f.diff) == 0)) {
+                        push out (at + k.path + " has no change to open hunk " + (to_string k.hunk) + " of")
+                    }
+                }
+                if ((k.whole()) == false) {
+                    if (k.dia < 0) {
+                        push out (at + "no diagram above for the box \"" + k.node + "\"; use - for the slide")
+                    } {
+                        def key:string ((to_string k.slide) + ":" + (to_string k.dia) + "\t")
+                        def found:boolean false
+                        for nodes nl:string j {
+                            if ((indexOf nl key) == 0) {
+                                def parts:[string] (strsplit nl "\t")
+                                if ((array_length parts) >= 3) {
+                                    if (PresCodeLinks.names(k.node (itemAt parts 1) (itemAt parts 2))) {
+                                        found = true
+                                    }
+                                }
+                            }
+                        }
+                        if (found == false) {
+                            push out (at + "the diagram has no box \"" + k.node + "\"")
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+}

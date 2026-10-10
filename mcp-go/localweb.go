@@ -270,8 +270,12 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/api/files/rooms/") && r.Method == http.MethodPut:
 		out, err = s.roomFileAPI(r, strings.TrimPrefix(p, "/api/files/rooms/"))
 		status = 201
+	case p == "/api/shared" || strings.HasPrefix(p, "/api/shared/"):
+		out, status, err = s.sharedAPI(r, strings.TrimPrefix(p, "/api/shared"))
 	case strings.HasPrefix(p, "/api/files/shares/"):
 		out, err = s.fileAPI(r, strings.TrimPrefix(p, "/api/files/"))
+	case strings.HasPrefix(p, "/api/forms/"):
+		out, err = s.formsAPI(r, strings.TrimPrefix(p, "/api/forms/"))
 	case shareAPIPath.MatchString(p):
 		m := shareAPIPath.FindStringSubmatch(p)
 		id := m[1]
@@ -304,6 +308,13 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == 204 {
 		w.WriteHeader(204)
+		return
+	}
+	if rr, ok := out.(rawReply); ok {
+		w.Header().Set("Content-Type", rr.Type)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(rr.Name, `"`, "")+`"`)
+		w.WriteHeader(status)
+		io.WriteString(w, rr.Body)
 		return
 	}
 	writeJSON(w, status, out)
@@ -489,6 +500,11 @@ func (s *localServer) deleteShare(ctx context.Context, id string) error {
 	}
 	if err := s.env.DB.Delete(ctx, "shares", id); err != nil {
 		return err
+	}
+	if s.env.Forms != nil {
+		if err := s.env.Forms.DropDeck(ctx, id); err != nil {
+			log.Printf("deck %s removed, its questionnaires' answers not yet: %v", id, err)
+		}
 	}
 	if err := s.bucket.RemoveAll("shares/" + id); err != nil {
 		log.Printf("deck %s removed, its files not yet: %v", id, err)

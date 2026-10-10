@@ -166,8 +166,9 @@ class Tools {
         p.put("visibility" vis)
         def ip:MfJ (MfJ.newObj())
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
-        ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
-        ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
+        ip.put("url" (Tools.prop("string" "A public https URL of the picture: the server fetches its bytes (up to 5 MB, a picture type checked). The way for a photo or any large picture: no base64 to copy, nothing to corrupt.")))
+        ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url). Fine for a small picture; long base64 is easily corrupted when copied, so for a large one give url, or send sha256 with it.")))
+        ip.put("sha256" (Tools.prop("string" "Optional: the SHA-256 of the picture's bytes (64 hex digits, e.g. from sha256sum). The server compares it with the bytes it got and refuses the picture when they differ, so a picture corrupted on the way is caught instead of stored.")))
         ip.put("text" (Tools.prop("string" "An SVG's source as it is (instead of url or data_base64): readable and fixable, no base64. Name it .svg.")))
         ip.put("text_to_path" (Tools.prop("boolean" "SVG only: turn its text into paths in the editor's fonts, so it looks the same on every viewer (it is then no longer text)")))
         def dirs:string (host_import_dirs host)
@@ -179,11 +180,11 @@ class Tools {
         item.putStr("type" "object")
         item.put("properties" ip)
         item.put("required" (J.strs(([] _:string ("name")))))
-        def images:MfJ (Tools.prop("array" "Pictures the Markdown refers to as media/<name>. Needs sign-in."))
+        def images:MfJ (Tools.prop("array" "Pictures kept with the deck as media/<name>, for the Markdown to show as ![](media/<name>). A picture is kept even when no slide uses it yet (the result says which are not used yet), so it can be sent first and used in a later call. Needs sign-in."))
         images.put("items" item)
         p.put("images" images)
         def fp:MfJ (MfJ.newObj())
-        fp.put("name" (Tools.prop("string" "File name, kept as data/<name>: \"sales.xlsx\", \"sales.csv\", \"sales.json\"")))
+        fp.put("name" (Tools.prop("string" "File name, kept as data/<name>: \"sales.xlsx\", \"sales.csv\", \"sales.json\"; a source file for the source viewer as code/<its path in the repository>: \"code/src/api.ts\", \"code/sources.json\"")))
         fp.put("text" (Tools.prop("string" "The file's text (CSV, TSV, JSON or plain text)")))
         fp.put("data_base64" (Tools.prop("string" "The file's bytes as base64 (an .xlsx workbook)")))
         fp.put("url" (Tools.prop("string" "A public https URL of the file")))
@@ -194,7 +195,7 @@ class Tools {
         fitem.putStr("type" "object")
         fitem.put("properties" fp)
         fitem.put("required" (J.strs(([] _:string ("name")))))
-        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps."))
+        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps. Source files for the source viewer (code review decks) are kept under code/, as text, at most 60 a call; see sliqtly_guide topic=text."))
         files.put("items" fitem)
         p.put("files" files)
     }
@@ -230,6 +231,12 @@ class Tools {
         def none:[string]
         def eitherMeta:MfJ (MfJ.newObj())
         eitherMeta.put("securitySchemes" (Tools.either()))
+        ; the preview's Download calls export_presentation itself
+        ; (assets/preview.html): ChatGPT lets a widget call only the tools
+        ; marked so
+        def exportMeta:MfJ (MfJ.newObj())
+        exportMeta.put("securitySchemes" (Tools.either()))
+        exportMeta.putBool("openai/widgetAccessible" true)
         def tools:MfJ (MfJ.newArr())
         def gp:MfJ (MfJ.newObj())
         def topic:MfJ (Tools.prop("string" "One topic of the guide (the list is in Core). Without it, Core: the deck's syntax, the work loop, themes and the topics."))
@@ -373,7 +380,7 @@ class Tools {
         def dp:MfJ (MfJ.newObj())
         dp.put("deck_id" (Tools.prop("string" "deck_id of the presentation to delete (the id in https://sliqtly.com/s/<id>)")))
         tools.add((Tools.tool("delete_presentation" "Delete a presentation" "Delete a Sliqtly presentation for good: its slides, pictures, data files and exports; its link stops working. Only its owner signed in, or, for one made without sign-in, the session (this conversation's connection) that made it. Ask the user before deleting; it cannot be undone." (Tools.schema(dp ([] _:string ("deck_id")))) (Tools.annotations(false 1 true false)) eitherMeta)))
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them. GLTF: the first 3-D world (a program's <scene3d>, sliqtly_guide topic=apps) on the slides asked for, at its first frames, as a glTF 2.0 file (.gltf) that Blender and three.js open: meshes, PBR materials, lights, camera, and the R3F names in each node's extras.sliqtly." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them. GLTF: the first 3-D world (a program's <scene3d>, sliqtly_guide topic=apps) on the slides asked for, at its first frames, as a glTF 2.0 file (.gltf) that Blender and three.js open: meshes, PBR materials, lights, camera, and the R3F names in each node's extras.sliqtly." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) exportMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -1102,7 +1109,7 @@ class Tools {
             if ((img.field("name")).kind != 3) {
                 return "Invalid arguments: every image needs a name."
             }
-            for ([] _:string ("url" "data_base64" "path" "mime_type")) f:string m {
+            for ([] _:string ("url" "data_base64" "path" "mime_type" "sha256")) f:string m {
                 def fv:MfJ (img.field(f))
                 if ((fv.kind != 0) && (fv.kind != 3)) {
                     return ("Invalid arguments: image " + f + " is a string.")
@@ -1249,27 +1256,16 @@ class Tools {
     ; own, or the theme's (fetched once); with neither, the outline's count
     ; the pictures the deck names (media/<name>), for the layout and the
     ; contrast check of its backgrounds: from
-    ; this call's pictures, else from the deck's stored ones (deckId)
-    sfn backgrounds:CheckPics (host:McpHost md:string imgs:[Img] deckId:string) {
+    ; this call's pictures, else from the deck's stored ones (deckId). A
+    ; slide's script names them too (add("image", {src: "media/x.svg"})),
+    ; and so does the deck's sheet (`page { background-image: url(media/x.png) }`).
+    sfn backgrounds:CheckPics (host:McpHost md:string css:string imgs:[Img] deckId:string) {
         def out (new CheckPics)
         def names:[string]
-        def from:int 0
-        while true {
-            def rest:string (substring md from (strlen md))
-            def at:int (indexOf rest "media/")
-            if (at < 0) {
-                break
-            }
-            def start:int ((from + at) + 6)
-            def e:int start
-            while ((e < (strlen md)) && (Tools.nameChar((charAt md e)))) {
-                e = (e + 1)
-            }
-            def name:string (substring md start e)
-            if (((strlen name) > 0) && ((indexOf names name) < 0)) {
-                push names name
-            }
-            from = e
+        Tools.mediaNames(md names)
+        Tools.mediaNames(css names)
+        for (Tools.scriptTexts(host md imgs deckId)) st:string sti {
+            Tools.mediaNames(st names)
         }
         for names name:string ni {
             if (ni >= 30) {
@@ -1341,6 +1337,103 @@ class Tools {
             push out.pics sp
             push out.data (buffer_from_string u.svg)
             push out.types "image/svg+xml"
+        }
+        ; a screen of a shared Figma file (PresFigma): drawn by this server,
+        ; under the name the layout gives the picture
+        for (FigmaRef.inText(md)) addr:string fi {
+            if (fi >= 30) {
+                break
+            }
+            def ref:FigmaRef (FigmaRef.parse(addr))
+            if (ref.ok == false) {
+                continue
+            }
+            def fh:int (host_shared_png host ref.file ref.node)
+            if (fh == 0) {
+                continue
+            }
+            def fp (new CheckPic)
+            fp.name = (FigmaRef.pictureKey(addr))
+            def fgrid:[int] (host_image_grid host fh)
+            if ((array_length fgrid) >= 2) {
+                fp.w = (itemAt fgrid 0)
+                fp.h = (itemAt fgrid 1)
+                def fk:int 2
+                while (fk < (array_length fgrid)) {
+                    push fp.grid (itemAt fgrid fk)
+                    fk = (fk + 1)
+                }
+            }
+            push out.pics fp
+            push out.data (host_image_bytes host fh)
+            push out.types "image/png"
+        }
+        return out
+    }
+
+    ; the <name>s of "media/<name>" in `text`, each once, added to `names`
+    sfn mediaNames:void (text:string names:[string]) {
+        def from:int 0
+        while true {
+            def rest:string (substring text from (strlen text))
+            def at:int (indexOf rest "media/")
+            if (at < 0) {
+                break
+            }
+            def start:int ((from + at) + 6)
+            def e:int start
+            while ((e < (strlen text)) && (Tools.nameChar((charAt text e)))) {
+                e = (e + 1)
+            }
+            def name:string (substring text start e)
+            if (((strlen name) > 0) && ((indexOf names name) < 0)) {
+                push names name
+            }
+            from = e
+        }
+    }
+
+    ; the text of each slide's script the Markdown names
+    ; ({script=apps/x.tsx}): from this call's files, else the deck's stored
+    ; ones (deckId)
+    sfn scriptTexts:[string] (host:McpHost md:string imgs:[Img] deckId:string) {
+        def out:[string]
+        def seen:[string]
+        def from:int 0
+        while true {
+            def rest:string (substring md from (strlen md))
+            def at:int (indexOf rest "script=")
+            if (at < 0) {
+                break
+            }
+            def start:int ((from + at) + 7)
+            def e:int start
+            while ((e < (strlen md)) && ((Tools.nameChar((charAt md e))) || ((charAt md e) == 47))) {
+                e = (e + 1)
+            }
+            from = e
+            def path:string (substring md start e)
+            if (((strlen path) == 0) || ((indexOf seen path) >= 0)) {
+                continue
+            }
+            push seen path
+            def text:string ""
+            for imgs im:Img ii {
+                if (im.path == path) {
+                    text = (host_text host im.handle)
+                }
+            }
+            if (((strlen text) == 0) && ((strlen deckId) > 0)) {
+                def got:MfJ (J.parse((host_file_bytes host deckId path)))
+                if ((strlen (host_error host)) > 0) {
+                    host_clear_error host
+                } {
+                    text = (host_text host (got.int_("handle" 0)))
+                }
+            }
+            if ((strlen text) > 0) {
+                push out text
+            }
         }
         return out
     }
@@ -1432,7 +1525,14 @@ class Tools {
                 return (Tools.fail(herr))
             }
             def hr:MfJ (MfJ.newObj())
-            hr.put("content" (Tools.text(answer)))
+            def hc:MfJ (Tools.text(answer))
+            def himg:string (host_tool_image host)
+            if ((strlen himg) > 0) {
+                def hpic:MfJ (Tools.image(himg))
+                hpic.putStr("mimeType" "image/png")
+                hc.add(hpic)
+            }
+            hr.put("content" hc)
             hr.put("structuredContent" (J.parse(answer)))
             return hr
         }
@@ -1725,7 +1825,7 @@ class Tools {
             push names im.name
         }
         def none:[string]
-        def ws:[string] (Deck.warnings(md names none))
+        def ws:[string] (Deck.warnings(md sh.css names none))
         for web.notes wn:string wnk {
             push ws wn
         }
@@ -1733,7 +1833,15 @@ class Tools {
             push ws ln
         }
         def none2:[string]
-        def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
+        ; (the files too: a slide's script there names pictures)
+        def withFiles:[Img]
+        for loaded.imgs li:Img lii {
+            push withFiles li
+        }
+        for data.imgs dfi:Img dfii {
+            push withFiles dfi
+        }
+        def bgs:CheckPics (Tools.backgrounds(host md sh.css withFiles ""))
         def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
         if (Tools.limited(host)) {
             def long:string (Tools.slidesOver(caller ck.slides))
@@ -1937,6 +2045,10 @@ class Tools {
         if ((strlen loaded.err) > 0) {
             return (Tools.fail(loaded.err))
         }
+        def sent:[string]
+        for loaded.imgs si:Img sk {
+            push sent si.name
+        }
         def data:Loaded (Files.loadData(host (a.list("files"))))
         if ((strlen data.err) > 0) {
             return (Tools.fail(data.err))
@@ -2001,7 +2113,7 @@ class Tools {
         for webNotes wnt:string wni {
             push notes wnt
         }
-        def r:MfJ (Tools.updated(host caller id ws.saved (join notes "\n")))
+        def r:MfJ (Tools.updatedSent(host caller id ws.saved (join notes "\n") sent))
         Tools.withWork(host r ws.version ws.others)
         Tools.withUserEdits(r ws.changes true)
         return (Tools.withData(host r data.imgs))
@@ -2562,7 +2674,7 @@ class Tools {
                 push stored (sf.str_("path"))
             }
             def css:MfJ (cur.field("css"))
-            def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+            def bgs:CheckPics (Tools.backgrounds(host md (cur.str_("css")) noImgs id))
             def ck:Checked (Tools.checkDeck(host md (cur.str_("theme")) (css.kind == 3) (cur.str_("css")) bgs noImgs id stored))
             starts = ck.starts
             titles = ck.titles
@@ -2640,6 +2752,13 @@ class Tools {
 
     ; the answer to a change; note goes on its own line after the rest
     sfn updated:MfJ (host:McpHost caller:Caller id:string saved:MfJ note:string) {
+        def none0:[string]
+        return (Tools.updatedSent(host caller id saved note none0))
+    }
+
+    ; updated, with the names of the pictures this call sent: one no slide
+    ; uses yet is kept all the same, and the result says so
+    sfn updatedSent:MfJ (host:McpHost caller:Caller id:string saved:MfJ note:string sent:[string]) {
         if ((saved.isObj()) == false) {
             return (Tools.fail("No presentation by that id any more."))
         }
@@ -2652,20 +2771,14 @@ class Tools {
             push stored path
         }
         def md:string (saved.str_("md"))
-        def none:[string]
-        def ws:[string]
-        for (Deck.warnings(md none stored)) w:string j {
-            if ((startsWith w "Image") == false) {
-                push ws w
-            }
-        }
+        def ws:[string] (Deck.warnings(md (saved.str_("css")) sent stored))
         def savedCss:MfJ (saved.field("css"))
         def noImgs:[Img]
         def storedPaths:[string]
         for (saved.list("files")) sf:MfJ sfi {
             push storedPaths (sf.str_("path"))
         }
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (saved.str_("css")) noImgs id))
         def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) bgs noImgs id storedPaths))
         for ck.warnings cw:string ci {
             push ws cw
@@ -3425,7 +3538,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -3709,7 +3822,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def css:MfJ (d.field("css"))
         ; the slide by its number, or by its title once the deck is laid out
         def at:int -1
@@ -3821,7 +3934,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -3926,7 +4039,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -4513,7 +4626,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored

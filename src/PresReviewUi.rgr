@@ -112,6 +112,25 @@ class PresReviewUi {
     def draftNode:string ""
     def draftAX:double 0.0
     def draftAY:double 0.0
+    ; The source viewer is open over the slide (PresCodeViewUi): the
+    ; comments on its file show at their lines (the host's spots), the
+    ; slide's own pins wait. A comment on code is listed as a "Source code
+    ; comment"; one picked in the list asks the host to open its file
+    ; (`wantCode`, a thread id).
+    def codeOpen:boolean false
+    def codePath:string ""
+    def wantCode:string ""
+    ; a new comment on code: where it goes (PresReview.setCode)
+    def draftCodePath:string ""
+    def draftCodeLine:int 0
+    def draftCodeTo:int 0
+    def draftCodeText:string ""
+    def draftRemFrom:int 0
+    def draftRemTo:int 0
+    def draftRepo:string ""
+    def draftCommit:string ""
+    def draftViaDia:int -1
+    def draftViaNode:string ""
     ; A pin held down (its control id, "" none): a click opens its thread on
     ; release, a drag moves it to (`dragX`, `dragY`) of the slide. A thread
     ; dropped somewhere waits in `moveAsk` for the host to put it on the
@@ -452,11 +471,16 @@ class PresReviewUi {
             if held {
                 at = -1
             }
-            if (((t.slide == slide) && (at >= 0)) && ((itemAt spotOn at) == false)) {
+            ; the slide's pins, or with the source viewer open its file's
+            def here:boolean ((t.slide == slide) && ((t.isCode()) == false))
+            if codeOpen {
+                here = ((t.codePath == codePath) && (at >= 0))
+            }
+            if ((here && (at >= 0)) && ((itemAt spotOn at) == false)) {
                 ; out of the diagram's view: no pin, but still counted
                 k = (k + 1)
             }
-            if ((t.slide == slide) && ((at < 0) || (itemAt spotOn at))) {
+            if (here && ((at < 0) || (itemAt spotOn at))) {
                 k = (k + 1)
                 def fx:double t.x
                 def fy:double t.y
@@ -493,7 +517,8 @@ class PresReviewUi {
         if dheld {
             da = -1
         }
-        if ((drafting && (draftSlide == slide)) && ((da < 0) || (itemAt spotOn da))) {
+        def draftHere:boolean (codeOpen == ((strlen draftCodePath) > 0))
+        if (((drafting && draftHere) && (draftSlide == slide)) && ((da < 0) || (itemAt spotOn da))) {
             def dfx:double draftX
             def dfy:double draftY
             if (da >= 0) {
@@ -677,9 +702,19 @@ class PresReviewUi {
             co.width = 340.0
             if drafting {
                 co.title = ((PresI18n.t("New comment")) + " · " + (this.slideName(draftSlide)))
+                if ((strlen draftCodePath) > 0) {
+                    co.title = ((PresI18n.t("New comment")) + " · " + (this.draftWhere()))
+                }
                 co.width = 320.0
             } {
                 co.title = (this.slideName(slide))
+                def oc@(optional):PresReviewThread (model.find(openId))
+                if (!null? oc) {
+                    def oct:PresReviewThread oc
+                    if (oct.isCode()) {
+                        co.title = ((PresI18n.t("Source code comment")) + " · " + (oct.codeWhere()))
+                    }
+                }
             }
         }
         def body:EVGElement (unwrap co.bodyEl)
@@ -730,6 +765,9 @@ class PresReviewUi {
             }
             def r:EVGElement (UiTree.div(rid cls))
             def top1:string ("[" + (to_string (i + 1)) + "] " + (this.slideName(t.slide)))
+            if (t.isCode()) {
+                top1 = ("[" + (to_string (i + 1)) + "] ‹/› " + (PresI18n.t("Source code comment")) + " · " + (t.codeWhere()))
+            }
             r.addChild((this.label((rid + "-s") "rv-row-slide" top1)))
             ; the words as read, without their markup (**, `, …)
             def say:string (PresReviewUi.oneLine((chat.chatText.plainOf((t.firstText())))))
@@ -1023,10 +1061,85 @@ class PresReviewUi {
         draftAsk = true
         draftDia = -1
         draftNode = ""
+        draftCodePath = ""
         chat.input.setValue("")
         chat.input.moveTo(0 false)
         typing = true
         this.changed()
+    }
+
+    ; A new comment on lines `line`..`to` (the new version's) of a source
+    ; file, pinned where the viewer shows them (`x`, `y`: fractions of the
+    ; slide, as the spots are).
+    fn startCodeDraft:void (s:int x:double y:double path:string line:int to:int text:string remFrom:int remTo:int repo:string commit:string dia:int node:string) {
+        this.startDraft(s 0.5 0.5)
+        draftX = x
+        draftY = y
+        draftAsk = false
+        draftCodePath = path
+        draftCodeLine = line
+        draftCodeTo = to
+        draftCodeText = text
+        draftRemFrom = remFrom
+        draftRemTo = remTo
+        draftRepo = repo
+        draftCommit = commit
+        draftViaDia = dia
+        draftViaNode = node
+        this.changed()
+    }
+
+    ; "api.cpp:41–44" for a new comment on code
+    fn draftWhere:string () {
+        def name:string draftCodePath
+        def slash:int (lastIndexOf name "/")
+        if (slash >= 0) {
+            name = (substring name (slash + 1) (strlen name))
+        }
+        def out:string (name + ":" + (to_string draftCodeLine))
+        if (draftCodeTo > draftCodeLine) {
+            out = (out + "–" + (to_string draftCodeTo))
+        }
+        return out
+    }
+
+    ; The viewer opened on a file (path) or closed (""): its comments show.
+    fn setCodeView:void (path:string) {
+        def on:boolean ((strlen path) > 0)
+        if ((on == codeOpen) && (path == codePath)) {
+            return
+        }
+        codeOpen = on
+        codePath = path
+        if (drafting && ((strlen draftCodePath) > 0) && (draftCodePath != path)) {
+            this.closePanel()
+        }
+        if ((on == false) && ((strlen openId) > 0)) {
+            def ot@(optional):PresReviewThread (model.find(openId))
+            if (!null? ot) {
+                def ott:PresReviewThread ot
+                if (ott.isCode()) {
+                    this.closePanel()
+                }
+            }
+        }
+        this.changed()
+    }
+
+    ; a code comment's pin is where its line is: it is not dragged
+    fn pinIsCode:boolean (pin:string) {
+        if (pin == "rv-draft") {
+            return ((strlen draftCodePath) > 0)
+        }
+        if ((indexOf pin "rv-pin-") != 0) {
+            return false
+        }
+        def f@(optional):PresReviewThread (model.find((substring pin 7 (strlen pin))))
+        if (null? f) {
+            return false
+        }
+        def t:PresReviewThread f
+        return (t.isCode())
     }
 
     fn openThread:void (id:string) {
@@ -1107,8 +1220,12 @@ class PresReviewUi {
             }
             def t:PresReviewThread (itemAt order at)
             if (t.closed == false) {
-                if (t.slide != slide) {
-                    wantSlide = t.slide
+                if (t.isCode()) {
+                    wantCode = t.id
+                } {
+                    if (t.slide != slide) {
+                        wantSlide = t.slide
+                    }
                 }
                 this.openThread(t.id)
                 return
@@ -1144,8 +1261,12 @@ class PresReviewUi {
                 def f@(optional):PresReviewThread (model.find((itemAt rowIds k)))
                 if (!null? f) {
                     def t:PresReviewThread (unwrap f)
-                    if (t.slide != slide) {
-                        wantSlide = t.slide
+                    if (t.isCode()) {
+                        wantCode = t.id
+                    } {
+                        if (t.slide != slide) {
+                            wantSlide = t.slide
+                        }
                     }
                     this.openThread(t.id)
                 }
@@ -1196,6 +1317,9 @@ class PresReviewUi {
     ; it has moved a few pixels
     fn dragPin:void (px:double py:double) {
         if ((strlen pinDown) == 0) {
+            return
+        }
+        if (this.pinIsCode(pinDown)) {
             return
         }
         if (dragging == false) {
@@ -1320,6 +1444,10 @@ class PresReviewUi {
                 if (model.start(id draftSlide title draftX draftY m)) {
                     if (draftDia >= 0) {
                         model.anchor(id draftDia draftNode draftAX draftAY)
+                    }
+                    if ((strlen draftCodePath) > 0) {
+                        model.setCode(id draftCodePath draftCodeLine draftCodeTo draftCodeText draftRemFrom draftRemTo draftRepo draftCommit draftViaDia draftViaNode)
+                        draftCodePath = ""
                     }
                     if ((strlen draftSev) > 0) {
                         model.setSeverity(id draftSev nowMs)

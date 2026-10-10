@@ -142,6 +142,20 @@ operators {
             go ( (e 1) ".CallTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; the picture the last host tool answered with (get_figma_screen) as
+    ; base64 PNG, once; "" when none
+    host_tool_image _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".ToolImage()" )
+        }
+    }
+    ; layer `node` of shared file `file` drawn as a slide shows it: the
+    ; picture's handle, 0 when there is no such file or layer
+    host_shared_png _:int (h:McpHost file:string node:string) {
+        templates {
+            go ( (e 1) ".SharedPng(" (e 2) ", " (e 3) ")" )
+        }
+    }
     host_asset _:string (h:McpHost name:string) {
         templates {
             go ( (e 1) ".Asset(" (e 2) ")" )
@@ -397,6 +411,26 @@ operators {
     host_image_bytes _:buffer (h:McpHost handle:int) {
         templates {
             go ( (e 1) ".Bytes(" (e 2) ")" )
+        }
+    }
+    ; a picture as the public viewer gets it: a JPEG when it has no
+    ; transparency, scaled to `side` when larger; empty when the file as it
+    ; is should be sent (../viewpic.go)
+    host_view_picture _:buffer (h:McpHost data:buffer side:int) {
+        templates {
+            go ( (e 1) ".ViewPicture(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; what the bytes are by their first bytes ("image/png")
+    host_content_type _:string (h:McpHost data:buffer) {
+        templates {
+            go ( (e 1) ".ContentType(" (e 2) ")" )
+        }
+    }
+    ; the SHA-256 of the handle's bytes, lowercase hex
+    host_bytes_sha256 _:string (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".BytesSHA256(" (e 2) ")" )
         }
     }
     ; Storage object `path` with the handle's bytes and a download token

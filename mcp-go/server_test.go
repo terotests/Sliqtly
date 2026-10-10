@@ -429,11 +429,14 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := []string{}
-	var create *mcp.Tool
+	var create, export *mcp.Tool
 	for _, x := range tools.Tools {
 		names = append(names, x.Name)
 		if x.Name == "create_presentation" {
 			create = x
+		}
+		if x.Name == "export_presentation" {
+			export = x
 		}
 	}
 	sort.Strings(names)
@@ -441,6 +444,9 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
+	// the preview's Download calls export_presentation (ChatGPT asks this)
+	eq(t, export.Meta["openai/widgetAccessible"], true)
+	eq(t, create.Meta["openai/widgetAccessible"], false)
 	schema, _ := json.Marshal(create.InputSchema)
 	match(t, string(schema), `"enum":\[[^\]]*"editorial"`)
 	r, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
@@ -477,7 +483,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	if !bad.IsError {
 		t.Fatal("an unknown topic was answered")
 	}
-	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, apps, scripts, editing, export, limits\.`)
+	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, apps, scripts, script-api, editing, export, limits\.`)
 }
 
 // every topic Core lists is there, and every topic is listed in Core
@@ -590,6 +596,124 @@ func TestRefusesWhatItShouldNotFetchOrStore(t *testing.T) {
 	}
 	if !call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "  "}).IsError {
 		t.Fatal("empty markdown was accepted")
+	}
+}
+
+// a picture no slide uses yet is kept, and the result says it is not used
+// yet, so an assistant can send pictures first and use them later
+func TestPicturesSentBeforeTheyAreUsed(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	png := base64.StdEncoding.EncodeToString(PNG)
+	c := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# Hi\n\ntext",
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": png}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	match(t, textOf(c), `Note: Image dot\.png is kept with the deck but not used yet`)
+	eq(t, len(list(f.db.doc("shares/" + id)["files"])), 1)
+	if _, ok := f.bucket.saved["shares/"+id+"/media/dot.png"]; !ok {
+		t.Fatal("dot.png not stored")
+	}
+
+	// pictures alone: kept, and named as not used yet
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id,
+		"images": []any{map[string]any{"name": "two.png", "data_base64": png}}})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	match(t, textOf(u), `Note: Image two\.png is kept with the deck but not used yet`)
+	// only the pictures this call sent are named
+	notMatch(t, textOf(u), `dot\.png`)
+	eq(t, len(list(f.db.doc("shares/" + id)["files"])), 2)
+
+	// used later: no warning, nothing missing
+	u2 := call(t, s, "update_presentation", map[string]any{"deck_id": id,
+		"edits": []any{map[string]any{"find": "text", "replace": "![](media/two.png)"}}})
+	if u2.IsError {
+		t.Fatal(textOf(u2))
+	}
+	notMatch(t, textOf(u2), `two\.png is (kept|used in the Markdown but)`)
+	eq(t, len(list(f.db.doc("shares/" + id)["files"])), 2)
+
+	// sent and used in one call: no note
+	u3 := call(t, s, "update_presentation", map[string]any{"deck_id": id,
+		"edits":  []any{map[string]any{"find": "# Hi", "replace": "# Hi\n\n![](media/three.png)"}},
+		"images": []any{map[string]any{"name": "three.png", "data_base64": png}}})
+	if u3.IsError {
+		t.Fatal(textOf(u3))
+	}
+	notMatch(t, textOf(u3), `not used yet`)
+}
+
+// sha256 sent with a picture is checked against the bytes received: a
+// picture changed on the way is refused, not stored
+func TestPictureChecksum(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	sum := sha256.Sum256(PNG)
+	good := hex.EncodeToString(sum[:])
+	png := base64.StdEncoding.EncodeToString(PNG)
+	md := "# Hi\n\n![](media/dot.png)"
+
+	ok := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": md,
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": png, "sha256": strings.ToUpper(good)}}})
+	if ok.IsError {
+		t.Fatal(textOf(ok))
+	}
+	// a url and an SVG's text are checked too
+	ok2 := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": md,
+		"images": []any{map[string]any{"name": "dot.png", "url": "https://images.test/cat.png", "sha256": good}}})
+	if ok2.IsError {
+		t.Fatal(textOf(ok2))
+	}
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>`
+	ssum := sha256.Sum256([]byte(svg))
+	ok3 := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": "# Hi\n\n![](media/a.svg)",
+		"images": []any{map[string]any{"name": "a.svg", "text": svg, "sha256": hex.EncodeToString(ssum[:])}}})
+	if ok3.IsError {
+		t.Fatal(textOf(ok3))
+	}
+
+	// one character changed in a run of A's: still valid base64, still the
+	// same length, other bytes
+	i := strings.Index(png, "AAAA")
+	bad := png[:i] + "AAEA" + png[i+4:]
+	before := len(f.bucket.saved)
+	r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": md,
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": bad, "sha256": good}}})
+	if !r.IsError {
+		t.Fatal("a corrupted picture was stored")
+	}
+	match(t, textOf(r), `Image dot\.png was not stored: its \d+ bytes have SHA-256 [0-9a-f]{64}, not the sha256 sent \(`+good+`\)`)
+	eq(t, len(f.bucket.saved), before)
+
+	// on update too
+	id := sc(ok)["deck_id"].(string)
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id,
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": bad, "sha256": good}}})
+	if !u.IsError {
+		t.Fatal("a corrupted picture replaced the stored one")
+	}
+	match(t, textOf(u), `changed on the way`)
+
+	for _, c := range []struct {
+		sum any
+		why string
+	}{
+		{"abc", `sha256 is the SHA-256 of the picture's bytes as 64 hex digits`},
+		{strings.Repeat("g", 64), `64 hex digits`},
+		{12, `image sha256 is a string`},
+	} {
+		r := call(t, s, "create_presentation", map[string]any{"title": "x", "markdown": md,
+			"images": []any{map[string]any{"name": "dot.png", "data_base64": png, "sha256": c.sum}}})
+		if !r.IsError {
+			t.Fatalf("sha256 %v was accepted", c.sum)
+		}
+		match(t, textOf(r), c.why)
 	}
 }
 
@@ -837,6 +961,9 @@ func TestOutline(t *testing.T) {
 	eq(t, Deck_static_cleanName("media/My Pic.PNG"), "My-Pic.png")
 	eq(t, (&McpHost{}).URIEncode("shares/a b/media/x(1).png"), "shares%2Fa%20b%2Fmedia%2Fx(1).png")
 	eq(t, Deck_static_headingOf("## Cat {bg=media/cat.png}"), "Cat")
+	eq(t, Deck_static_headingOf(`## Cat {title="a {b}"}`), "Cat")
+	eq(t, Deck_static_headingOf("## Cat {transition=fade} {jira=A-1}"), "Cat")
+	eq(t, Deck_static_headingOf("## Price {in €} today"), "Price {in €} today")
 	eq(t, Deck_static_privateHost("172.20.1.1"), true)
 	eq(t, Deck_static_privateHost("172.32.1.1"), false)
 }

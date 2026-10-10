@@ -576,6 +576,9 @@ class Pres3DTree {
     def lights:int 0
     ; <scene3d ambient={…}>: the slide's own light, 0 for none
     def roomLight:double 0.45
+    ; <scene3d legacy>: colours and lights without Three's colour management
+    ; (R3F's Canvas `legacy`), as the Ranger v2 engine draws them
+    def colorLegacy:boolean false
     ; the first version's attributes were met (said once)
     def legacy:boolean false
     ; the deck's .gltf files the host gave (<SliqGltf src>)
@@ -591,7 +594,7 @@ class Pres3DTree {
     }
 
     sfn geometryTags:[string] () {
-        return ([] _:string ("boxGeometry" "sphereGeometry" "cylinderGeometry" "coneGeometry" "planeGeometry" "torusGeometry" "torusKnotGeometry" "teapotGeometry"))
+        return ([] _:string ("boxGeometry" "sphereGeometry" "cylinderGeometry" "coneGeometry" "planeGeometry" "torusGeometry" "torusKnotGeometry" "teapotGeometry" "octahedronGeometry"))
     }
 
     sfn materialTags:[string] () {
@@ -763,6 +766,7 @@ class Pres3DTree {
         }
         def a:JVal (n.get("a"))
         t.roomLight = (t.num(a "ambient" 0.45 "<scene3d>"))
+        t.colorLegacy = (t.flag(a "legacy" false))
         t.kids(n -1 "")
         t.place()
         return t
@@ -1487,6 +1491,9 @@ class Pres3DTree {
         }
         if (tag == "teapotGeometry") {
             d = ([] _:double (1.0 10.0))
+        }
+        if (tag == "octahedronGeometry") {
+            d = ([] _:double (1.0 0.0))
         }
         def t:string (Pres3DTree.text(a "args"))
         if ((strlen t) > 0) {

@@ -67,7 +67,8 @@ Myynti tänä vuonna
 ## Kokonaismyynti {transition=morph}
 ```
 
-- `find("chart:1 bar")`, `find("p word")`, `find("diagram node")`: dian omat entiteetit
-- `e.set({ x, y, scale, rotate, opacity, color, fill, clip })` funktioissa `tick(dt)`, `build(n)` tai `onClick(e)`
+- `import { presentation } from "Sliqtly"`, sitten `presentation.activeSlide.find("chart:1 bar")`, `find("p word")`, `find("diagram node")`: dian omat entiteetit
+- `e.set({ x, y, scale, rotate, opacity, color, fill, clip })` funktioissa `start()`, `tick(dt)`, `build(n)` tai `onClick(e)`
+- Mitä `start()` asettaa, sellaisena dia saapuu: aloitusasento ennen ensimmäistä `tick`iä
 - `transition=morph`: sama `{#id}` kahdella dialla siirtyy uuteen paikkaansa
 - Pikkukuvat, PDF, PPTX ja jaettu linkki näyttävät, mihin kukin skripti päättyy

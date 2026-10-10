@@ -48,6 +48,8 @@ type engineDB struct {
 	e store.Engine
 	// the rooms' chat, in the same database (roomchat.go)
 	chat store.ChatLog
+	// questionnaires' links, responses and counters (forms.go)
+	forms store.Forms
 }
 
 // the folder server's one tenant
@@ -89,7 +91,7 @@ func newFSStore(root, user string) (*engineDB, *localBucket, error) {
 		return nil, nil, err
 	}
 	e := &store.HomeRooms{Engine: docs, Cols: map[string]bool{"shares": true}, Tenant: localTenant, Owner: user}
-	return &engineDB{e: e, chat: store.NewSQLiteChat(docs)}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs, docs: docs.DB()}, nil
+	return &engineDB{e: e, chat: store.NewSQLiteChat(docs), forms: store.NewSQLiteForms(docs)}, &localBucket{refs: store.NewFileRefs(docs), blobs: blobs, docs: docs.DB()}, nil
 }
 
 // the folder's two databases

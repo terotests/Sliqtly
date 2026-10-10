@@ -14,8 +14,17 @@ Import "Layout.rgr"
 Import "../presentation/PresExport.rgr"
 Import "../presentation/Pres3DStill.rgr"
 Import "../presentation/Pres3DGltf.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 ; what a deck is checked with
+; A 3-D world drawn without a GPU (Check.drawWorlds): RGBA from the top.
+class CheckWorldPic {
+    def src:string ""
+    def rgba:buffer (buffer_alloc 0)
+    def w:int 0
+    def h:int 0
+}
+
 class DeckIn {
     def md:string ""
     def css:string ""
@@ -114,6 +123,38 @@ class Check {
     ; a file a chart reads, as text: this call's files, the deck's stored
     ; ones, a workbook's sheet by its CSV name, or (live) an https address;
     ; "" when there is none
+    ; The program at `path` as it runs: the deck's files it imports made
+    ; modules on its first line (PresPlayFiles); a file that is empty or
+    ; not the deck's is one its import says is missing.
+    sfn programText:string (host:McpHost din:DeckIn path:string) {
+        def src:string (Check.dataText(host din path))
+        if ((strlen src) == 0) {
+            return ""
+        }
+        def files:[PresPlayFile]
+        for (PresPlayFiles.specs(src)) spec:string si {
+            def f:PresPlayFile (new PresPlayFile())
+            f.spec = spec
+            f.path = (PresPlayFiles.resolve(path spec))
+            f.text = (Check.dataText(host din f.path))
+            f.have = ((strlen f.text) > 0)
+            push files f
+        }
+        return ((PresPlayFiles.prelude(files)) + src)
+    }
+
+    ; The files the program at `path` imports that the deck does not have.
+    sfn importsMissing:[string] (host:McpHost din:DeckIn path:string) {
+        def out:[string]
+        for (PresPlayFiles.specs((Check.dataText(host din path)))) spec:string si {
+            def fp:string (PresPlayFiles.resolve(path spec))
+            if ((strlen (Check.dataText(host din fp))) == 0) {
+                push out fp
+            }
+        }
+        return out
+    }
+
     sfn dataText:string (host:McpHost din:DeckIn url:string) {
         def u:string (MdVegaRender.bareUrl(url))
         while (startsWith u "/") {
@@ -308,7 +349,7 @@ class Check {
         for (d.scriptKeys()) key:string ki {
             def pg:int (d.scriptPage(key))
             def s:PresSlide (d.slideAt(pg))
-            def text:string (Check.dataText(host din s.script))
+            def text:string (Check.programText(host din s.script))
             if ((strlen text) == 0) {
                 continue
             }
@@ -322,6 +363,13 @@ class Check {
                 continue
             }
             d.setScriptFinal(key out)
+            def ro@(optional):PresScriptRun (d.scriptRun(key))
+            if (!null? ro) {
+                def off:int (PresScriptCheck.addsOutside(ro.final d.pageW d.pageH))
+                if (off > 0) {
+                    push c.warnings (Guide.see(("Slide " + (to_string (pg + 1)) + ": script " + s.script + ": " + (to_string off) + " shape(s) it adds are off the slide, which is " + (to_string (to_int (d.pageW + 0.5))) + " × " + (to_string (to_int (d.pageH + 0.5))) + " (presentation.activeSlide.width / height)") "scripts"))
+                }
+            }
         }
     }
 
@@ -333,7 +381,7 @@ class Check {
             return
         }
         def s:PresSlide (d.slideAt(i))
-        def text:string (Check.dataText(host din s.script))
+        def text:string (Check.programText(host din s.script))
         if ((strlen text) == 0) {
             return
         }
@@ -421,8 +469,16 @@ class Check {
             ; pixels, and the SVG itself with a small PNG for the vectors the
             ; PDF and the PPTX keep. The PDF and PPTX writers read PNG and JPEG
             ; only, so the SVG's own bytes were a picture left out.
+            ; The PDF writer keeps no picture wider than 1600 pixels
+            ; (EVGPDFRenderer maxImageWidth: 800, 1600 beside effect
+            ; stills), so a PDF's SVG is drawn at that: at 2560 a photo
+            ; SVG took some 180 MB more to draw, past what the server has.
             if (((strlen din.export) > 0) && (Check.isSvg(pic.name (itemAt din.types pi) data))) {
-                def png:buffer (host_svg_png host data 2560)
+                def side:int 2560
+                if (din.export == "pdf") {
+                    side = 1600
+                }
+                def png:buffer (host_svg_png host data side)
                 if ((buffer_length png) > 0) {
                     d.addImage(pic.name png "image/png" pic.w pic.h)
                     d.addSvgPicture(pic.name (buffer_to_string data) data (host_svg_png host data 800))
@@ -456,6 +512,54 @@ class Check {
     ; names the list gives them, as the page draws them (web/three3d.js): in
     ; a room made of the slide's own picture, 96 x 54 as the page's.
     sfn worlds:void (host:McpHost din:DeckIn d:PresDeck li:int listJson:string c:Checked) {
+        for (Check.drawWorlds(host din d li listJson c 960.0 1024.0)) wp:CheckWorldPic wpi {
+            host_render_rgba host wp.src wp.rgba wp.w wp.h
+        }
+    }
+
+    ; An export's 3-D worlds (PDF, PPTX, Word, web page): each drawn as on
+    ; the page and kept as a PNG picture of the deck by its name, which the
+    ; slide's list shows (PresPlayView.paintWorlds), so the file has the
+    ; world, its see-through pixels kept. Given to the painter too, for the
+    ; pictures the Word and web page exports take of the slides.
+    sfn worldPictures:void (host:McpHost din:DeckIn d:PresDeck c:Checked) {
+        def li:int 0
+        while (li < (d.slideCount())) {
+            def ws:PresSlide (d.slideAt(li))
+            if ((((array_length din.only) == 0) || (PresExport.has(din.only li))) && ((array_length ws.plays) > 0)) {
+                def groups:[int]
+                d.still = true
+                def listJson:string ((d.slideList(li groups 0.0)).toJson())
+                d.still = false
+                for (Check.drawWorlds(host din d li listJson c 1600.0 1600.0)) wp:CheckWorldPic wpi {
+                    def png:buffer (Check.pngOf(wp.rgba wp.w wp.h))
+                    d.addImage(wp.src png "image/png" wp.w wp.h)
+                    host_render_rgba host wp.src wp.rgba wp.w wp.h
+                }
+            }
+            li = (li + 1)
+        }
+    }
+
+    ; RGBA pixels from the top as a PNG with its alpha.
+    sfn pngOf:buffer (rgba:buffer w:int h:int) {
+        def rb (new RasterBuffer())
+        rb.width = w
+        rb.height = h
+        rb.pixels = rgba
+        def enc (new PNGEncoder())
+        enc.output = (new GrowableBuffer())
+        enc.writeSignature()
+        enc.writeIHDRColor(w h 6)
+        enc.writeIDATRgba(rb)
+        enc.writeIEND()
+        return (enc.output.toBuffer())
+    }
+
+    ; The worlds of slide `li` drawn: `perSlide` pixels across a slide,
+    ; at most `most` a side.
+    sfn drawWorlds:[CheckWorldPic] (host:McpHost din:DeckIn d:PresDeck li:int listJson:string c:Checked perSlide:double most:double) {
+        def out:[CheckWorldPic]
         def l:MdLayout (d.layout())
         def room:buffer (buffer_alloc 0)
         def roomDone:boolean false
@@ -470,6 +574,8 @@ class Check {
             }
             def view:PresPlayView (unwrap pv)
             def b:MdBox (itemAt l.boxes bi)
+            view.slideW = c.width
+            view.slideH = c.height
             def got:JVal (view.scenesIn(b.x b.y b.w b.h))
             def si:int 0
             while (si < (got.len())) {
@@ -478,34 +584,52 @@ class Check {
                     roomDone = true
                 }
                 def sc:JVal (got.at(si))
-                ; as many pixels as render_slide gives the box (960 a slide
-                ; 960 wide), at most 1024 a side
-                def k:double (960.0 / c.width)
-                def pw:double ((sc.numOr("w" 0.0)) * k)
-                def ph:double ((sc.numOr("h" 0.0)) * k)
-                def big:double pw
-                if (ph > big) {
-                    big = ph
+                ; the picture the slide's list shows (PresPlayView.paintWorlds):
+                ; the whole slide, or the element's box when it clips
+                def bx:double (sc.numOr("x" 0.0))
+                def by:double (sc.numOr("y" 0.0))
+                def bw:double (sc.numOr("w" 0.0))
+                def bh:double (sc.numOr("h" 0.0))
+                def rx:double 0.0
+                def ry:double 0.0
+                def rw:double c.width
+                def rh:double c.height
+                if (sc.boolOr("clip" false)) {
+                    rx = bx
+                    ry = by
+                    rw = bw
+                    rh = bh
                 }
-                if (big > 1024.0) {
-                    pw = ((pw * 1024.0) / big)
-                    ph = ((ph * 1024.0) / big)
+                ; as many pixels as the picture gets (`perSlide` a slide
+                ; wide), at most `most` a side, both sides by one factor
+                def k:double (perSlide / c.width)
+                def big:double (rw * k)
+                if ((rh * k) > big) {
+                    big = (rh * k)
                 }
-                def iw:int (to_int (pw + 0.5))
-                def ih:int (to_int (ph + 0.5))
-                if ((iw > 0) && (ih > 0)) {
+                if (big > most) {
+                    k = ((k * most) / big)
+                }
+                def iw:int (to_int ((rw * k) + 0.5))
+                def ih:int (to_int ((rh * k) + 0.5))
+                if (((iw > 0) && (ih > 0)) && ((bw > 0.0) && (bh > 0.0))) {
                     def st:Pres3DStill (new Pres3DStill())
                     if ((buffer_length room) == ((96 * 54) * 4)) {
                         st.setSlide(room 96 54)
                     }
                     def sjson:string ((sc.get("scene")).toJson())
                     Check.sceneFiles(host din sjson st.world.files)
-                    def px:buffer (st.draw(sjson iw ih))
-                    host_render_rgba host (sc.strOr("src" "")) px iw ih
+                    def wp:CheckWorldPic (new CheckWorldPic())
+                    wp.src = (sc.strOr("src" ""))
+                    wp.rgba = (st.drawIn(sjson iw ih ((bx - rx) * k) ((by - ry) * k) (bw * k) (bh * k)))
+                    wp.w = iw
+                    wp.h = ih
+                    push out wp
                 }
                 si = (si + 1)
             }
         }
+        return out
     }
 
     ; The deck's .gltf files a world's <SliqGltf src> names, given to it
@@ -537,14 +661,16 @@ class Check {
         ; each program of an app block tried in the engine the page runs it
         ; in: one that does not run says why here, not as a blank box
         for (d.playUses()) pu:PresPlayUse pui {
-            def ptext:string (Check.dataText(host din pu.spec.src))
+            def ptext:string (Check.programText(host din pu.spec.src))
             if ((strlen ptext) == 0) {
                 continue
             }
             ; the slides drawn here (render_slide, render_overview) show the
             ; program's picture as the page does, its first frames' tree; so
             ; does the glTF export, which writes its world
-            def drawn:boolean ((din.lists && ((strlen din.export) == 0)) || (din.export == "gltf"))
+            ; a PDF, PPTX, Word or web page export too: the program's picture
+            ; and its 3-D worlds, not the fence's plate (Check.worldPictures)
+            def drawn:boolean ((din.lists && ((strlen din.export) == 0)) || ((strlen din.export) > 0))
             def why:string ""
             def ptree:string ""
             if drawn {
@@ -556,6 +682,9 @@ class Check {
             }
             if (((strlen why) > 0) && (why != "-")) {
                 push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " does not run: " + why) "apps"))
+            }
+            for (Check.importsMissing(host din pu.spec.src)) gone:string gi {
+                push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " imports " + gone + ", which the presentation does not have (or it is empty): send it with `files`") "apps"))
             }
             ; its stylesheet's rules the layout does not take
             def ptcss:string (Check.dataText(host din pu.spec.css))
@@ -655,6 +784,12 @@ class Check {
         }
         for (d.htmlNotes()) hn:string hi {
             push c.warnings (Guide.see(hn "text"))
+        }
+        for (d.fenceNotes()) fn0:string fni {
+            push c.warnings (Guide.see(fn0 "layout"))
+        }
+        for (d.headingAttrNotes()) han:string hai {
+            push c.warnings (Guide.see(han "layout"))
         }
         if c.laidOut {
             Check.ownEffects(host c d pics)
@@ -770,6 +905,9 @@ class Check {
             }
         }
         if ((strlen din.export) > 0) {
+            if (din.export != "gltf") {
+                Check.worldPictures(host din d c)
+            }
             def ex (new PresExport())
             ex.deck = d
             ex.only = din.only

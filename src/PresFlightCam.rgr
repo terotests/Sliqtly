@@ -1,0 +1,456 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlightCam.rgr — flying through the presentation's world.
+; ============================================================================
+;
+; PresFlightPad is what the hands hold this frame: sticks and keys as
+; numbers -1..1 (move, strafe, lift, turn, pitch) and boost, made from the
+; keys held (KeyboardEvent.code) and a gamepad in the standard mapping. The
+; one-press commands (next, prev, first, last, exit) come from a key's
+; press or a button that went down this frame.
+;
+; PresFlightCam is the camera: free flight with momentum when the pad
+; moves, the autopilot when it is sent to a station (it arcs up over the
+; way and eases in). Moving the sticks takes over from the autopilot.
+;
+; Plain data and arithmetic: checked under Node (PresCheck.flight), driven
+; by PresFlight3D in the page.
+; ============================================================================
+
+class PresFlightPad {
+    def move:double 0.0
+    def strafe:double 0.0
+    def lift:double 0.0
+    def turn:double 0.0
+    def pitch:double 0.0
+    def boost:boolean false
+
+    ; |v| under the dead zone is 0; above it, rescaled to start from 0
+    sfn dead:double (v:double) {
+        def zone:double 0.15
+        if ((v < zone) && (v > (0.0 - zone))) {
+            return 0.0
+        }
+        if (v > 0.0) {
+            return ((v - zone) / (1.0 - zone))
+        }
+        return ((v + zone) / (1.0 - zone))
+    }
+
+    sfn clamp1:double (v:double) {
+        if (v > 1.0) {
+            return 1.0
+        }
+        if (v < (0.0 - 1.0)) {
+            return (0.0 - 1.0)
+        }
+        return v
+    }
+
+    fn active:boolean () {
+        return (((move != 0.0) || (strafe != 0.0)) || (((lift != 0.0) || (turn != 0.0)) || (pitch != 0.0)))
+    }
+
+    ; The keys held down (KeyboardEvent.code), as sticks.
+    sfn fromKeys:PresFlightPad (held:[string]) {
+        def p:PresFlightPad (new PresFlightPad())
+        def i:int 0
+        while (i < (array_length held)) {
+            def k:string (itemAt held i)
+            if ((k == "KeyW") || (k == "ArrowUp")) {
+                p.move = (p.move + 1.0)
+            }
+            if ((k == "KeyS") || (k == "ArrowDown")) {
+                p.move = (p.move - 1.0)
+            }
+            if (k == "KeyD") {
+                p.strafe = (p.strafe + 1.0)
+            }
+            if (k == "KeyA") {
+                p.strafe = (p.strafe - 1.0)
+            }
+            if (k == "KeyR") {
+                p.lift = (p.lift + 1.0)
+            }
+            if (k == "KeyF") {
+                p.lift = (p.lift - 1.0)
+            }
+            if (k == "KeyQ") {
+                p.turn = (p.turn - 1.0)
+            }
+            if (k == "KeyE") {
+                p.turn = (p.turn + 1.0)
+            }
+            if (k == "KeyZ") {
+                p.pitch = (p.pitch + 1.0)
+            }
+            if (k == "KeyX") {
+                p.pitch = (p.pitch - 1.0)
+            }
+            if ((k == "ShiftLeft") || (k == "ShiftRight")) {
+                p.boost = true
+            }
+            i = (i + 1)
+        }
+        p.move = (PresFlightPad.clamp1(p.move))
+        p.strafe = (PresFlightPad.clamp1(p.strafe))
+        p.lift = (PresFlightPad.clamp1(p.lift))
+        p.turn = (PresFlightPad.clamp1(p.turn))
+        p.pitch = (PresFlightPad.clamp1(p.pitch))
+        return p
+    }
+
+    ; A gamepad in the standard mapping: axes [lx, ly, rx, ry], buttons'
+    ; values 0..1 (6 LT, 7 RT, 10 left stick pressed).
+    sfn fromGamepad:PresFlightPad (axes:[double] buttons:[double]) {
+        def p:PresFlightPad (new PresFlightPad())
+        if ((array_length axes) >= 2) {
+            p.strafe = (PresFlightPad.dead((itemAt axes 0)))
+            p.move = (0.0 - (PresFlightPad.dead((itemAt axes 1))))
+        }
+        if ((array_length axes) >= 4) {
+            p.turn = (PresFlightPad.dead((itemAt axes 2)))
+            p.pitch = (0.0 - (PresFlightPad.dead((itemAt axes 3))))
+        }
+        if ((array_length buttons) >= 8) {
+            p.lift = (PresFlightPad.dead(((itemAt buttons 7) - (itemAt buttons 6))))
+        }
+        if ((array_length buttons) >= 11) {
+            p.boost = ((itemAt buttons 10) > 0.5)
+        }
+        return p
+    }
+
+    ; Both hands at once: the sums, each held to -1..1.
+    fn plus:PresFlightPad (o:PresFlightPad) {
+        def p:PresFlightPad (new PresFlightPad())
+        p.move = (PresFlightPad.clamp1((move + o.move)))
+        p.strafe = (PresFlightPad.clamp1((strafe + o.strafe)))
+        p.lift = (PresFlightPad.clamp1((lift + o.lift)))
+        p.turn = (PresFlightPad.clamp1((turn + o.turn)))
+        p.pitch = (PresFlightPad.clamp1((pitch + o.pitch)))
+        p.boost = (boost || o.boost)
+        return p
+    }
+
+    ; What a key press does at once (KeyboardEvent.code), "" for nothing.
+    sfn commandOfKey:string (code:string) {
+        if ((code == "Space") || ((code == "ArrowRight") || ((code == "PageDown") || ((code == "Enter") || (code == "NumpadEnter"))))) {
+            return "next"
+        }
+        if ((code == "ArrowLeft") || ((code == "PageUp") || (code == "Backspace"))) {
+            return "prev"
+        }
+        if (code == "Home") {
+            return "first"
+        }
+        if (code == "End") {
+            return "last"
+        }
+        if (code == "Escape") {
+            return "exit"
+        }
+        return ""
+    }
+
+    ; The buttons that went down since the last frame, as commands
+    ; (standard mapping: 0 A, 1 B, 4 LB, 5 RB, 8 Back, 12–15 the d-pad).
+    sfn commandsOfButtons:[string] (before:[double] now:[double]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length now)) {
+            def was:double 0.0
+            if (i < (array_length before)) {
+                was = (itemAt before i)
+            }
+            if (((itemAt now i) > 0.5) && (was <= 0.5)) {
+                def c:string (PresFlightPad.commandOfButton(i))
+                if ((strlen c) > 0) {
+                    push out c
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn commandOfButton:string (i:int) {
+        if (((i == 0) || (i == 5)) || (i == 15)) {
+            return "next"
+        }
+        if (((i == 1) || (i == 4)) || (i == 14)) {
+            return "prev"
+        }
+        if (i == 12) {
+            return "first"
+        }
+        if (i == 13) {
+            return "last"
+        }
+        if ((i == 8) || (i == 9)) {
+            return "exit"
+        }
+        return ""
+    }
+}
+
+class PresFlightCam {
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 13.0
+    ; heading (0 looks along -z, positive turns right) and pitch (up +)
+    def yaw:double 0.0
+    def pitch:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def vz:double 0.0
+    ; the stations: where to look (x, y, z), how far back to stand and how
+    ; high above, five each
+    def stations:[double]
+    ; the autopilot: on, where from, where to, how far along (s) and how long
+    def auto:boolean false
+    def target:int 0
+    def fx:double 0.0
+    def fy:double 0.0
+    def fz:double 0.0
+    def fyaw:double 0.0
+    def fpitch:double 0.0
+    def t:double 0.0
+    def dur:double 1.0
+    def hop:double 0.0
+    ; units per second, flat out (boost: three times)
+    def speed:double 14.0
+
+    sfn pi:double () {
+        return 3.141592653589793
+    }
+
+    fn stationCount:int () {
+        return (idiv (array_length stations) 5)
+    }
+
+    fn addStation:void (sx:double sy:double sz:double dist:double lift:double) {
+        push stations sx
+        push stations sy
+        push stations sz
+        push stations dist
+        push stations lift
+    }
+
+    ; Where the camera stands to see station i, and the way it looks.
+    fn poseX:double (i:int) {
+        return (itemAt stations (i * 5))
+    }
+    fn poseY:double (i:int) {
+        return ((itemAt stations ((i * 5) + 1)) + (itemAt stations ((i * 5) + 4)))
+    }
+    fn poseZ:double (i:int) {
+        return ((itemAt stations ((i * 5) + 2)) + (itemAt stations ((i * 5) + 3)))
+    }
+    fn posePitch:double (i:int) {
+        return (0.0 - (atan2 (itemAt stations ((i * 5) + 4)) (itemAt stations ((i * 5) + 3))))
+    }
+
+    ; At station i at once (the flight's start).
+    fn jumpTo:void (i:int) {
+        if ((this.stationCount()) == 0) {
+            return
+        }
+        def k:int (this.clampIndex(i))
+        x = (this.poseX(k))
+        y = (this.poseY(k))
+        z = (this.poseZ(k))
+        yaw = 0.0
+        pitch = (this.posePitch(k))
+        vx = 0.0
+        vy = 0.0
+        vz = 0.0
+        auto = false
+        target = k
+    }
+
+    fn clampIndex:int (i:int) {
+        def n:int (this.stationCount())
+        if (i < 0) {
+            return 0
+        }
+        if (i >= n) {
+            return (n - 1)
+        }
+        return i
+    }
+
+    ; The station whose viewing place is nearest.
+    fn nearest:int () {
+        def best:int 0
+        def bestD:double -1.0
+        def i:int 0
+        while (i < (this.stationCount())) {
+            def dx:double ((this.poseX(i)) - x)
+            def dy:double ((this.poseY(i)) - y)
+            def dz:double ((this.poseZ(i)) - z)
+            def d:double (((dx * dx) + (dy * dy)) + (dz * dz))
+            if ((bestD < 0.0) || (d < bestD)) {
+                best = i
+                bestD = d
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The station shown now: where the autopilot goes, else the nearest.
+    fn current:int () {
+        if auto {
+            return target
+        }
+        return (this.nearest())
+    }
+
+    ; The autopilot to station i: a hop over the way, longer for a longer way.
+    fn goTo:void (i:int) {
+        if ((this.stationCount()) == 0) {
+            return
+        }
+        target = (this.clampIndex(i))
+        fx = x
+        fy = y
+        fz = z
+        fyaw = yaw
+        fpitch = pitch
+        def dx:double ((this.poseX(target)) - x)
+        def dy:double ((this.poseY(target)) - y)
+        def dz:double ((this.poseZ(target)) - z)
+        def dist:double (sqrt((((dx * dx) + (dy * dy)) + (dz * dz))))
+        dur = (0.9 + (dist / 30.0))
+        if (dur > 3.2) {
+            dur = 3.2
+        }
+        hop = (dist * 0.12)
+        if (hop > 5.0) {
+            hop = 5.0
+        }
+        t = 0.0
+        auto = true
+        vx = 0.0
+        vy = 0.0
+        vz = 0.0
+    }
+
+    fn command:void (c:string) {
+        if (c == "next") {
+            this.goTo(((this.current()) + 1))
+        }
+        if (c == "prev") {
+            this.goTo(((this.current()) - 1))
+        }
+        if (c == "first") {
+            this.goTo(0)
+        }
+        if (c == "last") {
+            this.goTo(((this.stationCount()) - 1))
+        }
+    }
+
+    ; 0..1 eased: slow out, slow in
+    sfn ease:double (u:double) {
+        if (u <= 0.0) {
+            return 0.0
+        }
+        if (u >= 1.0) {
+            return 1.0
+        }
+        return ((u * u) * (3.0 - (2.0 * u)))
+    }
+
+    ; the angle a, brought within pi of b
+    sfn near:double (a:double b:double) {
+        def twoPi:double (2.0 * (PresFlightCam.pi()))
+        def out:double a
+        while ((out - b) > (PresFlightCam.pi())) {
+            out = (out - twoPi)
+        }
+        while ((b - out) > (PresFlightCam.pi())) {
+            out = (out + twoPi)
+        }
+        return out
+    }
+
+    ; One frame, dt seconds, with the hands' pad.
+    fn step:void (dt:double pad:PresFlightPad) {
+        if (dt <= 0.0) {
+            return
+        }
+        if (dt > 0.1) {
+            dt = 0.1
+        }
+        if (pad.active()) {
+            auto = false
+        }
+        if auto {
+            t = (t + dt)
+            def u:double (PresFlightCam.ease((t / dur)))
+            def tx:double (this.poseX(target))
+            def ty:double (this.poseY(target))
+            def tz:double (this.poseZ(target))
+            def tyaw:double (PresFlightCam.near(0.0 fyaw))
+            x = (fx + ((tx - fx) * u))
+            y = ((fy + ((ty - fy) * u)) + (hop * (sin((u * (PresFlightCam.pi()))))))
+            z = (fz + ((tz - fz) * u))
+            yaw = (fyaw + ((tyaw - fyaw) * u))
+            ; the nose dips on the way down, as a hop does
+            def dip:double ((0.0 - (hop * 0.04)) * (cos((u * (PresFlightCam.pi())))))
+            pitch = ((fpitch + (((this.posePitch(target)) - fpitch) * u)) - dip)
+            if (u >= 1.0) {
+                auto = false
+                yaw = 0.0
+                pitch = (this.posePitch(target))
+            }
+            return
+        }
+        ; looking: up to 1.6 rad/s
+        yaw = (yaw + ((pad.turn * 1.6) * dt))
+        pitch = (pitch + ((pad.pitch * 1.2) * dt))
+        if (pitch > 1.3) {
+            pitch = 1.3
+        }
+        if (pitch < (0.0 - 1.3)) {
+            pitch = (0.0 - 1.3)
+        }
+        ; moving: the stick sets the speed it heads for, momentum gets there
+        def top:double speed
+        if pad.boost {
+            top = (speed * 3.0)
+        }
+        def fwx:double (this.forwardX())
+        def fwy:double (this.forwardY())
+        def fwz:double (this.forwardZ())
+        ; right = forward x up, flattened
+        def rx:double (cos(yaw))
+        def rz:double (sin(yaw))
+        def wx:double (((fwx * pad.move) + (rx * pad.strafe)) * top)
+        def wy:double (((fwy * pad.move) + pad.lift) * top)
+        def wz:double (((fwz * pad.move) + (rz * pad.strafe)) * top)
+        def k:double (dt * 4.0)
+        if (k > 1.0) {
+            k = 1.0
+        }
+        vx = (vx + ((wx - vx) * k))
+        vy = (vy + ((wy - vy) * k))
+        vz = (vz + ((wz - vz) * k))
+        x = (x + (vx * dt))
+        y = (y + (vy * dt))
+        z = (z + (vz * dt))
+    }
+
+    fn forwardX:double () {
+        return ((sin(yaw)) * (cos(pitch)))
+    }
+    fn forwardY:double () {
+        return (sin(pitch))
+    }
+    fn forwardZ:double () {
+        return (0.0 - ((cos(yaw)) * (cos(pitch))))
+    }
+}

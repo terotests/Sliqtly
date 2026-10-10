@@ -1,0 +1,562 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresPuppet.rgr — the story's presenter, a paper cut-out in the slide corner
+; ============================================================================
+;
+; Drawn from flat paper pieces with a dark cut edge (head, curly hair, eyes
+; behind round glasses, brows, mouth, hoodie, one pointing arm with a mitten
+; hand, legs): the "leike" character Tero chose on 2026-10-10. Its look is
+; fixed; only the numbers of PresPuppetState move it.
+;
+; The pieces are drawn in the puppet's own box, 300 × 380, and placed on the
+; slide by one affine map. Curves are flattened here (PATH / STROKE commands
+; carry points), so every backend draws the same thing.
+;
+; The speech bubble is one closed outline with its tail, so its line never
+; breaks; it grows up and to the left from beside the head, wider first,
+; then its font steps down.
+; ============================================================================
+
+Import "PresStory.rgr"
+Import "PresScript.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+
+class PresPuppet {
+    sfn line:string () { return "#1b1714" }
+    sfn skin:string () { return "#F1C9A5" }
+    sfn stubble:string () { return "#D29E7A" }
+    sfn hair:string () { return "#3b2a20" }
+    sfn top:string () { return "#3FA4A6" }
+    sfn top2:string () { return "#2F8587" }
+    sfn pants:string () { return "#3d4656" }
+    sfn white:string () { return "#FFFDF8" }
+    sfn pen:string () { return "#E2574C" }
+    sfn edge:double () { return 2.6 }
+
+    sfn col:EVGColor (hex:string a:double) {
+        def c:EVGColor (EVGColor.parse(hex))
+        return (EVGColor.create((to_double (c.red())) (to_double (c.green())) (to_double (c.blue())) a))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Geometry (points as x, y, x, y, …)
+    ; ------------------------------------------------------------------
+
+    sfn oval:[double] (cx:double cy:double rx:double ry:double n:int) {
+        def o:[double]
+        def i:int 0
+        while (i < n) {
+            def a:double ((((to_double i) / (to_double n)) * 2.0) * 3.141592653589793)
+            push o (cx + (rx * (cos a)))
+            push o (cy + (ry * (sin a)))
+            i = (i + 1)
+        }
+        return o
+    }
+
+    ; a piece cut by hand: each corner moved a fixed little bit
+    sfn cut:[double] (pts:[double] amp:double seed:int) {
+        def o:[double]
+        def i:int 0
+        while (i < (array_length pts)) {
+            push o ((itemAt pts i) + ((PresStory.noise(((seed * 97) + i))) * (2.0 * amp)))
+            i = (i + 1)
+        }
+        return o
+    }
+
+    ; a closed Catmull-Rom curve through the points, flattened
+    sfn smooth:[double] (pts:[double] sub:int) {
+        def n:int (idiv (array_length pts) 2)
+        def o:[double]
+        def i:int 0
+        while (i < n) {
+            def i0:int (((i - 1) + n) % n)
+            def i2:int ((i + 1) % n)
+            def i3:int ((i + 2) % n)
+            def x0:double (itemAt pts (i0 * 2))
+            def y0:double (itemAt pts ((i0 * 2) + 1))
+            def x1:double (itemAt pts (i * 2))
+            def y1:double (itemAt pts ((i * 2) + 1))
+            def x2:double (itemAt pts (i2 * 2))
+            def y2:double (itemAt pts ((i2 * 2) + 1))
+            def x3:double (itemAt pts (i3 * 2))
+            def y3:double (itemAt pts ((i3 * 2) + 1))
+            def k:int 0
+            while (k < sub) {
+                def t:double ((to_double k) / (to_double sub))
+                def t2:double (t * t)
+                def t3:double (t2 * t)
+                push o (0.5 * ((((2.0 * x1) + ((x2 - x0) * t)) + ((((2.0 * x0) - (5.0 * x1)) + ((4.0 * x2) - x3)) * t2)) + ((((3.0 * x1) - x0) + (x3 - (3.0 * x2))) * t3)))
+                push o (0.5 * ((((2.0 * y1) + ((y2 - y0) * t)) + ((((2.0 * y0) - (5.0 * y1)) + ((4.0 * y2) - y3)) * t2)) + ((((3.0 * y1) - y0) + (y3 - (3.0 * y2))) * t3)))
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return o
+    }
+
+    ; a quadratic curve from (ax, ay) through control (cx, cy) to (bx, by)
+    sfn quad:[double] (ax:double ay:double cx:double cy:double bx:double by:double n:int) {
+        def o:[double]
+        def i:int 0
+        while (i <= n) {
+            def t:double ((to_double i) / (to_double n))
+            def u:double (1.0 - t)
+            push o ((((u * u) * ax) + (((2.0 * u) * t) * cx)) + ((t * t) * bx))
+            push o ((((u * u) * ay) + (((2.0 * u) * t) * cy)) + ((t * t) * by))
+            i = (i + 1)
+        }
+        return o
+    }
+
+    sfn add:void (to:[double] more:[double]) {
+        def i:int 0
+        while (i < (array_length more)) {
+            push to (itemAt more i)
+            i = (i + 1)
+        }
+    }
+
+    sfn map:[double] (pts:[double] m:PresAff) {
+        def o:[double]
+        def i:int 0
+        while ((i + 1) < (array_length pts)) {
+            def x:double (itemAt pts i)
+            def y:double (itemAt pts (i + 1))
+            push o (m.px(x y))
+            push o (m.py(x y))
+            i = (i + 2)
+        }
+        return o
+    }
+
+    ; a capsule (rounded bar) from (ax, ay) to (bx, by), r its half width
+    sfn capsule:[double] (ax:double ay:double bx:double by:double r:double) {
+        def ang:double (atan2 (by - ay) (bx - ax))
+        def o:[double]
+        def i:int 0
+        while (i <= 8) {
+            def a:double ((ang + 1.5707963267948966) + (((to_double i) / 8.0) * 3.141592653589793))
+            push o (bx + (r * (cos a)))
+            push o (by + (r * (sin a)))
+            i = (i + 1)
+        }
+        i = 0
+        while (i <= 8) {
+            def a2:double ((ang - 1.5707963267948966) + (((to_double i) / 8.0) * 3.141592653589793))
+            push o (ax + (r * (cos a2)))
+            push o (ay + (r * (sin a2)))
+            i = (i + 1)
+        }
+        return o
+    }
+
+    ; ------------------------------------------------------------------
+    ; Paint
+    ; ------------------------------------------------------------------
+
+    sfn fill:void (out:EVGDisplayList pts:[double] hex:string a:double) {
+        out.addPolygon(pts (PresPuppet.col(hex a)))
+    }
+
+    sfn stroke:void (out:EVGDisplayList pts:[double] w:double hex:string a:double closed:boolean) {
+        def p:[double]
+        PresPuppet.add(p pts)
+        if (closed && ((array_length pts) >= 4)) {
+            push p (itemAt pts 0)
+            push p (itemAt pts 1)
+        }
+        def before:int (out.count())
+        out.addPolyline(p w (PresPuppet.col(hex a)))
+        if ((out.count()) > before) {
+            def c:EVGDrawCmd (out.at(((out.count()) - 1)))
+            c.strokeCap = 1
+            c.strokeJoin = 1
+        }
+    }
+
+    ; a paper piece: its shadow, its colour, its cut edge
+    sfn piece:void (out:EVGDisplayList pts:[double] hex:string m:PresAff k:double shadow:boolean) {
+        def p:[double] (PresPuppet.map(pts m))
+        if shadow {
+            def sh:[double]
+            def i:int 0
+            while ((i + 1) < (array_length p)) {
+                push sh ((itemAt p i) + (2.0 * k))
+                push sh ((itemAt p (i + 1)) + (3.0 * k))
+                i = (i + 2)
+            }
+            PresPuppet.fill(out sh "#000000" 0.28)
+        }
+        PresPuppet.fill(out p hex 1.0)
+        PresPuppet.stroke(out p ((PresPuppet.edge()) * k) (PresPuppet.line()) 1.0 true)
+    }
+
+    sfn lineOn:void (out:EVGDisplayList pts:[double] w:double hex:string m:PresAff k:double a:double) {
+        PresPuppet.stroke(out (PresPuppet.map(pts m)) (w * k) hex a false)
+    }
+
+    ; The mitten: a radius round the palm that the hand weights grow into
+    ; fingers, a thumb or a thumb up.
+    sfn mitten:[double] (s:PresPuppetState) {
+        def n:int 40
+        def fist:double (((s.fist + s.aim) + s.chin) + s.thumb)
+        def o:[double]
+        def i:int 0
+        def pi:double 3.141592653589793
+        while (i < n) {
+            def a:double ((((to_double i) / (to_double n)) * 2.0) * pi)
+            def r:double 13.0
+            r = (r + (3.0 * (PresPuppet.bump(a pi 0.9))))
+            r = (r + ((20.0 * s.point) * (PresPuppet.bump(a (pi * 1.03) 0.13))))
+            r = (r + ((12.0 * s.open) * (((PresPuppet.bump(a (pi * 0.86) 0.11)) + (PresPuppet.bump(a pi 0.11))) + (PresPuppet.bump(a (pi * 1.14) 0.11)))))
+            r = (r + (((6.0 + (8.0 * s.open)) * (1.0 - s.thumb)) * (PresPuppet.bump(a (pi * (1.42 - (0.08 * s.open))) 0.16))))
+            r = (r - ((2.0 * fist) * (PresPuppet.bump(a (pi * 0.75) 0.3))))
+            r = (r + ((17.0 * s.thumb) * (PresPuppet.bump(a (pi * 1.55) 0.17))))
+            push o (-12.0 + (r * (cos a)))
+            push o ((r * (sin a)) * 0.92)
+            i = (i + 1)
+        }
+        return o
+    }
+
+    sfn bump:double (a:double c:double w:double) {
+        def d:double ((atan2 (sin (a - c)) (cos (a - c))) / w)
+        ; e^(-x), x = d², as a series (no exp in every target)
+        def x:double (d * d)
+        def x2:double (x * x)
+        return (1.0 / ((((1.0 + x) + (x2 / 2.0)) + ((x2 * x) / 6.0)) + ((x2 * x2) / 24.0)))
+    }
+
+    ; The puppet at state s, its 300 × 380 box mapped onto the slide by
+    ; `place`; k is that map's scale (line widths follow it).
+    sfn paint:void (out:EVGDisplayList s:PresPuppetState place:PresAff) {
+        def k:double (place.scaleOf())
+        def ink:string (PresPuppet.line())
+        def edgeW:double (PresPuppet.edge())
+        ; ground shadow, smaller while in the air
+        def g:double (1.0 - (s.hop / 60.0))
+        PresPuppet.fill(out (PresPuppet.map((PresPuppet.oval(150.0 352.0 (70.0 * g) (7.0 * g) 28)) place)) "#000000" (0.35 * g))
+        ; squash and stretch about the feet, lifted by the hop
+        def body:PresAff (place.times((PresAff.local(150.0 348.0 (1.0 + (s.squash * 0.8)) (1.0 - s.squash) 0.0 0.0 0.0 (0.0 - s.hop)))))
+        ; legs and shoes
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut(([] _:double (124.0 300.0 146.0 300.0 146.0 340.0 124.0 340.0)) 0.8 2)) 4)) (PresPuppet.pants()) body k true)
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut(([] _:double (154.0 300.0 176.0 300.0 176.0 340.0 154.0 340.0)) 0.8 3)) 4)) (PresPuppet.pants()) body k true)
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut((PresPuppet.oval(130.0 344.0 20.0 8.0 12)) 0.6 4)) 3)) ink body k false)
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut((PresPuppet.oval(172.0 344.0 20.0 8.0 12)) 0.6 5)) 3)) ink body k false)
+        ; hoodie: a short trapezoid, zip line, pocket seam
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut(([] _:double (96.0 226.0 150.0 214.0 204.0 226.0 222.0 306.0 150.0 312.0 78.0 306.0)) 1.2 6)) 6)) (PresPuppet.top()) body k true)
+        PresPuppet.lineOn(out ([] _:double (150.0 222.0 150.0 310.0)) 2.0 ink body k 1.0)
+        PresPuppet.lineOn(out (PresPuppet.quad(110.0 276.0 150.0 286.0 190.0 276.0 10)) 3.0 (PresPuppet.top2()) body k 1.0)
+        ; the resting arm on the right
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut(([] _:double (198.0 232.0 212.0 236.0 226.0 290.0 212.0 294.0)) 0.8 7)) 4)) (PresPuppet.top2()) body k true)
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut((PresPuppet.oval(220.0 298.0 12.0 11.0 12)) 0.6 8)) 3)) (PresPuppet.skin()) body k false)
+        ; the head, turned about the neck
+        def head:PresAff (body.times((PresAff.local(150.0 214.0 1.0 1.0 0.0 (s.tilt + s.jitter) 0.0 0.0))))
+        PresPuppet.paintHead(out s head k)
+        ; the pointing arm: one bent strip from the shoulder to the hand
+        PresPuppet.paintArm(out s body k)
+    }
+
+    sfn paintHead:void (out:EVGDisplayList s:PresPuppetState m:PresAff k:double) {
+        def ink:string (PresPuppet.line())
+        def edgeW:double (PresPuppet.edge())
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut((PresPuppet.oval(150.0 138.0 94.0 80.0 22)) 1.2 9)) 5)) (PresPuppet.skin()) m k true)
+        ; stubble: a darker piece on the jaw
+        def st:[double] (PresPuppet.quad(76.0 170.0 90.0 214.0 150.0 220.0 10))
+        PresPuppet.add(st (PresPuppet.quad(150.0 220.0 210.0 214.0 224.0 170.0 10)))
+        PresPuppet.add(st (PresPuppet.quad(224.0 170.0 206.0 196.0 150.0 198.0 10)))
+        PresPuppet.add(st (PresPuppet.quad(150.0 198.0 94.0 196.0 76.0 170.0 10)))
+        PresPuppet.fill(out (PresPuppet.map(st m)) (PresPuppet.stubble()) 1.0)
+        ; hair: a curly cap, its edge uneven bumps
+        def hp:[double]
+        def i:int 0
+        while (i <= 36) {
+            def a:double (3.141592653589793 * (1.0 + ((to_double i) / 36.0)))
+            def j:int (i % 3)
+            def rr:double 0.99
+            if (j == 1) {
+                rr = (1.11 + ((PresStory.noise((i + 42)) + 0.5) * 0.04))
+            }
+            if (j == 2) {
+                rr = 1.07
+            }
+            push hp (150.0 + ((96.0 * rr) * (cos a)))
+            push hp (128.0 + ((86.0 * rr) * (sin a)))
+            i = (i + 1)
+        }
+        PresPuppet.add(hp ([] _:double (246.0 120.0 226.0 100.0 196.0 92.0 172.0 104.0 148.0 92.0 120.0 100.0 96.0 94.0 70.0 108.0 56.0 126.0)))
+        PresPuppet.piece(out (PresPuppet.smooth(hp 3)) (PresPuppet.hair()) m k true)
+        ; ear
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.cut((PresPuppet.oval(244.0 148.0 10.0 14.0 10)) 0.5 10)) 3)) (PresPuppet.skin()) m k false)
+        ; eyes: white ovals, pupils that move together, a skin lid that comes down
+        def lid:double s.lid
+        if (lid < 0.0) { lid = 0.0 }
+        if (lid > 1.0) { lid = 1.0 }
+        def e:int 0
+        while (e < 2) {
+            def ex:double 126.0
+            if (e == 1) { ex = 174.0 }
+            def ey:double 142.0
+            def eye:[double] (PresPuppet.oval(ex ey 20.0 24.0 36))
+            PresPuppet.fill(out (PresPuppet.map(eye m)) (PresPuppet.white()) 1.0)
+            PresPuppet.fill(out (PresPuppet.map((PresPuppet.oval((ex + (s.gazeX * 10.0)) ((ey + 4.0) + (s.gazeY * 10.0)) 4.6 4.6 14)) m)) ink 1.0)
+            if (lid < 0.98) {
+                def ly:double ((ey - 25.0) + (50.0 * (1.0 - lid)))
+                def cover:[double]
+                def q:int 0
+                while ((q + 1) < (array_length eye)) {
+                    push cover (itemAt eye q)
+                    def y:double (itemAt eye (q + 1))
+                    if (y > ly) { y = ly }
+                    push cover y
+                    q = (q + 2)
+                }
+                PresPuppet.fill(out (PresPuppet.map(cover m)) (PresPuppet.skin()) 1.0)
+                if (ly < (ey + 23.0)) {
+                    def half:double (20.0 * (sqrt (1.0 - (((ly - ey) / 24.0) * ((ly - ey) / 24.0)))))
+                    PresPuppet.lineOn(out (PresPuppet.quad((ex - half) ly ex (ly + 5.0) (ex + half) ly 8)) edgeW ink m k 1.0)
+                }
+            }
+            PresPuppet.stroke(out (PresPuppet.map(eye m)) (edgeW * k) ink 1.0 true)
+            ; round glasses
+            PresPuppet.stroke(out (PresPuppet.map((PresPuppet.oval(ex ey 24.0 24.0 36)) m)) (3.4 * k) ink 1.0 true)
+            e = (e + 1)
+        }
+        PresPuppet.lineOn(out ([] _:double (102.0 138.0 72.0 132.0)) 3.4 ink m k 1.0)
+        PresPuppet.lineOn(out ([] _:double (198.0 138.0 236.0 140.0)) 3.4 ink m k 1.0)
+        ; brows: short thick slabs that rise and tilt
+        def by:double (106.0 - (s.brow * 8.0))
+        def bl:PresAff (m.times((PresAff.local(0.0 0.0 1.0 1.0 0.0 (-6.0 - (s.brow * 10.0)) 120.0 by))))
+        PresPuppet.fill(out (PresPuppet.map((PresPuppet.capsule(-13.5 0.0 11.5 0.0 3.5)) bl)) ink 1.0)
+        def brr:PresAff (m.times((PresAff.local(0.0 0.0 1.0 1.0 0.0 (6.0 + (s.brow * 10.0)) 180.0 by))))
+        PresPuppet.fill(out (PresPuppet.map((PresPuppet.capsule(-11.5 0.0 13.5 0.0 3.5)) brr)) ink 1.0)
+        ; mouth: a line that smiles
+        def sm:double s.smile
+        PresPuppet.lineOn(out (PresPuppet.quad(134.0 190.0 150.0 (190.0 + (sm * 10.0)) 166.0 189.0 10)) 2.6 ink m k 1.0)
+    }
+
+    sfn paintArm:void (out:EVGDisplayList s:PresPuppetState m:PresAff k:double) {
+        def ink:string (PresPuppet.line())
+        ; where the hand is for each shape
+        def hx:double ((((((40.0 * s.aim) + (52.0 * s.fist)) + (70.0 * s.open)) + (48.0 * s.point)) + (62.0 * s.thumb)) + (150.0 * s.chin))
+        def hy:double ((((((236.0 * s.aim) + (200.0 * s.fist)) + (196.0 * s.open)) + (212.0 * s.point)) + (196.0 * s.thumb)) + (232.0 * s.chin))
+        def shx:double 100.0
+        def shy:double 238.0
+        def elx:double ((((shx + hx) / 2.0) + 6.0) - (20.0 * s.chin))
+        def ely:double ((((shy + hy) / 2.0) + 16.0) + (30.0 * s.chin))
+        def armAng:double ((((atan2 (hy - ely) (hx - elx)) * 180.0) / 3.141592653589793) + 180.0)
+        def fixed:double (s.thumb + s.chin)
+        def ang:double ((((armAng * (1.0 - fixed)) + (8.0 * s.thumb)) + (60.0 * s.chin)) + (s.jitter * 1.5))
+        def strip:[double] (PresPuppet.quad(shx shy elx ely hx hy 16))
+        PresPuppet.lineOn(out strip (22.0 + (2.0 * (PresPuppet.edge()))) ink m k 1.0)
+        PresPuppet.lineOn(out strip 22.0 (PresPuppet.top()) m k 1.0)
+        def hand:PresAff (m.times((PresAff.local(0.0 0.0 1.45 1.45 0.0 ang hx hy))))
+        ; the pen, for the pointing fist
+        def pen:double (s.fist + s.aim)
+        if (pen > 0.02) {
+            def pm:PresAff (hand.times((PresAff.local(0.0 0.0 1.0 1.0 0.0 14.0 0.0 0.0))))
+            def bar:[double] (PresPuppet.map((PresPuppet.capsule(-47.0 0.0 -1.0 0.0 5.0)) pm))
+            PresPuppet.fill(out bar (PresPuppet.pen()) pen)
+            PresPuppet.stroke(out bar (2.4 * k) ink pen true)
+            def tip:[double] (PresPuppet.map(([] _:double (-52.0 -4.0 -62.0 0.0 -52.0 4.0)) pm))
+            PresPuppet.fill(out tip (PresPuppet.white()) pen)
+            PresPuppet.stroke(out tip (2.0 * k) ink pen true)
+        }
+        PresPuppet.piece(out (PresPuppet.smooth((PresPuppet.mitten(s)) 2)) (PresPuppet.skin()) hand k false)
+        ; knuckle lines on the closed hand
+        if (s.fist > 0.05) {
+            PresPuppet.lineOn(out (PresPuppet.quad(-20.0 -4.0 -26.0 -1.0 -22.0 4.0 6)) 1.8 ink hand k s.fist)
+            PresPuppet.lineOn(out (PresPuppet.quad(-14.0 4.0 -20.0 7.0 -16.0 12.0 6)) 1.8 ink hand k s.fist)
+        }
+    }
+
+    ; ------------------------------------------------------------------
+    ; Where it stands, and its bubble
+    ; ------------------------------------------------------------------
+
+    ; The strip at a slide's right the presenter and its bubble stand in,
+    ; in px of a 960 × 540 slide; the slide's text keeps out of it
+    ; (MdLayout.asideAt).
+    sfn STRIP:double () {
+        return 300.0
+    }
+
+    ; px of a 960 × 540 slide on a slide w × h
+    sfn unitOn:double (w:double h:double) {
+        def u:double (h / 540.0)
+        if ((w / 960.0) < u) {
+            u = (w / 960.0)
+        }
+        return u
+    }
+
+    ; The puppet's box on a slide w × h: bottom right of the strip, 216 px
+    ; wide on a 960 × 540 slide, its head under the bubble.
+    sfn placeOn:PresAff (w:double h:double) {
+        def u:double (PresPuppet.unitOn(w h))
+        def sc:double (0.72 * u)
+        return (PresAff.local(0.0 0.0 sc sc 0.0 0.0 (w - (214.0 * u)) (h - (288.0 * u))))
+    }
+
+    ; Words in lines no wider than maxW at `size`.
+    sfn wrap:[string] (text:string engine:EVGTextEngine family:string size:double maxW:double) {
+        def out:[string]
+        def words:[string] (strsplit text " ")
+        def cur:string ""
+        def i:int 0
+        while (i < (array_length words)) {
+            def wd:string (itemAt words i)
+            if ((strlen wd) > 0) {
+                def tryIt:string wd
+                if ((strlen cur) > 0) {
+                    tryIt = ((cur + " ") + wd)
+                }
+                def m:EVGTextMetrics (engine.measureRun(tryIt family size))
+                if ((m.width > maxW) && ((strlen cur) > 0)) {
+                    push out cur
+                    cur = wd
+                } {
+                    cur = tryIt
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    ; The bubble for beat b, `a` 0..1 in (pops from its tail), on a slide
+    ; w × h, the text in `family`.
+    sfn bubble:void (out:EVGDisplayList b:PresStoryBeat a:double w:double h:double engine:EVGTextEngine family:string) {
+        if (a <= 0.0) {
+            return
+        }
+        def u:double (PresPuppet.unitOn(w h))
+        def pad:double (16.0 * u)
+        ; above the head, in the strip, under the slide's title
+        def right:double (w - (36.0 * u))
+        def bottom:double (h - (300.0 * u))
+        def maxH:double (bottom - (128.0 * u))
+        def tipX:double (w - (112.0 * u))
+        def tipY:double (h - (262.0 * u))
+        ; wider first, then a smaller font
+        def size:double (26.0 * u)
+        def lines:[string]
+        def lh:double 0.0
+        def found:boolean false
+        def widths:[double] ([] _:double (200.0 236.0))
+        def wi:int 0
+        while ((wi < 2) && (found == false)) {
+            lines = (PresPuppet.wrap(b.text engine family size ((itemAt widths wi) * u)))
+            lh = (size * 1.15)
+            if (((lh * (to_double (array_length lines))) + (2.0 * pad)) <= maxH) {
+                found = true
+            }
+            wi = (wi + 1)
+        }
+        while ((found == false) && (size > (15.0 * u))) {
+            size = (size - u)
+            lines = (PresPuppet.wrap(b.text engine family size (236.0 * u)))
+            lh = (size * 1.15)
+            if (((lh * (to_double (array_length lines))) + (2.0 * pad)) <= maxH) {
+                found = true
+            }
+        }
+        def tw:double 0.0
+        def li:int 0
+        while (li < (array_length lines)) {
+            def mw:EVGTextMetrics (engine.measureRun((itemAt lines li) family size))
+            if (mw.width > tw) {
+                tw = mw.width
+            }
+            li = (li + 1)
+        }
+        def th:double (lh * (to_double (array_length lines)))
+        def x1:double (right + pad)
+        def y1:double (bottom + pad)
+        def x0:double ((right - tw) - pad)
+        def y0:double ((bottom - th) - pad)
+        ; it pops from the tail: scale 0.86 → 1 and fade in
+        def sc:double (0.86 + (0.14 * a))
+        def pop:PresAff (PresAff.local(tipX tipY sc sc 0.0 0.0 0.0 0.0))
+        def outline:[double] (PresPuppet.map((PresPuppet.bubbleOutline(x0 y0 x1 y1 tipX tipY u)) pop))
+        PresPuppet.fill(out outline "#141518" a)
+        PresPuppet.stroke(out outline ((2.6 * u) * sc) "#F2EEE6" a true)
+        ; the text, its connective in the beat's colour
+        def ink:EVGColor (PresPuppet.col("#F2EEE6" a))
+        def wordInk:EVGColor (PresPuppet.col("#E8A93C" a))
+        if (b.kind == "but") {
+            wordInk = (PresPuppet.col("#E2574C" a))
+        }
+        li = 0
+        while (li < (array_length lines)) {
+            def ln:string (itemAt lines li)
+            def tx:double (x0 + pad)
+            def ty:double ((y0 + pad) + (lh * (to_double li)))
+            def lx:double (pop.px(tx ty))
+            def ly:double (pop.py(tx ty))
+            def fs:double (size * sc)
+            if (((li == 0) && ((strlen b.word) > 0)) && ((indexOf ln b.word) == 0)) {
+                def ww:EVGTextMetrics (engine.measureRun(b.word family fs))
+                out.addText(b.word lx ly fs wordInk family false false ww.width fs)
+                def restLn:string (substring ln (strlen b.word) (strlen ln))
+                out.addText(restLn (lx + ww.width) ly fs ink family false false 0.0 fs)
+            } {
+                out.addText(ln lx ly fs ink family false false 0.0 fs)
+            }
+            li = (li + 1)
+        }
+    }
+
+    ; One closed outline: from the tail's left foot round the bubble to its
+    ; right foot, then down to the tip and back.
+    sfn bubbleOutline:[double] (x0:double y0:double x1:double y1:double tipX:double tipY:double u:double) {
+        def r:double (18.0 * u)
+        def b0:double (x1 - (64.0 * u))
+        def b1:double (x1 - (30.0 * u))
+        def o:[double]
+        push o b0
+        push o y1
+        PresPuppet.add(o ([] _:double ((x0 + r) y1)))
+        PresPuppet.add(o (PresPuppet.arc((x0 + r) (y1 - r) r 90.0 180.0)))
+        PresPuppet.add(o ([] _:double (x0 (y0 + r))))
+        PresPuppet.add(o (PresPuppet.arc((x0 + r) (y0 + r) r 180.0 270.0)))
+        PresPuppet.add(o ([] _:double ((x1 - r) y0)))
+        PresPuppet.add(o (PresPuppet.arc((x1 - r) (y0 + r) r 270.0 360.0)))
+        PresPuppet.add(o ([] _:double (x1 (y1 - r))))
+        PresPuppet.add(o (PresPuppet.arc((x1 - r) (y1 - r) r 0.0 90.0)))
+        PresPuppet.add(o ([] _:double (b1 y1)))
+        def toTip:[double] (PresPuppet.quad(b1 y1 (b1 + (4.0 * u)) (y1 + (8.0 * u)) tipX tipY 8))
+        def back:[double] (PresPuppet.quad(tipX tipY (b0 + (18.0 * u)) (y1 + (10.0 * u)) b0 y1 8))
+        def i:int 2
+        while (i < (array_length toTip)) {
+            push o (itemAt toTip i)
+            i = (i + 1)
+        }
+        i = 2
+        while (i < ((array_length back) - 2)) {
+            push o (itemAt back i)
+            i = (i + 1)
+        }
+        return o
+    }
+
+    sfn arc:[double] (cx:double cy:double r:double d0:double d1:double) {
+        def o:[double]
+        def i:int 1
+        while (i < 6) {
+            def a:double (((d0 + (((d1 - d0) * (to_double i)) / 6.0)) * 3.141592653589793) / 180.0)
+            push o (cx + (r * (cos a)))
+            push o (cy + (r * (sin a)))
+            i = (i + 1)
+        }
+        return o
+    }
+}

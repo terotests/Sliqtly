@@ -114,6 +114,11 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   1.6×, as long as it fits and a one-line title stays one line. Slides with a
   picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter
   changes the limit, `slide-grow: off` turns it off.
+- The slides' text can be selected with the mouse and copied, in the shared
+  viewer and while presenting: a drag over text selects it, Ctrl/Cmd+C copies
+  it, Ctrl/Cmd+A takes the whole slide's and Esc lets go. A click is still the
+  next slide, and the click after a selection only lets go of it.
+  `select-text: off` in the front matter turns it off (`web/slidetext.js`).
 - `anim`: `fade`, `rise`, `fly` or `zoom`.
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
   `ambient-light`, `liquid-glass`, `drops`, `raindrops2`, `bubbles`). `fx-<name>=<number>`
@@ -334,7 +339,15 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     the stage. It has no page, network or storage. One that does not answer in
     3 s is stopped.
   - **Keyboard:** a click on the box gives the program the keys; Esc gives them
-    back, and while editing a double click then edits the block.
+    back, and while editing a double click then edits the block. While
+    presenting, a click on what the program's 3-D world draws past its box
+    counts too (PresDeck.playPast, web/three3d.js opaqueAt). Keys are
+    `KeyboardEvent.key` names; `input.pointer` is in the program's own
+    `size:` units, past 0..width/height for a world past the box.
+    A focused program whose world reaches past its box takes the stage while
+    presenting: its world is painted over the slide's text
+    (PresDeck.paintFocusOver) and the controls hide (body.game-stage);
+    `<scene3d focus="keep">` opts out.
   - **The deck** (each needs its word on `allow:`, the rest is refused and said):
     `deck.data` / `deck.get(key)` read the deck's own keys, `deck.set(key, v)`
     fills `{key}` in headers and footers (`deck.data`); `slide.next()`,
@@ -342,12 +355,21 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     `el("#id")` / `el(".class")` `.style({ color, background, opacity, translate, display })`,
     `.show()`, `.hide()`, `.reset()` over the slide's blocks, without changing
     the Markdown (`slide.style`). `machine.send` waits for state machines.
+  - **The deck's files:** `import world from "../data/world.json"` (its value),
+    `import sales from "../data/sales.csv"` (rows by the header; `rows` the
+    cells as text; `.tsv` too), any other file its text; each has `text`.
+    `./` and `../` from the program's folder, `data/x` from the deck's root.
+    `src/PresPlayFiles.rgr` finds the imports and puts the files on the
+    program's first line (`__deckFiles`, `web/apps-runtime.js`), in the
+    editor, the viewer and the server alike; the program waits for them.
   - **3-D worlds** (`allow: 3d`, experimental): a `<scene3d>` element with
     `<mesh>`, `<light>` and `<camera>` children is drawn by Ranger's Three.js
     port (`src/Pres3D.rgr`, `web/three3d.js`, bundle `pres_3d.js` loaded on
     first use). Shiny meshes (`metal`) reflect a cube map made of a small
-    picture of the slide; the background stays transparent. Sample deck
-    `maailmat`.
+    picture of the slide; the background stays transparent. The camera frames
+    the element's box and the world may draw past it over the whole slide,
+    over its background and under its text; `fit="box"` (or `overflow:
+    hidden`) keeps it in the box. Sample deck `maailmat`.
   - **Exports and thumbnails** show the program's last picture, or a plate with
     its name before it has run. The public viewer shows the plate.
   - The fence is read by RangerMarkdown (`MdApp`), the picture laid out and
