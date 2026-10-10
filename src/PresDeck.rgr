@@ -993,6 +993,8 @@ class PresDeck {
     ; Where a diagram paints across: the whole content width when nothing
     ; else on the slide sits beside it (a `{width=…}` that only kept the
     ; picture short enough to stay on its slide), else its own box. [x, w].
+    ; On a slide with a presenter (`::: story`) the whole width is the
+    ; column the layout left beside the figure's strip (MdLayout.noteAside).
     fn diagramSpan:[double] (page:int box:MdBox) {
         def l:MdLayout (this.layout())
         def room:double (this.roomBelow(page box))
@@ -1010,11 +1012,32 @@ class PresDeck {
         }
         def x:double l.style.margin
         def w:double (l.style.pageWidth - (l.style.margin * 2.0))
+        if (this.asideOn(page)) {
+            def kept:double (w - (l.asideFrac * l.style.pageWidth))
+            if (kept < (w * 0.5)) {
+                kept = (w * 0.5)
+            }
+            w = kept
+        }
         if (w < box.w) {
             x = box.x
             w = box.w
         }
         return ([] _:double (x w))
+    }
+
+    ; Whether slide `page` keeps a strip at its side for a presenter
+    fn asideOn:boolean (page:int) {
+        def l:MdLayout (this.layout())
+        if (l.asideFrac <= 0.0) {
+            return false
+        }
+        for l.asideAt at:int k {
+            if ((this.pageOfOffset(at)) == page) {
+                return true
+            }
+        }
+        return false
     }
 
     ; The layout box a fence was laid out in, or -1.

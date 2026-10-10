@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -674,4 +675,14 @@ func TestStorySlideDrawsItsDiagram(t *testing.T) {
 	}
 	nomatch(t, textOf(c), `no handler prepared`)
 	match(t, textOf(c), `Slide 3 "Told".*\n- heading "Told".*\n- diagram \(Mermaid\) at \d+,\d+ size \d+×\d+: 2 labels`)
+	// …in the column beside the presenter's strip, not under the figure
+	plain := regexp.MustCompile(`- diagram \(Mermaid\) at \d+,\d+ size (\d+)×`).FindAllStringSubmatch(textOf(c), -1)
+	if len(plain) != 2 {
+		t.Fatalf("two diagrams, got %v", plain)
+	}
+	wide, _ := strconv.Atoi(plain[0][1])
+	told, _ := strconv.Atoi(plain[1][1])
+	if told >= wide {
+		t.Errorf("the story slide's diagram is %d px wide, as wide as the plain one's %d", told, wide)
+	}
 }
