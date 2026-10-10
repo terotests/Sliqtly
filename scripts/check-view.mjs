@@ -144,6 +144,14 @@ try {
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }).catch(() => null), page.click('#vMenu [data-format="md"]')]);
   if (!dl) fail("Markdown export downloaded nothing");
   else if (dl.suggestedFilename() !== "talous.en.md") fail(`Markdown saved as "${dl.suggestedFilename()}"`);
+  // Copy Markdown: the same Markdown on the clipboard, said on the button
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.click("#vExport");
+  await page.click("#vMenu #vCopyMd");
+  await page.waitForFunction(() => /copied|kopioitu/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
+    .catch(() => fail("Copy Markdown did not say it copied"));
+  const copied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+  if (copied !== "# Take charge of your money\n") fail(`Copy Markdown put ${JSON.stringify(copied)} on the clipboard`);
   await page.click("#vExport");
   await page.click('#vMenu [data-format="pdf"]');
   await page.waitForFunction(() => /failed|epäonnistui/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
