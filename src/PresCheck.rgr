@@ -32,6 +32,7 @@ Import "PresHtml.rgr"
 Import "PresTrace.rgr"
 Import "PresExport.rgr"
 Import "PresScriptWeb.rgr"
+Import "PresMorph.rgr"
 Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
@@ -4621,6 +4622,74 @@ class PresCheck {
         return none
     }
 
+    ; `transition=morph`: what both slides have glides from its place on the
+    ; first to its place on the second; the rest fades (PresMorph).
+    fn morph:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n"
+            + "## Sales\n\nOnly here\n\nThe total\n{#total}\n\n"
+            + "## Sales by region {transition=morph seconds=1}\n\n- North\n- South\n\nThe total\n{#total}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) != 2) {
+            this.ok(false "morph: two slides")
+            return
+        }
+        def a:PresScene (deck.sceneOfSlide(0))
+        def b:PresScene (deck.sceneOfSlide(1))
+        def pairs:[int] (PresMorph.pairs(a b))
+        def ti:int (b.indexOf("total"))
+        def fi:int (a.indexOf("total"))
+        this.ok(((ti > 0) && (fi > 0)) "morph: the {#id} block on both slides")
+        if ((ti <= 0) || (fi <= 0)) {
+            return
+        }
+        this.ok(((itemAt pairs ti) == fi) "morph: the same {#id} is one object")
+        def hb:int (b.indexOf("h2-1"))
+        this.ok(((itemAt pairs hb) < 0) "morph: headings with other words are not")
+        def from:PresEnt (a.at(fi))
+        def to:PresEnt (b.at(ti))
+        this.ok((from.y != to.y) "morph: the block is somewhere else on the second slide")
+        ; halfway: between its two places, the first slide's own text half gone
+        def arr:PresScriptFrame (PresMorph.arriving(a b pairs 0.5))
+        def tpo@(optional):PresEntProps (arr.propsOf("total"))
+        if (!null? tpo) {
+            def tp:PresEntProps (unwrap tpo)
+            def mid:double ((from.y + to.y) * 0.5)
+            this.ok((((tp.y - mid) < 0.5) && ((mid - tp.y) < 0.5)) ("morph: halfway between, y " + (to_string tp.y)))
+        } {
+            this.ok(false "morph: the paired block moves")
+        }
+        def lea:PresScriptFrame (PresMorph.leaving(a pairs 0.5))
+        def lpo@(optional):PresEntProps (lea.propsOf("total"))
+        this.ok(((!null? lpo) && ((unwrap lpo).visible == false)) "morph: the leaving slide does not draw it twice")
+        ; on the stage, a quarter in: the block is drawn once, between
+        def f:EVGDisplayList (PresTimeline.frame(deck 1 0.5))
+        def n:int 0
+        def y:double 0.0
+        for f.cmds c:EVGDrawCmd ci {
+            if ((c.text == "The") && (c.a > 0.01)) {
+                n = (n + 1)
+                y = c.y
+            }
+            if ((c.text == "The total") && (c.a > 0.01)) {
+                n = (n + 1)
+                y = c.y
+            }
+        }
+        this.ok((n == 1) ("morph: the total drawn once mid-way, got " + (to_string n)))
+        def lo:double from.y
+        def hi:double to.y
+        if (hi < lo) {
+            lo = to.y
+            hi = from.y
+        }
+        this.ok(((y > (lo - 1.0)) && (y < (hi + to.h))) ("morph: between its places, y " + (to_string y)))
+        ; once over, the slide as it is
+        def end:EVGDisplayList (PresTimeline.frame(deck 1 5.0))
+        this.ok(((array_length end.cmds) > 3) "morph: the slide after it")
+    }
+
     fn scripts:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n"
             + "## Sales grow {script=apps/fx.tsx allow=\"slide.nav, deck.data\" export-frame=3.5s}\n\n"
@@ -5497,6 +5566,7 @@ class PresCheck {
         c.clips()
         c.plays()
         c.scripts()
+        c.morph()
         c.worlds()
         c.beats()
         c.jsonPatch()

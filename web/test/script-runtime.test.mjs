@@ -100,6 +100,28 @@ test("the final frame: final(), else the ticks run out", () => {
   assert.deepEqual(b.p["h2-1"], { color: "#ff0000" });
 });
 
+test("onEnter hears where the slide came from, onLeave where it goes", () => {
+  const app = openDeck();
+  const key = app.deck.scriptKeyOf(0);
+  const tree = JSON.parse(app.scriptTree(key));
+  const rt = runtime(`
+    var came = -1;
+    function onEnter(from) { came = from; find("h2").set({ opacity: 0.5 }); }
+    function onLeave(to) { find("h2").set({ x: to * 100 }); }
+  `);
+  const first = JSON.parse(rt.__scriptFrame(JSON.stringify({ tree, dt: 0, deck: { slide: 1, from: 3 }, events: [] })));
+  assert.equal(rt.came, 3);
+  assert.equal(first.p["h2-1"].opacity, 0.5);
+  assert.equal(first.leave, true, "the page asks for onLeave's frame");
+  const left = JSON.parse(rt.__scriptLeave(JSON.stringify({ deck: { slide: 2 }, to: 2 })));
+  assert.equal(left.p["h2-1"].x, 200);
+  // the editor draws it while the next slide arrives, until the script runs again
+  assert.ok(app.setScriptLeave(key, JSON.stringify(left)));
+  assert.equal(app.deck.scriptRuns[0].hasLeave, true);
+  assert.ok(app.setScriptFrame(key, JSON.stringify(first)));
+  assert.equal(app.deck.scriptRuns[0].hasLeave, false);
+});
+
 test("the frame laid over the slide moves what it names", () => {
   const app = openDeck();
   const key = app.deck.scriptKeyOf(0);

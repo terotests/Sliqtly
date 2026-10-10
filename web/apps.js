@@ -44,11 +44,13 @@ export function overBudget(over, ms, budget = BUDGET_MS) {
 /** A script's frame: what it set (passed on whole) and what it asked. */
 export function splitScriptFrame(out) {
   let asks = [];
+  let leave = false;
   try {
     const f = JSON.parse(out);
     if (f && Array.isArray(f.k)) asks = f.k;
+    leave = !!(f && f.leave);
   } catch (_) { /* the deck says it was no frame */ }
-  return { frame: out, asks };
+  return { frame: out, asks, leave };
 }
 
 function reducedMotion() {
@@ -90,7 +92,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   let skipKey = "";
 
   function newRun(key, script = false) {
-    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0 };
+    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false };
   }
 
   // Where each script ends, worked out one at a time in a worker of their
@@ -158,6 +160,8 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.waiting = false;
     r.over = 0;
     r.tree = "";
+    r.leaves = false;
+    r.leaving = false;
     if (r.script && app.endScriptLive) {
       app.endScriptLive(r.key, why || "");
       repaint();
@@ -214,6 +218,13 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       return;
     }
     let tree, asks;
+    // onLeave's frame: how the slide looks while the next one arrives
+    if (r.script && r.leaving) {
+      if (app.setScriptLeave) app.setScriptLeave(r.key, m.out);
+      stopRun(r, "");
+      repaint();
+      return;
+    }
     if (r.script) {
       const b = overBudget(r.over, m.ms || 0);
       r.over = b.over;
@@ -222,6 +233,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         return;
       }
       const f = splitScriptFrame(m.out);
+      r.leaves = f.leave;
       if (!app.setScriptFrame(r.key, f.frame)) {
         stopRun(r, t("its frame was not one a script gives"));
         return;
@@ -301,7 +313,21 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         // a script runs only while its slide is on the stage, from the start
         // each time it comes back
         if (!shown.has(p.key)) {
-          if (r.worker) stopRun(r, "");
+          // onLeave first, then it stops (reply)
+          if (r.leaving) {
+            if (now > r.deadline) stopRun(r, "");
+            continue;
+          }
+          if (r.worker && r.running && r.leaves && !r.waiting && app.setScriptLeave) {
+            const state = JSON.parse(app.playState(p.key));
+            r.leaving = true;
+            r.waiting = true;
+            r.deadline = now + LIMIT_MS;
+            r.worker.postMessage({ type: "frame", fn: "__scriptLeave", arg: JSON.stringify({ deck: state, to: state.slide || 0, env: { reducedMotion: reducedMotion() } }) });
+            continue;
+          }
+          if (r.worker && !r.waiting) stopRun(r, "");
+          else if (r.worker && now > r.deadline) stopRun(r, "");
           if (r.stopped && source !== r.source) r.stopped = "";
           continue;
         }

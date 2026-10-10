@@ -80,6 +80,9 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
   }
   // where each page was painted last, for the pointer
   const placed = new Map();
+  // the slide shown before this one (1-based, 0 for none): onEnter(from)
+  let seenPage = -1;
+  let cameFrom = 0;
   let focus = "";
   const notes = [];
   const said = new Set();
@@ -103,7 +106,7 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     playState: (key) => {
       const p = byKey.get(key);
       const step = p && p.script ? p.steps || 0 : 0;
-      return JSON.stringify({ home: p ? p.slide + 1 : 1, slide: current() + 1, slides: count(), step, mode: "present", focused: focus === key, data: {} });
+      return JSON.stringify({ home: p ? p.slide + 1 : 1, slide: current() + 1, slides: count(), step, from: cameFrom, mode: "present", focused: focus === key, data: {} });
     },
     // a slide's script (web/apps.js): the tree it is handed, its frames
     // laid over its slide, and back to the list at rest when it stops. Where
@@ -197,6 +200,10 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     // pictures as display lists in the slide's units
     listsFor(page, view) {
       placed.set(page, view);
+      if (page === current() && page !== seenPage) {
+        cameFrom = seenPage + 1;
+        seenPage = page;
+      }
       const out = [];
       for (const p of plays) if (p.slide === page) out.push(JSON.parse(web.paintJson(p.key)));
       return out;

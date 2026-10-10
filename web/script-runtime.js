@@ -17,8 +17,11 @@
 //   add("rect"|"circle"|"text"|"image", {x, y, w, h, text, size, src, …})
 //   env.reducedMotion, env.export
 //   input.keys, input.pointer {x, y, down, inside} (slide px)
-//   hooks: start() tick(dt) build(n) onKeyDown(key) onKeyUp(key)
-//          onClick(entity) final()
+//   hooks: start() onEnter(from) tick(dt) build(n) onKeyDown(key)
+//          onKeyUp(key) onClick(entity) onLeave(to) final()
+//   onEnter(from): the slide arrived from slide `from` (1-based, 0 for none),
+//   once before its first tick. onLeave(to): it is being left for slide
+//   `to`; what it sets is how the slide looks while the next one arrives.
 //
 // The selectors are PresSel's (src/PresScript.rgr): the same language, and
 // web/test/script-runtime.test.mjs runs both on one slide.
@@ -27,6 +30,7 @@
 // __scriptFinal(arg) -> the same, for where the script ends: final(), or its
 // ticks run to the end (`seconds`).
 // __scriptAt(arg) -> the same, `time` seconds in (no final()).
+// __scriptLeave(arg) -> the same, after onLeave(a.to).
 export const SCRIPT_RUNTIME = String.raw`
 var __ents = [];
 var __byId = {};
@@ -244,7 +248,7 @@ function __hook(name) {
 function __out() {
   var a = [];
   for (var i = 0; i < __adds.length; i++) a.push(__adds[i].rec);
-  return JSON.stringify({ p: __props, a: a, k: __asks, build: !!__hook("build"), click: !!__hook("onClick") });
+  return JSON.stringify({ p: __props, a: a, k: __asks, build: !!__hook("build"), click: !!__hook("onClick"), leave: !!__hook("onLeave") });
 }
 
 function __begin(a) {
@@ -260,7 +264,17 @@ function __begin(a) {
     __started = true;
     var start = __hook("start");
     if (start) start();
+    var enter = __hook("onEnter");
+    if (enter) enter((a.deck && a.deck.from) || 0);
   }
+}
+
+function __scriptLeave(arg) {
+  var a = JSON.parse(arg);
+  __begin(a);
+  var leave = __hook("onLeave");
+  if (leave) leave(a.to || 0);
+  return __out();
 }
 
 function __scriptFrame(arg) {

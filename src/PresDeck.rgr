@@ -20,7 +20,7 @@
 ;
 ; Attributes this reads (all optional):
 ;
-;   heading     {#id transition=fade|slide|zoom|none seconds=0.6
+;   heading     {#id transition=fade|slide|zoom|morph|none seconds=0.6
 ;                duration=8 fx=starfield fx-density=1.6}
 ;   any block   {.build}           reveal in steps (a list: one per item)
 ;               {anim=fade|rise|fly|zoom seconds=0.5}
@@ -1668,7 +1668,25 @@ class PresDeck {
         }
         r.live = f
         r.hasLive = true
+        r.hasLeave = false
         this.takeOwns(r f)
+        return true
+    }
+
+    ; What script `key`'s onLeave set as its slide was left: the slide on the
+    ; stage while the next one arrives (until the script runs again).
+    fn setScriptLeave:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.leave = f
+        r.hasLeave = true
         return true
     }
 
@@ -1908,6 +1926,10 @@ class PresDeck {
         if ((r.hasLive && showControls) && (still == false)) {
             def lv@(optional):PresScriptFrame r.live
             return lv
+        }
+        if ((r.hasLeave && showControls) && (still == false)) {
+            def lfv@(optional):PresScriptFrame r.leave
+            return lfv
         }
         if r.hasFinal {
             def fv@(optional):PresScriptFrame r.final

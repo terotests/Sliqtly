@@ -1816,6 +1816,10 @@ class PresScriptRun {
     ; drawn over the others while set
     def at:PresScriptFrame (new PresScriptFrame())
     def hasAt:boolean false
+    ; what onLeave set as the slide was left: how it looks on the stage
+    ; while the next slide arrives, until it runs again
+    def leave:PresScriptFrame (new PresScriptFrame())
+    def hasLeave:boolean false
     ; it has `build(n)` (the slide's steps are its own) and `onClick`
     def ownsBuild:boolean false
     def ownsClick:boolean false
