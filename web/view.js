@@ -12,7 +12,7 @@
 // growing, a diagram tour); surface effects (waves, rain) still run, as the
 // painter runs them.
 
-import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, imageChanged } from "./gl/evg-webgl.js";
 import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
@@ -133,6 +133,8 @@ let shownAt = 0;
 let raf = 0;
 // the programs on the slides (```app, web/viewplay.js), null when none
 let plays = null;
+// their 3-D worlds (allow: 3d, web/three3d.js), null when none may have one
+let worlds = null;
 // the slide seen closer by a pinch ({ x, y, scale }), or null: fitted
 let zoom = null;
 
@@ -198,6 +200,28 @@ function paint() {
   }
   // a surface effect moves: drawn again on the next frame
   if (moving) raf = requestAnimationFrame(paint);
+}
+
+// The slide shown as a small picture (its worlds left out), the room its
+// 3-D worlds stand in (web/three3d.js): an ImageData, null without one.
+let roomGl = null;
+const roomCanvas = document.createElement("canvas");
+function slidePicture(w, h) {
+  const list = lists[at];
+  if (!list) return null;
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const f = prepareDisplayList(roomGl, { width: deck.width, height: deck.height, list }, { dpr: Math.min(w / deck.width, h / deck.height), images: pictures });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
 }
 
 // --- a realistic book ------------------------------------------------------------
@@ -651,7 +675,20 @@ async function start() {
         plays: deck.plays, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
+        frame: () => {
+          if (worlds && gl && worlds.tick(1, gl, Math.min(window.devicePixelRatio || 1, 3))) repaint();
+        },
       });
+      if (deck.plays.some((p) => (p.allow || []).includes("3d"))) {
+        const { createThree3d } = await import("./three3d.js");
+        worlds = createThree3d({
+          app: { playScenesJson: () => plays.scenesJson(), selectedSlide: () => at },
+          pictures, imageChanged, slidePicture,
+          scale: () => (zoom ? zoom.scale : fitSlide(canvas.clientWidth, canvas.clientHeight, viewW(), deck.height).scale),
+          repaint,
+          toast: (line) => console.warn(line),
+        });
+      }
     } catch (e) {
       console.warn("programs on slides", e);
     }

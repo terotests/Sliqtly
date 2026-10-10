@@ -69,6 +69,17 @@ class PresPlayWeb {
         v.setCss(css)
     }
 
+    ; The fence allows `3d`: its <scene3d> elements are worlds the page
+    ; draws (web/three3d.js), named in `scenesJson`.
+    fn setAllow3d:void (key:string on:boolean) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return
+        }
+        def v:PresPlayView (itemAt views i)
+        v.allow3d = on
+    }
+
     ; A frame's tree (PresPlayView.setTree): false when it was none.
     fn setTree:boolean (key:string json:string) {
         def i:int (this.indexOf(key))
@@ -110,6 +121,18 @@ class PresPlayWeb {
             v.paintPlate(out (itemAt specs i) bx by bw bh)
         }
         return (out.toJson())
+    }
+
+    ; The worlds of the program's last frame where they are on the slide:
+    ; [{src, scene, x, y, w, h}] in slide units (PresPlayView.scenesIn).
+    fn scenesJson:string (key:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return "[]"
+        }
+        def v:PresPlayView (itemAt views i)
+        def got:JVal (v.scenesIn((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3))))
+        return (got.toJson())
     }
 
     ; Slide point (px, py) in the program's own units with the id under it,

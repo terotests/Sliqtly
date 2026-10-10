@@ -7,6 +7,9 @@
 // watchdog) and paints each one's picture, or its plate with why it is not
 // running, with PresPlayWeb (src/PresPlayWeb.rgr, web/dist-view/pres_play.js).
 //
+// A program with allow: 3d draws its <scene3d> worlds as the editor does
+// (web/three3d.js, pres_3d.js loaded the first time one is shown).
+//
 // What a program may ask of the deck: moving between slides (allow:
 // slide.nav). deck.set and el() change the deck's layout, which the viewer
 // does not have: they work in the editor and are said once in the console.
@@ -50,9 +53,10 @@ export function viewerAsks(play, asks) {
 /**
  * plays: the server's list; canvas: the viewer's; current() the slide shown,
  * count() how many; shownPages() the pages on screen; go(i) to a slide;
- * repaint() when a picture changed.
+ * repaint() when a picture changed; frame() once a frame after the
+ * programs' frames came in.
  */
-export async function startPlays({ plays, canvas, current, count, shownPages, go, repaint }) {
+export async function startPlays({ plays, canvas, current, count, shownPages, go, repaint, frame = () => {} }) {
   const stamp = new URL(import.meta.url).search;
   await loadScript(new URL("./pres_play.js" + stamp, import.meta.url).href);
   const web = new globalThis.PresPlayWeb();
@@ -61,6 +65,7 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
     const [x, y, w, h] = p.box;
     web.add(p.key, p.src, p.w, p.h, x, y, w, h);
     web.setCss(p.key, p.cssText || "");
+    web.setAllow3d(p.key, (p.allow || []).includes("3d"));
     byKey.set(p.key, p);
   }
   // where each page was painted last, for the pointer
@@ -123,6 +128,7 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
   const apps = createApps({ app, repaint, toast: (line) => console.warn(line) });
   const loop = () => {
     apps.tick(1);
+    frame();
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
@@ -140,6 +146,14 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
   window.addEventListener("pointerup", () => apps.pointerUp());
 
   return {
+    // the worlds the programs on the pages shown drew in their last frames:
+    // [{src, scene, x, y, w, h}] in their slide's units
+    scenesJson() {
+      const pages = shownPages();
+      const out = [];
+      for (const p of plays) if (pages.includes(p.slide)) out.push(...JSON.parse(web.scenesJson(p.key)));
+      return JSON.stringify(out);
+    },
     // page painted at {x, y, scale} (CSS px of the canvas): its programs'
     // pictures as display lists in the slide's units
     listsFor(page, view) {

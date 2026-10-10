@@ -1008,7 +1008,8 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
 - `render_slide`, PDF, PPTX and Word show a plate with the program's name
   in the box (the editor's thumbnails and exports show its last picture).
   A program that does not start shows why on its plate.
-- In the public viewer `slide.nav` works; `deck.set` and `el()` change the
+- The public viewer and the preview run programs and draw their
+  `<scene3d>` worlds. There `slide.nav` works; `deck.set` and `el()` change the
   slides, which the viewer shows as saved: they work in the editor.
 - The result of create/update runs each program's first frames and says
   why one does not run (`apps/x.tsx does not run: SyntaxError: … (line

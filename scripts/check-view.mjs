@@ -41,6 +41,16 @@ const slides = JSON.parse(deck).deck.slides;
 // stylesheet as the server sends them (mcp-go/view_test.go TestViewPlays)
 const APP_ID = "AppFixture1";
 const appDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app.json"));
+// the same slide with a 3-D world (allow: 3d): a red box over the field
+const WORLD_ID = "WorldFixture1";
+const worldDeck = (() => {
+  const d = JSON.parse(appDeck);
+  const p = d.deck.plays[0];
+  p.allow = ["3d"];
+  p.text = "function view() {\n  return (\n    <div className=\"field\">\n      <scene3d className=\"world\">\n        <mesh shape=\"box\" size={2.4} color=\"#ff2020\" rx={20} ry={30} />\n      </scene3d>\n    </div>\n  );\n}\n";
+  p.cssText += ".world { position: absolute; left: 0px; top: 0px; width: 320px; height: 180px; }\n";
+  return JSON.stringify(d);
+})();
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -60,9 +70,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const found = rel === "/api/view/" + ID || rel === "/api/view/" + APP_ID;
-    res.writeHead(found ? 200 : 404, { "content-type": "application/json" });
-    res.end(found ? (rel.endsWith(APP_ID) ? appDeck : deck) : '{"error":"This shared presentation was not found."}');
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck };
+    const got = answers[rel.slice("/api/view/".length)];
+    res.writeHead(got ? 200 : 404, { "content-type": "application/json" });
+    res.end(got || '{"error":"This shared presentation was not found."}');
     return;
   }
   // Hosting's Firebase config (viewauth.js): not here, as where sign-in is off
@@ -177,6 +188,27 @@ try {
   await page.keyboard.press("n");
   await page.waitForFunction(() => document.getElementById("vCount").textContent === "2 / 2", null, { timeout: 5000 })
     .catch(() => fail("the program's slide.next() did not go to slide 2"));
+  await page.close();
+
+  // a program's 3-D world (allow: 3d) is drawn in the viewer as in the
+  // editor: the red box over the green field
+  page = await open("/s/" + WORLD_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  const red = () => page.evaluate(() => {
+    const c = document.getElementById("c");
+    const g = document.createElement("canvas");
+    g.width = 128;
+    g.height = 72;
+    const x = g.getContext("2d");
+    x.drawImage(c, 0, 0, 128, 72);
+    const d = x.getImageData(0, 0, 128, 72).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 80 && d[i] > d[i + 1] * 2 && d[i] > d[i + 2] * 2) n++;
+    return n;
+  });
+  let redAt = 0;
+  for (let i = 0; i < 60 && !(redAt = await red()); i++) await page.waitForTimeout(250);
+  if (!redAt) fail("the program's 3-D world was not drawn in the viewer");
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other

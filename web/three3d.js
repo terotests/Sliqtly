@@ -24,7 +24,17 @@ const MAX_SIDE = 1024;
 const ROOM_W = 96;
 const ROOM_H = 54;
 
-export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast, build = "" }) {
+// The engine sits beside this module and carries its build stamp (the
+// editor's web/dist, the viewer's web/dist-view).
+const ENGINE = new URL("./pres_3d.js" + new URL(import.meta.url).search, import.meta.url).href;
+
+/**
+ * app: playScenesJson() the worlds shown, selectedSlide() the slide they
+ * stand on; pictures: src -> picture the painter draws; imageChanged(gl,
+ * src) when one is drawn again; slidePicture(w, h) the slide as an
+ * ImageData; scale() slide units to CSS px; repaint(); toast(line).
+ */
+export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast }) {
   let loading = null;
   let p3 = null;
   let failed = "";
@@ -37,7 +47,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     if (!loading) {
       loading = new Promise((ok, bad) => {
         const s = document.createElement("script");
-        s.src = "./pres_3d.js" + (build ? "?v=" + build : "");
+        s.src = ENGINE;
         s.onload = () => ok(globalThis.Pres3D);
         s.onerror = () => bad(new Error("pres_3d.js did not load"));
         document.head.appendChild(s);

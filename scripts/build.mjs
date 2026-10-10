@@ -18,6 +18,15 @@ import { stampImports, unstampedImports } from "./stamp.mjs";
 // (pres_app.js 8.2 MB → 4.9 MB, 1.7 MB → 1.4 MB gzipped): every visit
 // downloads them. Names are kept, which the compiled classes may read.
 // Without it the bundles go out as compiled.
+// 3-D worlds on slides (src/Pres3D.rgr): the editor's build and the
+// viewer's (scripts/build-view.mjs) both ship it beside web/three3d.js.
+export function buildThree(ranger, out) {
+  compile(ranger, "Pres3D.rgr", out);
+  fs.writeFileSync(out, "// loaded on demand by three3d.js: 3-D worlds on slides.\n"
+    + "(function () {\n" + fs.readFileSync(out, "utf8") + "\n;globalThis.Pres3D = Pres3D;\n})();\n");
+  minify(out);
+}
+
 export function minify(file) {
   let esbuild;
   try { esbuild = createRequire(import.meta.url)("esbuild"); } catch (_) { return; }
@@ -96,9 +105,7 @@ export function build({ ranger } = {}) {
   // gallery/game_engine/three): loaded by web/three3d.js when a program on
   // the shown slide draws a <scene3d>.
   const threeJs = path.join(distDir, "pres_3d.js");
-  compile(ranger, "Pres3D.rgr", threeJs);
-  fs.writeFileSync(threeJs, "// loaded on demand by three3d.js: 3-D worlds on slides.\n"
-    + "(function () {\n" + fs.readFileSync(threeJs, "utf8") + "\n;globalThis.Pres3D = Pres3D;\n})();\n");
+  buildThree(ranger, threeJs);
   // The deck's music heard (src/PresBeat.rgr): bars, beats and tempo for
   // the beat effects (web/music.js, web/beatfx.js). Small, loaded with the
   // page.
@@ -110,7 +117,6 @@ export function build({ ranger } = {}) {
   minify(beatJs);
   minify(dataJs);
   minify(traceJs);
-  minify(threeJs);
 
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
