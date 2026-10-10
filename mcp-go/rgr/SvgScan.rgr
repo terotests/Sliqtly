@@ -1,0 +1,200 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; An SVG's tags, read from its text the one way SvgCheck (what the player
+; will make of it) and SvgFix (what is changed before it is kept) both
+; read them: comments, CDATA, <?…?> and <!…> passed over, every start and
+; end tag with where it is, a start tag's attributes as written. Reading
+; stops at a tag that is never closed.
+
+class SvgScanTag {
+    ; as written ("image", "svg:image") and without its prefix
+    def name:string ""
+    def local:string ""
+    ; an end tag (</style>): name only
+    def isEnd:boolean false
+    ; where its "<" is, just after its name, and just after its ">"
+    def start:int 0
+    def nameEnd:int 0
+    def end:int 0
+    def attrs:[string]
+    def vals:[string]
+
+    fn has:boolean (a:string) {
+        return ((indexOf attrs a) >= 0)
+    }
+
+    fn value:string (a:string) {
+        def k:int (indexOf attrs a)
+        if (k < 0) {
+            return ""
+        }
+        return (itemAt vals k)
+    }
+
+    ; <style/>, written as one tag
+    fn selfClosed:boolean (text:string) {
+        return ((end >= 2) && ((charAt text (end - 2)) == 47))
+    }
+}
+
+class SvgScan {
+
+    sfn isNameChar:boolean (c:int) {
+        if ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57))) {
+            return true
+        }
+        return ((((c == 45) || (c == 95)) || (c == 58)) || (c == 46))
+    }
+
+    ; where key is in s at or after from; -1 when it is not
+    sfn find:int (s:string key:string from:int) {
+        def at:int (indexOf (substring s from (strlen s)) key)
+        if (at < 0) {
+            return -1
+        }
+        return (from + at)
+    }
+
+    sfn startsAt:boolean (s:string key:string from:int) {
+        def e:int (from + (strlen key))
+        if (e > (strlen s)) {
+            return false
+        }
+        return ((substring s from e) == key)
+    }
+
+    sfn isSpace:boolean (c:int) {
+        return ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13))
+    }
+
+    ; the start and end tags, in order
+    sfn tags:[SvgScanTag] (text:string) {
+        def out:[SvgScanTag]
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def lt:int (SvgScan.find(text "<" i))
+            if (lt < 0) {
+                break
+            }
+            if (SvgScan.startsAt(text "<!--" lt)) {
+                def ce:int (SvgScan.find(text "-->" (lt + 4)))
+                if (ce < 0) {
+                    break
+                }
+                i = (ce + 3)
+                continue
+            }
+            if (SvgScan.startsAt(text "<![CDATA[" lt)) {
+                def de:int (SvgScan.find(text "]]>" (lt + 9)))
+                if (de < 0) {
+                    break
+                }
+                i = (de + 3)
+                continue
+            }
+            def c1:int 0
+            if ((lt + 1) < n) {
+                c1 = (charAt text (lt + 1))
+            }
+            ; <?xml …?>, <!DOCTYPE …>
+            if ((c1 == 63) || (c1 == 33)) {
+                def ge:int (SvgScan.find(text ">" lt))
+                if (ge < 0) {
+                    break
+                }
+                i = (ge + 1)
+                continue
+            }
+            ; an end tag
+            if (c1 == 47) {
+                def ge2:int (SvgScan.find(text ">" lt))
+                if (ge2 < 0) {
+                    break
+                }
+                def e (new SvgScanTag)
+                e.isEnd = true
+                e.name = (trim (substring text (lt + 2) ge2))
+                e.local = e.name
+                e.start = lt
+                e.nameEnd = ge2
+                e.end = (ge2 + 1)
+                push out e
+                i = (ge2 + 1)
+                continue
+            }
+            ; a start tag: its name, then its attributes to the >
+            def p:int (lt + 1)
+            while ((p < n) && (SvgScan.isNameChar((charAt text p)))) {
+                p = (p + 1)
+            }
+            def t (new SvgScanTag)
+            t.name = (substring text (lt + 1) p)
+            t.start = lt
+            t.nameEnd = p
+            if ((strlen t.name) == 0) {
+                i = (lt + 1)
+                continue
+            }
+            t.local = t.name
+            def colon:int (indexOf t.name ":")
+            if (colon >= 0) {
+                t.local = (substring t.name (colon + 1) (strlen t.name))
+            }
+            def closed:boolean false
+            while (p < n) {
+                def c:int (charAt text p)
+                if (c == 62) {
+                    p = (p + 1)
+                    closed = true
+                    break
+                }
+                if (SvgScan.isNameChar(c)) {
+                    def an:int p
+                    while ((p < n) && (SvgScan.isNameChar((charAt text p)))) {
+                        p = (p + 1)
+                    }
+                    def aname:string (substring text an p)
+                    while ((p < n) && (SvgScan.isSpace((charAt text p)))) {
+                        p = (p + 1)
+                    }
+                    def val:string ""
+                    if ((p < n) && ((charAt text p) == 61)) {
+                        p = (p + 1)
+                        while ((p < n) && (SvgScan.isSpace((charAt text p)))) {
+                            p = (p + 1)
+                        }
+                        if (p < n) {
+                            def q:int (charAt text p)
+                            if ((q == 34) || (q == 39)) {
+                                def qe:int (SvgScan.find(text (substring text p (p + 1)) (p + 1)))
+                                if (qe < 0) {
+                                    qe = n
+                                }
+                                val = (substring text (p + 1) qe)
+                                p = (qe + 1)
+                            } {
+                                def vs:int p
+                                while (((p < n) && ((SvgScan.isSpace((charAt text p))) == false)) && ((charAt text p) != 62)) {
+                                    p = (p + 1)
+                                }
+                                val = (substring text vs p)
+                            }
+                        }
+                    }
+                    push t.attrs aname
+                    push t.vals val
+                    continue
+                }
+                p = (p + 1)
+            }
+            if (closed == false) {
+                break
+            }
+            t.end = p
+            push out t
+            i = p
+        }
+        return out
+    }
+}

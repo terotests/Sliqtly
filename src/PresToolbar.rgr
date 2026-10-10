@@ -20,6 +20,7 @@
 ; ============================================================================
 
 Import "../evgui/src/UiHost.rgr"
+Import "UiKit.rgr"
 Import "PresI18n.rgr"
 Import "../evgui/src/UiText.rgr"
 Import "../evgui/src/UiShapes.rgr"
@@ -218,24 +219,6 @@ class PresToolbar {
     }
 
     ; --- building ---------------------------------------------------------------
-    fn text:EVGElement (cls:string words:string) {
-        def s (EVGElement.createSpan())
-        s.className = cls
-        s.textContent = words
-        return s
-    }
-
-    fn div:EVGElement (cls:string) {
-        def d (EVGElement.createDiv())
-        d.className = cls
-        return d
-    }
-
-    fn put:void (c:UiCtl parent:EVGElement) {
-        push host.ctls c
-        parent.addChild((unwrap c.rootEl))
-    }
-
     fn button:ButtonCtl (id:string name:string variant:string parent:EVGElement) {
         return (this.iconButton(id name variant "" parent))
     }
@@ -272,17 +255,15 @@ class PresToolbar {
         if ((indexOf id "dr-") == 0) {
             UiTree.addClass(r "tb-drb")
         }
-        if (((variant == "primary") || (variant == "accent")) && ((r.getChildCount()) > 0)) {
-            UiTree.addClass((r.getChild(0)) "tb-onprimary")
+        if ((variant == "primary") || (variant == "accent")) {
+            UiKit.labelClass(c "tb-onprimary")
         }
         ; on the terracotta frame: drawn light on its colour (.tb-fb-*)
         if onFrame {
             UiTree.addClass(r ("tb-fb tb-fb-" + variant))
-            if ((r.getChildCount()) > 0) {
-                UiTree.addClass((r.getChild(0)) ("tb-fb-label tb-fb-label-" + variant))
-            }
+            UiKit.labelClass(c ("tb-fb-label tb-fb-label-" + variant))
         }
-        this.put(c parent)
+        UiKit.put(host c parent)
         return c
     }
 
@@ -317,7 +298,7 @@ class PresToolbar {
         if ((sr.getChildCount()) > 0) {
             UiTree.addClass((sr.getChild(0)) ("tb-trig-" + id))
         }
-        this.put(c parent)
+        UiKit.put(host c parent)
         return c
     }
 
@@ -813,7 +794,7 @@ class PresToolbar {
         r.setAttribute("left" ((EVGDisplayList.num(ctxX)) + "px"))
         r.setAttribute("top" ((EVGDisplayList.num(ctxY)) + "px"))
         push menus cm
-        this.put(cm root)
+        UiKit.put(host cm root)
     }
 
     ; A presentation's rows (Rooms, a deck tab): Open (not the open one),
@@ -1105,7 +1086,7 @@ class PresToolbar {
     }
 
     fn frameUnder:EVGElement (x:double y:double fw:double fh:double) {
-        def el:EVGElement (this.div("tb-frameunder"))
+        def el:EVGElement (UiKit.div("tb-frameunder"))
         el.a11yHidden = true
         el.setAttribute("position" "absolute")
         el.setAttribute("left" ((EVGDisplayList.num(x)) + "px"))
@@ -1116,13 +1097,13 @@ class PresToolbar {
     }
 
     fn buildRail:void (root:EVGElement) {
-        def col:EVGElement (this.div("tb-railcol"))
+        def col:EVGElement (UiKit.div("tb-railcol"))
         col.addChild((this.logoEl()))
         def r:RailCtl (this.railCtl((? (this.terracotta()) "frame" "")))
         ; the column's height under the mark: the bottom places at its foot
         def re:EVGElement (unwrap r.rootEl)
         re.setAttribute("height" ((EVGDisplayList.num((h - 66.0))) + "px"))
-        this.put(r col)
+        UiKit.put(host r col)
         root.addChild(col)
     }
 
@@ -1136,8 +1117,8 @@ class PresToolbar {
             UiTree.addClass((dre.getChild(g)) "tb-drawer-group")
             g = (g + 1)
         }
-        this.put(r body)
-        body.addChild((this.div("tb-dr-sep")))
+        UiKit.put(host r body)
+        body.addChild((UiKit.div("tb-dr-sep")))
     }
 
     ; The name's button is always this wide, so the menus after it stay put
@@ -1212,11 +1193,11 @@ class PresToolbar {
             UiTree.addClass(lb "tb-room-name")
         }
         if unread {
-            rel.addChild((this.div("tb-room-dot")))
+            rel.addChild((UiKit.div("tb-room-dot")))
         }
-        rel.addChild((this.div("tb-grow")))
+        rel.addChild((UiKit.div("tb-grow")))
         if ((strlen count) > 0) {
-            rel.addChild((this.text("tb-room-count" count)))
+            rel.addChild((UiKit.words("tb-room-count" count)))
         }
         ; a new presentation straight into the room
         if (id != "onboarding") {
@@ -1244,7 +1225,7 @@ class PresToolbar {
             UiTree.addClass((el.getChild(0)) "tb-roomdeck-label")
         }
         ; the name at the start, as the room's own row has it
-        el.addChild((this.div("tb-grow")))
+        el.addChild((UiKit.div("tb-grow")))
         if current {
             UiTree.addClass(el "tb-roomdeck-current")
             if ((el.getChildCount()) > 0) {
@@ -1280,7 +1261,7 @@ class PresToolbar {
         c.build()
         def el:EVGElement (unwrap c.rootEl)
         UiTree.addClass(el "tb-button")
-        this.put(c body)
+        UiKit.put(host c body)
         UiTree.addClass(el "tb-roomdeck")
         UiTree.addClass(el "tb-roomfolder")
         if ((el.getChildCount()) > 1) {
@@ -1289,9 +1270,9 @@ class PresToolbar {
         if (dragOn && (id == dropFolder)) {
             UiTree.addClass(el "tb-room-drop")
         }
-        el.addChild((this.div("tb-grow")))
+        el.addChild((UiKit.div("tb-grow")))
         if ((strlen count) > 0) {
-            el.addChild((this.text("tb-room-count" count)))
+            el.addChild((UiKit.words("tb-room-count" count)))
         }
         def gear:ButtonCtl (this.iconButton(("roomfolder-" + id) (PresI18n.t("Folder settings")) "ghost" (PresToolbar.railIcon("gear")) el))
         UiTree.addClass((unwrap gear.rootEl) "tb-roomgear")
@@ -1326,13 +1307,13 @@ class PresToolbar {
     }
 
     fn buildRooms:void (root:EVGElement) {
-        def pane:EVGElement (this.div("tb-rooms"))
-        def head:EVGElement (this.div("tb-rooms-head"))
+        def pane:EVGElement (UiKit.div("tb-rooms"))
+        def head:EVGElement (UiKit.div("tb-rooms-head"))
         ; "‹" before the heading folds the panel away, on every screen
         def close:ButtonCtl (this.iconButton("room-close" (PresI18n.t("Close")) "ghost" "M15 5l-7 7 7 7" head))
         UiTree.addClass((unwrap close.rootEl) "tb-rooms-close")
-        head.addChild((this.text("tb-rooms-title" (PresI18n.t("Rooms")))))
-        head.addChild((this.div("tb-grow")))
+        head.addChild((UiKit.words("tb-rooms-title" (PresI18n.t("Rooms")))))
+        head.addChild((UiKit.div("tb-grow")))
         def add:ButtonCtl (this.iconButton("room-new" (PresI18n.t("New room")) "ghost" "M12 5v14M5 12h14" head))
         UiTree.addClass((unwrap add.rootEl) "tb-rooms-add")
         pane.addChild(head)
@@ -1347,7 +1328,7 @@ class PresToolbar {
             c.boxClass = "tb-roomname-box"
             c.focused = true
             c.build()
-            this.put(c pane)
+            UiKit.put(host c pane)
         }
         if ((fieldOn == false) && ((strlen roomSearchLabel) > 0)) {
             def sb:ButtonCtl (this.button("roomsearch" roomSearchLabel "ghost" pane))
@@ -1356,7 +1337,7 @@ class PresToolbar {
             if ((sel.getChildCount()) > 0) {
                 UiTree.addClass((sel.getChild(0)) "tb-roomsearch-label")
             }
-            sel.addChild((this.div("tb-grow")))
+            sel.addChild((UiKit.div("tb-grow")))
         }
         this.liveRooms(pane)
         if fieldOn {
@@ -1376,8 +1357,8 @@ class PresToolbar {
             def parts:[string] (strsplit line (strfromcode 9))
             if ((array_length parts) >= 2) {
                 if (head == false) {
-                    pane.addChild((this.div("tb-rooms-sep")))
-                    pane.addChild((this.text("tb-found-head" (PresI18n.t("Presentations")))))
+                    pane.addChild((UiKit.div("tb-rooms-sep")))
+                    pane.addChild((UiKit.words("tb-found-head" (PresI18n.t("Presentations")))))
                     head = true
                 }
                 def id:string (itemAt parts 0)
@@ -1388,7 +1369,7 @@ class PresToolbar {
                     UiTree.addClass((el.getChild(0)) "tb-found-name")
                 }
                 if (((array_length parts) >= 3) && ((strlen (itemAt parts 2)) > 0)) {
-                    el.addChild((this.text("tb-found-room" (UiText.fit((this.engine()) ("# " + (itemAt parts 2)) "Open Sans" 11.0 w)))))
+                    el.addChild((UiKit.words("tb-found-room" (UiText.fit((this.engine()) ("# " + (itemAt parts 2)) "Open Sans" 11.0 w)))))
                 }
                 if (((array_length parts) >= 4) && ((strlen (itemAt parts 3)) > 0)) {
                     ; two lines at most, the second cut with "…"
@@ -1399,7 +1380,7 @@ class PresToolbar {
                         if ((k == 1) && ((array_length wrapped) > 2)) {
                             words = (UiText.fit((this.engine()) (words + " " + (itemAt wrapped 2)) "Open Sans" 11.0 w))
                         }
-                        el.addChild((this.text("tb-found-text" words)))
+                        el.addChild((UiKit.words("tb-found-text" words)))
                         k = (k + 1)
                     }
                 }
@@ -1409,9 +1390,9 @@ class PresToolbar {
 
     ; The presentation being dragged, drawn at the pointer.
     fn dragChip:void (root:EVGElement) {
-        def chip:EVGElement (this.div("tb-dragchip"))
+        def chip:EVGElement (UiKit.div("tb-dragchip"))
         def label:string (UiText.fit((this.engine()) dragName "Open Sans" 13.0 200.0))
-        chip.addChild((this.text("tb-dragchip-label" label)))
+        chip.addChild((UiKit.words("tb-dragchip-label" label)))
         ; as wide as its name (an absolute box takes the row's width else)
         def cw:double ((UiText.widthOf((this.engine()) label "Open Sans" 13.0)) + 24.0)
         chip.setAttribute("width" ((EVGDisplayList.num(cw)) + "px"))
@@ -1571,7 +1552,7 @@ class PresToolbar {
                 }
                 if (PresToolbar.builtInRoom(id)) {
                     if madeAbove {
-                        pane.addChild((this.div("tb-rooms-sep")))
+                        pane.addChild((UiKit.div("tb-rooms-sep")))
                         madeAbove = false
                     }
                 } {
@@ -1580,9 +1561,9 @@ class PresToolbar {
                 this.roomRow(pane id (itemAt parts 1) count unread)
                 if (id == roomOpen) {
                     ; the room's presentations hang from a thin line under its "#"
-                    def nest:EVGElement (this.div("tb-roomdecks"))
-                    nest.addChild((this.div("tb-roomdecks-line")))
-                    def list:EVGElement (this.div("tb-roomdecks-list"))
+                    def nest:EVGElement (UiKit.div("tb-roomdecks"))
+                    nest.addChild((UiKit.div("tb-roomdecks-line")))
+                    def list:EVGElement (UiKit.div("tb-roomdecks-list"))
                     nest.addChild(list)
                     def ds:[string] (strsplit roomDecks (strfromcode 10))
                     def k:int 0
@@ -1640,7 +1621,7 @@ class PresToolbar {
     fn titlePart:void (bar:EVGElement) {
         ; a slot of fixed width holds the button or the field, so neither the
         ; name nor editing it moves the menus after it
-        def slot:EVGElement (this.div("tb-title-slot"))
+        def slot:EVGElement (UiKit.div("tb-title-slot"))
         slot.setAttribute("width" ((EVGDisplayList.num((this.titleW()))) + "px"))
         bar.addChild(slot)
         if (titleEditing && (editFor == "title")) {
@@ -1651,7 +1632,7 @@ class PresToolbar {
             c.boxClass = "tb-title-box"
             c.focused = true
             c.build()
-            this.put(c slot)
+            UiKit.put(host c slot)
             return
         }
         def words:string docTitle
@@ -1845,7 +1826,7 @@ class PresToolbar {
                 root.addChild((this.frameUnder(0.0 0.0 (railW + 1.0) h)))
             }
         }
-        def bar:EVGElement (this.div("tb-bar"))
+        def bar:EVGElement (UiKit.div("tb-bar"))
         onFrame = (this.terracotta())
         def play:string (PresI18n.t("▶ Play"))
         if playing {
@@ -1855,12 +1836,12 @@ class PresToolbar {
         if small {
             this.button("menu" "☰" "ghost" bar)
             this.titlePart(bar)
-            bar.addChild((this.div("tb-grow")))
+            bar.addChild((UiKit.div("tb-grow")))
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.extraButtons(bar)
         } {
             ; room for the rail, which runs the window's height beside the bar
-            def pad:EVGElement (this.div("tb-railpad"))
+            def pad:EVGElement (UiKit.div("tb-railpad"))
             pad.setAttribute("width" ((EVGDisplayList.num(railW)) + "px"))
             pad.setAttribute("min-width" ((EVGDisplayList.num(railW)) + "px"))
             bar.addChild(pad)
@@ -1949,15 +1930,15 @@ class PresToolbar {
                     m.openPath = keepPath
                 }
                 m.build()
-                this.put(m bar)
+                UiKit.put(host m bar)
                 k = (k + 1)
             }
-            bar.addChild((this.div("tb-sep")))
+            bar.addChild((UiKit.div("tb-sep")))
             this.button("play" play "outline" bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.button("share" (PresI18n.t("Share")) "secondary" bar)
-            bar.addChild((this.div("tb-grow")))
-            bar.addChild((this.text("tb-status" status)))
+            bar.addChild((UiKit.div("tb-grow")))
+            bar.addChild((UiKit.words("tb-status" status)))
             this.extraButtons(bar)
             if ((strlen langRows) > 0) {
                 langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue bar))
@@ -2041,24 +2022,24 @@ class PresToolbar {
             this.drawerRail(body)
             this.button("dr-play" play "ghost" body)
             this.button("dr-share" (PresI18n.t("Share")) "ghost" body)
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("File")))))
+            body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("File")))))
             this.button("dr-new" (PresI18n.t("New presentation")) "ghost" body)
             this.button("dr-newSheet" (PresI18n.t("New datasheet")) "ghost" body)
             this.button("dr-rename" (PresI18n.t("Rename…")) "ghost" body)
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((UiKit.div("tb-dr-sep")))
             def del:ButtonCtl (this.button("dr-deleteDeck" (PresI18n.t("Delete presentation…")) "ghost" body))
             def delEl:EVGElement (unwrap del.rootEl)
             if ((delEl.getChildCount()) > 0) {
                 UiTree.addClass((delEl.getChild(0)) "tb-danger")
             }
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-slideNew" (PresI18n.t("New slide")) "ghost" body)
             this.button("dr-slideDuplicate" (PresI18n.t("Duplicate slide")) "ghost" body)
             this.button("dr-slideDelete" (PresI18n.t("Delete slide")) "ghost" body)
@@ -2070,14 +2051,14 @@ class PresToolbar {
                 otherName = (PresI18n.t("Landscape"))
             }
             this.button(("dr-" + otherWay) (((PresI18n.t("Orientation")) + ": ") + otherName) "ghost" body)
-            body.addChild((this.div("tb-dr-sep")))
+            body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-themes" (PresI18n.t("Theme…")) "ghost" body)
             this.button("dr-css" (PresI18n.t("Edit theme CSS…")) "ghost" body)
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Clipboard")))))
+            body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Clipboard")))))
             this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
             this.button("dr-cp-mdc" (PresI18n.t("Markdown + comments")) "ghost" body)
             this.button("dr-cp-comments" (PresI18n.t("Open comments")) "ghost" body)
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Export")))))
+            body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Export")))))
             this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
             this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
             this.button("dr-docx" (PresI18n.t("Word (.docx)")) "ghost" body)
@@ -2085,18 +2066,18 @@ class PresToolbar {
             this.button("dr-player" (PresI18n.t("Presentation player (.html)")) "ghost" body)
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Record")))))
+            body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Record")))))
             this.button("dr-rec-start" (PresI18n.t("● Record presentation")) "ghost" body)
             if hasRec {
                 this.button("dr-rec-play" (PresI18n.t("▶ Play recording")) "ghost" body)
                 this.button("dr-rec-edit" (PresI18n.t("✂ Edit recording…")) "ghost" body)
             }
-            body.addChild((this.text("tb-dr-label" (PresI18n.t("Help")))))
+            body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Help")))))
             this.button("dr-helpGuide" (PresI18n.t("How to use Sliqtly")) "ghost" body)
             this.button("dr-helpBtn" (PresI18n.t("Help for this slide")) "ghost" body)
             this.button("dr-about" (PresI18n.t("About")) "ghost" body)
             if ((strlen langRows) > 0) {
-                body.addChild((this.text("tb-dr-label" (PresI18n.t("Language")))))
+                body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Language")))))
                 langSel = (this.select("lang" (PresI18n.t("Language")) langRows langValue body))
             }
         }

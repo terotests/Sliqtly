@@ -12,6 +12,8 @@
 ; the text and knows nothing of decks; Tools.rgr gives it each SVG picture
 ; and whether it is a slide background; svgcheck_test.go tests it.
 
+Import "SvgScan.rgr"
+
 class SvgFacts {
     ; there is an <svg> root
     def isSvg:boolean false
@@ -49,34 +51,6 @@ class SvgOut {
 }
 
 class SvgCheck {
-
-    sfn isNameChar:boolean (c:int) {
-        if ((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57))) {
-            return true
-        }
-        return ((((c == 45) || (c == 95)) || (c == 58)) || (c == 46))
-    }
-
-    ; where key is in s at or after from; -1 when it is not
-    sfn find:int (s:string key:string from:int) {
-        def at:int (indexOf (substring s from (strlen s)) key)
-        if (at < 0) {
-            return -1
-        }
-        return (from + at)
-    }
-
-    sfn startsAt:boolean (s:string key:string from:int) {
-        def e:int (from + (strlen key))
-        if (e > (strlen s)) {
-            return false
-        }
-        return ((substring s from e) == key)
-    }
-
-    sfn isSpace:boolean (c:int) {
-        return ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13))
-    }
 
     sfn addOnce:void (list:[string] s:string) {
         if ((indexOf list s) < 0) {
@@ -179,16 +153,16 @@ class SvgCheck {
             if (at < 0) {
                 return
             }
-            def colon:int (SvgCheck.find(rest ":" at))
+            def colon:int (SvgScan.find(rest ":" at))
             if (colon < 0) {
                 return
             }
             def end:int (strlen rest)
-            def semi:int (SvgCheck.find(rest ";" colon))
+            def semi:int (SvgScan.find(rest ";" colon))
             if ((semi >= 0) && (semi < end)) {
                 end = semi
             }
-            def brace:int (SvgCheck.find(rest "}" colon))
+            def brace:int (SvgScan.find(rest "}" colon))
             if ((brace >= 0) && (brace < end)) {
                 end = brace
             }
@@ -210,7 +184,7 @@ class SvgCheck {
             if (at < 0) {
                 break
             }
-            def close:int (SvgCheck.find(rest ")" at))
+            def close:int (SvgScan.find(rest ")" at))
             if (close < 0) {
                 break
             }
@@ -256,145 +230,32 @@ class SvgCheck {
 
     sfn read:SvgFacts (text:string) {
         def f (new SvgFacts)
-        def n:int (strlen text)
-        def i:int 0
         def root:boolean true
         def inStyle:boolean false
         def styleFrom:int 0
-        while (i < n) {
-            def lt:int (SvgCheck.find(text "<" i))
-            if (lt < 0) {
-                break
-            }
-            if (SvgCheck.startsAt(text "<!--" lt)) {
-                def ce:int (SvgCheck.find(text "-->" (lt + 4)))
-                if (ce < 0) {
-                    break
-                }
-                i = (ce + 3)
-                continue
-            }
-            if (SvgCheck.startsAt(text "<![CDATA[" lt)) {
-                def de:int (SvgCheck.find(text "]]>" (lt + 9)))
-                if (de < 0) {
-                    break
-                }
-                i = (de + 3)
-                continue
-            }
-            def c1:int 0
-            if ((lt + 1) < n) {
-                c1 = (charAt text (lt + 1))
-            }
-            ; <?xml …?>, <!DOCTYPE …>
-            if ((c1 == 63) || (c1 == 33)) {
-                def ge:int (SvgCheck.find(text ">" lt))
-                if (ge < 0) {
-                    break
-                }
-                i = (ge + 1)
-                continue
-            }
-            ; an end tag
-            if (c1 == 47) {
-                def ge2:int (SvgCheck.find(text ">" lt))
-                if (ge2 < 0) {
-                    break
-                }
-                def endName:string (trim (substring text (lt + 2) ge2))
-                if (inStyle && ((endName == "style") || (endName == "svg:style"))) {
-                    def css:string (substring text styleFrom lt)
+        for (SvgScan.tags(text)) t:SvgScanTag k {
+            if t.isEnd {
+                if (inStyle && ((t.name == "style") || (t.name == "svg:style"))) {
+                    def css:string (substring text styleFrom t.start)
                     SvgCheck.stylesFonts(f css)
                     SvgCheck.styleRefs(f css)
                     inStyle = false
                 }
-                i = (ge2 + 1)
                 continue
-            }
-            ; a start tag: its name, then its attributes to the >
-            def p:int (lt + 1)
-            while ((p < n) && (SvgCheck.isNameChar((charAt text p)))) {
-                p = (p + 1)
-            }
-            def name:string (substring text (lt + 1) p)
-            if ((strlen name) == 0) {
-                i = (lt + 1)
-                continue
-            }
-            def colon:int (indexOf name ":")
-            def local:string name
-            if (colon >= 0) {
-                local = (substring name (colon + 1) (strlen name))
-            }
-            def attrs:[string]
-            def vals:[string]
-            def closed:boolean false
-            while (p < n) {
-                def c:int (charAt text p)
-                if (c == 62) {
-                    p = (p + 1)
-                    closed = true
-                    break
-                }
-                if (SvgCheck.isNameChar(c)) {
-                    def an:int p
-                    while ((p < n) && (SvgCheck.isNameChar((charAt text p)))) {
-                        p = (p + 1)
-                    }
-                    def aname:string (substring text an p)
-                    while ((p < n) && (SvgCheck.isSpace((charAt text p)))) {
-                        p = (p + 1)
-                    }
-                    def val:string ""
-                    if ((p < n) && ((charAt text p) == 61)) {
-                        p = (p + 1)
-                        while ((p < n) && (SvgCheck.isSpace((charAt text p)))) {
-                            p = (p + 1)
-                        }
-                        if (p < n) {
-                            def q:int (charAt text p)
-                            if ((q == 34) || (q == 39)) {
-                                def qe:int (SvgCheck.find(text (substring text p (p + 1)) (p + 1)))
-                                if (qe < 0) {
-                                    qe = n
-                                }
-                                val = (substring text (p + 1) qe)
-                                p = (qe + 1)
-                            } {
-                                def vs:int p
-                                while (((p < n) && ((SvgCheck.isSpace((charAt text p))) == false)) && ((charAt text p) != 62)) {
-                                    p = (p + 1)
-                                }
-                                val = (substring text vs p)
-                            }
-                        }
-                    }
-                    push attrs aname
-                    push vals val
-                    continue
-                }
-                p = (p + 1)
-            }
-            if (closed == false) {
-                break
             }
             if root {
                 root = false
-                if (local != "svg") {
+                if (t.local != "svg") {
                     return f
                 }
                 f.isSvg = true
-                SvgCheck.rootAttrs(f attrs vals)
+                SvgCheck.rootAttrs(f t.attrs t.vals)
             }
-            SvgCheck.element(f local attrs vals)
-            if (local == "style") {
-                def selfClosed:boolean ((p >= 2) && ((charAt text (p - 2)) == 47))
-                if (selfClosed == false) {
-                    inStyle = true
-                    styleFrom = p
-                }
+            SvgCheck.element(f t.local t.attrs t.vals)
+            if ((t.local == "style") && ((t.selfClosed(text)) == false)) {
+                inStyle = true
+                styleFrom = t.end
             }
-            i = p
         }
         return f
     }
@@ -444,7 +305,7 @@ class SvgCheck {
         def i:int 0
         while (i < (strlen t)) {
             def c:int (charAt t i)
-            if ((SvgCheck.isSpace(c)) || (c == 44)) {
+            if ((SvgScan.isSpace(c)) || (c == 44)) {
                 if ((strlen cur) > 0) {
                     if ((SvgCheck.isNumber(cur)) == false) {
                         return

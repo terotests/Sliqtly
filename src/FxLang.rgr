@@ -78,6 +78,8 @@
 ; the deck's own effects as the player does.
 ; ============================================================================
 
+Import "JsonValue.rgr"
+
 ; One expression, typed. `kind`: num, var, bin, un, call, swz, sel.
 class FxNode {
     def kind:string ""
@@ -1976,7 +1978,7 @@ class FxLang {
                 }
             }
             ps = (ps + "}")
-            out = (out + "{\"name\":\"" + e.name + "\",\"layer\":\"" + e.layer + "\",\"params\":" + ps + ",\"still\":" + (FxLang.numText(e.still)) + ",\"fallback\":\"" + e.fallback + "\",\"frag\":" + (FxLang.quote((e.glsl()))) + "}")
+            out = (out + "{\"name\":\"" + e.name + "\",\"layer\":\"" + e.layer + "\",\"params\":" + ps + ",\"still\":" + (FxLang.numText(e.still)) + ",\"fallback\":\"" + e.fallback + "\",\"frag\":" + (JVal.quote((e.glsl()))) + "}")
             i = (i + 1)
         }
         return (out + "]")
@@ -2010,27 +2012,4 @@ class FxLang {
         return ("[" + (join parts ",") + "]")
     }
 
-    sfn quote:string (s:string) {
-        def out:string "\""
-        def n:int (strlen s)
-        def i:int 0
-        while (i < n) {
-            def c:int (charAt s i)
-            if (c == 10) {
-                out = (out + "\\n")
-            } {
-                if (c == 34) {
-                    out = (out + "\\\"")
-                } {
-                    if (c == 92) {
-                        out = (out + "\\\\")
-                    } {
-                        out = (out + (substring s i (i + 1)))
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        return (out + "\"")
-    }
 }
