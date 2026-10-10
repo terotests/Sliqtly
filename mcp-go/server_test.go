@@ -276,7 +276,7 @@ func respond(status int, ct, body string) *http.Response {
 
 // the site's own sheet, so the checks lay the deck out as the player does
 var auroraCSS = func() string {
-	b, err := os.ReadFile("../themes/aurora.css")
+	b, err := os.ReadFile("themes/aurora.css")
 	if err != nil {
 		panic(err)
 	}
@@ -437,7 +437,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "delete_presentation", "end_work", "export_presentation", "get_display_list", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "read_github_pr", "render_overview", "render_slide", "resolve_comment", "sliqtly_guide", "update_presentation", "vectorize_image", "write_workbook"})
+	eq(t, names, []string{"add_comment", "begin_work", "bind_chart_data", "create_presentation", "delete_presentation", "end_work", "export_presentation", "get_display_list", "get_presentation", "list_comments", "list_files", "list_presentations", "read_file", "read_github_pr", "render_overview", "render_slide", "render_strip", "resolve_comment", "sliqtly_guide", "update_presentation", "vectorize_image", "write_workbook"})
 	uri, _ := create.Meta["ui"].(map[string]any)["resourceUri"].(string)
 	match(t, uri, `^ui://sliqtly/preview-[0-9a-f]{10}\.html$`)
 	eq(t, create.Meta["openai/outputTemplate"], uri)
@@ -477,7 +477,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 	if !bad.IsError {
 		t.Fatal("an unknown topic was answered")
 	}
-	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, apps, scripts, editing, export, limits\.`)
+	match(t, textOf(bad), `There is no topic "nope"\. Topics: layout, effects, text, charts, diagrams, figures, smartart, pictures, css, data, apps, scripts, script-api, editing, export, limits\.`)
 }
 
 // every topic Core lists is there, and every topic is listed in Core

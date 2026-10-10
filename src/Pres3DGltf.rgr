@@ -1,0 +1,627 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Pres3DGltf.rgr — a program's 3-D world written as a glTF 2.0 file.
+; ============================================================================
+;
+; A program's <scene3d> (React Three Fiber JSX, src/Pres3DTree.rgr) is saved
+; as plain glTF 2.0 JSON with its bytes in a data: URI, so Blender, the
+; three.js editor and any glTF viewer open it:
+;
+;   meshes      the triangles the page draws (Pres3DWorld makes them with
+;               Three's own geometry code), flat-shaded ones split per face
+;   materials   pbrMetallicRoughness in linear light; meshBasicMaterial is
+;               KHR_materials_unlit, Phong's shininess becomes a roughness
+;   lights      directional and point lights as KHR_lights_punctual (R3F's
+;               lights already use glTF's units); ambient and hemisphere
+;               lights, which glTF has no word for, in the scene's extras;
+;               a world that names no light gets the key and fill the page
+;               lights it with (extras.sliqtly.default on their nodes)
+;   camera      the world's camera (R3F's default when it names none)
+;   nodes       groups and meshes with their own translation, rotation and
+;               scale under their parents; lights and the camera at their
+;               place in the world, as the page puts them
+;
+; What R3F said and glTF cannot (the geometry's name and args, the
+; material's class, flatShading, wireframe, side, a rod's ends) is kept in
+; each node's `extras.sliqtly`, so the JSX can be written back from it.
+; ============================================================================
+
+Import "JsonValue.rgr"
+Import "ColorLinear.rgr"
+Import "Pres3DWorld.rgr"
+Import "PresSceneModel.rgr"
+
+class Pres3DGltf {
+    def world:Pres3DWorld (new Pres3DWorld())
+    ; what the scene got wrong or glTF leaves out, "" when nothing
+    def error:string ""
+    def notes:[string]
+    def doc:JVal (JVal.mkObj())
+    def accs:JVal (JVal.mkArr())
+    def views:JVal (JVal.mkArr())
+    def bytes:[int]
+    ; geometries written: their signature and accessors (-1: none)
+    def geoSigs:[string]
+    def geoPos:[int]
+    def geoNrm:[int]
+    def geoUv:[int]
+    def geoIdx:[int]
+    def unlit:boolean false
+    def punctual:boolean false
+
+    ; The world of a frame's <scene3d> (its JSON element) as glTF text;
+    ; `aspect` is the width over the height of its box on the slide.
+    sfn write:string (json:string aspect:double) {
+        def g:Pres3DGltf (new Pres3DGltf())
+        return (g.build(json aspect))
+    }
+
+    fn note:void (line:string) {
+        if ((indexOf notes line) < 0) {
+            push notes line
+        }
+    }
+
+    fn build:string (json:string aspect:double) {
+        if ((world.setScene(json (new Pres3DEnv()))) == false) {
+            error = world.error
+            return ""
+        }
+        def t:Pres3DTree world.tree
+        def asset:JVal (JVal.mkObj())
+        asset.setStr("version" "2.0")
+        asset.setStr("generator" "Sliqtly")
+        doc.set("asset" asset)
+        doc.setInt("scene" 0)
+        def nodes:JVal (JVal.mkArr())
+        def roots:JVal (JVal.mkArr())
+        def meshes:JVal (JVal.mkArr())
+        def mats:JVal (JVal.mkArr())
+        def lights:JVal (JVal.mkArr())
+        def others:JVal (JVal.mkArr())
+        ; the tree's nodes in order, parents first; a glTF number for each
+        def at:[int]
+        def i:int 0
+        while (i < (array_length t.nodes)) {
+            def p:P3Node (itemAt t.nodes i)
+            def gi:int -1
+            if ((p.tag == "group") || (p.tag == "mesh")) {
+                def n:JVal (this.place(p false))
+                if (p.tag == "mesh") {
+                    n.setInt("mesh" (meshes.len()))
+                    meshes.add((this.mesh(p (mats.len()))))
+                    mats.add((this.material(p)))
+                }
+                gi = (nodes.len())
+                nodes.add(n)
+                def up:int -1
+                if (p.parent >= 0) {
+                    up = (itemAt at p.parent)
+                }
+                if (up >= 0) {
+                    def pn:JVal (nodes.at(up))
+                    if ((pn.has("children")) == false) {
+                        pn.set("children" (JVal.mkArr()))
+                    }
+                    def kids:JVal (pn.get("children"))
+                    kids.add((JVal.mkInt(gi)))
+                } {
+                    roots.add((JVal.mkInt(gi)))
+                }
+            }
+            if (p.tag == "light") {
+                if ((p.kind == "directional") || (p.kind == "point")) {
+                    def ln:JVal (this.place(p true))
+                    if (p.kind == "directional") {
+                        ; Three's sun shines from its place toward the origin
+                        def wp:[double] p.worldPos
+                        ln.set("rotation" (this.vec((PresSceneModel.quatLook((itemAt wp 0) (itemAt wp 1) (itemAt wp 2) 0.0 0.0 0.0)))))
+                    }
+                    def ext:JVal (JVal.mkObj())
+                    def kl:JVal (JVal.mkObj())
+                    kl.setInt("light" (lights.len()))
+                    ext.set("KHR_lights_punctual" kl)
+                    ln.set("extensions" ext)
+                    lights.add((this.light(p)))
+                    punctual = true
+                    gi = (nodes.len())
+                    nodes.add(ln)
+                    roots.add((JVal.mkInt(gi)))
+                } {
+                    others.add((this.light(p)))
+                    this.note((p.kind + " lights have no glTF form, kept in the scene's extras"))
+                }
+            }
+            push at gi
+            i = (i + 1)
+        }
+        ; a world that names no light is lit by Sliqtly's key and fill
+        ; (Pres3DWorld.extras), in R3F's units
+        ; without colour management (the first attributes, <scene3d legacy>)
+        def plain:boolean (t.legacy || t.colorLegacy)
+        if (t.lights == 0) {
+            def k:double 3.141592653589793
+            if plain {
+                k = 1.0
+            }
+            def ki:double (0.9 * k)
+            def fi:double (0.35 * k)
+            if (plain == false) {
+                ki = (1.6 * k)
+                fi = (0.5 * k)
+            }
+            roots.add((JVal.mkInt((nodes.len()))))
+            nodes.add((this.sun("sliqtly-key" ([] _:double (0.5 0.8 0.6)) ([] _:double (1.0 1.0 1.0)) ki lights)))
+            roots.add((JVal.mkInt((nodes.len()))))
+            nodes.add((this.sun("sliqtly-fill" ([] _:double (-0.7 -0.2 0.4)) ([] _:double (0.75 0.75 0.75)) fi lights)))
+            punctual = true
+        }
+        ; the camera, at its place in the world
+        def cn:JVal (this.camera(t aspect))
+        roots.add((JVal.mkInt((nodes.len()))))
+        nodes.add(cn)
+        def scene:JVal (JVal.mkObj())
+        scene.set("nodes" roots)
+        def sx:JVal (JVal.mkObj())
+        sx.setNum("roomLight" t.roomLight)
+        if plain {
+            sx.setBool("legacy" true)
+        }
+        if ((others.len()) > 0) {
+            sx.set("lights" others)
+        }
+        def se:JVal (JVal.mkObj())
+        se.set("sliqtly" sx)
+        scene.set("extras" se)
+        def scenes:JVal (JVal.mkArr())
+        scenes.add(scene)
+        doc.set("scenes" scenes)
+        doc.set("nodes" nodes)
+        if ((meshes.len()) > 0) {
+            doc.set("meshes" meshes)
+            doc.set("materials" mats)
+        }
+        def cams:JVal (JVal.mkArr())
+        cams.add((this.lens(t aspect)))
+        doc.set("cameras" cams)
+        def used:JVal (JVal.mkArr())
+        if punctual {
+            def de:JVal (JVal.mkObj())
+            def dl:JVal (JVal.mkObj())
+            dl.set("lights" lights)
+            de.set("KHR_lights_punctual" dl)
+            doc.set("extensions" de)
+            used.add((JVal.mkStr("KHR_lights_punctual")))
+        }
+        if unlit {
+            used.add((JVal.mkStr("KHR_materials_unlit")))
+        }
+        if ((used.len()) > 0) {
+            doc.set("extensionsUsed" used)
+        }
+        if ((array_length bytes) > 0) {
+            def buf:JVal (JVal.mkObj())
+            buf.setInt("byteLength" (array_length bytes))
+            buf.setStr("uri" ("data:application/octet-stream;base64," + (SceneGeom.base64(bytes))))
+            def bufs:JVal (JVal.mkArr())
+            bufs.add(buf)
+            doc.set("buffers" bufs)
+            doc.set("bufferViews" views)
+            doc.set("accessors" accs)
+        }
+        def said:[string]
+        def w:int 0
+        while (w < (array_length t.warnings)) {
+            push said (itemAt t.warnings w)
+            w = (w + 1)
+        }
+        def k:int 0
+        while (k < (array_length notes)) {
+            push said (itemAt notes k)
+            k = (k + 1)
+        }
+        error = (join said "; ")
+        return (doc.toJson())
+    }
+
+    sfn r6:double (v:double) {
+        return (PresSceneModel.r6(v))
+    }
+
+    fn vec:JVal (v:[double]) {
+        def out:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length v)) {
+            out.add((JVal.mkNum((Pres3DGltf.r6((itemAt v i))))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn same:boolean (v:[double] w:[double]) {
+        def i:int 0
+        while (i < (array_length v)) {
+            def d:double ((itemAt v i) - (itemAt w i))
+            if ((d > 0.0000001) || (d < -0.0000001)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; A node at the object's place: its own (under its parent) or, for
+    ; lights, the world's; the defaults left out as glTF allows.
+    fn place:JVal (p:P3Node inWorld:boolean) {
+        def n:JVal (JVal.mkObj())
+        if ((strlen p.name) > 0) {
+            n.setStr("name" p.name)
+        }
+        def pos:[double] p.pos
+        if inWorld {
+            pos = p.worldPos
+        }
+        if ((Pres3DGltf.same(pos ([] _:double (0.0 0.0 0.0)))) == false) {
+            n.set("translation" (this.vec(pos)))
+        }
+        if (inWorld == false) {
+            if ((Pres3DGltf.same(p.quat ([] _:double (0.0 0.0 0.0 1.0)))) == false) {
+                n.set("rotation" (this.vec(p.quat)))
+            }
+            if ((Pres3DGltf.same(p.scale ([] _:double (1.0 1.0 1.0)))) == false) {
+                n.set("scale" (this.vec(p.scale)))
+            }
+        }
+        def x:JVal (JVal.mkObj())
+        x.setStr("jsx" p.jsx)
+        if (p.visible == false) {
+            x.setBool("visible" false)
+            this.note("hidden objects are in the file, marked visible false in their extras")
+        }
+        if (p.tag == "mesh") {
+            x.setStr("geometry" p.geo)
+            x.set("args" (this.vec(p.geoArgs)))
+            if p.castShadow {
+                x.setBool("castShadow" true)
+            }
+            if p.receiveShadow {
+                x.setBool("receiveShadow" true)
+            }
+            if ((strlen p.rodFrom) > 0) {
+                x.setStr("from" p.rodFrom)
+                x.setStr("to" p.rodTo)
+                x.setNum("radius" (Pres3DGltf.r6(p.radius)))
+                if (p.length > 0.0) {
+                    x.setNum("length" (Pres3DGltf.r6(p.length)))
+                }
+            }
+        }
+        if ((p.tag == "light") && p.castShadow) {
+            x.setBool("castShadow" true)
+        }
+        def e:JVal (JVal.mkObj())
+        e.set("sliqtly" x)
+        n.set("extras" e)
+        return n
+    }
+
+    ; a colour of the tree (sRGB, 0..1) in glTF's linear light
+    fn linear:JVal (c:[double]) {
+        return (this.vec(([] _:double ((ColorLinear.of((itemAt c 0))) (ColorLinear.of((itemAt c 1))) (ColorLinear.of((itemAt c 2)))))))
+    }
+
+    ; One of Sliqtly's own lights: shining from `from` toward the origin,
+    ; marked so a reader can leave it out
+    fn sun:JVal (name:string from:[double] color:[double] intensity:double lights:JVal) {
+        def len:double (sqrt ((((itemAt from 0) * (itemAt from 0)) + ((itemAt from 1) * (itemAt from 1))) + ((itemAt from 2) * (itemAt from 2))))
+        def at:[double] (([] _:double (((itemAt from 0) * (5.0 / len)) ((itemAt from 1) * (5.0 / len)) ((itemAt from 2) * (5.0 / len)))))
+        def n:JVal (JVal.mkObj())
+        n.setStr("name" name)
+        n.set("translation" (this.vec(at)))
+        n.set("rotation" (this.vec((PresSceneModel.quatLook((itemAt at 0) (itemAt at 1) (itemAt at 2) 0.0 0.0 0.0)))))
+        def kl:JVal (JVal.mkObj())
+        kl.setInt("light" (lights.len()))
+        def ext:JVal (JVal.mkObj())
+        ext.set("KHR_lights_punctual" kl)
+        n.set("extensions" ext)
+        def x:JVal (JVal.mkObj())
+        x.setBool("default" true)
+        def e:JVal (JVal.mkObj())
+        e.set("sliqtly" x)
+        n.set("extras" e)
+        def l:JVal (JVal.mkObj())
+        l.setStr("name" name)
+        l.setStr("type" "directional")
+        l.set("color" (this.vec(color)))
+        l.setNum("intensity" (Pres3DGltf.r6(intensity)))
+        lights.add(l)
+        return n
+    }
+
+    fn light:JVal (p:P3Node) {
+        def l:JVal (JVal.mkObj())
+        if ((strlen p.name) > 0) {
+            l.setStr("name" p.name)
+        }
+        l.setStr("type" p.kind)
+        l.set("color" (this.vec(p.color)))
+        l.setNum("intensity" (Pres3DGltf.r6(p.intensity)))
+        if (p.kind == "point") {
+            if (p.distance > 0.0) {
+                l.setNum("range" (Pres3DGltf.r6(p.distance)))
+            }
+            if ((p.decay < 1.999) || (p.decay > 2.001)) {
+                this.note("glTF point lights fade with the square of the distance, decay kept in extras")
+                def x:JVal (JVal.mkObj())
+                x.setNum("decay" (Pres3DGltf.r6(p.decay)))
+                def e:JVal (JVal.mkObj())
+                e.set("sliqtly" x)
+                l.set("extras" e)
+            }
+        }
+        if (p.kind == "hemisphere") {
+            l.set("groundColor" (this.vec(p.ground)))
+        }
+        return l
+    }
+
+    ; One mesh: the geometry's accessors (written once per shape) and the
+    ; node's own material.
+    fn mesh:JVal (p:P3Node mat:int) {
+        def gi:int (this.geometry(p))
+        def prim:JVal (JVal.mkObj())
+        def attrs:JVal (JVal.mkObj())
+        attrs.setInt("POSITION" (itemAt geoPos gi))
+        attrs.setInt("NORMAL" (itemAt geoNrm gi))
+        if ((itemAt geoUv gi) >= 0) {
+            attrs.setInt("TEXCOORD_0" (itemAt geoUv gi))
+        }
+        prim.set("attributes" attrs)
+        if ((itemAt geoIdx gi) >= 0) {
+            prim.setInt("indices" (itemAt geoIdx gi))
+        }
+        prim.setInt("material" mat)
+        def prims:JVal (JVal.mkArr())
+        prims.add(prim)
+        def m:JVal (JVal.mkObj())
+        if ((strlen p.name) > 0) {
+            m.setStr("name" p.name)
+        }
+        m.set("primitives" prims)
+        return m
+    }
+
+    ; the triangles the page draws for the mesh
+    fn shape:ThreeBufferGeometry (p:P3Node) {
+        def g:ThreeBufferGeometry (world.geometry(p))
+        if p.flat {
+            return (g.buildFlat())
+        }
+        return g
+    }
+
+    ; The geometry's number among those written, written the first time.
+    fn geometry:int (p:P3Node) {
+        def sig:string (Pres3DTree.geoSig(p))
+        if p.flat {
+            sig = (sig + "|flat")
+        }
+        def at:int (indexOf geoSigs sig)
+        if (at >= 0) {
+            return at
+        }
+        def g:ThreeBufferGeometry (this.shape(p))
+        def nv:int (g.vertexCount())
+        def pa:JVal (this.floats(g.positions nv "VEC3" 34962))
+        pa.set("min" (this.bound(g.positions true)))
+        pa.set("max" (this.bound(g.positions false)))
+        push geoPos (this.accessor(pa))
+        push geoNrm (this.accessor((this.floats(g.normals nv "VEC3" 34962))))
+        def uv:int -1
+        if ((array_length g.uvs) == (nv * 2)) {
+            uv = (this.accessor((this.floats(g.uvs nv "VEC2" 34962))))
+        }
+        push geoUv uv
+        def ix:int -1
+        if ((array_length g.index) > 0) {
+            ix = (this.accessor((this.indices(g.index nv))))
+        }
+        push geoIdx ix
+        push geoSigs sig
+        return ((array_length geoSigs) - 1)
+    }
+
+    fn accessor:int (a:JVal) {
+        accs.add(a)
+        return ((accs.len()) - 1)
+    }
+
+    ; a view of the bytes just written, from `start`, padded to 4
+    fn view:int (start:int target:int) {
+        def v:JVal (JVal.mkObj())
+        v.setInt("buffer" 0)
+        v.setInt("byteOffset" start)
+        v.setInt("byteLength" ((array_length bytes) - start))
+        v.setInt("target" target)
+        while (((array_length bytes) % 4) != 0) {
+            push bytes 0
+        }
+        views.add(v)
+        return ((views.len()) - 1)
+    }
+
+    fn floats:JVal (v:[double] count:int type:string target:int) {
+        def start:int (array_length bytes)
+        def i:int 0
+        while (i < (array_length v)) {
+            SceneGeom.f32(bytes (itemAt v i))
+            i = (i + 1)
+        }
+        def a:JVal (JVal.mkObj())
+        a.setInt("bufferView" (this.view(start target)))
+        a.setInt("componentType" 5126)
+        a.setInt("count" count)
+        a.setStr("type" type)
+        return a
+    }
+
+    fn indices:JVal (idx:[int] nv:int) {
+        def a:JVal (JVal.mkObj())
+        def n:int (array_length idx)
+        def big:boolean (nv > 65535)
+        def comp:int 5123
+        if big {
+            comp = 5125
+        }
+        def start:int (array_length bytes)
+        def i:int 0
+        while (i < n) {
+            def k:int (itemAt idx i)
+            push bytes (k % 256)
+            push bytes ((idiv k 256) % 256)
+            if big {
+                push bytes ((idiv k 65536) % 256)
+                push bytes (idiv k 16777216)
+            }
+            i = (i + 1)
+        }
+        a.setInt("bufferView" (this.view(start 34963)))
+        a.setInt("componentType" comp)
+        a.setInt("count" n)
+        a.setStr("type" "SCALAR")
+        return a
+    }
+
+    ; the smallest or largest x, y, z of the positions (glTF wants both)
+    fn bound:JVal (pos:[double] low:boolean) {
+        def out:JVal (JVal.mkArr())
+        def ax:int 0
+        while (ax < 3) {
+            def best:double 0.0
+            def first:boolean true
+            def i:int ax
+            while (i < (array_length pos)) {
+                def x:double (itemAt pos i)
+                if (first || ((low && (x < best)) || ((low == false) && (x > best)))) {
+                    best = x
+                    first = false
+                }
+                i = (i + 3)
+            }
+            ; exactly the float32 written
+            def r:double (SceneGeom.f32val(best))
+            out.add((JVal.mkNum(r)))
+            ax = (ax + 1)
+        }
+        return out
+    }
+
+    fn material:JVal (p:P3Node) {
+        def m:JVal (JVal.mkObj())
+        if ((strlen p.name) > 0) {
+            m.setStr("name" p.name)
+        }
+        def pbr:JVal (JVal.mkObj())
+        def base:JVal (this.linear(p.color))
+        base.add((JVal.mkNum((Pres3DGltf.r6(p.opacity)))))
+        pbr.set("baseColorFactor" base)
+        def metal:double 0.0
+        def rough:double 1.0
+        if (p.mat == "meshStandardMaterial") {
+            metal = p.metalness
+            rough = p.roughness
+        }
+        if (p.mat == "meshPhongMaterial") {
+            ; Blinn-Phong's exponent as a microfacet roughness
+            rough = (sqrt (2.0 / (p.shininess + 2.0)))
+        }
+        pbr.setNum("metallicFactor" (Pres3DGltf.r6(metal)))
+        pbr.setNum("roughnessFactor" (Pres3DGltf.r6(rough)))
+        m.set("pbrMetallicRoughness" pbr)
+        if (((itemAt p.emissive 0) + ((itemAt p.emissive 1) + (itemAt p.emissive 2))) > 0.0) {
+            m.set("emissiveFactor" (this.linear(p.emissive)))
+        }
+        if ((p.opacity < 1.0) || p.transparent) {
+            m.setStr("alphaMode" "BLEND")
+        }
+        if (p.side == 2) {
+            m.setBool("doubleSided" true)
+        }
+        if (p.mat == "meshBasicMaterial") {
+            def ext:JVal (JVal.mkObj())
+            ext.set("KHR_materials_unlit" (JVal.mkObj()))
+            m.set("extensions" ext)
+            unlit = true
+        }
+        def x:JVal (JVal.mkObj())
+        x.setStr("material" p.mat)
+        if (p.mat == "meshPhongMaterial") {
+            x.setNum("shininess" (Pres3DGltf.r6(p.shininess)))
+            x.set("specular" (this.vec(p.specular)))
+        }
+        if p.flat {
+            x.setBool("flatShading" true)
+        }
+        if p.wire {
+            x.setBool("wireframe" true)
+            this.note("wireframe meshes are solid in glTF, marked wireframe in their extras")
+        }
+        if (p.side == 1) {
+            x.setInt("side" 1)
+            this.note("back-side materials are front-sided in glTF, marked side 1 in their extras")
+        }
+        def e:JVal (JVal.mkObj())
+        e.set("sliqtly" x)
+        m.set("extras" e)
+        return m
+    }
+
+    ; the camera node: the world's first camera, else R3F's default (at z 5
+    ; looking down -z)
+    fn camera:JVal (t:Pres3DTree aspect:double) {
+        def n:JVal (JVal.mkObj())
+        n.setInt("camera" 0)
+        def pos:[double] (([] _:double (0.0 0.0 5.0)))
+        def q:[double] (([] _:double (0.0 0.0 0.0 1.0)))
+        if (t.camera >= 0) {
+            def c:P3Node (itemAt t.nodes t.camera)
+            pos = c.worldPos
+            q = c.worldQuat
+            if ((strlen c.name) > 0) {
+                n.setStr("name" c.name)
+            }
+        }
+        n.set("translation" (this.vec(pos)))
+        if ((Pres3DGltf.same(q ([] _:double (0.0 0.0 0.0 1.0)))) == false) {
+            n.set("rotation" (this.vec(q)))
+        }
+        return n
+    }
+
+    fn lens:JVal (t:Pres3DTree aspect:double) {
+        def fov:double 75.0
+        def near:double 0.1
+        def far:double 2000.0
+        if t.legacy {
+            fov = 45.0
+        }
+        if (t.camera >= 0) {
+            def c:P3Node (itemAt t.nodes t.camera)
+            fov = c.fov
+            near = c.near
+            far = c.far
+        }
+        def pc:JVal (JVal.mkObj())
+        if (aspect > 0.0) {
+            pc.setNum("aspectRatio" (Pres3DGltf.r6(aspect)))
+        }
+        pc.setNum("yfov" (Pres3DGltf.r6(((fov * 3.141592653589793) / 180.0))))
+        pc.setNum("znear" (Pres3DGltf.r6(near)))
+        pc.setNum("zfar" (Pres3DGltf.r6(far)))
+        def cam:JVal (JVal.mkObj())
+        cam.setStr("type" "perspective")
+        cam.set("perspective" pc)
+        return cam
+    }
+}

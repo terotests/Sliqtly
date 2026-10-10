@@ -394,6 +394,26 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // Commenting is always there in the editor: review mode is on without any
+  // choice made, and the rail's Review only opens and closes the list of
+  // comments. The bug: the rail's Review turned review mode off, and the
+  // pins and + Add comment disappeared with it.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const out = { onAtStart: a.reviewMode() };
+      a.request("rail:review");
+      out.listOpen = rv.listing && a.reviewMode();
+      a.request("rail:review");
+      out.listClosed = !rv.listing && a.reviewMode();
+      const asked = [];
+      for (let q = a.takeRequest(); q; q = a.takeRequest()) asked.push(q);
+      out.asked = asked.join(" ");
+      return out;
+    });
+    check("review mode is on in the editor and the rail's Review only opens and closes the list", r.onAtStart && r.listOpen && r.listClosed && !/rail:review/.test(r.asked || ""), JSON.stringify(r));
+  }
+
   // The comment box while presenting (review mode, the dark callout): the
   // hint reads as a hint, not as text typed; it goes once the box has the
   // keys, and the caret shows. The bugs: .chat-draft's white won over the
@@ -2901,20 +2921,21 @@ try {
     const foundOpened = await until(() => { const tb = window.__app.toolbar; return tb.roomFound === "" && tb.roomOpen === "general" && tb.roomDecks.split("\n").some((l) => l.split("\t")[2] === "1"); });
     await rp.waitForTimeout(500);
     check("…the rooms' search finds presentations by their words (not {attributes}), with the text around them, and opens one", foundDeck && syntaxNotFound && foundOpened, JSON.stringify({ foundRow, syntaxNotFound, foundOpened }));
-    // "+ Add new presentation" under a room: File → New's window, and the
-    // deck it makes is in that room
+    // a room's "+": the "Add new…" menu, its Presentation row File → New's
+    // window, and the deck it makes is in that room; no add rows in the list
     await R(`t("tb-room-playground");`);
-    // General's list (open from the step before) has a "+" too: Playground's first
     await until(() => window.__app.toolbar.roomOpen === "playground");
-    await pageHas("tb-roomdeck-new");
     const chatUp = await until(() => window.__app.roomChatOpen());
-    await R(`t("tb-roomdeck-new");`);
+    const noAddRows = await R(`return !tb("tb-roomdeck-new") && !tb("tb-roomdeck-newfolder");`);
+    await R(`t("tb-roomadd-playground");`);
+    const addMenu = (await pageHas("tb-m-ctx-item-addDeck")) && (await pageHas("tb-m-ctx-item-addFolder"));
+    await R(`t("tb-m-ctx-item-addDeck");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
     await R(`a.text("Fresh deck"); a.key("enter", false, false);`);
     const inPlay = await until(() => { try { return Object.values(window.__keptRooms().placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
     // the room's chat was over the work area: the new deck shows instead
     const chatGone = await until(() => !window.__app.roomChatOpen());
-    check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
+    check("…a room's + opens Add new…; Presentation makes the new deck in that room and shows it, not the room's chat", noAddRows && addMenu && newWin && inPlay && chatUp && chatGone, JSON.stringify({ noAddRows, addMenu, newWin, inPlay, chatUp, chatGone }));
     // a right click on a presentation in Rooms: the File menu's rows for it;
     // one that is not open opens first, then the row acts on it
     await R(`t("tb-room-general");`);
@@ -5707,6 +5728,57 @@ try {
     await page.waitForTimeout(500);
     check("the theme tab: the styles alone at the top", (await app("themeCss")).startsWith(".iso { color: #e11; }\nh2 { color: lime; }\n/*"), (await app("themeCss")).slice(0, 80));
     await ctx.close();
+  }
+
+  // Source code over a presented slide (PresCodeViewUi): a box with a
+  // `::: code` link shows a ‹/› badge, a double click on it opens its file
+  // read-only with the change (code/<file> + code/<file>.diff), and a press
+  // held on a line pins a "Source code comment" to the NEW version's line.
+  {
+    const pc = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await pc.goto(url);
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const oldCpp = '#include "api.h"\n\nStatus submit(const ReviewDTO& r) {\n  validate(r);\n  db.insert(r);\n  return Status::Ok;\n}\n';
+    const newCpp = '#include "api.h"\n\nStatus submit(const ReviewDTO& r) {\n  if (r.body.empty()) return Status::Empty;\n  if (!validate(r)) return Status::Bad;\n  db.insert(r);\n  return Status::Ok;\n}\n';
+    const diff = "--- a/src/api.cpp\n+++ b/src/api.cpp\n@@ -1,7 +1,8 @@\n #include \"api.h\"\n \n Status submit(const ReviewDTO& r) {\n-  validate(r);\n+  if (r.body.empty()) return Status::Empty;\n+  if (!validate(r)) return Status::Bad;\n   db.insert(r);\n   return Status::Ok;\n }\n";
+    const sources = JSON.stringify({ version: 1, repos: { server: { url: "https://github.com/acme/server", host: "github", base: "9a1b3c7d", head: "4f2c1e0a" } }, files: [{ path: "api.cpp", repo: "server", repo_path: "src/api.cpp", commit: "4f2c1e0a", base_commit: "9a1b3c7d", status: "modified", diff: "api.cpp.diff" }] });
+    const deck = "---\nslide-split-level: 2\n---\n# Review\n\n## Submit flow\n\n```mermaid\nflowchart LR\n  A[Client] --> B[API submit]\n```\n\n::: code\nB api.cpp#L3-6\n:::\n";
+    await pc.evaluate(async ({ deck, files }) => {
+      window.__app.setSource(deck);
+      for (const [p, t] of Object.entries(files)) await window.__keepText(p, t);
+    }, { deck, files: { "code/api.cpp": newCpp, "code/api.cpp.diff": diff, "code/sources.json": sources } });
+    await pc.evaluate(() => { const a = window.__app; a.setReviewMode(true); a.present(true); window.__handleRequests(); a.next(); });
+    await pc.waitForTimeout(5000);
+    const nb = await pc.evaluate(() => { const a = window.__app; a.codeJson(); const b = a.codeView.badges.find((x) => x.id.startsWith("node:")); if (!b) return null; const [k, n] = b.id.split(":").slice(1).map(Number); const r = a.deck.codeNodeBox(a.slideShown(), k, n, a.stageTime()); const sc = a.slideScale(); return { ids: a.codeView.badges.map((x) => x.id), x: a.slideRect.x + (r[0] + r[2] / 2) * sc, y: a.slideRect.y + (r[1] + r[3] / 2) * sc }; });
+    check("a box with a code link has its ‹/› badge, the diagram its count", !!nb && nb.ids.includes("dia:0"), JSON.stringify(nb));
+    await pc.mouse.click(nb.x, nb.y);
+    await pc.waitForTimeout(300);
+    const one = await pc.evaluate(() => ({ open: window.__app.codeView.isOpen(), sel: window.__app.slideShown() }));
+    check("…one click on it neither opens it nor goes on", !one.open && one.sel === 1, JSON.stringify(one));
+    await pc.mouse.dblclick(nb.x, nb.y);
+    await pc.waitForTimeout(800);
+    const v = await pc.evaluate(() => { const c = window.__app.codeView; return { open: c.isOpen(), mode: c.view.mode, missing: c.missing, rows: c.rowsA.map((w) => w.kind).join(",") }; });
+    check("…a double click opens the file with its change", v.open && v.mode === "diff" && !v.missing && v.rows.includes("del") && v.rows.includes("add"), JSON.stringify(v));
+    // held on the removed line: the comment goes to the new line it stood before
+    const del = await pc.evaluate(() => { const c = window.__app.codeView; window.__app.codeJson(); const i = c.rowsA.findIndex((w) => w.kind === "del"); const ed = c.edA; return [ed.layout.x + ed.layout.gutterW + 120, ed.layout.caretPixelY(i) + ed.layout.lineHeight / 2]; });
+    await pc.mouse.move(del[0], del[1]);
+    await pc.mouse.down();
+    await pc.waitForTimeout(800);
+    await pc.mouse.up();
+    await pc.waitForTimeout(300);
+    const d = await pc.evaluate(() => { const r = window.__app.review; return { drafting: r.drafting, path: r.draftCodePath, line: r.draftCodeLine, rem: [r.draftRemFrom, r.draftRemTo] }; });
+    check("…a press held on a removed line starts a comment on the new line 4, old line 4 removed", d.drafting && d.path === "api.cpp" && d.line === 4 && d.rem[0] === 4, JSON.stringify(d));
+    await pc.keyboard.type("Check the empty body");
+    await pc.keyboard.press("Enter");
+    await pc.waitForTimeout(400);
+    const t = await pc.evaluate(() => { const a = window.__app; const th = a.review.model.threads[0]; a.review.openList(); a.reviewJson(); return { path: th && th.codePath, line: th && th.codeLine, commit: th && th.codeCommit, list: JSON.stringify(a.review.displayList().toJson()).includes("Source code comment"), mode: a.codeView.view.mode }; });
+    check("…sent, it is a source code comment in the list, the viewer as it was", t.path === "api.cpp" && t.line === 4 && t.commit === "4f2c1e0a" && t.list && t.mode === "diff", JSON.stringify(t));
+    await pc.keyboard.press("Escape");
+    await pc.keyboard.press("Escape");
+    await pc.waitForTimeout(500);
+    const back = await pc.evaluate(() => ({ open: window.__app.codeView.isOpen(), sel: window.__app.slideShown() }));
+    check("…Esc goes back to the slide", !back.open && back.sel === 1, JSON.stringify(back));
+    await pc.close();
   }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike

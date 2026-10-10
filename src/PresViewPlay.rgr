@@ -1,0 +1,8 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; What the public viewer loads for a deck with programs (```app,
+; PresPlayWeb) or slide scripts (PresScriptWeb): web/dist-view/pres_play.js
+; (scripts/build-view.mjs).
+
+Import "PresPlayWeb.rgr"
+Import "PresScriptWeb.rgr"

@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import { ensureRanger, ensureRangerDiff, ensureCerxes, depsUsed, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
+import { themeCss, themeNames } from "./themes.mjs";
 import { buildPlayer } from "./player.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
@@ -81,6 +82,21 @@ export function buildThree(ranger, dir) {
   return threeJs;
 }
 
+// The selector language of slide scripts (src/PresSel.rgr) for the
+// program's sandbox: dir/script-sel.js, SCRIPT_SEL in the String.raw form
+// of the other runtimes (web/script-runtime.js starts with it, and the Go
+// server reads it the same way). The deck's own find() is the same code.
+export function buildScriptSel(ranger, dir) {
+  const selJs = path.join(dir, "script-sel.js");
+  compile(ranger, "PresSel.rgr", selJs);
+  const code = fs.readFileSync(selJs, "utf8");
+  if (/`|\$\{/.test(code)) throw new Error("PresSel.rgr compiled to text a String.raw can not hold (a backtick or ${)");
+  fs.writeFileSync(selJs, "// built from src/PresSel.rgr by scripts/build.mjs: the selectors of slide scripts.\n"
+    + "export const SCRIPT_SEL = String.raw`\nvar __Sel = (function () {\n" + code
+    + "\nreturn { PresEnt: PresEnt, PresSel: PresSel };\n})();\n`;\n");
+  return selJs;
+}
+
 export function build({ ranger } = {}) {
   ranger = ranger || ensureRanger();
   fs.mkdirSync(distDir, { recursive: true });
@@ -106,6 +122,7 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(traceJs, "// loaded on demand by trace-worker.js: a picture traced into an SVG.\n"
     + "(function () {\n" + fs.readFileSync(traceJs, "utf8") + "\n;globalThis.PresTrace = PresTrace;\n})();\n");
   buildThree(ranger, distDir);
+  buildScriptSel(ranger, distDir);
   // The deck's music heard (src/PresBeat.rgr): bars, beats and tempo for
   // the beat effects (web/music.js, web/beatfx.js). Small, loaded with the
   // page.
@@ -122,7 +139,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "three3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "three3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
   // frames go through, and the WASI the engine needs, from componentengine
   const cerxes = ensureCerxes();
@@ -150,11 +167,15 @@ export function build({ ranger } = {}) {
   // the dark look's hand-set colours (the rest is derived, see main.js)
   copy(path.join(ranger, "gallery/evgui/theme/skins/dark.css"), path.join(distDir, "skins/ui-dark.css"));
   copy(path.join(webDir, "skins/dark.css"), path.join(distDir, "skins/dark.css"));
+  // the optional terracotta frame (Settings → Look)
+  copy(path.join(webDir, "skins/terracotta.css"), path.join(distDir, "skins/terracotta.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));
   copyFaces(ranger, distDir, { emoji: true });
-  for (const f of fs.readdirSync(path.join(root, "themes"))) copy(path.join(root, "themes", f), path.join(distDir, "themes", f));
+  // each theme put together with themes/base.css (scripts/themes.mjs)
+  fs.mkdirSync(path.join(distDir, "themes"), { recursive: true });
+  for (const t of themeNames()) fs.writeFileSync(path.join(distDir, "themes", `${t}.css`), themeCss(t));
   // Live spreadsheets (```sheet, .xlsx in Files) are EVGSheets. A built copy
   // goes beside the page when there is one — $EVGSHEETS_DIST, or
   // .deps/EVGSheets/dist — and otherwise the page loads it from its own

@@ -15,6 +15,7 @@
 ; ============================================================================
 
 Import "PresDeck.rgr"
+Import "PresMorph.rgr"
 
 class PresPose {
     def alpha:double 1.0
@@ -541,6 +542,13 @@ class PresTimeline {
         }
         def s:PresSlide (deck.slideAt(i))
         def secs:double (PresTimeline.transitionSeconds(s))
+        if (((s.transition == "morph") && (i > 0)) && (t < secs)) {
+            PresTimeline.morphInto(deck i t out)
+            def mpop (new EVGDrawCmd())
+            mpop.kind = 5
+            push out.cmds mpop
+            return out
+        }
         if ((i > 0) && (t < secs)) {
             def prev:PresSlide (deck.slideAt((i - 1)))
             def pg:[int]
@@ -562,6 +570,70 @@ class PresTimeline {
         pop.kind = 5
         push out.cmds pop
         return out
+    }
+
+    ; `transition=morph` at local time t of slide i (PresMorph): the slide
+    ; before it with what both have hidden and the rest fading out, then this
+    ; one with what both have gliding from where it was and the rest fading
+    ; in, its ground too. What arrives in later build steps is not there
+    ; yet. The slides' scripts start when the transition is over: neither
+    ; draws its frames meanwhile.
+    sfn morphInto:void (deck:PresDeck i:int t:double out:EVGDisplayList) {
+        def s:PresSlide (deck.slideAt(i))
+        def prev:PresSlide (deck.slideAt((i - 1)))
+        def l:MdLayout (deck.layout())
+        def wasOff:boolean deck.scriptsOff
+        deck.scriptsOff = true
+        def pg:[int]
+        def pl:EVGDisplayList (deck.slideList((i - 1) pg prev.duration))
+        def psc:PresScene (deck.sceneOfList((i - 1) pl))
+        def cg:[int]
+        def cl:EVGDisplayList (deck.slideList(i cg t))
+        def csc:PresScene (deck.sceneOfList(i cl))
+        deck.scriptsOff = wasOff
+        ; PresMorph eases it
+        def q:double (t / (PresTimeline.transitionSeconds(s)))
+        def pairs:[int] (PresMorph.pairs(psc csc))
+        def ink:string l.style.textColor
+        def accent:string (deck.themeColour("chart" "accent-color"))
+        def pb:[int]
+        PresScriptApply.apply(pl psc (PresMorph.leaving(psc pairs q)) pg pb l.engine ink accent)
+        def pa:EVGDisplayList (PresTimeline.animate(prev pl pg prev.duration))
+        PresDeck.appendAll(out pa)
+        ; the arriving ground over the leaving one
+        def e:double (PresMorph.ease(q))
+        def k:int 0
+        while (k < (array_length cl.cmds)) {
+            if ((k < (array_length csc.ownerOfCmd)) && ((itemAt csc.ownerOfCmd k) == 0)) {
+                def gc:EVGDrawCmd (itemAt cl.cmds k)
+                gc.a = (gc.a * e)
+                if gc.hasGrad {
+                    gc.a2 = (gc.a2 * e)
+                }
+            }
+            k = (k + 1)
+        }
+        def cb:[int]
+        PresScriptApply.apply(cl csc (PresMorph.arriving(psc csc pairs q)) cg cb l.engine ink accent)
+        def ca:EVGDisplayList (new EVGDisplayList())
+        def m:int 0
+        while (m < (array_length cl.cmds)) {
+            def gi:int -1
+            if (m < (array_length cg)) {
+                gi = (itemAt cg m)
+            }
+            def later:boolean false
+            if (((gi >= 0) && (gi < (array_length s.groups))) && (s.scriptBuilds == false)) {
+                def gr:PresGroup (itemAt s.groups gi)
+                later = (gr.step > 0)
+            }
+            if (later == false) {
+                push ca.cmds (itemAt cl.cmds m)
+            }
+            m = (m + 1)
+        }
+        PresDeck.appendFx(ca cl)
+        PresDeck.appendAll(out ca)
     }
 
     ; The slide as it stands once everything has arrived: the thumbnail, the

@@ -137,7 +137,7 @@ class PresHints {
     }
 
     sfn attrEnum:string (key:string) {
-        if (key == "transition") { return "fade slide zoom none" }
+        if (key == "transition") { return "fade slide zoom morph none" }
         if (key == "fx") { return (PresHints.fxNames()) }
         if (key == "anim") { return "fade rise fly zoom" }
         if (key == "diagram") { return "classic" }

@@ -33,6 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
+import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -190,7 +191,15 @@ const SAMPLES = {
   // 3-D worlds in programs (```app with allow: 3d), on Aurora
   maailmat: [...sample("maailmat", "3D worlds on slides", "3D-maailmat kalvoilla"), "aurora",
     ["apps/chrome.tsx", "apps/chrome.tsx.css", "apps/shapes.tsx", "apps/shapes.tsx.css", "apps/excavator.tsx", "apps/excavator.tsx.css"]],
+  // slide scripts ({script=…}) and transition=morph, with their files
+  // (samples/skriptit/apps/…), on Aurora
+  skriptit: [...sample("skriptit", "Slide scripts: slides that move", "Diaskriptit: diat, jotka liikkuvat"), "aurora",
+    ["apps/grow.tsx", "apps/words.tsx", "apps/flow.tsx", "apps/pick.tsx"]],
   // music and beat effects (front matter music:, {fx=spectrum}), on Nebula
+  // characters from a spritesheet that walk and jump on the slides
+  // (sprites.add in a slide script), with their files (samples/hahmot/…)
+  hahmot: [...sample("hahmot", "Characters: sprites on slides", "Hahmot: spritet kalvoilla"), "aurora",
+    ["sprites/robot.png", "apps/flow.tsx", "apps/walk.tsx"]],
   bileet: [...sample("bileet", "Party: music and beat effects", "Bileet: musiikki ja biittiefektit"), "nebula",
     ["media/bileet.mp3"]],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],
@@ -335,6 +344,7 @@ const three3d = createThree3d({
   scale: () => (lastLayout ? lastLayout.stage[2] : 1),
   repaint: () => { needsPaint = true; },
   toast,
+  readFile: (path) => readDocFile(path),
 });
 // The deck's music (front matter `music:`, web/music.js), played while
 // presenting; the beat effects ({fx=spectrum}, web/beatfx.js) move with it.
@@ -389,6 +399,140 @@ function loadInlineSvgs(rev) {
       dropThumbs();
       needsPaint = true;
     });
+}
+
+// A screen of a shared Figma file on a slide (`![…](figma:<file>/<layer>)`,
+// src/PresFigma.rgr): drawn by the server from the file's index
+// (web/sharedfiles.js) and put in the store where the slide looks for it.
+// Only a server of one's own keeps shared files; elsewhere the picture
+// stays its alt text.
+let figmaRev = "";
+const figmaBusy = new Set();
+const figmaFailed = new Set();
+function loadFigmaPictures(rev) {
+  figmaRev = rev;
+  let list = [];
+  try { list = JSON.parse(app.figmaPicturesJson() || "[]"); } catch (_) { return; }
+  const fresh = list.filter((u) => !figmaBusy.has(u.path) && !figmaFailed.has(u.path));
+  if (!fresh.length) return;
+  if (!ownServer()) {
+    for (const u of fresh) figmaFailed.add(u.path);
+    return;
+  }
+  for (const u of fresh) figmaBusy.add(u.path);
+  Promise.all(fresh.map(async (u) => {
+    try {
+      const res = await fetch(sharedPngUrl(u.file, u.node));
+      // the file is still being indexed: asked again in a moment
+      if (res.status === 409) {
+        setTimeout(() => { figmaRev = ""; needsPaint = true; }, 3000);
+        return;
+      }
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`);
+      await addPicture(u.path, await res.arrayBuffer(), "image/png");
+    } catch (e) {
+      figmaFailed.add(u.path);
+      console.warn("figma picture not drawn", u.file, u.node, e);
+    }
+  }))
+    .finally(() => {
+      for (const u of fresh) figmaBusy.delete(u.path);
+      app.inlineSvgsAdded();
+      dropThumbs();
+      needsPaint = true;
+    });
+}
+
+// --- the shared Files (a server of one's own, web/sharedfiles.js) ---------------
+// Files everyone on the server can use: the rail's Files place lists them,
+// a row opens a Figma file's window (PresChartEditor "figma") with its
+// screens as tiles. The list is asked again while a file is being indexed.
+let sharedFilesList = [];
+let sharedPoll = 0;
+const sharedIndexes = new Map(); // id → { updated, json }
+async function sharedRefresh() {
+  if (viewer || !ownServer()) return;
+  let res;
+  try { res = await listShared(); } catch (e) { console.warn("shared files not listed", e); return; }
+  sharedFilesList = res?.files || [];
+  const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
+  app.setToolbarOptions("files", rows.join("\n"), "1");
+  const open = app.figmaFileOpen();
+  const card = open && sharedFilesList.find((f) => f.id === open);
+  if (card) await sharedShow(card, false);
+  clearTimeout(sharedPoll);
+  if (anyIndexing(sharedFilesList)) sharedPoll = setTimeout(sharedRefresh, 2000);
+  needsPaint = true;
+}
+async function sharedIndexOf(f) {
+  if (f.status !== "ready") return "";
+  const kept = sharedIndexes.get(f.id);
+  if (kept && kept.updated === f.updated) return kept.json;
+  const json = JSON.stringify(await sharedIndex(f.id));
+  sharedIndexes.set(f.id, { updated: f.updated, json });
+  return json;
+}
+// a file's window opened (`open`), or the open one told what changed
+async function sharedShow(f, open) {
+  const args = [f.id, f.name || "", f.status || "", f.error || ""];
+  if (open) app.openFigmaFile(...args, "");
+  let json = "";
+  try { json = await sharedIndexOf(f); } catch (e) { args[2] = "failed"; args[3] = e.message; }
+  app.setFigmaFile(...args, json);
+  needsPaint = true;
+}
+async function sharedRequest(r) {
+  if (r === "list") return sharedRefresh();
+  if (r === "add") {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".fig";
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      toast(t("Adding {name}…").replace("{name}", file.name));
+      try {
+        const card = await putShared(file);
+        await sharedRefresh();
+        if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
+      } catch (e) { toast(t("Could not add the file") + ": " + e.message); }
+    };
+    input.click();
+    return;
+  }
+  if (r.startsWith("open:")) {
+    const id = r.slice(5);
+    let f = sharedFilesList.find((x) => x.id === id);
+    if (!f) { await sharedRefresh(); f = sharedFilesList.find((x) => x.id === id); }
+    if (f) await sharedShow(f, true);
+    return;
+  }
+  if (r.startsWith("delete:")) {
+    const id = r.slice(7);
+    try {
+      await removeShared(id);
+      sharedIndexes.delete(id);
+      toast(t("File deleted"));
+    } catch (e) { toast(t("Could not delete the file") + ": " + e.message); }
+    return sharedRefresh();
+  }
+}
+// The open file window's tiles: each screen or part drawn small by the
+// server and kept among the pictures under its key (not a deck's file).
+const figmaThumbBusy = new Set();
+function loadFigmaThumbs() {
+  let list = [];
+  try { list = JSON.parse(app.figmaThumbsJson() || "[]"); } catch (_) { return; }
+  for (const u of list) {
+    if (pictures.has(u.key) || figmaThumbBusy.has(u.key)) continue;
+    figmaThumbBusy.add(u.key);
+    fetch(sharedPngUrl(u.file, u.node, 240))
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
+      .then((bytes) => registerPicture(u.key, bytes, "image/png"))
+      .then(() => { needsPaint = true; })
+      .catch((e) => console.warn("figma tile not drawn", u.node, e))
+      .finally(() => figmaThumbBusy.delete(u.key));
+  }
 }
 
 // A picture pasted or dropped on the canvas opens the image window
@@ -914,7 +1058,7 @@ function beginDoc(text) {
 // the Rooms panel's state (its requests: roomsRequest, below)
 const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
-// the room whose "+ Add new presentation" opened File → New's window
+// the room whose "+" → Add new… → Presentation opened File → New's window
 let roomForNew = "";
 let roomChatOne = null;
 // the folder whose window is open ({ room, id }, id "" for a new one), and
@@ -1017,6 +1161,18 @@ async function keepFile(rec) {
 // there (sheets/), or its own site. See web/sheets-live.js.
 const SHEETS_BASE = "__SHEETS_BASE__";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Files under code/ for the source viewer (PresCodeViewUi): text, or "not
+// in the deck" for each one asked.
+async function readCodeFiles(paths) {
+  for (const p of paths) {
+    if (!p) continue;
+    const blob = await readDocFile(p);
+    if (blob) app.setCodeFile(p, await blob.text());
+    else app.setCodeGone(p);
+  }
+  needsPaint = true;
+}
 
 async function readDocFile(path) {
   const f = (await docFiles()).find((x) => x.path === bare(path));
@@ -1128,6 +1284,8 @@ window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 window.__docState = () => ({ id: doc.id, cloud: doc.cloud });
 window.__allDocs = () => allDocs(true);
 window.__docFile = (path) => readDocFile(path);
+// for the checks: a text file into the deck's files
+window.__keepText = (path, text) => keepFile({ path, type: "text/plain", size: text.length, data: text });
 
 async function docFiles() {
   const out = new Map();
@@ -1237,7 +1395,7 @@ async function newDeck(plan) {
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
-  // made by a room's "+ Add new presentation": it goes there
+  // made from a room's "+" (Add new… → Presentation): it goes there
   const room = roomForNew;
   roomForNew = "";
   if (room) {
@@ -1745,8 +1903,6 @@ async function roomsRequest(r) {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
-      addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
-      newFolder: roomShown === ONBOARDING ? "" : "+ " + t("New folder"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
     if (action === "open") await roomChat().open(roomShown);
@@ -2013,6 +2169,69 @@ async function newSheet() {
     onSave: (raw) => saveWorkbook(path, raw),
     onClose: () => { keys.focus({ preventScroll: true }); refreshFiles(); needsPaint = true; },
   }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
+}
+
+// File → New → Questionnaire…: forms/questionnaire-<n>.form.md from the
+// model's starting text (PresForm.template), kept in the deck and opened as
+// text. On a server of one's own its Files row then gives an answer link.
+async function newQuestionnaire() {
+  const have = new Set((await docFiles()).map((f) => f.path));
+  let n = 1;
+  while (have.has(`forms/questionnaire-${n}.form.md`)) n++;
+  const path = `forms/questionnaire-${n}.form.md`;
+  const text = app.formTemplate();
+  await keepFile({ path, type: "text/markdown", size: new TextEncoder().encode(text).length, data: text });
+  app.openFile(path, text);
+  needsPaint = true;
+}
+
+// A questionnaire's answers are kept by the server the deck is saved to
+// (mcp-go/forms.go): a server of one's own, with the deck there.
+function questionnairesServed() {
+  return ownServer() && !!doc.cloud;
+}
+async function questionnaireAPI(method, op, body) {
+  const res = await fetch("/api/forms/" + op, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let msg = res.status + "";
+    try { msg = (await res.json()).error || msg; } catch (_) { /* not JSON */ }
+    throw new Error(msg);
+  }
+  return res;
+}
+
+// Files → a questionnaire's Answer link: a new short-code link (/c/CODE) to
+// the address copied. The file goes up first, so the server answers with
+// what is in the editor.
+async function questionnaireLink(path) {
+  if (!questionnairesServed()) { toast(t("Answer links need the presentation saved to a Sliqtly server.")); return; }
+  try {
+    await cloudSync();
+    const res = await questionnaireAPI("POST", "links", { deck: doc.cloud, file: path, kind: "code" });
+    const { links, warnings } = await res.json();
+    const url = new URL(links[0].path, location.href).href;
+    const copied = await writeClip(url);
+    toast((copied ? t("Answer link copied: ") : t("Answer link: ")) + url + (warnings?.length ? " · " + t("The questionnaire has warnings: ") + warnings[0] : ""));
+  } catch (e) {
+    toast(t("No answer link: ") + (e.message || e));
+  }
+}
+
+// Files → a questionnaire's Responses: every response as CSV.
+async function questionnaireResponses(path) {
+  if (!questionnairesServed()) { toast(t("Responses are kept by a Sliqtly server; this presentation is not saved to one.")); return; }
+  try {
+    const q = new URLSearchParams({ deck: doc.cloud, file: path, format: "csv" });
+    const res = await questionnaireAPI("GET", "responses?" + q);
+    const name = path.split("/").pop().replace(/\.form\.md$/, "") + ".csv";
+    deliver(new Uint8Array(await res.arrayBuffer()), name, "text/csv");
+  } catch (e) {
+    toast(t("The responses could not be read: ") + (e.message || e));
+  }
 }
 
 // A row of a presentation's menu in Rooms or on its deck tab
@@ -2422,6 +2641,8 @@ async function refreshRecent() {
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
+  // the source viewer reads its code/ files again when next wanted
+  app.codeFilesChanged();
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
   if (app.editorTab() !== "files" || filesListing) return;
@@ -2461,6 +2682,7 @@ async function refreshFiles() {
         const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
         if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
         if (again.has(f.path)) row.retrace = true;
+        if (row.kind === "form" && questionnairesServed()) row.served = true;
         return row;
       });
     const sorted = sortFiles(files);
@@ -2755,6 +2977,12 @@ async function fileRequest(r) {
     app.openNewDeck(selectRows(themeSel), themeSel.value || "", "");
   } else if (action === "newsheet") {
     await newSheet();
+  } else if (action === "newform") {
+    await newQuestionnaire();
+  } else if (action === "formlink") {
+    await questionnaireLink(what);
+  } else if (action === "formcsv") {
+    await questionnaireResponses(what);
   } else if (action === "duplicate") {
     // the copy's name asked first, as for a new deck
     app.openDupDeck(copyName());
@@ -2938,22 +3166,18 @@ let autoContrast = true;
 try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
 
 // --- review mode: comments pinned to the slides (src/PresReviewUi.rgr) ----------------
-// File → Settings turns it on or off; without a choice made it is on where
-// the page is served by a server of one's own (a team's review tool) and off
-// on the site. The comments are the deck's file review/comments.json
-// (src/PresReview.rgr); a copy changed elsewhere (another person, an
-// assistant through MCP) is united with this one, not put in its place.
+// Always on in the editor, so commenting never disappears; the rail's Review
+// only opens and closes the list of comments. Not in the shared viewer or a
+// version's read-only frame. The comments are the deck's file
+// review/comments.json (src/PresReview.rgr); a copy changed elsewhere
+// (another person, an assistant through MCP) is united with this one, not
+// put in its place.
 const REVIEW_PATH = "review/comments.json";
-const REVIEW_KEY = "sliqtly.review";
-function reviewChoice() {
-  try { return localStorage.getItem(REVIEW_KEY); } catch (_) { return null; }
-}
 function ownServer() {
   return typeof window.sliqtly?.serverVersion === "function";
 }
 function applyReviewMode() {
-  const choice = reviewChoice();
-  const on = !viewer && !versionFrame && (choice ? choice === "on" : ownServer());
+  const on = !viewer && !versionFrame;
   if (app.reviewMode() !== on) {
     app.setReviewMode(on);
     document.body.classList.toggle("reviewing", on);
@@ -3013,12 +3237,16 @@ let skinHue = 88;
 // (the device's setting, followed as it changes), per browser. The slides
 // keep their own theme in both.
 let mode = "light";
+// The frame around the work (the bar and the left rail): "" white (the
+// default) or "terracotta", the logo's colour, per browser.
+let frameLook = "";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
   const m = localStorage.getItem("sliqtly.mode");
   if (m === "dark" || m === "system") mode = m;
+  if (localStorage.getItem("sliqtly.frame") === "terracotta") frameLook = "terracotta";
 } catch (_) { /* standard */ }
 const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function isDark() {
@@ -3087,6 +3315,12 @@ function setSkinName(name) {
     try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
   });
 }
+function setFrame(f) {
+  frameLook = f === "terracotta" ? "terracotta" : "";
+  try { localStorage.setItem("sliqtly.frame", frameLook || "white"); } catch (_) { /* this session only */ }
+  applySkin();
+  needsPaint = true;
+}
 function setMode(m) {
   relook(() => {
     mode = m === "light" || m === "dark" ? m : "system";
@@ -3101,10 +3335,11 @@ function toggleMode() {
   setMode(dark ? "dark" : "light");
 }
 darkQuery?.addEventListener?.("change", () => { if (mode === "system") relook(() => {}); });
-window.__skin = { set: setSkinName, hue: setSkinHue, mode: setMode };
+window.__skin = { set: setSkinName, hue: setSkinHue, mode: setMode, frame: setFrame };
 function applySkin() {
   app.setSkin(lookTheme(), skinHue);
   app.setLookMode(mode);
+  app.setLookFrame(frameLook);
   const root = document.documentElement;
   root.dataset.skin = skin || "standard";
   root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
@@ -3508,6 +3743,9 @@ function paintOnce() {
         roomChatOne.want((d.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src));
         paintList(d, roomChatOne.pictures);
       } else paintList(j);
+    } else if (layer === "code") {
+      // presenting: the source viewer over the slide, or the diagrams' ‹/› badges
+      paintList(app.codeJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -4163,6 +4401,7 @@ function frame() {
       syncRecBar();
       loadLookFaces();
       if (rev !== inlineSvgRev) loadInlineSvgs(rev);
+      if (rev !== figmaRev) loadFigmaPictures(rev);
       paintOnce();
       handleRequests();
       followAddress();
@@ -4466,9 +4705,6 @@ function handleRequests() {
       try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
       dropThumbs();
       needsPaint = true;
-    } else if (r.startsWith("setting:review:")) {
-      try { localStorage.setItem(REVIEW_KEY, r.endsWith(":on") ? "on" : "off"); } catch (_) { /* this session only */ }
-      applyReviewMode();
     } else if (r === "review-save") {
       keepReview().catch(fail);
     } else if (r === "confirm:zip") {
@@ -4477,6 +4713,8 @@ function handleRequests() {
       exportZip(false).catch(fail);
     } else if (r.startsWith("setting:skin:")) {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
+    } else if (r.startsWith("setting:frame:")) {
+      setFrame(r.slice("setting:frame:".length));
     } else if (r.startsWith("setting:mode:")) {
       setMode(r.slice("setting:mode:".length));
     } else if (r.startsWith("setting:order:")) {
@@ -4493,11 +4731,6 @@ function handleRequests() {
       roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
       renameDeck(r.slice(6));
-    } else if (r === "rail:review") {
-      // the rail's Review: review mode on or off, kept as Settings keeps it
-      const on = !app.reviewMode();
-      try { localStorage.setItem(REVIEW_KEY, on ? "on" : "off"); } catch (_) { /* this session only */ }
-      applyReviewMode();
     } else if (r === "decks") {
       decksRoom = null;
       openDecks().catch(fail);
@@ -4523,6 +4756,9 @@ function handleRequests() {
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
+    } else if (r.startsWith("code-files:")) {
+      // the source viewer's files (code/…): handed over as they are read
+      readCodeFiles(r.slice(11).split("|")).catch(fail);
     } else if (r.startsWith("openlink:")) {
       // a link in a comment (review mode): web addresses only, in a new tab
       const u = r.slice(9);
@@ -4549,6 +4785,12 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("shared:")) {
+      sharedRequest(r.slice(7)).catch(fail);
+    } else if (r === "figma-thumbs") {
+      loadFigmaThumbs();
+    } else if (r === "figma:copy") {
+      writeClip(app.figmaMarkdown()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r.startsWith("deckdo:")) {
       deckDo(r.slice(7)).catch(fail);
     } else if (r.startsWith("deck:switch:")) {
@@ -7278,6 +7520,19 @@ keys.addEventListener("keydown", (ev) => {
     afterInput();
     return;
   }
+  if (presenting && app.codeViewOpen() && !app.reviewHasKeys()) {
+    // the source viewer over the slide: its keys (Ctrl/Cmd + / - / 0 zoom
+    // it, not the page; D the view, N the next change, Ctrl/Cmd+C copies)
+    const steps = mod ? editorZoomStep(ev) : null;
+    const name = steps === 1 ? "+" : steps === -1 ? "-" : steps === 0 ? "0"
+      : ev.key === " " ? "space" : ev.key.length === 1 ? (mod ? ev.key.toLowerCase() : ev.key) : "";
+    if (name) {
+      ev.preventDefault();
+      app.key(name, ev.shiftKey, mod);
+      afterInput();
+    }
+    return;
+  }
   if (presenting) {
     // with the text tool (Aa) letters write on the slide
     const writing = app.inkWrites();
@@ -8307,7 +8562,7 @@ async function start() {
     textOf("./pres.css"),
     textOf("./ui.css").catch(() => ""),
     textOf("./chart-editor.css").catch(() => ""),
-    Promise.all(["ui-retro", "retro", "ui-dark", "dark"].map((f) => textOf("./skins/" + f + ".css")))
+    Promise.all(["ui-retro", "retro", "ui-dark", "dark", "terracotta"].map((f) => textOf("./skins/" + f + ".css")))
       .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
   chromeSheets.files = skins;
@@ -8398,6 +8653,7 @@ async function start() {
   // the browser's store not answering (web/vfs.js gives up on a stuck
   // call) leaves no page behind the loader: the welcome deck opens, and the
   // notice says why one's own is not there
+  sharedRefresh();
   try {
     if (versionFrame) await openVersionView();
     else if (playerDeck) await openPlayerDeck();

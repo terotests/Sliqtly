@@ -5,13 +5,17 @@
 // storage, only the frame the page hands it, and one that never returns
 // costs the page nothing (web/apps.js ends the worker).
 //
-//   { type: "load", runtime, source }  a fresh engine: the runtime, then the
-//                                      program                -> { type: "loaded" }
+//   { type: "load", runtime, source, calibrate? }
+//                                      a fresh engine: the runtime, then the
+//                                      program -> { type: "loaded", calib }
+//                                      (calib: ms of __calibrate, the
+//                                      engine's speed here)
 //   { type: "frame", arg, fn? }        __deckFrame(arg), or fn (a slide's
 //                                      script: __scriptFrame) -> { type: "frame", out, ms }
-//   { type: "final", runtime, source, arg }
+//   { type: "final", runtime, source, arg, fn? }
 //                                      a second engine of its own runs
-//                                      __scriptFinal(arg) and is dropped, so
+//                                      __scriptFinal(arg) (or fn: __scriptOpen)
+//                                      and is dropped, so
 //                                      where a script ends is worked out without
 //                                      touching the one that runs -> { type: "final", out }
 //
@@ -73,7 +77,22 @@ self.onmessage = async (ev) => {
         return;
       }
       const r = run(m.source);
-      self.postMessage({ type: "loaded", ok: r.ok, error: r.ok ? "" : r.value, output: r.output });
+      // how fast this engine is here: a slide's script gets a time budget
+      // in step with it (web/apps.js scriptBudget)
+      let calib = 0;
+      if (r.ok && m.calibrate) {
+        const fn = put("__calibrate");
+        const [ap, an] = put("{}");
+        calib = Infinity;
+        for (let k = 0; k < 3; k++) {
+          const t0 = performance.now();
+          x.cx_call(engine, fn[0], fn[1], ap, an);
+          calib = Math.min(calib, performance.now() - t0);
+        }
+        x.cx_free(ap, an);
+        x.cx_free(fn[0], fn[1]);
+      }
+      self.postMessage({ type: "loaded", ok: r.ok, error: r.ok ? "" : r.value, output: r.output, calib });
     } else if (m.type === "frame") {
       const [ap, an] = put(m.arg);
       const fn = m.fn ? put(m.fn) : frameName;
@@ -97,7 +116,7 @@ self.onmessage = async (ev) => {
           return;
         }
         const [ap, an] = put(m.arg);
-        const fn = put("__scriptFinal");
+        const fn = put(m.fn || "__scriptFinal");
         const failed = x.cx_call(own, fn[0], fn[1], ap, an);
         x.cx_free(ap, an);
         x.cx_free(fn[0], fn[1]);

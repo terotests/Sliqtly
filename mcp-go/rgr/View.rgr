@@ -14,7 +14,8 @@
 ;     "effects": [ <FxLang.json: the deck's own effects> ] }
 ;
 ; `files` are the deck's stored files a list draws (pictures, by the
-; "/media/<name>" a command's src names). `slides`: a view of only those
+; "/media/<name>" a command's src names) and the .gltf models a program
+; names (<SliqGltf src>, web/three3d.js). `slides`: a view of only those
 ; sections (PresPick keys, the link the editor's picked slides share).
 ; =============================================================================
 
@@ -90,6 +91,9 @@ class View {
         ; a program's box is left empty: the page runs it and paints its
         ; plate until it has a picture (web/viewplay.js)
         d.platesOff = true
+        ; each slide's script where it ends: the slide at rest, and what the
+        ; page shows until it runs the script itself (View.scripts)
+        Check.scriptFinals(host din d (new Checked))
         def lists:[string]
         def n:int (d.slideCount())
         def i:int 0
@@ -99,6 +103,13 @@ class View {
             i = (i + 1)
         }
         def all:string (join lists ",")
+        def scripts:string (View.scripts(host din d))
+        def plays:MfJ (View.plays(host din d))
+        ; the programs' text: a .gltf one names (<SliqGltf src>) goes along
+        def progs:string ""
+        for plays.arr pj:MfJ pji {
+            progs = (progs + (pj.str_("text")))
+        }
         def files:MfJ (MfJ.newArr())
         for (doc.list("files")) f2:MfJ f2i {
             def path:string (f2.str_("path"))
@@ -106,7 +117,12 @@ class View {
             if (((strlen path) == 0) || ((strlen url) == 0)) {
                 continue
             }
-            if ((indexOf all ("\"/" + path + "\"")) < 0) {
+            ; drawn at rest, a .gltf a program names, or a picture a slide's
+            ; script names (add("image", …))
+            def drawn:boolean ((indexOf all ("\"/" + path + "\"")) >= 0)
+            def model:boolean ((endsWith (to_lowercase path) ".gltf") && ((indexOf progs path) >= 0))
+            def scripted:boolean ((indexOf scripts path) >= 0)
+            if (((drawn == false) && (model == false)) && (scripted == false)) {
                 continue
             }
             def o:MfJ (MfJ.newObj())
@@ -140,10 +156,48 @@ class View {
             bj.put("spreads" spreads)
             deck.put("book" bj)
         }
-        deck.put("plays" (View.plays(host din d)))
+        deck.put("plays" plays)
         ; the deck's own effects (```fx, the theme's @effect) as shader
         ; text the deck's compiler wrote (FxLang), for the page to register
-        return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + "}")
+        return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + ",\"scripts\":" + scripts + "}")
+    }
+
+    ; The slides' scripts ({script=…}), which the page runs itself while
+    ; their slide is shown (web/viewplay.js, PresScriptWeb): the file's
+    ; text, its grants, the tree it is handed (PresScene.toJson) and the
+    ; slide as the Markdown has it to lay its frames over
+    ; (PresDeck.scriptBaseJson).
+    ;   [{ "key", "slide", "src", "allow": […], "text", "steps", "tree",
+    ;      "base": {"list", "scene", "ink", "accent"} }]
+    sfn scripts:string (host:McpHost din:DeckIn d:PresDeck) {
+        def out:[string]
+        def i:int 0
+        while (i < (d.slideCount())) {
+            def key:string (d.scriptKeyOf(i))
+            if ((strlen key) > 0) {
+                def s:PresSlide (d.slideAt(i))
+                def text:string (Check.dataText(host din s.script))
+                if ((strlen text) > 0) {
+                    def o:MfJ (MfJ.newObj())
+                    o.putStr("key" key)
+                    o.putInt("slide" i)
+                    o.putStr("src" s.script)
+                    def al:MfJ (MfJ.newArr())
+                    for s.scriptAllow a:string ai {
+                        al.add((MfJ.ofStr(a)))
+                    }
+                    o.put("allow" al)
+                    o.putStr("text" text)
+                    ; every build step shown, as the viewer shows the slide
+                    o.putInt("steps" s.steps)
+                    def head:string (JOut.text(o))
+                    def tree:string (d.scriptTree(key))
+                    push out ((substring head 0 ((strlen head) - 1)) + ",\"tree\":" + tree + ",\"base\":" + (d.scriptBaseJson(i)) + "}")
+                }
+            }
+            i = (i + 1)
+        }
+        return ("[" + (join out ",") + "]")
     }
 
     ; The programs on the slides (```app), which the page runs itself
@@ -568,6 +622,7 @@ class LinkCard {
             d = (Check.prepare(host din (new Checked)))
         }
         d.still = true
+        Check.scriptFinals(host din d (new Checked))
         for bgs.pics p:CheckPic pi {
             host_render_pic host p.name (itemAt bgs.data pi)
         }

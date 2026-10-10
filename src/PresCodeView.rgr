@@ -1,0 +1,342 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresCodeView.rgr — the source viewer over a presented slide, as a model
+; ============================================================================
+;
+; Presenting, a double click on a diagram's box (or a press on its ‹/›
+; badge) opens the files the box is about (PresCodeLinks) over the slide,
+; read-only, the way a code editor shows them: one tab per link, scrolled to
+; the link's lines, zoomed with Ctrl/Cmd + and -, in one of four modes
+; (PresCodeRows: now, before, diff, split). Esc or ‹ Back puts the slide back
+; as it was. Like the diagram magnifier (PresDiaFull) it grows out of the box
+; it was opened from in 0.3 s and shrinks back into it.
+;
+; A press held still on a line for half a second (`holdMs`) pins a comment
+; there; moving on while still held stretches it over more lines; letting go
+; opens the new comment. Which lines a pin goes to is PresCodeRows' rule:
+; always lines of the NEW version.
+;
+; Nothing here draws or knows a clock; the host gives the time (seconds),
+; the rows under the pointer and where things are.
+; ============================================================================
+
+Import "PresCodeLinks.rgr"
+Import "PresCodeRows.rgr"
+
+class PresCodeView {
+    def isOpen:boolean false
+    ; the tabs: the links opened, and the one shown
+    def links:[PresCodeLink]
+    def tab:int 0
+    ; the mode of the tab shown: now, before, diff, split
+    def mode:string "now"
+    ; the reader's text size, in steps from the deck's (Ctrl/Cmd + / -)
+    def zoom:int 0
+    ; the box it was opened from (slide units on the page) and when
+    def fromX:double 0.0
+    def fromY:double 0.0
+    def fromW:double 0.0
+    def fromH:double 0.0
+    def openedAt:double -10.0
+    def closedAt:double -10.0
+    ; where it was opened from, for the comments made in it
+    def slide:int 0
+    def dia:int -1
+    def node:string ""
+    ; a press: where (rows of the column pressed; `right` the new column of
+    ; split), when, and whether it has become a hold
+    def pressing:boolean false
+    def pressRow:int -1
+    def pressX:double 0.0
+    def pressY:double 0.0
+    def pressAt:double 0.0
+    def held:boolean false
+    def holdRow:int -1
+    def holdTo:int -1
+    def moved:boolean false
+    def rev:int 0
+    ; how many times it was opened (a new opening goes to the link again)
+    def opens:int 0
+
+    sfn holdMs:double () {
+        return 0.5
+    }
+
+    sfn slop:double () {
+        return 6.0
+    }
+
+    sfn growS:double () {
+        return 0.3
+    }
+
+    ; Opens links (one tab each, `first` shown) out of a box.
+    fn open:void (ls:[PresCodeLink] first:int bx:double by:double bw:double bh:double now:double) {
+        if ((array_length ls) == 0) {
+            return
+        }
+        links = ls
+        tab = first
+        if ((tab < 0) || (tab >= (array_length ls))) {
+            tab = 0
+        }
+        mode = ""
+        fromX = bx
+        fromY = by
+        fromW = bw
+        fromH = bh
+        isOpen = true
+        opens = (opens + 1)
+        openedAt = now
+        pressing = false
+        held = false
+        rev = (rev + 1)
+    }
+
+    fn close:boolean (now:double) {
+        if (isOpen == false) {
+            return false
+        }
+        isOpen = false
+        closedAt = now
+        pressing = false
+        held = false
+        rev = (rev + 1)
+        return true
+    }
+
+    fn link@(optional):PresCodeLink () {
+        def none@(optional):PresCodeLink
+        if ((tab < 0) || (tab >= (array_length links))) {
+            return none
+        }
+        def k@(optional):PresCodeLink (itemAt links tab)
+        return k
+    }
+
+    ; 0 closed .. 1 open, eased (smoothstep), growing and shrinking
+    fn amount:double (now:double) {
+        def g:double (PresCodeView.growS())
+        def t:double 0.0
+        if isOpen {
+            t = ((now - openedAt) / g)
+        } {
+            t = (1.0 - ((now - closedAt) / g))
+        }
+        if (t <= 0.0) {
+            return 0.0
+        }
+        if (t >= 1.0) {
+            return 1.0
+        }
+        return ((t * t) * (3.0 - (2.0 * t)))
+    }
+
+    ; still growing or shrinking: the host keeps drawing
+    fn busy:boolean (now:double) {
+        def a:double (this.amount(now))
+        return (((a > 0.0) && (a < 1.0)) || (pressing && (held == false)))
+    }
+
+    ; The box drawn at amount `a`: from the box opened from to `full`.
+    sfn mix:double (a:double from:double to:double) {
+        return (from + ((to - from) * a))
+    }
+
+    fn showTab:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length links)) || (i == tab)) {
+            return false
+        }
+        tab = i
+        mode = ""
+        pressing = false
+        held = false
+        rev = (rev + 1)
+        return true
+    }
+
+    fn setMode:boolean (m:string) {
+        if ((PresCodeRows.isMode(m) == false) || (m == mode)) {
+            return false
+        }
+        mode = m
+        rev = (rev + 1)
+        return true
+    }
+
+    ; D: the change in one column, side by side, the file now, and back
+    sfn nextMode:string (m:string) {
+        if (m == "diff") {
+            return "split"
+        }
+        if (m == "split") {
+            return "now"
+        }
+        if (m == "now") {
+            return "before"
+        }
+        return "diff"
+    }
+
+    fn zoomBy:boolean (steps:int) {
+        def z:int (zoom + steps)
+        if (z < -6) {
+            z = -6
+        }
+        if (z > 12) {
+            z = 12
+        }
+        if (z == zoom) {
+            return false
+        }
+        zoom = z
+        rev = (rev + 1)
+        return true
+    }
+
+    ; The text size for the zoom: the deck's size grown or shrunk ~12 % a step.
+    fn fontSize:double (base:double) {
+        def s:double base
+        def i:int 0
+        if (zoom > 0) {
+            while (i < zoom) {
+                s = (s * 1.12)
+                i = (i + 1)
+            }
+        } {
+            while (i > zoom) {
+                s = (s / 1.12)
+                i = (i - 1)
+            }
+        }
+        return s
+    }
+
+    ; --- pressing and holding ---------------------------------------------------
+
+    ; A press on row `row` (-1: not on a row) at (x, y).
+    fn down:void (row:int x:double y:double now:double) {
+        pressing = true
+        pressRow = row
+        pressX = x
+        pressY = y
+        pressAt = now
+        held = false
+        moved = false
+        holdRow = -1
+        holdTo = -1
+    }
+
+    ; The pointer moved while pressed; `row` is under it now. Before the
+    ; hold, a move past the slop makes it a plain drag (a selection, a
+    ; scroll); after it, it stretches the pinned range.
+    fn move:void (row:int x:double y:double) {
+        if (pressing == false) {
+            return
+        }
+        if held {
+            if ((row >= 0) && (row != holdTo)) {
+                holdTo = row
+                rev = (rev + 1)
+            }
+            return
+        }
+        def dx:double (x - pressX)
+        def dy:double (y - pressY)
+        if (((dx * dx) + (dy * dy)) > ((PresCodeView.slop()) * (PresCodeView.slop()))) {
+            moved = true
+        }
+    }
+
+    ; Each frame while pressed: true when the press has just become a hold
+    ; (on a row that can take a comment: `canComment`).
+    fn tick:boolean (now:double canComment:boolean) {
+        if (((pressing == false) || held) || moved) {
+            return false
+        }
+        if (((now - pressAt) >= (PresCodeView.holdMs())) && ((pressRow >= 0) && canComment)) {
+            held = true
+            holdRow = pressRow
+            holdTo = pressRow
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    ; Let go: "comment" when a hold ends (the rows are `holdFrom()`..
+    ; `holdLast()`), "click" for a press that neither moved nor was held,
+    ; "drag" otherwise.
+    fn up:string () {
+        if (pressing == false) {
+            return ""
+        }
+        pressing = false
+        if held {
+            held = false
+            rev = (rev + 1)
+            return "comment"
+        }
+        if moved {
+            return "drag"
+        }
+        return "click"
+    }
+
+    fn holdFrom:int () {
+        if (holdTo < holdRow) {
+            return holdTo
+        }
+        return holdRow
+    }
+
+    fn holdLast:int () {
+        if (holdTo < holdRow) {
+            return holdRow
+        }
+        return holdTo
+    }
+
+    ; --- what a hold comments ----------------------------------------------------
+
+    ; The new-version lines rows `a`..`b` comment: [first, last], and the
+    ; old lines among them that the change removed ([from, to], 0 when
+    ; none) as [first, last, removedFrom, removedTo]. [0, 0, 0, 0] when no
+    ; row there takes a comment.
+    sfn commentLines:[int] (rows:[PresCodeRow] a:int b:int) {
+        def first:int 0
+        def last:int 0
+        def rf:int 0
+        def rt:int 0
+        def i:int a
+        while (i <= b) {
+            def n:int (PresCodeRows.lineAt(rows i))
+            if (n > 0) {
+                if ((first == 0) || (n < first)) {
+                    first = n
+                }
+                if (n > last) {
+                    last = n
+                }
+            }
+            def rm:[int] (PresCodeRows.removedAt(rows i))
+            if ((array_length rm) == 2) {
+                def o:int (itemAt rm 0)
+                if ((rf == 0) || (o < rf)) {
+                    rf = o
+                }
+                if (o > rt) {
+                    rt = o
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        push out first
+        push out last
+        push out rf
+        push out rt
+        return out
+    }
+}

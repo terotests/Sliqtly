@@ -5,10 +5,10 @@ name: MCP Go
 
 on:
   pull_request:
-    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "scripts/themes.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
   push:
     branches: [main]
-    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "scripts/themes.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
 
 permissions:
   contents: read
@@ -56,7 +56,7 @@ jobs:
           node-version: 22
       # compiles rgr/ and src/ with Ranger
       - run: go generate ./...
-      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go nocloud.go fsstore.go sqlbucket.go local.go localweb.go localevents.go collab.go otdelta.go datafmt.go localstatus.go localsettings.go names.go lock_unix.go lock_other.go server_test.go stats_test.go local_test.go collab_test.go otdelta_test.go datafmt_test.go names_test.go netaccess.go svgraster.go svgraster_test.go svgcheck_test.go svgcompat_test.go picgrid.go picgrid_test.go render.go ifkind.go ifkind_linux.go ifkind_darwin.go ifkind_other.go netaccess_test.go edits_test.go export_test.go github_test.go broken_test.go work_test.go useredits_test.go align_test.go backup.go backup_test.go owner_unix.go owner_other.go clientip.go localguard.go localguard_test.go roomchat.go roomchat_test.go editorrooms.go editorrooms_test.go fsengine.go fsengine_test.go fschat.go roomfiles.go roomfiles_test.go linkpreview.go meet.go meet_test.go owncert.go owncert_test.go webpictures_test.go importdirs.go importdirs_test.go admin.go admin_test.go adminsource.go connectorsapi.go connectorsapi_test.go connectors/*.go)"
+      - run: test -z "$(gofmt -l host.go net.go main.go firebase.go nocloud.go fsstore.go sqlbucket.go local.go localweb.go localevents.go collab.go datafmt.go localstatus.go localsettings.go names.go lock_unix.go lock_other.go server_test.go stats_test.go local_test.go collab_test.go datafmt_test.go names_test.go netaccess.go svgraster.go svgraster_test.go svgcheck_test.go svgcompat_test.go picgrid.go picgrid_test.go render.go ifkind.go ifkind_linux.go ifkind_darwin.go ifkind_other.go netaccess_test.go edits_test.go export_test.go github_test.go broken_test.go work_test.go useredits_test.go align_test.go backup.go backup_test.go owner_unix.go owner_other.go clientip.go localguard.go localguard_test.go roomchat.go roomchat_test.go editorrooms.go editorrooms_test.go fsengine.go fsengine_test.go fschat.go roomfiles.go roomfiles_test.go linkpreview.go meet.go meet_test.go owncert.go owncert_test.go webpictures_test.go importdirs.go importdirs_test.go admin.go admin_test.go adminsource.go connectorsapi.go connectorsapi_test.go sharedfiles.go sharedfiles_test.go sharedtools.go connectors/*.go)"
       # the generated code carries json tags on unexported fields, and the
       # deck model has a few self-assignments
       - run: go vet -structtag=false -assign=false ./...

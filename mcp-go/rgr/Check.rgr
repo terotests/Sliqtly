@@ -12,6 +12,8 @@ Import "Contrast.rgr"
 Import "Files.rgr"
 Import "Layout.rgr"
 Import "../presentation/PresExport.rgr"
+Import "../presentation/Pres3DStill.rgr"
+Import "../presentation/Pres3DGltf.rgr"
 
 ; what a deck is checked with
 class DeckIn {
@@ -35,6 +37,12 @@ class DeckIn {
     ; `fxTime` seconds into it (PresDeck.fxClockAt); -1: the end state
     def fxAt:int -1
     def fxTime:double -1.0
+    ; with lists: slide `fxAt` also drawn at each of these seconds into it
+    ; (its effects' clock and its script at that moment): Checked.strip
+    def strip:[double]
+    ; …or this many times, evenly from 0 to where the slide ends
+    ; (`export-frame`, else its length, at most 20 s)
+    def stripCount:int 0
     ; "pdf", "pptx", "docx" or "html": the deck exported as that file (Checked.file), only
     ; the slides in `only` (0 = first) when it is not empty
     def export:string ""
@@ -72,6 +80,12 @@ class Checked {
     def height:double 540.0
     ; with DeckIn.export: the file
     def file:buffer (buffer_from_string "")
+    ; export "gltf": the world written (slide number, program) and how many
+    ; worlds the slides asked for have
+    def gltfFrom:string ""
+    def gltfSrc:string ""
+    def gltfWorlds:int 0
+    def gltfNotes:[string]
     ; with DeckIn.scene: that slide's entities (PresScene.toJson), their
     ; outline, and the ids DeckIn.sceneSel finds (or why it is no selector)
     def scene:int -1
@@ -79,6 +93,13 @@ class Checked {
     def sceneLines:[string]
     def sceneFound:[string]
     def sceneSelError:string ""
+    ; where that slide's script ends ({p, a}, as it gave it), "" for none
+    def sceneFinal:string ""
+    ; with DeckIn.strip: slide fxAt's display list at each of those times
+    def strip:[string]
+    def stripTimes:[double]
+    ; the strip's slide's script file, "" for none
+    def stripScript:string ""
 }
 
 class Check {
@@ -280,6 +301,78 @@ class Check {
         return -1
     }
 
+    ; Each slide's script run where it ends (__scriptFinal in CErXes,
+    ; host_script_run): its frame kept as the slide's final state. One that
+    ; does not run is said; without an engine the slides show the Markdown.
+    sfn scriptFinals:void (host:McpHost din:DeckIn d:PresDeck c:Checked) {
+        for (d.scriptKeys()) key:string ki {
+            def pg:int (d.scriptPage(key))
+            def s:PresSlide (d.slideAt(pg))
+            def text:string (Check.dataText(host din s.script))
+            if ((strlen text) == 0) {
+                continue
+            }
+            def arg:string (Check.withTree((d.scriptTree(key)) (d.scriptFinalArgs(key))))
+            def out:string (host_script_run host text "__scriptFinal" arg)
+            if (out == "-") {
+                continue
+            }
+            if (startsWith out "!") {
+                push c.warnings (Guide.see(("Slide " + (to_string (pg + 1)) + ": script " + s.script + " does not run: " + (substring out 1 (strlen out))) "scripts"))
+                continue
+            }
+            d.setScriptFinal(key out)
+            def ro@(optional):PresScriptRun (d.scriptRun(key))
+            if (!null? ro) {
+                def off:int (PresScriptCheck.addsOutside(ro.final d.pageW d.pageH))
+                if (off > 0) {
+                    push c.warnings (Guide.see(("Slide " + (to_string (pg + 1)) + ": script " + s.script + ": " + (to_string off) + " shape(s) it adds are off the slide, which is " + (to_string (to_int (d.pageW + 0.5))) + " × " + (to_string (to_int (d.pageH + 0.5))) + " (presentation.activeSlide.width / height)") "scripts"))
+                }
+            }
+        }
+    }
+
+    ; Slide i's script `t` seconds in (__scriptAt), drawn until
+    ; d.clearScriptAt(): its build step then, its ticks run that long.
+    sfn scriptAt:void (host:McpHost din:DeckIn d:PresDeck i:int t:double) {
+        def key:string (d.scriptKeyOf(i))
+        if ((strlen key) == 0) {
+            return
+        }
+        def s:PresSlide (d.slideAt(i))
+        def text:string (Check.dataText(host din s.script))
+        if ((strlen text) == 0) {
+            return
+        }
+        def o:JVal (JVal.mkObj())
+        def step:int 0
+        def k:int 1
+        while (k <= s.steps) {
+            if ((PresTimeline.stepTime(s k)) <= t) {
+                step = k
+            }
+            k = (k + 1)
+        }
+        o.setInt("steps" step)
+        o.setNum("time" t)
+        def out:string (host_script_run host text "__scriptAt" (Check.withTree((d.scriptTree(key)) o)))
+        if (((out != "-") && ((startsWith out "!") == false)) && ((strlen out) > 0)) {
+            d.setScriptAt(key out)
+        }
+    }
+
+    ; `args` (an object) with "tree" set to the JSON text `tree`
+    sfn withTree:string (tree:string args:JVal) {
+        def a:string (args.toJson())
+        if ((strlen tree) == 0) {
+            return a
+        }
+        if (a == "{}") {
+            return ("{\"tree\":" + tree + "}")
+        }
+        return ("{\"tree\":" + tree + "," + (substring a 1 (strlen a)))
+    }
+
     ; whether `file` is named by a slide's {script=…}
     sfn isScript:boolean (d:PresDeck file:string) {
         def i:int 0
@@ -365,6 +458,72 @@ class Check {
         return d
     }
 
+    ; The 3-D worlds of the programs on slide `li` (its list `listJson`)
+    ; drawn here (src/Pres3DStill.rgr) and handed to the painter by the
+    ; names the list gives them, as the page draws them (web/three3d.js): in
+    ; a room made of the slide's own picture, 96 x 54 as the page's.
+    sfn worlds:void (host:McpHost din:DeckIn d:PresDeck li:int listJson:string c:Checked) {
+        def l:MdLayout (d.layout())
+        def room:buffer (buffer_alloc 0)
+        def roomDone:boolean false
+        for (d.playUses()) pu:PresPlayUse pui {
+            if (pu.page != li) {
+                continue
+            }
+            def pv@(optional):PresPlayView (d.playView(pu.key))
+            def bi:int (d.embedBox(pu.page pu.source))
+            if ((null? pv) || (bi < 0)) {
+                continue
+            }
+            def view:PresPlayView (unwrap pv)
+            def b:MdBox (itemAt l.boxes bi)
+            def got:JVal (view.scenesIn(b.x b.y b.w b.h))
+            def si:int 0
+            while (si < (got.len())) {
+                if (roomDone == false) {
+                    room = (host_render_room host listJson c.width c.height 96 54)
+                    roomDone = true
+                }
+                def sc:JVal (got.at(si))
+                ; as many pixels as render_slide gives the box (960 a slide
+                ; 960 wide), at most 1024 a side
+                def k:double (960.0 / c.width)
+                def pw:double ((sc.numOr("w" 0.0)) * k)
+                def ph:double ((sc.numOr("h" 0.0)) * k)
+                def big:double pw
+                if (ph > big) {
+                    big = ph
+                }
+                if (big > 1024.0) {
+                    pw = ((pw * 1024.0) / big)
+                    ph = ((ph * 1024.0) / big)
+                }
+                def iw:int (to_int (pw + 0.5))
+                def ih:int (to_int (ph + 0.5))
+                if ((iw > 0) && (ih > 0)) {
+                    def st:Pres3DStill (new Pres3DStill())
+                    if ((buffer_length room) == ((96 * 54) * 4)) {
+                        st.setSlide(room 96 54)
+                    }
+                    def sjson:string ((sc.get("scene")).toJson())
+                    Check.sceneFiles(host din sjson st.world.files)
+                    def px:buffer (st.draw(sjson iw ih))
+                    host_render_rgba host (sc.strOr("src" "")) px iw ih
+                }
+                si = (si + 1)
+            }
+        }
+    }
+
+    ; The deck's .gltf files a world's <SliqGltf src> names, given to it
+    ; ("" for one the deck does not have, which the world then says).
+    sfn sceneFiles:void (host:McpHost din:DeckIn json:string files:P3Files) {
+        def t:Pres3DTree (Pres3DTree.readWith(json files))
+        for t.missing name:string ni {
+            files.setFile(name (Check.dataText(host din name)))
+        }
+    }
+
     sfn run:Checked (host:McpHost din:DeckIn) {
         def md:string din.md
         def pics:[CheckPic] din.pics
@@ -389,12 +548,34 @@ class Check {
             if ((strlen ptext) == 0) {
                 continue
             }
-            def why:string (host_app_check host ptext pu.spec.width pu.spec.height)
+            ; the slides drawn here (render_slide, render_overview) show the
+            ; program's picture as the page does, its first frames' tree; so
+            ; does the glTF export, which writes its world
+            def drawn:boolean ((din.lists && ((strlen din.export) == 0)) || (din.export == "gltf"))
+            def why:string ""
+            def ptree:string ""
+            if drawn {
+                def ran:MfJ (J.parse((host_app_run host ptext pu.spec.width pu.spec.height)))
+                why = (ran.str_("why"))
+                ptree = (ran.str_("tree"))
+            } {
+                why = (host_app_check host ptext pu.spec.width pu.spec.height)
+            }
             if (((strlen why) > 0) && (why != "-")) {
                 push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " does not run: " + why) "apps"))
             }
             ; its stylesheet's rules the layout does not take
             def ptcss:string (Check.dataText(host din pu.spec.css))
+            if ((strlen ptree) > 0) {
+                def pv@(optional):PresPlayView (d.playView(pu.key))
+                if (!null? pv) {
+                    def view:PresPlayView (unwrap pv)
+                    if ((strlen ptcss) > 0) {
+                        view.setCss(ptcss)
+                    }
+                    view.setTree(ptree)
+                }
+            }
             if ((strlen ptcss) > 0) {
                 def psheet:EVGStyleSheet (new EVGStyleSheet())
                 psheet.parse(ptcss)
@@ -403,6 +584,9 @@ class Check {
                 }
             }
         }
+        ; each slide's script run to where it ends, in the engine the page
+        ; runs it in: what the PDF, the PPTX and the pictures show
+        Check.scriptFinals(host din d c)
         ; a slide that runs over goes on in untitled slides after it
         def i:int 0
         while (i < c.slides) {
@@ -493,16 +677,59 @@ class Check {
                 if (din.fxTime >= 0.0) {
                     PresTimeline.planAll(d)
                 }
+                if (((din.fxTime >= 0.0) || ((array_length din.strip) > 0)) || (din.stripCount > 0)) {
+                    PresTimeline.planAll(d)
+                }
                 def li:int 0
                 while (li < c.slides) {
                     def groups:[int]
-                    if ((li == din.fxAt) && (din.fxTime >= 0.0)) {
+                    def timed:boolean ((li == din.fxAt) && (din.fxTime >= 0.0))
+                    if timed {
                         d.fxClockAt = din.fxTime
+                        Check.scriptAt(host din d li din.fxTime)
                     }
                     def sl:EVGDisplayList (d.slideList(li groups 0.0))
                     d.fxClockAt = -1.0
-                    push c.lists (sl.toJson())
+                    d.clearScriptAt()
+                    def slj:string (sl.toJson())
+                    push c.lists slj
+                    Check.worlds(host din d li slj c)
                     li = (li + 1)
+                }
+                if ((din.fxAt >= 0) && (din.fxAt < c.slides)) {
+                    c.stripTimes = din.strip
+                    def stripSlide:PresSlide (d.slideAt(din.fxAt))
+                    c.stripScript = stripSlide.script
+                    if (((array_length c.stripTimes) == 0) && (din.stripCount > 0)) {
+                        PresTimeline.planAll(d)
+                        def ss:PresSlide (d.slideAt(din.fxAt))
+                        def secs:double ss.duration
+                        if (ss.exportFrame >= 0.0) {
+                            secs = ss.exportFrame
+                        }
+                        if (secs > 20.0) {
+                            secs = 20.0
+                        }
+                        def sn:int din.stripCount
+                        def sk:int 0
+                        while (sk < sn) {
+                            if (sn == 1) {
+                                push c.stripTimes secs
+                            } {
+                                push c.stripTimes (((to_double sk) * secs) / (to_double (sn - 1)))
+                            }
+                            sk = (sk + 1)
+                        }
+                    }
+                    for c.stripTimes st:double sti {
+                        def sg:[int]
+                        d.fxClockAt = st
+                        Check.scriptAt(host din d din.fxAt st)
+                        def sdl:EVGDisplayList (d.slideList(din.fxAt sg 0.0))
+                        d.fxClockAt = -1.0
+                        d.clearScriptAt()
+                        push c.strip (sdl.toJson())
+                    }
                 }
             }
             d.still = false
@@ -519,12 +746,20 @@ class Check {
             if (c.scene >= 0) {
                 def sc:PresScene (d.sceneOfSlide(c.scene))
                 c.sceneJson = (sc.toJson())
+                def sk:string (d.scriptKeyOf(c.scene))
+                if ((strlen sk) > 0) {
+                    def sro@(optional):PresScriptRun (d.scriptRun(sk))
+                    if (!null? sro) {
+                        def srun:PresScriptRun (unwrap sro)
+                        c.sceneFinal = srun.finalJson
+                    }
+                }
                 c.sceneLines = (sc.outline(false))
                 if ((strlen din.sceneSel) > 0) {
                     def ps:PresSel (PresSel.parse(din.sceneSel))
                     c.sceneSelError = ps.error
                     if ((strlen ps.error) == 0) {
-                        for (ps.find(sc 0)) fat:int fai {
+                        for (ps.find(sc.ents 0)) fat:int fai {
                             def fe:PresEnt (sc.at(fat))
                             push c.sceneFound fe.id
                         }
@@ -560,8 +795,59 @@ class Check {
                 Check.shots(host ex d)
                 c.file = (PptxWriter.utf8((ex.html())))
             }
+            if (din.export == "gltf") {
+                Check.gltf(host d din c)
+            }
         }
         return c
+    }
+
+    ; export "gltf": the first 3-D world of the slides asked for (a
+    ; program's <scene3d> at its first frames, as render_slide draws it)
+    ; as a glTF 2.0 file (src/Pres3DGltf.rgr)
+    sfn gltf:void (host:McpHost d:PresDeck din:DeckIn c:Checked) {
+        def l:MdLayout (d.layout())
+        def li:int 0
+        while (li < c.slides) {
+            if (((array_length din.only) == 0) || (PresExport.has(din.only li))) {
+                def groups:[int]
+                d.slideList(li groups 0.0)
+                for (d.playUses()) pu:PresPlayUse pui {
+                    if (pu.page != li) {
+                        continue
+                    }
+                    def pv@(optional):PresPlayView (d.playView(pu.key))
+                    def bi:int (d.embedBox(pu.page pu.source))
+                    if ((null? pv) || (bi < 0)) {
+                        continue
+                    }
+                    def view:PresPlayView (unwrap pv)
+                    def b:MdBox (itemAt l.boxes bi)
+                    def got:JVal (view.scenesIn(b.x b.y b.w b.h))
+                    def si:int 0
+                    while (si < (got.len())) {
+                        def sc:JVal (got.at(si))
+                        if (((strlen c.gltfFrom) == 0) && ((sc.numOr("h" 0.0)) > 0.0)) {
+                            def g:Pres3DGltf (new Pres3DGltf())
+                            def gjson:string ((sc.get("scene")).toJson())
+                            Check.sceneFiles(host din gjson g.world.files)
+                            def text:string (g.build(gjson ((sc.numOr("w" 0.0)) / (sc.numOr("h" 0.0)))))
+                            if ((strlen text) > 0) {
+                                c.file = (PptxWriter.utf8(text))
+                                c.gltfFrom = ("slide " + (to_string (li + 1)))
+                                c.gltfSrc = pu.spec.src
+                                if ((strlen g.error) > 0) {
+                                    push c.gltfNotes g.error
+                                }
+                            }
+                        }
+                        c.gltfWorlds = (c.gltfWorlds + 1)
+                        si = (si + 1)
+                    }
+                }
+            }
+            li = (li + 1)
+        }
     }
 
     ; A slide's own picture (`bg=`) for the PPTX: the slide's background

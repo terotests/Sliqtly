@@ -5,6 +5,7 @@ Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresThemeGallery.rgr"
+Import "PresFigma.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresTerm.rgr"
@@ -18,6 +19,11 @@ Import "PresDiaFull.rgr"
 Import "PresFollow.rgr"
 Import "PresInvite.rgr"
 Import "PresReview.rgr"
+Import "PresCodeFiles.rgr"
+Import "PresCodeLinks.rgr"
+Import "PresCodeRows.rgr"
+Import "PresCodeView.rgr"
+Import "../rangerdiff/src/RdText.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
@@ -30,6 +36,9 @@ Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
+Import "PresExport.rgr"
+Import "PresScriptWeb.rgr"
+Import "PresMorph.rgr"
 Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
@@ -40,10 +49,14 @@ Import "PresPlay.rgr"
 Import "PresScript.rgr"
 Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
+Import "Pres3DStill.rgr"
+Import "Pres3DGltf.rgr"
 Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
+Import "PresForm.rgr"
+Import "PresFormHtml.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -141,6 +154,9 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.codeSource()
+        this.codeRows()
+        this.codeView()
         this.colorWords()
         this.reviewDiagram()
         this.helpGuide()
@@ -432,6 +448,312 @@ class PresCheck {
         PresI18n.use("en" "")
         PresColorPanel.localize(c)
         this.ok(((c.fieldName(0)) == "Hex") ("back in English: " + (c.fieldName(0))))
+    }
+
+    ; Source files kept under code/, the links to them from a diagram's
+    ; boxes and the comments on their lines (PresCodeFiles, PresCodeLinks,
+    ; PresReview's code anchor).
+    fn codeSource:void () {
+        ; ranges: sorted, joined, the original numbers kept
+        def rg:[int] (PresCodeFiles.parseRanges("200-260, 40–88,89-90, 7"))
+        this.ok(((array_length rg) == 6) ("code: ranges joined, got " + (to_string (array_length rg))))
+        this.ok((((itemAt rg 0) == 7) && (((itemAt rg 2) == 40) && (((itemAt rg 3) == 90) && ((itemAt rg 5) == 260)))) "code: ranges in order, 40-88 and 89-90 one")
+        def f (new PresCodeFile())
+        f.path = "src/a.cpp"
+        f.ranges = (PresCodeFiles.parseRanges("1-12, 50-78"))
+        this.ok((((f.lineOf(0)) == 1) && (((f.lineOf(11)) == 12) && ((f.lineOf(12)) == 50))) "code: kept line 12 is line 50 of the file")
+        this.ok((((f.indexOfLine(50)) == 12) && (((f.indexOfLine(13)) == -1) && ((f.indexOfLine(78)) == 40))) "code: line 13 was not brought in")
+        this.ok(((f.rangeText()) == "1–12, 50–78") ("code: range text " + (f.rangeText())))
+        def whole:string "l1\nl2\nl3\nl4\nl5"
+        this.ok(((PresCodeFiles.cut(whole (PresCodeFiles.parseRanges("2,4-9")))) == "l2\nl4\nl5") "code: a cut keeps the lines of its ranges")
+        this.ok(((PresCodeFiles.clean("./code/src/a.cpp")) == "src/a.cpp") "code: paths under code/ by their repo path")
+        this.ok(((PresCodeFiles.clean("../etc/passwd")) == "") "code: no path climbs out")
+        ; names a file declares
+        def fbs (new PresCodeFile())
+        fbs.path = "proto/review.fbs"
+        fbs.ranges = (PresCodeFiles.parseRanges("10-14"))
+        def ft:string "namespace acme;\n// table ReviewDTO is below\ntable ReviewDTO {\n  id: string;\n}"
+        this.ok(((PresCodeFiles.symbolLine(fbs ft "ReviewDTO")) == 12) ("code: a table's line, got " + (to_string (PresCodeFiles.symbolLine(fbs ft "ReviewDTO")))))
+        def sqlF (new PresCodeFile())
+        sqlF.path = "sql/schema.sql"
+        def sqlT:string "-- reviews\nCREATE TABLE IF NOT EXISTS public.reviews (\n  id int\n);"
+        this.ok(((PresCodeFiles.symbolLine(sqlF sqlT "reviews")) == 2) "code: a SQL table, schema and IF NOT EXISTS")
+        def cpp (new PresCodeFile())
+        cpp.path = "src/api.cpp"
+        def cppT:string "#include <x>\nStatus Api::submit(const ReviewDTO& r) {\n  submit(r);\n  return submit(r);\n}\nstatic int helper(int a) {\n}"
+        this.ok(((PresCodeFiles.symbolLine(cpp cppT "submit")) == 2) "code: a member defined, not its calls")
+        this.ok(((PresCodeFiles.symbolLine(cpp cppT "helper")) == 6) "code: a free function")
+        this.ok(((PresCodeFiles.symbolLine(cpp cppT "nothing")) == 0) "code: a name nothing declares")
+        ; sources.json and links to the repository
+        def src:string "{\"version\":1,\"repos\":{\"server\":{\"url\":\"https://github.com/acme/server/\",\"host\":\"github\",\"base\":\"9a1b3c7aaaa\",\"head\":\"4f2c1e0bbbb\",\"change\":\"PR #482\"},\"gl\":{\"url\":\"https://gitlab.com/acme/db\",\"host\":\"gitlab\",\"head\":\"cafe123\"},\"own\":{\"url\":\"https://git.example.com/x\",\"link\":\"{url}/{path}?rev={commit}#L{line}\",\"head\":\"abc\"}},\"files\":[{\"path\":\"code/src/server/api.cpp\",\"repo\":\"server\",\"status\":\"renamed\",\"old_path\":\"src/api.cpp\",\"diff\":\"src/server/api.cpp.diff\",\"lines\":1840,\"ranges\":[[200,260],[40,88]]},{\"path\":\"sql/schema.sql\",\"repo\":\"gl\"},{\"path\":\"x.go\",\"repo\":\"own\"},{\"path\":\"y.h\"}]}"
+        def cf:PresCodeFiles (PresCodeFiles.parse(src))
+        this.ok((((array_length cf.repos) == 3) && ((array_length cf.files) == 4)) "code: sources.json read")
+        def api:PresCodeFile (unwrap (cf.file("src/server/api.cpp")))
+        this.ok((((itemAt api.ranges 0) == 40) && (api.diff == "src/server/api.cpp.diff")) "code: a file's ranges in order")
+        def l1:string (cf.link("src/server/api.cpp" 41 44 false))
+        this.ok((l1 == "https://github.com/acme/server/blob/4f2c1e0bbbb/src/server/api.cpp#L41-L44") ("code: github lines link " + l1))
+        def l2:string (cf.link("src/server/api.cpp" 41 41 false))
+        this.ok((l2 == "https://github.com/acme/server/blob/4f2c1e0bbbb/src/server/api.cpp#L41") ("code: one line, no -L " + l2))
+        def l3:string (cf.link("src/server/api.cpp" 7 0 true))
+        this.ok((l3 == "https://github.com/acme/server/blob/9a1b3c7aaaa/src/api.cpp#L7") ("code: the old side at base, old path " + l3))
+        def l4:string (cf.link("sql/schema.sql" 12 30 false))
+        this.ok((l4 == "https://gitlab.com/acme/db/-/blob/cafe123/sql/schema.sql#L12-30") ("code: gitlab " + l4))
+        def l5:string (cf.link("x.go" 3 0 false))
+        this.ok((l5 == "https://git.example.com/x/x.go?rev=abc#L3") ("code: a template of its own " + l5))
+        this.ok(((cf.link("y.h" 3 0 false)) == "") "code: no repo, no link")
+        this.ok(((cf.compareLink("src/server/api.cpp")) == "https://github.com/acme/server/compare/9a1b3c7aaaa...4f2c1e0bbbb") "code: compare link")
+        def ot:string (cf.originText("src/server/api.cpp"))
+        this.ok((ot == "acme/server · 9a1b3c7 → 4f2c1e0 · PR #482 · partial") ("code: origin " + ot))
+        def back:PresCodeFiles (PresCodeFiles.parse((cf.toJson())))
+        this.ok(((back.toJson()) == (cf.toJson())) "code: sources.json round trip")
+        ; links in the deck's text
+        def k1:PresCodeLink (PresCodeLinks.parseLine("api  src/server/api.cpp#L40-88 diff  \"submit handler\""))
+        this.ok(((((k1.node == "api") && (k1.path == "src/server/api.cpp")) && ((k1.from == 40) && (k1.to == 88))) && ((k1.mode == "diff") && (k1.label == "submit handler"))) "code: a link line")
+        def k2:PresCodeLink (PresCodeLinks.parseLine("- proto/review.fbs#ReviewDTO"))
+        this.ok((((k2.whole()) && (k2.symbol == "ReviewDTO")) && ((strlen k2.problem) == 0)) "code: a whole-diagram link to a name")
+        def k3:PresCodeLink (PresCodeLinks.parseLine("q src/q.cpp#hunk2 sideways"))
+        this.ok(((k3.hunk == 2) && ((strlen k3.problem) > 0)) "code: a hunk, and an unknown word is a problem")
+        def kl:PresCodeLink (PresCodeLinks.parseLine("lonely"))
+        this.ok(((strlen kl.problem) > 0) "code: a box with no file")
+        def kb:PresCodeLink (PresCodeLinks.parseLine("a b.c#L9-3"))
+        this.ok(((strlen kb.problem) > 0) "code: lines backwards")
+        def ku:PresCodeLink (PresCodeLinks.parseUrl("code:sql/schema.sql#L12"))
+        this.ok(((ku.path == "sql/schema.sql") && ((ku.from == 12) && (ku.to == 12))) "code: a code: address")
+        def deckText:string "---\nslide-split-level: 2\n---\n\n## Flow\n\n```mermaid\nflowchart LR\n  api[API] --> db[(reviews)]\n  click db \"code:sql/schema.sql#L12-30\" \"reviews table\"\n  click api \"https://example.com\"\n```\n\n::: code\napi src/server/api.cpp#L40-88\n; a remark\napi proto/review.fbs#ReviewDTO\n- y.h\nzz nowhere.cpp\n:::\n\n## Next\n\n::: code\n- y.h\n:::\n"
+        def deck (new PresDeck())
+        deck.setText(deckText)
+        def cl:PresCodeLinks deck.codeLinks
+        this.ok(((array_length cl.links) == 6) ("code: the deck's links, got " + (to_string (array_length cl.links))))
+        this.ok(((indexOf deck.src.masked "nowhere.cpp") < 0) "code: the block is not the markdown's")
+        def onApi:[PresCodeLink] (cl.forNode(0 0 "api" "API"))
+        this.ok(((array_length onApi) == 2) ("code: two links on box api, got " + (to_string (array_length onApi))))
+        def onDb:[PresCodeLink] (cl.forNode(0 0 "db" "reviews"))
+        def dbLabel:string ""
+        if ((array_length onDb) > 0) {
+            def dbl:PresCodeLink (itemAt onDb 0)
+            dbLabel = dbl.label
+        }
+        this.ok((((array_length onDb) == 1) && (dbLabel == "reviews table")) "code: Mermaid's click code: on box db")
+        this.ok(((array_length (cl.forNode(0 0 "x" "API"))) == 2) "code: a box found by its text too")
+        this.ok(((cl.fileCount(0 0)) == 5) ("code: five files on the diagram, got " + (to_string (cl.fileCount(0 0)))))
+        def own:string ""
+        for cl.links dk:PresCodeLink dki {
+            own = (own + (to_string dk.slide) + "/" + (to_string dk.dia) + " " + dk.path + "; ")
+        }
+        this.ok(((array_length (cl.forDiagram(1 -1))) == 1) ("code: a slide's own link: " + own))
+        def apiLink:PresCodeLink (itemAt onApi 0)
+        this.ok((apiLink.srcLine == 15) ("code: the link's line in the deck, got " + (to_string apiLink.srcLine)))
+        def texts:[string] ([] _:string ("" "" "" ""))
+        def nodes:[string] ([] _:string ("0:0\tapi\tAPI" "0:0\tdb\treviews"))
+        def warns:[string] (cl.check(cf texts nodes))
+        def wall:string (join warns "\n")
+        this.ok(((indexOf wall "proto/review.fbs is not in the deck") >= 0) ("code: a missing file is said: " + wall))
+        this.ok(((indexOf wall "lines 40–88 were not brought in") < 0) "code: lines that were brought in pass")
+        this.ok(((indexOf wall "no box \"zz\"") >= 0) "code: a box the diagram has not")
+        ; comments on source lines
+        def r (new PresReview())
+        def t0:double 1759658400000.0
+        r.start("c1" 0 "Flow" 0.5 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Check the error path" t0)))
+        this.ok((r.setCode("c1" "src/server/api.cpp" 41 44 "if (!validate(r)) return Status::Bad;" 0 0 "server" "4f2c1e0bbbb" 0 "api")) "code: a comment on lines")
+        r.start("c2" 0 "Flow" 0.5 0.5 (PresReview.msg("m2" "u1" "Ada" "" "Why removed?" t0)))
+        r.setCode("c2" "src/server/api.cpp" 90 90 "" 120 123 "server" "4f2c1e0bbbb" -1 "")
+        def c1:PresReviewThread (unwrap (r.find("c1")))
+        this.ok(((c1.codeWhere()) == "api.cpp:41–44") ("code: where " + (c1.codeWhere())))
+        this.ok(((indexOf (PresReview.whereText(c1)) "source code comment on code/src/server/api.cpp lines 41–44 at 4f2c1e0") == 0) ("code: in words " + (PresReview.whereText(c1))))
+        def c2b:PresReviewThread (unwrap (r.find("c2")))
+        this.ok(((indexOf (PresReview.whereText(c2b)) "120–123 the change removed") > 0) "code: a comment from removed lines says so")
+        def rr:PresReview (PresReview.parse((r.toJson())))
+        def c1r:PresReviewThread (unwrap (rr.find("c1")))
+        this.ok(((((c1r.codePath == "src/server/api.cpp") && (c1r.codeLine == 41)) && ((c1r.codeTo == 44) && (c1r.viaNode == "api"))) && ((c1r.codeCommit == "4f2c1e0bbbb") && (c1r.viaDia == 0))) "code: the anchor read back")
+        def c2r:PresReviewThread (unwrap (rr.find("c2")))
+        this.ok(((c2r.removedFrom == 120) && ((c2r.removedTo == 123) && (c2r.viaDia == -1))) "code: removed lines read back")
+        this.ok(((rr.toJson()) == (r.toJson())) "code: comments round trip")
+        this.ok(((array_length (r.onFile("src/server/api.cpp"))) == 2) "code: the comments of a file")
+        this.ok(((r.openOnFiles(([] _:string ("src/server/api.cpp" "x")))) == 2) "code: open comments on a box's files")
+        ; a copy without the anchor takes it in a merge
+        def plain (new PresReview())
+        plain.start("c1" 0 "Flow" 0.5 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Check the error path" t0)))
+        plain.merge(r)
+        def pc1:PresReviewThread (unwrap (plain.find("c1")))
+        this.ok((pc1.codeLine == 41) "code: a merge brings the anchor")
+        ; the file came in again with two lines added above: the comment follows its text
+        def lines:[string] ([] _:string ("// new" "// new" "if (!validate(r)) return Status::Bad;" "x"))
+        def nums:[int] ([] _:int (41 42 43 44))
+        this.ok((r.placeCode("src/server/api.cpp" lines nums)) "code: a moved line is found again")
+        def c1m:PresReviewThread (unwrap (r.find("c1")))
+        this.ok(((c1m.codeLine == 43) && (c1m.codeTo == 46)) ("code: the range moves with it, got " + (to_string c1m.codeLine)))
+        this.ok(((r.placeCode("src/server/api.cpp" lines nums)) == false) "code: a line in place stays")
+    }
+
+    ; The code viewer's rows: now, before, the change in one column and side
+    ; by side, and which new line a press on each row comments.
+    ; The source viewer's model: growing out of the box, zoom, a press held
+    ; still that becomes a comment's hold, and the lines a hold comments.
+    fn codeView:void () {
+        def v (new PresCodeView())
+        def ls:[PresCodeLink]
+        v.open(ls 0 0.0 0.0 10.0 10.0 1.0)
+        this.ok((v.isOpen == false) "viewer: nothing to open, nothing opens")
+        def k (new PresCodeLink())
+        k.path = "a.cpp"
+        push ls k
+        v.open(ls 3 10.0 20.0 100.0 50.0 1.0)
+        this.ok((v.isOpen && (v.tab == 0)) "viewer: opens, a tab out of range is the first")
+        this.ok(((v.amount(1.0)) == 0.0) "viewer: grows from nothing")
+        this.ok(((fabs ((v.amount(1.15)) - 0.5)) < 0.001) "viewer: half way half way through")
+        this.ok(((v.amount(1.3)) == 1.0) "viewer: open after 0.3 s")
+        this.ok(((v.busy(1.1)) && ((v.busy(2.0)) == false)) "viewer: busy only while it grows")
+        this.ok(((PresCodeView.mix(0.5 10.0 30.0)) == 20.0) "viewer: the box drawn between the two")
+        v.zoomBy(2)
+        this.ok((((v.fontSize(100.0)) > 125.0) && ((v.fontSize(100.0)) < 126.0)) ("viewer: two steps up is ~125 %, got " + (to_string (v.fontSize(100.0)))))
+        v.zoomBy(-30)
+        this.ok((v.zoom == -6) "viewer: zoom stops at -6")
+        this.ok((((PresCodeView.nextMode("diff")) == "split") && ((PresCodeView.nextMode("before")) == "diff")) "viewer: D goes diff, split, now, before, diff")
+        ; a press held still on a row that takes comments becomes a hold
+        v.down(4 100.0 100.0 5.0)
+        this.ok(((v.tick(5.3 true)) == false) "viewer: not held yet at 0.3 s")
+        this.ok((v.tick(5.6 true)) "viewer: held at 0.6 s")
+        v.move(6 100.0 140.0)
+        this.ok((((v.holdFrom()) == 4) && ((v.holdLast()) == 6)) "viewer: moving on stretches the hold")
+        v.move(2 100.0 60.0)
+        this.ok((((v.holdFrom()) == 2) && ((v.holdLast()) == 4)) "viewer: …either way")
+        this.ok(((v.up()) == "comment") "viewer: let go, a comment")
+        ; one that moves first is a drag, never a hold
+        v.down(4 100.0 100.0 7.0)
+        v.move(4 100.0 120.0)
+        this.ok(((v.tick(8.0 true)) == false) "viewer: a press that moved does not become a hold")
+        this.ok(((v.up()) == "drag") "viewer: …it is a drag")
+        v.down(4 100.0 100.0 9.0)
+        this.ok(((v.tick(10.0 false)) == false) "viewer: no hold on a row that takes no comment")
+        this.ok(((v.up()) == "click") "viewer: …it is a click")
+        ; what a hold comments: new lines, a removed one at the line after it
+        def oldT:string "a\nb\nc\nd"
+        def newT:string "a\nB\nc\nd"
+        def diff:string (RdText.unified((RdText.diff(oldT newT)) 3))
+        def f (new PresCodeFile())
+        f.path = "a.cpp"
+        def r:PresCodeRows (PresCodeRows.make(f newT diff))
+        def d:[PresCodeRow] (r.rows("diff"))
+        def iDel:int -1
+        def i:int 0
+        while (i < (array_length d)) {
+            def w:PresCodeRow (itemAt d i)
+            if (w.kind == "del") {
+                iDel = i
+            }
+            i = (i + 1)
+        }
+        def cl:[int] (PresCodeView.commentLines(d iDel (iDel + 1)))
+        this.ok(((((itemAt cl 0) == 2) && ((itemAt cl 1) == 2)) && (((itemAt cl 2) == 2) && ((itemAt cl 3) == 2))) ("viewer: removed b and new B comment new line 2, old line 2 removed: " + (to_string (itemAt cl 0)) + "," + (to_string (itemAt cl 1)) + "," + (to_string (itemAt cl 2)) + "," + (to_string (itemAt cl 3))))
+        def none:[int] (PresCodeView.commentLines(d 0 0))
+        this.ok(((itemAt none 0) == 0) "viewer: a hunk's header comments nothing")
+        this.ok(((v.close(11.0)) && ((v.close(11.0)) == false)) "viewer: closes once")
+    }
+
+    fn codeRows:void () {
+        def oldT:string "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10"
+        def newT:string "l1\nl2\nL3x\nl4\nl5\nl7\nl8\nnew8b\nl9\nl10"
+        def diff:string (RdText.unified((RdText.diff(oldT newT)) 3))
+        def f (new PresCodeFile())
+        f.path = "src/a.cpp"
+        f.lines = 10
+        def r:PresCodeRows (PresCodeRows.make(f newT diff))
+        this.ok((r.hasDiff && ((strlen r.problem) == 0)) ("rows: the diff reads " + r.problem))
+        def d:[PresCodeRow] (r.rows("diff"))
+        this.ok(((array_length d) == 13) ("rows: a header, ten lines and two removed, got " + (to_string (array_length d)) + "\n" + (PresCodeRows.text(d))))
+        def nowR:[PresCodeRow] (r.rows("now"))
+        def befR:[PresCodeRow] (r.rows("before"))
+        this.ok(((PresCodeRows.text(nowR)) == newT) "rows: now is the new text")
+        this.ok(((PresCodeRows.text(befR)) == oldT) ("rows: before is the old text rebuilt: " + (PresCodeRows.text(befR))))
+        def iDel3:int -1
+        def iDel6:int -1
+        def k:int 0
+        while (k < (array_length d)) {
+            def w:PresCodeRow (itemAt d k)
+            if ((w.kind == "del") && (w.text == "l3")) {
+                iDel3 = k
+            }
+            if ((w.kind == "del") && (w.text == "l6")) {
+                iDel6 = k
+            }
+            k = (k + 1)
+        }
+        def wd3:PresCodeRow (itemAt d (iDel3 + 1))
+        this.ok(((wd3.kind == "add") && (wd3.text == "L3x")) "rows: a removed line right before the line that took its place")
+        this.ok(((PresCodeRows.lineAt(d iDel3)) == 3) "rows: a comment on removed l3 goes to new line 3")
+        this.ok(((PresCodeRows.lineAt(d iDel6)) == 6) "rows: on removed l6 to the line that followed it (new 6)")
+        def rm:[int] (PresCodeRows.removedAt(d iDel6))
+        this.ok((((array_length rm) == 2) && ((itemAt rm 0) == 6)) "rows: and it keeps old line 6")
+        this.ok(((PresCodeRows.lineAt(d 0)) == 0) "rows: a header comments nothing")
+        def i7:int (PresCodeRows.rowOf(d 6 7))
+        def w7:PresCodeRow (itemAt d i7)
+        this.ok(((w7.text == "l7") && ((w7.old == 7) && (w7.new == 6))) "rows: line 6 is old line 7")
+        ; the same comment in every mode
+        def bi:int (r.rowFor(befR 6))
+        def wb:PresCodeRow (itemAt befR bi)
+        this.ok((wb.text == "l7") "rows: in before, new 6 shows on its old counterpart")
+        def b3:int (r.rowFor(befR 3))
+        def wb3:PresCodeRow (itemAt befR b3)
+        this.ok((wb3.text == "l3") "rows: an added line shows on the removed line it replaced")
+        def ni:int (r.rowFor(nowR 8))
+        def wn:PresCodeRow (itemAt nowR ni)
+        this.ok(((wn.text == "new8b") && ((PresCodeRows.lineAt(nowR ni)) == 8)) "rows: now, round trip")
+        ; side by side
+        def L:[PresCodeRow] (r.left())
+        def R:[PresCodeRow] (r.right())
+        this.ok(((array_length L) == (array_length R)) "rows: both columns the same length")
+        def p:int 0
+        def faced:boolean false
+        def filled:boolean false
+        def filledAt:int 0
+        def leftFill:boolean false
+        while (p < (array_length L)) {
+            def lw:PresCodeRow (itemAt L p)
+            def rw:PresCodeRow (itemAt R p)
+            if ((lw.text == "l3") && (rw.text == "L3x")) {
+                faced = true
+            }
+            if ((lw.text == "l6") && (rw.kind == "fill")) {
+                filled = true
+                filledAt = (PresCodeRows.lineAt(R p))
+            }
+            if ((rw.text == "new8b") && (lw.kind == "fill")) {
+                leftFill = true
+            }
+            p = (p + 1)
+        }
+        this.ok(faced "rows: split, removed l3 faces L3x")
+        this.ok((filled && (filledAt == 6)) "rows: split, the filler facing l6 comments new line 6")
+        this.ok(leftFill "rows: split, an added line faces a filler")
+        this.ok(((r.rowFor(L 6)) >= 0) "rows: split left finds new 6 by its old line")
+        this.ok(((r.rowFor(R 3)) >= 0) "rows: split right finds new 3")
+        def mk:[int] (PresCodeRows.marks(d))
+        this.ok((((itemAt mk iDel3) == 2) && ((itemAt mk (iDel3 + 1)) == 1)) "rows: marks for the editor")
+        def nn:[int] (PresCodeRows.newNumbers(d))
+        def on:[int] (PresCodeRows.oldNumbers(d))
+        this.ok((((itemAt nn iDel3) == 0) && ((itemAt on iDel3) == 3)) "rows: a removed line has an old number only")
+        this.ok(((array_length (PresCodeRows.changeStarts(d))) == 3) ("rows: three changes, got " + (to_string (array_length (PresCodeRows.changeStarts(d))))))
+        this.ok(((r.modeFor("")) == "diff") "rows: a file with a change opens on it")
+        ; partial: lines 1–2 and 7–10 of the new file kept
+        def pf (new PresCodeFile())
+        pf.path = "src/a.cpp"
+        pf.lines = 10
+        pf.ranges = (PresCodeFiles.parseRanges("1-2,7-10"))
+        def kept:string (PresCodeFiles.cut(newT pf.ranges))
+        def pr:PresCodeRows (PresCodeRows.make(pf kept diff))
+        def pn:[PresCodeRow] (pr.rows("now"))
+        def gapT:string ""
+        for pn gw:PresCodeRow gi {
+            if (gw.kind == "gap") {
+                gapT = gw.text
+            }
+        }
+        this.ok((gapT == "⋯ lines 3–6 not in the deck") ("rows: a gap where lines were not brought in: " + (PresCodeRows.text(pn))))
+        def pnn:[int] (PresCodeRows.newNumbers(pn))
+        this.ok((((itemAt pnn 1) == 2) && ((itemAt pnn 3) == 7)) "rows: numbers jump over the gap")
+        ; no change known
+        def plain:PresCodeRows (PresCodeRows.make(f newT ""))
+        this.ok((((plain.modeFor("diff")) == "now") && ((array_length (plain.rows("now"))) == 10)) "rows: no change, the file as it is")
     }
 
     fn review:void () {
@@ -1730,10 +2052,139 @@ class PresCheck {
         this.ok((fs.ink == "#e8ecff") "the document's ink")
         this.themeArt()
         this.themeGallery()
+        this.figmaFiles()
     }
 
     ; The theme picker's tiles from the page's select rows, their groups and
     ; pictures, and the sample slide each picture is drawn from.
+    ; An index the way DesignViewer's FigIndex writes it.
+    sfn figmaIndexJson:string () {
+        def j:string "{\"v\":1,\"file\":\"App design\",\"meta\":{\"fileName\":\"App design\",\"background\":\"#f5f5f5\",\"version\":101,\"nodes\":415},"
+        j = (j + "\"pages\":[{\"id\":\"0:1\",\"name\":\"Mobile\",\"screens\":3},{\"id\":\"0:2\",\"name\":\"Web\",\"screens\":1}],\"screens\":[")
+        j = (j + "{\"id\":\"1:2\",\"page\":\"0:1\",\"name\":\"Login\",\"section\":\"Onboarding\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Welcome back Email Password Sign in Forgot password?\",")
+        j = (j + "\"parts\":[{\"id\":\"1:9\",\"name\":\"Sign in button\",\"type\":\"INSTANCE\",\"x\":24,\"y\":700,\"w\":342,\"h\":52}],\"components\":[\"Button/Primary\"],\"links\":[{\"from\":\"1:9\",\"to\":\"2:1\"},{\"from\":\"1:2\",\"to\":\"2:1\"}],\"flowStart\":\"Onboarding flow\",\"status\":\"BUILD\"},")
+        j = (j + "{\"id\":\"2:1\",\"page\":\"0:1\",\"name\":\"Dashboard\",\"type\":\"FRAME\",\"x\":500,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Good morning Your health at a glance Sleep 86% 🔥 streak\",\"parts\":[{\"id\":\"2:5\",\"name\":\"Header\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":390,\"h\":92}],\"description\":\"Home after log in\"},")
+        j = (j + "{\"id\":\"3:1\",\"page\":\"0:1\",\"name\":\"Settings\",\"type\":\"FRAME\",\"x\":1000,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Log out Notifications Dark mode\",\"parts\":[]},")
+        j = (j + "{\"id\":\"4:1\",\"page\":\"0:2\",\"name\":\"Login\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":1440,\"h\":900,\"text\":\"Sign in to the web app\",\"parts\":[],\"notes\":[\"Copy is final\"]}]}")
+        return j
+    }
+
+    fn figmaFiles:void () {
+        def r:FigmaRef (FigmaRef.parse("figma:app-design/12:34"))
+        this.ok((r.ok && (r.file == "app-design") && (r.node == "12:34")) "figma: file and layer")
+        def r2:FigmaRef (FigmaRef.parse("  FIGMA://app-design/Login%20screen "))
+        this.ok((r2.ok && (r2.file == "app-design") && (r2.node == "Login screen")) ("figma:// and an escaped name, got " + r2.node))
+        def r3:FigmaRef (FigmaRef.parse("figma:app-design/12:34#56:7;8:9"))
+        this.ok((r3.node == "12:34#56:7;8:9") "a layer inside an instance keeps its path")
+        this.ok(((FigmaRef.parse("figma:app-design")).ok == false) "a file with no layer is refused")
+        this.ok(((FigmaRef.parse("figma:/12:34")).ok == false) "a layer with no file is refused")
+        this.ok(((FigmaRef.isFigma("media/x.png")) == false) "a picture is not figma:")
+        this.ok((FigmaRef.isNodeId("12:34") && FigmaRef.isNodeId("12:34#1:2") && ((FigmaRef.isNodeId("Login")) == false) && ((FigmaRef.isNodeId("Step 2: pay")) == false)) "ids and names")
+        this.ok(((FigmaRef.pictureKey("figma:app-design/12:34")) == "/figma:app-design/12:34") ("the picture's path in the store: " + (FigmaRef.pictureKey("figma:app-design/12:34"))))
+        def used:[string] (FigmaRef.inText("# A\n\n![Login](figma:app/1:2)\n\n![Pay](<figma:app/Pay screen>){width=50%}\n<img src=\"figma:app/3:4\">\n![again](figma:app/1:2) and the word figma: in a sentence, notfigma:x/y"))
+        this.ok(((array_length used) == 3) ("three addresses, once each: " + (join used " | ")))
+        this.ok((((itemAt used 0) == "figma:app/1:2") && ((itemAt used 1) == "figma:app/Pay screen") && ((itemAt used 2) == "figma:app/3:4")) ("in order: " + (join used " | ")))
+        this.ok(((FigmaRef.markdown("app" "Pay screen" "Pay")) == "![Pay](<figma:app/Pay screen>)") "a name with a space goes in <…>")
+        this.ok(((FigmaRef.markdown("app" "1:2" "Log [in]")) == "![Log in](figma:app/1:2)") ("markdown, brackets out of the alt: " + (FigmaRef.markdown("app" "1:2" "Log [in]"))))
+
+        def f:FigmaFile (FigmaFile.fromIndex("app-design" (PresCheck.figmaIndexJson())))
+        this.ok((f.status == "ready") ("the index reads: " + f.err))
+        this.ok((f.name == "App design") "its name")
+        this.ok(((array_length f.pages) == 2) "two pages")
+        this.ok(((array_length f.screens) == 4) "four screens")
+        def login:FigmaScreen (itemAt f.screens 0)
+        this.ok(((login.pageName == "Mobile") && (login.section == "Onboarding")) "page and section")
+        this.ok((((array_length login.linksTo) == 1) && ((itemAt login.linksTo 0) == "2:1")) "links: the screens they land on, once")
+        this.ok(((login.flowStart == "Onboarding flow") && (login.status == "BUILD")) "flow start and status")
+        def bad:FigmaFile (FigmaFile.fromIndex("x" "{nope"))
+        this.ok((bad.status == "failed") "a broken index is a failed file")
+
+        def lib (new FigmaLibrary())
+        lib.add(f)
+        def tin:FigmaTarget (FigmaLibrary.targetIn("app-design" (PresCheck.figmaIndexJson()) "Dashboard"))
+        this.ok((tin.ok && (tin.screen == tin.node) && (tin.name == "Dashboard")) ("a screen by name from the index alone: " + tin.err))
+        def t:FigmaTarget (lib.resolve("figma:app-design/1:2"))
+        this.ok((t.ok && (t.isPart == false) && (t.name == "Login")) "a screen by id")
+        def tp:FigmaTarget (lib.resolve("figma:app-design/1:9"))
+        this.ok((tp.ok && tp.isPart && (tp.screen == "1:2") && (tp.name == "Sign in button")) "a listed part")
+        def tu:FigmaTarget (lib.resolve("figma:app-design/1:77"))
+        this.ok((tu.ok && tu.isPart && (tu.screen == "")) "an id the index does not list is left to the cut")
+        def tn:FigmaTarget (lib.resolve("figma:app-design/dashboard"))
+        this.ok((tn.ok && (tn.node == "2:1")) "a unique name, any case")
+        def ta:FigmaTarget (lib.resolve("figma:app-design/Login"))
+        this.ok(((ta.ok == false) && ((indexOf ta.err "2 screens") >= 0)) ("an ambiguous name says so: " + ta.err))
+        def tm:FigmaTarget (lib.resolve("figma:nope/1:2"))
+        this.ok(((tm.ok == false) && ((indexOf tm.err "nope") >= 0)) "a missing file")
+        def again:FigmaFile (FigmaFile.fromIndex("app-design" (PresCheck.figmaIndexJson())))
+        again.status = "indexing"
+        lib.add(again)
+        this.ok(((array_length lib.files) == 1) "adding a file again replaces it")
+        this.ok(((lib.resolve("figma:app-design/1:2")).ok == false) "a file still indexing draws nothing yet")
+        lib.add(f)
+
+        def ws:[string] (FigmaLibrary.words("Sign-in, BUTTON!"))
+        this.ok((((array_length ws) == 3) && ((itemAt ws 1) == "in")) "query words, lower case")
+        this.ok((FigmaLibrary.hasWord("sign in button" "butt")) "a word's start counts")
+        this.ok(((FigmaLibrary.hasWord("rebutton" "button")) == false) "the middle of a word does not")
+
+        def h1:[FigmaHit] (lib.search("login" "" 10))
+        this.ok(((array_length h1) >= 2) ("login finds the screens called so, got " + (to_string (array_length h1))))
+        this.ok((((itemAt h1 0).screen.name == "Login") && ((itemAt h1 1).screen.name == "Login")) "named screens first")
+        def h2:[FigmaHit] (lib.search("sign in button" "" 10))
+        this.ok((((array_length h2) >= 1) && ((itemAt h2 0).partId == "1:9")) "a part named by the query is the hit")
+        def top2:FigmaHit (itemAt h2 0)
+        this.ok(((top2.markdown()) == "![Sign in button](figma:app-design/1:9)") "and its markdown points at the part")
+        def h3:[FigmaHit] (lib.search("glance" "" 10))
+        this.ok((((array_length h3) == 1) && ((itemAt h3 0).screen.id == "2:1")) "the words on a screen")
+        def top3:FigmaHit (itemAt h3 0)
+        this.ok(((indexOf top3.snippet "glance") >= 0) ("with a snippet: " + top3.snippet))
+        def h4:[FigmaHit] (lib.search("login nothinglikethis" "" 10))
+        this.ok(((array_length h4) == 0) "every word must be found")
+        def h5:[FigmaHit] (lib.search("login" "other-file" 10))
+        this.ok(((array_length h5) == 0) "limited to one file")
+        def h6:[FigmaHit] (lib.search("log" "" 1))
+        this.ok(((array_length h6) == 1) "limit")
+        def h7:[FigmaHit] (lib.search("primary" "" 10))
+        this.ok((((array_length h7) == 1) && ((itemAt h7 0).screen.id == "1:2")) "components are searched")
+        def h8:[FigmaHit] (lib.search("final" "" 10))
+        this.ok((((array_length h8) == 1) && ((itemAt h8 0).screen.id == "4:1")) "notes are searched")
+        def h9:[FigmaHit] (lib.search("🔥" "" 10))
+        this.ok(((array_length h9) == 1) "an emoji is a word")
+        def h0:[FigmaHit] (lib.search("   " "" 10))
+        this.ok(((array_length h0) == 0) "an empty query finds nothing")
+        def sn:string (FigmaLibrary.snippet("one two three four five six seven eight nine ten" "six" 12))
+        this.ok(((sn == "… five six seven …") || (sn == "… four five six seven …")) ("snippet cut at spaces: " + sn))
+
+        ; the window over one file
+        def br (new FigmaBrowser())
+        br.open("app-design" "App design.fig" "ready" "" "")
+        this.ok(((br.status()) == "loading") "a ready file whose index has not come is loading")
+        this.ok(((array_length (br.shown())) == 0) "nothing shown while it loads")
+        br.setFile("app-design" "App design.fig" "ready" "" (PresCheck.figmaIndexJson()))
+        this.ok((((br.status()) == "ready") && ((br.name()) == "App design.fig")) "the card's name over the index's")
+        this.ok(((array_length (br.shown())) == 4) "every screen in the file's order")
+        br.setQuery("sign in button")
+        def bh:[FigmaHit] (br.shown())
+        this.ok((((array_length bh) >= 1) && ((itemAt bh 0).partId == "1:9")) "a search finds the part")
+        def bh0:FigmaHit (itemAt bh 0)
+        br.pick(bh0.screen.id bh0.partId)
+        this.ok((((br.layer()) == "1:9") && ((br.layerName()) == "Sign in button")) "the part is what goes on the slide")
+        this.ok(((br.markdown()) == "![Sign in button](figma:app-design/1:9)") ("its markdown: " + (br.markdown())))
+        br.pickPart("")
+        this.ok((((br.layer()) == "1:2") && ((br.layerName()) == "Login")) "the whole screen again")
+        br.pick("1:2" "")
+        this.ok(((strlen (br.layer())) == 0) "pressed again, the pick is let go")
+        br.pick("1:2" "")
+        br.setFile("app-design" "" "indexing" "" "")
+        this.ok((((br.status()) == "indexing") && ((array_length (br.shown())) == 0)) "indexed again: nothing shown until it is ready")
+        br.setFile("app-design" "" "failed" "not a Figma file" "")
+        this.ok((((br.status()) == "failed") && ((br.err()) == "not a Figma file")) "a failure and why")
+        br.setFile("app-design" "" "ready" "" "{broken")
+        this.ok(((br.status()) == "failed") "an index that does not read is a failure")
+        this.ok(((FigmaBrowser.thumbKey("app" "1:2")) == "/__figma-thumb/app/1:2") "a thumbnail's key")
+
+    }
+
     fn themeGallery:void () {
         def rows:string "pearl\tpearl\tLight\ncorporate\tcorporate\tLight\naurora\taurora\tDark\n\tDocument's own\n\t\n"
         def tiles:[PresThemeTile] (PresThemeGallery.tiles(rows))
@@ -4259,7 +4710,7 @@ class PresCheck {
         def gr:ApiRequest (this.answer(s 200 "{\"room\":{\"room_id\":\"r1\"},\"presentations\":[{\"deck_id\":\"d1\",\"name\":\"Plan\",\"folder_id\":\"\"},{\"deck_id\":\"d2\",\"name\":\"Test\",\"folder_id\":\"f1\"}],\"folders\":[{\"folder_id\":\"f1\",\"name\":\"Tests\"}]}"))
         this.ok(((indexOf gr.body "\"room_id\":\"r1\"") > 0) "rooms: then the shown room's presentations")
         def dl:string (this.optsOf(r "roomdecks"))
-        this.ok(((indexOf dl "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t\nnew\t") == 0) ("rooms: a folder, shut, then the room's top, " + dl))
+        this.ok((dl == "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t") ("rooms: a folder, shut, then the room's top, " + dl))
         clear r.calls
         s.request("room:fold:r1:f1")
         this.ok(((indexOf (this.optsOf(r "roomdecks")) "f:f1\tTests\t1\tf\t1\ncloud:d2\tTest\t\ti\n") == 0) "rooms: a folder opened shows what is in it")
@@ -4317,6 +4768,258 @@ class PresCheck {
     ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
     ; PresStripDrag: a slide carried along the filmstrip, the others moving
     ; out of its way, and the glide into place when let go
+    ; Sliqtly Curious: the questionnaire file, response checks, tallies and
+    ; what a respondent's browser is sent (src/PresForm.rgr).
+    sfn formSample:string () {
+        return ("---\nform: Tapahtumapalaute\naudience: public        # room | signed-in | public\nlimit: 500\nonce: soft\nresults: live\n---\n\n"
+            + "## Kuinka hyödyllinen esitys oli? {#hyoty type=scale min=1 max=5 required}\nlabels: Ei lainkaan | Erittäin\n\n"
+            + "## Mikä aihe kiinnosti eniten? {#aihe type=choice required}\n- Live-data — kaaviot taulukosta\n- Työnkulut\n- Muu {other}\n\n"
+            + "## Mitä muuta? {#muuta type=text max=50 visible=\"aihe = 'muu'\"}\n\n"
+            + "## Mitkä kanavat? {#kanavat type=multi}\n- Slack\n- Sähköposti {#email}\n- Teams\n\n"
+            + "## Suosittelisitko? {#nps type=nps required=\"hyoty >= 4\"}\n\n"
+            + "## Yhdellä sanalla {#sana type=words}\n\n"
+            + "## Ikä {#ika type=number min=0 max=120}\n\n"
+            + "## Päivä {#pv type=date}\n")
+    }
+
+    fn forms:void () {
+        def f:PresForm (PresForm.parse((PresCheck.formSample())))
+        this.ok(((array_length f.warnings) == 0) ("form sample parses cleanly: " + (join f.warnings "; ")))
+        this.ok((f.title == "Tapahtumapalaute") "form title from front matter")
+        this.ok((f.audience == "public") "audience without its # comment")
+        this.ok(((f.limit == 500) && (f.once == "soft") && (f.results == "live")) "limit, once, results")
+        this.ok(f.anonymous "anonymous by default")
+        this.ok(((f.count()) == 8) ("eight questions, got " + (to_string (f.count()))))
+        if ((f.count()) < 8) {
+            return
+        }
+        def hyoty:PresFormQuestion (itemAt f.questions 0)
+        this.ok(((array_length hyoty.options) == 5) "a 1–5 scale has five points")
+        def first:PresFormOption (itemAt hyoty.options 0)
+        def fifth:PresFormOption (itemAt hyoty.options 4)
+        this.ok(((first.desc == "Ei lainkaan") && (fifth.desc == "Erittäin")) "scale end labels")
+        def aihe:PresFormQuestion (itemAt f.questions 1)
+        def live:PresFormOption (itemAt aihe.options 0)
+        this.ok(((live.value == "live-data") && (live.label == "Live-data") && (live.desc == "kaaviot taulukosta")) "option value, label, description")
+        def work:PresFormOption (itemAt aihe.options 1)
+        this.ok((work.value == "työnkulut") ("a value keeps ä/ö: " + work.value))
+        this.ok(((aihe.otherValue()) == "muu") "{other} option")
+        def kanavat:PresFormQuestion (itemAt f.questions 3)
+        this.ok(((kanavat.optionIndex("email")) == 1) "{#value} names an option")
+        def nps:PresFormQuestion (itemAt f.questions 4)
+        this.ok(((array_length nps.options) == 11) "nps is 0–10")
+        def muuta:PresFormQuestion (itemAt f.questions 2)
+        this.ok(((muuta.maxLength == 50) && (muuta.visibleWhen == "aihe = 'muu'")) "text max and quoted visible rule")
+
+        ; The version follows what is asked, not spacing.
+        def spaced:PresForm (PresForm.parse((PresCheck.formSample()) + "\n\n\n"))
+        this.ok((spaced.version == f.version) "version ignores blank lines")
+        def reworded:PresForm (PresForm.parse((MdApp.replaceAll((PresCheck.formSample()) "Työnkulut" "Prosessit"))))
+        this.ok((reworded.version != f.version) "version changes with an option")
+
+        ; Checking responses
+        def a:JVal (JVal.parse("{\"hyoty\": 5, \"aihe\": \"muu\", \"aihe.other\": \" Hinnoittelu \", \"muuta\": \"Lisää esimerkkejä\", \"kanavat\": [\"slack\", \"email\"], \"nps\": 9, \"sana\": \"Hyvä hyvä esitys\", \"ika\": 42, \"pv\": \"2026-10-10\"}"))
+        def r:PresFormResult (f.check(a))
+        this.ok(r.ok ("a full response is taken: " + (join r.messages "; ")))
+        this.ok(((r.record.get("aihe.other")).str == "Hinnoittelu") "other text stored, trimmed")
+        this.ok((((r.record.get("kanavat")).len()) == 2) "multi stored as a list")
+        this.ok(((r.record.get("hyoty")).kind == 2) "scale stored as a number")
+
+        def noReq:PresFormResult (f.check((JVal.parse("{\"aihe\": \"työnkulut\"}"))))
+        this.ok(((noReq.ok == false) && ((noReq.errorFor("hyoty")) == "answer this question")) "required scale missing")
+        def low:PresFormResult (f.check((JVal.parse("{\"hyoty\": 2, \"aihe\": \"työnkulut\"}"))))
+        this.ok(low.ok ("nps not required when hyoty < 4: " + (join low.messages "; ")))
+        def high:PresFormResult (f.check((JVal.parse("{\"hyoty\": 4, \"aihe\": \"työnkulut\"}"))))
+        this.ok(((high.errorFor("nps")) == "answer this question") "required=\"hyoty >= 4\" asks for nps")
+        def outOf:PresFormResult (f.check((JVal.parse("{\"hyoty\": 6, \"aihe\": \"työnkulut\"}"))))
+        this.ok(((strlen (outOf.errorFor("hyoty"))) > 0) "6 is off a 1–5 scale")
+        def half:PresFormResult (f.check((JVal.parse("{\"hyoty\": 2.5, \"aihe\": \"työnkulut\"}"))))
+        this.ok(((strlen (half.errorFor("hyoty"))) > 0) "a scale takes whole numbers")
+        def badOpt:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"Live-data\"}"))))
+        this.ok(((strlen (badOpt.errorFor("aihe"))) > 0) "an option is answered by value, not label")
+        def two:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": [\"muu\"]}"))))
+        this.ok(((strlen (two.errorFor("aihe"))) > 0) "a list for a single choice is refused")
+        def dup:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"kanavat\": [\"slack\", \"slack\"]}"))))
+        this.ok(((strlen (dup.errorFor("kanavat"))) > 0) "the same option twice is refused")
+        def unknown:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"hacked\": 1}"))))
+        this.ok(((strlen (unknown.errorFor("hacked"))) > 0) "an unknown key is refused")
+        def tooLong:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"muuta\": \"012345678901234567890123456789012345678901234567890123456789\"}"))))
+        this.ok(((strlen (tooLong.errorFor("muuta"))) > 0) "text over max is refused")
+        def smiles:string ""
+        def sm:int 0
+        while (sm < 50) {
+            smiles = (smiles + "😀")
+            sm = (sm + 1)
+        }
+        def emoji:PresFormResult (f.check((JVal.parse(("{\"hyoty\": 3, \"aihe\": \"muu\", \"muuta\": \"" + smiles + "\"}")))))
+        this.ok(emoji.ok ("max counts characters, not units: " + (join emoji.messages "; ")))
+        def badDate:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"pv\": \"10.10.2026\"}"))))
+        this.ok(((strlen (badDate.errorFor("pv"))) > 0) "a date is YYYY-MM-DD")
+        def age:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"ika\": \"abc\"}"))))
+        this.ok(((strlen (age.errorFor("ika"))) > 0) "a number field refuses text")
+        def notObj:PresFormResult (f.check((JVal.parse("[1]"))))
+        this.ok(((notObj.ok == false) && ((notObj.errorFor("")) != "")) "a response is an object")
+
+        ; A hidden question's answer is not stored, and other text only goes
+        ; with its option.
+        def hidden:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"työnkulut\", \"aihe.other\": \"x\", \"muuta\": \"piilossa\"}"))))
+        this.ok(hidden.ok ("hidden answers do not block: " + (join hidden.messages "; ")))
+        this.ok(((hidden.record.has("muuta")) == false) "a hidden question's answer is not stored")
+        this.ok(((hidden.record.has("aihe.other")) == false) "other text without its option is not stored")
+        def blank:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"muuta\": \"   \"}"))))
+        this.ok((blank.ok && ((blank.record.has("muuta")) == false)) "a blank text is no answer")
+
+        ; Tallies
+        def t:PresFormTally (PresFormTally.of(f))
+        t.apply(r.record 1)
+        t.apply(low.record 1)
+        t.apply(hidden.record 1)
+        this.ok((t.total == 3) "three responses counted")
+        def ch:PresFormCount (t.countFor("aihe"))
+        this.ok((((ch.countOf("muu")) == 1) && ((ch.countOf("työnkulut")) == 2)) "choice counts")
+        def sc:PresFormCount (t.countFor("hyoty"))
+        this.ok((((sc.countOf("5")) == 1) && ((sc.countOf("3")) == 1) && ((sc.countOf("1")) == 0)) "scale counts per point")
+        def ws:PresFormCount (t.countFor("sana"))
+        this.ok((((ws.countOf("hyvä")) == 1) && ((ws.countOf("esitys")) == 1)) "a word counts once per answer")
+        def ages:PresFormCount (t.countFor("ika"))
+        this.ok(((ages.countOf("42")) == 1) "number values counted")
+        def rowsAll:JVal (t.rows("aihe" 1))
+        this.ok(((rowsAll.len()) == 3) "rows in option order")
+        def row0:JVal (rowsAll.at(0))
+        this.ok((((row0.get("label")).str == "Live-data") && ((row0.get("count")).num == 0.0)) "row label and count")
+        this.ok((((t.rows("aihe" 5)).len()) == 0) "rows hidden below the minimum group")
+        t.apply(hidden.record -1)
+        this.ok((((t.countFor("aihe")).countOf("työnkulut")) == 1) "a removed response is counted out")
+
+        ; What a respondent's browser gets
+        def pub:string ((f.publicJson()).toJson())
+        this.ok((((indexOf pub "\"hyoty\"") < 0) && ((indexOf pub "aihe =") < 0)) ("public form has no question ids: " + pub))
+        this.ok(((indexOf pub f.version) < 0) "public form has no version hash")
+        this.ok(((indexOf pub "\"visible\":\"q2 = 'muu'\"") >= 0) "rules use public ids")
+        this.ok(((indexOf pub "\"requiredWhen\":\"q1 >= 4\"") >= 0) "required rule uses public ids")
+        this.ok(((f.publicRule("count(kanavat) > 1 and aihe = 'aihe'")) == "count(q4) > 1 and q2 = 'aihe'") "strings and calls stay")
+        this.ok((((f.realId("q2")) == "aihe") && ((f.realId("q9")) == "") && ((f.realId("q02")) == "")) "public id back to the real one")
+        def back:JVal (f.fromPublic((JVal.parse("{\"q1\": 4, \"q2\": \"muu\", \"q2.other\": \"x\", \"q5\": 10}"))))
+        def br:PresFormResult (f.check(back))
+        this.ok((br.ok && ((br.record.get("aihe.other")).str == "x")) ("a public answer maps back: " + (join br.messages "; ")))
+        def forged:PresFormResult (f.check((f.fromPublic((JVal.parse("{\"q1\": 4, \"q2\": \"muu\", \"hyoty\": 1}"))))))
+        this.ok((forged.ok == false) "a real id sent by a respondent is refused")
+
+        ; An HTML form's fields
+        def fnames:[string]
+        def fvalues:[string]
+        push fnames "q1"
+        push fvalues "4"
+        push fnames "q4"
+        push fvalues "slack"
+        push fnames "q4"
+        push fvalues "teams"
+        push fnames "q2"
+        push fvalues "muu"
+        push fnames "q2.other"
+        push fvalues "Hinta"
+        push fnames "q3"
+        push fvalues ""
+        push fnames "q7"
+        push fvalues "ikä"
+        def fa:JVal (f.fromFields(fnames fvalues))
+        this.ok((fa.toJson() == "{\"hyoty\":4,\"kanavat\":[\"slack\",\"teams\"],\"aihe\":\"muu\",\"aihe.other\":\"Hinta\",\"ika\":\"ikä\"}") ("form fields to an answer: " + (fa.toJson())))
+        def fwrong:[string]
+        push fwrong "hyoty"
+        def fwv:[string]
+        push fwv "4"
+        this.ok((((f.check((f.fromFields(fwrong fwv)))).ok) == false) "a field by its real id is refused")
+        def vis:[string] (f.visibleIds((JVal.parse("{\"aihe\": \"muu\"}"))))
+        this.ok(((Questionnaire.listHas(vis "muuta")) && ((array_length vis) == 8)) "muuta shows when aihe is muu")
+        def vis2:[string] (f.visibleIds((JVal.mkObj())))
+        this.ok((((Questionnaire.listHas(vis2 "muuta")) == false) && ((array_length vis2) == 7)) "and not before")
+
+        ; Deltas a server keeps per response, and counters back from rows
+        def d:JVal (f.deltas(r.record))
+        def dj:string (d.toJson())
+        this.ok(((indexOf dj "[\"\",\"\",1]") == 1) ("the response itself first: " + dj))
+        this.ok(((indexOf dj "[\"hyoty\",\"5\",1]") > 0) "a scale point delta")
+        this.ok(((indexOf dj "[\"kanavat\",\"\",1]") > 0) "an answered delta")
+        this.ok(((indexOf dj "[\"sana\",\"hyvä\",1]") > 0) "a word delta")
+        def all:JVal (JVal.mkArr())
+        def dd:JVal (f.deltas(low.record))
+        def di:int 0
+        while (di < (d.len())) {
+            all.add((d.at(di)))
+            di = (di + 1)
+        }
+        di = 0
+        while (di < (dd.len())) {
+            all.add((dd.at(di)))
+            di = (di + 1)
+        }
+        all.add((JVal.parse("[\"gone\",\"x\",3]")))
+        all.add((JVal.parse("[\"aihe\",\"poistettu\",2]")))
+        def back2:PresFormTally (PresFormTally.fromRows(f all))
+        this.ok((back2.total == 2) "total from rows")
+        this.ok(((((back2.countFor("aihe")).countOf("muu")) == 1) && (((back2.countFor("aihe")).countOf("työnkulut")) == 1)) "choice counts from rows")
+        this.ok((((back2.countFor("aihe")).countOf("poistettu")) == 0) "a removed option's row is left out")
+        this.ok((((back2.countFor("aihe")).answered) == 2) "answered from rows")
+        this.ok((((back2.countFor("sana")).countOf("esitys")) == 1) "words from rows")
+
+        ; The answer page
+        def pg (new PresFormPage())
+        pg.action = "/r/abc"
+        pg.sealed = "S1"
+        def html:string (PresFormHtml.page(f pg))
+        this.ok(((indexOf html "action=\"/r/abc\"") > 0) "the page posts back where it was opened")
+        this.ok(((indexOf html "name=\"q2\" value=\"live-data\"") > 0) "fields by public id")
+        this.ok((((indexOf html "hyoty") < 0) && ((indexOf html "name=\"aihe") < 0)) "no real ids in the page")
+        this.ok(((indexOf html "name=\"q3\"") < 0) "a hidden question is not on the page")
+        this.ok(((indexOf html "name=\"shown\" value=\"q1,q2,q4,q5,q6,q7,q8\"") > 0) "the page lists what it showed")
+        this.ok(((indexOf html "name=\"q2.other\"") > 0) "an other box")
+        this.ok(((indexOf html "<html lang=\"en\">") >= 0) "page language")
+        pg.values = (JVal.parse("{\"aihe\": \"muu\", \"muuta\": \"<b>x</b>\"}"))
+        pg.result = (f.check(pg.values))
+        pg.hasResult = true
+        def html2:string (PresFormHtml.page(f pg))
+        this.ok(((indexOf html2 "value=\"muu\" checked") > 0) "an answer stays checked")
+        pg.values = (JVal.parse("{\"aihe\": \"muu\", \"aihe.other\": \"Hinta\"}"))
+        this.ok(((indexOf (PresFormHtml.page(f pg)) "name=\"q2.other\" maxlength=\"200\" value=\"Hinta\"") > 0) "the other text stays")
+        pg.values = (JVal.parse("{\"aihe\": \"muu\", \"muuta\": \"<b>x</b>\"}"))
+        this.ok(((indexOf html2 "&lt;b&gt;x&lt;/b&gt;") > 0) "text is escaped")
+        this.ok(((indexOf html2 "<b>x") < 0) "no raw markup from answers")
+        this.ok(((indexOf html2 "aria-invalid=\"true\" aria-describedby=\"e-q1\"") > 0) "the missing answer is marked")
+        this.ok(((indexOf html2 "Please answer this question.") > 0) "and says why")
+        this.ok(((indexOf html2 "role=\"alert\"") > 0) "an error summary")
+        def fi:PresForm (PresForm.parse("---\nform: Kysely\nlang: fi\n---\n## Ikä {#ika type=number required}\n"))
+        def fp (new PresFormPage())
+        fp.values = (JVal.mkObj())
+        fp.result = (fi.check(fp.values))
+        fp.hasResult = true
+        def html3:string (PresFormHtml.page(fi fp))
+        this.ok((((indexOf html3 "Vastaa tähän kysymykseen.") > 0) && ((indexOf html3 ">Lähetä<") > 0)) "the page in Finnish")
+        this.ok(((indexOf (PresFormHtml.thanks(fi)) "Kiitos!") > 0) "thanks in Finnish")
+
+        def tEn:PresForm (PresForm.parse((PresForm.template("en"))))
+        def tFi:PresForm (PresForm.parse((PresForm.template("fi"))))
+        this.ok(((array_length tEn.warnings) == 0) ("the new questionnaire parses: " + (join tEn.warnings "; ")))
+        this.ok((((array_length tFi.warnings) == 0) && (tFi.lang == "fi") && ((tFi.count()) == 3)) ("and in Finnish: " + (join tFi.warnings "; ")))
+
+        ; Warnings, never silent drops
+        def w:PresForm (PresForm.parse("---\nform: X\naudience: everyone\nfoo: 1\n---\n## A {#a type=ranking}\n- x\n- y\n## B\n- one\n## A again {#a type=choice}\n- p\n- q\n## C {#c type=scale visible=\"nosuch > 1\"}\n- z\n"))
+        def wt:string (join w.warnings "\n")
+        this.ok(((indexOf wt "audience is room") >= 0) "bad audience warned")
+        this.ok(((indexOf wt "unknown setting foo") >= 0) "unknown setting warned")
+        this.ok(((indexOf wt "type ranking is not supported yet") >= 0) "unsupported type warned")
+        this.ok(((indexOf wt "no {#id}, using b") >= 0) "missing id warned")
+        this.ok(((indexOf wt "fewer than two options") >= 0) "one option warned")
+        this.ok(((indexOf wt "id a twice") >= 0) "duplicate id warned")
+        this.ok(((indexOf wt "a scale question has no options") >= 0) "options on a scale warned")
+        this.ok(((indexOf wt "names nosuch") >= 0) "a rule naming no question warned")
+        this.ok(((w.count()) == 3) "the duplicate is left out")
+        def cyc:PresForm (PresForm.parse("## A {#a type=text visible=\"len(b) > 0\"}\n## B {#b type=text visible=\"len(a) > 0\"}\n"))
+        this.ok(((indexOf (join cyc.warnings "\n") "cannot run") >= 0) "a rule cycle is warned")
+        this.ok((((cyc.check((JVal.mkObj()))).ok) == false) "a form whose rules cannot run takes nothing")
+        def bad:PresForm (PresForm.parse("## A {#a type=text visible=\"a >\"}\n"))
+        this.ok(((indexOf (join bad.warnings "\n") "rule a.visible") >= 0) "a rule that does not parse is warned")
+    }
+
     fn stripDrag:void () {
         def d (new PresStripDrag())
         d.start(5 1 1.0 10.0)
@@ -4646,6 +5349,33 @@ class PresCheck {
         return (join out " ")
     }
 
+    ; the first command of the second bar of slide 0's chart, as `l` draws it
+    sfn barOf@(optional):EVGDrawCmd (deck:PresDeck l:EVGDisplayList) {
+        def none@(optional):EVGDrawCmd
+        def sc:PresScene (deck.sceneOfSlide(0))
+        def bi:int (sc.indexOf("chart-1/bar-2"))
+        if (bi < 0) {
+            return none
+        }
+        def e:PresEnt (sc.at(bi))
+        ; the bar's own colour at the middle of its box
+        def best@(optional):EVGDrawCmd
+        def bestD:double 1000000.0
+        for l.cmds c:EVGDrawCmd ci {
+            if (((c.kind == 0) || (c.kind == 6)) && ((c.w > 4.0) && (c.w < (e.w + 1.0)))) {
+                def d:double ((c.x - e.x) + 0.0)
+                if (d < 0.0) {
+                    d = (0.0 - d)
+                }
+                if ((d < 1.0) && (d < bestD)) {
+                    bestD = d
+                    best = c
+                }
+            }
+        }
+        return best
+    }
+
     sfn textCmd@(optional):EVGDrawCmd (l:EVGDisplayList text:string) {
         def i:int 0
         while (i < (array_length l.cmds)) {
@@ -4660,12 +5390,123 @@ class PresCheck {
         return none
     }
 
+    ; `transition=morph`: what both slides have glides from its place on the
+    ; first to its place on the second; the rest fades (PresMorph).
+    fn morph:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n"
+            + "## Sales\n\nOnly here\n\nThe total\n{#total}\n\n"
+            + "## Sales by region {transition=morph seconds=1}\n\n- North\n- South\n\nThe total\n{#total}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) != 2) {
+            this.ok(false "morph: two slides")
+            return
+        }
+        def a:PresScene (deck.sceneOfSlide(0))
+        def b:PresScene (deck.sceneOfSlide(1))
+        def pairs:[int] (PresMorph.pairs(a b))
+        def ti:int (b.indexOf("total"))
+        def fi:int (a.indexOf("total"))
+        this.ok(((ti > 0) && (fi > 0)) "morph: the {#id} block on both slides")
+        if ((ti <= 0) || (fi <= 0)) {
+            return
+        }
+        this.ok(((itemAt pairs ti) == fi) "morph: the same {#id} is one object")
+        def hb:int (b.indexOf("h2-1"))
+        this.ok(((itemAt pairs hb) < 0) "morph: headings with other words are not")
+        def from:PresEnt (a.at(fi))
+        def to:PresEnt (b.at(ti))
+        this.ok((from.y != to.y) "morph: the block is somewhere else on the second slide")
+        ; halfway: between its two places, the first slide's own text half gone
+        def arr:PresScriptFrame (PresMorph.arriving(a b pairs 0.5))
+        def tpo@(optional):PresEntProps (arr.propsOf("total"))
+        if (!null? tpo) {
+            def tp:PresEntProps (unwrap tpo)
+            def mid:double ((from.y + to.y) * 0.5)
+            this.ok((((tp.y - mid) < 0.5) && ((mid - tp.y) < 0.5)) ("morph: halfway between, y " + (to_string tp.y)))
+        } {
+            this.ok(false "morph: the paired block moves")
+        }
+        def lea:PresScriptFrame (PresMorph.leaving(a pairs 0.5))
+        def lpo@(optional):PresEntProps (lea.propsOf("total"))
+        this.ok(((!null? lpo) && ((unwrap lpo).visible == false)) "morph: the leaving slide does not draw it twice")
+        ; on the stage, a quarter in: the block is drawn once, between
+        def f:EVGDisplayList (PresTimeline.frame(deck 1 0.5))
+        def n:int 0
+        def y:double 0.0
+        for f.cmds c:EVGDrawCmd ci {
+            if ((c.text == "The") && (c.a > 0.01)) {
+                n = (n + 1)
+                y = c.y
+            }
+            if ((c.text == "The total") && (c.a > 0.01)) {
+                n = (n + 1)
+                y = c.y
+            }
+        }
+        this.ok((n == 1) ("morph: the total drawn once mid-way, got " + (to_string n)))
+        def lo:double from.y
+        def hi:double to.y
+        if (hi < lo) {
+            lo = to.y
+            hi = from.y
+        }
+        this.ok(((y > (lo - 1.0)) && (y < (hi + to.h))) ("morph: between its places, y " + (to_string y)))
+        ; once over, the slide as it is
+        def end:EVGDisplayList (PresTimeline.frame(deck 1 5.0))
+        this.ok(((array_length end.cmds) > 3) "morph: the slide after it")
+    }
+
+    sfn rectCmd:EVGDrawCmd (x:double y:double w:double h:double r:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.radius = r
+        return c
+    }
+
+    ; Rounded columns (`cornerRadiusEnd`) are a script's bars; a point (a
+    ; rect round all through) is not. The dressing still leaves them.
+    fn roundedBars:void () {
+        def tail:[EVGDrawCmd]
+        push tail (PresCheck.rectCmd(0.0 0.0 400.0 300.0 0.0))
+        push tail (PresCheck.rectCmd(20.0 100.0 40.0 200.0 0.0))
+        def top:EVGDrawCmd (PresCheck.rectCmd(80.0 150.0 40.0 150.0 4.0))
+        top.perCorner = true
+        top.radiusTR = 4.0
+        push tail top
+        push tail (PresCheck.rectCmd(140.0 120.0 40.0 180.0 4.0))
+        push tail (PresCheck.rectCmd(200.0 50.0 8.0 8.0 4.0))
+        def ramp:[boolean]
+        for tail c:EVGDrawCmd ci {
+            push ramp false
+        }
+        def spec:string "{\"mark\": {\"type\": \"bar\", \"cornerRadiusEnd\": 4}}"
+        this.ok(((array_length (PresChart.barsIn(tail ramp spec))) == 3) ("rounded bars: a script finds 3 columns, got " + (to_string (array_length (PresChart.barsIn(tail ramp spec))))))
+        this.ok(((array_length (PresChart.columnsIn(tail ramp spec))) == 1) "rounded bars: the dressing leaves the rounded ones")
+    }
+
+    ; How many commands of kind `kind` are drawn pure red.
+    sfn redCount:int (l:EVGDisplayList kind:int) {
+        def n:int 0
+        for l.cmds c:EVGDrawCmd ci {
+            if (((c.kind == kind) && (c.r == 255)) && ((c.g == 0) && (c.b == 0))) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
     fn scripts:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n"
             + "## Sales grow {script=apps/fx.tsx allow=\"slide.nav, deck.data\" export-frame=3.5s}\n\n"
             + "- Saturday record\n- Buns sell\n- Coffee\n\nCoffee pays\n{#kahvi .key}\n\n"
             + "```vega-lite\n{\"data\":{\"values\":[{\"k\":\"Mon\",\"n\":4},{\"k\":\"Tue\",\"n\":7},{\"k\":\"Wed\",\"n\":5}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"n\",\"type\":\"quantitative\"}}}\n```\n\n"
-            + "## Flow {script=apps/flow.tsx}\n\n```mermaid\nflowchart LR\n  A[Order] --> B[Bake]\n  B --> C[Sell]\n```\n\n"
+            + "## Flow {script=apps/flow.tsx}\n\n```mermaid\nflowchart LR\n  A[Order] --> B[Bake]\n  B --> C[Sell]\n```\n{diagram=classic}\n\n> Bread first\n\n"
             + "## Plain\n\nNothing runs here\n")
         def deck (new PresDeck())
         deck.setText(text)
@@ -4686,29 +5527,29 @@ class PresCheck {
         this.ok(((indexOf files "apps/fx.tsx") >= 0) "scripts: the page is asked for the file")
         ; the slide's entities
         def sc:PresScene (deck.sceneOfSlide(0))
-        def heads:[int] (PresSel.findIn(sc "h2"))
+        def heads:[int] (PresSel.findIn(sc.ents "h2"))
         this.ok(((array_length heads) == 1) ("scripts: one h2, got " + (to_string (array_length heads))))
         if ((array_length heads) == 1) {
             def h:PresEnt (sc.at((itemAt heads 0)))
             this.ok((h.text == "Sales grow") ("scripts: the heading's text, got " + h.text))
             this.ok(((h.w > 50.0) && (h.h > 10.0)) "scripts: the heading's box")
         }
-        def items:[int] (PresSel.findIn(sc "li"))
+        def items:[int] (PresSel.findIn(sc.ents "li"))
         this.ok(((array_length items) == 3) ("scripts: three items, got " + (to_string (array_length items)) + "\n" + (join (sc.outline(false)) "\n")))
-        def second:[int] (PresSel.findIn(sc "li:2"))
+        def second:[int] (PresSel.findIn(sc.ents "li:2"))
         if ((array_length second) == 1) {
             def e2:PresEnt (sc.at((itemAt second 0)))
             this.ok((e2.text == "Buns sell") ("scripts: li:2 is the second, got " + e2.text))
         } {
             this.ok(false "scripts: li:2 names one item")
         }
-        def kahvi:[int] (PresSel.findIn(sc "#kahvi"))
+        def kahvi:[int] (PresSel.findIn(sc.ents "#kahvi"))
         this.ok(((array_length kahvi) == 1) "scripts: #id names a block")
         if ((array_length kahvi) == 1) {
             this.ok(((sc.at((itemAt kahvi 0))).id == "kahvi") "scripts: the block's own id is its id")
         }
-        this.ok(((array_length (PresSel.findIn(sc "p.key"))) == 1) "scripts: .class")
-        def words:[int] (PresSel.findIn(sc "h2 word"))
+        this.ok(((array_length (PresSel.findIn(sc.ents "p.key"))) == 1) "scripts: .class")
+        def words:[int] (PresSel.findIn(sc.ents "h2 word"))
         this.ok(((array_length words) == 2) ("scripts: the heading in words, got " + (to_string (array_length words))))
         if ((array_length words) == 2) {
             def w0:PresEnt (sc.at((itemAt words 0)))
@@ -4716,28 +5557,36 @@ class PresCheck {
             this.ok(((w0.text == "Sales") && (w1.text == "grow")) "scripts: the words")
             this.ok(((w1.x > (w0.x + w0.w)) && (w0.w > 10.0)) "scripts: each word where it is drawn")
         }
-        this.ok(((array_length (PresSel.findIn(sc "h2 char"))) == 9) "scripts: the heading in letters")
-        def bars:[int] (PresSel.findIn(sc "chart:1 bar"))
+        this.ok(((array_length (PresSel.findIn(sc.ents "h2 char"))) == 9) "scripts: the heading in letters")
+        def bars:[int] (PresSel.findIn(sc.ents "chart:1 bar"))
         this.ok(((array_length bars) == 3) ("scripts: the chart's columns, got " + (to_string (array_length bars))))
         if ((array_length bars) == 3) {
             def b1:PresEnt (sc.at((itemAt bars 1)))
             this.ok(((indexOf b1.data "Tue") >= 0) ("scripts: a column knows its category, got " + b1.data))
+            this.ok(((indexOf b1.data "\"value\":7") >= 0) ("scripts: …and its value from the chart's data, got " + b1.data))
             def b0:PresEnt (sc.at((itemAt bars 0)))
             this.ok((b1.h > b0.h) "scripts: a column's box is its own")
         }
-        this.ok(((array_length (PresSel.findIn(sc "chart:2 bar"))) == 0) "scripts: no second chart")
+        this.ok(((array_length (PresSel.findIn(sc.ents "chart:2 bar"))) == 0) "scripts: no second chart")
         def bad:PresSel (PresSel.parse("li:x"))
         this.ok(((strlen bad.error) > 0) "scripts: a bad selector is said")
         ; a diagram's nodes and lines
         def sc1:PresScene (deck.sceneOfSlide(1))
-        def nb:[int] (PresSel.findIn(sc1 "diagram:1 node#B"))
+        def nb:[int] (PresSel.findIn(sc1.ents "diagram:1 node#B"))
         this.ok(((array_length nb) == 1) ("scripts: node#B, got " + (to_string (array_length nb)) + "\n" + (join (sc1.outline(false)) "\n")))
         if ((array_length nb) == 1) {
             def nbe:PresEnt (sc1.at((itemAt nb 0)))
             this.ok((nbe.text == "Bake") ("scripts: the node's label, got " + nbe.text))
         }
-        this.ok(((array_length (PresSel.findIn(sc1 "edge A->B"))) == 1) "scripts: an edge by its ends")
-        this.ok(((array_length (PresSel.findIn(sc1 "diagram node"))) == 3) "scripts: every node")
+        this.ok(((array_length (PresSel.findIn(sc1.ents "edge A->B"))) == 1) "scripts: an edge by its ends")
+        this.ok(((array_length (PresSel.findIn(sc1.ents "diagram node"))) == 3) "scripts: every node")
+        def qs:[int] (PresSel.findIn(sc1.ents "quote"))
+        this.ok(((array_length qs) == 1) ("scripts: a > quote is a quote\n" + (join (sc1.outline(false)) "\n")))
+        if ((array_length qs) == 1) {
+            def qe:PresEnt (sc1.at((itemAt qs 0)))
+            this.ok((qe.text == "Bread first") ("scripts: the quote's text, got " + qe.text))
+            this.ok(((array_length (PresSel.findIn(sc1.ents "quote word"))) == 2) "scripts: …and its words")
+        }
         ; the tree a script is handed
         def tree:string (deck.scriptTree("script:apps/fx.tsx#1"))
         this.ok(((indexOf tree "\"k\":\"bar\"") > 0) "scripts: the tree carries the columns")
@@ -4773,6 +5622,114 @@ class PresCheck {
             this.ok((cf.a == 0.0) "scripts: visible:false makes it clear")
         }
         this.ok(((array_length after.cmds) > (array_length before.cmds)) "scripts: what it added is drawn")
+        ; what a document makes of it: the list changed, the paragraph hidden
+        this.ok((deck.scriptChanges(0)) "scripts: the slide ends changed")
+        this.ok(((deck.scriptChanges(1)) == false) "scripts: …a slide with no final frame does not")
+        ; an edge in its own colour: the line and its arrowhead
+        def flow0:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        def eab:[int] (PresSel.findIn(sc1.ents "edge A->B"))
+        def eid:string ""
+        if ((array_length eab) == 1) {
+            def ee:PresEnt (sc1.at((itemAt eab 0)))
+            eid = ee.id
+        }
+        this.ok((deck.setScriptFinal((deck.scriptKeyOf(1)) ("{\"p\":{\"" + eid + "\":{\"stroke\":\"#ff0000\"}}}"))) ("scripts: an edge's frame taken, " + (deck.scriptKeyOf(1)) + " " + eid))
+        def flow1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.redCount(flow1 7)) > (PresCheck.redCount(flow0 7))) "scripts: stroke colours an edge's line")
+        this.ok(((PresCheck.redCount(flow1 6)) > (PresCheck.redCount(flow0 6))) "scripts: …and its arrowhead")
+        def docN:MdNode deck.md.edit.doc
+        def listAt:int -1
+        def paraAt:int -1
+        def dn:int 0
+        while (dn < (docN.childCount())) {
+            def dc:MdNode (docN.childAt(dn))
+            if ((dc.kind == "list") && (listAt < 0)) {
+                listAt = dn
+            }
+            if ((dc.kind == "paragraph") && ((indexOf (dc.plainText()) "Coffee pays") >= 0)) {
+                paraAt = dn
+            }
+            dn = (dn + 1)
+        }
+        if ((listAt >= 0) && (paraAt >= 0)) {
+            def ln:MdNode (docN.childAt(listAt))
+            def pn:MdNode (docN.childAt(paraAt))
+            this.ok(((deck.scriptLeaves(0 ln.srcStart ln.srcEnd)) == 1) ("scripts: a moved item changes its list, got " + (to_string (deck.scriptLeaves(0 ln.srcStart ln.srcEnd)))))
+            this.ok(((deck.scriptLeaves(0 pn.srcStart pn.srcEnd)) == 2) "scripts: a hidden paragraph is hidden")
+            def rect:[double] (deck.scriptBlockRect(0 ln.srcStart ln.srcEnd))
+            this.ok(((array_length rect) == 4) "scripts: the list's rectangle where the script leaves it")
+            def word (new PresDocx())
+            word.findShots(deck)
+            def scriptedShots:int 0
+            for word.shots ws:PresDocxShot wsi {
+                if ws.scripted {
+                    scriptedShots = (scriptedShots + 1)
+                }
+            }
+            this.ok((scriptedShots >= 1) "scripts: Word draws a changed block as the stage shows it")
+        } {
+            this.ok(false "scripts: the deck's list and paragraph")
+        }
+        ; the PowerPoint file is drawn from the list where the script ends
+        def ex (new PresExport())
+        ex.deck = deck
+        def ppt:buffer (ex.pptx())
+        this.ok(((buffer_length ppt) > 1000) "scripts: a PPTX with a scripted slide")
+        ; one moment of it (the server's render_slide(time)) over the others
+        this.ok((deck.setScriptAt("script:apps/fx.tsx#1" "{\"p\":{\"h2-1\":{\"opacity\":0.5}}}")) "scripts: a moment taken")
+        def atList:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def head@(optional):EVGDrawCmd (PresCheck.textCmd(atList "Sales grow"))
+        if (!null? head) {
+            def hc:EVGDrawCmd (unwrap head)
+            this.ok(((hc.a > 0.4) && (hc.a < 0.6)) ("scripts: the moment is drawn, alpha " + (to_string hc.a)))
+        }
+        deck.clearScriptAt()
+        ; the public viewer lays the same frame over the slide it was sent
+        ; (View.scripts, PresScriptWeb): the heading at half alpha there too
+        def wire:JVal (JVal.parse((deck.scriptBaseJson(0))))
+        def sw (new PresScriptWeb())
+        sw.add("script:apps/fx.tsx#1" ((wire.get("list")).toJson()) ((wire.get("scene")).toJson()) (wire.strOr("ink" "")) (wire.strOr("accent" "")))
+        this.ok((sw.setFrame("script:apps/fx.tsx#1" "{\"p\":{\"h2-1\":{\"opacity\":0.5}}}")) "scripts: the viewer takes a frame")
+        def webList:EVGDisplayList (new EVGDisplayList())
+        webList.cmds = (PresListRead.cmds((sw.listJson("script:apps/fx.tsx#1"))))
+        def wh@(optional):EVGDrawCmd (PresCheck.textCmd(webList "Sales grow"))
+        if (!null? wh) {
+            def whc:EVGDrawCmd (unwrap wh)
+            this.ok(((whc.a > 0.4) && (whc.a < 0.6)) ("scripts: the viewer draws the frame, alpha " + (to_string whc.a)))
+        } {
+            this.ok(false "scripts: the viewer's list has the heading")
+        }
+        def baseCmds:[EVGDrawCmd] (PresListRead.cmds(((wire.get("list")).toJson())))
+        def again:EVGDisplayList (new EVGDisplayList())
+        again.cmds = baseCmds
+        def twice:EVGDisplayList (new EVGDisplayList())
+        twice.cmds = (PresListRead.cmds((again.toJson())))
+        this.ok(((array_length baseCmds) > 3) "scripts: the viewer's list has commands")
+        this.ok(((again.toJson()) == (twice.toJson())) "scripts: a list read back writes the same JSON")
+        def hb@(optional):EVGDrawCmd (PresCheck.textCmd(again "Sales grow"))
+        if (!null? hb) {
+            def hbc:EVGDrawCmd (unwrap hb)
+            def hit:string (sw.entityAt("script:apps/fx.tsx#1" (hbc.x + 4.0) (hbc.y + (hbc.h * 0.5))))
+            this.ok(((indexOf hit "h2-1") == 0) ("scripts: the viewer finds the heading under the pointer, got " + hit))
+        }
+        ; scaleY with origin bottom: a bar half as tall, on its axis, as wide
+        def tall:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def bar0@(optional):EVGDrawCmd (PresCheck.barOf(deck tall))
+        this.ok((deck.setScriptAt("script:apps/fx.tsx#1" "{\"p\":{\"chart-1/bar-2\":{\"scaleY\":0.5,\"origin\":\"bottom\"}}}")) "scripts: scaleY taken")
+        def half:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def bar1@(optional):EVGDrawCmd (PresCheck.barOf(deck half))
+        deck.clearScriptAt()
+        if ((!null? bar0) && (!null? bar1)) {
+            def b0:EVGDrawCmd (unwrap bar0)
+            def b1:EVGDrawCmd (unwrap bar1)
+            this.ok((((b1.h - (b0.h * 0.5)) < 0.5) && (((b0.h * 0.5) - b1.h) < 0.5)) ("scripts: scaleY halves the bar, " + (to_string b0.h) + " → " + (to_string b1.h)))
+            this.ok((((b1.w - b0.w) < 0.01) && ((b0.w - b1.w) < 0.01)) "scripts: scaleY keeps its width")
+            def bottom0:double (b0.y + b0.h)
+            def bottom1:double (b1.y + b1.h)
+            this.ok((((bottom1 - bottom0) < 0.5) && ((bottom0 - bottom1) < 0.5)) "scripts: on its axis")
+        } {
+            this.ok(false "scripts: the second bar drawn")
+        }
         ; a thumbnail is the final state; the PDF too
         def bad2:string "{\"p\":{\"chart-1/bar-2\":{\"fill\":\"#00ff00\"}}}"
         deck.setScriptFinal("script:apps/fx.tsx#1" bad2)
@@ -4807,8 +5764,8 @@ class PresCheck {
         }
         this.ok(said ("scripts: a selector naming nothing is said: " + (join notes " | ")))
         ; the selectors read off the source
-        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' )"))
-        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, got " + (join sels " | ")))
+        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' ); find(\"li:\" + n)"))
+        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, a made one left out, got " + (join sels " | ")))
     }
 
     fn plays:void () {
@@ -5196,6 +6153,288 @@ class PresCheck {
     ; <scene3d> read the way React Three Fiber reads its JSX (Pres3DTree):
     ; Three's names, keys, world places, rods, lookAt, the first version's
     ; attributes, and what changes from one frame to the next.
+    ; a world drawn without a GPU (render_slide): the box where the page
+    ; draws it, lit, and the slide showing round it
+    fn stills:void () {
+        def box:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#ff0000\"}}]}"
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
+        def st:Pres3DStill (new Pres3DStill())
+        def px:buffer (st.draw(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + box + "]}") 48 27))
+        this.ok(((buffer_length px) == ((48 * 27) * 4)) "stills: RGBA, the size asked")
+        def mid:int (((13 * 48) + 24) * 4)
+        this.ok((((buffer_get px mid) == 255) && ((buffer_get px (mid + 1)) == 0)) ("stills: the red box in the middle, got " + (to_string (buffer_get px mid)) + "," + (to_string (buffer_get px (mid + 1)))))
+        this.ok(((buffer_get px (mid + 3)) == 255) "stills: the box opaque")
+        this.ok(((buffer_get px 3) == 0) "stills: the slide shows round the world")
+        this.ok(((strlen st.error) == 0) ("stills: nothing said, got " + st.error))
+        ; lit: a white face square to a light in front of it
+        def lit:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"boxGeometry\"},{\"t\":\"meshLambertMaterial\",\"a\":{\"color\":\"#808080\"}}]}"
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"0,0,1\",\"intensity\":\"1\"}}"
+        def st2:Pres3DStill (new Pres3DStill())
+        def px2:buffer (st2.draw(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + sun + "," + lit + "]}") 48 27))
+        def g2:int (buffer_get px2 mid)
+        this.ok(((g2 > 60) && (g2 < 250)) ("stills: a lit grey face, got " + (to_string g2)))
+        def sun3:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"0,0,1\",\"intensity\":\"3\"}}"
+        def px3:buffer (st2.draw(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + sun3 + "," + lit + "]}") 48 27))
+        this.ok(((buffer_get px3 mid) > g2) ("stills: a brighter light, a brighter face, got " + (to_string (buffer_get px3 mid))))
+    }
+
+    ; a world saved as glTF 2.0 (export format gltf): the tree's nodes, the
+    ; page's triangles, PBR materials in linear light, lights and camera
+    ; the node of tree `t` named `name`, -1 when none
+    sfn p3named:int (t:Pres3DTree name:string) {
+        def i:int 0
+        while (i < (array_length t.nodes)) {
+            def p:P3Node (itemAt t.nodes i)
+            if (p.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; <SliqGltf src>: a deck's .gltf read back into the world (Pres3DTree)
+    fn gltfIn:void () {
+        ; the decoder
+        def b3:[int] (P3Files.unbase64("AQID"))
+        this.ok((((array_length b3) == 3) && ((itemAt b3 2) == 3)) "gltf in: base64 to bytes")
+        def b1:[int] (P3Files.unbase64("/w=="))
+        this.ok((((array_length b1) == 1) && ((itemAt b1 0) == 255)) "gltf in: base64 with padding")
+        this.ok(((P3Files.f32(0 0 128 63)) == 1.0) "gltf in: float32 1")
+        this.ok(((P3Files.f32(0 0 32 192)) == -2.5) "gltf in: float32 -2.5")
+        def tenth:double (P3Files.f32(205 204 204 61))
+        this.ok(((tenth > 0.0999999) && (tenth < 0.1000001)) "gltf in: float32 0.1")
+        ; Sliqtly's own export, read back
+        def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,2,3\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff8000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
+        def grp:string ("{\"t\":\"group\",\"a\":{\"name\":\"rig\",\"scale\":\"2\",\"rotation-y\":\"0.5\"},\"c\":[" + box + "]}")
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"name\":\"sun\",\"position\":\"0,4,0\",\"intensity\":\"2\"}}"
+        def text:string (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + grp + "," + sun + "]}") 1.0))
+        def files:P3Files (new P3Files())
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,9\"}}"
+        def at:string "{\"t\":\"sliqGltf\",\"a\":{\"src\":\"/scenes/a.gltf\",\"position\":\"0,1,0\"}}"
+        def scene:string ("{\"t\":\"scene3d\",\"c\":[" + cam + "," + at + "]}")
+        def first:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok((((array_length first.missing) == 1) && ((itemAt first.missing 0) == "scenes/a.gltf")) "gltf in: the file asked for, without its slash")
+        files.setFile("scenes/a.gltf" text)
+        def t:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length t.missing) == 0) "gltf in: nothing missing once given")
+        this.ok(((array_length t.warnings) == 0) ("gltf in: no warnings, got " + (join t.warnings "; ")))
+        def ci:int (PresCheck.p3named(t "crate"))
+        this.ok((ci >= 0) "gltf in: the crate is there by its name")
+        if (ci < 0) {
+            return
+        }
+        def crate:P3Node (itemAt t.nodes ci)
+        this.ok(((crate.tag == "mesh") && (crate.geo == "boxGeometry")) "gltf in: R3F's box again, from extras")
+        this.ok((PresCheck.near(crate.geoArgs ([] _:double (1.0 2.0 3.0 1.0 1.0 1.0)))) ("gltf in: the box's args, got " + (Pres3DTree.listText(crate.geoArgs))))
+        this.ok((PresCheck.near(crate.color ([] _:double (1.0 (128.0 / 255.0) 0.0)))) ("gltf in: the colour back in sRGB, got " + (Pres3DTree.listText(crate.color))))
+        this.ok(((crate.metalness == 0.5) && (crate.roughness == 0.25)) "gltf in: metalness and roughness")
+        this.ok((crate.mat == "meshStandardMaterial") "gltf in: its material class")
+        ; where it is: the group at y 1, the rig scaled 2 and turned 0.5 round y
+        def want:[double] ([] _:double ((2.0 * (cos 0.5)) 1.0 (0.0 - (2.0 * (sin 0.5)))))
+        this.ok((PresCheck.near(crate.worldPos want)) ("gltf in: the crate's place in the world, got " + (Pres3DTree.listText(crate.worldPos))))
+        ; the sun shines from above, not the default key and fill
+        def si:int (PresCheck.p3named(t "sun"))
+        this.ok((si >= 0) "gltf in: the sun is there")
+        if (si >= 0) {
+            def sunN:P3Node (itemAt t.nodes si)
+            this.ok((((sunN.tag == "light") && (sunN.kind == "directional")) && (sunN.intensity == 2.0)) "gltf in: a directional light of intensity 2")
+            def sp:[double] sunN.worldPos
+            this.ok((((itemAt sp 1) > 9.0) && (((itemAt sp 0) * (itemAt sp 0)) < 0.0001)) ("gltf in: the sun stands above (from its -z), got " + (Pres3DTree.listText(sp))))
+        }
+        this.ok((t.lights == 1) ("gltf in: only the file's own light, got " + (to_string t.lights)))
+        ; the same frame again: nothing to change
+        def again:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length (Pres3DTree.diff(t again))) == 0) "gltf in: keys stable across frames")
+        ; a named child changes the file's object; others are added
+        def over:string "{\"t\":\"sliqGltf\",\"a\":{\"src\":\"scenes/a.gltf\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position-y\":\"3\"},\"c\":[{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#00ff00\"}}]},{\"t\":\"mesh\",\"a\":{\"name\":\"extra\"},\"c\":[{\"t\":\"sphereGeometry\"}]}]}"
+        def to:Pres3DTree (Pres3DTree.readWith(("{\"t\":\"scene3d\",\"c\":[" + over + "]}") files))
+        def oi:int (PresCheck.p3named(to "crate"))
+        if (oi >= 0) {
+            def oc:P3Node (itemAt to.nodes oi)
+            this.ok((PresCheck.near(oc.pos ([] _:double (1.0 3.0 0.0)))) ("gltf in: y changed, x kept, got " + (Pres3DTree.listText(oc.pos))))
+            this.ok(((oc.mat == "meshBasicMaterial") && (PresCheck.near(oc.color ([] _:double (0.0 1.0 0.0))))) "gltf in: its material changed")
+            this.ok((oc.geo == "boxGeometry") "gltf in: its shape kept")
+        } {
+            this.ok(false "gltf in: the overridden crate")
+        }
+        this.ok(((PresCheck.p3named(to "extra")) >= 0) "gltf in: another child added")
+        this.ok(((array_length to.warnings) == 0) ("gltf in: no warnings on override, got " + (join to.warnings "; ")))
+        ; a file not Sliqtly's: its own triangles
+        def bytes:[int] ([] _:int (0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 1 0 2 0 0 0))
+        def triPre:string ("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"tri\",\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0,0,1,1]}}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],\"buffers\":[{\"byteLength\":44,\"uri\":\"")
+        def raw:string (triPre + "data:application/octet-stream;base64," + (SceneGeom.base64(bytes)) + "\"}]}")
+        files.setFile("tri.gltf" raw)
+        def tt:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" files))
+        def ti:int (PresCheck.p3named(tt "tri"))
+        this.ok(((array_length tt.warnings) == 0) ("gltf in: a plain file read, got " + (join tt.warnings "; ")))
+        if (ti >= 0) {
+            def tri:P3Node (itemAt tt.nodes ti)
+            this.ok(((tri.geo == "gltfGeometry") && (tri.gltfSrc == "tri.gltf")) "gltf in: the file's own triangles")
+            this.ok((PresCheck.near(tri.color ([] _:double (0.0 0.0 1.0)))) "gltf in: blue")
+            this.ok(((tri.metalness == 1.0) && (tri.roughness == 1.0)) "gltf in: glTF's material defaults")
+        } {
+            this.ok(false "gltf in: the triangle node")
+        }
+        def tris:P3Tris (files.trianglesOf("tri.gltf" 0 0))
+        this.ok((PresCheck.near(tris.pos ([] _:double (0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 0.0)))) ("gltf in: positions decoded, got " + (Pres3DTree.listText(tris.pos))))
+        this.ok((((array_length tris.idx) == 3) && ((itemAt tris.idx 2) == 2)) "gltf in: indices decoded")
+        this.ok(((array_length tris.nrm) == 0) "gltf in: no normals: flat faces")
+        ; the world makes it: one mesh, three corners
+        def wo:Pres3DWorld (new Pres3DWorld())
+        wo.setFile("tri.gltf" raw)
+        wo.setScene("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" (new Pres3DEnv()))
+        this.ok((wo.meshes == 1) ("gltf in: the world has the mesh, got " + (to_string wo.meshes)))
+        def made:ThreeBufferGeometry (itemAt wo.geos 0)
+        this.ok(((made.vertexCount()) == 3) ("gltf in: three corners, got " + (to_string (made.vertexCount()))))
+        ; a new text for the file is read again
+        files.setFile("tri.gltf" (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + box + "]}") 1.0)))
+        def tn:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" files))
+        this.ok(((PresCheck.p3named(tn "crate")) >= 0) "gltf in: a changed file read again")
+        ; what goes wrong is said
+        files.setFile("none.gltf" "")
+        def tm:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"none.gltf\"}}]}" files))
+        this.ok(((indexOf (join tm.warnings ";") "has no file none.gltf") >= 0) ("gltf in: a file the deck lacks, said, got " + (join tm.warnings ";")))
+        files.setFile("x.gltf" "{\"hello\":1}")
+        def tx:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"x.gltf\"}}]}" files))
+        this.ok(((indexOf (join tx.warnings ";") "not a glTF 2.0") >= 0) "gltf in: not glTF, said")
+        def ext:string (triPre + "tri.bin\"}]}")
+        files.setFile("ext.gltf" ext)
+        def te:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"ext.gltf\"}}]}" files))
+        this.ok(((indexOf (join te.warnings ";") "embedded data") >= 0) ("gltf in: an outside .bin, said, got " + (join te.warnings ";")))
+        def ei:int (PresCheck.p3named(te "tri"))
+        if (ei >= 0) {
+            def en:P3Node (itemAt te.nodes ei)
+            this.ok((en.visible == false) "gltf in: a mesh not read is not drawn")
+        }
+        def ts:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\"}]}" files))
+        this.ok(((indexOf (join ts.warnings ";") "src names") >= 0) "gltf in: no src, said")
+    }
+
+    ; <scene3d legacy> and the octahedron (what ranger:three files use)
+    fn worldLegacy:void () {
+        def wo:Pres3DWorld (new Pres3DWorld())
+        wo.setScene("{\"t\":\"scene3d\",\"a\":{\"legacy\":true,\"ambient\":0},\"c\":[{\"t\":\"mesh\",\"c\":[{\"t\":\"octahedronGeometry\",\"a\":{\"args\":\"2\"}},{\"t\":\"meshLambertMaterial\",\"a\":{\"color\":\"#ff0000\"}}]}]}" (new Pres3DEnv()))
+        this.ok((wo.srgb == false) "legacy scene: no colour management")
+        this.ok(((strlen wo.error) == 0) ("legacy scene: no warnings, got " + wo.error))
+        this.ok((wo.tree.legacy == false) "legacy scene: not the first attributes")
+        this.ok((wo.tree.roomLight == 0.0) "legacy scene: ambient 0")
+        def g:ThreeBufferGeometry (itemAt wo.geos 0)
+        this.ok(((g.vertexCount()) == 24) ("octahedron: 8 faces of 3 corners, got " + (to_string (g.vertexCount()))))
+        this.ok(((g.getPosition(0 0)) == 2.0) "octahedron: radius 2")
+        def nx:double (g.getNormal(0 0))
+        this.ok(((nx > 0.577) && (nx < 0.578)) "octahedron: a face's own normal")
+        def plain:Pres3DWorld (new Pres3DWorld())
+        plain.setScene("{\"t\":\"scene3d\",\"c\":[]}" (new Pres3DEnv()))
+        this.ok(plain.srgb "plain scene: Three's colour management")
+    }
+
+    fn gltfOut:void () {
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
+        def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff0000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
+        def grp:string ("{\"t\":\"group\",\"a\":{\"name\":\"rig\",\"scale\":\"2\"},\"c\":[" + box + "]}")
+        def flat:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"planeGeometry\"},{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#808080\",\"side\":\"2\"}}]}"
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"4,0,0\",\"intensity\":\"2\"}}"
+        def amb:string "{\"t\":\"ambientLight\",\"a\":{\"intensity\":\"0.3\"}}"
+        def text:string (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + grp + "," + flat + "," + sun + "," + amb + "]}") 1.5))
+        def g:JVal (JVal.parse(text))
+        def asset:JVal (g.get("asset"))
+        this.ok(((asset.strOr("version" "")) == "2.0") "gltf: version 2.0")
+        def nodes:JVal (g.get("nodes"))
+        ; rig, crate, plane, sun, camera (the ambient light has no glTF node)
+        this.ok(((nodes.len()) == 5) ("gltf: five nodes, got " + (to_string (nodes.len()))))
+        def rig:JVal (nodes.at(0))
+        this.ok(((rig.strOr("name" "")) == "rig") "gltf: the group first")
+        def kids:JVal (rig.get("children"))
+        def kid:JVal (kids.at(0))
+        this.ok((((kids.len()) == 1) && ((kid.asNum(-1.0)) == 1.0)) "gltf: the mesh under its group")
+        def rs:JVal (rig.get("scale"))
+        def rs0:JVal (rs.at(0))
+        this.ok(((rs0.asNum(0.0)) == 2.0) "gltf: the group's scale")
+        def crate:JVal (nodes.at(1))
+        def ct:JVal (crate.get("translation"))
+        def ct0:JVal (ct.at(0))
+        this.ok(((ct0.asNum(0.0)) == 1.0) "gltf: the mesh's own place under its group")
+        def scenes:JVal (g.get("scenes"))
+        def scene:JVal (scenes.at(0))
+        def roots:JVal (scene.get("nodes"))
+        this.ok(((roots.len()) == 4) ("gltf: rig, plane, sun and camera at the root, got " + (to_string (roots.len()))))
+        def accs:JVal (g.get("accessors"))
+        def meshes:JVal (g.get("meshes"))
+        def mesh0:JVal (meshes.at(0))
+        def prims:JVal (mesh0.get("primitives"))
+        def prim:JVal (prims.at(0))
+        def attrs:JVal (prim.get("attributes"))
+        def pa:JVal (accs.at((attrs.intOr("POSITION" -1))))
+        this.ok(((pa.intOr("count" 0)) == 24) ("gltf: Three's box, 24 vertices, got " + (to_string (pa.intOr("count" 0)))))
+        def pmax:JVal (pa.get("max"))
+        def pmax1:JVal (pmax.at(1))
+        this.ok(((pmax1.asNum(0.0)) == 0.5) "gltf: positions' max")
+        def ia:JVal (accs.at((prim.intOr("indices" -1))))
+        this.ok(((ia.intOr("count" 0)) == 36) "gltf: 12 triangles")
+        this.ok(((ia.intOr("componentType" 0)) == 5123) "gltf: uint16 indices")
+        def mats:JVal (g.get("materials"))
+        def m0:JVal (mats.at(0))
+        def red:JVal (m0.get("pbrMetallicRoughness"))
+        def rbase:[double] (PresSceneModel.nums((red.get("baseColorFactor")) ([] _:double (0.0 0.0 0.0 0.0))))
+        this.ok((PresCheck.near(rbase ([] _:double (1.0 0.0 0.0 1.0)))) "gltf: base colour, opaque")
+        this.ok((((red.numOr("metallicFactor" 0.0)) == 0.5) && ((red.numOr("roughnessFactor" 0.0)) == 0.25)) "gltf: metalness and roughness")
+        def grey:JVal (mats.at(1))
+        def gpbr:JVal (grey.get("pbrMetallicRoughness"))
+        def gbase:[double] (PresSceneModel.nums((gpbr.get("baseColorFactor")) ([] _:double (0.0 0.0 0.0 0.0))))
+        def gb:double (itemAt gbase 0)
+        this.ok(((gb > 0.21) && (gb < 0.22)) ("gltf: #808080 in linear light, got " + (to_string gb)))
+        this.ok((grey.boolOr("doubleSided" false)) "gltf: side 2 is double-sided")
+        def gext:JVal (grey.get("extensions"))
+        this.ok((gext.has("KHR_materials_unlit")) "gltf: a basic material is unlit")
+        ; the sun: shines from where it is toward the origin
+        def sunNode:JVal (nodes.at(3))
+        def q:[double] (PresSceneModel.nums((sunNode.get("rotation")) ([] _:double (0.0 0.0 0.0 1.0))))
+        this.ok((PresCheck.near((PresSceneModel.turn(q ([] _:double (0.0 0.0 -1.0)))) ([] _:double (-1.0 0.0 0.0)))) "gltf: the sun's -z toward the origin")
+        def dext:JVal (g.get("extensions"))
+        def punct:JVal (dext.get("KHR_lights_punctual"))
+        def lights:JVal (punct.get("lights"))
+        def l0:JVal (lights.at(0))
+        this.ok((((l0.strOr("type" "")) == "directional") && ((l0.numOr("intensity" 0.0)) == 2.0)) "gltf: the sun in KHR_lights_punctual")
+        def sext:JVal (scene.get("extras"))
+        def ssq:JVal (sext.get("sliqtly"))
+        def sx:JVal (ssq.get("lights"))
+        def sx0:JVal (sx.at(0))
+        this.ok(((sx0.strOr("type" "")) == "ambient") "gltf: the ambient light in the scene's extras")
+        def cams:JVal (g.get("cameras"))
+        def cam0:JVal (cams.at(0))
+        def lens:JVal (cam0.get("perspective"))
+        def yfov:double (lens.numOr("yfov" 0.0))
+        this.ok(((yfov > 0.8726) && (yfov < 0.8727)) ("gltf: fov 50 in radians, got " + (to_string yfov)))
+        this.ok(((lens.numOr("aspectRatio" 0.0)) == 1.5) "gltf: the box's aspect")
+        def cext:JVal (crate.get("extras"))
+        def x:JVal (cext.get("sliqtly"))
+        this.ok((((x.strOr("geometry" "")) == "boxGeometry") && ((x.strOr("jsx" "")) == "mesh")) "gltf: R3F's names in extras")
+        def bufs:JVal (g.get("buffers"))
+        def buf:JVal (bufs.at(0))
+        def views:JVal (g.get("bufferViews"))
+        def last:JVal (views.at(((views.len()) - 1)))
+        this.ok((((last.intOr("byteOffset" 0)) + (last.intOr("byteLength" 0))) <= (buf.intOr("byteLength" 0))) "gltf: views inside the buffer")
+        def used:JVal (g.get("extensionsUsed"))
+        this.ok(((used.len()) == 2) "gltf: two extensions used")
+        ; no meshes: no buffer, no empty lists
+        def bare:JVal (JVal.parse((Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + sun + "]}") 1.0))))
+        this.ok((((bare.has("buffers")) == false) && ((bare.has("accessors")) == false)) "gltf: an empty world has no buffer")
+        ; no light named: the page's key and fill, marked as Sliqtly's
+        def unlit:JVal (JVal.parse((Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + box + "]}") 1.0))))
+        def uext:JVal (unlit.get("extensions"))
+        def upun:JVal (uext.get("KHR_lights_punctual"))
+        def ulights:JVal (upun.get("lights"))
+        def unodes:JVal (unlit.get("nodes"))
+        def ukey:JVal (unodes.at(1))
+        def ukx:JVal (ukey.get("extras"))
+        def uks:JVal (ukx.get("sliqtly"))
+        this.ok((((ulights.len()) == 2) && (uks.boolOr("default" false))) "gltf: a world without lights gets the page's key and fill")
+        def bad:Pres3DGltf (new Pres3DGltf())
+        this.ok(((bad.build("{\"t\":\"div\"}" 1.0)) == "") "gltf: not a scene3d, no file")
+        this.ok(((strlen bad.error) > 0) "gltf: and says why")
+    }
+
     fn sceneTree:void () {
         def ball:string "{\"t\":\"mesh\",\"a\":{\"name\":\"ball\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"sphereGeometry\",\"a\":{\"args\":\"0.5,32,16\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#4488ff\",\"metalness\":\"0.2\",\"roughness\":\"0.6\"}}]}"
         def t:Pres3DTree (PresCheck.sceneOf(ball))
@@ -5368,6 +6607,34 @@ class PresCheck {
         def dbi:int (other.indexOf("db"))
         def dbMat:JVal (other.materialOf(dbi))
         this.ok((((dbMat.strOr("name" "")) == "db") && ((((other.rootList()).toJson()) == "[0,1]"))) ("scenes: indices renumbered, " + ((other.rootList()).toJson())))
+        ; a colour change is guarded too: a node removed before it lands
+        ; moves the materials, and the patch would paint the wrong one
+        def four:PresSceneModel (PresCheck.sceneSample())
+        this.sceneEdit(four "[{\"op\":\"add_service\",\"name\":\"c\"},{\"op\":\"add_service\",\"name\":\"d\"},{\"op\":\"add_service\",\"name\":\"e\"},{\"op\":\"add_service\",\"name\":\"f\"}]")
+        def fourText:string (four.print())
+        def paintC:SceneEdit (this.sceneEdit(four "[{\"op\":\"update\",\"name\":\"c\",\"color\":\"red\"}]"))
+        def pc:string (paintC.patch.toJson())
+        this.ok(((indexOf pc "\"test\",\"path\":\"/materials/") >= 0) ("scenes: a colour patch tests the material's name, " + pc))
+        def lessOne:PresSceneModel (PresSceneModel.parse(fourText))
+        this.sceneEdit(lessOne "[{\"op\":\"remove\",\"name\":\"api\"}]")
+        def stale2:string (lessOne.apply(paintC.patch))
+        this.ok(((indexOf stale2 "test failed") >= 0) ("scenes: a colour patch after a remove is refused, " + stale2))
+        ; a patch from elsewhere may not break the scene's shape
+        def shapes:[string] ([] _:string ("[{\"op\":\"add\",\"path\":\"/nodes/1/children\",\"value\":[1]}]" "[{\"op\":\"add\",\"path\":\"/nodes/1/children\",\"value\":[99]}]" "[{\"op\":\"replace\",\"path\":\"/nodes/1/name\",\"value\":\"api\"}]" "[{\"op\":\"replace\",\"path\":\"/nodes/1/mesh\",\"value\":42}]" "[{\"op\":\"add\",\"path\":\"/nodes/0/children\",\"value\":[1]}]"))
+        def sh:int 0
+        while (sh < (array_length shapes)) {
+            def sm:PresSceneModel (PresCheck.sceneSample())
+            def smText:string (sm.print())
+            def why:string (sm.apply((JVal.parse((itemAt shapes sh)))))
+            this.ok((((indexOf why "would break the scene") >= 0) && ((sm.print()) == smText)) ("scenes: a patch that breaks the shape is refused: " + (itemAt shapes sh) + " → " + why))
+            sh = (sh + 1)
+        }
+        def ring:PresSceneModel (PresCheck.sceneSample())
+        ring.doc = (JVal.parse("{\"asset\":{\"version\":\"2.0\"},\"nodes\":[{\"name\":\"a\",\"children\":[1]},{\"name\":\"b\",\"children\":[0]}]}"))
+        this.ok(((array_length (ring.subtree(0))) == 2) "scenes: a ring of children is walked once")
+        this.ok(((indexOf (PresSceneModel.structure(ring.doc)) "inside itself") >= 0) "scenes: and is found")
+        def notPath:JsonPatchResult (JsonPatch.apply((JVal.parse("{\"a\":1}")) (JVal.parse("[{\"op\":\"replace\",\"path\":5,\"value\":{}}]"))))
+        this.ok(((notPath.ok == false) && ((indexOf notPath.error "string") >= 0)) ("json patch: a path that is not a string is refused, " + notPath.error))
         ; a group keeps where its members are
         def g:PresSceneModel (PresCheck.sceneSample())
         def ge:SceneEdit (this.sceneEdit(g "[{\"op\":\"group\",\"name\":\"backend\",\"members\":[\"db\"],\"at\":[1,0,0]}]"))
@@ -5389,7 +6656,7 @@ class PresCheck {
         this.ok(((((g.info((g.indexOf("api")))).has("label")) == false)) "scenes: an empty label is taken away")
         ; refused edits change nothing
         def keep:string (g.print())
-        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]"))
+        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]" "[{\"op\":\"add_service\",\"name\":\"camera\"}]" "[{\"op\":\"add_service\",\"name\":\"x->y\"}]" "[{\"op\":\"group\",\"name\":\"gg\",\"members\":[\"api->db\"]}]" "[{\"op\":\"group\",\"name\":\"gg\",\"members\":[\"api->db/shaft\"]}]"))
         def k:int 0
         while (k < (array_length bad)) {
             def be:SceneEdit (this.sceneEdit(g (itemAt bad k)))
@@ -5662,12 +6929,19 @@ class PresCheck {
         c.clips()
         c.plays()
         c.scripts()
+        c.roundedBars()
+        c.morph()
         c.worlds()
         c.beats()
         c.jsonPatch()
         c.scenes()
         c.sceneTree()
+        c.stills()
+        c.gltfOut()
+        c.gltfIn()
+        c.worldLegacy()
         c.stripDrag()
+        c.forms()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

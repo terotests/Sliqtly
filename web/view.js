@@ -188,7 +188,8 @@ function paint() {
   // less motion asked for: every effect held at its still, drawn once
   const still = reducedMotion();
   for (const { page, x } of shown) {
-    const list = lists[page];
+    // a slide's script, while it runs, lays its frames over the list
+    const list = (plays && plays.listOf(page)) || lists[page];
     for (const e of list.effects || []) {
       if (still) holdStill(e);
       else e.time = t;
@@ -626,6 +627,15 @@ canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: fal
 for (const g of ["gesturestart", "gesturechange", "gestureend"]) canvas.addEventListener(g, (ev) => ev.preventDefault());
 
 // --- start ---------------------------------------------------------------------
+// A file of the shared deck as text (a world's .gltf), null when it has none.
+async function deckFileText(d, path) {
+  const f = (d.files || []).find((x) => x.path === String(path).replace(/^\/+/, ""));
+  if (!f || !f.url) return null;
+  const res = await fetch(f.url);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.text();
+}
+
 async function pictureOf(p) {
   try {
     const res = await fetch(p.url);
@@ -719,16 +729,17 @@ async function start() {
   lists = got.lists;
   // the deck's own effects, compiled on the server from its ```fx blocks
   if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
-  // a program runs in the page; its engine and the little it is painted
-  // with are loaded only for a deck that has one
-  if ((deck.plays || []).length && !realistic()) {
+  // a program (or a slide's script) runs in the page; its engine and the
+  // little it is painted with are loaded only for a deck that has one
+  if (((deck.plays || []).length || (got.scripts || []).length) && !realistic()) {
     try {
       const { startPlays } = await import("./viewplay.js");
       plays = await startPlays({
-        plays: deck.plays, canvas, current: () => at, count: () => lists.length,
+        plays: deck.plays || [], scripts: got.scripts || [], lists, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
         pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
+        readFile: (path) => deckFileText(deck, path),
       });
     } catch (e) {
       console.warn("programs on slides", e);

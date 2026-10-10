@@ -26,8 +26,6 @@ figure {
 }
 
 page {
-  width: 13.333in;
-  height: 7.5in;
   padding: 0.75in;
   background-color: #130a26;
 }
@@ -35,9 +33,6 @@ page {
 /* `fx` is the background effect behind every slide (a slide's own
    {fx=…} wins); `fx-…` are its parameters. */
 deck {
-  split-level: 2;
-  overflow: split;
-  aspect-ratio: 16 / 9;
   fx: starfield;
   fx-density: 1.1;
   fx-hue: 280;
@@ -47,7 +42,6 @@ deck {
 document {
   font-family: Open Sans;
   font-size: 20pt;
-  line-height: 1.4;
   color: #f3eaff;
 }
 
@@ -83,7 +77,6 @@ hr {
 
 list {
   padding-left: 30pt;
-  margin-left: 10pt;
 }
 
 li {
@@ -93,15 +86,11 @@ li {
 blockquote {
   color: #e9d5ff;
   border-color: #c084fc;
-  border-width: 4pt;
-  padding-left: 22pt;
-  padding-top: 8pt;
 }
 
 code {
   font-family: Noto Sans;
   font-size: 15pt;
-  line-height: 1.4;
   padding: 14pt;
   background-color: #22123f;
   border-color: #3b2366;
@@ -120,14 +109,4 @@ table {
 
 .kicker {
   font-size: 14pt;
-}
-
-.c2 {
-  column-count: 2;
-  column-gap: 36pt;
-}
-
-.c3 {
-  column-count: 3;
-  column-gap: 28pt;
 }

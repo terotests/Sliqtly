@@ -19,12 +19,16 @@
 // (app.scriptTree, again whenever an edit changes them), its frames come back
 // as properties for them (app.setScriptFrame), and it stops when its slide
 // leaves the stage. Where it ends (app.setScriptFinal: thumbnails, the PDF)
-// is worked out by a worker of its own (finals below). A frame over
+// is worked out by a worker of its own (finals below), and so is how it
+// opens (app.setScriptOpen: start(), onEnter, its first build step): its
+// slide arrives in that pose, and while presenting the script ticks once
+// the slide's transition is over (app.scriptArriving). A frame over
 // BUDGET_MS three times running stops it, and the slide shows where it ends.
 import { RUNTIME } from "./cerxes-runtime.js";
 import { DECK_RUNTIME } from "./apps-runtime.js";
 import { workerUrl } from "./sitescript.js";
 import { SCRIPT_RUNTIME } from "./script-runtime.js";
+import { SPRITE_RUNTIME } from "./sprite-runtime.js";
 
 const LIMIT_MS = 3000;
 // the first load fetches and compiles the engine
@@ -36,20 +40,55 @@ const SET_EVERY_MS = 400;
 export const BUDGET_MS = 4;
 const OVER_IN_A_ROW = 3;
 
+// __calibrate's time on a fast machine: a slower engine gets a budget as
+// much larger, up to four times
+export const CALIB_REF_MS = 0.4;
+/** A script's time budget a frame, from how long __calibrate took here. */
+export function scriptBudget(calib) {
+  if (!(calib > 0) || !isFinite(calib)) return BUDGET_MS;
+  return BUDGET_MS * Math.min(4, Math.max(1, calib / CALIB_REF_MS));
+}
+
 /** Whether a frame's time ends a script: `over` frames over budget in a row so far. */
 export function overBudget(over, ms, budget = BUDGET_MS) {
   const next = ms > budget ? over + 1 : 0;
   return { over: next, stop: next >= OVER_IN_A_ROW };
 }
 
+/**
+ * The slide's entities handed over before the script itself runs, so a
+ * find() at its top level (const bars = find("chart:1 bar")) finds them.
+ */
+export function treeFirst(tree) {
+  return tree ? "\n__setTree(" + tree + ");" : "";
+}
+
+/**
+ * __scriptOpen's argument: the deck as the script's slide will have it when
+ * it arrives from the slide before it, at build step `step` (the editor's
+ * first; the viewer shows every step). state: the deck's playState (JSON
+ * text), tree: the slide's entities (JSON text).
+ */
+export function openArg(state, tree, reduced = false, step = 0) {
+  let deck = {};
+  try { deck = JSON.parse(state); } catch (_) { /* defaults */ }
+  const home = deck.home || 1;
+  deck = { ...deck, slide: home, from: home - 1, step };
+  return JSON.stringify({ tree: tree ? JSON.parse(tree) : null, deck, env: { reducedMotion: reduced, export: false } });
+}
+
 /** A script's frame: what it set (passed on whole) and what it asked. */
 export function splitScriptFrame(out) {
   let asks = [];
+  let leave = false;
+  let take = [];
   try {
     const f = JSON.parse(out);
     if (f && Array.isArray(f.k)) asks = f.k;
+    leave = !!(f && f.leave);
+    if (f && Array.isArray(f.take)) take = f.take.map(String);
   } catch (_) { /* the deck says it was no frame */ }
-  return { frame: out, asks };
+  return { frame: out, asks, leave, take };
 }
 
 function reducedMotion() {
@@ -91,12 +130,25 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   let skipKey = "";
 
   function newRun(key, script = false) {
-    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0 };
+    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false, budget: BUDGET_MS, take: [], framed: false, opened: false };
   }
 
-  // Where each script ends, worked out one at a time in a worker of their
-  // own, so a thumbnail or the PDF shows it before the slide was ever shown.
+  // Where each script ends (__scriptFinal), and how it opens
+  // (__scriptOpen), worked out one at a time in a worker of their own, so a
+  // thumbnail or the PDF shows it before the slide was ever shown, and the
+  // slide arrives as the script starts it.
   const finals = { worker: null, queue: [], busy: null, deadline: 0, done: new Map() };
+  // key -> how the script opens: { source, out } (__scriptOpen's frame)
+  const opens = new Map();
+
+  // the stage shows script r's slide as the script opens it (until its
+  // first frame), when that was worked out for this source
+  function applyOpen(r, source) {
+    const o = opens.get(r.key);
+    if (!r.script || !o || o.source !== source || !app.setScriptOpen) return;
+    r.opened = true;
+    if (app.setScriptOpen(r.key, o.out)) repaint();
+  }
 
   function finalArg(key, tree) {
     let f = {};
@@ -104,12 +156,17 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     return JSON.stringify({ tree: JSON.parse(tree), deck: JSON.parse(app.playState(key)), steps: f.steps || 0, seconds: f.seconds || 0, env: { reducedMotion: reducedMotion(), export: true } });
   }
 
-  function wantFinal(key, source, tree) {
+  // fn: "__scriptFinal" or "__scriptOpen"; how it opens goes first, as the
+  // stage needs it before a thumbnail does
+  function wantFinal(key, source, tree, fn = "__scriptFinal") {
     const want = source + "\u0000" + tree;
-    if (finals.done.get(key) === want) return;
-    if (finals.busy && finals.busy.key === key && finals.busy.want === want) return;
-    finals.queue = finals.queue.filter((q) => q.key !== key);
-    finals.queue.push({ key, source, tree, want });
+    const job = fn + " " + key;
+    if (finals.done.get(job) === want) return;
+    if (finals.busy && finals.busy.job === job && finals.busy.want === want) return;
+    finals.queue = finals.queue.filter((q) => q.job !== job);
+    const q = { key, source, tree, want, fn, job };
+    if (fn === "__scriptOpen") finals.queue.unshift(q);
+    else finals.queue.push(q);
   }
 
   function pumpFinals(now) {
@@ -120,7 +177,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       finals.busy = null;
       if (finals.worker) finals.worker.terminate();
       finals.worker = null;
-      finals.done.set(b.key, b.want);
+      finals.done.set(b.job, b.want);
       say(name({ key: b.key }) + ": " + t("did not reach its end within 3 s (an endless loop?)"));
     }
     const next = finals.queue.shift();
@@ -131,7 +188,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         w = new Worker(workerUrl("cerxes-worker.js"), { type: "module" });
       } catch (e) {
         // no engine here: the slide keeps its Markdown, and says why
-        finals.done.set(next.key, next.want);
+        finals.done.set(next.job, next.want);
         say(name({ key: next.key }) + ": " + t("the program's engine did not start") + " (" + ((e && e.message) || "worker") + ")");
         return;
       }
@@ -143,17 +200,27 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       finals.deadline = now + LIMIT_MS;
     }
     finals.busy = next;
-    finals.worker.postMessage({ type: "final", runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME, source: next.source, arg: finalArg(next.key, next.tree) });
+    const arg = next.fn === "__scriptOpen" ? openArg(app.playState(next.key), next.tree, reducedMotion(), app.scriptOpenStep ? app.scriptOpenStep(next.key) : 0) : finalArg(next.key, next.tree);
+    finals.worker.postMessage({ type: "final", fn: next.fn, runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + treeFirst(next.tree), source: next.source, arg });
   }
 
   function finalReply(w, m) {
     if (finals.worker !== w || !finals.busy) return;
     const b = finals.busy;
     finals.busy = null;
-    finals.done.set(b.key, b.want);
-    if (m.output) for (const line of m.output.split("\n")) if (line) console.log(name({ key: b.key }) + " (final): " + line);
+    finals.done.set(b.job, b.want);
+    const opening = b.fn === "__scriptOpen";
+    if (m.output && !opening) for (const line of m.output.split("\n")) if (line) console.log(name({ key: b.key }) + " (final): " + line);
     if (!m.ok) {
+      // the run on the stage says it too; said once
       say(name({ key: b.key }) + ": " + m.error);
+      return;
+    }
+    if (opening) {
+      opens.set(b.key, { source: b.source, out: m.out });
+      // arrived late: the slide is on the stage with no frame yet
+      const r = runs.get(b.key);
+      if (r && r.worker && !r.framed) applyOpen(r, r.source);
       return;
     }
     if (app.setScriptFinal(b.key, m.out)) repaint();
@@ -167,6 +234,11 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.waiting = false;
     r.over = 0;
     r.tree = "";
+    r.leaves = false;
+    r.leaving = false;
+    r.take = [];
+    r.framed = false;
+    r.opened = false;
     if (r.script && app.endScriptLive) {
       app.endScriptLive(r.key, why || "");
       repaint();
@@ -189,6 +261,8 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
 
   function load(r, source) {
     stopRun(r, "");
+    // (stopping cleared the stage's frames) the slide as the script opens it
+    applyOpen(r, source);
     r.source = source;
     r.stopped = "";
     r.events = [];
@@ -207,7 +281,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.worker = w;
     r.waiting = true;
     r.deadline = performance.now() + FIRST_LIMIT_MS;
-    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME : ""), source });
+    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + treeFirst(app.scriptTree(r.key)) : ""), source, calibrate: r.script });
   }
 
   function name(r) {
@@ -224,23 +298,34 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     }
     if (m.type === "loaded") {
       r.running = true;
+      if (r.script) r.budget = scriptBudget(m.calib);
       if (app.setPlayStopped) app.setPlayStopped(r.key, "");
       r.last = performance.now();
       return;
     }
     let tree, asks;
+    // onLeave's frame: how the slide looks while the next one arrives
+    if (r.script && r.leaving) {
+      if (app.setScriptLeave) app.setScriptLeave(r.key, m.out);
+      stopRun(r, "");
+      repaint();
+      return;
+    }
     if (r.script) {
-      const b = overBudget(r.over, m.ms || 0);
+      const b = overBudget(r.over, m.ms || 0, r.budget);
       r.over = b.over;
       if (b.stop) {
-        stopRun(r, t("took over 4 ms a frame three times in a row, so it was stopped and the slide shows where it ends"));
+        stopRun(r, t("took over its time a frame three times in a row, so it was stopped and the slide shows where it ends") + " (" + r.budget.toFixed(1) + " ms)");
         return;
       }
       const f = splitScriptFrame(m.out);
+      r.leaves = f.leave;
+      r.take = f.take;
       if (!app.setScriptFrame(r.key, f.frame)) {
         stopRun(r, t("its frame was not one a script gives"));
         return;
       }
+      r.framed = true;
       asks = JSON.stringify(f.asks);
     } else {
       ({ tree, asks } = splitFrame(m.out));
@@ -311,16 +396,35 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       if (r.script) {
         // where it ends, for the slide while it is not running
         const tree = app.scriptTree(p.key);
-        if (tree) wantFinal(p.key, source, tree);
+        // (a page without setScriptFinal had it worked out for it: the viewer)
+        if (tree && app.setScriptFinal) wantFinal(p.key, source, tree);
+        if (tree && app.setScriptOpen) wantFinal(p.key, source, tree, "__scriptOpen");
         // a script runs only while its slide is on the stage, from the start
         // each time it comes back
         if (!shown.has(p.key)) {
-          if (r.worker) stopRun(r, "");
+          // onLeave first, then it stops (reply)
+          if (r.leaving) {
+            if (now > r.deadline) stopRun(r, "");
+            continue;
+          }
+          if (r.worker && r.running && r.leaves && !r.waiting && app.setScriptLeave) {
+            const state = JSON.parse(app.playState(p.key));
+            r.leaving = true;
+            r.waiting = true;
+            r.deadline = now + LIMIT_MS;
+            r.worker.postMessage({ type: "frame", fn: "__scriptLeave", arg: JSON.stringify({ deck: state, to: state.slide || 0, env: { reducedMotion: reducedMotion() } }) });
+            continue;
+          }
+          if (r.worker && !r.waiting) stopRun(r, "");
+          else if (r.worker && now > r.deadline) stopRun(r, "");
           if (r.stopped && source !== r.source) r.stopped = "";
           continue;
         }
       }
       if (r.stopped && source === r.source) continue;
+      // the slide arrives as the script opens it, before its engine has
+      // given a frame (it may still be loading)
+      if (shown.has(p.key) && !r.framed && !r.opened) applyOpen(r, source);
       // a program starts the first time its slide is shown, and again
       // whenever its file changes
       if (source !== r.source) {
@@ -336,6 +440,11 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         continue;
       }
       if (!r.running || !shown.has(p.key) || document.hidden) continue;
+      // its slide still coming in: it holds its opening pose until then
+      if (r.script && app.scriptArriving && app.scriptArriving(p.key)) {
+        r.last = now;
+        continue;
+      }
       flushSets(r);
       const dt = Math.min(0.1, (now - r.last) / 1000);
       r.last = now;
@@ -441,21 +550,25 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   // The keyboard, while a program has it: everything but chords with
   // Control / Command (the page's own) and Esc, which gives it back.
   // A running script hears the keys (onKeyDown) but does not take them: the
-  // arrows still move the presentation.
+  // arrows still move the presentation, unless it took that key
+  // (input.take). True when a running script took it.
   const scriptKeys = {};
   function scriptKey(ev, type) {
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
     if (type === "keydown") scriptKeys[ev.key] = true;
     else delete scriptKeys[ev.key];
+    let taken = false;
     for (const r of runs.values()) {
       if (!r.script || !r.running) continue;
+      if (r.take.includes(ev.key)) taken = true;
       if (type === "keydown" && ev.repeat) continue;
       r.events.push({ type, key: ev.key });
     }
+    return taken;
   }
 
   function keyDown(ev) {
-    scriptKey(ev, "keydown");
+    if (scriptKey(ev, "keydown")) return true;
     const key = app.playFocus();
     const r = key && runs.get(key);
     if (!r || ev.ctrlKey || ev.metaKey || ev.altKey) return false;
@@ -470,7 +583,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   }
 
   function keyUp(ev) {
-    scriptKey(ev, "keyup");
+    if (scriptKey(ev, "keyup")) return true;
     const key = app.playFocus();
     const r = key && runs.get(key);
     if (!r || !(ev.key in keys)) return false;

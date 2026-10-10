@@ -1,0 +1,879 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Pres3DWorld.rgr — a program's <scene3d> as a Three.js scene, without a GPU.
+; ============================================================================
+;
+; A program on a slide (```app, `allow: 3d`) puts a <scene3d> in its view(),
+; written as React Three Fiber JSX (src/Pres3DTree.rgr reads it):
+;
+;   <scene3d className="world">
+;     <perspectiveCamera position={[0, 2, 6]} fov={45} />
+;     <mesh rotation={[0, t, 0]}>
+;       <torusKnotGeometry args={[1, 0.3]} />
+;       <meshStandardMaterial color="#e8e8f0" metalness={0.85} />
+;     </mesh>
+;     <directionalLight position={[2, 3, 4]} intensity={2} />
+;   </scene3d>
+;
+; Pres3DWorld keeps the scene of Ranger's Three port (gallery/game_engine/
+; three) for it and changes only what the next frame changed. It is drawn
+; by the page with the GPU (src/Pres3D.rgr) and by the server without one
+; (src/Pres3DStill.rgr).
+;
+; The world is lit by the slide around it: Pres3DEnv makes a cube map of a
+; small picture of the slide (the slide on the walls in front and behind,
+; its edges drawn out over the sides, its top and bottom rows over the
+; ceiling and the floor), so a shiny surface mirrors the deck's own
+; colours, and the ambient light is the slide's mean colour. What no mesh
+; covers is left transparent: the slide shows through.
+; ============================================================================
+
+Import "JsonValue.rgr"
+Import "Pres3DTree.rgr"
+Import "ColorLinear.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "../game_engine/three/src/three_scene.rgr"
+Import "../game_engine/three/src/three_mesh.rgr"
+Import "../game_engine/three/src/three_light.rgr"
+Import "../game_engine/three/src/three_perspective_camera.rgr"
+Import "../game_engine/three/src/three_box_geometry.rgr"
+Import "../game_engine/three/src/three_primitive_geometries.rgr"
+Import "../game_engine/three/src/three_teapot_geometry.rgr"
+Import "../game_engine/three/src/three_mesh_phong_material.rgr"
+Import "../game_engine/three/src/three_mesh_basic_material.rgr"
+Import "../game_engine/three/src/three_mesh_lambert_material.rgr"
+Import "../game_engine/three/src/three_cube_texture.rgr"
+Import "../game_engine/three/src/three_gltf_loader.rgr"
+
+; The room a world stands in, made of a picture of its slide.
+class Pres3DEnv {
+    ; the picture: RGBA, rows from the top
+    def px:buffer (buffer_alloc 0)
+    def w:int 0
+    def h:int 0
+    ; the same, averaged down to a few cells: the soft walls
+    def soft:[double]
+    def sw:int 8
+    def sh:int 5
+    ; how much further from grey the room's colours are than the slide's
+    def saturate:double 1.7
+    ; the picture's mean colour, 0..1
+    def meanR:double 0.5
+    def meanG:double 0.5
+    def meanB:double 0.5
+
+    Constructor () {
+    }
+
+    sfn of:Pres3DEnv (px:buffer w:int h:int) {
+        def e:Pres3DEnv (new Pres3DEnv())
+        e.px = px
+        e.w = w
+        e.h = h
+        e.average()
+        return e
+    }
+
+    fn average:void () {
+        def cells:[double]
+        def tr:double 0.0
+        def tg:double 0.0
+        def tb:double 0.0
+        def total:int 0
+        def cy:int 0
+        while (cy < sh) {
+            def cx:int 0
+            while (cx < sw) {
+                def x0:int (idiv (cx * w) sw)
+                def x1:int (idiv ((cx + 1) * w) sw)
+                def y0:int (idiv (cy * h) sh)
+                def y1:int (idiv ((cy + 1) * h) sh)
+                def r:double 0.0
+                def g:double 0.0
+                def b:double 0.0
+                def n:int 0
+                def y:int y0
+                while (y < y1) {
+                    def x:int x0
+                    while (x < x1) {
+                        def o:int (((y * w) + x) * 4)
+                        r = (r + (to_double (buffer_get px o)))
+                        g = (g + (to_double (buffer_get px (o + 1))))
+                        b = (b + (to_double (buffer_get px (o + 2))))
+                        n = (n + 1)
+                        x = (x + 1)
+                    }
+                    y = (y + 1)
+                }
+                if (n == 0) {
+                    n = 1
+                }
+                push cells (r / (to_double n))
+                push cells (g / (to_double n))
+                push cells (b / (to_double n))
+                tr = (tr + r)
+                tg = (tg + g)
+                tb = (tb + b)
+                total = (total + n)
+                cx = (cx + 1)
+            }
+            cy = (cy + 1)
+        }
+        soft = cells
+        if ((w * h) > 0) {
+            meanR = ((tr / (to_double total)) / 255.0)
+            meanG = ((tg / (to_double total)) / 255.0)
+            meanB = ((tb / (to_double total)) / 255.0)
+        }
+    }
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    ; The picture at (u, v), 0..1 from the top left: [r, g, b] 0..255.
+    fn sharp:[double] (u:double v:double) {
+        if ((w * h) == 0) {
+            return ([] _:double (128.0 128.0 128.0))
+        }
+        def x:int (floor ((Pres3DEnv.clamp01(u)) * (to_double (w - 1))))
+        def y:int (floor ((Pres3DEnv.clamp01(v)) * (to_double (h - 1))))
+        def o:int (((y * w) + x) * 4)
+        return ([] _:double ((to_double (buffer_get px o)) (to_double (buffer_get px (o + 1))) (to_double (buffer_get px (o + 2)))))
+    }
+
+    ; The soft picture at (u, v), blended between its cells.
+    fn blurred:[double] (u:double v:double) {
+        def fx:double (((Pres3DEnv.clamp01(u)) * (to_double sw)) - 0.5)
+        def fy:double (((Pres3DEnv.clamp01(v)) * (to_double sh)) - 0.5)
+        def x0:int (floor fx)
+        def y0:int (floor fy)
+        def ax:double (fx - (to_double x0))
+        def ay:double (fy - (to_double y0))
+        def out:[double]
+        def c:int 0
+        while (c < 3) {
+            def a:double (this.cell(x0 y0 c))
+            def b:double (this.cell((x0 + 1) y0 c))
+            def d:double (this.cell(x0 (y0 + 1) c))
+            def e:double (this.cell((x0 + 1) (y0 + 1) c))
+            def top:double (a + ((b - a) * ax))
+            def bot:double (d + ((e - d) * ax))
+            push out (top + ((bot - top) * ay))
+            c = (c + 1)
+        }
+        return out
+    }
+
+    fn cell:double (x:int y:int c:int) {
+        if ((array_length soft) == 0) {
+            return 128.0
+        }
+        def cx:int x
+        def cy:int y
+        if (cx < 0) {
+            cx = 0
+        }
+        if (cx >= sw) {
+            cx = (sw - 1)
+        }
+        if (cy < 0) {
+            cy = 0
+        }
+        if (cy >= sh) {
+            cy = (sh - 1)
+        }
+        return (itemAt soft ((((cy * sw) + cx) * 3) + c))
+    }
+
+    ; What the room shows in direction (dx, dy, dz), the viewer at the
+    ; middle looking down -z at the slide: [r, g, b] 0..255.
+    ;   -z  the slide itself, as wide as the wall and centred on it
+    ;   +z  the slide again, behind the viewer (what a mirror ball facing
+    ;       us shows), as it reads from inside the room
+    ;   ±x  the slide's left / right edge drawn out, soft and a little dark
+    ;   ±y  its top row over the ceiling, its bottom row over the floor
+    fn look:[double] (dx:double dy:double dz:double) {
+        def ax:double dx
+        if (ax < 0.0) {
+            ax = (0.0 - ax)
+        }
+        def ay:double dy
+        if (ay < 0.0) {
+            ay = (0.0 - ay)
+        }
+        def az:double dz
+        if (az < 0.0) {
+            az = (0.0 - az)
+        }
+        ; the slide's shape on a square wall
+        def aspect:double 1.0
+        if (h > 0) {
+            aspect = ((to_double w) / (to_double h))
+        }
+        if ((az >= ax) && (az >= ay)) {
+            def s:double (dx / az)
+            if (dz > 0.0) {
+                s = (0.0 - s)
+            }
+            def t:double (((0.0 - dy) / az) * aspect)
+            def u:double ((s + 1.0) * 0.5)
+            def v:double ((t + 1.0) * 0.5)
+            if ((((u < 0.0) || (u > 1.0)) || (v < 0.0)) || (v > 1.0)) {
+                return (this.blurred(u v))
+            }
+            return (this.sharp(u v))
+        }
+        if (ax >= ay) {
+            ; the depth runs from the front wall (dz -1) to the back (+1)
+            def edge:double 0.0
+            if (dx > 0.0) {
+                edge = 1.0
+            }
+            def v2:double (((((0.0 - dy) / ax) * aspect) + 1.0) * 0.5)
+            def side:[double] (this.blurred(edge v2))
+            return (this.shade(side 0.82))
+        }
+        def row:double 0.0
+        def k:double 1.08
+        if (dy < 0.0) {
+            row = 1.0
+            k = 0.62
+        }
+        def u2:double (((dx / ay) + 1.0) * 0.5)
+        def flat:[double] (this.blurred(u2 row))
+        return (this.shade(flat k))
+    }
+
+    fn shade:[double] (c:[double] k:double) {
+        def out:[double]
+        def i:int 0
+        while (i < 3) {
+            def v:double ((itemAt c i) * k)
+            if (v > 255.0) {
+                v = 255.0
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A colour's own hue pushed further from its grey: thin coloured lines
+    ; of a slide, averaged into a few texels, still read as colour in a
+    ; reflection.
+    fn vivid:[double] (c:[double]) {
+        def r:double (itemAt c 0)
+        def g:double (itemAt c 1)
+        def b:double (itemAt c 2)
+        def grey:double (((r * 0.299) + (g * 0.587)) + (b * 0.114))
+        def out:[double]
+        def i:int 0
+        while (i < 3) {
+            def v:double (grey + (((itemAt c i) - grey) * saturate))
+            if (v < 0.0) {
+                v = 0.0
+            }
+            if (v > 255.0) {
+                v = 255.0
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The room as a cube map, `size` texels a side.
+    fn cube:ThreeCubeTexture (size:int) {
+        def t:ThreeCubeTexture (new ThreeCubeTexture)
+        t.size = size
+        def f:int 0
+        while (f < 6) {
+            def face:buffer (buffer_alloc ((size * size) * 4))
+            def y:int 0
+            while (y < size) {
+                def x:int 0
+                while (x < size) {
+                    def u:double ((((to_double x) + 0.5) / (to_double size)) * 2.0 - 1.0)
+                    def v:double ((((to_double y) + 0.5) / (to_double size)) * 2.0 - 1.0)
+                    def d:[double] (ThreeCubeTexture.faceDir(f u v))
+                    def c:[double] (this.vivid((this.look((itemAt d 0) (itemAt d 1) (itemAt d 2)))))
+                    def o:int (((y * size) + x) * 4)
+                    buffer_set face o (floor (itemAt c 0))
+                    buffer_set face (o + 1) (floor (itemAt c 1))
+                    buffer_set face (o + 2) (floor (itemAt c 2))
+                    buffer_set face (o + 3) 255
+                    x = (x + 1)
+                }
+                y = (y + 1)
+            }
+            push t.faces face
+            f = (f + 1)
+        }
+        return t
+    }
+}
+
+; One <scene3d>: the Three scene its frames describe. Each frame is read
+; (Pres3DTree) and only what changed since the last one is changed here: an
+; object moved is moved, a colour is set, a geometry made once per shape and
+; size. Written with Three's names, the world is drawn as Three draws it:
+; colours and lights in linear light, the frame encoded as sRGB, a light's
+; intensity as Three's physically based lights give it (divided by pi for
+; the diffuse). The first version's attributes keep the first version's look.
+class Pres3DWorld {
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    ; the last frame's world, and its objects by key
+    def tree:Pres3DTree (new Pres3DTree())
+    ; the deck's .gltf files (<SliqGltf src>), kept across frames
+    def files:P3Files (new P3Files())
+    def keys:[string]
+    def objs:[ThreeObject3D]
+    def meshKeys:[string]
+    def meshObjs:[ThreeMesh]
+    def lightKeys:[string]
+    def lightObjs:[ThreeLight]
+    ; the same lights by kind, for what only that kind has
+    def pointKeys:[string]
+    def pointObjs:[ThreePointLight]
+    def sunKeys:[string]
+    def sunObjs:[ThreeDirectionalLight]
+    ; geometries kept across frames (a GPU copy is made once per shape)
+    def geoKeys:[string]
+    def geos:[ThreeBufferGeometry]
+    ; the slide's light all round, and the key and fill a world without
+    ; lights of its own gets
+    def room:ThreeAmbientLight (new ThreeAmbientLight)
+    def key:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def fill:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def meshes:int 0
+    def lights:int 0
+    ; Three's colour pipeline (false: the first version's attributes)
+    def srgb:boolean true
+    def shadows:boolean false
+    ; what the last frame got wrong, "" when nothing
+    def error:string ""
+    def roomLight:double 0.45
+
+    Constructor () {
+        camera.setPerspective(75.0 1.0 0.1 2000.0)
+        scene.add(room)
+        scene.add(key)
+        scene.add(fill)
+    }
+
+    ; a colour as the shader takes it: linear in Three's pipeline
+    fn rgb:[double] (c:[double] k:double) {
+        if srgb {
+            return ([] _:double (((ColorLinear.of((itemAt c 0))) * k) ((ColorLinear.of((itemAt c 1))) * k) ((ColorLinear.of((itemAt c 2))) * k)))
+        }
+        return ([] _:double (((itemAt c 0) * k) ((itemAt c 1) * k) ((itemAt c 2) * k)))
+    }
+
+    fn indexOfKey:int (k:string) {
+        return (indexOf keys k)
+    }
+
+    ; The object of key `k` (a group, a mesh, a light), for the checks.
+    fn objectOf@(optional):ThreeObject3D (k:string) {
+        def none@(optional):ThreeObject3D
+        def at:int (indexOf keys k)
+        if (at < 0) {
+            return none
+        }
+        def o@(optional):ThreeObject3D (itemAt objs at)
+        return o
+    }
+
+    ; One frame's <scene3d> (its JSON as PresPlay keeps it): what changed
+    ; since the last frame changed. False when it was no scene.
+    fn setScene:boolean (json:string env:Pres3DEnv) {
+        def next:Pres3DTree (Pres3DTree.readWith(json files))
+        error = (join next.warnings "; ")
+        if (((array_length next.nodes) == 0) && ((indexOf error "not a <scene3d>") >= 0)) {
+            return false
+        }
+        srgb = ((next.legacy == false) && (next.colorLegacy == false))
+        def ops:[P3Op] (Pres3DTree.diff(tree next))
+        def i:int 0
+        while (i < (array_length ops)) {
+            def o:P3Op (itemAt ops i)
+            this.apply(o next)
+            i = (i + 1)
+        }
+        tree = next
+        roomLight = next.roomLight
+        this.camOf(next)
+        this.extras(next env)
+        meshes = (array_length meshKeys)
+        lights = next.lights
+        return true
+    }
+
+    ; A file of the deck a <SliqGltf src> may name (the next frame reads it).
+    fn setFile:void (name:string text:string) {
+        files.setFile(name text)
+    }
+
+    ; The files the last frame's <SliqGltf> asked for and did not have.
+    fn missing:[string] () {
+        return tree.missing
+    }
+
+    fn apply:void (o:P3Op t:Pres3DTree) {
+        if (o.op == "remove") {
+            this.drop(o.key)
+            return
+        }
+        def p:P3Node (itemAt t.nodes o.at)
+        if (o.op == "add") {
+            this.make(p t)
+            return
+        }
+        if (p.tag == "camera") {
+            return
+        }
+        def at:int (indexOf keys p.key)
+        if (at < 0) {
+            return
+        }
+        def obj:ThreeObject3D (itemAt objs at)
+        if (o.op == "move") {
+            this.placeObj(obj p)
+        }
+        if (o.op == "visible") {
+            obj.visible = p.visible
+        }
+        if ((o.op == "geometry") || (o.op == "material")) {
+            def mi:int (indexOf meshKeys p.key)
+            if (mi >= 0) {
+                def m:ThreeMesh (itemAt meshObjs mi)
+                if (o.op == "geometry") {
+                    m.setGeometry((this.geometry(p)))
+                } {
+                    this.paint(m p)
+                }
+            }
+        }
+        if (o.op == "light") {
+            def li:int (indexOf lightKeys p.key)
+            if (li >= 0) {
+                this.light((itemAt lightObjs li) p)
+            }
+        }
+    }
+
+    ; An object of the new frame made and hung on its parent (lights on the
+    ; scene, at their place in the world: Three's directional light shines
+    ; from its position toward the origin).
+    fn make:void (p:P3Node t:Pres3DTree) {
+        if (p.tag == "camera") {
+            return
+        }
+        def obj:ThreeObject3D (new ThreeObject3D)
+        if (p.tag == "mesh") {
+            def m:ThreeMesh (new ThreeMesh)
+            m.setGeometry((this.geometry(p)))
+            this.paint(m p)
+            m.castShadow = p.castShadow
+            m.receiveShadow = p.receiveShadow
+            push meshKeys p.key
+            push meshObjs m
+            obj = m
+        }
+        if (p.tag == "light") {
+            def l:ThreeLight (new ThreeLight)
+            if (p.kind == "ambient") {
+                l = (new ThreeAmbientLight)
+            }
+            if (p.kind == "directional") {
+                def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
+                push sunKeys p.key
+                push sunObjs sun
+                l = sun
+            }
+            if (p.kind == "point") {
+                def pt:ThreePointLight (new ThreePointLight)
+                push pointKeys p.key
+                push pointObjs pt
+                l = pt
+            }
+            if (p.kind == "hemisphere") {
+                this.note("hemisphereLight is not drawn yet; use an ambientLight and a directionalLight")
+            }
+            push lightKeys p.key
+            push lightObjs l
+            this.light(l p)
+            obj = l
+        }
+        obj.name = p.name
+        obj.visible = p.visible
+        if (p.tag != "light") {
+            this.placeObj(obj p)
+        }
+        def parent:ThreeObject3D scene
+        if ((p.parent >= 0) && (p.tag != "light")) {
+            def up:P3Node (itemAt t.nodes p.parent)
+            def ui:int (indexOf keys up.key)
+            if (ui >= 0) {
+                parent = (itemAt objs ui)
+            }
+        }
+        parent.add(obj)
+        push keys p.key
+        push objs obj
+    }
+
+    fn note:void (line:string) {
+        if ((strlen error) > 0) {
+            error = (error + "; " + line)
+        } {
+            error = line
+        }
+    }
+
+    ; An object gone: off its parent, and out of the lists with what was in it.
+    fn drop:void (k:string) {
+        def at:int (indexOf keys k)
+        if (at < 0) {
+            return
+        }
+        def obj:ThreeObject3D (itemAt objs at)
+        this.unhang(scene obj)
+        def gone:[ThreeObject3D]
+        this.subtree(obj gone)
+        def nk:[string]
+        def no:[ThreeObject3D]
+        def i:int 0
+        while (i < (array_length keys)) {
+            def o:ThreeObject3D (itemAt objs i)
+            if ((indexOf gone o) < 0) {
+                push nk (itemAt keys i)
+                push no o
+            }
+            i = (i + 1)
+        }
+        keys = nk
+        objs = no
+        def mk:[string]
+        def mo:[ThreeMesh]
+        def j:int 0
+        while (j < (array_length meshKeys)) {
+            def m:ThreeMesh (itemAt meshObjs j)
+            if ((indexOf keys (itemAt meshKeys j)) >= 0) {
+                push mk (itemAt meshKeys j)
+                push mo m
+            }
+            j = (j + 1)
+        }
+        meshKeys = mk
+        meshObjs = mo
+        def lk:[string]
+        def lo:[ThreeLight]
+        def n:int 0
+        while (n < (array_length lightKeys)) {
+            def l:ThreeLight (itemAt lightObjs n)
+            if ((indexOf keys (itemAt lightKeys n)) >= 0) {
+                push lk (itemAt lightKeys n)
+                push lo l
+            }
+            n = (n + 1)
+        }
+        lightKeys = lk
+        lightObjs = lo
+        def pk:[string]
+        def po:[ThreePointLight]
+        def a:int 0
+        while (a < (array_length pointKeys)) {
+            def pt:ThreePointLight (itemAt pointObjs a)
+            if ((indexOf keys (itemAt pointKeys a)) >= 0) {
+                push pk (itemAt pointKeys a)
+                push po pt
+            }
+            a = (a + 1)
+        }
+        pointKeys = pk
+        pointObjs = po
+        def sk:[string]
+        def so:[ThreeDirectionalLight]
+        def b:int 0
+        while (b < (array_length sunKeys)) {
+            def sun:ThreeDirectionalLight (itemAt sunObjs b)
+            if ((indexOf keys (itemAt sunKeys b)) >= 0) {
+                push sk (itemAt sunKeys b)
+                push so sun
+            }
+            b = (b + 1)
+        }
+        sunKeys = sk
+        sunObjs = so
+    }
+
+    fn subtree:void (o:ThreeObject3D out:[ThreeObject3D]) {
+        push out o
+        def i:int 0
+        while (i < (o.childCount())) {
+            this.subtree((o.getChild(i)) out)
+            i = (i + 1)
+        }
+    }
+
+    ; `obj` taken off whichever object under `from` holds it.
+    fn unhang:boolean (from:ThreeObject3D obj:ThreeObject3D) {
+        def i:int 0
+        while (i < (from.childCount())) {
+            def c:ThreeObject3D (from.getChild(i))
+            if (c == obj) {
+                from.remove(obj)
+                return true
+            }
+            if (this.unhang(c obj)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn placeObj:void (o:ThreeObject3D p:P3Node) {
+        o.position.set((itemAt p.pos 0) (itemAt p.pos 1) (itemAt p.pos 2))
+        o.quaternion.set((itemAt p.quat 0) (itemAt p.quat 1) (itemAt p.quat 2) (itemAt p.quat 3))
+        o.quatDriven = true
+        o.scale.set((itemAt p.scale 0) (itemAt p.scale 1) (itemAt p.scale 2))
+    }
+
+    fn light:void (l:ThreeLight p:P3Node) {
+        ; Three's lights reach the diffuse divided by pi
+        def k:double p.intensity
+        if srgb {
+            k = (k / 3.141592653589793)
+        }
+        def c:[double] (this.rgb(p.color k))
+        l.color.setRGB((itemAt c 0) (itemAt c 1) (itemAt c 2))
+        l.intensity = 1.0
+        l.position.set((itemAt p.worldPos 0) (itemAt p.worldPos 1) (itemAt p.worldPos 2))
+        l.visible = p.visible
+        def pi:int (indexOf pointKeys p.key)
+        if (pi >= 0) {
+            def pl:ThreePointLight (itemAt pointObjs pi)
+            pl.distance = p.distance
+            pl.decay = p.decay
+        }
+        def si:int (indexOf sunKeys p.key)
+        if (si >= 0) {
+            def dl:ThreeDirectionalLight (itemAt sunObjs si)
+            dl.setCastShadow(p.castShadow)
+        }
+    }
+
+    ; A mesh's material: Three's class, its colours in the pipeline's light.
+    fn paint:void (m:ThreeMesh p:P3Node) {
+        def mat:ThreeMaterial (new ThreeMeshPhongMaterial)
+        if (p.mat == "meshBasicMaterial") {
+            mat = (new ThreeMeshBasicMaterial)
+        }
+        if (p.mat == "meshLambertMaterial") {
+            mat = (new ThreeMeshLambertMaterial)
+        }
+        def ph:[double] (Pres3DTree.phongOf(p))
+        def c:[double] (this.rgb(p.color (itemAt ph 4)))
+        mat.setColor((itemAt c 0) (itemAt c 1) (itemAt c 2))
+        def s:[double] (this.rgb((([] _:double ((itemAt ph 1) (itemAt ph 2) (itemAt ph 3)))) 1.0))
+        mat.setSpecular((itemAt s 0) (itemAt s 1) (itemAt s 2))
+        mat.setShininess((itemAt ph 0))
+        def refl:double (itemAt ph 5)
+        if (refl > 0.0) {
+            mat.setReflective(true)
+            mat.setReflectivity(refl)
+            mat.setEnvFresnel((itemAt ph 6))
+        }
+        mat.setFlatShading(p.flat)
+        mat.setWireframe(p.wire)
+        mat.setSide(p.side)
+        if (((itemAt p.emissive 0) + ((itemAt p.emissive 1) + (itemAt p.emissive 2))) > 0.0) {
+            this.note("emissive is not drawn yet")
+        }
+        if ((p.opacity < 1.0) || p.transparent) {
+            this.note("opacity is not drawn yet")
+        }
+        m.setMaterial(mat)
+    }
+
+    ; The world's camera: its first <perspectiveCamera>, else R3F's default
+    ; (at z 5 looking down -z, fov 75), the first version's at z 5 looking
+    ; at the origin (fov 45).
+    fn camOf:void (t:Pres3DTree) {
+        if (t.camera >= 0) {
+            def c:P3Node (itemAt t.nodes t.camera)
+            camera.fov = c.fov
+            camera.near = c.near
+            camera.far = c.far
+            camera.position.set((itemAt c.worldPos 0) (itemAt c.worldPos 1) (itemAt c.worldPos 2))
+            camera.quaternion.set((itemAt c.worldQuat 0) (itemAt c.worldQuat 1) (itemAt c.worldQuat 2) (itemAt c.worldQuat 3))
+            camera.quatDriven = true
+            return
+        }
+        camera.position.set(0.0 0.0 5.0)
+        if t.legacy {
+            camera.fov = 45.0
+            camera.lookAt(0.0 0.0 0.0)
+            return
+        }
+        camera.fov = 75.0
+        camera.quaternion.set(0.0 0.0 0.0 1.0)
+        camera.quatDriven = true
+    }
+
+    ; The slide's own light all round (its mean colour), and a key and a
+    ; fill for a world that names no light; shadows when a light casts them.
+    fn extras:void (t:Pres3DTree env:Pres3DEnv) {
+        def mean:[double] (([] _:double (((env.meanR * 0.6) + 0.4) ((env.meanG * 0.6) + 0.4) ((env.meanB * 0.6) + 0.4))))
+        def rc:[double] (this.rgb(mean roomLight))
+        room.color.setRGB((itemAt rc 0) (itemAt rc 1) (itemAt rc 2))
+        room.intensity = 1.0
+        room.visible = (roomLight > 0.0)
+        def own:boolean (t.lights > 0)
+        key.visible = (own == false)
+        fill.visible = (own == false)
+        key.setDirection(0.5 0.8 0.6)
+        fill.setDirection(-0.7 -0.2 0.4)
+        key.color.setRGB(1.0 1.0 1.0)
+        key.intensity = 0.9
+        def fc:[double] (([] _:double (((env.meanR * 0.5) + 0.5) ((env.meanG * 0.5) + 0.5) ((env.meanB * 0.5) + 0.5))))
+        def fl:[double] (this.rgb(fc 1.0))
+        fill.color.setRGB((itemAt fl 0) (itemAt fl 1) (itemAt fl 2))
+        fill.intensity = 0.35
+        if srgb {
+            key.intensity = 1.6
+            fill.intensity = 0.5
+        }
+        shadows = false
+        def i:int 0
+        while (i < (array_length t.nodes)) {
+            def p:P3Node (itemAt t.nodes i)
+            if (((p.kind == "directional") && p.castShadow) && p.visible) {
+                shadows = true
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A geometry made once per shape and size (Three's args).
+    fn geometry:ThreeBufferGeometry (p:P3Node) {
+        def sig:string (Pres3DTree.geoSig(p))
+        def at:int (indexOf geoKeys sig)
+        if (at >= 0) {
+            return (itemAt geos at)
+        }
+        def a:[double] p.geoArgs
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        if (p.geo == "boxGeometry") {
+            def b:ThreeBoxGeometry (new ThreeBoxGeometry)
+            b.setSize((itemAt a 0) (itemAt a 1) (itemAt a 2))
+            g = b
+        }
+        if (p.geo == "sphereGeometry") {
+            def s:ThreeSphereGeometry (new ThreeSphereGeometry)
+            s.build((itemAt a 0) (Pres3DWorld.seg((itemAt a 1) 3)) (Pres3DWorld.seg((itemAt a 2) 2)) (itemAt a 3) (itemAt a 4) (itemAt a 5) (itemAt a 6))
+            g = s
+        }
+        if (p.geo == "cylinderGeometry") {
+            def c:ThreeCylinderGeometry (new ThreeCylinderGeometry)
+            c.build((itemAt a 0) (itemAt a 1) (itemAt a 2) (Pres3DWorld.seg((itemAt a 3) 3)) (Pres3DWorld.seg((itemAt a 4) 1)) ((itemAt a 5) != 0.0) (itemAt a 6) (itemAt a 7))
+            g = c
+        }
+        if (p.geo == "coneGeometry") {
+            ; the port's cone is a cylinder it makes and hands back
+            def cn:ThreeConeGeometry (new ThreeConeGeometry)
+            g = (cn.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 1)) ((itemAt a 4) != 0.0) (itemAt a 5) (itemAt a 6)))
+        }
+        if (p.geo == "planeGeometry") {
+            def pl:ThreePlaneGeometry (new ThreePlaneGeometry)
+            pl.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 1)) (Pres3DWorld.seg((itemAt a 3) 1)))
+            g = pl
+        }
+        if (p.geo == "torusGeometry") {
+            def t:ThreeTorusGeometry (new ThreeTorusGeometry)
+            t.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 3)) (itemAt a 4))
+            g = t
+        }
+        if (p.geo == "torusKnotGeometry") {
+            def k:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
+            k.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 3)) (floor (itemAt a 4)) (floor (itemAt a 5)))
+            g = k
+        }
+        if (p.geo == "gltfGeometry") {
+            ; a mesh of a .gltf: its triangles, flat when it gives no normals
+            def tris:P3Tris (files.trianglesOf(p.gltfSrc (floor (itemAt a 0)) (floor (itemAt a 1))))
+            def made:ThreeBufferGeometry (ThreeGLTFLoader.buildGeometry(tris.pos tris.nrm tris.uv tris.idx))
+            if (((array_length tris.nrm) == 0) && ((array_length tris.pos) > 0)) {
+                made = (made.buildFlat())
+            }
+            g = made
+        }
+        if (p.geo == "octahedronGeometry") {
+            if ((itemAt a 1) > 0.0) {
+                this.note("octahedronGeometry's detail is not drawn yet (detail 0 is)")
+            }
+            g = (Pres3DWorld.octahedron((itemAt a 0)))
+        }
+        if (p.geo == "teapotGeometry") {
+            def tp:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+            tp.setTeapot((itemAt a 0) (Pres3DWorld.seg((itemAt a 1) 1)) true true true true true)
+            g = tp
+        }
+        push geoKeys sig
+        push geos g
+        return g
+    }
+
+    ; Three's OctahedronGeometry(radius) at detail 0: eight faces, each
+    ; its own three corners and its own normal (flat), as Three builds it
+    sfn octahedron:ThreeBufferGeometry (r:double) {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def v:[double] ([] _:double (1.0 0.0 0.0 -1.0 0.0 0.0 0.0 1.0 0.0 0.0 -1.0 0.0 0.0 0.0 1.0 0.0 0.0 -1.0))
+        def f:[int] ([] _:int (0 2 4 0 4 3 0 3 5 0 5 2 1 2 5 1 5 3 1 3 4 1 4 2))
+        def i:int 0
+        while (i < 8) {
+            def a:int (itemAt f (i * 3))
+            def b:int (itemAt f ((i * 3) + 1))
+            def c:int (itemAt f ((i * 3) + 2))
+            ; the face's normal: the mean of its corners, made unit
+            def nx:double ((itemAt v (a * 3)) + ((itemAt v (b * 3)) + (itemAt v (c * 3))))
+            def ny:double ((itemAt v ((a * 3) + 1)) + ((itemAt v ((b * 3) + 1)) + (itemAt v ((c * 3) + 1))))
+            def nz:double ((itemAt v ((a * 3) + 2)) + ((itemAt v ((b * 3) + 2)) + (itemAt v ((c * 3) + 2))))
+            def len:double (sqrt (((nx * nx) + (ny * ny)) + (nz * nz)))
+            def k:int 0
+            while (k < 3) {
+                def corner:int (itemAt f ((i * 3) + k))
+                g.pushVertex(((itemAt v (corner * 3)) * r) ((itemAt v ((corner * 3) + 1)) * r) ((itemAt v ((corner * 3) + 2)) * r) (nx / len) (ny / len) (nz / len) 0.0 0.0)
+                g.pushIndex(((i * 3) + k))
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return g
+    }
+
+    ; a segment count: whole, at least `least`, at most 256
+    sfn seg:int (v:double least:int) {
+        def n:int (floor (v + 0.5))
+        if (n < least) {
+            return least
+        }
+        if (n > 256) {
+            return 256
+        }
+        return n
+    }
+}
+
+; Every world of the slide on the stage, drawn into one canvas.

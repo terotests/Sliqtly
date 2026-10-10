@@ -12,7 +12,7 @@
 FROM mirror.gcr.io/library/node:22 AS gen
 WORKDIR /src
 COPY presentation.config.json ./
-COPY scripts/lib.mjs scripts/format-css.mjs scripts/
+COPY scripts/lib.mjs scripts/format-css.mjs scripts/themes.mjs scripts/
 COPY src/ src/
 COPY themes/ themes/
 COPY fonts/ fonts/
@@ -30,6 +30,7 @@ RUN go mod download
 COPY mcp-go/ ./
 COPY --from=gen /src/mcp-go/sliqtly_mcp.go ./
 COPY --from=gen /src/mcp-go/presdata/presdata.go ./presdata/
+COPY --from=gen /src/mcp-go/figdv/figdv.go ./figdv/
 COPY --from=gen /src/mcp-go/rdiff/rdsmart.go ./rdiff/
 COPY --from=gen /src/mcp-go/fonts/ ./fonts/
 COPY --from=gen /src/mcp-go/themes/ ./themes/

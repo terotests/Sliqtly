@@ -20,7 +20,7 @@
 ;
 ; Attributes this reads (all optional):
 ;
-;   heading     {#id transition=fade|slide|zoom|none seconds=0.6
+;   heading     {#id transition=fade|slide|zoom|morph|none seconds=0.6
 ;                duration=8 fx=starfield fx-density=1.6}
 ;   any block   {.build}           reveal in steps (a list: one per item)
 ;               {anim=fade|rise|fly|zoom seconds=0.5}
@@ -33,11 +33,13 @@ Import "PresFonts.rgr"
 Import "PresCssSupport.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
+Import "PresCodeLinks.rgr"
 Import "FxLang.rgr"
 Import "PresDiagram.rgr"
 Import "PresChart.rgr"
 Import "PresTable.rgr"
 Import "PresSmartArt.rgr"
+Import "PresFigma.rgr"
 Import "PresSketch.rgr"
 Import "PresPlay.rgr"
 Import "PresScript.rgr"
@@ -235,6 +237,10 @@ class PresDeck {
     ; The engine: fonts, pictures, templates, the PDF and the PPTX.
     def md:MarkdownWeb (new MarkdownWeb())
     def src:PresSource (new PresSource())
+    ; Which source files (code/) the diagrams' boxes are about: the deck's
+    ; `::: code` blocks and Mermaid `click … "code:…"` lines, read on every
+    ; rebuild (readCodeLinks).
+    def codeLinks:PresCodeLinks (new PresCodeLinks())
     def slides:[PresSlide]
     def text:string ""
     ; moves on every rebuild, so a host can keep what it built from the last one
@@ -1682,6 +1688,44 @@ class PresDeck {
         }
         r.live = f
         r.hasLive = true
+        r.hasLeave = false
+        r.hasOpen = false
+        this.takeOwns(r f)
+        return true
+    }
+
+    ; What script `key`'s onLeave set as its slide was left: the slide on the
+    ; stage while the next one arrives (until the script runs again).
+    fn setScriptLeave:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.leave = f
+        r.hasLeave = true
+        return true
+    }
+
+    ; How script `key` opens (__scriptOpen): its slide as it arrives on the
+    ; stage, through its transition, until the script's first frame.
+    fn setScriptOpen:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.open = f
+        r.hasOpen = true
+        r.hasLeave = false
         this.takeOwns(r f)
         return true
     }
@@ -1699,6 +1743,7 @@ class PresDeck {
         }
         r.final = f
         r.hasFinal = true
+        r.finalJson = json
         this.takeOwns(r f)
         revision = (revision + 1)
         return true
@@ -1716,6 +1761,175 @@ class PresDeck {
         }
     }
 
+    ; One moment of script `key` (__scriptAt), drawn instead of its others
+    ; until `clearScriptAt`: the server's picture of the slide at a time.
+    fn setScriptAt:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.at = f
+        r.hasAt = true
+        this.takeOwns(r f)
+        revision = (revision + 1)
+        return true
+    }
+
+    fn clearScriptAt:void () {
+        def i:int 0
+        while (i < (array_length scriptRuns)) {
+            def r:PresScriptRun (itemAt scriptRuns i)
+            if r.hasAt {
+                r.hasAt = false
+                r.at = (new PresScriptFrame())
+                revision = (revision + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; What script `key`'s final frame runs to (__scriptFinal's argument
+    ; without the tree): {steps, seconds}, its slide's build steps and
+    ; `export-frame` or the slide's length.
+    fn scriptFinalArgs:JVal (key:string) {
+        def o:JVal (JVal.mkObj())
+        def pg:int (this.scriptPage(key))
+        if (pg >= 0) {
+            def s:PresSlide (itemAt slides pg)
+            o.setInt("steps" s.steps)
+            def secs:double s.duration
+            if (s.exportFrame >= 0.0) {
+                secs = s.exportFrame
+            }
+            o.setNum("seconds" secs)
+        }
+        return o
+    }
+
+    ; Whether slide i's script ends with the slide looking otherwise than
+    ; the Markdown lays it out: an export draws it from its display list.
+    fn scriptChanges:boolean (i:int) {
+        def key:string (this.scriptKeyOf(i))
+        if ((strlen key) == 0) {
+            return false
+        }
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        return (r.hasFinal && ((r.final.count()) > 0))
+    }
+
+    ; How slide `page`'s script leaves the Markdown from `from` to `to` where
+    ; it ends: 0 untouched, 1 changed (moved, recoloured, a part of it
+    ; changed), 2 hidden (the block made invisible or clear). A document
+    ; (Word, HTML) draws a changed block as the stage shows it and leaves a
+    ; hidden one out.
+    fn scriptLeaves:int (page:int from:int to:int) {
+        if ((this.scriptChanges(page)) == false) {
+            return 0
+        }
+        def ro@(optional):PresScriptRun (this.scriptRun((this.scriptKeyOf(page))))
+        def r:PresScriptRun (unwrap ro)
+        def sc:PresScene (this.sceneOfSlide(page))
+        def out:int 0
+        def i:int 1
+        while (i < (sc.count())) {
+            def e:PresEnt (sc.at(i))
+            def po@(optional):PresEntProps (r.final.propsOf(e.id))
+            if (!null? po) {
+                def p:PresEntProps (unwrap po)
+                if (p.changes(e)) {
+                    ; the block it is in
+                    def bi:int i
+                    def be:PresEnt e
+                    while ((be.src < 0) && (be.parent > 0)) {
+                        bi = be.parent
+                        be = (sc.at(bi))
+                    }
+                    if ((be.src >= from) && (be.src < to)) {
+                        ; the node itself hidden, not a part of it
+                        if (((bi == i) && ((be.src == from) && (be.srcEnd == to))) && ((p.visible == false) || (p.opacity <= 0.0))) {
+                            return 2
+                        }
+                        out = 1
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Slide i drawn at rest, its script where it ends.
+    fn stillSlide:EVGDisplayList (i:int) {
+        def was:boolean still
+        still = true
+        def s:PresSlide (itemAt slides i)
+        def g:[int]
+        def dl:EVGDisplayList (this.slideList(i g s.duration))
+        still = was
+        return dl
+    }
+
+    ; Where the blocks from `from` to `to` of slide `page` are once its
+    ; script ends: [x, y, w, h] around them and their parts, [] for none.
+    fn scriptBlockRect:[double] (page:int from:int to:int) {
+        def out:[double]
+        def dl:EVGDisplayList (this.stillSlide(page))
+        def sc:PresScene (this.sceneOfList(page dl))
+        def x0:double 0.0
+        def y0:double 0.0
+        def x1:double 0.0
+        def y1:double 0.0
+        def any:boolean false
+        def i:int 1
+        while (i < (sc.count())) {
+            def e:PresEnt (sc.at(i))
+            if ((((e.src >= from) && (e.src < to)) && e.hasBox) && ((e.w > 0.0) && (e.h > 0.0))) {
+                if ((any == false) || (e.x < x0)) {
+                    x0 = e.x
+                }
+                if ((any == false) || (e.y < y0)) {
+                    y0 = e.y
+                }
+                if ((any == false) || ((e.x + e.w) > x1)) {
+                    x1 = (e.x + e.w)
+                }
+                if ((any == false) || ((e.y + e.h) > y1)) {
+                    y1 = (e.y + e.h)
+                }
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            push out x0
+            push out y0
+            push out (x1 - x0)
+            push out (y1 - y0)
+        }
+        return out
+    }
+
+    ; The scripts' keys, for a host that runs them itself (the server).
+    fn scriptKeys:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length scriptRuns)) {
+            def r:PresScriptRun (itemAt scriptRuns i)
+            push out r.key
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; The script left the stage (or was stopped): its slide is shown as it
     ; ends again. `why` says why it was stopped, "" when it only left.
     fn endScriptLive:void (key:string why:string) {
@@ -1726,6 +1940,7 @@ class PresDeck {
         def r:PresScriptRun (unwrap ro)
         r.hasLive = false
         r.live = (new PresScriptFrame())
+        r.hasOpen = false
         r.stopped = why
     }
 
@@ -1745,9 +1960,21 @@ class PresDeck {
             return none
         }
         def r:PresScriptRun (unwrap ro)
+        if r.hasAt {
+            def av@(optional):PresScriptFrame r.at
+            return av
+        }
         if ((r.hasLive && showControls) && (still == false)) {
             def lv@(optional):PresScriptFrame r.live
             return lv
+        }
+        if ((r.hasOpen && showControls) && (still == false)) {
+            def ov@(optional):PresScriptFrame r.open
+            return ov
+        }
+        if ((r.hasLeave && showControls) && (still == false)) {
+            def lfv@(optional):PresScriptFrame r.leave
+            return lfv
         }
         if r.hasFinal {
             def fv@(optional):PresScriptFrame r.final
@@ -1778,7 +2005,7 @@ class PresDeck {
     }
 
     sfn isBlockKind:boolean (k:string) {
-        return ((((((k == "heading") || (k == "paragraph")) || ((k == "item") || (k == "list"))) || ((k == "code_block") || (k == "blockquote"))) || ((k == "embed") || (k == "table"))) || (((k == "math_block") || (k == "html_block")) || (k == "container")))
+        return ((((((k == "heading") || (k == "paragraph")) || ((k == "item") || (k == "list"))) || ((k == "code_block") || (k == "block_quote"))) || ((k == "embed") || (k == "table"))) || (((k == "math_block") || (k == "html_block")) || (k == "container")))
     }
 
     fn blocksIn:void (n:MdNode parent:int) {
@@ -1833,6 +2060,7 @@ class PresDeck {
         if (b.kind == 4) {
             e.kind = "image"
             e.id = ("box:" + (to_string bi))
+            e.src = (PresDeck.boxSrc(b))
             e.data = ((JVal.mkObj()).setStr("src" b.imagePath).toJson())
             return e
         }
@@ -1863,7 +2091,7 @@ class PresDeck {
             if ((pick < 0) && ((((kd == "heading") || (kd == "item")) || ((kd == "embed") || (kd == "code_block"))) || (((kd == "table") || (kd == "math_block")) || (kd == "html_block")))) {
                 pick = k
             }
-            if ((quote < 0) && (kd == "blockquote")) {
+            if ((quote < 0) && (kd == "block_quote")) {
                 quote = k
             }
             if ((para < 0) && (kd == "paragraph")) {
@@ -1917,7 +2145,7 @@ class PresDeck {
             if (kind == "html_block") {
                 e.kind = "html"
             }
-            if (kind == "blockquote") {
+            if (kind == "block_quote") {
                 e.kind = "quote"
             }
             if (kind == "embed") {
@@ -1936,6 +2164,8 @@ class PresDeck {
         }
         if (use >= 0) {
             e.id = ("blk:" + (to_string use))
+            e.src = (itemAt blkStart use)
+            e.srcEnd = (itemAt blkEnd use)
         } {
             e.id = ("box:" + (to_string bi))
         }
@@ -2086,6 +2316,40 @@ class PresDeck {
     def scenePage:int -1
     def sceneHeld:PresScene (new PresScene())
 
+    ; sceneOfList for a list a script's frame is laid over, kept while the
+    ; list is the one it was: a running script asks for it every frame, and
+    ; measuring its words again each time was most of a frame's work
+    def liveSceneRev:int -1
+    def liveScenePage:int -1
+    def liveSceneMark:double 0.0
+    def liveSceneHeld:PresScene (new PresScene())
+
+    fn sceneOfListHeld:PresScene (i:int list:EVGDisplayList) {
+        def mark:double (PresDeck.listMark(list))
+        if (((liveSceneRev == revision) && (liveScenePage == i)) && (liveSceneMark == mark)) {
+            return liveSceneHeld
+        }
+        liveSceneHeld = (this.sceneOfList(i list))
+        liveSceneRev = revision
+        liveScenePage = i
+        liveSceneMark = mark
+        return liveSceneHeld
+    }
+
+    ; A number that changes when anything moves, grows or is added in a list.
+    sfn listMark:double (list:EVGDisplayList) {
+        def m:double (to_double (array_length list.cmds))
+        def k:int 0
+        while (k < (array_length list.cmds)) {
+            def c:EVGDrawCmd (itemAt list.cmds k)
+            def f:double (to_double ((k % 7) + 1))
+            m = (m + (f * (((c.x + (c.y * 3.0)) + (c.w * 5.0)) + (c.h * 7.0))))
+            m = (m + (c.a * 11.0))
+            k = (k + 1)
+        }
+        return m
+    }
+
     fn sceneOfSlide:PresScene (i:int) {
         if ((sceneRev == revision) && (scenePage == i)) {
             return sceneHeld
@@ -2118,32 +2382,37 @@ class PresDeck {
             return out
         }
         def sc:PresScene (this.sceneOfSlide(i))
-        for (PresSel.findIn(sc sel)) at:int ai {
+        for (PresSel.findIn(sc.ents sel)) at:int ai {
             def fe:PresEnt (sc.at(at))
             push out fe.id
         }
         return out
     }
 
+    ; Slide i for a page that runs its script itself (the public viewer,
+    ; PresScriptWeb): its list at rest as the Markdown has it, that list's
+    ; scene (PresScene.wireJson), and the theme's text and accent colours,
+    ; {"list", "scene", "ink", "accent"}.
+    fn scriptBaseJson:string (i:int) {
+        def l:MdLayout (this.layout())
+        def wasOff:boolean scriptsOff
+        scriptsOff = true
+        def g:[int]
+        def dl:EVGDisplayList (this.slideList(i g 0.0))
+        def sc:PresScene (this.sceneOfList(i dl))
+        scriptsOff = wasOff
+        def o:JVal (JVal.mkObj())
+        o.setStr("ink" l.style.textColor)
+        o.setStr("accent" (this.themeColour("chart" "accent-color")))
+        def a:string (o.toJson())
+        return ("{\"list\":" + (dl.toJson()) + ",\"scene\":" + (sc.wireJson()) + "," + (substring a 1 (strlen a)))
+    }
+
     ; The entity of slide i under slide point (px, py): the smallest whose
     ; box holds it, not a letter; "" for none.
     fn scriptEntityAt:string (i:int px:double py:double) {
         def sc:PresScene (this.sceneOfSlide(i))
-        def best:string ""
-        def bestA:double 1000000000.0
-        def k:int 1
-        while (k < (sc.count())) {
-            def e:PresEnt (sc.at(k))
-            if ((e.kind != "char") && ((((px >= e.x) && (px <= (e.x + e.w))) && (py >= e.y)) && (py <= (e.y + e.h)))) {
-                def a:double (e.w * e.h)
-                if (a < bestA) {
-                    bestA = a
-                    best = e.id
-                }
-            }
-            k = (k + 1)
-        }
-        return best
+        return (sc.entityAt(px py))
     }
 
     ; What the slides' scripts got wrong: a file the deck does not have,
@@ -2189,7 +2458,7 @@ class PresDeck {
     ; `bars` (as the markdown module drew them, before the dressing), each
     ; label to the column it names, the rest of the words and the data's
     ; lines as parts of their own. `bi` is the chart's layout box.
-    fn chartParts:void (out:EVGDisplayList before:int bars:[EVGDrawCmd] bi:int) {
+    fn chartParts:void (out:EVGDisplayList before:int bars:[EVGDrawCmd] bi:int spec:string) {
         def base:int (array_length slideParts)
         def labels:[string]
         def values:[string]
@@ -2261,8 +2530,14 @@ class PresDeck {
             if ((strlen (itemAt labels d)) > 0) {
                 o.setStr("label" (itemAt labels d))
             }
-            if ((strlen (itemAt values d)) > 0) {
-                o.setStr("value" (itemAt values d))
+            ; the value from the chart's data; else the number drawn on it
+            def dv:[double] (PresChart.barValue(spec (itemAt labels d)))
+            if ((array_length dv) > 0) {
+                o.setNum("value" (itemAt dv 0))
+            } {
+                if ((strlen (itemAt values d)) > 0) {
+                    o.set("value" (PresDeck.drawnValue((itemAt values d))))
+                }
             }
             def be:PresEnt (itemAt slideParts (base + d))
             be.data = (o.toJson())
@@ -2271,6 +2546,44 @@ class PresDeck {
             }
             d = (d + 1)
         }
+    }
+
+    ; A value label as drawn ("1 234,5", "12 %"): its number when it reads
+    ; as one, else the text itself.
+    sfn drawnValue:JVal (t:string) {
+        def digits:string ""
+        def i:int 0
+        def ok:boolean true
+        def seen:boolean false
+        while (i < (strlen t)) {
+            def ch:string (substring t i (i + 1))
+            if ((indexOf "0123456789" ch) >= 0) {
+                digits = (digits + ch)
+                seen = true
+            } {
+                if ((ch == ",") || (ch == ".")) {
+                    digits = (digits + ".")
+                } {
+                    if ((ch == "-") || (ch == "−")) {
+                        digits = (digits + "-")
+                    } {
+                        if (((ch != " ") && (ch != " ")) && (ch != " ")) {
+                            if ((ch != "%") || (i != ((strlen t) - 1))) {
+                                ok = false
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (ok && seen) {
+            def v@(optional):double (to_double digits)
+            if (!null? v) {
+                return (JVal.mkNum((unwrap v)))
+            }
+        }
+        return (JVal.mkStr(t))
     }
 
     ; A diagram's nodes and lines as parts (PresDiagram.partTags): each
@@ -2545,6 +2858,21 @@ class PresDeck {
             def st:VfsStat (md.edit.imageStore.stat(("/" + u.path)))
             if (st.found == false) {
                 push out u
+            }
+        }
+        return out
+    }
+
+    ; --- screens of the shared Figma files (PresFigma) ---------------------------
+    ; The figma: addresses the Markdown names whose drawn picture the store
+    ; does not have yet. The page (or the server) draws each from the shared
+    ; files into the store under `FigmaRef.pictureKey`, and the slide shows it.
+    fn figmaMissing:[string] () {
+        def out:[string]
+        for (FigmaRef.inText(text)) dest:string i {
+            def st:VfsStat (md.edit.imageStore.stat((FigmaRef.pictureKey(dest))))
+            if (st.found == false) {
+                push out dest
             }
         }
         return out
@@ -4569,6 +4897,127 @@ class PresDeck {
             }
             k = (k + 1)
         }
+        this.readCodeLinks()
+    }
+
+    ; The 1-based line of the deck's text an offset is on.
+    fn lineOfOffset:int (at:int) {
+        def n:int 1
+        def i:int 0
+        def end:int at
+        if (end > (strlen text)) {
+            end = (strlen text)
+        }
+        while (i < end) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The box of a diagram on slide i under slide point (px, py) at slide
+    ; time t that has code links of its own: [k, node], or [] (none).
+    fn codeNodeAt:[int] (i:int t:double px:double py:double) {
+        def out:[int]
+        if ((i < 0) || (i >= (array_length slides))) {
+            return out
+        }
+        def s:PresSlide (itemAt slides i)
+        def only:int (this.fullAt(i))
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if ((only < 0) || (only == k)) {
+                def b:[double] (u.boxNow(uiNow (this.fullBoxNow())))
+                def dd:PresDiagram (u.active(uiNow))
+                def hn:int (dd.hitNode((u.activeTime(t uiNow)) (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) px py))
+                if (hn >= 1000) {
+                    def n:int (hn - 1000)
+                    if ((array_length (codeLinks.forNode(i k (dd.nodeIdAt(n)) (dd.nodeText(n))))) > 0) {
+                        push out k
+                        push out n
+                        return out
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Where box n of diagram k on slide i is drawn at slide time t (slide
+    ; units): [x, y, w, h], or the diagram's box when the box is not in view.
+    fn codeNodeBox:[double] (i:int k:int n:int t:double) {
+        def out:[double]
+        def hit@(optional):PresDiaUse (this.diagramUse(i k))
+        if (null? hit) {
+            return out
+        }
+        def u:PresDiaUse hit
+        def b:[double] (u.boxNow(uiNow (this.fullBoxNow())))
+        def dd:PresDiagram (u.active(uiNow))
+        def te:double (u.activeTime(t uiNow))
+        def a:[double]
+        def c:[double]
+        def id:string (dd.nodeIdAt(n))
+        if ((n >= 0) && ((strlen id) > 0)) {
+            dd.anchorPoint(te (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) id 0.0 0.0 a)
+            dd.anchorPoint(te (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) id 1.0 1.0 c)
+        }
+        if (((array_length a) == 2) && ((array_length c) == 2)) {
+            push out (itemAt a 0)
+            push out (itemAt a 1)
+            push out ((itemAt c 0) - (itemAt a 0))
+            push out ((itemAt c 1) - (itemAt a 1))
+            return out
+        }
+        return b
+    }
+
+    ; A `::: code` block belongs to the nearest diagram above it on its slide
+    ; (none: the slide's own links); a diagram's own `click … "code:…"`
+    ; lines are its links too.
+    fn readCodeLinks:void () {
+        def cl (new PresCodeLinks())
+        def si:int 0
+        while (si < (array_length slides)) {
+            def s:PresSlide (itemAt slides si)
+            def d:int 0
+            while (d < (array_length s.diagrams)) {
+                def u:PresDiaUse (itemAt s.diagrams d)
+                if ((indexOf u.source "\"code:") >= 0) {
+                    cl.addMermaid(u.source si d ((this.lineOfOffset(u.srcStart)) + 1))
+                }
+                d = (d + 1)
+            }
+            si = (si + 1)
+        }
+        def k:int 0
+        while (k < (array_length src.blocks)) {
+            def blk:PresBlock (itemAt src.blocks k)
+            if (blk.kind == "code") {
+                def pg:int (this.pageOfOffset(blk.start))
+                if ((pg >= 0) && (pg < (array_length slides))) {
+                    def s2:PresSlide (itemAt slides pg)
+                    def dia:int -1
+                    def best:int -1
+                    def j:int 0
+                    while (j < (array_length s2.diagrams)) {
+                        def u2:PresDiaUse (itemAt s2.diagrams j)
+                        if ((u2.srcStart < blk.start) && (u2.srcStart > best)) {
+                            best = u2.srcStart
+                            dia = j
+                        }
+                        j = (j + 1)
+                    }
+                    cl.addBlock(blk.body pg dia blk.bodyLine)
+                }
+            }
+            k = (k + 1)
+        }
+        codeLinks = cl
     }
 
     sfn fxFromMeta:void (s:PresSlide meta:MdMeta) {
@@ -5012,7 +5461,8 @@ class PresDeck {
                 }
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
                     ; the columns as drawn, before a dressing makes them
-                    ; something else: what a script finds as `bar`
+                    ; something else (rounded ones too, which it leaves):
+                    ; what a script finds as `bar`
                     def raw:[EVGDrawCmd]
                     if ((strlen s.script) > 0) {
                         def tail:[EVGDrawCmd]
@@ -5021,7 +5471,7 @@ class PresDeck {
                             push tail (itemAt out.cmds ti)
                             ti = (ti + 1)
                         }
-                        def cols:[EVGDrawCmd] (PresChart.columnsIn(tail (PresChart.rampStripes(tail)) kb.embedSource))
+                        def cols:[EVGDrawCmd] (PresChart.barsIn(tail (PresChart.rampStripes(tail)) kb.embedSource))
                         def ci:int 0
                         while (ci < (array_length cols)) {
                             def col:EVGDrawCmd (itemAt cols ci)
@@ -5039,7 +5489,7 @@ class PresDeck {
                         PresChart.flatten(out before paper)
                     }
                     if ((strlen s.script) > 0) {
-                        this.chartParts(out before raw (itemAt mineAt k))
+                        this.chartParts(out before raw (itemAt mineAt k) kb.embedSource)
                     }
                 }
                 }
@@ -5109,7 +5559,7 @@ class PresDeck {
         if (!null? sfo) {
             def sf:PresScriptFrame (unwrap sfo)
             if ((sf.count()) > 0) {
-                def sc:PresScene (this.sceneOfList(i out))
+                def sc:PresScene (this.sceneOfListHeld(i out))
                 PresScriptApply.apply(out sc sf groupOfCmd boxOfCmd l.engine l.style.textColor (this.themeColour("chart" "accent-color")))
                 while ((array_length partOfCmd) < (array_length out.cmds)) {
                     push partOfCmd -1

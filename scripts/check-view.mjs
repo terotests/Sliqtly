@@ -41,9 +41,23 @@ const slides = JSON.parse(deck).deck.slides;
 // stylesheet as the server sends them (mcp-go/view_test.go TestViewPlays)
 const APP_ID = "AppFixture1";
 const appDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app.json"));
+// a slide with a script ({script=apps/red.tsx}) that turns its heading red
+// while it runs (mcp-go/script_test.go writes it with SLIQTLY_WRITE_FIXTURES)
+const SCRIPT_ID = "ScriptFix1";
+const scriptDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-script.json"));
 // the same with a 3-D world (allow: 3d, <scene3d>): an orange box
 const WORLD_ID = "WorldFixture1";
 const worldDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app3d.json"));
+// a world that reads the deck's .gltf (<SliqGltf src="data/m.gltf">): the
+// orange box Sliqtly exported, served beside it
+// (mcp-go/render3d_test.go TestSliqGltfReadsTheDecksModel writes both)
+const GLTF_ID = "GltfFixture1";
+const gltfDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.json"));
+const gltfFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.gltf"));
+// a file written for Ranger v2's 3-D façade, as Ranger has it
+// (courtyard_live.tsx; mcp-go/render3d_test.go TestRangerThreeFileRunsAsItIs)
+const THREE_ID = "ThreeFixture1";
+const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -62,8 +76,13 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
+  if (rel === "/fixture/view-gltf.gltf") {
+    res.writeHead(200, { "content-type": "model/gltf+json", "access-control-allow-origin": "*" });
+    res.end(gltfFile);
+    return;
+  }
   if (rel.startsWith("/api/view/")) {
-    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck };
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck };
     const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(found || '{"error":"This shared presentation was not found."}');
@@ -217,6 +236,27 @@ try {
     .catch(() => fail("the program's slide.next() did not go to slide 2"));
   await page.close();
 
+  // a slide's script runs in the viewer: the heading turns red while it
+  // runs, drawn from the slide the server sent with the frame laid over it
+  page = await open("/s/" + SCRIPT_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  const red = () => page.evaluate(() => {
+    const c = document.getElementById("c");
+    const g = document.createElement("canvas");
+    g.width = 640;
+    g.height = 360;
+    const x = g.getContext("2d");
+    x.drawImage(c, 0, 0, 640, 360);
+    const d = x.getImageData(0, 0, 640, 360).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 90 && d[i + 2] < 90) n++;
+    return n;
+  });
+  let redAt = 0;
+  for (let i = 0; i < 40 && !(redAt = await red()); i++) await page.waitForTimeout(250);
+  if (!redAt) fail("the slide's script did not run in the viewer (its heading never turned red)");
+  await page.close();
+
   // a program's 3-D world is drawn (web/three3d.js, pres_3d.js) into its
   // box: the orange box it puts in its <scene3d> is on the slide
   page = await open("/s/" + WORLD_ID);
@@ -236,6 +276,44 @@ try {
   let orangeAt = 0;
   for (let i = 0; i < 40 && (orangeAt = await orange(page)) < 100; i++) await page.waitForTimeout(250);
   if (orangeAt < 100) fail(`the program's 3-D world was not drawn (${orangeAt} orange pixels)`);
+  await page.close();
+
+  // the same box read from the deck's .gltf (web/three3d.js readFile)
+  page = await open("/s/" + GLTF_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  let modelAt = 0;
+  for (let i = 0; i < 40 && (modelAt = await orange(page)) < 100; i++) await page.waitForTimeout(250);
+  if (modelAt < 100) fail(`the world's .gltf model was not drawn (${modelAt} orange pixels)`);
+  await page.close();
+
+  // courtyard_live.tsx (import * as THREE from "ranger:three") as it is:
+  // its coloured boxes on the slide
+  page = await open("/s/" + THREE_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  const boxes = () => page.evaluate(() => {
+    const c = document.getElementById("c");
+    const g = document.createElement("canvas");
+    g.width = 128;
+    g.height = 72;
+    const x = g.getContext("2d");
+    x.drawImage(c, 0, 0, 128, 72);
+    const d = x.getImageData(0, 0, 128, 72).data;
+    const seen = { red: 0, green: 0, blue: 0 };
+    for (let i = 0; i < d.length; i += 4) {
+      const [r, gr, b] = [d[i], d[i + 1], d[i + 2]];
+      if (gr > r + 40 && gr > b + 20) seen.green++;
+      else if (b > r + 40 && b > gr) seen.blue++;
+      else if (r > gr + 60 && r > b + 60) seen.red++;
+    }
+    return seen;
+  });
+  let seen = {};
+  for (let i = 0; i < 40; i++) {
+    seen = await boxes();
+    if (seen.red > 3 && seen.green > 3 && seen.blue > 3) break;
+    await page.waitForTimeout(250);
+  }
+  if (!(seen.red > 3 && seen.green > 3 && seen.blue > 3)) fail(`the ranger:three courtyard was not drawn (${JSON.stringify(seen)})`);
   await page.close();
 
   // …and in the assistant's preview, where the modules are data: URLs: the
@@ -375,4 +453,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program run, a 3-D world drawn (also in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

@@ -235,22 +235,27 @@ func (s *roomService) toolsJSON() []any {
 		if t.pageOnly {
 			continue
 		}
-		props := t.props
-		if props == nil {
-			props = map[string]any{}
-		}
-		schema := map[string]any{"type": "object", "properties": props, "additionalProperties": false, "$schema": "http://json-schema.org/draft-07/schema#"}
-		if len(t.required) > 0 {
-			schema["required"] = t.required
-		}
-		ann := map[string]any{"readOnlyHint": t.readOnly, "openWorldHint": false}
-		if !t.readOnly {
-			ann["destructiveHint"] = t.destructive
-			ann["idempotentHint"] = t.name != "create_room"
-		}
-		out = append(out, map[string]any{"name": t.name, "title": t.title, "description": t.desc, "inputSchema": schema, "annotations": ann})
+		out = append(out, toolEntry(t))
 	}
 	return out
+}
+
+// one MCP tool list entry
+func toolEntry(t roomTool) map[string]any {
+	props := t.props
+	if props == nil {
+		props = map[string]any{}
+	}
+	schema := map[string]any{"type": "object", "properties": props, "additionalProperties": false, "$schema": "http://json-schema.org/draft-07/schema#"}
+	if len(t.required) > 0 {
+		schema["required"] = t.required
+	}
+	ann := map[string]any{"readOnlyHint": t.readOnly, "openWorldHint": false}
+	if !t.readOnly {
+		ann["destructiveHint"] = t.destructive
+		ann["idempotentHint"] = t.name != "create_room"
+	}
+	return map[string]any{"name": t.name, "title": t.title, "description": t.desc, "inputSchema": schema, "annotations": ann}
 }
 
 // a caller's mistake, said as it is; anything else is the server's

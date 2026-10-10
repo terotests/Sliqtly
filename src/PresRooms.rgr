@@ -1175,10 +1175,6 @@ class PresRooms {
         if ((array_length top) > 15) {
             push lines ("all\t… " + (PresI18n.t("Show all")) + " (" + (to_string (array_length decks)) + ")\t\ta")
         }
-        if (shown != "onboarding") {
-            push lines ("new\t+ " + (PresI18n.t("Add new presentation")) + "\t\tn")
-            push lines ("newfolder\t+ " + (PresI18n.t("New folder")) + "\t\tnf")
-        }
         def c:PresAppCall (this.call("opts"))
         c.a = "roomdecks"
         c.b = (join lines "\n")

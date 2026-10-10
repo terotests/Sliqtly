@@ -841,6 +841,41 @@ func (h *McpHost) RenderPic(name string, data []byte) {
 	delete(h.renderPics.img, name)
 }
 
+// RenderRGBA hands the painter a picture drawn here as w x h RGBA pixels
+// (a program's 3-D world, src/Pres3DStill.rgr) under the name the lists
+// give it ("three:<key>:<n>").
+func (h *McpHost) RenderRGBA(name string, rgba []byte, w, ht int64) {
+	if w <= 0 || ht <= 0 || int64(len(rgba)) < w*ht*4 {
+		return
+	}
+	if h.renderPics == nil {
+		h.renderPics = &renderPics{data: map[string][]byte{}, log: h.Log}
+	}
+	if h.renderPics.img == nil {
+		h.renderPics.img = map[string]image.Image{}
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, int(w), int(ht)))
+	copy(img.Pix, rgba[:w*ht*4])
+	h.renderPics.img[name] = img
+	delete(h.renderPics.data, name)
+}
+
+// RenderRoom is one slide's list drawn w x h pixels as RGBA, rows from the
+// top: the room a program's 3-D world stands in (web/view.js pagePicture),
+// drawn before the worlds' own pictures are there. nil when it does not read.
+func (h *McpHost) RenderRoom(listJSON string, slideW, slideH float64, w, ht int64) []byte {
+	if slideW <= 0 || slideH <= 0 || w <= 0 || ht <= 0 {
+		return nil
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, int(w), int(ht)))
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics, h.renderFx); err != nil {
+		h.Log("render: " + err.Error())
+		return nil
+	}
+	return dst.Pix
+}
+
 // Render is one slide, width pixels wide, as base64 JPEG; "" when the list
 // does not read.
 func (h *McpHost) Render(listJSON string, slideW, slideH float64, width int64) string {

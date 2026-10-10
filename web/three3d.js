@@ -12,6 +12,9 @@
 //                          worlds stand in, mirrored by shiny surfaces
 //   Pres3D.draw            one world into the shared WebGL canvas, which is
 //                          then copied into that world's own picture
+//   Pres3D.missing/setFile the deck's .gltf files a <SliqGltf src> names,
+//                          read with readFile and handed over once (again
+//                          when the deck's copy changes)
 //
 // One GL canvas serves every world (Ranger's GL layer keeps one context);
 // each world has a 2-D canvas of its own that the slide's painter shows,
@@ -33,7 +36,7 @@ const ROOM_H = 54;
  * slide as an ImageData (or null); scale() CSS px per slide unit.
  * Used by the editor (web/main.js) and the public viewer (web/viewplay.js).
  */
-export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast }) {
+export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast, readFile }) {
   let loading = null;
   let p3 = null;
   let failed = "";
@@ -42,6 +45,10 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
   let roomKey = "";
   const own = new Map(); // src -> 2-D canvas
   const said = new Map(); // src -> the warnings last told the console
+  const given = new Map(); // .gltf path -> the Blob or text handed over
+  const reading = new Set(); // .gltf paths being read
+  let filesRev = null;
+  let deckGen = 0;
 
   function load() {
     if (!loading) {
@@ -85,6 +92,24 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     return true;
   }
 
+  // A file a world asked for, read and handed over; the worlds are drawn
+  // again with it. The same Blob is not read twice.
+  function fetchFile(path) {
+    if (reading.has(path) || !readFile) return;
+    reading.add(path);
+    const gen = deckGen;
+    Promise.resolve(readFile(path)).then(async (got) => {
+      if (gen !== deckGen || !p3) return;
+      if (given.has(path) && given.get(path) === got) return;
+      const text = got == null ? "" : typeof got === "string" ? got : await got.text();
+      if (gen !== deckGen) return;
+      given.set(path, got);
+      p3.setFile(path, text);
+      lastJson = "";
+      repaint();
+    }).catch((e) => console.warn("scene3d: " + path, e)).finally(() => reading.delete(path));
+  }
+
   function pictureFor(src, w, h) {
     let c = own.get(src);
     if (!c) {
@@ -114,6 +139,11 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
       return false;
     }
     const roomChanged = room(rev);
+    // the deck changed: the files handed over may have too
+    if (rev !== filesRev) {
+      filesRev = rev;
+      for (const path of given.keys()) fetchFile(path);
+    }
     const k = scale() * dpr;
     if (json === lastJson && !roomChanged && k === tick.k) return false;
     lastJson = json;
@@ -124,6 +154,8 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     for (const s of list) {
       keys.push(s.src);
       const why = p3.setScene(s.src, JSON.stringify(s.scene));
+      const need = p3.missing(s.src);
+      if (need) for (const path of need.split("\n")) fetchFile(path);
       // once per change: a scene is set again every frame it moves
       if (why && said.get(s.src) !== why) console.warn("scene3d: " + why);
       said.set(s.src, why);
@@ -149,7 +181,13 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
 
   // Another deck: its worlds go with it.
   function reset() {
-    if (p3) p3.keepOnly([]);
+    if (p3) {
+      p3.keepOnly([]);
+      p3.clearFiles();
+    }
+    deckGen++;
+    given.clear();
+    filesRev = null;
     lastJson = "";
     roomKey = "";
     own.clear();

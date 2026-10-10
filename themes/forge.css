@@ -31,49 +31,27 @@ container {
 }
 
 page {
-  width: 13.333in;
-  height: 7.5in;
-  padding: 0.8in;
   background-color: #ffffff;
 }
 
 deck {
-  split-level: 2;
-  overflow: split;
-  aspect-ratio: 16 / 9;
   art: blocks;
 }
 
 document {
   font-family: Open Sans;
-  font-size: 18pt;
-  line-height: 1.4;
   color: #262626;
 }
 
 heading {
   font-family: Fjalla One;
   font-weight: normal;
-  margin-top: 12pt;
-  margin-bottom: 16pt;
   color: #1c1c1c;
 }
 
 h1 {
   font-size: 48pt;
   text-transform: uppercase;
-}
-
-h2 {
-  font-size: 32pt;
-}
-
-h3 {
-  font-size: 22pt;
-}
-
-p {
-  margin-bottom: 13pt;
 }
 
 a {
@@ -84,28 +62,13 @@ hr {
   color: #e7e5e4;
 }
 
-list {
-  padding-left: 28pt;
-  margin-left: 10pt;
-}
-
-li {
-  margin-bottom: 8pt;
-}
-
 blockquote {
   color: #4b5563;
   border-color: #f07f1a;
-  border-width: 4pt;
-  padding-left: 22pt;
-  padding-top: 8pt;
 }
 
 code {
   font-family: Noto Sans;
-  font-size: 13pt;
-  line-height: 1.4;
-  padding: 12pt;
   background-color: #f5f5f4;
   border-color: #e7e5e4;
 }
@@ -113,20 +76,4 @@ code {
 table {
   border-color: #e7e5e4;
   background-color: #f5f5f4;
-  padding-left: 10pt;
-  padding-top: 7pt;
-}
-
-.lead {
-  font-size: 23pt;
-}
-
-.c2 {
-  column-count: 2;
-  column-gap: 36pt;
-}
-
-.c3 {
-  column-count: 3;
-  column-gap: 28pt;
 }

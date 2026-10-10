@@ -11,125 +11,111 @@
 //   find("h2 word"), find("p char")        an array of entities, with
 //                              .set() .reset() .remove() .each() .first() on it
 //   e.id e.kind e.text e.box{x,y,w,h} e.data e.index e.parent e.children
-//   e.set({x, y, scale, rotate, opacity, color, fill, stroke, clip, z,
+//   e.set({x, y, scale, scaleX, scaleY, rotate, opacity, color, fill, stroke, clip, z,
 //          visible, skew, origin})   e.reset()  e.clone(props)  e.remove()
 //   e.get("x")                 what it is set to, else where it was drawn
 //   add("rect"|"circle"|"text"|"image", {x, y, w, h, text, size, src, …})
+//   sprites.sheet(name, {…}) sprites.add(name, {on, size}): characters from
+//                              a spritesheet that walk and jump on the boxes
+//                              (web/sprite-runtime.js)
 //   env.reducedMotion, env.export
-//   input.keys, input.pointer {x, y, down, inside} (slide px)
-//   hooks: start() tick(dt) build(n) onKeyDown(key) onKeyUp(key)
-//          onClick(entity) final()
+//   input.keys, input.pointer {x, y, down, inside} (slide px),
+//   input.take("ArrowRight", …) keys the presentation leaves to the script
+//   hooks: start() onEnter(from) tick(dt) build(n) onKeyDown(key)
+//          onKeyUp(key) onClick(entity) onLeave(to) final()
+//   onEnter(from): the slide arrived from slide `from` (1-based, 0 for none),
+//   once before its first tick. onLeave(to): it is being left for slide
+//   `to`; what it sets is how the slide looks while the next one arrives.
 //
-// The selectors are PresSel's (src/PresScript.rgr): the same language, and
-// web/test/script-runtime.test.mjs runs both on one slide.
+// The selectors are PresSel's (src/PresSel.rgr), the same code: the build
+// compiles it to script-sel.js (SCRIPT_SEL, the classes in __Sel), and
+// SCRIPT_RUNTIME starts with it.
 //
 // __scriptFrame(arg) -> {p: {id: props}, a: [added], k: [asks], build, click}
 // __scriptFinal(arg) -> the same, for where the script ends: final(), or its
 // ticks run to the end (`seconds`).
-export const SCRIPT_RUNTIME = String.raw`
+// __scriptAt(arg) -> the same, `time` seconds in (no final()).
+// __scriptLeave(arg) -> the same, after onLeave(a.to).
+// __scriptOpen(arg) -> the same, as it opens: start(), onEnter(from) and
+// build(step), no tick (the slide as it arrives, worked out ahead).
+import { SCRIPT_SEL } from "./script-sel.js";
+
+const OWN = String.raw`
 var __ents = [];
+// the same entities as PresSel reads them: parents by index
+var __selEnts = [];
 var __byId = {};
 var __props = {};
 var __adds = [];
 var __addN = 0;
 var __started = false;
 var __lastStep = -1;
-var env = { reducedMotion: false, "export": false, time: 0 };
-var input = { keys: {}, pointer: { x: 0, y: 0, down: false, inside: false } };
-
-function __isName(c) {
-  return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") ||
-    c === "-" || c === "_" || c === "/" || c > "\u007f";
-}
-
-// "chart:1 bar" -> [{kind, name, classes, nth, from, to}], or {error}
-function __parseSel(text) {
-  var toks = String(text).split(" ");
-  var steps = [];
-  for (var t = 0; t < toks.length; t++) {
-    var tok = toks[t];
-    if (!tok) continue;
-    var arrow = tok.indexOf("->");
-    if (arrow >= 0) {
-      var last = steps[steps.length - 1];
-      if (!last || last.kind !== "edge") return { error: '"' + tok + '" names an edge\'s ends: write it after edge (edge B->D)' };
-      last.from = tok.slice(0, arrow);
-      last.to = tok.slice(arrow + 2);
-      continue;
+var __env = { reducedMotion: false, "export": false, time: 0 };
+var __taken = [];
+var __input = {
+  keys: {},
+  pointer: { x: 0, y: 0, down: false, inside: false },
+  // keys the script keeps while it runs: the presentation does not move on
+  // them (input.take("ArrowLeft", "ArrowRight")); Escape is never taken
+  take: function () {
+    for (var i = 0; i < arguments.length; i++) {
+      var k = String(arguments[i]);
+      if (k !== "Escape" && __taken.indexOf(k) < 0) __taken.push(k);
     }
-    var st = { kind: "", name: "", classes: [], nth: 0, from: "", to: "" };
-    var i = 0;
-    if (tok.charAt(0) === "*") { st.kind = "*"; i = 1; }
-    while (i < tok.length && __isName(tok.charAt(i))) i++;
-    if (!st.kind) st.kind = tok.slice(0, i);
-    while (i < tok.length) {
-      var c = tok.charAt(i);
-      var j = i + 1;
-      while (j < tok.length && __isName(tok.charAt(j))) j++;
-      var word = tok.slice(i + 1, j);
-      if (!word) return { error: '"' + tok + '" is not a selector' };
-      if (c === "#") st.name = word;
-      else if (c === ".") st.classes.push(word);
-      else if (c === ":") {
-        var n = Number(word);
-        if (!(n >= 0) || Math.floor(n) !== n) return { error: '":' + word + '" is no number: write kind:2 for the second' };
-        st.nth = n;
-      } else return { error: '"' + tok + '" is not a selector' };
-      i = j;
-    }
-    steps.push(st);
   }
-  if (!steps.length) return { error: "an empty selector" };
-  return { steps: steps };
+};
+// (a script's own const env = … keeps the runtime's: __env, __input)
+var env = __env;
+var input = __input;
+var __PROPS = { x: 1, y: 1, scale: 1, scaleX: 1, scaleY: 1, rotate: 1, skew: 1, origin: 1, opacity: 1, visible: 1, color: 1, fill: 1, stroke: 1, z: 1, clip: 1 };
+var __saidKeys = {};
+// counts the entity trees the page sent: what is laid out against the boxes
+// (web/sprite-runtime.js) is laid out again when it moves on
+var __treeGen = 0;
+// what moves on with the slide's own clock besides tick(dt): {advance(dt),
+// toEnd()} (web/sprite-runtime.js)
+var __clockUsers = [];
+function __advanceClocks(dt) {
+  for (var i = 0; i < __clockUsers.length; i++) __clockUsers[i].advance(dt);
+}
+function __clocksToEnd() {
+  for (var i = 0; i < __clockUsers.length; i++) __clockUsers[i].toEnd();
 }
 
-function __stepMatches(st, e) {
-  if (st.kind && st.kind !== "*" && e.kind !== st.kind) return false;
-  if (st.name && e.name !== st.name && e.id !== st.name) return false;
-  for (var i = 0; i < st.classes.length; i++) if (e.classes.indexOf(st.classes[i]) < 0) return false;
-  if (st.nth > 0 && e.index + 1 !== st.nth) return false;
-  if (st.from && (e.from !== st.from || e.to !== st.to)) return false;
-  return true;
-}
-
-function __within(e, anc) {
-  while (e) {
-    if (e === anc) return true;
-    e = e.parent;
-  }
-  return false;
-}
+// What each selector found, until the entities change (__setTree): a
+// script that finds in every tick does the walk once.
+var __found = {};
 
 function __find(sel, scope) {
+  var key = String(sel) + "\u0000" + (scope ? scope.id : "");
+  var had = __found[key];
+  if (had) return __list(had.slice());
+  var out = __findAll(sel, scope);
+  __found[key] = out.slice();
+  return out;
+}
+
+function __findAll(sel, scope) {
   var out = __list([]);
-  var p = __parseSel(sel);
+  var p = __Sel.PresSel.parse(String(sel));
   if (p.error) {
     console.log('find("' + sel + '"): ' + p.error);
     return out;
   }
-  var steps = p.steps;
-  var n = steps.length;
-  for (var i = 1; i < __ents.length; i++) {
-    var e = __ents[i];
-    if (scope && (e === scope || !__within(e, scope))) continue;
-    if (!__stepMatches(steps[n - 1], e)) continue;
-    var k = n - 2;
-    var up = e.parent;
-    while (k >= 0 && up) {
-      if (scope && up === scope) {
-        if (__stepMatches(steps[k], up)) k--;
-        break;
-      }
-      if (__stepMatches(steps[k], up)) k--;
-      up = up.parent;
-    }
-    if (k < 0) out.push(e);
-  }
+  var hit = p.find(__selEnts, scope ? scope.__i : 0);
+  for (var i = 0; i < hit.length; i++) out.push(__ents[hit[i]]);
   return out;
 }
 
-function find(sel) { return __find(sel, null); }
-function tree() { return __ents[0] || null; }
+// The old globals (find, add, tree): they work, and say once where they went.
+var __saidOld = {};
+function __old(name, now) {
+  if (__saidOld[name]) return;
+  __saidOld[name] = true;
+  console.log(name + "() is the old form: import { presentation } from \"Sliqtly\" and use presentation.activeSlide." + now);
+}
+function find(sel) { __old("find", "find(…)"); return __find(sel, null); }
+function tree() { __old("tree", "tree()"); return __ents[0] || null; }
 
 // An array of entities that sets, resets and removes them all at once.
 function __list(a) {
@@ -141,7 +127,7 @@ function __list(a) {
   return a;
 }
 
-var __DEFAULTS = { scale: 1, rotate: 0, skew: 0, opacity: 1, visible: true, z: 0 };
+var __DEFAULTS = { scale: 1, scaleX: 1, scaleY: 1, rotate: 0, skew: 0, opacity: 1, visible: true, z: 0 };
 
 function __Ent(o) {
   var b = o.b || [0, 0, 0, 0];
@@ -164,6 +150,13 @@ __Ent.prototype.set = function (p) {
   for (var k in p) {
     var v = p[k];
     if (v === undefined || typeof v === "function") continue;
+    if (!__PROPS[k]) {
+      if (!__saidKeys[k]) {
+        __saidKeys[k] = true;
+        console.log('set(): "' + k + '" is no property of an entity (x, y, scale, scaleX, scaleY, rotate, skew, origin, opacity, visible, color, fill, stroke, z, clip)');
+      }
+      continue;
+    }
     if (v === null) delete cur[k];
     else cur[k] = v;
   }
@@ -182,7 +175,7 @@ __Ent.prototype.find = function (sel) { return __find(sel, this); };
 __Ent.prototype.clone = function (p) {
   var o = { of: this.id };
   for (var k in p || {}) o[k] = p[k];
-  return add("clone", o);
+  return __add("clone", o);
 };
 
 // An element of the program's own, in the slide's list: drawn in the theme's
@@ -211,29 +204,57 @@ __Added.prototype.remove = function () {
 };
 __Added.prototype.reset = __Added.prototype.remove;
 
-function add(kind, p) {
+function add(kind, p) { __old("add", "add(…)"); return __add(kind, p); }
+function __add(kind, p) {
   var a = new __Added(String(kind), p);
   __adds.push(a);
   return a;
 }
 
 function __setTree(list) {
+  __treeGen++;
   __ents = [];
+  __selEnts = [];
   __byId = {};
+  __found = {};
   for (var i = 0; i < list.length; i++) {
     var e = new __Ent(list[i]);
+    e.__i = i;
     __ents.push(e);
     __byId[e.id] = e;
+    var s = new __Sel.PresEnt();
+    s.id = e.id;
+    s.kind = e.kind;
+    s.name = e.name;
+    s.classes = e.classes;
+    s.index = e.index;
+    s.from = e.from;
+    s.to = e.to;
+    __selEnts.push(s);
   }
   for (var j = 0; j < list.length; j++) {
     var p = list[j].p;
     if (p >= 0 && p < __ents.length && p !== j) {
       __ents[j].parent = __ents[p];
       __ents[p].children.push(__ents[j]);
+      __selEnts[j].parent = p;
     }
   }
   // what was set on an entity that is gone with an edit is dropped
   for (var id in __props) if (!__byId[id]) delete __props[id];
+}
+
+// A fixed bit of work the page times once, to know how fast the engine is
+// on this device (web/apps.js scriptBudget).
+function __calibrate() {
+  var s = 0;
+  var o = { a: 0, b: [] };
+  for (var i = 0; i < 1000; i++) {
+    s = (s + i * 7) % 1013;
+    o.a = s;
+    if (i % 50 === 0) o.b.push(s);
+  }
+  return o.b.length;
 }
 
 function __hook(name) {
@@ -243,29 +264,39 @@ function __hook(name) {
 function __out() {
   var a = [];
   for (var i = 0; i < __adds.length; i++) a.push(__adds[i].rec);
-  return JSON.stringify({ p: __props, a: a, k: __asks, build: !!__hook("build"), click: !!__hook("onClick") });
+  return JSON.stringify({ p: __props, a: a, k: __asks, build: !!__hook("build"), click: !!__hook("onClick"), leave: !!__hook("onLeave"), take: __taken });
 }
 
 function __begin(a) {
   if (a.tree) __setTree(a.tree);
   __deckState(a.deck || {});
   var e = a.env || {};
-  env.reducedMotion = !!e.reducedMotion;
-  env["export"] = !!e["export"];
-  input.keys = a.keys || {};
-  if (a.pointer) input.pointer = a.pointer;
+  __env.reducedMotion = !!e.reducedMotion;
+  __env["export"] = !!e["export"];
+  __input.keys = a.keys || {};
+  if (a.pointer) __input.pointer = a.pointer;
   __asks = [];
   if (!__started) {
     __started = true;
     var start = __hook("start");
     if (start) start();
+    var enter = __hook("onEnter");
+    if (enter) enter((a.deck && a.deck.from) || 0);
   }
+}
+
+function __scriptLeave(arg) {
+  var a = JSON.parse(arg);
+  __begin(a);
+  var leave = __hook("onLeave");
+  if (leave) leave(a.to || 0);
+  return __out();
 }
 
 function __scriptFrame(arg) {
   var a = JSON.parse(arg);
   __begin(a);
-  env.time = a.time || 0;
+  __env.time = a.time || 0;
   var evs = a.events || [];
   for (var i = 0; i < evs.length; i++) {
     var ev = evs[i];
@@ -275,12 +306,13 @@ function __scriptFrame(arg) {
     else if (ev.type === "click") { h = __hook("onClick"); if (h) h(ev.id ? __byId[ev.id] || null : null, ev); }
   }
   var build = __hook("build");
-  if (build && slide.step !== __lastStep) {
-    __lastStep = slide.step;
-    build(slide.step);
+  if (build && __slide.step !== __lastStep) {
+    __lastStep = __slide.step;
+    build(__slide.step);
   }
   var tick = __hook("tick");
   if (tick) tick(a.dt || 0);
+  __advanceClocks(a.dt || 0);
   return __out();
 }
 
@@ -289,26 +321,79 @@ function __scriptFrame(arg) {
 // 30 a second, at most 20 s), every build step taken first.
 function __scriptFinal(arg) {
   var a = JSON.parse(arg);
-  env["export"] = true;
+  __env["export"] = true;
   __begin(a);
-  env["export"] = true;
-  var build = __hook("build");
-  if (build) {
-    __lastStep = a.steps || 0;
-    slide.step = __lastStep;
-    build(__lastStep);
-  }
+  __env["export"] = true;
+  __buildTo(a.steps || 0);
   var fin = __hook("final");
-  var tick = __hook("tick");
   if (fin) fin();
-  else if (tick) {
-    var secs = Math.min(20, Math.max(0, Number(a.seconds) || 0));
-    var n = Math.round(secs * 30);
-    for (var i = 0; i < n; i++) {
-      env.time = i / 30;
-      tick(1 / 30);
-    }
+  else __tickFor(a.seconds);
+  __clocksToEnd();
+  return __out();
+}
+
+// The slide a.time seconds after it arrived, at build step a.steps: its
+// ticks run that long (at 30 a second, at most 20 s) and final() is not
+// called. render_slide(time) and render_strip draw this.
+function __scriptAt(arg) {
+  var a = JSON.parse(arg);
+  __begin(a);
+  __buildTo(a.steps || 0);
+  __tickFor(a.time);
+  return __out();
+}
+
+// How the script opens: what start(), onEnter(a.deck.from) and
+// build(a.deck.step) set, as its first frame does, before any tick. The
+// slide arrives in it (web/apps.js works it out ahead), so nothing the
+// script moves is seen first where the Markdown has it.
+function __scriptOpen(arg) {
+  var a = JSON.parse(arg);
+  __begin(a);
+  var build = __hook("build");
+  if (build && __slide.step !== __lastStep) {
+    __lastStep = __slide.step;
+    build(__slide.step);
   }
   return __out();
 }
+
+// Every build step from 0 to step, in order, as the stage takes them: a
+// script that builds on what an earlier step set ends where it does there.
+function __buildTo(step) {
+  var build = __hook("build");
+  if (!build) return;
+  for (var n = 0; n <= step; n++) {
+    __lastStep = n;
+    __slide.step = n;
+    build(n);
+  }
+}
+
+function __tickFor(seconds) {
+  var tick = __hook("tick");
+  var secs = Math.min(20, Math.max(0, Number(seconds) || 0));
+  var n = Math.round(secs * 30);
+  for (var i = 0; i < n; i++) {
+    __env.time = i / 30;
+    if (tick) tick(1 / 30);
+    __advanceClocks(1 / 30);
+  }
+}
+
+// The "Sliqtly" module (import { presentation, input, env } from "Sliqtly"):
+// the deck runtime's presentation, its active slide with the slide's
+// entities. A script runs only while its own slide is shown, so the active
+// slide is the script's slide.
+__activeSlide.find = function (sel) { return __find(sel, null); };
+__activeSlide.add = function (kind, p) { return __add(kind, p); };
+__activeSlide.tree = function () { return __ents[0] || null; };
+// the slide's size in its own units, the ones every box and add() is in
+// (960 × 540 for 16:9)
+Object.defineProperty(__activeSlide, "width", { enumerable: true, get: function () { return __ents[0] ? __ents[0].box.w : 960; } });
+Object.defineProperty(__activeSlide, "height", { enumerable: true, get: function () { return __ents[0] ? __ents[0].box.h : 540; } });
+__sliqtly.input = __input;
+__sliqtly.env = __env;
 `;
+
+export const SCRIPT_RUNTIME = SCRIPT_SEL + "\n" + OWN;

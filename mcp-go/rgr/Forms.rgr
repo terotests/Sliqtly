@@ -1,0 +1,171 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; Questionnaires on the server (Sliqtly Curious): what ../forms.go asks the
+; model. Strings in, strings out, so the Go side handles no Ranger objects:
+; it keeps links, responses and counters (store.Forms) and serves the pages;
+; what a form says, which answers it takes and what they add to the counters
+; is decided here, by the same code the editor runs (src/PresForm.rgr).
+; =============================================================================
+
+Import "../presentation/PresFormHtml.rgr"
+
+class FormsGo {
+
+    ; The form's settings and warnings, for the owner's API and for the
+    ; server's own checks (opens, closes, limit, once).
+    sfn meta:string (src:string) {
+        def f:PresForm (PresForm.parse(src))
+        def o:JVal (JVal.mkObj())
+        o.setStr("title" f.title)
+        o.setStr("version" f.version)
+        o.setStr("audience" f.audience)
+        o.setBool("anonymous" f.anonymous)
+        o.setStr("opens" f.opens)
+        o.setStr("closes" f.closes)
+        o.setInt("limit" f.limit)
+        o.setStr("once" f.once)
+        o.setStr("results" f.results)
+        o.setStr("lang" f.lang)
+        o.setInt("questions" (f.count()))
+        o.setBool("ready" f.engine.ready)
+        def ids:JVal (JVal.mkArr())
+        def q:int 0
+        while (q < (array_length f.questions)) {
+            def fq:PresFormQuestion (itemAt f.questions q)
+            ids.add((JVal.mkStr(fq.id)))
+            q = (q + 1)
+        }
+        o.set("ids" ids)
+        def w:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length f.warnings)) {
+            w.add((JVal.mkStr((itemAt f.warnings i))))
+            i = (i + 1)
+        }
+        o.set("warnings" w)
+        return (o.toJson())
+    }
+
+    ; The empty answer page.
+    sfn page:string (src:string action:string sealed:string) {
+        def f:PresForm (PresForm.parse(src))
+        def p (new PresFormPage())
+        p.action = action
+        p.sealed = sealed
+        return (PresFormHtml.page(f p))
+    }
+
+    sfn thanks:string (src:string) {
+        def f:PresForm (PresForm.parse(src))
+        return (PresFormHtml.thanks(f))
+    }
+
+    ; A page with one line (closed, full, answered already), in the form's
+    ; language when it parses.
+    sfn message:string (src:string en:string fi:string) {
+        def f:PresForm (PresForm.parse(src))
+        if (f.lang == "fi") {
+            return (PresFormHtml.message(f.title f.lang fi))
+        }
+        return (PresFormHtml.message(f.title f.lang en))
+    }
+
+    ; A posted page. fields: [[name, value], …] as the browser sent them;
+    ; shown: the public ids the page showed ("q1,q2"); notice, when not "",
+    ; sends the page back with it and nothing saved (the server's word that
+    ; the page was stale). Returns
+    ;   {"status":"saved","record":{…},"deltas":[…],"version":"…"}
+    ;   {"status":"again","html":"…"}   errors, or new questions to show
+    sfn post:string (src:string fields:string shown:string action:string sealed:string notice:string) {
+        def f:PresForm (PresForm.parse(src))
+        def pairs:JVal (JVal.parse(fields))
+        def names:[string]
+        def values:[string]
+        def i:int 0
+        while (i < (pairs.len())) {
+            def pair:JVal (pairs.at(i))
+            def name:string ((pair.at(0)).asStr(""))
+            if ((name != "s") && (name != "shown")) {
+                push names name
+                push values ((pair.at(1)).asStr(""))
+            }
+            i = (i + 1)
+        }
+        def answers:JVal (f.fromFields(names values))
+        def p (new PresFormPage())
+        p.action = action
+        p.sealed = sealed
+        p.values = answers
+        ; questions a rule brought in that the page did not show
+        def was:[string] (strsplit shown ",")
+        def visible:[string] (f.visibleIds(answers))
+        def more:boolean false
+        def k:int 0
+        while (k < (array_length visible)) {
+            def id:string (itemAt visible k)
+            if ((Questionnaire.listHas(was (f.publicId((f.indexOfQuestion(id)))))) == false) {
+                more = true
+            }
+            k = (k + 1)
+        }
+        def res:PresFormResult (f.check(answers))
+        def out:JVal (JVal.mkObj())
+        if ((strlen notice) > 0) {
+            p.notice = notice
+            out.setStr("status" "again")
+            out.setStr("html" (PresFormHtml.page(f p)))
+            return (out.toJson())
+        }
+        if more {
+            if (f.lang == "fi") {
+                p.notice = (PresFormHtml.word("fi" "more"))
+            } {
+                p.notice = (PresFormHtml.word("en" "more"))
+            }
+            out.setStr("status" "again")
+            out.setStr("html" (PresFormHtml.page(f p)))
+            return (out.toJson())
+        }
+        if ((res.ok) == false) {
+            p.result = res
+            p.hasResult = true
+            out.setStr("status" "again")
+            out.setStr("html" (PresFormHtml.page(f p)))
+            return (out.toJson())
+        }
+        out.setStr("status" "saved")
+        out.set("record" res.record)
+        out.set("deltas" (f.deltas(res.record)))
+        out.setStr("version" f.version)
+        return (out.toJson())
+    }
+
+    ; Results from the stored counters (rows [question, key, n]): per
+    ; question its rows for a chart, empty while fewer than atLeast answered.
+    sfn results:string (src:string rows:string atLeast:int) {
+        def f:PresForm (PresForm.parse(src))
+        def t:PresFormTally (PresFormTally.fromRows(f (JVal.parse(rows))))
+        def o:JVal (JVal.mkObj())
+        o.setStr("title" f.title)
+        o.setInt("total" t.total)
+        def list:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length f.questions)) {
+            def q:PresFormQuestion (itemAt f.questions i)
+            def c:PresFormCount (itemAt t.per i)
+            def qo:JVal (JVal.mkObj())
+            qo.setStr("id" q.id)
+            qo.setStr("title" q.title)
+            qo.setStr("type" q.type)
+            qo.setInt("answered" c.answered)
+            if (q.type != "text") {
+                qo.set("rows" (t.rows(q.id atLeast)))
+            }
+            list.add(qo)
+            i = (i + 1)
+        }
+        o.set("questions" list)
+        return (o.toJson())
+    }
+}

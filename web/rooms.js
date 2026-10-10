@@ -396,14 +396,14 @@ function firstAndOpen(rows) {
 // The rows the panel draws under the open room: its folders by name, each
 // open one followed by its presentations; then at most SHOWN presentations
 // of the room's top (and the open one, firstAndOpen), then "… Show all"
-// when there are more, then the rows making a new presentation and a new
-// folder in the room.
+// when there are more. A new presentation or folder is made from the
+// room's "+" (PresToolbar's "Add new…" menu), not from a row.
 // "id TAB name TAB 1 if open TAB kind TAB count": kind "" a presentation at
 // the top, "i" one in a folder, "f" a folder (id "f:<folder id>", count its
-// presentations), "a" Show all, "n" new presentation, "nf" new folder.
+// presentations), "a" Show all.
 // rows: roomDecks's (or the server's, with folder); folders: [{ id, name }];
 // open: the ids of the folders shown open.
-export function deckLines(rows, { folders = [], open = [], showAll = "", addNew = "", newFolder = "" } = {}) {
+export function deckLines(rows, { folders = [], open = [], showAll = "" } = {}) {
   const clean = (s) => String(s || "").replace(/[\t\n\r]+/g, " ");
   const known = new Set(folders.map((f) => f.id));
   const isOpen = new Set(open);
@@ -416,8 +416,6 @@ export function deckLines(rows, { folders = [], open = [], showAll = "", addNew 
   const top = rows.filter((r) => !r.folder || !known.has(r.folder));
   for (const r of firstAndOpen(top)) lines.push([r.id, clean(r.name), r.current ? "1" : "", ""].join("\t"));
   if (top.length > SHOWN && showAll) lines.push(["all", showAll, "", "a"].join("\t"));
-  if (addNew) lines.push(["new", addNew, "", "n"].join("\t"));
-  if (newFolder) lines.push(["newfolder", newFolder, "", "nf"].join("\t"));
   return lines.join("\n");
 }
 

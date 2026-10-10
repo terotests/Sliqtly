@@ -1,0 +1,338 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; PresFormHtml — a questionnaire as a plain HTML page (Sliqtly Curious)
+; =============================================================================
+; What a respondent opens from a QR code or a link: a form that works on a
+; phone with no scripts at all. The server renders it, checks the answers
+; with PresForm.check, and renders it again with the errors when something
+; is missing. A rule that brings in a question the page did not show (the
+; page lists what it showed in `shown`) makes the page come back with the
+; new question instead of saving: no answer goes in unasked.
+;
+; Nothing in the page names the deck, the file or the questionnaire: fields
+; are the public ids (q1, q2.other), the form posts back to the address it
+; was opened from, and `s` is the server's own sealed value.
+; =============================================================================
+
+Import "PresForm.rgr"
+
+class PresFormPage {
+    ; Where the form posts: the address the respondent opened.
+    def action:string ""
+    ; The server's sealed value, sent back with the answers.
+    def sealed:string ""
+    ; Answers to show (real ids), as check() reads them.
+    def values:JVal (JVal.mkObj())
+    def result:PresFormResult (new PresFormResult())
+    def hasResult:boolean false
+    ; A line over the form ("More questions appeared…").
+    def notice:string ""
+
+    Constructor () {
+    }
+}
+
+class PresFormHtml {
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def from:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            def rep:string ""
+            if (c == 38) {
+                rep = "&amp;"
+            }
+            if (c == 60) {
+                rep = "&lt;"
+            }
+            if (c == 62) {
+                rep = "&gt;"
+            }
+            if (c == 34) {
+                rep = "&quot;"
+            }
+            if (c == 39) {
+                rep = "&#39;"
+            }
+            if ((strlen rep) > 0) {
+                out = (out + (substring s from i) + rep)
+                from = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring s from n))
+    }
+
+    ; The page's own words, in the form's language.
+    sfn word:string (lang:string key:string) {
+        if (lang == "fi") {
+            if (key == "send") {
+                return "Lähetä"
+            }
+            if (key == "required") {
+                return "pakollinen"
+            }
+            if (key == "check") {
+                return "Tarkista alla merkityt vastaukset."
+            }
+            if (key == "more") {
+                return "Vastaustesi perusteella tuli lisää kysymyksiä. Katso ne ja lähetä uudelleen."
+            }
+            if (key == "thanks") {
+                return "Kiitos! Vastauksesi on tallennettu."
+            }
+            if (key == "other") {
+                return "Kerro mikä"
+            }
+            if (key == "answer this question") {
+                return "Vastaa tähän kysymykseen."
+            }
+            if (key == "fix") {
+                return "Tarkista tämä vastaus."
+            }
+            return key
+        }
+        if (key == "send") {
+            return "Send"
+        }
+        if (key == "required") {
+            return "required"
+        }
+        if (key == "check") {
+            return "Please check the answers marked below."
+        }
+        if (key == "more") {
+            return "Your answers brought up more questions. Please look at them and send again."
+        }
+        if (key == "thanks") {
+            return "Thank you! Your answers were saved."
+        }
+        if (key == "other") {
+            return "Please say what"
+        }
+        if (key == "answer this question") {
+            return "Please answer this question."
+        }
+        return key
+    }
+
+    ; An error as the respondent reads it. The model's messages are English;
+    ; in Finnish anything but "answer this question" is a plain "check this".
+    sfn errorText:string (lang:string message:string) {
+        if (message == "answer this question") {
+            return (PresFormHtml.word(lang message))
+        }
+        if (lang == "fi") {
+            return (PresFormHtml.word(lang "fix"))
+        }
+        def first:string (to_uppercase (substring message 0 1))
+        return (first + (substring message 1 (strlen message)) + ".")
+    }
+
+    sfn css:string () {
+        return (":root{color-scheme:light dark;--bg:#faf7f2;--fg:#1d1b19;--muted:#6b645c;--line:#d9d1c6;--card:#fff;--accent:#c4582f;--err:#b3261e}"
+            + "@media (prefers-color-scheme:dark){:root{--bg:#1b1917;--fg:#f1ece6;--muted:#a69d92;--line:#3d3833;--card:#25221f;--accent:#e57a4f;--err:#f2b8b5}}"
+            + "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}"
+            + "main{max-width:640px;margin:0 auto;padding:24px 16px 48px}h1{font-size:1.6em;line-height:1.2;margin:0 0 16px}"
+            + ".notice,.errors{border-radius:10px;padding:12px 14px;margin:0 0 16px}.notice{background:var(--card);border:1px solid var(--line)}"
+            + ".errors{border:2px solid var(--err);color:var(--err)}"
+            + "fieldset{border:1px solid var(--line);border-radius:12px;background:var(--card);margin:0 0 14px;padding:14px 16px 16px;min-width:0}"
+            + "fieldset[aria-invalid=true]{border:2px solid var(--err)}legend{font-weight:600;padding:0 4px;float:left;width:100%;margin-bottom:8px}"
+            + ".req{color:var(--accent)}.desc{color:var(--muted);margin:0 0 10px;clear:both}.err{color:var(--err);margin:8px 0 0;font-weight:600}"
+            + ".opt{display:flex;gap:10px;align-items:flex-start;padding:8px 0;clear:both;cursor:pointer}.opt input{width:22px;height:22px;margin:2px 0 0;accent-color:var(--accent);flex:none}"
+            + ".opt small{display:block;color:var(--muted)}"
+            + ".scale{display:flex;flex-wrap:wrap;gap:6px;clear:both}.scale label{flex:1 0 44px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px 0;cursor:pointer}"
+            + ".scale input{display:block;margin:0 auto 4px;width:20px;height:20px;accent-color:var(--accent)}.ends{display:flex;justify-content:space-between;color:var(--muted);font-size:.9em;margin-top:6px}"
+            + "input[type=text],input[type=number],input[type=date],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;clear:both;display:block}"
+            + "textarea{min-height:120px;resize:vertical}.other{margin:4px 0 0 32px;width:calc(100% - 32px)!important}"
+            + "button{font:inherit;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:12px 28px;cursor:pointer;min-height:48px}"
+            + ":focus-visible{outline:3px solid var(--accent);outline-offset:2px}")
+    }
+
+    sfn head:string (title:string lang:string) {
+        return ("<!doctype html>\n<html lang=\"" + (PresFormHtml.esc(lang)) + "\"><head><meta charset=\"utf-8\">"
+            + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            + "<meta name=\"robots\" content=\"noindex\"><meta name=\"referrer\" content=\"same-origin\">"
+            + "<title>" + (PresFormHtml.esc(title)) + "</title><style>" + (PresFormHtml.css()) + "</style></head><body><main>")
+    }
+
+    sfn foot:string () {
+        return "</main></body></html>\n"
+    }
+
+    ; A page with a title and one line: thanks, closed, full.
+    sfn message:string (title:string lang:string text:string) {
+        def h:string title
+        if ((strlen h) == 0) {
+            h = "Sliqtly"
+        }
+        return ((PresFormHtml.head(h lang)) + "<h1>" + (PresFormHtml.esc(h)) + "</h1><p class=\"notice\" role=\"status\">"
+            + (PresFormHtml.esc(text)) + "</p>" + (PresFormHtml.foot()))
+    }
+
+    sfn thanks:string (form:PresForm) {
+        return (PresFormHtml.message(form.title form.lang (PresFormHtml.word(form.lang "thanks"))))
+    }
+
+    ; Is value among the answer's values (a list for a multi)?
+    sfn picked:boolean (v:JVal value:string) {
+        if (v.isArr()) {
+            def i:int 0
+            while (i < (v.len())) {
+                if (((v.at(i)).asStr("")) == value) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (v.kind == 2) {
+            return ((FormValue.numberText(v.num)) == value)
+        }
+        return ((v.asStr("")) == value)
+    }
+
+    sfn valueText:string (v:JVal) {
+        if (v.kind == 2) {
+            return (FormValue.numberText(v.num))
+        }
+        return (v.asStr(""))
+    }
+
+    ; The whole page.
+    sfn page:string (form:PresForm p:PresFormPage) {
+        def lang:string form.lang
+        def out:string (PresFormHtml.head(form.title lang))
+        if ((strlen form.title) > 0) {
+            out = (out + "<h1>" + (PresFormHtml.esc(form.title)) + "</h1>")
+        }
+        if ((strlen p.notice) > 0) {
+            out = (out + "<p class=\"notice\" role=\"status\">" + (PresFormHtml.esc(p.notice)) + "</p>")
+        }
+        if (p.hasResult && ((array_length p.result.ids) > 0)) {
+            out = (out + "<p class=\"errors\" role=\"alert\">" + (PresFormHtml.esc((PresFormHtml.word(lang "check")))) + "</p>")
+        }
+        out = (out + "<form method=\"post\" action=\"" + (PresFormHtml.esc(p.action)) + "\" novalidate>")
+        out = (out + "<input type=\"hidden\" name=\"s\" value=\"" + (PresFormHtml.esc(p.sealed)) + "\">")
+        def visible:[string] (form.visibleIds(p.values))
+        def shown:[string]
+        def i:int 0
+        while (i < (array_length form.questions)) {
+            def q:PresFormQuestion (itemAt form.questions i)
+            if (Questionnaire.listHas(visible q.id)) {
+                push shown (form.publicId(i))
+                out = (out + (PresFormHtml.question(form i p)))
+            }
+            i = (i + 1)
+        }
+        out = (out + "<input type=\"hidden\" name=\"shown\" value=\"" + (join shown ",") + "\">")
+        out = (out + "<button type=\"submit\">" + (PresFormHtml.esc((PresFormHtml.word(lang "send")))) + "</button></form>")
+        return (out + (PresFormHtml.foot()))
+    }
+
+    sfn question:string (form:PresForm index:int p:PresFormPage) {
+        def lang:string form.lang
+        def q:PresFormQuestion (itemAt form.questions index)
+        def pub:string (form.publicId(index))
+        def v:JVal (p.values.get(q.id))
+        def err:string ""
+        if p.hasResult {
+            err = (p.result.errorFor(q.id))
+            if ((strlen err) == 0) {
+                err = (p.result.errorFor((q.id + ".other")))
+            }
+        }
+        def out:string ("<fieldset id=\"f-" + pub + "\"")
+        if ((strlen err) > 0) {
+            out = (out + " aria-invalid=\"true\" aria-describedby=\"e-" + pub + "\"")
+        }
+        out = (out + "><legend>" + (PresFormHtml.esc(q.title)))
+        if (q.required && ((strlen q.requiredWhen) == 0)) {
+            out = (out + " <span class=\"req\" aria-label=\"" + (PresFormHtml.word(lang "required")) + "\">*</span>")
+        }
+        out = (out + "</legend>")
+        if ((strlen q.description) > 0) {
+            out = (out + "<p class=\"desc\">" + (PresFormHtml.esc(q.description)) + "</p>")
+        }
+        out = (out + (PresFormHtml.control(form q pub v p)))
+        if ((strlen err) > 0) {
+            out = (out + "<p class=\"err\" id=\"e-" + pub + "\">" + (PresFormHtml.esc((PresFormHtml.errorText(lang err)))) + "</p>")
+        }
+        return (out + "</fieldset>")
+    }
+
+    sfn control:string (form:PresForm q:PresFormQuestion pub:string v:JVal p:PresFormPage) {
+        def out:string ""
+        if (q.isScale()) {
+            out = "<div class=\"scale\">"
+            def i:int 0
+            while (i < (array_length q.options)) {
+                def o:PresFormOption (itemAt q.options i)
+                out = (out + "<label><input type=\"radio\" name=\"" + pub + "\" value=\"" + (PresFormHtml.esc(o.value)) + "\"")
+                if (PresFormHtml.picked(v o.value)) {
+                    out = (out + " checked")
+                }
+                out = (out + ">" + (PresFormHtml.esc(o.label)) + "</label>")
+                i = (i + 1)
+            }
+            out = (out + "</div>")
+            if (((strlen q.low) > 0) || ((strlen q.high) > 0)) {
+                out = (out + "<div class=\"ends\" aria-hidden=\"true\"><span>" + (PresFormHtml.esc(q.low)) + "</span><span>" + (PresFormHtml.esc(q.high)) + "</span></div>")
+            }
+            return out
+        }
+        if ((q.type == "choice") || (q.type == "multi")) {
+            def kind:string "radio"
+            if (q.type == "multi") {
+                kind = "checkbox"
+            }
+            def i:int 0
+            while (i < (array_length q.options)) {
+                def o:PresFormOption (itemAt q.options i)
+                out = (out + "<label class=\"opt\"><input type=\"" + kind + "\" name=\"" + pub + "\" value=\"" + (PresFormHtml.esc(o.value)) + "\"")
+                if (PresFormHtml.picked(v o.value)) {
+                    out = (out + " checked")
+                }
+                out = (out + "><span>" + (PresFormHtml.esc(o.label)))
+                if ((strlen o.desc) > 0) {
+                    out = (out + "<small>" + (PresFormHtml.esc(o.desc)) + "</small>")
+                }
+                out = (out + "</span></label>")
+                if o.other {
+                    out = (out + "<input class=\"other\" type=\"text\" name=\"" + pub + ".other\" maxlength=\"200\" value=\""
+                        + (PresFormHtml.esc((PresFormHtml.valueText((p.values.get((q.id + ".other"))))))) + "\" aria-label=\""
+                        + (PresFormHtml.esc((o.label + ": " + (PresFormHtml.word(form.lang "other"))))) + "\">")
+                }
+                i = (i + 1)
+            }
+            return out
+        }
+        def text:string (PresFormHtml.valueText(v))
+        if (q.type == "text") {
+            return ("<textarea name=\"" + pub + "\" maxlength=\"" + (to_string q.maxLength) + "\">" + (PresFormHtml.esc(text)) + "</textarea>")
+        }
+        def attrs:string ""
+        def kind:string "text"
+        if (q.type == "number") {
+            kind = "number"
+            attrs = " inputmode=\"decimal\" step=\"any\""
+            if q.hasMin {
+                attrs = (attrs + " min=\"" + (FormValue.numberText(q.min)) + "\"")
+            }
+            if q.hasMax {
+                attrs = (attrs + " max=\"" + (FormValue.numberText(q.max)) + "\"")
+            }
+        }
+        if (q.type == "date") {
+            kind = "date"
+        }
+        if (q.maxLength > 0) {
+            attrs = (attrs + " maxlength=\"" + (to_string q.maxLength) + "\"")
+        }
+        return ("<input type=\"" + kind + "\" name=\"" + pub + "\" value=\"" + (PresFormHtml.esc(text)) + "\"" + attrs + ">")
+    }
+}
