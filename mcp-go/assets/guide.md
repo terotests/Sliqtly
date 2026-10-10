@@ -461,6 +461,32 @@ effect embers source {
   slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence
   (TeX).
+- A presenter: a `::: story` block under a slide puts a paper cut-out
+  character in the slide's bottom-right corner, and it tells the lines in a
+  speech bubble. One line per beat. Each beat is a build step after the
+  slide's own steps:
+
+  ```
+  ::: story
+  conformanceIssues() says whether the PDF is fit for X-1a print.
+  But in RGB mode the answer is always zero.
+  So the code breaks here. {pose=aim}
+  :::
+  ```
+
+  A line that starts with a turning word (but, except, although, however,
+  mutta, paitsi, vaikka) is a BUT, with that word in red. A line that
+  starts with a following word (so, therefore, thus, siksi, joten, niinpä)
+  is a THEREFORE, with that word in amber. Any other line sets the scene.
+  The pose follows that kind; `{pose=pen|chin|open|finger|aim|thumb}` at
+  the end of a line sets it. The character changes pose between lines and
+  holds still while a line is read. Played on its own, a beat lasts until
+  its line has been read. A thumbnail or an export shows the last line.
+  The character and its bubble take a strip at the slide's right, about a
+  third of its width, and the slide's text is set narrower to leave it
+  free. The bubble sits above the character's head and is about 240 px
+  wide on a 960 px slide. A line of up to about 60 characters keeps the
+  full font size; longer lines get a smaller font.
 
 ## A pull request as source
 

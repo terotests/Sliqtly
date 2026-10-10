@@ -82,7 +82,7 @@ class PresTimeline {
                 j = (j + 1)
             }
             PresTimeline.placeCharts(s n at)
-            at = (at + s.stepGap)
+            at = (at + (PresTimeline.stepSpan(s n)))
             n = (n + 1)
         }
         i = 0
@@ -210,6 +210,21 @@ class PresTimeline {
             PresTimeline.plan((deck.slideAt(i)))
             i = (i + 1)
         }
+    }
+
+    ; How long step n holds before the next one when the slide plays on its
+    ; own: the deck's gap, or a presenter's line until it has been read.
+    sfn stepSpan:double (s:PresSlide n:int) {
+        def span:double s.stepGap
+        def i:int 0
+        while (i < (array_length s.groups)) {
+            def g:PresGroup (itemAt s.groups i)
+            if (((g.step == n) && (g.anim == "story")) && (g.seconds > span)) {
+                span = g.seconds
+            }
+            i = (i + 1)
+        }
+        return span
     }
 
     ; When build step k (1-based) begins on its slide.

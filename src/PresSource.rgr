@@ -24,7 +24,8 @@
 ; ============================================================================
 
 class PresBlock {
-    ; "notes", "audio" or "code" (links from boxes to source files, PresCodeLinks)
+    ; "notes", "audio", "code" (links from boxes to source files, PresCodeLinks)
+    ; or "story" (the presenter's lines, PresStory)
     def kind:string ""
     ; the rest of the opening line, e.g. `src=puhe-3.mp3`
     def args:string ""
@@ -81,7 +82,7 @@ class PresSource {
     ; containers: `::: warning`, `::: tip`) is the markdown's, a plate
     ; around its content, and stays in the text.
     sfn isDeckBlock:boolean (word:string) {
-        return ((word == "notes") || ((word == "audio") || (word == "code")))
+        return ((word == "notes") || ((word == "audio") || ((word == "code") || (word == "story"))))
     }
 
     sfn isClosing:boolean (t:string) {
