@@ -256,8 +256,10 @@ test("the script-api declarations name what the runtime has", () => {
     return [...m[1].matchAll(/^\s+(?:readonly )?([a-zA-Z]+)\??[(:<]/gm)].map((x) => x[1]);
   };
   const { ctx, modules } = moduleRuntime();
-  ctx.__setTree([{ id: "slide", k: "slide", b: [0, 0, 960, 540], i: 0, p: -1 }]);
+  ctx.__setTree([{ id: "slide", k: "slide", b: [0, 0, 960, 540], i: 0, p: -1 }, { id: "li-1", k: "li", t: "x", b: [0, 0, 9, 9], i: 0, p: 0 }]);
   const S = modules.Sliqtly;
+  const ent = S.presentation.activeSlide.find("li")[0];
+  for (const k of members("Entity")) assert.ok(k in ent, "entity." + k);
   for (const k of members("Presentation")) assert.ok(k in S.presentation, "presentation." + k);
   for (const k of members("ActiveSlide")) assert.ok(k in S.presentation.activeSlide, "activeSlide." + k);
   for (const k of members("Input")) assert.ok(k in S.input, "input." + k);

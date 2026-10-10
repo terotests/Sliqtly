@@ -2005,7 +2005,7 @@ class PresDeck {
     }
 
     sfn isBlockKind:boolean (k:string) {
-        return ((((((k == "heading") || (k == "paragraph")) || ((k == "item") || (k == "list"))) || ((k == "code_block") || (k == "blockquote"))) || ((k == "embed") || (k == "table"))) || (((k == "math_block") || (k == "html_block")) || (k == "container")))
+        return ((((((k == "heading") || (k == "paragraph")) || ((k == "item") || (k == "list"))) || ((k == "code_block") || (k == "block_quote"))) || ((k == "embed") || (k == "table"))) || (((k == "math_block") || (k == "html_block")) || (k == "container")))
     }
 
     fn blocksIn:void (n:MdNode parent:int) {
@@ -2091,7 +2091,7 @@ class PresDeck {
             if ((pick < 0) && ((((kd == "heading") || (kd == "item")) || ((kd == "embed") || (kd == "code_block"))) || (((kd == "table") || (kd == "math_block")) || (kd == "html_block")))) {
                 pick = k
             }
-            if ((quote < 0) && (kd == "blockquote")) {
+            if ((quote < 0) && (kd == "block_quote")) {
                 quote = k
             }
             if ((para < 0) && (kd == "paragraph")) {
@@ -2145,7 +2145,7 @@ class PresDeck {
             if (kind == "html_block") {
                 e.kind = "html"
             }
-            if (kind == "blockquote") {
+            if (kind == "block_quote") {
                 e.kind = "quote"
             }
             if (kind == "embed") {
@@ -2458,7 +2458,7 @@ class PresDeck {
     ; `bars` (as the markdown module drew them, before the dressing), each
     ; label to the column it names, the rest of the words and the data's
     ; lines as parts of their own. `bi` is the chart's layout box.
-    fn chartParts:void (out:EVGDisplayList before:int bars:[EVGDrawCmd] bi:int) {
+    fn chartParts:void (out:EVGDisplayList before:int bars:[EVGDrawCmd] bi:int spec:string) {
         def base:int (array_length slideParts)
         def labels:[string]
         def values:[string]
@@ -2530,8 +2530,14 @@ class PresDeck {
             if ((strlen (itemAt labels d)) > 0) {
                 o.setStr("label" (itemAt labels d))
             }
-            if ((strlen (itemAt values d)) > 0) {
-                o.setStr("value" (itemAt values d))
+            ; the value from the chart's data; else the number drawn on it
+            def dv:[double] (PresChart.barValue(spec (itemAt labels d)))
+            if ((array_length dv) > 0) {
+                o.setNum("value" (itemAt dv 0))
+            } {
+                if ((strlen (itemAt values d)) > 0) {
+                    o.set("value" (PresDeck.drawnValue((itemAt values d))))
+                }
             }
             def be:PresEnt (itemAt slideParts (base + d))
             be.data = (o.toJson())
@@ -2540,6 +2546,44 @@ class PresDeck {
             }
             d = (d + 1)
         }
+    }
+
+    ; A value label as drawn ("1 234,5", "12 %"): its number when it reads
+    ; as one, else the text itself.
+    sfn drawnValue:JVal (t:string) {
+        def digits:string ""
+        def i:int 0
+        def ok:boolean true
+        def seen:boolean false
+        while (i < (strlen t)) {
+            def ch:string (substring t i (i + 1))
+            if ((indexOf "0123456789" ch) >= 0) {
+                digits = (digits + ch)
+                seen = true
+            } {
+                if ((ch == ",") || (ch == ".")) {
+                    digits = (digits + ".")
+                } {
+                    if ((ch == "-") || (ch == "−")) {
+                        digits = (digits + "-")
+                    } {
+                        if (((ch != " ") && (ch != " ")) && (ch != " ")) {
+                            if ((ch != "%") || (i != ((strlen t) - 1))) {
+                                ok = false
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (ok && seen) {
+            def v@(optional):double (to_double digits)
+            if (!null? v) {
+                return (JVal.mkNum((unwrap v)))
+            }
+        }
+        return (JVal.mkStr(t))
     }
 
     ; A diagram's nodes and lines as parts (PresDiagram.partTags): each
@@ -5445,7 +5489,7 @@ class PresDeck {
                         PresChart.flatten(out before paper)
                     }
                     if ((strlen s.script) > 0) {
-                        this.chartParts(out before raw (itemAt mineAt k))
+                        this.chartParts(out before raw (itemAt mineAt k) kb.embedSource)
                     }
                 }
                 }

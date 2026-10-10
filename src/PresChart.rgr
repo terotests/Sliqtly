@@ -826,6 +826,83 @@ class PresChart {
         return ""
     }
 
+    ; The value a column labelled `label` stands for, from the chart's own
+    ; data (`data.values` in the spec): the quantitative field of the row
+    ; whose category is the label, or the rows' sum, mean, min, max or count
+    ; when the value is aggregated. Empty when the spec has no inline data
+    ; or the label names no single value (a stack, a group).
+    sfn barValue:[double] (spec:string label:string) {
+        def out:[double]
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(spec))
+        if ((j.isObject()) == false) {
+            return out
+        }
+        def rows:VlJson ((j.get("data")).get("values"))
+        def enc:VlJson (j.get("encoding"))
+        if (((rows.isArray()) == false) || ((enc.isObject()) == false)) {
+            return out
+        }
+        def x:VlJson (enc.get("x"))
+        def y:VlJson (enc.get("y"))
+        def cat:VlJson x
+        def val:VlJson y
+        if (((x.stringOr("type" "")) == "quantitative") && ((y.stringOr("type" "")) != "quantitative")) {
+            cat = y
+            val = x
+        }
+        if ((val.stringOr("type" "")) != "quantitative") {
+            return out
+        }
+        def cf:string (cat.stringOr("field" ""))
+        def vf:string (val.stringOr("field" ""))
+        def agg:string (val.stringOr("aggregate" ""))
+        if (((strlen cf) == 0) || (((strlen vf) == 0) && (agg != "count"))) {
+            return out
+        }
+        def n:int 0
+        def sum:double 0.0
+        def lo:double 0.0
+        def hi:double 0.0
+        def i:int 0
+        while (i < (rows.count())) {
+            def r:VlJson (rows.at(i))
+            if ((trim ((r.get(cf)).asString())) == label) {
+                def v:double ((r.get(vf)).asDouble())
+                if ((n == 0) || (v < lo)) {
+                    lo = v
+                }
+                if ((n == 0) || (v > hi)) {
+                    hi = v
+                }
+                sum = (sum + v)
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        if (n == 0) {
+            return out
+        }
+        if (agg == "count") {
+            push out (to_double n)
+            return out
+        }
+        if ((agg == "sum") || ((n == 1) && ((strlen agg) == 0))) {
+            push out sum
+            return out
+        }
+        if ((agg == "mean") || (agg == "average")) {
+            push out (sum / (to_double n))
+        }
+        if (agg == "min") {
+            push out lo
+        }
+        if (agg == "max") {
+            push out hi
+        }
+        return out
+    }
+
     ; The column a text names the value of: the one it stands over or inside,
     ; centred on it. An axis label sits below the floor and a legend's off to
     ; the side, so neither is taken for one. -1 when it is none.
