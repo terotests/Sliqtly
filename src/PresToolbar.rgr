@@ -1095,10 +1095,10 @@ class PresToolbar {
         r.tid = "tb-rail"
         r.tone = tone
         r.name = (PresI18n.t("Places"))
+        r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
         if filesOn {
             r.addItem("files" (PresI18n.t("Files")) (PresToolbar.railIcon("files")))
         }
-        r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
         r.addItem("history" (PresI18n.t("Versions")) (PresToolbar.railIcon("history")))
         ; the editor's dark or light look, switched in one press

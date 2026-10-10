@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10f.** If a result names a newer version, read Core
+**Guide version 2026-10-10h.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -224,7 +224,10 @@ const total = sum(rows);
 - `{float=top-right width=8%}` under a picture (also `top-left`,
   `bottom-right`, `bottom-left`) sets it in that corner of the slide, out
   of the flow: the title and the text after it go beside it. Write it right
-  under the slide's heading.
+  under the slide's heading. Without a size it takes at most 30% of the
+  slide's height; `width=` sets its width (a top corner up to 49%) and
+  `height=` (`70%` of the room under the title, or `300`) the most it may
+  be high, keeping its shape.
 - `{width=50%}` under a picture, chart, table or code block puts the
   blocks after it beside it (paragraphs, lists, quotes), down to its
   bottom.
@@ -1025,6 +1028,17 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   and `Math`). A list of JSX elements can be a child (`{rows}`), and so
   can a fragment `<>…</>`. There is no `fetch`, DOM or timer: time comes
   from `tick`.
+- It reads the deck's files with `import`, sent with `files` like the
+  program: `import world from "../data/world.json"` (the parsed value),
+  `import sales from "../data/sales.csv"` (rows as objects by the header
+  row, number-like cells as numbers; `import { rows } …` the cells as
+  text; `.tsv` the same), `import notes from "../data/notes.txt"` (any
+  other file: its text). Every such module also has `text`, the file as
+  it is. `./x` and `../x` are from the program's folder, `data/x` and
+  `/data/x` from the deck's root; a workbook's sheet reads as
+  `data/<book>-<Sheet>.csv`. A file the deck does not have, or JSON that
+  does not parse, is said when the deck is saved and throws where the
+  program reads it. Slide scripts (topic `scripts`) import the same way.
 - Its elements are `div`, and `span`, `p`, `b`, `label` for text;
   `className` and `style` as in React. A number in `style` is px, except
   `opacity`, `zIndex`, `flex`, `fontWeight` and `lineHeight`.
@@ -1044,7 +1058,11 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   Esc gives it back. Until then `input.keys` is empty and no `onKeyDown`
   comes, so tell the audience to click it first. A program's 3-D world
   that reaches past its box (`allow: 3d` below) is the program too while
-  presenting: a click on anything it drew counts.
+  presenting: a click on anything it drew counts. While such a program
+  has the keyboard in a presentation it takes the stage: its world is
+  drawn over the slide's text and the controls at the foot hide, until
+  Esc (or another slide). `<scene3d focus="keep">` keeps the text and the
+  controls; a world kept in its box (`fit="box"`) never hides them.
   - Key names are the browser's `KeyboardEvent.key`: `"ArrowUp"`,
     `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `" "` (space), `"Enter"`,
     `"Escape"` is never sent, letters as typed (`"w"`, with Shift `"W"`),

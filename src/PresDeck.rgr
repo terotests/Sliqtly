@@ -44,6 +44,7 @@ Import "PresSketch.rgr"
 Import "PresStory.rgr"
 Import "PresPuppet.rgr"
 Import "PresPlay.rgr"
+Import "PresPlayFiles.rgr"
 Import "PresScript.rgr"
 Import "Pres3DTree.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -1211,7 +1212,53 @@ class PresDeck {
             }
             si = (si + 1)
         }
+        ; the files the programs read in import (PresPlayFiles)
+        def progs:int (array_length out)
+        def oi:int 0
+        while (oi < progs) {
+            def prog:string (itemAt out oi)
+            if ((PresPlayFiles.isDeckFile(prog)) == false) {
+                for (PresPlayFiles.specs((this.dataText(prog)))) spec:string spi {
+                    def fp:string (PresPlayFiles.resolve(prog spec))
+                    if (((indexOf out fp) < 0) && ((this.fileMissing(fp)) == false)) {
+                        push out fp
+                    }
+                }
+            }
+            oi = (oi + 1)
+        }
         return out
+    }
+
+    ; The page looked for `path` and the document does not have it.
+    fn fileMissing:boolean (path:string) {
+        return (((indexOf dataMissing path) >= 0) || ((indexOf dataMissing (MdVegaRender.resolveUrl(path))) >= 0))
+    }
+
+    ; The program at `path` as it runs: the deck's files it imports made
+    ; modules on its first line (PresPlayFiles); "" while the page has not
+    ; handed over the program or one of those files yet.
+    fn linkedSource:string (path:string) {
+        def src:string (this.dataText(path))
+        if ((strlen src) == 0) {
+            return ""
+        }
+        def files:[PresPlayFile]
+        for (PresPlayFiles.specs(src)) spec:string si {
+            def f:PresPlayFile (new PresPlayFile())
+            f.spec = spec
+            f.path = (PresPlayFiles.resolve(path spec))
+            if (this.hasDataText(f.path)) {
+                f.have = true
+                f.text = (this.dataText(f.path))
+            } {
+                if ((this.fileMissing(f.path)) == false) {
+                    return ""
+                }
+            }
+            push files f
+        }
+        return ((PresPlayFiles.prelude(files)) + src)
     }
 
     ; The blocks with an id or a class (`{#tulos}`, `{.kortti}`) and the
@@ -1476,6 +1523,49 @@ class PresDeck {
             }
         }
         return out
+    }
+
+    ; Whether the program that has the keyboard takes the whole stage
+    ; (PresPlayView.takesStage): while presenting, the slide's text and the
+    ; controls give way to it.
+    fn focusTakesStage:boolean () {
+        if ((strlen playFocus) == 0) {
+            return false
+        }
+        def u@(optional):PresPlayUse (this.playUse(playFocus))
+        def v@(optional):PresPlayView (this.playView(playFocus))
+        if ((null? u) || (null? v)) {
+            return false
+        }
+        def use:PresPlayUse (unwrap u)
+        def view:PresPlayView (unwrap v)
+        def bi:int (this.embedBox(use.page use.source))
+        if (bi < 0) {
+            return false
+        }
+        def lay:MdLayout (this.layout())
+        def b:MdBox (itemAt lay.boxes bi)
+        view.slideW = pageW
+        view.slideH = pageH
+        return (view.takesStage(b.x b.y b.w b.h))
+    }
+
+    ; The program that has the keyboard over slide i, when it takes the
+    ; stage (PresPlayView.paintOver), with its ring.
+    fn paintFocusOver:void (out:EVGDisplayList i:int) {
+        if ((this.focusTakesStage()) == false) {
+            return
+        }
+        def use:PresPlayUse (unwrap (this.playUse(playFocus)))
+        if (use.page != i) {
+            return
+        }
+        def view:PresPlayView (unwrap (this.playView(playFocus)))
+        def bi:int (this.embedBox(use.page use.source))
+        def lay:MdLayout (this.layout())
+        def b:MdBox (itemAt lay.boxes bi)
+        view.paintOver(out b.x b.y b.w b.h)
+        view.paintFocus(out b.x b.y b.w b.h "#58e1ff")
     }
 
     ; Whether a program on slide i drew a 3-D world in its last frame: the
@@ -5730,6 +5820,13 @@ class PresDeck {
         this.paintStory(out s t l)
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
+        }
+        ; a game that has the keyboard over the slide's text (stage only)
+        if ((still == false) && showControls) {
+            this.paintFocusOver(out i)
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
         }
         ; a diagram opened over the whole slide, on a veil of the slide's colour
         if (still == false) {

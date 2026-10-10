@@ -55,9 +55,10 @@ export function viewerAsks(play, asks) {
  * src → picture map; gl() its WebGL context; dpr() its device pixel ratio;
  * imageChanged(gl, src) the painter's; slidePicture(page, w, h) a page as
  * an ImageData without its programs; slideW, slideH the slide's size in
- * its units (a world may draw over all of it).
+ * its units (a world may draw over all of it). onStage(on): a game that
+ * has the keyboard took the whole stage (true) or gave it back.
  */
-export async function startPlays({ plays = [], scripts = [], lists = [], slideW = 0, slideH = 0, canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile }) {
+export async function startPlays({ plays = [], scripts = [], lists = [], slideW = 0, slideH = 0, canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile, onStage = null }) {
   await loadScript("pres_play.js");
   const web = new globalThis.PresPlayWeb();
   web.setSlide(slideW, slideH);
@@ -216,8 +217,18 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
     toast: (line) => console.warn(line),
     readFile,
   }) : null;
+  // the game that has the keyboard takes the stage: the page hides its
+  // controls (onStage) while it does
+  const stageTaken = () => !!focus && byKey.has(focus) && !byKey.get(focus).script && web.takesStage(focus);
+  let staged = false;
   const loop = () => {
     apps.tick(1);
+    const now = stageTaken();
+    if (now !== staged) {
+      staged = now;
+      if (onStage) onStage(now);
+      repaint();
+    }
     if (worlds && worlds.tick(0, gl(), dpr())) repaint();
     requestAnimationFrame(loop);
   };
@@ -247,12 +258,15 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
     // page's list with its programs' 3-D worlds put where the server said
     // (list.worldsAt: over the ground, under the text); the list itself
     // when it has none
+    // A game that has the keyboard and takes the stage
+    // (PresPlayWeb.takesStage) is painted over the slide's text too.
     withWorlds(page, list) {
       if (!worlds || !(list.worldsAt >= 0) || page !== current()) return list;
       const cmds = [];
       for (const p of plays) if (p.slide === page) cmds.push(...JSON.parse(web.worldsJson(p.key)).cmds);
       if (!cmds.length) return list;
-      return { ...list, cmds: [...list.cmds.slice(0, list.worldsAt), ...cmds, ...list.cmds.slice(list.worldsAt)] };
+      const over = stageTaken() && byKey.get(focus).slide === page ? JSON.parse(web.overJson(focus)).cmds : [];
+      return { ...list, cmds: [...list.cmds.slice(0, list.worldsAt), ...cmds, ...list.cmds.slice(list.worldsAt), ...over] };
     },
     // page painted at {x, y, scale} (CSS px of the canvas): its programs'
     // pictures as display lists in the slide's units

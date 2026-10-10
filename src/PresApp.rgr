@@ -54,6 +54,7 @@ Import "../datagrid/src/script/lang/JsLanguage.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
 Import "PresChartEditor.rgr"
+Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
@@ -560,7 +561,7 @@ class PresApp {
             return ""
         }
         def use:PresPlayUse (unwrap u)
-        return (deck.dataText(use.spec.src))
+        return (deck.linkedSource(use.spec.src))
     }
 
     ; The programs on the slide the stage shows, one key a line: these run.
@@ -682,6 +683,12 @@ class PresApp {
     ; [{src, scene, x, y, w, h}] in slide units, "[]" for none.
     fn playScenesJson:string () {
         return ((deck.playScenes(selected)).toJson())
+    }
+
+    ; The presentation as a world to fly through (src/PresFlight.rgr), for
+    ; the page's 3-D flight (web/flight3d.js).
+    fn flightJson:string () {
+        return ((PresFlightScene.of(deck)).toJson())
     }
 
     ; Every slide's 3-D worlds as their programs last drew them, for an
@@ -841,6 +848,13 @@ class PresApp {
         }
         this.slidePoint(x y)
         return ((deck.playPast(selected spX spY)).toJson())
+    }
+
+    ; Whether a program that has the keyboard takes the whole stage while
+    ; presenting (PresDeck.focusTakesStage): the slide's text and the
+    ; controls give way to it.
+    fn gameTakesStage:boolean () {
+        return ((mode == "present") && (deck.focusTakesStage()))
     }
 
     ; The program that has the keyboard ("" gives it back to the deck).
@@ -6714,7 +6728,9 @@ class PresApp {
         if ((codeWas == false) && (layers.isOpen("code"))) {
             layers.raise("review")
         }
-        layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
+        ; a game that has the keyboard while presenting takes the stage: the
+        ; comments' bar and pins give way until Esc
+        layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -9338,6 +9354,11 @@ class PresApp {
     fn openSettings:void (contrast:boolean) {
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Settings → Experimental: 3-D flight, as the page keeps it.
+    fn setFlight3d:void (on:boolean) {
+        panels.flight3d = on
     }
 
     ; File → Settings → Order of presentations: how a room lists them, as

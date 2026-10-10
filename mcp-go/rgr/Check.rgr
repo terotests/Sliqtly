@@ -123,6 +123,38 @@ class Check {
     ; a file a chart reads, as text: this call's files, the deck's stored
     ; ones, a workbook's sheet by its CSV name, or (live) an https address;
     ; "" when there is none
+    ; The program at `path` as it runs: the deck's files it imports made
+    ; modules on its first line (PresPlayFiles); a file that is empty or
+    ; not the deck's is one its import says is missing.
+    sfn programText:string (host:McpHost din:DeckIn path:string) {
+        def src:string (Check.dataText(host din path))
+        if ((strlen src) == 0) {
+            return ""
+        }
+        def files:[PresPlayFile]
+        for (PresPlayFiles.specs(src)) spec:string si {
+            def f:PresPlayFile (new PresPlayFile())
+            f.spec = spec
+            f.path = (PresPlayFiles.resolve(path spec))
+            f.text = (Check.dataText(host din f.path))
+            f.have = ((strlen f.text) > 0)
+            push files f
+        }
+        return ((PresPlayFiles.prelude(files)) + src)
+    }
+
+    ; The files the program at `path` imports that the deck does not have.
+    sfn importsMissing:[string] (host:McpHost din:DeckIn path:string) {
+        def out:[string]
+        for (PresPlayFiles.specs((Check.dataText(host din path)))) spec:string si {
+            def fp:string (PresPlayFiles.resolve(path spec))
+            if ((strlen (Check.dataText(host din fp))) == 0) {
+                push out fp
+            }
+        }
+        return out
+    }
+
     sfn dataText:string (host:McpHost din:DeckIn url:string) {
         def u:string (MdVegaRender.bareUrl(url))
         while (startsWith u "/") {
@@ -317,7 +349,7 @@ class Check {
         for (d.scriptKeys()) key:string ki {
             def pg:int (d.scriptPage(key))
             def s:PresSlide (d.slideAt(pg))
-            def text:string (Check.dataText(host din s.script))
+            def text:string (Check.programText(host din s.script))
             if ((strlen text) == 0) {
                 continue
             }
@@ -349,7 +381,7 @@ class Check {
             return
         }
         def s:PresSlide (d.slideAt(i))
-        def text:string (Check.dataText(host din s.script))
+        def text:string (Check.programText(host din s.script))
         if ((strlen text) == 0) {
             return
         }
@@ -629,7 +661,7 @@ class Check {
         ; each program of an app block tried in the engine the page runs it
         ; in: one that does not run says why here, not as a blank box
         for (d.playUses()) pu:PresPlayUse pui {
-            def ptext:string (Check.dataText(host din pu.spec.src))
+            def ptext:string (Check.programText(host din pu.spec.src))
             if ((strlen ptext) == 0) {
                 continue
             }
@@ -650,6 +682,9 @@ class Check {
             }
             if (((strlen why) > 0) && (why != "-")) {
                 push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " does not run: " + why) "apps"))
+            }
+            for (Check.importsMissing(host din pu.spec.src)) gone:string gi {
+                push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " imports " + gone + ", which the presentation does not have (or it is empty): send it with `files`") "apps"))
             }
             ; its stylesheet's rules the layout does not take
             def ptcss:string (Check.dataText(host din pu.spec.css))

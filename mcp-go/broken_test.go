@@ -133,6 +133,34 @@ func TestAppProgramRuns(t *testing.T) {
 	if strings.Contains(ok, "does not run") {
 		t.Fatal(ok)
 	}
+
+	// the deck's files it imports: JSON parsed, CSV rows, any other file as text
+	withFiles := func(src string, more ...map[string]any) string {
+		files := []any{map[string]any{"name": "game.tsx", "text": src}}
+		for _, m := range more {
+			files = append(files, m)
+		}
+		c := call(t, s, "create_presentation", map[string]any{"title": "B", "markdown": md, "files": files})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		return fmt.Sprint(sc(c)["warnings"])
+	}
+	reads := withFiles("import cfg from \"../data/world.json\";\nimport rows, { text } from \"/data/sales.csv\";\nimport notes from \"data/notes.txt\";\n"+
+		"function view() {\n  if (cfg.speed !== 2 || rows.length !== 2 || rows[1].count !== 7 || rows[0].name !== \"Ada, Jr\" || notes !== \"hei\\n\" || text.indexOf(\"count\") < 0) throw new Error(\"read wrong: \" + JSON.stringify(rows));\n"+
+		"  return <div className=\"b\">{cfg.title}</div>;\n}\n",
+		map[string]any{"name": "data/world.json", "text": "{\"speed\": 2, \"title\": \"Maailma\"}"},
+		map[string]any{"name": "data/sales.csv", "text": "name,count\n\"Ada, Jr\",3\nBo,7\n"},
+		map[string]any{"name": "data/notes.txt", "text": "hei\n"})
+	if strings.Contains(reads, "does not run") || strings.Contains(reads, "imports") {
+		t.Fatal(reads)
+	}
+	gone := withFiles("import cfg from \"../data/none.json\";\nfunction view() { return <div>{cfg.title}</div>; }\n")
+	match(t, gone, `apps/game\.tsx imports data/none\.json, which the presentation does not have`)
+	match(t, gone, `apps/game\.tsx does not run: .*data/none\.json is not a file of the presentation`)
+	bad := withFiles("import cfg from \"../data/w.json\";\nfunction view() { return <div>{cfg.title}</div>; }\n",
+		map[string]any{"name": "data/w.json", "text": "{nope"})
+	match(t, bad, `apps/game\.tsx does not run: .*data/w\.json is not JSON`)
 	match(t, try("function view() { return <div> }\n"), `Slide 2: apps/game\.tsx does not run: .+→ topic=apps`)
 	match(t, try("function view() { return nothing.here; }\n"), `apps/game\.tsx does not run: .*nothing`)
 
