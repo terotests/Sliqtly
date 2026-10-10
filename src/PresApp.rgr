@@ -684,7 +684,7 @@ class PresApp {
     ; The 3-D worlds on the slide the stage shows, for the page to draw:
     ; [{src, scene, x, y, w, h}] in slide units, "[]" for none.
     fn playScenesJson:string () {
-        return ((deck.playScenes(selected)).toJson())
+        return (deck.playScenesText(selected))
     }
 
     ; The presentation as a world to fly through (src/PresFlight.rgr), for

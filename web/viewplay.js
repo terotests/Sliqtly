@@ -203,9 +203,15 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
     app: {
       playScenesJson: () => {
         const page = current();
-        const out = [];
-        for (const p of plays) if (p.slide === page) out.push(...JSON.parse(web.scenesJson(p.key)));
-        return JSON.stringify(out);
+        // the lists joined as text: a big world is not parsed and written
+        // again here every frame
+        const parts = [];
+        for (const p of plays) {
+          if (p.slide !== page) continue;
+          const s = web.scenesJson(p.key);
+          if (s.length > 2) parts.push(s.slice(1, -1));
+        }
+        return "[" + parts.join(",") + "]";
       },
       selectedSlide: current,
     },

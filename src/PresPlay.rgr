@@ -77,6 +77,9 @@ class PresPlayView {
     def root:EVGElement (EVGElement.createDiv())
     ; a tree has been laid out (else the plate the fence left is shown)
     def drawn:boolean false
+    ; the text of the frame being built (setTree): a world's part is cut
+    ; from it
+    def treeText:string ""
     def frames:int 0
     ; why the last tree or stylesheet was not taken, "" when it was
     def error:string ""
@@ -120,6 +123,7 @@ class PresPlayView {
     ;   { t: tag, id?, cls?, a?: {attr: value}, s?: {style: value}, c?: [child] }
     ; a text child a plain string. False when it was not a tree.
     fn setTree:boolean (json:string) {
+        treeText = json
         def v:JVal (JVal.parse(json))
         if ((v.isObj()) == false) {
             error = "the frame was not an element tree"
@@ -211,7 +215,13 @@ class PresPlayView {
             if allow3d {
                 def sc:PresPlayScene (new PresPlayScene())
                 sc.src = ("three:" + key + ":" + (to_string ((array_length scenes) + 1)))
-                sc.json = (n.toJson())
+                ; the world's part of the frame's text as the program wrote
+                ; it: a world of thousands of objects is not written again
+                if ((n.from >= 0) && (n.upto > n.from) && (n.upto <= (strlen treeText))) {
+                    sc.json = (substring treeText n.from n.upto)
+                } {
+                    sc.json = (n.toJson())
+                }
                 ; the element shows the world's picture, which covers the
                 ; whole slide (paint): inside the program's picture it is in
                 ; its place among the program's elements, and past it the
@@ -379,6 +389,36 @@ class PresPlayView {
             i = (i + 1)
         }
         return out
+    }
+
+    ; scenesIn as its JSON, the scenes' own JSON spliced in as it is: a
+    ; world of thousands of objects is not parsed and written again every
+    ; frame (web/viewplay.js asks for it once a frame).
+    fn scenesJsonIn:string (bx:double by:double bw:double bh:double) {
+        if (drawn == false) {
+            return "[]"
+        }
+        this.place(bx by bw bh)
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            def o:JVal (JVal.mkObj())
+            o.setStr("src" sc.src)
+            o.setNum("x" sc.x)
+            o.setNum("y" sc.y)
+            o.setNum("w" sc.w)
+            o.setNum("h" sc.h)
+            o.setBool("clip" sc.clip)
+            if (sc.clip == false) {
+                o.setNum("sw" slideW)
+                o.setNum("sh" slideH)
+            }
+            def m:string (o.toJson())
+            push parts ("{\"scene\":" + sc.json + "," + (substring m 1 (strlen m)))
+            i = (i + 1)
+        }
+        return ("[" + (join parts ",") + "]")
     }
 
     ; The worlds' pictures past the program's picture, painted into `out`

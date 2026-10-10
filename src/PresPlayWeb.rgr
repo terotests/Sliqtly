@@ -116,7 +116,7 @@ class PresPlayWeb {
             return "[]"
         }
         def v:PresPlayView (itemAt views i)
-        return ((v.scenesIn((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))).toJson())
+        return (v.scenesJsonIn((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3))))
     }
 
     ; Those worlds past the program's picture as display list JSON in the

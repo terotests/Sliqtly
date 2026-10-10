@@ -28,6 +28,10 @@ class JVal {
     def arr:[JVal]
     def keys:[string]
     def vals:[JVal]
+    ; an object read by JVal.parse: where it was in the text (from up to
+    ; upto), so a part can be handed on as it was written; -1 otherwise
+    def from:int -1
+    def upto:int -1
 
     Constructor () {
     }
@@ -448,10 +452,12 @@ class JParser {
         def c:int (this.peek())
         if (c == 123) {
             v.kind = 5
+            v.from = at
             at = (at + 1)
             this.skipWs()
             if ((this.peek()) == 125) {
                 at = (at + 1)
+                v.upto = at
                 depth = (depth - 1)
                 return v
             }
@@ -478,6 +484,7 @@ class JParser {
                 } {
                     if (d == 125) {
                         at = (at + 1)
+                        v.upto = at
                         depth = (depth - 1)
                         return v
                     }
