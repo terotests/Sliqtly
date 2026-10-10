@@ -1130,6 +1130,38 @@ arrows. Name it on the slide's heading; one script a slide:
 
   Find once at the top and keep the lists: the entities stay the same
   while the slide is shown.
+- Sprites: characters from a spritesheet of the deck's own that walk and
+  jump on the slide's boxes. Send the sheet as a picture (topic
+  `pictures`), for example `sprites/robot.png`: one frame beside the other
+  in a grid, the character facing right.
+
+  ```tsx
+  sprites.sheet("robot", { src: "sprites/robot.png", grid: [8, 1],
+    frame: [20, 20], feet: 1, anims: {
+      idle: { from: 0, frames: 2, fps: 2 },
+      walk: { from: 2, frames: 4, fps: 8 },
+      jump: { from: 6, frames: 2, loop: false } } });
+  function start() {
+    const r = sprites.add("robot", { on: find("node#A"), size: 60 });
+    r.walkTo(find("node#B")).jump(find("h2"), { at: 0.9 })
+      .say("Done!").call(() => find("node#B").set({ scale: 1.1 }));
+  }
+  ```
+
+  `grid` is the sheet's columns and rows, `frame` a frame's width and
+  height (only their ratio counts), `feet` the empty pixels under the
+  feet in a frame, `faces: "left"` for a sheet drawn facing left. An
+  animation is `{from, frames, fps, row, loop}`: `idle`, `walk` and `jump`
+  are used by name, others with `play(name, secs)`. `size` is the drawn
+  height in slide px (64 when left out). A target is an entity, a found
+  list, a selector or `{x, y}`; on an entity the sprite stands on its top
+  edge (a text's words), `at` (0..1) along it. `walkTo` walks on one level
+  and hops the gaps between boxes, to another level it walks to the edge
+  and jumps; `jump` jumps straight there; `say(text, {secs})`,
+  `wait(secs)`, `face("left")`, `play(name, secs)` and `call(fn)` queue
+  after them. The sprite needs no `tick`. A thumbnail, render_slide at its
+  time and the PDF show where it is; the end of its queue is where the
+  script ends.
 - `allow:` on the heading, as for `app` blocks: `slide.nav`
   (`slide.next()`, `slide.prev()`), `deck.data` (`deck.set`). Without it
   the script only changes its own slide's look.

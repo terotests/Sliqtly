@@ -15,6 +15,9 @@
 //          visible, skew, origin})   e.reset()  e.clone(props)  e.remove()
 //   e.get("x")                 what it is set to, else where it was drawn
 //   add("rect"|"circle"|"text"|"image", {x, y, w, h, text, size, src, …})
+//   sprites.sheet(name, {…}) sprites.add(name, {on, size}): characters from
+//                              a spritesheet that walk and jump on the boxes
+//                              (web/sprite-runtime.js)
 //   env.reducedMotion, env.export
 //   input.keys, input.pointer {x, y, down, inside} (slide px),
 //   input.take("ArrowRight", …) keys the presentation leaves to the script
@@ -61,6 +64,18 @@ var input = {
 };
 var __PROPS = { x: 1, y: 1, scale: 1, scaleX: 1, scaleY: 1, rotate: 1, skew: 1, origin: 1, opacity: 1, visible: 1, color: 1, fill: 1, stroke: 1, z: 1, clip: 1 };
 var __saidKeys = {};
+// counts the entity trees the page sent: what is laid out against the boxes
+// (web/sprite-runtime.js) is laid out again when it moves on
+var __treeGen = 0;
+// what moves on with the slide's own clock besides tick(dt): {advance(dt),
+// toEnd()} (web/sprite-runtime.js)
+var __clockUsers = [];
+function __advanceClocks(dt) {
+  for (var i = 0; i < __clockUsers.length; i++) __clockUsers[i].advance(dt);
+}
+function __clocksToEnd() {
+  for (var i = 0; i < __clockUsers.length; i++) __clockUsers[i].toEnd();
+}
 
 // What each selector found, until the entities change (__setTree): a
 // script that finds in every tick does the walk once.
@@ -184,6 +199,7 @@ function add(kind, p) {
 }
 
 function __setTree(list) {
+  __treeGen++;
   __ents = [];
   __selEnts = [];
   __byId = {};
@@ -283,6 +299,7 @@ function __scriptFrame(arg) {
   }
   var tick = __hook("tick");
   if (tick) tick(a.dt || 0);
+  __advanceClocks(a.dt || 0);
   return __out();
 }
 
@@ -298,6 +315,7 @@ function __scriptFinal(arg) {
   var fin = __hook("final");
   if (fin) fin();
   else __tickFor(a.seconds);
+  __clocksToEnd();
   return __out();
 }
 
@@ -326,12 +344,12 @@ function __buildTo(step) {
 
 function __tickFor(seconds) {
   var tick = __hook("tick");
-  if (!tick) return;
   var secs = Math.min(20, Math.max(0, Number(seconds) || 0));
   var n = Math.round(secs * 30);
   for (var i = 0; i < n; i++) {
     env.time = i / 30;
-    tick(1 / 30);
+    if (tick) tick(1 / 30);
+    __advanceClocks(1 / 30);
   }
 }
 `;
