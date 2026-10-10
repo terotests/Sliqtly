@@ -4857,6 +4857,65 @@ class PresDeck {
         return n
     }
 
+    ; The box of a diagram on slide i under slide point (px, py) at slide
+    ; time t that has code links of its own: [k, node], or [] (none).
+    fn codeNodeAt:[int] (i:int t:double px:double py:double) {
+        def out:[int]
+        if ((i < 0) || (i >= (array_length slides))) {
+            return out
+        }
+        def s:PresSlide (itemAt slides i)
+        def only:int (this.fullAt(i))
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def u:PresDiaUse (itemAt s.diagrams k)
+            if ((only < 0) || (only == k)) {
+                def b:[double] (u.boxNow(uiNow (this.fullBoxNow())))
+                def dd:PresDiagram (u.active(uiNow))
+                def hn:int (dd.hitNode((u.activeTime(t uiNow)) (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) px py))
+                if (hn >= 1000) {
+                    def n:int (hn - 1000)
+                    if ((array_length (codeLinks.forNode(i k (dd.nodeIdAt(n)) (dd.nodeText(n))))) > 0) {
+                        push out k
+                        push out n
+                        return out
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Where box n of diagram k on slide i is drawn at slide time t (slide
+    ; units): [x, y, w, h], or the diagram's box when the box is not in view.
+    fn codeNodeBox:[double] (i:int k:int n:int t:double) {
+        def out:[double]
+        def hit@(optional):PresDiaUse (this.diagramUse(i k))
+        if (null? hit) {
+            return out
+        }
+        def u:PresDiaUse hit
+        def b:[double] (u.boxNow(uiNow (this.fullBoxNow())))
+        def dd:PresDiagram (u.active(uiNow))
+        def te:double (u.activeTime(t uiNow))
+        def a:[double]
+        def c:[double]
+        def id:string (dd.nodeIdAt(n))
+        if ((n >= 0) && ((strlen id) > 0)) {
+            dd.anchorPoint(te (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) id 0.0 0.0 a)
+            dd.anchorPoint(te (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) id 1.0 1.0 c)
+        }
+        if (((array_length a) == 2) && ((array_length c) == 2)) {
+            push out (itemAt a 0)
+            push out (itemAt a 1)
+            push out ((itemAt c 0) - (itemAt a 0))
+            push out ((itemAt c 1) - (itemAt a 1))
+            return out
+        }
+        return b
+    }
+
     ; A `::: code` block belongs to the nearest diagram above it on its slide
     ; (none: the slide's own links); a diagram's own `click … "code:…"`
     ; lines are its links too.

@@ -59,6 +59,7 @@ Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
 Import "PresMeet.rgr"
 Import "PresReviewUi.rgr"
+Import "PresCodeViewUi.rgr"
 Import "PresSketchUi.rgr"
 Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
@@ -300,6 +301,12 @@ class PresApp {
     def meet:PresMeet (new PresMeet())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
+    ; presenting, the source files a diagram's boxes link to (PresCodeLinks),
+    ; read-only over the slide (PresCodeViewUi), and the diagrams' badges
+    def codeView:PresCodeViewUi (new PresCodeViewUi())
+    def codePress:boolean false
+    ; the files under code/ asked from the page
+    def codeAsked:[string]
     ; Slide → Draw on slide: what is drawn stays on the slide (PresSketchUi,
     ; PresSketch); a drawing begun on a slide without one is the deck's
     ; until its reference is written (PresDeck.newSketchPath/newSketchSlide),
@@ -351,6 +358,7 @@ class PresApp {
         layers.add("bar" "docked")
         layers.add("panels" "docked")
         layers.add("sketch" "docked")
+        layers.add("code" "docked")
         layers.add("review" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
@@ -387,6 +395,9 @@ class PresApp {
         PresApp.lightEditor(editor)
         PresApp.lightEditor(cssEditor)
         PresApp.lightEditor(fileEditor)
+        PresApp.darkEditor(codeView.edA)
+        PresApp.darkEditor(codeView.edB)
+        codeView.dark = true
         W = w
         H = h
     }
@@ -1985,6 +1996,9 @@ class PresApp {
         clock = (PresTimeline.slideStart(deck selected))
         elapsed = 0.0
         deck.resetExplore()
+        codeView.close(-10.0)
+        review.setCodeView("")
+        this.codeWant(deck.codeLinks.links)
         push requests "fullscreen"
         chromeRev = (chromeRev + 1)
     }
@@ -2004,6 +2018,9 @@ class PresApp {
         ink.hidePointer()
         inkPress = false
         inkLine = false
+        codeView.close(-10.0)
+        codePress = false
+        review.setCodeView("")
         mode = "edit"
         ended = false
         this.viewReset()
@@ -3711,7 +3728,15 @@ class PresApp {
 
     fn uiBusy:boolean () {
         deck.showingSlide(selected)
-        return (((deck.uiBusy(selected)) || reviewBusy) || (stripMove.busy(deck.uiNow)))
+        def codeBusy:boolean false
+        if (mode == "present") {
+            ; a press held on a line becomes a comment's hold after a while
+            if (codeView.tick(deck.uiNow)) {
+                chromeRev = (chromeRev + 1)
+            }
+            codeBusy = ((codeView.view.busy(deck.uiNow)) || codePress)
+        }
+        return ((((deck.uiBusy(selected)) || reviewBusy) || (stripMove.busy(deck.uiNow))) || codeBusy)
     }
 
     ; Called by the page each frame: one more rebuild while charts are still
@@ -4274,6 +4299,18 @@ class PresApp {
             if replaying {
                 return "stage"
             }
+            if (codeView.isOpen()) {
+                codeView.press(tr x y clicks deck.uiNow)
+                codePress = true
+                this.takeCode()
+                return "code"
+            }
+            def badge:string (codeView.badgeAt(x y))
+            if ((strlen badge) > 0) {
+                this.openCodeBadge(badge)
+                return "code"
+            }
+            downClicks = clicks
             this.stageDown(x y)
             return "stage"
         }
@@ -4668,6 +4705,12 @@ class PresApp {
             if (((adx * adx) + (ady * ady)) >= (swipeMin * swipeMin)) {
                 return
             }
+            ; a box with code links: a double click opens its files, a
+            ; single click is the box's (no next step under it)
+            if (this.codeClick(downX downY downClicks)) {
+                chromeRev = (chromeRev + 1)
+                return
+            }
             if (! (this.stagePress(downX downY))) {
                 ; a link on the slide goes where it points; elsewhere on
                 ; it, the next step
@@ -4708,6 +4751,11 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if codePress {
+            codeView.drag(tr x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (sketch.busy()) {
             sketch.move(x y (this.sketchModel()))
             chromeRev = (chromeRev + 1)
@@ -4904,6 +4952,12 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if codePress {
+            codePress = false
+            codeView.release()
+            this.takeCode()
+            return
+        }
         if (sketch.busy()) {
             sketch.release((this.sketchModel()))
             this.afterSketch()
@@ -5085,6 +5139,11 @@ class PresApp {
                 chromeRev = (chromeRev + 1)
                 return true
             }
+        }
+        if ((mode == "present") && (codeView.isOpen())) {
+            codeView.wheel(dy)
+            chromeRev = (chromeRev + 1)
+            return true
         }
         if (mode == "present") {
             return false
@@ -5385,6 +5444,15 @@ class PresApp {
             def used:boolean (chart.key(name shift ctrl))
             this.afterChart()
             return used
+        }
+        ; the source viewer has the keys while it is open (Esc closes a
+        ; comment's callout over it first)
+        if ((mode == "present") && (codeView.isOpen())) {
+            if ((name != "escape") || ((review.panelOpen()) == false)) {
+                def usedC:boolean (codeView.key(name shift ctrl deck.uiNow))
+                this.takeCode()
+                return usedC
+            }
         }
         ; a replay: Esc ends it, nothing else drives it (the host's keys
         ; pause and seek it)
@@ -6574,6 +6642,12 @@ class PresApp {
         }
         layers.setOpen("panels" ((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
+        ; the source viewer and the badges under the comments' pins
+        def codeWas:boolean (layers.isOpen("code"))
+        layers.setOpen("code" ((mode == "present") && ((deck.slideCount()) > 0)))
+        if ((codeWas == false) && (layers.isOpen("code"))) {
+            layers.raise("review")
+        }
         layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -6605,6 +6679,9 @@ class PresApp {
         if (id == "review") {
             this.reviewReady()
             return (review.has(x y))
+        }
+        if (id == "code") {
+            return ((codeView.isOpen()) || ((strlen (codeView.badgeAt(x y))) > 0))
         }
         if (id == "sketch") {
             this.sketchPlace()
@@ -7517,6 +7594,7 @@ class PresApp {
                 }
             }
         }
+        this.codeSpots()
     }
 
     ; The diagram under a point of the selected slide (slide units) at time
@@ -8245,6 +8323,333 @@ class PresApp {
         return (room.lastSeq())
     }
 
+    ; =========================================================================
+    ; Source code over a presented slide (PresCodeViewUi, PresCodeLinks)
+    ; =========================================================================
+
+    ; The files a set of links needs, asked from the page once each:
+    ; "code-files:<path>|<path>…" (setCodeFile / setCodeGone come back).
+    fn codeWant:void (ls:[PresCodeLink]) {
+        def ask:[string]
+        for (codeView.wanted(ls)) p:string i {
+            def seen:boolean false
+            for codeAsked q:string j {
+                if (q == p) {
+                    seen = true
+                }
+            }
+            if (seen == false) {
+                push codeAsked p
+                push ask p
+            }
+        }
+        if ((array_length ask) > 0) {
+            push requests ("code-files:" + (join ask "|"))
+        }
+    }
+
+    ; A file under code/ from the page; sources.json is read as such.
+    fn setCodeFile:void (path:string text:string) {
+        def p:string (PresCodeFiles.clean(path))
+        if (p == "sources.json") {
+            codeView.setSources(text)
+            ; the diffs it names
+            this.codeWant(deck.codeLinks.links)
+        }
+        codeView.setFile(p text)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn setCodeGone:void (path:string) {
+        codeView.setGone(path)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The deck's files changed: asked again when next wanted (each comes
+    ; back as it is now, or as gone).
+    fn codeFilesChanged:void () {
+        def noAsked:[string]
+        codeAsked = noAsked
+        if (mode == "present") {
+            this.codeWant(deck.codeLinks.links)
+        }
+    }
+
+    ; A click let go at (x, y) presenting: on a box with code links, true
+    ; (a double click opens them).
+    fn codeClick:boolean (x:double y:double clicks:int) {
+        if ((slideRect.has(x y)) == false) {
+            return false
+        }
+        this.slidePoint(x y)
+        def t:double (this.stageTime())
+        def at:[int] (deck.codeNodeAt(selected t spX spY))
+        if ((array_length at) < 2) {
+            return false
+        }
+        if (clicks >= 2) {
+            this.openCodeNode((itemAt at 0) (itemAt at 1))
+        }
+        return true
+    }
+
+    ; Opens the links of box n of diagram k (n -1: the diagram's), grown
+    ; out of where it is on the screen.
+    fn openCodeNode:void (k:int n:int) {
+        def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+        if (null? hit) {
+            return
+        }
+        def u:PresDiaUse hit
+        def dd:PresDiagram (u.active(deck.uiNow))
+        def ls:[PresCodeLink]
+        def id:string ""
+        if (n >= 0) {
+            id = (dd.nodeIdAt(n))
+            ls = (deck.codeLinks.forNode(selected k id (dd.nodeText(n))))
+        } {
+            ls = (deck.codeLinks.forDiagram(selected k))
+        }
+        if ((array_length ls) == 0) {
+            return
+        }
+        def t:double (this.stageTime())
+        def b:[double] (deck.codeNodeBox(selected k n t))
+        def sc:double (this.slideScale())
+        def bx:double 0.0
+        def by:double 0.0
+        def bw:double 0.0
+        def bh:double 0.0
+        if ((array_length b) == 4) {
+            bx = (slideRect.x + ((itemAt b 0) * sc))
+            by = (slideRect.y + ((itemAt b 1) * sc))
+            bw = ((itemAt b 2) * sc)
+            bh = ((itemAt b 3) * sc)
+        }
+        this.codeWant(ls)
+        codeView.open(ls 0 selected k id bx by bw bh deck.uiNow)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A badge pressed: "dia:<k>" or "node:<k>:<n>".
+    fn openCodeBadge:void (badge:string) {
+        def parts:[string] (strsplit badge ":")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def k:int (?? (to_int (itemAt parts 1)) -1)
+        def n:int -1
+        if ((array_length parts) >= 3) {
+            n = (?? (to_int (itemAt parts 2)) -1)
+        }
+        this.openCodeNode(k n)
+    }
+
+    ; A source code comment picked in the comments' list: its file, at its
+    ; line, over the slide shown.
+    fn openCodeThread:void (id:string) {
+        def f@(optional):PresReviewThread (review.model.find(id))
+        if (null? f) {
+            return
+        }
+        def th:PresReviewThread f
+        if ((th.isCode()) == false) {
+            return
+        }
+        def k:PresCodeLink (new PresCodeLink())
+        k.path = th.codePath
+        k.from = th.codeLine
+        k.to = th.codeTo
+        k.slide = selected
+        k.dia = th.viaDia
+        k.node = th.viaNode
+        def ls:[PresCodeLink]
+        push ls k
+        this.codeWant(ls)
+        if (mode == "present") {
+            def cx:double (W / 2.0)
+            def cy:double (H / 2.0)
+            codeView.open(ls 0 selected th.viaDia th.viaNode cx cy 1.0 1.0 deck.uiNow)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; What the viewer asked: a comment on the held lines, a link, the copy,
+    ; closed.
+    fn takeCode:void () {
+        while ((array_length codeView.requests) > 0) {
+            def rq:string (itemAt codeView.requests 0)
+            remove_index codeView.requests 0
+            if (rq == "comment") {
+                this.codeComment()
+            }
+            if (rq == "copy") {
+                review.clip = codeView.clip
+                push requests "review-copy"
+            }
+            if ((indexOf rq "open:") == 0) {
+                push requests ("openlink:" + (substring rq 5 (strlen rq)))
+            }
+            if (rq == "closed") {
+                review.setCodeView("")
+                this.afterReview()
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A hold let go on lines of the file shown: a new source code comment
+    ; there (always on the new version's lines: PresCodeView.commentLines).
+    fn codeComment:void () {
+        if (review.on == false) {
+            return
+        }
+        def ko@(optional):PresCodeLink (codeView.view.link())
+        if (null? ko) {
+            return
+        }
+        def k:PresCodeLink ko
+        def hl:[int] codeView.holdLines
+        if ((array_length hl) < 4) {
+            return
+        }
+        def f:PresCodeFile (codeView.fileOf(k.path))
+        def pt:[double] (codeView.pinPoint((itemAt hl 0)))
+        def fx:double 0.5
+        def fy:double 0.5
+        if ((slideRect.w > 0.0) && (slideRect.h > 0.0)) {
+            fx = (((itemAt pt 0) - slideRect.x) / slideRect.w)
+            fy = (((itemAt pt 1) - slideRect.y) / slideRect.h)
+        }
+        review.setCodeView(k.path)
+        review.startCodeDraft(selected fx fy k.path (itemAt hl 0) (itemAt hl 1) (codeView.holdText()) (itemAt hl 2) (itemAt hl 3) f.repo f.commit codeView.view.dia codeView.view.node)
+        focus = "review"
+        this.afterReview()
+    }
+
+    ; The comments on the file shown, at their lines: spots for the pins.
+    fn codeSpots:void () {
+        if (((mode != "present") || ((codeView.isOpen()) == false)) || ((slideRect.w <= 0.0) || (slideRect.h <= 0.0))) {
+            return
+        }
+        codeView.placeSpots(review.model)
+        def i:int 0
+        while (i < (array_length codeView.spotIds)) {
+            def sx:double (((itemAt codeView.spotXs i) - slideRect.x) / slideRect.w)
+            def sy:double (((itemAt codeView.spotYs i) - slideRect.y) / slideRect.h)
+            review.setSpot((itemAt codeView.spotIds i) sx sy true)
+            i = (i + 1)
+        }
+    }
+
+    ; The viewer or the diagrams' badges, as a layer over the slide.
+    fn codeJson:string () {
+        codeView.clearBadges()
+        if ((mode != "present") || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        this.place()
+        def now:double deck.uiNow
+        ; another slide (the presenting bar's buttons): the viewer closes
+        if ((codeView.isOpen()) && (codeView.view.slide != selected)) {
+            codeView.close(-10.0)
+            review.setCodeView("")
+        }
+        def dl (new EVGDisplayList())
+        if (codeView.shows(now)) {
+            def bottom:double H
+            if (barTop > 0.0) {
+                bottom = barTop
+            }
+            def v:PresCodeView codeView.view
+            codeView.place(W H bottom v.fromX v.fromY v.fromW v.fromH now)
+            codeView.paint(dl tr now)
+            if (codeView.isOpen()) {
+                def ko@(optional):PresCodeLink (codeView.view.link())
+                if (!null? ko) {
+                    def k:PresCodeLink ko
+                    review.setCodeView(k.path)
+                }
+            }
+        } {
+            if ((viewZoom <= 1.0) && (ended == false)) {
+                this.codeBadges(dl)
+            }
+        }
+        if ((array_length dl.cmds) == 0) {
+            return ""
+        }
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; The viewer has the keys (the page sends it the letters too).
+    fn codeViewOpen:boolean () {
+        return ((mode == "present") && (codeView.isOpen()))
+    }
+
+    ; Whether a comment still open is on one of the files.
+    fn codeOpenComments:boolean (ls:[PresCodeLink]) {
+        for review.model.threads t:PresReviewThread i {
+            if ((t.closed == false) && (t.isCode())) {
+                for ls k:PresCodeLink j {
+                    if (k.path == t.codePath) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    ; `‹/› N` on each diagram with links (N files), `‹/›` on each box with
+    ; its own, where the box is now.
+    fn codeBadges:void (dl:EVGDisplayList) {
+        def ks:[int] (deck.codeLinks.diagramsOn(selected))
+        if ((array_length ks) == 0) {
+            return
+        }
+        def t:double (this.stageTime())
+        def sc:double (this.slideScale())
+        def fb:[double] (deck.fullBoxNow())
+        def only:int (deck.fullAt(selected))
+        for ks k:int i {
+            def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+            if ((!null? hit) && ((only < 0) || (only == k))) {
+                def u:PresDiaUse hit
+                def b:[double] (u.boxNow(deck.uiNow fb))
+                def dd:PresDiagram (u.active(deck.uiNow))
+                def te:double (u.activeTime(t deck.uiNow))
+                def all:[PresCodeLink] (deck.codeLinks.forDiagram(selected k))
+                def files:int (deck.codeLinks.fileCount(selected k))
+                def bx:double (slideRect.x + (((itemAt b 0) + 8.0) * sc))
+                def by:double (slideRect.y + (((itemAt b 1) + 8.0) * sc))
+                if (dd.backVisible(te)) {
+                    bx = (bx + (40.0 * sc))
+                }
+                codeView.badge(dl tr ("dia:" + (to_string k)) ("‹/› " + (to_string files)) bx by (this.codeOpenComments(all)))
+                ; the boxes' own
+                def n:int 0
+                while (n < (array_length dd.nodes)) {
+                    def nid:string (dd.nodeIdAt(n))
+                    def own:[PresCodeLink] (deck.codeLinks.forNode(selected k nid (dd.nodeText(n))))
+                    if ((array_length own) > 0) {
+                        def out:[double]
+                        if (dd.anchorPoint(te (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) nid 1.0 0.0 out)) {
+                            def label:string "‹/›"
+                            if ((array_length own) > 1) {
+                                label = (label + " " + (to_string (array_length own)))
+                            }
+                            def nx:double ((slideRect.x + ((itemAt out 0) * sc)) - 14.0)
+                            def ny:double ((slideRect.y + ((itemAt out 1) * sc)) - 10.0)
+                            codeView.badge(dl tr ("node:" + (to_string k) + ":" + (to_string n)) label nx ny (this.codeOpenComments(own)))
+                        }
+                    }
+                    n = (n + 1)
+                }
+            }
+        }
+    }
+
     ; review mode's layer, for the page to paint where `layerOrder` puts it
     fn reviewJson:string () {
         reviewBusy = false
@@ -8283,6 +8688,11 @@ class PresApp {
                 meet.panelOpen = false
                 panels.setCall(false)
             }
+        }
+        if ((strlen review.wantCode) > 0) {
+            def wc:string review.wantCode
+            review.wantCode = ""
+            this.openCodeThread(wc)
         }
         if (review.wantSlide >= 0) {
             def to:int review.wantSlide
