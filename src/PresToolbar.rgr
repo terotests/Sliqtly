@@ -29,8 +29,6 @@ class PresToolbar {
     def css:string ""
     ; The editor's skin ("" or "retro"): a theme name added to this host's own.
     def skin:string ""
-    ; while the bar is built: its buttons stand on the brand's frame
-    def onFrame:boolean false
     ; the name at the start of the bar: the page's own (PresApp.setAppName)
     def brand:string "EVG Presentation"
     ; the page's own buttons after Ohje: "id<TAB>label<TAB>variant" rows
@@ -271,13 +269,6 @@ class PresToolbar {
         }
         if (((variant == "primary") || (variant == "accent")) && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "tb-onprimary")
-        }
-        ; on the frame: drawn light on its colour (toolbar.css .tb-fb-*)
-        if onFrame {
-            UiTree.addClass(r ("tb-fb tb-fb-" + variant))
-            if ((r.getChildCount()) > 0) {
-                UiTree.addClass((r.getChild(0)) ("tb-fb-label tb-fb-label-" + variant))
-            }
         }
         this.put(c parent)
         return c
@@ -1035,10 +1026,9 @@ class PresToolbar {
         return box
     }
 
-    fn railCtl:RailCtl (tone:string) {
+    fn railCtl:RailCtl () {
         def r (new RailCtl())
         r.tid = "tb-rail"
-        r.tone = tone
         r.name = (PresI18n.t("Places"))
         r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
@@ -1078,13 +1068,10 @@ class PresToolbar {
         return el
     }
 
-    ; The rail's tone: on the brand's frame, except in the retro skin, which
-    ; draws its own panel there.
-    fn frameTone:string () {
-        if ((indexOf skin "retro") >= 0) {
-            return ""
-        }
-        return "frame"
+    ; The bar and the rail are a frame (papyrus, toolbar.css) with the work
+    ; set into it, except in the retro skin, which draws its own panel there.
+    fn framed:boolean () {
+        return ((indexOf skin "retro") < 0)
     }
 
     fn frameUnder:EVGElement (x:double y:double fw:double fh:double) {
@@ -1101,7 +1088,7 @@ class PresToolbar {
     fn buildRail:void (root:EVGElement) {
         def col:EVGElement (this.div("tb-railcol"))
         col.addChild((this.logoEl()))
-        def r:RailCtl (this.railCtl((this.frameTone())))
+        def r:RailCtl (this.railCtl())
         ; the column's height under the mark: the bottom places at its foot
         def re:EVGElement (unwrap r.rootEl)
         re.setAttribute("height" ((EVGDisplayList.num((h - 66.0))) + "px"))
@@ -1111,7 +1098,7 @@ class PresToolbar {
 
     ; A phone's drawer: the same places, as a grid at its top.
     fn drawerRail:void (body:EVGElement) {
-        def r:RailCtl (this.railCtl(""))
+        def r:RailCtl (this.railCtl())
         def dre:EVGElement (unwrap r.rootEl)
         UiTree.addClass(dre "tb-drawer-rail")
         def g:int 0
@@ -1822,14 +1809,13 @@ class PresToolbar {
         ; under the frame's bar and rail, one pixel past their edges: every
         ; box's edge is smoothed, and over the light work below it would
         ; show as a pale seam between the frame and the work
-        if ((this.frameTone()) == "frame") {
+        if (this.framed()) {
             root.addChild((this.frameUnder(0.0 0.0 w (barH + 1.0))))
             if ((this.compact()) == false) {
                 root.addChild((this.frameUnder(0.0 0.0 (railW + 1.0) h)))
             }
         }
         def bar:EVGElement (this.div("tb-bar"))
-        onFrame = ((this.frameTone()) == "frame")
         def play:string (PresI18n.t("▶ Play"))
         if playing {
             play = (PresI18n.t("⏸ Pause"))
@@ -1948,7 +1934,6 @@ class PresToolbar {
         }
         root.addChild(bar)
         barEl = bar
-        onFrame = false
         if (small && roomsOpen) {
             this.buildRooms(root)
             def rp:EVGElement (root.getChild(((root.getChildCount()) - 1)))
@@ -1982,7 +1967,7 @@ class PresToolbar {
             ; the bar and the rail are a frame in the brand's colour; the
             ; work under the bar and right of the rail is set into it, its
             ; top left corner rounded (Slack's window)
-            if ((this.frameTone()) == "frame") {
+            if (this.framed()) {
                 root.addChild((this.frameCorner(railW barH)))
             }
         }
