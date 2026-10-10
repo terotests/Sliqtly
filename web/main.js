@@ -4424,6 +4424,10 @@ function frame() {
     collab?.tick();
     meet.tick();
     apps.tick(app.revision());
+    // a game that has the keyboard while presenting takes the stage: the
+    // controls at the foot give way until Esc (PresApp.gameTakesStage)
+    const staged = app.gameTakesStage();
+    if (staged !== document.body.classList.contains("game-stage")) document.body.classList.toggle("game-stage", staged);
     if (three3d.tick(app.revision(), gl, dpr)) needsPaint = true;
     musicFrame(now);
     const rev = app.revision();

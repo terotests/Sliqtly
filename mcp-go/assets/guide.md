@@ -1020,7 +1020,11 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   Esc gives it back. Until then `input.keys` is empty and no `onKeyDown`
   comes, so tell the audience to click it first. A program's 3-D world
   that reaches past its box (`allow: 3d` below) is the program too while
-  presenting: a click on anything it drew counts.
+  presenting: a click on anything it drew counts. While such a program
+  has the keyboard in a presentation it takes the stage: its world is
+  drawn over the slide's text and the controls at the foot hide, until
+  Esc (or another slide). `<scene3d focus="keep">` keeps the text and the
+  controls; a world kept in its box (`fit="box"`) never hides them.
   - Key names are the browser's `KeyboardEvent.key`: `"ArrowUp"`,
     `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `" "` (space), `"Enter"`,
     `"Escape"` is never sent, letters as typed (`"w"`, with Shift `"W"`),

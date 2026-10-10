@@ -850,6 +850,13 @@ class PresApp {
         return ((deck.playPast(selected spX spY)).toJson())
     }
 
+    ; Whether a program that has the keyboard takes the whole stage while
+    ; presenting (PresDeck.focusTakesStage): the slide's text and the
+    ; controls give way to it.
+    fn gameTakesStage:boolean () {
+        return ((mode == "present") && (deck.focusTakesStage()))
+    }
+
     ; The program that has the keyboard ("" gives it back to the deck).
     fn setPlayFocus:void (key:string) {
         if (deck.playFocus != key) {
@@ -6721,7 +6728,9 @@ class PresApp {
         if ((codeWas == false) && (layers.isOpen("code"))) {
             layers.raise("review")
         }
-        layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
+        ; a game that has the keyboard while presenting takes the stage: the
+        ; comments' bar and pins give way until Esc
+        layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))

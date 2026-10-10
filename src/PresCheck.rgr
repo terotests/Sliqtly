@@ -6990,6 +6990,43 @@ class PresCheck {
             this.ok(((fabs ((p0.numOr("v" 0.0)) - (farY / deck.pageH))) < 0.0001) "worlds: the point in the whole-slide picture")
         }
         this.ok((((deck.playPast(1 1.0 farY)).len()) == 0) "worlds: nothing past the box without a world")
+        ; a game that has the keyboard takes the stage: on the stage (not in
+        ; a thumbnail) its world is painted again over the slide's text
+        this.ok(((deck.focusTakesStage()) == false) "worlds: no program has the keyboard, nothing takes the stage")
+        deck.playFocus = "apps/w.tsx#1"
+        this.ok((deck.focusTakesStage()) "worlds: the program with the keyboard takes the stage")
+        def wasCtl:boolean deck.showControls
+        deck.showControls = true
+        def gsl:[int]
+        def lg:EVGDisplayList (deck.slideList(0 gsl 0.0))
+        def lastText:int -1
+        def overAt:int -1
+        def gi:int 0
+        while (gi < (array_length lg.cmds)) {
+            def gc:EVGDrawCmd (itemAt lg.cmds gi)
+            if (gc.kind == 3) {
+                lastText = gi
+            }
+            if ((((gc.kind == 2) && (gc.src == sc.src)) && ((fabs (gc.w - deck.pageW)) < 0.01)) && ((fabs (gc.h - deck.pageH)) < 0.01)) {
+                overAt = gi
+            }
+            gi = (gi + 1)
+        }
+        this.ok((overAt > lastText) ("worlds: the game's whole world over the slide's text, at " + (to_string overAt) + " text " + (to_string lastText)))
+        deck.showControls = wasCtl
+        def gsl2:[int]
+        def lg2:EVGDisplayList (deck.slideList(0 gsl2 0.0))
+        def whole2:int 0
+        for lg2.cmds c3:EVGDrawCmd c3i {
+            if ((((c3.kind == 2) && (c3.src == sc.src)) && ((fabs (c3.w - deck.pageW)) < 0.01)) && ((fabs (c3.h - deck.pageH)) < 0.01)) {
+                whole2 = (whole2 + 1)
+            }
+        }
+        this.ok((whole2 == 0) "worlds: off the stage (thumbnails, exports) the text stays")
+        view.setTree((MdApp.replaceAll(tree "{\"t\":\"scene3d\"," "{\"t\":\"scene3d\",\"a\":{\"focus\":\"keep\"},")))
+        this.ok(((deck.focusTakesStage()) == false) "worlds: focus=keep keeps the slide's text")
+        view.setTree(tree)
+        deck.playFocus = ""
         ; overflow: hidden keeps the world in its box
         view.setTree((MdApp.replaceAll(tree "\"height\":\"100px\"}," "\"height\":\"100px\",\"overflow\":\"hidden\"},")))
         def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
@@ -7065,6 +7102,9 @@ class PresCheck {
             this.ok(((indexOf (web.pointPast("w" 900.0 500.0)) "\"past\":true") > 0) "worlds: the viewer's pointer past the box is the program's")
             this.ok(((indexOf (web.pastAt("w" 900.0 500.0)) wsrc) > 0) "worlds: the viewer's world under a press past the box")
             this.ok(((web.pastAt("x" 900.0 500.0)) == "[]") "worlds: nothing past a program without a world")
+            this.ok((web.takesStage("w")) "worlds: the viewer's game takes the stage")
+            this.ok(((indexOf (web.overJson("w")) wsrc) > 0) "worlds: the viewer paints the game over the slide")
+            this.ok(((web.takesStage("x")) == false) "worlds: a program without a world does not take the stage")
         }
 
         ; the room: a slide red on the left, blue on the right, white along the top

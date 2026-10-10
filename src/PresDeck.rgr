@@ -1521,6 +1521,49 @@ class PresDeck {
         return out
     }
 
+    ; Whether the program that has the keyboard takes the whole stage
+    ; (PresPlayView.takesStage): while presenting, the slide's text and the
+    ; controls give way to it.
+    fn focusTakesStage:boolean () {
+        if ((strlen playFocus) == 0) {
+            return false
+        }
+        def u@(optional):PresPlayUse (this.playUse(playFocus))
+        def v@(optional):PresPlayView (this.playView(playFocus))
+        if ((null? u) || (null? v)) {
+            return false
+        }
+        def use:PresPlayUse (unwrap u)
+        def view:PresPlayView (unwrap v)
+        def bi:int (this.embedBox(use.page use.source))
+        if (bi < 0) {
+            return false
+        }
+        def lay:MdLayout (this.layout())
+        def b:MdBox (itemAt lay.boxes bi)
+        view.slideW = pageW
+        view.slideH = pageH
+        return (view.takesStage(b.x b.y b.w b.h))
+    }
+
+    ; The program that has the keyboard over slide i, when it takes the
+    ; stage (PresPlayView.paintOver), with its ring.
+    fn paintFocusOver:void (out:EVGDisplayList i:int) {
+        if ((this.focusTakesStage()) == false) {
+            return
+        }
+        def use:PresPlayUse (unwrap (this.playUse(playFocus)))
+        if (use.page != i) {
+            return
+        }
+        def view:PresPlayView (unwrap (this.playView(playFocus)))
+        def bi:int (this.embedBox(use.page use.source))
+        def lay:MdLayout (this.layout())
+        def b:MdBox (itemAt lay.boxes bi)
+        view.paintOver(out b.x b.y b.w b.h)
+        view.paintFocus(out b.x b.y b.w b.h "#58e1ff")
+    }
+
     ; Whether a program on slide i drew a 3-D world in its last frame: the
     ; PPTX then takes the slide from its display list (PresExport), the
     ; world's picture with it.
@@ -5693,6 +5736,13 @@ class PresDeck {
         this.paintSketches(out i s t l)
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
+        }
+        ; a game that has the keyboard over the slide's text (stage only)
+        if ((still == false) && showControls) {
+            this.paintFocusOver(out i)
+            while ((array_length groupOfCmd) < (array_length out.cmds)) {
+                push groupOfCmd -1
+            }
         }
         ; a diagram opened over the whole slide, on a veil of the slide's colour
         if (still == false) {

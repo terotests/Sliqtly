@@ -852,6 +852,7 @@ async function start() {
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
         pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
+        onStage: (on) => document.body.classList.toggle("game-stage", on),
         readFile: (path) => deckFileText(deck, path),
       });
     } catch (e) {
