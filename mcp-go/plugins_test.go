@@ -338,26 +338,6 @@ Therefore the mailer sends the author mail\.
 But nobody waits\.
 :::`)
 
-	// a Finnish story is joined by Finnish words, whichever were given
-	fi := reviewModel()
-	fi["narrative"] = map[string]any{"summary": "x", "story": []any{
-		map[string]any{"text": "Arvioija hyväksyy luonnoksen."},
-		map[string]any{"link": "but", "text": "Rajapinta ei odota tallennusta, vaan lähettää viestin heti."},
-		map[string]any{"link": "joten", "text": "Viesti voi lähteä turhaan."},
-		map[string]any{"link": "therefore", "text": "Tallennus luetaan ensin."},
-	}}
-	fmd := sc(call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"pr": "tero/app#5", "model": fi}}))["markdown"].(string)
-	match(t, fmd, `::: story
-Arvioija hyväksyy luonnoksen\.
-Mutta rajapinta ei odota tallennusta, vaan lähettää viestin heti\.
-Joten viesti voi lähteä turhaan\.
-Siksi tallennus luetaan ensin\.
-:::`)
-	match(t, fmd, `(?m)^lang: fi$`)
-	if strings.Contains(sc(tb)["markdown"].(string), "lang: fi") {
-		t.Fatal("an English story's deck says no Finnish")
-	}
-
 	// the deck is drawn without a block it cannot show
 	f := fakeFirebase()
 	s2 := start(t, withSignIn(testEnv(&f, nil)), signIn(f))

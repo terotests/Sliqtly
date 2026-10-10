@@ -108,10 +108,11 @@ old behaviour to keep) or **therefore** (what follows from it), never by
 Vary the length of the beats, a short one after long ones and a long one
 after short; three of about the same length in a row read as a drone.
 `link` takes `but` or `therefore` (also `however`, `so`, `mutta`,
-`siksi`, `joten`); the deck says the word in the story's language
-(`lang`, `"fi"` or `"en"`, on the model or its narrative; left out,
-Finnish when the story has ä or ö in it), so `but` in a Finnish story is
-told as "Mutta". Build warns about a beat joined any other way, beats
+`siksi`, `joten`). Write the story and its `link` words in the language
+of the person you are writing for: the deck says them as you wrote them,
+`mutta` and `siksi` in a Finnish story. End the story with the next
+action: what is done next and how it is checked, not a request alone.
+Build warns about a beat joined any other way, beats
 of one length in a row, and a story with no "but". Without a story, build
 drafts one from the model (the critical path as "therefore", its failures
 and waits without a timeout as "but"); rewrite it as the change's own.
