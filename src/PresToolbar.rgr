@@ -111,7 +111,8 @@ class PresToolbar {
     def railW:double 72.0
     def rail:RailCtl (new RailCtl())
     def railValue:string "edit"
-    def reviewOn:boolean false
+    ; open comments in the deck: a dot on the rail's Review
+    def reviewDot:boolean false
     ; Rooms beside the rail (a mock over ADR 0001 until the server has them)
     def roomsOpen:boolean false
     def roomsW:double 248.0
@@ -966,16 +967,16 @@ class PresToolbar {
         return railW
     }
 
-    ; The open place, review on or off and the deck's name, from PresApp each
+    ; The open place, whether there are open comments and the deck's name, from PresApp each
     ; frame: the bar is built again only when one of them changed.
     fn setRailState:void (open:string review:boolean title:string) {
         def v:string open
         if roomsOpen {
             v = "rooms"
         }
-        if (((v != railValue) || (review != reviewOn)) || ((title != docTitle) && (titleEditing == false))) {
+        if (((v != railValue) || (review != reviewDot)) || ((title != docTitle) && (titleEditing == false))) {
             railValue = v
-            reviewOn = review
+            reviewDot = review
             if (titleEditing == false) {
                 docTitle = title
             }
@@ -1053,7 +1054,7 @@ class PresToolbar {
             r.addBottom("dark" (PresI18n.t("Dark")) (PresToolbar.railIcon("dark")))
         }
         r.addBottom("settings" (PresI18n.t("Settings")) (PresToolbar.railIcon("settings")))
-        if reviewOn {
+        if reviewDot {
             r.setBadge("review" "•")
         }
         r.value = railValue
