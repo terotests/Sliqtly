@@ -87,32 +87,6 @@ class CrBeat {
         }
         return ""
     }
-
-    ; the joining word as the story's language says it: "but" in a Finnish
-    ; story is "mutta", "siksi" in an English one "therefore"; a word of
-    ; the story's own language stays as it was written
-    sfn wordIn:string (word:string lang:string) {
-        def kind:string (CrBeat.kindOf(word))
-        if ((strlen kind) == 0) {
-            return word
-        }
-        def w:string (trim (to_lowercase word))
-        def fi:[string] ([] _:string ("mutta" "paitsi" "kuitenkin" "vaan" "siksi" "joten" "niinpä" "siis"))
-        def isFi:boolean ((indexOf fi w) >= 0)
-        if (lang == "fi") {
-            if isFi {
-                return word
-            }
-            if (kind == "but") {
-                return "mutta"
-            }
-            return "siksi"
-        }
-        if (isFi == false) {
-            return word
-        }
-        return kind
-    }
 }
 
 class CrSlice {
@@ -196,8 +170,6 @@ class CrModel {
     ; the change's story; drafted from the model when the assistant gave none
     def story:[CrBeat]
     def storyDrafted:boolean false
-    ; the language the story is told in ("fi", "en"); "" = not said
-    def lang:string ""
     def items:[CrItem]
     def slices:[CrSlice]
     def warnings:[string]
@@ -274,13 +246,9 @@ class CrModel {
             return out
         }
         out.title = (m.str_("title"))
-        out.lang = (to_lowercase (trim (m.str_("lang"))))
         def nar:MfJ (m.field("narrative"))
         if (nar.isObj()) {
             out.summary = (nar.str_("summary"))
-            if ((strlen (nar.str_("lang"))) > 0) {
-                out.lang = (to_lowercase (trim (nar.str_("lang"))))
-            }
             out.critical = (CrModel.strList((nar.field("critical_path"))))
             def st:MfJ (nar.field("story"))
             if (st.isArr()) {
@@ -557,25 +525,6 @@ class CrModel {
                 this.beat("but" ((this.labelOf(w.src)) + " waits for " + (this.waitWhat(w)) + " with no timeout") (w.firstRef()))
             }
         }
-    }
-
-    ; the story's language: the model's `lang`, else Finnish when its
-    ; words have ä or ö in them, else English
-    fn language:string () {
-        if ((strlen lang) > 0) {
-            return lang
-        }
-        def texts:[string]
-        push texts title
-        push texts summary
-        for story b:CrBeat bi {
-            push texts b.text
-        }
-        def all:string (join texts " ")
-        if (((((indexOf all "ä") >= 0) || ((indexOf all "ö") >= 0)) || ((indexOf all "Ä") >= 0)) || ((indexOf all "Ö") >= 0)) {
-            return "fi"
-        }
-        return "en"
     }
 
     fn find@(optional):CrItem (id:string) {
