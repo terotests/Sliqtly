@@ -134,11 +134,15 @@ const chat = http.createServer((req, res) => {
       ? `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval' blob: ${base}; style-src 'self' 'unsafe-inline' ${base}; img-src 'self' data: blob: ${base}; font-src 'self' data: ${base}; connect-src 'self' ${base}; frame-src 'self'`
       : `default-src 'none'; script-src 'unsafe-inline' data: blob: 'wasm-unsafe-eval'; worker-src data: blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data: ${base}; connect-src ${base}; frame-src data: blob:; base-uri 'self'`,
   });
-  const result = gpt ? { share_url: base + "/s/" + ID, title: "Finance", slides } : { share_url: base + "/s/" + WORLD_ID, title: "3-D world", slides: 2 };
+  const result = gpt ? { share_url: base + "/s/" + ID, deck_id: ID, title: "Finance", slides } : { share_url: base + "/s/" + WORLD_ID, title: "3-D world", slides: 2 };
   res.end(`<!doctype html><meta charset="utf-8"><iframe id="w" sandbox="allow-scripts${gpt ? " allow-same-origin" : ""}" allow="fullscreen; clipboard-write" style="width:960px;height:640px;border:0"></iframe><script>
 const w = document.getElementById("w");
 addEventListener("message", (e) => {
   const m = e.data;
+  // the preview's Download: the host refuses the tool call (as ChatGPT
+  // does with a stale tool list), the link it opens instead is kept
+  if (m && m.method === "tools/call") w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, error: { code: -32000, message: "refused" } }, "*");
+  if (m && m.method === "ui/open-link") { window.__opened = m.params.url; w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*"); }
   if (!m || m.method !== "ui/initialize") return;
   w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*");
   w.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { structuredContent: ${JSON.stringify(result)} } }, "*");
@@ -356,6 +360,13 @@ try {
     if (!viewer) await page.waitForTimeout(250);
   }
   if (!viewer) fail("ChatGPT's preview did not open the viewer");
+  // Download → PDF with the tool call refused: the viewer's download opens
+  const widget = page.frames().find((f) => f.parentFrame() === page.mainFrame());
+  await widget.click("#download");
+  await widget.click('button[data-format="pdf"]');
+  await page.waitForFunction(() => window.__opened, null, { timeout: 5000 }).catch(() => {});
+  const opened = await page.evaluate(() => window.__opened || "");
+  if (opened !== base + "/api/export/" + ID + "/pdf") fail(`the preview's Download opened "${opened}", not the viewer's PDF download`);
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other
