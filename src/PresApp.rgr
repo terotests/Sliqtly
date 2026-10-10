@@ -8713,6 +8713,19 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; File → Settings → Order of presentations: how a room lists them, as
+    ; the page keeps it ("created", "newest", "edited", "name", "custom").
+    fn setDeckOrder:void (by:string) {
+        if (panels.deckOrder == by) {
+            return
+        }
+        panels.deckOrder = by
+        if ((strlen panels.css) > 0) {
+            panels.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     ; File → Settings → Look: the standard skin's colours as chosen,
     ; "light", "dark" or "system" (what setSkin is given is the outcome).
     fn setLookMode:void (mode:string) {

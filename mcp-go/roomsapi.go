@@ -467,6 +467,7 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			Name    string `json:"name"`
 			Owner   string `json:"owner,omitempty"`
 			Updated int64  `json:"updated"`
+			Created int64  `json:"created"`
 			Inherit bool   `json:"inherit_room_files"`
 			Folder  string `json:"folder_id"`
 		}
@@ -479,9 +480,13 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 		inFolder := map[string]int{}
 		decks := []deckRow{}
 		for _, it := range items {
+			made := millisOf(it.Doc["created"])
 			at := millisOf(it.Doc["updated"])
 			if at == 0 {
-				at = millisOf(it.Doc["created"])
+				at = made
+			}
+			if made == 0 {
+				made = at
 			}
 			name, _ := it.Doc["name"].(string)
 			owner, _ := it.Doc["owner"].(string)
@@ -491,13 +496,20 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 				folder = ""
 			}
 			inFolder[folder]++
-			decks = append(decks, deckRow{it.ID, name, owner, at, it.Doc[store.InheritField] == true, folder})
+			decks = append(decks, deckRow{it.ID, name, owner, at, made, it.Doc[store.InheritField] == true, folder})
 		}
 		folders := []folderRow{}
 		for _, f := range fs {
 			folders = append(folders, folderRow{f.ID, f.Name, inFolder[f.ID]})
 		}
-		sort.SliceStable(decks, func(i, j int) bool { return decks[i].Updated > decks[j].Updated })
+		// as made, oldest first: opening or editing one moves nothing (the
+		// page orders them as one chose, web/rooms.js sortDecks)
+		sort.SliceStable(decks, func(i, j int) bool {
+			if decks[i].Created != decks[j].Created {
+				return decks[i].Created < decks[j].Created
+			}
+			return decks[i].DeckID < decks[j].DeckID
+		})
 		links, err := s.linksOf(ctx, p, store.Ref{Kind: "room", ID: id})
 		if err != nil {
 			return nil, err

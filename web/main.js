@@ -34,7 +34,7 @@ import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
@@ -1394,14 +1394,27 @@ async function copyDeckTo(room, deck) {
 // (renamed, not saved yet).
 async function roomView(room) {
   const live = (r) => (r.current && !r.id.startsWith("sample:") ? { ...r, name: exportName() || r.name } : r);
+  // in the order chosen in Settings (the samples as they come)
+  const ordered = (rows) => (room === ONBOARDING ? rows : sortDecks(rows, deckOrder, roomsHere.positions?.[room] || []));
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: (g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "" })),
+      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0 }))),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
-  return { rows: roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live), folders: foldersOf(roomsHere, room) };
+  return { rows: ordered(roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live)), folders: foldersOf(roomsHere, room) };
+}
+// File → Settings → Order of presentations: how a room lists its
+// presentations (rooms.js sortDecks), in this browser. As made by default,
+// so opening or editing one moves nothing.
+let deckOrder = "created";
+try { deckOrder = deckOrderOf(localStorage.getItem("sliqtly.deckOrder")); } catch (_) { /* the default */ }
+function setDeckOrder(by) {
+  deckOrder = deckOrderOf(by);
+  try { localStorage.setItem("sliqtly.deckOrder", deckOrder); } catch (_) { /* this session only */ }
+  app.setDeckOrder(deckOrder);
+  needsPaint = true;
 }
 async function roomRows(room) {
   return (await roomView(room)).rows;
@@ -1777,6 +1790,23 @@ async function roomsRequest(r) {
       }
     }
     if (roomShown === room) await roomsRequest("room:decks:" + room);
+  } else if (action === "place") {
+    // a presentation let go on another of its room ("<room>:<deck>TAB<before>"):
+    // it goes before that one, and the room is in one's own order from then on
+    const [room, ...deckParts] = rest;
+    const [deck, before = ""] = deckParts.join(":").split("\t");
+    if (!deck || deck.startsWith("sample:")) return;
+    const { rows } = await roomView(room);
+    keepRooms((s) => placeDeck(s, room, rows.map((r) => r.id), deck, before));
+    if (deckOrder !== "custom") {
+      setDeckOrder("custom");
+      toast(t("Presentations are in your own order now: File → Settings changes it."));
+    }
+    // between the presentations of a folder: into that folder
+    const from = rows.find((r) => r.id === deck)?.folder || "";
+    const to = rows.find((r) => r.id === before)?.folder || "";
+    if (before && from !== to) await roomsRequest("room:file:" + room + ":" + to + ":" + deck);
+    else await roomsRequest("room:decks:" + room);
   } else if (action === "file") {
     // a presentation let go on a folder of its room ("<room>:<folder>:<deck>"),
     // or on its own room (folder ""): to the room's top
@@ -4415,6 +4445,7 @@ function handleRequests() {
       app.openHelpTab("guide");
       needsPaint = true;
     } else if (r === "settings") {
+      app.setDeckOrder(deckOrder);
       app.openSettings(autoContrast);
       needsPaint = true;
     } else if (r.startsWith("setting:contrast:")) {
@@ -4435,6 +4466,9 @@ function handleRequests() {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
     } else if (r.startsWith("setting:mode:")) {
       setMode(r.slice("setting:mode:".length));
+    } else if (r.startsWith("setting:order:")) {
+      setDeckOrder(r.slice("setting:order:".length));
+      roomDecksAgain();
     } else if (r.startsWith("setting:term:")) {
       // the page opens again with the new word, the deck saved first
       saveDoc(true).catch(() => {}).finally(() => chooseTerm(r.slice("setting:term:".length)));

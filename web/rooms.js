@@ -13,8 +13,10 @@
 //          rooms are a running process, the latest work on top)
 //          folders: { roomId: [{ id, name }] },  (one level of folders in a
 //          room, e.g. its test decks out of the way; Onboarding has none)
-//          filed: { deckId: folderId } }  (the folder a deck is in, within
+//          filed: { deckId: folderId },  (the folder a deck is in, within
 //          its room; none, or a folder gone, is the room's top)
+//          positions: { roomId: [deckId] } }  (a room's presentations as one
+//          dragged them, for the order "custom": sortDecks)
 //
 // The order is this browser's view of the rooms, the server's rooms too.
 
@@ -31,7 +33,7 @@ export const ACTIVE_MAX = 8;
 const DAY = 86400000;
 
 export function emptyRooms() {
-  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {} };
+  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {} };
 }
 
 export const isBuiltIn = (id) => BUILT_IN.includes(id);
@@ -49,7 +51,9 @@ export function parseRooms(text) {
     const folders = {};
     if (s?.folders && typeof s.folders === "object") for (const [r, list] of Object.entries(s.folders)) folders[r] = folderList(list);
     const filed = s?.filed && typeof s.filed === "object" ? { ...s.filed } : {};
-    return { rooms, placed, touched, order, folders, filed };
+    const positions = {};
+    if (s?.positions && typeof s.positions === "object") for (const [r, list] of Object.entries(s.positions)) if (Array.isArray(list)) positions[r] = list.filter((x) => typeof x === "string");
+    return { rooms, placed, touched, order, folders, filed, positions };
   } catch (_) {
     return emptyRooms();
   }
@@ -74,6 +78,7 @@ function factsOf(state) {
   if (state.order?.length) out.set("order", JSON.stringify(state.order));
   for (const [room, list] of Object.entries(state.folders || {})) if (list.length) out.set("folders/" + room, JSON.stringify(list));
   for (const [deck, folder] of Object.entries(state.filed || {})) out.set("filed/" + deck, String(folder));
+  for (const [room, list] of Object.entries(state.positions || {})) if (list.length) out.set("positions/" + room, JSON.stringify(list));
   return out;
 }
 
@@ -99,6 +104,10 @@ export function readKept(store, key) {
       else if (kind === "touched" && id && Number.isFinite(Number(v))) s.touched[id] = Number(v);
       else if (kind === "folders" && id) s.folders[id] = folderList(JSON.parse(v));
       else if (kind === "filed" && id) s.filed[id] = v;
+      else if (kind === "positions" && id) {
+        const o = JSON.parse(v);
+        if (Array.isArray(o)) s.positions[id] = o.filter((x) => typeof x === "string");
+      }
       else if (kind === "order") {
         const o = JSON.parse(v);
         if (Array.isArray(o)) s.order = o.filter((x) => typeof x === "string");
@@ -164,15 +173,58 @@ export function listRooms(state, decks, samples, { archived = false } = {}) {
   ], state.order);
 }
 
-// A room's presentations, last changed first: { id, name, current, folder }
-// (folder "" at the room's top). Those of Onboarding are the samples,
-// "sample:<key>".
+// A room's presentations as made, oldest first (sortDecks orders them as
+// one chose): { id, name, current, folder, created, updated } (folder "" at
+// the room's top). Those of Onboarding are the samples, "sample:<key>".
 export function roomDecks(state, roomId, decks, samples) {
   if (roomId === ONBOARDING) return samples.map((s) => ({ id: "sample:" + s.key, name: s.name, current: !!s.current }));
-  return decks
+  return sortDecks(decks
     .filter((d) => roomOf(state, d.id) === roomId)
-    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
-    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id) }));
+    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id), created: d.created || d.updated || 0, updated: d.updated || d.created || 0 })));
+}
+
+// The orders a room's presentations can be listed in (File → Settings):
+// "created" as made, oldest first (the default: opening or editing one
+// moves nothing); "newest" as made, newest first; "edited" last changed
+// first; "name" by name; "custom" as dragged (positions), those not dragged
+// yet after them as made.
+export const DECK_ORDERS = ["created", "newest", "edited", "name", "custom"];
+export const deckOrderOf = (v) => (DECK_ORDERS.includes(v) ? v : "created");
+
+// rows: [{ id, name, created, updated }] in a new array, ordered by `by`;
+// positions: the room's dragged order, for "custom". Ties go by id, so an
+// order never changes on its own.
+export function sortDecks(rows, by = "created", positions = []) {
+  const made = (r) => r.created || r.updated || 0;
+  const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const asMade = (a, b) => made(a) - made(b) || byId(a, b);
+  const out = [...rows];
+  if (by === "newest") return out.sort((a, b) => made(b) - made(a) || byId(a, b));
+  if (by === "edited") return out.sort((a, b) => (b.updated || made(b)) - (a.updated || made(a)) || byId(a, b));
+  if (by === "name") {
+    const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    return out.sort((a, b) => coll.compare(String(a.name || ""), String(b.name || "")) || asMade(a, b));
+  }
+  if (by === "custom") {
+    const at = new Map(positions.map((id, i) => [id, i]));
+    return out.sort((a, b) => {
+      const pa = at.has(a.id) ? at.get(a.id) : Infinity;
+      const pb = at.has(b.id) ? at.get(b.id) : Infinity;
+      return pa !== pb ? (pa < pb ? -1 : 1) : asMade(a, b);
+    });
+  }
+  return out.sort(asMade);
+}
+
+// A presentation dragged before another of its room (`before`; "" to the
+// end): the room's positions become `ids` (the order shown now) with `deck`
+// moved there.
+export function placeDeck(state, roomId, ids, deck, before = "") {
+  if (!roomId || !deck || deck === before) return state;
+  const list = ids.filter((x) => x !== deck);
+  const at = before ? list.indexOf(before) : -1;
+  list.splice(at < 0 ? list.length : at, 0, deck);
+  return { ...state, positions: { ...(state.positions || {}), [roomId]: list } };
 }
 
 export const roomTitle = (title) => String(title || "").replace(/\s+/g, " ").trim().slice(0, 200);
@@ -235,7 +287,9 @@ export function deleteRoom(state, id) {
   const folders = { ...(state.folders || {}) };
   delete folders[id];
   const filed = Object.fromEntries(Object.entries(state.filed || {}).filter(([deck]) => state.placed[deck] !== id));
-  return { ...state, rooms: state.rooms.filter((r) => r.id !== id), placed, touched, order: (state.order || []).filter((x) => x !== id), folders, filed };
+  const positions = { ...(state.positions || {}) };
+  delete positions[id];
+  return { ...state, rooms: state.rooms.filter((r) => r.id !== id), placed, touched, order: (state.order || []).filter((x) => x !== id), folders, filed, positions };
 }
 
 // A made room dragged before `beforeId`: "" or a built-in room (the group

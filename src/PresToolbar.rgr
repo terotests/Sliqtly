@@ -149,6 +149,9 @@ class PresToolbar {
     def dropRoom:string ""
     ; ...or onto a folder of the open room (its id): the deck is filed there
     def dropFolder:string ""
+    ; ...or onto another presentation of the open room (its id): it goes
+    ; before that one, in one's own order
+    def dropDeck:string ""
     ; a made room's row pressed: dragged, it goes before the room it is let
     ; go on (onto a built-in one: first); let go where it was pressed, the
     ; room opens
@@ -1228,6 +1231,12 @@ class PresToolbar {
         }
         ; the name at the start, as the room's own row has it
         el.addChild((this.div("tb-grow")))
+        ; a presentation dragged over it goes before it
+        if (dragOn && ((strlen dropDeck) > 0)) {
+            if (id == ("d-" + dropDeck)) {
+                UiTree.addClass(el "tb-room-before")
+            }
+        }
         if current {
             UiTree.addClass(el "tb-roomdeck-current")
             if ((el.getChildCount()) > 0) {
@@ -1444,8 +1453,15 @@ class PresToolbar {
         dropRoom = (this.roomAt(px py))
         ; a presentation onto a folder of its room (a room is not dropped in one)
         dropFolder = ""
+        dropDeck = ""
         if ((strlen dragDeck) > 0) {
             dropFolder = (this.folderAt(px py))
+            if ((strlen dropFolder) == 0) {
+                def over:string (this.roomDeckAt(px py))
+                if ((over != dragDeck) && ((indexOf over "sample:") != 0)) {
+                    dropDeck = over
+                }
+            }
         }
         this.rebuild()
     }
@@ -1469,9 +1485,13 @@ class PresToolbar {
             if dragOn {
                 ; onto a folder: filed there; onto its own room: out of its
                 ; folder to the room's top; onto another room: Move or Copy
+                if ((strlen dropDeck) > 0) {
+                    push requests ((((("room:place:" + roomOpen) + ":") + dragDeck) + (strfromcode 9)) + dropDeck)
+                }
                 if ((strlen dropFolder) > 0) {
                     push requests ("room:file:" + roomOpen + ":" + dropFolder + ":" + dragDeck)
-                } {
+                }
+                if (((strlen dropFolder) == 0) && ((strlen dropDeck) == 0)) {
                     if (((strlen dropRoom) > 0) && (dropRoom != roomOpen)) {
                         push requests ("room:drop:" + dropRoom + ":" + dragDeck)
                     }
@@ -1488,6 +1508,7 @@ class PresToolbar {
         dragOn = false
         dropRoom = ""
         dropFolder = ""
+        dropDeck = ""
         this.rebuild()
     }
 
@@ -2377,6 +2398,7 @@ class PresToolbar {
             dragY = py
             dragOn = false
             dropRoom = ""
+            dropDeck = ""
             return
         }
         if (ctlTid == "tb-roomsearch") {

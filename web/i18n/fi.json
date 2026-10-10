@@ -1469,5 +1469,13 @@
   "Music added: ": "Musiikki lisätty: ",
   ". Put music: ": ". Kirjoita alkuun music: ",
   " in the front matter.": ".",
-  "The music file is not in the deck: ": "Musiikkitiedostoa ei ole esityksessä: "
+  "The music file is not in the deck: ": "Musiikkitiedostoa ei ole esityksessä: ",
+  "Order of presentations": "Esitysten järjestys",
+  "How a room lists its presentations. Drag a presentation onto another to put them in your own order.": "Missä järjestyksessä huone näyttää esityksensä. Raahaa esitys toisen päälle, niin saat oman järjestyksen.",
+  "Oldest first": "Vanhin ensin",
+  "Newest first": "Uusin ensin",
+  "Last edited": "Viimeksi muokattu",
+  "A–Z": "A–Ö",
+  "Own order": "Oma järjestys",
+  "Presentations are in your own order now: File → Settings changes it.": "Esitykset ovat nyt omassa järjestyksessäsi: Tiedosto → Asetukset muuttaa sen."
 }
