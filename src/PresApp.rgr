@@ -1113,11 +1113,22 @@ class PresApp {
         tabs.addItem("css" cssLabel "" false)
         tabs.addItem("files" (PresI18n.t("Files")) "" false)
         tabs.value = edTab
+        ; a Markdown file of the deck shows under the Markdown tab
+        if (this.mdFileOpen()) {
+            tabs.value = "md"
+        }
         tabs.build()
     }
 
     fn editorTab:string () {
         return edTab
+    }
+
+    ; A Markdown file of the deck (a questionnaire) open in the file editor:
+    ; it is shown under the Markdown tab, and the Markdown tab or its back
+    ; button returns to the deck's own text.
+    fn mdFileOpen:boolean () {
+        return (((edTab == "files") && ((strlen filePath) > 0)) && (PresFileLanguage.inMarkdownTab(filePath)))
     }
 
     fn showTab:void (v:string) {
@@ -4497,6 +4508,12 @@ class PresApp {
         }
         if (tabRect.has(x y)) {
             def hitTab:string (this.tabAt(x))
+            if ((hitTab == "md") && (this.mdFileOpen())) {
+                ; the deck's own text again
+                this.closeFile()
+                this.showTab("md")
+                return "editor"
+            }
             if ((hitTab == "files") && ((strlen filePath) > 0)) {
                 ; the list again
                 this.closeFile()
@@ -7405,6 +7422,32 @@ class PresApp {
         return (PresForm.template((PresI18n.lang())))
     }
 
+    ; Files → a questionnaire's Results slides: a bar chart slide per
+    ; question at the end of the deck, each reading its counts (a form:
+    ; source, which the page fills: formRows).
+    fn addFormResults:void (path:string src:string) {
+        def text:string ((PresForm.parse(src)).resultSlides(path))
+        if ((strlen text) == 0) {
+            return
+        }
+        this.showTab("md")
+        def lastLine:int ((editor.buf.lineCount()) - 1)
+        editor.moveCaret(lastLine (strlen (editor.buf.lineAt(lastLine))) false)
+        this.insertBlock(text)
+    }
+
+    ; A chart's form: source → the questionnaire file it reads ("" for
+    ; another kind of address).
+    fn formSourceFile:string (url:string) {
+        return (PresForm.sourceFile(url))
+    }
+
+    ; The rows a form: source gives a chart, from the server's results JSON,
+    ; or each option at 0 with none ("").
+    fn formRows:string (src:string results:string url:string) {
+        return (PresForm.sourceRows(src results url))
+    }
+
     fn openFilePath:string () {
         return filePath
     }
@@ -7424,6 +7467,11 @@ class PresApp {
     ; are done here, the rest goes to the page (`files:<action>:<what>`).
     fn filesRequest:void (r:string) {
         if (r == "back") {
+            if (this.mdFileOpen()) {
+                this.closeFile()
+                this.showTab("md")
+                return
+            }
             this.closeFile()
             push requests "files-list"
             return

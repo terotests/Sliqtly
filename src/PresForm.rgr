@@ -102,6 +102,11 @@ class PresFormQuestion {
         return ((type == "text") || (type == "words") || (type == "date"))
     }
 
+    ; Types a chart can show: counted per option, number or word.
+    fn chartable:boolean () {
+        return ((this.hasOptions()) || ((type == "number") || (type == "words")))
+    }
+
     fn optionIndex:int (value:string) {
         def i:int 0
         while (i < (array_length options)) {
@@ -805,6 +810,117 @@ class PresForm {
             + "## How useful was this? {#useful type=scale min=1 max=5 required}\nlabels: Not at all | Very\n\n"
             + "## What should we do next? {#next type=choice}\n- More examples\n- A deeper dive\n- Something else {#other other}\n\n"
             + "## Anything else? {#more type=text max=500}\n")
+    }
+
+    ; ---------------------------------------------------------------------------
+    ; A chart's data from a questionnaire
+    ; ---------------------------------------------------------------------------
+    ; A chart names it as a file:  "data": {"url": "form:forms/x.form.md#q"}.
+    ; The rows are [{value, label, count}], one per option (per number or
+    ; word for those kinds), in the form's order. No "#q": the first question
+    ; a chart can show.
+
+    sfn isSource:boolean (url:string) {
+        return ((indexOf url "form:") == 0)
+    }
+
+    ; "form:./forms/x.form.md#q" → "forms/x.form.md"
+    sfn sourceFile:string (url:string) {
+        if ((PresForm.isSource(url)) == false) {
+            return ""
+        }
+        def rest:string (substring url 5 (strlen url))
+        def hash:int (indexOf rest "#")
+        if (hash >= 0) {
+            rest = (substring rest 0 hash)
+        }
+        while ((indexOf rest "./") == 0) {
+            rest = (substring rest 2 (strlen rest))
+        }
+        while ((indexOf rest "/") == 0) {
+            rest = (substring rest 1 (strlen rest))
+        }
+        return rest
+    }
+
+    sfn sourceQuestion:string (url:string) {
+        def hash:int (indexOf url "#")
+        if (hash < 0) {
+            return ""
+        }
+        return (substring url (hash + 1) (strlen url))
+    }
+
+    ; The question a chart shows: `want` when it is one, else the first that
+    ; is not free text; "" for none.
+    fn chartQuestion:string (want:string) {
+        if ((strlen want) > 0) {
+            if ((this.indexOfQuestion(want)) >= 0) {
+                return want
+            }
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            if (q.chartable()) {
+                return q.id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The rows for `url` as JSON: from `results`, what a server gave
+    ; ({"questions": [{"id", "rows"}, …]}, FormsGo.results), or with none
+    ; (""), each option at 0 from the file itself: the chart is drawn before
+    ; anyone answered, and where no server keeps the answers.
+    sfn sourceRows:string (src:string results:string url:string) {
+        def f:PresForm (PresForm.parse(src))
+        def qid:string (f.chartQuestion((PresForm.sourceQuestion(url))))
+        if ((strlen results) > 0) {
+            def qs:JVal ((JVal.parse(results)).get("questions"))
+            def i:int 0
+            while (i < (qs.len())) {
+                def one:JVal (qs.at(i))
+                if (((one.get("id")).asStr("")) == qid) {
+                    def rows:JVal (one.get("rows"))
+                    if (rows.isArr()) {
+                        return (rows.toJson())
+                    }
+                }
+                i = (i + 1)
+            }
+            return "[]"
+        }
+        def t:PresFormTally (PresFormTally.of(f))
+        return ((t.rows(qid 0)).toJson())
+    }
+
+    ; Slides with a bar chart of each question a chart can show, reading
+    ; `path` (Files → a questionnaire's Results slides).
+    fn resultSlides:string (path:string) {
+        def axis:string "Answers"
+        if (lang == "fi") {
+            axis = "Vastauksia"
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            if (q.chartable()) {
+                def data:JVal (JVal.mkObj())
+                data.setStr("url" ((("form:" + path) + "#") + q.id))
+                out = (((out + "## ") + q.title) + "\n\n```vega-lite\n{\n")
+                out = (((out + "  \"data\": ") + (data.toJson())) + ",\n")
+                out = (out + "  \"mark\": \"bar\",\n  \"encoding\": {\n")
+                out = (out + "    \"y\": {\"field\": \"label\", \"type\": \"nominal\", \"sort\": null, \"title\": null},\n")
+                out = (((out + "    \"x\": {\"field\": \"count\", \"type\": \"quantitative\", \"title\": ") + (JVal.quote(axis))) + "}\n")
+                out = (out + "  }\n}\n```\n\n")
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; ---------------------------------------------------------------------------

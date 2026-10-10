@@ -404,6 +404,7 @@ func (s *localServer) formPost(w http.ResponseWriter, r *http.Request, l store.F
 		http.Error(w, "Something went wrong.", 500)
 		return
 	}
+	s.formChanged(l.Deck)
 	if m.Once == "soft" {
 		http.SetCookie(w, &http.Cookie{Name: "answered", Value: "1", Path: action, MaxAge: 365 * 24 * 3600, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	}
@@ -447,6 +448,14 @@ func (s *localServer) formResults(w http.ResponseWriter, r *http.Request, key st
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	io.WriteString(w, FormsGo_static_results(src, store.TallyJSON(rows), formResultsMin))
+}
+
+// The deck's open pages hear that its answers changed (localevents.go), and
+// its charts that read them (form: sources) read them again.
+func (s *localServer) formChanged(deck string) {
+	if s.hub != nil {
+		s.hub.publishForm(deck)
+	}
 }
 
 // --- the owner's side: /api/forms/…
@@ -537,8 +546,9 @@ func (s *localServer) formsAPI(r *http.Request, op string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// the owner sees every count, 0 and 1 too
 		var res map[string]any
-		json.Unmarshal([]byte(FormsGo_static_results(src, store.TallyJSON(rows), 1)), &res)
+		json.Unmarshal([]byte(FormsGo_static_results(src, store.TallyJSON(rows), 0)), &res)
 		res["warnings"] = readFormMeta(src).Warnings
 		return res, nil
 	case op == "responses" && r.Method == http.MethodGet:
@@ -578,6 +588,7 @@ func (s *localServer) formsAPI(r *http.Request, op string) (any, error) {
 		} else if err != nil {
 			return nil, err
 		}
+		s.formChanged(deck)
 		return map[string]bool{"ok": true}, nil
 	}
 	return nil, fail(404, "", "not found")

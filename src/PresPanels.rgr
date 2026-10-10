@@ -955,7 +955,13 @@ class PresPanels {
             ; a file in the editor: a bar to go back by
             p.height = (EVGUnit.px((PresPanels.filesBarH())))
             def bar:EVGElement (UiKit.div("pf-top"))
-            this.button("pf-back" (PresI18n.t("← Files")) "ghost" bar)
+            ; back to where it was opened from: the slides' text for a
+            ; Markdown file, which shows under the Markdown tab
+            if (PresFileLanguage.inMarkdownTab(filesOpenPath)) {
+                this.button("pf-back" (PresI18n.t("← Slides")) "ghost" bar)
+            } {
+                this.button("pf-back" (PresI18n.t("← Files")) "ghost" bar)
+            }
             bar.addChild((UiKit.words("pf-path" filesOpenPath)))
             bar.addChild((UiKit.div("pn-grow")))
             bar.addChild((UiKit.words("pf-saved" (PresI18n.t("saves automatically")))))
@@ -1255,9 +1261,12 @@ class PresPanels {
             this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
         } {
             this.act("open" path (PresI18n.t("Open")) "secondary" row)
-            if ((kind == "form") && (f.boolOr("served" false))) {
-                this.act("formlink" path (PresI18n.t("Answer link")) "secondary" row)
-                this.act("formcsv" path (PresI18n.t("Responses")) "secondary" row)
+            if (kind == "form") {
+                if (f.boolOr("served" false)) {
+                    this.act("formlink" path (PresI18n.t("Answer link")) "secondary" row)
+                    this.act("formcsv" path (PresI18n.t("Responses")) "secondary" row)
+                }
+                this.act("formcharts" path (PresI18n.t("Results slides")) "secondary" row)
             }
             if (kind == "chart") {
                 this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)

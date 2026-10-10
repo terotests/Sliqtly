@@ -320,6 +320,11 @@ function listen() {
       // a room's chat open on the page asks for what it missed meanwhile
       window.dispatchEvent(new CustomEvent("sliqtly:chat", { detail: { t: "reopen" } }));
     },
+    // a deck's questionnaire took an answer: its charts read the counts
+    // again (web/main.js formAnswered)
+    form(id) {
+      window.__formAnswered?.(id);
+    },
     // rooms' chats (web/roomchat.js): a message posted or changed, who is here
     chat(v) {
       window.dispatchEvent(new CustomEvent("sliqtly:chat", { detail: v }));

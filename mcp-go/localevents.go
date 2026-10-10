@@ -14,6 +14,7 @@
 //	{"k":"changed","id":"<deck id>"}
 //	{"k":"room","id":12,"v":{"t":"op",…}}      (id: the rev, when it has one)
 //	{"k":"chat","v":{"t":"msg","room":"…","msg":{…}}}   (a room's chat, roomchat.go)
+//	{"k":"form","id":"<deck id>"}   (a questionnaire of the deck took an answer, forms.go)
 //
 // GET /api/events is the same as Server-Sent Events, for a page that cannot
 // open a WebSocket (a proxy in front that does not pass them on):
@@ -28,6 +29,9 @@
 //
 //	event: chat
 //	data: {"t":"msg","room":"…","msg":{…}}
+//
+//	event: form
+//	data: {"id":"<deck id>"}
 //
 // Why a WebSocket: a browser opens at most six HTTP/1.1 connections to one
 // server, for all its tabs together, and an event stream holds one for as
@@ -58,11 +62,12 @@ type changeHub struct {
 	subs map[chan hubMsg]struct{}
 }
 
-// one thing told: a deck that changed (id), or a room's chat event (chat,
-// its JSON)
+// one thing told: a deck that changed (id), a room's chat event (chat,
+// its JSON), or a deck whose questionnaire's answers changed (form)
 type hubMsg struct {
 	id   string
 	chat []byte
+	form string
 }
 
 func newChangeHub() *changeHub { return &changeHub{subs: map[chan hubMsg]struct{}{}} }
@@ -88,6 +93,8 @@ func (h *changeHub) publish(id string) { h.send(hubMsg{id: id}) }
 
 func (h *changeHub) publishChat(v []byte) { h.send(hubMsg{chat: v}) }
 
+func (h *changeHub) publishForm(deck string) { h.send(hubMsg{form: deck}) }
+
 func (h *changeHub) send(m hubMsg) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -112,6 +119,7 @@ type eventSink interface {
 	changed(id string)
 	room(e collabEvt)
 	chat(v []byte)
+	form(id string)
 	keepAlive()
 	flush() error
 }
@@ -129,8 +137,12 @@ func (k sseSink) changed(id string) {
 }
 func (k sseSink) room(e collabEvt) { k.w.Write(e.sse()) }
 func (k sseSink) chat(v []byte)    { io.WriteString(k.w, "event: chat\ndata: "+string(v)+"\n\n") }
-func (k sseSink) keepAlive()       { io.WriteString(k.w, ": keep-alive\n\n") }
-func (k sseSink) flush() error     { k.fl.Flush(); return nil }
+func (k sseSink) form(id string) {
+	b, _ := json.Marshal(map[string]string{"id": id})
+	io.WriteString(k.w, "event: form\ndata: "+string(b)+"\n\n")
+}
+func (k sseSink) keepAlive()   { io.WriteString(k.w, ": keep-alive\n\n") }
+func (k sseSink) flush() error { k.fl.Flush(); return nil }
 
 // a WebSocket: messages wait in out until flush sends them
 type wsSink struct {
@@ -145,6 +157,7 @@ func (k *wsSink) add(v any) {
 func (k *wsSink) status(st serverStatus) { k.add(map[string]any{"k": "status", "v": st}) }
 func (k *wsSink) changed(id string)      { k.add(map[string]any{"k": "changed", "id": id}) }
 func (k *wsSink) chat(v []byte)          { k.add(map[string]any{"k": "chat", "v": json.RawMessage(v)}) }
+func (k *wsSink) form(id string)         { k.add(map[string]any{"k": "form", "id": id}) }
 func (k *wsSink) room(e collabEvt) {
 	m := map[string]any{"k": "room", "v": json.RawMessage(e.data)}
 	if e.id > 0 {
@@ -263,9 +276,12 @@ func (s *localServer) stream(ctx context.Context, out eventSink, sub *collabSub)
 		case <-tick.C:
 			out.keepAlive()
 		case m := <-ch:
-			if m.chat != nil {
+			switch {
+			case m.chat != nil:
 				out.chat(m.chat)
-			} else {
+			case m.form != "":
+				out.form(m.form)
+			default:
 				out.changed(m.id)
 			}
 		case <-wake:
