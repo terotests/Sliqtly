@@ -2376,7 +2376,7 @@ class PresDeck {
             return out
         }
         def sc:PresScene (this.sceneOfSlide(i))
-        for (PresSel.findIn(sc sel)) at:int ai {
+        for (PresSel.findIn(sc.ents sel)) at:int ai {
             def fe:PresEnt (sc.at(at))
             push out fe.id
         }

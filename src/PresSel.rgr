@@ -1,0 +1,283 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresSel.rgr — the entities of a slide and the selectors that find them
+; ============================================================================
+;
+;   li   #total   .key   chart:1 bar   diagram node#B   edge B->D   h2 word:2   *
+;
+; One source for both sides of a slide script: the deck's own find()
+; (PresScene, src/PresScript.rgr) and the program's find() in its sandbox
+; (web/script-runtime.js, which runs this file compiled to JavaScript:
+; scripts/build.mjs writes it as script-sel.js). Entities refer to their
+; parent by index, so nothing here needs the painter.
+; ============================================================================
+
+; One thing on the slide a program can find and change.
+class PresEnt {
+    ; unique on the slide: the block's own `{#id}` when it has one, else a
+    ; path of kinds and places ("li-2", "chart-1/bar-3", "h2-1/word-2")
+    def id:string ""
+    ; slide, h1..h6, p, li, quote, code, table, image, chart, diagram, app,
+    ; math, word, char, bar, line, label, node, edge, marker (an item's
+    ; bullet or number), shape, text
+    def kind:string ""
+    ; the name `#x` matches: a block's `{#id}`, a diagram node's id
+    def name:string ""
+    def classes:[string]
+    def text:string ""
+    ; JSON: a bar's {label, value}, a node's {label}; "" for none
+    def data:string ""
+    ; where Sliqtly drew it, slide px
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def hasBox:boolean false
+    ; among its parent's children of the same kind, 0-based (`li:2` is index 1)
+    def index:int 0
+    def parent:int -1
+    ; a painter's part (a bar, a node): the layout box it was drawn for
+    def ofBox:int -1
+    ; a block's first offset in the Markdown, -1 for none (a part, a word)
+    def src:int -1
+    def srcEnd:int -1
+    ; an edge's ends, by node name
+    def from:string ""
+    def to:string ""
+    ; a word or a letter: the text command it is part of, and its characters
+    def cmd:int -1
+    def at:int 0
+    def len:int 0
+
+    Constructor () {
+        def c:[string]
+        classes = c
+    }
+
+    sfn of:PresEnt (kind:string) {
+        def e:PresEnt (new PresEnt())
+        e.kind = kind
+        return e
+    }
+
+    fn grow:void (bx:double by:double bw:double bh:double) {
+        if (hasBox == false) {
+            x = bx
+            y = by
+            w = bw
+            h = bh
+            hasBox = true
+            return
+        }
+        def r:double (x + w)
+        def b:double (y + h)
+        if (bx < x) {
+            x = bx
+        }
+        if (by < y) {
+            y = by
+        }
+        if ((bx + bw) > r) {
+            r = (bx + bw)
+        }
+        if ((by + bh) > b) {
+            b = (by + bh)
+        }
+        w = (r - x)
+        h = (b - y)
+    }
+
+    fn isTextual:boolean () {
+        if (((strlen kind) == 2) && ((charAt kind 0) == 104)) {
+            return true
+        }
+        return ((((kind == "p") || (kind == "li")) || ((kind == "quote") || (kind == "code"))) || ((kind == "table") || (kind == "label")))
+    }
+}
+
+class PresSelStep {
+    ; "" or "*": any kind
+    def kind:string ""
+    def name:string ""
+    def classes:[string]
+    ; 1-based among its parent's children of the kind, 0: any
+    def nth:int 0
+    def from:string ""
+    def to:string ""
+
+    Constructor () {
+        def c:[string]
+        classes = c
+    }
+
+    fn matches:boolean (e:PresEnt) {
+        if ((((strlen kind) > 0) && (kind != "*")) && (e.kind != kind)) {
+            return false
+        }
+        if (((strlen name) > 0) && ((e.name != name) && (e.id != name))) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length classes)) {
+            if ((indexOf e.classes (itemAt classes i)) < 0) {
+                return false
+            }
+            i = (i + 1)
+        }
+        if ((nth > 0) && ((e.index + 1) != nth)) {
+            return false
+        }
+        if (((strlen from) > 0) && ((e.from != from) || (e.to != to))) {
+            return false
+        }
+        return true
+    }
+}
+
+class PresSel {
+    def steps:[PresSelStep]
+    ; why the text is no selector, "" when it is one
+    def error:string ""
+
+    Constructor () {
+        def s:[PresSelStep]
+        steps = s
+    }
+
+    sfn nameChar:boolean (c:int) {
+        return (((((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90))) || ((c >= 48) && (c <= 57))) || ((((c == 45) || (c == 95)) || (c == 47)) || (c > 127)))
+    }
+
+    sfn parse:PresSel (text:string) {
+        def out:PresSel (new PresSel())
+        def toks:[string] (strsplit (trim text) " ")
+        def ti:int 0
+        while (ti < (array_length toks)) {
+            def tok:string (trim (itemAt toks ti))
+            ti = (ti + 1)
+            if ((strlen tok) == 0) {
+                continue
+            }
+            def arrow:int (indexOf tok "->")
+            if (arrow >= 0) {
+                def last:int ((array_length out.steps) - 1)
+                if ((last < 0) || ((itemAt out.steps last).kind != "edge")) {
+                    out.error = ("\"" + tok + "\" names an edge's ends: write it after edge (edge B->D)")
+                    return out
+                }
+                def es:PresSelStep (itemAt out.steps last)
+                es.from = (substring tok 0 arrow)
+                es.to = (substring tok (arrow + 2) (strlen tok))
+                continue
+            }
+            def st:PresSelStep (new PresSelStep())
+            def n:int (strlen tok)
+            def i:int 0
+            if ((charAt tok 0) == 42) {
+                st.kind = "*"
+                i = 1
+            }
+            while ((i < n) && (PresSel.nameChar((charAt tok i)))) {
+                i = (i + 1)
+            }
+            if ((strlen st.kind) == 0) {
+                st.kind = (substring tok 0 i)
+            }
+            while (i < n) {
+                def c:int (charAt tok i)
+                def start:int (i + 1)
+                def j:int start
+                while ((j < n) && (PresSel.nameChar((charAt tok j)))) {
+                    j = (j + 1)
+                }
+                def word:string (substring tok start j)
+                if ((strlen word) == 0) {
+                    out.error = ("\"" + tok + "\" is not a selector")
+                    return out
+                }
+                if (c == 35) {
+                    st.name = word
+                } {
+                    if (c == 46) {
+                        push st.classes word
+                    } {
+                        if (c == 58) {
+                            def nv@(optional):int (str2int word)
+                            if (null? nv) {
+                                out.error = ("\":" + word + "\" is no number: write kind:2 for the second")
+                                return out
+                            }
+                            st.nth = (unwrap nv)
+                        } {
+                            out.error = ("\"" + tok + "\" is not a selector")
+                            return out
+                        }
+                    }
+                }
+                i = j
+            }
+            push out.steps st
+        }
+        if (((array_length out.steps) == 0) && ((strlen out.error) == 0)) {
+            out.error = "an empty selector"
+        }
+        return out
+    }
+
+    ; The entities it names, in slide order; within `scope` only when
+    ; scope > 0 (an entity's own find()).
+    fn find:[int] (ents:[PresEnt] scope:int) {
+        def out:[int]
+        def n:int (array_length steps)
+        if ((n == 0) || ((strlen error) > 0)) {
+            return out
+        }
+        def last:PresSelStep (itemAt steps (n - 1))
+        def i:int 1
+        while (i < (array_length ents)) {
+            def e:PresEnt (itemAt ents i)
+            if (((scope <= 0) || ((i != scope) && (PresSel.within(ents i scope)))) && (last.matches(e))) {
+                ; the steps before, each on an ancestor further up
+                def k:int (n - 2)
+                def up:int e.parent
+                while ((k >= 0) && (up >= 0)) {
+                    if ((scope > 0) && (up == scope)) {
+                        if ((itemAt steps k).matches((itemAt ents up))) {
+                            k = (k - 1)
+                        }
+                        break
+                    }
+                    if ((itemAt steps k).matches((itemAt ents up))) {
+                        k = (k - 1)
+                    }
+                    def ua:PresEnt (itemAt ents up)
+                    up = ua.parent
+                }
+                if (k < 0) {
+                    push out i
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn findIn:[int] (ents:[PresEnt] sel:string) {
+        def s:PresSel (PresSel.parse(sel))
+        return (s.find(ents 0))
+    }
+
+    ; i is anc or below it (parents by index, -1 above the slide)
+    sfn within:boolean (ents:[PresEnt] i0:int anc:int) {
+        def i:int i0
+        while (i >= 0) {
+            if (i == anc) {
+                return true
+            }
+            def ie:PresEnt (itemAt ents i)
+            i = ie.parent
+        }
+        return false
+    }
+}

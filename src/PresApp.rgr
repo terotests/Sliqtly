@@ -6670,8 +6670,8 @@ class PresApp {
             toolbar.rebuild()
         }
         toolbar.setState(playing (this.statusText()))
-        ; Rooms is the rail's one place that stays open; the rest act at once
-        toolbar.setRailState("" review.on (this.docTitle()))
+        ; Rooms and Review's list of comments stay open; the rest act at once
+        toolbar.setRailState((? (this.reviewListOpen()) "review" "") (review.on && ((review.model.openCount()) > 0)) (this.docTitle()))
         def dl:EVGDisplayList (toolbar.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -7309,7 +7309,7 @@ class PresApp {
     ; =========================================================================
     ; Review mode (PresReviewUi): comments pinned to the slides
     ; =========================================================================
-    ; on or off (File → Settings; the page keeps the choice)
+    ; on or off: the page turns it on in the editor, off in the viewer
     fn setReviewMode:void (on:boolean) {
         review.setOn(on)
         if ((on == false) && (focus == "review")) {
@@ -7320,6 +7320,28 @@ class PresApp {
 
     fn reviewMode:boolean () {
         return review.on
+    }
+
+    ; the list of comments docked on the right (the rail's Review)
+    fn reviewListOpen:boolean () {
+        return ((review.on && review.listing) && (mode != "present"))
+    }
+
+    ; The rail's Review opens or closes the list; commenting itself (the
+    ; pins, + Add comment) stays on whatever the list does.
+    fn toggleReviewList:void () {
+        if (review.on == false) {
+            return
+        }
+        if review.listing {
+            review.closePanel()
+            if (focus == "review") {
+                focus = "editor"
+            }
+        } {
+            review.openList()
+        }
+        chromeRev = (chromeRev + 1)
     }
 
     ; a comment is being written: the page's keys go to it
@@ -8735,7 +8757,6 @@ class PresApp {
     }
 
     fn openSettings:void (contrast:boolean) {
-        panels.reviewOn = review.on
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
     }
@@ -12250,7 +12271,7 @@ class PresApp {
                 push requests "click:modeBtn"
             }
             if (p == "review") {
-                push requests "rail:review"
+                this.toggleReviewList()
             }
             ; the slides' places close a room's chat over them
             if (((p == "review") || (p == "history")) && room.open) {

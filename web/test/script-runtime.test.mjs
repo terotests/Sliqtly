@@ -1,9 +1,9 @@
 // node --test: a slide's script ({script=…} on its heading). The runtime the
 // script runs with (web/script-runtime.js) finds the same entities as the
-// deck's own selectors (PresSel, src/PresScript.rgr) on a real slide, and its
-// frames carry what the hooks set.
+// deck's own selectors (PresSel, src/PresSel.rgr, compiled into both) on a
+// real slide, and its frames carry what the hooks set.
 //
-// Runs the built app (web/dist/pres_app.js, `npm run build`). The runtime is
+// Runs the built app and runtime (web/dist, `npm run build`). The runtime is
 // plain JavaScript, so it runs here in a vm context as it runs in CErXes.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { DECK_RUNTIME } from "../apps-runtime.js";
-import { SCRIPT_RUNTIME } from "../script-runtime.js";
+import { SCRIPT_RUNTIME } from "../dist/script-runtime.js";
 
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const appJs = path.join(dist, "pres_app.js");
@@ -183,8 +183,8 @@ test("a selector that is no selector is said, and finds nothing", () => {
   const rt = runtime();
   rt.__setTree([{ id: "slide", k: "slide", b: [0, 0, 960, 540], i: 0, p: -1 }]);
   assert.equal(rt.find("li:x").length, 0);
-  assert.ok(rt.__parseSel("li:x").error);
-  assert.ok(rt.__parseSel("A->B").error);
+  assert.ok(rt.__Sel.PresSel.parse("li:x").error);
+  assert.ok(rt.__Sel.PresSel.parse("A->B").error);
 });
 
 test("a script over its budget three frames in a row is stopped", async () => {

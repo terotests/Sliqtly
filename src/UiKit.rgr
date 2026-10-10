@@ -1,0 +1,48 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; What the editor's panels build their trees from (PresPanels, PresToolbar,
+; PresChartEditor, PresHintPopover): a div or a span with a class, a
+; control put under an element, and a button's label dressed for its
+; colour. Each panel dresses its buttons with its own classes.
+
+Import "../evgui/src/UiHost.rgr"
+
+class UiKit {
+    sfn div:EVGElement (cls:string) {
+        def d (EVGElement.createDiv())
+        d.className = cls
+        return d
+    }
+
+    sfn words:EVGElement (cls:string t:string) {
+        def s (EVGElement.createSpan())
+        s.className = cls
+        s.textContent = t
+        return s
+    }
+
+    ; `c` is the host's (events, focus) and drawn under `parent`
+    sfn put:void (host:UiHost c:UiCtl parent:EVGElement) {
+        push host.ctls c
+        parent.addChild((unwrap c.rootEl))
+    }
+
+    ; a built button, not yet put anywhere
+    sfn button:ButtonCtl (tid:string name:string variant:string) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = name
+        c.variant = variant
+        c.build()
+        return c
+    }
+
+    ; The label is its own text node and takes no colour from the button, so
+    ; a coloured button says so to its label.
+    sfn labelClass:void (c:ButtonCtl cls:string) {
+        def r:EVGElement (unwrap c.rootEl)
+        if ((r.getChildCount()) > 0) {
+            UiTree.addClass((r.getChild(0)) cls)
+        }
+    }
+}

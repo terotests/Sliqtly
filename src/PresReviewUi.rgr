@@ -4,8 +4,9 @@
 ; PresReviewUi.rgr — review mode over the slide: pins, the bar, the thread
 ; ============================================================================
 ;
-; Review mode (File → Settings) lets a reader comment on slides, while
-; editing and while presenting alike:
+; Review mode (always on in the editor, not in the shared viewer) lets a
+; reader comment on slides, while editing and while presenting alike; the
+; rail's Review only opens and closes the list of comments:
 ;
 ;   pins     each thread of the slide shown, as a pulsing ball at its point
 ;            (PresReviewDot); a closed one is faint. A press opens it.

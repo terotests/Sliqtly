@@ -13,6 +13,7 @@ Import "Files.rgr"
 Import "Layout.rgr"
 Import "../presentation/PresExport.rgr"
 Import "../presentation/Pres3DStill.rgr"
+Import "../presentation/Pres3DGltf.rgr"
 
 ; what a deck is checked with
 class DeckIn {
@@ -79,6 +80,12 @@ class Checked {
     def height:double 540.0
     ; with DeckIn.export: the file
     def file:buffer (buffer_from_string "")
+    ; export "gltf": the world written (slide number, program) and how many
+    ; worlds the slides asked for have
+    def gltfFrom:string ""
+    def gltfSrc:string ""
+    def gltfWorlds:int 0
+    def gltfNotes:[string]
     ; with DeckIn.scene: that slide's entities (PresScene.toJson), their
     ; outline, and the ids DeckIn.sceneSel finds (or why it is no selector)
     def scene:int -1
@@ -524,8 +531,9 @@ class Check {
                 continue
             }
             ; the slides drawn here (render_slide, render_overview) show the
-            ; program's picture as the page does, its first frames' tree
-            def drawn:boolean (din.lists && ((strlen din.export) == 0))
+            ; program's picture as the page does, its first frames' tree; so
+            ; does the glTF export, which writes its world
+            def drawn:boolean ((din.lists && ((strlen din.export) == 0)) || (din.export == "gltf"))
             def why:string ""
             def ptree:string ""
             if drawn {
@@ -733,7 +741,7 @@ class Check {
                     def ps:PresSel (PresSel.parse(din.sceneSel))
                     c.sceneSelError = ps.error
                     if ((strlen ps.error) == 0) {
-                        for (ps.find(sc 0)) fat:int fai {
+                        for (ps.find(sc.ents 0)) fat:int fai {
                             def fe:PresEnt (sc.at(fat))
                             push c.sceneFound fe.id
                         }
@@ -769,8 +777,57 @@ class Check {
                 Check.shots(host ex d)
                 c.file = (PptxWriter.utf8((ex.html())))
             }
+            if (din.export == "gltf") {
+                Check.gltf(d din c)
+            }
         }
         return c
+    }
+
+    ; export "gltf": the first 3-D world of the slides asked for (a
+    ; program's <scene3d> at its first frames, as render_slide draws it)
+    ; as a glTF 2.0 file (src/Pres3DGltf.rgr)
+    sfn gltf:void (d:PresDeck din:DeckIn c:Checked) {
+        def l:MdLayout (d.layout())
+        def li:int 0
+        while (li < c.slides) {
+            if (((array_length din.only) == 0) || (PresExport.has(din.only li))) {
+                def groups:[int]
+                d.slideList(li groups 0.0)
+                for (d.playUses()) pu:PresPlayUse pui {
+                    if (pu.page != li) {
+                        continue
+                    }
+                    def pv@(optional):PresPlayView (d.playView(pu.key))
+                    def bi:int (d.embedBox(pu.page pu.source))
+                    if ((null? pv) || (bi < 0)) {
+                        continue
+                    }
+                    def view:PresPlayView (unwrap pv)
+                    def b:MdBox (itemAt l.boxes bi)
+                    def got:JVal (view.scenesIn(b.x b.y b.w b.h))
+                    def si:int 0
+                    while (si < (got.len())) {
+                        def sc:JVal (got.at(si))
+                        if (((strlen c.gltfFrom) == 0) && ((sc.numOr("h" 0.0)) > 0.0)) {
+                            def g:Pres3DGltf (new Pres3DGltf())
+                            def text:string (g.build(((sc.get("scene")).toJson()) ((sc.numOr("w" 0.0)) / (sc.numOr("h" 0.0)))))
+                            if ((strlen text) > 0) {
+                                c.file = (PptxWriter.utf8(text))
+                                c.gltfFrom = ("slide " + (to_string (li + 1)))
+                                c.gltfSrc = pu.spec.src
+                                if ((strlen g.error) > 0) {
+                                    push c.gltfNotes g.error
+                                }
+                            }
+                        }
+                        c.gltfWorlds = (c.gltfWorlds + 1)
+                        si = (si + 1)
+                    }
+                }
+            }
+            li = (li + 1)
+        }
     }
 
     ; A slide's own picture (`bg=`) for the PPTX: the slide's background

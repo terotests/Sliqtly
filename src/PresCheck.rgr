@@ -44,6 +44,7 @@ Import "PresScript.rgr"
 Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
 Import "Pres3DStill.rgr"
+Import "Pres3DGltf.rgr"
 Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
@@ -4263,7 +4264,7 @@ class PresCheck {
         def gr:ApiRequest (this.answer(s 200 "{\"room\":{\"room_id\":\"r1\"},\"presentations\":[{\"deck_id\":\"d1\",\"name\":\"Plan\",\"folder_id\":\"\"},{\"deck_id\":\"d2\",\"name\":\"Test\",\"folder_id\":\"f1\"}],\"folders\":[{\"folder_id\":\"f1\",\"name\":\"Tests\"}]}"))
         this.ok(((indexOf gr.body "\"room_id\":\"r1\"") > 0) "rooms: then the shown room's presentations")
         def dl:string (this.optsOf(r "roomdecks"))
-        this.ok(((indexOf dl "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t\nnew\t") == 0) ("rooms: a folder, shut, then the room's top, " + dl))
+        this.ok((dl == "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t") ("rooms: a folder, shut, then the room's top, " + dl))
         clear r.calls
         s.request("room:fold:r1:f1")
         this.ok(((indexOf (this.optsOf(r "roomdecks")) "f:f1\tTests\t1\tf\t1\ncloud:d2\tTest\t\ti\n") == 0) "rooms: a folder opened shows what is in it")
@@ -4817,29 +4818,29 @@ class PresCheck {
         this.ok(((indexOf files "apps/fx.tsx") >= 0) "scripts: the page is asked for the file")
         ; the slide's entities
         def sc:PresScene (deck.sceneOfSlide(0))
-        def heads:[int] (PresSel.findIn(sc "h2"))
+        def heads:[int] (PresSel.findIn(sc.ents "h2"))
         this.ok(((array_length heads) == 1) ("scripts: one h2, got " + (to_string (array_length heads))))
         if ((array_length heads) == 1) {
             def h:PresEnt (sc.at((itemAt heads 0)))
             this.ok((h.text == "Sales grow") ("scripts: the heading's text, got " + h.text))
             this.ok(((h.w > 50.0) && (h.h > 10.0)) "scripts: the heading's box")
         }
-        def items:[int] (PresSel.findIn(sc "li"))
+        def items:[int] (PresSel.findIn(sc.ents "li"))
         this.ok(((array_length items) == 3) ("scripts: three items, got " + (to_string (array_length items)) + "\n" + (join (sc.outline(false)) "\n")))
-        def second:[int] (PresSel.findIn(sc "li:2"))
+        def second:[int] (PresSel.findIn(sc.ents "li:2"))
         if ((array_length second) == 1) {
             def e2:PresEnt (sc.at((itemAt second 0)))
             this.ok((e2.text == "Buns sell") ("scripts: li:2 is the second, got " + e2.text))
         } {
             this.ok(false "scripts: li:2 names one item")
         }
-        def kahvi:[int] (PresSel.findIn(sc "#kahvi"))
+        def kahvi:[int] (PresSel.findIn(sc.ents "#kahvi"))
         this.ok(((array_length kahvi) == 1) "scripts: #id names a block")
         if ((array_length kahvi) == 1) {
             this.ok(((sc.at((itemAt kahvi 0))).id == "kahvi") "scripts: the block's own id is its id")
         }
-        this.ok(((array_length (PresSel.findIn(sc "p.key"))) == 1) "scripts: .class")
-        def words:[int] (PresSel.findIn(sc "h2 word"))
+        this.ok(((array_length (PresSel.findIn(sc.ents "p.key"))) == 1) "scripts: .class")
+        def words:[int] (PresSel.findIn(sc.ents "h2 word"))
         this.ok(((array_length words) == 2) ("scripts: the heading in words, got " + (to_string (array_length words))))
         if ((array_length words) == 2) {
             def w0:PresEnt (sc.at((itemAt words 0)))
@@ -4847,8 +4848,8 @@ class PresCheck {
             this.ok(((w0.text == "Sales") && (w1.text == "grow")) "scripts: the words")
             this.ok(((w1.x > (w0.x + w0.w)) && (w0.w > 10.0)) "scripts: each word where it is drawn")
         }
-        this.ok(((array_length (PresSel.findIn(sc "h2 char"))) == 9) "scripts: the heading in letters")
-        def bars:[int] (PresSel.findIn(sc "chart:1 bar"))
+        this.ok(((array_length (PresSel.findIn(sc.ents "h2 char"))) == 9) "scripts: the heading in letters")
+        def bars:[int] (PresSel.findIn(sc.ents "chart:1 bar"))
         this.ok(((array_length bars) == 3) ("scripts: the chart's columns, got " + (to_string (array_length bars))))
         if ((array_length bars) == 3) {
             def b1:PresEnt (sc.at((itemAt bars 1)))
@@ -4856,19 +4857,19 @@ class PresCheck {
             def b0:PresEnt (sc.at((itemAt bars 0)))
             this.ok((b1.h > b0.h) "scripts: a column's box is its own")
         }
-        this.ok(((array_length (PresSel.findIn(sc "chart:2 bar"))) == 0) "scripts: no second chart")
+        this.ok(((array_length (PresSel.findIn(sc.ents "chart:2 bar"))) == 0) "scripts: no second chart")
         def bad:PresSel (PresSel.parse("li:x"))
         this.ok(((strlen bad.error) > 0) "scripts: a bad selector is said")
         ; a diagram's nodes and lines
         def sc1:PresScene (deck.sceneOfSlide(1))
-        def nb:[int] (PresSel.findIn(sc1 "diagram:1 node#B"))
+        def nb:[int] (PresSel.findIn(sc1.ents "diagram:1 node#B"))
         this.ok(((array_length nb) == 1) ("scripts: node#B, got " + (to_string (array_length nb)) + "\n" + (join (sc1.outline(false)) "\n")))
         if ((array_length nb) == 1) {
             def nbe:PresEnt (sc1.at((itemAt nb 0)))
             this.ok((nbe.text == "Bake") ("scripts: the node's label, got " + nbe.text))
         }
-        this.ok(((array_length (PresSel.findIn(sc1 "edge A->B"))) == 1) "scripts: an edge by its ends")
-        this.ok(((array_length (PresSel.findIn(sc1 "diagram node"))) == 3) "scripts: every node")
+        this.ok(((array_length (PresSel.findIn(sc1.ents "edge A->B"))) == 1) "scripts: an edge by its ends")
+        this.ok(((array_length (PresSel.findIn(sc1.ents "diagram node"))) == 3) "scripts: every node")
         ; the tree a script is handed
         def tree:string (deck.scriptTree("script:apps/fx.tsx#1"))
         this.ok(((indexOf tree "\"k\":\"bar\"") > 0) "scripts: the tree carries the columns")
@@ -5448,6 +5449,114 @@ class PresCheck {
         this.ok(((buffer_get px3 mid) > g2) ("stills: a brighter light, a brighter face, got " + (to_string (buffer_get px3 mid))))
     }
 
+    ; a world saved as glTF 2.0 (export format gltf): the tree's nodes, the
+    ; page's triangles, PBR materials in linear light, lights and camera
+    fn gltfOut:void () {
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
+        def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff0000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
+        def grp:string ("{\"t\":\"group\",\"a\":{\"name\":\"rig\",\"scale\":\"2\"},\"c\":[" + box + "]}")
+        def flat:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"planeGeometry\"},{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#808080\",\"side\":\"2\"}}]}"
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"4,0,0\",\"intensity\":\"2\"}}"
+        def amb:string "{\"t\":\"ambientLight\",\"a\":{\"intensity\":\"0.3\"}}"
+        def text:string (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + grp + "," + flat + "," + sun + "," + amb + "]}") 1.5))
+        def g:JVal (JVal.parse(text))
+        def asset:JVal (g.get("asset"))
+        this.ok(((asset.strOr("version" "")) == "2.0") "gltf: version 2.0")
+        def nodes:JVal (g.get("nodes"))
+        ; rig, crate, plane, sun, camera (the ambient light has no glTF node)
+        this.ok(((nodes.len()) == 5) ("gltf: five nodes, got " + (to_string (nodes.len()))))
+        def rig:JVal (nodes.at(0))
+        this.ok(((rig.strOr("name" "")) == "rig") "gltf: the group first")
+        def kids:JVal (rig.get("children"))
+        def kid:JVal (kids.at(0))
+        this.ok((((kids.len()) == 1) && ((kid.asNum(-1.0)) == 1.0)) "gltf: the mesh under its group")
+        def rs:JVal (rig.get("scale"))
+        def rs0:JVal (rs.at(0))
+        this.ok(((rs0.asNum(0.0)) == 2.0) "gltf: the group's scale")
+        def crate:JVal (nodes.at(1))
+        def ct:JVal (crate.get("translation"))
+        def ct0:JVal (ct.at(0))
+        this.ok(((ct0.asNum(0.0)) == 1.0) "gltf: the mesh's own place under its group")
+        def scenes:JVal (g.get("scenes"))
+        def scene:JVal (scenes.at(0))
+        def roots:JVal (scene.get("nodes"))
+        this.ok(((roots.len()) == 4) ("gltf: rig, plane, sun and camera at the root, got " + (to_string (roots.len()))))
+        def accs:JVal (g.get("accessors"))
+        def meshes:JVal (g.get("meshes"))
+        def mesh0:JVal (meshes.at(0))
+        def prims:JVal (mesh0.get("primitives"))
+        def prim:JVal (prims.at(0))
+        def attrs:JVal (prim.get("attributes"))
+        def pa:JVal (accs.at((attrs.intOr("POSITION" -1))))
+        this.ok(((pa.intOr("count" 0)) == 24) ("gltf: Three's box, 24 vertices, got " + (to_string (pa.intOr("count" 0)))))
+        def pmax:JVal (pa.get("max"))
+        def pmax1:JVal (pmax.at(1))
+        this.ok(((pmax1.asNum(0.0)) == 0.5) "gltf: positions' max")
+        def ia:JVal (accs.at((prim.intOr("indices" -1))))
+        this.ok(((ia.intOr("count" 0)) == 36) "gltf: 12 triangles")
+        this.ok(((ia.intOr("componentType" 0)) == 5123) "gltf: uint16 indices")
+        def mats:JVal (g.get("materials"))
+        def m0:JVal (mats.at(0))
+        def red:JVal (m0.get("pbrMetallicRoughness"))
+        def rbase:[double] (PresSceneModel.nums((red.get("baseColorFactor")) ([] _:double (0.0 0.0 0.0 0.0))))
+        this.ok((PresCheck.near(rbase ([] _:double (1.0 0.0 0.0 1.0)))) "gltf: base colour, opaque")
+        this.ok((((red.numOr("metallicFactor" 0.0)) == 0.5) && ((red.numOr("roughnessFactor" 0.0)) == 0.25)) "gltf: metalness and roughness")
+        def grey:JVal (mats.at(1))
+        def gpbr:JVal (grey.get("pbrMetallicRoughness"))
+        def gbase:[double] (PresSceneModel.nums((gpbr.get("baseColorFactor")) ([] _:double (0.0 0.0 0.0 0.0))))
+        def gb:double (itemAt gbase 0)
+        this.ok(((gb > 0.21) && (gb < 0.22)) ("gltf: #808080 in linear light, got " + (to_string gb)))
+        this.ok((grey.boolOr("doubleSided" false)) "gltf: side 2 is double-sided")
+        def gext:JVal (grey.get("extensions"))
+        this.ok((gext.has("KHR_materials_unlit")) "gltf: a basic material is unlit")
+        ; the sun: shines from where it is toward the origin
+        def sunNode:JVal (nodes.at(3))
+        def q:[double] (PresSceneModel.nums((sunNode.get("rotation")) ([] _:double (0.0 0.0 0.0 1.0))))
+        this.ok((PresCheck.near((PresSceneModel.turn(q ([] _:double (0.0 0.0 -1.0)))) ([] _:double (-1.0 0.0 0.0)))) "gltf: the sun's -z toward the origin")
+        def dext:JVal (g.get("extensions"))
+        def punct:JVal (dext.get("KHR_lights_punctual"))
+        def lights:JVal (punct.get("lights"))
+        def l0:JVal (lights.at(0))
+        this.ok((((l0.strOr("type" "")) == "directional") && ((l0.numOr("intensity" 0.0)) == 2.0)) "gltf: the sun in KHR_lights_punctual")
+        def sext:JVal (scene.get("extras"))
+        def ssq:JVal (sext.get("sliqtly"))
+        def sx:JVal (ssq.get("lights"))
+        def sx0:JVal (sx.at(0))
+        this.ok(((sx0.strOr("type" "")) == "ambient") "gltf: the ambient light in the scene's extras")
+        def cams:JVal (g.get("cameras"))
+        def cam0:JVal (cams.at(0))
+        def lens:JVal (cam0.get("perspective"))
+        def yfov:double (lens.numOr("yfov" 0.0))
+        this.ok(((yfov > 0.8726) && (yfov < 0.8727)) ("gltf: fov 50 in radians, got " + (to_string yfov)))
+        this.ok(((lens.numOr("aspectRatio" 0.0)) == 1.5) "gltf: the box's aspect")
+        def cext:JVal (crate.get("extras"))
+        def x:JVal (cext.get("sliqtly"))
+        this.ok((((x.strOr("geometry" "")) == "boxGeometry") && ((x.strOr("jsx" "")) == "mesh")) "gltf: R3F's names in extras")
+        def bufs:JVal (g.get("buffers"))
+        def buf:JVal (bufs.at(0))
+        def views:JVal (g.get("bufferViews"))
+        def last:JVal (views.at(((views.len()) - 1)))
+        this.ok((((last.intOr("byteOffset" 0)) + (last.intOr("byteLength" 0))) <= (buf.intOr("byteLength" 0))) "gltf: views inside the buffer")
+        def used:JVal (g.get("extensionsUsed"))
+        this.ok(((used.len()) == 2) "gltf: two extensions used")
+        ; no meshes: no buffer, no empty lists
+        def bare:JVal (JVal.parse((Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + sun + "]}") 1.0))))
+        this.ok((((bare.has("buffers")) == false) && ((bare.has("accessors")) == false)) "gltf: an empty world has no buffer")
+        ; no light named: the page's key and fill, marked as Sliqtly's
+        def unlit:JVal (JVal.parse((Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + box + "]}") 1.0))))
+        def uext:JVal (unlit.get("extensions"))
+        def upun:JVal (uext.get("KHR_lights_punctual"))
+        def ulights:JVal (upun.get("lights"))
+        def unodes:JVal (unlit.get("nodes"))
+        def ukey:JVal (unodes.at(1))
+        def ukx:JVal (ukey.get("extras"))
+        def uks:JVal (ukx.get("sliqtly"))
+        this.ok((((ulights.len()) == 2) && (uks.boolOr("default" false))) "gltf: a world without lights gets the page's key and fill")
+        def bad:Pres3DGltf (new Pres3DGltf())
+        this.ok(((bad.build("{\"t\":\"div\"}" 1.0)) == "") "gltf: not a scene3d, no file")
+        this.ok(((strlen bad.error) > 0) "gltf: and says why")
+    }
+
     fn sceneTree:void () {
         def ball:string "{\"t\":\"mesh\",\"a\":{\"name\":\"ball\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"sphereGeometry\",\"a\":{\"args\":\"0.5,32,16\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#4488ff\",\"metalness\":\"0.2\",\"roughness\":\"0.6\"}}]}"
         def t:Pres3DTree (PresCheck.sceneOf(ball))
@@ -5620,6 +5729,34 @@ class PresCheck {
         def dbi:int (other.indexOf("db"))
         def dbMat:JVal (other.materialOf(dbi))
         this.ok((((dbMat.strOr("name" "")) == "db") && ((((other.rootList()).toJson()) == "[0,1]"))) ("scenes: indices renumbered, " + ((other.rootList()).toJson())))
+        ; a colour change is guarded too: a node removed before it lands
+        ; moves the materials, and the patch would paint the wrong one
+        def four:PresSceneModel (PresCheck.sceneSample())
+        this.sceneEdit(four "[{\"op\":\"add_service\",\"name\":\"c\"},{\"op\":\"add_service\",\"name\":\"d\"},{\"op\":\"add_service\",\"name\":\"e\"},{\"op\":\"add_service\",\"name\":\"f\"}]")
+        def fourText:string (four.print())
+        def paintC:SceneEdit (this.sceneEdit(four "[{\"op\":\"update\",\"name\":\"c\",\"color\":\"red\"}]"))
+        def pc:string (paintC.patch.toJson())
+        this.ok(((indexOf pc "\"test\",\"path\":\"/materials/") >= 0) ("scenes: a colour patch tests the material's name, " + pc))
+        def lessOne:PresSceneModel (PresSceneModel.parse(fourText))
+        this.sceneEdit(lessOne "[{\"op\":\"remove\",\"name\":\"api\"}]")
+        def stale2:string (lessOne.apply(paintC.patch))
+        this.ok(((indexOf stale2 "test failed") >= 0) ("scenes: a colour patch after a remove is refused, " + stale2))
+        ; a patch from elsewhere may not break the scene's shape
+        def shapes:[string] ([] _:string ("[{\"op\":\"add\",\"path\":\"/nodes/1/children\",\"value\":[1]}]" "[{\"op\":\"add\",\"path\":\"/nodes/1/children\",\"value\":[99]}]" "[{\"op\":\"replace\",\"path\":\"/nodes/1/name\",\"value\":\"api\"}]" "[{\"op\":\"replace\",\"path\":\"/nodes/1/mesh\",\"value\":42}]" "[{\"op\":\"add\",\"path\":\"/nodes/0/children\",\"value\":[1]}]"))
+        def sh:int 0
+        while (sh < (array_length shapes)) {
+            def sm:PresSceneModel (PresCheck.sceneSample())
+            def smText:string (sm.print())
+            def why:string (sm.apply((JVal.parse((itemAt shapes sh)))))
+            this.ok((((indexOf why "would break the scene") >= 0) && ((sm.print()) == smText)) ("scenes: a patch that breaks the shape is refused: " + (itemAt shapes sh) + " → " + why))
+            sh = (sh + 1)
+        }
+        def ring:PresSceneModel (PresCheck.sceneSample())
+        ring.doc = (JVal.parse("{\"asset\":{\"version\":\"2.0\"},\"nodes\":[{\"name\":\"a\",\"children\":[1]},{\"name\":\"b\",\"children\":[0]}]}"))
+        this.ok(((array_length (ring.subtree(0))) == 2) "scenes: a ring of children is walked once")
+        this.ok(((indexOf (PresSceneModel.structure(ring.doc)) "inside itself") >= 0) "scenes: and is found")
+        def notPath:JsonPatchResult (JsonPatch.apply((JVal.parse("{\"a\":1}")) (JVal.parse("[{\"op\":\"replace\",\"path\":5,\"value\":{}}]"))))
+        this.ok(((notPath.ok == false) && ((indexOf notPath.error "string") >= 0)) ("json patch: a path that is not a string is refused, " + notPath.error))
         ; a group keeps where its members are
         def g:PresSceneModel (PresCheck.sceneSample())
         def ge:SceneEdit (this.sceneEdit(g "[{\"op\":\"group\",\"name\":\"backend\",\"members\":[\"db\"],\"at\":[1,0,0]}]"))
@@ -5641,7 +5778,7 @@ class PresCheck {
         this.ok(((((g.info((g.indexOf("api")))).has("label")) == false)) "scenes: an empty label is taken away")
         ; refused edits change nothing
         def keep:string (g.print())
-        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]"))
+        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]" "[{\"op\":\"add_service\",\"name\":\"camera\"}]" "[{\"op\":\"add_service\",\"name\":\"x->y\"}]" "[{\"op\":\"group\",\"name\":\"gg\",\"members\":[\"api->db\"]}]" "[{\"op\":\"group\",\"name\":\"gg\",\"members\":[\"api->db/shaft\"]}]"))
         def k:int 0
         while (k < (array_length bad)) {
             def be:SceneEdit (this.sceneEdit(g (itemAt bad k)))
@@ -5922,6 +6059,7 @@ class PresCheck {
         c.scenes()
         c.sceneTree()
         c.stills()
+        c.gltfOut()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

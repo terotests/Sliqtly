@@ -58,15 +58,13 @@ test("what localStorage held is read back, and junk is an empty state", () => {
   assert.deepEqual(parseRooms(JSON.stringify({ rooms: [], placed: {}, touched: {} })).order, []);
 });
 
-test("the panel shows at most SHOWN, then Show all, then the row making a new presentation there", () => {
+test("the panel shows at most SHOWN, then Show all", () => {
   const many = Array.from({ length: SHOWN + 2 }, (_, i) => ({ id: "d" + i, name: "Deck\t" + i }));
-  const lines = deckLines(many, { showAll: "… Show all (7)", addNew: "+ Add new presentation" }).split("\n");
-  assert.equal(lines.length, SHOWN + 2);
+  const lines = deckLines(many, { showAll: "… Show all (7)" }).split("\n");
+  assert.equal(lines.length, SHOWN + 1);
   assert.equal(lines[0], "d0\tDeck 0\t\t");
   assert.equal(lines[SHOWN], "all\t… Show all (7)\t\ta");
-  assert.equal(lines[SHOWN + 1], "new\t+ Add new presentation\t\tn");
-  // few decks: no Show all; no add row asked (Onboarding): none
-  assert.equal(deckLines(many.slice(0, 2), { showAll: "all", addNew: "+" }).split("\n").length, 3);
+  // few decks: no Show all
   assert.equal(deckLines(many.slice(0, 2), { showAll: "all" }).split("\n").length, 2);
 });
 
@@ -291,14 +289,12 @@ test("the panel: folders first by name with their counts, an open one's decks un
     { id: "d", name: "Lost", folder: "f-gone" },
   ];
   const folders = [{ id: "f-t", name: "Testing" }, { id: "f-e", name: "Empty" }];
-  const shut = deckLines(rows, { folders, addNew: "+ New", newFolder: "+ Folder" }).split("\n").map((l) => l.split("\t"));
+  const shut = deckLines(rows, { folders }).split("\n").map((l) => l.split("\t"));
   assert.deepEqual(shut, [
     ["f:f-e", "Empty", "", "f", ""],
     ["f:f-t", "Testing", "", "f", "2"],
     ["b", "Kickoff", "1", ""],
     ["d", "Lost", "", ""],
-    ["new", "+ New", "", "n"],
-    ["newfolder", "+ Folder", "", "nf"],
   ]);
   const open = deckLines(rows, { folders, open: ["f-t"] }).split("\n").map((l) => l.split("\t").slice(0, 4));
   assert.deepEqual(open.map((l) => [l[0], l[3]]), [["f:f-e", "f"], ["f:f-t", "f"], ["a", "i"], ["c", "i"], ["b", ""], ["d", ""]]);

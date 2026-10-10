@@ -1045,7 +1045,8 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   frames, its `<scene3d>` worlds drawn by the server as the browser draws
   them. PDF, PPTX and Word show a plate with the program's name in the box
   (the editor's exports show its last picture). A program that does not
-  start shows why on its plate.
+  start shows why on its plate. `export_presentation` with `format: gltf`
+  saves a world as a glTF 2.0 model (topic=export).
 - The public viewer and the preview run programs and draw their
   `<scene3d>` worlds. There `slide.nav` works; `deck.set` and `el()` change the
   slides, which the viewer shows as saved: they work in the editor.
@@ -1425,7 +1426,8 @@ diff, `-` as the assistant had it, `+` the user's version.
 <!-- topic: export -->
 # Topic: export
 
-`export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or `html`,
+`export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx`, `html` or
+`gltf`,
 optional `slides`: [2, 5]; by the deck's owner, or by the session that made
 it without sign-in) makes the file the editor's File → Export makes and
 returns a download link for the user (`https://sliqtly.com/d/…`). The link
@@ -1437,6 +1439,12 @@ behind the old link.
 - `docx` (Word) and `html` (one self-contained web page) read the deck as
   a document: each slide's headings, text, lists, tables and formulas, its
   speaker notes under it, and charts and diagrams as pictures.
+- `gltf` writes a program's 3-D world (`<scene3d>`, topic=apps) as a glTF
+  2.0 file that Blender and three.js open: the first world on the slides
+  asked for, at its first frames, with its meshes, PBR materials, lights
+  and camera. What glTF has no word for (the R3F geometry and its `args`,
+  the material's class, `wireframe`, ambient and hemisphere lights) is in
+  each node's and the scene's `extras.sliqtly`.
 - Effects (`fx=`) are left out; the editor's own export draws them.
 - Chart data is a snapshot taken when exported.
 
