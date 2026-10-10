@@ -627,6 +627,15 @@ canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: fal
 for (const g of ["gesturestart", "gesturechange", "gestureend"]) canvas.addEventListener(g, (ev) => ev.preventDefault());
 
 // --- start ---------------------------------------------------------------------
+// A file of the shared deck as text (a world's .gltf), null when it has none.
+async function deckFileText(d, path) {
+  const f = (d.files || []).find((x) => x.path === String(path).replace(/^\/+/, ""));
+  if (!f || !f.url) return null;
+  const res = await fetch(f.url);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.text();
+}
+
 async function pictureOf(p) {
   try {
     const res = await fetch(p.url);
@@ -730,6 +739,7 @@ async function start() {
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
         pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
+        readFile: (path) => deckFileText(deck, path),
       });
     } catch (e) {
       console.warn("programs on slides", e);

@@ -5451,6 +5451,137 @@ class PresCheck {
 
     ; a world saved as glTF 2.0 (export format gltf): the tree's nodes, the
     ; page's triangles, PBR materials in linear light, lights and camera
+    ; the node of tree `t` named `name`, -1 when none
+    sfn p3named:int (t:Pres3DTree name:string) {
+        def i:int 0
+        while (i < (array_length t.nodes)) {
+            def p:P3Node (itemAt t.nodes i)
+            if (p.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; <SliqGltf src>: a deck's .gltf read back into the world (Pres3DTree)
+    fn gltfIn:void () {
+        ; the decoder
+        def b3:[int] (P3Files.unbase64("AQID"))
+        this.ok((((array_length b3) == 3) && ((itemAt b3 2) == 3)) "gltf in: base64 to bytes")
+        def b1:[int] (P3Files.unbase64("/w=="))
+        this.ok((((array_length b1) == 1) && ((itemAt b1 0) == 255)) "gltf in: base64 with padding")
+        this.ok(((P3Files.f32(0 0 128 63)) == 1.0) "gltf in: float32 1")
+        this.ok(((P3Files.f32(0 0 32 192)) == -2.5) "gltf in: float32 -2.5")
+        def tenth:double (P3Files.f32(205 204 204 61))
+        this.ok(((tenth > 0.0999999) && (tenth < 0.1000001)) "gltf in: float32 0.1")
+        ; Sliqtly's own export, read back
+        def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,2,3\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff8000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
+        def grp:string ("{\"t\":\"group\",\"a\":{\"name\":\"rig\",\"scale\":\"2\",\"rotation-y\":\"0.5\"},\"c\":[" + box + "]}")
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"name\":\"sun\",\"position\":\"0,4,0\",\"intensity\":\"2\"}}"
+        def text:string (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + grp + "," + sun + "]}") 1.0))
+        def files:P3Files (new P3Files())
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,9\"}}"
+        def at:string "{\"t\":\"sliqGltf\",\"a\":{\"src\":\"/scenes/a.gltf\",\"position\":\"0,1,0\"}}"
+        def scene:string ("{\"t\":\"scene3d\",\"c\":[" + cam + "," + at + "]}")
+        def first:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok((((array_length first.missing) == 1) && ((itemAt first.missing 0) == "scenes/a.gltf")) "gltf in: the file asked for, without its slash")
+        files.setFile("scenes/a.gltf" text)
+        def t:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length t.missing) == 0) "gltf in: nothing missing once given")
+        this.ok(((array_length t.warnings) == 0) ("gltf in: no warnings, got " + (join t.warnings "; ")))
+        def ci:int (PresCheck.p3named(t "crate"))
+        this.ok((ci >= 0) "gltf in: the crate is there by its name")
+        if (ci < 0) {
+            return
+        }
+        def crate:P3Node (itemAt t.nodes ci)
+        this.ok(((crate.tag == "mesh") && (crate.geo == "boxGeometry")) "gltf in: R3F's box again, from extras")
+        this.ok((PresCheck.near(crate.geoArgs ([] _:double (1.0 2.0 3.0 1.0 1.0 1.0)))) ("gltf in: the box's args, got " + (Pres3DTree.listText(crate.geoArgs))))
+        this.ok((PresCheck.near(crate.color ([] _:double (1.0 (128.0 / 255.0) 0.0)))) ("gltf in: the colour back in sRGB, got " + (Pres3DTree.listText(crate.color))))
+        this.ok(((crate.metalness == 0.5) && (crate.roughness == 0.25)) "gltf in: metalness and roughness")
+        this.ok((crate.mat == "meshStandardMaterial") "gltf in: its material class")
+        ; where it is: the group at y 1, the rig scaled 2 and turned 0.5 round y
+        def want:[double] ([] _:double ((2.0 * (cos 0.5)) 1.0 (0.0 - (2.0 * (sin 0.5)))))
+        this.ok((PresCheck.near(crate.worldPos want)) ("gltf in: the crate's place in the world, got " + (Pres3DTree.listText(crate.worldPos))))
+        ; the sun shines from above, not the default key and fill
+        def si:int (PresCheck.p3named(t "sun"))
+        this.ok((si >= 0) "gltf in: the sun is there")
+        if (si >= 0) {
+            def sunN:P3Node (itemAt t.nodes si)
+            this.ok((((sunN.tag == "light") && (sunN.kind == "directional")) && (sunN.intensity == 2.0)) "gltf in: a directional light of intensity 2")
+            def sp:[double] sunN.worldPos
+            this.ok((((itemAt sp 1) > 9.0) && (((itemAt sp 0) * (itemAt sp 0)) < 0.0001)) ("gltf in: the sun stands above (from its -z), got " + (Pres3DTree.listText(sp))))
+        }
+        this.ok((t.lights == 1) ("gltf in: only the file's own light, got " + (to_string t.lights)))
+        ; the same frame again: nothing to change
+        def again:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length (Pres3DTree.diff(t again))) == 0) "gltf in: keys stable across frames")
+        ; a named child changes the file's object; others are added
+        def over:string "{\"t\":\"sliqGltf\",\"a\":{\"src\":\"scenes/a.gltf\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position-y\":\"3\"},\"c\":[{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#00ff00\"}}]},{\"t\":\"mesh\",\"a\":{\"name\":\"extra\"},\"c\":[{\"t\":\"sphereGeometry\"}]}]}"
+        def to:Pres3DTree (Pres3DTree.readWith(("{\"t\":\"scene3d\",\"c\":[" + over + "]}") files))
+        def oi:int (PresCheck.p3named(to "crate"))
+        if (oi >= 0) {
+            def oc:P3Node (itemAt to.nodes oi)
+            this.ok((PresCheck.near(oc.pos ([] _:double (1.0 3.0 0.0)))) ("gltf in: y changed, x kept, got " + (Pres3DTree.listText(oc.pos))))
+            this.ok(((oc.mat == "meshBasicMaterial") && (PresCheck.near(oc.color ([] _:double (0.0 1.0 0.0))))) "gltf in: its material changed")
+            this.ok((oc.geo == "boxGeometry") "gltf in: its shape kept")
+        } {
+            this.ok(false "gltf in: the overridden crate")
+        }
+        this.ok(((PresCheck.p3named(to "extra")) >= 0) "gltf in: another child added")
+        this.ok(((array_length to.warnings) == 0) ("gltf in: no warnings on override, got " + (join to.warnings "; ")))
+        ; a file not Sliqtly's: its own triangles
+        def bytes:[int] ([] _:int (0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 1 0 2 0 0 0))
+        def triPre:string ("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"tri\",\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0,0,1,1]}}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],\"buffers\":[{\"byteLength\":44,\"uri\":\"")
+        def raw:string (triPre + "data:application/octet-stream;base64," + (SceneGeom.base64(bytes)) + "\"}]}")
+        files.setFile("tri.gltf" raw)
+        def tt:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" files))
+        def ti:int (PresCheck.p3named(tt "tri"))
+        this.ok(((array_length tt.warnings) == 0) ("gltf in: a plain file read, got " + (join tt.warnings "; ")))
+        if (ti >= 0) {
+            def tri:P3Node (itemAt tt.nodes ti)
+            this.ok(((tri.geo == "gltfGeometry") && (tri.gltfSrc == "tri.gltf")) "gltf in: the file's own triangles")
+            this.ok((PresCheck.near(tri.color ([] _:double (0.0 0.0 1.0)))) "gltf in: blue")
+            this.ok(((tri.metalness == 1.0) && (tri.roughness == 1.0)) "gltf in: glTF's material defaults")
+        } {
+            this.ok(false "gltf in: the triangle node")
+        }
+        def tris:P3Tris (files.trianglesOf("tri.gltf" 0 0))
+        this.ok((PresCheck.near(tris.pos ([] _:double (0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 0.0)))) ("gltf in: positions decoded, got " + (Pres3DTree.listText(tris.pos))))
+        this.ok((((array_length tris.idx) == 3) && ((itemAt tris.idx 2) == 2)) "gltf in: indices decoded")
+        this.ok(((array_length tris.nrm) == 0) "gltf in: no normals: flat faces")
+        ; the world makes it: one mesh, three corners
+        def wo:Pres3DWorld (new Pres3DWorld())
+        wo.setFile("tri.gltf" raw)
+        wo.setScene("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" (new Pres3DEnv()))
+        this.ok((wo.meshes == 1) ("gltf in: the world has the mesh, got " + (to_string wo.meshes)))
+        def made:ThreeBufferGeometry (itemAt wo.geos 0)
+        this.ok(((made.vertexCount()) == 3) ("gltf in: three corners, got " + (to_string (made.vertexCount()))))
+        ; a new text for the file is read again
+        files.setFile("tri.gltf" (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + box + "]}") 1.0)))
+        def tn:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" files))
+        this.ok(((PresCheck.p3named(tn "crate")) >= 0) "gltf in: a changed file read again")
+        ; what goes wrong is said
+        files.setFile("none.gltf" "")
+        def tm:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"none.gltf\"}}]}" files))
+        this.ok(((indexOf (join tm.warnings ";") "has no file none.gltf") >= 0) ("gltf in: a file the deck lacks, said, got " + (join tm.warnings ";")))
+        files.setFile("x.gltf" "{\"hello\":1}")
+        def tx:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"x.gltf\"}}]}" files))
+        this.ok(((indexOf (join tx.warnings ";") "not a glTF 2.0") >= 0) "gltf in: not glTF, said")
+        def ext:string (triPre + "tri.bin\"}]}")
+        files.setFile("ext.gltf" ext)
+        def te:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"ext.gltf\"}}]}" files))
+        this.ok(((indexOf (join te.warnings ";") "embedded data") >= 0) ("gltf in: an outside .bin, said, got " + (join te.warnings ";")))
+        def ei:int (PresCheck.p3named(te "tri"))
+        if (ei >= 0) {
+            def en:P3Node (itemAt te.nodes ei)
+            this.ok((en.visible == false) "gltf in: a mesh not read is not drawn")
+        }
+        def ts:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\"}]}" files))
+        this.ok(((indexOf (join ts.warnings ";") "src names") >= 0) "gltf in: no src, said")
+    }
+
     fn gltfOut:void () {
         def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
         def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff0000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
@@ -6060,6 +6191,7 @@ class PresCheck {
         c.sceneTree()
         c.stills()
         c.gltfOut()
+        c.gltfIn()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

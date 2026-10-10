@@ -29,4 +29,27 @@ class ColorLinear {
         def f:double (ColorLinear.root5(t))
         return (((t * t) * f) * f)
     }
+
+    ; linear light (0..1) back to an sRGB channel: `of` turned round
+    sfn toSrgb:double (l:double) {
+        if (l <= 0.0) {
+            return 0.0
+        }
+        if (l >= 1.0) {
+            return 1.0
+        }
+        def a:double 0.0
+        def b:double 1.0
+        def k:int 0
+        while (k < 40) {
+            def m:double ((a + b) * 0.5)
+            if ((ColorLinear.of(m)) > l) {
+                b = m
+            } {
+                a = m
+            }
+            k = (k + 1)
+        }
+        return ((a + b) * 0.5)
+    }
 }

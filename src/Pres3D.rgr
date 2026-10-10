@@ -28,6 +28,8 @@ class Pres3D {
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
     def gl:ThreeGLBackend (new ThreeGLBackend)
     def ready:boolean false
+    ; the deck's .gltf files, one copy for every world
+    def files:P3Files (new P3Files())
 
     Constructor () {
     }
@@ -61,6 +63,7 @@ class Pres3D {
             return (itemAt worlds at)
         }
         def wo:Pres3DWorld (new Pres3DWorld())
+        wo.files = files
         if hasEnv {
             wo.scene.setEnvironment(envCube)
         }
@@ -74,6 +77,33 @@ class Pres3D {
         def wo:Pres3DWorld (this.world(key))
         wo.setScene(json env)
         return wo.error
+    }
+
+    ; A file of the deck a <SliqGltf src> named: its text, "" when the deck
+    ; has none. The next frame of the worlds reads it.
+    fn setFile:void (name:string text:string) {
+        files.setFile(name text)
+    }
+
+    ; The files world `key`'s last frame asked for that the page has not
+    ; given yet, one per line ("" when none).
+    fn missing:string (key:string) {
+        if ((indexOf worldKeys key) < 0) {
+            return ""
+        }
+        def wo:Pres3DWorld (this.world(key))
+        return (join (wo.missing()) "\n")
+    }
+
+    ; Another deck: its files go with it.
+    fn clearFiles:void () {
+        files = (new P3Files())
+        def i:int 0
+        while (i < (array_length worlds)) {
+            def wo:Pres3DWorld (itemAt worlds i)
+            wo.files = files
+            i = (i + 1)
+        }
     }
 
     ; World `key` drawn into the canvas at w x h device pixels (the page

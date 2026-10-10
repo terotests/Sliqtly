@@ -44,6 +44,7 @@ Import "../game_engine/three/src/three_mesh_phong_material.rgr"
 Import "../game_engine/three/src/three_mesh_basic_material.rgr"
 Import "../game_engine/three/src/three_mesh_lambert_material.rgr"
 Import "../game_engine/three/src/three_cube_texture.rgr"
+Import "../game_engine/three/src/three_gltf_loader.rgr"
 
 ; The room a world stands in, made of a picture of its slide.
 class Pres3DEnv {
@@ -332,6 +333,8 @@ class Pres3DWorld {
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
     ; the last frame's world, and its objects by key
     def tree:Pres3DTree (new Pres3DTree())
+    ; the deck's .gltf files (<SliqGltf src>), kept across frames
+    def files:P3Files (new P3Files())
     def keys:[string]
     def objs:[ThreeObject3D]
     def meshKeys:[string]
@@ -393,7 +396,7 @@ class Pres3DWorld {
     ; One frame's <scene3d> (its JSON as PresPlay keeps it): what changed
     ; since the last frame changed. False when it was no scene.
     fn setScene:boolean (json:string env:Pres3DEnv) {
-        def next:Pres3DTree (Pres3DTree.read(json))
+        def next:Pres3DTree (Pres3DTree.readWith(json files))
         error = (join next.warnings "; ")
         if (((array_length next.nodes) == 0) && ((indexOf error "not a <scene3d>") >= 0)) {
             return false
@@ -413,6 +416,16 @@ class Pres3DWorld {
         meshes = (array_length meshKeys)
         lights = next.lights
         return true
+    }
+
+    ; A file of the deck a <SliqGltf src> may name (the next frame reads it).
+    fn setFile:void (name:string text:string) {
+        files.setFile(name text)
+    }
+
+    ; The files the last frame's <SliqGltf> asked for and did not have.
+    fn missing:[string] () {
+        return tree.missing
     }
 
     fn apply:void (o:P3Op t:Pres3DTree) {
@@ -796,6 +809,15 @@ class Pres3DWorld {
             def k:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
             k.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 3)) (floor (itemAt a 4)) (floor (itemAt a 5)))
             g = k
+        }
+        if (p.geo == "gltfGeometry") {
+            ; a mesh of a .gltf: its triangles, flat when it gives no normals
+            def tris:P3Tris (files.trianglesOf(p.gltfSrc (floor (itemAt a 0)) (floor (itemAt a 1))))
+            def made:ThreeBufferGeometry (ThreeGLTFLoader.buildGeometry(tris.pos tris.nrm tris.uv tris.idx))
+            if (((array_length tris.nrm) == 0) && ((array_length tris.pos) > 0)) {
+                made = (made.buildFlat())
+            }
+            g = made
         }
         if (p.geo == "teapotGeometry") {
             def tp:ThreeTeapotGeometry (new ThreeTeapotGeometry)

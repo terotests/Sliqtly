@@ -1016,6 +1016,12 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     move their children in their own frame: an arm is groups inside groups.
     `<SliqRod from to radius length color />` is a rod between two points
     or two named objects wherever they have moved (a hydraulic cylinder).
+    `<SliqGltf src="data/robot.gltf" />` puts a glTF 2.0 model of the deck
+    (a `.gltf` sent with `files`, its data embedded as data: URIs; not
+    `.glb`) in the world: its meshes, colours, lights and their places.
+    A child with the `name` of one of its objects changes that object
+    (`<mesh name="arm" rotation={[0, a, 0]} />`, or a new material inside);
+    other children are added to it. Textures are not drawn yet.
     Animate by changing props in `tick`; only what changed is redrawn.
     Unknown tags and props are reported with create/update. Example:
     `<mesh position={[0, 1, 0]} rotation={[0, a, 0]}><torusKnotGeometry
@@ -1280,7 +1286,8 @@ behind the old link.
   asked for, at its first frames, with its meshes, PBR materials, lights
   and camera. What glTF has no word for (the R3F geometry and its `args`,
   the material's class, `wireframe`, ambient and hemisphere lights) is in
-  each node's and the scene's `extras.sliqtly`.
+  each node's and the scene's `extras.sliqtly`. Sent back with `files`,
+  `<SliqGltf src>` reads it again as it was.
 - Effects (`fx=`) are left out; the editor's own export draws them.
 - Chart data is a snapshot taken when exported.
 

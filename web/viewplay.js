@@ -56,7 +56,7 @@ export function viewerAsks(play, asks) {
  * imageChanged(gl, src) the painter's; slidePicture(page, w, h) a page as
  * an ImageData without its programs.
  */
-export async function startPlays({ plays = [], scripts = [], lists = [], canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture }) {
+export async function startPlays({ plays = [], scripts = [], lists = [], canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile }) {
   await loadScript("pres_play.js");
   const web = new globalThis.PresPlayWeb();
   const scriptWeb = new globalThis.PresScriptWeb();
@@ -183,6 +183,7 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
     scale: () => placed.get(current())?.scale || 1,
     repaint,
     toast: (line) => console.warn(line),
+    readFile,
   }) : null;
   const loop = () => {
     apps.tick(1);
