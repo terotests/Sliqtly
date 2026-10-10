@@ -1,0 +1,1325 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; PresForm — Sliqtly Curious: a questionnaire file, its answers and tallies
+; =============================================================================
+; The model behind questionnaires (forms/x.form.md in a deck). No UI here:
+; the HTML answer page, the slide player, the server and the editor all ask
+; this file, so a browser shows the same errors the server enforces.
+;
+;   PresForm.parse(src)    a `.form.md` file → questions, settings, warnings
+;   form.check(answers)    validate one response (a JSON object) → the
+;                          record to store, or why not
+;   PresFormTally          per question counters a chart on a slide reads
+;   form.publicJson()      what a respondent's browser gets: no file path,
+;                          no deck, no version hash, question ids numbered
+;   form.fromPublic(a)     a respondent's answer back to the real ids
+;
+; The file:
+;
+;       ---
+;       form: Event feedback
+;       audience: public        # room | signed-in | public
+;       anonymous: true
+;       limit: 500
+;       once: soft              # soft | account | link | none
+;       results: live           # owner | live | after-close
+;       ---
+;
+;       ## How useful was the talk? {#useful type=scale min=1 max=5 required}
+;       labels: Not at all | Very
+;
+;       ## Which topic interested you most? {#topic type=choice}
+;       - Live data — charts from a sheet
+;       - Workflows
+;       - Other {other}
+;
+;       ## What else? {#more type=text max=500 visible="topic = 'other'"}
+;
+; A heading is a question and `{#id}` names it: answers and tallies are kept
+; by that name, never by position, so questions can be reordered and
+; reworded. Option values are slugs of their labels ("Live data" → live-data)
+; unless the option says `{#value}`; rules compare against values. Rules
+; (`visible`, `required`) are rangerforms' NativeExpr language, evaluated by
+; its FormEngine. Anything the parser does not understand is a warning,
+; never a silent drop.
+;
+; An answer is a JSON object: {"useful": 4, "topic": "other",
+; "topic.other": "Pricing", "more": "…"}. A multi answers with an array.
+; =============================================================================
+
+Import "JsonValue.rgr"
+Import "../rangerforms/engine/FormEngine.rgr"
+Import "../rangerforms/expr/NativeExpr.rgr"
+
+class PresFormOption {
+    def value:string ""
+    def label:string ""
+    def desc:string ""
+    ; The option that comes with a text box ("Other: ___").
+    def other:boolean false
+
+    Constructor () {
+    }
+}
+
+class PresFormQuestion {
+    def id:string ""
+    ; choice | multi | scale | nps | rating | text | words | number | date
+    def type:string "choice"
+    def title:string ""
+    def description:string ""
+    def required:boolean false
+    ; Rules in the expression language, "" when there is none.
+    def requiredWhen:string ""
+    def visibleWhen:string ""
+    def min:double 0.0
+    def max:double 0.0
+    def hasMin:boolean false
+    def hasMax:boolean false
+    ; Characters a text answer may have.
+    def maxLength:int 0
+    ; A scale's end labels.
+    def low:string ""
+    def high:string ""
+    def options:[PresFormOption]
+    def line:int 0
+
+    Constructor () {
+    }
+
+    ; Scales answer with a whole number and tally per point.
+    fn isScale:boolean () {
+        return ((type == "scale") || (type == "nps") || (type == "rating"))
+    }
+
+    ; Types whose answers are counted per option.
+    fn hasOptions:boolean () {
+        return ((type == "choice") || (type == "multi") || (this.isScale()))
+    }
+
+    fn isText:boolean () {
+        return ((type == "text") || (type == "words") || (type == "date"))
+    }
+
+    fn optionIndex:int (value:string) {
+        def i:int 0
+        while (i < (array_length options)) {
+            def o:PresFormOption (itemAt options i)
+            if (o.value == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn otherValue:string () {
+        def i:int 0
+        while (i < (array_length options)) {
+            def o:PresFormOption (itemAt options i)
+            if o.other {
+                return o.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+}
+
+; The outcome of checking one response.
+class PresFormResult {
+    def ok:boolean false
+    ; Question id ("" for the whole form) and what is wrong with it.
+    def ids:[string]
+    def messages:[string]
+    ; The response as it is stored: only questions that were showing and
+    ; answered, values in their canonical form.
+    def record:JVal (JVal.mkObj())
+
+    Constructor () {
+    }
+
+    fn fail:void (id:string message:string) {
+        push ids id
+        push messages message
+    }
+
+    fn errorFor:string (id:string) {
+        def i:int 0
+        while (i < (array_length ids)) {
+            if ((itemAt ids i) == id) {
+                return (itemAt messages i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+}
+
+class PresForm {
+    def title:string ""
+    ; room | signed-in | public
+    def audience:string "room"
+    def anonymous:boolean true
+    ; As written ("2026-10-20 09:00"); the server reads them in the deck's zone.
+    def opens:string ""
+    def closes:string ""
+    ; Responses taken at most; 0 = the server's own limit.
+    def limit:int 0
+    ; soft | account | link | none
+    def once:string "soft"
+    ; owner | live | after-close
+    def results:string "owner"
+    def questions:[PresFormQuestion]
+    def warnings:[string]
+    ; Changes when what is asked changes, not when the file is respaced.
+    def version:string ""
+    def engine:FormEngine (new FormEngine())
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length questions)
+    }
+
+    fn indexOfQuestion:int (id:string) {
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            if (q.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn warn:void (line:int text:string) {
+        if (line > 0) {
+            push warnings ("line " + (to_string line) + ": " + text)
+        } {
+            push warnings text
+        }
+    }
+
+    ; ---------------------------------------------------------------------------
+    ; Reading the file
+    ; ---------------------------------------------------------------------------
+
+    sfn num:double (s:string fallback:double) {
+        def v:double (?? (to_double (trim s)) fallback)
+        return v
+    }
+
+    ; "Live data!" → "live-data". Letters past ASCII (ä, ö) are kept.
+    sfn slug:string (label:string) {
+        def out:string ""
+        def dash:boolean false
+        def i:int 0
+        def low:string (to_lowercase label)
+        while (i < (strlen low)) {
+            def c:int (charAt low i)
+            def keep:boolean (((c >= 97) && (c <= 122)) || ((c >= 48) && (c <= 57)) || (c > 127))
+            if keep {
+                if (dash && ((strlen out) > 0)) {
+                    out = (out + "-")
+                }
+                dash = false
+                out = (out + (substring low i (i + 1)))
+            } {
+                dash = true
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; An id or a value a rule can name: letters, digits, _ and -, not
+    ; starting with a digit.
+    sfn isName:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            def letter:boolean (((c >= 97) && (c <= 122)) || ((c >= 65) && (c <= 90)) || (c == 95))
+            def digit:boolean ((c >= 48) && (c <= 57))
+            if ((letter == false) && (digit == false) && (c != 45)) {
+                return false
+            }
+            if ((i == 0) && (letter == false)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Two independent polynomial hashes over code points (a Go string is
+    ; bytes, a JavaScript one UTF-16 units); both stay below 2^53, so the
+    ; browser and the server compute the same digits.
+    sfn hash:string (s:string) {
+        def a:int 7
+        def b:int 11
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def i:int 0
+        while (i < (array_length cps)) {
+            def c:int (itemAt cps i)
+            a = (((a * 31) + c) % 1000000007)
+            b = (((b * 131) + c) % 998244353)
+            i = (i + 1)
+        }
+        return ((to_string a) + "-" + (to_string b))
+    }
+
+    ; A front matter value without its trailing "# comment" or quotes.
+    sfn plainValue:string (v:string) {
+        def s:string (trim v)
+        def hashAt:int (indexOf s " #")
+        if (hashAt >= 0) {
+            s = (trim (substring s 0 hashAt))
+        }
+        if ((strlen s) >= 2) {
+            def first:int (charAt s 0)
+            def last:int (charAt s ((strlen s) - 1))
+            if (((first == 34) && (last == 34)) || ((first == 39) && (last == 39))) {
+                s = (substring s 1 ((strlen s) - 1))
+            }
+        }
+        return s
+    }
+
+    fn readSetting:void (k:string v:string line:int) {
+        if ((k == "form") || (k == "title")) {
+            title = v
+            return
+        }
+        if (k == "audience") {
+            if ((v == "room") || (v == "signed-in") || (v == "public")) {
+                audience = v
+            } {
+                this.warn(line ("audience is room, signed-in or public, not " + v))
+            }
+            return
+        }
+        if (k == "anonymous") {
+            anonymous = (v != "false")
+            return
+        }
+        if (k == "opens") {
+            opens = v
+            return
+        }
+        if (k == "closes") {
+            closes = v
+            return
+        }
+        if (k == "limit") {
+            def n:int (to_int (PresForm.num(v -1.0)))
+            if (n < 0) {
+                this.warn(line ("limit is a number of responses, not " + v))
+            } {
+                limit = n
+            }
+            return
+        }
+        if (k == "once") {
+            if ((v == "soft") || (v == "account") || (v == "link") || (v == "none")) {
+                once = v
+            } {
+                this.warn(line ("once is soft, account, link or none, not " + v))
+            }
+            return
+        }
+        if (k == "results") {
+            if ((v == "owner") || (v == "live") || (v == "after-close")) {
+                results = v
+            } {
+                this.warn(line ("results is owner, live or after-close, not " + v))
+            }
+            return
+        }
+        this.warn(line ("unknown setting " + k))
+    }
+
+    ; `#id type=scale min=1 max=5 required visible="topic = 'other'"` split
+    ; into words; a quoted value keeps its spaces.
+    sfn attrWords:[string] (attrs:string) {
+        def out:[string]
+        def cur:string ""
+        def quote:int 0
+        def i:int 0
+        while (i < (strlen attrs)) {
+            def c:int (charAt attrs i)
+            if (quote > 0) {
+                if (c == quote) {
+                    quote = 0
+                } {
+                    cur = (cur + (substring attrs i (i + 1)))
+                }
+            } {
+                if ((c == 34) || (c == 39)) {
+                    quote = c
+                } {
+                    if ((c == 32) || (c == 9)) {
+                        if ((strlen cur) > 0) {
+                            push out cur
+                        }
+                        cur = ""
+                    } {
+                        cur = (cur + (substring attrs i (i + 1)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    fn readAttrs:void (q:PresFormQuestion attrs:string line:int) {
+        def parts:[string] (PresForm.attrWords(attrs))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            def eq:int (indexOf p "=")
+            if ((charAt p 0) == 35) {
+                q.id = (substring p 1 (strlen p))
+            } {
+                if (p == "required") {
+                    q.required = true
+                } {
+                    if (eq > 0) {
+                        this.readAttr(q (substring p 0 eq) (substring p (eq + 1) (strlen p)) line)
+                    } {
+                        this.warn(line ("unknown setting " + p))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn readAttr:void (q:PresFormQuestion k:string v:string line:int) {
+        if (k == "type") {
+            def known:boolean ((v == "choice") || (v == "multi") || (v == "scale") || (v == "nps") || (v == "rating"))
+            known = (known || (v == "text") || (v == "words") || (v == "number") || (v == "date"))
+            if known {
+                q.type = v
+            } {
+                this.warn(line ("type " + v + " is not supported yet"))
+            }
+            return
+        }
+        if ((k == "min") || (k == "max")) {
+            def n:double (PresForm.num(v -999999999.0))
+            if (n == -999999999.0) {
+                this.warn(line (k + " is a number, not " + v))
+                return
+            }
+            if (k == "min") {
+                q.min = n
+                q.hasMin = true
+            } {
+                q.max = n
+                q.hasMax = true
+            }
+            return
+        }
+        if (k == "visible") {
+            q.visibleWhen = v
+            return
+        }
+        if (k == "required") {
+            if (v == "true") {
+                q.required = true
+            } {
+                if (v != "false") {
+                    q.requiredWhen = v
+                }
+            }
+            return
+        }
+        this.warn(line ("unknown setting " + k))
+    }
+
+    fn startQuestion:PresFormQuestion (text:string line:int) {
+        def q (new PresFormQuestion())
+        q.line = line
+        def head:string (trim text)
+        def open:int (indexOf head "{")
+        if ((open >= 0) && ((charAt head ((strlen head) - 1)) == 125)) {
+            this.readAttrs(q (substring head (open + 1) ((strlen head) - 1)) line)
+            head = (trim (substring head 0 open))
+        }
+        q.title = head
+        if ((strlen q.id) == 0) {
+            q.id = (PresForm.slug(head))
+            this.warn(line ("no {#id}, using " + q.id))
+        }
+        return q
+    }
+
+    fn addOption:void (q:PresFormQuestion text:string line:int) {
+        if (((q.hasOptions()) == false) || (q.isScale())) {
+            this.warn(line ("a " + q.type + " question has no options"))
+            return
+        }
+        def o (new PresFormOption())
+        def label:string (trim text)
+        def open:int (indexOf label "{")
+        if ((open >= 0) && ((charAt label ((strlen label) - 1)) == 125)) {
+            def parts:[string] (PresForm.attrWords((substring label (open + 1) ((strlen label) - 1))))
+            def i:int 0
+            while (i < (array_length parts)) {
+                def p:string (itemAt parts i)
+                if (p == "other") {
+                    o.other = true
+                } {
+                    if ((charAt p 0) == 35) {
+                        o.value = (substring p 1 (strlen p))
+                    } {
+                        this.warn(line ("unknown option setting " + p))
+                    }
+                }
+                i = (i + 1)
+            }
+            label = (trim (substring label 0 open))
+        }
+        def cut:int (indexOf label " — ")
+        if (cut > 0) {
+            o.desc = (trim (substring label (cut + 3) (strlen label)))
+            label = (trim (substring label 0 cut))
+        }
+        o.label = label
+        if ((strlen o.value) == 0) {
+            o.value = (PresForm.slug(label))
+        }
+        if ((strlen o.value) == 0) {
+            this.warn(line ("option " + label + " has no letters or digits for a value; give it {#value}"))
+            return
+        }
+        if ((q.optionIndex(o.value)) >= 0) {
+            this.warn(line ("option " + o.value + " twice"))
+            return
+        }
+        if (o.other && ((strlen (q.otherValue())) > 0)) {
+            this.warn(line "only one {other} option")
+            o.other = false
+        }
+        push q.options o
+    }
+
+    ; Defaults per type, a scale's points as its options, and the checks
+    ; that need the whole question.
+    fn finish:void (q:PresFormQuestion) {
+        if (q.type == "nps") {
+            q.min = 0.0
+            q.max = 10.0
+            q.hasMin = true
+            q.hasMax = true
+        }
+        if (q.type == "rating") {
+            if (q.hasMin == false) {
+                q.min = 1.0
+            }
+            if (q.hasMax == false) {
+                q.max = 5.0
+            }
+            q.hasMin = true
+            q.hasMax = true
+        }
+        if (q.type == "scale") {
+            if (q.hasMin == false) {
+                q.min = 1.0
+            }
+            if (q.hasMax == false) {
+                q.max = 5.0
+            }
+            q.hasMin = true
+            q.hasMax = true
+        }
+        if (q.isScale()) {
+            q.min = (to_double (to_int q.min))
+            q.max = (to_double (to_int q.max))
+            if ((q.max <= q.min) || ((q.max - q.min) > 20.0)) {
+                this.warn(q.line ("question " + q.id + ": a scale has 2 to 21 points"))
+                q.max = (q.min + 4.0)
+            }
+            def n:int (to_int q.min)
+            while (n <= (to_int q.max)) {
+                def o (new PresFormOption())
+                o.value = (to_string n)
+                o.label = (to_string n)
+                if (n == (to_int q.min)) {
+                    o.desc = q.low
+                }
+                if (n == (to_int q.max)) {
+                    o.desc = q.high
+                }
+                push q.options o
+                n = (n + 1)
+            }
+            return
+        }
+        if ((q.type == "choice") || (q.type == "multi")) {
+            if ((array_length q.options) < 2) {
+                this.warn(q.line ("question " + q.id + " has fewer than two options"))
+            }
+            return
+        }
+        if (q.type == "text") {
+            if (q.hasMax) {
+                q.maxLength = (to_int q.max)
+            } {
+                q.maxLength = 2000
+            }
+            q.hasMax = false
+        }
+        if (q.type == "words") {
+            q.maxLength = 100
+            q.hasMax = false
+        }
+        if ((q.hasMin && q.hasMax) && (q.max < q.min)) {
+            this.warn(q.line ("question " + q.id + ": max is below min"))
+        }
+    }
+
+    fn addQuestion:void (q:PresFormQuestion) {
+        this.finish(q)
+        if ((PresForm.isName(q.id)) == false) {
+            this.warn(q.line ("question id " + q.id + " must start with a letter and hold letters, digits, - or _"))
+            return
+        }
+        if ((this.indexOfQuestion(q.id)) >= 0) {
+            this.warn(q.line ("question id " + q.id + " twice; the second is left out"))
+            return
+        }
+        push questions q
+    }
+
+    sfn parse:PresForm (src:string) {
+        def f (new PresForm())
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def cur@(optional):PresFormQuestion
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            def no:int (i + 1)
+            if ((i == 0) && (line == "---")) {
+                inFront = true
+            } {
+                if inFront {
+                    if (line == "---") {
+                        inFront = false
+                    } {
+                        def c:int (indexOf line ":")
+                        if (c > 0) {
+                            f.readSetting((trim (substring line 0 c)) (PresForm.plainValue((substring line (c + 1) (strlen line)))) no)
+                        } {
+                            if (((strlen line) > 0) && ((charAt line 0) != 35)) {
+                                f.warn(no ("not a setting: " + line))
+                            }
+                        }
+                    }
+                } {
+                    if ((indexOf line "## ") == 0) {
+                        if (!null? cur) {
+                            f.addQuestion((unwrap cur))
+                        }
+                        cur = (f.startQuestion((substring line 3 (strlen line)) no))
+                    } {
+                        if (null? cur) {
+                            if ((indexOf line "# ") == 0) {
+                                if ((strlen f.title) == 0) {
+                                    f.title = (trim (substring line 2 (strlen line)))
+                                }
+                            } {
+                                if ((strlen line) > 0) {
+                                    f.warn(no "text before the first question is left out")
+                                }
+                            }
+                        } {
+                            def q:PresFormQuestion (unwrap cur)
+                            if (((indexOf line "- ") == 0) || ((indexOf line "* ") == 0)) {
+                                f.addOption(q (substring line 2 (strlen line)) no)
+                            } {
+                                if ((indexOf line "labels:") == 0) {
+                                    def ends:[string] (strsplit (substring line 7 (strlen line)) "|")
+                                    if ((array_length ends) == 2) {
+                                        q.low = (trim (itemAt ends 0))
+                                        q.high = (trim (itemAt ends 1))
+                                    } {
+                                        f.warn(no "labels: low | high")
+                                    }
+                                } {
+                                    if ((strlen line) > 0) {
+                                        if ((strlen q.description) > 0) {
+                                            q.description = (q.description + " ")
+                                        }
+                                        q.description = (q.description + line)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if inFront {
+            f.warn(0 "the front matter has no closing ---")
+        }
+        if (!null? cur) {
+            f.addQuestion((unwrap cur))
+        }
+        if ((array_length f.questions) == 0) {
+            f.warn(0 "no questions: a question is a ## heading")
+        }
+        f.version = (PresForm.hash((f.signature())))
+        f.compile()
+        return f
+    }
+
+    ; What the respondent is asked, in one string.
+    fn signature:string () {
+        def sig:string ""
+        def k:int 0
+        while (k < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions k)
+            sig = (sig + q.id + "|" + q.type + "|" + q.title + "|" + q.visibleWhen + "|" + q.requiredWhen)
+            if q.required {
+                sig = (sig + "|r")
+            }
+            sig = (sig + "|" + (FormValue.numberText(q.min)) + "|" + (FormValue.numberText(q.max)) + "|" + (to_string q.maxLength))
+            def j:int 0
+            while (j < (array_length q.options)) {
+                def o:PresFormOption (itemAt q.options j)
+                sig = (sig + "|" + o.value + "=" + o.label)
+                j = (j + 1)
+            }
+            sig = (sig + ";")
+            k = (k + 1)
+        }
+        return sig
+    }
+
+    ; The rangerforms questionnaire the rules run in.
+    fn questionnaire:Questionnaire () {
+        def form:Questionnaire (Questionnaire.of("form"))
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            def kind:string "text"
+            if (q.type == "choice") {
+                kind = "choice"
+            }
+            if (q.type == "multi") {
+                kind = "multichoice"
+            }
+            if (q.isScale()) {
+                kind = "int"
+            }
+            if (q.type == "number") {
+                kind = "decimal"
+            }
+            def fq:Question (form.question(q.id kind q.title))
+            if ((kind == "choice") || (kind == "multichoice")) {
+                def j:int 0
+                while (j < (array_length q.options)) {
+                    def o:PresFormOption (itemAt q.options j)
+                    fq.choice(o.value o.label)
+                    j = (j + 1)
+                }
+            }
+            if (q.hasMin) {
+                fq.minValue = q.min
+                fq.hasMin = true
+            }
+            if (q.hasMax) {
+                fq.maxValue = q.max
+                fq.hasMax = true
+            }
+            if ((strlen q.visibleWhen) > 0) {
+                fq.visibleWhen(q.visibleWhen)
+            }
+            if ((strlen q.requiredWhen) > 0) {
+                fq.requiredWhen(q.requiredWhen)
+            } {
+                if q.required {
+                    fq.requiredWhen("true")
+                }
+            }
+            i = (i + 1)
+        }
+        return form
+    }
+
+    fn compile:void () {
+        def form:Questionnaire (this.questionnaire())
+        engine = (FormEngine.load(form (new NativeExpr())))
+        def g:int 0
+        while (g < (array_length form.gaps)) {
+            this.warn(0 ("rule " + (itemAt form.gaps g)))
+            g = (g + 1)
+        }
+        if ((engine.ready) == false) {
+            this.warn(0 ("the rules cannot run: " + engine.errorText))
+        }
+        def unknown:[string] (form.unknownReferences())
+        def u:int 0
+        while (u < (array_length unknown)) {
+            this.warn(0 ("a rule names " + (itemAt unknown u) + ", which is no question here"))
+            u = (u + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------------------------
+    ; Checking a response
+    ; ---------------------------------------------------------------------------
+
+    sfn isDate:boolean (s:string) {
+        if ((strlen s) != 10) {
+            return false
+        }
+        def i:int 0
+        while (i < 10) {
+            def c:int (charAt s i)
+            if ((i == 4) || (i == 7)) {
+                if (c != 45) {
+                    return false
+                }
+            } {
+                if ((c < 48) || (c > 57)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        def month:int (to_int (PresForm.num((substring s 5 7) 0.0)))
+        def day:int (to_int (PresForm.num((substring s 8 10) 0.0)))
+        return ((month >= 1) && (month <= 12) && (day >= 1) && (day <= 31))
+    }
+
+    ; One answer as the engine's value, or an error value when its shape is
+    ; wrong for the question (a list for a single choice, text for a scale).
+    fn valueOf:FormValue (q:PresFormQuestion v:JVal) {
+        if (v.isNull()) {
+            return (FormValue.blank())
+        }
+        if (q.type == "multi") {
+            if ((v.isArr()) == false) {
+                return (FormValue.ofError("choose from the list"))
+            }
+            def items:[string]
+            def i:int 0
+            while (i < (v.len())) {
+                def one:JVal (v.at(i))
+                if (one.kind != 3) {
+                    return (FormValue.ofError("choose from the list"))
+                }
+                if ((Questionnaire.listHas(items one.str))) {
+                    return (FormValue.ofError((one.str + " twice")))
+                }
+                push items one.str
+                i = (i + 1)
+            }
+            return (FormValue.ofList(items))
+        }
+        if ((q.isScale()) || (q.type == "number")) {
+            if (v.kind == 2) {
+                return (FormValue.ofNumber(v.num))
+            }
+            if (v.kind == 3) {
+                return (FormValue.ofText(v.str))
+            }
+            return (FormValue.ofError("that is not a number"))
+        }
+        if (v.kind != 3) {
+            return (FormValue.ofError("answer with text"))
+        }
+        ; Counted here in characters (code points), not by the engine's
+        ; strlen, which counts bytes in Go and UTF-16 units in JavaScript.
+        if ((q.maxLength > 0) && ((EVGCodepoint.count(v.str)) > q.maxLength)) {
+            return (FormValue.ofError(("at most " + (to_string q.maxLength) + " characters")))
+        }
+        if ((q.type == "date") && ((strlen (trim v.str)) > 0)) {
+            if ((PresForm.isDate((trim v.str))) == false) {
+                return (FormValue.ofError("a date as YYYY-MM-DD"))
+            }
+            return (FormValue.ofText((trim v.str)))
+        }
+        return (FormValue.ofText(v.str))
+    }
+
+    ; The stored form of an answer the engine took.
+    sfn canonical:JVal (q:PresFormQuestion v:FormValue) {
+        if (v.isList()) {
+            def arr:JVal (JVal.mkArr())
+            def i:int 0
+            while (i < (array_length v.items)) {
+                arr.add((JVal.mkStr((itemAt v.items i))))
+                i = (i + 1)
+            }
+            return arr
+        }
+        if ((q.isScale()) || (q.type == "number")) {
+            def n:FormValue (v.asNumber())
+            return (JVal.mkNum(n.n))
+        }
+        return (JVal.mkStr((v.asText())))
+    }
+
+    ; Validate one response. The result's record is what the server stores;
+    ; the browser runs the same check to show errors before sending.
+    fn check:PresFormResult (answers:JVal) {
+        def res (new PresFormResult())
+        if ((answers.isObj()) == false) {
+            res.fail("" "a response is a JSON object")
+            return res
+        }
+        if ((engine.ready) == false) {
+            res.fail("" "this questionnaire's rules cannot run")
+            return res
+        }
+        ; Keys that name nothing are refused, not ignored: a client sending
+        ; them is out of step with the form.
+        def k:int 0
+        while (k < (array_length answers.keys)) {
+            def key:string (itemAt answers.keys k)
+            def base:string key
+            def dot:int (indexOf key ".")
+            if (dot > 0) {
+                base = (substring key 0 dot)
+            }
+            def at:int (this.indexOfQuestion(base))
+            if (at < 0) {
+                res.fail(key ("no question " + key))
+            } {
+                if (dot > 0) {
+                    def q:PresFormQuestion (itemAt questions at)
+                    if ((substring key dot (strlen key)) != ".other") {
+                        res.fail(key ("no question " + key))
+                    } {
+                        if ((strlen (q.otherValue())) == 0) {
+                            res.fail(key (q.id + " has no other option"))
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if ((array_length res.ids) > 0) {
+            return res
+        }
+        def state:AnswerState (engine.start(0))
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            def v:FormValue (this.valueOf(q (answers.get(q.id))))
+            if (v.isError()) {
+                res.fail(q.id v.err)
+            } {
+                if ((v.isText()) && ((strlen (trim v.s)) == 0)) {
+                    v = (FormValue.blank())
+                }
+                engine.answer(state q.id v)
+            }
+            i = (i + 1)
+        }
+        def missing:[string] (engine.missingAnswers(state))
+        def m:int 0
+        while (m < (array_length missing)) {
+            def id:string (itemAt missing m)
+            if ((strlen (res.errorFor(id))) == 0) {
+                res.fail(id "answer this question")
+            }
+            m = (m + 1)
+        }
+        def invalid:[string] (engine.invalidAnswers(state))
+        def n:int 0
+        while (n < (array_length invalid)) {
+            def id:string (itemAt invalid n)
+            if ((strlen (res.errorFor(id))) == 0) {
+                def st:QuestionState (state.readState(id))
+                res.fail(id st.message)
+            }
+            n = (n + 1)
+        }
+        ; The "other" text, when its option is the one chosen.
+        def submitted:[string] (engine.submittedNames(state))
+        def s:int 0
+        while (s < (array_length submitted)) {
+            def id:string (itemAt submitted s)
+            def q:PresFormQuestion (itemAt questions (this.indexOfQuestion(id)))
+            def v:FormValue (state.rawValueOf(id))
+            res.record.set(id (PresForm.canonical(q v)))
+            def other:string (q.otherValue())
+            def text:JVal (answers.get((id + ".other")))
+            if (((strlen other) > 0) && ((text.isNull()) == false)) {
+                def chosen:boolean false
+                if (v.isList()) {
+                    chosen = (Questionnaire.listHas(v.items other))
+                } {
+                    chosen = ((v.asText()) == other)
+                }
+                if (text.kind != 3) {
+                    res.fail((id + ".other") "answer with text")
+                } {
+                    if ((EVGCodepoint.count(text.str)) > 200) {
+                        res.fail((id + ".other") "at most 200 characters")
+                    } {
+                        if (chosen && ((strlen (trim text.str)) > 0)) {
+                            res.record.set((id + ".other") (JVal.mkStr((trim text.str))))
+                        }
+                    }
+                }
+            }
+            s = (s + 1)
+        }
+        res.ok = ((array_length res.ids) == 0)
+        if ((res.ok) == false) {
+            res.record = (JVal.mkObj())
+        }
+        return res
+    }
+
+    ; ---------------------------------------------------------------------------
+    ; What the respondent's browser gets
+    ; ---------------------------------------------------------------------------
+    ; No file path, deck, version or question ids: questions are q1, q2, … in
+    ; file order, and rules are rewritten to those names. The server keeps
+    ; the form and maps answers back (fromPublic).
+
+    fn publicId:string (index:int) {
+        return ("q" + (to_string (index + 1)))
+    }
+
+    fn realId:string (pub:string) {
+        if (((strlen pub) < 2) || ((charAt pub 0) != 113)) {
+            return ""
+        }
+        def n:int (to_int (PresForm.num((substring pub 1 (strlen pub)) 0.0)))
+        if ((n < 1) || (n > (array_length questions)) || ((this.publicId((n - 1))) != pub)) {
+            return ""
+        }
+        def q:PresFormQuestion (itemAt questions (n - 1))
+        return q.id
+    }
+
+    ; A rule with question names swapped for their public ones. Names are
+    ; found with the rule language's own lexer, so a string such as 'topic'
+    ; or a function such as count( stays as it is.
+    fn publicRule:string (src:string) {
+        if ((strlen src) == 0) {
+            return ""
+        }
+        def lexer (new NativeExpr())
+        if ((lexer.lex(src)) == false) {
+            return src
+        }
+        def out:string ""
+        def from:int 0
+        def i:int 0
+        while (i < (array_length lexer.toks)) {
+            def t:ExprToken (itemAt lexer.toks i)
+            if (t.kind == 3) {
+                def call:boolean false
+                if ((i + 1) < (array_length lexer.toks)) {
+                    def next:ExprToken (itemAt lexer.toks (i + 1))
+                    call = ((next.kind == 4) && (next.text == "("))
+                }
+                def at:int (this.indexOfQuestion(t.text))
+                if ((at >= 0) && (call == false)) {
+                    out = (out + (substring src from t.at) + (this.publicId(at)))
+                    from = (t.at + (strlen t.text))
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + (substring src from (strlen src)))
+    }
+
+    fn publicJson:JVal () {
+        def root:JVal (JVal.mkObj())
+        root.setStr("title" title)
+        root.setBool("anonymous" anonymous)
+        def list:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            def o:JVal (JVal.mkObj())
+            o.setStr("id" (this.publicId(i)))
+            o.setStr("type" q.type)
+            o.setStr("title" q.title)
+            if ((strlen q.description) > 0) {
+                o.setStr("description" q.description)
+            }
+            if (q.required && ((strlen q.requiredWhen) == 0)) {
+                o.setBool("required" true)
+            }
+            if ((strlen q.requiredWhen) > 0) {
+                o.setStr("requiredWhen" (this.publicRule(q.requiredWhen)))
+            }
+            if ((strlen q.visibleWhen) > 0) {
+                o.setStr("visible" (this.publicRule(q.visibleWhen)))
+            }
+            if q.hasMin {
+                o.setNum("min" q.min)
+            }
+            if q.hasMax {
+                o.setNum("max" q.max)
+            }
+            if (q.maxLength > 0) {
+                o.setInt("maxLength" q.maxLength)
+            }
+            if (q.isScale()) {
+                o.setStr("low" q.low)
+                o.setStr("high" q.high)
+            } {
+                if (q.hasOptions()) {
+                    def opts:JVal (JVal.mkArr())
+                    def j:int 0
+                    while (j < (array_length q.options)) {
+                        def op:PresFormOption (itemAt q.options j)
+                        def ov:JVal (JVal.mkObj())
+                        ov.setStr("value" op.value)
+                        ov.setStr("label" op.label)
+                        if ((strlen op.desc) > 0) {
+                            ov.setStr("desc" op.desc)
+                        }
+                        if op.other {
+                            ov.setBool("other" true)
+                        }
+                        opts.add(ov)
+                        j = (j + 1)
+                    }
+                    o.set("options" opts)
+                }
+            }
+            list.add(o)
+            i = (i + 1)
+        }
+        root.set("questions" list)
+        return root
+    }
+
+    ; A respondent's answer (public ids) with the real ids, for check().
+    ; A key that maps to nothing keeps its public name, so check() refuses it.
+    fn fromPublic:JVal (answers:JVal) {
+        def out:JVal (JVal.mkObj())
+        if ((answers.isObj()) == false) {
+            return answers
+        }
+        def i:int 0
+        while (i < (array_length answers.keys)) {
+            def key:string (itemAt answers.keys i)
+            def base:string key
+            def rest:string ""
+            def dot:int (indexOf key ".")
+            if (dot > 0) {
+                base = (substring key 0 dot)
+                rest = (substring key dot (strlen key))
+            }
+            def real:string (this.realId(base))
+            if ((strlen real) == 0) {
+                real = ("?" + base)
+            }
+            out.set((real + rest) (itemAt answers.vals i))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Tallies
+; ---------------------------------------------------------------------------
+
+; One question's counters: per option for option types (in option order),
+; per value for number, per word for words; text only counts answers.
+class PresFormCount {
+    def id:string ""
+    def keys:[string]
+    def counts:[int]
+    def answered:int 0
+
+    Constructor () {
+    }
+
+    fn indexOfKey:int (key:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn bump:void (key:string delta:int grow:boolean) {
+        def at:int (this.indexOfKey(key))
+        if (at < 0) {
+            if ((grow == false) || (delta < 0)) {
+                return
+            }
+            push keys key
+            push counts 0
+            at = ((array_length keys) - 1)
+        }
+        def n:int ((itemAt counts at) + delta)
+        if (n < 0) {
+            n = 0
+        }
+        set_at counts at n
+    }
+
+    fn countOf:int (key:string) {
+        def at:int (this.indexOfKey(key))
+        if (at < 0) {
+            return 0
+        }
+        return (itemAt counts at)
+    }
+}
+
+class PresFormTally {
+    def form:PresForm (new PresForm())
+    def per:[PresFormCount]
+    def total:int 0
+
+    Constructor () {
+    }
+
+    sfn of:PresFormTally (form:PresForm) {
+        def t (new PresFormTally())
+        t.form = form
+        def i:int 0
+        while (i < (array_length form.questions)) {
+            def q:PresFormQuestion (itemAt form.questions i)
+            def c (new PresFormCount())
+            c.id = q.id
+            if (q.hasOptions()) {
+                def j:int 0
+                while (j < (array_length q.options)) {
+                    def o:PresFormOption (itemAt q.options j)
+                    push c.keys o.value
+                    push c.counts 0
+                    j = (j + 1)
+                }
+            }
+            push t.per c
+            i = (i + 1)
+        }
+        return t
+    }
+
+    ; Words of a word-cloud answer: lower case, each once.
+    sfn wordsOf:[string] (text:string) {
+        def out:[string]
+        def parts:[string] (strsplit (PresForm.slug(text)) "-")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def w:string (itemAt parts i)
+            if (((strlen w) > 0) && ((Questionnaire.listHas(out w)) == false)) {
+                push out w
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Count a stored record in (delta 1) or out (delta -1). Values the form
+    ; no longer has (an option removed later) are not counted.
+    fn apply:void (record:JVal delta:int) {
+        total = (total + delta)
+        if (total < 0) {
+            total = 0
+        }
+        def i:int 0
+        while (i < (array_length form.questions)) {
+            def q:PresFormQuestion (itemAt form.questions i)
+            def c:PresFormCount (itemAt per i)
+            def v:JVal (record.get(q.id))
+            if ((v.isNull()) == false) {
+                c.answered = (c.answered + delta)
+                if (c.answered < 0) {
+                    c.answered = 0
+                }
+                if (v.isArr()) {
+                    def j:int 0
+                    while (j < (v.len())) {
+                        def one:JVal (v.at(j))
+                        c.bump(one.str delta false)
+                        j = (j + 1)
+                    }
+                } {
+                    if (v.kind == 2) {
+                        c.bump((FormValue.numberText(v.num)) delta (q.type == "number"))
+                    } {
+                        if (q.type == "words") {
+                            def ws:[string] (PresFormTally.wordsOf(v.str))
+                            def w:int 0
+                            while (w < (array_length ws)) {
+                                c.bump((itemAt ws w) delta true)
+                                w = (w + 1)
+                            }
+                        } {
+                            if (q.hasOptions()) {
+                                c.bump(v.str delta false)
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn countFor:PresFormCount (qid:string) {
+        def at:int (form.indexOfQuestion(qid))
+        if (at < 0) {
+            return (new PresFormCount())
+        }
+        return (itemAt per at)
+    }
+
+    ; The rows a chart reads: [{value, label, count}]. Empty while fewer than
+    ; `atLeast` people answered, so a small group's answers are not exposed.
+    fn rows:JVal (qid:string atLeast:int) {
+        def out:JVal (JVal.mkArr())
+        def at:int (form.indexOfQuestion(qid))
+        if (at < 0) {
+            return out
+        }
+        def q:PresFormQuestion (itemAt form.questions at)
+        def c:PresFormCount (itemAt per at)
+        if (c.answered < atLeast) {
+            return out
+        }
+        def i:int 0
+        while (i < (array_length c.keys)) {
+            def key:string (itemAt c.keys i)
+            def row:JVal (JVal.mkObj())
+            row.setStr("value" key)
+            def label:string key
+            def o:int (q.optionIndex(key))
+            if (o >= 0) {
+                def op:PresFormOption (itemAt q.options o)
+                label = op.label
+            }
+            row.setStr("label" label)
+            row.setInt("count" (itemAt c.counts i))
+            out.add(row)
+            i = (i + 1)
+        }
+        return out
+    }
+}
