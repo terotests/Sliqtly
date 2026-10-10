@@ -2271,6 +2271,40 @@ class PresDeck {
     def scenePage:int -1
     def sceneHeld:PresScene (new PresScene())
 
+    ; sceneOfList for a list a script's frame is laid over, kept while the
+    ; list is the one it was: a running script asks for it every frame, and
+    ; measuring its words again each time was most of a frame's work
+    def liveSceneRev:int -1
+    def liveScenePage:int -1
+    def liveSceneMark:double 0.0
+    def liveSceneHeld:PresScene (new PresScene())
+
+    fn sceneOfListHeld:PresScene (i:int list:EVGDisplayList) {
+        def mark:double (PresDeck.listMark(list))
+        if (((liveSceneRev == revision) && (liveScenePage == i)) && (liveSceneMark == mark)) {
+            return liveSceneHeld
+        }
+        liveSceneHeld = (this.sceneOfList(i list))
+        liveSceneRev = revision
+        liveScenePage = i
+        liveSceneMark = mark
+        return liveSceneHeld
+    }
+
+    ; A number that changes when anything moves, grows or is added in a list.
+    sfn listMark:double (list:EVGDisplayList) {
+        def m:double (to_double (array_length list.cmds))
+        def k:int 0
+        while (k < (array_length list.cmds)) {
+            def c:EVGDrawCmd (itemAt list.cmds k)
+            def f:double (to_double ((k % 7) + 1))
+            m = (m + (f * (((c.x + (c.y * 3.0)) + (c.w * 5.0)) + (c.h * 7.0))))
+            m = (m + (c.a * 11.0))
+            k = (k + 1)
+        }
+        return m
+    }
+
     fn sceneOfSlide:PresScene (i:int) {
         if ((sceneRev == revision) && (scenePage == i)) {
             return sceneHeld
@@ -5271,7 +5305,7 @@ class PresDeck {
         if (!null? sfo) {
             def sf:PresScriptFrame (unwrap sfo)
             if ((sf.count()) > 0) {
-                def sc:PresScene (this.sceneOfList(i out))
+                def sc:PresScene (this.sceneOfListHeld(i out))
                 PresScriptApply.apply(out sc sf groupOfCmd boxOfCmd l.engine l.style.textColor (this.themeColour("chart" "accent-color")))
                 while ((array_length partOfCmd) < (array_length out.cmds)) {
                     push partOfCmd -1

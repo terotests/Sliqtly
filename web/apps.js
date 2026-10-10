@@ -35,22 +35,41 @@ const SET_EVERY_MS = 400;
 export const BUDGET_MS = 4;
 const OVER_IN_A_ROW = 3;
 
+// __calibrate's time on a fast machine: a slower engine gets a budget as
+// much larger, up to four times
+export const CALIB_REF_MS = 0.4;
+/** A script's time budget a frame, from how long __calibrate took here. */
+export function scriptBudget(calib) {
+  if (!(calib > 0) || !isFinite(calib)) return BUDGET_MS;
+  return BUDGET_MS * Math.min(4, Math.max(1, calib / CALIB_REF_MS));
+}
+
 /** Whether a frame's time ends a script: `over` frames over budget in a row so far. */
 export function overBudget(over, ms, budget = BUDGET_MS) {
   const next = ms > budget ? over + 1 : 0;
   return { over: next, stop: next >= OVER_IN_A_ROW };
 }
 
+/**
+ * The slide's entities handed over before the script itself runs, so a
+ * find() at its top level (const bars = find("chart:1 bar")) finds them.
+ */
+export function treeFirst(tree) {
+  return tree ? "\n__setTree(" + tree + ");" : "";
+}
+
 /** A script's frame: what it set (passed on whole) and what it asked. */
 export function splitScriptFrame(out) {
   let asks = [];
   let leave = false;
+  let take = [];
   try {
     const f = JSON.parse(out);
     if (f && Array.isArray(f.k)) asks = f.k;
     leave = !!(f && f.leave);
+    if (f && Array.isArray(f.take)) take = f.take.map(String);
   } catch (_) { /* the deck says it was no frame */ }
-  return { frame: out, asks, leave };
+  return { frame: out, asks, leave, take };
 }
 
 function reducedMotion() {
@@ -92,7 +111,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   let skipKey = "";
 
   function newRun(key, script = false) {
-    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false };
+    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false, budget: BUDGET_MS, take: [] };
   }
 
   // Where each script ends, worked out one at a time in a worker of their
@@ -136,7 +155,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       finals.deadline = now + LIMIT_MS;
     }
     finals.busy = next;
-    finals.worker.postMessage({ type: "final", runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME, source: next.source, arg: finalArg(next.key, next.tree) });
+    finals.worker.postMessage({ type: "final", runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + treeFirst(next.tree), source: next.source, arg: finalArg(next.key, next.tree) });
   }
 
   function finalReply(w, m) {
@@ -162,6 +181,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.tree = "";
     r.leaves = false;
     r.leaving = false;
+    r.take = [];
     if (r.script && app.endScriptLive) {
       app.endScriptLive(r.key, why || "");
       repaint();
@@ -196,7 +216,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.worker = w;
     r.waiting = true;
     r.deadline = performance.now() + FIRST_LIMIT_MS;
-    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME : ""), source });
+    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME + treeFirst(app.scriptTree(r.key)) : ""), source, calibrate: r.script });
   }
 
   function name(r) {
@@ -213,6 +233,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     }
     if (m.type === "loaded") {
       r.running = true;
+      if (r.script) r.budget = scriptBudget(m.calib);
       if (app.setPlayStopped) app.setPlayStopped(r.key, "");
       r.last = performance.now();
       return;
@@ -226,14 +247,15 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
       return;
     }
     if (r.script) {
-      const b = overBudget(r.over, m.ms || 0);
+      const b = overBudget(r.over, m.ms || 0, r.budget);
       r.over = b.over;
       if (b.stop) {
-        stopRun(r, t("took over 4 ms a frame three times in a row, so it was stopped and the slide shows where it ends"));
+        stopRun(r, t("took over its time a frame three times in a row, so it was stopped and the slide shows where it ends") + " (" + r.budget.toFixed(1) + " ms)");
         return;
       }
       const f = splitScriptFrame(m.out);
       r.leaves = f.leave;
+      r.take = f.take;
       if (!app.setScriptFrame(r.key, f.frame)) {
         stopRun(r, t("its frame was not one a script gives"));
         return;
@@ -453,21 +475,25 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   // The keyboard, while a program has it: everything but chords with
   // Control / Command (the page's own) and Esc, which gives it back.
   // A running script hears the keys (onKeyDown) but does not take them: the
-  // arrows still move the presentation.
+  // arrows still move the presentation, unless it took that key
+  // (input.take). True when a running script took it.
   const scriptKeys = {};
   function scriptKey(ev, type) {
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
     if (type === "keydown") scriptKeys[ev.key] = true;
     else delete scriptKeys[ev.key];
+    let taken = false;
     for (const r of runs.values()) {
       if (!r.script || !r.running) continue;
+      if (r.take.includes(ev.key)) taken = true;
       if (type === "keydown" && ev.repeat) continue;
       r.events.push({ type, key: ev.key });
     }
+    return taken;
   }
 
   function keyDown(ev) {
-    scriptKey(ev, "keydown");
+    if (scriptKey(ev, "keydown")) return true;
     const key = app.playFocus();
     const r = key && runs.get(key);
     if (!r || ev.ctrlKey || ev.metaKey || ev.altKey) return false;
@@ -482,7 +508,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
   }
 
   function keyUp(ev) {
-    scriptKey(ev, "keyup");
+    if (scriptKey(ev, "keyup")) return true;
     const key = app.playFocus();
     const r = key && runs.get(key);
     if (!r || !(ev.key in keys)) return false;

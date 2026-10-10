@@ -258,6 +258,14 @@ func (h *McpHost) ScriptRun(src, fn, arg string) string {
 			}
 			return "", err
 		}
+		// the slide's entities before the script, so a find() at its top
+		// level finds them (web/apps.js treeFirst)
+		if why, err := r.eval(en, "(function (a) { if (a && a.tree) __setTree(a.tree); })("+arg+");"); err != nil || why != "" {
+			if why != "" {
+				err = errors.New("tree: " + why)
+			}
+			return "", err
+		}
 		if why, err := r.eval(en, src); err != nil || why != "" {
 			return "!" + why, err
 		}

@@ -11,12 +11,13 @@
 //   find("h2 word"), find("p char")        an array of entities, with
 //                              .set() .reset() .remove() .each() .first() on it
 //   e.id e.kind e.text e.box{x,y,w,h} e.data e.index e.parent e.children
-//   e.set({x, y, scale, rotate, opacity, color, fill, stroke, clip, z,
+//   e.set({x, y, scale, scaleX, scaleY, rotate, opacity, color, fill, stroke, clip, z,
 //          visible, skew, origin})   e.reset()  e.clone(props)  e.remove()
 //   e.get("x")                 what it is set to, else where it was drawn
 //   add("rect"|"circle"|"text"|"image", {x, y, w, h, text, size, src, …})
 //   env.reducedMotion, env.export
-//   input.keys, input.pointer {x, y, down, inside} (slide px)
+//   input.keys, input.pointer {x, y, down, inside} (slide px),
+//   input.take("ArrowRight", …) keys the presentation leaves to the script
 //   hooks: start() onEnter(from) tick(dt) build(n) onKeyDown(key)
 //          onKeyUp(key) onClick(entity) onLeave(to) final()
 //   onEnter(from): the slide arrived from slide `from` (1-based, 0 for none),
@@ -40,7 +41,21 @@ var __addN = 0;
 var __started = false;
 var __lastStep = -1;
 var env = { reducedMotion: false, "export": false, time: 0 };
-var input = { keys: {}, pointer: { x: 0, y: 0, down: false, inside: false } };
+var __taken = [];
+var input = {
+  keys: {},
+  pointer: { x: 0, y: 0, down: false, inside: false },
+  // keys the script keeps while it runs: the presentation does not move on
+  // them (input.take("ArrowLeft", "ArrowRight")); Escape is never taken
+  take: function () {
+    for (var i = 0; i < arguments.length; i++) {
+      var k = String(arguments[i]);
+      if (k !== "Escape" && __taken.indexOf(k) < 0) __taken.push(k);
+    }
+  }
+};
+var __PROPS = { x: 1, y: 1, scale: 1, scaleX: 1, scaleY: 1, rotate: 1, skew: 1, origin: 1, opacity: 1, visible: 1, color: 1, fill: 1, stroke: 1, z: 1, clip: 1 };
+var __saidKeys = {};
 
 function __isName(c) {
   return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") ||
@@ -105,7 +120,20 @@ function __within(e, anc) {
   return false;
 }
 
+// What each selector found, until the entities change (__setTree): a
+// script that finds in every tick does the walk once.
+var __found = {};
+
 function __find(sel, scope) {
+  var key = String(sel) + "\u0000" + (scope ? scope.id : "");
+  var had = __found[key];
+  if (had) return __list(had.slice());
+  var out = __findAll(sel, scope);
+  __found[key] = out.slice();
+  return out;
+}
+
+function __findAll(sel, scope) {
   var out = __list([]);
   var p = __parseSel(sel);
   if (p.error) {
@@ -146,7 +174,7 @@ function __list(a) {
   return a;
 }
 
-var __DEFAULTS = { scale: 1, rotate: 0, skew: 0, opacity: 1, visible: true, z: 0 };
+var __DEFAULTS = { scale: 1, scaleX: 1, scaleY: 1, rotate: 0, skew: 0, opacity: 1, visible: true, z: 0 };
 
 function __Ent(o) {
   var b = o.b || [0, 0, 0, 0];
@@ -169,6 +197,13 @@ __Ent.prototype.set = function (p) {
   for (var k in p) {
     var v = p[k];
     if (v === undefined || typeof v === "function") continue;
+    if (!__PROPS[k]) {
+      if (!__saidKeys[k]) {
+        __saidKeys[k] = true;
+        console.log('set(): "' + k + '" is no property of an entity (x, y, scale, scaleX, scaleY, rotate, skew, origin, opacity, visible, color, fill, stroke, z, clip)');
+      }
+      continue;
+    }
     if (v === null) delete cur[k];
     else cur[k] = v;
   }
@@ -225,6 +260,7 @@ function add(kind, p) {
 function __setTree(list) {
   __ents = [];
   __byId = {};
+  __found = {};
   for (var i = 0; i < list.length; i++) {
     var e = new __Ent(list[i]);
     __ents.push(e);
@@ -241,6 +277,19 @@ function __setTree(list) {
   for (var id in __props) if (!__byId[id]) delete __props[id];
 }
 
+// A fixed bit of work the page times once, to know how fast the engine is
+// on this device (web/apps.js scriptBudget).
+function __calibrate() {
+  var s = 0;
+  var o = { a: 0, b: [] };
+  for (var i = 0; i < 1000; i++) {
+    s = (s + i * 7) % 1013;
+    o.a = s;
+    if (i % 50 === 0) o.b.push(s);
+  }
+  return o.b.length;
+}
+
 function __hook(name) {
   return typeof globalThis[name] === "function" ? globalThis[name] : null;
 }
@@ -248,7 +297,7 @@ function __hook(name) {
 function __out() {
   var a = [];
   for (var i = 0; i < __adds.length; i++) a.push(__adds[i].rec);
-  return JSON.stringify({ p: __props, a: a, k: __asks, build: !!__hook("build"), click: !!__hook("onClick"), leave: !!__hook("onLeave") });
+  return JSON.stringify({ p: __props, a: a, k: __asks, build: !!__hook("build"), click: !!__hook("onClick"), leave: !!__hook("onLeave"), take: __taken });
 }
 
 function __begin(a) {
@@ -325,12 +374,16 @@ function __scriptAt(arg) {
   return __out();
 }
 
+// Every build step from 0 to step, in order, as the stage takes them: a
+// script that builds on what an earlier step set ends where it does there.
 function __buildTo(step) {
   var build = __hook("build");
   if (!build) return;
-  __lastStep = step;
-  slide.step = step;
-  build(step);
+  for (var n = 0; n <= step; n++) {
+    __lastStep = n;
+    slide.step = n;
+    build(n);
+  }
 }
 
 function __tickFor(seconds) {

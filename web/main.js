@@ -190,6 +190,10 @@ const SAMPLES = {
   // 3-D worlds in programs (```app with allow: 3d), on Aurora
   maailmat: [...sample("maailmat", "3D worlds on slides", "3D-maailmat kalvoilla"), "aurora",
     ["apps/chrome.tsx", "apps/chrome.tsx.css", "apps/shapes.tsx", "apps/shapes.tsx.css", "apps/excavator.tsx", "apps/excavator.tsx.css"]],
+  // slide scripts ({script=…}) and transition=morph, with their files
+  // (samples/skriptit/apps/…), on Aurora
+  skriptit: [...sample("skriptit", "Slide scripts: slides that move", "Diaskriptit: diat, jotka liikkuvat"), "aurora",
+    ["apps/grow.tsx", "apps/words.tsx", "apps/flow.tsx", "apps/pick.tsx"]],
   // music and beat effects (front matter music:, {fx=spectrum}), on Nebula
   bileet: [...sample("bileet", "Party: music and beat effects", "Bileet: musiikki ja biittiefektit"), "nebula",
     ["media/bileet.mp3"]],

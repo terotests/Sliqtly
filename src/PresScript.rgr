@@ -818,6 +818,9 @@ class PresEntProps {
     def hasY:boolean false
     def y:double 0.0
     def scale:double 1.0
+    ; along one side only (a bar growing from its axis): times scale
+    def scaleX:double 1.0
+    def scaleY:double 1.0
     def rotate:double 0.0
     def skew:double 0.0
     def opacity:double 1.0
@@ -852,6 +855,8 @@ class PresEntProps {
             p.y = (v.numOr("y" 0.0))
         }
         p.scale = (v.numOr("scale" 1.0))
+        p.scaleX = (v.numOr("scaleX" 1.0))
+        p.scaleY = (v.numOr("scaleY" 1.0))
         p.rotate = (v.numOr("rotate" 0.0))
         p.skew = (v.numOr("skew" 0.0))
         p.opacity = (v.numOr("opacity" 1.0))
@@ -915,7 +920,7 @@ class PresEntProps {
 
     ; Whether it moves, turns or scales what it is set on.
     fn moves:boolean (e:PresEnt) {
-        return (((((hasX && (x != e.x)) || (hasY && (y != e.y))) || (scale != 1.0)) || (rotate != 0.0)) || (skew != 0.0))
+        return ((((((hasX && (x != e.x)) || (hasY && (y != e.y))) || (scale != 1.0)) || ((scaleX != 1.0) || (scaleY != 1.0))) || (rotate != 0.0)) || (skew != 0.0))
     }
 
     ; Whether it changes anything at all.
@@ -1072,23 +1077,29 @@ class PresAff {
         return (sqrt ((a * a) + (b * b)))
     }
 
+    ; the scale down its side (the second column), for a scale along one
+    ; side only
+    fn scaleYOf:double () {
+        return (sqrt ((c * c) + (d * d)))
+    }
+
     fn degrees:double () {
         return (((atan2 b a) * 180.0) / 3.141592653589793)
     }
 
-    ; An entity's own move: about (ox, oy), scaled, skewed, turned, then
-    ; moved by (dx, dy).
-    sfn local:PresAff (ox:double oy:double s:double skewDeg:double rotDeg:double dx:double dy:double) {
+    ; An entity's own move: about (ox, oy), scaled (sx across, sy down),
+    ; skewed, turned, then moved by (dx, dy).
+    sfn local:PresAff (ox:double oy:double sx:double sy:double skewDeg:double rotDeg:double dx:double dy:double) {
         def rad:double ((rotDeg * 3.141592653589793) / 180.0)
         def co:double (cos rad)
         def si:double (sin rad)
         def k:double (PresAff.tanOf(skewDeg))
-        ; R · K · S, K = [[1, k], [0, 1]]
+        ; R · K · S, K = [[1, k], [0, 1]], S = [[sx, 0], [0, sy]]
         def m:PresAff (new PresAff())
-        m.a = (co * s)
-        m.b = (si * s)
-        m.c = (((co * k) - si) * s)
-        m.d = (((si * k) + co) * s)
+        m.a = (co * sx)
+        m.b = (si * sx)
+        m.c = (((co * k) - si) * sy)
+        m.d = (((si * k) + co) * sy)
         m.e = (((ox + dx) - (m.a * ox)) - (m.c * oy))
         m.f = (((oy + dy) - (m.b * ox)) - (m.d * oy))
         return m
@@ -1162,6 +1173,30 @@ class PresScriptApply {
             }
             ei = (ei + 1)
         }
+        ; the words and letters of each command, in their order: headOf[cmd]
+        ; is the first, nextOf[entity] the one after it (-1 ends), so a cut
+        ; command looks at its own parts only
+        def headOf:[int]
+        def hi:int 0
+        while (hi < n) {
+            push headOf -1
+            hi = (hi + 1)
+        }
+        def nextOf:[int]
+        def ni:int 0
+        while (ni < (sc.count())) {
+            push nextOf -1
+            ni = (ni + 1)
+        }
+        def bi:int ((sc.count()) - 1)
+        while (bi > 0) {
+            def be:PresEnt (sc.at(bi))
+            if (((be.cmd >= 0) && (be.cmd < n)) && ((be.kind == "word") || (be.kind == "char"))) {
+                set_at nextOf bi (itemAt headOf be.cmd)
+                set_at headOf be.cmd bi
+            }
+            bi = (bi - 1)
+        }
         ; every piece: a command (cut or whole), its owner, what ran beside it
         def pieces:[EVGDrawCmd]
         def owners:[int]
@@ -1215,10 +1250,10 @@ class PresScriptApply {
                 if (level == 2) {
                     kind = "char"
                 }
-                def k:int 1
-                while (k < (sc.count())) {
+                def k:int (itemAt headOf i)
+                while (k >= 0) {
                     def e:PresEnt (sc.at(k))
-                    if ((e.cmd == i) && (e.kind == kind)) {
+                    if (e.kind == kind) {
                         def part:EVGDrawCmd (PresScriptApply.copyCmd(c))
                         part.text = e.text
                         part.x = e.x
@@ -1229,7 +1264,7 @@ class PresScriptApply {
                         push boxes bx
                         push keys key
                     }
-                    k = (k + 1)
+                    k = (itemAt nextOf k)
                 }
             }
             i = (i + 1)
@@ -1374,7 +1409,7 @@ class PresScriptApply {
                     }
                     def ox:double (e.x + (e.w * p.ox))
                     def oy:double (e.y + (e.h * p.oy))
-                    lk.m = (lk.m.times((PresAff.local(ox oy p.scale p.skew p.rotate dx dy))))
+                    lk.m = (lk.m.times((PresAff.local(ox oy (p.scale * p.scaleX) (p.scale * p.scaleY) p.skew p.rotate dx dy))))
                 }
                 lk.alpha = (lk.alpha * p.opacity)
                 if (p.visible == false) {
@@ -1441,13 +1476,14 @@ class PresScriptApply {
             if ((lk.m.identity()) == false) {
                 ; a clip moves with what it holds, as a rectangle
                 def s0:double (lk.m.scaleOf())
+                def s0y:double (lk.m.scaleYOf())
                 def nx:double (lk.m.px(c.x c.y))
                 def ny:double (lk.m.py(c.x c.y))
                 c.x = nx
                 c.y = ny
                 c.w = (c.w * s0)
-                c.h = (c.h * s0)
-                c.radius = (c.radius * s0)
+                c.h = (c.h * s0y)
+                c.radius = (c.radius * (PresScriptApply.least(s0 s0y)))
             }
             return
         }
@@ -1476,7 +1512,11 @@ class PresScriptApply {
             return
         }
         def m:PresAff lk.m
-        def s:double (m.scaleOf())
+        def sx:double (m.scaleOf())
+        def sy:double (m.scaleYOf())
+        ; what is not stretched (a line's width, a corner) follows the
+        ; smaller of the two
+        def s:double (PresScriptApply.least(sx sy))
         if ((c.kind == 6) || (c.kind == 7)) {
             def i:int 0
             while ((i + 1) < (array_length c.pts)) {
@@ -1504,20 +1544,21 @@ class PresScriptApply {
         }
         def nox:double (m.px(ox oy))
         def noy:double (m.py(ox oy))
-        c.x = (nox + ((c.x - ox) * s))
-        c.y = (noy + ((c.y - oy) * s))
-        c.w = (c.w * s)
-        c.h = (c.h * s)
+        c.x = (nox + ((c.x - ox) * sx))
+        c.y = (noy + ((c.y - oy) * sy))
+        c.w = (c.w * sx)
+        c.h = (c.h * sy)
         c.radius = (c.radius * s)
         c.radiusTR = (c.radiusTR * s)
         c.radiusBR = (c.radiusBR * s)
         c.radiusBL = (c.radiusBL * s)
         c.thickness = (c.thickness * s)
-        c.fontSize = (c.fontSize * s)
-        c.letterSpacing = (c.letterSpacing * s)
-        c.maxWidth = (c.maxWidth * s)
-        c.shadowX = (c.shadowX * s)
-        c.shadowY = (c.shadowY * s)
+        ; a text is as tall as it is scaled down its side
+        c.fontSize = (c.fontSize * sy)
+        c.letterSpacing = (c.letterSpacing * sx)
+        c.maxWidth = (c.maxWidth * sx)
+        c.shadowX = (c.shadowX * sx)
+        c.shadowY = (c.shadowY * sy)
         c.shadowBlur = (c.shadowBlur * s)
         def turn:double (m.degrees())
         if ((turn > 0.01) || (turn < -0.01)) {
@@ -1531,6 +1572,13 @@ class PresScriptApply {
                 c.rotOriginY = noy
             }
         }
+    }
+
+    sfn least:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
     }
 
     ; The commands for one added element, in its own look.
@@ -1630,9 +1678,9 @@ class PresScriptApply {
             if p0.hasY {
                 dy = (p0.y - ent.y)
             }
-            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) p0.scale p0.skew p0.rotate dx dy))
+            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) (p0.scale * p0.scaleX) (p0.scale * p0.scaleY) p0.skew p0.rotate dx dy))
         } {
-            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) p0.scale p0.skew p0.rotate 0.0 0.0))
+            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) (p0.scale * p0.scaleX) (p0.scale * p0.scaleY) p0.skew p0.rotate 0.0 0.0))
         }
         def k:int 0
         while (k < (array_length out)) {
@@ -1765,7 +1813,13 @@ class PresScriptCheck {
                 break
             }
             def sel:string (substring src (i + 1) j)
-            if (((indexOf sel "${") < 0) && ((indexOf out sel) < 0)) {
+            ; only a whole argument: find("li:" + n) is made as it runs
+            def k:int (j + 1)
+            while ((k < n) && (PresScene.isSpace((charAt src k)))) {
+                k = (k + 1)
+            }
+            def whole:boolean ((k < n) && ((charAt src k) == 41))
+            if ((whole && ((indexOf sel "${") < 0)) && ((indexOf out sel) < 0)) {
                 push out sel
             }
             from = (j + 1)

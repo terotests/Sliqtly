@@ -4608,6 +4608,33 @@ class PresCheck {
         return (join out " ")
     }
 
+    ; the first command of the second bar of slide 0's chart, as `l` draws it
+    sfn barOf@(optional):EVGDrawCmd (deck:PresDeck l:EVGDisplayList) {
+        def none@(optional):EVGDrawCmd
+        def sc:PresScene (deck.sceneOfSlide(0))
+        def bi:int (sc.indexOf("chart-1/bar-2"))
+        if (bi < 0) {
+            return none
+        }
+        def e:PresEnt (sc.at(bi))
+        ; the bar's own colour at the middle of its box
+        def best@(optional):EVGDrawCmd
+        def bestD:double 1000000.0
+        for l.cmds c:EVGDrawCmd ci {
+            if (((c.kind == 0) || (c.kind == 6)) && ((c.w > 4.0) && (c.w < (e.w + 1.0)))) {
+                def d:double ((c.x - e.x) + 0.0)
+                if (d < 0.0) {
+                    d = (0.0 - d)
+                }
+                if ((d < 1.0) && (d < bestD)) {
+                    bestD = d
+                    best = c
+                }
+            }
+        }
+        return best
+    }
+
     sfn textCmd@(optional):EVGDrawCmd (l:EVGDisplayList text:string) {
         def i:int 0
         while (i < (array_length l.cmds)) {
@@ -4881,6 +4908,24 @@ class PresCheck {
             def hit:string (sw.entityAt("script:apps/fx.tsx#1" (hbc.x + 4.0) (hbc.y + (hbc.h * 0.5))))
             this.ok(((indexOf hit "h2-1") == 0) ("scripts: the viewer finds the heading under the pointer, got " + hit))
         }
+        ; scaleY with origin bottom: a bar half as tall, on its axis, as wide
+        def tall:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def bar0@(optional):EVGDrawCmd (PresCheck.barOf(deck tall))
+        this.ok((deck.setScriptAt("script:apps/fx.tsx#1" "{\"p\":{\"chart-1/bar-2\":{\"scaleY\":0.5,\"origin\":\"bottom\"}}}")) "scripts: scaleY taken")
+        def half:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def bar1@(optional):EVGDrawCmd (PresCheck.barOf(deck half))
+        deck.clearScriptAt()
+        if ((!null? bar0) && (!null? bar1)) {
+            def b0:EVGDrawCmd (unwrap bar0)
+            def b1:EVGDrawCmd (unwrap bar1)
+            this.ok((((b1.h - (b0.h * 0.5)) < 0.5) && (((b0.h * 0.5) - b1.h) < 0.5)) ("scripts: scaleY halves the bar, " + (to_string b0.h) + " → " + (to_string b1.h)))
+            this.ok((((b1.w - b0.w) < 0.01) && ((b0.w - b1.w) < 0.01)) "scripts: scaleY keeps its width")
+            def bottom0:double (b0.y + b0.h)
+            def bottom1:double (b1.y + b1.h)
+            this.ok((((bottom1 - bottom0) < 0.5) && ((bottom0 - bottom1) < 0.5)) "scripts: on its axis")
+        } {
+            this.ok(false "scripts: the second bar drawn")
+        }
         ; a thumbnail is the final state; the PDF too
         def bad2:string "{\"p\":{\"chart-1/bar-2\":{\"fill\":\"#00ff00\"}}}"
         deck.setScriptFinal("script:apps/fx.tsx#1" bad2)
@@ -4915,8 +4960,8 @@ class PresCheck {
         }
         this.ok(said ("scripts: a selector naming nothing is said: " + (join notes " | ")))
         ; the selectors read off the source
-        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' )"))
-        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, got " + (join sels " | ")))
+        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' ); find(\"li:\" + n)"))
+        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, a made one left out, got " + (join sels " | ")))
     }
 
     fn plays:void () {
