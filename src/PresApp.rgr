@@ -73,6 +73,8 @@ Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGHitTest.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
+; questionnaires (Sliqtly Curious): File → New ▸ Questionnaire…
+Import "PresForm.rgr"
 
 class PresRect {
     def x:double 0.0
@@ -7212,6 +7214,12 @@ class PresApp {
 
     fn chartFileBody:string () {
         return chartFileText
+    }
+
+    ; File → New ▸ Questionnaire…: the new file's text, in the editor's
+    ; language (web/main.js keeps it as forms/<name>.form.md)
+    fn formTemplate:string () {
+        return (PresForm.template((PresI18n.lang())))
     }
 
     fn openFilePath:string () {
