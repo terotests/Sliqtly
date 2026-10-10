@@ -3522,6 +3522,34 @@ class PresCheck {
         this.ok(((sl.steps == 4) && ((array_length sl.story) == 2)) ("story: 2 list steps + 2 lines, " + (to_string sl.steps)))
         def sb1:PresStoryBeat (itemAt sl.story 1)
         this.ok((sb1.step == 4) "story: the second line is step 4")
+        ; the editor's caret on a story line picks its step; elsewhere none
+        def lineAt:int (indexOf deck.text "Mutta kaksi.")
+        this.ok(((deck.storyStepAt(0 (lineAt + 3))) == 4) ("story: the caret on the second line is step 4, " + (to_string (deck.storyStepAt(0 (lineAt + 3))))))
+        this.ok(((deck.storyStepAt(0 (indexOf deck.text "Yksi."))) == 3) "story: the caret on the first line is step 3")
+        this.ok(((deck.storyStepAt(0 (indexOf deck.text "- a"))) == 0) "story: the caret off the story is no step")
+        ; drawn: the presenter, and nothing of it when the page cannot play it
+        def full:EVGDisplayList (deck.stillSlide(0))
+        deck.presenterOff = true
+        def bare:EVGDisplayList (deck.stillSlide(0))
+        deck.presenterOff = false
+        this.ok(((full.count()) > ((bare.count()) + 40)) ("story: presenterOff leaves the presenter out, " + (to_string (full.count())) + " / " + (to_string (bare.count()))))
+        ; a dot for each line under the bubble's text
+        def one:EVGDisplayList (new EVGDisplayList())
+        def two:EVGDisplayList (new EVGDisplayList())
+        def ll:MdLayout (deck.layout())
+        PresPuppet.bubble(one sb1 1.0 960.0 540.0 ll.engine ll.style.bodyFamily 0 1)
+        PresPuppet.bubble(two sb1 1.0 960.0 540.0 ll.engine ll.style.bodyFamily 1 3)
+        this.ok(((two.count()) == ((one.count()) + 3)) ("story: three lines, three dots, " + (to_string (two.count())) + " / " + (to_string (one.count()))))
+        ; a long line keeps a readable size: the bubble grows first
+        def long (new PresStoryBeat())
+        long.text = "Siksi pyytäisin muutoksen ennen mergeä. Jos vain mahdollista!!! Pidempi teksti voisi ehkä olla vähän isompi puhekupla???"
+        def lb:EVGDisplayList (new EVGDisplayList())
+        PresPuppet.bubble(lb long 1.0 960.0 540.0 ll.engine ll.style.bodyFamily 0 2)
+        def minFs:double 1000.0
+        for lb.cmds lc:EVGDrawCmd lci {
+            if ((lc.kind == 3) && (lc.fontSize < minFs)) { minFs = lc.fontSize }
+        }
+        this.ok((minFs >= 18.0) ("story: a long line is set at 18 px or more, " + (to_string minFs)))
         def gap:double ((PresTimeline.stepTime(sl 4)) - (PresTimeline.stepTime(sl 3)))
         def sb0:PresStoryBeat (itemAt sl.story 0)
         this.ok(((gap + 0.001) >= (PresStory.beatSeconds(sb0))) ("story: playing, a line holds until read: " + (to_string gap)))

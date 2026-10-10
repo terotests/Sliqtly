@@ -38,6 +38,10 @@ class PresStoryBeat {
     def pose:string "pen"
     ; the build step it is shown at, 1-based on its slide
     def step:int 0
+    ; its line in the block's body, from 0, and the block's offset in the
+    ; deck's text (the editor shows the beat the caret is on)
+    def line:int 0
+    def at:int 0
 }
 
 ; The puppet's numbers at one moment (PresPuppet draws them).
@@ -144,6 +148,7 @@ class PresStory {
                     t = (trim (substring t 0 ob))
                 }
                 b.text = t
+                b.line = i
                 def sp:int (indexOf t " ")
                 def first:string t
                 if (sp > 0) {

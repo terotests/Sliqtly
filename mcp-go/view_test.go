@@ -218,6 +218,23 @@ func TestViewSelectText(t *testing.T) {
 	eq(t, open("---\nselect-text: off\n---\n\n")["selectText"], false)
 }
 
+// The view shows each slide at rest and cannot play a story's steps, so the
+// presenter (`::: story`), who would only ever say the last line, is left
+// out.
+func TestViewLeavesThePresenterOut(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Tarina", "markdown": "# Otsikko\n\nTeksti\n\n::: story\nEnsin näin.\nSiksi viimeinen repliikki.\n:::\n", "visibility": "link"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	code, _, _, body := getView(t, s.root+"/api/view/"+sc(c)["deck_id"].(string))
+	eq(t, code, 200)
+	match(t, body, `Teksti`)
+	nomatch(t, body, `repliikki`)
+}
+
 // A program on a slide (```app) comes with the view: the page runs it. Its
 // box is the program's own shape, centred in the column (not stretched to
 // the column's right edge).
