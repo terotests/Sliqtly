@@ -384,18 +384,19 @@ export function deleteFolder(state, roomId, id) {
   return { ...state, folders, filed };
 }
 
-// The first SHOWN of rows, and the open presentation after them when it is
-// further down: the one picked (from a search too) is always in sight,
-// and the order stays as it is.
+// The first SHOWN of rows; the open presentation, when it is further down,
+// on top of them: the one picked (from a search or Show all too) is always
+// in sight where one looks first. One already among the first stays in its
+// place, so opening a listed one moves nothing.
 function firstAndOpen(rows) {
   const first = rows.slice(0, SHOWN);
   const open = rows.slice(SHOWN).find((r) => r.current);
-  return open ? [...first, open] : first;
+  return open ? [open, ...first] : first;
 }
 
 // The rows the panel draws under the open room: its folders by name, each
 // open one followed by its presentations; then at most SHOWN presentations
-// of the room's top (and the open one, firstAndOpen), then "… Show all"
+// of the room's top (and the open one on top, firstAndOpen), then "… Show all"
 // when there are more. A new presentation or folder is made from the
 // room's "+" (PresToolbar's "Add new…" menu), not from a row.
 // "id TAB name TAB 1 if open TAB kind TAB count": kind "" a presentation at

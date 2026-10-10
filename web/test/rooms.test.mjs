@@ -358,11 +358,16 @@ test("a presentation dragged before another is kept in the room's own order", ()
   assert.equal(deleteRoom({ ...s, rooms: [{ id: "r-x", title: "X" }] }, "r-x").positions["r-x"], undefined);
 });
 
-test("the open presentation further down than SHOWN is listed after the first ones, the order kept", () => {
+test("the open presentation further down than SHOWN is lifted on top of the first ones; one among them stays in place", () => {
   const many = Array.from({ length: SHOWN + 3 }, (_, i) => ({ id: "d" + i, name: "Deck " + i, current: i === SHOWN + 1 }));
   const lines = deckLines(many, { showAll: "all" }).split("\n").map((l) => l.split("\t"));
   assert.equal(lines.length, SHOWN + 2);
-  assert.deepEqual(lines.slice(0, SHOWN).map((l) => l[0]), many.slice(0, SHOWN).map((d) => d.id));
-  assert.deepEqual(lines[SHOWN], ["d" + (SHOWN + 1), "Deck " + (SHOWN + 1), "1", ""]);
+  assert.deepEqual(lines[0], ["d" + (SHOWN + 1), "Deck " + (SHOWN + 1), "1", ""]);
+  assert.deepEqual(lines.slice(1, SHOWN + 1).map((l) => l[0]), many.slice(0, SHOWN).map((d) => d.id));
   assert.equal(lines[SHOWN + 1][3], "a");
+  const shown = many.map((d, i) => ({ ...d, current: i === 3 }));
+  const kept = deckLines(shown, { showAll: "all" }).split("\n").map((l) => l.split("\t"));
+  assert.equal(kept.length, SHOWN + 1);
+  assert.deepEqual(kept.slice(0, SHOWN).map((l) => l[0]), many.slice(0, SHOWN).map((d) => d.id));
+  assert.equal(kept[3][2], "1");
 });
