@@ -3838,6 +3838,11 @@ class Tools {
             push lines svgs
         }
         push lines (Tools.fxDrawnText(ck.fxPrograms fxOn fxTime))
+        ; an effect that could not be run, or ran out of time
+        def fxRep:string (host_fx_report host)
+        if ((strlen fxRep) > 0) {
+            push lines fxRep
+        }
         def tc:MfJ (MfJ.newObj())
         tc.putStr("type" "text")
         tc.putStr("text" (join lines "\n"))

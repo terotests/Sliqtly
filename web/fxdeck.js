@@ -49,3 +49,33 @@ export function registerDeckEffects(json) {
 export function deckEffectStill(kind) {
   return stills.get(kind);
 }
+
+// The moment a thumbnail and an exported still show a built-in effect at.
+// Rain is drawn half a minute in, when it has landed, run and left its
+// trails; the rest two seconds in.
+const BUILT_IN_STILL = { drops: 30, raindrops2: 30 };
+
+/** The moment a still shows any effect at: the deck's `still`, the
+ *  built-in one's, else 2 s. */
+export function effectStill(kind) {
+  return BUILT_IN_STILL[kind] ?? stills.get(kind) ?? 2.0;
+}
+
+/** The viewer asked for less motion (prefers-reduced-motion): effects are
+ *  shown as their still, read again each frame so a change of the setting
+ *  shows at once. */
+export function reducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  } catch {
+    return false;
+  }
+}
+
+/** An effect held at its still: its clock stopped there too, so a reveal
+ *  on a step shows finished rather than moving (FxLang's steptime). */
+export function holdStill(e) {
+  const t = effectStill(e.kind);
+  e.time = t;
+  if (e.p && typeof e.p["clock-steptime"] === "number") e.p["clock-steptime"] = t;
+}

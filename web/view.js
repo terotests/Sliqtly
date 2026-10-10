@@ -13,7 +13,7 @@
 // painter runs them.
 
 import { prepareDisplayList, setFontFallback, imageChanged } from "./gl/evg-webgl.js";
-import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
+import { registerDeckEffects, effectStill, reducedMotion, holdStill } from "./fxdeck.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
@@ -185,10 +185,15 @@ function paint() {
   // a slide, or the pages of a book's spread side by side
   const shown = book ? spreadPages(book.spreads, spreadNow()) : [{ page: at, x: 0 }];
   let moving = false;
+  // less motion asked for: every effect held at its still, drawn once
+  const still = reducedMotion();
   for (const { page, x } of shown) {
     const list = lists[page];
-    for (const e of list.effects || []) e.time = t;
-    moving = moving || (list.effects || []).length > 0;
+    for (const e of list.effects || []) {
+      if (still) holdStill(e);
+      else e.time = t;
+    }
+    moving = moving || (!still && (list.effects || []).length > 0);
     const doc = { width: w, height: h, view: { x: view.x + x * deck.width * view.scale, y: view.y, scale: view.scale }, list };
     const f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: true });
     f.draw(null, null, { clear: false });
@@ -217,7 +222,7 @@ function ensurePage(page, pxW) {
   pageCanvas.width = pxW;
   pageCanvas.height = Math.round(deck.height * k);
   const list = lists[page];
-  for (const e of list.effects || []) e.time = deckEffectStill(e.kind) ?? 2;
+  for (const e of list.effects || []) e.time = effectStill(e.kind);
   const f = prepareDisplayList(pageGl, { width: deck.width, height: deck.height, list }, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: true });
   f.draw(null, null);
   f.dispose();
@@ -235,7 +240,7 @@ function pagePicture(page, w, h) {
   if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
   if (!roomGl) return null;
   const list = lists[page];
-  for (const e of list.effects || []) e.time = deckEffectStill(e.kind) ?? 2;
+  for (const e of list.effects || []) e.time = effectStill(e.kind);
   const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
   const f = prepareDisplayList(roomGl, { width: deck.width, height: deck.height, list }, { dpr: Math.min(w / deck.width, h / deck.height), images });
   f.draw(null, null);

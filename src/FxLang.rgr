@@ -38,7 +38,9 @@
 ;   - the only loop is inside `fbm`, with a constant octave count, 1..8
 ;   - no textures, no uniforms of its own: what an effect reads is the
 ;     inputs below, its parameters and, in a filter, `source(uv)`, which
-;     reads inside the element's own box only (uv is clamped to 0..1)
+;     reads inside the element's own box only (uv is clamped to 0..1), and
+;     the fixed-size reads built on it: `blur(uv, r)`, `glow(uv, r)`,
+;     `edges(uv)`
 ;   - every parameter is clamped to its range in the shader, whatever the
 ;     slide wrote
 ;   - a cost per pixel is added up from the trees (`COST_MAX`), and the text,
@@ -145,7 +147,12 @@ class FxEffect {
     ; The `fxColor` function and what it calls, for the WebGL2 painter.
     fn glsl:string () {
         def lib:[string]
-        def body:string ""
+        ; `p` and `size` in the box's own units (the slide's pixels), not the
+        ; canvas's: the stage draws the slide scaled and moved, and an effect
+        ; written against the slide (`render_slide`) must look the same there.
+        ; The box's size comes as the hidden parameters box-w / box-h
+        ; (PresDeck.clockParams); without them the canvas box.
+        def body:string "  vec2 fx_size = (p_box_w > 0.0) ? vec2(p_box_w, p_box_h) : uBox.zw;\n  vec2 fx_p = local * fx_size;\n"
         def i:int 0
         while (i < (array_length params)) {
             def pp:FxParam (itemAt params i)
@@ -211,6 +218,12 @@ class FxEffect {
         }
         def out:string ("{\"name\":\"" + name + "\",\"layer\":\"" + layer + "\",\"still\":" + (FxLang.numText(still)))
         out = (out + ",\"fallback\":\"" + fallback + "\",\"cost\":" + (to_string cost) + ",\"clock\":" + (? clock "true" "false"))
+        def ends:[double] (FxLang.clockEnd(0.0 still))
+        def es:[string]
+        for ends ev:double evi {
+            push es (FxLang.numText(ev))
+        }
+        out = (out + ",\"clockEnd\":[" + (join es ",") + "]")
         out = (out + ",\"params\":[" + ps + "],\"regs\":" + (to_string c.regs) + ",\"out\":" + (to_string outReg) + ",\"outDims\":" + (to_string outDims))
         return (out + ",\"code\":[" + (join c.code ",") + "]}")
     }
@@ -987,7 +1000,10 @@ class FxLang {
         if ((strlen (FxLang.inputType(name))) > 0) {
             return true
         }
-        if (FxLang.isFunction(name)) {
+        ; blur, glow and edges came after decks had named values so (the
+        ; Embers sample's `glow`): they stay free as names, a call is told
+        ; apart by its "(" and locals are emitted as v_name
+        if ((FxLang.isFunction(name)) && (((name != "blur") && (name != "glow")) && (name != "edges"))) {
             return true
         }
         if ((name == "param") || ((name == "effect") || ((name == "still") || (name == "fallback")))) {
@@ -1021,6 +1037,16 @@ class FxLang {
     ; the slide's clock inputs, each a hidden parameter `clock-<name>`
     sfn clockNames:[string] () {
         def k:[string] ([] _:string ("step" "steps" "steptime" "progress"))
+        return k
+    }
+
+    ; The clock at a slide's end, what a still shows: the last of `steps`
+    ; build steps, `still` seconds into it, all the way through. With no
+    ; slide to ask (a list without the clock), steps is 0. The one place
+    ; these values are written: PresDeck.clockParams, the page's plugin
+    ; defaults (pluginsJson) and fxvm.go (the program's "clockEnd").
+    sfn clockEnd:[double] (steps:double still:double) {
+        def k:[double] ([] _:double (steps steps still 1.0))
         return k
     }
 
@@ -1469,7 +1495,7 @@ class FxLang {
         if (FxLang.isUnaryMath(f)) {
             return true
         }
-        def k:[string] ([] _:string ("min" "max" "mod" "pow" "step" "clamp" "mix" "smoothstep" "length" "distance" "dot" "atan" "vec2" "vec3" "vec4" "rgba" "hsv" "hash" "noise" "fbm" "voronoi" "rotate" "source" "select"))
+        def k:[string] ([] _:string ("min" "max" "mod" "pow" "step" "clamp" "mix" "smoothstep" "length" "distance" "dot" "atan" "vec2" "vec3" "vec4" "rgba" "hsv" "hash" "noise" "fbm" "voronoi" "rotate" "source" "blur" "glow" "edges" "select"))
         def i:int 0
         while (i < (array_length k)) {
             if ((itemAt k i) == f) {
@@ -1570,7 +1596,9 @@ class FxLang {
         }
         if (f == "step") {
             if ((n != 2) || ((FxLang.isNum(t1)) == false)) {
-                return (this.argsWrong(f l "edge, x"))
+                ; `step` without brackets is the clock's build step
+                this.fail(l "step(edge, x) takes two; the build step shown is `step` without brackets, as in select(step >= 1, a, b)")
+                return ""
             }
             if ((t0 != t1) && (t0 != "float")) {
                 return (this.argsWrong(f l "edge is a number or the same as x"))
@@ -1705,6 +1733,27 @@ class FxLang {
             cost = (cost + 4)
             return "vec4"
         }
+        if (((f == "blur") || (f == "glow")) || (f == "edges")) {
+            if (cur.layer == "source") {
+                this.fail(l (f + "(…) reads the surface; it is for filter and backdrop effects"))
+                return ""
+            }
+            if (f == "edges") {
+                if ((n != 1) || (t0 != "vec2")) {
+                    return (this.argsWrong(f l "uv"))
+                }
+                cost = (cost + 40)
+                return "float"
+            }
+            if (((n != 2) || (t0 != "vec2")) || (t1 != "float")) {
+                return (this.argsWrong(f l "uv, radius in pixels"))
+            }
+            cost = (cost + 80)
+            if (f == "glow") {
+                cost = (cost + 10)
+            }
+            return "vec4"
+        }
         if (f == "select") {
             if ((n != 3) || ((t0 != "bool") || (((FxLang.isNum(t1)) == false) || (t2 != t1)))) {
                 return (this.argsWrong(f l "comparison, if true, if false"))
@@ -1730,10 +1779,10 @@ class FxLang {
         }
         if (n.kind == "var") {
             if (n.op == "in:uv") { return "local" }
-            if (n.op == "in:p") { return "p" }
-            if (n.op == "in:size") { return "uBox.zw" }
+            if (n.op == "in:p") { return "fx_p" }
+            if (n.op == "in:size") { return "fx_size" }
             if (n.op == "in:time") { return "uTime" }
-            if (n.op == "in:edge") { return "fxBoxDistance(p)" }
+            if (n.op == "in:edge") { return "(fxBoxDistance(p) * fx_size.x / max(uBox.z, 1.0))" }
             if (n.op == "in:PI") { return "PI" }
             if ((indexOf n.op "in:") == 0) {
                 return ("p_clock_" + (substring n.op 3 (strlen n.op)))
@@ -1772,7 +1821,7 @@ class FxLang {
             if (n.op == "fbm") {
                 return ("fxl_fbm" + n.text + "(" + args + ")")
             }
-            if ((((n.op == "hash") || (n.op == "noise")) || ((n.op == "voronoi") || (n.op == "rotate"))) || ((n.op == "hsv") || ((n.op == "rgba") || (n.op == "source")))) {
+            if ((((n.op == "hash") || (n.op == "noise")) || ((n.op == "voronoi") || (n.op == "rotate"))) || ((n.op == "hsv") || ((n.op == "rgba") || ((n.op == "source") || (((n.op == "blur") || (n.op == "glow")) || (n.op == "edges")))))) {
                 return ("fxl_" + n.op + "(" + args + ")")
             }
             return (n.op + "(" + args + ")")
@@ -1808,6 +1857,13 @@ class FxLang {
                 FxLang.addLib(lib "voronoi")
             }
             if ((((n.op == "hash") || (n.op == "rotate")) || (n.op == "hsv")) || ((n.op == "rgba") || (n.op == "source"))) {
+                FxLang.addLib(lib n.op)
+            }
+            if (((n.op == "blur") || (n.op == "glow")) || (n.op == "edges")) {
+                FxLang.addLib(lib "source")
+                if (n.op == "glow") {
+                    FxLang.addLib(lib "blur")
+                }
                 FxLang.addLib(lib n.op)
             }
         }
@@ -1853,6 +1909,18 @@ class FxLang {
         if ((indexOf has ",source,") >= 0) {
             out = (out + "vec4 fxl_source(vec2 q) {\n  vec2 pg = uBox.xy + clamp(q, 1.0 / uBox.zw, 1.0 - 1.0 / uBox.zw) * uBox.zw;\n  return texture(uSrc, vec2(pg.x, uRes.y - pg.y) / uRes);\n}\n")
         }
+        ; blur: the point and two rings of eight, at the radius and half of
+        ; it (pixels), weighted to 1; glow: the surface with the bright part
+        ; of its blur added; edges: the Sobel of the luminance, 0..1
+        if ((indexOf has ",blur,") >= 0) {
+            out = (out + "vec4 fxl_blur(vec2 q, float r) {\n  vec2 s = max(r, 0.0) / uBox.zw;\n  vec4 c = fxl_source(q) * 0.2;\n  for (int i = 0; i < 8; i++) {\n    float a = float(i) * 0.785398;\n    vec2 d = vec2(cos(a), sin(a)) * s;\n    c += fxl_source(q + d) * 0.06 + fxl_source(q + d * 0.5) * 0.04;\n  }\n  return c;\n}\n")
+        }
+        if ((indexOf has ",glow,") >= 0) {
+            out = (out + "vec4 fxl_glow(vec2 q, float r) {\n  vec4 s = fxl_source(q);\n  vec4 b = fxl_blur(q, r);\n  float l = dot(b.rgb, vec3(0.2126, 0.7152, 0.0722));\n  return vec4(s.rgb + b.rgb * smoothstep(0.25, 0.9, l) * 1.2, s.a);\n}\n")
+        }
+        if ((indexOf has ",edges,") >= 0) {
+            out = (out + "float fxl_lum(vec2 q) {\n  return dot(fxl_source(q).rgb, vec3(0.2126, 0.7152, 0.0722));\n}\nfloat fxl_edges(vec2 q) {\n  vec2 e = 1.0 / uBox.zw;\n  float tl = fxl_lum(q + vec2(-e.x, -e.y));\n  float t = fxl_lum(q + vec2(0.0, -e.y));\n  float tr = fxl_lum(q + vec2(e.x, -e.y));\n  float l = fxl_lum(q + vec2(-e.x, 0.0));\n  float r = fxl_lum(q + vec2(e.x, 0.0));\n  float bl = fxl_lum(q + vec2(-e.x, e.y));\n  float b = fxl_lum(q + vec2(0.0, e.y));\n  float br = fxl_lum(q + vec2(e.x, e.y));\n  float gx = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);\n  float gy = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);\n  return clamp(length(vec2(gx, gy)), 0.0, 1.0);\n}\n")
+        }
         return out
     }
 
@@ -1888,12 +1956,24 @@ class FxLang {
                 ps = (ps + "\"" + pp.name + "\":" + (FxLang.numText(pp.value)))
                 k = (k + 1)
             }
+            ; the box's size in slide pixels, 0 until the list says
+            if ((array_length e.params) > 0) {
+                ps = (ps + ",")
+            }
+            ps = (ps + "\"box-w\":0.0,\"box-h\":0.0")
             if e.clock {
                 ; the end state, what a list without the clock shows
-                if ((array_length e.params) > 0) {
-                    ps = (ps + ",")
+                ps = (ps + ",")
+                def ce:[double] (FxLang.clockEnd(0.0 e.still))
+                def cn:[string] (FxLang.clockNames())
+                def ck:int 0
+                while (ck < 4) {
+                    if (ck > 0) {
+                        ps = (ps + ",")
+                    }
+                    ps = (ps + "\"clock-" + (itemAt cn ck) + "\":" + (FxLang.numText((itemAt ce ck))))
+                    ck = (ck + 1)
                 }
-                ps = (ps + "\"clock-step\":0.0,\"clock-steps\":0.0,\"clock-steptime\":" + (FxLang.numText(e.still)) + ",\"clock-progress\":1.0")
             }
             ps = (ps + "}")
             out = (out + "{\"name\":\"" + e.name + "\",\"layer\":\"" + e.layer + "\",\"params\":" + ps + ",\"still\":" + (FxLang.numText(e.still)) + ",\"fallback\":\"" + e.fallback + "\",\"frag\":" + (FxLang.quote((e.glsl()))) + "}")
