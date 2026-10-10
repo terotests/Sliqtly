@@ -1,0 +1,50 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Pres3DStill.rgr — a 3-D world drawn without a GPU, as one picture.
+; ============================================================================
+;
+; The server draws slides (render_slide, render_overview) with no browser:
+; a program's <scene3d> is drawn here into RGBA pixels with Ranger's Three
+; port and its lit software backend, which computes what the page's GPU
+; shader does (gallery/game_engine/three/src/three_shade.rgr). The world is
+; the one the page keeps (src/Pres3DWorld.rgr), so the still and the page
+; agree on everything but the GPU's rounding.
+; ============================================================================
+
+Import "Pres3DWorld.rgr"
+Import "../game_engine/three/src/three_webgl_renderer.rgr"
+Import "../game_engine/three/src/three_lit_software_backend.rgr"
+
+class Pres3DStill {
+    def world:Pres3DWorld (new Pres3DWorld())
+    def env:Pres3DEnv (new Pres3DEnv())
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def lit:ThreeLitSoftwareBackend (new ThreeLitSoftwareBackend)
+    ; what the last scene got wrong, "" when nothing
+    def error:string ""
+
+    Constructor () {
+        renderer.setBackend(lit)
+        renderer.setClearAlpha(0.0)
+    }
+
+    ; The slide around the world: a small picture of it, RGBA from the top.
+    fn setSlide:void (px:buffer w:int h:int) {
+        env = (Pres3DEnv.of(px w h))
+        world.scene.setEnvironment((env.cube(48)))
+    }
+
+    ; The world of a frame's <scene3d> (its JSON element) drawn w x h pixels:
+    ; RGBA from the top, transparent where no mesh is.
+    fn draw:buffer (json:string w:int h:int) {
+        world.setScene(json env)
+        error = world.error
+        world.camera.aspect = ((to_double w) / (to_double h))
+        renderer.setSize(w h)
+        renderer.setOutputSRGB(world.srgb)
+        renderer.setShadowMapEnabled(world.shadows)
+        renderer.render(world.scene world.camera)
+        return (lit.rgba())
+    }
+}

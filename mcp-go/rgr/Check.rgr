@@ -12,6 +12,7 @@ Import "Contrast.rgr"
 Import "Files.rgr"
 Import "Layout.rgr"
 Import "../presentation/PresExport.rgr"
+Import "../presentation/Pres3DStill.rgr"
 
 ; what a deck is checked with
 class DeckIn {
@@ -443,6 +444,61 @@ class Check {
         return d
     }
 
+    ; The 3-D worlds of the programs on slide `li` (its list `listJson`)
+    ; drawn here (src/Pres3DStill.rgr) and handed to the painter by the
+    ; names the list gives them, as the page draws them (web/three3d.js): in
+    ; a room made of the slide's own picture, 96 x 54 as the page's.
+    sfn worlds:void (host:McpHost d:PresDeck li:int listJson:string c:Checked) {
+        def l:MdLayout (d.layout())
+        def room:buffer (buffer_alloc 0)
+        def roomDone:boolean false
+        for (d.playUses()) pu:PresPlayUse pui {
+            if (pu.page != li) {
+                continue
+            }
+            def pv@(optional):PresPlayView (d.playView(pu.key))
+            def bi:int (d.embedBox(pu.page pu.source))
+            if ((null? pv) || (bi < 0)) {
+                continue
+            }
+            def view:PresPlayView (unwrap pv)
+            def b:MdBox (itemAt l.boxes bi)
+            def got:JVal (view.scenesIn(b.x b.y b.w b.h))
+            def si:int 0
+            while (si < (got.len())) {
+                if (roomDone == false) {
+                    room = (host_render_room host listJson c.width c.height 96 54)
+                    roomDone = true
+                }
+                def sc:JVal (got.at(si))
+                ; as many pixels as render_slide gives the box (960 a slide
+                ; 960 wide), at most 1024 a side
+                def k:double (960.0 / c.width)
+                def pw:double ((sc.numOr("w" 0.0)) * k)
+                def ph:double ((sc.numOr("h" 0.0)) * k)
+                def big:double pw
+                if (ph > big) {
+                    big = ph
+                }
+                if (big > 1024.0) {
+                    pw = ((pw * 1024.0) / big)
+                    ph = ((ph * 1024.0) / big)
+                }
+                def iw:int (to_int (pw + 0.5))
+                def ih:int (to_int (ph + 0.5))
+                if ((iw > 0) && (ih > 0)) {
+                    def st:Pres3DStill (new Pres3DStill())
+                    if ((buffer_length room) == ((96 * 54) * 4)) {
+                        st.setSlide(room 96 54)
+                    }
+                    def px:buffer (st.draw(((sc.get("scene")).toJson()) iw ih))
+                    host_render_rgba host (sc.strOr("src" "")) px iw ih
+                }
+                si = (si + 1)
+            }
+        }
+    }
+
     sfn run:Checked (host:McpHost din:DeckIn) {
         def md:string din.md
         def pics:[CheckPic] din.pics
@@ -467,12 +523,33 @@ class Check {
             if ((strlen ptext) == 0) {
                 continue
             }
-            def why:string (host_app_check host ptext pu.spec.width pu.spec.height)
+            ; the slides drawn here (render_slide, render_overview) show the
+            ; program's picture as the page does, its first frames' tree
+            def drawn:boolean (din.lists && ((strlen din.export) == 0))
+            def why:string ""
+            def ptree:string ""
+            if drawn {
+                def ran:MfJ (J.parse((host_app_run host ptext pu.spec.width pu.spec.height)))
+                why = (ran.str_("why"))
+                ptree = (ran.str_("tree"))
+            } {
+                why = (host_app_check host ptext pu.spec.width pu.spec.height)
+            }
             if (((strlen why) > 0) && (why != "-")) {
                 push c.warnings (Guide.see(("Slide " + (to_string (pu.page + 1)) + ": " + pu.spec.src + " does not run: " + why) "apps"))
             }
             ; its stylesheet's rules the layout does not take
             def ptcss:string (Check.dataText(host din pu.spec.css))
+            if ((strlen ptree) > 0) {
+                def pv@(optional):PresPlayView (d.playView(pu.key))
+                if (!null? pv) {
+                    def view:PresPlayView (unwrap pv)
+                    if ((strlen ptcss) > 0) {
+                        view.setCss(ptcss)
+                    }
+                    view.setTree(ptree)
+                }
+            }
             if ((strlen ptcss) > 0) {
                 def psheet:EVGStyleSheet (new EVGStyleSheet())
                 psheet.parse(ptcss)
@@ -588,7 +665,9 @@ class Check {
                     def sl:EVGDisplayList (d.slideList(li groups 0.0))
                     d.fxClockAt = -1.0
                     d.clearScriptAt()
-                    push c.lists (sl.toJson())
+                    def slj:string (sl.toJson())
+                    push c.lists slj
+                    Check.worlds(host d li slj c)
                     li = (li + 1)
                 }
                 if ((din.fxAt >= 0) && (din.fxAt < c.slides)) {

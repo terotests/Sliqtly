@@ -296,6 +296,14 @@ operators {
             go ( (e 1) ".AppCheck(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; host_app_check's answer and the element tree of the program's last
+    ; frame tried: {"why": "…", "tree": "…"} (cerxescheck.go AppRun), the
+    ; tree "" when it did not run
+    host_app_run _:string (h:McpHost src:string w:double hgt:double) {
+        templates {
+            go ( (e 1) ".AppRun(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
     ; a slide's script run in CErXes (cerxescheck.go): runtime function `fn`
     ; (__scriptFinal, __scriptAt) called with `arg` after the script `src`
     ; loaded; its frame as JSON, "!" and why when it did not run, "-" when
@@ -311,6 +319,20 @@ operators {
     host_render_pic _:void (h:McpHost name:string data:buffer) {
         templates {
             go ( (e 1) ".RenderPic(" (e 2) ", " (e 3) ")" nl )
+        }
+    }
+    ; a picture drawn here, w x h RGBA pixels from the top, under the name
+    ; the lists give it (a program's 3-D world, "three:<key>:<n>")
+    host_render_rgba _:void (h:McpHost name:string rgba:buffer w:int ht:int) {
+        templates {
+            go ( (e 1) ".RenderRGBA(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" nl )
+        }
+    }
+    ; one slide's display list drawn pw x ph pixels as RGBA from the top:
+    ; the room a 3-D world stands in; empty when it could not be drawn
+    host_render_room _:buffer (h:McpHost list:string w:double ht:double pw:int ph:int) {
+        templates {
+            go ( (e 1) ".RenderRoom(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" )
         }
     }
     ; one slide's display list painted `width` pixels wide as JPEG bytes:
