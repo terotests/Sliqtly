@@ -211,12 +211,185 @@ class PresFlightScene {
     sfn of:PresFlightScene (deck:PresDeck) {
         def sc:PresFlightScene (new PresFlightScene())
         def n:int (deck.slideCount())
+        def bodies:[string] (PresFlightScene.bodies(deck n))
         def i:int 0
         while (i < n) {
-            sc.addSlide(deck (deck.slideAt(i)) i)
+            sc.addSlide(deck (deck.slideAt(i)) i (itemAt bodies i))
             i = (i + 1)
         }
         return sc
+    }
+
+    ; Each slide's own words besides its title, as plain text: what a
+    ; station shows under its title. One line a paragraph, a heading under
+    ; the title, a list item ("• " before an item, "1. " in a numbered list,
+    ; "– " before one inside an item) or a table row (its cells between
+    ; " · "). Pictures, code, notes and the blocks a station draws itself
+    ; (diagrams, charts) are left out.
+    sfn bodies:[string] (deck:PresDeck n:int) {
+        def out:[string]
+        def i:int 0
+        while (i < n) {
+            push out ""
+            i = (i + 1)
+        }
+        ; a slide's first heading is its title, which the station shows itself
+        def titled:[boolean]
+        i = 0
+        while (i < n) {
+            push titled false
+            i = (i + 1)
+        }
+        def doc:MdNode deck.md.edit.doc
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            def lines:[string]
+            def page:int (deck.pageOfNode(ch))
+            if ((ch.kind == "heading") && ((page >= 0) && (page < n))) {
+                if ((itemAt titled page) == false) {
+                    set titled page true
+                } {
+                    PresFlightScene.linesOf(ch "" lines)
+                }
+            } {
+                PresFlightScene.linesOf(ch "" lines)
+            }
+            if ((array_length lines) > 0) {
+                if ((page >= 0) && (page < n)) {
+                    def k:int 0
+                    while (k < (array_length lines)) {
+                        def was:string (itemAt out page)
+                        if ((strlen was) > 0) {
+                            was = (was + "\n")
+                        }
+                        set out page (was + (itemAt lines k))
+                        k = (k + 1)
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+        return out
+    }
+
+    ; The lines a block gives (see bodies), after `mark`.
+    sfn linesOf:void (n:MdNode mark:string out:[string]) {
+        if ((n.kind == "paragraph") || ((n.kind == "heading") || ((n.kind == "dt") || (n.kind == "dd")))) {
+            if (PresFlightScene.hasImage(n)) {
+                return
+            }
+            def t:string (trim (n.plainText()))
+            if ((strlen t) > 0) {
+                push out (mark + t)
+            }
+            return
+        }
+        if ((n.kind == "list") || ((n.kind == "block_quote") || (n.kind == "dl"))) {
+            def i:int 0
+            while (i < (n.childCount())) {
+                def inner:string mark
+                if (n.kind == "list") {
+                    if n.listOrdered {
+                        inner = ((to_string (n.listStart + i)) + ". ")
+                    } {
+                        inner = (? ((strlen mark) == 0) "• " "– ")
+                    }
+                }
+                PresFlightScene.linesOf((n.childAt(i)) inner out)
+                i = (i + 1)
+            }
+            return
+        }
+        if (n.kind == "table") {
+            def r:int 0
+            while (r < (n.childCount())) {
+                PresFlightScene.linesOf((n.childAt(r)) mark out)
+                r = (r + 1)
+            }
+            return
+        }
+        if (n.kind == "table_row") {
+            def cells:string ""
+            def k:int 0
+            while (k < (n.childCount())) {
+                def cn:MdNode (n.childAt(k))
+                def cell:string (trim (cn.plainText()))
+                if ((strlen cells) > 0) {
+                    cells = (cells + " · ")
+                }
+                cells = (cells + cell)
+                k = (k + 1)
+            }
+            if ((strlen (trim cells)) > 0) {
+                push out (mark + cells)
+            }
+            return
+        }
+        if (n.kind == "item") {
+            ; the item's own words after its mark, a list inside it one step in
+            def j:int 0
+            while (j < (n.childCount())) {
+                PresFlightScene.linesOf((n.childAt(j)) mark out)
+                j = (j + 1)
+            }
+        }
+    }
+
+    sfn hasImage:boolean (n:MdNode) {
+        if (n.kind == "image") {
+            return true
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            if (PresFlightScene.hasImage((n.childAt(i)))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A slide's words (see bodies) as one plate of lines, centred on x y z;
+    ; its height.
+    fn addBody:double (body:string si:int x:double y:double z:double) {
+        def it:FlightItem (this.item("body" si x y z))
+        it.text = body
+        it.size = (PresFlightScene.bodyLine())
+        it.w = 16.0
+        it.h = (PresFlightScene.bodyHeight(body))
+        it.order = 1
+        return it.h
+    }
+
+    ; A body line's height in the world, and how many characters a line
+    ; holds before it wraps (web/flight3d.js labelStyle "body").
+    sfn bodyLine:double () {
+        return 0.62
+    }
+    sfn bodyWrap:int () {
+        return 46
+    }
+    sfn bodyHeight:double (body:string) {
+        return ((to_double (PresFlightScene.wrappedLines(body (PresFlightScene.bodyWrap())))) * ((PresFlightScene.bodyLine()) * 1.25))
+    }
+
+    ; How many lines `text` takes wrapped at `max` characters (as the page
+    ; wraps a station's words, web/flight3d.js wrapText).
+    sfn wrappedLines:int (text:string max:int) {
+        def parts:[string] (strsplit text "\n")
+        def total:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def len:int (strlen (itemAt parts i))
+            def rows:int (idiv (len + (max - 1)) max)
+            if (rows < 1) {
+                rows = 1
+            }
+            total = (total + rows)
+            i = (i + 1)
+        }
+        return total
     }
 
     fn station:FlightStation (i:int title:string) {
@@ -254,7 +427,7 @@ class PresFlightScene {
         }
     }
 
-    fn addSlide:void (deck:PresDeck s:PresSlide i:int) {
+    fn addSlide:void (deck:PresDeck s:PresSlide i:int body:string) {
         def st:FlightStation (this.station(i s.title))
         ; what the slide has to show: its diagrams, then its charts
         def dias:[PresDiagram]
@@ -288,7 +461,14 @@ class PresFlightScene {
             tt.size = 1.3
             tt.w = 16.0
             tt.h = 3.0
-            this.frameStation(st 0.6)
+            if ((strlen body) > 0) {
+                ; the title above, the slide's words under it
+                def bh:double (this.addBody(body i st.x (st.y - 1.0) st.z))
+                tt.y = ((st.y - 1.0) + ((bh * 0.5) + 2.0))
+                tt.size = 1.0
+                tt.h = 2.4
+            }
+            this.frameStation(st 0.0)
             return
         }
         if ((array_length dias) > 0) {
@@ -315,6 +495,11 @@ class PresFlightScene {
             this.addChart((itemAt charts k) i (st.x + (this.blockOffset(b blocks))) st.y st.z s.title)
             b = (b + 1)
             k = (k + 1)
+        }
+        if ((strlen body) > 0) {
+            ; the slide's words under what it draws
+            def bh2:double (PresFlightScene.bodyHeight(body))
+            this.addBody(body i st.x ((st.y - 6.0) - (bh2 * 0.5)) st.z)
         }
         ; charts are seen from above, so the rows behind show over the front
         if (st.kind == "chart") {

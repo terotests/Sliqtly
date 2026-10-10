@@ -6,6 +6,9 @@ import { labelStyle, wrapText, gamepadState, canvasSize } from "../flight3d.js";
 test("titles are drawn larger than a line's name", () => {
   assert.ok(labelStyle("title").px > labelStyle("label").px);
   assert.ok(labelStyle("text").px >= labelStyle("title").px);
+  // a slide's words: left aligned, wrapped as src/PresFlight.rgr counts them
+  assert.ok(labelStyle("body").left);
+  assert.equal(labelStyle("body").wrap, 46);
 });
 
 test("text breaks between words, and at its own line ends", () => {
