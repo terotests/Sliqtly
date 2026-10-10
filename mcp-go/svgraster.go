@@ -51,23 +51,40 @@ const svgRenderTime = 10 * time.Second
 // every render_slide after it, not once per use
 const svgCacheBytes = 96 << 20
 
+// A module's memory only grows: one big drawing (a photo SVG at 2560
+// pixels takes some 180 MB) would stay held for as long as the server
+// runs, in a 512 MB container. A module that has grown past this is let go
+// after the call, and the next drawing starts a fresh one from the
+// compiled code.
+const svgKeepMemory = 64 << 20
+
 type svgRasterizer struct {
-	mu  sync.Mutex
-	rt  wazero.Runtime
-	mod api.Module
-	err error
+	mu       sync.Mutex
+	rt       wazero.Runtime
+	compiled wazero.CompiledModule
+	mod      api.Module
+	err      error
 }
 
 var svgRaster svgRasterizer
 
-// the module, compiled and given the faces the first time it is needed
+// the module, compiled the first time it is needed, and an instance of it
+// given the faces
 func (r *svgRasterizer) start() error {
 	if r.mod != nil || r.err != nil {
 		return r.err
 	}
 	ctx := context.Background()
-	r.rt = wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
-	mod, err := r.rt.Instantiate(ctx, svgRasterWasm)
+	if r.rt == nil {
+		r.rt = wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
+		compiled, err := r.rt.CompileModule(ctx, svgRasterWasm)
+		if err != nil {
+			r.err = err
+			return err
+		}
+		r.compiled = compiled
+	}
+	mod, err := r.rt.InstantiateModule(ctx, r.compiled, wazero.NewModuleConfig())
 	if err != nil {
 		r.err = err
 		return err
@@ -132,7 +149,7 @@ func (r *svgRasterizer) call(fn string, data []byte, args ...uint64) (uint64, []
 		// a call that ran out of time closed the module: start again next
 		// time, and let go of the old runtime's compiled code
 		r.rt.Close(context.Background())
-		r.mod, r.rt, r.err = nil, nil, nil
+		r.mod, r.rt, r.compiled, r.err = nil, nil, nil, nil
 		if ctx.Err() != nil {
 			return 0, nil, errors.New("svg: it takes more than " + svgRenderTime.String() + " to draw")
 		}
@@ -146,7 +163,12 @@ func (r *svgRasterizer) call(fn string, data []byte, args ...uint64) (uint64, []
 		return 0, nil, errors.New("svg: result out of range")
 	}
 	// out is the module's memory: copied before the next call reuses it
-	return res[0], append([]byte(nil), out...), nil
+	kept := append([]byte(nil), out...)
+	if r.mod.Memory().Size() > svgKeepMemory {
+		r.mod.Close(context.Background())
+		r.mod = nil
+	}
+	return res[0], kept, nil
 }
 
 // draw is the SVG `data` at w×h pixels (its root already that size).
@@ -354,8 +376,10 @@ func (h *McpHost) SvgPng(data []byte, side int64) []byte {
 	if b := svgDrawn.pngOf(k); b != nil {
 		return b
 	}
+	// read back at once by the export's own PNG reader: written fast,
+	// not small (the default level spent seconds on a photo)
 	var b bytes.Buffer
-	if png.Encode(&b, img) != nil {
+	if (&png.Encoder{CompressionLevel: png.BestSpeed}).Encode(&b, img) != nil {
 		return []byte{}
 	}
 	svgDrawn.keepPng(k, b.Bytes())

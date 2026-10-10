@@ -212,3 +212,30 @@ func TestSvgPngEncodedOnce(t *testing.T) {
 		t.Fatal("another size is another PNG")
 	}
 }
+
+// A big drawing grows the module's memory, which never shrinks: the module
+// is let go after it, and the next drawing starts a fresh one.
+func TestBigDrawingLetsTheMemoryGo(t *testing.T) {
+	big := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><rect width="1000" height="1000" fill="#3366cc"/></svg>`)
+	if _, err := drawSvgNow(big, 4000); err != nil {
+		t.Fatal(err)
+	}
+	svgRaster.mu.Lock()
+	held := svgRaster.mod != nil
+	svgRaster.mu.Unlock()
+	if held {
+		t.Fatal("the module that drew 4000×4000 pixels is still held")
+	}
+	img, err := drawSvgNow([]byte(svgBackground), 480)
+	if err != nil {
+		t.Fatal(err)
+	}
+	near(t, "the next drawing's gradient", img.At(3, 150), color.RGBA{250, 0, 5, 255})
+	// a small one keeps its module for the next call
+	svgRaster.mu.Lock()
+	held = svgRaster.mod != nil
+	svgRaster.mu.Unlock()
+	if !held {
+		t.Fatal("a small drawing let its module go")
+	}
+}

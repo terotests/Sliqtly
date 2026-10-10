@@ -428,8 +428,16 @@ class Check {
             ; pixels, and the SVG itself with a small PNG for the vectors the
             ; PDF and the PPTX keep. The PDF and PPTX writers read PNG and JPEG
             ; only, so the SVG's own bytes were a picture left out.
+            ; The PDF writer keeps no picture wider than 1600 pixels
+            ; (EVGPDFRenderer maxImageWidth: 800, 1600 beside effect
+            ; stills), so a PDF's SVG is drawn at that: at 2560 a photo
+            ; SVG took some 180 MB more to draw, past what the server has.
             if (((strlen din.export) > 0) && (Check.isSvg(pic.name (itemAt din.types pi) data))) {
-                def png:buffer (host_svg_png host data 2560)
+                def side:int 2560
+                if (din.export == "pdf") {
+                    side = 1600
+                }
+                def png:buffer (host_svg_png host data side)
                 if ((buffer_length png) > 0) {
                     d.addImage(pic.name png "image/png" pic.w pic.h)
                     d.addSvgPicture(pic.name (buffer_to_string data) data (host_svg_png host data 800))
