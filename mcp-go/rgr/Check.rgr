@@ -480,7 +480,10 @@ class Check {
             push c.warnings (Guide.see(hn "text"))
         }
         if c.laidOut {
+            Check.ownEffects(host c d pics)
             Check.contrast(c d l pics md)
+            def noStills:[int]
+            d.fxStills = noStills
             d.still = true
             for (Layout.slides(d md)) rs:RSlide ri {
                 push c.report (Report.slide(rs))
@@ -731,6 +734,50 @@ class Check {
             }
         }
         return found
+    }
+
+    ; The deck's own effects as a reader sees them (mcp-go/fxvm.go): a slide
+    ; whose own effect is under its text gets that effect's still as the
+    ; picture the contrast check samples (PresDeck.fxStills, cleared after
+    ; the check), and an effect that flashes more than 3 times a second over
+    ; a large part of the slide is said.
+    sfn ownEffects:void (host:McpHost c:Checked d:PresDeck pics:[CheckPic]) {
+        if ((array_length d.fx.effects) == 0) {
+            return
+        }
+        host_render_fx host (d.fx.programsJson()) -1.0
+        def i:int 0
+        while (i < c.slides) {
+            def s:PresSlide (d.slideAt(i))
+            def own@(optional):FxEffect (d.ownEffect(s.fx))
+            if (!null? own) {
+                def e:FxEffect (unwrap own)
+                def fl:EVGDisplayList (d.fxOnlyList(i))
+                def fj:string (fl.toJson())
+                def flash:string (host_fx_flashes host fj d.pageW d.pageH)
+                if ((strlen flash) > 0) {
+                    push c.warnings (Guide.see(("Slide " + (to_string (i + 1)) + ": " + flash) "effects"))
+                }
+                if (e.layer == "source") {
+                    def g:[int] (host_fx_grid host fj d.pageW d.pageH)
+                    if ((array_length g) > 2) {
+                        def pic (new CheckPic())
+                        pic.name = (PresDeck.fxStillPath(i))
+                        pic.w = (itemAt g 0)
+                        pic.h = (itemAt g 1)
+                        def k:int 2
+                        while (k < (array_length g)) {
+                            push pic.grid (itemAt g k)
+                            k = (k + 1)
+                        }
+                        push pics pic
+                        push d.fxStills i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        host_render_fx host "" -1.0
     }
 
     sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic] md:string) {

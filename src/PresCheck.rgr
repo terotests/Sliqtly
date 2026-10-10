@@ -241,6 +241,16 @@ class PresCheck {
         if (!null? veil) {
             this.ok(((indexOf (veil.glsl()) "return fxl_over(") > 0) "fx clock: a backdrop's alpha covers what is behind")
         }
+        def reads:FxLang (FxLang.compile("effect a backdrop {\n  output = glow(uv, 4) + vec4(vec3(edges(uv)), 0)\n}\neffect b source {\n  output = blur(uv, 2)\n}\n" 1))
+        this.ok(((array_length reads.effects) == 1) "fx reads: glow and edges in a backdrop")
+        this.ok(((indexOf (PresCheck.firstOf(reads.errors)) "line 5: blur(") >= 0) ("fx reads: not in a source, got " + (PresCheck.firstOf(reads.errors))))
+        if ((array_length reads.effects) == 1) {
+            def re0:FxEffect (itemAt reads.effects 0)
+            def rg:string (re0.glsl())
+            this.ok((((indexOf rg "vec4 fxl_blur(") > 0) && ((indexOf rg "float fxl_edges(") > 0)) "fx reads: glow brings blur, edges its Sobel")
+        }
+        def named:FxLang (FxLang.compile("effect embers source {\n  glow = smoothstep(0.2, 1, uv.y)\n  output = vec4(vec3(glow), 1)\n}\n" 1))
+        this.ok(((array_length named.errors) == 0) ("fx reads: an older effect's value named glow still compiles, got " + (PresCheck.firstOf(named.errors))))
         def plain (new PresDeck())
         plain.setText("```fx\neffect calm source {\n  output = vec3(uv, 0)\n}\n```\n\n## A {fx=calm}\n")
         def g3:[int]

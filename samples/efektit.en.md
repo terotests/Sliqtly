@@ -45,6 +45,13 @@ effect dawn source {
   sky = mix(#0b1026, mix(#7c3aed, #fb923c, uv.y), rise * (0.35 + 0.65 * uv.y))
   output = vec4(sky + #ffd27a * sun * rise * 0.7, 1)
 }
+
+effect neon backdrop {
+  param radius = 6 [1, 20]
+  g = glow(uv, radius)
+  e = edges(uv)
+  output = vec4(g.rgb + #22d3ee * e * 0.6, 1)
+}
 ```
 
 # Effects of your own
@@ -86,3 +93,7 @@ A `backdrop` effect reads the finished slide with `source(uv)` and bends it.
 - `steptime`: seconds since that step began
 - `progress`: 0..1 through the slide
 {.build}
+
+## Neon {fx=neon}
+
+`glow(uv, r)` puts a halo round what is bright, `edges(uv)` finds the outlines, `blur(uv, r)` softens.

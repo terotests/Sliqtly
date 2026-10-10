@@ -18,6 +18,9 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strconv"
+
+	"golang.org/x/image/draw"
 )
 
 type fxIns struct {
@@ -451,12 +454,17 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 		o[0], o[1] = c*x-s*y, s*x+c*y
 		return o
 	case "source":
-		if r.src == nil {
-			return o
-		}
-		qx := math.Max(1/r.box[2], math.Min(1-1/r.box[2], r.arg(in, 0, 0)))
-		qy := math.Max(1/r.box[3], math.Min(1-1/r.box[3], r.arg(in, 0, 1)))
-		return r.src(r.box[0]+qx*r.box[2], r.box[1]+qy*r.box[3])
+		return r.sample(r.arg(in, 0, 0), r.arg(in, 0, 1))
+	case "blur":
+		return r.blur(r.arg(in, 0, 0), r.arg(in, 0, 1), r.arg(in, 1, 0))
+	case "glow":
+		qx, qy := r.arg(in, 0, 0), r.arg(in, 0, 1)
+		s, b := r.sample(qx, qy), r.blur(qx, qy, r.arg(in, 1, 0))
+		k := smooth(0.25, 0.9, lum(b)) * 1.2
+		return vec4{s[0] + b[0]*k, s[1] + b[1]*k, s[2] + b[2]*k, s[3]}
+	case "edges":
+		o[0] = r.edges(r.arg(in, 0, 0), r.arg(in, 0, 1))
+		return o
 	case "select":
 		if r.arg(in, 0, 0) != 0 {
 			return r.reg[in.args[1]]
@@ -464,6 +472,48 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 		return r.reg[in.args[2]]
 	}
 	return o
+}
+
+// sample is fxl_source: the surface at uv, held inside the box
+func (r *fxRun) sample(qx, qy float64) vec4 {
+	if r.src == nil {
+		return vec4{}
+	}
+	qx = math.Max(1/r.box[2], math.Min(1-1/r.box[2], qx))
+	qy = math.Max(1/r.box[3], math.Min(1-1/r.box[3], qy))
+	return r.src(r.box[0]+qx*r.box[2], r.box[1]+qy*r.box[3])
+}
+
+// blur is fxl_blur: the point and two rings of eight
+func (r *fxRun) blur(qx, qy, rad float64) vec4 {
+	sx, sy := math.Max(rad, 0)/r.box[2], math.Max(rad, 0)/r.box[3]
+	c := r.sample(qx, qy)
+	for k := range c {
+		c[k] *= 0.2
+	}
+	for i := 0; i < 8; i++ {
+		a := float64(i) * 0.785398
+		dx, dy := math.Cos(a)*sx, math.Sin(a)*sy
+		far, near := r.sample(qx+dx, qy+dy), r.sample(qx+dx*0.5, qy+dy*0.5)
+		for k := range c {
+			c[k] += far[k]*0.06 + near[k]*0.04
+		}
+	}
+	return c
+}
+
+func lum(c vec4) float64 { return c[0]*0.2126 + c[1]*0.7152 + c[2]*0.0722 }
+
+// edges is fxl_edges: the Sobel of the luminance, 0..1
+func (r *fxRun) edges(qx, qy float64) float64 {
+	ex, ey := 1/r.box[2], 1/r.box[3]
+	l := func(dx, dy float64) float64 { return lum(r.sample(qx+dx*ex, qy+dy*ey)) }
+	tl, t, tr := l(-1, -1), l(0, -1), l(1, -1)
+	ml, mr := l(-1, 0), l(1, 0)
+	bl, b, br := l(-1, 1), l(0, 1), l(1, 1)
+	gx := (tr + 2*mr + br) - (tl + 2*ml + bl)
+	gy := (bl + 2*b + br) - (tl + 2*t + tr)
+	return math.Min(1, math.Hypot(gx, gy))
 }
 
 func (r *fxRun) length(in *fxIns, i int) float64 {
@@ -611,4 +661,117 @@ func (p *painter) putFx(x, y int, c vec4, cover float64) {
 		255,
 	}
 	p.dst.SetRGBA(x, y, out)
+}
+
+// --- for the check
+
+// FxGrid is a slide's effect (PresDeck.fxOnlyList) drawn at its still, as
+// the contrast check samples a picture (ImageGrid): width, height, then the
+// grid; empty without the deck's effects.
+func (h *McpHost) FxGrid(listJSON string, slideW, slideH float64) []int64 {
+	if h.renderFx == nil || slideW <= 0 || slideH <= 0 {
+		return []int64{}
+	}
+	w := 480
+	dst := image.NewRGBA(image.Rect(0, 0, w, int(math.Round(float64(w)*slideH/slideW))))
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	if err := renderList(dst, listJSON, slideW, slideH, dst.Bounds(), h.renderPics, h.renderFx); err != nil {
+		return []int64{}
+	}
+	return lumaGrid(dst)
+}
+
+// FxFlashes says how an own effect on the slide flashes, "" when it does
+// not: WCAG 2.3.1's general flash, a pair of opposing changes of 10% of
+// relative luminance (the darker under 0.8), more than three a second over
+// a tenth of the slide or more. Each effect's box is sampled on an 8×6 grid
+// for two seconds at 30 frames a second; a backdrop reads a grey page.
+func (h *McpHost) FxFlashes(listJSON string, slideW, slideH float64) string {
+	if h.renderFx == nil || slideW <= 0 || slideH <= 0 {
+		return ""
+	}
+	var doc dlDoc
+	if err := json.Unmarshal([]byte(listJSON), &doc); err != nil {
+		return ""
+	}
+	for i := range doc.Effects {
+		inst := &doc.Effects[i]
+		prog := h.renderFx.progs[utf8Of(inst.Kind)]
+		if prog == nil || len(inst.Box) < 4 {
+			continue
+		}
+		rate, share := fxFlashRate(prog, inst, slideW*slideH)
+		if share >= 0.1 {
+			return "the effect '" + prog.name + "' flashes about " + strconv.Itoa(int(math.Round(rate))) +
+				" times a second over " + strconv.Itoa(int(math.Round(share*100))) +
+				"% of the slide; more than 3 a second can cause seizures (WCAG 2.3.1). Slow it down or keep it to a small part of the slide."
+		}
+	}
+	return ""
+}
+
+// fxFlashRate is the most flashes a second any flashing point of the box
+// shows, and the share of the slide the flashing points stand for
+func fxFlashRate(prog *fxProgram, inst *dlFx, slideArea float64) (float64, float64) {
+	const cols, rows, fps, seconds = 8, 6, 30, 2
+	run := newFxRun(prog, inst, prog.still)
+	run.src = func(x, y float64) vec4 { return vec4{0.5, 0.5, 0.5, 1} }
+	cell := run.box[2] * run.box[3] / (cols * rows)
+	worst, flashing := 0.0, 0
+	for j := 0; j < rows; j++ {
+		for i := 0; i < cols; i++ {
+			px := run.box[0] + (float64(i)+0.5)*run.box[2]/cols
+			py := run.box[1] + (float64(j)+0.5)*run.box[3]/rows
+			var lums []float64
+			for f := 0; f < fps*seconds; f++ {
+				run.reg[3] = vec4{prog.still + float64(f)/fps}
+				c := run.at(px, py)
+				a := unit(c[3])
+				lums = append(lums, relLum(unit(c[0])*a+0.5*(1-a), unit(c[1])*a+0.5*(1-a), unit(c[2])*a+0.5*(1-a)))
+			}
+			if r := flashesPerSecond(lums, fps); r > 3 {
+				flashing++
+				worst = math.Max(worst, r)
+			}
+		}
+	}
+	return worst, float64(flashing) * cell / slideArea
+}
+
+func relLum(r, g, b float64) float64 {
+	lin := func(c float64) float64 {
+		if c <= 0.04045 {
+			return c / 12.92
+		}
+		return math.Pow((c+0.055)/1.055, 2.4)
+	}
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+}
+
+// flashesPerSecond counts the opposing changes in a luminance series (a
+// change: 0.1 or more from the last turn, the darker under 0.8) and gives
+// the most flashes (two changes each) in any one second
+func flashesPerSecond(lums []float64, fps int) float64 {
+	var at []int
+	ref, dir := lums[0], 0
+	for i, l := range lums {
+		d := l - ref
+		switch {
+		case dir >= 0 && d <= -0.1 && math.Min(l, ref) < 0.8:
+			at, ref, dir = append(at, i), l, -1
+		case dir <= 0 && d >= 0.1 && math.Min(l, ref) < 0.8:
+			at, ref, dir = append(at, i), l, 1
+		case (dir > 0 && l > ref) || (dir < 0 && l < ref):
+			ref = l
+		}
+	}
+	most := 0
+	for i := range at {
+		n := 0
+		for k := i; k < len(at) && at[k]-at[i] < fps; k++ {
+			n++
+		}
+		most = max(most, n)
+	}
+	return float64(most) / 2
 }

@@ -371,12 +371,22 @@ effect embers source {
   dot`, and `hash(v2)`, `noise(v2)`, `fbm(v2, octaves 1..8)`,
   `voronoi(v2)`, `rotate(v2, degrees)`, `hsv(hue°, s, v)`,
   `rgba(colour, alpha)`, `source(uv)` (backdrop and filter only).
+- Reading the surface, backdrop and filter only: `blur(uv, r)` (vec4, a
+  soft blur r pixels wide), `glow(uv, r)` (vec4, the surface with a halo
+  round its bright parts: neon), `edges(uv)` (float 0..1, where the
+  picture has edges). `edge` alone is still the distance to the box's
+  edge.
 - A body has a cost per pixel, limit 600: an operation 1, a function 2,
-  `hash` 5, `noise` 12, `voronoi` 42, `fbm` 12 per octave. The check
+  `hash` 5, `noise` 12, `voronoi` 42, `fbm` 12 per octave, `edges` 42,
+  `blur` 82, `glow` 92. The check
   reports each effect's cost; more than the limit is refused. Errors name
   the line and come back in the check's warnings.
 - `render_slide` draws them as the player does, at `still`; pass `time`
   (seconds into the slide) to see a moment, the clock with it.
+- A viewer who asks for less motion (prefers-reduced-motion) sees each
+  effect held at its still. The check warns of an effect that flashes
+  more than 3 times a second over a tenth of the slide or more, and checks
+  the text's contrast over a source effect's still.
 - A shared deck shows these effects to its viewers; raw shader code is not
   accepted.
 

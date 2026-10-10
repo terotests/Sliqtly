@@ -319,6 +319,20 @@ operators {
             go ( (e 1) ".RenderFx(" (e 2) ", " (e 3) ")" nl )
         }
     }
+    ; with host_render_fx: a slide's effect alone (PresDeck.fxOnlyList)
+    ; drawn at its still, as host_image_grid samples a picture
+    host_fx_grid _:[int] (h:McpHost list:string w:double ht:double) {
+        templates {
+            go ( (e 1) ".FxGrid(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; with host_render_fx: how the slide's own effect flashes, "" when it
+    ; does not more than 3 times a second (fxvm.go FxFlashes)
+    host_fx_flashes _:string (h:McpHost list:string w:double ht:double) {
+        templates {
+            go ( (e 1) ".FxFlashes(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
     ; one slide's display list (EVGDisplayList.toJson) painted `width`
     ; pixels wide: base64 JPEG, "" when it could not be drawn
     host_render _:string (h:McpHost list:string w:double ht:double width:int) {

@@ -16,7 +16,7 @@
 // What anything MEANS is PresApp.rgr's.
 
 import { prepareDisplayList, setFontFallback, fontSpec, textObstacles, imageChanged, registerSurfaceEffect } from "./gl/evg-webgl.js";
-import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
+import { registerDeckEffects, effectStill, reducedMotion, holdStill } from "./fxdeck.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 import { canvasDpr } from "./pixels.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
@@ -3097,6 +3097,7 @@ function dropThumbs() {
 // elsewhere does not restart it.
 const fxSince = new Map();
 function effectClock(layout) {
+  if (reducedMotion()) return null;
   if (layout.playing && layout.fxTime >= 0) return () => layout.fxTime;
   const now = performance.now();
   return (e) => {
@@ -3110,20 +3111,22 @@ function effectClock(layout) {
   };
 }
 
-// `t` a time for every effect, or a function of the effect.
+// `t` a time for every effect, or a function of the effect; null: each
+// held at its still (less motion asked for)
 function withTime(doc, t) {
   const fx = doc.list && doc.list.effects;
-  if (fx) for (const e of fx) e.time = typeof t === "function" ? t(e) : t;
+  if (fx) for (const e of fx) {
+    if (t === null) holdStill(e);
+    else e.time = typeof t === "function" ? t(e) : t;
+  }
   return doc;
 }
 
-// The moment a thumbnail and an exported still show an effect at. Rain is
-// drawn half a minute in, when it has landed, run and left its trails; the
-// rest two seconds in, as they always were.
-const FX_STILL_T = { drops: 30, raindrops2: 30 };
+// The moment a thumbnail and an exported still show an effect at
+// (web/fxdeck.js effectStill).
 function atRest(doc) {
   syncDeckEffects();
-  return withTime(doc, (e) => FX_STILL_T[e.kind] ?? deckEffectStill(e.kind) ?? 2.0);
+  return withTime(doc, (e) => effectStill(e.kind));
 }
 
 // The deck's own effects (```fx, the theme's @effect), registered with the

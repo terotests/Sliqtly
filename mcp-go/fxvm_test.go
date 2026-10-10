@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"testing"
 )
@@ -94,5 +95,47 @@ func TestFxLibrary(t *testing.T) {
 	}
 	if v := fxVoronoi(0.5, 0.5); v < 0 || v > 1.5 {
 		t.Fatalf("voronoi %v", v)
+	}
+}
+
+// The check reads the deck's own effects as a reader sees them: the
+// theme's light text over a white effect is said, a slide that strobes is
+// warned of, and blur, glow and edges are drawn.
+func TestCheckReadsOwnEffects(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	deck := "```fx\neffect snow source {\n  fallback = #101828\n  output = vec3(1)\n}\n" +
+		"effect strobe source {\n  output = vec3(step(0.5, fract(time * 6)))\n}\n" +
+		"effect calm source {\n  output = vec3(0.1, 0.1, 0.2 + 0.05 * sin(time))\n}\n" +
+		"effect soft backdrop {\n  output = blur(uv, 6) * 0.5 + glow(uv, 4) * 0.25 + vec4(vec3(edges(uv)), 1) * 0.25\n}\n```\n\n" +
+		"## White {fx=snow}\n\nLight text over a white effect.\n\n## Strobe {fx=strobe}\n\nText\n\n" +
+		"## Calm {fx=calm}\n\nText\n\n## Soft {fx=soft}\n\nText\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Fx", "markdown": deck})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	ws := fmt.Sprint(sc(c)["warnings"])
+	match(t, ws, `Slide "White": text is hard to read`)
+	match(t, ws, `Slide 2: the effect 'strobe' flashes about 6 times a second over 100% of the slide`)
+	nomatch(t, ws, `'calm' flashes|Slide "Calm": text is hard`)
+	match(t, ws, `Own effects, cost per pixel \(limit 600\): snow \d+, strobe \d+, calm \d+, soft \d+`)
+	r := call(t, s, "render_slide", map[string]any{"deck_id": sc(c)["deck_id"], "slide": 4})
+	if r.IsError {
+		t.Fatal(lastText(r))
+	}
+}
+
+func TestFlashesPerSecond(t *testing.T) {
+	var on, slow []float64
+	for f := 0; f < 60; f++ {
+		on = append(on, float64((f/3)%2))          // 5 flashes a second
+		slow = append(slow, float64((f/15)%2)*0.5) // 1 a second
+	}
+	if r := flashesPerSecond(on, 30); r < 4.5 || r > 5.5 {
+		t.Fatalf("on/off every 3 frames: %v", r)
+	}
+	if r := flashesPerSecond(slow, 30); r > 1.5 {
+		t.Fatalf("slow: %v", r)
 	}
 }
