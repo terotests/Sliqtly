@@ -44,6 +44,7 @@ Import "PresScript.rgr"
 Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
 Import "Pres3DStill.rgr"
+Import "Pres3DGltf.rgr"
 Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
@@ -5448,6 +5449,114 @@ class PresCheck {
         this.ok(((buffer_get px3 mid) > g2) ("stills: a brighter light, a brighter face, got " + (to_string (buffer_get px3 mid))))
     }
 
+    ; a world saved as glTF 2.0 (export format gltf): the tree's nodes, the
+    ; page's triangles, PBR materials in linear light, lights and camera
+    fn gltfOut:void () {
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
+        def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff0000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
+        def grp:string ("{\"t\":\"group\",\"a\":{\"name\":\"rig\",\"scale\":\"2\"},\"c\":[" + box + "]}")
+        def flat:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"planeGeometry\"},{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#808080\",\"side\":\"2\"}}]}"
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"4,0,0\",\"intensity\":\"2\"}}"
+        def amb:string "{\"t\":\"ambientLight\",\"a\":{\"intensity\":\"0.3\"}}"
+        def text:string (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + grp + "," + flat + "," + sun + "," + amb + "]}") 1.5))
+        def g:JVal (JVal.parse(text))
+        def asset:JVal (g.get("asset"))
+        this.ok(((asset.strOr("version" "")) == "2.0") "gltf: version 2.0")
+        def nodes:JVal (g.get("nodes"))
+        ; rig, crate, plane, sun, camera (the ambient light has no glTF node)
+        this.ok(((nodes.len()) == 5) ("gltf: five nodes, got " + (to_string (nodes.len()))))
+        def rig:JVal (nodes.at(0))
+        this.ok(((rig.strOr("name" "")) == "rig") "gltf: the group first")
+        def kids:JVal (rig.get("children"))
+        def kid:JVal (kids.at(0))
+        this.ok((((kids.len()) == 1) && ((kid.asNum(-1.0)) == 1.0)) "gltf: the mesh under its group")
+        def rs:JVal (rig.get("scale"))
+        def rs0:JVal (rs.at(0))
+        this.ok(((rs0.asNum(0.0)) == 2.0) "gltf: the group's scale")
+        def crate:JVal (nodes.at(1))
+        def ct:JVal (crate.get("translation"))
+        def ct0:JVal (ct.at(0))
+        this.ok(((ct0.asNum(0.0)) == 1.0) "gltf: the mesh's own place under its group")
+        def scenes:JVal (g.get("scenes"))
+        def scene:JVal (scenes.at(0))
+        def roots:JVal (scene.get("nodes"))
+        this.ok(((roots.len()) == 4) ("gltf: rig, plane, sun and camera at the root, got " + (to_string (roots.len()))))
+        def accs:JVal (g.get("accessors"))
+        def meshes:JVal (g.get("meshes"))
+        def mesh0:JVal (meshes.at(0))
+        def prims:JVal (mesh0.get("primitives"))
+        def prim:JVal (prims.at(0))
+        def attrs:JVal (prim.get("attributes"))
+        def pa:JVal (accs.at((attrs.intOr("POSITION" -1))))
+        this.ok(((pa.intOr("count" 0)) == 24) ("gltf: Three's box, 24 vertices, got " + (to_string (pa.intOr("count" 0)))))
+        def pmax:JVal (pa.get("max"))
+        def pmax1:JVal (pmax.at(1))
+        this.ok(((pmax1.asNum(0.0)) == 0.5) "gltf: positions' max")
+        def ia:JVal (accs.at((prim.intOr("indices" -1))))
+        this.ok(((ia.intOr("count" 0)) == 36) "gltf: 12 triangles")
+        this.ok(((ia.intOr("componentType" 0)) == 5123) "gltf: uint16 indices")
+        def mats:JVal (g.get("materials"))
+        def m0:JVal (mats.at(0))
+        def red:JVal (m0.get("pbrMetallicRoughness"))
+        def rbase:[double] (PresSceneModel.nums((red.get("baseColorFactor")) ([] _:double (0.0 0.0 0.0 0.0))))
+        this.ok((PresCheck.near(rbase ([] _:double (1.0 0.0 0.0 1.0)))) "gltf: base colour, opaque")
+        this.ok((((red.numOr("metallicFactor" 0.0)) == 0.5) && ((red.numOr("roughnessFactor" 0.0)) == 0.25)) "gltf: metalness and roughness")
+        def grey:JVal (mats.at(1))
+        def gpbr:JVal (grey.get("pbrMetallicRoughness"))
+        def gbase:[double] (PresSceneModel.nums((gpbr.get("baseColorFactor")) ([] _:double (0.0 0.0 0.0 0.0))))
+        def gb:double (itemAt gbase 0)
+        this.ok(((gb > 0.21) && (gb < 0.22)) ("gltf: #808080 in linear light, got " + (to_string gb)))
+        this.ok((grey.boolOr("doubleSided" false)) "gltf: side 2 is double-sided")
+        def gext:JVal (grey.get("extensions"))
+        this.ok((gext.has("KHR_materials_unlit")) "gltf: a basic material is unlit")
+        ; the sun: shines from where it is toward the origin
+        def sunNode:JVal (nodes.at(3))
+        def q:[double] (PresSceneModel.nums((sunNode.get("rotation")) ([] _:double (0.0 0.0 0.0 1.0))))
+        this.ok((PresCheck.near((PresSceneModel.turn(q ([] _:double (0.0 0.0 -1.0)))) ([] _:double (-1.0 0.0 0.0)))) "gltf: the sun's -z toward the origin")
+        def dext:JVal (g.get("extensions"))
+        def punct:JVal (dext.get("KHR_lights_punctual"))
+        def lights:JVal (punct.get("lights"))
+        def l0:JVal (lights.at(0))
+        this.ok((((l0.strOr("type" "")) == "directional") && ((l0.numOr("intensity" 0.0)) == 2.0)) "gltf: the sun in KHR_lights_punctual")
+        def sext:JVal (scene.get("extras"))
+        def ssq:JVal (sext.get("sliqtly"))
+        def sx:JVal (ssq.get("lights"))
+        def sx0:JVal (sx.at(0))
+        this.ok(((sx0.strOr("type" "")) == "ambient") "gltf: the ambient light in the scene's extras")
+        def cams:JVal (g.get("cameras"))
+        def cam0:JVal (cams.at(0))
+        def lens:JVal (cam0.get("perspective"))
+        def yfov:double (lens.numOr("yfov" 0.0))
+        this.ok(((yfov > 0.8726) && (yfov < 0.8727)) ("gltf: fov 50 in radians, got " + (to_string yfov)))
+        this.ok(((lens.numOr("aspectRatio" 0.0)) == 1.5) "gltf: the box's aspect")
+        def cext:JVal (crate.get("extras"))
+        def x:JVal (cext.get("sliqtly"))
+        this.ok((((x.strOr("geometry" "")) == "boxGeometry") && ((x.strOr("jsx" "")) == "mesh")) "gltf: R3F's names in extras")
+        def bufs:JVal (g.get("buffers"))
+        def buf:JVal (bufs.at(0))
+        def views:JVal (g.get("bufferViews"))
+        def last:JVal (views.at(((views.len()) - 1)))
+        this.ok((((last.intOr("byteOffset" 0)) + (last.intOr("byteLength" 0))) <= (buf.intOr("byteLength" 0))) "gltf: views inside the buffer")
+        def used:JVal (g.get("extensionsUsed"))
+        this.ok(((used.len()) == 2) "gltf: two extensions used")
+        ; no meshes: no buffer, no empty lists
+        def bare:JVal (JVal.parse((Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + sun + "]}") 1.0))))
+        this.ok((((bare.has("buffers")) == false) && ((bare.has("accessors")) == false)) "gltf: an empty world has no buffer")
+        ; no light named: the page's key and fill, marked as Sliqtly's
+        def unlit:JVal (JVal.parse((Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + box + "]}") 1.0))))
+        def uext:JVal (unlit.get("extensions"))
+        def upun:JVal (uext.get("KHR_lights_punctual"))
+        def ulights:JVal (upun.get("lights"))
+        def unodes:JVal (unlit.get("nodes"))
+        def ukey:JVal (unodes.at(1))
+        def ukx:JVal (ukey.get("extras"))
+        def uks:JVal (ukx.get("sliqtly"))
+        this.ok((((ulights.len()) == 2) && (uks.boolOr("default" false))) "gltf: a world without lights gets the page's key and fill")
+        def bad:Pres3DGltf (new Pres3DGltf())
+        this.ok(((bad.build("{\"t\":\"div\"}" 1.0)) == "") "gltf: not a scene3d, no file")
+        this.ok(((strlen bad.error) > 0) "gltf: and says why")
+    }
+
     fn sceneTree:void () {
         def ball:string "{\"t\":\"mesh\",\"a\":{\"name\":\"ball\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"sphereGeometry\",\"a\":{\"args\":\"0.5,32,16\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#4488ff\",\"metalness\":\"0.2\",\"roughness\":\"0.6\"}}]}"
         def t:Pres3DTree (PresCheck.sceneOf(ball))
@@ -5922,6 +6031,7 @@ class PresCheck {
         c.scenes()
         c.sceneTree()
         c.stills()
+        c.gltfOut()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {

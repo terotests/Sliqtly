@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -61,4 +62,81 @@ func TestRenderSlideDrawsProgramsAndWorlds(t *testing.T) {
 	if maxRed >= minBlue+8 || minRed > minBlue {
 		t.Fatalf("the world is not on the program's left: red x %d..%d, blue from %d", minRed, maxRed, minBlue)
 	}
+}
+
+// export_presentation format gltf writes the program's world as glTF 2.0:
+// the box the program draws, its red in linear light, and the camera.
+func TestExportGltfWritesTheWorld(t *testing.T) {
+	if _, err := os.Stat("../web/dist/cerxes.wasm"); err != nil {
+		t.Skip("no web/dist/cerxes.wasm (npm run build with Rust's wasm32-wasip1 target)")
+	}
+	t.Setenv("SLIQTLY_CERXES_DIR", "../web/dist")
+	cerxes = cerxesEngine{}
+	defer func() { cerxes = cerxesEngine{} }()
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# B\n\n## Play\n\n```app\nsrc: apps/w.tsx\nsize: 480x270\nallow: 3d\n```\n\n## Plain\n\nNo world here.\n"
+	prog := "function view() {\n  return (\n    <scene3d>\n" +
+		"      <perspectiveCamera position={[0, 0, 3]} fov={50} />\n" +
+		"      <mesh name=\"crate\"><boxGeometry args={[2, 1, 1]} /><meshStandardMaterial color=\"#ff0000\" roughness={0.3} /></mesh>\n" +
+		"      <directionalLight position={[1, 2, 3]} />\n" +
+		"    </scene3d>\n  );\n}\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "W", "markdown": md,
+		"files": []any{map[string]any{"name": "w.tsx", "text": prog}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	x := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "gltf"})
+	if x.IsError {
+		t.Fatal(textOf(x))
+	}
+	match(t, textOf(x), `3-D model \(glTF\) of "W" \(slide 2, apps/w.tsx`)
+	saved := f.bucket.saved["shares/"+id+"/exports/W (slide 2).gltf"]
+	eq(t, saved.contentType, "model/gltf+json")
+	var g struct {
+		Asset struct{ Version string }
+		Nodes []struct {
+			Name   string
+			Mesh   *int
+			Camera *int
+		}
+		Accessors []struct {
+			Count int
+			Max   []float64
+		}
+		Materials []struct {
+			PbrMetallicRoughness struct {
+				BaseColorFactor []float64
+				RoughnessFactor float64
+			}
+		}
+		Cameras []struct {
+			Perspective struct{ AspectRatio, Yfov float64 }
+		}
+	}
+	if err := json.Unmarshal(saved.data, &g); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, g.Asset.Version, "2.0")
+	if len(g.Nodes) != 3 || g.Nodes[0].Name != "crate" || g.Nodes[0].Mesh == nil || g.Nodes[2].Camera == nil {
+		t.Fatalf("want the crate, the sun and the camera, got %+v", g.Nodes)
+	}
+	if g.Accessors[0].Count != 24 || g.Accessors[0].Max[0] != 1 {
+		t.Fatalf("want Three's 2 x 1 x 1 box, got %+v", g.Accessors[0])
+	}
+	m := g.Materials[0].PbrMetallicRoughness
+	if m.BaseColorFactor[0] != 1 || m.BaseColorFactor[1] != 0 || m.RoughnessFactor != 0.3 {
+		t.Fatalf("want the red material, got %+v", m)
+	}
+	if a := g.Cameras[0].Perspective.AspectRatio; a < 1.77 || a > 1.78 {
+		t.Fatalf("want the world's 16:9 box, got %v", a)
+	}
+	// a slide with no world says so
+	none := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "gltf", "slides": []any{3}})
+	if !none.IsError {
+		t.Fatal("a slide with no world exported a model")
+	}
+	match(t, textOf(none), `No 3-D world on slide 3`)
 }

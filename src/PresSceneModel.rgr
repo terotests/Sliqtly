@@ -265,6 +265,31 @@ class SceneGeom {
         push out ((sign * 128) + (idiv e 2))
     }
 
+    ; The float32 that f32 writes for v, as a double (glTF's min and max
+    ; must be those exact values)
+    sfn f32val:double (v:double) {
+        def sign:double 1.0
+        def a:double v
+        if (a < 0.0) {
+            sign = -1.0
+            a = (0.0 - a)
+        }
+        if (a < 0.000000000001) {
+            return 0.0
+        }
+        def p:double 1.0
+        while (a >= 2.0) {
+            a = (a / 2.0)
+            p = (p * 2.0)
+        }
+        while (a < 1.0) {
+            a = (a * 2.0)
+            p = (p / 2.0)
+        }
+        def m:int (floor (((a - 1.0) * 8388608.0) + 0.5))
+        return (sign * ((1.0 + ((to_double m) / 8388608.0)) * p))
+    }
+
     sfn base64:string (bytes:[int]) {
         def abc:string "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
         def parts:[string]

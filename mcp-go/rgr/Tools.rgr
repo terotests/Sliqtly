@@ -361,8 +361,8 @@ class Tools {
 
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
-        def fmt:MfJ (Tools.prop("string" "pdf, pptx (PowerPoint), docx (Word) or html (one web page)"))
-        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx" "docx" "html")))))
+        def fmt:MfJ (Tools.prop("string" "pdf, pptx (PowerPoint), docx (Word), html (one web page) or gltf (a program's 3-D world)"))
+        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx" "docx" "html" "gltf")))))
         xp.put("format" fmt)
         def xn:MfJ (MfJ.newObj())
         xn.putStr("type" "integer")
@@ -373,7 +373,7 @@ class Tools {
         def dp:MfJ (MfJ.newObj())
         dp.put("deck_id" (Tools.prop("string" "deck_id of the presentation to delete (the id in https://sliqtly.com/s/<id>)")))
         tools.add((Tools.tool("delete_presentation" "Delete a presentation" "Delete a Sliqtly presentation for good: its slides, pictures, data files and exports; its link stops working. Only its owner signed in, or, for one made without sign-in, the session (this conversation's connection) that made it. Ask the user before deleting; it cannot be undone." (Tools.schema(dp ([] _:string ("deck_id")))) (Tools.annotations(false 1 true false)) eitherMeta)))
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them. GLTF: the first 3-D world (a program's <scene3d>, sliqtly_guide topic=apps) on the slides asked for, at its first frames, as a glTF 2.0 file (.gltf) that Blender and three.js open: meshes, PBR materials, lights, camera, and the R3F names in each node's extras.sliqtly." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -3403,8 +3403,8 @@ class Tools {
             return (Tools.fail(bad))
         }
         def format:string (a.str_("format"))
-        if ((((format != "pdf") && (format != "pptx")) && (format != "docx")) && (format != "html")) {
-            return (Tools.fail("Invalid arguments: format is pdf, pptx, docx or html."))
+        if (((((format != "pdf") && (format != "pptx")) && (format != "docx")) && (format != "html")) && (format != "gltf")) {
+            return (Tools.fail("Invalid arguments: format is pdf, pptx, docx, html or gltf."))
         }
         def id:string (a.str_("deck_id"))
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
@@ -3459,12 +3459,32 @@ class Tools {
             }
         }
         def bytes:buffer ck.file
+        if ((format == "gltf") && ((buffer_length bytes) == 0)) {
+            def where:string "in the presentation"
+            if ((array_length picked) == 1) {
+                where = ("on slide " + (itemAt picked 0))
+            }
+            if ((array_length picked) > 1) {
+                where = ("on slides " + (join picked ", "))
+            }
+            def why:string ""
+            for ck.warnings w:string wi {
+                if ((indexOf w "<scene3d>") >= 0) {
+                    why = (" " + w)
+                }
+            }
+            return (Tools.fail(("No 3-D world " + where + " to export: gltf writes a program's <scene3d> (an ```app with allow: 3d; sliqtly_guide topic=apps)." + why)))
+        }
         if ((buffer_length bytes) == 0) {
             return (Tools.failed(host tool "the file could not be made"))
         }
         def name:string (Tools.fileName((d.str_("name"))))
         if ((array_length picked) > 0) {
             name = (name + " (slides " + (join picked ", ") + ")")
+        }
+        if (format == "gltf") {
+            ; one world: named by its slide
+            name = ((Tools.fileName((d.str_("name")))) + " (" + ck.gltfFrom + ")")
         }
         def path:string ("exports/" + name + "." + format)
         def type:string "application/pdf"
@@ -3476,6 +3496,9 @@ class Tools {
         }
         if (format == "html") {
             type = "text/html; charset=utf-8"
+        }
+        if (format == "gltf") {
+            type = "model/gltf+json"
         }
         def full:string ("shares/" + id + "/" + path)
         def token:string (host_uuid host)
@@ -3503,6 +3526,21 @@ class Tools {
         if (format == "html") {
             what = "Web page"
         }
+        def more:string ""
+        if (format == "gltf") {
+            what = "3-D model (glTF)"
+            count = 1
+            if (ck.gltfWorlds > 1) {
+                more = ("\nThis is the first of " + ck.gltfWorlds + " worlds; pick another with slides.")
+            }
+            for ck.gltfNotes gw:string gwi {
+                more = (more + "\nglTF: " + gw)
+            }
+        }
+        def holds:string (count + " slides")
+        if (format == "gltf") {
+            holds = (ck.gltfFrom + ", " + ck.gltfSrc)
+        }
         def out:MfJ (MfJ.newObj())
         out.putStr("deck_id" id)
         out.putStr("format" format)
@@ -3518,7 +3556,7 @@ class Tools {
         if ((indexOf url "/d/") >= 0) {
             lasts = " It works for 24 hours, then export again."
         }
-        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + count + " slides, " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation." + lasts))
+        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + holds + ", " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation." + lasts + more))
         content.add(t)
         r.put("content" content)
         r.put("structuredContent" out)
