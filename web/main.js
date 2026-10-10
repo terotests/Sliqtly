@@ -2899,22 +2899,18 @@ let autoContrast = true;
 try { autoContrast = localStorage.getItem("sliqtly.autoContrast") !== "off"; } catch (_) { /* on */ }
 
 // --- review mode: comments pinned to the slides (src/PresReviewUi.rgr) ----------------
-// File → Settings turns it on or off; without a choice made it is on where
-// the page is served by a server of one's own (a team's review tool) and off
-// on the site. The comments are the deck's file review/comments.json
-// (src/PresReview.rgr); a copy changed elsewhere (another person, an
-// assistant through MCP) is united with this one, not put in its place.
+// Always on in the editor, so commenting never disappears; the rail's Review
+// only opens and closes the list of comments. Not in the shared viewer or a
+// version's read-only frame. The comments are the deck's file
+// review/comments.json (src/PresReview.rgr); a copy changed elsewhere
+// (another person, an assistant through MCP) is united with this one, not
+// put in its place.
 const REVIEW_PATH = "review/comments.json";
-const REVIEW_KEY = "sliqtly.review";
-function reviewChoice() {
-  try { return localStorage.getItem(REVIEW_KEY); } catch (_) { return null; }
-}
 function ownServer() {
   return typeof window.sliqtly?.serverVersion === "function";
 }
 function applyReviewMode() {
-  const choice = reviewChoice();
-  const on = !viewer && !versionFrame && (choice ? choice === "on" : ownServer());
+  const on = !viewer && !versionFrame;
   if (app.reviewMode() !== on) {
     app.setReviewMode(on);
     document.body.classList.toggle("reviewing", on);
@@ -4437,9 +4433,6 @@ function handleRequests() {
       try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
       dropThumbs();
       needsPaint = true;
-    } else if (r.startsWith("setting:review:")) {
-      try { localStorage.setItem(REVIEW_KEY, r.endsWith(":on") ? "on" : "off"); } catch (_) { /* this session only */ }
-      applyReviewMode();
     } else if (r === "review-save") {
       keepReview().catch(fail);
     } else if (r === "confirm:zip") {
@@ -4463,11 +4456,6 @@ function handleRequests() {
       roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
       renameDeck(r.slice(6));
-    } else if (r === "rail:review") {
-      // the rail's Review: review mode on or off, kept as Settings keeps it
-      const on = !app.reviewMode();
-      try { localStorage.setItem(REVIEW_KEY, on ? "on" : "off"); } catch (_) { /* this session only */ }
-      applyReviewMode();
     } else if (r === "decks") {
       decksRoom = null;
       openDecks().catch(fail);

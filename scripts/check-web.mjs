@@ -394,6 +394,26 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // Commenting is always there in the editor: review mode is on without any
+  // choice made, and the rail's Review only opens and closes the list of
+  // comments. The bug: the rail's Review turned review mode off, and the
+  // pins and + Add comment disappeared with it.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const out = { onAtStart: a.reviewMode() };
+      a.request("rail:review");
+      out.listOpen = rv.listing && a.reviewMode();
+      a.request("rail:review");
+      out.listClosed = !rv.listing && a.reviewMode();
+      const asked = [];
+      for (let q = a.takeRequest(); q; q = a.takeRequest()) asked.push(q);
+      out.asked = asked.join(" ");
+      return out;
+    });
+    check("review mode is on in the editor and the rail's Review only opens and closes the list", r.onAtStart && r.listOpen && r.listClosed && !/rail:review/.test(r.asked || ""), JSON.stringify(r));
+  }
+
   // The comment box while presenting (review mode, the dark callout): the
   // hint reads as a hint, not as text typed; it goes once the box has the
   // keys, and the caret shows. The bugs: .chat-draft's white won over the
