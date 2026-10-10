@@ -5875,6 +5875,17 @@ class PresCheck {
         def spec:MdAppSpec (MdApp.read("src: a.tsx\nallow: slide.nav"))
         def asks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"slide.go\",\"n\":3},{\"k\":\"machine.send\",\"event\":\"GO\"}]" spec "a.tsx"))
         this.ok((((array_length asks.granted) == 1) && ((array_length asks.refused) == 1)) "plays: slide.go granted, machine.send refused")
+        ; the code viewer's asks need allow: code, a file or a box to open
+        def cspec:MdAppSpec (MdApp.read("src: a.tsx\nallow: code"))
+        def casks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"code.open\",\"value\":\"src/a.cpp#L4\",\"key\":\"split\"},{\"k\":\"code.line\",\"n\":12},{\"k\":\"code.open\"},{\"k\":\"code.peek\"}]" cspec "a.tsx"))
+        this.ok((((array_length casks.granted) == 2) && ((array_length casks.refused) == 2)) ("plays: code.open and code.line granted, an empty open and code.peek refused, got " + (to_string (array_length casks.granted))))
+        if ((array_length casks.granted) == 2) {
+            def ca:PresPlayAsk (itemAt casks.granted 0)
+            def cl:PresPlayAsk (itemAt casks.granted 1)
+            this.ok((((ca.value == "src/a.cpp#L4") && (ca.key == "split")) && (cl.n == 12)) "plays: a code ask's target, mode and line")
+        }
+        def nasks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"code.close\"}]" spec "a.tsx"))
+        this.ok(((array_length nasks.granted) == 0) "plays: no code ask without allow: code")
         ; another deck: nothing of this one's programs stays
         deck.clearPlays()
         this.ok((((array_length deck.liveKeys) == 0) && ((deck.playStyle.count()) == 0)) "plays: cleared with the deck")

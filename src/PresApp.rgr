@@ -729,6 +729,7 @@ class PresApp {
         o.setStr("mode" mode)
         o.setBool("focused" (deck.playFocus == key))
         o.set("data" (deck.playData(page)))
+        o.set("code" (codeView.state()))
         return (o.toJson())
     }
 
@@ -763,6 +764,10 @@ class PresApp {
     fn playMove:void (a:PresPlayAsk) {
         def n:int (deck.slideCount())
         if (n == 0) {
+            return
+        }
+        if ((indexOf a.kind "code.") == 0) {
+            this.playCode(a)
             return
         }
         if (mode == "present") {
@@ -8460,6 +8465,100 @@ class PresApp {
         this.codeWant(ls)
         codeView.open(ls 0 selected k id bx by bw bh deck.uiNow)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; A slide script's ask of the viewer (allow: code). The viewer is a
+    ; presenting thing: in the editor the asks are let go.
+    fn playCode:void (a:PresPlayAsk) {
+        if (mode != "present") {
+            return
+        }
+        def open:boolean (codeView.isOpen())
+        if (a.kind == "code.open") {
+            def k:PresCodeLink (new PresCodeLink())
+            PresCodeLinks.readTarget(k a.value)
+            if ((strlen k.problem) > 0) {
+                return
+            }
+            if (PresCodeLinks.isMode(a.key)) {
+                k.mode = a.key
+            }
+            k.slide = selected
+            def ls:[PresCodeLink]
+            push ls k
+            this.codeWant(ls)
+            codeView.open(ls 0 selected -1 "" (W / 2.0) (H / 2.0) 1.0 1.0 deck.uiNow)
+        }
+        if (a.kind == "code.node") {
+            def at:[int] (this.codeNodeNamed(a.value))
+            if ((array_length at) == 2) {
+                this.openCodeNode((itemAt at 0) (itemAt at 1))
+            }
+        }
+        if (open == false) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (a.kind == "code.close") {
+            if (codeView.close(deck.uiNow)) {
+                review.setCodeView("")
+                this.afterReview()
+            }
+        }
+        if (a.kind == "code.mode") {
+            codeView.pickMode(a.value)
+        }
+        if (a.kind == "code.line") {
+            codeView.goLine(a.n)
+        }
+        if (a.kind == "code.scroll") {
+            codeView.scrollLines(a.n)
+        }
+        if (a.kind == "code.zoom") {
+            codeView.setZoom(a.n)
+        }
+        if (a.kind == "code.tab") {
+            codeView.pickTab((a.n - 1))
+        }
+        if (a.kind == "code.change") {
+            codeView.build()
+            codeView.jumpChange((a.n < 0))
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The diagram and box on the slide shown that a script names as a
+    ; `::: code` line does (its id or its words; "*" or "-": the first
+    ; diagram with links, whole). [k, n], or [] when none has links.
+    fn codeNodeNamed:[int] (box:string) {
+        def out:[int]
+        def b:string (trim box)
+        def ks:[int] (deck.codeLinks.diagramsOn(selected))
+        for ks k:int i {
+            if ((array_length out) == 0) {
+                if ((b == "*") || (b == "-")) {
+                    push out k
+                    push out -1
+                } {
+                    def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+                    if (!null? hit) {
+                        def u:PresDiaUse hit
+                        def dd:PresDiagram (u.active(deck.uiNow))
+                        def n:int 0
+                        while ((n < (array_length dd.nodes)) && ((array_length out) == 0)) {
+                            if (PresCodeLinks.names(b (dd.nodeIdAt(n)) (dd.nodeText(n)))) {
+                                if ((array_length (deck.codeLinks.forNode(selected k (dd.nodeIdAt(n)) (dd.nodeText(n))))) > 0) {
+                                    push out k
+                                    push out n
+                                }
+                            }
+                            n = (n + 1)
+                        }
+                    }
+                }
+            }
+        }
+        return out
     }
 
     ; A badge pressed: "dia:<k>" or "node:<k>:<n>".

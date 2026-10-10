@@ -365,7 +365,10 @@ class PresPlayView {
 ; One thing a frame asked of the deck.
 class PresPlayAsk {
     ; "deck.set", "slide.next", "slide.prev", "slide.go", "slide.step",
-    ; "el.style", "el.show", "el.hide", "el.reset", "machine.send"
+    ; "el.style", "el.show", "el.hide", "el.reset", "machine.send", and the
+    ; code viewer's "code.open" (value: path#anchor, key: mode),
+    ; "code.node" (value: box), "code.close", "code.mode" (value),
+    ; "code.line", "code.scroll", "code.zoom", "code.tab", "code.change" (n)
     def kind:string ""
     def key:string ""
     def value:string ""
@@ -404,7 +407,16 @@ class PresPlayAsks {
         if (kind == "machine.send") {
             return "machine"
         }
+        def codes:[string] (PresPlayAsks.codeKinds())
+        if ((indexOf codes kind) >= 0) {
+            return "code"
+        }
         return ""
+    }
+
+    ; What a program may ask of the source code viewer (allow: code).
+    sfn codeKinds:[string] () {
+        return ([] _:string ("code.open" "code.node" "code.close" "code.mode" "code.line" "code.scroll" "code.zoom" "code.tab" "code.change"))
     }
 
     sfn read:PresPlayAsks (json:string spec:MdAppSpec name:string) {
@@ -444,6 +456,10 @@ class PresPlayAsks {
             }
             if ((a.kind == "deck.set") && ((strlen (trim a.key)) == 0)) {
                 push out.refused (name + ": deck.set without a key")
+                continue
+            }
+            if (((a.kind == "code.open") || (a.kind == "code.node")) && ((strlen (trim a.value)) == 0)) {
+                push out.refused (name + ": " + a.kind + " without a file or a box")
                 continue
             }
             if (((indexOf a.kind "el.") == 0) && ((PresPlayStyle.selOk(a.sel)) == false)) {

@@ -371,13 +371,13 @@ class PresCodeLinks {
     ; (PresCodeRows), not from here.
     sfn span:[int] (k:PresCodeLink files:PresCodeFiles text:string) {
         def out:[int]
+        ; a file sources.json does not list is all of it, from line 1
+        def f:PresCodeFile (new PresCodeFile())
+        f.path = k.path
         def fo@(optional):PresCodeFile (files.file(k.path))
-        if (null? fo) {
-            push out 0
-            push out 0
-            return out
+        if (!null? fo) {
+            f = (unwrap fo)
         }
-        def f:PresCodeFile fo
         if (k.from > 0) {
             push out k.from
             push out k.to

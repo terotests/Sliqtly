@@ -5778,6 +5778,20 @@ try {
     await pc.waitForTimeout(500);
     const back = await pc.evaluate(() => ({ open: window.__app.codeView.isOpen(), sel: window.__app.slideShown() }));
     check("…Esc goes back to the slide", !back.open && back.sel === 1, JSON.stringify(back));
+    // a slide script with allow: code drives the viewer (presentation.code)
+    const script = 'import { presentation } from "Sliqtly";\nlet t = 0;\nexport function tick(dt) {\n  const c = presentation.code;\n  t += dt;\n  if (t > 0.3 && !c.isOpen && c.path === "") presentation.code.open("api.cpp#L4", { mode: "split" });\n  if (c.isOpen && c.mode === "split" && c.zoom === 0) c.setZoom(2);\n}\n';
+    await pc.evaluate(async ({ script }) => {
+      const a = window.__app;
+      a.endPresent();
+      await window.__keepText("apps/code.tsx", script);
+      a.setSource(a.source().replace("## Submit flow", '## Submit flow {script=apps/code.tsx allow="code"}'));
+      a.present(true);
+      window.__handleRequests();
+      a.next();
+    }, { script });
+    await pc.waitForFunction(() => window.__app.codeView.isOpen() && window.__app.codeView.view.zoom === 2, null, { timeout: 15000 }).catch(() => {});
+    const sv = await pc.evaluate(() => { const c = window.__app.codeView; return { open: c.isOpen(), mode: c.view.mode, zoom: c.view.zoom, notes: window.__app.playNotes() }; });
+    check("a slide script opens the viewer in split view and zooms it", sv.open && sv.mode === "split" && sv.zoom === 2, JSON.stringify(sv));
     await pc.close();
   }
 
