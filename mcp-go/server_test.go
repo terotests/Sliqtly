@@ -276,7 +276,7 @@ func respond(status int, ct, body string) *http.Response {
 
 // the site's own sheet, so the checks lay the deck out as the player does
 var auroraCSS = func() string {
-	b, err := os.ReadFile("../themes/aurora.css")
+	b, err := os.ReadFile("themes/aurora.css")
 	if err != nil {
 		panic(err)
 	}
