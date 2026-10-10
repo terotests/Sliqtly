@@ -22,7 +22,7 @@ import { canvasDpr } from "./pixels.js";
 import { openVfs, memoryStore, kindOf, isText, placeFor, newId } from "./vfs.js";
 import { accountStorage } from "./account.js";
 import { sortFiles, pastePlan, fileClipboard, CLIP_KEY } from "./fileclip.js";
-import { toBase64, fromBase64, fileBytes, fileState, plainChord, clipImgHtml } from "./slideclip.js";
+import { toBase64, fromBase64, fileBytes, fileSize, fileState, plainChord, clipImgHtml } from "./slideclip.js";
 import { deckKey, canReturn, reopenPlan, tabLabel, readDeckTabs, keepDeckTabs, rowToKeep } from "./decktabs.js";
 import { lang, LANGS, t, translateDom, chooseLang, chooseTerm, handOver } from "./i18n.js";
 import { createLiveSheets } from "./sheets-live.js";
@@ -4795,6 +4795,11 @@ function handleRequests() {
       clipAnswered("clipimg", r.endsWith(":alt"));
     } else if (r.startsWith("clip:undo:") || r.startsWith("clip:redo:")) {
       clipFilesBack(Number(r.slice(10)), r.startsWith("clip:undo:")).catch(fail);
+    } else if (r === "clip:full") {
+      // Export to Clipboard → Full presentation: Markdown, theme and files
+      copyWhole();
+    } else if (r === "confirm:cliptoobig") {
+      askZip().catch(fail);
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
@@ -7813,6 +7818,48 @@ function clipCopy(kind) {
   })();
 }
 
+// Export to Clipboard → Full presentation: the Markdown, the theme CSS and
+// every file of the deck as Sliqtly's clipboard text, which a paste in any
+// window or browser makes a presentation of (pasteWhole). One too large for
+// the clipboard (PresClip.maxText) is not copied at all: a window says how
+// large and offers the ZIP file. As in clipCopy, the ClipboardItem is made
+// in the press's own turn with a promise of its text (Safari).
+function copyWhole() {
+  let too = "";
+  const text = (async () => {
+    const files = await docFiles();
+    const names = app.clipWhole(files.map((f) => f.path).join("\n"), themeSel.value || "").split("\n").filter(Boolean);
+    const recs = names.map((p) => files.find((f) => f.path === p));
+    too = app.clipTooLarge(recs.map((f) => fileSize(f)).join("\n"));
+    if (too) return "";
+    for (let i = 0; i < names.length; i += 1) {
+      if (recs[i]) app.clipAddFile(names[i], recs[i].type || "", toBase64(await fileBytes(recs[i])));
+    }
+    return app.clipText();
+  })();
+  let rich = null;
+  if (typeof ClipboardItem === "function" && navigator.clipboard?.write) {
+    const blob = text.then((s) => (s ? new Blob([s], { type: "text/plain" }) : Promise.reject(new Error("nothing to copy"))));
+    try {
+      rich = navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).then(() => true, () => false);
+    } catch (_) {
+      rich = null;
+    }
+  }
+  return (async () => {
+    const s = await text;
+    if (rich) await rich.catch(() => false);
+    if (!s) {
+      if (too && app.clipSayTooLarge(too)) needsPaint = true;
+      return;
+    }
+    let ok = rich ? await rich : false;
+    if (!ok) ok = await writeClip(s);
+    toast(ok ? t("Copied the whole presentation.") : t("Could not copy"));
+  })().catch(fail);
+}
+window.__copyWhole = copyWhole;
+
 // Sliqtly's clipboard text of the copy, "" when there is nothing to copy.
 async function clipCopyText(kind) {
   const files = await docFiles();
@@ -7913,6 +7960,7 @@ function clipPaste(text, plain) {
   return true;
 }
 async function pasteClip(info) {
+  if (info.target === "new") return pasteWhole(info);
   const have = new Map((await docFiles()).map((f) => [f.path, f]));
   let steps = [];
   if (info.files) {
@@ -7946,6 +7994,45 @@ async function pasteClip(info) {
   dropThumbs();
   afterInput();
   focusApp();
+}
+
+// A whole presentation pasted (Export to Clipboard → Full presentation,
+// here or in another browser): asked about, then made a presentation of its
+// own beside this one, its theme picked when this Sliqtly has it (its CSS as
+// it was either way) and its files in, as File → Duplicate makes one.
+async function pasteWhole(info) {
+  const answer = await clipAsk("clip", () => app.clipAsk());
+  if (!answer) return;
+  const plan = JSON.parse(app.clipNewJson());
+  if (plan.md == null) return;
+  const files = [];
+  for (let i = 0; i < info.files; i += 1) {
+    files.push({ path: app.clipFileName(i), type: app.clipFileMime(i), bytes: fromBase64(app.clipFileData(i)) });
+  }
+  await leaveDoc();
+  const text = plan.md;
+  beginDoc(text);
+  docName = plan.name;
+  const key = plan.theme && [...themeSel.options].some((o) => o.value === plan.theme) ? plan.theme : themeSel.value || "";
+  themeSel.value = key;
+  if (plan.css) editedCss[key] = plan.css;
+  useTheme(key);
+  for (const f of files) {
+    const type = f.type || "";
+    const data = kindOf(f.path, type) !== "image" && isText(f.path, type) ? new TextDecoder().decode(f.bytes) : new Blob([f.bytes], { type });
+    const rec = { path: bare(f.path), type, size: f.bytes.byteLength, data, doc: doc.id, updated: Date.now() };
+    pending.set(rec.path, rec);
+    await useFile(rec);
+  }
+  shownDoc(text);
+  app.showTab("md");
+  dropThumbs();
+  await saveDoc(true);
+  await commitVersion("@created").catch((e) => console.warn("no version kept", e));
+  if (cloudReady()) await cloudSync().catch(cloudTrouble);
+  refreshFiles();
+  needsPaint = true;
+  toast(t("Made the presentation ") + plan.name);
 }
 
 // Undo / Redo of a paste: its files back as they were, or in again.

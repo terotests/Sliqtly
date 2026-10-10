@@ -27,6 +27,46 @@ The same commands are in **Edit** (Copy slide) and in the slide's right-click
 menu (Copy slide, Copy the chart…). The old **Copy ▸** submenu is now
 **Copy as ▸** (Markdown, Markdown + comments, open comments).
 
+## A whole presentation
+
+**File → Export → Export to Clipboard → Full presentation** (also in the
+bar's Export dropdown under Clipboard) copies the whole deck in the same
+format: its Markdown as it is (front matter too), the theme CSS as it stands
+(edits included, every rule) and every file of the deck but the review
+comments, base64. Pasted with Ctrl/⌘+V anywhere in the editor (the
+filmstrip, the slide, the Markdown or the theme tab), in this window, another
+one or another browser, it asks "Make a new presentation “…” of the copied
+one?" and makes one beside the open deck: the same Markdown, CSS and files,
+and the same theme picked when that Sliqtly has it.
+
+```
+===== Sliqtly clipboard v1: presentation, 12 slides =====
+from: Myynti 2026
+split-level: 2
+theme: aurora
+
+----- presentation: markdown -----
+---
+title: Myynti 2026
+---
+…
+
+----- theme: css -----
+…
+
+----- file: media/logo.png (image/png, base64) -----
+…
+
+===== end of Sliqtly clipboard =====
+```
+
+The clipboard takes only so much: a copy whose text would be over 24 MB
+(`PresClip.maxText`, measured from the file sizes before anything is read) is
+not made at all, so nothing half copied is pasted somewhere. A window says
+how large it would be and names the three largest files, and offers the ZIP
+export (File → Export → All files (.zip)) instead. A Sliqtly older than this
+reads such a copy as one slide's worth of Markdown and the styles.
+
 ## The format
 
 ```
@@ -52,11 +92,13 @@ kgAAAABJRU5ErkJggg==
 ===== end of Sliqtly clipboard =====
 ```
 
-- The first line names what is in it: `N slides` or `1 element (chart)`.
+- The first line names what is in it: `N slides`, `1 element (chart)` or
+  `presentation, N slides`.
 - Lines before the first section are `key: value` notes: `from` (the
-  presentation it came from) and `split-level` (the heading level its slides
-  break at; a paste into a deck that breaks at another level moves the
-  headings so each slide stays a slide).
+  presentation it came from), `theme` (a whole presentation's theme) and
+  `split-level` (the heading level its slides break at; a paste into a deck
+  that breaks at another level moves the headings so each slide stays a
+  slide).
 - A section line is `----- name -----`. A name with `css` in it is styles,
   one with `markdown` in it a slide's Markdown (or the element's), `file:`
   a file. A name Sliqtly does not know is skipped, so later versions can add

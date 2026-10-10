@@ -220,6 +220,8 @@ class PresApp {
     ; made, the paste being asked about, the text pasted, the pastes Undo
     ; takes back whole
     def clipDoc:PresClipDoc (new PresClipDoc())
+    ; a whole presentation's files, as clipWhole named them
+    def clipWholeNames:[string]
     def clipPlan:PresClipPlan (new PresClipPlan())
     def clipRaw:string ""
     def clipFocus:string ""
@@ -12373,6 +12375,49 @@ class PresApp {
         return (join (PresClip.filesUsed((md + "\n" + d.css) all)) "\n")
     }
 
+    ; Export to Clipboard → Full presentation begun: the Markdown, the theme
+    ; CSS as it stands (`theme`: its key) and, of the deck's files `paths`
+    ; (a line each), the ones it takes along, a line each, for the page to
+    ; weigh (clipTooLarge) and add (clipAddFile) before it takes clipText.
+    fn clipWhole:string (paths:string theme:string) {
+        def lay:MdLayout (deck.layout())
+        clipDoc = (PresClip.wholeDoc((mdEditor.text()) (cssEditor.text()) theme toolbar.docTitle lay.splitLevel (deck.slideCount())))
+        clipWholeNames = (PresClip.wholeFiles((strsplit paths "\n")))
+        return (join clipWholeNames "\n")
+    }
+
+    ; "" when the whole presentation fits on the clipboard, else what to
+    ; say. `sizes`: the bytes of clipWhole's files, a line each.
+    fn clipTooLarge:string (sizes:string) {
+        def ns:[int]
+        def lines:[string] (strsplit sizes "\n")
+        def i:int 0
+        while (i < (array_length clipWholeNames)) {
+            def v:int 0
+            if (i < (array_length lines)) {
+                def n@(optional):int (str2int (itemAt lines i))
+                if (!null? n) {
+                    v = (unwrap n)
+                }
+            }
+            push ns v
+            i = (i + 1)
+        }
+        def textLen:int ((strlen (clipDoc.markdown())) + (strlen clipDoc.css))
+        return (PresClip.tooLarge(textLen clipWholeNames ns (PresClip.maxText())))
+    }
+
+    ; A whole presentation too large for the clipboard: the window says so
+    ; (`words`, clipTooLarge's) and offers the ZIP file ("confirm:cliptoobig").
+    fn clipSayTooLarge:boolean (words:string) {
+        if ((this.openConfirm("cliptoobig" (PresI18n.t("Too large for the clipboard")) words (PresI18n.t("Export ZIP…")))) == false) {
+            return false
+        }
+        chart.cfSafe = true
+        chart.rebuild()
+        return true
+    }
+
     ; How many slides (or the one element) the copy has.
     fn clipCount:int () {
         return (array_length clipDoc.parts)
@@ -12462,7 +12507,7 @@ class PresApp {
         clipRaw = text
         clipFocus = focus
         def files:int 0
-        if ((clipPlan.target == "md") || (clipPlan.target == "deck")) {
+        if (((clipPlan.target == "md") || (clipPlan.target == "deck")) || (clipPlan.target == "new")) {
             files = (array_length clipPlan.doc.files)
         }
         return ("{\"target\":" + (PresApp.jsonStr(clipPlan.target)) + ",\"files\":" + (to_string files) + "}")
@@ -12531,16 +12576,30 @@ class PresApp {
         def words:string (PresClip.question(clipPlan at))
         def alt:string (PresClip.altAnswer(clipPlan))
         def title:string (PresI18n.t("Paste"))
-        if ((strlen alt) > 0) {
-            return (this.openChoice("clip" title words (PresI18n.t("Paste")) alt))
+        def okWord:string (PresI18n.t("Paste"))
+        if (clipPlan.target == "new") {
+            okWord = (PresI18n.t("Make presentation"))
         }
-        if ((this.openConfirm("clip" title words (PresI18n.t("Paste")))) == false) {
+        if ((strlen alt) > 0) {
+            return (this.openChoice("clip" title words okWord alt))
+        }
+        if ((this.openConfirm("clip" title words okWord)) == false) {
             return false
         }
         ; a paste is no deletion: its button is not the red one
         chart.cfSafe = true
         chart.rebuild()
         return true
+    }
+
+    ; A pasted whole presentation, for the page to make a deck of:
+    ; {"name", "theme", "md", "css"} (its files: clipFileName/Mime/Data).
+    fn clipNewJson:string () {
+        def p:PresClipPlan clipPlan
+        if (p.target != "new") {
+            return "{}"
+        }
+        return ("{\"name\":" + (PresApp.jsonStr((PresClip.newName(p.doc)))) + ",\"theme\":" + (PresApp.jsonStr(p.doc.theme)) + ",\"md\":" + (PresApp.jsonStr(p.md)) + ",\"css\":" + (PresApp.jsonStr(p.css)) + "}")
     }
 
     ; The paste made (`alt`: the question's second answer). The paste's
