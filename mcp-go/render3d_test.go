@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -254,4 +255,68 @@ func TestSliqGltfReadsTheDecksModel(t *testing.T) {
 	}
 	r3 := call(t, s, "export_presentation", map[string]any{"deck_id": sc(lost)["deck_id"], "format": "gltf"})
 	match(t, textOf(r3), `the deck has no file data/none.gltf`)
+}
+
+// A file written for Ranger v2's 3-D façade runs on a slide as it is:
+// courtyard_live.tsx (import * as THREE from "ranger:three", init, tick in
+// milliseconds) drawn by render_slide, its sandstone floor and coloured
+// boxes as Ranger draws them.
+func TestRangerThreeFileRunsAsItIs(t *testing.T) {
+	if _, err := os.Stat("../web/dist/cerxes.wasm"); err != nil {
+		t.Skip("no web/dist/cerxes.wasm (npm run build with Rust's wasm32-wasip1 target)")
+	}
+	t.Setenv("SLIQTLY_CERXES_DIR", "../web/dist")
+	cerxes = cerxesEngine{}
+	defer func() { cerxes = cerxesEngine{} }()
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	prog, err := os.ReadFile("../scripts/fixtures/courtyard_live.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := "## Courtyard\n\n```app\nsrc: apps/courtyard.tsx\nsize: 480x270\nallow: 3d\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "C", "markdown": md,
+		"files": []any{map[string]any{"name": "courtyard.tsx", "text": string(prog)}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	if txt := textOf(c); regexp.MustCompile(`(?i)courtyard\.tsx[^\n]*(error|not|fail)`).MatchString(txt) {
+		t.Fatalf("the program was not taken: %s", txt)
+	}
+	// the viewer's fixture (scripts/check-view.mjs)
+	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
+		_, _, _, vb := getView(t, s.root+"/api/view/"+sc(c)["deck_id"].(string))
+		if err := os.WriteFile("../scripts/fixtures/view-three.json", []byte(vb), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := call(t, s, "render_slide", map[string]any{"deck_id": sc(c)["deck_id"], "slide": 1})
+	if r.IsError {
+		t.Fatal(lastText(r))
+	}
+	img := decodeJPEG(t, r)
+	sand, colours := 0, map[string]bool{}
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y += 2 {
+		for x := b.Min.X; x < b.Max.X; x += 2 {
+			cr, cg, cb, _ := img.At(x, y).RGBA()
+			cr, cg, cb = cr>>8, cg>>8, cb>>8
+			// the sandstone floor under four lights: bright, a little warm
+			if cr > 200 && cg > 200 && cb > 150 && cb+10 < cr {
+				sand++
+			}
+			switch {
+			case cg > cr+40 && cg > cb+20:
+				colours["green"] = true
+			case cb > cr+40 && cb > cg:
+				colours["blue"] = true
+			case cr > cg+60 && cr > cb+60:
+				colours["red"] = true
+			}
+		}
+	}
+	if sand < 1500 || len(colours) < 3 {
+		t.Fatalf("want the floor and the coloured boxes, got %d floor points and %v", sand, colours)
+	}
 }

@@ -5739,6 +5739,24 @@ class PresCheck {
         this.ok(((indexOf (join ts.warnings ";") "src names") >= 0) "gltf in: no src, said")
     }
 
+    ; <scene3d legacy> and the octahedron (what ranger:three files use)
+    fn worldLegacy:void () {
+        def wo:Pres3DWorld (new Pres3DWorld())
+        wo.setScene("{\"t\":\"scene3d\",\"a\":{\"legacy\":true,\"ambient\":0},\"c\":[{\"t\":\"mesh\",\"c\":[{\"t\":\"octahedronGeometry\",\"a\":{\"args\":\"2\"}},{\"t\":\"meshLambertMaterial\",\"a\":{\"color\":\"#ff0000\"}}]}]}" (new Pres3DEnv()))
+        this.ok((wo.srgb == false) "legacy scene: no colour management")
+        this.ok(((strlen wo.error) == 0) ("legacy scene: no warnings, got " + wo.error))
+        this.ok((wo.tree.legacy == false) "legacy scene: not the first attributes")
+        this.ok((wo.tree.roomLight == 0.0) "legacy scene: ambient 0")
+        def g:ThreeBufferGeometry (itemAt wo.geos 0)
+        this.ok(((g.vertexCount()) == 24) ("octahedron: 8 faces of 3 corners, got " + (to_string (g.vertexCount()))))
+        this.ok(((g.getPosition(0 0)) == 2.0) "octahedron: radius 2")
+        def nx:double (g.getNormal(0 0))
+        this.ok(((nx > 0.577) && (nx < 0.578)) "octahedron: a face's own normal")
+        def plain:Pres3DWorld (new Pres3DWorld())
+        plain.setScene("{\"t\":\"scene3d\",\"c\":[]}" (new Pres3DEnv()))
+        this.ok(plain.srgb "plain scene: Three's colour management")
+    }
+
     fn gltfOut:void () {
         def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
         def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff0000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
@@ -6349,6 +6367,7 @@ class PresCheck {
         c.stills()
         c.gltfOut()
         c.gltfIn()
+        c.worldLegacy()
         c.stripDrag()
         c.forms()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
