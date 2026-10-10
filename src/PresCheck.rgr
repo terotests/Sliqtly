@@ -7140,6 +7140,14 @@ class PresCheck {
         this.ok(((array_length wr.pointObjs) == 0) "worlds: its light too")
     }
 
+    ; `select-text: off` in the front matter (web/slidetext.js)
+    fn selectText:void () {
+        this.ok(((PresDeck.selectTextOff("---\ntitle: A\n---\n# A\n")) == false) "select-text: on by default")
+        this.ok((PresDeck.selectTextOff("---\nselect-text: off\n---\n# A\n")) "select-text: off turns it off")
+        this.ok((PresDeck.selectTextOff("---\nselect-text: No\n---\n# A\n")) "select-text: No turns it off")
+        this.ok(((PresDeck.selectTextOff("# A\n\nselect-text: off\n")) == false) "select-text outside the front matter is text")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -7206,6 +7214,7 @@ class PresCheck {
         c.worldLegacy()
         c.stripDrag()
         c.forms()
+        c.selectText()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

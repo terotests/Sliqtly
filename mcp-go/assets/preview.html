@@ -305,15 +305,23 @@
   // Download: export_presentation called from here (the host lets the
   // widget call its server's tools), then the file's link opened
   async function callTool(name, args) {
-    if (window.openai && window.openai.callTool) {
-      const r = await window.openai.callTool(name, args);
-      return (r && (r.structuredContent || r)) || {};
-    }
-    const r = await request("tools/call", { name, arguments: args });
+    const r = window.openai && window.openai.callTool
+      ? await window.openai.callTool(name, args)
+      : await request("tools/call", { name, arguments: args });
     if (r && r.error) throw new Error(r.error.message || "the export failed");
     const res = r || {};
     if (res.isError) throw new Error(((res.content || [])[0] || {}).text || "the export failed");
     return res.structuredContent || {};
+  }
+  // the viewer's own download of a shared deck (web/viewlink.js
+  // exportUrl, mcp-go View.rgr ViewExport): pdf and pptx
+  function viewerExport(format) {
+    if (format !== "pdf" && format !== "pptx") return "";
+    try {
+      const u = new URL(deck.share_url);
+      const id = /^\/s\/([A-Za-z0-9]{6,32})\/?$/.exec(u.pathname);
+      return id ? u.origin + "/api/export/" + id[1] + "/" + format : "";
+    } catch (_) { return ""; }
   }
   const dl = document.getElementById("download");
   const formats = document.getElementById("formats");
@@ -328,15 +336,29 @@
     if (!deck || !deck.deck_id) return;
     dl.disabled = true;
     dl.textContent = "Exporting…";
+    const format = b.dataset.format;
+    dl.title = "";
     try {
-      const args = { deck_id: deck.deck_id, format: b.dataset.format };
-      const out = await callTool("export_presentation", args);
-      if (!out.url) throw new Error("no download link came back");
-      openLink(out.url);
+      let url = "";
+      try {
+        const out = await callTool("export_presentation", { deck_id: deck.deck_id, format });
+        if (!out.url) throw new Error("no download link came back");
+        url = out.url;
+      } catch (e) {
+        // the host may refuse the call (ChatGPT asks for its own tool list
+        // to be refreshed; a deck made without sign-in is the asking
+        // conversation's alone): PDF and PowerPoint also come from the
+        // viewer's download, for anyone the link shows the deck to
+        url = viewerExport(format);
+        if (!url) throw e;
+        console.warn("Sliqtly preview: export_presentation", e);
+      }
+      openLink(url);
       dl.textContent = label;
     } catch (e) {
       console.warn("Sliqtly preview: export", e);
       dl.textContent = "Download failed, try again ▾";
+      dl.title = String((e && e.message) || e);
     } finally {
       dl.disabled = false;
     }

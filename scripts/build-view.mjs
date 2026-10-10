@@ -10,7 +10,7 @@
  * build, web/dist) is still what the local server and the checks use.
  *
  *   index.html   web/view.html: the viewer, and the front page
- *   view.js …    web/view.js, viewlink.js, viewauth.js (an owner's sign-in),
+ *   view.js …    web/view.js, viewlink.js, slidetext.js, viewauth.js (an owner's sign-in),
  *                picture.js and what it imports, brand.js
  *   gl/          evg-webgl.js, the painter
  *   viewplay.js, apps.js, pres_play.js, cerxes.wasm …   programs on slides
@@ -36,7 +36,7 @@ export const viewDir = path.join(webDir, "dist-view");
 
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
-const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"]];
+const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"]];
 const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"]];
 
 function files(dir) {

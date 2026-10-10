@@ -457,6 +457,7 @@
   "How items appear.": "Miten kohdat tulevat näkyviin.",
   "How long the slide shows in playback, in seconds.": "Dian kesto toistossa, sekunteina.",
   "How much a sparse slide may grow (off: not at all).": "Kuinka paljon väljä dia saa kasvaa (off: ei ollenkaan).",
+  "off: the slides' text cannot be selected and copied with the mouse in the viewer or while presenting.": "off: diojen tekstiä ei voi valita ja kopioida hiirellä katselimessa eikä esitettäessä.",
   "How much of the slide's base color goes over the background image (0–1), so text stands out.": "Kuinka paljon dian pohjaväriä taustakuvan päälle (0–1), jotta teksti erottuu.",
   "How the document is split into slides, and the background effect.": "Miten dokumentti jaetaan dioiksi, ja taustaefekti.",
   "How the editor around the slides looks. Your slides and their themes stay as they are.": "Miltä diojen ympärillä oleva editori näyttää. Diasi ja niiden teemat pysyvät ennallaan.",

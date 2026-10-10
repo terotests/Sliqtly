@@ -57,6 +57,9 @@ const gltfFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gl
 // a file written for Ranger v2's 3-D façade, as Ranger has it
 // (courtyard_live.tsx; mcp-go/render3d_test.go TestRangerThreeFileRunsAsItIs)
 const THREE_ID = "ThreeFixture1";
+// the Finance sample with `select-text: off` in its front matter
+const NOSEL_ID = "NoSelect12";
+const noSelDeck = JSON.stringify({ ...JSON.parse(deck), deck: { ...JSON.parse(deck).deck, selectText: false } });
 const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
@@ -82,7 +85,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck };
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck, [NOSEL_ID]: noSelDeck };
     const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(found || '{"error":"This shared presentation was not found."}');
@@ -134,11 +137,15 @@ const chat = http.createServer((req, res) => {
       ? `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval' blob: ${base}; style-src 'self' 'unsafe-inline' ${base}; img-src 'self' data: blob: ${base}; font-src 'self' data: ${base}; connect-src 'self' ${base}; frame-src 'self'`
       : `default-src 'none'; script-src 'unsafe-inline' data: blob: 'wasm-unsafe-eval'; worker-src data: blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data: ${base}; connect-src ${base}; frame-src data: blob:; base-uri 'self'`,
   });
-  const result = gpt ? { share_url: base + "/s/" + ID, title: "Finance", slides } : { share_url: base + "/s/" + WORLD_ID, title: "3-D world", slides: 2 };
+  const result = gpt ? { share_url: base + "/s/" + ID, deck_id: ID, title: "Finance", slides } : { share_url: base + "/s/" + WORLD_ID, title: "3-D world", slides: 2 };
   res.end(`<!doctype html><meta charset="utf-8"><iframe id="w" sandbox="allow-scripts${gpt ? " allow-same-origin" : ""}" allow="fullscreen; clipboard-write" style="width:960px;height:640px;border:0"></iframe><script>
 const w = document.getElementById("w");
 addEventListener("message", (e) => {
   const m = e.data;
+  // the preview's Download: the host refuses the tool call (as ChatGPT
+  // does with a stale tool list), the link it opens instead is kept
+  if (m && m.method === "tools/call") w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, error: { code: -32000, message: "refused" } }, "*");
+  if (m && m.method === "ui/open-link") { window.__opened = m.params.url; w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*"); }
   if (!m || m.method !== "ui/initialize") return;
   w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*");
   w.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { structuredContent: ${JSON.stringify(result)} } }, "*");
@@ -194,6 +201,57 @@ try {
   await page.waitForTimeout(200);
   if ((await text(page, "vCount")) !== `${slides} / ${slides}`) fail("End did not go to the last slide");
 
+  // the slide's text selected with the mouse (web/slidetext.js): a drag
+  // over the two lines under the title copies them as one sentence, the
+  // slide stays; the next click lets go, the one after is the next slide
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(200);
+  const W = JSON.parse(deck).deck.width;
+  const H = JSON.parse(deck).deck.height;
+  const toPage = async (x, y) => {
+    const r = await page.evaluate(() => { const b = document.getElementById("c").getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+    const sc = Math.min(r[2] / W, r[3] / H);
+    return [r[0] + (r[2] - W * sc) / 2 + x * sc, r[1] + (r[3] - H * sc) / 2 + y * sc];
+  };
+  const selectLines = async () => {
+    const [x0, y0] = await toPage(54.5, 154.2 + 20);
+    const [x1, y1] = await toPage(900, 212.44 + 20);
+    await page.mouse.move(x0, y0);
+    await page.mouse.down();
+    await page.mouse.move((x0 + x1) / 2, y0, { steps: 4 });
+    await page.mouse.move(x1, y1, { steps: 4 });
+    await page.mouse.up();
+  };
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() => navigator.clipboard.writeText("before"));
+  const cursor = await (async () => {
+    const [x, y] = await toPage(100, 154.2 + 20);
+    await page.mouse.move(x, y);
+    return page.evaluate(() => document.getElementById("c").style.cursor);
+  })();
+  if (cursor !== "text") fail(`over the slide's text the pointer is "${cursor}", not the I-beam`);
+  await selectLines();
+  await page.keyboard.press("Control+c");
+  await page.waitForTimeout(200);
+  const lines = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+  if (lines !== "A budget, a buffer and compound interest – three things that go a long way.") fail(`a drag over the slide's text copied ${JSON.stringify(lines)}`);
+  if ((await text(page, "vCount")) !== `1 / ${slides}`) fail("a drag over the slide's text went to another slide");
+  const [tx, ty] = await toPage(600, 154.2 + 20);
+  await page.mouse.click(tx, ty);
+  await page.waitForTimeout(200);
+  if ((await text(page, "vCount")) !== `1 / ${slides}`) fail("the click that lets go of a selection went to another slide");
+  await page.mouse.click(tx, ty);
+  await page.waitForTimeout(200);
+  if ((await text(page, "vCount")) !== `2 / ${slides}`) fail("a click on the slide's text did not go to the next slide");
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(200);
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Control+c");
+  await page.waitForTimeout(200);
+  const all = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+  if (!all.startsWith("Take charge of your money\nA budget,")) fail(`Ctrl+A, Ctrl+C on a slide copied ${JSON.stringify(all)}`);
+  await page.keyboard.press("Escape");
+
   // Export ▾ at the bar's right end: PDF, PowerPoint, Markdown; a download
   // saved under the deck's name, a refusal said on the button
   await page.click("#vExport");
@@ -215,6 +273,32 @@ try {
   await page.waitForFunction(() => /failed|epäonnistui/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
     .catch(() => fail("a refused PDF export was not said"));
   if (!(await page.evaluate(() => document.getElementById("vMenu").hidden))) fail("the Export menu stayed open");
+  await page.close();
+
+  // `select-text: off`: a drag over the text selects nothing
+  page = await open("/s/" + NOSEL_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() => navigator.clipboard.writeText("before"));
+  {
+    const r = await page.evaluate(() => { const b = document.getElementById("c").getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+    const W = JSON.parse(deck).deck.width;
+    const H = JSON.parse(deck).deck.height;
+    const sc = Math.min(r[2] / W, r[3] / H);
+    const x = r[0] + (r[2] - W * sc) / 2 + 60 * sc;
+    const y = r[1] + (r[3] - H * sc) / 2 + 174 * sc;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 60 * sc, { steps: 4 });
+    await page.mouse.up();
+  }
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Control+c");
+  await page.waitForTimeout(200);
+  const none = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+  // (Ctrl+A is then the page's own: the bar's labels)
+  if (/budget/.test(none)) fail(`with select-text: off the slide's text was copied: ${JSON.stringify(none)}`);
   await page.close();
 
   // a program on a slide runs in the viewer: its picture (the green field
@@ -356,6 +440,13 @@ try {
     if (!viewer) await page.waitForTimeout(250);
   }
   if (!viewer) fail("ChatGPT's preview did not open the viewer");
+  // Download → PDF with the tool call refused: the viewer's download opens
+  const widget = page.frames().find((f) => f.parentFrame() === page.mainFrame());
+  await widget.click("#download");
+  await widget.click('button[data-format="pdf"]');
+  await page.waitForFunction(() => window.__opened, null, { timeout: 5000 }).catch(() => {});
+  const opened = await page.evaluate(() => window.__opened || "");
+  if (opened !== base + "/api/export/" + ID + "/pdf") fail(`the preview's Download opened "${opened}", not the viewer's PDF download`);
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other

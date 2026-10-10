@@ -45,6 +45,7 @@ import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS } from "./stagelink.js";
+import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createApps } from "./apps.js";
@@ -3600,6 +3601,13 @@ function forgetBook() {
 }
 
 let lastLayout = null;
+// the slide's text selected with the mouse while presenting (see "selecting
+// the slide's text" below), and the stage the last paint drew: its JSON,
+// its list, where ([x, y, scale])
+const textSel = new TextSelection();
+let shownStage = null;
+let shownRead = null;
+let textPress = null;
 function paintOnce() {
   errEl.textContent = "";
   const layout = JSON.parse(app.layoutJson());
@@ -3634,9 +3642,18 @@ function paintOnce() {
     window.__lastStage = null;
     paintBookSpread(layout);
   } else forgetBook();
+  shownStage = null;
   if (layout.slides > 0 && !layout.book) {
-    const st = withTime(JSON.parse(app.stageJson()), clock);
+    const stageText = app.stageJson();
+    const st = withTime(JSON.parse(stageText), clock);
     window.__lastStage = st;
+    shownStage = { text: stageText, list: st.list, at: layout.stage };
+    if (layout.mode !== "present") textSel.clear();
+    // the slide's text selected with the mouse while presenting: its band
+    if (textSel.has()) {
+      const read = presentText();
+      if (read) st.list = { ...st.list, cmds: withBand(st.list.cmds, read, textSel.start(), textSel.end()) };
+    }
     st.width = W;
     st.height = H;
     const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
@@ -8001,6 +8018,98 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
+// --- selecting the slide's text with the mouse while presenting -------------------------
+// (web/slidetext.js, as the public viewer does). A drag over text selects
+// it, Ctrl/Cmd+C copies it, Ctrl/Cmd+A takes the whole slide's, Esc lets
+// go. A press that does not move is the slide's own click (the next step, a
+// link), given to the app on release. `select-text: off` in the front
+// matter turns it off. (textSel and shownStage are by paintOnce.)
+const measureCtx = document.createElement("canvas").getContext("2d");
+function measureRun(text, c) {
+  measureCtx.font = fontSpec(c, 1);
+  return measureCtx.measureText(text).width;
+}
+// The slide's text, read again when the stage drew something else (a build
+// step, another slide); new words let go of the selection.
+function presentText() {
+  if (!shownStage) return null;
+  if (!shownRead || shownRead.text !== shownStage.text) {
+    shownRead = { text: shownStage.text, st: slideText(shownStage.list.cmds, measureRun) };
+    textSel.setText(shownRead.st.text);
+  }
+  return shownRead.st;
+}
+function textSelectable() {
+  return presentingNow() && !!shownStage && app.selectText() && !app.inkActive();
+}
+function stagePoint(x, y) {
+  const [sx, sy, sc] = shownStage.at;
+  return [(x - sx) / sc, (y - sy) / sc];
+}
+// A press while presenting: true when it is the selection's.
+function textPressAt(ev, x, y, clicks) {
+  if (ev.pointerType !== "mouse" || ev.button !== 0 || !textSelectable() || app.layerAt(x, y) !== "") return false;
+  const read = presentText();
+  if (!read || !read.text) return false;
+  const [px, py] = stagePoint(x, y);
+  const what = textSel.press(indexAt(read, px, py), ev.shiftKey, runAt(read, px, py, 2) >= 0);
+  if (!what) return false;
+  if (what === "select") textPress = { id: ev.pointerId, x, y, shift: ev.shiftKey, clicks };
+  needsPaint = true;
+  return true;
+}
+function textDragTo(ev, x, y) {
+  if (!textPress || textPress.id !== ev.pointerId) return false;
+  const [px, py] = stagePoint(x, y);
+  if (textSel.drag(indexAt(presentText(), px, py))) needsPaint = true;
+  return true;
+}
+function textRelease(ev) {
+  if (!textPress || textPress.id !== ev.pointerId) return false;
+  const p = textPress;
+  textPress = null;
+  const [x, y] = at(ev);
+  // a click on text: the slide's own, as it would have been
+  if (textSel.release() === "click" && ev.type === "pointerup" && Math.hypot(x - p.x, y - p.y) < 6) {
+    app.pointerDown(p.x, p.y, p.shift, Math.min(p.clicks, 3));
+    app.pointerUp();
+    afterInput();
+  }
+  needsPaint = true;
+  return true;
+}
+// over the slide's text the I-beam
+function textCursorAt(x, y) {
+  if (!textSelectable() || app.layerAt(x, y) !== "") return false;
+  const read = presentText();
+  if (!read) return false;
+  const [px, py] = stagePoint(x, y);
+  return runAt(read, px, py, 2) >= 0;
+}
+window.addEventListener("keydown", (ev) => {
+  if (!presentingNow() || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
+  const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
+  let done = false;
+  if (mod && (ev.key === "a" || ev.key === "A") && textSelectable()) {
+    const read = presentText();
+    if (read && read.text) {
+      textSel.selectAll();
+      done = true;
+    }
+  } else if (mod && (ev.key === "c" || ev.key === "C") && textSel.has()) {
+    navigator.clipboard?.writeText(textSel.selected()).catch(fail);
+    done = true;
+  } else if (ev.key === "Escape" && textSel.has()) {
+    // the first Esc lets go of the selection, the next one stops presenting
+    textSel.clear();
+    done = true;
+  }
+  if (!done) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  needsPaint = true;
+}, true);
+
 // A realistic book's page taken by its corner while presenting: the
 // presses before the stage's own (capture), which do not see them.
 const onBookPage = (ev) => {
@@ -8151,6 +8260,13 @@ canvas.addEventListener("pointerdown", (ev) => {
     ev.preventDefault();
     return;
   }
+  // the slide's text while presenting: a drag selects it
+  if (textPressAt(ev, x, y, clicks)) {
+    ev.preventDefault();
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
+    focusKeys(app.focusTarget());
+    return;
+  }
   // a finger wobbles: it has to travel further than a mouse before a tap
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
@@ -8226,8 +8342,9 @@ canvas.addEventListener("pointermove", (ev) => {
     }
     return;
   }
+  if (textDragTo(ev, x, y)) return;
   app.pointerMove(x, y);
-  canvas.style.cursor = app.cursorAt(x, y);
+  canvas.style.cursor = !ev.buttons && textCursorAt(x, y) ? "text" : app.cursorAt(x, y);
   if (ev.buttons) { needsPaint = true; if (tipFor === canvas) hideTip(); }
   else if (ev.pointerType === "mouse") {
     hintHover(x, y);
@@ -8347,6 +8464,7 @@ document.getElementById("modeBtn").addEventListener("click", () => toggleMode())
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
+  if (textRelease(ev)) return;
   if (pickRelease) {
     pickRelease = false;
     return;

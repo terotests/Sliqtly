@@ -13192,6 +13192,12 @@ class PresApp {
         return (trim (PresDeck.frontValue((this.source()) "music")))
     }
 
+    ; Whether the slides' text may be selected and copied while presenting
+    ; (web/slidetext.js): not when the front matter says `select-text: off`.
+    fn selectText:boolean () {
+        return ((PresDeck.selectTextOff((this.source()))) == false)
+    }
+
     ; The slides with an effect, "[1,3]", for the host to render before an
     ; export.
     fn fxSlidesJson:string () {
