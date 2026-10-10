@@ -1,0 +1,1310 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Pres3DTree.rgr — a program's <scene3d>, read the way React Three Fiber
+; reads its JSX, as plain data (no GPU).
+; ============================================================================
+;
+; A world is written with Three.js's own names, as in R3F (without React):
+;
+;   <scene3d>
+;     <perspectiveCamera position={[0, 2, 6]} fov={45} lookAt={[0, 0, 0]} />
+;     <directionalLight position={[4, 6, 3]} intensity={2} />
+;     <group position={[0, 1, 0]} rotation={[0, 0.5, 0]}>
+;       <mesh name="ball" position={[1, 0, 0]}>
+;         <sphereGeometry args={[0.5, 32, 16]} />
+;         <meshStandardMaterial color="#4488ff" metalness={0.2} roughness={0.6} />
+;       </mesh>
+;     </group>
+;     <SliqRod from="pinA" to="pinB" radius={0.05} color="#c9ced6" />
+;   </scene3d>
+;
+;   objects     group mesh perspectiveCamera ambientLight directionalLight
+;               pointLight hemisphereLight
+;   geometries  box sphere cylinder cone plane torus torusKnot (…Geometry,
+;               `args` as Three takes them), teapotGeometry [size, segments]
+;   materials   meshStandardMaterial meshPhongMaterial meshLambertMaterial
+;               meshBasicMaterial (color metalness roughness specular
+;               shininess emissive opacity transparent flatShading
+;               wireframe side)
+;   props       position rotation (radians, [x, y, z, order?]) scale
+;               (number or [x, y, z]) visible lookAt name, and the dashed
+;               ones (position-x, rotation-y, scale-z)
+;
+; Sliqtly's own pieces are components named Sliq…; the page's runtime
+; turns <SliqRod> into <sliqRod>, which this makes a cylinder from one
+; point to another: a point is [x, y, z] in the rod's own frame, or the
+; name of an object (its origin, wherever its groups have moved it), and
+; `length` stops it short of `to` (a hydraulic cylinder: a barrel from one
+; pin and a rod from the other, each one `length` long).
+;
+; The JSX runtime gives every prop as text ("1,0,0" for [1, 0, 0]), the way
+; PresPlay keeps a frame's tree; numbers are read back from it.
+;
+; Each object has a key: its `name`, else its place (the parent's key, its
+; tag and its number among the siblings with that tag), so the next frame's
+; tree is matched to the last one and `diff` says what changed: an object
+; moved is moved, a colour changed is a colour changed, and nothing is made
+; again that is still there (web/three3d.js → Pres3D applies the changes).
+;
+; The first version's attributes (shape="box" x y z rx ry rz in degrees,
+; size r tube w h d, color metal shine flat wire on <mesh>; <camera>,
+; <light kind>) are still read, with a warning naming what to write.
+; ============================================================================
+
+Import "JsonValue.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "../game_engine/three/src/three_vector3.rgr"
+Import "../game_engine/three/src/three_quaternion.rgr"
+Import "../game_engine/three/src/three_euler.rgr"
+Import "../game_engine/three/src/three_matrix4.rgr"
+
+; One object of the world.
+class P3Node {
+    def key:string ""
+    def name:string ""
+    ; group mesh camera light
+    def tag:string ""
+    ; the JSX tag it was written as (perspectiveCamera, pointLight, sliqRod …)
+    def jsx:string ""
+    def parent:int -1
+    def pos:[double] (([] _:double (0.0 0.0 0.0)))
+    def euler:[double] (([] _:double (0.0 0.0 0.0)))
+    def order:string "XYZ"
+    ; the local rotation the renderer takes: from `euler`, or `lookAt`
+    def quat:[double] (([] _:double (0.0 0.0 0.0 1.0)))
+    def scale:[double] (([] _:double (1.0 1.0 1.0)))
+    def visible:boolean true
+    ; lookAt: a point, or an object's name
+    def lookName:string ""
+    def look:[double]
+    def hasLook:boolean false
+    ; a mesh: geometry and its args as Three takes them
+    def geo:string ""
+    def geoArgs:[double]
+    ; its material (Three's names), colours sRGB 0..1
+    def mat:string ""
+    def color:[double] (([] _:double (1.0 1.0 1.0)))
+    def metalness:double 0.0
+    def roughness:double 1.0
+    def specular:[double] (([] _:double (0.0667 0.0667 0.0667)))
+    def shininess:double 30.0
+    def emissive:[double] (([] _:double (0.0 0.0 0.0)))
+    def opacity:double 1.0
+    def transparent:boolean false
+    def flat:boolean false
+    def wire:boolean false
+    def side:int 0
+    ; the first version's mirror: how much the room shows, its rim
+    def reflect:double 0.0
+    def fresnel:double 0.0
+    def castShadow:boolean false
+    def receiveShadow:boolean false
+    ; a light: ambient directional point hemisphere
+    def kind:string ""
+    def intensity:double 1.0
+    def distance:double 0.0
+    def decay:double 2.0
+    def ground:[double] (([] _:double (0.0 0.0 0.0)))
+    ; a camera
+    def fov:double 50.0
+    def near:double 0.1
+    def far:double 2000.0
+    ; a rod (sliqRod)
+    def rodFrom:string ""
+    def rodTo:string ""
+    def rodA:[double]
+    def rodB:[double]
+    def radius:double 0.05
+    def length:double 0.0
+    ; where it is in the world (after its groups): position and rotation
+    def worldPos:[double] (([] _:double (0.0 0.0 0.0)))
+    def worldQuat:[double] (([] _:double (0.0 0.0 0.0 1.0)))
+    def world:ThreeMatrix4 (new ThreeMatrix4())
+
+    Constructor () {
+    }
+}
+
+; One change from a frame to the next. op: add remove move geometry
+; material light camera visible; `at` is the object in the new tree (-1 for
+; remove).
+class P3Op {
+    def op:string ""
+    def key:string ""
+    def at:int -1
+
+    Constructor () {
+    }
+}
+
+class Pres3DTree {
+    def nodes:[P3Node]
+    def warnings:[string]
+    ; the camera the world is seen through: the first one, -1 for none
+    def camera:int -1
+    def lights:int 0
+    ; <scene3d ambient={…}>: the slide's own light, 0 for none
+    def roomLight:double 0.45
+    ; the first version's attributes were met (said once)
+    def legacy:boolean false
+
+    Constructor () {
+    }
+
+    sfn objectTags:[string] () {
+        return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "sliqRod" "camera" "light" "object3D"))
+    }
+
+    sfn geometryTags:[string] () {
+        return ([] _:string ("boxGeometry" "sphereGeometry" "cylinderGeometry" "coneGeometry" "planeGeometry" "torusGeometry" "torusKnotGeometry" "teapotGeometry"))
+    }
+
+    sfn materialTags:[string] () {
+        return ([] _:string ("meshStandardMaterial" "meshPhysicalMaterial" "meshPhongMaterial" "meshLambertMaterial" "meshBasicMaterial"))
+    }
+
+    ; the props each kind of object takes besides the common ones
+    sfn commonProps:[string] () {
+        return ([] _:string ("position" "rotation" "scale" "visible" "name" "lookAt" "castShadow" "receiveShadow" "makeDefault" "key" "userData" "position-x" "position-y" "position-z" "rotation-x" "rotation-y" "rotation-z" "scale-x" "scale-y" "scale-z"))
+    }
+
+    sfn materialProps:[string] () {
+        return ([] _:string ("color" "metalness" "roughness" "specular" "shininess" "emissive" "emissiveIntensity" "opacity" "transparent" "flatShading" "wireframe" "side" "reflectivity" "attach" "envMapIntensity"))
+    }
+
+    fn warn:void (line:string) {
+        if ((indexOf warnings line) < 0) {
+            push warnings line
+        }
+    }
+
+    ; --- reading props -------------------------------------------------------
+
+    ; A prop's text, "" when it is not there.
+    sfn text:string (a:JVal key:string) {
+        def v:JVal (a.get(key))
+        if ((v.kind == 3) || ((v.kind == 2) || (v.kind == 1))) {
+            return (v.asStr(""))
+        }
+        if (v.kind == 4) {
+            ; an array as JSON (a tree made outside the runtime)
+            def parts:[string]
+            def i:int 0
+            while (i < (v.len())) {
+                def e:JVal (v.at(i))
+                push parts (e.asStr(""))
+                i = (i + 1)
+            }
+            return (join parts ",")
+        }
+        return ""
+    }
+
+    sfn has:boolean (a:JVal key:string) {
+        return ((strlen (Pres3DTree.text(a key))) > 0)
+    }
+
+    ; The numbers in a prop's text: "1,0,0" (an array the runtime wrote out),
+    ; "2", or "1 0 0". Empty when there are none or one does not read.
+    sfn nums:[double] (t:string) {
+        def out:[double]
+        def bad:[double]
+        def s:string (trim t)
+        if ((strlen s) == 0) {
+            return out
+        }
+        def parts:[string] (strsplit s ",")
+        if ((array_length parts) == 1) {
+            parts = (strsplit s " ")
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            if ((strlen p) == 0) {
+                continue
+            }
+            def d@(optional):double (to_double p)
+            if (null? d) {
+                return bad
+            }
+            push out (unwrap d)
+        }
+        return out
+    }
+
+    fn num:double (a:JVal key:string fallback:double where:string) {
+        def t:string (Pres3DTree.text(a key))
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v:[double] (Pres3DTree.nums(t))
+        if ((array_length v) != 1) {
+            this.warn((where + ": " + key + "=\"" + t + "\" is no number"))
+            return fallback
+        }
+        return (itemAt v 0)
+    }
+
+    fn flag:boolean (a:JVal key:string fallback:boolean) {
+        def v:JVal (a.get(key))
+        if (v.kind == 1) {
+            return v.flag
+        }
+        def t:string (trim (Pres3DTree.text(a key)))
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        return ((t != "false") && (t != "0"))
+    }
+
+    ; [x, y, z] from a prop: three numbers, or one for all three when `one`
+    ; (a scale). `fallback` when it is not there or does not read.
+    fn vec:[double] (a:JVal key:string fallback:[double] one:boolean where:string) {
+        def t:string (Pres3DTree.text(a key))
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v:[double] (Pres3DTree.nums(t))
+        if (((array_length v) == 1) && one) {
+            return ([] _:double ((itemAt v 0) (itemAt v 0) (itemAt v 0)))
+        }
+        if ((array_length v) == 3) {
+            return v
+        }
+        if one {
+            this.warn((where + ": " + key + " takes a number or [x, y, z], not \"" + t + "\""))
+        } {
+            this.warn((where + ": " + key + " takes [x, y, z], not \"" + t + "\""))
+        }
+        return fallback
+    }
+
+    ; A colour: "#4488ff", a CSS name or rgb(), or a number (0x4488ff, which
+    ; the runtime writes out in decimal). sRGB 0..1.
+    fn colour:[double] (a:JVal key:string fallback:[double] where:string) {
+        def t:string (trim (Pres3DTree.text(a key)))
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def n@(optional):int (to_int t)
+        if (!null? n) {
+            def hex:int (unwrap n)
+            ; a number: 0x4488ff, written out by the runtime as 4491519
+            if ((to_string hex) == t) {
+                def r:int (idiv hex 65536)
+                def g:int (idiv (hex - (r * 65536)) 256)
+                def b:int ((hex - (r * 65536)) - (g * 256))
+                return ([] _:double (((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0)))
+            }
+        }
+        def c:EVGColor (EVGColor.parse(t))
+        if ((c.isSet == false) && (t.startsWith("0x"))) {
+            c = (EVGColor.parse(("#" + (substring t 2 (strlen t)))))
+        }
+        if (c.isSet == false) {
+            this.warn((where + ": " + key + "=\"" + t + "\" is no colour"))
+            return fallback
+        }
+        return ([] _:double (((to_double (c.red())) / 255.0) ((to_double (c.green())) / 255.0) ((to_double (c.blue())) / 255.0)))
+    }
+
+    ; --- the tree ------------------------------------------------------------
+
+    ; The world of one frame's <scene3d> (its JSON as PresPlay keeps it).
+    ; False when it was no <scene3d>.
+    sfn read:Pres3DTree (json:string) {
+        def t:Pres3DTree (new Pres3DTree())
+        def n:JVal (JVal.parse(json))
+        if (((n.isObj()) == false) || ((n.strOr("t" "")) != "scene3d")) {
+            t.warn("not a <scene3d>")
+            return t
+        }
+        def a:JVal (n.get("a"))
+        t.roomLight = (t.num(a "ambient" 0.45 "<scene3d>"))
+        t.kids(n -1 "")
+        t.place()
+        return t
+    }
+
+    ; The children of a <scene3d> or a group, each an object.
+    fn kids:void (n:JVal parent:int parentKey:string) {
+        def list:JVal (n.get("c"))
+        def seenTags:[string]
+        def seenCount:[int]
+        def i:int 0
+        while (i < (list.len())) {
+            def k:JVal (list.at(i))
+            i = (i + 1)
+            if ((k.isObj()) == false) {
+                if ((k.kind == 3) && ((strlen (trim k.str)) > 0)) {
+                    this.warn(("text \"" + (trim k.str) + "\" in a 3-D world is not shown (use <SliqLabel> when it comes, or the slide)"))
+                }
+                continue
+            }
+            def tag:string (k.strOr("t" ""))
+            def at:int (indexOf seenTags tag)
+            def nth:int 0
+            if (at < 0) {
+                push seenTags tag
+                push seenCount 1
+            } {
+                nth = (itemAt seenCount at)
+                set seenCount at (nth + 1)
+            }
+            this.object(k parent parentKey nth)
+        }
+    }
+
+    fn object:void (k:JVal parent:int parentKey:string nth:int) {
+        def tag:string (k.strOr("t" ""))
+        def a0:JVal (k.get("a"))
+        def a:JVal a0
+        if ((a0.isObj()) == false) {
+            a = (JVal.mkObj())
+        }
+        if ((indexOf (Pres3DTree.objectTags()) tag) < 0) {
+            if (((indexOf (Pres3DTree.geometryTags()) tag) >= 0) || ((indexOf (Pres3DTree.materialTags()) tag) >= 0)) {
+                this.warn(("<" + tag + "> goes inside a <mesh>"))
+            } {
+                this.warn(("<" + tag + "> is not a 3-D object here (" + (join (Pres3DTree.shownTags()) ", ") + ")"))
+            }
+            return
+        }
+        def p:P3Node (new P3Node())
+        p.jsx = tag
+        p.parent = parent
+        def where:string ("<" + tag + ">")
+        p.name = (Pres3DTree.text(a "name"))
+        if ((strlen p.name) == 0) {
+            p.name = (k.strOr("id" ""))
+        }
+        if ((strlen p.name) > 0) {
+            where = ("<" + tag + " name=\"" + p.name + "\">")
+        }
+        if ((strlen p.name) > 0) {
+            p.key = ("@" + p.name)
+            if ((this.indexOfKey(p.key)) >= 0) {
+                this.warn((where + ": another object has that name; names pick one object"))
+                p.key = (parentKey + "/" + tag + (to_string nth))
+            }
+        } {
+            p.key = (parentKey + "/" + tag + (to_string nth))
+        }
+        if ((tag == "mesh") || (tag == "light") || (tag == "camera")) {
+            if (this.isLegacy(a)) {
+                this.oldProps(p a where)
+            } {
+                this.props(p a where)
+            }
+        } {
+            this.props(p a where)
+        }
+        ; the first version's <camera> and <light> now read as Three's
+        tag = p.jsx
+        if ((tag == "group") || (tag == "object3D")) {
+            p.tag = "group"
+        }
+        if (tag == "mesh") {
+            p.tag = "mesh"
+        }
+        if (tag == "perspectiveCamera") {
+            p.tag = "camera"
+            p.fov = (this.num(a "fov" p.fov where))
+            p.near = (this.num(a "near" 0.1 where))
+            p.far = (this.num(a "far" 2000.0 where))
+        }
+        if ((tag == "ambientLight") || ((tag == "directionalLight") || ((tag == "pointLight") || (tag == "hemisphereLight")))) {
+            p.tag = "light"
+            p.kind = (substring tag 0 ((strlen tag) - 5))
+            p.color = (this.colour(a "color" ([] _:double (1.0 1.0 1.0)) where))
+            p.intensity = (this.num(a "intensity" 1.0 where))
+            if (tag == "directionalLight") {
+                if ((Pres3DTree.has(a "position")) == false) {
+                    ; Three's default: straight above
+                    p.pos = ([] _:double (0.0 1.0 0.0))
+                }
+            }
+            if (tag == "pointLight") {
+                p.distance = (this.num(a "distance" 0.0 where))
+                p.decay = (this.num(a "decay" 2.0 where))
+            }
+            if (tag == "hemisphereLight") {
+                ; Three's (skyColor, groundColor): color is the sky
+                p.ground = (this.colour(a "groundColor" ([] _:double (1.0 1.0 1.0)) where))
+            }
+            this.lights = (this.lights + 1)
+        }
+        if (tag == "sliqRod") {
+            p.tag = "mesh"
+            this.rod(p a where)
+        }
+        if ((p.tag == "camera") && (this.camera < 0)) {
+            this.camera = (array_length nodes)
+        }
+        def me:int (array_length nodes)
+        push nodes p
+        if (p.tag == "mesh") {
+            this.parts(p k where)
+            return
+        }
+        if (p.tag == "group") {
+            this.kids(k me p.key)
+            return
+        }
+        def kids:JVal (k.get("c"))
+        if ((kids.len()) > 0) {
+            this.warn((where + " has children; only a <group> or a <mesh> has"))
+        }
+    }
+
+    sfn shownTags:[string] () {
+        return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "SliqRod"))
+    }
+
+    fn indexOfKey:int (key:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def p:P3Node (itemAt nodes i)
+            if (p.key == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfName:int (name:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def p:P3Node (itemAt nodes i)
+            if (p.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The props every object takes: where it is, how it is turned, its size.
+    fn props:void (p:P3Node a:JVal where:string) {
+        p.pos = (this.vec(a "position" p.pos false where))
+        def rt:string (Pres3DTree.text(a "rotation"))
+        if ((strlen rt) > 0) {
+            def parts:[string] (strsplit rt ",")
+            if ((array_length parts) == 4) {
+                p.order = (trim (itemAt parts 3))
+                rt = (join ([] _:string ((itemAt parts 0) (itemAt parts 1) (itemAt parts 2))) ",")
+            }
+            def r:[double] (Pres3DTree.nums(rt))
+            if ((array_length r) == 3) {
+                p.euler = r
+            } {
+                this.warn((where + ": rotation takes [x, y, z] in radians, not \"" + (Pres3DTree.text(a "rotation")) + "\""))
+            }
+        }
+        p.scale = (this.vec(a "scale" p.scale true where))
+        def axes:[string] (([] _:string ("x" "y" "z")))
+        def i:int 0
+        while (i < 3) {
+            def ax:string (itemAt axes i)
+            if (Pres3DTree.has(a ("position-" + ax))) {
+                set p.pos i (this.num(a ("position-" + ax) 0.0 where))
+            }
+            if (Pres3DTree.has(a ("rotation-" + ax))) {
+                set p.euler i (this.num(a ("rotation-" + ax) 0.0 where))
+            }
+            if (Pres3DTree.has(a ("scale-" + ax))) {
+                set p.scale i (this.num(a ("scale-" + ax) 1.0 where))
+            }
+            i = (i + 1)
+        }
+        p.visible = (this.flag(a "visible" true))
+        p.castShadow = (this.flag(a "castShadow" false))
+        p.receiveShadow = (this.flag(a "receiveShadow" false))
+        def lt:string (Pres3DTree.text(a "lookAt"))
+        if ((strlen lt) > 0) {
+            def v:[double] (Pres3DTree.nums(lt))
+            if ((array_length v) == 3) {
+                p.look = v
+                p.hasLook = true
+            } {
+                p.lookName = (trim lt)
+                p.hasLook = true
+            }
+        }
+        this.unknown(p a where)
+    }
+
+    ; Props no object of this kind takes: said, so a misspelt one is found.
+    fn unknown:void (p:P3Node a:JVal where:string) {
+        def known:[string] (Pres3DTree.commonProps())
+        def tag:string p.jsx
+        def extra:[string]
+        if (tag == "perspectiveCamera") {
+            extra = ([] _:string ("fov" "near" "far" "aspect" "zoom"))
+        }
+        if ((tag == "ambientLight") || (tag == "directionalLight")) {
+            extra = ([] _:string ("color" "intensity" "target" "shadow-mapSize"))
+        }
+        if (tag == "pointLight") {
+            extra = ([] _:string ("color" "intensity" "distance" "decay"))
+        }
+        if (tag == "hemisphereLight") {
+            extra = ([] _:string ("color" "groundColor" "intensity"))
+        }
+        if (tag == "sliqRod") {
+            extra = ([] _:string ("from" "to" "radius" "length" "color" "metalness" "roughness" "segments"))
+        }
+        def i:int 0
+        while (i < (array_length a.keys)) {
+            def key:string (itemAt a.keys i)
+            i = (i + 1)
+            if (((indexOf known key) >= 0) || ((indexOf extra key) >= 0)) {
+                continue
+            }
+            if ((tag == "mesh") && ((key == "geometry") || (key == "material"))) {
+                this.warn((where + ": write the " + key + " as a child, <boxGeometry args={[1, 1, 1]} /> or <meshStandardMaterial color=\"…\" />"))
+                continue
+            }
+            if ((tag == "mesh") && ((indexOf (Pres3DTree.materialProps()) key) >= 0)) {
+                this.warn((where + ": " + key + " belongs on its material, <meshStandardMaterial " + key + "={…} />"))
+                continue
+            }
+            this.warn((where + ": " + key + " is not a prop of " + tag))
+        }
+    }
+
+    ; A mesh's geometry and material, its children.
+    fn parts:void (p:P3Node k:JVal where:string) {
+        def list:JVal (k.get("c"))
+        def i:int 0
+        while (i < (list.len())) {
+            def c:JVal (list.at(i))
+            i = (i + 1)
+            if ((c.isObj()) == false) {
+                continue
+            }
+            def tag:string (c.strOr("t" ""))
+            def a0:JVal (c.get("a"))
+            def a:JVal a0
+            if ((a0.isObj()) == false) {
+                a = (JVal.mkObj())
+            }
+            if ((indexOf (Pres3DTree.geometryTags()) tag) >= 0) {
+                if (p.jsx == "sliqRod") {
+                    this.warn((where + ": a rod's geometry is its from, to and radius"))
+                    continue
+                }
+                p.geo = tag
+                p.geoArgs = (this.args(tag a where))
+                continue
+            }
+            if ((indexOf (Pres3DTree.materialTags()) tag) >= 0) {
+                this.material(p tag a)
+                continue
+            }
+            if ((indexOf (Pres3DTree.objectTags()) tag) >= 0) {
+                this.warn((where + ": <" + tag + "> inside a <mesh>; put it in a <group> beside it"))
+                continue
+            }
+            this.warn((where + ": <" + tag + "> is not a geometry or a material"))
+        }
+        if ((strlen p.geo) == 0) {
+            ; Three's default mesh: a 1 x 1 x 1 box
+            p.geo = "boxGeometry"
+            p.geoArgs = ([] _:double (1.0 1.0 1.0))
+        }
+        if ((strlen p.mat) == 0) {
+            p.mat = "meshBasicMaterial"
+            if (p.jsx == "sliqRod") {
+                p.mat = "meshStandardMaterial"
+            }
+        }
+    }
+
+    ; A geometry's args with Three's defaults filled in.
+    fn args:[double] (tag:string a:JVal where:string) {
+        def pi:double 3.141592653589793
+        def d:[double]
+        if (tag == "boxGeometry") {
+            d = ([] _:double (1.0 1.0 1.0 1.0 1.0 1.0))
+        }
+        if (tag == "sphereGeometry") {
+            d = ([] _:double (1.0 32.0 16.0 0.0 (pi * 2.0) 0.0 pi))
+        }
+        if (tag == "cylinderGeometry") {
+            d = ([] _:double (1.0 1.0 1.0 32.0 1.0 0.0 0.0 (pi * 2.0)))
+        }
+        if (tag == "coneGeometry") {
+            d = ([] _:double (1.0 1.0 32.0 1.0 0.0 0.0 (pi * 2.0)))
+        }
+        if (tag == "planeGeometry") {
+            d = ([] _:double (1.0 1.0 1.0 1.0))
+        }
+        if (tag == "torusGeometry") {
+            d = ([] _:double (1.0 0.4 12.0 48.0 (pi * 2.0)))
+        }
+        if (tag == "torusKnotGeometry") {
+            d = ([] _:double (1.0 0.4 64.0 8.0 2.0 3.0))
+        }
+        if (tag == "teapotGeometry") {
+            d = ([] _:double (1.0 10.0))
+        }
+        def t:string (Pres3DTree.text(a "args"))
+        if ((strlen t) > 0) {
+            ; openEnded and the like are true/false in Three
+            def v:[double] (Pres3DTree.nums((P3Text.ones(t))))
+            if (((array_length v) == 0) || ((array_length v) > (array_length d))) {
+                this.warn(("<" + tag + ">: args=\"" + t + "\" takes at most " + (to_string (array_length d)) + " numbers"))
+            } {
+                def i:int 0
+                while (i < (array_length v)) {
+                    set d i (itemAt v i)
+                    i = (i + 1)
+                }
+            }
+        }
+        def k:int 0
+        while (k < (array_length a.keys)) {
+            def key:string (itemAt a.keys k)
+            k = (k + 1)
+            if ((key != "args") && (key != "attach")) {
+                this.warn(("<" + tag + ">: " + key + " is not a prop of it; give its sizes in args={[…]}"))
+            }
+        }
+        return d
+    }
+
+    fn material:void (p:P3Node tag:string a:JVal) {
+        def where:string ("<" + tag + ">")
+        p.mat = tag
+        if (tag == "meshPhysicalMaterial") {
+            p.mat = "meshStandardMaterial"
+        }
+        p.color = (this.colour(a "color" ([] _:double (1.0 1.0 1.0)) where))
+        p.metalness = (this.num(a "metalness" 0.0 where))
+        p.roughness = (this.num(a "roughness" 1.0 where))
+        p.specular = (this.colour(a "specular" ([] _:double (0.0667 0.0667 0.0667)) where))
+        p.shininess = (this.num(a "shininess" 30.0 where))
+        p.emissive = (this.colour(a "emissive" ([] _:double (0.0 0.0 0.0)) where))
+        def ei:double (this.num(a "emissiveIntensity" 1.0 where))
+        p.emissive = ([] _:double (((itemAt p.emissive 0) * ei) ((itemAt p.emissive 1) * ei) ((itemAt p.emissive 2) * ei)))
+        p.opacity = (this.num(a "opacity" 1.0 where))
+        p.transparent = (this.flag(a "transparent" false))
+        p.flat = (this.flag(a "flatShading" false))
+        p.wire = (this.flag(a "wireframe" false))
+        p.reflect = (this.num(a "reflectivity" 0.0 where))
+        def side:string (Pres3DTree.text(a "side"))
+        if ((side == "2") || (side == "DoubleSide")) {
+            p.side = 2
+        }
+        if ((side == "1") || (side == "BackSide")) {
+            p.side = 1
+        }
+        def known:[string] (Pres3DTree.materialProps())
+        def i:int 0
+        while (i < (array_length a.keys)) {
+            def key:string (itemAt a.keys i)
+            i = (i + 1)
+            if ((indexOf known key) < 0) {
+                this.warn((where + ": " + key + " is not a prop of " + tag))
+            }
+        }
+    }
+
+    ; <sliqRod from to radius length color>
+    fn rod:void (p:P3Node a:JVal where:string) {
+        p.rodFrom = (trim (Pres3DTree.text(a "from")))
+        p.rodTo = (trim (Pres3DTree.text(a "to")))
+        if (((strlen p.rodFrom) == 0) || ((strlen p.rodTo) == 0)) {
+            this.warn("<SliqRod> needs from and to: [x, y, z] or an object's name")
+        }
+        p.radius = (this.num(a "radius" 0.05 where))
+        p.length = (this.num(a "length" 0.0 where))
+        def seg:double (this.num(a "segments" 16.0 where))
+        p.geo = "cylinderGeometry"
+        p.geoArgs = ([] _:double (p.radius p.radius 1.0 seg 1.0 0.0 0.0 6.283185307179586))
+        if (Pres3DTree.has(a "color")) {
+            p.mat = "meshStandardMaterial"
+            p.color = (this.colour(a "color" p.color where))
+            p.metalness = (this.num(a "metalness" 0.0 where))
+            p.roughness = (this.num(a "roughness" 1.0 where))
+        }
+    }
+
+    ; --- the first version ---------------------------------------------------
+
+    fn isLegacy:boolean (a:JVal) {
+        def old:[string] (([] _:string ("shape" "x" "y" "z" "rx" "ry" "rz" "size" "r" "tube" "w" "h" "d" "metal" "shine" "fresnel" "flat" "wire" "kind" "lookX" "lookY" "lookZ")))
+        def i:int 0
+        while (i < (array_length a.keys)) {
+            if ((indexOf old (itemAt a.keys i)) >= 0) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; shape="box" x y z rx ry rz (degrees) size r tube w h d color metal
+    ; shine fresnel flat wire, <camera x y z fov lookX…>, <light kind x y z>:
+    ; the same world, written the old way.
+    fn oldProps:void (p:P3Node a:JVal where:string) {
+        if (legacy == false) {
+            legacy = true
+            this.warn("the first 3-D attributes (shape, x y z, rx ry rz, metal …) are read for now; write Three's: <mesh position={[x, y, z]} rotation={[rx, ry, rz]}> (radians) with <boxGeometry args={[w, h, d]} /> and <meshStandardMaterial color metalness roughness />")
+        }
+        def deg:double 0.017453292519943295
+        p.pos = ([] _:double ((this.num(a "x" 0.0 where)) (this.num(a "y" 0.0 where)) (this.num(a "z" 0.0 where))))
+        p.euler = ([] _:double (((this.num(a "rx" 0.0 where)) * deg) ((this.num(a "ry" 0.0 where)) * deg) ((this.num(a "rz" 0.0 where)) * deg)))
+        def k:double (this.num(a "scale" 1.0 where))
+        p.scale = ([] _:double (k k k))
+        p.name = (Pres3DTree.text(a "name"))
+        if (p.jsx == "camera") {
+            p.jsx = "perspectiveCamera"
+            p.fov = (this.num(a "fov" 45.0 where))
+            p.look = ([] _:double ((this.num(a "lookX" 0.0 where)) (this.num(a "lookY" 0.0 where)) (this.num(a "lookZ" 0.0 where))))
+            p.hasLook = true
+            if ((Pres3DTree.has(a "z")) == false) {
+                set p.pos 2 5.0
+            }
+            return
+        }
+        if (p.jsx == "light") {
+            def kind:string (Pres3DTree.text(a "kind"))
+            p.jsx = "directionalLight"
+            if (kind == "ambient") {
+                p.jsx = "ambientLight"
+            }
+            if ((Pres3DTree.has(a "x")) == false) {
+                set p.pos 0 0.5
+            }
+            if ((Pres3DTree.has(a "y")) == false) {
+                set p.pos 1 0.8
+            }
+            if ((Pres3DTree.has(a "z")) == false) {
+                set p.pos 2 0.6
+            }
+            return
+        }
+        ; a mesh
+        def shape:string (Pres3DTree.text(a "shape"))
+        if ((strlen shape) == 0) {
+            shape = "box"
+        }
+        def size:double (this.num(a "size" 1.0 where))
+        def r:double (this.num(a "r" (size * 0.5) where))
+        def tube:double (this.num(a "tube" (r * 0.3) where))
+        def w:double (this.num(a "w" size where))
+        def h:double (this.num(a "h" size where))
+        def d:double (this.num(a "d" size where))
+        def pi:double 3.141592653589793
+        if (shape == "box") {
+            p.geo = "boxGeometry"
+            p.geoArgs = ([] _:double (w h d 1.0 1.0 1.0))
+        }
+        if (shape == "sphere") {
+            p.geo = "sphereGeometry"
+            p.geoArgs = ([] _:double (r 48.0 32.0 0.0 (pi * 2.0) 0.0 pi))
+        }
+        if (shape == "torus") {
+            p.geo = "torusGeometry"
+            p.geoArgs = ([] _:double (r tube 24.0 96.0 (pi * 2.0)))
+        }
+        if (shape == "knot") {
+            p.geo = "torusKnotGeometry"
+            p.geoArgs = ([] _:double (r tube 180.0 20.0 2.0 3.0))
+        }
+        if (shape == "cylinder") {
+            p.geo = "cylinderGeometry"
+            p.geoArgs = ([] _:double (r r h 48.0 1.0 0.0 0.0 (pi * 2.0)))
+        }
+        if (shape == "cone") {
+            p.geo = "coneGeometry"
+            p.geoArgs = ([] _:double (r h 48.0 1.0 0.0 0.0 (pi * 2.0)))
+        }
+        if (shape == "plane") {
+            p.geo = "planeGeometry"
+            p.geoArgs = ([] _:double (w h 1.0 1.0))
+            p.side = 2
+        }
+        if (shape == "teapot") {
+            p.geo = "teapotGeometry"
+            p.geoArgs = ([] _:double ((size * 0.7) 10.0))
+        }
+        if ((strlen p.geo) == 0) {
+            this.warn((where + ": no shape \"" + shape + "\" (box, sphere, torus, knot, cylinder, cone, plane, teapot)"))
+            p.geo = "boxGeometry"
+            p.geoArgs = ([] _:double (w h d 1.0 1.0 1.0))
+        }
+        p.mat = "meshPhongMaterial"
+        p.color = (this.colour(a "color" (([] _:double ((216.0 / 255.0) (219.0 / 255.0) (230.0 / 255.0)))) where))
+        def metal:double (this.num(a "metal" 0.0 where))
+        if (metal < 0.0) {
+            metal = 0.0
+        }
+        if (metal > 1.0) {
+            metal = 1.0
+        }
+        p.shininess = (this.num(a "shine" (20.0 + (metal * 80.0)) where))
+        def sp:double (0.2 + (metal * 0.6))
+        p.specular = ([] _:double (sp sp sp))
+        p.reflect = metal
+        if (metal > 0.0) {
+            p.fresnel = (this.num(a "fresnel" 1.0 where))
+        }
+        p.flat = (this.flag(a "flat" false))
+        p.wire = (this.flag(a "wire" false))
+    }
+
+    ; --- where everything is -------------------------------------------------
+
+    ; Each object's world place, after its groups; then lookAt and the rods,
+    ; which need where other objects are.
+    fn place:void () {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def p:P3Node (itemAt nodes i)
+            def q:ThreeQuaternion (Pres3DTree.quatOfEuler(p.euler p.order))
+            p.quat = ([] _:double (q.x q.y q.z q.w))
+            this.toWorld(i)
+            i = (i + 1)
+        }
+        ; lookAt and rods, in tree order: a group turned toward a point turns
+        ; what is in it, which later objects then see
+        def j:int 0
+        while (j < (array_length nodes)) {
+            def p2:P3Node (itemAt nodes j)
+            if (p2.jsx == "sliqRod") {
+                this.placeRod(j)
+            } {
+                if p2.hasLook {
+                    this.aim(j)
+                }
+            }
+            j = (j + 1)
+        }
+        if (this.camera < 0) {
+            return
+        }
+    }
+
+    sfn quatOfEuler:ThreeQuaternion (e:[double] order:string) {
+        def eu:ThreeEuler (new ThreeEuler())
+        eu.setWithOrder((itemAt e 0) (itemAt e 1) (itemAt e 2) order)
+        def q:ThreeQuaternion (new ThreeQuaternion())
+        q.setFromEuler(eu)
+        return q
+    }
+
+    sfn v3:ThreeVector3 (v:[double]) {
+        return (ThreeVector3.of((itemAt v 0) (itemAt v 1) (itemAt v 2)))
+    }
+
+    sfn q4:ThreeQuaternion (v:[double]) {
+        def q:ThreeQuaternion (new ThreeQuaternion())
+        q.set((itemAt v 0) (itemAt v 1) (itemAt v 2) (itemAt v 3))
+        return q
+    }
+
+    ; Node i's world matrix, position and rotation from its parent's and its
+    ; own, and the same again for everything after it in its subtree.
+    fn toWorld:void (i:int) {
+        def p:P3Node (itemAt nodes i)
+        def local:ThreeMatrix4 (new ThreeMatrix4())
+        local.compose((Pres3DTree.v3(p.pos)) (Pres3DTree.q4(p.quat)) (Pres3DTree.v3(p.scale)))
+        def wq:ThreeQuaternion (Pres3DTree.q4(p.quat))
+        if (p.parent >= 0) {
+            def up:P3Node (itemAt nodes p.parent)
+            p.world = ((new ThreeMatrix4()).multiplyMatrices(up.world local))
+            wq = ((new ThreeQuaternion()).multiplyQuaternions((Pres3DTree.q4(up.worldQuat)) (Pres3DTree.q4(p.quat))))
+        } {
+            p.world = local
+        }
+        def o:ThreeVector3 (p.world.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+        p.worldPos = ([] _:double (o.x o.y o.z))
+        p.worldQuat = ([] _:double (wq.x wq.y wq.z wq.w))
+    }
+
+    ; Everything below node i placed again (after i moved or turned).
+    fn rePlaceBelow:void (i:int) {
+        def j:int (i + 1)
+        while (j < (array_length nodes)) {
+            if (this.isBelow(j i)) {
+                this.toWorld(j)
+            }
+            j = (j + 1)
+        }
+    }
+
+    fn isBelow:boolean (j:int i:int) {
+        def p:P3Node (itemAt nodes j)
+        def up:int p.parent
+        while (up >= 0) {
+            if (up == i) {
+                return true
+            }
+            def u:P3Node (itemAt nodes up)
+            up = u.parent
+        }
+        return false
+    }
+
+    ; A point named by a rod or lookAt: [x, y, z] as given in `frame`'s
+    ; parent (-1: the world), or an object's world position. Empty when the
+    ; name is no object's.
+    fn pointOf:[double] (text:string nums:[double] parent:int where:string) {
+        def none:[double]
+        if ((array_length nums) == 3) {
+            if (parent < 0) {
+                return nums
+            }
+            def up:P3Node (itemAt nodes parent)
+            def w:ThreeVector3 (up.world.transformPoint((Pres3DTree.v3(nums))))
+            return ([] _:double (w.x w.y w.z))
+        }
+        def at:int (this.indexOfName(text))
+        if (at < 0) {
+            this.warn((where + ": no object is named \"" + text + "\""))
+            return none
+        }
+        def o:P3Node (itemAt nodes at)
+        return o.worldPos
+    }
+
+    ; A world point in node `parent`'s own frame (-1: the world).
+    fn intoFrame:[double] (w:[double] parent:int) {
+        if (parent < 0) {
+            return w
+        }
+        def up:P3Node (itemAt nodes parent)
+        def inv:ThreeMatrix4 ((up.world.clone()).invert())
+        def l:ThreeVector3 (inv.transformPoint((Pres3DTree.v3(w))))
+        return ([] _:double (l.x l.y l.z))
+    }
+
+    ; The parent's world rotation undone: a world rotation as node i's own.
+    fn localQuat:[double] (wq:ThreeQuaternion parent:int) {
+        if (parent < 0) {
+            return ([] _:double (wq.x wq.y wq.z wq.w))
+        }
+        def up:P3Node (itemAt nodes parent)
+        def pq:[double] up.worldQuat
+        def inv:ThreeQuaternion (new ThreeQuaternion())
+        inv.set((0.0 - (itemAt pq 0)) (0.0 - (itemAt pq 1)) (0.0 - (itemAt pq 2)) (itemAt pq 3))
+        def l:ThreeQuaternion ((new ThreeQuaternion()).multiplyQuaternions(inv wq))
+        l.normalize()
+        return ([] _:double (l.x l.y l.z l.w))
+    }
+
+    ; lookAt: a camera looks down its -Z at the point, anything else turns
+    ; its +Z to it (as Three's Object3D.lookAt), up staying +Y.
+    fn aim:void (i:int) {
+        def p:P3Node (itemAt nodes i)
+        def where:string ("<" + p.jsx + ">")
+        def target:[double] (this.pointOf(p.lookName p.look -1 where))
+        if ((array_length target) != 3) {
+            return
+        }
+        def m:ThreeMatrix4 (new ThreeMatrix4())
+        def eye:ThreeVector3 (Pres3DTree.v3(p.worldPos))
+        def at:ThreeVector3 (Pres3DTree.v3(target))
+        def up:ThreeVector3 (ThreeVector3.of(0.0 1.0 0.0))
+        if (p.tag == "camera") {
+            m.lookAt(eye at up)
+        } {
+            m.lookAt(at eye up)
+        }
+        def wq:ThreeQuaternion (new ThreeQuaternion())
+        m.toQuaternion(wq)
+        p.quat = (this.localQuat(wq p.parent))
+        this.toWorld(i)
+        this.rePlaceBelow(i)
+    }
+
+    ; A rod: a cylinder (Three's stands along +Y) from one point to the
+    ; other, or `length` of the way from `from` toward `to`.
+    fn placeRod:void (i:int) {
+        def p:P3Node (itemAt nodes i)
+        def where:string "<SliqRod>"
+        def a:[double] (this.pointOf(p.rodFrom (Pres3DTree.nums(p.rodFrom)) p.parent where))
+        def b:[double] (this.pointOf(p.rodTo (Pres3DTree.nums(p.rodTo)) p.parent where))
+        if (((array_length a) != 3) || ((array_length b) != 3)) {
+            p.visible = false
+            return
+        }
+        def la:[double] (this.intoFrame(a p.parent))
+        def lb:[double] (this.intoFrame(b p.parent))
+        p.rodA = la
+        p.rodB = lb
+        def dx:double ((itemAt lb 0) - (itemAt la 0))
+        def dy:double ((itemAt lb 1) - (itemAt la 1))
+        def dz:double ((itemAt lb 2) - (itemAt la 2))
+        def len:double (sqrt (((dx * dx) + (dy * dy)) + (dz * dz)))
+        if (len < 0.000001) {
+            p.visible = false
+            return
+        }
+        def ux:double (dx / len)
+        def uy:double (dy / len)
+        def uz:double (dz / len)
+        def l:double len
+        if ((p.length > 0.0) && (p.length < len)) {
+            l = p.length
+        }
+        p.pos = ([] _:double (((itemAt la 0) + ((ux * l) * 0.5)) ((itemAt la 1) + ((uy * l) * 0.5)) ((itemAt la 2) + ((uz * l) * 0.5))))
+        p.quat = (Pres3DTree.quatUpTo(ux uy uz))
+        p.scale = ([] _:double (1.0 1.0 1.0))
+        set p.geoArgs 2 (Pres3DTree.round6(l))
+        this.toWorld(i)
+    }
+
+    ; The rotation that turns +Y to the unit vector (x, y, z).
+    sfn quatUpTo:[double] (x:double y:double z:double) {
+        if (y < -0.999999) {
+            return ([] _:double (1.0 0.0 0.0 0.0))
+        }
+        def qx:double z
+        def qz:double (0.0 - x)
+        def qw:double (1.0 + y)
+        def n:double (sqrt (((qx * qx) + (qz * qz)) + (qw * qw)))
+        return ([] _:double ((qx / n) 0.0 (qz / n) (qw / n)))
+    }
+
+    sfn round6:double (v:double) {
+        def k:double 1000000.0
+        def s:double 1.0
+        def a:double v
+        if (a < 0.0) {
+            s = -1.0
+            a = (0.0 - a)
+        }
+        return (s * ((to_double (floor ((a * k) + 0.5))) / k))
+    }
+
+    ; --- what changed --------------------------------------------------------
+
+    sfn listText:string (v:[double]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length v)) {
+            push parts (to_string (Pres3DTree.round6((itemAt v i))))
+            i = (i + 1)
+        }
+        return (join parts ",")
+    }
+
+    ; What each part of an object is, as text: equal text, nothing to do.
+    sfn placeSig:string (p:P3Node) {
+        return ((Pres3DTree.listText(p.pos)) + "|" + (Pres3DTree.listText(p.quat)) + "|" + (Pres3DTree.listText(p.scale)))
+    }
+
+    sfn geoSig:string (p:P3Node) {
+        return (p.geo + ":" + (Pres3DTree.listText(p.geoArgs)))
+    }
+
+    sfn matSig:string (p:P3Node) {
+        def flags:string ((to_string p.side) + (Pres3DTree.boolText(p.flat)) + (Pres3DTree.boolText(p.wire)) + (Pres3DTree.boolText(p.transparent)))
+        def nums:[double] (([] _:double (p.metalness p.roughness p.shininess p.opacity p.reflect p.fresnel)))
+        return (p.mat + ":" + (Pres3DTree.listText(p.color)) + "|" + (Pres3DTree.listText(p.specular)) + "|" + (Pres3DTree.listText(p.emissive)) + "|" + (Pres3DTree.listText(nums)) + "|" + flags)
+    }
+
+    sfn lightSig:string (p:P3Node) {
+        def nums:[double] (([] _:double (p.intensity p.distance p.decay)))
+        return (p.kind + ":" + (Pres3DTree.listText(p.color)) + "|" + (Pres3DTree.listText(p.ground)) + "|" + (Pres3DTree.listText(nums)) + "|" + (Pres3DTree.listText(p.worldPos)))
+    }
+
+    sfn camSig:string (p:P3Node) {
+        def nums:[double] (([] _:double (p.fov p.near p.far)))
+        return ((Pres3DTree.listText(nums)) + "|" + (Pres3DTree.listText(p.worldPos)) + "|" + (Pres3DTree.listText(p.worldQuat)))
+    }
+
+    sfn boolText:string (b:boolean) {
+        if b {
+            return "1"
+        }
+        return "0"
+    }
+
+    fn parentKey:string (p:P3Node) {
+        if (p.parent < 0) {
+            return ""
+        }
+        def up:P3Node (itemAt nodes p.parent)
+        return up.key
+    }
+
+    sfn op:P3Op (name:string key:string at:int) {
+        def o:P3Op (new P3Op())
+        o.op = name
+        o.key = key
+        o.at = at
+        return o
+    }
+
+    ; What turns world `a` (the last frame's; an empty tree for the first)
+    ; into `b`: removes first (an object whose tag or parent changed is
+    ; removed and added again), then adds in tree order (a parent before what
+    ; is in it), then the changes of what stayed.
+    sfn diff:[P3Op] (a:Pres3DTree b:Pres3DTree) {
+        def out:[P3Op]
+        def i:int 0
+        while (i < (array_length a.nodes)) {
+            def p:P3Node (itemAt a.nodes i)
+            def at:int (b.indexOfKey(p.key))
+            def gone:boolean (at < 0)
+            if (gone == false) {
+                def q:P3Node (itemAt b.nodes at)
+                if ((q.jsx != p.jsx) || ((b.parentKey(q)) != (a.parentKey(p)))) {
+                    gone = true
+                }
+            }
+            if gone {
+                push out (Pres3DTree.op("remove" p.key -1))
+            }
+            i = (i + 1)
+        }
+        def kept:[int]
+        def j:int 0
+        while (j < (array_length b.nodes)) {
+            def q2:P3Node (itemAt b.nodes j)
+            def was:int (a.indexOfKey(q2.key))
+            def fresh:boolean (was < 0)
+            if (fresh == false) {
+                def p2:P3Node (itemAt a.nodes was)
+                if ((p2.jsx != q2.jsx) || ((a.parentKey(p2)) != (b.parentKey(q2)))) {
+                    fresh = true
+                }
+            }
+            if fresh {
+                push out (Pres3DTree.op("add" q2.key j))
+            } {
+                push kept j
+                push kept was
+            }
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length kept)) {
+            def bj:int (itemAt kept k)
+            def ai:int (itemAt kept (k + 1))
+            k = (k + 2)
+            def n:P3Node (itemAt b.nodes bj)
+            def o:P3Node (itemAt a.nodes ai)
+            if ((Pres3DTree.placeSig(n)) != (Pres3DTree.placeSig(o))) {
+                push out (Pres3DTree.op("move" n.key bj))
+            }
+            if (n.visible != o.visible) {
+                push out (Pres3DTree.op("visible" n.key bj))
+            }
+            if (n.tag == "mesh") {
+                if ((Pres3DTree.geoSig(n)) != (Pres3DTree.geoSig(o))) {
+                    push out (Pres3DTree.op("geometry" n.key bj))
+                }
+                if ((Pres3DTree.matSig(n)) != (Pres3DTree.matSig(o))) {
+                    push out (Pres3DTree.op("material" n.key bj))
+                }
+            }
+            if (n.tag == "light") {
+                if ((Pres3DTree.lightSig(n)) != (Pres3DTree.lightSig(o))) {
+                    push out (Pres3DTree.op("light" n.key bj))
+                }
+            }
+            if (n.tag == "camera") {
+                if ((Pres3DTree.camSig(n)) != (Pres3DTree.camSig(o))) {
+                    push out (Pres3DTree.op("camera" n.key bj))
+                }
+            }
+        }
+        return out
+    }
+
+    ; The ops as text, one per line ("move @ball"), for the checks.
+    sfn opsText:string (ops:[P3Op]) {
+        def lines:[string]
+        def i:int 0
+        while (i < (array_length ops)) {
+            def o:P3Op (itemAt ops i)
+            push lines (o.op + " " + o.key)
+            i = (i + 1)
+        }
+        return (join lines "\n")
+    }
+
+    ; --- how a material is drawn ----------------------------------------------
+    ; Ranger's Three port draws Blinn-Phong (and unlit): a standard material's
+    ; metalness and roughness become its shininess, specular colour and how
+    ; much of the room it mirrors.
+
+    ; [shininess, specular r g b, diffuse k, reflectivity, fresnel]
+    sfn phongOf:[double] (p:P3Node) {
+        if (p.mat != "meshStandardMaterial") {
+            return ([] _:double (p.shininess (itemAt p.specular 0) (itemAt p.specular 1) (itemAt p.specular 2) 1.0 p.reflect p.fresnel))
+        }
+        def m:double (Pres3DTree.clamp01(p.metalness))
+        def r:double (Pres3DTree.clamp01(p.roughness))
+        def rr:double (r * r)
+        if (rr < 0.0025) {
+            rr = 0.0025
+        }
+        def shin:double ((2.0 / (rr * rr)) - 2.0)
+        if (shin < 2.0) {
+            shin = 2.0
+        }
+        if (shin > 256.0) {
+            shin = 256.0
+        }
+        ; dielectrics reflect 4 % white, metals their own colour
+        def gloss:double (1.0 - (r * 0.75))
+        def out:[double]
+        push out shin
+        def c:int 0
+        while (c < 3) {
+            def s:double (((0.04 * (1.0 - m)) + ((itemAt p.color c) * m)) * gloss)
+            push out s
+            c = (c + 1)
+        }
+        push out (1.0 - (m * 0.7))
+        def refl:double ((m * (1.0 - r)) * 0.9)
+        push out refl
+        if (refl > 0.0) {
+            push out 1.0
+        } {
+            push out 0.0
+        }
+        return out
+    }
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+}
+
+; true/false among numbers ("1,1,2,32,1,true") as 1 and 0.
+class P3Text {
+    sfn ones:string (t:string) {
+        def parts:[string] (strsplit t ",")
+        def out:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            if (p == "true") {
+                p = "1"
+            }
+            if (p == "false") {
+                p = "0"
+            }
+            push out p
+            i = (i + 1)
+        }
+        return (join out ",")
+    }
+}

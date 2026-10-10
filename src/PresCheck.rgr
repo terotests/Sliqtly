@@ -41,6 +41,7 @@ Import "PresScript.rgr"
 Import "Pres3D.rgr"
 Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
+Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -5113,6 +5114,148 @@ class PresCheck {
         return (m.edit((JVal.parse(ops))))
     }
 
+    ; a, b within 1e-4 of each other, element by element
+    sfn near:boolean (a:[double] b:[double]) {
+        if ((array_length a) != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length a)) {
+            def d:double ((itemAt a i) - (itemAt b i))
+            if ((d > 0.0001) || (d < -0.0001)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn sceneOf:Pres3DTree (kids:string) {
+        return (Pres3DTree.read(("{\"t\":\"scene3d\",\"c\":[" + kids + "]}")))
+    }
+
+    fn treeNode:P3Node (t:Pres3DTree key:string) {
+        def at:int (t.indexOfKey(key))
+        this.ok((at >= 0) ("scene tree: an object " + key))
+        if (at < 0) {
+            return (new P3Node())
+        }
+        return (itemAt t.nodes at)
+    }
+
+    fn saidLike:boolean (t:Pres3DTree part:string) {
+        def i:int 0
+        while (i < (array_length t.warnings)) {
+            if ((indexOf (itemAt t.warnings i) part) >= 0) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; <scene3d> read the way React Three Fiber reads its JSX (Pres3DTree):
+    ; Three's names, keys, world places, rods, lookAt, the first version's
+    ; attributes, and what changes from one frame to the next.
+    fn sceneTree:void () {
+        def ball:string "{\"t\":\"mesh\",\"a\":{\"name\":\"ball\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"sphereGeometry\",\"a\":{\"args\":\"0.5,32,16\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#4488ff\",\"metalness\":\"0.2\",\"roughness\":\"0.6\"}}]}"
+        def t:Pres3DTree (PresCheck.sceneOf(ball))
+        this.ok(((array_length t.warnings) == 0) ("scene tree: nothing said, got " + (join t.warnings "; ")))
+        def b:P3Node (this.treeNode(t "@ball"))
+        this.ok((PresCheck.near(b.pos ([] _:double (1.0 0.0 0.0)))) "scene tree: position={[1, 0, 0]}")
+        this.ok((b.geo == "sphereGeometry") "scene tree: the geometry child")
+        def pi:double 3.141592653589793
+        this.ok((PresCheck.near(b.geoArgs ([] _:double (0.5 32.0 16.0 0.0 (pi * 2.0) 0.0 pi)))) "scene tree: args, the rest Three's defaults")
+        this.ok((PresCheck.near(b.color ([] _:double ((68.0 / 255.0) (136.0 / 255.0) 1.0)))) "scene tree: the material's colour")
+        this.ok(((b.metalness == 0.2) && (b.roughness == 0.6)) "scene tree: metalness and roughness")
+
+        ; a group turns what is in it; unnamed objects are keyed by place
+        def g:string "{\"t\":\"group\",\"a\":{\"position\":\"0,1,0\",\"rotation\":\"0,1.5707963267948966,0\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"position\":\"1,0,0\"}},{\"t\":\"mesh\",\"a\":{\"position-y\":\"2\",\"scale\":\"2\"}}]}"
+        def t2:Pres3DTree (PresCheck.sceneOf(g))
+        def m0:P3Node (this.treeNode(t2 "/group0/mesh0"))
+        def m1:P3Node (this.treeNode(t2 "/group0/mesh1"))
+        this.ok((PresCheck.near(m0.worldPos ([] _:double (0.0 1.0 -1.0)))) ("scene tree: a quarter turn of its group, got " + (Pres3DTree.listText(m0.worldPos))))
+        this.ok((PresCheck.near(m1.pos ([] _:double (0.0 2.0 0.0)))) "scene tree: position-y")
+        this.ok((PresCheck.near(m1.scale ([] _:double (2.0 2.0 2.0)))) "scene tree: scale={2}")
+        this.ok((m0.geo == "boxGeometry") "scene tree: a mesh without geometry is Three's 1 x 1 x 1 box")
+        this.ok((m0.mat == "meshBasicMaterial") "scene tree: and its basic material")
+
+        ; frame to frame: only what changed
+        def moved:string (Pres3DTree.opsText((Pres3DTree.diff(t (PresCheck.sceneOf((MdApp.replaceAll(ball "\"1,0,0\"" "\"1.1,0,0\""))))))))
+        this.ok((moved == "move @ball") ("scene tree: a move is a move, got " + moved))
+        def recolour:string (Pres3DTree.opsText((Pres3DTree.diff(t (PresCheck.sceneOf((MdApp.replaceAll(ball "#4488ff" "red"))))))))
+        this.ok((recolour == "material @ball") ("scene tree: a colour is a material change, got " + recolour))
+        def same:string (Pres3DTree.opsText((Pres3DTree.diff(t (PresCheck.sceneOf(ball))))))
+        this.ok((same == "") ("scene tree: the same frame changes nothing, got " + same))
+        def first:string (Pres3DTree.opsText((Pres3DTree.diff((new Pres3DTree()) t2))))
+        this.ok((first == "add /group0\nadd /group0/mesh0\nadd /group0/mesh1") ("scene tree: the first frame adds, parents first, got " + first))
+        def fewer:string (Pres3DTree.opsText((Pres3DTree.diff(t2 (PresCheck.sceneOf("{\"t\":\"group\",\"a\":{\"position\":\"0,1,0\",\"rotation\":\"0,1.5707963267948966,0\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"position\":\"1,0,0\"}}]}"))))))
+        this.ok((fewer == "remove /group0/mesh1") ("scene tree: one gone is removed, got " + fewer))
+        def regeo:string (Pres3DTree.opsText((Pres3DTree.diff(t (PresCheck.sceneOf((MdApp.replaceAll(ball "0.5,32,16" "0.6,32,16"))))))))
+        this.ok((regeo == "geometry @ball") ("scene tree: new args are a new geometry, got " + regeo))
+
+        ; a rod between two named points, wherever their groups put them
+        def pins:string "{\"t\":\"group\",\"a\":{\"name\":\"p1\"}},{\"t\":\"group\",\"a\":{\"position\":\"0,0,0\",\"rotation\":\"0,0,-1.5707963267948966\"},\"c\":[{\"t\":\"group\",\"a\":{\"name\":\"p2\",\"position\":\"0,2,0\"}}]}"
+        def t3:Pres3DTree (PresCheck.sceneOf((pins + ",{\"t\":\"sliqRod\",\"a\":{\"from\":\"p1\",\"to\":\"p2\",\"radius\":\"0.1\",\"color\":\"#c9ced6\"}},{\"t\":\"sliqRod\",\"a\":{\"name\":\"barrel\",\"from\":\"p1\",\"to\":\"p2\",\"length\":\"0.5\"}}")))
+        this.ok(((array_length t3.warnings) == 0) ("scene tree: rods said nothing, got " + (join t3.warnings "; ")))
+        def rod:P3Node (this.treeNode(t3 "/sliqRod0"))
+        this.ok((PresCheck.near(rod.worldPos ([] _:double (1.0 0.0 0.0)))) ("scene tree: the rod halfway, got " + (Pres3DTree.listText(rod.worldPos))))
+        this.ok(((rod.geo == "cylinderGeometry") && ((itemAt rod.geoArgs 2) == 2.0)) "scene tree: as long as the gap")
+        this.ok(((itemAt rod.geoArgs 0) == 0.1) "scene tree: its radius")
+        this.ok((PresCheck.near(rod.quat ([] _:double (0.0 0.0 -0.7071068 0.7071068)))) ("scene tree: turned from +Y to +X, got " + (Pres3DTree.listText(rod.quat))))
+        this.ok(((rod.mat == "meshStandardMaterial") && ((itemAt rod.color 0) > 0.7)) "scene tree: a rod's color")
+        def barrel:P3Node (this.treeNode(t3 "@barrel"))
+        this.ok((PresCheck.near(barrel.pos ([] _:double (0.25 0.0 0.0)))) ("scene tree: length stops it short, got " + (Pres3DTree.listText(barrel.pos))))
+        def t4:Pres3DTree (PresCheck.sceneOf("{\"t\":\"sliqRod\",\"a\":{\"from\":\"p1\",\"to\":\"0,1,0\"}}"))
+        this.ok((this.saidLike(t4 "no object is named \"p1\"")) "scene tree: a rod to no object is said")
+
+        ; lookAt: a camera's -Z, anything else's +Z
+        def t5:Pres3DTree (PresCheck.sceneOf("{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,5\",\"lookAt\":\"0,0,0\",\"fov\":\"40\"}},{\"t\":\"mesh\",\"a\":{\"name\":\"eye\",\"lookAt\":\"1,0,0\"}}"))
+        def cam:P3Node (itemAt t5.nodes 0)
+        this.ok(((t5.camera == 0) && (cam.fov == 40.0)) "scene tree: the camera and its fov")
+        this.ok((PresCheck.near(cam.quat ([] _:double (0.0 0.0 0.0 1.0)))) ("scene tree: a camera looking down -Z, got " + (Pres3DTree.listText(cam.quat))))
+        def eye:P3Node (this.treeNode(t5 "@eye"))
+        this.ok((PresCheck.near(eye.quat ([] _:double (0.0 0.7071068 0.0 0.7071068)))) ("scene tree: a mesh turns +Z to the point, got " + (Pres3DTree.listText(eye.quat))))
+
+        ; what is not Three's is said, and where it goes
+        def t6:Pres3DTree (PresCheck.sceneOf("{\"t\":\"mesh\",\"a\":{\"metalness\":\"1\",\"wobble\":\"2\"}},{\"t\":\"boxGeometry\"},{\"t\":\"sparkle\"},{\"t\":\"mesh\",\"c\":[{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"4491519\",\"shiny\":\"1\"}}]}"))
+        this.ok((this.saidLike(t6 "metalness belongs on its material")) "scene tree: a material prop on the mesh is said")
+        this.ok((this.saidLike(t6 "wobble is not a prop of mesh")) "scene tree: an unknown prop is said")
+        this.ok((this.saidLike(t6 "<boxGeometry> goes inside a <mesh>")) "scene tree: a loose geometry is said")
+        this.ok((this.saidLike(t6 "<sparkle> is not a 3-D object")) "scene tree: an unknown tag is said")
+        this.ok((this.saidLike(t6 "shiny is not a prop of meshStandardMaterial")) "scene tree: an unknown material prop is said")
+        def hexed:P3Node (this.treeNode(t6 "/mesh1"))
+        this.ok((PresCheck.near(hexed.color ([] _:double ((68.0 / 255.0) (136.0 / 255.0) 1.0)))) "scene tree: color={0x4488ff}")
+
+        ; the first version's attributes: the same world, said once
+        def t7:Pres3DTree (PresCheck.sceneOf("{\"t\":\"camera\",\"a\":{\"z\":\"6\",\"fov\":\"40\"}},{\"t\":\"light\",\"a\":{\"kind\":\"ambient\",\"intensity\":\"0.3\"}},{\"t\":\"mesh\",\"a\":{\"shape\":\"box\",\"w\":\"2\",\"x\":\"1\",\"rx\":\"90\",\"metal\":\"0.5\"}},{\"t\":\"mesh\",\"a\":{\"shape\":\"sphere\",\"r\":\"0.6\"}}"))
+        this.ok(((array_length t7.warnings) == 1) ("scene tree: the old attributes said once, got " + (join t7.warnings "; ")))
+        def ob:P3Node (this.treeNode(t7 "/mesh0"))
+        this.ok(((ob.geo == "boxGeometry") && ((itemAt ob.geoArgs 0) == 2.0)) "scene tree: shape=box w=2")
+        this.ok((PresCheck.near(ob.euler ([] _:double ((pi * 0.5) 0.0 0.0)))) "scene tree: rx in degrees")
+        this.ok(((ob.mat == "meshPhongMaterial") && (ob.reflect == 0.5)) "scene tree: metal mirrors as before")
+        def ol:P3Node (this.treeNode(t7 "/light0"))
+        this.ok(((ol.kind == "ambient") && (ol.intensity == 0.3)) "scene tree: <light kind=ambient>")
+        def oc:P3Node (this.treeNode(t7 "/camera0"))
+        this.ok(((oc.tag == "camera") && ((itemAt oc.pos 2) == 6.0)) "scene tree: <camera z>")
+
+        ; a standard material drawn by Blinn-Phong: a rough dielectric dull,
+        ; a polished metal tinted and mirroring
+        def dull:P3Node (new P3Node())
+        dull.mat = "meshStandardMaterial"
+        dull.roughness = 1.0
+        def dp:[double] (Pres3DTree.phongOf(dull))
+        this.ok((((itemAt dp 0) == 2.0) && ((itemAt dp 5) == 0.0)) "scene tree: rough: wide highlight, no mirror")
+        def gold:P3Node (new P3Node())
+        gold.mat = "meshStandardMaterial"
+        gold.color = ([] _:double (1.0 0.8 0.2))
+        gold.metalness = 1.0
+        gold.roughness = 0.1
+        def gp:[double] (Pres3DTree.phongOf(gold))
+        this.ok((((itemAt gp 0) > 100.0) && ((itemAt gp 5) > 0.7)) "scene tree: polished metal: tight highlight, mirrors")
+        this.ok(((itemAt gp 1) > ((itemAt gp 3) * 3.0)) "scene tree: metal highlights in its own colour")
+    }
+
     fn scenes:void () {
         ; bytes
         this.ok(((PresCheck.f32Text(0.5)) == "0,0,0,63") ("scenes: 0.5 as float32, got " + (PresCheck.f32Text(0.5))))
@@ -5443,6 +5586,7 @@ class PresCheck {
         c.beats()
         c.jsonPatch()
         c.scenes()
+        c.sceneTree()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
