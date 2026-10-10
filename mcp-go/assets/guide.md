@@ -1244,7 +1244,7 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
 
 - Without sign-in: 3 presentations per conversation and 20 slides each; a
   deck is text only (no pictures or files) and is deleted 7 days after its
-  last change. Signed in: 50 presentations per account and 100 slides
+  last change. Signed in: 200 presentations per account and 100 slides
   each. A presentation's pictures and files together up to 200 MB. 20
   images per call.
 - `render_slide`, `render_overview` and `export_presentation` are counted
