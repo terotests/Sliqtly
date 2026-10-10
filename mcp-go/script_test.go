@@ -65,6 +65,17 @@ func TestSlideScript(t *testing.T) {
 	}
 	rd := call(t, s, "get_display_list", map[string]any{"deck_id": sc(rc)["deck_id"].(string), "slide": 2, "selector": "chart:1 bar"})
 	match(t, textOf(rd), `find\("chart:1 bar"\) → 3 entities`)
+	// a column's data is its category and its value from the chart's data
+	match(t, fmt.Sprint(sc(rd)["entities"]), `label:Tu value:7`)
+
+	// a > quote is a quote
+	qc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": "# Deck\n\n## Q {script=apps/fx.tsx}\n\n> Bread first\n",
+		"files": []any{map[string]any{"name": "fx.tsx", "text": "function tick(dt) { find(\"quote word\").set({ opacity: 0.5 }); }\n"}}})
+	if w := fmt.Sprint(sc(qc)["warnings"]); strings.Contains(w, "quote") {
+		t.Fatal("the quote's words not found:", w)
+	}
+	qd := call(t, s, "get_display_list", map[string]any{"deck_id": sc(qc)["deck_id"].(string), "slide": 2})
+	match(t, textOf(qd), `quote-1 quote "Bread first"`)
 
 	// the module form: its selectors are checked the same way
 	mod := "import { presentation } from \"Sliqtly\";\nconst slide = presentation.activeSlide;\nexport function tick() { slide.find(\"li:2\").set({ opacity: 0.5 }); slide.find(\"li:7\").set({ opacity: 0 }); }\n"
@@ -154,7 +165,7 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	// a module the page does not have is said
 	nomod := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
 		"files": []any{map[string]any{"name": "fx.tsx", "text": "import { x } from \"nope\";\nfunction tick() {}\n"}}})
-	match(t, fmt.Sprint(sc(nomod)["warnings"]), `does not run: .*Cannot find module 'nope' \(modules here: Sliqtly\)`)
+	match(t, fmt.Sprint(sc(nomod)["warnings"]), `does not run: .*Cannot find module 'nope' \(modules here: Sliqtly[,)]`)
 
 	st := call(t, s, "render_strip", map[string]any{"deck_id": id, "slide": 2, "frames": 3})
 	if st.IsError {

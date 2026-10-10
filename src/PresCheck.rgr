@@ -5046,12 +5046,23 @@ class PresCheck {
         this.ok(((array_length (PresChart.columnsIn(tail ramp spec))) == 1) "rounded bars: the dressing leaves the rounded ones")
     }
 
+    ; How many commands of kind `kind` are drawn pure red.
+    sfn redCount:int (l:EVGDisplayList kind:int) {
+        def n:int 0
+        for l.cmds c:EVGDrawCmd ci {
+            if (((c.kind == kind) && (c.r == 255)) && ((c.g == 0) && (c.b == 0))) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
     fn scripts:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n"
             + "## Sales grow {script=apps/fx.tsx allow=\"slide.nav, deck.data\" export-frame=3.5s}\n\n"
             + "- Saturday record\n- Buns sell\n- Coffee\n\nCoffee pays\n{#kahvi .key}\n\n"
             + "```vega-lite\n{\"data\":{\"values\":[{\"k\":\"Mon\",\"n\":4},{\"k\":\"Tue\",\"n\":7},{\"k\":\"Wed\",\"n\":5}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"k\",\"type\":\"nominal\"},\"y\":{\"field\":\"n\",\"type\":\"quantitative\"}}}\n```\n\n"
-            + "## Flow {script=apps/flow.tsx}\n\n```mermaid\nflowchart LR\n  A[Order] --> B[Bake]\n  B --> C[Sell]\n```\n\n"
+            + "## Flow {script=apps/flow.tsx}\n\n```mermaid\nflowchart LR\n  A[Order] --> B[Bake]\n  B --> C[Sell]\n```\n{diagram=classic}\n\n> Bread first\n\n"
             + "## Plain\n\nNothing runs here\n")
         def deck (new PresDeck())
         deck.setText(text)
@@ -5108,6 +5119,7 @@ class PresCheck {
         if ((array_length bars) == 3) {
             def b1:PresEnt (sc.at((itemAt bars 1)))
             this.ok(((indexOf b1.data "Tue") >= 0) ("scripts: a column knows its category, got " + b1.data))
+            this.ok(((indexOf b1.data "\"value\":7") >= 0) ("scripts: …and its value from the chart's data, got " + b1.data))
             def b0:PresEnt (sc.at((itemAt bars 0)))
             this.ok((b1.h > b0.h) "scripts: a column's box is its own")
         }
@@ -5124,6 +5136,13 @@ class PresCheck {
         }
         this.ok(((array_length (PresSel.findIn(sc1.ents "edge A->B"))) == 1) "scripts: an edge by its ends")
         this.ok(((array_length (PresSel.findIn(sc1.ents "diagram node"))) == 3) "scripts: every node")
+        def qs:[int] (PresSel.findIn(sc1.ents "quote"))
+        this.ok(((array_length qs) == 1) ("scripts: a > quote is a quote\n" + (join (sc1.outline(false)) "\n")))
+        if ((array_length qs) == 1) {
+            def qe:PresEnt (sc1.at((itemAt qs 0)))
+            this.ok((qe.text == "Bread first") ("scripts: the quote's text, got " + qe.text))
+            this.ok(((array_length (PresSel.findIn(sc1.ents "quote word"))) == 2) "scripts: …and its words")
+        }
         ; the tree a script is handed
         def tree:string (deck.scriptTree("script:apps/fx.tsx#1"))
         this.ok(((indexOf tree "\"k\":\"bar\"") > 0) "scripts: the tree carries the columns")
@@ -5162,6 +5181,18 @@ class PresCheck {
         ; what a document makes of it: the list changed, the paragraph hidden
         this.ok((deck.scriptChanges(0)) "scripts: the slide ends changed")
         this.ok(((deck.scriptChanges(1)) == false) "scripts: …a slide with no final frame does not")
+        ; an edge in its own colour: the line and its arrowhead
+        def flow0:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        def eab:[int] (PresSel.findIn(sc1.ents "edge A->B"))
+        def eid:string ""
+        if ((array_length eab) == 1) {
+            def ee:PresEnt (sc1.at((itemAt eab 0)))
+            eid = ee.id
+        }
+        this.ok((deck.setScriptFinal((deck.scriptKeyOf(1)) ("{\"p\":{\"" + eid + "\":{\"stroke\":\"#ff0000\"}}}"))) ("scripts: an edge's frame taken, " + (deck.scriptKeyOf(1)) + " " + eid))
+        def flow1:EVGDisplayList (PresTimeline.finalFrame(deck 1))
+        this.ok(((PresCheck.redCount(flow1 7)) > (PresCheck.redCount(flow0 7))) "scripts: stroke colours an edge's line")
+        this.ok(((PresCheck.redCount(flow1 6)) > (PresCheck.redCount(flow0 6))) "scripts: …and its arrowhead")
         def docN:MdNode deck.md.edit.doc
         def listAt:int -1
         def paraAt:int -1

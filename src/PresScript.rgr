@@ -868,6 +868,8 @@ class PresEntLook {
     def color:string ""
     def fill:string ""
     def stroke:string ""
+    ; part of a diagram's line: its arrowheads (filled) take its stroke
+    def line:boolean false
     def z:double 0.0
     def hasZ:boolean false
     ; the entity whose clip holds it, -1 none
@@ -1133,10 +1135,14 @@ class PresScriptApply {
                 lk.color = up.color
                 lk.fill = up.fill
                 lk.stroke = up.stroke
+                lk.line = up.line
                 lk.z = up.z
                 lk.hasZ = up.hasZ
                 lk.clipBy = up.clipBy
                 lk.changed = up.changed
+            }
+            if (e.kind == "edge") {
+                lk.line = true
             }
             def pr@(optional):PresEntProps (fr.propsOf(e.id))
             if (!null? pr) {
@@ -1252,6 +1258,9 @@ class PresScriptApply {
             c.hasGrad = false
         }
         if (((c.kind == 1) || (c.kind == 7)) && ((strlen lk.stroke) > 0)) {
+            PresScriptApply.tint(c lk.stroke)
+        }
+        if (((c.kind == 6) && lk.line) && (((strlen lk.stroke) > 0) && ((strlen lk.fill) == 0))) {
             PresScriptApply.tint(c lk.stroke)
         }
         if (lk.m.identity()) {

@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10b.** If a result names a newer version, read Core
+**Guide version 2026-10-10c.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1121,8 +1121,12 @@ arrows. Name it on the slide's heading; one script a slide:
   first), `*`, a space for "inside", and `edge B->D`. For example `li:2`,
   `chart:1 bar`, `diagram node#B`, `edge A->B`, `h2 word`, `p.key char`.
   Rounded bars (`cornerRadiusEnd`) are bars too.
-- An entity has `id`, `kind`, `text`, `box` (`{x, y, w, h}` in slide px),
-  `data` (a bar's `{label, value}`), `index`, `parent`, `children`, and
+- An entity has `id` (its key in the slide, such as `diagram-1/node-A`),
+  `name` (its own `{#id}`, or a node's id in the diagram: `A`), `kind`,
+  `text`, `box` (`{x, y, w, h}` in slide px), `data` (a bar's
+  `{label, value}`, the value a number from the chart's data), `from` and
+  `to` (an edge's node names, for `find("edge " + a.name + "->" + b.name)`),
+  `classes`, `index`, `parent`, `children`, and
   `set({…})`, `get(name)`, `reset()`, `remove()`, `clone({…})`,
   `find(selector)` inside it. A list from `find()` has `set`, `reset`,
   `remove`, `each(fn)` and `first()`.
@@ -1130,7 +1134,8 @@ arrows. Name it on the slide's heading; one script a slide:
   (along one side: a bar growing from its axis), `rotate` (degrees),
   `skew`, `origin` (`"left top"`, `"bottom"`, or `[0.5, 1]` as parts of
   its box; the centre when left out),
-  `opacity`, `visible`, `color`, `fill`, `stroke`, `z` (drawn above
+  `opacity`, `visible`, `color` (text), `fill` (shapes), `stroke` (lines;
+  on an edge its line and arrowhead, `color` its label), `z` (drawn above
   others), `clip` (`{x, y, w, h, r}` or `{circle: [cx, cy, r]}`). `null`
   takes a property back to the slide's own.
 - Everything is in the slide's own units: `presentation.activeSlide.width`
@@ -1273,13 +1278,20 @@ interface ActiveSlide {
 }
 
 interface Entity {
+  /** Its key in the slide: "h2-1", "diagram-1/node-A". */
   readonly id: string;
+  /** Its own {#id}, or a node's id in the diagram ("A"); "" for none. */
+  readonly name: string;
   readonly kind: string;
   readonly text: string;
   /** Where Sliqtly drew it, in slide px. */
   readonly box: { x: number; y: number; w: number; h: number };
-  /** A bar's { label, value }; null otherwise. */
-  readonly data: any;
+  /** A bar's { label, value } (value from the chart's data); an image's { src }; null otherwise. */
+  readonly data: { label?: string; value?: number | string; src?: string } | null;
+  /** An edge's node names: find("edge " + from + "->" + to). */
+  readonly from: string;
+  readonly to: string;
+  readonly classes: string[];
   readonly index: number;
   readonly parent: Entity | null;
   readonly children: Entity[];
