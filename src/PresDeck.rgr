@@ -41,6 +41,7 @@ Import "PresSmartArt.rgr"
 Import "PresSketch.rgr"
 Import "PresPlay.rgr"
 Import "PresScript.rgr"
+Import "Pres3DTree.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -1542,6 +1543,19 @@ class PresDeck {
                 def pv3:PresPlayView (unwrap v3)
                 if (pv3.asked3d && (pv3.allow3d == false)) {
                     push out ("Slide " + (to_string (u3.page + 1)) + ": app: " + u3.spec.src + " draws a <scene3d>, which needs allow: 3d")
+                }
+                ; what its worlds have that is not Three's (Pres3DTree)
+                def wi:int 0
+                while (wi < (array_length pv3.scenes)) {
+                    def sc:PresPlayScene (itemAt pv3.scenes wi)
+                    def world:Pres3DTree (Pres3DTree.read(sc.json))
+                    for world.warnings wl:string wli {
+                        def line:string ("Slide " + (to_string (u3.page + 1)) + ": app: " + u3.spec.src + ": " + wl)
+                        if ((indexOf out line) < 0) {
+                            push out line
+                        }
+                    }
+                    wi = (wi + 1)
                 }
             }
             vi = (vi + 1)

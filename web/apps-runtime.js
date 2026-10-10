@@ -10,6 +10,7 @@
 //   slide.next() prev() go(n) build()                                     allow: slide.nav
 //   el("#id"/".class").style({...}) show() hide() reset()                 allow: slide.style
 //   machine.send(event, data)                                             allow: machine
+//   <SliqRod from to radius length />  a rod between two points in a <scene3d>    allow: 3d
 //
 // Nothing here changes the deck: each call is a request the page reads after
 // the frame (PresApp.playAsks), and grants or refuses by the fence's allow:.
@@ -48,6 +49,9 @@ function el(sel) {
     reset: function () { __asks.push({ k: "el.reset", sel: sel }); return this; }
   };
 }
+// Sliqtly's own 3-D pieces beside Three's (allow: 3d, src/Pres3DTree.rgr):
+// a component per piece, an element the world reads.
+function SliqRod(p) { return __jsx("sliqRod", p); }
 var machine = {
   state: "",
   send: function (event, data) { __asks.push({ k: "machine.send", event: String(event), data: data === undefined ? null : data }); }

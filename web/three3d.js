@@ -41,6 +41,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
   let lastJson = "";
   let roomKey = "";
   const own = new Map(); // src -> 2-D canvas
+  const said = new Map(); // src -> the warnings last told the console
 
   function load() {
     if (!loading) {
@@ -123,7 +124,9 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     for (const s of list) {
       keys.push(s.src);
       const why = p3.setScene(s.src, JSON.stringify(s.scene));
-      if (why) console.warn("scene3d: " + why);
+      // once per change: a scene is set again every frame it moves
+      if (why && said.get(s.src) !== why) console.warn("scene3d: " + why);
+      said.set(s.src, why);
       const w = Math.max(1, Math.min(MAX_SIDE, Math.round(s.w * k)));
       const h = Math.max(1, Math.min(MAX_SIDE, Math.round(s.h * k)));
       if (glCanvas.width !== w || glCanvas.height !== h) {
@@ -140,6 +143,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     }
     p3.keepOnly(keys);
     for (const src of [...own.keys()]) if (!keys.includes(src)) own.delete(src);
+    for (const src of [...said.keys()]) if (!keys.includes(src)) said.delete(src);
     return true;
   }
 
@@ -149,6 +153,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     lastJson = "";
     roomKey = "";
     own.clear();
+    said.clear();
   }
 
   return { tick, reset };

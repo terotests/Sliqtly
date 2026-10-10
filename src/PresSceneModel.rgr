@@ -24,6 +24,7 @@
 
 Import "JsonValue.rgr"
 Import "JsonPatch.rgr"
+Import "ColorLinear.rgr"
 Import "pkg:evg/EVGColor.rgr"
 
 class SceneEdit {
@@ -552,32 +553,9 @@ class PresSceneModel {
         return true
     }
 
-    ; x^(1/5), by bisection
-    sfn root5:double (x:double) {
-        def a:double 0.0
-        def b:double 1.0
-        def k:int 0
-        while (k < 40) {
-            def m:double ((a + b) * 0.5)
-            if (((((m * m) * m) * m) * m) > x) {
-                b = m
-            } {
-                a = m
-            }
-            k = (k + 1)
-        }
-        return ((a + b) * 0.5)
-    }
-
     ; An sRGB channel 0..1 as the linear value glTF's baseColorFactor holds
     sfn linear:double (c:double) {
-        if (c <= 0.04045) {
-            return (c / 12.92)
-        }
-        def t:double ((c + 0.055) / 1.055)
-        ; t^2.4 = t^2 · (t^(1/5))^2
-        def f:double (PresSceneModel.root5(t))
-        return (((t * t) * f) * f)
+        return (ColorLinear.of(c))
     }
 
     ; --- quaternions -----------------------------------------------------------
