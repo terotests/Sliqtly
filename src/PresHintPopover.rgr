@@ -31,6 +31,7 @@ Import "PresI18n.rgr"
 Import "PresImageModel.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
+Import "UiKit.rgr"
 Import "../evgui/src/EmojiPickerCtl.rgr"
 Import "PresKeep.rgr"
 Import "../vela/src/VlJson.rgr"
@@ -336,39 +337,13 @@ class PresHintPopover {
     }
 
     ; --- building --------------------------------------------------------------------
-    fn div:EVGElement (cls:string) {
-        def d (EVGElement.createDiv())
-        d.className = cls
-        return d
-    }
-
-    fn words:EVGElement (cls:string t:string) {
-        def s (EVGElement.createSpan())
-        s.className = cls
-        s.textContent = t
-        return s
-    }
-
-    fn put:void (c:UiCtl parent:EVGElement) {
-        push host.ctls c
-        parent.addChild((unwrap c.rootEl))
-    }
-
     fn button:ButtonCtl (tid:string label:string variant:string parent:EVGElement) {
-        def c (new ButtonCtl())
-        c.tid = tid
-        c.name = label
-        c.variant = variant
-        c.build()
-        def r:EVGElement (unwrap c.rootEl)
-        UiTree.addClass(r "hp-button")
-        if ((variant == "primary") && ((r.getChildCount()) > 0)) {
-            UiTree.addClass((r.getChild(0)) "hp-onprimary")
+        def c:ButtonCtl (UiKit.button(tid label variant))
+        UiTree.addClass((unwrap c.rootEl) "hp-button")
+        if ((variant == "primary") || (variant == "danger")) {
+            UiKit.labelClass(c ("hp-on" + variant))
         }
-        if ((variant == "danger") && ((r.getChildCount()) > 0)) {
-            UiTree.addClass((r.getChild(0)) "hp-ondanger")
-        }
-        this.put(c parent)
+        UiKit.put(host c parent)
         return c
     }
 
@@ -382,7 +357,7 @@ class PresHintPopover {
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root hp-page"
-        def card:EVGElement (this.div("hp-card"))
+        def card:EVGElement (UiKit.div("hp-card"))
         card.id = "hp-card"
         def cardW:double 320.0
         if (kind == "emoji") {
@@ -397,35 +372,35 @@ class PresHintPopover {
             this.place(root card cardW)
             return
         }
-        def head:EVGElement (this.div("hp-head"))
+        def head:EVGElement (UiKit.div("hp-head"))
         if canBack {
             def bk:ButtonCtl (this.button("hp-back" "‹" "secondary" head))
             UiTree.addClass((unwrap bk.rootEl) "hp-x")
         }
-        head.addChild((this.words("hp-name" name)))
-        valueEl = (this.words("hp-value" value))
+        head.addChild((UiKit.words("hp-name" name)))
+        valueEl = (UiKit.words("hp-value" value))
         if (kind == "warn") {
             head.className = "hp-foot hp-warnhead"
         } {
             head.addChild(valueEl)
         }
         ; room in the head for the × drawn in its corner (built last, below)
-        head.addChild((this.div("hp-grow")))
-        head.addChild((this.div("hp-xroom")))
+        head.addChild((UiKit.div("hp-grow")))
+        head.addChild((UiKit.div("hp-xroom")))
         headEl = head
         card.addChild(head)
         if ((strlen warn) > 0) {
-            card.addChild((this.words("hp-warn" warn)))
+            card.addChild((UiKit.words("hp-warn" warn)))
         }
         if ((strlen doc) > 0) {
-            card.addChild((this.words("hp-doc" doc)))
+            card.addChild((UiKit.words("hp-doc" doc)))
         }
         if (kind == "selector") {
             this.selectorRows(card)
         }
         if ((array_length looks) > 0) {
-            card.addChild((this.words("hp-label" (PresI18n.t("Look")))))
-            def lc:EVGElement (this.div("hp-chips"))
+            card.addChild((UiKit.words("hp-label" (PresI18n.t("Look")))))
+            def lc:EVGElement (UiKit.div("hp-chips"))
             def li:int 0
             while (li < (array_length looks)) {
                 def lo:string (itemAt looks li)
@@ -441,7 +416,7 @@ class PresHintPopover {
         ; a diagram's card offers its looks only: the notation stays as written
         def showOptions:boolean ((array_length looks) == 0)
         if (showOptions && (((kind == "enum") || (kind == "class")) || (kind == "font"))) {
-            def chips:EVGElement (this.div("hp-chips"))
+            def chips:EVGElement (UiKit.div("hp-chips"))
             def i:int 0
             while (i < (array_length options)) {
                 def o:string (itemAt options i)
@@ -455,8 +430,8 @@ class PresHintPopover {
             card.addChild(chips)
         }
         if figure {
-            card.addChild((this.words("hp-label" (PresI18n.t("Figure colors")))))
-            def fc:EVGElement (this.div("hp-chips"))
+            card.addChild((UiKit.words("hp-label" (PresI18n.t("Figure colors")))))
+            def fc:EVGElement (UiKit.div("hp-chips"))
             def fi0:int 0
             while (fi0 < (array_length figColors)) {
                 def hex:string (itemAt figColors fi0)
@@ -480,8 +455,8 @@ class PresHintPopover {
                 card.addChild((cp.panel(picker)))
                 push host.ctls picker
                 if ((array_length figColors) > 1) {
-                    def ff:EVGElement (this.div("hp-foot"))
-                    ff.addChild((this.div("hp-grow")))
+                    def ff:EVGElement (UiKit.div("hp-foot"))
+                    ff.addChild((UiKit.div("hp-grow")))
                     this.button("hp-fdel" (PresI18n.t("Remove color")) "danger" ff)
                     card.addChild(ff)
                 }
@@ -489,7 +464,7 @@ class PresHintPopover {
         }
         ; any of the words together: each chip turns its word on or off
         if (kind == "flags") {
-            def fchips:EVGElement (this.div("hp-chips"))
+            def fchips:EVGElement (UiKit.div("hp-chips"))
             def fi:int 0
             while (fi < (array_length options)) {
                 def fo:string (itemAt options fi)
@@ -506,7 +481,7 @@ class PresHintPopover {
             card.addChild((cp.panel(picker)))
             push host.ctls picker
             if ((indexOf name "background") >= 0) {
-                def row:EVGElement (this.div("hp-chips"))
+                def row:EVGElement (UiKit.div("hp-chips"))
                 this.button("hp-none" "none" "secondary" row)
                 card.addChild(row)
             }
@@ -517,8 +492,8 @@ class PresHintPopover {
         if ((array_length adds) > 0) {
             def left:[string] (this.addsLeft())
             if ((array_length left) > 0) {
-                card.addChild((this.words("hp-label" (PresI18n.t("Add parameter")))))
-                def ar:EVGElement (this.div("hp-chips"))
+                card.addChild((UiKit.words("hp-label" (PresI18n.t("Add parameter")))))
+                def ar:EVGElement (UiKit.div("hp-chips"))
                 def k:int 0
                 while (k < (array_length left)) {
                     this.button(("hp-add-" + (to_string k)) (itemAt left k) "secondary" ar)
@@ -529,27 +504,27 @@ class PresHintPopover {
         }
         def hasRemove:boolean ((wholeStart >= 0) && (wholeEnd > wholeStart))
         if ((strlen picture) > 0) {
-            def pf:EVGElement (this.div("hp-foot"))
+            def pf:EVGElement (UiKit.div("hp-foot"))
             def low:string (to_lowercase picture)
             if (PresImageModel.isDrawing(low)) {
-                pf.addChild((this.words("hp-doc" (PresI18n.t("A drawing made on the slide.")))))
+                pf.addChild((UiKit.words("hp-doc" (PresI18n.t("A drawing made on the slide.")))))
                 this.button("hp-pic-draw" (PresI18n.t("Draw on slide")) "secondary" pf)
             } {
                 if ((endsWith low ".svg") == false) {
                     this.button("hp-pic-edit" (PresI18n.t("Edit image…")) "secondary" pf)
                     this.button("hp-pic-trace" (PresI18n.t("Vectorize…")) "secondary" pf)
                 } {
-                    pf.addChild((this.words("hp-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
+                    pf.addChild((UiKit.words("hp-doc" (PresI18n.t("A vector picture: sharp at any size.")))))
                 }
             }
             card.addChild(pf)
         }
         if (hasRemove || docset) {
-            def foot:EVGElement (this.div("hp-foot"))
+            def foot:EVGElement (UiKit.div("hp-foot"))
             if docset {
                 this.button("hp-docset" (PresI18n.t("Document settings…")) "secondary" foot)
             }
-            foot.addChild((this.div("hp-grow")))
+            foot.addChild((UiKit.div("hp-grow")))
             if hasRemove {
                 this.button("hp-remove" (PresI18n.t("Remove")) "danger" foot)
             }
@@ -635,7 +610,7 @@ class PresHintPopover {
         if (num > hi) {
             hi = num
         }
-        def row:EVGElement (this.div("hp-row"))
+        def row:EVGElement (UiKit.div("hp-row"))
         def s (new SliderCtl())
         slider = s
         slider.tid = "hp-slider"
@@ -646,7 +621,7 @@ class PresHintPopover {
         slider.value = (to_int ((num / rstep) + 0.5))
         slider.build()
         UiTree.addClass((unwrap slider.rootEl) "hp-slider")
-        this.put(slider row)
+        UiKit.put(host slider row)
         ; the field being typed in keeps its caret and selection over the
         ; rebuild each key makes; a fresh one starts with the value
         if (fieldOn == false) {
@@ -660,17 +635,17 @@ class PresHintPopover {
         field.focused = fieldOn
         field.boxClass = "hp-numfield"
         field.build()
-        this.put(field row)
+        UiKit.put(host field row)
         if ((strlen u) > 0) {
-            row.addChild((this.words("hp-unit" u)))
+            row.addChild((UiKit.words("hp-unit" u)))
         }
         card.addChild(row)
     }
 
     fn selectorRows:void (card:EVGElement) {
         def props:VlJson (rule.get("props"))
-        def setBox:EVGElement (this.div("hp-props"))
-        def unsetBox:EVGElement (this.div("hp-props"))
+        def setBox:EVGElement (UiKit.div("hp-props"))
+        def unsetBox:EVGElement (UiKit.div("hp-props"))
         def nSet:int 0
         def nUnset:int 0
         def i:int 0
@@ -693,28 +668,28 @@ class PresHintPopover {
             def peff:string (p.stringOr("eff" ""))
             def pfrom:string (p.stringOr("from" "-"))
             def staged:boolean (pfrom != "-")
-            def row:EVGElement (this.div("hp-prop"))
+            def row:EVGElement (UiKit.div("hp-prop"))
             row.id = ("hp-prop-" + (to_string i))
             def pcls:string "hp-pname hp-pname-unset"
             if ((strlen pv) > 0) {
                 pcls = "hp-pname hp-pname-set"
             }
-            row.addChild((this.words(pcls pn)))
-            row.addChild((this.div("hp-grow")))
+            row.addChild((UiKit.words(pcls pn)))
+            row.addChild((UiKit.div("hp-grow")))
             if ((strlen pv) > 0) {
                 if (PresHintPopover.isHex(pv)) {
-                    def sw:EVGElement (this.div("hp-swatch"))
+                    def sw:EVGElement (UiKit.div("hp-swatch"))
                     UiTree.inline(sw "background-color" pv)
                     row.addChild(sw)
                 }
-                row.addChild((this.words("hp-pvalue" pv)))
+                row.addChild((UiKit.words("hp-pvalue" pv)))
                 ; set here, but another rule decides what the slide shows
                 if (staged && ((pfrom != psel) && ((strlen pfrom) > 0))) {
-                    row.addChild((this.words("hp-pfrom" ("→ " + pfrom))))
+                    row.addChild((UiKit.words("hp-pfrom" ("→ " + pfrom))))
                 } {
                     ; the element's value lives in a wider rule (`document`)
                     if (staged && (psel != (rule.stringOr("sel" name)))) {
-                        row.addChild((this.words("hp-pfrom" ("← " + psel))))
+                        row.addChild((UiKit.words("hp-pfrom" ("← " + psel))))
                     }
                 }
                 setBox.addChild(row)
@@ -722,18 +697,18 @@ class PresHintPopover {
             } {
                 if (staged && ((strlen peff) > 0)) {
                     if (PresHintPopover.isHex(peff)) {
-                        def sw2:EVGElement (this.div("hp-swatch"))
+                        def sw2:EVGElement (UiKit.div("hp-swatch"))
                         UiTree.inline(sw2 "background-color" peff)
                         row.addChild(sw2)
                     }
-                    row.addChild((this.words("hp-pinh" peff)))
+                    row.addChild((UiKit.words("hp-pinh" peff)))
                     def fromText:string pfrom
                     if ((strlen fromText) == 0) {
                         fromText = (PresI18n.t("default"))
                     }
-                    row.addChild((this.words("hp-pfrom" ("← " + fromText))))
+                    row.addChild((UiKit.words("hp-pfrom" ("← " + fromText))))
                 } {
-                    row.addChild((this.words("hp-padd" (PresI18n.t("+ add")))))
+                    row.addChild((UiKit.words("hp-padd" (PresI18n.t("+ add")))))
                 }
                 unsetBox.addChild(row)
                 nUnset = (nUnset + 1)
@@ -741,7 +716,7 @@ class PresHintPopover {
             i = (i + 1)
         }
         if (nSet > 0) {
-            card.addChild((this.words("hp-label" (PresI18n.t("Set")))))
+            card.addChild((UiKit.words("hp-label" (PresI18n.t("Set")))))
             card.addChild(setBox)
         }
         if (nUnset > 0) {
@@ -749,17 +724,17 @@ class PresHintPopover {
             if ((rule.stringOr("stage" "")) == "1") {
                 unsetTitle = (PresI18n.t("Not set here: inherited or default"))
             }
-            card.addChild((this.words("hp-label" unsetTitle)))
+            card.addChild((UiKit.words("hp-label" unsetTitle)))
             card.addChild(unsetBox)
         }
         if ((nSet + nUnset) == 0) {
-            card.addChild((this.words("hp-doc" (PresI18n.t("Unknown selector: its properties don't affect the slides.")))))
+            card.addChild((UiKit.words("hp-doc" (PresI18n.t("Unknown selector: its properties don't affect the slides.")))))
         } {
             def t:string tip
             if ((strlen t) == 0) {
                 t = (PresI18n.t("Hover over a property to see what it does."))
             }
-            def te:EVGElement (this.words("hp-tip" t))
+            def te:EVGElement (UiKit.words("hp-tip" t))
             if (tipH > 0.0) {
                 UiTree.inline(te "min-height" ((to_string tipH) + "px"))
             }

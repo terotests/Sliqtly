@@ -17,6 +17,7 @@
 
 Import "../datagrid/src/xlsx/XlsxLoader.rgr"
 Import "../datagrid/src/XlsxNumberFormat.rgr"
+Import "JsonValue.rgr"
 
 class PresData {
 
@@ -29,7 +30,7 @@ class PresData {
             if ((strlen why) == 0) {
                 why = "could not read the workbook"
             }
-            return (("{\"error\":" + (PresData.quote(why))) + ",\"sheets\":[]}")
+            return (("{\"error\":" + (JVal.quote(why))) + ",\"sheets\":[]}")
         }
         def out:string "{\"error\":\"\",\"sheets\":["
         def i:int 0
@@ -40,7 +41,7 @@ class PresData {
             if (i > 0) {
                 out = (out + ",")
             }
-            out = (((((((out + "{\"name\":") + (PresData.quote(sh.name))) + ",\"rows\":") + (to_string rows)) + ",\"csv\":") + (PresData.quote(csv))) + "}")
+            out = (((((((out + "{\"name\":") + (JVal.quote(sh.name))) + ",\"rows\":") + (to_string rows)) + ",\"csv\":") + (JVal.quote(csv))) + "}")
             i = (i + 1)
         }
         return (out + "]}")
@@ -103,50 +104,4 @@ class PresData {
         return (join (strsplit s from) to)
     }
 
-    ; a JSON string literal
-    sfn quote:string (s:string) {
-        ; the runs that need no escape are copied whole, and everything is
-        ; joined once (adding to one string per character was quadratic)
-        def parts:[string]
-        push parts "\""
-        def n:int (strlen s)
-        def from:int 0
-        def i:int 0
-        while (i < n) {
-            def code:int (charAt s i)
-            def esc:string ""
-            if (code == 34) {
-                esc = "\\\""
-            } {
-                if (code == 92) {
-                    esc = "\\\\"
-                } {
-                    if (code == 10) {
-                        esc = "\\n"
-                    } {
-                        if (code == 13) {
-                            esc = "\\r"
-                        } {
-                            if (code == 9) {
-                                esc = "\\t"
-                            } {
-                                if (code < 32) {
-                                    esc = " "
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if ((strlen esc) > 0) {
-                push parts (substring s from i)
-                push parts esc
-                from = (i + 1)
-            }
-            i = (i + 1)
-        }
-        push parts (substring s from n)
-        push parts "\""
-        return (join parts "")
-    }
 }

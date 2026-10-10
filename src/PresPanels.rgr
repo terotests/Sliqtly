@@ -28,6 +28,7 @@
 
 Import "PresInvite.rgr"
 Import "../evgui/src/UiHost.rgr"
+Import "UiKit.rgr"
 Import "../evgui/src/ChatCtl.rgr"
 Import "../evgui/src/ParticipantsCtl.rgr"
 Import "../evgui/src/PaginationCtl.rgr"
@@ -244,7 +245,7 @@ class PresPanels {
 
     fn callPanel:EVGElement () {
         def ch:double (this.callH())
-        def p:EVGElement (this.div("pn-call-dock"))
+        def p:EVGElement (UiKit.div("pn-call-dock"))
         p.id = "pn-call-dock"
         UiTree.surface(p "free" "start")
         p.overlayX = (w - chatW)
@@ -260,7 +261,7 @@ class PresPanels {
         if chat.open {
             UiTree.inline(cr "border-bottom-width" "1px")
         }
-        this.put(call p)
+        UiKit.put(host call p)
         return p
     }
 
@@ -391,7 +392,7 @@ class PresPanels {
     }
 
     fn chatPanel:EVGElement () {
-        def p:EVGElement (this.div("pn-chat-dock"))
+        def p:EVGElement (UiKit.div("pn-chat-dock"))
         p.id = "pn-chat-dock"
         UiTree.surface(p "free" "start")
         def top:double (barH + (this.callH()))
@@ -405,7 +406,7 @@ class PresPanels {
         UiTree.inline(cr "width" ((to_string chatW) + "px"))
         UiTree.inline(cr "border-radius" "0px")
         UiTree.inline(cr "border-width" "0px")
-        this.put(chat p)
+        UiKit.put(host chat p)
         return p
     }
 
@@ -596,36 +597,13 @@ class PresPanels {
     }
 
     ; --- building -------------------------------------------------------------------
-    fn div:EVGElement (cls:string) {
-        def d (EVGElement.createDiv())
-        d.className = cls
-        return d
-    }
-
-    fn words:EVGElement (cls:string t:string) {
-        def s (EVGElement.createSpan())
-        s.className = cls
-        s.textContent = t
-        return s
-    }
-
-    fn put:void (c:UiCtl parent:EVGElement) {
-        push host.ctls c
-        parent.addChild((unwrap c.rootEl))
-    }
-
     fn button:ButtonCtl (tid:string label:string variant:string parent:EVGElement) {
-        def c (new ButtonCtl())
-        c.tid = tid
-        c.name = label
-        c.variant = variant
-        c.build()
-        def r:EVGElement (unwrap c.rootEl)
-        UiTree.addClass(r "pn-button")
-        if ((variant == "primary") && ((r.getChildCount()) > 0)) {
-            UiTree.addClass((r.getChild(0)) "pn-onprimary")
+        def c:ButtonCtl (UiKit.button(tid label variant))
+        UiTree.addClass((unwrap c.rootEl) "pn-button")
+        if (variant == "primary") {
+            UiKit.labelClass(c "pn-onprimary")
         }
-        this.put(c parent)
+        UiKit.put(host c parent)
         return c
     }
 
@@ -656,7 +634,7 @@ class PresPanels {
     }
 
     fn swatch:EVGElement (colour:string) {
-        def sw:EVGElement (this.div("pn-swatch"))
+        def sw:EVGElement (UiKit.div("pn-swatch"))
         UiTree.inline(sw "background-color" colour)
         return sw
     }
@@ -690,7 +668,7 @@ class PresPanels {
             }
         }
         if ((strlen toastText) > 0) {
-            def t:EVGElement (this.div("pn-toast"))
+            def t:EVGElement (UiKit.div("pn-toast"))
             t.id = "pn-toast"
             t.addChild((this.copyable("pn-toast-text" "pn-toast-text" toastText)))
             UiTree.surface(t "free" "start")
@@ -699,7 +677,7 @@ class PresPanels {
             root.addChild(t)
         }
         if (shareOpen && (quiet == false)) {
-            def back:EVGElement (this.div("pn-backdrop"))
+            def back:EVGElement (UiKit.div("pn-backdrop"))
             back.id = "pn-backdrop"
             UiTree.backdrop(back)
             root.addChild(back)
@@ -742,7 +720,7 @@ class PresPanels {
         }
         def de:EVGElement (unwrap d)
         UiTree.inline(de "max-width" ((to_string (to_int (w - 16.0))) + "px"))
-        def inner:EVGElement (this.div("pn-dscroll"))
+        def inner:EVGElement (UiKit.div("pn-dscroll"))
         inner.id = "pn-dscroll"
         if ((indexOf de.className "pd-dialog") >= 0) {
             UiTree.addClass(inner "pd-dscroll")
@@ -819,28 +797,28 @@ class PresPanels {
     fn helpPanel:EVGElement () {
         def keys:[string]
         helpKeys = keys
-        def p:EVGElement (this.div("pn-help"))
+        def p:EVGElement (UiKit.div("pn-help"))
         p.id = "pn-help"
         UiTree.surface(p "free" "start")
         p.overlayX = (w - helpW)
         p.overlayY = barH
         p.width = (EVGUnit.px(helpW))
         p.height = (EVGUnit.px((h - barH)))
-        def top:EVGElement (this.div("pn-top"))
+        def top:EVGElement (UiKit.div("pn-top"))
         def guide:boolean (helpTab == "guide")
         this.button("pn-help-slide" ((PresI18n.t("Slide ")) + (to_string (helpSlide + 1))) (? guide "ghost" "secondary") top)
         this.button("pn-help-guide" (PresI18n.t("How to use")) (? guide "secondary" "ghost") top)
-        top.addChild((this.div("pn-grow")))
+        top.addChild((UiKit.div("pn-grow")))
         this.button("pn-help-close" "✕" "ghost" top)
         p.addChild(top)
-        def view:EVGElement (this.div("pn-view"))
+        def view:EVGElement (UiKit.div("pn-view"))
         view.id = "pn-view"
         view.setAttribute("overflow" "hidden")
         view.scrollTop = helpScroll
         view.height = (EVGUnit.px(((h - barH) - 49.0)))
-        def body:EVGElement (this.div("pn-body"))
+        def body:EVGElement (UiKit.div("pn-body"))
         if guide {
-            body.addChild((this.words("pn-intro" (PresI18n.t("What Sliqtly is used for and where each thing is.")))))
+            body.addChild((UiKit.words("pn-intro" (PresI18n.t("What Sliqtly is used for and where each thing is.")))))
             def pg (new VlJsonParser())
             def parts:VlJson (pg.parse((PresHelp.guide())))
             def g:int 0
@@ -852,8 +830,8 @@ class PresPanels {
             p.addChild(view)
             return p
         }
-        body.addChild((this.words("pn-intro" (PresI18n.t("This slide has these parts. Click a property to change it in the theme CSS.")))))
-        body.addChild((this.words("pn-intro" (PresI18n.t("Keys: F6 moves between areas (bar, tabs, editor, slides, help), arrows and Tab within an area, Enter selects, Ctrl+Space opens the choices for the value at the cursor, Esc returns to the editor.")))))
+        body.addChild((UiKit.words("pn-intro" (PresI18n.t("This slide has these parts. Click a property to change it in the theme CSS.")))))
+        body.addChild((UiKit.words("pn-intro" (PresI18n.t("Keys: F6 moves between areas (bar, tabs, editor, slides, help), arrows and Tab within an area, Enter selects, Ctrl+Space opens the choices for the value at the cursor, Esc returns to the editor.")))))
         def p0 (new VlJsonParser())
         def feats:VlJson (p0.parse(helpJson))
         def i:int 0
@@ -867,17 +845,17 @@ class PresPanels {
     }
 
     fn feature:EVGElement (f:VlJson) {
-        def sec:EVGElement (this.div("pn-sec"))
-        sec.addChild((this.words("pn-h3" (f.stringOr("title" "")))))
+        def sec:EVGElement (UiKit.div("pn-sec"))
+        sec.addChild((UiKit.words("pn-h3" (f.stringOr("title" "")))))
         def syn:string (f.stringOr("syntax" ""))
         if ((strlen syn) > 0) {
-            def row:EVGElement (this.div("pn-syn"))
+            def row:EVGElement (UiKit.div("pn-syn"))
             def parts:[string] (strsplit syn "   ")
             def k:int 0
             while (k < (array_length parts)) {
                 def t:string (trim (itemAt parts k))
                 if ((strlen t) > 0) {
-                    row.addChild((this.words("pn-code" t)))
+                    row.addChild((UiKit.words("pn-code" t)))
                 }
                 k = (k + 1)
             }
@@ -885,7 +863,7 @@ class PresPanels {
         }
         def doc:string (f.stringOr("doc" ""))
         if ((strlen doc) > 0) {
-            sec.addChild((this.words("pn-doc" doc)))
+            sec.addChild((UiKit.words("pn-doc" doc)))
         }
         def rules:VlJson (f.get("rules"))
         def r:int 0
@@ -897,9 +875,9 @@ class PresPanels {
         def a:int 0
         while (a < (attrs.count())) {
             def at:VlJson (attrs.at(a))
-            def row2:EVGElement (this.div("pn-attr"))
-            row2.addChild((this.words("pn-code" ((at.stringOr("name" "")) + "=" + (at.stringOr("value" ""))))))
-            row2.addChild((this.words("pn-pd" (at.stringOr("doc" "")))))
+            def row2:EVGElement (UiKit.div("pn-attr"))
+            row2.addChild((UiKit.words("pn-code" ((at.stringOr("name" "")) + "=" + (at.stringOr("value" ""))))))
+            row2.addChild((UiKit.words("pn-pd" (at.stringOr("doc" "")))))
             sec.addChild(row2)
             a = (a + 1)
         }
@@ -907,11 +885,11 @@ class PresPanels {
     }
 
     fn rule:EVGElement (r:VlJson) {
-        def box:EVGElement (this.div("pn-rule"))
+        def box:EVGElement (UiKit.div("pn-rule"))
         def sel:string (r.stringOr("sel" ""))
-        def head:EVGElement (this.div("pn-rhead"))
-        head.addChild((this.words("pn-sel" (sel + " { }"))))
-        head.addChild((this.words("pn-sd" (r.stringOr("doc" "")))))
+        def head:EVGElement (UiKit.div("pn-rhead"))
+        head.addChild((UiKit.words("pn-sel" (sel + " { }"))))
+        head.addChild((UiKit.words("pn-sd" (r.stringOr("doc" "")))))
         box.addChild(head)
         def props:VlJson (r.get("props"))
         def i:int 0
@@ -920,31 +898,31 @@ class PresPanels {
             def name:string (p.stringOr("name" ""))
             def value:string (p.stringOr("value" ""))
             def eff:string (p.stringOr("eff" ""))
-            def row:EVGElement (this.div("pn-prop"))
+            def row:EVGElement (UiKit.div("pn-prop"))
             row.id = ("pn-prop-" + (to_string (array_length helpKeys)))
             push helpKeys (sel + (strfromcode 9) + name + (strfromcode 9) + (p.stringOr("def" "")))
-            def line:EVGElement (this.div("pn-pline"))
-            line.addChild((this.words("pn-nm" name)))
-            line.addChild((this.div("pn-grow")))
+            def line:EVGElement (UiKit.div("pn-pline"))
+            line.addChild((UiKit.words("pn-nm" name)))
+            line.addChild((UiKit.div("pn-grow")))
             if ((strlen value) > 0) {
                 if (PresPanels.isColour(value)) {
                     line.addChild((this.swatch(value)))
                 }
-                line.addChild((this.words("pn-val" value)))
+                line.addChild((UiKit.words("pn-val" value)))
             } {
                 if ((strlen eff) > 0) {
                     if (PresPanels.isColour(eff)) {
                         line.addChild((this.swatch(eff)))
                     }
-                    line.addChild((this.words("pn-unset" ((PresI18n.t("default ")) + eff + (PresI18n.t(" – add"))))))
+                    line.addChild((UiKit.words("pn-unset" ((PresI18n.t("default ")) + eff + (PresI18n.t(" – add"))))))
                 } {
-                    line.addChild((this.words("pn-unset" (PresI18n.t("not set – add")))))
+                    line.addChild((UiKit.words("pn-unset" (PresI18n.t("not set – add")))))
                 }
             }
             row.addChild(line)
             def pd:string (p.stringOr("doc" ""))
             if ((strlen pd) > 0) {
-                row.addChild((this.words("pn-pd" pd)))
+                row.addChild((UiKit.words("pn-pd" pd)))
             }
             box.addChild(row)
             i = (i + 1)
@@ -962,7 +940,7 @@ class PresPanels {
         imgW = noW
         def noH:[int]
         imgH = noH
-        def p:EVGElement (this.div("pf-panel"))
+        def p:EVGElement (UiKit.div("pf-panel"))
         p.id = "pf-panel"
         UiTree.surface(p "free" "start")
         p.overlayX = filesX
@@ -971,11 +949,11 @@ class PresPanels {
         if ((strlen filesOpenPath) > 0) {
             ; a file in the editor: a bar to go back by
             p.height = (EVGUnit.px((PresPanels.filesBarH())))
-            def bar:EVGElement (this.div("pf-top"))
+            def bar:EVGElement (UiKit.div("pf-top"))
             this.button("pf-back" (PresI18n.t("← Files")) "ghost" bar)
-            bar.addChild((this.words("pf-path" filesOpenPath)))
-            bar.addChild((this.div("pn-grow")))
-            bar.addChild((this.words("pf-saved" (PresI18n.t("saves automatically")))))
+            bar.addChild((UiKit.words("pf-path" filesOpenPath)))
+            bar.addChild((UiKit.div("pn-grow")))
+            bar.addChild((UiKit.words("pf-saved" (PresI18n.t("saves automatically")))))
             p.addChild(bar)
             return p
         }
@@ -985,9 +963,9 @@ class PresPanels {
         def p0 (new VlJsonParser())
         def data:VlJson (p0.parse(filesJson))
         def loaded:boolean ((p0.ok == true) && (data.isObject()))
-        def top:EVGElement (this.div("pf-top"))
-        top.addChild((this.words("pn-title" (PresI18n.t("Files")))))
-        top.addChild((this.div("pn-grow")))
+        def top:EVGElement (UiKit.div("pf-top"))
+        top.addChild((UiKit.words("pn-title" (PresI18n.t("Files")))))
+        top.addChild((UiKit.div("pn-grow")))
         ; files copied from a presentation (here or another): {"count", "from"}
         if loaded {
             def clip:VlJson (data.get("clip"))
@@ -1021,14 +999,14 @@ class PresPanels {
             selH = 40.0
             p.addChild((this.filesSelBar()))
         }
-        def view:EVGElement (this.div("pn-view"))
+        def view:EVGElement (UiKit.div("pn-view"))
         view.id = "pf-view"
         view.setAttribute("overflow" "hidden")
         view.scrollTop = filesScroll
         view.height = (EVGUnit.px(((filesH - 49.0) - selH)))
-        def body:EVGElement (this.div("pf-body"))
+        def body:EVGElement (UiKit.div("pf-body"))
         if (loaded == false) {
-            body.addChild((this.words("pn-intro" (PresI18n.t("Loading files…")))))
+            body.addChild((UiKit.words("pn-intro" (PresI18n.t("Loading files…")))))
             view.addChild(body)
             p.addChild(view)
             return p
@@ -1036,19 +1014,19 @@ class PresPanels {
         ; the page's offer above everything (Sliqtly: PRO), {"title", "text", "button"}
         def promo:VlJson (data.get("promo"))
         if (promo.isObject()) {
-            def box:EVGElement (this.div("pf-promo"))
-            box.addChild((this.words("pf-promo-title" (promo.stringOr("title" "")))))
-            box.addChild((this.words("pf-promo-text" (promo.stringOr("text" "")))))
+            def box:EVGElement (UiKit.div("pf-promo"))
+            box.addChild((UiKit.words("pf-promo-title" (promo.stringOr("title" "")))))
+            box.addChild((UiKit.words("pf-promo-text" (promo.stringOr("text" "")))))
             def label:string (promo.stringOr("button" ""))
             if ((strlen label) > 0) {
-                def row:EVGElement (this.div("pf-promo-row"))
+                def row:EVGElement (UiKit.div("pf-promo-row"))
                 def b:ButtonCtl (this.button("pf-promo" label "primary" row))
                 UiTree.addClass((unwrap b.rootEl) "pf-promo-btn")
                 box.addChild(row)
             }
             body.addChild(box)
         }
-        body.addChild((this.words("pf-h" ((PresI18n.t("This presentation: ")) + (data.stringOr("doc" ""))))))
+        body.addChild((UiKit.words("pf-h" ((PresI18n.t("This presentation: ")) + (data.stringOr("doc" ""))))))
         ; the files, a folder's under its name (the page lists them so)
         def folder:string "-"
         def i:int 0
@@ -1064,10 +1042,10 @@ class PresPanels {
                 folder = dir
                 if (dir == "data/live/") {
                     ; the copies kept of linked sources (main.js keepLiveCopy)
-                    body.addChild((this.words("pf-dir" (PresI18n.t("Linked data")))))
+                    body.addChild((UiKit.words("pf-dir" (PresI18n.t("Linked data")))))
                 } {
                     if ((strlen dir) > 0) {
-                        body.addChild((this.words("pf-dir" dir)))
+                        body.addChild((UiKit.words("pf-dir" dir)))
                     }
                 }
             }
@@ -1075,7 +1053,7 @@ class PresPanels {
             i = (i + 1)
         }
         if ((files.count()) == 0) {
-            body.addChild((this.words("pn-intro" (PresI18n.t("No files yet.")))))
+            body.addChild((UiKit.words("pn-intro" (PresI18n.t("No files yet.")))))
         }
         def note:string (data.stringOr("note" ""))
         if ((strlen note) > 0) {
@@ -1089,7 +1067,7 @@ class PresPanels {
     ; Over the rows, as a data table's header: the box that ticks them all,
     ; and with some ticked, what can be done to them.
     fn filesSelBar:EVGElement () {
-        def bar:EVGElement (this.div("pf-sel"))
+        def bar:EVGElement (UiKit.div("pf-sel"))
         def all (new CheckboxCtl())
         all.tid = "pf-all"
         all.name = (PresI18n.t("Select all"))
@@ -1097,15 +1075,15 @@ class PresPanels {
         all.labelShown = false
         all.build()
         UiTree.addClass((unwrap all.rootEl) "pf-check")
-        this.put(all bar)
+        UiKit.put(host all bar)
         def n:int (filesPick.count())
         if (n == 0) {
-            bar.addChild((this.words("pf-sel-text" (PresI18n.t("Select all")))))
-            bar.addChild((this.div("pn-grow")))
+            bar.addChild((UiKit.words("pf-sel-text" (PresI18n.t("Select all")))))
+            bar.addChild((UiKit.div("pn-grow")))
             return bar
         }
-        bar.addChild((this.words("pf-sel-text pf-sel-count" ((to_string n) + (PresI18n.t(" selected"))))))
-        bar.addChild((this.div("pn-grow")))
+        bar.addChild((UiKit.words("pf-sel-text pf-sel-count" ((to_string n) + (PresI18n.t(" selected"))))))
+        bar.addChild((UiKit.div("pn-grow")))
         def c:ButtonCtl (this.button("pf-copy" (PresI18n.t("Copy")) "secondary" bar))
         UiTree.addClass((unwrap c.rootEl) "pf-act")
         if (filesArmed == "bulkdel") {
@@ -1131,7 +1109,7 @@ class PresPanels {
         c.labelShown = false
         c.build()
         UiTree.addClass((unwrap c.rootEl) "pf-check")
-        this.put(c row)
+        UiKit.put(host c row)
     }
 
     ; the joined paths of the ticked files, for the page
@@ -1185,10 +1163,10 @@ class PresPanels {
     fn fileRow:EVGElement (f:VlJson name:string) {
         def path:string (f.stringOr("path" ""))
         def kind:string (f.stringOr("kind" ""))
-        def row:EVGElement (this.div("pf-row"))
+        def row:EVGElement (UiKit.div("pf-row"))
         if ((kind == "md") || (kind == "css")) {
             ; the deck's own text and theme: not copied, the box's place kept
-            row.addChild((this.div("pf-check-gap")))
+            row.addChild((UiKit.div("pf-check-gap")))
         } {
             this.rowBox(path row)
             if (filesPick.has(path)) {
@@ -1210,12 +1188,12 @@ class PresPanels {
         if (kind == "live") {
             ; a linked source (a Google Sheet, a CSV / JSON address): its name,
             ; where it is read from and when; the copy itself is not edited
-            row.addChild((this.words("pf-tag pf-tag-live" (f.stringOr("tag" "LIVE")))))
-            def ln:EVGElement (this.div("pf-name"))
-            ln.addChild((this.words("pf-fname" (f.stringOr("title" name)))))
-            ln.addChild((this.words("pf-fsize" (f.stringOr("note" "")))))
+            row.addChild((UiKit.words("pf-tag pf-tag-live" (f.stringOr("tag" "LIVE")))))
+            def ln:EVGElement (UiKit.div("pf-name"))
+            ln.addChild((UiKit.words("pf-fname" (f.stringOr("title" name)))))
+            ln.addChild((UiKit.words("pf-fsize" (f.stringOr("note" "")))))
             row.addChild(ln)
-            row.addChild((this.div("pn-grow")))
+            row.addChild((UiKit.div("pn-grow")))
             if ((strlen (f.stringOr("source" ""))) > 0) {
                 this.act("source" path (PresI18n.t("Open source")) "secondary" row)
                 this.act("refresh" path (PresI18n.t("Refresh")) "secondary" row)
@@ -1230,12 +1208,12 @@ class PresPanels {
         if (kind == "recording") {
             ; the presentation recorded (its sound with it): played, its
             ; parts cut in Edit, deleted
-            row.addChild((this.words("pf-tag pf-tag-rec" "REC")))
-            def rn:EVGElement (this.div("pf-name"))
-            rn.addChild((this.words("pf-fname" (f.stringOr("title" name)))))
-            rn.addChild((this.words("pf-fsize" (f.stringOr("note" "")))))
+            row.addChild((UiKit.words("pf-tag pf-tag-rec" "REC")))
+            def rn:EVGElement (UiKit.div("pf-name"))
+            rn.addChild((UiKit.words("pf-fname" (f.stringOr("title" name)))))
+            rn.addChild((UiKit.words("pf-fsize" (f.stringOr("note" "")))))
             row.addChild(rn)
-            row.addChild((this.div("pn-grow")))
+            row.addChild((UiKit.div("pn-grow")))
             this.act("recplay" path (PresI18n.t("▶ Play")) "secondary" row)
             this.act("recedit" path (PresI18n.t("Edit")) "secondary" row)
             if (filesArmed == ("del" + (strfromcode 9) + path)) {
@@ -1245,15 +1223,15 @@ class PresPanels {
             }
             return row
         }
-        row.addChild((this.words(("pf-tag pf-tag-" + kind) tag)))
-        def nm:EVGElement (this.div("pf-name"))
-        nm.addChild((this.words("pf-fname" name)))
+        row.addChild((UiKit.words(("pf-tag pf-tag-" + kind) tag)))
+        def nm:EVGElement (UiKit.div("pf-name"))
+        nm.addChild((UiKit.words("pf-fname" name)))
         def size:string (PresPanels.sizeText((f.intOr("size" -1))))
         if ((strlen size) > 0) {
-            nm.addChild((this.words("pf-fsize" size)))
+            nm.addChild((UiKit.words("pf-fsize" size)))
         }
         row.addChild(nm)
-        row.addChild((this.div("pn-grow")))
+        row.addChild((UiKit.div("pn-grow")))
         if ((kind == "md") || (kind == "css")) {
             this.act("tab" kind (PresI18n.t("Edit")) "secondary" row)
             return row
@@ -1302,7 +1280,7 @@ class PresPanels {
             pw = ((to_double hoverW) * k)
             ph = ((to_double hoverH) * k)
         }
-        def card:EVGElement (this.div("pf-preview"))
+        def card:EVGElement (UiKit.div("pf-preview"))
         card.id = "pf-preview"
         UiTree.surface(card "free" "start")
         card.width = (EVGUnit.px((pw + 20.0)))
@@ -1320,9 +1298,9 @@ class PresPanels {
         if ((hoverW > 0) && (hoverH > 0)) {
             cap = (cap + "  ·  " + (to_string hoverW) + " × " + (to_string hoverH) + " px")
         }
-        card.addChild((this.words("pf-preview-cap" cap)))
+        card.addChild((UiKit.words("pf-preview-cap" cap)))
         if (PresPanels.editable(filesHover)) {
-            card.addChild((this.words("pf-preview-hint" (PresI18n.t("Click to edit")))))
+            card.addChild((UiKit.words("pf-preview-hint" (PresI18n.t("Click to edit")))))
         }
         def cw:double (pw + 20.0)
         def chh:double (ph + 58.0)
@@ -1518,7 +1496,7 @@ class PresPanels {
 
     ; --- the share dialog -------------------------------------------------------------
     fn shareDialog:EVGElement () {
-        def d:EVGElement (this.div("pn-dialog"))
+        def d:EVGElement (UiKit.div("pn-dialog"))
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
@@ -1527,7 +1505,7 @@ class PresPanels {
             tall = 440.0
         }
         d.overlayY = ((h - tall) * 0.5)
-        d.addChild((this.words("pn-dtitle" (PresI18n.t("Share presentation")))))
+        d.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Share presentation")))))
         d.addChild((this.shareOption("show" (PresI18n.t("Presentation")) (PresI18n.t("Opens straight into presentation mode, without the editor or edit buttons.")) shareShow "primary")))
         if ((strlen shareView) > 0) {
             def title:string ((PresI18n.t("Selected slides")) + " (" + (to_string shareViewCount) + ")")
@@ -1541,24 +1519,24 @@ class PresPanels {
             d.addChild((this.shareOption("edit" (PresI18n.t("Editing")) (PresI18n.t("Opens in the editor: the recipient can edit their own copy.")) shareEdit "secondary")))
         } {
             ; in the cloud: no editing link, only the people invited edit it
-            def o:EVGElement (this.div("pn-opt"))
-            o.addChild((this.words("pn-otitle" (PresI18n.t("Editing")))))
+            def o:EVGElement (UiKit.div("pn-opt"))
+            o.addChild((UiKit.words("pn-otitle" (PresI18n.t("Editing")))))
             def who:string (PresI18n.t("Only you edit this presentation. The people you invite edit it too; nobody else."))
             if (shareEditors > 0) {
                 who = (PresInvite.withCount((PresI18n.t("You and {n} people you invited edit this presentation; nobody else.")) shareEditors))
             }
-            o.addChild((this.words("pn-odesc" who)))
+            o.addChild((UiKit.words("pn-odesc" who)))
             if (shareEditors >= 0) {
-                def row:EVGElement (this.div("pn-orow"))
+                def row:EVGElement (UiKit.div("pn-orow"))
                 this.button("pn-share-invite" (PresI18n.t("People who can edit…")) "secondary" row)
                 this.button("pn-share-stop" (PresI18n.t("Stop sharing")) "secondary" row)
                 o.addChild(row)
             }
             d.addChild(o)
         }
-        def foot:EVGElement (this.div("pn-dfoot"))
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
         foot.addChild((this.copyable("pn-share-note" "pn-note" shareNote)))
-        foot.addChild((this.div("pn-grow")))
+        foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-share-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
@@ -1567,21 +1545,21 @@ class PresPanels {
     ; Open: a presentation, data or a picture from the computer, or one of the
     ; sample decks.
     fn openDialog:EVGElement () {
-        def d:EVGElement (this.div("pn-dialog"))
+        def d:EVGElement (UiKit.div("pn-dialog"))
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
         d.overlayY = ((h - 480.0) * 0.5)
-        d.addChild((this.words("pn-dtitle" (PresI18n.t("Open")))))
-        def f:EVGElement (this.div("pn-opt"))
-        f.addChild((this.words("pn-otitle" (PresI18n.t("From your computer")))))
-        f.addChild((this.words("pn-odesc" (PresI18n.t("A presentation (.md), or data (Excel, CSV, JSON) and pictures, which go to Files.")))))
-        def fr:EVGElement (this.div("pn-orow"))
+        d.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Open")))))
+        def f:EVGElement (UiKit.div("pn-opt"))
+        f.addChild((UiKit.words("pn-otitle" (PresI18n.t("From your computer")))))
+        f.addChild((UiKit.words("pn-odesc" (PresI18n.t("A presentation (.md), or data (Excel, CSV, JSON) and pictures, which go to Files.")))))
+        def fr:EVGElement (UiKit.div("pn-orow"))
         this.button("pn-open-file" (PresI18n.t("Choose file…")) "primary" fr)
         f.addChild(fr)
         d.addChild(f)
-        def o:EVGElement (this.div("pn-opt"))
-        o.addChild((this.words("pn-otitle" (PresI18n.t("Sample documents")))))
+        def o:EVGElement (UiKit.div("pn-opt"))
+        o.addChild((UiKit.words("pn-otitle" (PresI18n.t("Sample documents")))))
         def keepOpen:boolean samplePick.open
         def sel (new PresPromptSelect())
         sel.tid = "pn-samples"
@@ -1600,14 +1578,14 @@ class PresPanels {
         sel.build()
         UiTree.addClass((unwrap sel.rootEl) "pn-samplesel")
         samplePick = sel
-        this.put(sel o)
+        UiKit.put(host sel o)
         if keepOpen {
             sel.openList()
             sel.build()
         }
         d.addChild(o)
-        def foot:EVGElement (this.div("pn-dfoot"))
-        foot.addChild((this.div("pn-grow")))
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
+        foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-open-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
@@ -1645,7 +1623,7 @@ class PresPanels {
     ; Pressed again, the order turns round (web/decklist.js nextSort); the
     ; arrow shows the way: ↓ newest or Z first, ↑ oldest or A first.
     fn decksHead:void (key:string label:string sort:string dir:string cls:string parent:EVGElement) {
-        def cell:EVGElement (this.div(cls))
+        def cell:EVGElement (UiKit.div(cls))
         def text:string label
         if (key == sort) {
             if (dir == "asc") {
@@ -1707,15 +1685,15 @@ class PresPanels {
             estH = (estH + 44.0)
         }
         ; pd-dialog, not pn-dialog: that one's width is fixed in the theme
-        def d:EVGElement (this.div("pd-dialog"))
+        def d:EVGElement (UiKit.div("pd-dialog"))
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.width = (EVGUnit.px(dw))
         d.overlayX = ((w - dw) * 0.5)
         d.overlayY = ((h - estH) * 0.5)
-        def top:EVGElement (this.div("pd-top"))
-        top.addChild((this.words("pn-dtitle" (PresI18n.t("Presentations")))))
-        top.addChild((this.div("pn-grow")))
+        def top:EVGElement (UiKit.div("pd-top"))
+        top.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Presentations")))))
+        top.addChild((UiKit.div("pn-grow")))
         this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
         d.addChild(top)
         def sort:string "updated"
@@ -1726,8 +1704,8 @@ class PresPanels {
         }
         ; the inner width of a row: the window less its padding
         def rowW:double (dw - 40.0)
-        def head:EVGElement (this.div("pd-head"))
-        def hn:EVGElement (this.div("pd-hrow"))
+        def head:EVGElement (UiKit.div("pd-head"))
+        def hn:EVGElement (UiKit.div("pd-hrow"))
         hn.width = (EVGUnit.px((rowW - 36.0)))
         this.decksHead("name" (PresI18n.t("Name")) sort dir "pd-hname" hn)
         if narrow {
@@ -1738,9 +1716,9 @@ class PresPanels {
         }
         head.addChild(hn)
         d.addChild(head)
-        def body:EVGElement (this.div("pd-body"))
+        def body:EVGElement (UiKit.div("pd-body"))
         if (ready == false) {
-            body.addChild((this.words("pn-intro" (PresI18n.t("Loading…")))))
+            body.addChild((UiKit.words("pn-intro" (PresI18n.t("Loading…")))))
         } {
             def i:int from
             while (i < until) {
@@ -1748,15 +1726,15 @@ class PresPanels {
                 i = (i + 1)
             }
             if (count == 0) {
-                body.addChild((this.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
+                body.addChild((UiKit.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
             }
         }
         d.addChild(body)
         if paged {
             d.addChild((this.decksPagerRow(rowW)))
         }
-        def foot:EVGElement (this.div("pn-dfoot"))
-        def note:EVGElement (this.div("pd-note"))
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
+        def note:EVGElement (UiKit.div("pd-note"))
         if ready {
             note.addChild((this.copyable("pd-note-text" "pn-note" (data.stringOr("note" "")))))
         }
@@ -1768,7 +1746,7 @@ class PresPanels {
 
     ; ‹ 1 2 … 5 ›, and which rows of how many show
     fn decksPagerRow:EVGElement (rowW:double) {
-        def row:EVGElement (this.div("pd-pager"))
+        def row:EVGElement (UiKit.div("pd-pager"))
         row.width = (EVGUnit.px(rowW))
         def pv:ButtonCtl (this.button("pd-pg-prev" "‹" "ghost" row))
         pv.disabled = ((decksPager.canPrevious()) == false)
@@ -1779,7 +1757,7 @@ class PresPanels {
         while (i < (array_length items)) {
             def it:string (itemAt items i)
             if (PaginationCtl.isEllipsis(it)) {
-                row.addChild((this.words("pd-pg-gap" "…")))
+                row.addChild((UiKit.words("pd-pg-gap" "…")))
             } {
                 def variant:string "ghost"
                 if (it == (to_string decksPager.page)) {
@@ -1794,13 +1772,13 @@ class PresPanels {
         nx.disabled = ((decksPager.canNext()) == false)
         nx.build()
         UiTree.addClass((unwrap nx.rootEl) "pd-pg")
-        row.addChild((this.div("pn-grow")))
+        row.addChild((UiKit.div("pn-grow")))
         def first:int (((decksPager.page - 1) * decksPager.pageSize) + 1)
         def last:int (decksPager.page * decksPager.pageSize)
         if (last > decksPager.total) {
             last = decksPager.total
         }
-        row.addChild((this.words("pd-time pd-range" ((((to_string first) + "–") + (to_string last)) + (" / " + (to_string decksPager.total))))))
+        row.addChild((UiKit.words("pd-time pd-range" ((((to_string first) + "–") + (to_string last)) + (" / " + (to_string decksPager.total))))))
         return row
     }
 
@@ -1815,7 +1793,7 @@ class PresPanels {
         if armed {
             delW = 84.0
         }
-        def line:EVGElement (this.div("pd-line"))
+        def line:EVGElement (UiKit.div("pd-line"))
         line.width = (EVGUnit.px(rowW))
         def b:ButtonCtl (this.button(("pd-r-" + (to_string k)) "" "ghost" line))
         def el:EVGElement (unwrap b.rootEl)
@@ -1829,9 +1807,9 @@ class PresPanels {
         if (narrow == false) {
             nameW = (nameW - 280.0)
         }
-        def nm:EVGElement (this.div("pf-name pd-name"))
+        def nm:EVGElement (UiKit.div("pf-name pd-name"))
         def title:string (PresPanels.clip((r.stringOr("name" "")) (to_int (nameW / 7.0))))
-        nm.addChild((this.words("pf-fname" title)))
+        nm.addChild((UiKit.words("pf-fname" title)))
         def where:string (r.stringOr("where" ""))
         if (r.boolOr("current" false)) {
             where = (((PresI18n.t("open")) + " · ") + where)
@@ -1839,13 +1817,13 @@ class PresPanels {
         if narrow {
             where = ((where + " · ") + (r.stringOr("modified" "")))
         }
-        nm.addChild((this.words("pf-fsize" where)))
+        nm.addChild((UiKit.words("pf-fsize" where)))
         el.addChild(nm)
         if (narrow == false) {
-            el.addChild((this.words("pd-when pd-time" (r.stringOr("added" "")))))
-            el.addChild((this.words("pd-when pd-time" (r.stringOr("modified" "")))))
+            el.addChild((UiKit.words("pd-when pd-time" (r.stringOr("added" "")))))
+            el.addChild((UiKit.words("pd-when pd-time" (r.stringOr("modified" "")))))
         }
-        def del:EVGElement (this.div("pd-del"))
+        def del:EVGElement (UiKit.div("pd-del"))
         del.width = (EVGUnit.px(delW))
         ; the open deck, and one only in the cloud, are deleted with File →
         ; Delete presentation… once open
@@ -1950,16 +1928,16 @@ class PresPanels {
 
     ; --- the settings dialog -------------------------------------------------------------
     fn settingsDialog:EVGElement () {
-        def d:EVGElement (this.div("pn-dialog"))
+        def d:EVGElement (UiKit.div("pn-dialog"))
         d.id = "pn-dialog"
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 520.0) * 0.5)
         d.overlayY = ((h - 490.0) * 0.5)
-        d.addChild((this.words("pn-dtitle" (PresI18n.t("Settings")))))
-        def o:EVGElement (this.div("pn-opt"))
-        o.addChild((this.words("pn-otitle" (PresI18n.t("Automatic contrast correction")))))
-        o.addChild((this.words("pn-odesc" (PresI18n.t("Text too faint on its slide is made readable: small text gets a lighter or darker colour, big text a thin outline. Your own colours stay as they are wherever they already read well.")))))
-        def r:EVGElement (this.div("pn-orow"))
+        d.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Settings")))))
+        def o:EVGElement (UiKit.div("pn-opt"))
+        o.addChild((UiKit.words("pn-otitle" (PresI18n.t("Automatic contrast correction")))))
+        o.addChild((UiKit.words("pn-odesc" (PresI18n.t("Text too faint on its slide is made readable: small text gets a lighter or darker colour, big text a thin outline. Your own colours stay as they are wherever they already read well.")))))
+        def r:EVGElement (UiKit.div("pn-orow"))
         def label:string (PresI18n.t("On"))
         def variant:string "primary"
         if (autoContrast == false) {
@@ -1970,29 +1948,29 @@ class PresPanels {
         o.addChild(r)
         d.addChild(o)
         ; The editor's look; the slides keep their own theme in either.
-        def lk:EVGElement (this.div("pn-opt"))
-        lk.addChild((this.words("pn-otitle" (PresI18n.t("Look")))))
-        lk.addChild((this.words("pn-odesc" (PresI18n.t("How the editor around the slides looks. Your slides and their themes stay as they are.")))))
-        def lr:EVGElement (this.div("pn-orow"))
+        def lk:EVGElement (UiKit.div("pn-opt"))
+        lk.addChild((UiKit.words("pn-otitle" (PresI18n.t("Look")))))
+        lk.addChild((UiKit.words("pn-odesc" (PresI18n.t("How the editor around the slides looks. Your slides and their themes stay as they are.")))))
+        def lr:EVGElement (UiKit.div("pn-orow"))
         this.button("pn-set-skin-light" (PresI18n.t("Standard")) (? (skin != "retro") "primary" "secondary") lr)
         this.button("pn-set-skin-retro" (PresI18n.t("Retro")) (? (skin == "retro") "primary" "secondary") lr)
         lk.addChild(lr)
         if (skin != "retro") {
             ; the standard skin in light or dark, or as the device is set
-            def mr:EVGElement (this.div("pn-orow"))
+            def mr:EVGElement (UiKit.div("pn-orow"))
             this.button("pn-set-mode-system" (PresI18n.t("Automatic")) (? (lookMode == "system") "primary" "secondary") mr)
             this.button("pn-set-mode-light" (PresI18n.t("Light mode")) (? (lookMode == "light") "primary" "secondary") mr)
             this.button("pn-set-mode-dark" (PresI18n.t("Dark mode")) (? (lookMode == "dark") "primary" "secondary") mr)
             lk.addChild(mr)
             ; the frame (the bar and the left rail) white or in the logo's terracotta
-            def fr:EVGElement (this.div("pn-orow"))
+            def fr:EVGElement (UiKit.div("pn-orow"))
             this.button("pn-set-frame-white" (PresI18n.t("White frame")) (? (lookFrame != "terracotta") "primary" "secondary") fr)
             this.button("pn-set-frame-terracotta" (PresI18n.t("Terracotta frame")) (? (lookFrame == "terracotta") "primary" "secondary") fr)
             lk.addChild(fr)
         }
         if (skin == "retro") {
             ; the skin's base colour: one hue every shade of it follows
-            def hr:EVGElement (this.div("pn-orow"))
+            def hr:EVGElement (UiKit.div("pn-orow"))
             def names:[string] (PresPanels.hueNames())
             def hues:[int] (PresPanels.hueValues())
             def i:int 0
@@ -2008,17 +1986,17 @@ class PresPanels {
         }
         d.addChild(lk)
         ; what a room is called (PresTerm); written as it is, not swapped
-        def tw:EVGElement (this.div("pn-opt"))
-        tw.addChild((this.words("pn-otitle" (PresI18n.plain("Name for rooms")))))
-        tw.addChild((this.words("pn-odesc" (PresI18n.plain("A room gathers the presentations of one whole piece of work. Call them rooms or projects; the editor opens again with the word you choose.")))))
-        def tr:EVGElement (this.div("pn-orow"))
+        def tw:EVGElement (UiKit.div("pn-opt"))
+        tw.addChild((UiKit.words("pn-otitle" (PresI18n.plain("Name for rooms")))))
+        tw.addChild((UiKit.words("pn-odesc" (PresI18n.plain("A room gathers the presentations of one whole piece of work. Call them rooms or projects; the editor opens again with the word you choose.")))))
+        def tr:EVGElement (UiKit.div("pn-orow"))
         def word:string (PresI18n.term())
         this.button("pn-set-term-room" (PresI18n.plain("Room")) (? (word == "room") "primary" "secondary") tr)
         this.button("pn-set-term-project" (PresI18n.plain("Project")) (? (word == "project") "primary" "secondary") tr)
         tw.addChild(tr)
         d.addChild(tw)
-        def foot:EVGElement (this.div("pn-dfoot"))
-        foot.addChild((this.div("pn-grow")))
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
+        foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-set-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
@@ -2029,22 +2007,22 @@ class PresPanels {
     fn dataDialog:EVGElement () {
         def none:[SelectCtl]
         dataSels = none
-        def d:EVGElement (this.div("pn-dialog"))
+        def d:EVGElement (UiKit.div("pn-dialog"))
         d.id = "pn-dialog"
         UiTree.inline(d "width" "640px")
         UiTree.surface(d "free" "start")
         d.overlayX = ((w - 640.0) * 0.5)
         d.overlayY = ((h - 520.0) * 0.5)
-        d.addChild((this.words("pn-dtitle" (? imp.live (PresI18n.t("Link live data")) (PresI18n.t("Import data"))))))
+        d.addChild((UiKit.words("pn-dtitle" (? imp.live (PresI18n.t("Link live data")) (PresI18n.t("Import data"))))))
         def info:string ((((imp.name + " · ") + (to_string imp.rows)) + " ") + (PresI18n.t("rows")))
         info = (((info + " · ") + (to_string (imp.cols()))) + " ") + (PresI18n.t("columns"))
-        d.addChild((this.words("pn-odesc" info)))
+        d.addChild((UiKit.words("pn-odesc" info)))
         if imp.live {
-            d.addChild((this.words("pn-odesc" (PresI18n.t("The chart or table reads this address each time the presentation opens, so it shows what the sheet has then. Nothing is copied into the presentation.")))))
+            d.addChild((UiKit.words("pn-odesc" (PresI18n.t("The chart or table reads this address each time the presentation opens, so it shows what the sheet has then. Nothing is copied into the presentation.")))))
         }
         if ((imp.sheetCount()) > 1) {
-            def sr:EVGElement (this.div("pn-field"))
-            sr.addChild((this.words("pn-flabel" (PresI18n.t("Sheet")))))
+            def sr:EVGElement (UiKit.div("pn-field"))
+            sr.addChild((UiKit.words("pn-flabel" (PresI18n.t("Sheet")))))
             def sel:SelectCtl (this.dataSelect("pn-d-sheet"))
             def i:int 0
             while (i < (imp.sheetCount())) {
@@ -2065,14 +2043,14 @@ class PresPanels {
 
     ; The header and the first rows, a few columns of each.
     fn dataPreview:EVGElement () {
-        def g:EVGElement (this.div("pn-grid"))
+        def g:EVGElement (UiKit.div("pn-grid"))
         def nc:int (imp.cols())
         def shown:int nc
         if (shown > 6) {
             shown = 6
         }
         if (shown == 0) {
-            g.addChild((this.words("pn-note" (PresI18n.t("No rows in this sheet.")))))
+            g.addChild((UiKit.words("pn-note" (PresI18n.t("No rows in this sheet.")))))
             return g
         }
         def cw:double (576.0 / (to_double shown))
@@ -2082,7 +2060,7 @@ class PresPanels {
         }
         def r:int 0
         while (r <= last) {
-            def row:EVGElement (this.div("pn-grid-row"))
+            def row:EVGElement (UiKit.div("pn-grid-row"))
             if (r == 0) {
                 row.className = "pn-ghead"
             }
@@ -2092,7 +2070,7 @@ class PresPanels {
                 if ((strlen v) > 18) {
                     v = ((substring v 0 17) + "…")
                 }
-                def cell:EVGElement (this.words((? (r == 0) "pn-hcell" "pn-cell") v))
+                def cell:EVGElement (UiKit.words((? (r == 0) "pn-hcell" "pn-cell") v))
                 UiTree.inline(cell "width" ((to_string (to_int cw)) + "px"))
                 row.addChild(cell)
                 c = (c + 1)
@@ -2111,7 +2089,7 @@ class PresPanels {
                 }
                 more = ((more + (to_string (nc - shown))) + " " + (PresI18n.t("more columns")))
             }
-            g.addChild((this.words("pn-gmore" more)))
+            g.addChild((UiKit.words("pn-gmore" more)))
         }
         return g
     }
@@ -2127,19 +2105,19 @@ class PresPanels {
         } {
             d.addChild((this.dataChoice("file" (PresI18n.t("Just the file")) (PresI18n.t("Kept under data/ for charts and tables to use.")) (PresI18n.t("Add file")) "secondary")))
         }
-        def foot:EVGElement (this.div("pn-dfoot"))
-        foot.addChild((this.div("pn-grow")))
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
+        foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-d-close" (PresI18n.t("Cancel")) "secondary" foot)
         d.addChild(foot)
     }
 
     fn dataChoice:EVGElement (which:string title:string desc:string label:string variant:string) {
-        def o:EVGElement (this.div("pn-choice"))
-        def tx:EVGElement (this.div("pn-ctext"))
-        tx.addChild((this.words("pn-otitle" title)))
-        tx.addChild((this.words("pn-odesc" desc)))
+        def o:EVGElement (UiKit.div("pn-choice"))
+        def tx:EVGElement (UiKit.div("pn-ctext"))
+        tx.addChild((UiKit.words("pn-otitle" title)))
+        tx.addChild((UiKit.words("pn-odesc" desc)))
         o.addChild(tx)
-        o.addChild((this.div("pn-grow")))
+        o.addChild((UiKit.div("pn-grow")))
         this.button(("pn-d-" + which) label variant o)
         return o
     }
@@ -2147,8 +2125,8 @@ class PresPanels {
     ; The chart's question: grouped by what, which numbers, combined how,
     ; drawn as what. Every part starts at what the columns suggest.
     fn chartStep:void (d:EVGElement) {
-        def cr:EVGElement (this.div("pn-field"))
-        cr.addChild((this.words("pn-flabel" (PresI18n.t("Group by")))))
+        def cr:EVGElement (UiKit.div("pn-field"))
+        cr.addChild((UiKit.words("pn-flabel" (PresI18n.t("Group by")))))
         def cs:SelectCtl (this.dataSelect("pn-d-cat"))
         cs.addItem("-1" (PresI18n.t("Each row on its own")) false)
         def c:int 0
@@ -2159,9 +2137,9 @@ class PresPanels {
         this.finishSelect(cs (to_string imp.catCol) cr)
         d.addChild(cr)
 
-        def vr:EVGElement (this.div("pn-field"))
-        vr.addChild((this.words("pn-flabel" (PresI18n.t("Values")))))
-        def chips:EVGElement (this.div("pn-chips"))
+        def vr:EVGElement (UiKit.div("pn-field"))
+        vr.addChild((UiKit.words("pn-flabel" (PresI18n.t("Values")))))
+        def chips:EVGElement (UiKit.div("pn-chips"))
         def any:boolean false
         def k:int 0
         while (k < (imp.cols())) {
@@ -2178,13 +2156,13 @@ class PresPanels {
             k = (k + 1)
         }
         if (any == false) {
-            chips.addChild((this.words("pn-note" (PresI18n.t("No columns of numbers: the chart counts rows.")))))
+            chips.addChild((UiKit.words("pn-note" (PresI18n.t("No columns of numbers: the chart counts rows.")))))
         }
         vr.addChild(chips)
         d.addChild(vr)
 
-        def ar:EVGElement (this.div("pn-field"))
-        ar.addChild((this.words("pn-flabel" (PresI18n.t("Combine")))))
+        def ar:EVGElement (UiKit.div("pn-field"))
+        ar.addChild((UiKit.words("pn-flabel" (PresI18n.t("Combine")))))
         def as:SelectCtl (this.dataSelect("pn-d-agg"))
         as.addItem("auto" (PresI18n.t("Automatic")) false)
         as.addItem("sum" (PresI18n.t("Sum")) false)
@@ -2194,8 +2172,8 @@ class PresPanels {
         this.finishSelect(as imp.agg ar)
         d.addChild(ar)
 
-        def kr:EVGElement (this.div("pn-field"))
-        kr.addChild((this.words("pn-flabel" (PresI18n.t("Chart type")))))
+        def kr:EVGElement (UiKit.div("pn-field"))
+        kr.addChild((UiKit.words("pn-flabel" (PresI18n.t("Chart type")))))
         def ks:SelectCtl (this.dataSelect("pn-d-kind"))
         def kinds:[int] (PresImport.kinds())
         def i:int 0
@@ -2212,15 +2190,15 @@ class PresPanels {
         d.addChild(kr)
 
         def m:PresChartModel (imp.chartModel())
-        def foot:EVGElement (this.div("pn-dfoot"))
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
         def note:string ""
         if m.ok {
             note = ((((to_string (m.rows())) + " ") + (PresI18n.t("categories"))) + " · ") + (PresI18n.t("the chart editor opens next"))
         } {
             note = m.note
         }
-        foot.addChild((this.words("pn-note" note)))
-        foot.addChild((this.div("pn-grow")))
+        foot.addChild((UiKit.words("pn-note" note)))
+        foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-d-back" (PresI18n.t("Back")) "secondary" foot)
         this.button("pn-d-make" (PresI18n.t("Create chart")) "primary" foot)
         d.addChild(foot)
@@ -2238,7 +2216,7 @@ class PresPanels {
         sel.build()
         UiTree.addClass((unwrap sel.rootEl) "pn-dsel")
         push dataSels sel
-        this.put(sel parent)
+        UiKit.put(host sel parent)
         if (dataOpenSel == sel.tid) {
             sel.openList()
             sel.build()
@@ -2332,10 +2310,10 @@ class PresPanels {
     }
 
     fn shareOption:EVGElement (which:string title:string desc:string url:string variant:string) {
-        def o:EVGElement (this.div("pn-opt"))
-        o.addChild((this.words("pn-otitle" title)))
-        o.addChild((this.words("pn-odesc" desc)))
-        def row:EVGElement (this.div("pn-orow"))
+        def o:EVGElement (UiKit.div("pn-opt"))
+        o.addChild((UiKit.words("pn-otitle" title)))
+        o.addChild((UiKit.words("pn-odesc" desc)))
+        def row:EVGElement (UiKit.div("pn-orow"))
         def f (new InputCtl())
         f.tid = ("pn-url-" + which)
         f.name = title
@@ -2344,7 +2322,7 @@ class PresPanels {
         f.boxClass = "pn-url"
         f.setValue(url)
         f.build()
-        this.put(f row)
+        UiKit.put(host f row)
         def label:string (PresI18n.t("Copy"))
         if (copied == which) {
             label = (? copyOk (PresI18n.t("Copied ✓")) (PresI18n.t("Select and copy")))
