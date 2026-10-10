@@ -273,6 +273,10 @@ class PresDeck {
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
+    ; The page shows each slide at rest and cannot play a story's steps (the
+    ; share viewer): the presenter, who would only ever say the last line,
+    ; is left out. Its strip stays free, so the slide is laid out as edited.
+    def presenterOff:boolean false
     ; The slides' line art is PRO: the page says whether it is drawn
     ; (`PresApp.setPro`). The layouts drawn from lists are free.
     def artAllowed:boolean false
@@ -5134,6 +5138,7 @@ class PresDeck {
             def b:PresStoryBeat (itemAt beats i)
             s.steps = (s.steps + 1)
             b.step = s.steps
+            b.at = blk.start
             push s.story b
             this.addGroup(s s.steps blk.start blk.start "story" (PresStory.beatSeconds(b)) b.text)
             i = (i + 1)
@@ -5155,7 +5160,7 @@ class PresDeck {
     ; the slide is drawn still: a thumbnail, an export).
     fn paintStory:void (out:EVGDisplayList s:PresSlide t:double l:MdLayout) {
         def n:int (array_length s.story)
-        if (n == 0) {
+        if ((n == 0) || presenterOff) {
             return
         }
         def shown:int 0
@@ -5181,8 +5186,28 @@ class PresDeck {
             if (has haveFaces (PresStory.face())) {
                 family = (PresStory.face())
             }
-            PresPuppet.bubble(out (itemAt s.story st.bubbleBeat) st.bubble pageW pageH l.engine family)
+            PresPuppet.bubble(out (itemAt s.story st.bubbleBeat) st.bubble pageW pageH l.engine family st.bubbleBeat n)
         }
+    }
+
+    ; The step of slide `page`'s story line the deck's offset `off` is on,
+    ; 0 when it is on none.
+    fn storyStepAt:int (page:int off:int) {
+        if ((page < 0) || (page >= (array_length slides))) {
+            return 0
+        }
+        def s:PresSlide (itemAt slides page)
+        for src.blocks blk:PresBlock bi {
+            if (((blk.kind == "story") && (off >= blk.start)) && (off < blk.end)) {
+                def line:int ((this.lineOfOffset(off)) - blk.bodyLine)
+                for s.story b:PresStoryBeat k {
+                    if ((b.at == blk.start) && (b.line == line)) {
+                        return b.step
+                    }
+                }
+            }
+        }
+        return 0
     }
 
     ; The 1-based line of the deck's text an offset is on.

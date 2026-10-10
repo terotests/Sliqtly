@@ -256,6 +256,8 @@ class PresApp {
     ; local time below zero means "as it stands at the end".
     def selected:int 0
     def localT:double -1.0
+    ; the story step (`::: story` line) the Markdown caret is on, 0 for none
+    def caretStep:int 0
     ; The deck clock, in seconds from the first slide.
     def playing:boolean false
     def clock:double 0.0
@@ -1279,7 +1281,24 @@ class PresApp {
         if (s != selected) {
             selected = s
             localT = -1.0
+            caretStep = 0
             this.revealThumb(s)
+        }
+        ; on a line of the slide's `::: story`: the stage shows the presenter
+        ; saying it; off it again, the slide's end
+        def step:int (deck.storyStepAt(s off))
+        if (step != caretStep) {
+            caretStep = step
+            if (step > 0) {
+                def sl:PresSlide (deck.slideAt(s))
+                def at:double ((PresTimeline.stepTime(sl step)) + ((PresStory.poseSeconds()) + (PresStory.popSeconds())))
+                localT = (at + 0.05)
+                if (localT > sl.duration) {
+                    localT = sl.duration
+                }
+            } {
+                localT = -1.0
+            }
         }
         chromeRev = (chromeRev + 1)
     }

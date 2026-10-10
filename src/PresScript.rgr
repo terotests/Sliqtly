@@ -1372,7 +1372,7 @@ class PresScriptApply {
         def list:EVGDisplayList (new EVGDisplayList())
         PresPuppet.paint(list st (PresPuppet.placeOn(ad.w ad.h)))
         if ((st.bubbleBeat >= 0) && (st.bubbleBeat < (array_length beats))) {
-            PresPuppet.bubble(list (itemAt beats st.bubbleBeat) st.bubble ad.w ad.h engine (PresStory.face()))
+            PresPuppet.bubble(list (itemAt beats st.bubbleBeat) st.bubble ad.w ad.h engine (PresStory.face()) st.bubbleBeat (array_length beats))
         }
         def i:int 0
         while (i < (array_length list.cmds)) {
