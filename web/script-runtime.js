@@ -24,16 +24,21 @@
 //   once before its first tick. onLeave(to): it is being left for slide
 //   `to`; what it sets is how the slide looks while the next one arrives.
 //
-// The selectors are PresSel's (src/PresScript.rgr): the same language, and
-// web/test/script-runtime.test.mjs runs both on one slide.
+// The selectors are PresSel's (src/PresSel.rgr), the same code: the build
+// compiles it to script-sel.js (SCRIPT_SEL, the classes in __Sel), and
+// SCRIPT_RUNTIME starts with it.
 //
 // __scriptFrame(arg) -> {p: {id: props}, a: [added], k: [asks], build, click}
 // __scriptFinal(arg) -> the same, for where the script ends: final(), or its
 // ticks run to the end (`seconds`).
 // __scriptAt(arg) -> the same, `time` seconds in (no final()).
 // __scriptLeave(arg) -> the same, after onLeave(a.to).
-export const SCRIPT_RUNTIME = String.raw`
+import { SCRIPT_SEL } from "./script-sel.js";
+
+const OWN = String.raw`
 var __ents = [];
+// the same entities as PresSel reads them: parents by index
+var __selEnts = [];
 var __byId = {};
 var __props = {};
 var __adds = [];
@@ -57,69 +62,6 @@ var input = {
 var __PROPS = { x: 1, y: 1, scale: 1, scaleX: 1, scaleY: 1, rotate: 1, skew: 1, origin: 1, opacity: 1, visible: 1, color: 1, fill: 1, stroke: 1, z: 1, clip: 1 };
 var __saidKeys = {};
 
-function __isName(c) {
-  return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") ||
-    c === "-" || c === "_" || c === "/" || c > "\u007f";
-}
-
-// "chart:1 bar" -> [{kind, name, classes, nth, from, to}], or {error}
-function __parseSel(text) {
-  var toks = String(text).split(" ");
-  var steps = [];
-  for (var t = 0; t < toks.length; t++) {
-    var tok = toks[t];
-    if (!tok) continue;
-    var arrow = tok.indexOf("->");
-    if (arrow >= 0) {
-      var last = steps[steps.length - 1];
-      if (!last || last.kind !== "edge") return { error: '"' + tok + '" names an edge\'s ends: write it after edge (edge B->D)' };
-      last.from = tok.slice(0, arrow);
-      last.to = tok.slice(arrow + 2);
-      continue;
-    }
-    var st = { kind: "", name: "", classes: [], nth: 0, from: "", to: "" };
-    var i = 0;
-    if (tok.charAt(0) === "*") { st.kind = "*"; i = 1; }
-    while (i < tok.length && __isName(tok.charAt(i))) i++;
-    if (!st.kind) st.kind = tok.slice(0, i);
-    while (i < tok.length) {
-      var c = tok.charAt(i);
-      var j = i + 1;
-      while (j < tok.length && __isName(tok.charAt(j))) j++;
-      var word = tok.slice(i + 1, j);
-      if (!word) return { error: '"' + tok + '" is not a selector' };
-      if (c === "#") st.name = word;
-      else if (c === ".") st.classes.push(word);
-      else if (c === ":") {
-        var n = Number(word);
-        if (!(n >= 0) || Math.floor(n) !== n) return { error: '":' + word + '" is no number: write kind:2 for the second' };
-        st.nth = n;
-      } else return { error: '"' + tok + '" is not a selector' };
-      i = j;
-    }
-    steps.push(st);
-  }
-  if (!steps.length) return { error: "an empty selector" };
-  return { steps: steps };
-}
-
-function __stepMatches(st, e) {
-  if (st.kind && st.kind !== "*" && e.kind !== st.kind) return false;
-  if (st.name && e.name !== st.name && e.id !== st.name) return false;
-  for (var i = 0; i < st.classes.length; i++) if (e.classes.indexOf(st.classes[i]) < 0) return false;
-  if (st.nth > 0 && e.index + 1 !== st.nth) return false;
-  if (st.from && (e.from !== st.from || e.to !== st.to)) return false;
-  return true;
-}
-
-function __within(e, anc) {
-  while (e) {
-    if (e === anc) return true;
-    e = e.parent;
-  }
-  return false;
-}
-
 // What each selector found, until the entities change (__setTree): a
 // script that finds in every tick does the walk once.
 var __found = {};
@@ -135,29 +77,13 @@ function __find(sel, scope) {
 
 function __findAll(sel, scope) {
   var out = __list([]);
-  var p = __parseSel(sel);
+  var p = __Sel.PresSel.parse(String(sel));
   if (p.error) {
     console.log('find("' + sel + '"): ' + p.error);
     return out;
   }
-  var steps = p.steps;
-  var n = steps.length;
-  for (var i = 1; i < __ents.length; i++) {
-    var e = __ents[i];
-    if (scope && (e === scope || !__within(e, scope))) continue;
-    if (!__stepMatches(steps[n - 1], e)) continue;
-    var k = n - 2;
-    var up = e.parent;
-    while (k >= 0 && up) {
-      if (scope && up === scope) {
-        if (__stepMatches(steps[k], up)) k--;
-        break;
-      }
-      if (__stepMatches(steps[k], up)) k--;
-      up = up.parent;
-    }
-    if (k < 0) out.push(e);
-  }
+  var hit = p.find(__selEnts, scope ? scope.__i : 0);
+  for (var i = 0; i < hit.length; i++) out.push(__ents[hit[i]]);
   return out;
 }
 
@@ -259,18 +185,30 @@ function add(kind, p) {
 
 function __setTree(list) {
   __ents = [];
+  __selEnts = [];
   __byId = {};
   __found = {};
   for (var i = 0; i < list.length; i++) {
     var e = new __Ent(list[i]);
+    e.__i = i;
     __ents.push(e);
     __byId[e.id] = e;
+    var s = new __Sel.PresEnt();
+    s.id = e.id;
+    s.kind = e.kind;
+    s.name = e.name;
+    s.classes = e.classes;
+    s.index = e.index;
+    s.from = e.from;
+    s.to = e.to;
+    __selEnts.push(s);
   }
   for (var j = 0; j < list.length; j++) {
     var p = list[j].p;
     if (p >= 0 && p < __ents.length && p !== j) {
       __ents[j].parent = __ents[p];
       __ents[p].children.push(__ents[j]);
+      __selEnts[j].parent = p;
     }
   }
   // what was set on an entity that is gone with an edit is dropped
@@ -397,3 +335,5 @@ function __tickFor(seconds) {
   }
 }
 `;
+
+export const SCRIPT_RUNTIME = SCRIPT_SEL + "\n" + OWN;

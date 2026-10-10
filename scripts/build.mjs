@@ -81,6 +81,21 @@ export function buildThree(ranger, dir) {
   return threeJs;
 }
 
+// The selector language of slide scripts (src/PresSel.rgr) for the
+// program's sandbox: dir/script-sel.js, SCRIPT_SEL in the String.raw form
+// of the other runtimes (web/script-runtime.js starts with it, and the Go
+// server reads it the same way). The deck's own find() is the same code.
+export function buildScriptSel(ranger, dir) {
+  const selJs = path.join(dir, "script-sel.js");
+  compile(ranger, "PresSel.rgr", selJs);
+  const code = fs.readFileSync(selJs, "utf8");
+  if (/`|\$\{/.test(code)) throw new Error("PresSel.rgr compiled to text a String.raw can not hold (a backtick or ${)");
+  fs.writeFileSync(selJs, "// built from src/PresSel.rgr by scripts/build.mjs: the selectors of slide scripts.\n"
+    + "export const SCRIPT_SEL = String.raw`\nvar __Sel = (function () {\n" + code
+    + "\nreturn { PresEnt: PresEnt, PresSel: PresSel };\n})();\n`;\n");
+  return selJs;
+}
+
 export function build({ ranger } = {}) {
   ranger = ranger || ensureRanger();
   fs.mkdirSync(distDir, { recursive: true });
@@ -106,6 +121,7 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(traceJs, "// loaded on demand by trace-worker.js: a picture traced into an SVG.\n"
     + "(function () {\n" + fs.readFileSync(traceJs, "utf8") + "\n;globalThis.PresTrace = PresTrace;\n})();\n");
   buildThree(ranger, distDir);
+  buildScriptSel(ranger, distDir);
   // The deck's music heard (src/PresBeat.rgr): bars, beats and tempo for
   // the beat effects (web/music.js, web/beatfx.js). Small, loaded with the
   // page.

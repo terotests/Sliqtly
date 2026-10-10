@@ -29,7 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, ensureCerxes, compile, root, webDir, log } from "./lib.mjs";
-import { copyFaces, facesStamp, minify, buildThree } from "./build.mjs";
+import { copyFaces, facesStamp, minify, buildThree, buildScriptSel } from "./build.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
 export const viewDir = path.join(webDir, "dist-view");
@@ -70,6 +70,7 @@ export function buildView({ ranger } = {}) {
     + "(function () {\n" + fs.readFileSync(playJs, "utf8") + "\n;globalThis.PresPlayWeb = PresPlayWeb;\nglobalThis.PresScriptWeb = PresScriptWeb;\n})();\n");
   minify(playJs);
   buildThree(ranger, viewDir);
+  buildScriptSel(ranger, viewDir);
   const cerxes = ensureCerxes();
   copy(cerxes.runtime, "cerxes-runtime.js");
   copy(cerxes.wasi, "cerxes-wasi.js");

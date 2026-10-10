@@ -741,7 +741,7 @@ class Check {
                     def ps:PresSel (PresSel.parse(din.sceneSel))
                     c.sceneSelError = ps.error
                     if ((strlen ps.error) == 0) {
-                        for (ps.find(sc 0)) fat:int fai {
+                        for (ps.find(sc.ents 0)) fat:int fai {
                             def fe:PresEnt (sc.at(fat))
                             push c.sceneFound fe.id
                         }
