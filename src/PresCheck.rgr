@@ -21,6 +21,7 @@ Import "PresReview.rgr"
 Import "PresCodeFiles.rgr"
 Import "PresCodeLinks.rgr"
 Import "PresCodeRows.rgr"
+Import "PresCodeView.rgr"
 Import "../rangerdiff/src/RdText.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
@@ -154,6 +155,7 @@ class PresCheck {
         this.review()
         this.codeSource()
         this.codeRows()
+        this.codeView()
         this.colorWords()
         this.reviewDiagram()
         this.helpGuide()
@@ -584,6 +586,69 @@ class PresCheck {
 
     ; The code viewer's rows: now, before, the change in one column and side
     ; by side, and which new line a press on each row comments.
+    ; The source viewer's model: growing out of the box, zoom, a press held
+    ; still that becomes a comment's hold, and the lines a hold comments.
+    fn codeView:void () {
+        def v (new PresCodeView())
+        def ls:[PresCodeLink]
+        v.open(ls 0 0.0 0.0 10.0 10.0 1.0)
+        this.ok((v.isOpen == false) "viewer: nothing to open, nothing opens")
+        def k (new PresCodeLink())
+        k.path = "a.cpp"
+        push ls k
+        v.open(ls 3 10.0 20.0 100.0 50.0 1.0)
+        this.ok((v.isOpen && (v.tab == 0)) "viewer: opens, a tab out of range is the first")
+        this.ok(((v.amount(1.0)) == 0.0) "viewer: grows from nothing")
+        this.ok(((fabs ((v.amount(1.15)) - 0.5)) < 0.001) "viewer: half way half way through")
+        this.ok(((v.amount(1.3)) == 1.0) "viewer: open after 0.3 s")
+        this.ok(((v.busy(1.1)) && ((v.busy(2.0)) == false)) "viewer: busy only while it grows")
+        this.ok(((PresCodeView.mix(0.5 10.0 30.0)) == 20.0) "viewer: the box drawn between the two")
+        v.zoomBy(2)
+        this.ok((((v.fontSize(100.0)) > 125.0) && ((v.fontSize(100.0)) < 126.0)) ("viewer: two steps up is ~125 %, got " + (to_string (v.fontSize(100.0)))))
+        v.zoomBy(-30)
+        this.ok((v.zoom == -6) "viewer: zoom stops at -6")
+        this.ok((((PresCodeView.nextMode("diff")) == "split") && ((PresCodeView.nextMode("before")) == "diff")) "viewer: D goes diff, split, now, before, diff")
+        ; a press held still on a row that takes comments becomes a hold
+        v.down(4 100.0 100.0 5.0)
+        this.ok(((v.tick(5.3 true)) == false) "viewer: not held yet at 0.3 s")
+        this.ok((v.tick(5.6 true)) "viewer: held at 0.6 s")
+        v.move(6 100.0 140.0)
+        this.ok((((v.holdFrom()) == 4) && ((v.holdLast()) == 6)) "viewer: moving on stretches the hold")
+        v.move(2 100.0 60.0)
+        this.ok((((v.holdFrom()) == 2) && ((v.holdLast()) == 4)) "viewer: …either way")
+        this.ok(((v.up()) == "comment") "viewer: let go, a comment")
+        ; one that moves first is a drag, never a hold
+        v.down(4 100.0 100.0 7.0)
+        v.move(4 100.0 120.0)
+        this.ok(((v.tick(8.0 true)) == false) "viewer: a press that moved does not become a hold")
+        this.ok(((v.up()) == "drag") "viewer: …it is a drag")
+        v.down(4 100.0 100.0 9.0)
+        this.ok(((v.tick(10.0 false)) == false) "viewer: no hold on a row that takes no comment")
+        this.ok(((v.up()) == "click") "viewer: …it is a click")
+        ; what a hold comments: new lines, a removed one at the line after it
+        def oldT:string "a\nb\nc\nd"
+        def newT:string "a\nB\nc\nd"
+        def diff:string (RdText.unified((RdText.diff(oldT newT)) 3))
+        def f (new PresCodeFile())
+        f.path = "a.cpp"
+        def r:PresCodeRows (PresCodeRows.make(f newT diff))
+        def d:[PresCodeRow] (r.rows("diff"))
+        def iDel:int -1
+        def i:int 0
+        while (i < (array_length d)) {
+            def w:PresCodeRow (itemAt d i)
+            if (w.kind == "del") {
+                iDel = i
+            }
+            i = (i + 1)
+        }
+        def cl:[int] (PresCodeView.commentLines(d iDel (iDel + 1)))
+        this.ok(((((itemAt cl 0) == 2) && ((itemAt cl 1) == 2)) && (((itemAt cl 2) == 2) && ((itemAt cl 3) == 2))) ("viewer: removed b and new B comment new line 2, old line 2 removed: " + (to_string (itemAt cl 0)) + "," + (to_string (itemAt cl 1)) + "," + (to_string (itemAt cl 2)) + "," + (to_string (itemAt cl 3))))
+        def none:[int] (PresCodeView.commentLines(d 0 0))
+        this.ok(((itemAt none 0) == 0) "viewer: a hunk's header comments nothing")
+        this.ok(((v.close(11.0)) && ((v.close(11.0)) == false)) "viewer: closes once")
+    }
+
     fn codeRows:void () {
         def oldT:string "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10"
         def newT:string "l1\nl2\nL3x\nl4\nl5\nl7\nl8\nnew8b\nl9\nl10"
