@@ -32,6 +32,8 @@
 // ticks run to the end (`seconds`).
 // __scriptAt(arg) -> the same, `time` seconds in (no final()).
 // __scriptLeave(arg) -> the same, after onLeave(a.to).
+// __scriptOpen(arg) -> the same, as it opens: start(), onEnter(from) and
+// build(step), no tick (the slide as it arrives, worked out ahead).
 export const SCRIPT_RUNTIME = String.raw`
 var __ents = [];
 var __byId = {};
@@ -379,6 +381,21 @@ function __scriptAt(arg) {
   __begin(a);
   __buildTo(a.steps || 0);
   __tickFor(a.time);
+  return __out();
+}
+
+// How the script opens: what start(), onEnter(a.deck.from) and
+// build(a.deck.step) set, as its first frame does, before any tick. The
+// slide arrives in it (web/apps.js works it out ahead), so nothing the
+// script moves is seen first where the Markdown has it.
+function __scriptOpen(arg) {
+  var a = JSON.parse(arg);
+  __begin(a);
+  var build = __hook("build");
+  if (build && slide.step !== __lastStep) {
+    __lastStep = slide.step;
+    build(slide.step);
+  }
   return __out();
 }
 

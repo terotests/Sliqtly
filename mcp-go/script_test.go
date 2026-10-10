@@ -65,6 +65,16 @@ func TestSlideScript(t *testing.T) {
 	rd := call(t, s, "get_display_list", map[string]any{"deck_id": sc(rc)["deck_id"].(string), "slide": 2, "selector": "chart:1 bar"})
 	match(t, textOf(rd), `find\("chart:1 bar"\) → 3 entities`)
 
+	// the module form: its selectors are checked the same way
+	mod := "import { presentation } from \"Sliqtly\";\nconst slide = presentation.activeSlide;\nexport function tick() { slide.find(\"li:2\").set({ opacity: 0.5 }); slide.find(\"li:7\").set({ opacity: 0 }); }\n"
+	mc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
+		"files": []any{map[string]any{"name": "fx.tsx", "text": mod}}})
+	mw := fmt.Sprint(sc(mc)["warnings"])
+	match(t, mw, `find\("li:7"\) → 0 entities`)
+	if strings.Contains(mw, `find("li:2")`) {
+		t.Fatal("a selector that finds something was reported:", mw)
+	}
+
 	// a script the deck does not have is said once, as a script
 	c2 := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md})
 	match(t, fmt.Sprint(sc(c2)["warnings"]), `apps/fx\.tsx is a slide's script .*→ topic=scripts`)
@@ -96,6 +106,21 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	id := sc(c)["deck_id"].(string)
 	d := call(t, s, "get_display_list", map[string]any{"deck_id": id, "slide": 2})
 	match(t, textOf(d), `Where the slide's script ends .*"li-2":\{"opacity":0\}`)
+
+	// the module form runs the same: import { presentation } from "Sliqtly"
+	mod := "import { presentation, env } from \"Sliqtly\";\nconst items = presentation.activeSlide.find(\"li\");\nlet t = 0;\n" +
+		"export function tick(dt: number) { t += dt; items.first()?.set({ opacity: env.export ? 0.25 : 1 }); }\n"
+	mc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
+		"files": []any{map[string]any{"name": "fx.tsx", "text": mod}}})
+	if w := fmt.Sprint(sc(mc)["warnings"]); strings.Contains(w, "does not run") {
+		t.Fatal(w)
+	}
+	md2 := call(t, s, "get_display_list", map[string]any{"deck_id": sc(mc)["deck_id"].(string), "slide": 2})
+	match(t, textOf(md2), `Where the slide's script ends .*"li-1":\{"opacity":0\.25\}`)
+	// a module the page does not have is said
+	nomod := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
+		"files": []any{map[string]any{"name": "fx.tsx", "text": "import { x } from \"nope\";\nfunction tick() {}\n"}}})
+	match(t, fmt.Sprint(sc(nomod)["warnings"]), `does not run: .*Cannot find module 'nope' \(modules here: Sliqtly\)`)
 
 	st := call(t, s, "render_strip", map[string]any{"deck_id": id, "slide": 2, "frames": 3})
 	if st.IsError {

@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10.** If a result names a newer version, read Core
+**Guide version 2026-10-10b.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1132,6 +1132,11 @@ arrows. Name it on the slide's heading; one script a slide:
   slide's look.
 - The old globals (`find`, `add`, `tree`, `slide`, `deck`) still work; the
   page notes once in the console that `find()` is the old form.
+- The slide arrives as the script opens it: what its top level,
+  `start()`, `onEnter(from)` and `build(n)` set is worked out before the
+  slide is shown, so set the starting look there (a list hidden, bars at
+  0), not in the first `tick`. While presenting, `tick` starts once the
+  slide's transition is over.
 - It runs while its slide is shown, in the editor and in the shared
   presentation (sliqtly.com/s/…), and starts again each time the slide
   comes back. A frame over its time budget three times in a row stops it,

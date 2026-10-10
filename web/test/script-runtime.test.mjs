@@ -205,3 +205,95 @@ test("a script over its budget three frames in a row is stopped", async () => {
   assert.equal(scriptBudget(CALIB_REF_MS * 10), BUDGET_MS * 4);
   assert.equal(overBudget(0, 6, scriptBudget(CALIB_REF_MS * 2)).over, 0, "6 ms is within 8");
 });
+
+// the runtime with defineModule as CErXes has it: the modules it defined
+function moduleRuntime(source = "") {
+  const modules = {};
+  const ctx = vm.createContext({ console: { log() {} }, JSON, Math, defineModule: (name, m) => { modules[name] = m; return m; } });
+  vm.runInContext(DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + source, ctx);
+  return { ctx, modules };
+}
+
+test('the "Sliqtly" module: presentation.activeSlide finds what find() finds', () => {
+  const app = openDeck();
+  const tree = JSON.parse(app.scriptTree(app.deck.scriptKeyOf(0)));
+  const { ctx, modules } = moduleRuntime();
+  const S = modules.Sliqtly;
+  assert.ok(S, "the runtime defines it");
+  ctx.__setTree(tree);
+  ctx.__deckState({ slide: 3, slides: 7, step: 1, from: 2, mode: "present" });
+  const slide = S.presentation.activeSlide;
+  assert.deepEqual(Array.from(slide.find("li")).map((e) => e.id), Array.from(ctx.__find("li", null)).map((e) => e.id));
+  assert.equal(slide.find("li").length, 2);
+  assert.equal(slide.index, 3);
+  assert.equal(slide.step, 1);
+  assert.equal(slide.from, 2);
+  assert.equal(S.presentation.slides, 7);
+  assert.equal(slide.tree().id, "slide");
+  assert.equal(typeof S.input.take, "function");
+  assert.equal(S.env.export, false);
+});
+
+test("the old globals still work and say once that they are the old form", () => {
+  const app = openDeck();
+  const tree = JSON.parse(app.scriptTree(app.deck.scriptKeyOf(0)));
+  const logged = [];
+  const ctx = vm.createContext({ console: { log: (l) => logged.push(String(l)) }, JSON, Math });
+  vm.runInContext(DECK_RUNTIME + "\n" + SCRIPT_RUNTIME, ctx);
+  ctx.__setTree(tree);
+  assert.equal(ctx.find("li").length, 2);
+  ctx.find("h2");
+  assert.equal(logged.filter((l) => /find\(\) is the old form/.test(l)).length, 1);
+});
+
+// The declarations sliqtly_guide(topic=script-api) gives: every member of
+// Presentation and ActiveSlide is on the runtime's objects.
+test("the script-api declarations name what the runtime has", () => {
+  const guide = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "mcp-go", "assets", "guide.md"), "utf8");
+  const members = (name) => {
+    const m = guide.match(new RegExp("interface " + name + " \\{([\\s\\S]*?)\\n\\}"));
+    assert.ok(m, "interface " + name);
+    return [...m[1].matchAll(/^\s+(?:readonly )?([a-zA-Z]+)\??[(:<]/gm)].map((x) => x[1]);
+  };
+  const { ctx, modules } = moduleRuntime();
+  ctx.__setTree([{ id: "slide", k: "slide", b: [0, 0, 960, 540], i: 0, p: -1 }]);
+  const S = modules.Sliqtly;
+  for (const k of members("Presentation")) assert.ok(k in S.presentation, "presentation." + k);
+  for (const k of members("ActiveSlide")) assert.ok(k in S.presentation.activeSlide, "activeSlide." + k);
+  for (const k of members("Input")) assert.ok(k in S.input, "input." + k);
+  for (const k of members("Env")) assert.ok(k in S.env, "env." + k);
+  const exported = [...guide.matchAll(/^\s+export const (\w+)/gm)].map((x) => x[1]);
+  assert.deepEqual(exported, ["presentation", "input", "env"]);
+  for (const k of exported) assert.ok(S[k], k);
+});
+
+test("how a script opens: start, onEnter and build, no tick; the stage shows it until the first frame", async () => {
+  const { openArg } = await import("../dist/apps.js");
+  const app = openDeck();
+  const key = app.deck.scriptKeyOf(0);
+  const treeText = app.scriptTree(key);
+  const rt = runtime(`
+    var came = -1, built = [];
+    function start() { find("li").set({ opacity: 0 }); }
+    function onEnter(from) { came = from; }
+    function build(n) { built.push(n); }
+    function tick() { find("li").set({ opacity: 1 }); }
+  `);
+  const arg = JSON.parse(openArg(JSON.stringify({ home: 3, slide: 1, from: 0, step: 4 }), treeText));
+  assert.deepEqual([arg.deck.slide, arg.deck.from, arg.deck.step], [3, 2, 0], "as it arrives from the slide before");
+  const out = JSON.parse(rt.__scriptOpen(JSON.stringify(arg)));
+  assert.equal(out.p["li-1"].opacity, 0, "no tick ran");
+  assert.equal(rt.came, 2);
+  assert.deepEqual(Array.from(rt.built), [0]);
+  // the editor draws it on the stage until the script's first frame
+  assert.ok(app.setScriptOpen(key, JSON.stringify(out)));
+  const run = app.deck.scriptRuns[0];
+  assert.equal(run.hasOpen, true);
+  app.deck.showControls = true;
+  assert.equal(app.deck.scriptFrameFor(0), run.open);
+  assert.ok(app.setScriptFrame(key, JSON.stringify({ p: { "li-1": { opacity: 1 } } })));
+  assert.equal(run.hasOpen, false);
+  assert.ok(app.setScriptOpen(key, JSON.stringify(out)));
+  app.endScriptLive(key, "");
+  assert.equal(run.hasOpen, false, "and not after it left the stage");
+});
