@@ -108,13 +108,16 @@ class Pres3D {
     }
 
     ; World `key` drawn into the canvas at w x h device pixels (the page
-    ; has sized the canvas). False when there is no GPU or no such world.
-    fn draw:boolean (key:string w:int h:int) {
+    ; has sized the canvas), its element's box at (vx, vy) vw x vh in it:
+    ; the camera frames that box, square pixels, and what is outside it is
+    ; the same world seen further out (Three.js setViewOffset). False when
+    ; there is no GPU or no such world.
+    fn draw:boolean (key:string w:int h:int vx:double vy:double vw:double vh:double) {
         if ((ready == false) || ((indexOf worldKeys key) < 0)) {
             return false
         }
         def wo:Pres3DWorld (this.world(key))
-        wo.camera.aspect = ((to_double w) / (to_double h))
+        wo.camera.setViewOffset(vw vh (0.0 - vx) (0.0 - vy) (to_double w) (to_double h))
         renderer.setSize(w h)
         renderer.setOutputSRGB(wo.srgb)
         renderer.setShadowMapEnabled(wo.shadows)

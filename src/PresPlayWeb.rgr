@@ -22,6 +22,8 @@ class PresPlayWeb {
     def specs:[MdAppSpec]
     ; the box of each, in the slide's units: x, y, w, h one after another
     def boxes:[double]
+    def slideW:double 0.0
+    def slideH:double 0.0
 
     Constructor () {
     }
@@ -48,6 +50,8 @@ class PresPlayWeb {
         v.key = key
         v.width = width
         v.height = height
+        v.slideW = slideW
+        v.slideH = slideH
         push views v
         def spec:MdAppSpec (new MdAppSpec())
         spec.src = src
@@ -90,8 +94,22 @@ class PresPlayWeb {
         v.allow3d = on
     }
 
+    ; The slide's size in its units: a 3-D world may draw over all of it.
+    fn setSlide:void (w:double h:double) {
+        def i:int 0
+        while (i < (array_length views)) {
+            def v:PresPlayView (itemAt views i)
+            v.slideW = w
+            v.slideH = h
+            i = (i + 1)
+        }
+        slideW = w
+        slideH = h
+    }
+
     ; The 3-D worlds of the program's last frame, placed in its box:
-    ; [{src, scene, x, y, w, h}] in the slide's units, "[]" for none.
+    ; [{src, scene, x, y, w, h, clip, sw, sh}] in the slide's units, "[]"
+    ; for none.
     fn scenesJson:string (key:string) {
         def i:int (this.indexOf(key))
         if (i < 0) {
@@ -99,6 +117,20 @@ class PresPlayWeb {
         }
         def v:PresPlayView (itemAt views i)
         return ((v.scenesIn((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))).toJson())
+    }
+
+    ; Those worlds past the program's picture as display list JSON in the
+    ; slide's units, for the page to put in the slide's list where the
+    ; server said (worldsAt: over the ground, under the text), as the
+    ; editor's deck paints them (PresDeck.paintWorlds).
+    fn worldsJson:string (key:string) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        def i:int (this.indexOf(key))
+        if (i >= 0) {
+            def v:PresPlayView (itemAt views i)
+            v.paintWorlds(out (this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))
+        }
+        return (out.toJson())
     }
 
     ; Why the page stopped the program, "" while it runs.
@@ -137,19 +169,32 @@ class PresPlayWeb {
     ; Slide point (px, py) in the program's own units with the id under it,
     ; {"x", "y", "id"}, or "" outside its picture.
     fn point:string (key:string px:double py:double) {
+        return (this.pointIn(key px py false))
+    }
+
+    ; The same, and past its picture where a 3-D world of it draws over the
+    ; whole slide ({"past": true}): where the pointer is for the program.
+    fn pointPast:string (key:string px:double py:double) {
+        return (this.pointIn(key px py true))
+    }
+
+    fn pointIn:string (key:string px:double py:double past:boolean) {
         def i:int (this.indexOf(key))
         if (i < 0) {
             return ""
         }
         def v:PresPlayView (itemAt views i)
-        def loc:[double] (v.toLocal((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py))
-        if ((itemAt loc 0) < 0.0) {
-            return ""
+        return (v.pointAt((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py past))
+    }
+
+    ; The program's worlds drawn past its picture whose pictures are under
+    ; slide point (px, py): [{"src", "u", "v"}] (PresPlayView.pastAt).
+    fn pastAt:string (key:string px:double py:double) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return "[]"
         }
-        def o:JVal (JVal.mkObj())
-        o.setNum("x" (itemAt loc 0))
-        o.setNum("y" (itemAt loc 1))
-        o.setStr("id" (v.idAt((itemAt loc 0) (itemAt loc 1))))
-        return (o.toJson())
+        def v:PresPlayView (itemAt views i)
+        return ((v.pastAt((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py)).toJson())
     }
 }

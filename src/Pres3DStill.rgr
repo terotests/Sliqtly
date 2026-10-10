@@ -38,9 +38,16 @@ class Pres3DStill {
     ; The world of a frame's <scene3d> (its JSON element) drawn w x h pixels:
     ; RGBA from the top, transparent where no mesh is.
     fn draw:buffer (json:string w:int h:int) {
+        return (this.drawIn(json w h 0.0 0.0 (to_double w) (to_double h)))
+    }
+
+    ; draw, the element's box at (vx, vy) vw x vh in the picture: the
+    ; camera frames that box and the rest is the world further out, as the
+    ; page draws it (Pres3D.draw).
+    fn drawIn:buffer (json:string w:int h:int vx:double vy:double vw:double vh:double) {
         world.setScene(json env)
         error = world.error
-        world.camera.aspect = ((to_double w) / (to_double h))
+        world.camera.setViewOffset(vw vh (0.0 - vx) (0.0 - vy) (to_double w) (to_double h))
         renderer.setSize(w h)
         renderer.setOutputSRGB(world.srgb)
         renderer.setShadowMapEnabled(world.shadows)

@@ -80,6 +80,10 @@
   // fetched and handed over inline or as a data: URL — the modules through
   // an import map, their imports rewritten to absolute URLs — and
   // Firebase's scripts through window.__sliqtlyLoadScript (web/sliqtly.js).
+  // ChatGPT's CSP is the other way round: no data: scripts, the
+  // resourceDomains allowed. Which kind of script URL runs here is tried
+  // first (scriptKind): data:, else blob:, else the modules straight from
+  // the site.
   let page = null;
   const enc = (bytes) => {
     let bin = "";
@@ -87,6 +91,30 @@
     return btoa(bin);
   };
   const dataUrl = (type, bytes) => "data:" + type + ";base64," + enc(bytes);
+  // whether a classic script at this URL runs in this page (the viewer's
+  // frame has the same CSP: an srcdoc inherits it)
+  function runs(url) {
+    return new Promise((ok) => {
+      const s = document.createElement("script");
+      s.onload = () => { s.remove(); ok(true); };
+      s.onerror = () => { s.remove(); ok(false); };
+      s.src = url;
+      document.head.append(s);
+    });
+  }
+  let kind = null;
+  async function scriptKind() {
+    if (await runs("data:text/javascript,0")) return "data";
+    try {
+      const u = URL.createObjectURL(new Blob(["0"], { type: "text/javascript" }));
+      if (await runs(u)) return "blob";
+    } catch (_) { /* no blob: here */ }
+    return "site";
+  }
+  // a script's text as a URL of the kind that runs here
+  const scriptUrl = (text) => kind === "blob"
+    ? URL.createObjectURL(new Blob([text], { type: "text/javascript" }))
+    : dataUrl("text/javascript", new TextEncoder().encode(text));
   async function get(url) {
     const r = await fetch(url);
     if (!r.ok) throw new Error(new URL(url).pathname + ": HTTP " + r.status);
@@ -104,7 +132,7 @@
       return pre + q + abs + q;
     });
     for (const d of deps) await modules(d, map);
-    map.set(url, dataUrl("text/javascript", new TextEncoder().encode(text)));
+    map.set(url, scriptUrl(text));
   }
   // A module worker, whole in one data: URL: a worker takes no import map,
   // so its imports are data: URLs too, and its import.meta.url is its URL
@@ -120,12 +148,13 @@
     }
     text = text.replace(re, (_, pre, q, rel) => pre + q + inlined.get(new URL(rel, url).href) + q);
     text = text.split("import.meta.url").join(JSON.stringify(url));
-    return dataUrl("text/javascript", new TextEncoder().encode(text));
+    return scriptUrl(text);
   }
   // the workers the viewer may start (web/sitescript.js workerUrl), made
   // only when the build has them
   const WORKERS = ["cerxes-worker.js"];
   async function build(origin) {
+    kind ??= await scriptKind();
     let html = await (await get(origin + "/index.html")).text();
     const base = origin + "/";
     const map = new Map();
@@ -135,6 +164,10 @@
     for (const m of html.matchAll(tag)) {
       const abs = new URL(m[2], base).href;
       if (/type="module"/.test(m[1] + m[3])) {
+        // from the site, the modules find what is beside them themselves
+        // (a worker from the site does not start here: programs show
+        // their plates)
+        if (kind === "site") continue;
         await modules(abs, map);
         // with the page's own build stamp (?v=…), as the modules have it
         const stamp = new URL(abs).search;

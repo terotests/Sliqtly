@@ -44,6 +44,17 @@ class PresPlayScene {
     def src:string ""
     def json:string ""
     def el:EVGElement (EVGElement.createDiv())
+    ; where the page draws it on the slide (slide units, `place`): the
+    ; element's box, and the picture's, which is the whole slide unless
+    ; the element keeps the world in its box (overflow: hidden)
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def clip:boolean false
+    ; fit="box": the world stays in its element (as overflow: hidden);
+    ; fit="slide" (the default): it may draw over the whole slide
+    def boxed:boolean false
 
     Constructor () {
     }
@@ -72,6 +83,10 @@ class PresPlayView {
     def lay:EVGLayout (new EVGLayout())
     ; the fence allows 3-D worlds (`allow: 3d`): a <scene3d> shows one
     def allow3d:boolean false
+    ; the slide the program is on, in its units (0 when not known): a world
+    ; that does not clip draws over all of it
+    def slideW:double 0.0
+    def slideH:double 0.0
     ; the last frame's worlds, and whether it asked for one at all
     def scenes:[PresPlayScene]
     def asked3d:boolean false
@@ -194,8 +209,16 @@ class PresPlayView {
                 def sc:PresPlayScene (new PresPlayScene())
                 sc.src = ("three:" + key + ":" + (to_string ((array_length scenes) + 1)))
                 sc.json = (n.toJson())
+                ; the element shows the world's picture, which covers the
+                ; whole slide (paint): inside the program's picture it is in
+                ; its place among the program's elements, and past it the
+                ; deck paints the rest over the slide's ground, under its
+                ; text (paintWorlds)
                 sc.el = el
                 el.src = sc.src
+                if (a.isObj()) {
+                    sc.boxed = (((a.get("fit")).asStr("")) == "box")
+                }
                 push scenes sc
             }
             return el
@@ -251,6 +274,7 @@ class PresPlayView {
         dl.build(root)
         dl.scaleBy((itemAt f 2))
         dl.offsetBy((itemAt f 0) (itemAt f 1))
+        this.worldPictures(dl bx by bw bh)
         ; what the program draws past its own size is not the slide's
         def clip:EVGDrawCmd (new EVGDrawCmd())
         clip.kind = 4
@@ -266,30 +290,172 @@ class PresPlayView {
         return true
     }
 
+    ; The worlds' pictures in the program's list `dl` (laid in the box) put
+    ; where they are drawn: a world that clips over its element's box, else
+    ; the window of its whole-slide picture over the program's picture, so
+    ; the part inside it shows in its place among the program's elements.
+    fn worldPictures:void (dl:EVGDisplayList bx:double by:double bw:double bh:double) {
+        if ((array_length scenes) == 0) {
+            return
+        }
+        this.place(bx by bw bh)
+        def f:[double] (this.fitIn(bx by bw bh))
+        def ci:int 0
+        while (ci < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds ci)
+            ci = (ci + 1)
+            if (cmd.kind == 2) {
+                def si:int 0
+                while (si < (array_length scenes)) {
+                    def sc:PresPlayScene (itemAt scenes si)
+                    si = (si + 1)
+                    if (cmd.src == sc.src) {
+                        if sc.clip {
+                            cmd.x = sc.x
+                            cmd.y = sc.y
+                            cmd.w = sc.w
+                            cmd.h = sc.h
+                        } {
+                            def x0:double (PresPlayView.most((itemAt f 0) 0.0))
+                            def y0:double (PresPlayView.most((itemAt f 1) 0.0))
+                            def x1:double (PresPlayView.least(((itemAt f 0) + (width * (itemAt f 2))) slideW))
+                            def y1:double (PresPlayView.least(((itemAt f 1) + (height * (itemAt f 2))) slideH))
+                            this.cropTo(cmd x0 y0 (PresPlayView.most((x1 - x0) 0.0)) (PresPlayView.most((y1 - y0) 0.0)))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ; The worlds of the last frame placed for the program fitted in the box
+    ; (bx, by, bw, bh): each one's element box in slide units.
+    fn place:void (bx:double by:double bw:double bh:double) {
+        def f:[double] (this.fitIn(bx by bw bh))
+        def k:double (itemAt f 2)
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            sc.x = ((itemAt f 0) + (sc.el.calculatedX * k))
+            sc.y = ((itemAt f 1) + (sc.el.calculatedY * k))
+            sc.w = (sc.el.calculatedWidth * k)
+            sc.h = (sc.el.calculatedHeight * k)
+            sc.clip = ((sc.boxed || (sc.el.overflow == "hidden")) || ((slideW <= 0.0) || (slideH <= 0.0)))
+            i = (i + 1)
+        }
+    }
+
     ; The worlds of the last frame where the page draws them: [{src, scene,
-    ; x, y, w, h}], the element's box in slide units when the program is
-    ; fitted in the box (bx, by, bw, bh).
+    ; x, y, w, h, clip}], the element's box in slide units when the program
+    ; is fitted in the box (bx, by, bw, bh).
+    ; A world that does not clip also says the slide ("sw", "sh"): its
+    ; picture covers all of it.
     fn scenesIn:JVal (bx:double by:double bw:double bh:double) {
         def out:JVal (JVal.mkArr())
         if (drawn == false) {
             return out
         }
-        def f:[double] (this.fitIn(bx by bw bh))
-        def k:double (itemAt f 2)
+        this.place(bx by bw bh)
         def i:int 0
         while (i < (array_length scenes)) {
             def sc:PresPlayScene (itemAt scenes i)
             def o:JVal (JVal.mkObj())
             o.setStr("src" sc.src)
             o.set("scene" (JVal.parse(sc.json)))
-            o.setNum("x" ((itemAt f 0) + (sc.el.calculatedX * k)))
-            o.setNum("y" ((itemAt f 1) + (sc.el.calculatedY * k)))
-            o.setNum("w" (sc.el.calculatedWidth * k))
-            o.setNum("h" (sc.el.calculatedHeight * k))
+            o.setNum("x" sc.x)
+            o.setNum("y" sc.y)
+            o.setNum("w" sc.w)
+            o.setNum("h" sc.h)
+            o.setBool("clip" sc.clip)
+            if (sc.clip == false) {
+                o.setNum("sw" slideW)
+                o.setNum("sh" slideH)
+            }
             out.add(o)
             i = (i + 1)
         }
         return out
+    }
+
+    ; The worlds' pictures past the program's picture, painted into `out`
+    ; (a slide's list, between its ground and its boxes): the program in
+    ; the box (bx, by, bw, bh) shows the part inside it (paint), this the
+    ; rest, as the four bands of the slide round it, each the window of the
+    ; whole-slide picture that falls in it (a crop, which every painter and
+    ; the PDF and PPTX writers take). A world that clips has nothing here.
+    ; How many worlds reach past.
+    fn paintWorlds:int (out:EVGDisplayList bx:double by:double bw:double bh:double) {
+        if (drawn == false) {
+            return 0
+        }
+        this.place(bx by bw bh)
+        def f:[double] (this.fitIn(bx by bw bh))
+        def px:double (itemAt f 0)
+        def py:double (itemAt f 1)
+        def pw:double (width * (itemAt f 2))
+        def ph:double (height * (itemAt f 2))
+        ; above, below, left and right of the program's picture
+        def bands:[double] ([] _:double (0.0 0.0 slideW py 0.0 (py + ph) slideW (slideH - (py + ph)) 0.0 py px ph (px + pw) py (slideW - (px + pw)) ph))
+        def n:int 0
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            i = (i + 1)
+            if (sc.clip == false) {
+                n = (n + 1)
+                def j:int 0
+                while (j < 4) {
+                    this.windowOf(out sc (itemAt bands (j * 4)) (itemAt bands ((j * 4) + 1)) (itemAt bands ((j * 4) + 2)) (itemAt bands ((j * 4) + 3)))
+                    j = (j + 1)
+                }
+            }
+        }
+        return n
+    }
+
+    ; The part (x, y, w, h) of world `sc`'s whole-slide picture, at its place
+    ; on the slide, pushed to `out`; nothing when the part is empty.
+    fn windowOf:void (out:EVGDisplayList sc:PresPlayScene x:double y:double w:double h:double) {
+        def x0:double (PresPlayView.most(x 0.0))
+        def y0:double (PresPlayView.most(y 0.0))
+        def x1:double (PresPlayView.least((x + w) slideW))
+        def y1:double (PresPlayView.least((y + h) slideH))
+        if (((x1 - x0) <= 0.0) || ((y1 - y0) <= 0.0)) {
+            return
+        }
+        def pic:EVGDrawCmd (new EVGDrawCmd())
+        pic.kind = 2
+        pic.src = sc.src
+        pic.a = 1.0
+        this.cropTo(pic x0 y0 (x1 - x0) (y1 - y0))
+        push out.cmds pic
+    }
+
+    sfn most:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    sfn least:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
+    ; `pic` shows the part (x, y, w, h) of the slide of its whole-slide world.
+    fn cropTo:void (pic:EVGDrawCmd x:double y:double w:double h:double) {
+        pic.x = x
+        pic.y = y
+        pic.w = w
+        pic.h = h
+        pic.hasCrop = true
+        pic.cropX = (x / slideW)
+        pic.cropY = (y / slideH)
+        pic.cropW = (w / slideW)
+        pic.cropH = (h / slideH)
     }
 
     ; What the plate says under the program's name: why it is not running,
@@ -349,6 +515,86 @@ class PresPlayView {
             return ([] _:double (-1.0 -1.0))
         }
         return ([] _:double (x y))
+    }
+
+    ; A slide point in the program's own units wherever it is, past the
+    ; box (bx, by, bw, bh) too: [x, y].
+    fn toLocalPast:[double] (bx:double by:double bw:double bh:double px:double py:double) {
+        def f:[double] (this.fitIn(bx by bw bh))
+        def k:double (itemAt f 2)
+        return ([] _:double (((px - (itemAt f 0)) / k) ((py - (itemAt f 1)) / k)))
+    }
+
+    ; Whether a world of the last frame draws past the box (bx, by, bw, bh):
+    ; its picture covers the whole slide.
+    fn reachesPast:boolean (bx:double by:double bw:double bh:double) {
+        if (drawn == false) {
+            return false
+        }
+        this.place(bx by bw bh)
+        def past:boolean false
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            if (sc.clip == false) {
+                past = true
+            }
+            i = (i + 1)
+        }
+        return past
+    }
+
+    ; Slide point (px, py) in the program's own units with the id under it,
+    ; {"x", "y", "id"}, or "" outside its picture. past: a point off the
+    ; picture but on the slide is the program's too when a world of it
+    ; draws over the whole slide ({"x", "y", "id": "", "past": true}; x and
+    ; y then fall outside 0..width, 0..height).
+    fn pointAt:string (bx:double by:double bw:double bh:double px:double py:double past:boolean) {
+        def loc:[double] (this.toLocal(bx by bw bh px py))
+        def o:JVal (JVal.mkObj())
+        if ((itemAt loc 0) >= 0.0) {
+            o.setNum("x" (itemAt loc 0))
+            o.setNum("y" (itemAt loc 1))
+            o.setStr("id" (this.idAt((itemAt loc 0) (itemAt loc 1))))
+            return (o.toJson())
+        }
+        if ((past == false) || ((this.reachesPast(bx by bw bh)) == false)) {
+            return ""
+        }
+        if ((((px < 0.0) || (py < 0.0)) || (px > slideW)) || (py > slideH)) {
+            return ""
+        }
+        def far:[double] (this.toLocalPast(bx by bw bh px py))
+        o.setNum("x" (itemAt far 0))
+        o.setNum("y" (itemAt far 1))
+        o.setStr("id" "")
+        o.setBool("past" true)
+        return (o.toJson())
+    }
+
+    ; The worlds drawn past the box (bx, by, bw, bh) whose picture is under
+    ; slide point (px, py): [{"src", "u", "v"}], (u, v) the point in the
+    ; picture, 0..1 from its top left corner. The page looks whether the
+    ; world drew anything there (a press on it is the program's).
+    fn pastAt:JVal (bx:double by:double bw:double bh:double px:double py:double) {
+        def out:JVal (JVal.mkArr())
+        if ((((drawn == false) || (slideW <= 0.0)) || (slideH <= 0.0)) || ((((px < 0.0) || (py < 0.0)) || (px > slideW)) || (py > slideH))) {
+            return out
+        }
+        this.place(bx by bw bh)
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            if (sc.clip == false) {
+                def o:JVal (JVal.mkObj())
+                o.setStr("src" sc.src)
+                o.setNum("u" (px / slideW))
+                o.setNum("v" (py / slideH))
+                out.add(o)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; The id of the topmost element with one under a point of the program's

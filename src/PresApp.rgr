@@ -691,6 +691,27 @@ class PresApp {
         return ((PresFlightScene.of(deck)).toJson())
     }
 
+    ; Every slide's 3-D worlds as their programs last drew them, for an
+    ; export (web/main.js renderWorldStills): {"pw": the slide's width,
+    ; "scenes": [playScenes]}.
+    fn allPlayScenesJson:string () {
+        def all:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def got:JVal (deck.playScenes(i))
+            def j:int 0
+            while (j < (got.len())) {
+                all.add((got.at(j)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def o:JVal (JVal.mkObj())
+        o.setNum("pw" deck.pageW)
+        o.set("scenes" all)
+        return (o.toJson())
+    }
+
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {
@@ -817,6 +838,16 @@ class PresApp {
     fn playPoint:string (key:string x:double y:double) {
         this.slidePoint(x y)
         return (deck.playPoint(key spX spY))
+    }
+
+    ; Window point (x, y) on the worlds programs on the slide shown draw
+    ; past their boxes: [{"key", "src", "u", "v"}] (PresDeck.playPast).
+    fn playPast:string (x:double y:double) {
+        if ((deck.slideCount()) == 0) {
+            return "[]"
+        }
+        this.slidePoint(x y)
+        return ((deck.playPast(selected spX spY)).toJson())
     }
 
     ; The program that has the keyboard ("" gives it back to the deck).
@@ -9314,6 +9345,11 @@ class PresApp {
     fn openSettings:void (contrast:boolean) {
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Settings → Experimental: 3-D flight, as the page keeps it.
+    fn setFlight3d:void (on:boolean) {
+        panels.flight3d = on
     }
 
     ; File → Settings → Order of presentations: how a room lists them, as

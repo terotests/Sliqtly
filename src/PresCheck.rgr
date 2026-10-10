@@ -6890,15 +6890,40 @@ class PresCheck {
         this.ok((sc.el.src == sc.src) "worlds: the element shows that picture")
         def f0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
         def drawn:int 0
+        def firstAt:int -1
+        def lastAt:int -1
+        def wholeSlide:boolean true
+        def firstText:int -1
         def ci:int 0
         while (ci < (array_length f0.cmds)) {
             def cmd:EVGDrawCmd (itemAt f0.cmds ci)
             if ((cmd.kind == 2) && (cmd.src == sc.src)) {
                 drawn = (drawn + 1)
+                if (firstAt < 0) {
+                    firstAt = ci
+                }
+                lastAt = ci
+                ; a window of the whole-slide picture, where it falls on the slide
+                wholeSlide = (wholeSlide && (cmd.hasCrop && (((fabs ((cmd.cropX * deck.pageW) - cmd.x)) < 0.01) && ((fabs ((cmd.cropW * deck.pageW) - cmd.w)) < 0.01))))
+            }
+            if ((cmd.kind == 3) && (firstText < 0)) {
+                firstText = ci
             }
             ci = (ci + 1)
         }
-        this.ok((drawn == 1) "worlds: the slide draws the world's picture")
+        ; four bands round the program's picture on the ground, and the part
+        ; inside it in the program's own list
+        this.ok((drawn == 5) ("worlds: the slide draws the world's picture round the program and in it, got " + (to_string drawn)))
+        this.ok(wholeSlide "worlds: the world's picture covers the whole slide (it may reach past its box)")
+        this.ok(((firstText > firstAt) && (firstAt > 0)) ("worlds: over the ground, under the text, at " + (to_string firstAt) + " text " + (to_string firstText)))
+        this.ok((lastAt > firstText) "worlds: inside the program, in its place among its elements")
+        def groups0:[int]
+        def l0:EVGDisplayList (deck.slideList(0 groups0 0.0))
+        def atW:int deck.worldsAt
+        this.ok(((atW > 0) && ((itemAt l0.cmds atW).src == sc.src)) ("worlds: worldsAt says where, got " + (to_string atW)))
+        def groups1:[int]
+        deck.slideList(1 groups1 0.0)
+        this.ok((deck.worldsAt < 0) "worlds: no worldsAt on a slide without allow: 3d")
         def at:JVal (deck.playScenes(0))
         this.ok(((at.len()) == 1) "worlds: the page is told of one world on slide 1")
         if ((at.len()) == 1) {
@@ -6913,6 +6938,53 @@ class PresCheck {
             this.ok((bx > (b.x + (b.w * 0.4))) "worlds: at its right half")
             def sj:JVal (w0.get("scene"))
             this.ok(((sj.strOr("t" "")) == "scene3d") "worlds: with its element")
+            this.ok((((w0.numOr("sw" 0.0)) == deck.pageW) && ((w0.boolOr("clip" true)) == false)) "worlds: the page is told the slide it may draw over")
+        }
+        ; a world past its box: the slide round the box is the program's too
+        ; (a press on what the world drew there, the pointer anywhere on it)
+        def farY:double (deck.pageH - 1.0)
+        def pastP:string (deck.playPoint("apps/w.tsx#1" 1.0 farY))
+        this.ok(((indexOf pastP "\"past\":true") > 0) ("worlds: the pointer past the box is the program's, got " + pastP))
+        if ((strlen pastP) > 0) {
+            def pj:JVal (JVal.parse(pastP))
+            this.ok(((pj.numOr("y" 0.0)) > 100.0) ("worlds: past the box in the program's units (below its height), got " + pastP))
+        }
+        def past0:JVal (deck.playPast(0 1.0 farY))
+        this.ok(((past0.len()) == 1) ("worlds: the world under a press past the box, got " + (past0.toJson())))
+        if ((past0.len()) == 1) {
+            def p0:JVal (past0.at(0))
+            this.ok(((p0.strOr("key" "")) == "apps/w.tsx#1") "worlds: past the box names the program")
+            this.ok(((p0.strOr("src" "")) == sc.src) "worlds: past the box names the world's picture")
+            this.ok(((fabs ((p0.numOr("v" 0.0)) - (farY / deck.pageH))) < 0.0001) "worlds: the point in the whole-slide picture")
+        }
+        this.ok((((deck.playPast(1 1.0 farY)).len()) == 0) "worlds: nothing past the box without a world")
+        ; overflow: hidden keeps the world in its box
+        view.setTree((MdApp.replaceAll(tree "\"height\":\"100px\"}," "\"height\":\"100px\",\"overflow\":\"hidden\"},")))
+        def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def clipped:boolean false
+        def shown1:int 0
+        for f1.cmds c1:EVGDrawCmd c1i {
+            if ((c1.kind == 2) && (c1.src == sc.src)) {
+                clipped = ((c1.w < (deck.pageW * 0.5)) && (c1.x > 0.0))
+                shown1 = (shown1 + 1)
+            }
+        }
+        this.ok((clipped && (shown1 == 1)) "worlds: overflow: hidden draws the world in its box only")
+        this.ok(((deck.playPoint("apps/w.tsx#1" 1.0 (deck.pageH - 1.0))) == "") "worlds: a clipped world keeps the pointer in its box")
+        this.ok((((deck.playPast(0 1.0 (deck.pageH - 1.0))).len()) == 0) "worlds: nothing past the box of a clipped world")
+        ; fit="box" does the same
+        view.setTree((MdApp.replaceAll(tree "{\"t\":\"scene3d\"," "{\"t\":\"scene3d\",\"a\":{\"fit\":\"box\"},")))
+        def f2:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def shown2:int 0
+        for f2.cmds c2:EVGDrawCmd c2i {
+            if ((c2.kind == 2) && (c2.src == sc.src)) {
+                shown2 = (shown2 + 1)
+            }
+        }
+        this.ok((shown2 == 1) ("worlds: fit=box draws the world in its box only, got " + (to_string shown2)))
+        def at1:JVal (deck.playScenes(0))
+        if ((at1.len()) == 1) {
+            this.ok(((at1.at(0)).boolOr("clip" false)) "worlds: the page is told it clips")
         }
         def notes:[string] (deck.playNotes())
         def said:boolean false
@@ -6942,6 +7014,7 @@ class PresCheck {
         web.add("w" "apps/w.tsx" 200.0 100.0 0.0 0.0 400.0 200.0)
         web.add("x" "apps/x.tsx" 200.0 100.0 0.0 0.0 400.0 200.0)
         web.setAllow3d("w" true)
+        web.setSlide(960.0 540.0)
         web.setTree("w" tree)
         web.setTree("x" tree)
         def ws:JVal (JVal.parse((web.scenesJson("w"))))
@@ -6954,7 +7027,12 @@ class PresCheck {
             this.ok((wsrc == "three:w:1") ("worlds: the viewer's world named after its key, got " + wsrc))
             this.ok(((wv.numOr("x" 0.0)) == 200.0) "worlds: the viewer's world at its right half")
             this.ok(((wv.numOr("w" 0.0)) == 200.0) "worlds: the viewer's world fitted to the box")
-            this.ok(((indexOf (web.paintJson("w")) wsrc) > 0) "worlds: the viewer paints the world's picture")
+            this.ok(((indexOf (web.paintJson("w")) wsrc) > 0) "worlds: the viewer paints the world's picture in the program")
+            this.ok(((indexOf (web.worldsJson("w")) wsrc) > 0) "worlds: the viewer gets the world's picture for the slide's list")
+            this.ok(((web.point("w" 900.0 500.0)) == "") "worlds: the viewer's box ends at its picture")
+            this.ok(((indexOf (web.pointPast("w" 900.0 500.0)) "\"past\":true") > 0) "worlds: the viewer's pointer past the box is the program's")
+            this.ok(((indexOf (web.pastAt("w" 900.0 500.0)) wsrc) > 0) "worlds: the viewer's world under a press past the box")
+            this.ok(((web.pastAt("x" 900.0 500.0)) == "[]") "worlds: nothing past a program without a world")
         }
 
         ; the room: a slide red on the left, blue on the right, white along the top
@@ -7017,7 +7095,7 @@ class PresCheck {
         def bad:string (p3.setScene("k" "{\"t\":\"scene3d\",\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"donut\"}}]}"))
         this.ok(((indexOf bad "donut") >= 0) ("worlds: an unknown shape is said, got " + bad))
         this.ok(((p3.setScene("k" "{\"t\":\"div\"}")) != "") "worlds: no scene, said")
-        this.ok(((p3.draw("k" 10 10)) == false) "worlds: nothing drawn without a GPU")
+        this.ok(((p3.draw("k" 10 10 0.0 0.0 10.0 10.0)) == false) "worlds: nothing drawn without a GPU")
         ; a group moves its parts: a mesh 1 along x in a group at x 2 turned
         ; 90 degrees round z stands at (2, 1)
         def grouped:string "{\"t\":\"scene3d\",\"c\":[{\"t\":\"group\",\"a\":{\"x\":\"2\",\"rz\":\"90\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"box\",\"x\":\"1\"}},{\"t\":\"group\",\"a\":{\"y\":\"1\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"sphere\"}}]}]}]}"

@@ -191,7 +191,8 @@ function paint() {
   const still = reducedMotion();
   for (const { page, x } of shown) {
     // a slide's script, while it runs, lays its frames over the list
-    const list = (plays && plays.listOf(page)) || lists[page];
+    const atRest = (plays && plays.listOf(page)) || lists[page];
+    const list = plays ? plays.withWorlds(page, atRest) : atRest;
     for (const e of list.effects || []) {
       if (still) holdStill(e);
       else e.time = t;
@@ -737,7 +738,7 @@ async function start() {
     try {
       const { startPlays } = await import("./viewplay.js");
       plays = await startPlays({
-        plays: deck.plays || [], scripts: got.scripts || [], lists, canvas, current: () => at, count: () => lists.length,
+        plays: deck.plays || [], scripts: got.scripts || [], lists, slideW: deck.width, slideH: deck.height, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
         pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
