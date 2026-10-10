@@ -498,6 +498,13 @@ effect embers source {
   mutta, paitsi, vaikka) is a BUT, with that word in red. A line that
   starts with a following word (so, therefore, thus, siksi, joten, niinpä)
   is a THEREFORE, with that word in amber. Any other line sets the scene.
+  Write the story so: after the scene, join each beat to the one before
+  by BUT (it contradicts or limits the beat before; if "and" fits as
+  well, it is not a BUT) or THEREFORE ("because the beat before, this
+  one" is true), never by "and then". One claim per beat; a fix or next
+  step is its own beat after its reason. Read the chain by its first
+  words alone; if a link does not hold, rewrite the beat, not only its
+  word. Vary the beats' lengths, and write them in the deck's language.
   The pose follows that kind; `{pose=pen|chin|open|finger|aim|thumb}` at
   the end of a line sets it. The character changes pose between lines and
   holds still while a line is read. Played on its own, a beat lasts until
@@ -1356,8 +1363,9 @@ arrows. Name it on the slide's heading; one script a slide:
   entity (`{ keep: true }` leaves it). A line is held as long as the same
   line in a `::: story` block: the pose, the bubble's pop and the time to
   read it, and the presenter holds still while it is read. Its first word
-  sets the kind and the pose (BUT, THEREFORE, setup), as there. Calls
-  queue: one made in `build(n)` starts at that step. An empty
+  sets the kind and the pose (BUT, THEREFORE, setup), as there, and the
+  lines follow the same story rule (BUT or THEREFORE, never "and then";
+  topic `text`). Calls queue: one made in `build(n)` starts at that step. An empty
   `::: story` block on the slide keeps the strip the presenter stands in
   free of the slide's text. A thumbnail, render_slide at its time and the
   PDF show where its queue is; its end is where the script ends.
