@@ -1797,6 +1797,12 @@ class PresDeck {
     }
 
     fn takeOwns:void (r:PresScriptRun f:PresScriptFrame) {
+        ; a script's presenter speaks in the hand face of `::: story`
+        for f.adds ad:PresScriptAdd ai {
+            if (ad.kind == "presenter") {
+                this.wantFace((PresStory.face()))
+            }
+        }
         r.ownsClick = f.ownsClick
         if (r.ownsBuild != f.ownsBuild) {
             r.ownsBuild = f.ownsBuild
@@ -4998,7 +5004,11 @@ class PresDeck {
             this.addGroup(s s.steps blk.start blk.start "story" (PresStory.beatSeconds(b)) b.text)
             i = (i + 1)
         }
-        def face:string (PresStory.face())
+        this.wantFace((PresStory.face()))
+    }
+
+    ; asks the page for a face (wantFaces), once
+    fn wantFace:void (face:string) {
         if ((indexOf ("," + wantFaces + ",") ("," + face + ",")) < 0) {
             if ((strlen wantFaces) > 0) {
                 wantFaces = (wantFaces + ",")

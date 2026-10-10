@@ -486,7 +486,9 @@ effect embers source {
   third of its width, and the slide's text is set narrower to leave it
   free. The bubble sits above the character's head and is about 240 px
   wide on a 960 px slide. A line of up to about 60 characters keeps the
-  full font size; longer lines get a smaller font.
+  full font size; longer lines get a smaller font. A slide script can
+  lead the same character instead (topic `scripts`, Presenter): when it
+  comes, how, and which paragraph it says.
 
 ## A pull request as source
 
@@ -1268,6 +1270,34 @@ arrows. Name it on the slide's heading; one script a slide:
   after them. The sprite needs no `tick`. A thumbnail, render_slide at its
   time and the PDF show where it is; the end of its queue is where the
   script ends.
+- Presenter: the cut-out character of `::: story` slides (topic `text`),
+  led by the script, which decides when it comes and goes and what it
+  says.
+
+  ```tsx
+  import { presentation, presenter } from "Sliqtly";
+  const slide = presentation.activeSlide;
+  export function start() {
+    presenter.create()
+      .show({ fade: 0.5, from: "right" })
+      .say(slide.find("p:1"))
+      .say("But in RGB mode the answer is always zero.")
+      .call(() => slide.find("code").set({ opacity: 1 }))
+      .say("So the code breaks here.", { pose: "aim" })
+      .wait(1)
+      .hide({ fade: 0.4 });
+  }
+  ```
+
+  `say(entity)` puts the entity's words in the bubble and hides the
+  entity (`{ keep: true }` leaves it). A line is held as long as the same
+  line in a `::: story` block: the pose, the bubble's pop and the time to
+  read it, and the presenter holds still while it is read. Its first word
+  sets the kind and the pose (BUT, THEREFORE, setup), as there. Calls
+  queue: one made in `build(n)` starts at that step. An empty
+  `::: story` block on the slide keeps the strip the presenter stands in
+  free of the slide's text. A thumbnail, render_slide at its time and the
+  PDF show where its queue is; its end is where the script ends.
 - `allow:` on the heading, as for `app` blocks: `slide.nav`
   (`presentation.next()`, `prev()`, `go(n)`), `deck.data`
   (`presentation.set`), `code` (`presentation.code`: the source code
@@ -1328,6 +1358,37 @@ declare module "Sliqtly" {
   export const env: Env;
   /** Characters from a spritesheet that walk and jump on the slide's boxes (topic scripts). */
   export const sprites: any;
+  /** The cut-out presenter of `::: story` slides, led by the script (topic scripts). */
+  export const presenter: Presenters;
+}
+
+interface Presenters {
+  /** A presenter at the slide's bottom right, hidden until show() unless { visible: true }. */
+  create(options?: { id?: string; visible?: boolean }): Presenter;
+  all(): Presenter[];
+  /** Seconds from the slide's start to where every presenter's queue ends. */
+  end(): number;
+}
+
+type Pose = "pen" | "chin" | "open" | "finger" | "aim" | "thumb";
+
+/** Each call queues after the one before it, and not before the moment it is made. */
+interface Presenter {
+  readonly id: string;
+  /** Fades in over `fade` seconds (0.4), moving in `from` a side ("none"). */
+  show(options?: { fade?: number; from?: "right" | "bottom" | "left" | "none" }): Presenter;
+  /** Fades out, moving out `to` a side. */
+  hide(options?: { fade?: number; to?: "right" | "bottom" | "left" | "none" }): Presenter;
+  /** A line in the bubble, held until it has been read. An entity (or the first found) gives its words and is hidden unless keep. The pose follows the line's first word unless given. */
+  say(line: string | Entity | Entities, options?: { pose?: Pose; keep?: boolean }): Presenter;
+  wait(seconds: number): Presenter;
+  /** fn runs when the queue gets here. */
+  call(fn: (p: Presenter) => void): Presenter;
+  /** x, y move it from where it stands (slide px); scale, opacity, z as on an entity. */
+  set(props: { x?: number; y?: number; scale?: number; opacity?: number; z?: number }): Presenter;
+  /** True once its queue has ended. */
+  done(): boolean;
+  remove(): Presenter;
 }
 
 interface Presentation {

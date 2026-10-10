@@ -29,6 +29,7 @@ import { DECK_RUNTIME } from "./apps-runtime.js";
 import { workerUrl } from "./sitescript.js";
 import { SCRIPT_RUNTIME } from "./script-runtime.js";
 import { SPRITE_RUNTIME } from "./sprite-runtime.js";
+import { PRESENTER_RUNTIME } from "./presenter-runtime.js";
 
 const LIMIT_MS = 3000;
 // the first load fetches and compiles the engine
@@ -203,7 +204,7 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
     }
     finals.busy = next;
     const arg = next.fn === "__scriptOpen" ? openArg(app.playState(next.key), next.tree, reducedMotion(), app.scriptOpenStep ? app.scriptOpenStep(next.key) : 0) : finalArg(next.key, next.tree);
-    finals.worker.postMessage({ type: "final", fn: next.fn, runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + treeFirst(next.tree), source: next.source, arg });
+    finals.worker.postMessage({ type: "final", fn: next.fn, runtime: RUNTIME + "\n" + DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + "\n" + PRESENTER_RUNTIME + treeFirst(next.tree), source: next.source, arg });
   }
 
   function finalReply(w, m) {
@@ -283,7 +284,7 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
     r.worker = w;
     r.waiting = true;
     r.deadline = performance.now() + FIRST_LIMIT_MS;
-    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + treeFirst(app.scriptTree(r.key)) : ""), source, calibrate: r.script });
+    w.postMessage({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME + (r.script ? "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + "\n" + PRESENTER_RUNTIME + treeFirst(app.scriptTree(r.key)) : ""), source, calibrate: r.script });
   }
 
   function name(r) {

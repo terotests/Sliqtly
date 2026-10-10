@@ -13,6 +13,8 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { DECK_RUNTIME } from "../apps-runtime.js";
 import { SCRIPT_RUNTIME } from "../dist/script-runtime.js";
+import { SPRITE_RUNTIME } from "../dist/sprite-runtime.js";
+import { PRESENTER_RUNTIME } from "../dist/presenter-runtime.js";
 
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const appJs = path.join(dist, "pres_app.js");
@@ -210,7 +212,7 @@ test("a script over its budget three frames in a row is stopped", async () => {
 function moduleRuntime(source = "") {
   const modules = {};
   const ctx = vm.createContext({ console: { log() {} }, JSON, Math, defineModule: (name, m) => { modules[name] = m; return m; } });
-  vm.runInContext(DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + source, ctx);
+  vm.runInContext(DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + "\n" + SPRITE_RUNTIME + "\n" + PRESENTER_RUNTIME + "\n" + source, ctx);
   return { ctx, modules };
 }
 
@@ -266,8 +268,11 @@ test("the script-api declarations name what the runtime has", () => {
   for (const k of members("Input")) assert.ok(k in S.input, "input." + k);
   for (const k of members("Env")) assert.ok(k in S.env, "env." + k);
   const exported = [...guide.matchAll(/^\s+export const (\w+)/gm)].map((x) => x[1]);
-  assert.deepEqual(exported, ["presentation", "input", "env", "sprites"]);
-  for (const k of exported.filter((k) => k !== "sprites")) assert.ok(S[k], k);
+  assert.deepEqual(exported, ["presentation", "input", "env", "sprites", "presenter"]);
+  for (const k of exported) assert.ok(S[k], k);
+  for (const k of members("Presenters")) assert.ok(k in S.presenter, "presenter." + k);
+  const p = S.presenter.create();
+  for (const k of members("Presenter")) assert.ok(k in p, "a presenter's " + k);
 });
 
 test("how a script opens: start, onEnter and build, no tick; the stage shows it until the first frame", async () => {

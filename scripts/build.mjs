@@ -86,14 +86,25 @@ export function buildThree(ranger, dir) {
 // program's sandbox: dir/script-sel.js, SCRIPT_SEL in the String.raw form
 // of the other runtimes (web/script-runtime.js starts with it, and the Go
 // server reads it the same way). The deck's own find() is the same code.
+// The presenter's lines and timing (src/PresStory.rgr) go with it, as
+// __Story, so a script's presenter (web/presenter-runtime.js) holds a line
+// exactly as long as a `::: story` slide does.
 export function buildScriptSel(ranger, dir) {
   const selJs = path.join(dir, "script-sel.js");
+  const storyJs = path.join(dir, "script-story.tmp.js");
   compile(ranger, "PresSel.rgr", selJs);
+  compile(ranger, "PresStory.rgr", storyJs);
   const code = fs.readFileSync(selJs, "utf8");
-  if (/`|\$\{/.test(code)) throw new Error("PresSel.rgr compiled to text a String.raw can not hold (a backtick or ${)");
-  fs.writeFileSync(selJs, "// built from src/PresSel.rgr by scripts/build.mjs: the selectors of slide scripts.\n"
+  const story = fs.readFileSync(storyJs, "utf8");
+  fs.rmSync(storyJs, { force: true });
+  for (const [name, text] of [["PresSel.rgr", code], ["PresStory.rgr", story]]) {
+    if (/`|\$\{/.test(text)) throw new Error(name + " compiled to text a String.raw can not hold (a backtick or ${)");
+  }
+  fs.writeFileSync(selJs, "// built from src/PresSel.rgr and src/PresStory.rgr by scripts/build.mjs: the selectors of slide scripts, the presenter's lines.\n"
     + "export const SCRIPT_SEL = String.raw`\nvar __Sel = (function () {\n" + code
-    + "\nreturn { PresEnt: PresEnt, PresSel: PresSel };\n})();\n`;\n");
+    + "\nreturn { PresEnt: PresEnt, PresSel: PresSel };\n})();\n"
+    + "var __Story = (function () {\n" + story
+    + "\nreturn { PresStory: PresStory, PresStoryBeat: PresStoryBeat };\n})();\n`;\n");
   return selJs;
 }
 
@@ -139,7 +150,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "three3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
   // frames go through, and the WASI the engine needs, from componentengine
   const cerxes = ensureCerxes();

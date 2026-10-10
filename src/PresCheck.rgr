@@ -3539,6 +3539,19 @@ class PresCheck {
         def strip:double (pw * (PresPuppet.STRIP() / 960.0))
         this.ok((r0 <= (pw - strip)) ((("story: the text keeps out of the strip, " + (to_string r0)) + " of ") + (to_string pw)))
         this.ok((r1 > (pw - strip)) ("story: a slide without a presenter is full width, " + (to_string r1)))
+        ; a script's presenter (web/presenter-runtime.js) is drawn the same way
+        def fr:PresScriptFrame (PresScriptFrame.read("{\"p\":{},\"a\":[{\"id\":\"presenter-1\",\"k\":\"presenter\",\"w\":960,\"h\":540,\"story\":\"Yksi.\\nMutta kaksi. {pose=chin}\",\"shown\":2,\"since\":9}]}"))
+        this.ok(((array_length fr.adds) == 1) "story: a frame carries the presenter")
+        def pad:PresScriptAdd (itemAt fr.adds 0)
+        this.ok(((pad.shown == 2) && ((indexOf pad.story "{pose=chin}") > 0)) ("story: its lines and how many are out, " + pad.story))
+        def pc:[EVGDrawCmd]
+        PresScriptApply.presenter(pc pad l2.engine)
+        def said:boolean false
+        for pc c:EVGDrawCmd ci {
+            if ((c.kind == 3) && ((indexOf c.text "kaksi") >= 0)) { said = true }
+        }
+        this.ok(((array_length pc) > 40) ("story: a script's presenter is drawn, " + (to_string (array_length pc))))
+        this.ok(said "story: its bubble says the line out")
     }
 
     ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
