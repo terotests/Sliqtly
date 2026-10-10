@@ -656,3 +656,22 @@ func TestReportCornerLogo(t *testing.T) {
 		t.Fatalf("a corner logo is not content left small: %q", f)
 	}
 }
+
+// A diagram on a slide with a presenter (::: story) is drawn for the
+// narrower column the slide lays it out in. It was prepared for the full
+// column, the layout found nothing at its width, and the slide showed
+// "mermaid — no handler prepared this one" over an empty slot.
+func TestStorySlideDrawsItsDiagram(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	dia := "```mermaid\nflowchart LR\n  a[Write] --> b[Read]\n```\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Story", "markdown": "# T\n\n## Plain\n\n" + dia + "\n## Told\n\n" + dia + "\n::: story\nHello.\n:::\n",
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	nomatch(t, textOf(c), `no handler prepared`)
+	match(t, textOf(c), `Slide 3 "Told".*\n- heading "Told".*\n- diagram \(Mermaid\) at \d+,\d+ size \d+×\d+: 2 labels`)
+}
