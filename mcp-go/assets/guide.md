@@ -1022,6 +1022,17 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     A child with the `name` of one of its objects changes that object
     (`<mesh name="arm" rotation={[0, a, 0]} />`, or a new material inside);
     other children are added to it. Textures are not drawn yet.
+    A file written for Ranger's 3-D engine runs as it is:
+    `import * as THREE from "ranger:three"`, `init()` builds the scene once
+    (`new THREE.Scene()`, `PerspectiveCamera(fov, aspect, near, far)` with
+    `setPose(x, y, z, rx, ry, rz)`, `Mesh(geometry, material)` with
+    `setTransform(x, y, z, rx, ry, rz)` and `setScale`, `Group`,
+    `Box|Sphere|Cylinder|Plane|Octahedron|TeapotGeometry`,
+    `MeshBasic|Lambert|PhongMaterial(0xRRGGBB, …)`,
+    `AmbientLight(color, intensity)`, `DirectionalLight(color, intensity,
+    dx, dy, dz)`, `GLTFModel("data/x.gltf")`, `OrbitControls`), `tick(dt)`
+    moves it (dt in milliseconds); no `view()`. It is drawn as Ranger draws
+    it (`<scene3d legacy ambient={0}>`: no colour management, no slide light).
     Animate by changing props in `tick`; only what changed is redrawn.
     Unknown tags and props are reported with create/update. Example:
     `<mesh position={[0, 1, 0]} rotation={[0, a, 0]}><torusKnotGeometry
