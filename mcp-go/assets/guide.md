@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10d.** If a result names a newer version, read Core
+**Guide version 2026-10-10e.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
