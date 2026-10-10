@@ -30,22 +30,13 @@ figure {
 }
 
 page {
-  width: 13.333in;
-  height: 7.5in;
   padding: 0.75in;
   background-color: #0b1030;
-}
-
-deck {
-  split-level: 2;
-  overflow: split;
-  aspect-ratio: 16 / 9;
 }
 
 document {
   font-family: Open Sans;
   font-size: 20pt;
-  line-height: 1.4;
   color: #e8ecff;
 }
 
@@ -81,7 +72,6 @@ hr {
 
 list {
   padding-left: 30pt;
-  margin-left: 10pt;
 }
 
 li {
@@ -91,15 +81,11 @@ li {
 blockquote {
   color: #c3cbff;
   border-color: #A321D9;
-  border-width: 4pt;
-  padding-left: 22pt;
-  padding-top: 8pt;
 }
 
 code {
   font-family: Noto Sans;
   font-size: 15pt;
-  line-height: 1.4;
   padding: 14pt;
   background-color: #151c48;
   border-color: #2d3a7a;
@@ -118,14 +104,4 @@ table {
 
 .kicker {
   font-size: 14pt;
-}
-
-.c2 {
-  column-count: 2;
-  column-gap: 36pt;
-}
-
-.c3 {
-  column-count: 3;
-  column-gap: 28pt;
 }

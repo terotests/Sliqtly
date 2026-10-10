@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ensureRanger, ensureRangerDiff, log } from "../scripts/lib.mjs";
 import { formatCss } from "../scripts/format-css.mjs";
+import { themeCss, themeNames } from "../scripts/themes.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ranger = ensureRanger();
@@ -119,9 +120,8 @@ log("copied mcp-go/fonts/*.ttf");
 const themesDir = path.join(here, "themes");
 fs.rmSync(themesDir, { recursive: true, force: true });
 fs.mkdirSync(themesDir, { recursive: true });
-for (const f of fs.readdirSync(path.join(here, "..", "themes"))) {
-  if (f.endsWith(".css")) fs.copyFileSync(path.join(here, "..", "themes", f), path.join(themesDir, f));
-}
+// each put together with themes/base.css (scripts/themes.mjs)
+for (const t of themeNames()) fs.writeFileSync(path.join(themesDir, `${t}.css`), themeCss(t));
 // editorial comes from Ranger, as the editor's build takes
 // it (scripts/build.mjs): every theme is built in, so the server never
 // needs the site to lay a deck out
