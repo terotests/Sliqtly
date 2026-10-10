@@ -517,6 +517,86 @@ class PresPlayView {
         return ([] _:double (x y))
     }
 
+    ; A slide point in the program's own units wherever it is, past the
+    ; box (bx, by, bw, bh) too: [x, y].
+    fn toLocalPast:[double] (bx:double by:double bw:double bh:double px:double py:double) {
+        def f:[double] (this.fitIn(bx by bw bh))
+        def k:double (itemAt f 2)
+        return ([] _:double (((px - (itemAt f 0)) / k) ((py - (itemAt f 1)) / k)))
+    }
+
+    ; Whether a world of the last frame draws past the box (bx, by, bw, bh):
+    ; its picture covers the whole slide.
+    fn reachesPast:boolean (bx:double by:double bw:double bh:double) {
+        if (drawn == false) {
+            return false
+        }
+        this.place(bx by bw bh)
+        def past:boolean false
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            if (sc.clip == false) {
+                past = true
+            }
+            i = (i + 1)
+        }
+        return past
+    }
+
+    ; Slide point (px, py) in the program's own units with the id under it,
+    ; {"x", "y", "id"}, or "" outside its picture. past: a point off the
+    ; picture but on the slide is the program's too when a world of it
+    ; draws over the whole slide ({"x", "y", "id": "", "past": true}; x and
+    ; y then fall outside 0..width, 0..height).
+    fn pointAt:string (bx:double by:double bw:double bh:double px:double py:double past:boolean) {
+        def loc:[double] (this.toLocal(bx by bw bh px py))
+        def o:JVal (JVal.mkObj())
+        if ((itemAt loc 0) >= 0.0) {
+            o.setNum("x" (itemAt loc 0))
+            o.setNum("y" (itemAt loc 1))
+            o.setStr("id" (this.idAt((itemAt loc 0) (itemAt loc 1))))
+            return (o.toJson())
+        }
+        if ((past == false) || ((this.reachesPast(bx by bw bh)) == false)) {
+            return ""
+        }
+        if ((((px < 0.0) || (py < 0.0)) || (px > slideW)) || (py > slideH)) {
+            return ""
+        }
+        def far:[double] (this.toLocalPast(bx by bw bh px py))
+        o.setNum("x" (itemAt far 0))
+        o.setNum("y" (itemAt far 1))
+        o.setStr("id" "")
+        o.setBool("past" true)
+        return (o.toJson())
+    }
+
+    ; The worlds drawn past the box (bx, by, bw, bh) whose picture is under
+    ; slide point (px, py): [{"src", "u", "v"}], (u, v) the point in the
+    ; picture, 0..1 from its top left corner. The page looks whether the
+    ; world drew anything there (a press on it is the program's).
+    fn pastAt:JVal (bx:double by:double bw:double bh:double px:double py:double) {
+        def out:JVal (JVal.mkArr())
+        if ((((drawn == false) || (slideW <= 0.0)) || (slideH <= 0.0)) || ((((px < 0.0) || (py < 0.0)) || (px > slideW)) || (py > slideH))) {
+            return out
+        }
+        this.place(bx by bw bh)
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            if (sc.clip == false) {
+                def o:JVal (JVal.mkObj())
+                o.setStr("src" sc.src)
+                o.setNum("u" (px / slideW))
+                o.setNum("v" (py / slideH))
+                out.add(o)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; The id of the topmost element with one under a point of the program's
     ; own units, "" for none: where a click goes in the program.
     fn idAt:string (x:double y:double) {

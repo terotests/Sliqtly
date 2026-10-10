@@ -6801,6 +6801,24 @@ class PresCheck {
             this.ok(((sj.strOr("t" "")) == "scene3d") "worlds: with its element")
             this.ok((((w0.numOr("sw" 0.0)) == deck.pageW) && ((w0.boolOr("clip" true)) == false)) "worlds: the page is told the slide it may draw over")
         }
+        ; a world past its box: the slide round the box is the program's too
+        ; (a press on what the world drew there, the pointer anywhere on it)
+        def farY:double (deck.pageH - 1.0)
+        def pastP:string (deck.playPoint("apps/w.tsx#1" 1.0 farY))
+        this.ok(((indexOf pastP "\"past\":true") > 0) ("worlds: the pointer past the box is the program's, got " + pastP))
+        if ((strlen pastP) > 0) {
+            def pj:JVal (JVal.parse(pastP))
+            this.ok(((pj.numOr("y" 0.0)) > 100.0) ("worlds: past the box in the program's units (below its height), got " + pastP))
+        }
+        def past0:JVal (deck.playPast(0 1.0 farY))
+        this.ok(((past0.len()) == 1) ("worlds: the world under a press past the box, got " + (past0.toJson())))
+        if ((past0.len()) == 1) {
+            def p0:JVal (past0.at(0))
+            this.ok(((p0.strOr("key" "")) == "apps/w.tsx#1") "worlds: past the box names the program")
+            this.ok(((p0.strOr("src" "")) == sc.src) "worlds: past the box names the world's picture")
+            this.ok(((fabs ((p0.numOr("v" 0.0)) - (farY / deck.pageH))) < 0.0001) "worlds: the point in the whole-slide picture")
+        }
+        this.ok((((deck.playPast(1 1.0 farY)).len()) == 0) "worlds: nothing past the box without a world")
         ; overflow: hidden keeps the world in its box
         view.setTree((MdApp.replaceAll(tree "\"height\":\"100px\"}," "\"height\":\"100px\",\"overflow\":\"hidden\"},")))
         def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
@@ -6813,6 +6831,8 @@ class PresCheck {
             }
         }
         this.ok((clipped && (shown1 == 1)) "worlds: overflow: hidden draws the world in its box only")
+        this.ok(((deck.playPoint("apps/w.tsx#1" 1.0 (deck.pageH - 1.0))) == "") "worlds: a clipped world keeps the pointer in its box")
+        this.ok((((deck.playPast(0 1.0 (deck.pageH - 1.0))).len()) == 0) "worlds: nothing past the box of a clipped world")
         ; fit="box" does the same
         view.setTree((MdApp.replaceAll(tree "{\"t\":\"scene3d\"," "{\"t\":\"scene3d\",\"a\":{\"fit\":\"box\"},")))
         def f2:EVGDisplayList (PresTimeline.finalFrame(deck 0))
@@ -6870,6 +6890,10 @@ class PresCheck {
             this.ok(((wv.numOr("w" 0.0)) == 200.0) "worlds: the viewer's world fitted to the box")
             this.ok(((indexOf (web.paintJson("w")) wsrc) > 0) "worlds: the viewer paints the world's picture in the program")
             this.ok(((indexOf (web.worldsJson("w")) wsrc) > 0) "worlds: the viewer gets the world's picture for the slide's list")
+            this.ok(((web.point("w" 900.0 500.0)) == "") "worlds: the viewer's box ends at its picture")
+            this.ok(((indexOf (web.pointPast("w" 900.0 500.0)) "\"past\":true") > 0) "worlds: the viewer's pointer past the box is the program's")
+            this.ok(((indexOf (web.pastAt("w" 900.0 500.0)) wsrc) > 0) "worlds: the viewer's world under a press past the box")
+            this.ok(((web.pastAt("x" 900.0 500.0)) == "[]") "worlds: nothing past a program without a world")
         }
 
         ; the room: a slide red on the left, blue on the right, white along the top

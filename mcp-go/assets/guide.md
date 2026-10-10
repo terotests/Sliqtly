@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10e.** If a result names a newer version, read Core
+**Guide version 2026-10-10f.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1003,8 +1003,29 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
 - It runs in the browser of whoever views the deck, in the public viewer
   (the share link) and in the editor, only while its slide is shown, in a
   sandbox with no page, network or storage; one that does not answer in
-  3 s is stopped. A click on the box gives it the keyboard (the arrow keys
-  too); Esc gives it back to the slides.
+  3 s is stopped.
+- The keyboard and the pointer: a click or tap on the program gives it the
+  keyboard (the arrow keys too, which then no longer move the slides);
+  Esc gives it back. Until then `input.keys` is empty and no `onKeyDown`
+  comes, so tell the audience to click it first. A program's 3-D world
+  that reaches past its box (`allow: 3d` below) is the program too while
+  presenting: a click on anything it drew counts.
+  - Key names are the browser's `KeyboardEvent.key`: `"ArrowUp"`,
+    `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `" "` (space), `"Enter"`,
+    `"Escape"` is never sent, letters as typed (`"w"`, with Shift `"W"`),
+    digits `"1"`. `input.keys` holds the keys down now:
+    `input.keys["ArrowUp"] === true`. `onKeyDown(key)` comes once per
+    press (no key repeat), `onKeyUp(key)` on release. Chords with Ctrl,
+    Cmd or Alt stay the page's. (`input.take(...)` is for slide scripts,
+    topic=scripts; a program that has the keyboard has all of it.)
+  - `input.pointer` is `{ x, y, down, inside }` in the program's own units
+    (`size:`, from its top left corner, not slide px): x 0..480 across a
+    `size: 480x270` box however big the box is drawn. It follows the
+    pointer once the program has been clicked; past the box (a world that
+    reaches past it) x and y fall outside 0..width, 0..height. `down` is
+    true while the button or finger is held; a press shorter than a frame
+    is still seen by `onPointerDown(x, y)` (called when no element's
+    `onClick` took the press) and by `onClick`, whose event has `x`, `y`.
 - What it may ask of the deck, each by its word on `allow:` (anything else
   is refused and reported):
   - `deck.data`: `deck.get("key")` reads the deck's own keys (front matter,

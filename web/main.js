@@ -303,7 +303,7 @@ let H = 0;
 let needsPaint = true;
 let lastRev = "";
 // programs on slides (```app, web/apps.js): CErXes in workers, painted by the app
-const apps = createApps({ app, repaint: () => { needsPaint = true; }, toast, t });
+const apps = createApps({ app, repaint: () => { needsPaint = true; }, toast, t, opaqueAt: (src, u, v) => three3d.opaqueAt(src, u, v) });
 window.__apps = apps;
 
 function resize() {

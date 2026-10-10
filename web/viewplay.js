@@ -175,7 +175,20 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
     playPoint: (key, cx, cy) => {
       const p = byKey.get(key);
       const at = p && slidePoint(placed.get(p.slide), canvas.getBoundingClientRect(), cx, cy);
-      return at ? web.point(key, at.x, at.y) : "";
+      return at ? web.pointPast(key, at.x, at.y) : "";
+    },
+    // the worlds programs on the pages shown draw past their boxes under a
+    // window point: [{key, src, u, v}]
+    playPast: (cx, cy) => {
+      const rect = canvas.getBoundingClientRect();
+      const pages = shownPages();
+      const out = [];
+      for (const p of plays) {
+        if (!pages.includes(p.slide)) continue;
+        const at = slidePoint(placed.get(p.slide), rect, cx, cy);
+        if (at) for (const c of JSON.parse(web.pastAt(p.key, at.x, at.y))) out.push({ ...c, key: p.key });
+      }
+      return JSON.stringify(out);
     },
     setPlayFocus: (key) => { focus = key; },
     playFocus: () => focus,
@@ -183,7 +196,7 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
   };
 
   // the viewer has no toasts: what went wrong is on the plate and here
-  const apps = createApps({ app, repaint, toast: (line) => console.warn(line) });
+  const apps = createApps({ app, repaint, toast: (line) => console.warn(line), opaqueAt: (src, u, v) => (worlds ? worlds.opaqueAt(src, u, v) : false) });
   // the worlds on the slide shown, placed in the slide's units
   const worlds = plays.some((p) => (p.allow || []).includes("3d")) ? createThree3d({
     app: {
