@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10g.** If a result names a newer version, read Core
+**Guide version 2026-10-10h.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -224,7 +224,10 @@ const total = sum(rows);
 - `{float=top-right width=8%}` under a picture (also `top-left`,
   `bottom-right`, `bottom-left`) sets it in that corner of the slide, out
   of the flow: the title and the text after it go beside it. Write it right
-  under the slide's heading.
+  under the slide's heading. Without a size it takes at most 30% of the
+  slide's height; `width=` sets its width (a top corner up to 49%) and
+  `height=` (`70%` of the room under the title, or `300`) the most it may
+  be high, keeping its shape.
 - `{width=50%}` under a picture, chart, table or code block puts the
   blocks after it beside it (paragraphs, lists, quotes), down to its
   bottom.
