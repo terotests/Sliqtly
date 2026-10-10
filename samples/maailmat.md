@@ -51,7 +51,7 @@ allow: 3d          # ohjelma saa piirtää <scene3d>-maailman
 ~~~
 ```
 
-- `<mesh shape="knot" metal={0.9} ry={a} />`: box, sphere, torus, knot, cylinder, cone, plane, teapot
-- `metal` 0–1: kuinka paljon pinta peilaa kalvoa ympärillään
-- `<camera z={6} fov={40} />` ja `<light kind="sun" x y z />`, muuten valot tulevat kalvon väreistä
+- Kirjoitetaan kuten React Three Fiberissä: `<mesh rotation={[0, a, 0]}><torusKnotGeometry args={[1, 0.3]} /><meshStandardMaterial color="#c0c0c0" metalness={0.9} /></mesh>`
+- `metalness` 0–1: kuinka paljon pinta peilaa kalvoa ympärillään; kulmat radiaaneina
+- `<perspectiveCamera position={[0, 2, 6]} fov={40} />` ja `<directionalLight position={[4, 6, 3]} />`, muuten valot tulevat kalvon väreistä
 - Tausta on läpinäkyvä: kalvo näkyy maailman takana

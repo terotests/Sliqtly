@@ -352,15 +352,23 @@ effect embers source {
   paints the slide's background (the text over it), `backdrop` rewrites the
   finished slide (read it with `source(uv)`), `filter` the same for an
   element. In all three `output`'s alpha is how much covers what was
-  there: `rgba(c, 0)` leaves the pixel as it was.
+  there: `rgba(c, 0)` leaves the pixel as it was (until 2026-10-09 alpha 0
+  cleared it; the check says when a backdrop or filter lets the slide
+  through). The slide is opaque, so `source(uv).a` is 1 everywhere.
+- Where: `fx=` on the slide's heading for the whole slide; for one block
+  (a paragraph, list, table, chart or diagram), `{fx=name fx-power=2}` on
+  the line under it, and the effect covers what the block draws.
 - The body is assignments, one per line, each name set once, ending in
   `output = <vec3 or vec4 colour>`. No loops or functions of one's own.
-- Inputs: `uv` (vec2, 0..1, y down), `p` (page pixels), `size` (vec2),
+- Inputs: `uv` (vec2, 0..1, y down), `p` (pixels from the box's top-left
+  corner: the slide's pixels for a slide effect, the same on the stage, in
+  presenting and in render_slide), `size` (vec2, the box in those pixels),
   `time` (seconds since the slide came on screen), `edge` (pixels to the
   edge, negative inside), `PI`.
 - The slide's clock, for an effect tied to its build steps: `step` (the
   step shown, 0 before the first), `steps` (how many), `steptime` (seconds
-  since the shown step began), `progress` (0..1 through the slide). A
+  since the shown step began), `progress` (0..1 through the slide); `step`
+  without brackets is this input, `step(edge, x)` the function. A
   reveal on a click: `a = smoothstep(0, 1.5, steptime) * select(step >= 1,
   1, 0)`. A still (thumbnail, PDF, PPTX) shows the last step, progress 1,
   `time` and `steptime` at `still`. `time` keeps running while a step
@@ -375,12 +383,24 @@ effect embers source {
   dot`, and `hash(v2)`, `noise(v2)`, `fbm(v2, octaves 1..8)`,
   `voronoi(v2)`, `rotate(v2, degrees)`, `hsv(hue°, s, v)`,
   `rgba(colour, alpha)`, `source(uv)` (backdrop and filter only).
+- Reading the surface, backdrop and filter only: `blur(uv, r)` (vec4, a
+  soft blur r pixels wide), `glow(uv, r)` (vec4, the surface with a halo
+  round its bright parts: neon), `edges(uv)` (float 0..1, where the
+  picture has edges). `edge` alone is still the distance to the box's
+  edge.
 - A body has a cost per pixel, limit 600: an operation 1, a function 2,
-  `hash` 5, `noise` 12, `voronoi` 42, `fbm` 12 per octave. The check
+  `hash` 5, `noise` 12, `voronoi` 42, `fbm` 12 per octave, `edges` 42,
+  `blur` 82, `glow` 92. The check
   reports each effect's cost; more than the limit is refused. Errors name
   the line and come back in the check's warnings.
 - `render_slide` draws them as the player does, at `still`; pass `time`
-  (seconds into the slide) to see a moment, the clock with it.
+  (seconds into the slide) to see a moment, the clock with it. An effect
+  that cannot be run, or that takes longer than 10 s to draw, is said in
+  its text.
+- A viewer who asks for less motion (prefers-reduced-motion) sees each
+  effect held at its still. The check warns of an effect that flashes
+  more than 3 times a second over a tenth of the slide or more, and checks
+  the text's contrast over a source effect's still.
 - A shared deck shows these effects to its viewers; raw shader code is not
   accepted.
 
@@ -981,15 +1001,26 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     with that id or class (`{#id}` on the line after a paragraph) without
     changing the Markdown.
   - `3d` (experimental): a `<scene3d>` element in `view()` is a 3-D world,
-    drawn over the slide with a transparent background. Its children:
-    `<mesh shape="box|sphere|torus|knot|cylinder|cone|plane|teapot" size r
-    tube w h d x y z rx ry rz scale color metal fresnel flat wire />` (angles
-    in degrees; `metal` 0-1 mirrors the slide around the world),
-    `<group x y z rx ry rz scale>…</group>` (its children placed in its
-    own frame and moved with it: an arm is groups inside groups),
-    `<camera x y z fov lookX lookY lookZ />`, `<light kind="sun|ambient" x y z
-    color intensity />` (none: a key and a fill light). Animate by changing
-    the attributes in `tick`.
+    drawn over the slide with a transparent background. Its children are
+    written as in React Three Fiber (Three.js names and units, no React,
+    no hooks): `<group>`, `<mesh>`, `<perspectiveCamera>`,
+    `<ambientLight>`, `<directionalLight>`, `<pointLight>`. A mesh holds a
+    geometry and a material:
+    `<boxGeometry args={[w, h, d]} />`, `sphere|cylinder|cone|plane|torus|`
+    `torusKnotGeometry` with Three's `args`, and `<meshStandardMaterial
+    color metalness roughness flatShading wireframe />` (also `meshBasic`,
+    `meshLambert`, `meshPhong`). Objects take `position={[x, y, z]}`,
+    `rotation={[x, y, z]}` (radians), `scale`, `visible`, `castShadow`,
+    `lookAt={[x, y, z]}` or the `name` of another object, and `name` (its
+    stable id). Metal surfaces mirror the slide around the world. Groups
+    move their children in their own frame: an arm is groups inside groups.
+    `<SliqRod from to radius length color />` is a rod between two points
+    or two named objects wherever they have moved (a hydraulic cylinder).
+    Animate by changing props in `tick`; only what changed is redrawn.
+    Unknown tags and props are reported with create/update. Example:
+    `<mesh position={[0, 1, 0]} rotation={[0, a, 0]}><torusKnotGeometry
+    args={[1, 0.3]} /><meshStandardMaterial color="#c0c0c0" metalness={0.9}
+    roughness={0.2} /></mesh>`.
 - Example:
 
   ```tsx

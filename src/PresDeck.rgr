@@ -41,6 +41,7 @@ Import "PresSmartArt.rgr"
 Import "PresSketch.rgr"
 Import "PresPlay.rgr"
 Import "PresScript.rgr"
+Import "Pres3DTree.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -1542,6 +1543,19 @@ class PresDeck {
                 def pv3:PresPlayView (unwrap v3)
                 if (pv3.asked3d && (pv3.allow3d == false)) {
                     push out ("Slide " + (to_string (u3.page + 1)) + ": app: " + u3.spec.src + " draws a <scene3d>, which needs allow: 3d")
+                }
+                ; what its worlds have that is not Three's (Pres3DTree)
+                def wi:int 0
+                while (wi < (array_length pv3.scenes)) {
+                    def sc:PresPlayScene (itemAt pv3.scenes wi)
+                    def world:Pres3DTree (Pres3DTree.read(sc.json))
+                    for world.warnings wl:string wli {
+                        def line:string ("Slide " + (to_string (u3.page + 1)) + ": app: " + u3.spec.src + ": " + wl)
+                        if ((indexOf out line) < 0) {
+                            push out line
+                        }
+                    }
+                    wi = (wi + 1)
                 }
             }
             vi = (vi + 1)
@@ -3271,6 +3285,19 @@ class PresDeck {
             }
             push out (where + (itemAt fx.errors i) + ".")
             i = (i + 1)
+        }
+        ; `{fx=…}` under a block naming no effect: the block draws none
+        def l:MdLayout (this.layout())
+        def b:int 0
+        while (b < (array_length l.boxes)) {
+            def bx:MdBox (itemAt l.boxes b)
+            if (bx.kind == 6) {
+                def own@(optional):FxEffect (this.ownEffect(bx.embedKind))
+                if ((null? own) && ((FxLang.isBuiltin(bx.embedKind)) == false)) {
+                    push out ("Slide " + (to_string (bx.page + 1)) + ": {fx=" + bx.embedKind + "} under a block names no effect (the deck's own from ```fx, or a built-in one); the block is drawn without it.")
+                }
+            }
+            b = (b + 1)
         }
         return out
     }
@@ -5087,6 +5114,11 @@ class PresDeck {
         def mine:[MdBox]
         def mineAt:[int]
         def groupOfBox:[int]
+        ; the effects on blocks (`{fx=…}`): their rectangle's command, their
+        ; instance and their block
+        def fxRect:[int]
+        def fxInst:[int]
+        def fxSrc:[int]
         ; this slide's boxes only, in box order (MdLayout.boxesOnPage)
         for (l.boxesOnPage(i)) bi:int oi {
             def b:MdBox (itemAt l.boxes bi)
@@ -5140,6 +5172,11 @@ class PresDeck {
                 push partOfCmd -1
             }
             def cmdFrom:int (array_length out.cmds)
+            if (kb.kind == 6) {
+                push fxRect cmdFrom
+                push fxInst (array_length out.fxIds)
+                push fxSrc kb.srcStart
+            }
             def use:int -1
             if (kb.kind == 3) {
                 ; the use of this very fence (`embedBoxAt`), else one
@@ -5266,6 +5303,7 @@ class PresDeck {
             }
             k = (k + 1)
         }
+        this.fitBlockEffects(out l fxRect fxInst fxSrc)
         ; An effect that refracts what is behind it goes over the finished
         ; slide, with no background of its own: under the content it read the
         ; bare paper and the slide was then painted over it, so nothing showed.
@@ -5327,14 +5365,14 @@ class PresDeck {
     def fxClockAt:double -1.0
 
     fn clockParams:void (out:EVGDisplayList s:PresSlide t:double) {
+        ; every own effect gets its box's size in slide pixels (box-w,
+        ; box-h: FxLang.glsl's `p` and `size`); one with the clock its clock
         def any:boolean false
         def i:int 0
         while (i < (array_length out.fxIds)) {
             def own@(optional):FxEffect (this.ownEffect((itemAt out.fxKinds i)))
             if (!null? own) {
-                if own.clock {
-                    any = true
-                }
+                any = true
             }
             i = (i + 1)
         }
@@ -5367,10 +5405,14 @@ class PresDeck {
             }
             def own2@(optional):FxEffect (this.ownEffect((itemAt out.fxKinds i)))
             if (!null? own2) {
+                push names "box-w"
+                push values (itemAt out.fxW i)
+                push names "box-h"
+                push values (itemAt out.fxH i)
                 if own2.clock {
                     def c:[double] clock
                     if ((array_length c) == 0) {
-                        c = ([] _:double ((to_double s.steps) (to_double s.steps) own2.still 1.0))
+                        c = (FxLang.clockEnd((to_double s.steps) own2.still))
                     }
                     def cn:[string] (FxLang.clockNames())
                     def j:int 0
@@ -5388,6 +5430,62 @@ class PresDeck {
         out.fxParamValues = values
         out.fxParamStart = starts
         out.fxParamCount = counts
+    }
+
+    ; An effect on a block covers what the block drew: a diagram or a chart
+    ; is drawn in the room around its layout box (roomBelow, diagramSpan),
+    ; so the box the layout gave the effect is widened to the commands the
+    ; block's boxes painted, the rectangle and the instance alike.
+    fn fitBlockEffects:void (out:EVGDisplayList l:MdLayout rects:[int] insts:[int] srcs:[int]) {
+        def e:int 0
+        while (e < (array_length rects)) {
+            def src:int (itemAt srcs e)
+            def any:boolean false
+            def x0:double 0.0
+            def y0:double 0.0
+            def x1:double 0.0
+            def y1:double 0.0
+            def i:int 0
+            while (i < (array_length out.cmds)) {
+                def bi:int -1
+                if (i < (array_length boxOfCmd)) {
+                    bi = (itemAt boxOfCmd i)
+                }
+                if ((bi >= 0) && (bi < (array_length l.boxes))) {
+                    def b:MdBox (itemAt l.boxes bi)
+                    def c:EVGDrawCmd (itemAt out.cmds i)
+                    if ((((b.srcStart == src) && (b.kind != 6)) && (c.kind != 4)) && ((c.w > 0.0) && (c.h > 0.0))) {
+                        if (any == false) {
+                            x0 = c.x
+                            y0 = c.y
+                            x1 = (c.x + c.w)
+                            y1 = (c.y + c.h)
+                            any = true
+                        } {
+                            if (c.x < x0) { x0 = c.x }
+                            if (c.y < y0) { y0 = c.y }
+                            if ((c.x + c.w) > x1) { x1 = (c.x + c.w) }
+                            if ((c.y + c.h) > y1) { y1 = (c.y + c.h) }
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            def ri:int (itemAt rects e)
+            def fi:int (itemAt insts e)
+            if ((any && (ri < (array_length out.cmds))) && (fi < (array_length out.fxIds))) {
+                def r:EVGDrawCmd (itemAt out.cmds ri)
+                r.x = x0
+                r.y = y0
+                r.w = (x1 - x0)
+                r.h = (y1 - y0)
+                set_at out.fxX fi x0
+                set_at out.fxY fi y0
+                set_at out.fxW fi (x1 - x0)
+                set_at out.fxH fi (y1 - y0)
+            }
+            e = (e + 1)
+        }
     }
 
     ; The diagram of slide i shown over the whole slide (PresDiaFull), if any:
@@ -5796,6 +5894,8 @@ class PresDeck {
                 this.addFx(out s (PresDeck.fxPaper(s paper)))
             }
         }
+        ; the clock at its end, as the slide's still list has it
+        this.clockParams(out s -1.0)
         return out
     }
 

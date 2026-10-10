@@ -30,6 +30,8 @@
 ; ============================================================================
 
 Import "JsonValue.rgr"
+Import "Pres3DTree.rgr"
+Import "ColorLinear.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "../game_engine/three/src/three_scene.rgr"
 Import "../game_engine/three/src/three_mesh.rgr"
@@ -39,6 +41,8 @@ Import "../game_engine/three/src/three_box_geometry.rgr"
 Import "../game_engine/three/src/three_primitive_geometries.rgr"
 Import "../game_engine/three/src/three_teapot_geometry.rgr"
 Import "../game_engine/three/src/three_mesh_phong_material.rgr"
+Import "../game_engine/three/src/three_mesh_basic_material.rgr"
+Import "../game_engine/three/src/three_mesh_lambert_material.rgr"
 Import "../game_engine/three/src/three_cube_texture.rgr"
 Import "../game_engine/three/src/three_webgl_renderer.rgr"
 Import "../game_engine/three/src/three_gl_backend.rgr"
@@ -318,304 +322,503 @@ class Pres3DEnv {
     }
 }
 
-; One <scene3d>: the Three scene its last frame described.
+; One <scene3d>: the Three scene its frames describe. Each frame is read
+; (Pres3DTree) and only what changed since the last one is changed here: an
+; object moved is moved, a colour is set, a geometry made once per shape and
+; size. Written with Three's names, the world is drawn as Three draws it:
+; colours and lights in linear light, the frame encoded as sRGB, a light's
+; intensity as Three's physically based lights give it (divided by pi for
+; the diffuse). The first version's attributes keep the first version's look.
 class Pres3DWorld {
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    ; the last frame's world, and its objects by key
+    def tree:Pres3DTree (new Pres3DTree())
+    def keys:[string]
+    def objs:[ThreeObject3D]
+    def meshKeys:[string]
+    def meshObjs:[ThreeMesh]
+    def lightKeys:[string]
+    def lightObjs:[ThreeLight]
+    ; the same lights by kind, for what only that kind has
+    def pointKeys:[string]
+    def pointObjs:[ThreePointLight]
+    def sunKeys:[string]
+    def sunObjs:[ThreeDirectionalLight]
     ; geometries kept across frames (a GPU copy is made once per shape)
     def geoKeys:[string]
     def geos:[ThreeBufferGeometry]
+    ; the slide's light all round, and the key and fill a world without
+    ; lights of its own gets
+    def room:ThreeAmbientLight (new ThreeAmbientLight)
+    def key:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def fill:ThreeDirectionalLight (new ThreeDirectionalLight)
     def meshes:int 0
     def lights:int 0
+    ; Three's colour pipeline (false: the first version's attributes)
+    def srgb:boolean true
+    def shadows:boolean false
     ; what the last frame got wrong, "" when nothing
     def error:string ""
-    ; how bright the slide's own light is, 0 for none
     def roomLight:double 0.45
 
     Constructor () {
-        camera.setPerspective(45.0 1.0 0.1 200.0)
+        camera.setPerspective(75.0 1.0 0.1 2000.0)
+        scene.add(room)
+        scene.add(key)
+        scene.add(fill)
     }
 
-    ; A number attribute: JSX gives numbers, a string attribute gives text.
-    sfn num:double (a:JVal key:string fallback:double) {
-        def v:JVal (a.get(key))
-        if (v.kind == 2) {
-            return v.num
+    ; a colour as the shader takes it: linear in Three's pipeline
+    fn rgb:[double] (c:[double] k:double) {
+        if srgb {
+            return ([] _:double (((ColorLinear.of((itemAt c 0))) * k) ((ColorLinear.of((itemAt c 1))) * k) ((ColorLinear.of((itemAt c 2))) * k)))
         }
-        if (v.kind == 3) {
-            def t:string (trim v.str)
-            if ((strlen t) == 0) {
-                return fallback
+        return ([] _:double (((itemAt c 0) * k) ((itemAt c 1) * k) ((itemAt c 2) * k)))
+    }
+
+    fn indexOfKey:int (k:string) {
+        return (indexOf keys k)
+    }
+
+    ; The object of key `k` (a group, a mesh, a light), for the checks.
+    fn objectOf@(optional):ThreeObject3D (k:string) {
+        def none@(optional):ThreeObject3D
+        def at:int (indexOf keys k)
+        if (at < 0) {
+            return none
+        }
+        def o@(optional):ThreeObject3D (itemAt objs at)
+        return o
+    }
+
+    ; One frame's <scene3d> (its JSON as PresPlay keeps it): what changed
+    ; since the last frame changed. False when it was no scene.
+    fn setScene:boolean (json:string env:Pres3DEnv) {
+        def next:Pres3DTree (Pres3DTree.read(json))
+        error = (join next.warnings "; ")
+        if (((array_length next.nodes) == 0) && ((indexOf error "not a <scene3d>") >= 0)) {
+            return false
+        }
+        srgb = (next.legacy == false)
+        def ops:[P3Op] (Pres3DTree.diff(tree next))
+        def i:int 0
+        while (i < (array_length ops)) {
+            def o:P3Op (itemAt ops i)
+            this.apply(o next)
+            i = (i + 1)
+        }
+        tree = next
+        roomLight = next.roomLight
+        this.camOf(next)
+        this.extras(next env)
+        meshes = (array_length meshKeys)
+        lights = next.lights
+        return true
+    }
+
+    fn apply:void (o:P3Op t:Pres3DTree) {
+        if (o.op == "remove") {
+            this.drop(o.key)
+            return
+        }
+        def p:P3Node (itemAt t.nodes o.at)
+        if (o.op == "add") {
+            this.make(p t)
+            return
+        }
+        if (p.tag == "camera") {
+            return
+        }
+        def at:int (indexOf keys p.key)
+        if (at < 0) {
+            return
+        }
+        def obj:ThreeObject3D (itemAt objs at)
+        if (o.op == "move") {
+            this.placeObj(obj p)
+        }
+        if (o.op == "visible") {
+            obj.visible = p.visible
+        }
+        if ((o.op == "geometry") || (o.op == "material")) {
+            def mi:int (indexOf meshKeys p.key)
+            if (mi >= 0) {
+                def m:ThreeMesh (itemAt meshObjs mi)
+                if (o.op == "geometry") {
+                    m.setGeometry((this.geometry(p)))
+                } {
+                    this.paint(m p)
+                }
             }
-            def d@(optional):double (to_double t)
-            if (null? d) {
-                return fallback
+        }
+        if (o.op == "light") {
+            def li:int (indexOf lightKeys p.key)
+            if (li >= 0) {
+                this.light((itemAt lightObjs li) p)
             }
-            return (unwrap d)
         }
-        return fallback
     }
 
-    sfn text:string (a:JVal key:string fallback:string) {
-        def v:JVal (a.get(key))
-        if ((v.kind == 3) || (v.kind == 2)) {
-            return (v.asStr(fallback))
+    ; An object of the new frame made and hung on its parent (lights on the
+    ; scene, at their place in the world: Three's directional light shines
+    ; from its position toward the origin).
+    fn make:void (p:P3Node t:Pres3DTree) {
+        if (p.tag == "camera") {
+            return
         }
-        return fallback
+        def obj:ThreeObject3D (new ThreeObject3D)
+        if (p.tag == "mesh") {
+            def m:ThreeMesh (new ThreeMesh)
+            m.setGeometry((this.geometry(p)))
+            this.paint(m p)
+            m.castShadow = p.castShadow
+            m.receiveShadow = p.receiveShadow
+            push meshKeys p.key
+            push meshObjs m
+            obj = m
+        }
+        if (p.tag == "light") {
+            def l:ThreeLight (new ThreeLight)
+            if (p.kind == "ambient") {
+                l = (new ThreeAmbientLight)
+            }
+            if (p.kind == "directional") {
+                def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
+                push sunKeys p.key
+                push sunObjs sun
+                l = sun
+            }
+            if (p.kind == "point") {
+                def pt:ThreePointLight (new ThreePointLight)
+                push pointKeys p.key
+                push pointObjs pt
+                l = pt
+            }
+            if (p.kind == "hemisphere") {
+                this.note("hemisphereLight is not drawn yet; use an ambientLight and a directionalLight")
+            }
+            push lightKeys p.key
+            push lightObjs l
+            this.light(l p)
+            obj = l
+        }
+        obj.name = p.name
+        obj.visible = p.visible
+        if (p.tag != "light") {
+            this.placeObj(obj p)
+        }
+        def parent:ThreeObject3D scene
+        if ((p.parent >= 0) && (p.tag != "light")) {
+            def up:P3Node (itemAt t.nodes p.parent)
+            def ui:int (indexOf keys up.key)
+            if (ui >= 0) {
+                parent = (itemAt objs ui)
+            }
+        }
+        parent.add(obj)
+        push keys p.key
+        push objs obj
     }
 
-    sfn flag:boolean (a:JVal key:string) {
-        def v:JVal (a.get(key))
-        if (v.kind == 1) {
-            return v.flag
+    fn note:void (line:string) {
+        if ((strlen error) > 0) {
+            error = (error + "; " + line)
+        } {
+            error = line
         }
-        if (v.kind == 3) {
-            return ((v.str != "false") && (v.str != "0"))
+    }
+
+    ; An object gone: off its parent, and out of the lists with what was in it.
+    fn drop:void (k:string) {
+        def at:int (indexOf keys k)
+        if (at < 0) {
+            return
         }
-        if (v.kind == 2) {
-            return (v.num != 0.0)
+        def obj:ThreeObject3D (itemAt objs at)
+        this.unhang(scene obj)
+        def gone:[ThreeObject3D]
+        this.subtree(obj gone)
+        def nk:[string]
+        def no:[ThreeObject3D]
+        def i:int 0
+        while (i < (array_length keys)) {
+            def o:ThreeObject3D (itemAt objs i)
+            if ((indexOf gone o) < 0) {
+                push nk (itemAt keys i)
+                push no o
+            }
+            i = (i + 1)
+        }
+        keys = nk
+        objs = no
+        def mk:[string]
+        def mo:[ThreeMesh]
+        def j:int 0
+        while (j < (array_length meshKeys)) {
+            def m:ThreeMesh (itemAt meshObjs j)
+            if ((indexOf keys (itemAt meshKeys j)) >= 0) {
+                push mk (itemAt meshKeys j)
+                push mo m
+            }
+            j = (j + 1)
+        }
+        meshKeys = mk
+        meshObjs = mo
+        def lk:[string]
+        def lo:[ThreeLight]
+        def n:int 0
+        while (n < (array_length lightKeys)) {
+            def l:ThreeLight (itemAt lightObjs n)
+            if ((indexOf keys (itemAt lightKeys n)) >= 0) {
+                push lk (itemAt lightKeys n)
+                push lo l
+            }
+            n = (n + 1)
+        }
+        lightKeys = lk
+        lightObjs = lo
+        def pk:[string]
+        def po:[ThreePointLight]
+        def a:int 0
+        while (a < (array_length pointKeys)) {
+            def pt:ThreePointLight (itemAt pointObjs a)
+            if ((indexOf keys (itemAt pointKeys a)) >= 0) {
+                push pk (itemAt pointKeys a)
+                push po pt
+            }
+            a = (a + 1)
+        }
+        pointKeys = pk
+        pointObjs = po
+        def sk:[string]
+        def so:[ThreeDirectionalLight]
+        def b:int 0
+        while (b < (array_length sunKeys)) {
+            def sun:ThreeDirectionalLight (itemAt sunObjs b)
+            if ((indexOf keys (itemAt sunKeys b)) >= 0) {
+                push sk (itemAt sunKeys b)
+                push so sun
+            }
+            b = (b + 1)
+        }
+        sunKeys = sk
+        sunObjs = so
+    }
+
+    fn subtree:void (o:ThreeObject3D out:[ThreeObject3D]) {
+        push out o
+        def i:int 0
+        while (i < (o.childCount())) {
+            this.subtree((o.getChild(i)) out)
+            i = (i + 1)
+        }
+    }
+
+    ; `obj` taken off whichever object under `from` holds it.
+    fn unhang:boolean (from:ThreeObject3D obj:ThreeObject3D) {
+        def i:int 0
+        while (i < (from.childCount())) {
+            def c:ThreeObject3D (from.getChild(i))
+            if (c == obj) {
+                from.remove(obj)
+                return true
+            }
+            if (this.unhang(c obj)) {
+                return true
+            }
+            i = (i + 1)
         }
         return false
     }
 
-    ; A colour attribute, 0..1 [r, g, b]; the fallback when it does not parse.
-    sfn rgb:[double] (a:JVal key:string fallback:string) {
-        def s:string (Pres3DWorld.text(a key fallback))
-        def c:EVGColor (EVGColor.parse(s))
-        if (c.isSet == false) {
-            c = (EVGColor.parse(fallback))
-        }
-        return ([] _:double (((to_double (c.red())) / 255.0) ((to_double (c.green())) / 255.0) ((to_double (c.blue())) / 255.0)))
+    fn placeObj:void (o:ThreeObject3D p:P3Node) {
+        o.position.set((itemAt p.pos 0) (itemAt p.pos 1) (itemAt p.pos 2))
+        o.quaternion.set((itemAt p.quat 0) (itemAt p.quat 1) (itemAt p.quat 2) (itemAt p.quat 3))
+        o.quatDriven = true
+        o.scale.set((itemAt p.scale 0) (itemAt p.scale 1) (itemAt p.scale 2))
     }
 
-    ; A shape's geometry, made once per shape and size.
-    fn geometry:ThreeBufferGeometry (shape:string a:JVal) {
-        def size:double (Pres3DWorld.num(a "size" 1.0))
-        def r:double (Pres3DWorld.num(a "r" (size * 0.5)))
-        def key:string ""
-        def tube:double (Pres3DWorld.num(a "tube" (r * 0.3)))
-        def bw:double (Pres3DWorld.num(a "w" size))
-        def bh:double (Pres3DWorld.num(a "h" size))
-        def bd:double (Pres3DWorld.num(a "d" size))
-        key = (shape + "|" + (to_string r) + "|" + (to_string tube) + "|" + (to_string bw) + "|" + (to_string bh) + "|" + (to_string bd))
-        def at:int (indexOf geoKeys key)
+    fn light:void (l:ThreeLight p:P3Node) {
+        ; Three's lights reach the diffuse divided by pi
+        def k:double p.intensity
+        if srgb {
+            k = (k / 3.141592653589793)
+        }
+        def c:[double] (this.rgb(p.color k))
+        l.color.setRGB((itemAt c 0) (itemAt c 1) (itemAt c 2))
+        l.intensity = 1.0
+        l.position.set((itemAt p.worldPos 0) (itemAt p.worldPos 1) (itemAt p.worldPos 2))
+        l.visible = p.visible
+        def pi:int (indexOf pointKeys p.key)
+        if (pi >= 0) {
+            def pl:ThreePointLight (itemAt pointObjs pi)
+            pl.distance = p.distance
+            pl.decay = p.decay
+        }
+        def si:int (indexOf sunKeys p.key)
+        if (si >= 0) {
+            def dl:ThreeDirectionalLight (itemAt sunObjs si)
+            dl.setCastShadow(p.castShadow)
+        }
+    }
+
+    ; A mesh's material: Three's class, its colours in the pipeline's light.
+    fn paint:void (m:ThreeMesh p:P3Node) {
+        def mat:ThreeMaterial (new ThreeMeshPhongMaterial)
+        if (p.mat == "meshBasicMaterial") {
+            mat = (new ThreeMeshBasicMaterial)
+        }
+        if (p.mat == "meshLambertMaterial") {
+            mat = (new ThreeMeshLambertMaterial)
+        }
+        def ph:[double] (Pres3DTree.phongOf(p))
+        def c:[double] (this.rgb(p.color (itemAt ph 4)))
+        mat.setColor((itemAt c 0) (itemAt c 1) (itemAt c 2))
+        def s:[double] (this.rgb((([] _:double ((itemAt ph 1) (itemAt ph 2) (itemAt ph 3)))) 1.0))
+        mat.setSpecular((itemAt s 0) (itemAt s 1) (itemAt s 2))
+        mat.setShininess((itemAt ph 0))
+        def refl:double (itemAt ph 5)
+        if (refl > 0.0) {
+            mat.setReflective(true)
+            mat.setReflectivity(refl)
+            mat.setEnvFresnel((itemAt ph 6))
+        }
+        mat.setFlatShading(p.flat)
+        mat.setWireframe(p.wire)
+        mat.setSide(p.side)
+        if (((itemAt p.emissive 0) + ((itemAt p.emissive 1) + (itemAt p.emissive 2))) > 0.0) {
+            this.note("emissive is not drawn yet")
+        }
+        if ((p.opacity < 1.0) || p.transparent) {
+            this.note("opacity is not drawn yet")
+        }
+        m.setMaterial(mat)
+    }
+
+    ; The world's camera: its first <perspectiveCamera>, else R3F's default
+    ; (at z 5 looking down -z, fov 75), the first version's at z 5 looking
+    ; at the origin (fov 45).
+    fn camOf:void (t:Pres3DTree) {
+        if (t.camera >= 0) {
+            def c:P3Node (itemAt t.nodes t.camera)
+            camera.fov = c.fov
+            camera.near = c.near
+            camera.far = c.far
+            camera.position.set((itemAt c.worldPos 0) (itemAt c.worldPos 1) (itemAt c.worldPos 2))
+            camera.quaternion.set((itemAt c.worldQuat 0) (itemAt c.worldQuat 1) (itemAt c.worldQuat 2) (itemAt c.worldQuat 3))
+            camera.quatDriven = true
+            return
+        }
+        camera.position.set(0.0 0.0 5.0)
+        if t.legacy {
+            camera.fov = 45.0
+            camera.lookAt(0.0 0.0 0.0)
+            return
+        }
+        camera.fov = 75.0
+        camera.quaternion.set(0.0 0.0 0.0 1.0)
+        camera.quatDriven = true
+    }
+
+    ; The slide's own light all round (its mean colour), and a key and a
+    ; fill for a world that names no light; shadows when a light casts them.
+    fn extras:void (t:Pres3DTree env:Pres3DEnv) {
+        def mean:[double] (([] _:double (((env.meanR * 0.6) + 0.4) ((env.meanG * 0.6) + 0.4) ((env.meanB * 0.6) + 0.4))))
+        def rc:[double] (this.rgb(mean roomLight))
+        room.color.setRGB((itemAt rc 0) (itemAt rc 1) (itemAt rc 2))
+        room.intensity = 1.0
+        room.visible = (roomLight > 0.0)
+        def own:boolean (t.lights > 0)
+        key.visible = (own == false)
+        fill.visible = (own == false)
+        key.setDirection(0.5 0.8 0.6)
+        fill.setDirection(-0.7 -0.2 0.4)
+        key.color.setRGB(1.0 1.0 1.0)
+        key.intensity = 0.9
+        def fc:[double] (([] _:double (((env.meanR * 0.5) + 0.5) ((env.meanG * 0.5) + 0.5) ((env.meanB * 0.5) + 0.5))))
+        def fl:[double] (this.rgb(fc 1.0))
+        fill.color.setRGB((itemAt fl 0) (itemAt fl 1) (itemAt fl 2))
+        fill.intensity = 0.35
+        if srgb {
+            key.intensity = 1.6
+            fill.intensity = 0.5
+        }
+        shadows = false
+        def i:int 0
+        while (i < (array_length t.nodes)) {
+            def p:P3Node (itemAt t.nodes i)
+            if (((p.kind == "directional") && p.castShadow) && p.visible) {
+                shadows = true
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A geometry made once per shape and size (Three's args).
+    fn geometry:ThreeBufferGeometry (p:P3Node) {
+        def sig:string (Pres3DTree.geoSig(p))
+        def at:int (indexOf geoKeys sig)
         if (at >= 0) {
             return (itemAt geos at)
         }
+        def a:[double] p.geoArgs
         def g:ThreeBufferGeometry (new ThreeBufferGeometry)
-        def pi:double 3.141592653589793
-        if (shape == "box") {
+        if (p.geo == "boxGeometry") {
             def b:ThreeBoxGeometry (new ThreeBoxGeometry)
-            b.setSize(bw bh bd)
+            b.setSize((itemAt a 0) (itemAt a 1) (itemAt a 2))
             g = b
-        } {
-            if (shape == "sphere") {
-                def s:ThreeSphereGeometry (new ThreeSphereGeometry)
-                s.build(r 48 32 0.0 (2.0 * pi) 0.0 pi)
-                g = s
-            } {
-                if (shape == "torus") {
-                    def t:ThreeTorusGeometry (new ThreeTorusGeometry)
-                    t.build(r tube 24 96 (2.0 * pi))
-                    g = t
-                } {
-                    if (shape == "knot") {
-                        def k:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
-                        k.build(r tube 180 20 2 3)
-                        g = k
-                    } {
-                        if (shape == "cylinder") {
-                            def c:ThreeCylinderGeometry (new ThreeCylinderGeometry)
-                            c.build(r r bh 48 1 false 0.0 (2.0 * pi))
-                            g = c
-                        } {
-                            if (shape == "cone") {
-                                ; the port's cone is a cylinder it makes and hands back
-                                def cn:ThreeConeGeometry (new ThreeConeGeometry)
-                                g = (cn.build(r bh 48 1 false 0.0 (2.0 * pi)))
-                            } {
-                                if (shape == "plane") {
-                                    def p:ThreePlaneGeometry (new ThreePlaneGeometry)
-                                    p.build(bw bh 1 1)
-                                    g = p
-                                } {
-                                    if (shape == "teapot") {
-                                        def tp:ThreeTeapotGeometry (new ThreeTeapotGeometry)
-                                        tp.setTeapot((size * 0.7) 10 true true true true true)
-                                        g = tp
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
-        push geoKeys key
+        if (p.geo == "sphereGeometry") {
+            def s:ThreeSphereGeometry (new ThreeSphereGeometry)
+            s.build((itemAt a 0) (Pres3DWorld.seg((itemAt a 1) 3)) (Pres3DWorld.seg((itemAt a 2) 2)) (itemAt a 3) (itemAt a 4) (itemAt a 5) (itemAt a 6))
+            g = s
+        }
+        if (p.geo == "cylinderGeometry") {
+            def c:ThreeCylinderGeometry (new ThreeCylinderGeometry)
+            c.build((itemAt a 0) (itemAt a 1) (itemAt a 2) (Pres3DWorld.seg((itemAt a 3) 3)) (Pres3DWorld.seg((itemAt a 4) 1)) ((itemAt a 5) != 0.0) (itemAt a 6) (itemAt a 7))
+            g = c
+        }
+        if (p.geo == "coneGeometry") {
+            ; the port's cone is a cylinder it makes and hands back
+            def cn:ThreeConeGeometry (new ThreeConeGeometry)
+            g = (cn.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 1)) ((itemAt a 4) != 0.0) (itemAt a 5) (itemAt a 6)))
+        }
+        if (p.geo == "planeGeometry") {
+            def pl:ThreePlaneGeometry (new ThreePlaneGeometry)
+            pl.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 1)) (Pres3DWorld.seg((itemAt a 3) 1)))
+            g = pl
+        }
+        if (p.geo == "torusGeometry") {
+            def t:ThreeTorusGeometry (new ThreeTorusGeometry)
+            t.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 3)) (itemAt a 4))
+            g = t
+        }
+        if (p.geo == "torusKnotGeometry") {
+            def k:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
+            k.build((itemAt a 0) (itemAt a 1) (Pres3DWorld.seg((itemAt a 2) 3)) (Pres3DWorld.seg((itemAt a 3) 3)) (floor (itemAt a 4)) (floor (itemAt a 5)))
+            g = k
+        }
+        if (p.geo == "teapotGeometry") {
+            def tp:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+            tp.setTeapot((itemAt a 0) (Pres3DWorld.seg((itemAt a 1) 1)) true true true true true)
+            g = tp
+        }
+        push geoKeys sig
         push geos g
         return g
     }
 
-    sfn shapeNames:[string] () {
-        return ([] _:string ("box" "sphere" "torus" "knot" "cylinder" "cone" "plane" "teapot"))
-    }
-
-    ; One frame's <scene3d> (its JSON as PresPlay keeps it): the scene built
-    ; again from it, the geometries kept. False when it was no scene.
-    fn setScene:boolean (json:string env:Pres3DEnv) {
-        def n:JVal (JVal.parse(json))
-        error = ""
-        if (((n.isObj()) == false) || ((n.strOr("t" "")) != "scene3d")) {
-            error = "not a <scene3d>"
-            return false
+    ; a segment count: whole, at least `least`, at most 256
+    sfn seg:int (v:double least:int) {
+        def n:int (floor (v + 0.5))
+        if (n < least) {
+            return least
         }
-        def keepEnv:boolean scene.hasEnvCube
-        def env3:ThreeCubeTexture scene.envCube
-        scene = (new ThreeScene)
-        if keepEnv {
-            scene.setEnvironment(env3)
+        if (n > 256) {
+            return 256
         }
-        meshes = 0
-        lights = 0
-        def root:JVal (n.get("a"))
-        roomLight = (Pres3DWorld.num(root "ambient" 0.45))
-        def cam:boolean false
-        def kids:JVal (n.get("c"))
-        def i:int 0
-        while (i < (kids.len())) {
-            def k:JVal (kids.at(i))
-            i = (i + 1)
-            if ((k.isObj()) == false) {
-                continue
-            }
-            def tag:string (k.strOr("t" ""))
-            def a:JVal (k.get("a"))
-            if ((tag == "mesh") || (tag == "group")) {
-                this.addPart(k scene)
-            }
-            if (tag == "light") {
-                this.addLight(a)
-            }
-            if (tag == "camera") {
-                cam = true
-                camera.fov = (Pres3DWorld.num(a "fov" 45.0))
-                camera.position.set((Pres3DWorld.num(a "x" 0.0)) (Pres3DWorld.num(a "y" 0.0)) (Pres3DWorld.num(a "z" 5.0)))
-                camera.lookAt((Pres3DWorld.num(a "lookX" 0.0)) (Pres3DWorld.num(a "lookY" 0.0)) (Pres3DWorld.num(a "lookZ" 0.0)))
-            }
-        }
-        if (cam == false) {
-            camera.fov = 45.0
-            camera.position.set(0.0 0.0 5.0)
-            camera.lookAt(0.0 0.0 0.0)
-        }
-        ; the slide's light: its mean colour all round
-        if (roomLight > 0.0) {
-            def amb:ThreeAmbientLight (new ThreeAmbientLight)
-            amb.color.setRGB((env.meanR * 0.6 + 0.4) (env.meanG * 0.6 + 0.4) (env.meanB * 0.6 + 0.4))
-            amb.intensity = roomLight
-            scene.add(amb)
-        }
-        ; a world that names no light of its own gets a key and a fill
-        if (lights == 0) {
-            def key:ThreeDirectionalLight (new ThreeDirectionalLight)
-            key.setDirection(0.5 0.8 0.6)
-            key.intensity = 0.9
-            scene.add(key)
-            def fill:ThreeDirectionalLight (new ThreeDirectionalLight)
-            fill.setDirection(-0.7 -0.2 0.4)
-            fill.color.setRGB((env.meanR * 0.5 + 0.5) (env.meanG * 0.5 + 0.5) (env.meanB * 0.5 + 0.5))
-            fill.intensity = 0.35
-            scene.add(fill)
-        }
-        return true
-    }
-
-    ; A <mesh>, or a <group> of them that moves as one: its parts are placed
-    ; in the group's own frame, so an arm is a group whose rotation turns
-    ; everything on it (an excavator's boom, its stick and bucket inside).
-    fn addPart:void (k:JVal parent:ThreeObject3D) {
-        def tag:string (k.strOr("t" ""))
-        def a:JVal (k.get("a"))
-        if (tag == "mesh") {
-            this.addMesh(a parent)
-            return
-        }
-        if (tag != "group") {
-            return
-        }
-        def g:ThreeObject3D (new ThreeObject3D)
-        Pres3DWorld.place(g a)
-        parent.add(g)
-        def kids:JVal (k.get("c"))
-        def i:int 0
-        while (i < (kids.len())) {
-            def c:JVal (kids.at(i))
-            i = (i + 1)
-            if (c.isObj()) {
-                this.addPart(c g)
-            }
-        }
-    }
-
-    ; x y z, rx ry rz in degrees, scale
-    sfn place:void (o:ThreeObject3D a:JVal) {
-        def deg:double 0.017453292519943295
-        o.position.set((Pres3DWorld.num(a "x" 0.0)) (Pres3DWorld.num(a "y" 0.0)) (Pres3DWorld.num(a "z" 0.0)))
-        o.rotation.set(((Pres3DWorld.num(a "rx" 0.0)) * deg) ((Pres3DWorld.num(a "ry" 0.0)) * deg) ((Pres3DWorld.num(a "rz" 0.0)) * deg))
-        def k:double (Pres3DWorld.num(a "scale" 1.0))
-        o.scale.set(k k k)
-    }
-
-    fn addMesh:void (a:JVal parent:ThreeObject3D) {
-        def shape:string (Pres3DWorld.text(a "shape" "box"))
-        def names:[string] (Pres3DWorld.shapeNames())
-        if ((indexOf names shape) < 0) {
-            error = ("mesh: no shape \"" + shape + "\" (" + (join names ", ") + ")")
-            return
-        }
-        def m:ThreeMesh (new ThreeMesh)
-        m.setGeometry((this.geometry(shape a)))
-        def mat:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
-        def c:[double] (Pres3DWorld.rgb(a "color" "#d8dbe6"))
-        mat.setColor((itemAt c 0) (itemAt c 1) (itemAt c 2))
-        def metal:double (Pres3DEnv.clamp01((Pres3DWorld.num(a "metal" 0.0))))
-        mat.setShininess((Pres3DWorld.num(a "shine" (20.0 + (metal * 80.0)))))
-        mat.setSpecular((0.2 + (metal * 0.6)) (0.2 + (metal * 0.6)) (0.2 + (metal * 0.6)))
-        if (metal > 0.0) {
-            mat.setReflective(true)
-            mat.setReflectivity(metal)
-            ; the room brightest at the rims, the way polished things are
-            mat.setEnvFresnel((Pres3DWorld.num(a "fresnel" 1.0)))
-        }
-        mat.setFlatShading((Pres3DWorld.flag(a "flat")))
-        mat.setWireframe((Pres3DWorld.flag(a "wire")))
-        if (shape == "plane") {
-            mat.setSide(2)
-        }
-        m.setMaterial(mat)
-        Pres3DWorld.place(m a)
-        parent.add(m)
-        meshes = (meshes + 1)
-    }
-
-    fn addLight:void (a:JVal) {
-        def kind:string (Pres3DWorld.text(a "kind" "sun"))
-        def c:[double] (Pres3DWorld.rgb(a "color" "#ffffff"))
-        def power:double (Pres3DWorld.num(a "intensity" 1.0))
-        if (kind == "ambient") {
-            def amb:ThreeAmbientLight (new ThreeAmbientLight)
-            amb.color.setRGB((itemAt c 0) (itemAt c 1) (itemAt c 2))
-            amb.intensity = power
-            scene.add(amb)
-            lights = (lights + 1)
-            return
-        }
-        def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
-        sun.color.setRGB((itemAt c 0) (itemAt c 1) (itemAt c 2))
-        sun.intensity = power
-        sun.setDirection((Pres3DWorld.num(a "x" 0.5)) (Pres3DWorld.num(a "y" 0.8)) (Pres3DWorld.num(a "z" 0.6)))
-        scene.add(sun)
-        lights = (lights + 1)
+        return n
     }
 }
 
@@ -686,6 +889,8 @@ class Pres3D {
         def wo:Pres3DWorld (this.world(key))
         wo.camera.aspect = ((to_double w) / (to_double h))
         renderer.setSize(w h)
+        renderer.setOutputSRGB(wo.srgb)
+        renderer.setShadowMapEnabled(wo.shadows)
         renderer.render(wo.scene wo.camera)
         return true
     }

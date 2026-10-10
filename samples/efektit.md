@@ -45,6 +45,18 @@ effect dawn source {
   sky = mix(#0b1026, mix(#7c3aed, #fb923c, uv.y), rise * (0.35 + 0.65 * uv.y))
   output = vec4(sky + #ffd27a * sun * rise * 0.7, 1)
 }
+
+effect neon backdrop {
+  param radius = 6 [1, 20]
+  g = glow(uv, radius)
+  e = edges(uv)
+  output = vec4(g.rgb + #22d3ee * e * 0.6, 1)
+}
+
+effect outline filter {
+  e = edges(uv)
+  output = vec4(source(uv).rgb + #22d3ee * e, 1)
+}
 ```
 
 # Omat efektit
@@ -86,3 +98,17 @@ effect embers source {
 - `steptime`: sekunnit askeleen alusta
 - `progress`: 0..1 dian kestosta
 {.build}
+
+## Neon {fx=neon}
+
+`glow(uv, r)` tuo kirkkaan ympärille hehkun, `edges(uv)` löytää ääriviivat, `blur(uv, r)` pehmentää.
+
+## Yhden lohkon päällä
+
+Suodin yhden lohkon päällä: `{fx=…}` sen alla olevalla rivillä.
+
+```mermaid
+flowchart LR
+  A[Markdown] --> B[Slide]
+```
+{fx=outline}

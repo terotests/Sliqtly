@@ -328,6 +328,29 @@ operators {
             go ( (e 1) ".RenderFx(" (e 2) ", " (e 3) ")" nl )
         }
     }
+    ; with host_render_fx: a slide's effect alone (PresDeck.fxOnlyList)
+    ; drawn at its still, as host_image_grid samples a picture
+    host_fx_grid _:[int] (h:McpHost list:string w:double ht:double) {
+        templates {
+            go ( (e 1) ".FxGrid(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; with host_render_fx: what the check says of the own effects on a
+    ; slide's list, a flash and a backdrop that lets the slide through
+    ; (fxvm.go FxNotes)
+    host_fx_notes _:[string] (h:McpHost list:string w:double ht:double) {
+        templates {
+            go ( (e 1) ".FxNotes(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; what the renders since the last call could not draw of the deck's own
+    ; effects (a program that does not read, the time running out), one
+    ; line each, "" when nothing (fxvm.go FxReport)
+    host_fx_report _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".FxReport()" )
+        }
+    }
     ; one slide's display list (EVGDisplayList.toJson) painted `width`
     ; pixels wide: base64 JPEG, "" when it could not be drawn
     host_render _:string (h:McpHost list:string w:double ht:double width:int) {

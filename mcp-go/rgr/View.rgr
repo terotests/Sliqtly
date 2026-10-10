@@ -799,6 +799,9 @@ class LinkCard {
         }
         def groups:[int]
         def list:string ((d.slideList((LinkCard.indexOf(slide n)) groups 0.0)).toJson())
-        return (host_render_still host list d.pageW d.pageH width)
+        host_render_fx host (d.fx.programsJson()) -1.0
+        def jpeg:buffer (host_render_still host list d.pageW d.pageH width)
+        host_render_fx host "" -1.0
+        return jpeg
     }
 }

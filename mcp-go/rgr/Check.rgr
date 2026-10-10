@@ -561,7 +561,10 @@ class Check {
             push c.warnings (Guide.see(hn "text"))
         }
         if c.laidOut {
+            Check.ownEffects(host c d pics)
             Check.contrast(c d l pics md)
+            def noStills:[int]
+            d.fxStills = noStills
             d.still = true
             for (Layout.slides(d md)) rs:RSlide ri {
                 push c.report (Report.slide(rs))
@@ -724,6 +727,8 @@ class Check {
     ; slide at rest, drawn here as the editor draws it in WebGL.
     sfn shots:void (host:McpHost ex:PresExport d:PresDeck) {
         ex.docxShots()
+        ; the deck's own effects drawn in the pictures too, at their still
+        host_render_fx host (d.fx.programsJson()) -1.0
         for ex.word.shots s:PresDocxShot si {
             def dl:EVGDisplayList (ex.word.shotList(d s.key))
             ; sharp enough for a page-wide picture
@@ -736,6 +741,7 @@ class Check {
                 ex.word.setShot(s.key png px (to_int ((((to_double px) * s.h) / s.w) + 0.5)))
             }
         }
+        host_render_fx host "" -1.0
     }
 
     ; per command of the slide list just drawn: true for text struck through
@@ -861,6 +867,76 @@ class Check {
             }
         }
         return found
+    }
+
+    ; The deck's own effects as a reader sees them (mcp-go/fxvm.go): a slide
+    ; whose own effect is under its text gets that effect's still as the
+    ; picture the contrast check samples (PresDeck.fxStills, cleared after
+    ; the check); an effect that flashes more than 3 times a second over a
+    ; large part of the slide, and a backdrop or filter that lets the slide
+    ; through, are said. Effects on blocks (`{fx=…}`) are in the slide's
+    ; list with the slide's own.
+    sfn ownEffects:void (host:McpHost c:Checked d:PresDeck pics:[CheckPic]) {
+        if ((array_length d.fx.effects) == 0) {
+            return
+        }
+        host_render_fx host (d.fx.programsJson()) -1.0
+        d.still = true
+        def i:int 0
+        while (i < c.slides) {
+            def s:PresSlide (d.slideAt(i))
+            def groups:[int]
+            def sl:string ((d.slideList(i groups 0.0)).toJson())
+            for (host_fx_notes host sl d.pageW d.pageH) note:string ni {
+                ; "the effect … flashes" is the slide's; "The backdrop
+                ; effect …" the effect's, said once
+                def w:string (Guide.see(note "effects"))
+                if ((indexOf note "the ") == 0) {
+                    w = (Guide.see(("Slide " + (to_string (i + 1)) + ": " + note) "effects"))
+                }
+                if ((Check.hasLine(c.warnings w)) == false) {
+                    push c.warnings w
+                }
+            }
+            def own@(optional):FxEffect (d.ownEffect(s.fx))
+            if (!null? own) {
+                def e:FxEffect (unwrap own)
+                if (e.layer == "source") {
+                    def g:[int] (host_fx_grid host ((d.fxOnlyList(i)).toJson()) d.pageW d.pageH)
+                    if ((array_length g) > 2) {
+                        def pic (new CheckPic())
+                        pic.name = (PresDeck.fxStillPath(i))
+                        pic.w = (itemAt g 0)
+                        pic.h = (itemAt g 1)
+                        def k:int 2
+                        while (k < (array_length g)) {
+                            push pic.grid (itemAt g k)
+                            k = (k + 1)
+                        }
+                        push pics pic
+                        push d.fxStills i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        d.still = false
+        def rep:string (host_fx_report host)
+        if ((strlen rep) > 0) {
+            for (strsplit rep "\n") rl:string rli {
+                push c.warnings (Guide.see(rl "effects"))
+            }
+        }
+        host_render_fx host "" -1.0
+    }
+
+    sfn hasLine:boolean (lines:[string] s:string) {
+        for lines l:string li {
+            if (l == s) {
+                return true
+            }
+        }
+        return false
     }
 
     sfn contrast:void (c:Checked d:PresDeck l:MdLayout pics:[CheckPic] md:string) {

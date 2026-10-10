@@ -893,7 +893,7 @@ func (h *McpHost) RenderCrop(listJSON string, slideW, slideH, x, y, w, ht float6
 	// the whole slide, placed so the rectangle lands on the picture
 	ox, oy := int(math.Round(-x*k)), int(math.Round(-y*k))
 	area := image.Rect(ox, oy, ox+int(math.Round(slideW*k)), oy+int(math.Round(slideH*k)))
-	if err := renderList(dst, listJSON, slideW, slideH, area, h.renderPics, nil); err != nil {
+	if err := renderList(dst, listJSON, slideW, slideH, area, h.renderPics, h.renderFx); err != nil {
 		h.Log("render: " + err.Error())
 		return nil
 	}

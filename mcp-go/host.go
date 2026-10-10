@@ -350,6 +350,8 @@ type McpHost struct {
 	renderPics *renderPics
 	// the deck's own effects for render.go (fxvm.go RenderFx)
 	renderFx *renderFx
+	// what the renders could not draw of them, for the tool's text (FxReport)
+	fxNotes []string
 }
 
 func (h *McpHost) fail(err error) {
