@@ -171,6 +171,8 @@ class PresForm {
     def once:string "soft"
     ; owner | live | after-close
     def results:string "owner"
+    ; The answer page's own words: en | fi
+    def lang:string "en"
     def questions:[PresFormQuestion]
     def warnings:[string]
     ; Changes when what is asked changes, not when the file is respaced.
@@ -342,6 +344,14 @@ class PresForm {
             }
             return
         }
+        if (k == "lang") {
+            if ((v == "en") || (v == "fi")) {
+                lang = v
+            } {
+                this.warn(line ("lang is en or fi, not " + v))
+            }
+            return
+        }
         this.warn(line ("unknown setting " + k))
     }
 
@@ -491,9 +501,11 @@ class PresForm {
             }
             label = (trim (substring label 0 open))
         }
-        def cut:int (indexOf label " — ")
+        ; " — " is 3 units in JavaScript and 5 bytes in Go
+        def dash:string " — "
+        def cut:int (indexOf label dash)
         if (cut > 0) {
-            o.desc = (trim (substring label (cut + 3) (strlen label)))
+            o.desc = (trim (substring label (cut + (strlen dash)) (strlen label)))
             label = (trim (substring label 0 cut))
         }
         o.label = label
@@ -780,6 +792,21 @@ class PresForm {
         }
     }
 
+    ; A new questionnaire's file (File → New ▸ Questionnaire…), in the
+    ; editor's language: one of each common kind of question, to change.
+    sfn template:string (lang:string) {
+        if (lang == "fi") {
+            return ("---\nform: Palaute\nlang: fi\nanonymous: true\nresults: owner      # owner | live | after-close\n---\n\n"
+                + "## Kuinka hyödyllinen tämä oli? {#hyoty type=scale min=1 max=5 required}\nlabels: Ei lainkaan | Erittäin\n\n"
+                + "## Mitä tehdään seuraavaksi? {#seuraavaksi type=choice}\n- Lisää esimerkkejä\n- Syvempi katsaus\n- Jotain muuta {#muu other}\n\n"
+                + "## Mitä muuta haluat sanoa? {#muuta type=text max=500}\n")
+        }
+        return ("---\nform: Feedback\nanonymous: true\nresults: owner      # owner | live | after-close\n---\n\n"
+            + "## How useful was this? {#useful type=scale min=1 max=5 required}\nlabels: Not at all | Very\n\n"
+            + "## What should we do next? {#next type=choice}\n- More examples\n- A deeper dive\n- Something else {#other other}\n\n"
+            + "## Anything else? {#more type=text max=500}\n")
+    }
+
     ; ---------------------------------------------------------------------------
     ; Checking a response
     ; ---------------------------------------------------------------------------
@@ -988,6 +1015,111 @@ class PresForm {
             res.record = (JVal.mkObj())
         }
         return res
+    }
+
+    ; The ids of the questions showing for these answers (real ids), in
+    ; file order. An answer page without scripts asks again when a rule
+    ; brings in a question it did not show.
+    fn visibleIds:[string] (answers:JVal) {
+        def out:[string]
+        if ((engine.ready) == false) {
+            return out
+        }
+        def state:AnswerState (engine.start(0))
+        def i:int 0
+        while (i < (array_length questions)) {
+            def q:PresFormQuestion (itemAt questions i)
+            def v:FormValue (this.valueOf(q (answers.get(q.id))))
+            if ((v.isError()) == false) {
+                engine.answer(state q.id v)
+            }
+            i = (i + 1)
+        }
+        return (engine.visibleNames(state))
+    }
+
+    ; An HTML form's fields (name=value pairs, names public: q1, q1.other)
+    ; as an answer with the real ids. A multi gathers its boxes into a list;
+    ; numbers that read as numbers become numbers, anything else stays text
+    ; for check() to refuse. Empty fields are no answer. A field naming no
+    ; question keeps its name with "?" in front, so check() refuses it.
+    fn fromFields:JVal (names:[string] values:[string]) {
+        def out:JVal (JVal.mkObj())
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            def value:string (itemAt values i)
+            def base:string name
+            def rest:string ""
+            def dot:int (indexOf name ".")
+            if (dot > 0) {
+                base = (substring name 0 dot)
+                rest = (substring name dot (strlen name))
+            }
+            def real:string (this.realId(base))
+            if ((strlen real) == 0) {
+                out.set(("?" + name) (JVal.mkStr(value)))
+            } {
+                def q:PresFormQuestion (itemAt questions (this.indexOfQuestion(real)))
+                def key:string (real + rest)
+                if ((strlen (trim value)) > 0) {
+                    if ((q.type == "multi") && ((strlen rest) == 0)) {
+                        def list:JVal (out.get(key))
+                        if ((list.isArr()) == false) {
+                            list = (JVal.mkArr())
+                            out.set(key list)
+                        }
+                        list.add((JVal.mkStr(value)))
+                    } {
+                        def asNum:boolean (((q.isScale()) || (q.type == "number")) && ((strlen rest) == 0))
+                        def n:double (PresForm.num(value -999999999.0))
+                        if (asNum && (n != -999999999.0)) {
+                            out.set(key (JVal.mkNum(n)))
+                        } {
+                            out.set(key (JVal.mkStr(value)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; What one stored record adds to the counters: [question, key, n] rows,
+    ; ["", "", 1] for the response itself and [question, "", 1] for each
+    ; question answered. A server keeps these per response, so taking one
+    ; back takes back exactly what it added, whatever the form says by then.
+    fn deltas:JVal (record:JVal) {
+        def out:JVal (JVal.mkArr())
+        def t:PresFormTally (PresFormTally.of(this))
+        t.apply(record 1)
+        out.add((PresForm.deltaRow("" "" 1)))
+        def i:int 0
+        while (i < (array_length t.per)) {
+            def c:PresFormCount (itemAt t.per i)
+            if (c.answered > 0) {
+                out.add((PresForm.deltaRow(c.id "" c.answered)))
+                def k:int 0
+                while (k < (array_length c.keys)) {
+                    def n:int (itemAt c.counts k)
+                    if (n > 0) {
+                        out.add((PresForm.deltaRow(c.id (itemAt c.keys k) n)))
+                    }
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn deltaRow:JVal (q:string key:string n:int) {
+        def row:JVal (JVal.mkArr())
+        row.add((JVal.mkStr(q)))
+        row.add((JVal.mkStr(key)))
+        row.add((JVal.mkInt(n)))
+        return row
     }
 
     ; ---------------------------------------------------------------------------
@@ -1281,6 +1413,36 @@ class PresFormTally {
             }
             i = (i + 1)
         }
+    }
+
+    ; Counters as a server keeps them: rows [question, key, n] summed over
+    ; responses (the shape deltas() gives). Rows of questions or options
+    ; the form no longer has are left out.
+    sfn fromRows:PresFormTally (form:PresForm rows:JVal) {
+        def t:PresFormTally (PresFormTally.of(form))
+        def i:int 0
+        while (i < (rows.len())) {
+            def row:JVal (rows.at(i))
+            def q:string ((row.at(0)).asStr(""))
+            def key:string ((row.at(1)).asStr(""))
+            def n:int (to_int ((row.at(2)).asNum(0.0)))
+            if ((strlen q) == 0) {
+                t.total = (t.total + n)
+            } {
+                def at:int (form.indexOfQuestion(q))
+                if (at >= 0) {
+                    def c:PresFormCount (itemAt t.per at)
+                    def fq:PresFormQuestion (itemAt form.questions at)
+                    if ((strlen key) == 0) {
+                        c.answered = (c.answered + n)
+                    } {
+                        c.bump(key n ((fq.hasOptions()) == false))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return t
     }
 
     fn countFor:PresFormCount (qid:string) {

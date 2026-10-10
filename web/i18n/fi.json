@@ -1487,5 +1487,16 @@
   "Adding {name}…": "Lisätään {name}…",
   "Could not add the file": "Tiedostoa ei voitu lisätä",
   "File deleted": "Tiedosto poistettu",
-  "Could not delete the file": "Tiedostoa ei voitu poistaa"
+  "Could not delete the file": "Tiedostoa ei voitu poistaa",
+  "Questionnaire…": "Kysely…",
+  "FORM": "KYSELY",
+  "Answer link": "Vastauslinkki",
+  "Responses": "Vastaukset",
+  "Answer links need the presentation saved to a Sliqtly server.": "Vastauslinkki vaatii, että esitys on tallennettu Sliqtly-serverille.",
+  "Answer link copied: ": "Vastauslinkki kopioitu: ",
+  "Answer link: ": "Vastauslinkki: ",
+  "The questionnaire has warnings: ": "Kyselyssä on varoituksia: ",
+  "No answer link: ": "Vastauslinkkiä ei saatu: ",
+  "Responses are kept by a Sliqtly server; this presentation is not saved to one.": "Vastaukset säilyttää Sliqtly-serveri, eikä tätä esitystä ole tallennettu sellaiselle.",
+  "The responses could not be read: ": "Vastauksia ei voitu lukea: "
 }

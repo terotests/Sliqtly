@@ -3,6 +3,9 @@
 // A robot walks the flowchart: it starts on the first box, hops from box to
 // box along the work and says what happens in each. Its picture is the
 // deck's own spritesheet (sprites/robot.png, scripts/sample-sprites.mjs).
+import { presentation, sprites } from "Sliqtly";
+
+const slide = presentation.activeSlide;
 
 sprites.sheet("robot", {
   src: "sprites/robot.png",
@@ -16,10 +19,10 @@ sprites.sheet("robot", {
   },
 });
 
-const boxes = find("diagram node");
+const boxes = slide.find("diagram node");
 let robot = null;
 
-function start() {
+export function start() {
   robot = sprites.add("robot", { on: boxes[0], size: 60 });
   robot.say(boxes[0].text, { secs: 1.6 });
   for (let i = 1; i < boxes.length; i++) {

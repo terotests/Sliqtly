@@ -381,6 +381,9 @@ class PresToolbar {
         if (id == "newSheet") {
             return "files:newsheet"
         }
+        if (id == "newForm") {
+            return "files:newform"
+        }
         if (id == "duplicate") {
             return "files:duplicate"
         }
@@ -1956,11 +1959,13 @@ class PresToolbar {
             def file:MenuCtl (this.dropdown("file" (PresI18n.t("File"))))
             ; groups as in a desktop app: new | open | save and export | the
             ; assistants | settings | delete, red and last
-            ; New ▸ a presentation (the window) or a datasheet (the spreadsheet
-            ; editor, its workbook kept in the deck's data/)
+            ; New ▸ a presentation (the window), a datasheet (the spreadsheet
+            ; editor, its workbook kept in the deck's data/) or a questionnaire
+            ; (forms/<name>.form.md, opened as text)
             def nw:UiItem (file.addSub("new" (PresI18n.t("New")) false))
             MenuCtl.addKid(nw "newPres" (PresI18n.t("Presentation…")) false)
             MenuCtl.addKid(nw "newSheet" (PresI18n.t("Datasheet…")) false)
+            MenuCtl.addKid(nw "newForm" (PresI18n.t("Questionnaire…")) false)
             file.addItem("rename" (PresI18n.t("Rename…")) false)
             file.addItem("duplicate" (PresI18n.t("Duplicate")) false)
             file.addSeparator()

@@ -12,9 +12,10 @@
 //                                      engine's speed here)
 //   { type: "frame", arg, fn? }        __deckFrame(arg), or fn (a slide's
 //                                      script: __scriptFrame) -> { type: "frame", out, ms }
-//   { type: "final", runtime, source, arg }
+//   { type: "final", runtime, source, arg, fn? }
 //                                      a second engine of its own runs
-//                                      __scriptFinal(arg) and is dropped, so
+//                                      __scriptFinal(arg) (or fn: __scriptOpen)
+//                                      and is dropped, so
 //                                      where a script ends is worked out without
 //                                      touching the one that runs -> { type: "final", out }
 //
@@ -115,7 +116,7 @@ self.onmessage = async (ev) => {
           return;
         }
         const [ap, an] = put(m.arg);
-        const fn = put("__scriptFinal");
+        const fn = put(m.fn || "__scriptFinal");
         const failed = x.cx_call(own, fn[0], fn[1], ap, an);
         x.cx_free(ap, an);
         x.cx_free(fn[0], fn[1]);

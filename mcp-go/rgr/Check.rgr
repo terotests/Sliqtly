@@ -322,6 +322,13 @@ class Check {
                 continue
             }
             d.setScriptFinal(key out)
+            def ro@(optional):PresScriptRun (d.scriptRun(key))
+            if (!null? ro) {
+                def off:int (PresScriptCheck.addsOutside(ro.final d.pageW d.pageH))
+                if (off > 0) {
+                    push c.warnings (Guide.see(("Slide " + (to_string (pg + 1)) + ": script " + s.script + ": " + (to_string off) + " shape(s) it adds are off the slide, which is " + (to_string (to_int (d.pageW + 0.5))) + " × " + (to_string (to_int (d.pageH + 0.5))) + " (presentation.activeSlide.width / height)") "scripts"))
+                }
+            }
         }
     }
 

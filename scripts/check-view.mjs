@@ -54,6 +54,10 @@ const worldDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-a
 const GLTF_ID = "GltfFixture1";
 const gltfDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.json"));
 const gltfFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.gltf"));
+// a file written for Ranger v2's 3-D façade, as Ranger has it
+// (courtyard_live.tsx; mcp-go/render3d_test.go TestRangerThreeFileRunsAsItIs)
+const THREE_ID = "ThreeFixture1";
+const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -78,7 +82,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck };
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck };
     const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(found || '{"error":"This shared presentation was not found."}');
@@ -282,6 +286,36 @@ try {
   if (modelAt < 100) fail(`the world's .gltf model was not drawn (${modelAt} orange pixels)`);
   await page.close();
 
+  // courtyard_live.tsx (import * as THREE from "ranger:three") as it is:
+  // its coloured boxes on the slide
+  page = await open("/s/" + THREE_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  const boxes = () => page.evaluate(() => {
+    const c = document.getElementById("c");
+    const g = document.createElement("canvas");
+    g.width = 128;
+    g.height = 72;
+    const x = g.getContext("2d");
+    x.drawImage(c, 0, 0, 128, 72);
+    const d = x.getImageData(0, 0, 128, 72).data;
+    const seen = { red: 0, green: 0, blue: 0 };
+    for (let i = 0; i < d.length; i += 4) {
+      const [r, gr, b] = [d[i], d[i + 1], d[i + 2]];
+      if (gr > r + 40 && gr > b + 20) seen.green++;
+      else if (b > r + 40 && b > gr) seen.blue++;
+      else if (r > gr + 60 && r > b + 60) seen.red++;
+    }
+    return seen;
+  });
+  let seen = {};
+  for (let i = 0; i < 40; i++) {
+    seen = await boxes();
+    if (seen.red > 3 && seen.green > 3 && seen.blue > 3) break;
+    await page.waitForTimeout(250);
+  }
+  if (!(seen.red > 3 && seen.green > 3 && seen.blue > 3)) fail(`the ranger:three courtyard was not drawn (${JSON.stringify(seen)})`);
+  await page.close();
+
   // …and in the assistant's preview, where the modules are data: URLs: the
   // program runs (its worker made by the preview) and its world is drawn
   page = await open("/", { at: chatBase });
@@ -419,4 +453,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf and in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

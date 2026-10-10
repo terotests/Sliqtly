@@ -1185,6 +1185,11 @@ class PresPanels {
         if (kind == "image") { tag = (PresI18n.t("IMAGE")) }
         if (kind == "chart") { tag = "VL" }
         if (kind == "data") { tag = "DATA" }
+        if (kind == "form") {
+            ; a questionnaire: its text, and on a server that keeps answers
+            ; (the page marks the row `served`) its answer link and responses
+            tag = (PresI18n.t("FORM"))
+        }
         if (kind == "live") {
             ; a linked source (a Google Sheet, a CSV / JSON address): its name,
             ; where it is read from and when; the copy itself is not edited
@@ -1245,6 +1250,10 @@ class PresPanels {
             this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
         } {
             this.act("open" path (PresI18n.t("Open")) "secondary" row)
+            if ((kind == "form") && (f.boolOr("served" false))) {
+                this.act("formlink" path (PresI18n.t("Answer link")) "secondary" row)
+                this.act("formcsv" path (PresI18n.t("Responses")) "secondary" row)
+            }
             if (kind == "chart") {
                 this.act("insert" path (PresI18n.t("Add to slide")) "secondary" row)
             }

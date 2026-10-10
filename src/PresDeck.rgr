@@ -1684,6 +1684,7 @@ class PresDeck {
         r.live = f
         r.hasLive = true
         r.hasLeave = false
+        r.hasOpen = false
         this.takeOwns(r f)
         return true
     }
@@ -1702,6 +1703,25 @@ class PresDeck {
         }
         r.leave = f
         r.hasLeave = true
+        return true
+    }
+
+    ; How script `key` opens (__scriptOpen): its slide as it arrives on the
+    ; stage, through its transition, until the script's first frame.
+    fn setScriptOpen:boolean (key:string json:string) {
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        r.open = f
+        r.hasOpen = true
+        r.hasLeave = false
+        this.takeOwns(r f)
         return true
     }
 
@@ -1915,6 +1935,7 @@ class PresDeck {
         def r:PresScriptRun (unwrap ro)
         r.hasLive = false
         r.live = (new PresScriptFrame())
+        r.hasOpen = false
         r.stopped = why
     }
 
@@ -1941,6 +1962,10 @@ class PresDeck {
         if ((r.hasLive && showControls) && (still == false)) {
             def lv@(optional):PresScriptFrame r.live
             return lv
+        }
+        if ((r.hasOpen && showControls) && (still == false)) {
+            def ov@(optional):PresScriptFrame r.open
+            return ov
         }
         if ((r.hasLeave && showControls) && (still == false)) {
             def lfv@(optional):PresScriptFrame r.leave

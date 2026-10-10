@@ -263,6 +263,8 @@ export function kindOf(path, type) {
   if (/\.vl\.json$|\.vg\.json$/.test(p) || p.startsWith("charts/")) return "chart";
   if (/\.(csv|tsv|json|topojson|geojson|txt|xlsx)$/.test(p)) return "data";
   if (/\.css$/.test(p)) return "css";
+  // a questionnaire (Sliqtly Curious), not the deck's own text
+  if (/\.form\.md$/.test(p)) return "form";
   if (/\.(md|markdown)$/.test(p)) return "md";
   return "text";
 }
@@ -273,13 +275,14 @@ export function isText(path, type) {
 }
 
 // Where a file added from the computer goes: pictures and music under media/, a chart
-// spec under charts/, a program (```app) and its stylesheet under apps/,
-// other data under data/.
+// spec under charts/, a questionnaire under forms/, a program (```app) and
+// its stylesheet under apps/, other data under data/.
 export function placeFor(name, type) {
   const clean = name.replace(/[\\/:*?"<>|]+/g, "-");
   const k = kindOf(clean, type);
   if (k === "image" || k === "audio") return "media/" + clean;
   if (k === "chart") return "charts/" + clean;
+  if (k === "form") return "forms/" + clean;
   if (/\.(tsx|jsx)(\.css)?$/i.test(clean)) return "apps/" + clean;
   if (/\.json$/i.test(clean)) {
     return "data/" + clean;

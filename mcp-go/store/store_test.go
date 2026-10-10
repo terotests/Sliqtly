@@ -210,3 +210,18 @@ func TestSQLiteSchemaVersions(t *testing.T) {
 		t.Fatalf("backup holds %v", d)
 	}
 }
+
+func TestMemForms(t *testing.T) {
+	storetest.RunForms(t, func(t *testing.T) store.Forms { return store.NewMemForms() })
+}
+
+func TestSQLiteForms(t *testing.T) {
+	storetest.RunForms(t, func(t *testing.T) store.Forms {
+		s, err := store.OpenSQLiteStore(filepath.Join(t.TempDir(), "sliqtly.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { s.Close() })
+		return store.NewSQLiteForms(s)
+	})
+}

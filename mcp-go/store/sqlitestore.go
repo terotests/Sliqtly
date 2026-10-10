@@ -101,6 +101,50 @@ CREATE INDEX docs_tenant ON docs (col, json_extract(doc, '$.tenant'));
 CREATE INDEX docs_owner  ON docs (col, json_extract(doc, '$.owner'));
 CREATE INDEX docs_room   ON docs (col, json_extract(doc, '$.room'));
 CREATE INDEX docs_member ON docs (col, json_extract(doc, '$.member'));`)},
+	{Version: 4, Note: "questionnaires' links, responses and counters", Additive: true, Up: SQLExec(`
+-- forms.go: a way into a questionnaire, by the SHA-256 of its key (the
+-- key itself is never kept)
+CREATE TABLE form_links (
+  hash    TEXT PRIMARY KEY,
+  id      TEXT NOT NULL,
+  deck    TEXT NOT NULL,
+  file    TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  once    INTEGER NOT NULL,
+  used    INTEGER NOT NULL,
+  revoked INTEGER NOT NULL,
+  created INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX form_links_deck ON form_links (deck, file);
+-- one row per response, seq in the order they came; record and deltas
+-- are JSON
+CREATE TABLE form_responses (
+  deck    TEXT NOT NULL,
+  file    TEXT NOT NULL,
+  seq     INTEGER NOT NULL,
+  id      TEXT NOT NULL,
+  version TEXT NOT NULL,
+  at      INTEGER NOT NULL,
+  link    TEXT NOT NULL,
+  record  TEXT NOT NULL,
+  deltas  TEXT NOT NULL,
+  PRIMARY KEY (deck, file, seq)
+) WITHOUT ROWID;
+CREATE UNIQUE INDEX form_responses_id ON form_responses (deck, file, id);
+-- the counters charts read: question "" counts responses, key "" answers
+CREATE TABLE form_tally (
+  deck TEXT NOT NULL,
+  file TEXT NOT NULL,
+  q    TEXT NOT NULL,
+  key  TEXT NOT NULL,
+  n    INTEGER NOT NULL,
+  PRIMARY KEY (deck, file, q, key)
+) WITHOUT ROWID;
+-- the server's sealing key (the answer page's s value)
+CREATE TABLE form_keys (
+  name TEXT PRIMARY KEY,
+  key  BLOB NOT NULL
+) WITHOUT ROWID;`)},
 }
 
 // OpenSQLiteStore opens (or creates) the documents in the SQLite file at path.

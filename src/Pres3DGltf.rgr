@@ -138,14 +138,16 @@ class Pres3DGltf {
         }
         ; a world that names no light is lit by Sliqtly's key and fill
         ; (Pres3DWorld.extras), in R3F's units
+        ; without colour management (the first attributes, <scene3d legacy>)
+        def plain:boolean (t.legacy || t.colorLegacy)
         if (t.lights == 0) {
             def k:double 3.141592653589793
-            if t.legacy {
+            if plain {
                 k = 1.0
             }
             def ki:double (0.9 * k)
             def fi:double (0.35 * k)
-            if (t.legacy == false) {
+            if (plain == false) {
                 ki = (1.6 * k)
                 fi = (0.5 * k)
             }
@@ -163,7 +165,7 @@ class Pres3DGltf {
         scene.set("nodes" roots)
         def sx:JVal (JVal.mkObj())
         sx.setNum("roomLight" t.roomLight)
-        if t.legacy {
+        if plain {
             sx.setBool("legacy" true)
         }
         if ((others.len()) > 0) {
