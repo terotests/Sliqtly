@@ -152,6 +152,10 @@ class Pres3DTree {
     Constructor () {
     }
 
+    sfn among:boolean (list:[string] s:string) {
+        return ((indexOf list s) >= 0)
+    }
+
     sfn objectTags:[string] () {
         return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "sliqRod" "camera" "light" "object3D"))
     }
@@ -364,8 +368,8 @@ class Pres3DTree {
         if ((a0.isObj()) == false) {
             a = (JVal.mkObj())
         }
-        if ((indexOf (Pres3DTree.objectTags()) tag) < 0) {
-            if (((indexOf (Pres3DTree.geometryTags()) tag) >= 0) || ((indexOf (Pres3DTree.materialTags()) tag) >= 0)) {
+        if ((Pres3DTree.among((Pres3DTree.objectTags()) tag)) == false) {
+            if ((Pres3DTree.among((Pres3DTree.geometryTags()) tag)) || (Pres3DTree.among((Pres3DTree.materialTags()) tag))) {
                 this.warn(("<" + tag + "> goes inside a <mesh>"))
             } {
                 this.warn(("<" + tag + "> is not a 3-D object here (" + (join (Pres3DTree.shownTags()) ", ") + ")"))
@@ -392,7 +396,7 @@ class Pres3DTree {
         } {
             p.key = (parentKey + "/" + tag + (to_string nth))
         }
-        if ((tag == "mesh") || (tag == "light") || (tag == "camera")) {
+        if ((tag == "mesh") || ((tag == "light") || ((tag == "camera") || (tag == "group")))) {
             if (this.isLegacy(a)) {
                 this.oldProps(p a where)
             } {
@@ -568,7 +572,7 @@ class Pres3DTree {
                 this.warn((where + ": write the " + key + " as a child, <boxGeometry args={[1, 1, 1]} /> or <meshStandardMaterial color=\"…\" />"))
                 continue
             }
-            if ((tag == "mesh") && ((indexOf (Pres3DTree.materialProps()) key) >= 0)) {
+            if ((tag == "mesh") && (Pres3DTree.among((Pres3DTree.materialProps()) key))) {
                 this.warn((where + ": " + key + " belongs on its material, <meshStandardMaterial " + key + "={…} />"))
                 continue
             }
@@ -592,7 +596,7 @@ class Pres3DTree {
             if ((a0.isObj()) == false) {
                 a = (JVal.mkObj())
             }
-            if ((indexOf (Pres3DTree.geometryTags()) tag) >= 0) {
+            if (Pres3DTree.among((Pres3DTree.geometryTags()) tag)) {
                 if (p.jsx == "sliqRod") {
                     this.warn((where + ": a rod's geometry is its from, to and radius"))
                     continue
@@ -601,11 +605,11 @@ class Pres3DTree {
                 p.geoArgs = (this.args(tag a where))
                 continue
             }
-            if ((indexOf (Pres3DTree.materialTags()) tag) >= 0) {
+            if (Pres3DTree.among((Pres3DTree.materialTags()) tag)) {
                 this.material(p tag a)
                 continue
             }
-            if ((indexOf (Pres3DTree.objectTags()) tag) >= 0) {
+            if (Pres3DTree.among((Pres3DTree.objectTags()) tag)) {
                 this.warn((where + ": <" + tag + "> inside a <mesh>; put it in a <group> beside it"))
                 continue
             }
@@ -762,6 +766,9 @@ class Pres3DTree {
         def k:double (this.num(a "scale" 1.0 where))
         p.scale = ([] _:double (k k k))
         p.name = (Pres3DTree.text(a "name"))
+        if (p.jsx == "group") {
+            return
+        }
         if (p.jsx == "camera") {
             p.jsx = "perspectiveCamera"
             p.fov = (this.num(a "fov" 45.0 where))
@@ -1148,8 +1155,11 @@ class Pres3DTree {
     ; into `b`: removes first (an object whose tag or parent changed is
     ; removed and added again), then adds in tree order (a parent before what
     ; is in it), then the changes of what stayed.
+    ; An object whose parent is made again is made again with it (it hung
+    ; on the old one).
     sfn diff:[P3Op] (a:Pres3DTree b:Pres3DTree) {
         def out:[P3Op]
+        def goneKeys:[string]
         def i:int 0
         while (i < (array_length a.nodes)) {
             def p:P3Node (itemAt a.nodes i)
@@ -1161,7 +1171,11 @@ class Pres3DTree {
                     gone = true
                 }
             }
+            if ((gone == false) && ((indexOf goneKeys (a.parentKey(p))) >= 0)) {
+                gone = true
+            }
             if gone {
+                push goneKeys p.key
                 push out (Pres3DTree.op("remove" p.key -1))
             }
             i = (i + 1)
@@ -1177,6 +1191,9 @@ class Pres3DTree {
                 if ((p2.jsx != q2.jsx) || ((a.parentKey(p2)) != (b.parentKey(q2)))) {
                     fresh = true
                 }
+            }
+            if ((fresh == false) && ((indexOf goneKeys q2.key) >= 0)) {
+                fresh = true
             }
             if fresh {
                 push out (Pres3DTree.op("add" q2.key j))

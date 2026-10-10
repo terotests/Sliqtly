@@ -51,7 +51,7 @@ allow: 3d          # the program may draw a <scene3d> world
 ~~~
 ```
 
-- `<mesh shape="knot" metal={0.9} ry={a} />`: box, sphere, torus, knot, cylinder, cone, plane, teapot
-- `metal` 0–1: how much the surface mirrors the slide around it
-- `<camera z={6} fov={40} />` and `<light kind="sun" x y z />`, otherwise the light comes from the slide's colours
+- Written as in React Three Fiber: `<mesh rotation={[0, a, 0]}><torusKnotGeometry args={[1, 0.3]} /><meshStandardMaterial color="#c0c0c0" metalness={0.9} /></mesh>`
+- `metalness` 0–1: how much the surface mirrors the slide around it; angles in radians
+- `<perspectiveCamera position={[0, 2, 6]} fov={40} />` and `<directionalLight position={[4, 6, 3]} />`, otherwise the light comes from the slide's colours
 - The background is transparent: the slide shows behind the world

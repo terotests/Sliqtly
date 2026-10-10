@@ -5191,6 +5191,9 @@ class PresCheck {
         this.ok((first == "add /group0\nadd /group0/mesh0\nadd /group0/mesh1") ("scene tree: the first frame adds, parents first, got " + first))
         def fewer:string (Pres3DTree.opsText((Pres3DTree.diff(t2 (PresCheck.sceneOf("{\"t\":\"group\",\"a\":{\"position\":\"0,1,0\",\"rotation\":\"0,1.5707963267948966,0\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"position\":\"1,0,0\"}}]}"))))))
         this.ok((fewer == "remove /group0/mesh1") ("scene tree: one gone is removed, got " + fewer))
+        ; a group made again (now a mesh) takes what was in it along
+        def remade:string (Pres3DTree.opsText((Pres3DTree.diff((PresCheck.sceneOf("{\"t\":\"group\",\"a\":{\"name\":\"arm\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"name\":\"hand\"}}]}")) (PresCheck.sceneOf("{\"t\":\"object3D\",\"a\":{\"name\":\"arm\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"name\":\"hand\"}}]}"))))))
+        this.ok((remade == "remove @arm\nremove @hand\nadd @arm\nadd @hand") ("scene tree: a remade parent remakes its children, got " + remade))
         def regeo:string (Pres3DTree.opsText((Pres3DTree.diff(t (PresCheck.sceneOf((MdApp.replaceAll(ball "0.5,32,16" "0.6,32,16"))))))))
         this.ok((regeo == "geometry @ball") ("scene tree: new args are a new geometry, got " + regeo))
 
@@ -5432,6 +5435,17 @@ class PresCheck {
             ni = (ni + 1)
         }
         this.ok(said "worlds: a <scene3d> without the grant is said")
+        ; a world's own mistakes are said with its slide and program
+        deck.setChartData("apps/w.tsx" "function view() { return null }")
+        view.setTree((MdApp.replaceAll(tree "\"shape\":\"knot\"" "\"wobble\":\"1\"")))
+        def notes2:[string] (deck.playNotes())
+        def told:boolean false
+        for notes2 n2:string n2i {
+            if ((indexOf n2 "Slide 1: app: apps/w.tsx: ") == 0) {
+                told = true
+            }
+        }
+        this.ok(told ("worlds: a world's mistakes reach the notes, got " + (join notes2 " | ")))
 
         ; the public viewer (PresPlayWeb): the fence's grant comes with the
         ; play, and the page is told where each world is
@@ -5503,7 +5517,8 @@ class PresCheck {
         ; the scene from the element
         def p3:Pres3D (new Pres3D())
         p3.setSlide(px pw ph)
-        this.ok(((p3.setScene("k" scene)) == "") "worlds: a scene taken")
+        def said:string (p3.setScene("k" scene))
+        this.ok(((indexOf said "the first 3-D attributes") >= 0) ("worlds: a first-version scene taken, the new names said, got " + said))
         def wo:Pres3DWorld (p3.world("k"))
         this.ok(((wo.meshes == 1) && (wo.lights == 1)) "worlds: one mesh, one light of its own")
         this.ok(((wo.camera.position.z == 6.0) && (wo.camera.fov == 40.0)) "worlds: its camera")
@@ -5517,19 +5532,45 @@ class PresCheck {
         ; a group moves its parts: a mesh 1 along x in a group at x 2 turned
         ; 90 degrees round z stands at (2, 1)
         def grouped:string "{\"t\":\"scene3d\",\"c\":[{\"t\":\"group\",\"a\":{\"x\":\"2\",\"rz\":\"90\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"box\",\"x\":\"1\"}},{\"t\":\"group\",\"a\":{\"y\":\"1\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"shape\":\"sphere\"}}]}]}]}"
-        this.ok(((p3.setScene("g" grouped)) == "") "worlds: a scene with groups taken")
+        p3.setScene("g" grouped)
         def wg:Pres3DWorld (p3.world("g"))
         this.ok((wg.meshes == 2) ("worlds: the meshes inside groups count, got " + (to_string wg.meshes)))
         wg.scene.updateMatrixWorld()
-        def outer:ThreeObject3D (wg.scene.getChild(0))
-        def boxM:ThreeObject3D (outer.getChild(0))
-        def inner:ThreeObject3D (outer.getChild(1))
-        def ball:ThreeObject3D (inner.getChild(0))
+        def boxO@(optional):ThreeObject3D (wg.objectOf("/group0/mesh0"))
+        def ballO@(optional):ThreeObject3D (wg.objectOf("/group0/group0/mesh0"))
+        this.ok(((!null? boxO) && (!null? ballO)) "worlds: the meshes by their keys")
+        if ((null? boxO) || (null? ballO)) {
+            return
+        }
+        def boxM:ThreeObject3D (unwrap boxO)
+        def ball:ThreeObject3D (unwrap ballO)
         def bx:double (itemAt boxM.matrixWorld.elements 12)
         def by:double (itemAt boxM.matrixWorld.elements 13)
         this.ok((((fabs (bx - 2.0)) < 0.001) && ((fabs (by - 1.0)) < 0.001)) ("worlds: the box stands at (2, 1), got " + (to_string bx) + ", " + (to_string by)))
         def sx:double (itemAt ball.matrixWorld.elements 12)
         this.ok(((fabs (sx - 1.0)) < 0.001) ("worlds: the nested group turns with its parent, x " + (to_string sx)))
+
+        ; R3F's way: frame to frame the same objects, only what changed set
+        def f1:string "{\"t\":\"scene3d\",\"c\":[{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,2,6\",\"fov\":\"45\",\"lookAt\":\"0,0,0\"}},{\"t\":\"pointLight\",\"a\":{\"position\":\"2,3,1\",\"intensity\":\"20\"}},{\"t\":\"mesh\",\"a\":{\"name\":\"ball\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"sphereGeometry\",\"a\":{\"args\":\"0.5,32,16\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#4488ff\"}}]}]}"
+        this.ok(((p3.setScene("r" f1)) == "") ("worlds: an R3F scene taken, nothing said, got " + (p3.setScene("r" f1))))
+        def wr:Pres3DWorld (p3.world("r"))
+        this.ok(wr.srgb "worlds: Three's names, Three's colour pipeline")
+        this.ok(((wr.camera.fov == 45.0) && (wr.camera.position.y == 2.0)) "worlds: the perspectiveCamera")
+        this.ok(((array_length wr.pointObjs) == 1) "worlds: a point light")
+        def b1@(optional):ThreeObject3D (wr.objectOf("@ball"))
+        p3.setScene("r" (MdApp.replaceAll(f1 "\"1,0,0\"" "\"1.5,0,0\"")))
+        def b2@(optional):ThreeObject3D (wr.objectOf("@ball"))
+        this.ok(((!null? b1) && (!null? b2)) "worlds: the ball by its name")
+        if ((!null? b1) && (!null? b2)) {
+            def o1:ThreeObject3D (unwrap b1)
+            def o2:ThreeObject3D (unwrap b2)
+            this.ok((o1 == o2) "worlds: moved, the same object")
+            this.ok((o2.position.x == 1.5) "worlds: at its new place")
+        }
+        this.ok(((array_length wr.geoKeys) == 1) "worlds: its sphere made once")
+        p3.setScene("r" "{\"t\":\"scene3d\",\"c\":[]}")
+        this.ok(((wr.meshes == 0) && ((array_length wr.keys) == 0)) "worlds: gone from the frame, gone from the world")
+        this.ok(((array_length wr.pointObjs) == 0) "worlds: its light too")
     }
 
     sfn main:void () {

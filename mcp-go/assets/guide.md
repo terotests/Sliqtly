@@ -977,15 +977,26 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     with that id or class (`{#id}` on the line after a paragraph) without
     changing the Markdown.
   - `3d` (experimental): a `<scene3d>` element in `view()` is a 3-D world,
-    drawn over the slide with a transparent background. Its children:
-    `<mesh shape="box|sphere|torus|knot|cylinder|cone|plane|teapot" size r
-    tube w h d x y z rx ry rz scale color metal fresnel flat wire />` (angles
-    in degrees; `metal` 0-1 mirrors the slide around the world),
-    `<group x y z rx ry rz scale>…</group>` (its children placed in its
-    own frame and moved with it: an arm is groups inside groups),
-    `<camera x y z fov lookX lookY lookZ />`, `<light kind="sun|ambient" x y z
-    color intensity />` (none: a key and a fill light). Animate by changing
-    the attributes in `tick`.
+    drawn over the slide with a transparent background. Its children are
+    written as in React Three Fiber (Three.js names and units, no React,
+    no hooks): `<group>`, `<mesh>`, `<perspectiveCamera>`,
+    `<ambientLight>`, `<directionalLight>`, `<pointLight>`. A mesh holds a
+    geometry and a material:
+    `<boxGeometry args={[w, h, d]} />`, `sphere|cylinder|cone|plane|torus|`
+    `torusKnotGeometry` with Three's `args`, and `<meshStandardMaterial
+    color metalness roughness flatShading wireframe />` (also `meshBasic`,
+    `meshLambert`, `meshPhong`). Objects take `position={[x, y, z]}`,
+    `rotation={[x, y, z]}` (radians), `scale`, `visible`, `castShadow`,
+    `lookAt={[x, y, z]}` or the `name` of another object, and `name` (its
+    stable id). Metal surfaces mirror the slide around the world. Groups
+    move their children in their own frame: an arm is groups inside groups.
+    `<SliqRod from to radius length color />` is a rod between two points
+    or two named objects wherever they have moved (a hydraulic cylinder).
+    Animate by changing props in `tick`; only what changed is redrawn.
+    Unknown tags and props are reported with create/update. Example:
+    `<mesh position={[0, 1, 0]} rotation={[0, a, 0]}><torusKnotGeometry
+    args={[1, 0.3]} /><meshStandardMaterial color="#c0c0c0" metalness={0.9}
+    roughness={0.2} /></mesh>`.
 - Example:
 
   ```tsx
