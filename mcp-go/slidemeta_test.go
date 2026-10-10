@@ -53,3 +53,30 @@ func TestSlideMetadataInHeading(t *testing.T) {
 		t.Fatalf("a warning about a key that is plainly data:\n%s", ws)
 	}
 }
+
+// A heading's `{…}` with a part that cannot be read: the slide keeps its
+// title and the attributes that were readable, and the warnings say what
+// was left out and how to write it.
+func TestHeadingAttributesWarning(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "---\nslide-split-level: 2\n---\n\n" +
+		"## Revenue {layout = image-right owner=Väinö Linna}\n\nUp 18 %.\n\n" +
+		"## Costs {title=\"Q3 {draft}\"}\n\nFlat.\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Q3", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	rep := textOf(c)
+	if strings.Contains(rep, "{layout") || strings.Contains(rep, "{title") {
+		t.Fatalf("attributes were left in a title:\n%s", rep)
+	}
+	ws := strings.Join(toStrings(sc(c)["warnings"]), "\n")
+	if !strings.Contains(ws, `slide "Revenue"`) || !strings.Contains(ws, `owner="Väinö Linna"`) || !strings.Contains(ws, "topic=layout") {
+		t.Fatalf("no warning about the unquoted value:\n%s", ws)
+	}
+	if strings.Contains(ws, "Costs") {
+		t.Fatalf("a warning about braces inside a quoted value:\n%s", ws)
+	}
+}

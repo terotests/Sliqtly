@@ -7,6 +7,7 @@ Import "Guide.rgr"
 Import "McpJson.rgr"
 Import "../pptx/smartart/SaFile.rgr"
 Import "SvgFix.rgr"
+Import "../markdown/src/MdAttrs.rgr"
 
 class Img {
     def name:string ""
@@ -192,16 +193,12 @@ class Deck {
             k = (k + 1)
         }
         def title:string (Deck.trimEnd((substring line k n)))
-        ; `\s*\{[^}]*\}\s*$`: from the first { after the last } but one
-        if (endsWith title "}") {
-            def body:string (substring title 0 ((strlen title) - 1))
-            def lastClose:int (lastIndexOf body "}")
-            def from:int (lastClose + 1)
-            def rest:string (substring body from (strlen body))
-            def open:int (indexOf rest "{")
-            if (open >= 0) {
-                title = (substring title 0 (from + open))
-            }
+        ; the heading's {attributes}, read the way the slides read them
+        def scratch (new MdNode)
+        def notes:[string]
+        def at:int (MdAttrs.headingAttrs(scratch title notes))
+        if (at >= 0) {
+            title = (substring title 0 at)
         }
         return (trim title)
     }

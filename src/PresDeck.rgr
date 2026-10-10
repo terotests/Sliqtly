@@ -3046,6 +3046,27 @@ class PresDeck {
         return out
     }
 
+    ; What a heading's `{…}` had that could not be read (MdAttrs.headingAttrs):
+    ; the good attributes were applied and the group is out of the title,
+    ; and each left-out part is a sentence naming the slide.
+    fn headingAttrNotes:[string] () {
+        def out:[string]
+        for (MdAttrs.notedHeadings(md.edit.doc)) h:MdNode hi {
+            def page:int (this.pageOfOffset(h.srcStart))
+            def where:string ("slide " + (to_string (page + 1)))
+            if ((page >= 0) && (page < (array_length slides))) {
+                def t:string ((itemAt slides page).title)
+                if ((strlen t) > 0) {
+                    where = ("slide \"" + t + "\"")
+                }
+            }
+            for h.attrNotes note:string ni {
+                push out ("The heading attributes on " + where + ": " + note + ".")
+            }
+        }
+        return out
+    }
+
     ; What the HTML in the Markdown does not show as written (a tag nobody
     ; draws, a style property nothing reads, a script handler or address),
     ; as sentences naming the slide (`MdLayout.htmlNotes`).

@@ -9552,6 +9552,7 @@ class PresApp {
             i = (i + 1)
         }
         this.fxDiagnostics(mdOut cssOut)
+        this.headingAttrDiagnostics(mdOut)
         mdEditor.setHostDiagnostics(mdOut)
         cssEditor.setHostDiagnostics(cssOut)
         if ((array_length cssOut) != cssContrastCount) {
@@ -9577,6 +9578,18 @@ class PresApp {
                 push mdOut (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.error()) msg "fx"))
             }
             i = (i + 1)
+        }
+    }
+
+    ; A heading's `{…}` with a part that could not be read
+    ; (MdAttrs.headingAttrs), on the heading's line.
+    fn headingAttrDiagnostics:void (mdOut:[EditorDiagnostic]) {
+        for (MdAttrs.notedHeadings(deck.md.edit.doc)) h:MdNode hi {
+            def line:int (this.mdLineOf(h.srcStart))
+            if (line >= 0) {
+                def msg:string ((PresI18n.t("Heading attributes: ")) + (join h.attrNotes "; ") + ".")
+                push mdOut (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.warning()) msg "attrs"))
+            }
         }
     }
 
@@ -9615,6 +9628,11 @@ class PresApp {
         def title:string (PresI18n.t("Low contrast"))
         if ((indexOf note lead) == 0) {
             note = (substring note (strlen lead) (strlen note))
+        }
+        def attrLead:string (PresI18n.t("Heading attributes: "))
+        if ((indexOf note attrLead) == 0) {
+            note = (substring note (strlen attrLead) (strlen note))
+            title = (PresI18n.t("Heading attributes"))
         }
         def fxLead:string (PresI18n.t("Effect: "))
         if ((indexOf note fxLead) == 0) {

@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10i.** If a result names a newer version, read Core
+**Guide version 2026-10-10j.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -34,6 +34,10 @@ Speaker notes.
 - `#` is a title slide, `##` starts a slide.
 - `{…}` on the line after a block applies to that block; on a heading line,
   to the slide.
+- Inside `{…}`: `.class`, `#id` and `key=value`, separated by spaces. A
+  value with spaces or braces goes in quotes: `{title="Q3 {draft}"}`;
+  `\"` is a quote inside one. Several groups on a heading line all apply.
+  A part that cannot be read is left out and named in `warnings`.
 - Block attributes: `.lead` `.kicker` `.center` `.right` `.c2` `.c3`
   `.build`, `width=60%`, `container=box|bubble`.
 - A slide whose content runs over continues on the next slide (the result
