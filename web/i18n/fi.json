@@ -1482,5 +1482,6 @@
   "The responses could not be read: ": "Vastauksia ei voitu lukea: ",
   "Results slides": "Tulosdiat",
   "Results slides added at the end of the presentation.": "Tulosdiat lisätty esityksen loppuun.",
-  "This questionnaire has no question a chart can show.": "Kyselyssä ei ole kysymystä, jonka voi näyttää kaaviona."
+  "This questionnaire has no question a chart can show.": "Kyselyssä ei ole kysymystä, jonka voi näyttää kaaviona.",
+  "← Slides": "← Diat"
 }

@@ -7,12 +7,14 @@
 ; The files tab opens any file of the document in one editor. Its language is
 ; picked by the file's name, from the languages' own `handlesFile`, asked in
 ; order: CSS first, so a program's stylesheet (`apps/x.tsx.css`) is CSS and
-; not the program; then the scripts (.tsx .ts .jsx .js .mjs). JSON is shown in
-; the script language's colours. A name nothing claims is plain text.
+; not the program; then the scripts (.tsx .ts .jsx .js .mjs); then Markdown
+; (.md, a questionnaire's .form.md too), in the deck editor's colours. JSON is
+; shown in the script language's colours. A name nothing claims is plain text.
 ; ==============================================================================
 
 Import "PresCssLanguage.rgr"
 Import "../datagrid/src/script/lang/JsLanguage.rgr"
+Import "../markdown/src/R5MdLanguage.rgr"
 
 class PresFileLanguage {
     def langs:LanguageRegistry (new LanguageRegistry())
@@ -21,6 +23,14 @@ class PresFileLanguage {
     Constructor () {
         langs.add((new PresCssLanguage()))
         langs.add(script)
+        langs.add((new R5MdLanguage()))
+    }
+
+    ; A Markdown file of the deck (a questionnaire's forms/x.form.md) opens
+    ; under the Markdown tab, beside the deck's own text; the rest under
+    ; Files.
+    sfn inMarkdownTab:boolean (path:string) {
+        return (EditorLanguage.hasSuffix((to_lowercase path) ".md"))
     }
 
     fn forPath:EditorLanguage (path:string) {

@@ -160,10 +160,11 @@ class PresCheck {
     }
 
     ; The files tab colours a file by its name: programs as scripts, their
-    ; stylesheets as CSS, JSON as a script, the rest plain.
+    ; stylesheets as CSS, JSON as a script, Markdown as the deck, the rest
+    ; plain.
     fn fileLanguages:void () {
         def f:PresFileLanguage (new PresFileLanguage())
-        def cases:[string] ([] _:string ( "apps/bars.tsx" "javascript" "apps/x.ts" "javascript" "web/a.js" "javascript" "B.JSX" "javascript" "m.mjs" "javascript" "apps/bars.tsx.css" "css" "theme.css" "css" "chart.json" "javascript" "data.csv" "text" "notes.txt" "text" "apps/tsx" "text" ))
+        def cases:[string] ([] _:string ( "apps/bars.tsx" "javascript" "apps/x.ts" "javascript" "web/a.js" "javascript" "B.JSX" "javascript" "m.mjs" "javascript" "apps/bars.tsx.css" "css" "theme.css" "css" "chart.json" "javascript" "data.csv" "text" "notes.txt" "text" "apps/tsx" "text" "forms/palaute.form.md" "markdown" "notes/README.MD" "markdown" ))
         def i:int 0
         while (i < (array_length cases)) {
             def path:string (itemAt cases i)

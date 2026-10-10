@@ -950,7 +950,13 @@ class PresPanels {
             ; a file in the editor: a bar to go back by
             p.height = (EVGUnit.px((PresPanels.filesBarH())))
             def bar:EVGElement (UiKit.div("pf-top"))
-            this.button("pf-back" (PresI18n.t("← Files")) "ghost" bar)
+            ; back to where it was opened from: the slides' text for a
+            ; Markdown file, which shows under the Markdown tab
+            if (PresFileLanguage.inMarkdownTab(filesOpenPath)) {
+                this.button("pf-back" (PresI18n.t("← Slides")) "ghost" bar)
+            } {
+                this.button("pf-back" (PresI18n.t("← Files")) "ghost" bar)
+            }
             bar.addChild((UiKit.words("pf-path" filesOpenPath)))
             bar.addChild((UiKit.div("pn-grow")))
             bar.addChild((UiKit.words("pf-saved" (PresI18n.t("saves automatically")))))
