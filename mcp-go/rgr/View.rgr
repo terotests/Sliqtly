@@ -14,7 +14,8 @@
 ;     "effects": [ <FxLang.json: the deck's own effects> ] }
 ;
 ; `files` are the deck's stored files a list draws (pictures, by the
-; "/media/<name>" a command's src names). `slides`: a view of only those
+; "/media/<name>" a command's src names) and the .gltf models a program
+; names (<SliqGltf src>, web/three3d.js). `slides`: a view of only those
 ; sections (PresPick keys, the link the editor's picked slides share).
 ; =============================================================================
 
@@ -102,6 +103,12 @@ class View {
             i = (i + 1)
         }
         def all:string (join lists ",")
+        def plays:MfJ (View.plays(host din d))
+        ; the programs' text: a .gltf one names (<SliqGltf src>) goes along
+        def progs:string ""
+        for plays.arr pj:MfJ pji {
+            progs = (progs + (pj.str_("text")))
+        }
         def files:MfJ (MfJ.newArr())
         for (doc.list("files")) f2:MfJ f2i {
             def path:string (f2.str_("path"))
@@ -109,7 +116,9 @@ class View {
             if (((strlen path) == 0) || ((strlen url) == 0)) {
                 continue
             }
-            if ((indexOf all ("\"/" + path + "\"")) < 0) {
+            def drawn:boolean ((indexOf all ("\"/" + path + "\"")) >= 0)
+            def model:boolean ((endsWith (to_lowercase path) ".gltf") && ((indexOf progs path) >= 0))
+            if ((drawn == false) && (model == false)) {
                 continue
             }
             def o:MfJ (MfJ.newObj())
@@ -143,7 +152,7 @@ class View {
             bj.put("spreads" spreads)
             deck.put("book" bj)
         }
-        deck.put("plays" (View.plays(host din d)))
+        deck.put("plays" plays)
         def scripts:string (View.scripts(host din d))
         ; the deck's own effects (```fx, the theme's @effect) as shader
         ; text the deck's compiler wrote (FxLang), for the page to register

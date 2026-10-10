@@ -48,6 +48,12 @@ const scriptDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-
 // the same with a 3-D world (allow: 3d, <scene3d>): an orange box
 const WORLD_ID = "WorldFixture1";
 const worldDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app3d.json"));
+// a world that reads the deck's .gltf (<SliqGltf src="data/m.gltf">): the
+// orange box Sliqtly exported, served beside it
+// (mcp-go/render3d_test.go TestSliqGltfReadsTheDecksModel writes both)
+const GLTF_ID = "GltfFixture1";
+const gltfDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.json"));
+const gltfFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-gltf.gltf"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -66,8 +72,13 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
+  if (rel === "/fixture/view-gltf.gltf") {
+    res.writeHead(200, { "content-type": "model/gltf+json", "access-control-allow-origin": "*" });
+    res.end(gltfFile);
+    return;
+  }
   if (rel.startsWith("/api/view/")) {
-    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck };
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck };
     const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(found || '{"error":"This shared presentation was not found."}');
@@ -263,6 +274,14 @@ try {
   if (orangeAt < 100) fail(`the program's 3-D world was not drawn (${orangeAt} orange pixels)`);
   await page.close();
 
+  // the same box read from the deck's .gltf (web/three3d.js readFile)
+  page = await open("/s/" + GLTF_ID);
+  await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+  let modelAt = 0;
+  for (let i = 0; i < 40 && (modelAt = await orange(page)) < 100; i++) await page.waitForTimeout(250);
+  if (modelAt < 100) fail(`the world's .gltf model was not drawn (${modelAt} orange pixels)`);
+  await page.close();
+
   // …and in the assistant's preview, where the modules are data: URLs: the
   // program runs (its worker made by the preview) and its world is drawn
   page = await open("/", { at: chatBase });
@@ -400,4 +419,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf and in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

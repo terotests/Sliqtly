@@ -52,6 +52,7 @@ function el(sel) {
 // Sliqtly's own 3-D pieces beside Three's (allow: 3d, src/Pres3DTree.rgr):
 // a component per piece, an element the world reads.
 function SliqRod(p) { return __jsx("sliqRod", p); }
+function SliqGltf(p) { return __jsx("sliqGltf", p); }
 var machine = {
   state: "",
   send: function (event, data) { __asks.push({ k: "machine.send", event: String(event), data: data === undefined ? null : data }); }

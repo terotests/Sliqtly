@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // render_slide shows a program as the page does (its first frames run in
@@ -139,4 +141,117 @@ func TestExportGltfWritesTheWorld(t *testing.T) {
 		t.Fatal("a slide with no world exported a model")
 	}
 	match(t, textOf(none), `No 3-D world on slide 3`)
+}
+
+// <SliqGltf src> reads a .gltf the deck keeps: a world exported as glTF and
+// sent back with files is drawn again by render_slide, a named child
+// changes its object, and a file the deck lacks is said.
+func TestSliqGltfReadsTheDecksModel(t *testing.T) {
+	if _, err := os.Stat("../web/dist/cerxes.wasm"); err != nil {
+		t.Skip("no web/dist/cerxes.wasm (npm run build with Rust's wasm32-wasip1 target)")
+	}
+	t.Setenv("SLIQTLY_CERXES_DIR", "../web/dist")
+	cerxes = cerxesEngine{}
+	defer func() { cerxes = cerxesEngine{} }()
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# B\n\n## Play\n\n```app\nsrc: apps/w.tsx\nsize: 480x270\nallow: 3d\n```\n"
+	world := func(inner string) string {
+		return "function view() {\n  return (\n    <scene3d>\n" +
+			"      <perspectiveCamera position={[0, 0, 3]} />\n" + inner + "\n    </scene3d>\n  );\n}\n"
+	}
+	first := call(t, s, "create_presentation", map[string]any{"title": "M", "markdown": md,
+		"files": []any{map[string]any{"name": "w.tsx", "text": world(
+			"<mesh name=\"crate\"><boxGeometry args={[3, 3, 3]} /><meshBasicMaterial color=\"#e8741e\" /></mesh>")}}})
+	if first.IsError {
+		t.Fatal(textOf(first))
+	}
+	id := sc(first)["deck_id"].(string)
+	if x := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "gltf"}); x.IsError {
+		t.Fatal(textOf(x))
+	}
+	model := string(f.bucket.saved["shares/"+id+"/exports/M (slide 2).gltf"].data)
+	count := func(r *mcp.CallToolResult, want func(cr, cg, cb uint32) bool) int {
+		img := decodeJPEG(t, r)
+		n := 0
+		b := img.Bounds()
+		for y := b.Min.Y; y < b.Max.Y; y += 2 {
+			for x := b.Min.X; x < b.Max.X; x += 2 {
+				cr, cg, cb, _ := img.At(x, y).RGBA()
+				if want(cr>>8, cg>>8, cb>>8) {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	orange := func(cr, cg, cb uint32) bool { return cr > 200 && cg > 80 && cg < 160 && cb < 70 }
+	green := func(cr, cg, cb uint32) bool { return cg > 200 && cr < 60 && cb < 60 }
+	again := call(t, s, "create_presentation", map[string]any{"title": "N", "markdown": md,
+		"files": []any{
+			map[string]any{"name": "w.tsx", "text": world("<SliqGltf src=\"data/m.gltf\" />")},
+			map[string]any{"name": "m.gltf", "text": model},
+		}})
+	if again.IsError {
+		t.Fatal(textOf(again))
+	}
+	r := call(t, s, "render_slide", map[string]any{"deck_id": sc(again)["deck_id"], "slide": 2})
+	if r.IsError {
+		t.Fatal(lastText(r))
+	}
+	if n := count(r, orange); n < 2000 {
+		t.Fatalf("want the model's orange box drawn, got %d orange points", n)
+	}
+	// the viewer's fixture (scripts/check-view.mjs): this deck, its model
+	// served beside it
+	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
+		one := call(t, s, "create_presentation", map[string]any{"title": "N", "markdown": "## Play\n\n```app\nsrc: apps/w.tsx\nsize: 480x270\nallow: 3d\n```\n",
+			"files": []any{
+				map[string]any{"name": "w.tsx", "text": world("<SliqGltf src=\"data/m.gltf\" />")},
+				map[string]any{"name": "m.gltf", "text": model},
+			}})
+		_, _, _, vb := getView(t, s.root+"/api/view/"+sc(one)["deck_id"].(string))
+		var v map[string]any
+		if err := json.Unmarshal([]byte(vb), &v); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range v["deck"].(map[string]any)["files"].([]any) {
+			if m := f.(map[string]any); m["path"] == "data/m.gltf" {
+				m["url"] = "/fixture/view-gltf.gltf"
+			}
+		}
+		out, _ := json.Marshal(v)
+		if err := os.WriteFile("../scripts/fixtures/view-gltf.json", out, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile("../scripts/fixtures/view-gltf.gltf", []byte(model), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a named child changes the file's object
+	over := call(t, s, "create_presentation", map[string]any{"title": "O", "markdown": md,
+		"files": []any{
+			map[string]any{"name": "w.tsx", "text": world(
+				"<SliqGltf src=\"data/m.gltf\"><mesh name=\"crate\"><meshBasicMaterial color=\"#00ff00\" /></mesh></SliqGltf>")},
+			map[string]any{"name": "m.gltf", "text": model},
+		}})
+	if over.IsError {
+		t.Fatal(textOf(over))
+	}
+	r2 := call(t, s, "render_slide", map[string]any{"deck_id": sc(over)["deck_id"], "slide": 2})
+	if r2.IsError {
+		t.Fatal(lastText(r2))
+	}
+	if n, m := count(r2, green), count(r2, orange); n < 2000 || m > 0 {
+		t.Fatalf("want the crate green, got %d green, %d orange points", n, m)
+	}
+	// a file the deck does not have
+	lost := call(t, s, "create_presentation", map[string]any{"title": "L", "markdown": md,
+		"files": []any{map[string]any{"name": "w.tsx", "text": world("<SliqGltf src=\"data/none.gltf\" />")}}})
+	if lost.IsError {
+		t.Fatal(textOf(lost))
+	}
+	r3 := call(t, s, "export_presentation", map[string]any{"deck_id": sc(lost)["deck_id"], "format": "gltf"})
+	match(t, textOf(r3), `the deck has no file data/none.gltf`)
 }
