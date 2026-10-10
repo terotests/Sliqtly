@@ -29,6 +29,11 @@ class PresToolbar {
     def css:string ""
     ; The editor's skin ("" or "retro"): a theme name added to this host's own.
     def skin:string ""
+    ; The frame's colour (File → Settings → Look): "" white, "terracotta" the
+    ; logo's, its rules under the host themes terracotta(-dark), skins/terracotta.css.
+    def frame:string ""
+    ; while the bar is built: its buttons stand on the terracotta frame
+    def onFrame:boolean false
     ; the name at the start of the bar: the page's own (PresApp.setAppName)
     def brand:string "EVG Presentation"
     ; the page's own buttons after Ohje: "id<TAB>label<TAB>variant" rows
@@ -269,6 +274,13 @@ class PresToolbar {
         }
         if (((variant == "primary") || (variant == "accent")) && ((r.getChildCount()) > 0)) {
             UiTree.addClass((r.getChild(0)) "tb-onprimary")
+        }
+        ; on the terracotta frame: drawn light on its colour (.tb-fb-*)
+        if onFrame {
+            UiTree.addClass(r ("tb-fb tb-fb-" + variant))
+            if ((r.getChildCount()) > 0) {
+                UiTree.addClass((r.getChild(0)) ("tb-fb-label tb-fb-label-" + variant))
+            }
         }
         this.put(c parent)
         return c
@@ -1026,9 +1038,10 @@ class PresToolbar {
         return box
     }
 
-    fn railCtl:RailCtl () {
+    fn railCtl:RailCtl (tone:string) {
         def r (new RailCtl())
         r.tid = "tb-rail"
+        r.tone = tone
         r.name = (PresI18n.t("Places"))
         r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
@@ -1068,10 +1081,27 @@ class PresToolbar {
         return el
     }
 
-    ; The bar and the rail are a frame (papyrus, toolbar.css) with the work
+    ; The bar and the rail are a frame (white, toolbar.css) with the work
     ; set into it, except in the retro skin, which draws its own panel there.
     fn framed:boolean () {
         return ((indexOf skin "retro") < 0)
+    }
+
+    ; the frame in the logo's terracotta (Settings → Look), white words on it
+    fn terracotta:boolean () {
+        return ((this.framed()) && (frame == "terracotta"))
+    }
+
+    ; the host's themes: the skin's, and the terracotta frame's in light and dark
+    fn hostTheme:string () {
+        def t:string (trim ("tb " + skin))
+        if (this.terracotta()) {
+            t = (t + " terracotta")
+            if ((indexOf skin "dark") >= 0) {
+                t = (t + " terracotta-dark")
+            }
+        }
+        return t
     }
 
     fn frameUnder:EVGElement (x:double y:double fw:double fh:double) {
@@ -1088,7 +1118,7 @@ class PresToolbar {
     fn buildRail:void (root:EVGElement) {
         def col:EVGElement (this.div("tb-railcol"))
         col.addChild((this.logoEl()))
-        def r:RailCtl (this.railCtl())
+        def r:RailCtl (this.railCtl((? (this.terracotta()) "frame" "")))
         ; the column's height under the mark: the bottom places at its foot
         def re:EVGElement (unwrap r.rootEl)
         re.setAttribute("height" ((EVGDisplayList.num((h - 66.0))) + "px"))
@@ -1098,7 +1128,7 @@ class PresToolbar {
 
     ; A phone's drawer: the same places, as a grid at its top.
     fn drawerRail:void (body:EVGElement) {
-        def r:RailCtl (this.railCtl())
+        def r:RailCtl (this.railCtl(""))
         def dre:EVGElement (unwrap r.rootEl)
         UiTree.addClass(dre "tb-drawer-rail")
         def g:int 0
@@ -1802,7 +1832,7 @@ class PresToolbar {
         ; what the pointer is over stays hovered across a rebuild
         fresh.hoverTid = host.hoverTid
         host = fresh
-        host.setTheme((trim ("tb " + skin)))
+        host.setTheme((this.hostTheme()))
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root tb-page"
@@ -1816,6 +1846,7 @@ class PresToolbar {
             }
         }
         def bar:EVGElement (this.div("tb-bar"))
+        onFrame = (this.terracotta())
         def play:string (PresI18n.t("▶ Play"))
         if playing {
             play = (PresI18n.t("⏸ Pause"))
@@ -1934,6 +1965,7 @@ class PresToolbar {
         }
         root.addChild(bar)
         barEl = bar
+        onFrame = false
         if (small && roomsOpen) {
             this.buildRooms(root)
             def rp:EVGElement (root.getChild(((root.getChildCount()) - 1)))

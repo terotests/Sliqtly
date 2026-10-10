@@ -2970,12 +2970,16 @@ let skinHue = 88;
 // (the device's setting, followed as it changes), per browser. The slides
 // keep their own theme in both.
 let mode = "light";
+// The frame around the work (the bar and the left rail): "" white (the
+// default) or "terracotta", the logo's colour, per browser.
+let frameLook = "";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
   const m = localStorage.getItem("sliqtly.mode");
   if (m === "dark" || m === "system") mode = m;
+  if (localStorage.getItem("sliqtly.frame") === "terracotta") frameLook = "terracotta";
 } catch (_) { /* standard */ }
 const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function isDark() {
@@ -3044,6 +3048,12 @@ function setSkinName(name) {
     try { localStorage.setItem("sliqtly.skin", skin || "standard"); } catch (_) { /* this session only */ }
   });
 }
+function setFrame(f) {
+  frameLook = f === "terracotta" ? "terracotta" : "";
+  try { localStorage.setItem("sliqtly.frame", frameLook || "white"); } catch (_) { /* this session only */ }
+  applySkin();
+  needsPaint = true;
+}
 function setMode(m) {
   relook(() => {
     mode = m === "light" || m === "dark" ? m : "system";
@@ -3058,10 +3068,11 @@ function toggleMode() {
   setMode(dark ? "dark" : "light");
 }
 darkQuery?.addEventListener?.("change", () => { if (mode === "system") relook(() => {}); });
-window.__skin = { set: setSkinName, hue: setSkinHue, mode: setMode };
+window.__skin = { set: setSkinName, hue: setSkinHue, mode: setMode, frame: setFrame };
 function applySkin() {
   app.setSkin(lookTheme(), skinHue);
   app.setLookMode(mode);
+  app.setLookFrame(frameLook);
   const root = document.documentElement;
   root.dataset.skin = skin || "standard";
   root.dataset.mode = lookTheme() === "dark" ? "dark" : "light";
@@ -4430,6 +4441,8 @@ function handleRequests() {
       exportZip(false).catch(fail);
     } else if (r.startsWith("setting:skin:")) {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
+    } else if (r.startsWith("setting:frame:")) {
+      setFrame(r.slice("setting:frame:".length));
     } else if (r.startsWith("setting:mode:")) {
       setMode(r.slice("setting:mode:".length));
     } else if (r.startsWith("setting:term:")) {
@@ -8257,7 +8270,7 @@ async function start() {
     textOf("./pres.css"),
     textOf("./ui.css").catch(() => ""),
     textOf("./chart-editor.css").catch(() => ""),
-    Promise.all(["ui-retro", "retro", "ui-dark", "dark"].map((f) => textOf("./skins/" + f + ".css")))
+    Promise.all(["ui-retro", "retro", "ui-dark", "dark", "terracotta"].map((f) => textOf("./skins/" + f + ".css")))
       .then((t) => "\n" + t.join("\n")).catch(() => ""),
   ]);
   chromeSheets.files = skins;
