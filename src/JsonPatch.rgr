@@ -1,0 +1,634 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+;
+; JSON Patch (RFC 6902) over JVal, with its paths as JSON Pointers (RFC 6901).
+;
+;   [{"op": "test",    "path": "/nodes/4/name",        "value": "db"},
+;    {"op": "replace", "path": "/nodes/4/translation", "value": [5, 0, 0]}]
+;
+; A patch applies whole or not at all: it runs on a copy, and the first op
+; that fails (a missing path, a `test` that does not hold) leaves the document
+; as it was and says which op and why. The 3-D scenes (PresSceneModel) are
+; changed this way, by the MCP server and the page alike, so a change is the
+; same small list of ops wherever it is made.
+
+Import "JsonValue.rgr"
+
+class JsonPatchResult {
+    def ok:boolean true
+    def error:string ""
+    ; the op that failed, -1 when none did
+    def at:int -1
+    def doc:JVal (new JVal())
+}
+
+class JsonPatch {
+
+    ; --- pointers (RFC 6901) ---------------------------------------------------
+
+    ; "" is the whole document; anything else starts with "/"
+    sfn validPointer:boolean (p:string) {
+        if ((strlen p) == 0) {
+            return true
+        }
+        if ((charAt p 0) != 47) {
+            return false
+        }
+        ; "~" only as "~0" or "~1"
+        def n:int (strlen p)
+        def i:int 0
+        while (i < n) {
+            if ((charAt p i) == 126) {
+                if ((i + 1) >= n) {
+                    return false
+                }
+                def c:int (charAt p (i + 1))
+                if ((c != 48) && (c != 49)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; "/a~1b/c~0d" → ["a/b", "c~d"]; "" → []
+    sfn tokens:[string] (p:string) {
+        def out:[string]
+        def n:int (strlen p)
+        if (n == 0) {
+            return out
+        }
+        def start:int 1
+        def i:int 1
+        while (i <= n) {
+            if ((i == n) || ((charAt p i) == 47)) {
+                push out (JsonPatch.unescape((substring p start i)))
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn unescape:string (t:string) {
+        if ((indexOf t "~") < 0) {
+            return t
+        }
+        def parts:[string]
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt t i)
+            if ((c == 126) && ((i + 1) < n)) {
+                def d:int (charAt t (i + 1))
+                if (d == 49) {
+                    push parts "/"
+                } {
+                    push parts "~"
+                }
+                i = (i + 2)
+            } {
+                push parts (substring t i (i + 1))
+                i = (i + 1)
+            }
+        }
+        return (join parts "")
+    }
+
+    sfn escape:string (t:string) {
+        if (((indexOf t "~") < 0) && ((indexOf t "/") < 0)) {
+            return t
+        }
+        def parts:[string]
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt t i)
+            if (c == 126) {
+                push parts "~0"
+            } {
+                if (c == 47) {
+                    push parts "~1"
+                } {
+                    push parts (substring t i (i + 1))
+                }
+            }
+            i = (i + 1)
+        }
+        return (join parts "")
+    }
+
+    ; ["nodes", "4"] → "/nodes/4"
+    sfn pointer:string (parts:[string]) {
+        def out:[string]
+        def n:int (array_length parts)
+        def i:int 0
+        while (i < n) {
+            push out "/"
+            push out (JsonPatch.escape((itemAt parts i)))
+            i = (i + 1)
+        }
+        return (join out "")
+    }
+
+    ; An array index as a token: digits with no leading zero; -1 otherwise
+    sfn indexOfToken:int (t:string) {
+        def n:int (strlen t)
+        if ((n == 0) || (n > 9)) {
+            return -1
+        }
+        if ((n > 1) && ((charAt t 0) == 48)) {
+            return -1
+        }
+        def v:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    ; --- values ----------------------------------------------------------------
+
+    sfn clone:JVal (v:JVal) {
+        def c (new JVal())
+        c.kind = v.kind
+        c.flag = v.flag
+        c.num = v.num
+        c.str = v.str
+        def n:int (array_length v.arr)
+        def i:int 0
+        while (i < n) {
+            push c.arr (JsonPatch.clone((itemAt v.arr i)))
+            i = (i + 1)
+        }
+        def m:int (array_length v.keys)
+        def j:int 0
+        while (j < m) {
+            push c.keys (itemAt v.keys j)
+            push c.vals (JsonPatch.clone((itemAt v.vals j)))
+            j = (j + 1)
+        }
+        return c
+    }
+
+    ; Equal as JSON: numbers by value, objects whatever their key order
+    sfn equal:boolean (a:JVal b:JVal) {
+        if (a.kind != b.kind) {
+            return false
+        }
+        if (a.kind == 1) {
+            return (a.flag == b.flag)
+        }
+        if (a.kind == 2) {
+            return (a.num == b.num)
+        }
+        if (a.kind == 3) {
+            return (a.str == b.str)
+        }
+        if (a.kind == 4) {
+            def n:int (array_length a.arr)
+            if (n != (array_length b.arr)) {
+                return false
+            }
+            def i:int 0
+            while (i < n) {
+                if ((JsonPatch.equal((itemAt a.arr i) (itemAt b.arr i))) == false) {
+                    return false
+                }
+                i = (i + 1)
+            }
+            return true
+        }
+        if (a.kind == 5) {
+            def m:int (array_length a.keys)
+            if (m != (array_length b.keys)) {
+                return false
+            }
+            def j:int 0
+            while (j < m) {
+                def k:string (itemAt a.keys j)
+                if ((b.has(k)) == false) {
+                    return false
+                }
+                if ((JsonPatch.equal((itemAt a.vals j) (b.get(k)))) == false) {
+                    return false
+                }
+                j = (j + 1)
+            }
+            return true
+        }
+        return true
+    }
+
+    sfn removeKey:void (o:JVal key:string) {
+        def i:int (o.indexOfKey(key))
+        if (i >= 0) {
+            remove_index o.keys i
+            remove_index o.vals i
+        }
+    }
+
+    ; What the pointer names, or a value of kind -1 when nothing is there
+    sfn find:JVal (doc:JVal p:string) {
+        def missing (new JVal())
+        missing.kind = -1
+        if ((JsonPatch.validPointer(p)) == false) {
+            return missing
+        }
+        def parts:[string] (JsonPatch.tokens(p))
+        def cur:JVal doc
+        def n:int (array_length parts)
+        def i:int 0
+        while (i < n) {
+            def t:string (itemAt parts i)
+            if (cur.kind == 5) {
+                if ((cur.has(t)) == false) {
+                    return missing
+                }
+                cur = (cur.get(t))
+            } {
+                if (cur.kind == 4) {
+                    def k:int (JsonPatch.indexOfToken(t))
+                    if ((k < 0) || (k >= (array_length cur.arr))) {
+                        return missing
+                    }
+                    cur = (itemAt cur.arr k)
+                } {
+                    return missing
+                }
+            }
+            i = (i + 1)
+        }
+        return cur
+    }
+
+    ; --- applying (RFC 6902) ---------------------------------------------------
+
+    ; The patch on a copy of `doc`; `doc` itself is never changed.
+    sfn apply:JsonPatchResult (doc:JVal patch:JVal) {
+        def r (new JsonPatchResult())
+        r.doc = (JsonPatch.clone(doc))
+        if (patch.kind != 4) {
+            r.ok = false
+            r.error = "a patch is an array of operations"
+            return r
+        }
+        def n:int (array_length patch.arr)
+        def i:int 0
+        while (i < n) {
+            def op:JVal (itemAt patch.arr i)
+            def err:string (JsonPatch.applyOp(r op))
+            if ((strlen err) > 0) {
+                r.ok = false
+                r.at = i
+                r.error = ("operation " + (to_string i) + ": " + err)
+                r.doc = doc
+                return r
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+
+    ; One op on r.doc; "" when it went in, else why not
+    sfn applyOp:string (r:JsonPatchResult op:JVal) {
+        if (op.kind != 5) {
+            return "an operation is an object"
+        }
+        def name:string (op.strOr("op" ""))
+        if ((op.has("path")) == false) {
+            return "no \"path\""
+        }
+        def path:string (op.strOr("path" ""))
+        if ((JsonPatch.validPointer(path)) == false) {
+            return ("\"" + path + "\" is not a JSON Pointer")
+        }
+        if (name == "test") {
+            if ((op.has("value")) == false) {
+                return "test has no \"value\""
+            }
+            def got:JVal (JsonPatch.find(r.doc path))
+            if (got.kind < 0) {
+                return ("test: nothing at " + path)
+            }
+            if ((JsonPatch.equal(got (op.get("value")))) == false) {
+                return ("test failed at " + path)
+            }
+            return ""
+        }
+        if (name == "add") {
+            if ((op.has("value")) == false) {
+                return "add has no \"value\""
+            }
+            return (JsonPatch.addAt(r path (JsonPatch.clone((op.get("value"))))))
+        }
+        if (name == "remove") {
+            def gone:JVal (JsonPatch.find(r.doc path))
+            if (gone.kind < 0) {
+                return ("remove: nothing at " + path)
+            }
+            return (JsonPatch.removeAt(r path))
+        }
+        if (name == "replace") {
+            if ((op.has("value")) == false) {
+                return "replace has no \"value\""
+            }
+            def was:JVal (JsonPatch.find(r.doc path))
+            if (was.kind < 0) {
+                return ("replace: nothing at " + path)
+            }
+            if ((strlen path) == 0) {
+                r.doc = (JsonPatch.clone((op.get("value"))))
+                return ""
+            }
+            def e:string (JsonPatch.removeAt(r path))
+            if ((strlen e) > 0) {
+                return e
+            }
+            return (JsonPatch.addAt(r path (JsonPatch.clone((op.get("value"))))))
+        }
+        if ((name == "move") || (name == "copy")) {
+            if ((op.has("from")) == false) {
+                return (name + " has no \"from\"")
+            }
+            def from:string (op.strOr("from" ""))
+            if ((JsonPatch.validPointer(from)) == false) {
+                return ("\"" + from + "\" is not a JSON Pointer")
+            }
+            def v:JVal (JsonPatch.find(r.doc from))
+            if (v.kind < 0) {
+                return (name + ": nothing at " + from)
+            }
+            def moved:JVal (JsonPatch.clone(v))
+            if (name == "move") {
+                if (from == path) {
+                    return ""
+                }
+                ; a value cannot move into itself
+                if ((startsWith path (from + "/")) == true) {
+                    return ("move: " + path + " is inside " + from)
+                }
+                def e2:string (JsonPatch.removeAt(r from))
+                if ((strlen e2) > 0) {
+                    return e2
+                }
+            }
+            return (JsonPatch.addAt(r path moved))
+        }
+        return ("unknown op \"" + name + "\"")
+    }
+
+    ; The container of the last token, or kind -1
+    sfn parentOf:JVal (doc:JVal parts:[string]) {
+        def up:[string]
+        def n:int ((array_length parts) - 1)
+        def i:int 0
+        while (i < n) {
+            push up (itemAt parts i)
+            i = (i + 1)
+        }
+        return (JsonPatch.find(doc (JsonPatch.pointer(up))))
+    }
+
+    sfn addAt:string (r:JsonPatchResult path:string v:JVal) {
+        if ((strlen path) == 0) {
+            r.doc = v
+            return ""
+        }
+        def parts:[string] (JsonPatch.tokens(path))
+        def last:string (itemAt parts ((array_length parts) - 1))
+        def box:JVal (JsonPatch.parentOf(r.doc parts))
+        if (box.kind == 5) {
+            box.set(last v)
+            return ""
+        }
+        if (box.kind == 4) {
+            def len:int (array_length box.arr)
+            if (last == "-") {
+                push box.arr v
+                return ""
+            }
+            def k:int (JsonPatch.indexOfToken(last))
+            if ((k < 0) || (k > len)) {
+                return ("add: index " + last + " is out of range at " + path)
+            }
+            if (k == len) {
+                push box.arr v
+            } {
+                insert box.arr k v
+            }
+            return ""
+        }
+        return ("add: no object or array to hold " + path)
+    }
+
+    sfn removeAt:string (r:JsonPatchResult path:string) {
+        def parts:[string] (JsonPatch.tokens(path))
+        if ((array_length parts) == 0) {
+            return "the whole document cannot be removed"
+        }
+        def last:string (itemAt parts ((array_length parts) - 1))
+        def box:JVal (JsonPatch.parentOf(r.doc parts))
+        if (box.kind == 5) {
+            JsonPatch.removeKey(box last)
+            return ""
+        }
+        if (box.kind == 4) {
+            def k:int (JsonPatch.indexOfToken(last))
+            if ((k < 0) || (k >= (array_length box.arr))) {
+                return ("remove: nothing at " + path)
+            }
+            remove_index box.arr k
+            return ""
+        }
+        return ("remove: nothing at " + path)
+    }
+
+    ; --- diff -----------------------------------------------------------------
+
+    ; The ops that turn `a` into `b`, each as small as the change: a moved
+    ; node is one replace of its translation, not the whole document. Arrays
+    ; of objects that all carry a distinct "name" are matched by it, so
+    ; removing one node is one remove even though the ones after it moved up;
+    ; other arrays are matched by position, or replaced whole when that does
+    ; not fit.
+    sfn diff:JVal (a:JVal b:JVal) {
+        def out:JVal (JVal.mkArr())
+        JsonPatch.diffInto(out "" a b)
+        return out
+    }
+
+    sfn diffInto:void (out:JVal path:string a:JVal b:JVal) {
+        if (JsonPatch.equal(a b)) {
+            return
+        }
+        if ((a.kind == 5) && (b.kind == 5)) {
+            def m:int (array_length a.keys)
+            def j:int 0
+            while (j < m) {
+                def k:string (itemAt a.keys j)
+                if ((b.has(k)) == false) {
+                    out.add((JsonPatch.op("remove" (path + "/" + (JsonPatch.escape(k))))))
+                }
+                j = (j + 1)
+            }
+            def n:int (array_length b.keys)
+            def i:int 0
+            while (i < n) {
+                def k2:string (itemAt b.keys i)
+                def at:string (path + "/" + (JsonPatch.escape(k2)))
+                if (a.has(k2)) {
+                    JsonPatch.diffInto(out at (a.get(k2)) (itemAt b.vals i))
+                } {
+                    out.add((JsonPatch.opValue("add" at (JsonPatch.clone((itemAt b.vals i))))))
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if ((a.kind == 4) && (b.kind == 4)) {
+            if (JsonPatch.byName(out path a b)) {
+                return
+            }
+            def la:int (array_length a.arr)
+            def lb:int (array_length b.arr)
+            def same:int la
+            if (lb < same) {
+                same = lb
+            }
+            ; same length, or one grew or shrank at its end
+            def c:int 0
+            while (c < same) {
+                JsonPatch.diffInto(out (path + "/" + (to_string c)) (itemAt a.arr c) (itemAt b.arr c))
+                c = (c + 1)
+            }
+            def d:int (la - 1)
+            while (d >= lb) {
+                out.add((JsonPatch.op("remove" (path + "/" + (to_string d)))))
+                d = (d - 1)
+            }
+            def e:int la
+            while (e < lb) {
+                out.add((JsonPatch.opValue("add" (path + "/-") (JsonPatch.clone((itemAt b.arr e))))))
+                e = (e + 1)
+            }
+            return
+        }
+        out.add((JsonPatch.opValue("replace" path (JsonPatch.clone(b)))))
+    }
+
+    ; Each element's "name", or [] when one has none or two share one
+    sfn namesOf:[string] (v:JVal) {
+        def out:[string]
+        def none:[string]
+        def n:int (array_length v.arr)
+        def i:int 0
+        while (i < n) {
+            def e:JVal (itemAt v.arr i)
+            if ((e.kind != 5) || (((e.get("name")).kind) != 3)) {
+                return none
+            }
+            def nm:string (e.strOr("name" ""))
+            def j:int 0
+            while (j < (array_length out)) {
+                if ((itemAt out j) == nm) {
+                    return none
+                }
+                j = (j + 1)
+            }
+            push out nm
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn indexIn:int (list:[string] s:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == s) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Arrays of named objects: removes, then adds, then each kept element's
+    ; own changes; false when the arrays are not that kind or the kept ones
+    ; changed order.
+    sfn byName:boolean (out:JVal path:string a:JVal b:JVal) {
+        def na:[string] (JsonPatch.namesOf(a))
+        def nb:[string] (JsonPatch.namesOf(b))
+        if (((array_length na) == 0) || ((array_length nb) == 0)) {
+            return false
+        }
+        ; the kept ones in the same order on both sides
+        def keptA:[string]
+        def i:int 0
+        while (i < (array_length na)) {
+            if ((JsonPatch.indexIn(nb (itemAt na i))) >= 0) {
+                push keptA (itemAt na i)
+            }
+            i = (i + 1)
+        }
+        def keptB:[string]
+        def j:int 0
+        while (j < (array_length nb)) {
+            if ((JsonPatch.indexIn(na (itemAt nb j))) >= 0) {
+                push keptB (itemAt nb j)
+            }
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length keptA)) {
+            if ((itemAt keptA k) != (itemAt keptB k)) {
+                return false
+            }
+            k = (k + 1)
+        }
+        def d:int ((array_length na) - 1)
+        while (d >= 0) {
+            if ((JsonPatch.indexIn(nb (itemAt na d))) < 0) {
+                out.add((JsonPatch.op("remove" (path + "/" + (to_string d)))))
+            }
+            d = (d - 1)
+        }
+        def e:int 0
+        while (e < (array_length nb)) {
+            if ((JsonPatch.indexIn(na (itemAt nb e))) < 0) {
+                out.add((JsonPatch.opValue("add" (path + "/" + (to_string e)) (JsonPatch.clone((itemAt b.arr e))))))
+            }
+            e = (e + 1)
+        }
+        def f:int 0
+        while (f < (array_length nb)) {
+            def was:int (JsonPatch.indexIn(na (itemAt nb f)))
+            if (was >= 0) {
+                JsonPatch.diffInto(out (path + "/" + (to_string f)) (itemAt a.arr was) (itemAt b.arr f))
+            }
+            f = (f + 1)
+        }
+        return true
+    }
+
+    ; --- building ops ----------------------------------------------------------
+
+    sfn op:JVal (name:string path:string) {
+        def o:JVal (JVal.mkObj())
+        o.setStr("op" name)
+        o.setStr("path" path)
+        return o
+    }
+
+    sfn opValue:JVal (name:string path:string v:JVal) {
+        def o:JVal (JsonPatch.op(name path))
+        o.set("value" v)
+        return o
+    }
+}
