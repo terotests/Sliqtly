@@ -582,6 +582,28 @@ class PresApp {
         return ok
     }
 
+    ; How script `key` opens: its slide as it arrives, until its first frame.
+    fn setScriptOpen:boolean (key:string json:string) {
+        def ok:boolean (deck.setScriptOpen(key json))
+        if ok {
+            chromeRev = (chromeRev + 1)
+        }
+        return ok
+    }
+
+    ; Script `key`'s slide is still coming in (its transition, while
+    ; presenting): the script waits in its opening pose and ticks after.
+    fn scriptArriving:boolean (key:string) {
+        if (((mode != "present") || (selected < 0)) || (selected >= (deck.slideCount()))) {
+            return false
+        }
+        if ((deck.scriptKeyOf(selected)) != key) {
+            return false
+        }
+        def sl:PresSlide (deck.slideAt(selected))
+        return ((this.stageTime()) < (PresTimeline.transitionSeconds(sl)))
+    }
+
     ; Script `key` left the stage, or was stopped (`why`).
     fn endScriptLive:void (key:string why:string) {
         deck.endScriptLive(key why)

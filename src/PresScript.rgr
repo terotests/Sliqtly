@@ -1327,6 +1327,23 @@ class PresScriptApply {
         return b
     }
 
+    ; A picture's src as the deck keeps its pictures: "media/x.svg" and
+    ; "./media/x.svg" are "/media/x.svg", as a Markdown picture names it; an
+    ; https:// or data: one is left as it is.
+    sfn picPath:string (src:string) {
+        def t:string (trim src)
+        if ((startsWith t "/") || ((indexOf t ":") >= 0)) {
+            return t
+        }
+        while (startsWith t "./") {
+            t = (substring t 2 (strlen t))
+        }
+        if ((strlen t) == 0) {
+            return t
+        }
+        return ("/" + t)
+    }
+
     ; The commands for one added element, in its own look.
     sfn made:[EVGDrawCmd] (ad:PresScriptAdd sc:PresScene list:EVGDisplayList engine:EVGTextEngine ink:string accent:string) {
         def out:[EVGDrawCmd]
@@ -1400,7 +1417,7 @@ class PresScriptApply {
             p.y = ad.y
             p.w = ad.w
             p.h = ad.h
-            p.src = ad.src
+            p.src = (PresScriptApply.picPath(ad.src))
             p.radius = ad.radius
             p.hasCrop = ad.hasCrop
             p.cropX = ad.cropX
@@ -1523,6 +1540,26 @@ class PresScriptApply {
 ; What can be said of a script without running it
 ; ============================================================================
 class PresScriptCheck {
+    ; How many of a frame's added shapes lie wholly off a w × h slide: a
+    ; script that took the slide for a bigger one (1920 × 1080 for 960 × 540)
+    ; draws them where nobody sees them.
+    sfn addsOutside:int (f:PresScriptFrame w:double h:double) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length f.adds)) {
+            def ad:PresScriptAdd (itemAt f.adds i)
+            if (ad.kind != "clone") {
+                def right:double (ad.x + ad.w)
+                def bottom:double (ad.y + ad.h)
+                if ((((ad.x >= w) || (ad.y >= h)) || (right <= 0.0)) || (bottom <= 0.0)) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     ; The selectors written out in its find("…") calls (a template with
     ; ${…} in it is left out: it is made while the script runs).
     sfn selectorsIn:[string] (src:string) {
@@ -1626,6 +1663,10 @@ class PresScriptRun {
     ; while the next slide arrives, until it runs again
     def leave:PresScriptFrame (new PresScriptFrame())
     def hasLeave:boolean false
+    ; how it opens (start(), onEnter, its first build step, no tick yet),
+    ; worked out ahead: the slide as it arrives, until its first frame
+    def open:PresScriptFrame (new PresScriptFrame())
+    def hasOpen:boolean false
     ; it has `build(n)` (the slide's steps are its own) and `onClick`
     def ownsBuild:boolean false
     def ownsClick:boolean false

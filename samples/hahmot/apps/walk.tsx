@@ -2,6 +2,9 @@
 //
 // A robot walks along the first point of the list, jumps to the second and
 // from there up onto the heading.
+import { presentation, sprites } from "Sliqtly";
+
+const slide = presentation.activeSlide;
 
 sprites.sheet("robot", {
   src: "sprites/robot.png",
@@ -15,13 +18,13 @@ sprites.sheet("robot", {
   },
 });
 
-function start() {
-  const items = find("li");
+export function start() {
+  const items = slide.find("li");
   const robot = sprites.add("robot", { on: items[0], along: 0.05, size: 50 });
   robot.walkTo(items[0], { at: 0.9 })
     .jump(items[1], { at: 0.2 })
     .walkTo(items[1], { at: 0.8 })
-    .jump(find("h2"), { at: 0.95 })
+    .jump(slide.find("h2"), { at: 0.95 })
     .say("Hei!")
     .face("left");
 }

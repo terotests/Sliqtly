@@ -123,6 +123,17 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
       const p = byKey.get(key);
       if (p && live.get(p.slide) === key) live.delete(p.slide);
     },
+    // how the script opens (web/apps.js works it out): the slide as it
+    // arrives, until the script's first frame
+    setScriptOpen: (key, json) => {
+      const p = byKey.get(key);
+      if (!p || !scriptWeb.setFrame(key, json)) return false;
+      live.set(p.slide, key);
+      repaint();
+      return true;
+    },
+    // the viewer shows every build step
+    scriptOpenStep: (key) => byKey.get(key)?.steps || 0,
     scriptOwnsClick: (key) => scriptWeb.ownsClick(key),
     scriptHit: (key, cx, cy) => {
       const p = byKey.get(key);

@@ -103,6 +103,7 @@ class View {
             i = (i + 1)
         }
         def all:string (join lists ",")
+        def scripts:string (View.scripts(host din d))
         def plays:MfJ (View.plays(host din d))
         ; the programs' text: a .gltf one names (<SliqGltf src>) goes along
         def progs:string ""
@@ -116,9 +117,12 @@ class View {
             if (((strlen path) == 0) || ((strlen url) == 0)) {
                 continue
             }
+            ; drawn at rest, a .gltf a program names, or a picture a slide's
+            ; script names (add("image", …))
             def drawn:boolean ((indexOf all ("\"/" + path + "\"")) >= 0)
             def model:boolean ((endsWith (to_lowercase path) ".gltf") && ((indexOf progs path) >= 0))
-            if ((drawn == false) && (model == false)) {
+            def scripted:boolean ((indexOf scripts path) >= 0)
+            if (((drawn == false) && (model == false)) && (scripted == false)) {
                 continue
             }
             def o:MfJ (MfJ.newObj())
@@ -153,7 +157,6 @@ class View {
             deck.put("book" bj)
         }
         deck.put("plays" plays)
-        def scripts:string (View.scripts(host din d))
         ; the deck's own effects (```fx, the theme's @effect) as shader
         ; text the deck's compiler wrote (FxLang), for the page to register
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + ",\"scripts\":" + scripts + "}")

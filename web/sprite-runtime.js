@@ -99,7 +99,7 @@ function __Sprite(sheet, o, id) {
   this.born = __spriteClock;
   this._plan = null;
   this._gen = -1;
-  this.img = add("image", { id: this.id });
+  this.img = __add("image", { id: this.id });
   this.plate = null;
   this.words = null;
 }
@@ -146,7 +146,7 @@ __Sprite.prototype.done = function () { return __spriteClock - this.born >= this
 // The point a target names: on an entity, its top edge "at" along.
 function __spritePoint(target, at) {
   var t = target;
-  if (typeof t === "string") t = find(t);
+  if (typeof t === "string") t = __find(t, null);
   if (t && typeof t.length === "number" && !t.box) t = t.length ? t[0] : null;
   // the entity as the slide has it now: an edit makes new ones
   if (t && t.box && t.id && __byId[t.id]) t = __byId[t.id];
@@ -341,7 +341,7 @@ function __spriteFrame(sh, anim, time, p) {
   var a = sh.anims[anim] || (anim === "walk" || anim === "jump" ? sh.anims.walk || sh.anims.idle : sh.anims.idle);
   var n = a.frames;
   var f = a.loop ? Math.floor(time * a.fps) % n : Math.min(n - 1, Math.floor(p * n));
-  if (env["export"] && a.loop) f = 0;
+  if (__env["export"] && a.loop) f = 0;
   var cell = a.from + f;
   return { col: cell % sh.cols, row: a.row + Math.floor(cell / sh.cols) };
 }
@@ -387,8 +387,8 @@ function __spriteDraw(s) {
   var pad = fs * 0.5;
   var bx = st.x - tw / 2 - pad;
   var by = st.y - h - fs - pad * 3;
-  if (!s.plate) s.plate = add("rect", { id: s.id + "-plate", fill: "#ffffff", radius: fs * 0.6 });
-  if (!s.words) s.words = add("text", { id: s.id + "-words", color: "#1d2433" });
+  if (!s.plate) s.plate = __add("rect", { id: s.id + "-plate", fill: "#ffffff", radius: fs * 0.6 });
+  if (!s.words) s.words = __add("text", { id: s.id + "-words", color: "#1d2433" });
   s.plate.set({ x: bx, y: by, w: tw + pad * 2, h: fs + pad * 2, visible: true });
   s.words.set({ x: bx + pad, y: by + pad, text: said.text, size: fs, visible: true });
 }
@@ -435,4 +435,6 @@ function __spritesCall() {
 }
 
 __clockUsers.push({ advance: __spritesAdvance, toEnd: __spritesToEnd });
+// import { sprites } from "Sliqtly"
+if (typeof __sliqtly === "object") __sliqtly.sprites = sprites;
 `;
