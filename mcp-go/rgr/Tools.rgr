@@ -231,6 +231,12 @@ class Tools {
         def none:[string]
         def eitherMeta:MfJ (MfJ.newObj())
         eitherMeta.put("securitySchemes" (Tools.either()))
+        ; the preview's Download calls export_presentation itself
+        ; (assets/preview.html): ChatGPT lets a widget call only the tools
+        ; marked so
+        def exportMeta:MfJ (MfJ.newObj())
+        exportMeta.put("securitySchemes" (Tools.either()))
+        exportMeta.putBool("openai/widgetAccessible" true)
         def tools:MfJ (MfJ.newArr())
         def gp:MfJ (MfJ.newObj())
         def topic:MfJ (Tools.prop("string" "One topic of the guide (the list is in Core). Without it, Core: the deck's syntax, the work loop, themes and the topics."))
@@ -374,7 +380,7 @@ class Tools {
         def dp:MfJ (MfJ.newObj())
         dp.put("deck_id" (Tools.prop("string" "deck_id of the presentation to delete (the id in https://sliqtly.com/s/<id>)")))
         tools.add((Tools.tool("delete_presentation" "Delete a presentation" "Delete a Sliqtly presentation for good: its slides, pictures, data files and exports; its link stops working. Only its owner signed in, or, for one made without sign-in, the session (this conversation's connection) that made it. Ask the user before deleting; it cannot be undone." (Tools.schema(dp ([] _:string ("deck_id")))) (Tools.annotations(false 1 true false)) eitherMeta)))
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them. GLTF: the first 3-D world (a program's <scene3d>, sliqtly_guide topic=apps) on the slides asked for, at its first frames, as a glTF 2.0 file (.gltf) that Blender and three.js open: meshes, PBR materials, lights, camera, and the R3F names in each node's extras.sliqtly." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them. GLTF: the first 3-D world (a program's <scene3d>, sliqtly_guide topic=apps) on the slides asked for, at its first frames, as a glTF 2.0 file (.gltf) that Blender and three.js open: meshes, PBR materials, lights, camera, and the R3F names in each node's extras.sliqtly." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) exportMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))

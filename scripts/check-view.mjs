@@ -122,18 +122,26 @@ const base = `http://127.0.0.1:${server.address().port}`;
 // only inline or from data:/blob: URLs and reach the site only by fetch, and
 // handed a tool result naming WORLD_ID's link.
 const previewHtml = fs.readFileSync(path.join(root, "mcp-go", "assets", "preview.html"), "utf8");
+// At /gpt, as ChatGPT shows it (its script-src as Chrome reports it):
+// scripts inline, from blob: URLs and the resourceDomains (the site) but
+// not from data: URLs, a frame of its own origin, and the Finance sample's
+// link.
 const chat = http.createServer((req, res) => {
+  const gpt = req.url.startsWith("/gpt");
   res.writeHead(200, {
     "content-type": "text/html",
-    "content-security-policy": `default-src 'none'; script-src 'unsafe-inline' data: blob: 'wasm-unsafe-eval'; worker-src data: blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data: ${base}; connect-src ${base}; frame-src data: blob:; base-uri 'self'`,
+    "content-security-policy": gpt
+      ? `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval' blob: ${base}; style-src 'self' 'unsafe-inline' ${base}; img-src 'self' data: blob: ${base}; font-src 'self' data: ${base}; connect-src 'self' ${base}; frame-src 'self'`
+      : `default-src 'none'; script-src 'unsafe-inline' data: blob: 'wasm-unsafe-eval'; worker-src data: blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data: ${base}; connect-src ${base}; frame-src data: blob:; base-uri 'self'`,
   });
-  res.end(`<!doctype html><meta charset="utf-8"><iframe id="w" sandbox="allow-scripts" allow="fullscreen; clipboard-write" style="width:960px;height:640px;border:0"></iframe><script>
+  const result = gpt ? { share_url: base + "/s/" + ID, title: "Finance", slides } : { share_url: base + "/s/" + WORLD_ID, title: "3-D world", slides: 2 };
+  res.end(`<!doctype html><meta charset="utf-8"><iframe id="w" sandbox="allow-scripts${gpt ? " allow-same-origin" : ""}" allow="fullscreen; clipboard-write" style="width:960px;height:640px;border:0"></iframe><script>
 const w = document.getElementById("w");
 addEventListener("message", (e) => {
   const m = e.data;
   if (!m || m.method !== "ui/initialize") return;
   w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*");
-  w.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { structuredContent: { share_url: ${JSON.stringify(base + "/s/" + WORLD_ID)}, title: "3-D world", slides: 2 } } }, "*");
+  w.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { structuredContent: ${JSON.stringify(result)} } }, "*");
 });
 w.srcdoc = ${JSON.stringify(previewHtml).replace(/</g, "\\u003c")};
 </script>`);
@@ -147,7 +155,8 @@ const fail = (what) => failures.push(what);
 async function open(url, { at = base } = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   // a 404 is in `missing` (or is the missing presentation's, on purpose)
-  page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) fail(`${url}: console: ${m.text()}`); });
+  // (the preview trying which script URLs the host's CSP lets run is no error)
+  page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource|^(Refused to load|Loading) the script '(data:text\/javascript,0|blob:)/.test(m.text())) fail(`${url}: console: ${m.text()}`); });
   page.on("pageerror", (e) => fail(`${url}: ${e.message}`));
   await page.goto(at + url, { waitUntil: "load" });
   return page;
@@ -337,6 +346,16 @@ try {
     for (let i = 0; i < 60 && (orangeAt = await orange(viewer)) < 100; i++) await page.waitForTimeout(250);
     if (orangeAt < 100) fail(`the program's 3-D world was not drawn in the assistant's preview (${orangeAt} orange pixels)`);
   }
+  await page.close();
+
+  // …and in ChatGPT's, where no data: script runs: the viewer starts
+  page = await open("/gpt", { at: chatBase });
+  viewer = null;
+  for (let i = 0; i < 60 && !viewer; i++) {
+    for (const f of page.frames()) if (await f.evaluate(() => !!document.getElementById("c") && !document.getElementById("viewBar").hidden).catch(() => false)) viewer = f;
+    if (!viewer) await page.waitForTimeout(250);
+  }
+  if (!viewer) fail("ChatGPT's preview did not open the viewer");
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other
