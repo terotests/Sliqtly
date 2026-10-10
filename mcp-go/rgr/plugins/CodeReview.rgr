@@ -14,6 +14,7 @@
 
 Import "CrModel.rgr"
 Import "CrViews.rgr"
+Import "CrCode.rgr"
 
 class CrHint {
     def ref:string ""
@@ -250,8 +251,23 @@ class CodeReview {
             m = (m.slice(want))
             m.warnings = warns
         }
-        ; the files the refs name, at the head
+        ; the files the refs name, then the story's and the change's own,
+        ; at the head
         def paths:[string] (m.refPaths())
+        for m.story b0:CrBeat b0i {
+            for b0.refs br:string bri {
+                def bp:string ((CrRef.parse(br)).path)
+                if (((strlen bp) > 0) && ((indexOf paths bp) < 0)) {
+                    push paths bp
+                }
+            }
+        }
+        for (p.byChange()) gf:GhFile gfi {
+            if ((gf.status != "removed") && ((indexOf paths gf.name) < 0)) {
+                push paths gf.name
+            }
+        }
+        def code (new CrCode)
         def counts:[int]
         def read:int 0
         def owner:string p.ref.owner
@@ -270,7 +286,19 @@ class CodeReview {
             def url:string ("https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + (join segs "/") + "?ref=" + p.headSha)
             def fg:MfJ (J.parse((host_fetch_github host url "application/vnd.github.raw" (CodeReview.MAX_FILE_BYTES()))))
             if ((fg.int_("status" 0)) == 200) {
-                push counts (CodeReview.lineCount((fg.str_("body"))))
+                def body:string (fg.str_("body"))
+                push counts (CodeReview.lineCount(body))
+                def gs:string ""
+                def gp:string ""
+                for p.files cf:GhFile cfi {
+                    if (cf.name == path) {
+                        gs = cf.status
+                        gp = cf.patch
+                    }
+                }
+                if ((Files.codePath(path)) == path) {
+                    code.add(path body (CrCode.status(gs)) gp)
+                }
             } {
                 push counts -1
             }
@@ -280,7 +308,20 @@ class CodeReview {
         }
         m.check(paths counts)
         def src:CrSource (CodeReview.source(p))
-        def md:string (CrViews.deck(m src))
+        ; the lines the deck talks about, kept for the source viewer
+        def refs:[string]
+        for m.items it0:CrItem it0i {
+            for it0.refs r0:string r0i {
+                push refs r0
+            }
+        }
+        for m.story b1:CrBeat b1i {
+            for b1.refs r1:string r1i {
+                push refs r1
+            }
+        }
+        code.keep(refs)
+        def md:string (CrViews.deck(m src code))
         def risks:[CrRisk] (m.risks())
         def level:string (CrModel.level(risks))
         def steps:[CrStep] (m.order())
@@ -324,6 +365,7 @@ class CodeReview {
         }
         out.put("slices" sl)
         out.putStr("markdown" md)
+        out.put("files" (code.bundle(repo (owner + "/" + repo) p.headSha p.baseSha (p.ref.name()) ((p.ref.web())))))
         def lines:[string]
         push lines ((p.ref.name()) + ": risk " + level + ", " + (array_length risks) + " findings, " + (array_length m.items) + " items (" + (array_length inferred) + " inferred).")
         if ((array_length m.warnings) > 0) {
@@ -346,7 +388,12 @@ class CodeReview {
             push lines "The story was drafted from the model. Write narrative.story yourself: beats joined by \"but\" (what gets in the way) or \"therefore\" (what follows), never \"and then\"."
         }
         push lines ""
-        push lines "The review deck, to pass to create_presentation (put the story of the change under \"What changed\"; keep the views as they are, they come from the model):"
+        if ((array_length code.files) > 0) {
+            push lines ""
+            push lines ("Source files: " + (array_length code.files) + " under code/ (the parts the deck talks about, their diffs and code/sources.json) are in the structured result's files. Pass them as create_presentation's files, as they are: the ::: code blocks under the diagrams and the code slides open them in the source viewer while presenting.")
+        }
+        push lines ""
+        push lines "The review deck, to pass to create_presentation (put the story of the change under \"What changed\"; keep the views, the code slides and the ::: code blocks as they are, they come from the model and the files):"
         push lines ""
         push lines md
         def res:MfJ (MfJ.newObj())

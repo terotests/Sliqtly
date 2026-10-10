@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -149,6 +150,11 @@ func TestCodeReviewPlugin(t *testing.T) {
 		"web/review.tsx": "a\nb\nc\n", "src/api.ts": "1\n2\n3\n4\n", "src/mail.ts": "m\n",
 		"db/031.sql": "alter table\n", "src/states.ts": "1\n2\n3\n4\n5\n6\n7\n",
 	}
+	big := ""
+	for i := 1; i <= 900; i++ {
+		big += fmt.Sprintf("line %d\n", i)
+	}
+	contents["src/big.ts"] = big
 	gh := &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 		u := r.URL.String()
 		switch u {
@@ -239,6 +245,53 @@ func TestCodeReviewPlugin(t *testing.T) {
 		}
 	}
 	match(t, textOf(b), `Slices \(args\.slice builds the deck for one\): approve\.`)
+	// the source files the deck talks about, for the source viewer
+	files := map[string]string{}
+	for _, x := range list(o["files"]) {
+		m := x.(map[string]any)
+		files[m["name"].(string)] = m["text"].(string)
+	}
+	eq(t, files["code/src/api.ts"], "1\n2\n3\n4\n")
+	eq(t, files["code/src/states.ts.diff"], "--- a/src/states.ts\n+++ b/src/states.ts\n@@ -1,4 +1,7 @@\n 1\n 2\n+3\n")
+	var srcs struct {
+		Repos map[string]map[string]string
+		Files []struct {
+			Path, Status, Diff string
+			Lines              int
+		}
+	}
+	if err := json.Unmarshal([]byte(files["code/sources.json"]), &srcs); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, srcs.Repos["app"]["head"], sha)
+	eq(t, srcs.Repos["app"]["change_url"], "https://github.com/tero/app/pull/5")
+	eq(t, srcs.Files[1].Path+" "+srcs.Files[1].Status+" "+srcs.Files[1].Diff, "src/api.ts modified src/api.ts.diff")
+	for _, want := range []string{
+		"## Critical path: Review API\n\n[src/api.ts:1-4](https://github.com/tero/app/blob/" + sha + "/src/api.ts#L1-L4)\n\n```diff ts {.numbers lines=1-4}\n@@ -1,2 +1,4 @@\n 1\n-2\n+2\n",
+		"::: code\n- src/api.ts#L1-4 \"Review API\"\n:::",
+		"```\n\n::: code\nn_user web/review.tsx#L2 \"Reviewer\"\nn_api src/api.ts#L1-4 \"Review API\"\n",
+		"Draft src/states.ts#L1 \"Draft\"\n- src/states.ts#L2 \"In review\"\n",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("the deck has no %q:\n%s", want, md)
+		}
+	}
+	match(t, textOf(b), `Source files: 5 under code/`)
+
+	// a long file: only the lines the deck talks about, with their numbers
+	bm := reviewModel()
+	bm["actors"] = append(bm["actors"].([]any), map[string]any{"id": "log", "label": "Logger", "refs": []any{"src/big.ts:500-502", "src/big.ts:505"}})
+	bb := sc(call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"pr": "tero/app#5", "model": bm}}))
+	for _, x := range list(bb["files"]) {
+		m := x.(map[string]any)
+		files[m["name"].(string)] = m["text"].(string)
+	}
+	want := ""
+	for i := 494; i <= 511; i++ {
+		want += fmt.Sprintf("line %d\n", i)
+	}
+	eq(t, files["code/src/big.ts"], want)
+	match(t, files["code/sources.json"], `\{"path":"src/big\.ts","repo":"app","commit":"[0-9a-f]+","status":"same","lines":900,"ranges":\[\[494,511\]\]\}`)
 
 	// no story given: one drafted from the model, the critical path as
 	// "therefore", what can go wrong on it as "but"
@@ -289,13 +342,21 @@ But nobody waits\.
 	f := fakeFirebase()
 	s2 := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
 	defer s2.close()
-	c := call(t, s2, "create_presentation", map[string]any{"title": "Review", "markdown": md})
+	c := call(t, s2, "create_presentation", map[string]any{"title": "Review", "markdown": md, "files": o["files"]})
 	if c.IsError {
 		t.Fatal(textOf(c))
 	}
 	for _, w := range list(sc(c)["warnings"]) {
-		if strings.Contains(w.(string), "block") || strings.Contains(w.(string), "diagram") {
+		if strings.Contains(w.(string), "block") || strings.Contains(w.(string), "diagram") || strings.Contains(w.(string), "code") {
 			t.Fatal(w)
+		}
+	}
+
+	// a source file keeps its repository path, and is sent as text
+	for _, bad := range []map[string]any{{"name": "code/../x.ts", "text": "x"}, {"name": "code/src/a.ts", "data_base64": "eA=="}} {
+		e := call(t, s2, "create_presentation", map[string]any{"title": "Bad", "markdown": "# x", "files": []any{bad}})
+		if !e.IsError {
+			t.Fatalf("%v was taken", bad)
 		}
 	}
 

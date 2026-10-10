@@ -518,6 +518,34 @@ returns them and a first draft of a review deck with ```` ```diff ````
 slides; change the draft and create it with `create_presentation`. Public
 repositories work as they are; a private one needs separate access.
 
+## Source code in a deck
+
+A deck can carry the source files it talks about, for the source viewer:
+while presenting, a click on a diagram's box or a code link opens the
+lines in a panel over the slide, with the change, the whole kept part of
+the file and a link to the repository. Send them in `files` as text:
+
+- `code/<path in the repository>`: the file, or only the lines that
+  matter, one range after the other.
+- `code/<path>.diff`: its unified diff (optional).
+- `code/sources.json`: where they come from:
+  `{"version":1,"repos":{"app":{"url":"https://github.com/o/app","host":"github","base":"<sha>","head":"<sha>","change":"o/app#12","change_url":"…"}},"files":[{"path":"src/api.ts","repo":"app","status":"modified","diff":"src/api.ts.diff","lines":1840,"ranges":[[40,88]]}]}`.
+  `ranges` keeps the lines' own numbers when the file holds only those
+  lines; left out, the file is whole.
+
+Link to them:
+
+- Under a diagram, a `::: code` block, one link a line:
+  `<box> <path>[#L40-88|#hunk2|#Name] [diff|split|before|now] ["label"]`.
+  The box is the node's id (or its text); `-` is the whole diagram, or the
+  slide on a slide with no diagram.
+- In Mermaid: `click api "code:src/api.ts#L40-88" "label"`.
+- In text: `[submit](code:src/api.ts#L40-88)`.
+
+The source viewer is in the editor's presenting mode. A shared link has
+none: keep a link to the repository (`…/blob/<sha>/src/api.ts#L40-L88`)
+on the slide too. The code-review plugin builds all of this.
+
 <!-- topic: charts -->
 # Topic: charts
 

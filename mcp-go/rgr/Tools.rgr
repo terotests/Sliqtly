@@ -184,7 +184,7 @@ class Tools {
         images.put("items" item)
         p.put("images" images)
         def fp:MfJ (MfJ.newObj())
-        fp.put("name" (Tools.prop("string" "File name, kept as data/<name>: \"sales.xlsx\", \"sales.csv\", \"sales.json\"")))
+        fp.put("name" (Tools.prop("string" "File name, kept as data/<name>: \"sales.xlsx\", \"sales.csv\", \"sales.json\"; a source file for the source viewer as code/<its path in the repository>: \"code/src/api.ts\", \"code/sources.json\"")))
         fp.put("text" (Tools.prop("string" "The file's text (CSV, TSV, JSON or plain text)")))
         fp.put("data_base64" (Tools.prop("string" "The file's bytes as base64 (an .xlsx workbook)")))
         fp.put("url" (Tools.prop("string" "A public https URL of the file")))
@@ -195,7 +195,7 @@ class Tools {
         fitem.putStr("type" "object")
         fitem.put("properties" fp)
         fitem.put("required" (J.strs(([] _:string ("name")))))
-        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps."))
+        def files:MfJ (Tools.prop("array" "Data files kept with the deck under data/: .xlsx workbooks, .csv, .tsv, .json, .txt (10 MB each); needs sign-in. A chart or ```table reads data/<name>.csv; a workbook's sheets are read as data/<book>-<Sheet>.csv (data/<book>.csv for a one-sheet book). A program for an app block (.tsx with its .tsx.css, as text) is kept under apps/; see sliqtly_guide topic=apps. Source files for the source viewer (code review decks) are kept under code/, as text, at most 60 a call; see sliqtly_guide topic=text."))
         files.put("items" fitem)
         p.put("files" files)
     }
