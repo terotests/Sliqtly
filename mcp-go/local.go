@@ -104,6 +104,7 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 		DB:        db,
 		Store:     db.e,
 		Chat:      db.chat,
+		Forms:     db.forms,
 		Bucket:    bucket,
 		LocalUser: user,
 		Themes:    builtinTheme,
@@ -265,6 +266,18 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Sliqtly's room chat draws it), are the app's (rgr/View.rgr)
 	if strings.HasPrefix(p, "/api/") && p != "/api/hit" && !strings.HasPrefix(p, "/api/view/") && !strings.HasPrefix(p, "/api/export/") && !strings.HasPrefix(p, "/api/card/") {
 		s.api(w, r)
+		return
+	}
+	// questionnaires (forms.go): answered by POST to where they were opened
+	switch {
+	case formCodePath.MatchString(p):
+		s.formAnswer(w, r, formCodePath.FindStringSubmatch(p)[1], true)
+		return
+	case formTokenPath.MatchString(p):
+		s.formAnswer(w, r, formTokenPath.FindStringSubmatch(p)[1], false)
+		return
+	case formResultsPath.MatchString(p) && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		s.formResults(w, r, formResultsPath.FindStringSubmatch(p)[1])
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

@@ -50,6 +50,7 @@ Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
 Import "PresForm.rgr"
+Import "PresFormHtml.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -4459,6 +4460,102 @@ class PresCheck {
         this.ok((br.ok && ((br.record.get("aihe.other")).str == "x")) ("a public answer maps back: " + (join br.messages "; ")))
         def forged:PresFormResult (f.check((f.fromPublic((JVal.parse("{\"q1\": 4, \"q2\": \"muu\", \"hyoty\": 1}"))))))
         this.ok((forged.ok == false) "a real id sent by a respondent is refused")
+
+        ; An HTML form's fields
+        def fnames:[string]
+        def fvalues:[string]
+        push fnames "q1"
+        push fvalues "4"
+        push fnames "q4"
+        push fvalues "slack"
+        push fnames "q4"
+        push fvalues "teams"
+        push fnames "q2"
+        push fvalues "muu"
+        push fnames "q2.other"
+        push fvalues "Hinta"
+        push fnames "q3"
+        push fvalues ""
+        push fnames "q7"
+        push fvalues "ikä"
+        def fa:JVal (f.fromFields(fnames fvalues))
+        this.ok((fa.toJson() == "{\"hyoty\":4,\"kanavat\":[\"slack\",\"teams\"],\"aihe\":\"muu\",\"aihe.other\":\"Hinta\",\"ika\":\"ikä\"}") ("form fields to an answer: " + (fa.toJson())))
+        def fwrong:[string]
+        push fwrong "hyoty"
+        def fwv:[string]
+        push fwv "4"
+        this.ok((((f.check((f.fromFields(fwrong fwv)))).ok) == false) "a field by its real id is refused")
+        def vis:[string] (f.visibleIds((JVal.parse("{\"aihe\": \"muu\"}"))))
+        this.ok(((Questionnaire.listHas(vis "muuta")) && ((array_length vis) == 8)) "muuta shows when aihe is muu")
+        def vis2:[string] (f.visibleIds((JVal.mkObj())))
+        this.ok((((Questionnaire.listHas(vis2 "muuta")) == false) && ((array_length vis2) == 7)) "and not before")
+
+        ; Deltas a server keeps per response, and counters back from rows
+        def d:JVal (f.deltas(r.record))
+        def dj:string (d.toJson())
+        this.ok(((indexOf dj "[\"\",\"\",1]") == 1) ("the response itself first: " + dj))
+        this.ok(((indexOf dj "[\"hyoty\",\"5\",1]") > 0) "a scale point delta")
+        this.ok(((indexOf dj "[\"kanavat\",\"\",1]") > 0) "an answered delta")
+        this.ok(((indexOf dj "[\"sana\",\"hyvä\",1]") > 0) "a word delta")
+        def all:JVal (JVal.mkArr())
+        def dd:JVal (f.deltas(low.record))
+        def di:int 0
+        while (di < (d.len())) {
+            all.add((d.at(di)))
+            di = (di + 1)
+        }
+        di = 0
+        while (di < (dd.len())) {
+            all.add((dd.at(di)))
+            di = (di + 1)
+        }
+        all.add((JVal.parse("[\"gone\",\"x\",3]")))
+        all.add((JVal.parse("[\"aihe\",\"poistettu\",2]")))
+        def back2:PresFormTally (PresFormTally.fromRows(f all))
+        this.ok((back2.total == 2) "total from rows")
+        this.ok(((((back2.countFor("aihe")).countOf("muu")) == 1) && (((back2.countFor("aihe")).countOf("työnkulut")) == 1)) "choice counts from rows")
+        this.ok((((back2.countFor("aihe")).countOf("poistettu")) == 0) "a removed option's row is left out")
+        this.ok((((back2.countFor("aihe")).answered) == 2) "answered from rows")
+        this.ok((((back2.countFor("sana")).countOf("esitys")) == 1) "words from rows")
+
+        ; The answer page
+        def pg (new PresFormPage())
+        pg.action = "/r/abc"
+        pg.sealed = "S1"
+        def html:string (PresFormHtml.page(f pg))
+        this.ok(((indexOf html "action=\"/r/abc\"") > 0) "the page posts back where it was opened")
+        this.ok(((indexOf html "name=\"q2\" value=\"live-data\"") > 0) "fields by public id")
+        this.ok((((indexOf html "hyoty") < 0) && ((indexOf html "name=\"aihe") < 0)) "no real ids in the page")
+        this.ok(((indexOf html "name=\"q3\"") < 0) "a hidden question is not on the page")
+        this.ok(((indexOf html "name=\"shown\" value=\"q1,q2,q4,q5,q6,q7,q8\"") > 0) "the page lists what it showed")
+        this.ok(((indexOf html "name=\"q2.other\"") > 0) "an other box")
+        this.ok(((indexOf html "<html lang=\"en\">") >= 0) "page language")
+        pg.values = (JVal.parse("{\"aihe\": \"muu\", \"muuta\": \"<b>x</b>\"}"))
+        pg.result = (f.check(pg.values))
+        pg.hasResult = true
+        def html2:string (PresFormHtml.page(f pg))
+        this.ok(((indexOf html2 "value=\"muu\" checked") > 0) "an answer stays checked")
+        pg.values = (JVal.parse("{\"aihe\": \"muu\", \"aihe.other\": \"Hinta\"}"))
+        this.ok(((indexOf (PresFormHtml.page(f pg)) "name=\"q2.other\" maxlength=\"200\" value=\"Hinta\"") > 0) "the other text stays")
+        pg.values = (JVal.parse("{\"aihe\": \"muu\", \"muuta\": \"<b>x</b>\"}"))
+        this.ok(((indexOf html2 "&lt;b&gt;x&lt;/b&gt;") > 0) "text is escaped")
+        this.ok(((indexOf html2 "<b>x") < 0) "no raw markup from answers")
+        this.ok(((indexOf html2 "aria-invalid=\"true\" aria-describedby=\"e-q1\"") > 0) "the missing answer is marked")
+        this.ok(((indexOf html2 "Please answer this question.") > 0) "and says why")
+        this.ok(((indexOf html2 "role=\"alert\"") > 0) "an error summary")
+        def fi:PresForm (PresForm.parse("---\nform: Kysely\nlang: fi\n---\n## Ikä {#ika type=number required}\n"))
+        def fp (new PresFormPage())
+        fp.values = (JVal.mkObj())
+        fp.result = (fi.check(fp.values))
+        fp.hasResult = true
+        def html3:string (PresFormHtml.page(fi fp))
+        this.ok((((indexOf html3 "Vastaa tähän kysymykseen.") > 0) && ((indexOf html3 ">Lähetä<") > 0)) "the page in Finnish")
+        this.ok(((indexOf (PresFormHtml.thanks(fi)) "Kiitos!") > 0) "thanks in Finnish")
+
+        def tEn:PresForm (PresForm.parse((PresForm.template("en"))))
+        def tFi:PresForm (PresForm.parse((PresForm.template("fi"))))
+        this.ok(((array_length tEn.warnings) == 0) ("the new questionnaire parses: " + (join tEn.warnings "; ")))
+        this.ok((((array_length tFi.warnings) == 0) && (tFi.lang == "fi") && ((tFi.count()) == 3)) ("and in Finnish: " + (join tFi.warnings "; ")))
 
         ; Warnings, never silent drops
         def w:PresForm (PresForm.parse("---\nform: X\naudience: everyone\nfoo: 1\n---\n## A {#a type=ranking}\n- x\n- y\n## B\n- one\n## A again {#a type=choice}\n- p\n- q\n## C {#c type=scale visible=\"nosuch > 1\"}\n- z\n"))

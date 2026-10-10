@@ -1979,6 +1979,69 @@ async function newSheet() {
   }).catch((e) => toast(t("The spreadsheet editor did not load: ") + (e.message || e)));
 }
 
+// File → New → Questionnaire…: forms/questionnaire-<n>.form.md from the
+// model's starting text (PresForm.template), kept in the deck and opened as
+// text. On a server of one's own its Files row then gives an answer link.
+async function newQuestionnaire() {
+  const have = new Set((await docFiles()).map((f) => f.path));
+  let n = 1;
+  while (have.has(`forms/questionnaire-${n}.form.md`)) n++;
+  const path = `forms/questionnaire-${n}.form.md`;
+  const text = app.formTemplate();
+  await keepFile({ path, type: "text/markdown", size: new TextEncoder().encode(text).length, data: text });
+  app.openFile(path, text);
+  needsPaint = true;
+}
+
+// A questionnaire's answers are kept by the server the deck is saved to
+// (mcp-go/forms.go): a server of one's own, with the deck there.
+function questionnairesServed() {
+  return ownServer() && !!doc.cloud;
+}
+async function questionnaireAPI(method, op, body) {
+  const res = await fetch("/api/forms/" + op, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let msg = res.status + "";
+    try { msg = (await res.json()).error || msg; } catch (_) { /* not JSON */ }
+    throw new Error(msg);
+  }
+  return res;
+}
+
+// Files → a questionnaire's Answer link: a new short-code link (/c/CODE) to
+// the address copied. The file goes up first, so the server answers with
+// what is in the editor.
+async function questionnaireLink(path) {
+  if (!questionnairesServed()) { toast(t("Answer links need the presentation saved to a Sliqtly server.")); return; }
+  try {
+    await cloudSync();
+    const res = await questionnaireAPI("POST", "links", { deck: doc.cloud, file: path, kind: "code" });
+    const { links, warnings } = await res.json();
+    const url = new URL(links[0].path, location.href).href;
+    const copied = await writeClip(url);
+    toast((copied ? t("Answer link copied: ") : t("Answer link: ")) + url + (warnings?.length ? " · " + t("The questionnaire has warnings: ") + warnings[0] : ""));
+  } catch (e) {
+    toast(t("No answer link: ") + (e.message || e));
+  }
+}
+
+// Files → a questionnaire's Responses: every response as CSV.
+async function questionnaireResponses(path) {
+  if (!questionnairesServed()) { toast(t("Responses are kept by a Sliqtly server; this presentation is not saved to one.")); return; }
+  try {
+    const q = new URLSearchParams({ deck: doc.cloud, file: path, format: "csv" });
+    const res = await questionnaireAPI("GET", "responses?" + q);
+    const name = path.split("/").pop().replace(/\.form\.md$/, "") + ".csv";
+    deliver(new Uint8Array(await res.arrayBuffer()), name, "text/csv");
+  } catch (e) {
+    toast(t("The responses could not be read: ") + (e.message || e));
+  }
+}
+
 // A row of a presentation's menu in Rooms or on its deck tab
 // ("<room|tab>:<id>\t<request>"): the File menu's rows act on the open deck,
 // so that deck opens first; one that did not open has nothing done to the
@@ -2425,6 +2488,7 @@ async function refreshFiles() {
         const img = row.kind === "image" ? pictures.get("/" + f.path) : null;
         if (img) Object.assign(row, { w: img.naturalWidth, h: img.naturalHeight });
         if (again.has(f.path)) row.retrace = true;
+        if (row.kind === "form" && questionnairesServed()) row.served = true;
         return row;
       });
     const sorted = sortFiles(files);
@@ -2719,6 +2783,12 @@ async function fileRequest(r) {
     app.openNewDeck(selectRows(themeSel), themeSel.value || "", "");
   } else if (action === "newsheet") {
     await newSheet();
+  } else if (action === "newform") {
+    await newQuestionnaire();
+  } else if (action === "formlink") {
+    await questionnaireLink(what);
+  } else if (action === "formcsv") {
+    await questionnaireResponses(what);
   } else if (action === "duplicate") {
     // the copy's name asked first, as for a new deck
     app.openDupDeck(copyName());

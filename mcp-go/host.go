@@ -127,7 +127,10 @@ type Env struct {
 	// needs more than DB says (revisions, the change feed); nil elsewhere
 	Store store.Engine
 	// Chat: the rooms' messages, beside Store; nil elsewhere
-	Chat     store.ChatLog
+	Chat store.ChatLog
+	// Forms: questionnaires' links, responses and counters (forms.go),
+	// beside Store; nil elsewhere
+	Forms    store.Forms
 	FilesURL string // e.g. https://host/files; "": Storage download URLs
 	// GitHubToken: sent to api.github.com by read_github_pr only (never by
 	// FetchText, which fetches what decks name), for its higher limit; ""
