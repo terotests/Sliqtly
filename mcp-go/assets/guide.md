@@ -451,8 +451,9 @@ effect embers source {
 - Code: a fence with the language (js, ts, py, rust, go, java, c, cpp, cs,
   sql, json, sh, …) is coloured. `.numbers` (or `numbers=40`, the first
   number) puts line numbers in a gutter; `lines=3-5,9` highlights those
-  lines; `lines=3-5|9|12` with `.build` highlights them one build step after
-  another: ```` ```ts {.numbers lines=2|4-5 .build} ````.
+  lines and fades the block's other lines, so the reader looks at the marked
+  ones and not the whole block; `lines=3-5|9|12` with `.build` highlights
+  them one build step after another, nothing faded: ```` ```ts {.numbers lines=2|4-5 .build} ````.
 - Diffs: ```` ```diff ts ```` colours `+` lines on green, `-` lines on red,
   `@@` hunk headers and file headers dimmed, the code as TypeScript.
   `.numbers` follows the hunk headers' new-file side, and `lines=`
