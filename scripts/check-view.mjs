@@ -122,15 +122,16 @@ const base = `http://127.0.0.1:${server.address().port}`;
 // only inline or from data:/blob: URLs and reach the site only by fetch, and
 // handed a tool result naming WORLD_ID's link.
 const previewHtml = fs.readFileSync(path.join(root, "mcp-go", "assets", "preview.html"), "utf8");
-// At /gpt, as ChatGPT shows it: scripts from the resourceDomains (the site)
-// but not from data: or blob: URLs, a frame of its own origin, and the
-// Finance sample's link.
+// At /gpt, as ChatGPT shows it (its script-src as Chrome reports it):
+// scripts inline, from blob: URLs and the resourceDomains (the site) but
+// not from data: URLs, a frame of its own origin, and the Finance sample's
+// link.
 const chat = http.createServer((req, res) => {
   const gpt = req.url.startsWith("/gpt");
   res.writeHead(200, {
     "content-type": "text/html",
     "content-security-policy": gpt
-      ? `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${base}; style-src 'self' 'unsafe-inline' ${base}; img-src 'self' data: blob: ${base}; font-src 'self' data: ${base}; connect-src 'self' ${base}; frame-src 'self'`
+      ? `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval' blob: ${base}; style-src 'self' 'unsafe-inline' ${base}; img-src 'self' data: blob: ${base}; font-src 'self' data: ${base}; connect-src 'self' ${base}; frame-src 'self'`
       : `default-src 'none'; script-src 'unsafe-inline' data: blob: 'wasm-unsafe-eval'; worker-src data: blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data: ${base}; connect-src ${base}; frame-src data: blob:; base-uri 'self'`,
   });
   const result = gpt ? { share_url: base + "/s/" + ID, title: "Finance", slides } : { share_url: base + "/s/" + WORLD_ID, title: "3-D world", slides: 2 };
