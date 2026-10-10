@@ -45,6 +45,7 @@ export const distDir = path.join(webDir, "dist");
 export const depsDir = path.join(root, ".deps");
 export const LINK = "gallery/presentation";
 export const EVGUI_LINK = "gallery/evgui";
+export const DESIGNVIEWER_LINK = "gallery/designviewer";
 
 const config = JSON.parse(fs.readFileSync(path.join(root, "presentation.config.json"), "utf8"));
 
@@ -157,6 +158,7 @@ const CHECKOUT_HAS = {
   rangermarkdown: "src/MdLayout.rgr",
   rangerpptx: "src/PptxModel.rgr",
   componentengine: "cerxes/Cargo.toml",
+  designviewer: "src/index/FigIndex.rgr",
 };
 
 /**
@@ -178,6 +180,18 @@ export function ensureCheckout(key, { update = false, into = null } = {}) {
   const must = CHECKOUT_HAS[key];
   if (must && !fs.existsSync(path.join(dir, must))) throw new Error(`${dir} is not a ${name} checkout (no ${must})`);
   used.set(name, { dir, ref });
+  return dir;
+}
+
+/**
+ * DesignViewer (the Figma reader the server indexes shared .fig files with):
+ * DESIGNVIEWER_DIR, or a clone in .deps at config.designviewer.ref, linked
+ * into the Ranger checkout as gallery/designviewer. Not gallery/figma: a
+ * Ranger that still tracks its own older copy there keeps it.
+ */
+export function ensureDesignViewer(rangerDir, { update = false } = {}) {
+  const dir = ensureCheckout("designviewer", { update });
+  link(dir, path.join(rangerDir, DESIGNVIEWER_LINK));
   return dir;
 }
 

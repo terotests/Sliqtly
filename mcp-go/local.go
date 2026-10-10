@@ -112,6 +112,7 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 	}
 	e.FilesURL = e.BaseURL + "/files"
 	e.rooms = newRoomService(e)
+	e.shared = newSharedFiles(bucket, func(m string) { log.Print(m) })
 	e.GitHubToken = os.Getenv("SLIQTLY_GITHUB_TOKEN")
 	e.Plugins = splitList(os.Getenv("SLIQTLY_PLUGINS"))
 	return e, bucket, nil
@@ -279,6 +280,10 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/healthz":
 		io.WriteString(w, "ok\n")
 	case strings.HasPrefix(p, "/files/shares/"), strings.HasPrefix(p, "/files/rooms/"):
+		s.file(w, r, strings.TrimPrefix(p, "/files/"))
+	case sharedPngPath.MatchString(r.URL.EscapedPath()):
+		s.sharedPicture(w, r)
+	case strings.HasPrefix(p, "/files/shared/") && strings.HasSuffix(p, "/index.json"):
 		s.file(w, r, strings.TrimPrefix(p, "/files/"))
 	case themePath.MatchString(p):
 		css, ok := s.env.Themes(themePath.FindStringSubmatch(p)[1])

@@ -151,6 +151,9 @@ type Env struct {
 	names atomic.Pointer[nameRule]
 	// rooms (roomsapi.go): with Store and LocalUser; nil elsewhere
 	rooms *roomService
+	// shared: the files everyone on the server sees (sharedfiles.go), a
+	// server of its own only; nil elsewhere
+	shared *sharedFiles
 	// cloudRooms: the cloud's shared rooms and their chat, for the editor's
 	// signed-in people (POST /editor/api/rooms/<op>, editorrooms.go); nil
 	// elsewhere
