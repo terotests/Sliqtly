@@ -686,6 +686,15 @@ class PresSceneModel {
     ; --- the document ----------------------------------------------------------
 
     ; An array member of `o`, made when it is missing
+    ; o[key] when it is a list, else an empty one (o is left as it was)
+    sfn listIn:JVal (o:JVal key:string) {
+        def v:JVal (o.get(key))
+        if (v.kind == 4) {
+            return v
+        }
+        return (JVal.mkArr())
+    }
+
     sfn list:JVal (o:JVal key:string) {
         if ((((o.get(key)).kind) != 4) || ((o.has(key)) == false)) {
             o.set(key (JVal.mkArr()))
@@ -900,12 +909,17 @@ class PresSceneModel {
     fn subtree:[int] (i:int) {
         def out:[int]
         push out i
+        def n:int ((this.nodes()).len())
         def k:int 0
         while (k < (array_length out)) {
             def ch:JVal ((this.node((itemAt out k))).get("children"))
             def c:int 0
             while (c < (ch.len())) {
-                push out (to_int ((ch.at(c)).asNum(-1.0)))
+                def ci:int (PresSceneModel.whole((ch.at(c)) n))
+                ; each node once, so a ring cannot run on
+                if ((ci >= 0) && ((indexOf out ci) < 0)) {
+                    push out ci
+                }
                 c = (c + 1)
             }
             k = (k + 1)
@@ -1087,18 +1101,174 @@ class PresSceneModel {
         if ((((r.doc.get("asset")).strOr("version" ""))) != "2.0") {
             return "the patch would leave no glTF 2.0 asset"
         }
+        def bad:string (PresSceneModel.structure(r.doc))
+        if ((strlen bad) > 0) {
+            return ("the patch would break the scene: " + bad)
+        }
         doc = r.doc
         return ""
     }
 
-    ; `test` ops first: each node the patch touches still has the name it had.
-    ; The patch's own paths count the nodes as they are after its earlier
-    ; removes and adds, so they are followed back to the node they began as.
+    ; What is wrong with the shape of a scene, "" when nothing: every index
+    ; points at an entry, each node has at most one parent (a scene root
+    ; has none) and no node is its own ancestor, names are unique.
+    sfn structure:string (d:JVal) {
+        def lists:[string] ([] _:string ("nodes" "meshes" "materials" "cameras" "scenes"))
+        def li:int 0
+        while (li < 5) {
+            def key:string (itemAt lists li)
+            if ((d.has(key)) && ((d.get(key)).kind != 4)) {
+                return ("\"" + key + "\" is not a list")
+            }
+            li = (li + 1)
+        }
+        def ns:JVal (PresSceneModel.listIn(d "nodes"))
+        def n:int (ns.len())
+        def meshList:JVal (PresSceneModel.listIn(d "meshes"))
+        def nMesh:int (meshList.len())
+        def matList:JVal (PresSceneModel.listIn(d "materials"))
+        def nMat:int (matList.len())
+        def camList:JVal (PresSceneModel.listIn(d "cameras"))
+        def nCam:int (camList.len())
+        def up:[int]
+        def names:[string]
+        def i:int 0
+        while (i < n) {
+            push up -1
+            i = (i + 1)
+        }
+        def roots:JVal (PresSceneModel.rootsOf(d))
+        def r:int 0
+        while (r < (roots.len())) {
+            def ri:int (PresSceneModel.indexAt(roots r n))
+            if (ri < 0) {
+                return "a scene lists a node that is not there"
+            }
+            if ((itemAt up ri) != -1) {
+                return ("node " + ri + " is in the scene twice")
+            }
+            set_at up ri n
+            r = (r + 1)
+        }
+        def k:int 0
+        while (k < n) {
+            def nd:JVal (ns.at(k))
+            if (nd.kind != 5) {
+                return ("node " + k + " is not an object")
+            }
+            def nm:string (nd.strOr("name" ""))
+            if ((strlen nm) > 0) {
+                if ((indexOf names nm) >= 0) {
+                    return ("two nodes are named \"" + nm + "\"")
+                }
+                push names nm
+            }
+            if ((nd.has("mesh")) && ((PresSceneModel.whole((nd.get("mesh")) nMesh)) < 0)) {
+                return ("node " + k + "'s mesh is not there")
+            }
+            if ((nd.has("camera")) && ((PresSceneModel.whole((nd.get("camera")) nCam)) < 0)) {
+                return ("node " + k + "'s camera is not there")
+            }
+            if ((nd.has("children")) && ((nd.get("children")).kind != 4)) {
+                return ("node " + k + "'s children is not a list")
+            }
+            def ch:JVal (PresSceneModel.listIn(nd "children"))
+            def c:int 0
+            while (c < (ch.len())) {
+                def ci:int (PresSceneModel.indexAt(ch c n))
+                if (ci < 0) {
+                    return ("node " + k + " has a child that is not there")
+                }
+                if ((itemAt up ci) != -1) {
+                    return ("node " + ci + " has two parents")
+                }
+                set_at up ci k
+                c = (c + 1)
+            }
+            k = (k + 1)
+        }
+        ; up the parents from each node: a scene root, a node with none, or
+        ; round in a ring
+        def s:int 0
+        while (s < n) {
+            def at:int s
+            def steps:int 0
+            while ((at >= 0) && (at < n)) {
+                at = (itemAt up at)
+                steps = (steps + 1)
+                if (steps > n) {
+                    return ("node " + s + " is inside itself")
+                }
+            }
+            s = (s + 1)
+        }
+        def m:int 0
+        while (m < nMesh) {
+            def mesh:JVal (meshList.at(m))
+            def prims:JVal (PresSceneModel.listIn(mesh "primitives"))
+            def q:int 0
+            while (q < (prims.len())) {
+                def pr:JVal (prims.at(q))
+                if ((pr.has("material")) && ((PresSceneModel.whole((pr.get("material")) nMat)) < 0)) {
+                    return ("mesh " + m + "'s material is not there")
+                }
+                q = (q + 1)
+            }
+            m = (m + 1)
+        }
+        return ""
+    }
+
+    ; the scene's root list (scene 0), empty when none
+    sfn rootsOf:JVal (d:JVal) {
+        def sc:JVal (PresSceneModel.listIn(d "scenes"))
+        if ((sc.len()) == 0) {
+            return (JVal.mkArr())
+        }
+        return (PresSceneModel.listIn((sc.at(0)) "nodes"))
+    }
+
+    ; the at-th of a list as an index below `count`, -1 when it is not one
+    sfn indexAt:int (v:JVal at:int count:int) {
+        def x:JVal (v.at(at))
+        return (PresSceneModel.whole(x count))
+    }
+
+    sfn whole:int (x:JVal count:int) {
+        if (x.kind != 2) {
+            return -1
+        }
+        def f:double (x.asNum(-1.0))
+        def i:int (to_int f)
+        if ((((to_double i) != f) || (i < 0)) || (i >= count)) {
+            return -1
+        }
+        return i
+    }
+
+    ; `test` ops first: each node, mesh and material the patch touches still
+    ; has the name it had. The patch's own paths count the entries as they
+    ; are after its earlier removes and adds, so they are followed back to
+    ; the entry they began as.
     fn guarded:JVal (patch:JVal) {
         def out:JVal (JVal.mkArr())
+        this.guardList(patch "nodes" out)
+        this.guardList(patch "meshes" out)
+        this.guardList(patch "materials" out)
+        def j:int 0
+        while (j < (patch.len())) {
+            out.add((patch.at(j)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; The tests for one named list of the document (`list`: "nodes", …)
+    fn guardList:void (patch:JVal list:string out:JVal) {
+        def head:string ("/" + list + "/")
         def seen:[int]
-        def ns:JVal (this.nodes())
-        ; cur[k]: what node k was before the patch, -1 for one it added
+        def ns:JVal (PresSceneModel.listIn(doc list))
+        ; cur[k]: what entry k was before the patch, -1 for one it added
         def cur:[int]
         def c:int 0
         while (c < (ns.len())) {
@@ -1110,8 +1280,8 @@ class PresSceneModel {
             def op:JVal (patch.at(i))
             def p:string (op.strOr("path" ""))
             def name:string (op.strOr("op" ""))
-            if (startsWith p "/nodes/") {
-                def rest:string (substring p 7 (strlen p))
+            if (startsWith p head) {
+                def rest:string (substring p (strlen head) (strlen p))
                 def cut:int (indexOf rest "/")
                 def whole:boolean (cut < 0)
                 if (cut >= 0) {
@@ -1120,11 +1290,11 @@ class PresSceneModel {
                 def k:int (JsonPatch.indexOfToken(rest))
                 if ((k >= 0) && (k < (array_length cur))) {
                     def old:int (itemAt cur k)
-                    if (((whole == false) || (name != "add")) && ((old >= 0) && ((JsonPatch.indexIn((PresSceneModel.namesAt(seen)) (to_string old))) < 0))) {
+                    if (((whole == false) || (name != "add")) && ((old >= 0) && ((indexOf seen old) < 0))) {
                         def nm:JVal ((ns.at(old)).get("name"))
                         if (nm.kind == 3) {
                             push seen old
-                            out.add((JsonPatch.opValue("test" ("/nodes/" + (to_string old) + "/name") (JVal.mkStr(nm.str)))))
+                            out.add((JsonPatch.opValue("test" (head + (to_string old) + "/name") (JVal.mkStr(nm.str)))))
                         }
                     }
                 }
@@ -1145,12 +1315,6 @@ class PresSceneModel {
             }
             i = (i + 1)
         }
-        def j:int 0
-        while (j < (patch.len())) {
-            out.add((patch.at(j)))
-            j = (j + 1)
-        }
-        return out
     }
 
     sfn namesAt:[string] (list:[int]) {
@@ -1228,6 +1392,10 @@ class PresSceneModel {
         def name:string (op.strOr("name" ""))
         if ((strlen name) == 0) {
             return "a node needs a name"
+        }
+        def taken:string (PresSceneModel.reserved(name))
+        if ((strlen taken) > 0) {
+            return taken
         }
         if ((this.indexOf(name)) >= 0) {
             return ("there is already a node \"" + name + "\"")
@@ -1364,10 +1532,26 @@ class PresSceneModel {
         return ""
     }
 
+    ; why a name cannot be given to a node, "" when it can: "camera" and
+    ; the link names ("a->b", "a->b/shaft") are the model's own
+    sfn reserved:string (name:string) {
+        if (name == "camera") {
+            return "\"camera\" is the camera's name; use the camera op"
+        }
+        if (((indexOf name "->") >= 0) || ((indexOf name "/") >= 0)) {
+            return ("\"" + name + "\": -> and / are kept for links' names")
+        }
+        return ""
+    }
+
     fn group:string (op:JVal e:SceneEdit) {
         def name:string (op.strOr("name" ""))
         if ((strlen name) == 0) {
             return "a group needs a name"
+        }
+        def taken:string (PresSceneModel.reserved(name))
+        if ((strlen taken) > 0) {
+            return taken
         }
         if ((this.indexOf(name)) >= 0) {
             return ("there is already a node \"" + name + "\"")
@@ -1380,6 +1564,12 @@ class PresSceneModel {
             def mi:int (this.indexOf(m))
             if (mi < 0) {
                 return ("no node \"" + m + "\"")
+            }
+            ; links follow their ends and the camera stands on its own
+            def mk:string (this.kindOf(mi))
+            def mp:int (this.parentOf(mi))
+            if (((mk == "connect") || (mk == "camera")) || ((mp >= 0) && ((this.kindOf(mp)) == "connect"))) {
+                return ("\"" + m + "\" cannot be in a group: group the nodes, links follow them")
             }
             push idx mi
             k = (k + 1)

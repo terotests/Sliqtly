@@ -5729,6 +5729,34 @@ class PresCheck {
         def dbi:int (other.indexOf("db"))
         def dbMat:JVal (other.materialOf(dbi))
         this.ok((((dbMat.strOr("name" "")) == "db") && ((((other.rootList()).toJson()) == "[0,1]"))) ("scenes: indices renumbered, " + ((other.rootList()).toJson())))
+        ; a colour change is guarded too: a node removed before it lands
+        ; moves the materials, and the patch would paint the wrong one
+        def four:PresSceneModel (PresCheck.sceneSample())
+        this.sceneEdit(four "[{\"op\":\"add_service\",\"name\":\"c\"},{\"op\":\"add_service\",\"name\":\"d\"},{\"op\":\"add_service\",\"name\":\"e\"},{\"op\":\"add_service\",\"name\":\"f\"}]")
+        def fourText:string (four.print())
+        def paintC:SceneEdit (this.sceneEdit(four "[{\"op\":\"update\",\"name\":\"c\",\"color\":\"red\"}]"))
+        def pc:string (paintC.patch.toJson())
+        this.ok(((indexOf pc "\"test\",\"path\":\"/materials/") >= 0) ("scenes: a colour patch tests the material's name, " + pc))
+        def lessOne:PresSceneModel (PresSceneModel.parse(fourText))
+        this.sceneEdit(lessOne "[{\"op\":\"remove\",\"name\":\"api\"}]")
+        def stale2:string (lessOne.apply(paintC.patch))
+        this.ok(((indexOf stale2 "test failed") >= 0) ("scenes: a colour patch after a remove is refused, " + stale2))
+        ; a patch from elsewhere may not break the scene's shape
+        def shapes:[string] ([] _:string ("[{\"op\":\"add\",\"path\":\"/nodes/1/children\",\"value\":[1]}]" "[{\"op\":\"add\",\"path\":\"/nodes/1/children\",\"value\":[99]}]" "[{\"op\":\"replace\",\"path\":\"/nodes/1/name\",\"value\":\"api\"}]" "[{\"op\":\"replace\",\"path\":\"/nodes/1/mesh\",\"value\":42}]" "[{\"op\":\"add\",\"path\":\"/nodes/0/children\",\"value\":[1]}]"))
+        def sh:int 0
+        while (sh < (array_length shapes)) {
+            def sm:PresSceneModel (PresCheck.sceneSample())
+            def smText:string (sm.print())
+            def why:string (sm.apply((JVal.parse((itemAt shapes sh)))))
+            this.ok((((indexOf why "would break the scene") >= 0) && ((sm.print()) == smText)) ("scenes: a patch that breaks the shape is refused: " + (itemAt shapes sh) + " → " + why))
+            sh = (sh + 1)
+        }
+        def ring:PresSceneModel (PresCheck.sceneSample())
+        ring.doc = (JVal.parse("{\"asset\":{\"version\":\"2.0\"},\"nodes\":[{\"name\":\"a\",\"children\":[1]},{\"name\":\"b\",\"children\":[0]}]}"))
+        this.ok(((array_length (ring.subtree(0))) == 2) "scenes: a ring of children is walked once")
+        this.ok(((indexOf (PresSceneModel.structure(ring.doc)) "inside itself") >= 0) "scenes: and is found")
+        def notPath:JsonPatchResult (JsonPatch.apply((JVal.parse("{\"a\":1}")) (JVal.parse("[{\"op\":\"replace\",\"path\":5,\"value\":{}}]"))))
+        this.ok(((notPath.ok == false) && ((indexOf notPath.error "string") >= 0)) ("json patch: a path that is not a string is refused, " + notPath.error))
         ; a group keeps where its members are
         def g:PresSceneModel (PresCheck.sceneSample())
         def ge:SceneEdit (this.sceneEdit(g "[{\"op\":\"group\",\"name\":\"backend\",\"members\":[\"db\"],\"at\":[1,0,0]}]"))
@@ -5750,7 +5778,7 @@ class PresCheck {
         this.ok(((((g.info((g.indexOf("api")))).has("label")) == false)) "scenes: an empty label is taken away")
         ; refused edits change nothing
         def keep:string (g.print())
-        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]"))
+        def bad:[string] ([] _:string ("[{\"op\":\"add_service\",\"name\":\"api\"}]" "[{\"op\":\"add\",\"kind\":\"dragon\",\"name\":\"x\"}]" "[{\"op\":\"update\",\"name\":\"nobody\",\"at\":[1,1,1]}]" "[{\"op\":\"add\",\"kind\":\"box\",\"name\":\"y\",\"color\":\"#zz\"}]" "[{\"op\":\"add_service\",\"name\":\"z\"},{\"op\":\"connect\",\"from\":\"z\",\"to\":\"nobody\"}]" "[{\"op\":\"highlight\",\"name\":\"api\"}]" "[{\"op\":\"add_service\",\"name\":\"camera\"}]" "[{\"op\":\"add_service\",\"name\":\"x->y\"}]" "[{\"op\":\"group\",\"name\":\"gg\",\"members\":[\"api->db\"]}]" "[{\"op\":\"group\",\"name\":\"gg\",\"members\":[\"api->db/shaft\"]}]"))
         def k:int 0
         while (k < (array_length bad)) {
             def be:SceneEdit (this.sceneEdit(g (itemAt bad k)))
