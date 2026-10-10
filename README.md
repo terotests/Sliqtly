@@ -346,8 +346,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     `<mesh>`, `<light>` and `<camera>` children is drawn by Ranger's Three.js
     port (`src/Pres3D.rgr`, `web/three3d.js`, bundle `pres_3d.js` loaded on
     first use). Shiny meshes (`metal`) reflect a cube map made of a small
-    picture of the slide; the background stays transparent. Sample deck
-    `maailmat`.
+    picture of the slide; the background stays transparent. The camera frames
+    the element's box and the world may draw past it over the whole slide,
+    over its background and under its text; `fit="box"` (or `overflow:
+    hidden`) keeps it in the box. Sample deck `maailmat`.
   - **Exports and thumbnails** show the program's last picture, or a plate with
     its name before it has run. The public viewer shows the plate.
   - The fence is read by RangerMarkdown (`MdApp`), the picture laid out and

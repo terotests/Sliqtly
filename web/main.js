@@ -5089,8 +5089,16 @@ function loadEmojiFace() {
 function pickedName() {
   return exportName() + " (" + t("slides") + " " + app.pickList() + ")";
 }
+// The programs' 3-D worlds as pictures of the deck by the names the
+// slides' lists give them (PresPlayView.paintWorlds), for the PDF and the
+// PPTX: drawn as the stage draws them, sharp enough for a full page.
+async function renderWorldStills() {
+  const { pw, scenes } = JSON.parse(app.allPlayScenesJson());
+  if (!scenes.length) return;
+  for (const p of await three3d.stills(scenes, FX_STILL_W / pw)) app.addImage(p.src, asRangerBuffer(p.bytes), "image/png", p.w, p.h);
+}
 async function exportPdf(picked = false) {
-  await Promise.all([renderFxStills(), loadEmojiFace()]);
+  await Promise.all([renderFxStills(), loadEmojiFace(), renderWorldStills()]);
   window.__lastDownload = picked && app.pickCount() > 0
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
@@ -5126,7 +5134,7 @@ async function judgeExportContrast() {
 window.__judgeExportContrast = judgeExportContrast;
 
 async function exportPptx(picked = false) {
-  await renderFxStills();
+  await Promise.all([renderFxStills(), renderWorldStills()]);
   await judgeExportContrast();
   const some = picked && app.pickCount() > 0;
   window.__lastDownload = deliver(some ? app.pptxPicked() : app.pptx(), (some ? pickedName() : exportName()) + ".pptx",

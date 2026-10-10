@@ -352,10 +352,11 @@ class PresExport {
             if (i < (deck.slideCount())) {
                 def ps:PptxSlide (itemAt d.pres.slides i)
                 def s:PresSlide (deck.slideAt(i))
-                if (deck.scriptChanges(i)) {
+                if ((deck.scriptChanges(i)) || (deck.hasWorlds(i))) {
                     ; its script moved, hid or recoloured what the Markdown
-                    ; lays out: the slide as the stage shows it where the
-                    ; script ends, shape by shape from its display list
+                    ; lays out, or a program on it drew a 3-D world (its
+                    ; picture over the slide, under the text): the slide as
+                    ; the stage shows it, shape by shape from its display list
                     this.scriptSlide(ps s i unit)
                 } {
                     this.stillDiagrams(ps s unit)
@@ -667,9 +668,11 @@ class PresExport {
         def conv (new PptxFromEvg())
         conv.unit = unit
         conv.minFontPt = 1.0
-        def l:MdLayout (deck.layout())
-        if l.haveImages {
-            conv.setImages(l.images)
+        ; the deck's own store: a picture added after the layout (a 3-D
+        ; world's, Check.worldPictures) is in it, not yet in the layout's
+        def mw:MarkdownWeb deck.md
+        if mw.edit.haveImages {
+            conv.setImages(mw.edit.imageStore)
         }
         def group:PptxShape (conv.build(dl 0.0 0.0))
         def shapes:[PptxShape]
