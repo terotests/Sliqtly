@@ -62,6 +62,7 @@ func TestPluginsOn(t *testing.T) {
 	match(t, textOf(r), `^# Plugin: code-review\n`)
 	match(t, textOf(r), `plugin_version \d{4}-\d\d-\d\d(\.\d+)?$`)
 	eq(t, sc(r)["ops"], []any{"start", "build"})
+	match(t, sc(r)["instructions"].(string), `^# Plugin: code-review\n[\s\S]*## The model`)
 
 	match(t, textOf(call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "merge"})), `has no operation "merge"\. Operations: start, build\.`)
 	match(t, textOf(call(t, s, "sliqtly_plugin", map[string]any{"name": "lint"})), `no plugin "lint" on this server\. Plugins: code-review\.`)
