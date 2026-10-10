@@ -99,7 +99,13 @@ class View {
         def i:int 0
         while (i < n) {
             def groups:[int]
-            push lists ((d.slideList(i groups 0.0)).toJson())
+            def lj:string ((d.slideList(i groups 0.0)).toJson())
+            ; where the page puts its programs' 3-D worlds: over the
+            ; slide's ground, under its text (PresDeck.worldsAt)
+            if ((d.worldsAt >= 0) && ((strlen lj) > 1)) {
+                lj = ("{\"worldsAt\":" + (to_string d.worldsAt) + "," + (substring lj 1 (strlen lj)))
+            }
+            push lists lj
             i = (i + 1)
         }
         def all:string (join lists ",")

@@ -22,6 +22,8 @@ class PresPlayWeb {
     def specs:[MdAppSpec]
     ; the box of each, in the slide's units: x, y, w, h one after another
     def boxes:[double]
+    def slideW:double 0.0
+    def slideH:double 0.0
 
     Constructor () {
     }
@@ -48,6 +50,8 @@ class PresPlayWeb {
         v.key = key
         v.width = width
         v.height = height
+        v.slideW = slideW
+        v.slideH = slideH
         push views v
         def spec:MdAppSpec (new MdAppSpec())
         spec.src = src
@@ -90,8 +94,22 @@ class PresPlayWeb {
         v.allow3d = on
     }
 
+    ; The slide's size in its units: a 3-D world may draw over all of it.
+    fn setSlide:void (w:double h:double) {
+        def i:int 0
+        while (i < (array_length views)) {
+            def v:PresPlayView (itemAt views i)
+            v.slideW = w
+            v.slideH = h
+            i = (i + 1)
+        }
+        slideW = w
+        slideH = h
+    }
+
     ; The 3-D worlds of the program's last frame, placed in its box:
-    ; [{src, scene, x, y, w, h}] in the slide's units, "[]" for none.
+    ; [{src, scene, x, y, w, h, clip, sw, sh}] in the slide's units, "[]"
+    ; for none.
     fn scenesJson:string (key:string) {
         def i:int (this.indexOf(key))
         if (i < 0) {
@@ -99,6 +117,20 @@ class PresPlayWeb {
         }
         def v:PresPlayView (itemAt views i)
         return ((v.scenesIn((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))).toJson())
+    }
+
+    ; Those worlds past the program's picture as display list JSON in the
+    ; slide's units, for the page to put in the slide's list where the
+    ; server said (worldsAt: over the ground, under the text), as the
+    ; editor's deck paints them (PresDeck.paintWorlds).
+    fn worldsJson:string (key:string) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        def i:int (this.indexOf(key))
+        if (i >= 0) {
+            def v:PresPlayView (itemAt views i)
+            v.paintWorlds(out (this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))
+        }
+        return (out.toJson())
     }
 
     ; Why the page stopped the program, "" while it runs.

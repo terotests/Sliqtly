@@ -54,11 +54,13 @@ export function viewerAsks(play, asks) {
  * repaint() when a picture changed. For 3-D worlds: pictures, the viewer's
  * src → picture map; gl() its WebGL context; dpr() its device pixel ratio;
  * imageChanged(gl, src) the painter's; slidePicture(page, w, h) a page as
- * an ImageData without its programs.
+ * an ImageData without its programs; slideW, slideH the slide's size in
+ * its units (a world may draw over all of it).
  */
-export async function startPlays({ plays = [], scripts = [], lists = [], canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile }) {
+export async function startPlays({ plays = [], scripts = [], lists = [], slideW = 0, slideH = 0, canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture, readFile }) {
   await loadScript("pres_play.js");
   const web = new globalThis.PresPlayWeb();
+  web.setSlide(slideW, slideH);
   const scriptWeb = new globalThis.PresScriptWeb();
   const byKey = new Map();
   for (const p of plays) {
@@ -223,6 +225,16 @@ export async function startPlays({ plays = [], scripts = [], lists = [], canvas,
       if (!key || !lists[page]) return null;
       const { cmds } = JSON.parse(scriptWeb.listJson(key));
       return { ...lists[page], cmds };
+    },
+    // page's list with its programs' 3-D worlds put where the server said
+    // (list.worldsAt: over the ground, under the text); the list itself
+    // when it has none
+    withWorlds(page, list) {
+      if (!worlds || !(list.worldsAt >= 0) || page !== current()) return list;
+      const cmds = [];
+      for (const p of plays) if (p.slide === page) cmds.push(...JSON.parse(web.worldsJson(p.key)).cmds);
+      if (!cmds.length) return list;
+      return { ...list, cmds: [...list.cmds.slice(0, list.worldsAt), ...cmds, ...list.cmds.slice(list.worldsAt)] };
     },
     // page painted at {x, y, scale} (CSS px of the canvas): its programs'
     // pictures as display lists in the slide's units

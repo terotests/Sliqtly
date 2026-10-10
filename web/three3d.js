@@ -23,8 +23,9 @@
 import { loadScript } from "./sitescript.js";
 
 const CANVAS_ID = "sliqtly-3d";
-// a world's picture at most this many device pixels a side
-const MAX_SIDE = 1024;
+// a world's picture at most this many device pixels a side (the picture
+// is the whole slide unless the world is clipped to its box)
+const MAX_SIDE = 2048;
 // the slide's picture the room is made of
 const ROOM_W = 96;
 const ROOM_H = 54;
@@ -45,6 +46,25 @@ export function worldPictureSize(w, h, k, max = MAX_SIDE) {
     ph /= over;
   }
   return [Math.max(1, Math.round(pw)), Math.max(1, Math.round(ph))];
+}
+
+/**
+ * Where a world {x, y, w, h, clip, sw, sh} (slide units, PresPlayView
+ * scenesOn) is drawn: its picture covers the whole sw x sh slide, so the
+ * world may reach past its element's box (the deck paints it over the
+ * slide's ground, under its text), or only its box when it clips (or no
+ * slide size came). w, h: the picture in device pixels at k per unit;
+ * view: the element's box in it, which the camera frames.
+ */
+export function worldPicture(s, k, max = MAX_SIDE) {
+  const whole = !s.clip && s.sw > 0 && s.sh > 0;
+  const rx = whole ? 0 : s.x;
+  const ry = whole ? 0 : s.y;
+  const rw = whole ? s.sw : s.w;
+  const rh = whole ? s.sh : s.h;
+  const [w, h] = worldPictureSize(rw, rh, k, max);
+  const f = w / rw;
+  return { w, h, view: [(s.x - rx) * f, (s.y - ry) * f, s.w * f, s.h * f] };
 }
 
 /**
@@ -177,12 +197,13 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
       // once per change: a scene is set again every frame it moves
       if (why && said.get(s.src) !== why) console.warn("scene3d: " + why);
       said.set(s.src, why);
-      const [w, h] = worldPictureSize(s.w, s.h, k);
+      if (!(s.w > 0 && s.h > 0)) continue;
+      const { w, h, view } = worldPicture(s, k);
       if (glCanvas.width !== w || glCanvas.height !== h) {
         glCanvas.width = w;
         glCanvas.height = h;
       }
-      if (!p3.draw(s.src, w, h)) continue;
+      if (!p3.draw(s.src, w, h, view[0], view[1], view[2], view[3])) continue;
       const c = pictureFor(s.src, w, h);
       const g = c.getContext("2d");
       g.clearRect(0, 0, w, h);

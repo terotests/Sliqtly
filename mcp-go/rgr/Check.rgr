@@ -477,6 +477,8 @@ class Check {
             }
             def view:PresPlayView (unwrap pv)
             def b:MdBox (itemAt l.boxes bi)
+            view.slideW = c.width
+            view.slideH = c.height
             def got:JVal (view.scenesIn(b.x b.y b.w b.h))
             def si:int 0
             while (si < (got.len())) {
@@ -485,29 +487,42 @@ class Check {
                     roomDone = true
                 }
                 def sc:JVal (got.at(si))
-                ; as many pixels as render_slide gives the box (960 a slide
-                ; 960 wide), at most 1024 a side
+                ; the picture the slide's list shows (PresPlayView.paintWorlds):
+                ; the whole slide, or the element's box when it clips
+                def bx:double (sc.numOr("x" 0.0))
+                def by:double (sc.numOr("y" 0.0))
+                def bw:double (sc.numOr("w" 0.0))
+                def bh:double (sc.numOr("h" 0.0))
+                def rx:double 0.0
+                def ry:double 0.0
+                def rw:double c.width
+                def rh:double c.height
+                if (sc.boolOr("clip" false)) {
+                    rx = bx
+                    ry = by
+                    rw = bw
+                    rh = bh
+                }
+                ; as many pixels as render_slide gives it (960 a slide 960
+                ; wide), at most 1024 a side, both sides by one factor
                 def k:double (960.0 / c.width)
-                def pw:double ((sc.numOr("w" 0.0)) * k)
-                def ph:double ((sc.numOr("h" 0.0)) * k)
-                def big:double pw
-                if (ph > big) {
-                    big = ph
+                def big:double (rw * k)
+                if ((rh * k) > big) {
+                    big = (rh * k)
                 }
                 if (big > 1024.0) {
-                    pw = ((pw * 1024.0) / big)
-                    ph = ((ph * 1024.0) / big)
+                    k = ((k * 1024.0) / big)
                 }
-                def iw:int (to_int (pw + 0.5))
-                def ih:int (to_int (ph + 0.5))
-                if ((iw > 0) && (ih > 0)) {
+                def iw:int (to_int ((rw * k) + 0.5))
+                def ih:int (to_int ((rh * k) + 0.5))
+                if (((iw > 0) && (ih > 0)) && ((bw > 0.0) && (bh > 0.0))) {
                     def st:Pres3DStill (new Pres3DStill())
                     if ((buffer_length room) == ((96 * 54) * 4)) {
                         st.setSlide(room 96 54)
                     }
                     def sjson:string ((sc.get("scene")).toJson())
                     Check.sceneFiles(host din sjson st.world.files)
-                    def px:buffer (st.draw(sjson iw ih))
+                    def px:buffer (st.drawIn(sjson iw ih ((bx - rx) * k) ((by - ry) * k) (bw * k) (bh * k)))
                     host_render_rgba host (sc.strOr("src" "")) px iw ih
                 }
                 si = (si + 1)
