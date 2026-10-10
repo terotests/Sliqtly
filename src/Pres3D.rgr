@@ -16,6 +16,7 @@
 ; ============================================================================
 
 Import "Pres3DWorld.rgr"
+Import "PresFlight3D.rgr"
 Import "../game_engine/three/src/three_webgl_renderer.rgr"
 Import "../game_engine/three/src/three_gl_backend.rgr"
 

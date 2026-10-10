@@ -49,6 +49,7 @@ import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trac
 import { BookGL } from "./bookgl.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
+import { createFlight3d } from "./flight3d.js";
 import { createMusic } from "./music.js";
 import { registerBeatEffects } from "./beatfx.js";
 import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
@@ -345,6 +346,19 @@ const three3d = createThree3d({
   repaint: () => { needsPaint = true; },
   toast,
   readFile: (path) => readDocFile(path),
+});
+// The 3-D flight (web/flight3d.js): G or ⋯ → 3-D flight while presenting.
+// It leaves full screen as it found it; back at the slide it ended at.
+const flight3d = createFlight3d({
+  three3d,
+  app,
+  toast,
+  t,
+  onExit: () => {
+    keys.focus({ preventScroll: true });
+    needsPaint = true;
+    requestAnimationFrame(resize);
+  },
 });
 // The deck's music (front matter `music:`, web/music.js), played while
 // presenting; the beat effects ({fx=spectrum}, web/beatfx.js) move with it.
@@ -6888,6 +6902,8 @@ vMenu.addEventListener("click", (ev) => {
   } else if (act === "auto") {
     app.setAuto(!app.autoOn());
     needsPaint = true;
+  } else if (act === "flight") {
+    flight3d.start().catch(fail);
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -7544,6 +7560,11 @@ keys.addEventListener("keydown", (ev) => {
     if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
       ev.preventDefault();
       refreshLiveData();
+      return;
+    }
+    if ((ev.key === "g" || ev.key === "G") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
+      ev.preventDefault();
+      flight3d.start().catch(fail);
       return;
     }
     if (ev.key.length === 1 || (writing && !mod && [...ev.key].length === 1)) {

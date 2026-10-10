@@ -1,0 +1,1004 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlight3D.rgr — the flight's world, drawn with the GPU.
+; ============================================================================
+;
+; The page (web/flight3d.js) gives this the world PresFlightScene made of
+; the deck (its JSON), the keys held and the gamepad each frame, and a
+; picture of every text; this builds Ranger's Three scene from it and draws
+; it into the one GL canvas the slides' 3-D worlds use (src/Pres3D.rgr).
+;
+; The look is a hologram in the dark: glass panels (see-through, edges and
+; corner brackets that glow by adding light), lines as glowing tubes with a
+; pulse running along them, bars of tinted glass with a bright cap, a grid
+; on the floor of every station, dust in the air and fog in the distance.
+; A station builds itself as the camera arrives: its parts come in one
+; after another in the order the slide reveals them.
+; ============================================================================
+
+Import "JsonValue.rgr"
+Import "PresFlightCam.rgr"
+Import "../game_engine/three/src/three_webgl_renderer.rgr"
+Import "../game_engine/three/src/three_gl_backend.rgr"
+Import "../game_engine/three/src/three_scene.rgr"
+Import "../game_engine/three/src/three_mesh.rgr"
+Import "../game_engine/three/src/three_light.rgr"
+Import "../game_engine/three/src/three_fog.rgr"
+Import "../game_engine/three/src/three_constants.rgr"
+Import "../game_engine/three/src/three_perspective_camera.rgr"
+Import "../game_engine/three/src/three_box_geometry.rgr"
+Import "../game_engine/three/src/three_primitive_geometries.rgr"
+Import "../game_engine/three/src/three_mesh_basic_material.rgr"
+Import "../game_engine/three/src/three_mesh_phong_material.rgr"
+Import "../game_engine/three/src/three_texture.rgr"
+
+; Geometry the flight builds itself.
+class FlightGeo {
+    ; boxes merged into one geometry: six numbers each, centre and size
+    sfn boxes:ThreeBufferGeometry (spec:[double]) {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def n:int (idiv (array_length spec) 6)
+        def i:int 0
+        while (i < n) {
+            FlightGeo.addBox(g (itemAt spec (i * 6)) (itemAt spec ((i * 6) + 1)) (itemAt spec ((i * 6) + 2)) (itemAt spec ((i * 6) + 3)) (itemAt spec ((i * 6) + 4)) (itemAt spec ((i * 6) + 5)))
+            i = (i + 1)
+        }
+        return g
+    }
+
+    sfn addBox:void (g:ThreeBufferGeometry cx:double cy:double cz:double sx:double sy:double sz:double) {
+        def hx:double (sx * 0.5)
+        def hy:double (sy * 0.5)
+        def hz:double (sz * 0.5)
+        ; +z -z +x -x +y -y
+        FlightGeo.quad(g (cx - hx) (cy - hy) (cz + hz) (cx + hx) (cy - hy) (cz + hz) (cx + hx) (cy + hy) (cz + hz) (cx - hx) (cy + hy) (cz + hz) 0.0 0.0 1.0)
+        FlightGeo.quad(g (cx + hx) (cy - hy) (cz - hz) (cx - hx) (cy - hy) (cz - hz) (cx - hx) (cy + hy) (cz - hz) (cx + hx) (cy + hy) (cz - hz) 0.0 0.0 (0.0 - 1.0))
+        FlightGeo.quad(g (cx + hx) (cy - hy) (cz + hz) (cx + hx) (cy - hy) (cz - hz) (cx + hx) (cy + hy) (cz - hz) (cx + hx) (cy + hy) (cz + hz) 1.0 0.0 0.0)
+        FlightGeo.quad(g (cx - hx) (cy - hy) (cz - hz) (cx - hx) (cy - hy) (cz + hz) (cx - hx) (cy + hy) (cz + hz) (cx - hx) (cy + hy) (cz - hz) (0.0 - 1.0) 0.0 0.0)
+        FlightGeo.quad(g (cx - hx) (cy + hy) (cz + hz) (cx + hx) (cy + hy) (cz + hz) (cx + hx) (cy + hy) (cz - hz) (cx - hx) (cy + hy) (cz - hz) 0.0 1.0 0.0)
+        FlightGeo.quad(g (cx - hx) (cy - hy) (cz - hz) (cx + hx) (cy - hy) (cz - hz) (cx + hx) (cy - hy) (cz + hz) (cx - hx) (cy - hy) (cz + hz) 0.0 (0.0 - 1.0) 0.0)
+    }
+
+    ; a quad a b c d (counter-clockwise seen from its normal's side)
+    sfn quad:void (g:ThreeBufferGeometry ax:double ay:double az:double bx:double by:double bz:double cx:double cy:double cz:double dx:double dy:double dz:double nx:double ny:double nz:double) {
+        def at:int (g.vertexCount())
+        g.pushVertex(ax ay az nx ny nz 0.0 1.0)
+        g.pushVertex(bx by bz nx ny nz 1.0 1.0)
+        g.pushVertex(cx cy cz nx ny nz 1.0 0.0)
+        g.pushVertex(dx dy dz nx ny nz 0.0 0.0)
+        g.pushTriangle(at (at + 1) (at + 2))
+        g.pushTriangle(at (at + 2) (at + 3))
+    }
+
+    ; A 1 x 1 picture plane facing +z whose top row is the texture's first
+    ; (a canvas's ImageData, top row first).
+    sfn picture:ThreeBufferGeometry () {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        g.pushVertex((0.0 - 0.5) (0.0 - 0.5) 0.0 0.0 0.0 1.0 0.0 1.0)
+        g.pushVertex(0.5 (0.0 - 0.5) 0.0 0.0 0.0 1.0 1.0 1.0)
+        g.pushVertex(0.5 0.5 0.0 0.0 0.0 1.0 1.0 0.0)
+        g.pushVertex((0.0 - 0.5) 0.5 0.0 0.0 0.0 1.0 0.0 0.0)
+        g.pushTriangle(0 1 2)
+        g.pushTriangle(0 2 3)
+        return g
+    }
+
+    ; A panel's glowing edges and, outside them, its four corner brackets.
+    sfn frame:ThreeBufferGeometry (w:double h:double t:double brackets:boolean) {
+        def s:[double]
+        def hw:double (w * 0.5)
+        def hh:double (h * 0.5)
+        FlightGeo.push6(s 0.0 hh 0.0 (w + t) t t)
+        FlightGeo.push6(s 0.0 (0.0 - hh) 0.0 (w + t) t t)
+        FlightGeo.push6(s (0.0 - hw) 0.0 0.0 t h t)
+        FlightGeo.push6(s hw 0.0 0.0 t h t)
+        if brackets {
+            def gap:double 0.16
+            def arm:double (((w + h) * 0.08) + 0.2)
+            def sx:int -1
+            while (sx <= 1) {
+                def sy:int -1
+                while (sy <= 1) {
+                    def fx:double (to_double sx)
+                    def fy:double (to_double sy)
+                    def kx:double (fx * (hw + gap))
+                    def ky:double (fy * (hh + gap))
+                    FlightGeo.push6(s (kx - ((fx * arm) * 0.5)) ky 0.0 arm t t)
+                    FlightGeo.push6(s kx (ky - ((fy * arm) * 0.5)) 0.0 t arm t)
+                    sy = (sy + 2)
+                }
+                sx = (sx + 2)
+            }
+        }
+        return (FlightGeo.boxes(s))
+    }
+
+    sfn push6:void (s:[double] a:double b:double c:double d:double e:double f:double) {
+        push s a
+        push s b
+        push s c
+        push s d
+        push s e
+        push s f
+    }
+
+    ; An arrow's head: a cone from `len` back along (dx, dy, dz) to the tip.
+    sfn cone:ThreeBufferGeometry (tx:double ty:double tz:double dx:double dy:double dz:double len:double rad:double) {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        ; two directions across the axis
+        def ux:double 0.0
+        def uy:double 1.0
+        def uz:double 0.0
+        if ((fabs dy) > 0.9) {
+            ux = 1.0
+            uy = 0.0
+        }
+        def ax:double ((dy * uz) - (dz * uy))
+        def ay:double ((dz * ux) - (dx * uz))
+        def az:double ((dx * uy) - (dy * ux))
+        def al:double (sqrt((((ax * ax) + (ay * ay)) + (az * az))))
+        ax = (ax / al)
+        ay = (ay / al)
+        az = (az / al)
+        def bx:double ((dy * az) - (dz * ay))
+        def by:double ((dz * ax) - (dx * az))
+        def bz:double ((dx * ay) - (dy * ax))
+        def cx:double (tx - (dx * len))
+        def cy:double (ty - (dy * len))
+        def cz:double (tz - (dz * len))
+        def seg:int 10
+        g.pushVertex(tx ty tz dx dy dz 0.5 0.0)
+        g.pushVertex(cx cy cz (0.0 - dx) (0.0 - dy) (0.0 - dz) 0.5 1.0)
+        def i:int 0
+        while (i < seg) {
+            def v:double (((to_double i) / (to_double seg)) * 6.283185307179586)
+            def cv:double (cos(v))
+            def sv:double (sin(v))
+            def ox:double ((ax * cv) + (bx * sv))
+            def oy:double ((ay * cv) + (by * sv))
+            def oz:double ((az * cv) + (bz * sv))
+            g.pushVertex((cx + (ox * rad)) (cy + (oy * rad)) (cz + (oz * rad)) ox oy oz 0.0 1.0)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < seg) {
+            def a:int (2 + i)
+            def b:int (2 + ((i + 1) - ((idiv (i + 1) seg) * seg)))
+            g.pushTriangle(0 a b)
+            g.pushTriangle(1 b a)
+            i = (i + 1)
+        }
+        return g
+    }
+
+    ; A slice of a pie (r0 0) or a ring, from angle a0 to a1, depth deep
+    ; along z around 0, facing +z.
+    sfn sector:ThreeBufferGeometry (r0:double r1:double a0:double a1:double deep:double) {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def seg:int (to_int (((a1 - a0) / 0.12) + 1.0))
+        if (seg < 2) {
+            seg = 2
+        }
+        def hz:double (deep * 0.5)
+        def i:int 0
+        while (i < seg) {
+            def t0:double (a0 + (((a1 - a0) * (to_double i)) / (to_double seg)))
+            def t1:double (a0 + (((a1 - a0) * (to_double (i + 1))) / (to_double seg)))
+            def c0:double (cos(t0))
+            def s0:double (sin(t0))
+            def c1:double (cos(t1))
+            def s1:double (sin(t1))
+            ; front and back
+            FlightGeo.quad(g (c0 * r0) (s0 * r0) hz (c0 * r1) (s0 * r1) hz (c1 * r1) (s1 * r1) hz (c1 * r0) (s1 * r0) hz 0.0 0.0 1.0)
+            FlightGeo.quad(g (c1 * r0) (s1 * r0) (0.0 - hz) (c1 * r1) (s1 * r1) (0.0 - hz) (c0 * r1) (s0 * r1) (0.0 - hz) (c0 * r0) (s0 * r0) (0.0 - hz) 0.0 0.0 (0.0 - 1.0))
+            ; the outer wall, and the inner one of a ring
+            def mc:double (cos(((t0 + t1) * 0.5)))
+            def ms:double (sin(((t0 + t1) * 0.5)))
+            FlightGeo.quad(g (c0 * r1) (s0 * r1) hz (c0 * r1) (s0 * r1) (0.0 - hz) (c1 * r1) (s1 * r1) (0.0 - hz) (c1 * r1) (s1 * r1) hz mc ms 0.0)
+            if (r0 > 0.0) {
+                FlightGeo.quad(g (c1 * r0) (s1 * r0) hz (c1 * r0) (s1 * r0) (0.0 - hz) (c0 * r0) (s0 * r0) (0.0 - hz) (c0 * r0) (s0 * r0) hz (0.0 - mc) (0.0 - ms) 0.0)
+            }
+            i = (i + 1)
+        }
+        ; the two cut faces
+        def ca:double (cos(a0))
+        def sa:double (sin(a0))
+        def cb:double (cos(a1))
+        def sb:double (sin(a1))
+        FlightGeo.quad(g (ca * r1) (sa * r1) hz (ca * r0) (sa * r0) hz (ca * r0) (sa * r0) (0.0 - hz) (ca * r1) (sa * r1) (0.0 - hz) sa (0.0 - ca) 0.0)
+        FlightGeo.quad(g (cb * r0) (sb * r0) hz (cb * r1) (sb * r1) hz (cb * r1) (sb * r1) (0.0 - hz) (cb * r0) (sb * r0) (0.0 - hz) (0.0 - sb) cb 0.0)
+        return g
+    }
+
+    ; The floor's grid: bright lines on nothing, a glow along each.
+    sfn gridTexture:ThreeTexture () {
+        def size:int 256
+        def cell:int 32
+        def buf:buffer (buffer_alloc ((size * size) * 4))
+        def y:int 0
+        while (y < size) {
+            def x:int 0
+            while (x < size) {
+                def mx:int (x - ((idiv x cell) * cell))
+                def my:int (y - ((idiv y cell) * cell))
+                def dx:int mx
+                if ((cell - mx) < dx) {
+                    dx = (cell - mx)
+                }
+                def dy:int my
+                if ((cell - my) < dy) {
+                    dy = (cell - my)
+                }
+                def d:int dx
+                if (dy < d) {
+                    d = dy
+                }
+                def a:int 0
+                if (d == 0) {
+                    a = 200
+                }
+                if (d == 1) {
+                    a = 70
+                }
+                if (d == 2) {
+                    a = 18
+                }
+                def o:int (((y * size) + x) * 4)
+                buffer_set buf o 255
+                buffer_set buf (o + 1) 255
+                buffer_set buf (o + 2) 255
+                buffer_set buf (o + 3) a
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        def t:ThreeTexture (new ThreeTexture)
+        t.setImage(buf size size)
+        return t
+    }
+}
+
+; A thing in the flight that comes in with its station.
+class FlightPart {
+    def kind:string ""
+    def station:int 0
+    def order:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def w:double 1.0
+    def h:double 1.0
+    def d:double 1.0
+    def base:double 0.0
+    def across:boolean false
+    def meshes:[ThreeMesh]
+    ; each mesh's opacity when it is all there
+    def full:[double]
+    ; each mesh's place, the part at 0,0,0 (the cap of a bar is moved by it)
+    def dx:[double]
+    def dy:[double]
+    def dz:[double]
+    ; which of the meshes are labels (shown once their picture came)
+    def label:[boolean]
+    def phase:double 0.0
+}
+
+; A text the page draws: its picture comes later (setLabel).
+class FlightLabel {
+    def text:string ""
+    def kind:string ""
+    def r:double 1.0
+    def g:double 1.0
+    def b:double 1.0
+    ; line height in world units, and the widest it may be (0: any)
+    def size:double 0.4
+    def maxW:double 0.0
+    def mesh:ThreeMesh (new ThreeMesh)
+    def part:FlightPart (new FlightPart())
+}
+
+; A spark running along a line, again and again.
+class FlightPulse {
+    def mesh:ThreeMesh (new ThreeMesh)
+    def pts:[double]
+    def run:[double]
+    def total:double 0.0
+    def station:int 0
+    def order:int 0
+    def phase:double 0.0
+}
+
+class PresFlight3D {
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def ready:boolean false
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def cam:PresFlightCam (new PresFlightCam())
+    def parts:[FlightPart]
+    def labels:[FlightLabel]
+    def pulses:[FlightPulse]
+    def titles:[string]
+    ; when each station started coming in (-1: not yet)
+    def seen:[double]
+    def clock:double 0.0
+    def held:PresFlightPad (new PresFlightPad())
+    def pad:PresFlightPad (new PresFlightPad())
+    def buttons:[double]
+    ; the look the mouse gave since the last frame
+    def lookX:double 0.0
+    def lookY:double 0.0
+    def error:string ""
+    def bgR:double 0.008
+    def bgG:double 0.016
+    def bgB:double 0.03
+
+    Constructor () {
+    }
+
+    fn attach:boolean (canvasId:string) {
+        ready = (gl.init(canvasId))
+        if ready {
+            renderer.setBackend(gl)
+            renderer.setClearAlpha(1.0)
+        }
+        return ready
+    }
+
+    ; The world from PresFlightScene's JSON; "" when built, else why not.
+    fn load:string (json:string) {
+        scene = (new ThreeScene)
+        def np:[FlightPart]
+        parts = np
+        def nl:[FlightLabel]
+        labels = nl
+        def nu:[FlightPulse]
+        pulses = nu
+        def nt:[string]
+        titles = nt
+        def ns:[double]
+        seen = ns
+        cam = (new PresFlightCam())
+        clock = 0.0
+        scene.setBackground(bgR bgG bgB)
+        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
+        def amb:ThreeAmbientLight (new ThreeAmbientLight)
+        amb.setIntensity(0.55)
+        scene.add(amb)
+        def key:ThreeDirectionalLight (new ThreeDirectionalLight)
+        key.setDirection(0.4 0.8 0.6)
+        key.setIntensity(0.9)
+        scene.add(key)
+        camera.setPerspective(60.0 1.6 0.1 400.0)
+        def js:JVal (JVal.parse(json))
+        if ((js.isObj()) == false) {
+            error = "the flight's world did not read"
+            return error
+        }
+        def st:JVal (js.get("stations"))
+        def grid:ThreeTexture (FlightGeo.gridTexture())
+        def i:int 0
+        while (i < (st.len())) {
+            def s:JVal (st.at(i))
+            def sx:double (s.numOr("x" 0.0))
+            def sy:double (s.numOr("y" 0.0))
+            def sz:double (s.numOr("z" 0.0))
+            cam.addStation((s.numOr("fx" sx)) (s.numOr("fy" sy)) sz (s.numOr("dist" 13.0)) (s.numOr("lift" 1.0)))
+            push titles (s.strOr("t" ""))
+            push seen (0.0 - 1.0)
+            this.addFloor(i sx sy sz grid)
+            i = (i + 1)
+        }
+        if ((st.len()) == 0) {
+            error = "nothing to fly to"
+            return error
+        }
+        def it:JVal (js.get("items"))
+        i = 0
+        while (i < (it.len())) {
+            this.addItem((it.at(i)))
+            i = (i + 1)
+        }
+        this.addDust()
+        cam.jumpTo(0)
+        error = ""
+        return ""
+    }
+
+    ; ---- building -----------------------------------------------------------
+
+    fn basic:ThreeMeshBasicMaterial (r:double g:double b:double opacity:double additive:boolean) {
+        def m:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        m.setColor(r g b)
+        m.setOpacity(opacity)
+        m.setTransparent(true)
+        m.setDepthWrite(false)
+        m.setSide(2)
+        if additive {
+            m.setBlending((ThreeBlending.AdditiveBlending()))
+        }
+        return m
+    }
+
+    fn lit:ThreeMeshPhongMaterial (r:double g:double b:double opacity:double) {
+        def m:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        m.setColor((r * 0.75) (g * 0.75) (b * 0.75))
+        m.setEmissive((r * 0.35) (g * 0.35) (b * 0.35))
+        m.setSpecular(0.6 0.6 0.6)
+        m.setShininess(60.0)
+        m.setOpacity(opacity)
+        m.setTransparent(true)
+        m.setDepthWrite(false)
+        return m
+    }
+
+    fn mesh:ThreeMesh (g:ThreeBufferGeometry m:ThreeMaterial) {
+        def me:ThreeMesh (new ThreeMesh)
+        me.setGeometry(g)
+        me.setMaterial(m)
+        scene.add(me)
+        return me
+    }
+
+    fn part:FlightPart (o:JVal kind:string) {
+        def p:FlightPart (new FlightPart())
+        p.kind = kind
+        p.station = (o.intOr("s" 0))
+        p.order = (o.intOr("o" 0))
+        p.x = (o.numOr("x" 0.0))
+        p.y = (o.numOr("y" 0.0))
+        p.z = (o.numOr("z" 0.0))
+        p.w = (o.numOr("w" 0.0))
+        p.h = (o.numOr("h" 0.0))
+        p.d = (o.numOr("d" 0.0))
+        p.base = (o.numOr("base" 0.0))
+        p.across = (o.boolOr("across" false))
+        p.phase = ((to_double (array_length parts)) * 0.7)
+        push parts p
+        return p
+    }
+
+    fn hold:void (p:FlightPart me:ThreeMesh full:double dx:double dy:double dz:double) {
+        push p.label false
+        push p.meshes me
+        push p.full full
+        push p.dx dx
+        push p.dy dy
+        push p.dz dz
+    }
+
+    fn colourOf:[double] (o:JVal) {
+        def c:JVal (o.get("c"))
+        if ((c.len()) < 3) {
+            return ([] _:double (0.36 0.88 1.0))
+        }
+        def cr:JVal (c.at(0))
+        def cg:JVal (c.at(1))
+        def cb:JVal (c.at(2))
+        return ([] _:double ((cr.asNum(1.0)) (cg.asNum(1.0)) (cb.asNum(1.0))))
+    }
+
+    fn addItem:void (o:JVal) {
+        def kind:string (o.strOr("k" ""))
+        def c:[double] (this.colourOf(o))
+        def r:double (itemAt c 0)
+        def g:double (itemAt c 1)
+        def b:double (itemAt c 2)
+        if ((kind == "glass") || (kind == "group")) {
+            def p:FlightPart (this.part(o kind))
+            def dim:double 1.0
+            if (kind == "group") {
+                dim = 0.3
+            }
+            def slab:ThreeBoxGeometry (new ThreeBoxGeometry)
+            slab.setSize(p.w p.h p.d)
+            this.hold(p (this.mesh(slab (this.basic((r * 0.5) (g * 0.5) (b * 0.5) (0.2 * dim) false)))) (0.2 * dim) 0.0 0.0 0.0)
+            def fr:ThreeBufferGeometry (FlightGeo.frame(p.w p.h 0.035 (kind == "glass")))
+            this.hold(p (this.mesh(fr (this.basic(r g b 1.0 true)))) (0.9 * dim) 0.0 0.0 0.0)
+            def t:string (o.strOr("t" ""))
+            if ((strlen t) > 0) {
+                def ly:double 0.0
+                def lz:double ((p.d * 0.5) + 0.02)
+                if (kind == "group") {
+                    ; a frame's name at its top
+                    ly = ((p.h * 0.5) - 0.4)
+                }
+                this.addLabel(p t kind 1.0 1.0 1.0 (o.numOr("fs" 0.4)) (p.w * 0.9) 0.0 ly lz)
+            }
+            return
+        }
+        if ((kind == "title") || ((kind == "text") || ((kind == "label") || (kind == "axis")))) {
+            def p:FlightPart (this.part(o kind))
+            this.addLabel(p (o.strOr("t" "")) kind r g b (o.numOr("fs" 0.4)) p.w 0.0 0.0 0.0)
+            return
+        }
+        if (kind == "link") {
+            this.addLink(o r g b)
+            return
+        }
+        if (kind == "bar") {
+            def p:FlightPart (this.part(o kind))
+            def unit:ThreeBoxGeometry (new ThreeBoxGeometry)
+            unit.setSize(1.0 1.0 1.0)
+            this.hold(p (this.mesh(unit (this.lit(r g b 0.72)))) 0.72 0.0 0.0 0.0)
+            def cap:ThreeBoxGeometry (new ThreeBoxGeometry)
+            if p.across {
+                cap.setSize(0.06 (p.h + 0.04) (p.d + 0.04))
+            } {
+                cap.setSize((p.w + 0.04) 0.06 (p.d + 0.04))
+            }
+            this.hold(p (this.mesh(cap (this.basic(r g b 1.0 true)))) 1.0 0.0 0.0 0.0)
+            def edge:ThreeBufferGeometry (FlightGeo.frame(p.w p.h 0.025 false))
+            this.hold(p (this.mesh(edge (this.basic(r g b 0.5 true)))) 0.5 0.0 0.0 ((p.d * 0.5) + 0.01))
+            return
+        }
+        if (kind == "wedge") {
+            def p:FlightPart (this.part(o kind))
+            def a0:double (o.numOr("a0" 0.0))
+            def a1:double (o.numOr("a1" 0.0))
+            def sec:ThreeBufferGeometry (FlightGeo.sector((o.numOr("r0" 0.0)) (o.numOr("r1" 1.0)) a0 a1 p.d))
+            ; a slice stands a little out from the middle
+            def mid:double ((a0 + a1) * 0.5)
+            def out:double 0.14
+            this.hold(p (this.mesh(sec (this.lit(r g b 0.85)))) 0.85 ((cos(mid)) * out) ((sin(mid)) * out) 0.0)
+            return
+        }
+        if (kind == "dot") {
+            def p:FlightPart (this.part(o kind))
+            def ball:ThreeSphereGeometry (new ThreeSphereGeometry)
+            ball.build(1.0 14 10 0.0 6.283185307179586 0.0 3.141592653589793)
+            this.hold(p (this.mesh(ball (this.lit(r g b 0.95)))) 0.95 0.0 0.0 0.0)
+            def halo:ThreeSphereGeometry (new ThreeSphereGeometry)
+            halo.build(1.8 12 8 0.0 6.283185307179586 0.0 3.141592653589793)
+            this.hold(p (this.mesh(halo (this.basic(r g b 0.18 true)))) 0.18 0.0 0.0 0.0)
+            return
+        }
+    }
+
+    fn addLabel:void (p:FlightPart text:string kind:string r:double g:double b:double size:double maxW:double ox:double oy:double oz:double) {
+        def lb:FlightLabel (new FlightLabel())
+        lb.text = text
+        lb.kind = kind
+        lb.r = r
+        lb.g = g
+        lb.b = b
+        lb.size = size
+        lb.maxW = maxW
+        lb.part = p
+        def m:ThreeMeshBasicMaterial (this.basic(r g b 1.0 true))
+        lb.mesh = (this.mesh((FlightGeo.picture()) m))
+        ; no picture yet: nothing to show
+        lb.mesh.visible = false
+        this.hold(p lb.mesh 1.0 ox oy oz)
+        set p.label ((array_length p.label) - 1) true
+        push labels lb
+    }
+
+    fn addLink:void (o:JVal r:double g:double b:double) {
+        def pj:JVal (o.get("p"))
+        def pts:[double]
+        def i:int 0
+        while (i < (pj.len())) {
+            def v:JVal (pj.at(i))
+            push pts (v.asNum(0.0))
+            i = (i + 1)
+        }
+        def np:int (idiv (array_length pts) 3)
+        if (np < 2) {
+            return
+        }
+        def p:FlightPart (this.part(o "link"))
+        p.x = 0.0
+        p.y = 0.0
+        p.z = 0.0
+        def rad:double (o.numOr("w" 0.05))
+        def tube:ThreePathTubeGeometry (new ThreePathTubeGeometry)
+        tube.build(pts rad 6)
+        this.hold(p (this.mesh(tube (this.basic(r g b 0.9 true)))) 0.9 0.0 0.0 0.0)
+        ; a soft glow around it
+        def glow:ThreePathTubeGeometry (new ThreePathTubeGeometry)
+        glow.build(pts (rad * 3.0) 6)
+        this.hold(p (this.mesh(glow (this.basic(r g b 0.12 true)))) 0.12 0.0 0.0 0.0)
+        if (o.boolOr("head" false)) {
+            def k:int ((np - 1) * 3)
+            def ex:double ((itemAt pts k) - (itemAt pts (k - 3)))
+            def ey:double ((itemAt pts (k + 1)) - (itemAt pts (k - 2)))
+            def ez:double ((itemAt pts (k + 2)) - (itemAt pts (k - 1)))
+            def el:double (sqrt((((ex * ex) + (ey * ey)) + (ez * ez))))
+            if (el > 0.000001) {
+                def head:ThreeBufferGeometry (FlightGeo.cone((itemAt pts k) (itemAt pts (k + 1)) (itemAt pts (k + 2)) (ex / el) (ey / el) (ez / el) (rad * 6.0) (rad * 3.0)))
+                this.hold(p (this.mesh(head (this.basic(r g b 1.0 true)))) 1.0 0.0 0.0 0.0)
+            }
+        }
+        ; the spark that runs along it, lines with a direction only
+        if ((rad >= 0.04) && (o.boolOr("head" true))) {
+            def pu:FlightPulse (new FlightPulse())
+            pu.pts = pts
+            pu.station = p.station
+            pu.order = p.order
+            pu.phase = ((to_double (array_length pulses)) * 0.37)
+            def run:double 0.0
+            push pu.run 0.0
+            i = 1
+            while (i < np) {
+                def dx:double ((itemAt pts (i * 3)) - (itemAt pts ((i - 1) * 3)))
+                def dy:double ((itemAt pts ((i * 3) + 1)) - (itemAt pts (((i - 1) * 3) + 1)))
+                def dz:double ((itemAt pts ((i * 3) + 2)) - (itemAt pts (((i - 1) * 3) + 2)))
+                run = (run + (sqrt((((dx * dx) + (dy * dy)) + (dz * dz)))))
+                push pu.run run
+                i = (i + 1)
+            }
+            pu.total = run
+            def spark:ThreeSphereGeometry (new ThreeSphereGeometry)
+            spark.build((rad * 2.6) 10 8 0.0 6.283185307179586 0.0 3.141592653589793)
+            pu.mesh = (this.mesh(spark (this.basic((0.5 + (r * 0.5)) (0.5 + (g * 0.5)) (0.5 + (b * 0.5)) 1.0 true))))
+            pu.mesh.visible = false
+            push pulses pu
+        }
+    }
+
+    ; the grid under a station
+    fn addFloor:void (i:int sx:double sy:double sz:double grid:ThreeTexture) {
+        def plane:ThreePlaneGeometry (new ThreePlaneGeometry)
+        plane.build(56.0 56.0 1 1)
+        def m:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.42 true))
+        m.setMap(grid)
+        def me:ThreeMesh (this.mesh(plane m))
+        me.position.set(sx (sy - 5.5) sz)
+        me.rotation.set((0.0 - 1.5707963267948966) 0.0 0.0)
+        me.renderOrder = -1
+    }
+
+    ; dust in the air all along the way: one mesh of many small specks
+    fn addDust:void () {
+        def n:int (cam.stationCount())
+        def len:double ((to_double n) * 36.0)
+        def spec:[double]
+        def seed:int 12345
+        def i:int 0
+        def count:int (300 + (n * 60))
+        if (count > 2400) {
+            count = 2400
+        }
+        while (i < count) {
+            seed = (PresFlight3D.nextSeed(seed))
+            def rx:double (PresFlight3D.unit(seed))
+            seed = (PresFlight3D.nextSeed(seed))
+            def ry:double (PresFlight3D.unit(seed))
+            seed = (PresFlight3D.nextSeed(seed))
+            def rz:double (PresFlight3D.unit(seed))
+            def s:double (0.03 + (0.05 * ry))
+            ; beside the way and above it, never in the camera's face
+            def side:double ((rx - 0.5) * 2.0)
+            def dx:double (side * 70.0)
+            if ((dx < 22.0) && (dx > (0.0 - 22.0))) {
+                if (side < 0.0) {
+                    dx = (dx - 22.0)
+                } {
+                    dx = (dx + 22.0)
+                }
+            }
+            FlightGeo.push6(spec dx ((ry - 0.3) * 50.0) (40.0 - (rz * (len + 80.0))) s s s)
+            i = (i + 1)
+        }
+        def g:ThreeBufferGeometry (FlightGeo.boxes(spec))
+        def m:ThreeMeshBasicMaterial (this.basic(0.55 0.8 1.0 0.7 true))
+        this.mesh(g m)
+    }
+
+    sfn nextSeed:int (s:int) {
+        def v:int ((s * 1103) + 12345)
+        return (v - ((idiv v 2147483) * 2147483))
+    }
+    sfn unit:double (s:int) {
+        def v:int s
+        if (v < 0) {
+            v = (0 - v)
+        }
+        return ((to_double (v - ((idiv v 100000) * 100000))) / 100000.0)
+    }
+
+    ; ---- the page's side ----------------------------------------------------
+
+    ; The flight starts at slide i's station.
+    fn startAt:void (i:int) {
+        cam.jumpTo(i)
+    }
+
+    fn labelCount:int () {
+        return (array_length labels)
+    }
+    fn labelText:string (i:int) {
+        def lb:FlightLabel (itemAt labels i)
+        return lb.text
+    }
+    fn labelKind:string (i:int) {
+        def lb:FlightLabel (itemAt labels i)
+        return lb.kind
+    }
+    ; A label's picture: RGBA rows from the top, `w` x `h` pixels, its lines
+    ; `line` pixels apart. It stands `size` world units a line, never wider
+    ; than its panel.
+    fn setLabel:void (i:int px:buffer w:int h:int line:double) {
+        if ((i < 0) || (i >= (array_length labels))) {
+            return
+        }
+        def lb:FlightLabel (itemAt labels i)
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(px w h)
+        lb.mesh.material.setMap(tex)
+        def k:double (lb.size / line)
+        def ww:double ((to_double w) * k)
+        def hh:double ((to_double h) * k)
+        if ((lb.maxW > 0.0) && (ww > lb.maxW)) {
+            def f:double (lb.maxW / ww)
+            ww = (ww * f)
+            hh = (hh * f)
+        }
+        lb.mesh.scale.set(ww hh 1.0)
+        lb.mesh.visible = true
+    }
+
+    ; The keys held (KeyboardEvent.code, comma separated).
+    fn setKeys:void (codes:string) {
+        def list:[string]
+        if ((strlen codes) > 0) {
+            list = (strsplit codes ",")
+        }
+        held = (PresFlightPad.fromKeys(list))
+    }
+
+    ; The gamepad (standard mapping), comma separated numbers; "" for none.
+    ; The commands its pressed buttons give, one per line.
+    fn setGamepad:string (axes:string buttonValues:string) {
+        def ax:[double] (PresFlight3D.numbers(axes))
+        def bt:[double] (PresFlight3D.numbers(buttonValues))
+        pad = (PresFlightPad.fromGamepad(ax bt))
+        def cmds:[string] (PresFlightPad.commandsOfButtons(buttons bt))
+        buttons = bt
+        def i:int 0
+        while (i < (array_length cmds)) {
+            this.command((itemAt cmds i))
+            i = (i + 1)
+        }
+        return (join cmds "\n")
+    }
+
+    sfn numbers:[double] (csv:string) {
+        def out:[double]
+        if ((strlen csv) == 0) {
+            return out
+        }
+        def parts:[string] (strsplit csv ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            push out (?? (to_double (trim (itemAt parts i))) 0.0)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A key pressed (KeyboardEvent.code): what it did, "" for nothing
+    ; ("exit" is the page's to do).
+    fn key:string (code:string) {
+        def c:string (PresFlightPad.commandOfKey(code))
+        this.command(c)
+        return c
+    }
+
+    fn command:void (c:string) {
+        cam.command(c)
+    }
+
+    ; The mouse dragged: radians to turn and to look up.
+    fn look:void (dx:double dy:double) {
+        lookX = (lookX + dx)
+        lookY = (lookY + dy)
+    }
+
+    fn stationCount:int () {
+        return (cam.stationCount())
+    }
+    fn stationNow:int () {
+        return (cam.current())
+    }
+    fn stationTitle:string (i:int) {
+        if ((i < 0) || (i >= (array_length titles))) {
+            return ""
+        }
+        return (itemAt titles i)
+    }
+
+    ; ---- every frame ----------------------------------------------------------
+
+    ; dt seconds on: the camera moves, the stations come in, the sparks run.
+    fn frame:void (dt:double) {
+        if (dt < 0.0) {
+            dt = 0.0
+        }
+        if (dt > 0.1) {
+            dt = 0.1
+        }
+        clock = (clock + dt)
+        def hands:PresFlightPad (held.plus(pad))
+        if ((lookX != 0.0) || (lookY != 0.0)) {
+            cam.auto = false
+            cam.yaw = (cam.yaw + lookX)
+            cam.pitch = (cam.pitch + lookY)
+            lookX = 0.0
+            lookY = 0.0
+        }
+        cam.step(dt hands)
+        ; the station shown starts coming in, and the ones near it
+        def now:int (cam.current())
+        def i:int 0
+        while (i < (array_length seen)) {
+            if ((itemAt seen i) < 0.0) {
+                def dz:double ((cam.poseZ(i)) - cam.z)
+                if ((i == now) || ((dz > (0.0 - 40.0)) && (dz < 20.0))) {
+                    set seen i clock
+                }
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length parts)) {
+            this.animate((itemAt parts i))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length pulses)) {
+            this.runPulse((itemAt pulses i))
+            i = (i + 1)
+        }
+        camera.position.set(cam.x cam.y cam.z)
+        camera.lookAt((cam.x + (cam.forwardX())) (cam.y + (cam.forwardY())) (cam.z + (cam.forwardZ())))
+    }
+
+    ; how far in a part is, 0..1
+    fn shown:double (station:int order:int) {
+        if ((station < 0) || (station >= (array_length seen))) {
+            return 1.0
+        }
+        def at:double (itemAt seen station)
+        if (at < 0.0) {
+            return 0.0
+        }
+        def o:int order
+        if (o > 40) {
+            o = 40
+        }
+        def u:double (((clock - at) - (0.25 + ((to_double o) * 0.09))) / 0.7)
+        return (PresFlightCam.ease(u))
+    }
+
+    fn near:boolean (z:double) {
+        def d:double (z - cam.z)
+        return ((d > (0.0 - 170.0)) && (d < 60.0))
+    }
+
+    fn animate:void (p:FlightPart) {
+        def u:double (this.shown(p.station p.order))
+        def on:boolean ((u > 0.001) && ((this.near(p.z)) || (p.kind == "link")))
+        if (p.kind == "link") {
+            ; a link's place is in its points; its station tells how near
+            on = ((u > 0.001) && (this.near((cam.poseZ(p.station)) - 13.0)))
+        }
+        def bob:double (0.0)
+        if ((p.kind == "glass") || ((p.kind == "group") || (p.kind == "title"))) {
+            bob = ((sin(((clock * 0.8) + p.phase))) * 0.06)
+        }
+        def k:int 0
+        while (k < (array_length p.meshes)) {
+            def me:ThreeMesh (itemAt p.meshes k)
+            if (itemAt p.label k) {
+                ; a label waits for its picture
+                me.visible = (on && (me.material.hasMap))
+            } {
+                me.visible = on
+            }
+            me.material.opacity = ((itemAt p.full k) * u)
+            def px:double (p.x + (itemAt p.dx k))
+            def py:double ((p.y + (itemAt p.dy k)) + bob)
+            def pz:double (p.z + (itemAt p.dz k))
+            if ((p.kind == "glass") || ((p.kind == "group") || (p.kind == "title"))) {
+                ; comes forward out of the dark
+                pz = (pz - ((1.0 - u) * 2.5))
+            }
+            if (p.kind == "bar") {
+                this.growBar(p me k u)
+            } {
+                if ((p.kind == "wedge") || (p.kind == "dot")) {
+                    def s:double (u + 0.001)
+                    if (p.kind == "dot") {
+                        s = (s * p.w)
+                    }
+                    me.scale.set(s s s)
+                }
+                me.position.set(px py pz)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; A bar grows from its base: mesh 0 the bar, 1 its cap at the far end,
+    ; 2 its edges.
+    fn growBar:void (p:FlightPart me:ThreeMesh k:int u:double) {
+        def s:double (u + 0.001)
+        if p.across {
+            def endX:double ((p.x * 2.0) - p.base)
+            def cx:double (p.base + ((p.x - p.base) * s))
+            if (k == 0) {
+                me.scale.set((p.w * s) p.h p.d)
+                me.position.set(cx p.y p.z)
+            }
+            if (k == 1) {
+                me.position.set((p.base + ((endX - p.base) * s)) p.y p.z)
+            }
+            if (k == 2) {
+                me.scale.set(s 1.0 1.0)
+                me.position.set(cx p.y (p.z + (itemAt p.dz k)))
+            }
+            return
+        }
+        def endY:double ((p.y * 2.0) - p.base)
+        def cy:double (p.base + ((p.y - p.base) * s))
+        if (k == 0) {
+            me.scale.set(p.w (p.h * s) p.d)
+            me.position.set(p.x cy p.z)
+        }
+        if (k == 1) {
+            me.position.set(p.x (p.base + ((endY - p.base) * s)) p.z)
+        }
+        if (k == 2) {
+            me.scale.set(1.0 s 1.0)
+            me.position.set(p.x cy (p.z + (itemAt p.dz k)))
+        }
+    }
+
+    fn runPulse:void (pu:FlightPulse) {
+        def u:double (this.shown(pu.station pu.order))
+        def np:int (array_length pu.run)
+        if ((u < 1.0) || ((pu.total <= 0.0) || ((this.near(((cam.poseZ(pu.station)) - 13.0))) == false))) {
+            pu.mesh.visible = false
+            return
+        }
+        pu.mesh.visible = true
+        ; 4 units a second, a rest at the end
+        def cycle:double ((pu.total / 4.0) + 0.8)
+        def t:double ((clock + pu.phase) - ((to_double (floor ((clock + pu.phase) / cycle))) * cycle))
+        def at:double (t * 4.0)
+        if (at > pu.total) {
+            pu.mesh.visible = false
+            return
+        }
+        def i:int 1
+        while ((i < (np - 1)) && ((itemAt pu.run i) < at)) {
+            i = (i + 1)
+        }
+        def r0:double (itemAt pu.run (i - 1))
+        def r1:double (itemAt pu.run i)
+        def f:double 0.0
+        if (r1 > r0) {
+            f = ((at - r0) / (r1 - r0))
+        }
+        def a:int ((i - 1) * 3)
+        def b:int (i * 3)
+        pu.mesh.position.set(((itemAt pu.pts a) + (((itemAt pu.pts b) - (itemAt pu.pts a)) * f)) ((itemAt pu.pts (a + 1)) + (((itemAt pu.pts (b + 1)) - (itemAt pu.pts (a + 1))) * f)) ((itemAt pu.pts (a + 2)) + (((itemAt pu.pts (b + 2)) - (itemAt pu.pts (a + 2))) * f)))
+    }
+
+    ; The world into the canvas at w x h device pixels (the page sized it).
+    fn draw:boolean (w:int h:int) {
+        if ((ready == false) || ((h <= 0) || (w <= 0))) {
+            return false
+        }
+        camera.aspect = ((to_double w) / (to_double h))
+        renderer.setSize(w h)
+        renderer.setClearColor(bgR bgG bgB)
+        renderer.setOutputSRGB(false)
+        renderer.setShadowMapEnabled(false)
+        renderer.render(scene camera)
+        return true
+    }
+}

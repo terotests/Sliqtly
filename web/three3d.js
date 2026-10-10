@@ -67,6 +67,8 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
   const reading = new Set(); // .gltf paths being read
   let filesRev = null;
   let deckGen = 0;
+  // the 3-D flight (web/flight3d.js) has the GL canvas: the worlds wait
+  let paused = false;
 
   function load() {
     if (!loading) {
@@ -145,6 +147,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
   // stage drawn again when its element or the room changed. True when a
   // picture changed (the stage is painted again).
   function tick(rev, gl, dpr) {
+    if (paused) return false;
     const json = app.playScenesJson();
     if (json === "[]") {
       if (lastJson !== "[]" && p3) p3.keepOnly([]);
@@ -211,5 +214,27 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     said.clear();
   }
 
-  return { tick, reset };
+  // The GL canvas every 3-D drawing shares (Ranger's GL layer keeps one
+  // context), once pres_3d.js is in: for the 3-D flight. Null without WebGL.
+  async function glReady() {
+    await load();
+    return p3 ? glCanvas : null;
+  }
+
+  // Hands the canvas to the flight (true) and takes it back (false): the
+  // worlds are drawn again from scratch afterwards.
+  function pause(on) {
+    paused = !!on;
+    if (!paused) {
+      lastJson = "";
+      roomKey = "";
+      if (glCanvas) {
+        glCanvas.width = 64;
+        glCanvas.height = 64;
+      }
+      repaint();
+    }
+  }
+
+  return { tick, reset, glReady, pause };
 }
