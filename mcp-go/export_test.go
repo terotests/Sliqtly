@@ -140,7 +140,7 @@ func TestExportPdfAndPptx(t *testing.T) {
 
 	bad := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pptx", "slides": []any{99}})
 	match(t, textOf(bad), `^No slide 99: the presentation has \d+ slides\.$`)
-	match(t, textOf(call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "odt"})), `format is pdf, pptx, docx or html`)
+	match(t, textOf(call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "odt"})), `format is pdf, pptx, docx, html or gltf`)
 
 	// Word: the deck as a document; the charts as the pictures this server
 	// draws of them, the deck's picture as itself

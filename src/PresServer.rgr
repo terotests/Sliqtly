@@ -485,7 +485,7 @@ class PresServer {
             loadMd = savedMd
             loadPending = true
             this.listDecks()
-            ; made by a room's "+ Add new presentation": it goes there
+            ; made from a room's "+" (Add new… → Presentation): it goes there
             if ((strlen rooms.newIn) > 0) {
                 rooms.move(rooms.newIn deckId "")
                 rooms.newIn = ""

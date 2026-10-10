@@ -558,7 +558,6 @@ class PresPanels {
     def autoContrast:boolean true
     ; review mode (comments on the slides); a comment's colour is picked
     ; with it (how serious, PresReviewUi), not here
-    def reviewOn:boolean false
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -1986,14 +1985,6 @@ class PresPanels {
             lk.addChild(hr)
         }
         d.addChild(lk)
-        ; review mode: comments pinned to the slides, also while presenting
-        def rv:EVGElement (UiKit.div("pn-opt"))
-        rv.addChild((UiKit.words("pn-otitle" (PresI18n.t("Review mode")))))
-        rv.addChild((UiKit.words("pn-odesc" (PresI18n.t("Comment on the slides, also while presenting: a press on + Add comment and then on the slide pins a comment there, and each comment is its own conversation. A comment's colour says how serious it is (green, yellow, red), picked as it is written. The comments are kept in the presentation's files.")))))
-        def rr:EVGElement (UiKit.div("pn-orow"))
-        this.button("pn-set-review" (? reviewOn (PresI18n.t("On")) (PresI18n.t("Off"))) (? reviewOn "primary" "secondary") rr)
-        rv.addChild(rr)
-        d.addChild(rv)
         ; what a room is called (PresTerm); written as it is, not swapped
         def tw:EVGElement (UiKit.div("pn-opt"))
         tw.addChild((UiKit.words("pn-otitle" (PresI18n.plain("Name for rooms")))))
@@ -2605,12 +2596,6 @@ class PresPanels {
             if (sc == "pn-set-contrast") {
                 autoContrast = (autoContrast == false)
                 push requests ("setting:contrast:" + (? autoContrast "on" "off"))
-                this.rebuild()
-                return
-            }
-            if (sc == "pn-set-review") {
-                reviewOn = (reviewOn == false)
-                push requests ("setting:review:" + (? reviewOn "on" "off"))
                 this.rebuild()
                 return
             }

@@ -106,13 +106,17 @@ class PresToolbar {
     def ctxDeckFrom:string "room"
     def ctxDeckName:string ""
     def ctxDeckCurrent:boolean false
+    ; a room whose "+" opened the context menu as "Add new…" ("" not that
+    ; menu): a presentation or a folder in that room
+    def ctxAdd:string ""
     ; The left rail (a wide window): the places, Slack's way, an icon and a
     ; name each; the bar starts after it. `railValue` is the one open now
     ; (PresApp says: the editor, the Files tab or Rooms).
     def railW:double 72.0
     def rail:RailCtl (new RailCtl())
     def railValue:string "edit"
-    def reviewOn:boolean false
+    ; open comments in the deck: a dot on the rail's Review
+    def reviewDot:boolean false
     ; Rooms beside the rail (a mock over ADR 0001 until the server has them)
     def roomsOpen:boolean false
     def roomsW:double 248.0
@@ -672,6 +676,35 @@ class PresToolbar {
         ctxRight = canRight
         ctxDelete = canDelete
         ctxDeck = ""
+        ctxAdd = ""
+        ctxOpen = true
+        this.rebuild()
+    }
+
+    ; A room's "+": the context menu under the button, "Add new…" with a
+    ; presentation and a folder in that room. Pressed again, it closes.
+    fn openAddMenu:void (room:string) {
+        def again:boolean (ctxOpen && (ctxAdd == room))
+        this.closeSelects()
+        this.closeMenus()
+        drawerOpen = false
+        ctxOpen = false
+        ctxAdd = ""
+        if again {
+            this.rebuild()
+            return
+        }
+        def x:double 0.0
+        def y:double 0.0
+        def r:[string] (strsplit (host.rectOf(("tb-roomadd-" + room))) ",")
+        if ((array_length r) == 4) {
+            x = (?? (str2double (itemAt r 0)) 0.0)
+            y = ((?? (str2double (itemAt r 1)) 0.0) + (?? (str2double (itemAt r 3)) 0.0))
+        }
+        ctxX = x
+        ctxY = (y + 2.0)
+        ctxDeck = ""
+        ctxAdd = room
         ctxOpen = true
         this.rebuild()
     }
@@ -710,6 +743,7 @@ class PresToolbar {
         ctxX = x
         ctxY = y
         ctxDeck = id
+        ctxAdd = ""
         ctxOpen = true
         this.rebuild()
     }
@@ -781,10 +815,17 @@ class PresToolbar {
         cm.tid = "tb-m-ctx"
         cm.name = (PresI18n.t("Slide"))
         cm.contextMode = true
-        if ((strlen ctxDeck) > 0) {
-            this.deckContextRows(cm)
+        if ((strlen ctxAdd) > 0) {
+            cm.name = (PresI18n.t("Add new…"))
+            cm.addLabel("addHead" (PresI18n.t("Add new…")))
+            cm.addItem("addDeck" (PresI18n.t("Presentation")) false)
+            cm.addItem("addFolder" (PresI18n.t("Folder")) false)
         } {
-            this.slideContextRows(cm)
+            if ((strlen ctxDeck) > 0) {
+                this.deckContextRows(cm)
+            } {
+                this.slideContextRows(cm)
+            }
         }
         cm.openMenu()
         cm.activeTid = keepActive
@@ -947,16 +988,16 @@ class PresToolbar {
         return railW
     }
 
-    ; The open place, review on or off and the deck's name, from PresApp each
+    ; The open place, whether there are open comments and the deck's name, from PresApp each
     ; frame: the bar is built again only when one of them changed.
     fn setRailState:void (open:string review:boolean title:string) {
         def v:string open
         if roomsOpen {
             v = "rooms"
         }
-        if (((v != railValue) || (review != reviewOn)) || ((title != docTitle) && (titleEditing == false))) {
+        if (((v != railValue) || (review != reviewDot)) || ((title != docTitle) && (titleEditing == false))) {
             railValue = v
-            reviewOn = review
+            reviewDot = review
             if (titleEditing == false) {
                 docTitle = title
             }
@@ -1034,7 +1075,7 @@ class PresToolbar {
             r.addBottom("dark" (PresI18n.t("Dark")) (PresToolbar.railIcon("dark")))
         }
         r.addBottom("settings" (PresI18n.t("Settings")) (PresToolbar.railIcon("settings")))
-        if reviewOn {
+        if reviewDot {
             r.setBadge("review" "•")
         }
         r.value = railValue
@@ -1201,7 +1242,7 @@ class PresToolbar {
         }
         ; a new presentation straight into the room
         if (id != "onboarding") {
-            def add:ButtonCtl (this.iconButton(("roomadd-" + id) (PresI18n.t("New presentation in this room")) "ghost" "M12 5v14M5 12h14" rel))
+            def add:ButtonCtl (this.iconButton(("roomadd-" + id) (PresI18n.t("Add new…")) "ghost" "M12 5v14M5 12h14" rel))
             UiTree.addClass((unwrap add.rootEl) "tb-roomgear")
         }
         ; its settings at the end: a room made here its name, archive and
@@ -1232,9 +1273,8 @@ class PresToolbar {
                 UiTree.addClass((el.getChild(0)) "tb-roomdeck-label-current")
             }
         }
-        ; "… Show all" and the row moving the open one here: the room's own
-        ; actions, quieter than its presentations
-        if (((id == "all") || (id == "new")) || (id == "newfolder")) {
+        ; "… Show all": the room's own action, quieter than its presentations
+        if (id == "all") {
             if ((el.getChildCount()) > 0) {
                 UiTree.addClass((el.getChild(0)) "tb-roomdeck-act")
             }
@@ -1574,20 +1614,13 @@ class PresToolbar {
                             if ((array_length dp) >= 3) {
                                 cur = ((itemAt dp 2) == "1")
                             }
-                            ; the last column: "a" the "… Show all" row, "n"
-                            ; the one making a new presentation in the room
+                            ; the last column: "a" the "… Show all" row
                             def kind:string ""
                             if ((array_length dp) >= 4) {
                                 kind = (itemAt dp 3)
                             }
-                            if (kind == "n") {
-                                this.roomDeck(list "new" (itemAt dp 1) false)
-                            }
                             if (kind == "a") {
                                 this.roomDeck(list "all" (itemAt dp 1) false)
-                            }
-                            if (kind == "nf") {
-                                this.roomDeck(list "newfolder" (itemAt dp 1) false)
                             }
                             ; a folder: "f:<id>", 1 when open, its count
                             if (kind == "f") {
@@ -2333,7 +2366,7 @@ class PresToolbar {
             return
         }
         if ((indexOf ctlTid "tb-roomadd-") == 0) {
-            push requests ("room:newin:" + (substring ctlTid 11 (strlen ctlTid)))
+            this.openAddMenu((substring ctlTid 11 (strlen ctlTid)))
             return
         }
         if ((indexOf ctlTid "tb-room-") == 0) {
@@ -2362,10 +2395,6 @@ class PresToolbar {
             push requests ("room:fold:" + roomOpen + ":" + (substring ctlTid 14 (strlen ctlTid)))
             return
         }
-        if (ctlTid == "tb-roomdeck-newfolder") {
-            push requests ("room:newfolder:" + roomOpen)
-            return
-        }
         if ((indexOf ctlTid "tb-roomdeck-d-") == 0) {
             dragDeck = (substring ctlTid 14 (strlen ctlTid))
             dragName = (this.roomDeckName(dragDeck))
@@ -2383,10 +2412,6 @@ class PresToolbar {
         }
         if (ctlTid == "tb-roomdeck-all") {
             push requests ("room:all:" + roomOpen)
-            return
-        }
-        if (ctlTid == "tb-roomdeck-new") {
-            push requests ("room:newin:" + roomOpen)
             return
         }
         ; the menu button opens and closes the drawer
@@ -2441,6 +2466,16 @@ class PresToolbar {
                         def req:string (PresToolbar.requestFor(choice))
                         if ((m.tid == "tb-m-ctx") && ((strlen ctxDeck) > 0)) {
                             req = (this.deckRequest(choice))
+                        }
+                        ; a room's "+": a presentation (File → New's window)
+                        ; or a folder made in that room
+                        if ((m.tid == "tb-m-ctx") && ((strlen ctxAdd) > 0)) {
+                            if (choice == "addDeck") {
+                                req = ("room:newin:" + ctxAdd)
+                            }
+                            if (choice == "addFolder") {
+                                req = ("room:newfolder:" + ctxAdd)
+                            }
                         }
                         ; Rename: the name at the start of the bar as a field
                         if (req == "rename") {

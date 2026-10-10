@@ -65,9 +65,9 @@ export function buildView({ ranger } = {}) {
   // in a Worker) and PresPlayWeb, which lays a program's tree out and
   // paints it; loaded by view.js only for a deck that has one
   const playJs = path.join(viewDir, "pres_play.js");
-  compile(ranger, "PresPlayWeb.rgr", playJs);
-  fs.writeFileSync(playJs, "// loaded on demand by viewplay.js: the programs on a deck's slides.\n"
-    + "(function () {\n" + fs.readFileSync(playJs, "utf8") + "\n;globalThis.PresPlayWeb = PresPlayWeb;\n})();\n");
+  compile(ranger, "PresViewPlay.rgr", playJs);
+  fs.writeFileSync(playJs, "// loaded on demand by viewplay.js: the programs and scripts on a deck's slides.\n"
+    + "(function () {\n" + fs.readFileSync(playJs, "utf8") + "\n;globalThis.PresPlayWeb = PresPlayWeb;\nglobalThis.PresScriptWeb = PresScriptWeb;\n})();\n");
   minify(playJs);
   buildThree(ranger, viewDir);
   const cerxes = ensureCerxes();

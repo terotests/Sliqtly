@@ -152,10 +152,6 @@ class Pres3DTree {
     Constructor () {
     }
 
-    sfn among:boolean (list:[string] s:string) {
-        return ((indexOf list s) >= 0)
-    }
-
     sfn objectTags:[string] () {
         return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "sliqRod" "camera" "light" "object3D"))
     }
@@ -368,8 +364,8 @@ class Pres3DTree {
         if ((a0.isObj()) == false) {
             a = (JVal.mkObj())
         }
-        if ((Pres3DTree.among((Pres3DTree.objectTags()) tag)) == false) {
-            if ((Pres3DTree.among((Pres3DTree.geometryTags()) tag)) || (Pres3DTree.among((Pres3DTree.materialTags()) tag))) {
+        if (((indexOf (Pres3DTree.objectTags()) tag) >= 0) == false) {
+            if (((indexOf (Pres3DTree.geometryTags()) tag) >= 0) || ((indexOf (Pres3DTree.materialTags()) tag) >= 0)) {
                 this.warn(("<" + tag + "> goes inside a <mesh>"))
             } {
                 this.warn(("<" + tag + "> is not a 3-D object here (" + (join (Pres3DTree.shownTags()) ", ") + ")"))
@@ -572,7 +568,7 @@ class Pres3DTree {
                 this.warn((where + ": write the " + key + " as a child, <boxGeometry args={[1, 1, 1]} /> or <meshStandardMaterial color=\"…\" />"))
                 continue
             }
-            if ((tag == "mesh") && (Pres3DTree.among((Pres3DTree.materialProps()) key))) {
+            if ((tag == "mesh") && ((indexOf (Pres3DTree.materialProps()) key) >= 0)) {
                 this.warn((where + ": " + key + " belongs on its material, <meshStandardMaterial " + key + "={…} />"))
                 continue
             }
@@ -596,7 +592,7 @@ class Pres3DTree {
             if ((a0.isObj()) == false) {
                 a = (JVal.mkObj())
             }
-            if (Pres3DTree.among((Pres3DTree.geometryTags()) tag)) {
+            if ((indexOf (Pres3DTree.geometryTags()) tag) >= 0) {
                 if (p.jsx == "sliqRod") {
                     this.warn((where + ": a rod's geometry is its from, to and radius"))
                     continue
@@ -605,11 +601,11 @@ class Pres3DTree {
                 p.geoArgs = (this.args(tag a where))
                 continue
             }
-            if (Pres3DTree.among((Pres3DTree.materialTags()) tag)) {
+            if ((indexOf (Pres3DTree.materialTags()) tag) >= 0) {
                 this.material(p tag a)
                 continue
             }
-            if (Pres3DTree.among((Pres3DTree.objectTags()) tag)) {
+            if ((indexOf (Pres3DTree.objectTags()) tag) >= 0) {
                 this.warn((where + ": <" + tag + "> inside a <mesh>; put it in a <group> beside it"))
                 continue
             }

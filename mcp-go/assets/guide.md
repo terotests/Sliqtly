@@ -281,15 +281,19 @@ margin-inside: 20mm   # margin-inside (at the binding), margin-outside
 Front matter, for every slide:
 
 ```yaml
-transition: fade        # fade | slide | zoom | none
+transition: fade        # fade | slide | zoom | morph | none
 seconds: 0.6            # transition length in seconds
 step: 1.2               # seconds between build steps when played
 hold: 2.5               # seconds after the last step
 ```
 
-- Slide attributes on the heading line: `transition=fade|slide|zoom|none`,
+- Slide attributes on the heading line: `transition=fade|slide|zoom|morph|none`,
   `seconds=0.5`, `duration=8`, `fx=<effect>`, `bg=media/<picture>`,
   `bg-dim=0.4`, `art=waves`.
+- `transition=morph`: what this slide and the one before both have (the
+  same `{#id}`, else a block of the same kind with the same text) moves
+  from its place there to its place here while the rest fades. PowerPoint
+  files get a fade.
 - Build steps: `.build` under a list reveals it one item at a time;
   `anim=fade|rise|fly|zoom` and `seconds=0.8` set how. A code fence with
   `.build` steps through its highlighted lines (topic `text`).
@@ -1036,9 +1040,12 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     font-size: 64px; color: #ffffff; text-align: center }
   ```
 
-- `render_slide`, PDF, PPTX and Word show a plate with the program's name
-  in the box (the editor's thumbnails and exports show its last picture).
-  A program that does not start shows why on its plate.
+- `render_slide` and `render_overview` show the program after its first
+  frames, its `<scene3d>` worlds drawn by the server as the browser draws
+  them. PDF, PPTX and Word show a plate with the program's name in the box
+  (the editor's exports show its last picture). A program that does not
+  start shows why on its plate. `export_presentation` with `format: gltf`
+  saves a world as a glTF 2.0 model (topic=export).
 - The public viewer and the preview run programs and draw their
   `<scene3d>` worlds. There `slide.nav` works; `deck.set` and `el()` change the
   slides, which the viewer shows as saved: they work in the editor.
@@ -1074,7 +1081,8 @@ arrows. Name it on the slide's heading; one script a slide:
   `set({…})`, `get(name)`, `reset()`, `remove()`, `clone({…})`,
   `find(selector)` inside it. A list from `find()` has `set`, `reset`,
   `remove`, `each(fn)` and `first()`.
-- Properties: `x`, `y` (where its box goes), `scale`, `rotate` (degrees),
+- Properties: `x`, `y` (where its box goes), `scale`, `scaleX`, `scaleY`
+  (along one side: a bar growing from its axis), `rotate` (degrees),
   `skew`, `origin` (`"left top"`, `"bottom"`, or `[0.5, 1]` as parts of
   its box; the centre when left out),
   `opacity`, `visible`, `color`, `fill`, `stroke`, `z` (drawn above
@@ -1082,38 +1090,52 @@ arrows. Name it on the slide's heading; one script a slide:
 - `add("rect" | "circle" | "text" | "image", {x, y, w, h, text, size, src,
   fill, color, …})` puts a shape on the slide, in the theme's colours
   unless it names its own.
-- Hooks: `start()`, `tick(dt)` each frame, `build(n)` (the slide's build
-  step; with it the slide's own build animation is left out),
-  `onKeyDown(key)`, `onKeyUp(key)`, `onClick(entity)` (while presenting),
-  `final()`. `input.pointer`, `input.keys`, `env.reducedMotion`,
-  `env.export`.
+- Hooks: `start()`, `onEnter(from)` (the slide arrived from slide `from`,
+  1-based, 0 for none), `tick(dt)` each frame, `build(n)` (the slide's
+  build step; with it the slide's own build animation is left out; steps
+  are taken in order, 0 first), `onKeyDown(key)`, `onKeyUp(key)`,
+  `onClick(entity)` (while presenting), `onLeave(to)` (what it sets is how
+  the slide looks while the next slide arrives), `final()`.
+  `input.pointer`, `input.keys`, `env.reducedMotion`, `env.export`.
 - Example:
 
   ```tsx
   let t = 0;
+  const bars = find("chart:1 bar");
+  const items = find("li");
   function tick(dt) {
     t += dt;
-    find("chart:1 bar").each((b, i) =>
-      b.set({ scale: Math.min(1, Math.max(0, t - i * 0.3)), origin: "bottom" }));
-    find("li").each((e, i) => e.set({ opacity: Math.min(1, t - i * 0.5) }));
+    bars.each((b, i) =>
+      b.set({ scaleY: Math.min(1, Math.max(0, t - i * 0.3)), origin: "bottom" }));
+    items.each((e, i) => e.set({ opacity: Math.min(1, t - i * 0.5) }));
   }
   ```
 
+  Find once at the top and keep the lists: the entities stay the same
+  while the slide is shown.
 - `allow:` on the heading, as for `app` blocks: `slide.nav`
   (`slide.next()`, `slide.prev()`), `deck.data` (`deck.set`). Without it
   the script only changes its own slide's look.
-- It runs in the editor while its slide is on the stage, and is reset when
-  the slide is left. A frame over about 4 ms three times in a row stops it,
+- It runs while its slide is shown, in the editor and in the shared
+  presentation (sliqtly.com/s/…), and starts again each time the slide
+  comes back. A frame over its time budget three times in a row stops it,
   and the slide is shown as it ends.
-- Thumbnails and PDF show where the script ends: `final()`, else its ticks
-  run for `export-frame` (`{script=apps/fx.tsx export-frame=3.5s}`), else
-  the slide's duration (at most 20 s). render_slide, PPTX, Word and the
-  public viewer show the slide as the Markdown has it. Nothing a script
-  does changes the Markdown.
+- Where it ends: `final()`, else its ticks run for `export-frame`
+  (`{script=apps/fx.tsx export-frame=3.5s}`), else the slide's duration (at
+  most 20 s), every build step taken. Thumbnails, render_slide, the PDF,
+  the PPTX (that slide drawn as shapes, without its build steps), Word and
+  HTML (a block the script changed as a picture of it, one it hides left
+  out) and the shared presentation before the script runs show that.
+  Nothing a script does changes the Markdown.
+- `render_slide(deck_id, slide, time)` draws the slide `time` seconds in,
+  its script run that long; `render_strip(deck_id, slide, frames=6)` or
+  `times=[0, 0.5, 2]` draws several moments in one picture, numbered.
 - `get_display_list(deck_id, slide)` lists the slide's entities with their
-  ids and boxes, and `selector` tries a selector on it. The result of
-  create/update warns when a selector in a script finds nothing on its
-  slide (`find("chart:2 bar") → 0 entities`).
+  ids and boxes and where the script leaves each one, and `selector` tries
+  a selector on it. The result of create/update says when a script does
+  not run (`Slide 3: script apps/fx.tsx does not run: SyntaxError: …`) and
+  when a selector in it finds nothing on its slide
+  (`find("chart:2 bar") → 0 entities`).
 
 <!-- topic: editing -->
 # Topic: editing
@@ -1240,7 +1262,8 @@ diff, `-` as the assistant had it, `+` the user's version.
 <!-- topic: export -->
 # Topic: export
 
-`export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx` or `html`,
+`export_presentation` (deck_id, `format`: `pdf`, `pptx`, `docx`, `html` or
+`gltf`,
 optional `slides`: [2, 5]; by the deck's owner, or by the session that made
 it without sign-in) makes the file the editor's File → Export makes and
 returns a download link for the user (`https://sliqtly.com/d/…`). The link
@@ -1252,6 +1275,12 @@ behind the old link.
 - `docx` (Word) and `html` (one self-contained web page) read the deck as
   a document: each slide's headings, text, lists, tables and formulas, its
   speaker notes under it, and charts and diagrams as pictures.
+- `gltf` writes a program's 3-D world (`<scene3d>`, topic=apps) as a glTF
+  2.0 file that Blender and three.js open: the first world on the slides
+  asked for, at its first frames, with its meshes, PBR materials, lights
+  and camera. What glTF has no word for (the R3F geometry and its `args`,
+  the material's class, `wireframe`, ambient and hemisphere lights) is in
+  each node's and the scene's `extras.sliqtly`.
 - Effects (`fx=`) are left out; the editor's own export draws them.
 - Chart data is a snapshot taken when exported.
 

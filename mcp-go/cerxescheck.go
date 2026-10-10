@@ -80,7 +80,7 @@ func (e *cerxesEngine) start() error {
 			return
 		}
 		var parts []string
-		for _, f := range []string{"cerxes-runtime.js", "apps-runtime.js"} {
+		for _, f := range []string{"cerxes-runtime.js", "apps-runtime.js", "script-runtime.js"} {
 			b, err := fs.ReadFile(files, f)
 			if err != nil {
 				e.err = err
@@ -166,17 +166,32 @@ func (r *cerxesRun) eval(en uint64, src string) (string, error) {
 // syntax error, what it threw in its first frames, a view() that is no
 // element tree), "" when it runs, "-" when there is no engine to try it in.
 func (h *McpHost) AppCheck(src string, w, hgt float64) string {
+	why, _ := h.appRun(src, w, hgt)
+	return why
+}
+
+// AppRun is host_app_run: AppCheck's answer and the element tree of the
+// program's last frame tried (PresPlayView.setTree), as
+// {"why": "…", "tree": "…"}; the tree is "" when it did not run.
+func (h *McpHost) AppRun(src string, w, hgt float64) string {
+	why, tree := h.appRun(src, w, hgt)
+	b, _ := json.Marshal(map[string]string{"why": why, "tree": tree})
+	return string(b)
+}
+
+func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
 	if err := cerxes.start(); err != nil {
-		return "-"
+		return "-", ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cerxesCheckTime)
 	defer cancel()
 	mod, err := cerxes.rt.InstantiateModule(ctx, cerxes.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions("_initialize"))
 	if err != nil {
-		return "-"
+		return "-", ""
 	}
 	defer mod.Close(context.Background())
 	r := &cerxesRun{ctx: ctx, mod: mod}
+	last := ""
 	why, err := func() (string, error) {
 		en, err := r.call("cx_new")
 		if err != nil {
@@ -214,18 +229,93 @@ func (h *McpHost) AppCheck(src string, w, hgt float64) string {
 			if failed != 0 {
 				return out, nil
 			}
-			if tree, _, _ := strings.Cut(out, "\n"); !strings.HasPrefix(strings.TrimSpace(tree), "{") {
+			// the tree, a line break, the asks (web/apps-runtime.js __deckFrame)
+			tree := out
+			if at := strings.LastIndex(out, "\n"); at >= 0 {
+				tree = out[:at]
+			}
+			if !strings.HasPrefix(strings.TrimSpace(tree), "{") {
 				return "view() did not give an element tree", nil
 			}
+			last = tree
 		}
 		return "", nil
 	}()
 	if err != nil {
 		if ctx.Err() != nil {
-			return "its first frames took longer than 3 s (an endless loop?)"
+			return "its first frames took longer than 3 s (an endless loop?)", ""
 		}
 		// the engine itself failed, not the program: nothing to say of it
+		return "-", ""
+	}
+	if why != "" {
+		return why, ""
+	}
+	return "", last
+}
+
+// ScriptRun is host_script_run: a slide's script (`{script=…}`) loaded and
+// its runtime function `fn` called with `arg` (web/script-runtime.js:
+// __scriptFinal for where it ends, __scriptAt for a moment of it). The frame
+// as JSON; "!" and why when the script does not run; "-" when there is no
+// engine to run it in.
+func (h *McpHost) ScriptRun(src, fn, arg string) string {
+	if err := cerxes.start(); err != nil {
 		return "-"
 	}
-	return why
+	ctx, cancel := context.WithTimeout(context.Background(), cerxesCheckTime)
+	defer cancel()
+	mod, err := cerxes.rt.InstantiateModule(ctx, cerxes.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions("_initialize"))
+	if err != nil {
+		return "-"
+	}
+	defer mod.Close(context.Background())
+	r := &cerxesRun{ctx: ctx, mod: mod}
+	out, err := func() (string, error) {
+		en, err := r.call("cx_new")
+		if err != nil {
+			return "", err
+		}
+		if why, err := r.eval(en, cerxes.runtime); err != nil || why != "" {
+			if why != "" {
+				err = errors.New("runtime: " + why)
+			}
+			return "", err
+		}
+		// the slide's entities before the script, so a find() at its top
+		// level finds them (web/apps.js treeFirst)
+		if why, err := r.eval(en, "(function (a) { if (a && a.tree) __setTree(a.tree); })("+arg+");"); err != nil || why != "" {
+			if why != "" {
+				err = errors.New("tree: " + why)
+			}
+			return "", err
+		}
+		if why, err := r.eval(en, src); err != nil || why != "" {
+			return "!" + why, err
+		}
+		name, nn, err := r.put(fn)
+		if err != nil {
+			return "", err
+		}
+		ap, an, err := r.put(arg)
+		if err != nil {
+			return "", err
+		}
+		failed, err := r.call("cx_call", en, name, nn, ap, an)
+		if err != nil {
+			return "", err
+		}
+		res := r.result()
+		if failed != 0 {
+			return "!" + res, nil
+		}
+		return res, nil
+	}()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "!it took longer than 3 s (an endless loop?)"
+		}
+		return "-"
+	}
+	return out
 }

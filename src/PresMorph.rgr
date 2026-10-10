@@ -1,0 +1,202 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresMorph.rgr — `transition=morph`: what is on both slides moves to its place
+; ============================================================================
+;
+;   ## Sales {#sales}                ## Sales by region {transition=morph}
+;   ![](chart.png){#chart}           ![](chart.png){#chart}
+;
+; The same thing on two slides one after the other is one object: a block
+; with the same `{#id}`, else a block of the same kind with the same text.
+; While the arriving slide's transition runs, each such pair glides from where
+; it was to where it is (its box's corner and its width), what only the
+; leaving slide has fades out and what only the arriving one has fades in,
+; with the arriving slide's ground over the leaving one's.
+;
+; Both slides are scenes (PresScene) and what is drawn is two frames
+; (PresScriptFrame) laid over their lists by PresScriptApply, as a slide's
+; script is: nothing here knows the painter or the timeline.
+; ============================================================================
+
+Import "PresScript.rgr"
+
+class PresMorph {
+
+    ; Whether entity e may be one object with another: a block or a picture,
+    ; not a word, a letter or a part of a chart or a diagram.
+    sfn kindMorphs:boolean (e:PresEnt) {
+        if ((e.kind == "word") || (e.kind == "char")) {
+            return false
+        }
+        if (((e.kind == "bar") || (e.kind == "label")) || (((e.kind == "line") || (e.kind == "marker")) || ((e.kind == "node") || (e.kind == "edge")))) {
+            return false
+        }
+        return (e.kind != "slide")
+    }
+
+    ; Whether a and b are the same thing: the same `{#id}`, else the same
+    ; kind and the same text.
+    sfn same:boolean (a:PresEnt b:PresEnt) {
+        if (((strlen a.name) > 0) || ((strlen b.name) > 0)) {
+            return (a.name == b.name)
+        }
+        if (a.kind != b.kind) {
+            return false
+        }
+        return (((strlen a.text) > 0) && (a.text == b.text))
+    }
+
+    ; For every entity of `to`, the entity of `from` it is (-1 for none). An
+    ; entity inside one that was paired goes with it and is not paired
+    ; itself; each of `from`'s is paired once at most.
+    sfn pairs:[int] (from:PresScene to:PresScene) {
+        def out:[int]
+        def used:[boolean]
+        def k:int 0
+        while (k < (from.count())) {
+            push used false
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < (to.count())) {
+            push out -1
+            i = (i + 1)
+        }
+        def j:int 1
+        while (j < (to.count())) {
+            def e:PresEnt (to.at(j))
+            if ((PresMorph.kindMorphs(e)) && ((PresMorph.underPaired(to out j)) == false)) {
+                def f:int 1
+                while (f < (from.count())) {
+                    def fe:PresEnt (from.at(f))
+                    if (((itemAt used f) == false) && ((PresMorph.kindMorphs(fe)) && (PresMorph.same(fe e)))) {
+                        if ((PresMorph.fromUnderPaired(from used f)) == false) {
+                            set_at out j f
+                            set_at used f true
+                            f = (from.count())
+                        }
+                    }
+                    f = (f + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; whether an ancestor of entity j of `sc` was paired already
+    sfn underPaired:boolean (sc:PresScene pairs:[int] j:int) {
+        def e:PresEnt (sc.at(j))
+        def up:int e.parent
+        while (up > 0) {
+            if ((itemAt pairs up) >= 0) {
+                return true
+            }
+            def ue:PresEnt (sc.at(up))
+            up = ue.parent
+        }
+        return false
+    }
+
+    sfn fromUnderPaired:boolean (sc:PresScene used:[boolean] f:int) {
+        def e:PresEnt (sc.at(f))
+        def up:int e.parent
+        while (up > 0) {
+            if (itemAt used up) {
+                return true
+            }
+            def ue:PresEnt (sc.at(up))
+            up = ue.parent
+        }
+        return false
+    }
+
+    ; q eased: slow at both ends
+    sfn ease:double (q:double) {
+        if (q <= 0.0) {
+            return 0.0
+        }
+        if (q >= 1.0) {
+            return 1.0
+        }
+        return (q * (q * (3.0 - (2.0 * q))))
+    }
+
+    sfn mix:double (a:double b:double q:double) {
+        return (a + ((b - a) * q))
+    }
+
+    ; The leaving slide at q (0 → 1): what has a pair is not drawn (the
+    ; arriving slide draws it), the rest fades out.
+    sfn leaving:PresScriptFrame (from:PresScene pairs:[int] q:double) {
+        def fr:PresScriptFrame (new PresScriptFrame())
+        def paired:[boolean]
+        def k:int 0
+        while (k < (from.count())) {
+            push paired false
+            k = (k + 1)
+        }
+        for pairs p:int pi {
+            if (p >= 0) {
+                set_at paired p true
+            }
+        }
+        def e:double (PresMorph.ease(q))
+        def i:int 1
+        while (i < (from.count())) {
+            def fe:PresEnt (from.at(i))
+            def p:PresEntProps (new PresEntProps())
+            if (itemAt paired i) {
+                p.visible = false
+            } {
+                ; only the blocks fade: what is inside one goes with it
+                if (fe.parent <= 0) {
+                    p.opacity = (1.0 - e)
+                }
+            }
+            if (p.changes(fe)) {
+                push fr.ids fe.id
+                push fr.props p
+            }
+            i = (i + 1)
+        }
+        return fr
+    }
+
+    ; The arriving slide at q: each paired entity where its pair was, gliding
+    ; to its own place; the rest fades in.
+    sfn arriving:PresScriptFrame (from:PresScene to:PresScene pairs:[int] q:double) {
+        def fr:PresScriptFrame (new PresScriptFrame())
+        def e:double (PresMorph.ease(q))
+        def j:int 1
+        while (j < (to.count())) {
+            def te:PresEnt (to.at(j))
+            def p:PresEntProps (new PresEntProps())
+            def f:int (itemAt pairs j)
+            if (f >= 0) {
+                def fe:PresEnt (from.at(f))
+                p.hasX = true
+                p.x = (PresMorph.mix(fe.x te.x e))
+                p.hasY = true
+                p.y = (PresMorph.mix(fe.y te.y e))
+                p.ox = 0.0
+                p.oy = 0.0
+                if ((te.w > 0.0) && (fe.w > 0.0)) {
+                    p.scale = (PresMorph.mix((fe.w / te.w) 1.0 e))
+                }
+            } {
+                ; only the blocks fade: what is inside one goes with it
+                if (te.parent <= 0) {
+                    p.opacity = e
+                }
+            }
+            if (p.changes(te)) {
+                push fr.ids te.id
+                push fr.props p
+            }
+            j = (j + 1)
+        }
+        return fr
+    }
+}

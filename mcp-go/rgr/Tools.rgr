@@ -326,7 +326,7 @@ class Tools {
         slideP.put("anyOf" slideOf)
         slideP.putStr("description" "Which slide: its number (1 = first) or its title")
         rsp.put("slide" slideP)
-        def timeP:MfJ (Tools.prop("number" "Seconds into the slide to draw its own effects (```fx) at, their step/steptime/progress following; left out: each effect at its still"))
+        def timeP:MfJ (Tools.prop("number" "Seconds into the slide to draw it at: its own effects (```fx) on that clock, their step/steptime/progress following, and its script ({script=…}) run that long; left out: each effect at its still and the script where it ends"))
         timeP.putInt("minimum" 0)
         rsp.put("time" timeP)
         rsp.put("fx" (Tools.prop("boolean" "false: leave the effects out (their fallback colour shows); default true")))
@@ -338,6 +338,19 @@ class Tools {
         dlp.put("selector" (Tools.prop("string" "Optional: a selector as a slide's script gives find() (li:2, chart:1 bar, diagram node#B, edge A->B, h2 word); the ids it finds on the slide")))
         tools.add((Tools.tool("get_display_list" "List a slide's entities" "What a slide's script (heading {script=apps/x.tsx}, sliqtly_guide topic=scripts) can find on one slide: each heading, paragraph, item, word, chart bar and label, diagram node and edge, with its id, kind, text and box in slide px, as the slide is laid out before the script runs. With selector: the ids that selector finds there." (Tools.schema(dlp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 false false)) eitherMeta)))
 
+        def stp:MfJ (MfJ.newObj())
+        stp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
+        stp.put("slide" slideP)
+        def tnum:MfJ (MfJ.newObj())
+        tnum.putStr("type" "number")
+        tnum.putInt("minimum" 0)
+        def tsP:MfJ (Tools.prop("array" "Seconds into the slide, one picture each (at most 12); left out: `frames` pictures evenly from 0 to where the slide ends"))
+        tsP.put("items" tnum)
+        stp.put("times" tsP)
+        def frP:MfJ (Tools.prop("integer" "How many pictures when times is left out (2 to 12, default 6)"))
+        stp.put("frames" frP)
+        tools.add((Tools.tool("render_strip" "Look at a slide over time" "One slide of a Sliqtly presentation drawn at several moments, numbered in order in one picture (JPEG): its script ({script=…}, sliqtly_guide topic=scripts) run to each moment and its own effects (```fx) on that clock. Use it to check what a slide's script does as it plays; render_slide draws one moment (time) or where it ends." (Tools.schema(stp ([] _:string ("deck_id" "slide")))) (Tools.annotations(true -1 true false)) eitherMeta)))
+
         def rop:MfJ (MfJ.newObj())
         rop.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
         tools.add((Tools.tool("render_overview" "Look at all slides" "Every slide of a Sliqtly presentation as a numbered thumbnail in one picture (JPEG), with a line per slide from the layout report. One call checks the whole deck; ask render_slide for a closer look at a slide. Look once before saying a presentation is done." (Tools.schema(rop ([] _:string ("deck_id")))) (Tools.annotations(true -1 true false)) eitherMeta)))
@@ -348,8 +361,8 @@ class Tools {
 
         def xp:MfJ (MfJ.newObj())
         xp.put("deck_id" (Tools.prop("string" "deck_id of the presentation (the id in https://sliqtly.com/s/<id>)")))
-        def fmt:MfJ (Tools.prop("string" "pdf, pptx (PowerPoint), docx (Word) or html (one web page)"))
-        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx" "docx" "html")))))
+        def fmt:MfJ (Tools.prop("string" "pdf, pptx (PowerPoint), docx (Word), html (one web page) or gltf (a program's 3-D world)"))
+        fmt.put("enum" (J.strs(([] _:string ("pdf" "pptx" "docx" "html" "gltf")))))
         xp.put("format" fmt)
         def xn:MfJ (MfJ.newObj())
         xn.putStr("type" "integer")
@@ -360,7 +373,7 @@ class Tools {
         def dp:MfJ (MfJ.newObj())
         dp.put("deck_id" (Tools.prop("string" "deck_id of the presentation to delete (the id in https://sliqtly.com/s/<id>)")))
         tools.add((Tools.tool("delete_presentation" "Delete a presentation" "Delete a Sliqtly presentation for good: its slides, pictures, data files and exports; its link stops working. Only its owner signed in, or, for one made without sign-in, the session (this conversation's connection) that made it. Ask the user before deleting; it cannot be undone." (Tools.schema(dp ([] _:string ("deck_id")))) (Tools.annotations(false 1 true false)) eitherMeta)))
-        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
+        tools.add((Tools.tool("export_presentation" "Export a presentation" "A Sliqtly presentation as a PDF, a PowerPoint (.pptx), a Word document (.docx) or one self-contained web page (.html), by its deck_id (its owner signed in, or the session that made it without sign-in): a download link to give the user, kept until the next export of the same format (on sliqtly.com it works for 24 hours). PDF and PPTX: slides as the player shows them at the end of their animations; the PPTX keeps text editable, with build steps, notes and transitions. DOCX and HTML: the deck read as a document, slide after slide, with headings, text, lists, tables, formulas (Word equations / SVG), the speaker notes under each slide, and diagrams and charts as pictures. Effects (fx=) are not drawn; the editor's File → Export draws them. GLTF: the first 3-D world (a program's <scene3d>, sliqtly_guide topic=apps) on the slides asked for, at its first frames, as a glTF 2.0 file (.gltf) that Blender and three.js open: meshes, PBR materials, lights, camera, and the R3F names in each node's extras.sliqtly." (Tools.schema(xp ([] _:string ("deck_id" "format")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
         def lp:MfJ (MfJ.newObj())
         lp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>")))
@@ -1431,7 +1444,7 @@ class Tools {
             }
         }
         ; drawing costs the most: counted a day, two at once
-        def draws:boolean (((name == "render_slide") || (name == "render_overview")) || (name == "export_presentation"))
+        def draws:boolean ((((name == "render_slide") || (name == "render_overview")) || (name == "export_presentation")) || (name == "render_strip"))
         if draws {
             def whyR:string (host_render_limit host caller.who caller.ip)
             if ((strlen whyR) > 0) {
@@ -1469,6 +1482,9 @@ class Tools {
         }
         if (name == "render_overview") {
             r = (Tools.render(host caller args true))
+        }
+        if (name == "render_strip") {
+            r = (Tools.renderStrip(host caller args))
         }
         if (name == "get_display_list") {
             r = (Tools.displayList(host caller args))
@@ -3387,8 +3403,8 @@ class Tools {
             return (Tools.fail(bad))
         }
         def format:string (a.str_("format"))
-        if ((((format != "pdf") && (format != "pptx")) && (format != "docx")) && (format != "html")) {
-            return (Tools.fail("Invalid arguments: format is pdf, pptx, docx or html."))
+        if (((((format != "pdf") && (format != "pptx")) && (format != "docx")) && (format != "html")) && (format != "gltf")) {
+            return (Tools.fail("Invalid arguments: format is pdf, pptx, docx, html or gltf."))
         }
         def id:string (a.str_("deck_id"))
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
@@ -3443,12 +3459,32 @@ class Tools {
             }
         }
         def bytes:buffer ck.file
+        if ((format == "gltf") && ((buffer_length bytes) == 0)) {
+            def where:string "in the presentation"
+            if ((array_length picked) == 1) {
+                where = ("on slide " + (itemAt picked 0))
+            }
+            if ((array_length picked) > 1) {
+                where = ("on slides " + (join picked ", "))
+            }
+            def why:string ""
+            for ck.warnings w:string wi {
+                if ((indexOf w "<scene3d>") >= 0) {
+                    why = (" " + w)
+                }
+            }
+            return (Tools.fail(("No 3-D world " + where + " to export: gltf writes a program's <scene3d> (an ```app with allow: 3d; sliqtly_guide topic=apps)." + why)))
+        }
         if ((buffer_length bytes) == 0) {
             return (Tools.failed(host tool "the file could not be made"))
         }
         def name:string (Tools.fileName((d.str_("name"))))
         if ((array_length picked) > 0) {
             name = (name + " (slides " + (join picked ", ") + ")")
+        }
+        if (format == "gltf") {
+            ; one world: named by its slide
+            name = ((Tools.fileName((d.str_("name")))) + " (" + ck.gltfFrom + ")")
         }
         def path:string ("exports/" + name + "." + format)
         def type:string "application/pdf"
@@ -3460,6 +3496,9 @@ class Tools {
         }
         if (format == "html") {
             type = "text/html; charset=utf-8"
+        }
+        if (format == "gltf") {
+            type = "model/gltf+json"
         }
         def full:string ("shares/" + id + "/" + path)
         def token:string (host_uuid host)
@@ -3487,6 +3526,21 @@ class Tools {
         if (format == "html") {
             what = "Web page"
         }
+        def more:string ""
+        if (format == "gltf") {
+            what = "3-D model (glTF)"
+            count = 1
+            if (ck.gltfWorlds > 1) {
+                more = ("\nThis is the first of " + ck.gltfWorlds + " worlds; pick another with slides.")
+            }
+            for ck.gltfNotes gw:string gwi {
+                more = (more + "\nglTF: " + gw)
+            }
+        }
+        def holds:string (count + " slides")
+        if (format == "gltf") {
+            holds = (ck.gltfFrom + ", " + ck.gltfSrc)
+        }
         def out:MfJ (MfJ.newObj())
         out.putStr("deck_id" id)
         out.putStr("format" format)
@@ -3502,7 +3556,7 @@ class Tools {
         if ((indexOf url "/d/") >= 0) {
             lasts = " It works for 24 hours, then export again."
         }
-        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + count + " slides, " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation." + lasts))
+        t.putStr("text" (what + " of \"" + (d.str_("name")) + "\" (" + holds + ", " + kb + " KB): " + url + "\nGive the user this link; it is replaced by the next " + format + " export of this presentation." + lasts + more))
         content.add(t)
         r.put("content" content)
         r.put("structuredContent" out)
@@ -3593,6 +3647,140 @@ class Tools {
         return out
     }
 
+    ; seconds to two decimals
+    sfn secondsText:string (t:double) {
+        def c:int (to_int ((t * 100.0) + 0.5))
+        return (to_string ((to_double c) / 100.0))
+    }
+
+    ; render_strip: one slide at several moments in one picture
+    sfn renderStrip:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def tool:string "render_strip"
+        if ((host_store_kind host) == "link") {
+            return (Tools.fail("This server keeps no decks (no cloud storage configured)."))
+        }
+        if ((a.kind != 5) || ((a.field("deck_id")).kind == 0)) {
+            return (Tools.fail("Invalid arguments: deck_id is required."))
+        }
+        if ((a.field("slide")).kind == 0) {
+            return (Tools.fail("Invalid arguments: slide is required."))
+        }
+        def times:[double]
+        def tv:MfJ (a.field("times"))
+        if (tv.kind != 0) {
+            if ((tv.isArr()) == false) {
+                return (Tools.fail("Invalid arguments: times is a list of seconds."))
+            }
+            for tv.arr t:MfJ ti {
+                if ((t.kind != 2) || (t.num < 0.0)) {
+                    return (Tools.fail("Invalid arguments: times are seconds into the slide, 0 or more."))
+                }
+                push times t.num
+            }
+            if (((array_length times) == 0) || ((array_length times) > 12)) {
+                return (Tools.fail("Invalid arguments: 1 to 12 times."))
+            }
+        }
+        def frames:int (a.int_("frames" 6))
+        if ((frames < 2) || (frames > 12)) {
+            return (Tools.fail("Invalid arguments: frames is 2 to 12."))
+        }
+        def id:string (a.str_("deck_id"))
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return (Tools.fail("deck_id is the 10-character id in the share link."))
+        }
+        def d:MfJ (Store.get(host id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.fail(("No presentation " + id + ".")))
+        }
+        def hid:string (Tools.hiddenFrom(caller d id))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((strlen hid) > 0) {
+            return (Tools.fail(hid))
+        }
+        def md:string (d.str_("md"))
+        def stored:[string]
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def noImgs:[Img]
+        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def css:MfJ (d.field("css"))
+        ; the slide by its number, or by its title once the deck is laid out
+        def at:int -1
+        if ((a.field("slide")).kind == 2) {
+            at = ((a.int_("slide" 0)) - 1)
+        } {
+            def din0 (new DeckIn)
+            din0.deckId = id
+            din0.stored = stored
+            def first:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din0))
+            at = (Check.slideIndex(a first.titles))
+        }
+        def din (new DeckIn)
+        din.deckId = id
+        din.stored = stored
+        din.live = true
+        din.lists = true
+        din.fxAt = at
+        din.strip = times
+        din.stripCount = frames
+        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        if ((at < 0) || (at >= ck.slides)) {
+            return (Tools.fail(("No slide " + (JOut.text((a.field("slide")))) + ": the presentation has " + (to_string ck.slides) + " slides.")))
+        }
+        if ((array_length ck.strip) == 0) {
+            return (Tools.fail("The slide could not be laid out (or the presentation's theme could not be read)."))
+        }
+        for bgs.pics p:CheckPic pi {
+            host_render_pic host p.name (itemAt bgs.data pi)
+        }
+        def cols:int 3
+        def n:int (array_length ck.strip)
+        if (n <= 4) {
+            cols = 2
+        }
+        if (n > 9) {
+            cols = 4
+        }
+        ; the effects at their still: one clock serves the whole picture
+        host_render_fx host ck.fxPrograms -1.0
+        def b64:string (host_render_grid host ck.strip ck.width ck.height cols 1600)
+        if ((strlen b64) == 0) {
+            return (Tools.fail("The slide could not be drawn."))
+        }
+        def content:MfJ (MfJ.newArr())
+        content.add((Tools.image(b64)))
+        def lines:[string]
+        def title:string (itemAt ck.titles at)
+        def head:string ("Slide " + (to_string (at + 1)))
+        if ((strlen title) > 0) {
+            head = (head + " \"" + title + "\"")
+        }
+        def when:[string]
+        for ck.stripTimes t2:double t2i {
+            push when ((to_string (t2i + 1)) + ": " + (Tools.secondsText(t2)) + " s")
+        }
+        push lines (head + " at " + (to_string n) + " moments, numbered in the picture's corners: " + (join when ", ") + ".")
+        if ((strlen ck.stripScript) == 0) {
+            push lines "The slide has no script ({script=…}): the moments look alike. Its own effects (```fx) are drawn at their still."
+        } {
+            push lines ("Its script " + ck.stripScript + " run to each moment; its own effects (```fx) are drawn at their still.")
+        }
+        def tc:MfJ (MfJ.newObj())
+        tc.putStr("type" "text")
+        tc.putStr("text" (join lines "\n"))
+        content.add(tc)
+        def r:MfJ (MfJ.newObj())
+        r.put("content" content)
+        return r
+    }
+
     ; get_display_list: what a slide's script finds on its slide
     sfn displayList:MfJ (host:McpHost caller:Caller a:MfJ) {
         def tool:string "get_display_list"
@@ -3670,6 +3858,13 @@ class Tools {
                 push lines ("find(\"" + din.sceneSel + "\") → " + (to_string (array_length ck.sceneFound)) + " entities" + (? ((array_length ck.sceneFound) > 0) (": " + (join ck.sceneFound ", ")) ""))
             }
             out.put("found" (J.strs(ck.sceneFound)))
+        }
+        if ((strlen ck.sceneFinal) > 0) {
+            def fin:MfJ (J.parse(ck.sceneFinal))
+            def fp:MfJ (fin.field("p"))
+            def fa:MfJ (fin.field("a"))
+            push lines ("Where the slide's script ends (the PDF, the PPTX and the pictures show this): " + (JOut.text(fp)) + (? ((fa.count()) > 0) (", added: " + (JOut.text(fa))) ""))
+            out.put("final" fin)
         }
         def content:MfJ (MfJ.newArr())
         def tc:MfJ (MfJ.newObj())

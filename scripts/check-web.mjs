@@ -394,6 +394,26 @@ try {
     check("…a drag selects from where it was pressed", r.drag[0] === 0 && r.drag[1] > 2 && r.drag[1] < 10, JSON.stringify(r));
   }
 
+  // Commenting is always there in the editor: review mode is on without any
+  // choice made, and the rail's Review only opens and closes the list of
+  // comments. The bug: the rail's Review turned review mode off, and the
+  // pins and + Add comment disappeared with it.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      const out = { onAtStart: a.reviewMode() };
+      a.request("rail:review");
+      out.listOpen = rv.listing && a.reviewMode();
+      a.request("rail:review");
+      out.listClosed = !rv.listing && a.reviewMode();
+      const asked = [];
+      for (let q = a.takeRequest(); q; q = a.takeRequest()) asked.push(q);
+      out.asked = asked.join(" ");
+      return out;
+    });
+    check("review mode is on in the editor and the rail's Review only opens and closes the list", r.onAtStart && r.listOpen && r.listClosed && !/rail:review/.test(r.asked || ""), JSON.stringify(r));
+  }
+
   // The comment box while presenting (review mode, the dark callout): the
   // hint reads as a hint, not as text typed; it goes once the box has the
   // keys, and the caret shows. The bugs: .chat-draft's white won over the
@@ -2901,20 +2921,21 @@ try {
     const foundOpened = await until(() => { const tb = window.__app.toolbar; return tb.roomFound === "" && tb.roomOpen === "general" && tb.roomDecks.split("\n").some((l) => l.split("\t")[2] === "1"); });
     await rp.waitForTimeout(500);
     check("…the rooms' search finds presentations by their words (not {attributes}), with the text around them, and opens one", foundDeck && syntaxNotFound && foundOpened, JSON.stringify({ foundRow, syntaxNotFound, foundOpened }));
-    // "+ Add new presentation" under a room: File → New's window, and the
-    // deck it makes is in that room
+    // a room's "+": the "Add new…" menu, its Presentation row File → New's
+    // window, and the deck it makes is in that room; no add rows in the list
     await R(`t("tb-room-playground");`);
-    // General's list (open from the step before) has a "+" too: Playground's first
     await until(() => window.__app.toolbar.roomOpen === "playground");
-    await pageHas("tb-roomdeck-new");
     const chatUp = await until(() => window.__app.roomChatOpen());
-    await R(`t("tb-roomdeck-new");`);
+    const noAddRows = await R(`return !tb("tb-roomdeck-new") && !tb("tb-roomdeck-newfolder");`);
+    await R(`t("tb-roomadd-playground");`);
+    const addMenu = (await pageHas("tb-m-ctx-item-addDeck")) && (await pageHas("tb-m-ctx-item-addFolder"));
+    await R(`t("tb-m-ctx-item-addDeck");`);
     const newWin = await until(() => window.__app.chart.isOpen && window.__app.chart.mode === "newdeck" && window.__app.chart.ndAsk === "");
     await R(`a.text("Fresh deck"); a.key("enter", false, false);`);
     const inPlay = await until(() => { try { return Object.values(window.__keptRooms().placed).includes("playground"); } catch (_) { return false; } }, null, 20000);
     // the room's chat was over the work area: the new deck shows instead
     const chatGone = await until(() => !window.__app.roomChatOpen());
-    check("…a room's + Add new presentation makes the new deck in that room and shows it, not the room's chat", newWin && inPlay && chatUp && chatGone, JSON.stringify({ newWin, inPlay, chatUp, chatGone }));
+    check("…a room's + opens Add new…; Presentation makes the new deck in that room and shows it, not the room's chat", noAddRows && addMenu && newWin && inPlay && chatUp && chatGone, JSON.stringify({ noAddRows, addMenu, newWin, inPlay, chatUp, chatGone }));
     // a right click on a presentation in Rooms: the File menu's rows for it;
     // one that is not open opens first, then the row acts on it
     await R(`t("tb-room-general");`);

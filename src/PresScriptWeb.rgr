@@ -1,0 +1,256 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresScriptWeb.rgr — slide scripts ({script=apps/fx.tsx}) in the public viewer
+; ============================================================================
+;
+; The viewer has display lists and no deck model. For a slide with a script
+; the server (mcp-go/rgr/View.rgr scripts) sends the slide's list as the
+; Markdown has it and its scene (PresScene.wireJson); the page runs the
+; script with the editor's runner (web/apps.js) and lays each frame over the
+; list here, with the editor's own PresScriptApply. What comes out is the
+; slide's commands as display list JSON; the page keeps the rest of the
+; slide's list (its effects, its camera) as it was.
+;
+; Compiled into web/dist-view/pres_play.js beside PresPlayWeb.
+; ============================================================================
+
+Import "PresScript.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+
+; Commands back from EVGDisplayList.toJson: the fields it writes.
+class PresListRead {
+    sfn rgb:void (c:EVGDrawCmd v:JVal second:boolean) {
+        if ((v.len()) < 4) {
+            return
+        }
+        def r:int (to_int ((v.at(0)).asNum(0.0)))
+        def g:int (to_int ((v.at(1)).asNum(0.0)))
+        def b:int (to_int ((v.at(2)).asNum(0.0)))
+        def a:double ((v.at(3)).asNum(1.0))
+        if second {
+            c.r2 = r
+            c.g2 = g
+            c.b2 = b
+            c.a2 = a
+        } {
+            c.r = r
+            c.g = g
+            c.b = b
+            c.a = a
+        }
+    }
+
+    sfn cmd:EVGDrawCmd (o:JVal) {
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = (o.intOr("k" 0))
+        c.layer = (o.intOr("layer" 0))
+        c.node = (o.intOr("n" -1))
+        c.x = (o.numOr("x" 0.0))
+        c.y = (o.numOr("y" 0.0))
+        c.w = (o.numOr("w" 0.0))
+        c.h = (o.numOr("h" 0.0))
+        c.radius = (o.numOr("r" 0.0))
+        if (o.has("rc")) {
+            def rc:JVal (o.get("rc"))
+            if ((rc.len()) == 4) {
+                c.perCorner = true
+                c.radius = ((rc.at(0)).asNum(0.0))
+                c.radiusTR = ((rc.at(1)).asNum(0.0))
+                c.radiusBR = ((rc.at(2)).asNum(0.0))
+                c.radiusBL = ((rc.at(3)).asNum(0.0))
+            }
+        }
+        c.thickness = (o.numOr("t" 0.0))
+        c.strokeCap = (o.intOr("cap" 0))
+        c.strokeJoin = (o.intOr("join" 0))
+        c.strokeDash = (o.strOr("dash" ""))
+        c.strokeDashOffset = (o.numOr("dashoff" 0.0))
+        PresListRead.rgb(c (o.get("c")) false)
+        if (o.has("c2")) {
+            c.hasGrad = true
+            c.gradDir = (o.intOr("gd" 0))
+            PresListRead.rgb(c (o.get("c2")) true)
+        }
+        c.text = (o.strOr("text" ""))
+        c.fontFamily = (o.strOr("font" ""))
+        c.fontSize = (o.numOr("size" 0.0))
+        c.letterSpacing = (o.numOr("ls" 0.0))
+        c.fontWeight = (o.strOr("weight" ""))
+        if (o.boolOr("italic" false)) {
+            c.textAlign = "italic"
+        }
+        c.src = (o.strOr("src" ""))
+        c.flipH = (o.boolOr("fx" false))
+        c.flipV = (o.boolOr("fy" false))
+        if (o.has("cu")) {
+            def cu:JVal (o.get("cu"))
+            if ((cu.len()) == 4) {
+                c.hasCrop = true
+                c.cropX = ((cu.at(0)).asNum(0.0))
+                c.cropY = ((cu.at(1)).asNum(0.0))
+                c.cropW = (((cu.at(2)).asNum(1.0)) - c.cropX)
+                c.cropH = (((cu.at(3)).asNum(1.0)) - c.cropY)
+            }
+        }
+        c.rotate = (o.numOr("rot" 0.0))
+        if (o.has("rox")) {
+            c.hasRotOrigin = true
+            c.rotOriginX = (o.numOr("rox" 0.0))
+            c.rotOriginY = (o.numOr("roy" 0.0))
+        }
+        c.effectId = (o.strOr("efx" ""))
+        c.backdropBlur = (o.numOr("bb" 0.0))
+        if (o.has("sh")) {
+            def sh:JVal (o.get("sh"))
+            c.hasShadow = true
+            c.shadowX = (sh.numOr("x" 0.0))
+            c.shadowY = (sh.numOr("y" 0.0))
+            c.shadowBlur = (sh.numOr("blur" 0.0))
+            def sc:JVal (sh.get("c"))
+            if ((sc.len()) == 4) {
+                c.shadowR = (to_int ((sc.at(0)).asNum(0.0)))
+                c.shadowG = (to_int ((sc.at(1)).asNum(0.0)))
+                c.shadowB = (to_int ((sc.at(2)).asNum(0.0)))
+                c.shadowA = ((sc.at(3)).asNum(0.35))
+            }
+        }
+        if (o.has("pts")) {
+            def pts:JVal (o.get("pts"))
+            def pi:int 0
+            while (pi < (pts.len())) {
+                push c.pts ((pts.at(pi)).asNum(0.0))
+                pi = (pi + 1)
+            }
+            def ends:JVal (o.get("ends"))
+            def ei:int 0
+            while (ei < (ends.len())) {
+                push c.ringEnds (to_int ((ends.at(ei)).asNum(0.0)))
+                ei = (ei + 1)
+            }
+            c.evenOdd = ((o.intOr("eo" 0)) == 1)
+        }
+        return c
+    }
+
+    ; The commands of a display list's JSON.
+    sfn cmds:[EVGDrawCmd] (json:string) {
+        def out:[EVGDrawCmd]
+        def o:JVal (JVal.parse(json))
+        def cs:JVal (o.get("cmds"))
+        def i:int 0
+        while (i < (cs.len())) {
+            push out (PresListRead.cmd((cs.at(i))))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class PresScriptWebSlide {
+    def key:string ""
+    def base:[EVGDrawCmd]
+    def scene:PresScene (new PresScene())
+    def ink:string ""
+    def accent:string ""
+    def frame:PresScriptFrame (new PresScriptFrame())
+    def ownsClick:boolean false
+    ; the commands with the last frame laid over them, "" until it changes
+    def drawn:string ""
+}
+
+class PresScriptWeb {
+    def slides:[PresScriptWebSlide]
+    def lay:EVGLayout (new EVGLayout())
+
+    fn find@(optional):PresScriptWebSlide (key:string) {
+        def none@(optional):PresScriptWebSlide
+        def i:int 0
+        while (i < (array_length slides)) {
+            def s:PresScriptWebSlide (itemAt slides i)
+            if (s.key == key) {
+                def got@(optional):PresScriptWebSlide s
+                return got
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
+    ; Script `key`'s slide: its list as the Markdown has it, its scene
+    ; (PresScene.wireJson) and the theme's text and accent colours.
+    fn add:void (key:string listJson:string sceneJson:string ink:string accent:string) {
+        def had@(optional):PresScriptWebSlide (this.find(key))
+        if (!null? had) {
+            return
+        }
+        def s:PresScriptWebSlide (new PresScriptWebSlide())
+        s.key = key
+        s.base = (PresListRead.cmds(listJson))
+        s.scene = (PresScene.fromWire(sceneJson))
+        s.ink = ink
+        s.accent = accent
+        push slides s
+    }
+
+    ; A frame of the script (__scriptFrame's JSON): false when it was none.
+    fn setFrame:boolean (key:string json:string) {
+        def so@(optional):PresScriptWebSlide (this.find(key))
+        if (null? so) {
+            return false
+        }
+        def s:PresScriptWebSlide (unwrap so)
+        def f:PresScriptFrame (PresScriptFrame.read(json))
+        if ((strlen f.error) > 0) {
+            return false
+        }
+        s.frame = f
+        s.ownsClick = f.ownsClick
+        s.drawn = ""
+        return true
+    }
+
+    fn ownsClick:boolean (key:string) {
+        def so@(optional):PresScriptWebSlide (this.find(key))
+        if (null? so) {
+            return false
+        }
+        def s:PresScriptWebSlide (unwrap so)
+        return s.ownsClick
+    }
+
+    ; The slide's commands with the last frame laid over them, as display
+    ; list JSON ({"cmds": […]}).
+    fn listJson:string (key:string) {
+        def so@(optional):PresScriptWebSlide (this.find(key))
+        def out:EVGDisplayList (new EVGDisplayList())
+        if (null? so) {
+            return (out.toJson())
+        }
+        def s:PresScriptWebSlide (unwrap so)
+        if ((strlen s.drawn) > 0) {
+            return s.drawn
+        }
+        def cmds:[EVGDrawCmd]
+        for s.base c:EVGDrawCmd ci {
+            push cmds (PresScriptApply.copyCmd(c))
+        }
+        out.cmds = cmds
+        def groups:[int]
+        def boxes:[int]
+        PresScriptApply.apply(out s.scene s.frame groups boxes (lay.getTextEngine()) s.ink s.accent)
+        s.drawn = (out.toJson())
+        return s.drawn
+    }
+
+    ; The entity under slide point (px, py): the smallest, not a letter
+    ; (PresDeck.scriptEntityAt); "" for none.
+    fn entityAt:string (key:string px:double py:double) {
+        def so@(optional):PresScriptWebSlide (this.find(key))
+        if (null? so) {
+            return ""
+        }
+        def s:PresScriptWebSlide (unwrap so)
+        return (s.scene.entityAt(px py))
+    }
+}

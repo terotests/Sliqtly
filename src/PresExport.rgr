@@ -352,11 +352,18 @@ class PresExport {
             if (i < (deck.slideCount())) {
                 def ps:PptxSlide (itemAt d.pres.slides i)
                 def s:PresSlide (deck.slideAt(i))
-                this.stillDiagrams(ps s unit)
-                this.stillCharts(ps i unit)
-                this.stillSmartArt(ps s i unit)
-                this.slideArt(ps s i unit)
-                PresExport.dressSlide(ps s)
+                if (deck.scriptChanges(i)) {
+                    ; its script moved, hid or recoloured what the Markdown
+                    ; lays out: the slide as the stage shows it where the
+                    ; script ends, shape by shape from its display list
+                    this.scriptSlide(ps s i unit)
+                } {
+                    this.stillDiagrams(ps s unit)
+                    this.stillCharts(ps i unit)
+                    this.stillSmartArt(ps s i unit)
+                    this.slideArt(ps s i unit)
+                    PresExport.dressSlide(ps s)
+                }
                 this.svgPictures(ps.shapes)
                 ; the slide's effect, rendered by the host, as its background
                 def si:int 0
@@ -645,6 +652,36 @@ class PresExport {
             }
             k = (k + 1)
         }
+    }
+
+    ; Slide i, whose script ends somewhere else than the Markdown lays it
+    ; out: its shapes made from the display list the stage draws at that end
+    ; (PptxFromEvg, as a chart's are), its notes and transition kept. Its
+    ; build steps are not: the file shows where the script ends.
+    fn scriptSlide:void (ps:PptxSlide s:PresSlide i:int unit:double) {
+        def was:boolean deck.still
+        deck.still = true
+        def g:[int]
+        def dl:EVGDisplayList (deck.slideList(i g s.duration))
+        deck.still = was
+        def conv (new PptxFromEvg())
+        conv.unit = unit
+        conv.minFontPt = 1.0
+        def l:MdLayout (deck.layout())
+        if l.haveImages {
+            conv.setImages(l.images)
+        }
+        def group:PptxShape (conv.build(dl 0.0 0.0))
+        def shapes:[PptxShape]
+        def k:int 0
+        while (k < (array_length group.children)) {
+            push shapes (itemAt group.children k)
+            k = (k + 1)
+        }
+        ps.shapes = shapes
+        PresExport.dressSlide(ps s)
+        def none:[PptxBuildStep]
+        ps.build = none
     }
 
     ; A group's box around what is in it, not from the slide's corner.
