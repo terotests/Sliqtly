@@ -145,7 +145,7 @@ owner; a deck made without sign-in only by the MCP session that made it
 (`mcp_sessions/{sha256(Mcp-Session-Id)}`, a day after its last change, or
 until `DELETE /mcp`). On a shared server
 (`rgr/Store.rgr` `Limits`, `host.go` `dailyQuota`/`dailyRenders`): 3 decks
-per session without sign-in and 50 per account, 20 / 100 slides per deck,
+per session without sign-in and 200 per account, 20 / 100 slides per deck,
 200 MB of pictures and files per deck, decks without sign-in deleted 7
 days after their last change, 50 / 500 saved changes a day, 100 / 500
 drawings (render_slide, render_overview, export_presentation) a day per

@@ -362,12 +362,12 @@ func TestLimitsPerCaller(t *testing.T) {
 	if r := call(t, me, "update_presentation", map[string]any{"deck_id": "BigDeck001", "files": []any{map[string]any{"name": "huge.csv", "text": "a,b\n1,2\n"}}}); r.IsError {
 		t.Fatal("replacing the big file refused: " + textOf(r))
 	}
-	// an account's decks: 50
-	for i := 0; i < 50; i++ {
+	// an account's decks: 200
+	for i := 0; i < 200; i++ {
 		f.db.Set(context.Background(), "shares", fmt.Sprintf("Many%06d", i), Doc{"owner": "u1", "md": "# M"})
 	}
-	match(t, textOf(call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"})), `already keeps 5[0-9] presentations, the most it may`)
-	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `This Sliqtly account already keeps 5[0-9] presentations, the most it may: create_presentation will refuse a new one`)
+	match(t, textOf(call(t, me, "create_presentation", map[string]any{"title": "M", "markdown": "# M"})), `already keeps 20[0-9] presentations, the most it may`)
+	match(t, textOf(call(t, me, "sliqtly_guide", map[string]any{})), `This Sliqtly account already keeps 20[0-9] presentations, the most it may: create_presentation will refuse a new one`)
 }
 
 // At most two drawings at once per caller; a daily count per caller and per

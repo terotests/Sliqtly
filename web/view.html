@@ -195,6 +195,7 @@
   #vMenu button { display: flex; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 0; border-radius: 9px;
     background: transparent; color: #fafafa; font: 15px/1.2 "Open Sans", system-ui, sans-serif; text-align: left; cursor: pointer; }
   #vMenu button span { color: #a1a1aa; }
+  #vMenu #vCopyMd { margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0 0 9px 9px; }
   #vMenu button:hover, #vMenu button:focus-visible { background: rgba(255, 255, 255, 0.12); outline: none; }
 </style>
 </head>
@@ -349,6 +350,7 @@
     <button role="menuitem" data-format="pdf">PDF <span>.pdf</span></button>
     <button role="menuitem" data-format="pptx">PowerPoint <span>.pptx</span></button>
     <button role="menuitem" data-format="md">Markdown <span>.md</span></button>
+    <button role="menuitem" id="vCopyMd">Copy Markdown <span>⧉</span></button>
   </div>
 </div>
 <script type="module" src="./view.js?v=__BUILD__"></script>

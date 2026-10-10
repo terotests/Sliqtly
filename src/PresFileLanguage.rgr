@@ -1,0 +1,33 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresFileLanguage.rgr — which colours a file of the document is shown in
+; ==============================================================================
+;
+; The files tab opens any file of the document in one editor. Its language is
+; picked by the file's name, from the languages' own `handlesFile`, asked in
+; order: CSS first, so a program's stylesheet (`apps/x.tsx.css`) is CSS and
+; not the program; then the scripts (.tsx .ts .jsx .js .mjs). JSON is shown in
+; the script language's colours. A name nothing claims is plain text.
+; ==============================================================================
+
+Import "PresCssLanguage.rgr"
+Import "../datagrid/src/script/lang/JsLanguage.rgr"
+
+class PresFileLanguage {
+    def langs:LanguageRegistry (new LanguageRegistry())
+    def script:JsLanguage (new JsLanguage())
+
+    Constructor () {
+        langs.add((new PresCssLanguage()))
+        langs.add(script)
+    }
+
+    fn forPath:EditorLanguage (path:string) {
+        def lower:string (to_lowercase path)
+        if (EditorLanguage.hasSuffix(lower ".json")) {
+            return script
+        }
+        return (langs.forFile(lower))
+    }
+}

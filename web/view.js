@@ -52,6 +52,10 @@ const vMenu = document.getElementById("vMenu");
 const EXPORT_LABEL = say("Export ▾", "Vie ▾");
 vExport.textContent = EXPORT_LABEL;
 vMenu.setAttribute("aria-label", say("Download as", "Lataa muodossa"));
+const vCopyMd = document.getElementById("vCopyMd");
+const COPY_MD_LABEL = say("Copy Markdown", "Kopioi Markdown");
+vCopyMd.firstChild.textContent = COPY_MD_LABEL + " ";
+vCopyMd.title = say("Copy the presentation's Markdown to the clipboard", "Kopioi esityksen Markdown leikepöydälle");
 
 // the address, or the one the assistant's preview gives in <meta>
 const given = document.querySelector('meta[name="sliqtly-link"]')?.content || "";
@@ -133,8 +137,6 @@ let shownAt = 0;
 let raf = 0;
 // the programs on the slides (```app, web/viewplay.js), null when none
 let plays = null;
-// their 3-D worlds (allow: 3d, web/three3d.js), null when none may have one
-let worlds = null;
 // the slide seen closer by a pinch ({ x, y, scale }), or null: fitted
 let zoom = null;
 
@@ -202,28 +204,6 @@ function paint() {
   if (moving) raf = requestAnimationFrame(paint);
 }
 
-// The slide shown as a small picture (its worlds left out), the room its
-// 3-D worlds stand in (web/three3d.js): an ImageData, null without one.
-let roomGl = null;
-const roomCanvas = document.createElement("canvas");
-function slidePicture(w, h) {
-  const list = lists[at];
-  if (!list) return null;
-  roomCanvas.width = w;
-  roomCanvas.height = h;
-  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
-  if (!roomGl) return null;
-  const f = prepareDisplayList(roomGl, { width: deck.width, height: deck.height, list }, { dpr: Math.min(w / deck.width, h / deck.height), images: pictures });
-  f.draw(null, null);
-  f.dispose();
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const g = c.getContext("2d", { willReadFrequently: true });
-  g.drawImage(roomCanvas, 0, 0);
-  return g.getImageData(0, 0, w, h);
-}
-
 // --- a realistic book ------------------------------------------------------------
 // Each page drawn once by EVG into a picture as sharp as the screen shows
 // it, kept by bookGl as a texture.
@@ -242,6 +222,30 @@ function ensurePage(page, pxW) {
   f.draw(null, null);
   f.dispose();
   bookGl.setPage(page, pageCanvas, pxW);
+}
+
+// A page as a small picture, its programs left out: the room a program's
+// 3-D worlds stand in (web/three3d.js). An ImageData, null without one.
+let roomGl = null;
+const roomCanvas = document.createElement("canvas");
+function pagePicture(page, w, h) {
+  if (page < 0 || page >= lists.length) return null;
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const list = lists[page];
+  for (const e of list.effects || []) e.time = deckEffectStill(e.kind) ?? 2;
+  const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
+  const f = prepareDisplayList(roomGl, { width: deck.width, height: deck.height, list }, { dpr: Math.min(w / deck.width, h / deck.height), images });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
 }
 
 let place = null;
@@ -383,7 +387,8 @@ vShare.addEventListener("click", async () => {
 });
 
 // Export ▾: the deck as a PDF, a PowerPoint file or its Markdown, made on
-// the server (GET /api/export/{id}/{format}) and saved under the deck's name
+// the server (GET /api/export/{id}/{format}) and saved under the deck's name;
+// Copy Markdown puts that same Markdown on the clipboard
 function openMenu(open) {
   vMenu.hidden = !open;
   vExport.setAttribute("aria-expanded", String(open));
@@ -405,7 +410,55 @@ vMenu.addEventListener("keydown", (ev) => {
     items[(i + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
   }
 });
-for (const b of vMenu.querySelectorAll("button")) b.addEventListener("click", () => download(b.dataset.format));
+for (const b of vMenu.querySelectorAll("button[data-format]")) b.addEventListener("click", () => download(b.dataset.format));
+vCopyMd.addEventListener("click", copyMarkdown);
+
+async function fetchExport(format) {
+  const res = await fetch(exportUrl(link, format), { headers: await authHeaders(user) });
+  if (!res.ok) {
+    const why = await res.json().catch(() => null);
+    throw new Error((why && why.error) || "HTTP " + res.status);
+  }
+  return res.blob();
+}
+
+// said on the Export button for a while, then its own label again
+function sayOnExport(text, ms) {
+  vExport.textContent = text;
+  setTimeout(() => { if (vExport.textContent === text) vExport.textContent = EXPORT_LABEL; }, ms);
+}
+
+// The clipboard is written while the click still counts as the user's
+// (Safari refuses a write after an await): a ClipboardItem given the
+// fetch's promise, else writeText once the text is here.
+async function copyMarkdown() {
+  openMenu(false);
+  if (!link?.id || vExport.getAttribute("aria-busy") === "true") return;
+  vExport.setAttribute("aria-busy", "true");
+  vExport.textContent = say("Copying…", "Kopioidaan…");
+  const text = fetchExport("md").then((b) => b.text());
+  let said = say("Markdown copied ✓", "Markdown kopioitu ✓");
+  try {
+    if (window.ClipboardItem && navigator.clipboard?.write) {
+      const blob = text.then((t) => new Blob([t], { type: "text/plain" }));
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+      } catch (e) {
+        // a failed fetch rethrows here and is said below; a refused write
+        // tries writeText
+        await navigator.clipboard.writeText(await text);
+      }
+    } else {
+      await navigator.clipboard.writeText(await text);
+    }
+  } catch (e) {
+    console.warn("copy md", e);
+    said = say("Copy failed, try again ▾", "Kopiointi epäonnistui, yritä uudelleen ▾");
+  } finally {
+    vExport.removeAttribute("aria-busy");
+    sayOnExport(said, said.endsWith("✓") ? 2000 : 6000);
+  }
+}
 
 async function download(format) {
   openMenu(false);
@@ -414,12 +467,7 @@ async function download(format) {
   vExport.textContent = say("Exporting…", "Viedään…");
   let failed = "";
   try {
-    const res = await fetch(exportUrl(link, format), { headers: await authHeaders(user) });
-    if (!res.ok) {
-      const why = await res.json().catch(() => null);
-      throw new Error((why && why.error) || "HTTP " + res.status);
-    }
-    const blob = await res.blob();
+    const blob = await fetchExport(format);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = exportName(deck?.name, format);
@@ -432,8 +480,8 @@ async function download(format) {
     failed = say("Download failed, try again ▾", "Lataus epäonnistui, yritä uudelleen ▾");
   } finally {
     vExport.removeAttribute("aria-busy");
-    vExport.textContent = failed || EXPORT_LABEL;
-    if (failed) setTimeout(() => { if (vExport.textContent === failed) vExport.textContent = EXPORT_LABEL; }, 6000);
+    if (failed) sayOnExport(failed, 6000);
+    else vExport.textContent = EXPORT_LABEL;
   }
 }
 
@@ -675,20 +723,8 @@ async function start() {
         plays: deck.plays, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
-        frame: () => {
-          if (worlds && gl && worlds.tick(1, gl, Math.min(window.devicePixelRatio || 1, 3))) repaint();
-        },
+        pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
       });
-      if (deck.plays.some((p) => (p.allow || []).includes("3d"))) {
-        const { createThree3d } = await import("./three3d.js");
-        worlds = createThree3d({
-          app: { playScenesJson: () => plays.scenesJson(), selectedSlide: () => at },
-          pictures, imageChanged, slidePicture,
-          scale: () => (zoom ? zoom.scale : fitSlide(canvas.clientWidth, canvas.clientHeight, viewW(), deck.height).scale),
-          repaint,
-          toast: (line) => console.warn(line),
-        });
-      }
     } catch (e) {
       console.warn("programs on slides", e);
     }

@@ -2725,6 +2725,10 @@ class PresDeck {
         d.straight = base.straight
         d.rest = base.rest
         d.scene = base.scene
+        ; what `readShapes` read off the shared scene: without the boxes'
+        ; text size a line's name had no floor and no cap (`labelSizeFor`),
+        ; and shrank to half its size to find a place, 15 px on a slide
+        d.boxText = base.boxText
         ; The tour is the viewer's to start (▶ beside the zoom, T when
         ; presenting); `{tour=on}` starts it with the slide. Without it the
         ; whole diagram is shown, as large as it fits.

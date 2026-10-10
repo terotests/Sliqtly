@@ -41,16 +41,9 @@ const slides = JSON.parse(deck).deck.slides;
 // stylesheet as the server sends them (mcp-go/view_test.go TestViewPlays)
 const APP_ID = "AppFixture1";
 const appDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app.json"));
-// the same slide with a 3-D world (allow: 3d): a red box over the field
+// the same with a 3-D world (allow: 3d, <scene3d>): an orange box
 const WORLD_ID = "WorldFixture1";
-const worldDeck = (() => {
-  const d = JSON.parse(appDeck);
-  const p = d.deck.plays[0];
-  p.allow = ["3d"];
-  p.text = "function view() {\n  return (\n    <div className=\"field\">\n      <scene3d className=\"world\">\n        <mesh shape=\"box\" size={2.4} color=\"#ff2020\" rx={20} ry={30} />\n      </scene3d>\n    </div>\n  );\n}\n";
-  p.cssText += ".world { position: absolute; left: 0px; top: 0px; width: 320px; height: 180px; }\n";
-  return JSON.stringify(d);
-})();
+const worldDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-app3d.json"));
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -71,9 +64,9 @@ const server = http.createServer((req, res) => {
   }
   if (rel.startsWith("/api/view/")) {
     const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck };
-    const got = answers[rel.slice("/api/view/".length)];
-    res.writeHead(got ? 200 : 404, { "content-type": "application/json" });
-    res.end(got || '{"error":"This shared presentation was not found."}');
+    const found = answers[rel.slice("/api/view/".length)];
+    res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
+    res.end(found || '{"error":"This shared presentation was not found."}');
     return;
   }
   // Hosting's Firebase config (viewauth.js): not here, as where sign-in is off
@@ -97,21 +90,47 @@ const server = http.createServer((req, res) => {
     res.end();
     return;
   }
-  res.writeHead(200, { "content-type": types[path.extname(file)] || "application/octet-stream" });
+  // Hosting lets other sites read the files (firebase.json): the
+  // assistant's preview fetches the viewer from its own origin
+  res.writeHead(200, { "content-type": types[path.extname(file)] || "application/octet-stream", "access-control-allow-origin": "*" });
   fs.createReadStream(file).pipe(res);
 });
 await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
 const base = `http://127.0.0.1:${server.address().port}`;
 
+// An assistant's chat as Claude shows the preview (mcp-go/assets/preview.html):
+// in a sandboxed frame of another origin, under a CSP that lets scripts run
+// only inline or from data:/blob: URLs and reach the site only by fetch, and
+// handed a tool result naming WORLD_ID's link.
+const previewHtml = fs.readFileSync(path.join(root, "mcp-go", "assets", "preview.html"), "utf8");
+const chat = http.createServer((req, res) => {
+  res.writeHead(200, {
+    "content-type": "text/html",
+    "content-security-policy": `default-src 'none'; script-src 'unsafe-inline' data: blob: 'wasm-unsafe-eval'; worker-src data: blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data: ${base}; connect-src ${base}; frame-src data: blob:; base-uri 'self'`,
+  });
+  res.end(`<!doctype html><meta charset="utf-8"><iframe id="w" sandbox="allow-scripts" allow="fullscreen; clipboard-write" style="width:960px;height:640px;border:0"></iframe><script>
+const w = document.getElementById("w");
+addEventListener("message", (e) => {
+  const m = e.data;
+  if (!m || m.method !== "ui/initialize") return;
+  w.contentWindow.postMessage({ jsonrpc: "2.0", id: m.id, result: {} }, "*");
+  w.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { structuredContent: { share_url: ${JSON.stringify(base + "/s/" + WORLD_ID)}, title: "3-D world", slides: 2 } } }, "*");
+});
+w.srcdoc = ${JSON.stringify(previewHtml).replace(/</g, "\\u003c")};
+</script>`);
+});
+await new Promise((ok) => chat.listen(0, "127.0.0.1", ok));
+const chatBase = `http://localhost:${chat.address().port}`;
+
 const browser = await chromium.launch({ ...chromium_(), args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const failures = [];
 const fail = (what) => failures.push(what);
-async function open(url) {
+async function open(url, { at = base } = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   // a 404 is in `missing` (or is the missing presentation's, on purpose)
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) fail(`${url}: console: ${m.text()}`); });
   page.on("pageerror", (e) => fail(`${url}: ${e.message}`));
-  await page.goto(base + url, { waitUntil: "load" });
+  await page.goto(at + url, { waitUntil: "load" });
   return page;
 }
 const text = (page, id) => page.evaluate((i) => document.getElementById(i).textContent, id);
@@ -155,6 +174,14 @@ try {
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }).catch(() => null), page.click('#vMenu [data-format="md"]')]);
   if (!dl) fail("Markdown export downloaded nothing");
   else if (dl.suggestedFilename() !== "talous.en.md") fail(`Markdown saved as "${dl.suggestedFilename()}"`);
+  // Copy Markdown: the same Markdown on the clipboard, said on the button
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.click("#vExport");
+  await page.click("#vMenu #vCopyMd");
+  await page.waitForFunction(() => /copied|kopioitu/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
+    .catch(() => fail("Copy Markdown did not say it copied"));
+  const copied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+  if (copied !== "# Take charge of your money\n") fail(`Copy Markdown put ${JSON.stringify(copied)} on the clipboard`);
   await page.click("#vExport");
   await page.click('#vMenu [data-format="pdf"]');
   await page.waitForFunction(() => /failed|epäonnistui/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })
@@ -190,11 +217,11 @@ try {
     .catch(() => fail("the program's slide.next() did not go to slide 2"));
   await page.close();
 
-  // a program's 3-D world (allow: 3d) is drawn in the viewer as in the
-  // editor: the red box over the green field
+  // a program's 3-D world is drawn (web/three3d.js, pres_3d.js) into its
+  // box: the orange box it puts in its <scene3d> is on the slide
   page = await open("/s/" + WORLD_ID);
   await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
-  const red = () => page.evaluate(() => {
+  const orange = (where) => where.evaluate(() => {
     const c = document.getElementById("c");
     const g = document.createElement("canvas");
     g.width = 128;
@@ -203,12 +230,28 @@ try {
     x.drawImage(c, 0, 0, 128, 72);
     const d = x.getImageData(0, 0, 128, 72).data;
     let n = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] > 80 && d[i] > d[i + 1] * 2 && d[i] > d[i + 2] * 2) n++;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i + 1] > 50 && d[i + 1] < 160 && d[i + 2] < 90) n++;
     return n;
   });
-  let redAt = 0;
-  for (let i = 0; i < 60 && !(redAt = await red()); i++) await page.waitForTimeout(250);
-  if (!redAt) fail("the program's 3-D world was not drawn in the viewer");
+  let orangeAt = 0;
+  for (let i = 0; i < 40 && (orangeAt = await orange(page)) < 100; i++) await page.waitForTimeout(250);
+  if (orangeAt < 100) fail(`the program's 3-D world was not drawn (${orangeAt} orange pixels)`);
+  await page.close();
+
+  // …and in the assistant's preview, where the modules are data: URLs: the
+  // program runs (its worker made by the preview) and its world is drawn
+  page = await open("/", { at: chatBase });
+  let viewer = null;
+  for (let i = 0; i < 60 && !viewer; i++) {
+    for (const f of page.frames()) if (await f.evaluate(() => !!document.getElementById("c") && !document.getElementById("viewBar").hidden).catch(() => false)) viewer = f;
+    if (!viewer) await page.waitForTimeout(250);
+  }
+  if (!viewer) fail("the assistant's preview did not open the viewer");
+  else {
+    orangeAt = 0;
+    for (let i = 0; i < 60 && (orangeAt = await orange(viewer)) < 100; i++) await page.waitForTimeout(250);
+    if (orangeAt < 100) fail(`the program's 3-D world was not drawn in the assistant's preview (${orangeAt} orange pixels)`);
+  }
   await page.close();
 
   // on a phone: two fingers spread zoom the slide in (and go to no other
@@ -325,10 +368,11 @@ try {
 } finally {
   await browser.close();
   server.close();
+  chat.close();
 }
 for (const m of new Set(missing)) fail(`404 ${m}`);
 if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program run, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program run, a 3-D world drawn (also in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

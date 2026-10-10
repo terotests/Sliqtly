@@ -106,15 +106,42 @@
     for (const d of deps) await modules(d, map);
     map.set(url, dataUrl("text/javascript", new TextEncoder().encode(text)));
   }
+  // A module worker, whole in one data: URL: a worker takes no import map,
+  // so its imports are data: URLs too, and its import.meta.url is its URL
+  // on the site (what it fetches beside itself, cerxes.wasm, comes from
+  // there).
+  async function workerModule(url) {
+    let text = await (await get(url)).text();
+    const re = /(\b(?:from|import)\s*\(?\s*)(["'])(\.{1,2}\/[^"']+)\2/g;
+    const inlined = new Map();
+    for (const m of text.matchAll(re)) {
+      const abs = new URL(m[3], url).href;
+      if (!inlined.has(abs)) inlined.set(abs, await workerModule(abs));
+    }
+    text = text.replace(re, (_, pre, q, rel) => pre + q + inlined.get(new URL(rel, url).href) + q);
+    text = text.split("import.meta.url").join(JSON.stringify(url));
+    return dataUrl("text/javascript", new TextEncoder().encode(text));
+  }
+  // the workers the viewer may start (web/sitescript.js workerUrl), made
+  // only when the build has them
+  const WORKERS = ["cerxes-worker.js"];
   async function build(origin) {
     let html = await (await get(origin + "/index.html")).text();
     const base = origin + "/";
     const map = new Map();
     const classic = new Map();
+    const workers = {};
     const tag = /<script\b([^>]*)\ssrc="([^"]+)"([^>]*)><\/script>/g;
     for (const m of html.matchAll(tag)) {
       const abs = new URL(m[2], base).href;
-      if (/type="module"/.test(m[1] + m[3])) await modules(abs, map);
+      if (/type="module"/.test(m[1] + m[3])) {
+        await modules(abs, map);
+        // with the page's own build stamp (?v=…), as the modules have it
+        const stamp = new URL(abs).search;
+        for (const w of WORKERS) if (!(w in workers)) {
+          try { workers[w] = await workerModule(base + w + stamp); } catch (_) { /* no programs here */ }
+        }
+      }
       // a classic script runs inline; "</script" inside it is only ever in
       // a string or a regex, where "<\/script" means the same
       else classic.set(abs, (await (await get(abs)).text()).replace(/<\/script/gi, "<\\/script"));
@@ -136,14 +163,17 @@
     // resolve against about:srcdoc
     html = html.replace(/<base\b[^>]*>/i, "").replace(/<link\b[^>]*>/gi, "");
     const imports = Object.fromEntries([...map].filter(([, v]) => v));
-    return { html, importmap: JSON.stringify({ imports }) };
+    return { html, importmap: JSON.stringify({ imports }), workers };
   }
-  function loader(origin, firebaseConfig) {
+  function loader(origin, firebaseConfig, workers) {
     // runs in the viewer. Claude's CSP has base-uri 'self', so no <base>:
     // the page's relative fetches go to the site instead
     const site = origin + "/";
     const fetch0 = window.fetch.bind(window);
     window.fetch = (input, init) => fetch0(typeof input === "string" && !/^[a-z][a-z0-9+.-]*:/i.test(input) ? new URL(input, site).href : input, init);
+    // the workers the preview made beforehand (web/sitescript.js): a page
+    // whose origin is not the site's may start none from the site
+    window.__sliqtlyWorkerUrl = (name) => workers[name] || "";
     // Firebase's <script src> run inline; the project's config comes
     // with the tool result, since Hosting's /__/firebase/init.js may not be
     // readable cross-origin
@@ -170,7 +200,7 @@
     const attr = (v) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
     // first in the page: what the host's CSP refuses it, and its errors,
     // for the note in trouble()
-    const watch = "<script>window.__trouble=[];addEventListener('securitypolicyviolation',function(e){__trouble.push(e.effectiveDirective+' '+e.blockedURI)});addEventListener('error',function(e){__trouble.push(e.message||(e.target&&(e.target.src||e.target.href))||'error')},true);(" + loader + ")(" + JSON.stringify(u.origin) + "," + JSON.stringify(firebaseConfig || null).replace(/</g, "\\u003c") + ")<\/script>";
+    const watch = "<script>window.__trouble=[];addEventListener('securitypolicyviolation',function(e){__trouble.push(e.effectiveDirective+' '+e.blockedURI)});addEventListener('error',function(e){__trouble.push(e.message||(e.target&&(e.target.src||e.target.href))||'error')},true);(" + loader + ")(" + JSON.stringify(u.origin) + "," + JSON.stringify(firebaseConfig || null).replace(/</g, "\\u003c") + "," + JSON.stringify(built.workers) + ")<\/script>";
     const head = watch + '<script type="importmap">' + built.importmap.replace(/</g, "\\u003c") + "<\/script>" +
       '<meta name="sliqtly-link" content="' + attr(hash) + '" />';
     return built.html.replace(/<head>/i, "<head>" + head);

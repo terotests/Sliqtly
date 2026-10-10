@@ -38,6 +38,7 @@ Import "PresMeet.rgr"
 Import "PresClip.rgr"
 Import "PresPlay.rgr"
 Import "PresScript.rgr"
+Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
 Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
@@ -148,6 +149,22 @@ class PresCheck {
         this.fxLang()
         this.fxDeck()
         this.fxClock()
+        this.fileLanguages()
+    }
+
+    ; The files tab colours a file by its name: programs as scripts, their
+    ; stylesheets as CSS, JSON as a script, the rest plain.
+    fn fileLanguages:void () {
+        def f:PresFileLanguage (new PresFileLanguage())
+        def cases:[string] ([] _:string ( "apps/bars.tsx" "javascript" "apps/x.ts" "javascript" "web/a.js" "javascript" "B.JSX" "javascript" "m.mjs" "javascript" "apps/bars.tsx.css" "css" "theme.css" "css" "chart.json" "javascript" "data.csv" "text" "notes.txt" "text" "apps/tsx" "text" ))
+        def i:int 0
+        while (i < (array_length cases)) {
+            def path:string (itemAt cases i)
+            def want:string (itemAt cases (i + 1))
+            def got:string ((f.forPath(path)).id())
+            this.ok((got == want) ("files: " + path + " in " + want + ", got " + got))
+            i = (i + 2)
+        }
     }
 
     ; A deck's own effect, compiled (FxLang): the IR, the shader text and
