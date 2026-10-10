@@ -62,6 +62,7 @@ function __deckState(d) {
   slide.count = d.slides || 1;
   slide.home = d.home || 1;
   slide.step = d.step || 0;
+  slide.from = d.from || 0;
   slide.presenting = d.mode === "present";
   slide.focused = !!d.focused;
 }

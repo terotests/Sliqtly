@@ -63,6 +63,9 @@ class PresEnt {
     def parent:int -1
     ; a painter's part (a bar, a node): the layout box it was drawn for
     def ofBox:int -1
+    ; a block's first offset in the Markdown, -1 for none (a part, a word)
+    def src:int -1
+    def srcEnd:int -1
     ; an edge's ends, by node name
     def from:string ""
     def to:string ""
@@ -478,21 +481,135 @@ class PresScene {
         return (out.toJson())
     }
 
+    ; The entity under slide point (px, py): the smallest one, not a letter
+    ; (a word before its line); "" for none.
+    fn entityAt:string (px:double py:double) {
+        def best:string ""
+        def bestA:double 1000000000.0
+        def k:int 1
+        while (k < (array_length ents)) {
+            def e:PresEnt (itemAt ents k)
+            if ((e.kind != "char") && ((((px >= e.x) && (px <= (e.x + e.w))) && (py >= e.y)) && (py <= (e.y + e.h)))) {
+                def a:double (e.w * e.h)
+                if (a < bestA) {
+                    bestA = a
+                    best = e.id
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    ; The scene whole, for a page that lays a program's frames over the list
+    ; itself (the public viewer, PresScriptWeb): every field, unrounded, and
+    ; the owner of each command. fromWire reads it back.
+    fn wireJson:string () {
+        def o:JVal (JVal.mkObj())
+        o.setNum("w" pageW)
+        o.setNum("h" pageH)
+        def es:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length ents)) {
+            def e:PresEnt (itemAt ents i)
+            def a:JVal (JVal.mkArr())
+            a.add((JVal.mkStr(e.id)))
+            a.add((JVal.mkStr(e.kind)))
+            a.add((JVal.mkStr(e.name)))
+            a.add((JVal.mkStr((join e.classes " "))))
+            a.add((JVal.mkStr(e.text)))
+            a.add((JVal.mkStr(e.data)))
+            a.add((JVal.mkNum(e.x)))
+            a.add((JVal.mkNum(e.y)))
+            a.add((JVal.mkNum(e.w)))
+            a.add((JVal.mkNum(e.h)))
+            a.add((JVal.mkBool(e.hasBox)))
+            a.add((JVal.mkInt(e.index)))
+            a.add((JVal.mkInt(e.parent)))
+            a.add((JVal.mkInt(e.ofBox)))
+            a.add((JVal.mkInt(e.src)))
+            a.add((JVal.mkInt(e.srcEnd)))
+            a.add((JVal.mkStr(e.from)))
+            a.add((JVal.mkStr(e.to)))
+            a.add((JVal.mkInt(e.cmd)))
+            a.add((JVal.mkInt(e.at)))
+            a.add((JVal.mkInt(e.len)))
+            es.add(a)
+            i = (i + 1)
+        }
+        o.set("e" es)
+        def ow:JVal (JVal.mkArr())
+        for ownerOfCmd v:int vi {
+            ow.add((JVal.mkInt(v)))
+        }
+        o.set("o" ow)
+        return (o.toJson())
+    }
+
+    sfn fromWire:PresScene (json:string) {
+        def sc:PresScene (new PresScene())
+        def o:JVal (JVal.parse(json))
+        if ((o.isObj()) == false) {
+            return sc
+        }
+        sc.pageW = (o.numOr("w" 960.0))
+        sc.pageH = (o.numOr("h" 540.0))
+        def es:JVal (o.get("e"))
+        def i:int 0
+        while (i < (es.len())) {
+            def a:JVal (es.at(i))
+            def e:PresEnt (new PresEnt())
+            e.id = ((a.at(0)).asStr(""))
+            e.kind = ((a.at(1)).asStr(""))
+            e.name = ((a.at(2)).asStr(""))
+            def cls:string ((a.at(3)).asStr(""))
+            if ((strlen cls) > 0) {
+                e.classes = (strsplit cls " ")
+            }
+            e.text = ((a.at(4)).asStr(""))
+            e.data = ((a.at(5)).asStr(""))
+            e.x = ((a.at(6)).asNum(0.0))
+            e.y = ((a.at(7)).asNum(0.0))
+            e.w = ((a.at(8)).asNum(0.0))
+            e.h = ((a.at(9)).asNum(0.0))
+            e.hasBox = ((a.at(10)).asBool(false))
+            e.index = (to_int ((a.at(11)).asNum(0.0)))
+            e.parent = (to_int ((a.at(12)).asNum(-1.0)))
+            e.ofBox = (to_int ((a.at(13)).asNum(-1.0)))
+            e.src = (to_int ((a.at(14)).asNum(-1.0)))
+            e.srcEnd = (to_int ((a.at(15)).asNum(-1.0)))
+            e.from = ((a.at(16)).asStr(""))
+            e.to = ((a.at(17)).asStr(""))
+            e.cmd = (to_int ((a.at(18)).asNum(-1.0)))
+            e.at = (to_int ((a.at(19)).asNum(0.0)))
+            e.len = (to_int ((a.at(20)).asNum(0.0)))
+            push sc.ents e
+            i = (i + 1)
+        }
+        def ow:JVal (o.get("o"))
+        def k:int 0
+        while (k < (ow.len())) {
+            push sc.ownerOfCmd (to_int ((ow.at(k)).asNum(0.0)))
+            k = (k + 1)
+        }
+        return sc
+    }
+
     ; One line per entity, indented by depth, for a person or an assistant
     ; reading the tree: `h2-1 h2 "Sales grow" @ 60,40 840x52`.
     fn outline:[string] (withLetters:boolean) {
         def out:[string]
+        this.outlineUnder(0 0 withLetters out)
+        return out
+    }
+
+    ; the lines of `at`'s children, in tree order, `depth` deep; words and
+    ; letters only `withLetters`
+    fn outlineUnder:void (at:int depth:int withLetters:boolean out:[string]) {
         def i:int 1
         while (i < (array_length ents)) {
             def e:PresEnt (itemAt ents i)
-            if ((e.kind != "char") || withLetters) {
-                def depth:int 0
-                def up:int e.parent
-                while (up > 0) {
-                    depth = (depth + 1)
-                    def ue:PresEnt (itemAt ents up)
-                    up = ue.parent
-                }
+            if ((e.parent == at) && (((e.kind != "char") && (e.kind != "word")) || withLetters)) {
                 def pad:string ""
                 def d:int 0
                 while (d < depth) {
@@ -508,10 +625,10 @@ class PresScene {
                     what = (" \"" + t + "\"")
                 }
                 push out (pad + e.id + " " + e.kind + what + " @ " + (to_string (to_int e.x)) + "," + (to_string (to_int e.y)) + " " + (to_string (to_int e.w)) + "x" + (to_string (to_int e.h)))
+                this.outlineUnder(i (depth + 1) withLetters out)
             }
             i = (i + 1)
         }
-        return out
     }
 }
 
@@ -701,6 +818,9 @@ class PresEntProps {
     def hasY:boolean false
     def y:double 0.0
     def scale:double 1.0
+    ; along one side only (a bar growing from its axis): times scale
+    def scaleX:double 1.0
+    def scaleY:double 1.0
     def rotate:double 0.0
     def skew:double 0.0
     def opacity:double 1.0
@@ -735,6 +855,8 @@ class PresEntProps {
             p.y = (v.numOr("y" 0.0))
         }
         p.scale = (v.numOr("scale" 1.0))
+        p.scaleX = (v.numOr("scaleX" 1.0))
+        p.scaleY = (v.numOr("scaleY" 1.0))
         p.rotate = (v.numOr("rotate" 0.0))
         p.skew = (v.numOr("skew" 0.0))
         p.opacity = (v.numOr("opacity" 1.0))
@@ -798,7 +920,7 @@ class PresEntProps {
 
     ; Whether it moves, turns or scales what it is set on.
     fn moves:boolean (e:PresEnt) {
-        return (((((hasX && (x != e.x)) || (hasY && (y != e.y))) || (scale != 1.0)) || (rotate != 0.0)) || (skew != 0.0))
+        return ((((((hasX && (x != e.x)) || (hasY && (y != e.y))) || (scale != 1.0)) || ((scaleX != 1.0) || (scaleY != 1.0))) || (rotate != 0.0)) || (skew != 0.0))
     }
 
     ; Whether it changes anything at all.
@@ -955,23 +1077,29 @@ class PresAff {
         return (sqrt ((a * a) + (b * b)))
     }
 
+    ; the scale down its side (the second column), for a scale along one
+    ; side only
+    fn scaleYOf:double () {
+        return (sqrt ((c * c) + (d * d)))
+    }
+
     fn degrees:double () {
         return (((atan2 b a) * 180.0) / 3.141592653589793)
     }
 
-    ; An entity's own move: about (ox, oy), scaled, skewed, turned, then
-    ; moved by (dx, dy).
-    sfn local:PresAff (ox:double oy:double s:double skewDeg:double rotDeg:double dx:double dy:double) {
+    ; An entity's own move: about (ox, oy), scaled (sx across, sy down),
+    ; skewed, turned, then moved by (dx, dy).
+    sfn local:PresAff (ox:double oy:double sx:double sy:double skewDeg:double rotDeg:double dx:double dy:double) {
         def rad:double ((rotDeg * 3.141592653589793) / 180.0)
         def co:double (cos rad)
         def si:double (sin rad)
         def k:double (PresAff.tanOf(skewDeg))
-        ; R · K · S, K = [[1, k], [0, 1]]
+        ; R · K · S, K = [[1, k], [0, 1]], S = [[sx, 0], [0, sy]]
         def m:PresAff (new PresAff())
-        m.a = (co * s)
-        m.b = (si * s)
-        m.c = (((co * k) - si) * s)
-        m.d = (((si * k) + co) * s)
+        m.a = (co * sx)
+        m.b = (si * sx)
+        m.c = (((co * k) - si) * sy)
+        m.d = (((si * k) + co) * sy)
         m.e = (((ox + dx) - (m.a * ox)) - (m.c * oy))
         m.f = (((oy + dy) - (m.b * ox)) - (m.d * oy))
         return m
@@ -1045,6 +1173,30 @@ class PresScriptApply {
             }
             ei = (ei + 1)
         }
+        ; the words and letters of each command, in their order: headOf[cmd]
+        ; is the first, nextOf[entity] the one after it (-1 ends), so a cut
+        ; command looks at its own parts only
+        def headOf:[int]
+        def hi:int 0
+        while (hi < n) {
+            push headOf -1
+            hi = (hi + 1)
+        }
+        def nextOf:[int]
+        def ni:int 0
+        while (ni < (sc.count())) {
+            push nextOf -1
+            ni = (ni + 1)
+        }
+        def bi:int ((sc.count()) - 1)
+        while (bi > 0) {
+            def be:PresEnt (sc.at(bi))
+            if (((be.cmd >= 0) && (be.cmd < n)) && ((be.kind == "word") || (be.kind == "char"))) {
+                set_at nextOf bi (itemAt headOf be.cmd)
+                set_at headOf be.cmd bi
+            }
+            bi = (bi - 1)
+        }
         ; every piece: a command (cut or whole), its owner, what ran beside it
         def pieces:[EVGDrawCmd]
         def owners:[int]
@@ -1098,10 +1250,10 @@ class PresScriptApply {
                 if (level == 2) {
                     kind = "char"
                 }
-                def k:int 1
-                while (k < (sc.count())) {
+                def k:int (itemAt headOf i)
+                while (k >= 0) {
                     def e:PresEnt (sc.at(k))
-                    if ((e.cmd == i) && (e.kind == kind)) {
+                    if (e.kind == kind) {
                         def part:EVGDrawCmd (PresScriptApply.copyCmd(c))
                         part.text = e.text
                         part.x = e.x
@@ -1112,7 +1264,7 @@ class PresScriptApply {
                         push boxes bx
                         push keys key
                     }
-                    k = (k + 1)
+                    k = (itemAt nextOf k)
                 }
             }
             i = (i + 1)
@@ -1257,7 +1409,7 @@ class PresScriptApply {
                     }
                     def ox:double (e.x + (e.w * p.ox))
                     def oy:double (e.y + (e.h * p.oy))
-                    lk.m = (lk.m.times((PresAff.local(ox oy p.scale p.skew p.rotate dx dy))))
+                    lk.m = (lk.m.times((PresAff.local(ox oy (p.scale * p.scaleX) (p.scale * p.scaleY) p.skew p.rotate dx dy))))
                 }
                 lk.alpha = (lk.alpha * p.opacity)
                 if (p.visible == false) {
@@ -1324,13 +1476,14 @@ class PresScriptApply {
             if ((lk.m.identity()) == false) {
                 ; a clip moves with what it holds, as a rectangle
                 def s0:double (lk.m.scaleOf())
+                def s0y:double (lk.m.scaleYOf())
                 def nx:double (lk.m.px(c.x c.y))
                 def ny:double (lk.m.py(c.x c.y))
                 c.x = nx
                 c.y = ny
                 c.w = (c.w * s0)
-                c.h = (c.h * s0)
-                c.radius = (c.radius * s0)
+                c.h = (c.h * s0y)
+                c.radius = (c.radius * (PresScriptApply.least(s0 s0y)))
             }
             return
         }
@@ -1359,7 +1512,11 @@ class PresScriptApply {
             return
         }
         def m:PresAff lk.m
-        def s:double (m.scaleOf())
+        def sx:double (m.scaleOf())
+        def sy:double (m.scaleYOf())
+        ; what is not stretched (a line's width, a corner) follows the
+        ; smaller of the two
+        def s:double (PresScriptApply.least(sx sy))
         if ((c.kind == 6) || (c.kind == 7)) {
             def i:int 0
             while ((i + 1) < (array_length c.pts)) {
@@ -1387,20 +1544,21 @@ class PresScriptApply {
         }
         def nox:double (m.px(ox oy))
         def noy:double (m.py(ox oy))
-        c.x = (nox + ((c.x - ox) * s))
-        c.y = (noy + ((c.y - oy) * s))
-        c.w = (c.w * s)
-        c.h = (c.h * s)
+        c.x = (nox + ((c.x - ox) * sx))
+        c.y = (noy + ((c.y - oy) * sy))
+        c.w = (c.w * sx)
+        c.h = (c.h * sy)
         c.radius = (c.radius * s)
         c.radiusTR = (c.radiusTR * s)
         c.radiusBR = (c.radiusBR * s)
         c.radiusBL = (c.radiusBL * s)
         c.thickness = (c.thickness * s)
-        c.fontSize = (c.fontSize * s)
-        c.letterSpacing = (c.letterSpacing * s)
-        c.maxWidth = (c.maxWidth * s)
-        c.shadowX = (c.shadowX * s)
-        c.shadowY = (c.shadowY * s)
+        ; a text is as tall as it is scaled down its side
+        c.fontSize = (c.fontSize * sy)
+        c.letterSpacing = (c.letterSpacing * sx)
+        c.maxWidth = (c.maxWidth * sx)
+        c.shadowX = (c.shadowX * sx)
+        c.shadowY = (c.shadowY * sy)
         c.shadowBlur = (c.shadowBlur * s)
         def turn:double (m.degrees())
         if ((turn > 0.01) || (turn < -0.01)) {
@@ -1414,6 +1572,13 @@ class PresScriptApply {
                 c.rotOriginY = noy
             }
         }
+    }
+
+    sfn least:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
     }
 
     ; The commands for one added element, in its own look.
@@ -1513,9 +1678,9 @@ class PresScriptApply {
             if p0.hasY {
                 dy = (p0.y - ent.y)
             }
-            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) p0.scale p0.skew p0.rotate dx dy))
+            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) (p0.scale * p0.scaleX) (p0.scale * p0.scaleY) p0.skew p0.rotate dx dy))
         } {
-            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) p0.scale p0.skew p0.rotate 0.0 0.0))
+            lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) (p0.scale * p0.scaleX) (p0.scale * p0.scaleY) p0.skew p0.rotate 0.0 0.0))
         }
         def k:int 0
         while (k < (array_length out)) {
@@ -1648,7 +1813,13 @@ class PresScriptCheck {
                 break
             }
             def sel:string (substring src (i + 1) j)
-            if (((indexOf sel "${") < 0) && ((indexOf out sel) < 0)) {
+            ; only a whole argument: find("li:" + n) is made as it runs
+            def k:int (j + 1)
+            while ((k < n) && (PresScene.isSpace((charAt src k)))) {
+                k = (k + 1)
+            }
+            def whole:boolean ((k < n) && ((charAt src k) == 41))
+            if ((whole && ((indexOf sel "${") < 0)) && ((indexOf out sel) < 0)) {
                 push out sel
             }
             from = (j + 1)
@@ -1693,6 +1864,16 @@ class PresScriptRun {
     ; the PDF, the stage before its first frame
     def final:PresScriptFrame (new PresScriptFrame())
     def hasFinal:boolean false
+    ; …as the script gave it ({p, a, …})
+    def finalJson:string ""
+    ; one moment of it, run elsewhere (the server's render_slide(time)):
+    ; drawn over the others while set
+    def at:PresScriptFrame (new PresScriptFrame())
+    def hasAt:boolean false
+    ; what onLeave set as the slide was left: how it looks on the stage
+    ; while the next slide arrives, until it runs again
+    def leave:PresScriptFrame (new PresScriptFrame())
+    def hasLeave:boolean false
     ; it has `build(n)` (the slide's steps are its own) and `onClick`
     def ownsBuild:boolean false
     def ownsClick:boolean false

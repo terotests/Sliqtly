@@ -1469,5 +1469,7 @@
   "Music added: ": "Musiikki lisätty: ",
   ". Put music: ": ". Kirjoita alkuun music: ",
   " in the front matter.": ".",
-  "The music file is not in the deck: ": "Musiikkitiedostoa ei ole esityksessä: "
+  "The music file is not in the deck: ": "Musiikkitiedostoa ei ole esityksessä: ",
+  "White frame": "Valkoinen kehys",
+  "Terracotta frame": "Terrakottakehys"
 }

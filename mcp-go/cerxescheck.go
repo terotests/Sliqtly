@@ -80,7 +80,7 @@ func (e *cerxesEngine) start() error {
 			return
 		}
 		var parts []string
-		for _, f := range []string{"cerxes-runtime.js", "apps-runtime.js"} {
+		for _, f := range []string{"cerxes-runtime.js", "apps-runtime.js", "script-runtime.js"} {
 			b, err := fs.ReadFile(files, f)
 			if err != nil {
 				e.err = err
@@ -252,4 +252,70 @@ func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
 		return why, ""
 	}
 	return "", last
+}
+
+// ScriptRun is host_script_run: a slide's script (`{script=…}`) loaded and
+// its runtime function `fn` called with `arg` (web/script-runtime.js:
+// __scriptFinal for where it ends, __scriptAt for a moment of it). The frame
+// as JSON; "!" and why when the script does not run; "-" when there is no
+// engine to run it in.
+func (h *McpHost) ScriptRun(src, fn, arg string) string {
+	if err := cerxes.start(); err != nil {
+		return "-"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cerxesCheckTime)
+	defer cancel()
+	mod, err := cerxes.rt.InstantiateModule(ctx, cerxes.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions("_initialize"))
+	if err != nil {
+		return "-"
+	}
+	defer mod.Close(context.Background())
+	r := &cerxesRun{ctx: ctx, mod: mod}
+	out, err := func() (string, error) {
+		en, err := r.call("cx_new")
+		if err != nil {
+			return "", err
+		}
+		if why, err := r.eval(en, cerxes.runtime); err != nil || why != "" {
+			if why != "" {
+				err = errors.New("runtime: " + why)
+			}
+			return "", err
+		}
+		// the slide's entities before the script, so a find() at its top
+		// level finds them (web/apps.js treeFirst)
+		if why, err := r.eval(en, "(function (a) { if (a && a.tree) __setTree(a.tree); })("+arg+");"); err != nil || why != "" {
+			if why != "" {
+				err = errors.New("tree: " + why)
+			}
+			return "", err
+		}
+		if why, err := r.eval(en, src); err != nil || why != "" {
+			return "!" + why, err
+		}
+		name, nn, err := r.put(fn)
+		if err != nil {
+			return "", err
+		}
+		ap, an, err := r.put(arg)
+		if err != nil {
+			return "", err
+		}
+		failed, err := r.call("cx_call", en, name, nn, ap, an)
+		if err != nil {
+			return "", err
+		}
+		res := r.result()
+		if failed != 0 {
+			return "!" + res, nil
+		}
+		return res, nil
+	}()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "!it took longer than 3 s (an endless loop?)"
+		}
+		return "-"
+	}
+	return out
 }

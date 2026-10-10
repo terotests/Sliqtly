@@ -7,6 +7,12 @@
 // watchdog) and paints each one's picture, or its plate with why it is not
 // running, with PresPlayWeb (src/PresPlayWeb.rgr, web/dist-view/pres_play.js).
 //
+// A slide's script ({script=…}) runs the same way while its slide is shown:
+// the server sends the slide as the Markdown has it with its entities
+// (View.scripts), and each frame is laid over it by PresScriptWeb
+// (src/PresScriptWeb.rgr), the editor's own PresScriptApply. The list the
+// server sent shows where the script ends, before it runs and after.
+//
 // What a program may ask of the deck: moving between slides (allow:
 // slide.nav). deck.set and el() change the deck's layout, which the viewer
 // does not have: they work in the editor and are said once in the console.
@@ -42,16 +48,18 @@ export function viewerAsks(play, asks) {
 }
 
 /**
- * plays: the server's list; canvas: the viewer's; current() the slide shown,
+ * plays: the server's programs; scripts: its slides' scripts; lists: the
+ * slides' lists at rest; canvas: the viewer's; current() the slide shown,
  * count() how many; shownPages() the pages on screen; go(i) to a slide;
  * repaint() when a picture changed. For 3-D worlds: pictures, the viewer's
  * src → picture map; gl() its WebGL context; dpr() its device pixel ratio;
  * imageChanged(gl, src) the painter's; slidePicture(page, w, h) a page as
  * an ImageData without its programs.
  */
-export async function startPlays({ plays, canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture }) {
+export async function startPlays({ plays = [], scripts = [], lists = [], canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture }) {
   await loadScript("pres_play.js");
   const web = new globalThis.PresPlayWeb();
+  const scriptWeb = new globalThis.PresScriptWeb();
   const byKey = new Map();
   for (const p of plays) {
     const [x, y, w, h] = p.box;
@@ -60,8 +68,18 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
     web.setAllow3d(p.key, (p.allow || []).includes("3d"));
     byKey.set(p.key, p);
   }
+  // a script's slide while it runs: its list with the last frame laid over
+  const live = new Map();
+  for (const s of scripts) {
+    const b = s.base || {};
+    scriptWeb.add(s.key, JSON.stringify(b.list || {}), JSON.stringify(b.scene || {}), b.ink || "", b.accent || "");
+    byKey.set(s.key, { ...s, script: true, w: 0, h: 0, css: "" });
+  }
   // where each page was painted last, for the pointer
   const placed = new Map();
+  // the slide shown before this one (1-based, 0 for none): onEnter(from)
+  let seenPage = -1;
+  let cameFrom = 0;
   let focus = "";
   const notes = [];
   const said = new Set();
@@ -72,16 +90,46 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
   };
 
   const app = {
-    playsJson: () => JSON.stringify(plays.map((p) => ({ key: p.key, slide: p.slide, src: p.src, css: p.css, w: p.w, h: p.h, allow: p.allow || [], loaded: true }))),
+    playsJson: () => JSON.stringify([
+      ...plays.map((p) => ({ key: p.key, slide: p.slide, src: p.src, css: p.css, w: p.w, h: p.h, allow: p.allow || [], loaded: true })),
+      ...scripts.map((s) => ({ key: s.key, slide: s.slide, src: s.src, css: "", w: 0, h: 0, allow: s.allow || [], loaded: true, script: true })),
+    ]),
     playSource: (key) => byKey.get(key)?.text || "",
     playsShown: () => {
       const pages = shownPages();
-      return plays.filter((p) => pages.includes(p.slide)).map((p) => p.key).join("\n");
+      return [...plays, ...scripts].filter((p) => pages.includes(p.slide)).map((p) => p.key).join("\n");
     },
     setPlayFrame: (key, tree) => web.setTree(key, tree),
     playState: (key) => {
       const p = byKey.get(key);
-      return JSON.stringify({ home: p ? p.slide + 1 : 1, slide: current() + 1, slides: count(), step: 0, mode: "present", focused: focus === key, data: {} });
+      const step = p && p.script ? p.steps || 0 : 0;
+      return JSON.stringify({ home: p ? p.slide + 1 : 1, slide: current() + 1, slides: count(), step, from: cameFrom, mode: "present", focused: focus === key, data: {} });
+    },
+    // a slide's script (web/apps.js): the tree it is handed, its frames
+    // laid over its slide, and back to the list at rest when it stops. Where
+    // it ends came with the lists (no setScriptFinal: nothing to work out).
+    scriptTree: (key) => {
+      const p = byKey.get(key);
+      return p && p.tree ? JSON.stringify(p.tree) : "";
+    },
+    setScriptFrame: (key, json) => {
+      const p = byKey.get(key);
+      if (!p || !scriptWeb.setFrame(key, json)) return false;
+      live.set(p.slide, key);
+      repaint();
+      return true;
+    },
+    endScriptLive: (key) => {
+      const p = byKey.get(key);
+      if (p && live.get(p.slide) === key) live.delete(p.slide);
+    },
+    scriptOwnsClick: (key) => scriptWeb.ownsClick(key),
+    scriptHit: (key, cx, cy) => {
+      const p = byKey.get(key);
+      if (!p || !shownPages().includes(p.slide)) return "";
+      const at = slidePoint(placed.get(p.slide), canvas.getBoundingClientRect(), cx, cy);
+      if (!at) return "";
+      return JSON.stringify({ x: at.x, y: at.y, id: scriptWeb.entityAt(key, at.x, at.y) });
     },
     playAsks: (key, json) => {
       const p = byKey.get(key);
@@ -156,10 +204,22 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
   window.addEventListener("pointerup", () => apps.pointerUp());
 
   return {
+    // page's list while its script runs (the list at rest with the frame
+    // laid over its commands), else null
+    listOf(page) {
+      const key = live.get(page);
+      if (!key || !lists[page]) return null;
+      const { cmds } = JSON.parse(scriptWeb.listJson(key));
+      return { ...lists[page], cmds };
+    },
     // page painted at {x, y, scale} (CSS px of the canvas): its programs'
     // pictures as display lists in the slide's units
     listsFor(page, view) {
       placed.set(page, view);
+      if (page === current() && page !== seenPage) {
+        cameFrom = seenPage + 1;
+        seenPage = page;
+      }
       const out = [];
       for (const p of plays) if (p.slide === page) out.push(JSON.parse(web.paintJson(p.key)));
       return out;

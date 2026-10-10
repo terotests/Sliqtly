@@ -304,6 +304,15 @@ operators {
             go ( (e 1) ".AppRun(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; a slide's script run in CErXes (cerxescheck.go): runtime function `fn`
+    ; (__scriptFinal, __scriptAt) called with `arg` after the script `src`
+    ; loaded; its frame as JSON, "!" and why when it did not run, "-" when
+    ; there is no engine here
+    host_script_run _:string (h:McpHost src:string fn:string arg:string) {
+        templates {
+            go ( (e 1) ".ScriptRun(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
     ; --- slides as pictures (render.go)
 
     ; a picture the display lists name (/media/<name>), for the painter

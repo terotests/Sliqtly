@@ -10,17 +10,17 @@
   gap: 8px;
   width: 100%; height: 48px;
   padding: 0 14px;
-  /* the frame (Slack's window): the bar and the rail in the logo's
-     terracotta, the work set into it under the bar with its top left
-     corner rounded (.tb-corner). White reads 5.8:1 on it. */
-  background-color: #9a5229;
+  /* the frame (Slack's window): the bar and the rail white, the work set
+     into it under the bar with its top left corner rounded (.tb-corner);
+     Rooms is a shade darker (.tb-rooms) so the corner reads. */
+  background-color: #ffffff;
   font-family: Open Sans;
 }
 .tb-brand { font-size: 14px; font-weight: 700; color: #09090b; margin-right: 8px; }
 .tb-label { font-size: 12px; color: #71717a; }
 .tb-sep { width: 1px; height: 22px; background-color: #e8e4de; margin: 0 2px; }
 .tb-grow { flex-grow: 1; }
-.tb-status { font-size: 12px; color: #ffffff; }
+.tb-status { font-size: 12px; color: #5f5a54; }
 
 .theme-tb .ui-button { font-family: Open Sans; border-radius: 6px; height: 32px; padding: 0 12px; align-self: center; }
 .theme-tb .ui-button-primary { background-color: #18181b; border-color: #18181b; }
@@ -66,9 +66,9 @@
    as the select's; a submenu opens beside its row. A card is as wide as its
    widest row (at least 210px); a long name is cut with "…" by MenuCtl. */
 .theme-tb .ui-dropdownmenu { display: flex; align-self: center; }
-.theme-tb .ui-dropdownmenu-trigger { font-family: Open Sans; font-size: 13px; font-weight: 500; color: #ffffff; height: 32px; line-height: 32px; padding: 0 10px; border: 0px; border-radius: 6px; background-color: rgba(0,0,0,0); }
-.theme-tb .ui-dropdownmenu-trigger:hover { background-color: rgba(255, 255, 255, 0.14); }
-.theme-tb .ui-dropdownmenu-trigger-state-open { background-color: rgba(255, 255, 255, 0.22); }
+.theme-tb .ui-dropdownmenu-trigger { font-family: Open Sans; font-size: 13px; font-weight: 500; color: #09090b; height: 32px; line-height: 32px; padding: 0 10px; border: 0px; border-radius: 6px; background-color: rgba(0,0,0,0); }
+.theme-tb .ui-dropdownmenu-trigger:hover { background-color: rgba(0, 0, 0, 0.06); }
+.theme-tb .ui-dropdownmenu-trigger-state-open { background-color: rgba(0, 0, 0, 0.08); }
 .theme-tb .ui-dropdownmenu-content {
   gap: 1px; padding: 4px; width: fit-content; align-items: stretch;
   border: 1px solid #e4e4e7; border-radius: 12px; background-color: #ffffff;
@@ -164,16 +164,19 @@
 .tb-railcol {
   display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center;
   padding: 8px 0 0 0;
-  background-color: #9a5229;
+  background-color: #ffffff;
   font-family: Open Sans;
 }
+/* the open place: the logo's terracotta, faint, on the white frame */
+.theme-tb .ui-rail-pad-state-active { background-color: rgba(154, 82, 41, 0.14); }
+.theme-tb .ui-rail-icon-state-active { stroke: #8a4a26; }
+.theme-tb .ui-rail-label-state-active { color: #5a2c14; }
+.theme-tb .ui-rail-item:hover { background-color: rgba(0, 0, 0, 0.05); }
 /* the frame's piece over the work's top left corner (PresToolbar.frameCorner) */
-.tb-corner { fill: #9a5229; }
-.tb-frameunder { background-color: #9a5229; }
+.tb-corner { fill: #ffffff; }
+.tb-frameunder { background-color: #ffffff; }
 .tb-railpad { height: 1px; }
-/* the mark on a light tile, as a workspace's icon on Slack's frame (its
-   card is the frame's own colour) */
-.tb-logo { width: 36px; height: 36px; min-height: 36px; margin: 0 0 6px 0; background-color: #fff8ef; border-radius: 9px; }
+.tb-logo { width: 36px; height: 36px; min-height: 36px; margin: 0 0 6px 0; }
 .tb-logo-part { width: 36px; height: 36px; }
 /* brand/make_logo.py's gradients, each at its middle */
 .tb-logo-ghost1 { fill: #DDB691; }
@@ -185,9 +188,9 @@
 /* The deck's name at the start of the bar (Google Drive's): a quiet button
    that shows its edge on hover; pressed, a field of the same size. */
 .theme-tb .tb-title { padding: 0 8px; }
-.theme-tb .tb-title:hover { border: 1px solid rgba(255, 255, 255, 0.55); }
+.theme-tb .tb-title:hover { border: 1px solid rgba(0, 0, 0, 0.18); }
 .theme-tb .tb-b-title { height: 32px; }
-.theme-tb .tb-title-label { font-size: 16px; color: #ffffff; font-weight: 600; white-space: nowrap; overflow: hidden; }
+.theme-tb .tb-title-label { font-size: 16px; color: #09090b; font-weight: 600; white-space: nowrap; overflow: hidden; }
 .theme-tb .tb-title-box { width: 100%; align-self: center; height: 32px; font-size: 15px; font-weight: 600; border: 1px solid #4f46e5; border-radius: 6px; padding: 0 8px; background-color: #ffffff; }
 
 /* Rooms beside the rail (a mock until the server keeps rooms). Its rows
@@ -196,7 +199,7 @@
 .tb-rooms {
   display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; overflow: hidden;
   gap: 1px; padding: 10px 8px;
-  background-color: #fafafa;
+  background-color: #f4f2ef;
   border-right: 1px solid #e4e4e7;
   font-family: Open Sans;
 }
@@ -253,19 +256,6 @@
 .tb-dragchip { padding: 4px 10px; border-radius: 6px; background-color: #4f46e5; font-family: Open Sans; }
 .tb-dragchip-label { font-size: 13px; color: #ffffff; white-space: nowrap; }
 
-/* The bar's buttons on the frame (PresToolbar.button while onFrame): Play,
-   Share and the quiet ones outlined in white, Present and Sign in cream with
-   the frame's deep brown on them (11:1). */
-.theme-tb .tb-fb { background-color: rgba(0,0,0,0); border: 1px solid rgba(255, 255, 255, 0.55); }
-.theme-tb .tb-fb:hover { background-color: rgba(255, 255, 255, 0.14); }
-.theme-tb .tb-fb-ghost { border-color: rgba(0,0,0,0); }
-.theme-tb .tb-fb-label { color: #ffffff; }
-.theme-tb .tb-fb-primary,
-.theme-tb .tb-fb-accent { background-color: #fff8ef; border-color: #fff8ef; }
-.theme-tb .tb-fb-primary:hover,
-.theme-tb .tb-fb-accent:hover { background-color: #f3e3cf; border-color: #f3e3cf; }
-.theme-tb .tb-fb-label-primary,
-.theme-tb .tb-fb-label-accent { color: #5a2c14; font-weight: 600; }
 /* searching: the presentations whose words hold the query, under the rooms
    found; each its name, its room and the text around the first word */
 .tb-found-head { font-size: 11px; font-weight: 600; color: #71717a; padding: 2px 8px 4px 8px; }

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/terotests/sliqtly/mcp-go/rdiff"
 )
 
 // one page in a room, as the test sees it: its stream's events in order
@@ -87,9 +89,9 @@ func (p *testPeer) post(what string, body map[string]any) (int, map[string]any) 
 	return code, m
 }
 
-func opsOf(t *testing.T, m map[string]any) delta {
+func opsOf(t *testing.T, m map[string]any) rdiff.Delta {
 	t.Helper()
-	d, err := parseDelta(m["ops"])
+	d, err := rdiff.ParseDelta(m["ops"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +140,7 @@ func TestCollabRoom(t *testing.T) {
 	// an edit reaches the other page at once, and its sender as the ack
 	text := toU16("# Title\n\nHello\n")
 	start := time.Now()
-	code, out := a.post("/op", map[string]any{"rev": 0, "ops": diffU16(text, toU16("# Title\n\nHello world\n")).json()})
+	code, out := a.post("/op", map[string]any{"rev": 0, "ops": rdiff.TextDiff(text, toU16("# Title\n\nHello world\n")).JSON()})
 	eq(t, []any{code, out["rev"]}, []any{200, float64(1)})
 	got := b.next("op")
 	took := time.Since(start)
@@ -153,17 +155,17 @@ func TestCollabRoom(t *testing.T) {
 
 	// B typed at the start on revision 0, before A's edit reached it: taken
 	// over A's edit, not refused
-	code, out = b.post("/op", map[string]any{"rev": 0, "ops": delta{}.retain(2).insert(toU16("Big ")).json()})
+	code, out = b.post("/op", map[string]any{"rev": 0, "ops": rdiff.Delta{}.Retain(2).Insert(toU16("Big ")).JSON()})
 	eq(t, []any{code, out["rev"]}, []any{200, float64(2)})
 	got = a.next("op")
 	text = mustApply(t, opsOf(t, got), text)
 	eq(t, fromU16(text), "# Big Title\n\nHello world\n")
 	eq(t, snapshot(t, srv.URL, id)["md"], fromU16(text))
 	// an edit sent again after its answer was lost is not taken twice
-	code, out = b.post("/op", map[string]any{"rev": 2, "seq": 1, "ops": delta{}.insert(toU16("!")).json()})
+	code, out = b.post("/op", map[string]any{"rev": 2, "seq": 1, "ops": rdiff.Delta{}.Insert(toU16("!")).JSON()})
 	eq(t, []any{code, out["rev"]}, []any{200, float64(3)})
 	text = mustApply(t, opsOf(t, a.next("op")), text)
-	code, out = b.post("/op", map[string]any{"rev": 2, "seq": 1, "ops": delta{}.insert(toU16("!")).json()})
+	code, out = b.post("/op", map[string]any{"rev": 2, "seq": 1, "ops": rdiff.Delta{}.Insert(toU16("!")).JSON()})
 	eq(t, []any{code, out["rev"], out["again"]}, []any{200, float64(3), true})
 
 	// carets, moved to the room's revision
@@ -208,7 +210,7 @@ func TestCollabRoom(t *testing.T) {
 
 	// a write from elsewhere (a page not in the room, an assistant) while
 	// A has typed more that is not written yet: it comes in as an edit
-	code, _ = a.post("/op", map[string]any{"rev": 3, "ops": delta{}.retain(len(text)).insert(toU16("A typed\n")).json()})
+	code, _ = a.post("/op", map[string]any{"rev": 3, "ops": rdiff.Delta{}.Retain(len(text)).Insert(toU16("A typed\n")).JSON()})
 	eq(t, code, 200)
 	text = mustApply(t, opsOf(t, b.next("op")), text)
 	code, _ = req(t, "PATCH", srv.URL+"/api/shares/"+id, "application/json", `{"md":"!# Big Title\n\nHello world\n\n## From the assistant\n"}`)
@@ -244,7 +246,7 @@ func TestCollabReconnect(t *testing.T) {
 	b.next("peers")
 	b.close()
 	for i := 0; i < 3; i++ {
-		a.post("/op", map[string]any{"rev": i, "ops": delta{}.insert(toU16("x")).json()})
+		a.post("/op", map[string]any{"rev": i, "ops": rdiff.Delta{}.Insert(toU16("x")).JSON()})
 	}
 	r, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/events?room=%s&client=pageB1&name=B", srv.URL, id), nil)
 	r.Header.Set("Last-Event-ID", "1")
@@ -291,7 +293,7 @@ func TestCollabManyPages(t *testing.T) {
 			for k := 0; k < edits; k++ {
 				out := otRandomDelta(r, text)
 				text = mustApply(t, out, text)
-				b, _ := json.Marshal(map[string]any{"client": p.client, "rev": rev, "ops": out.json()})
+				b, _ := json.Marshal(map[string]any{"client": p.client, "rev": rev, "ops": out.JSON()})
 				res, err := http.Post(p.base+"/api/collab/"+id+"/op", "application/json", strings.NewReader(string(b)))
 				if err != nil || res.StatusCode != 200 {
 					t.Errorf("%s: send failed", p.client)
@@ -307,9 +309,9 @@ func TestCollabManyPages(t *testing.T) {
 					if m["client"] == p.client {
 						break
 					}
-					o, _ := parseDelta(m["ops"])
-					var o1 delta
-					out, o1 = transform(out, o)
+					o, _ := rdiff.ParseDelta(m["ops"])
+					var o1 rdiff.Delta
+					out, o1 = rdiff.Transform(out, o)
 					text = mustApply(t, o1, text)
 				}
 			}
@@ -321,7 +323,7 @@ func TestCollabManyPages(t *testing.T) {
 					return
 				}
 				if m["t"] == "op" {
-					o, _ := parseDelta(m["ops"])
+					o, _ := rdiff.ParseDelta(m["ops"])
 					text = mustApply(t, o, text)
 					rev = int(m["rev"].(float64))
 				}
@@ -466,7 +468,7 @@ func TestCollabEpochReset(t *testing.T) {
 	}
 	a := joinTest(t, srv.URL, id, "pageA1", "A", 0)
 	a.next("peers")
-	code, _ := a.post("/op", map[string]any{"rev": 0, "ops": delta{}.insert(toU16("x")).json(), "epoch": epoch})
+	code, _ := a.post("/op", map[string]any{"rev": 0, "ops": rdiff.Delta{}.Insert(toU16("x")).JSON(), "epoch": epoch})
 	eq(t, code, 200)
 	a.close()
 
@@ -484,7 +486,7 @@ func TestCollabEpochReset(t *testing.T) {
 		t.Fatal("the room opened again has the old epoch")
 	}
 
-	code, out := a.post("/op", map[string]any{"rev": 1, "ops": delta{}.retain(1).insert(toU16("y")).json(), "epoch": epoch})
+	code, out := a.post("/op", map[string]any{"rev": 1, "ops": rdiff.Delta{}.Retain(1).Insert(toU16("y")).JSON(), "epoch": epoch})
 	eq(t, code, 409, "an op from the old room")
 	eq(t, out["code"], "reset")
 
@@ -517,7 +519,7 @@ func TestCollabFlushRooms(t *testing.T) {
 	id := newDeck(t, srv.URL, "abc")
 	a := joinTest(t, srv.URL, id, "pageA1", "A", 0)
 	a.next("peers")
-	code, _ := a.post("/op", map[string]any{"rev": 0, "ops": delta{}.insert(toU16("x")).json()})
+	code, _ := a.post("/op", map[string]any{"rev": 0, "ops": rdiff.Delta{}.Insert(toU16("x")).JSON()})
 	eq(t, code, 200)
 	ls.flushRooms()
 	d, err := ls.env.DB.Get(context.Background(), "shares", id)
@@ -528,4 +530,53 @@ func TestCollabFlushRooms(t *testing.T) {
 	a.close()
 	session.Close()
 	srv.Close()
+}
+
+var otPieces = []string{"a", "b", "xy", " ", "\n", "## ", "ä", "😀", "👨‍👩‍👧", "\"q\"", "\\"}
+
+func otRandomString(r *rand.Rand, n int) []uint16 {
+	s := ""
+	for i := 0; i < n; i++ {
+		s += otPieces[r.Intn(len(otPieces))]
+	}
+	return toU16(s)
+}
+
+// at moved back off the low half of a surrogate pair
+func otWhole(s []uint16, at int) int {
+	if at > 0 && at < len(s) && s[at] >= 0xDC00 && s[at] <= 0xDFFF {
+		return at - 1
+	}
+	return at
+}
+
+// a few replaces at random places, cut at whole characters
+func otRandomDelta(r *rand.Rand, s []uint16) rdiff.Delta {
+	n := len(s)
+	var d rdiff.Delta
+	pos := 0
+	for k, edits := 0, 1+r.Intn(3); k < edits; k++ {
+		at := otWhole(s, pos+r.Intn(n-pos+1))
+		if at < pos {
+			at = pos
+		}
+		del := min(r.Intn(4), n-at)
+		del = max(otWhole(s, at+del)-at, 0)
+		d = d.Retain(at - pos)
+		if r.Intn(3) > 0 {
+			d = d.Insert(otRandomString(r, 1+r.Intn(3)))
+		}
+		d = d.Delete(del)
+		pos = at + del
+	}
+	return d.Retain(n - pos)
+}
+
+func mustApply(t *testing.T, d rdiff.Delta, s []uint16) []uint16 {
+	t.Helper()
+	out, err := d.Apply(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
