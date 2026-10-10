@@ -1116,9 +1116,18 @@ arrows. Name it on the slide's heading; one script a slide:
   `opacity`, `visible`, `color`, `fill`, `stroke`, `z` (drawn above
   others), `clip` (`{x, y, w, h, r}` or `{circle: [cx, cy, r]}`). `null`
   takes a property back to the slide's own.
-- `slide.add("rect" | "circle" | "text" | "image", {x, y, w, h, text, size,
-  src, fill, color, …})` puts a shape on the slide, in the theme's colours
-  unless it names its own.
+- Everything is in the slide's own units: `presentation.activeSlide.width`
+  × `height`, 960 × 540 for a 16:9 slide (not the screen's pixels).
+- `slide.add(kind, props)` puts a shape on the slide and returns it; its
+  `set({…})` moves or changes it later, `remove()` takes it away. Shapes
+  can be added at the top level or in any hook, `tick` too.
+  - `"rect"`: `x`, `y` (top left), `w`, `h`, `radius`, `fill`, `stroke`
+  - `"circle"`: the circle in the box `x`, `y`, `w`, `h`; `fill`, `stroke`
+  - `"text"`: `text`, `x`, `y` (top left), `size` (px), `bold`, `color`
+  - `"image"`: `src` (`"media/ship.svg"`, a picture the deck keeps, or an
+    https:// address), `x`, `y`, `w`, `h`, `radius`
+  - all: `id`, `opacity`, `visible`, `rotate`, `scale`, `z` (drawn above
+    others when higher). Colours are the theme's unless named.
 - Hooks, as functions (`export` is optional): `start()`, `onEnter(from)`,
   `tick(dt)` each frame, `build(n)` (the slide's build step; with it the
   slide's own build animation is left out; steps are taken in order, 0
@@ -1193,6 +1202,9 @@ interface Presentation {
 interface ActiveSlide {
   /** 1-based. */
   readonly index: number;
+  /** The slide's size in its own units, which every box and add() is in: 960 × 540 for 16:9. */
+  readonly width: number;
+  readonly height: number;
   /** The build step shown, 0 first. */
   readonly step: number;
   /** The slide shown before this one, 1-based; 0 for none. */
@@ -1256,12 +1268,19 @@ interface Props {
   clip?: { x: number; y: number; w: number; h: number; r?: number } | { circle: [number, number, number] } | null;
 }
 
+/** In the slide's units (ActiveSlide.width × height). */
 interface AddProps {
   id?: string;
+  /** Top left of its box; a circle fills its box. */
   x?: number; y?: number; w?: number; h?: number;
-  text?: string; size?: number; src?: string;
+  /** "text": the text, its size in px, bold. */
+  text?: string; size?: number; bold?: boolean;
+  /** "image": "media/x.svg" (a picture the deck keeps) or an https:// address. */
+  src?: string;
+  /** "rect", "image": rounded corners. */
+  radius?: number;
   fill?: string; color?: string; stroke?: string;
-  opacity?: number; rotate?: number; z?: number;
+  opacity?: number; visible?: boolean; rotate?: number; scale?: number; z?: number;
 }
 
 interface Added {

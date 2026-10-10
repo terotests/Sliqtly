@@ -367,6 +367,10 @@ function __tickFor(seconds) {
 __activeSlide.find = function (sel) { return __find(sel, null); };
 __activeSlide.add = function (kind, p) { return __add(kind, p); };
 __activeSlide.tree = function () { return __ents[0] || null; };
+// the slide's size in its own units, the ones every box and add() is in
+// (960 × 540 for 16:9)
+Object.defineProperty(__activeSlide, "width", { enumerable: true, get: function () { return __ents[0] ? __ents[0].box.w : 960; } });
+Object.defineProperty(__activeSlide, "height", { enumerable: true, get: function () { return __ents[0] ? __ents[0].box.h : 540; } });
 __sliqtly.input = input;
 __sliqtly.env = env;
 `;

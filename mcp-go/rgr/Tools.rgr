@@ -1249,27 +1249,14 @@ class Tools {
     ; own, or the theme's (fetched once); with neither, the outline's count
     ; the pictures the deck names (media/<name>), for the layout and the
     ; contrast check of its backgrounds: from
-    ; this call's pictures, else from the deck's stored ones (deckId)
+    ; this call's pictures, else from the deck's stored ones (deckId). A
+    ; slide's script names them too (add("image", {src: "media/x.svg"})).
     sfn backgrounds:CheckPics (host:McpHost md:string imgs:[Img] deckId:string) {
         def out (new CheckPics)
         def names:[string]
-        def from:int 0
-        while true {
-            def rest:string (substring md from (strlen md))
-            def at:int (indexOf rest "media/")
-            if (at < 0) {
-                break
-            }
-            def start:int ((from + at) + 6)
-            def e:int start
-            while ((e < (strlen md)) && (Tools.nameChar((charAt md e)))) {
-                e = (e + 1)
-            }
-            def name:string (substring md start e)
-            if (((strlen name) > 0) && ((indexOf names name) < 0)) {
-                push names name
-            }
-            from = e
+        Tools.mediaNames(md names)
+        for (Tools.scriptTexts(host md imgs deckId)) st:string sti {
+            Tools.mediaNames(st names)
         }
         for names name:string ni {
             if (ni >= 30) {
@@ -1341,6 +1328,73 @@ class Tools {
             push out.pics sp
             push out.data (buffer_from_string u.svg)
             push out.types "image/svg+xml"
+        }
+        return out
+    }
+
+    ; the <name>s of "media/<name>" in `text`, each once, added to `names`
+    sfn mediaNames:void (text:string names:[string]) {
+        def from:int 0
+        while true {
+            def rest:string (substring text from (strlen text))
+            def at:int (indexOf rest "media/")
+            if (at < 0) {
+                break
+            }
+            def start:int ((from + at) + 6)
+            def e:int start
+            while ((e < (strlen text)) && (Tools.nameChar((charAt text e)))) {
+                e = (e + 1)
+            }
+            def name:string (substring text start e)
+            if (((strlen name) > 0) && ((indexOf names name) < 0)) {
+                push names name
+            }
+            from = e
+        }
+    }
+
+    ; the text of each slide's script the Markdown names
+    ; ({script=apps/x.tsx}): from this call's files, else the deck's stored
+    ; ones (deckId)
+    sfn scriptTexts:[string] (host:McpHost md:string imgs:[Img] deckId:string) {
+        def out:[string]
+        def seen:[string]
+        def from:int 0
+        while true {
+            def rest:string (substring md from (strlen md))
+            def at:int (indexOf rest "script=")
+            if (at < 0) {
+                break
+            }
+            def start:int ((from + at) + 7)
+            def e:int start
+            while ((e < (strlen md)) && ((Tools.nameChar((charAt md e))) || ((charAt md e) == 47))) {
+                e = (e + 1)
+            }
+            from = e
+            def path:string (substring md start e)
+            if (((strlen path) == 0) || ((indexOf seen path) >= 0)) {
+                continue
+            }
+            push seen path
+            def text:string ""
+            for imgs im:Img ii {
+                if (im.path == path) {
+                    text = (host_text host im.handle)
+                }
+            }
+            if (((strlen text) == 0) && ((strlen deckId) > 0)) {
+                def got:MfJ (J.parse((host_file_bytes host deckId path)))
+                if ((strlen (host_error host)) > 0) {
+                    host_clear_error host
+                } {
+                    text = (host_text host (got.int_("handle" 0)))
+                }
+            }
+            if ((strlen text) > 0) {
+                push out text
+            }
         }
         return out
     }
@@ -1733,7 +1787,15 @@ class Tools {
             push ws ln
         }
         def none2:[string]
-        def bgs:CheckPics (Tools.backgrounds(host md loaded.imgs ""))
+        ; (the files too: a slide's script there names pictures)
+        def withFiles:[Img]
+        for loaded.imgs li:Img lii {
+            push withFiles li
+        }
+        for data.imgs dfi:Img dfii {
+            push withFiles dfi
+        }
+        def bgs:CheckPics (Tools.backgrounds(host md withFiles ""))
         def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
         if (Tools.limited(host)) {
             def long:string (Tools.slidesOver(caller ck.slides))

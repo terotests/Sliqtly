@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -117,6 +118,38 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	}
 	md2 := call(t, s, "get_display_list", map[string]any{"deck_id": sc(mc)["deck_id"].(string), "slide": 2})
 	match(t, textOf(md2), `Where the slide's script ends .*"li-1":\{"opacity":0\.25\}`)
+	// shapes added off the slide (a script that took it for 1920 × 1080) are said
+	far := "import { presentation } from \"Sliqtly\";\nconst s = presentation.activeSlide;\ns.add(\"rect\", { x: 1440, y: 40, w: 400, h: 20 });\ns.add(\"rect\", { x: s.width - 50, y: 10, w: 40, h: 20 });\nexport function tick() {}\n"
+	fc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
+		"files": []any{map[string]any{"name": "fx.tsx", "text": far}}})
+	match(t, fmt.Sprint(sc(fc)["warnings"]), `Slide 2: script apps/fx\.tsx: 1 shape\(s\) it adds are off the slide, which is 960 × 540`)
+
+	// a picture only a script names (add("image")) is the deck's too: drawn
+	// where the script ends, and handed to the viewer
+	pic := "import { presentation } from \"Sliqtly\";\npresentation.activeSlide.add(\"image\", { src: \"media/dot.png\", x: 20, y: 20, w: 40, h: 40 });\nexport function tick() {}\n"
+	pc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md, "visibility": "link",
+		"files":  []any{map[string]any{"name": "fx.tsx", "text": pic}},
+		"images": []any{map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())}}})
+	if pc.IsError {
+		t.Fatal(textOf(pc))
+	}
+	_, _, pv, _ := getView(t, s.root+"/api/view/"+sc(pc)["deck_id"].(string))
+	drawn := false
+	for _, c := range pv.Lists[1].Cmds {
+		if c.K == 2 && c.Src == "/media/dot.png" {
+			drawn = true
+		}
+	}
+	handed := false
+	for _, f := range pv.Deck.Files {
+		if f.Path == "media/dot.png" {
+			handed = true
+		}
+	}
+	if !drawn || !handed {
+		t.Fatalf("the script's picture: drawn %v, handed to the viewer %v", drawn, handed)
+	}
+
 	// a module the page does not have is said
 	nomod := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
 		"files": []any{map[string]any{"name": "fx.tsx", "text": "import { x } from \"nope\";\nfunction tick() {}\n"}}})

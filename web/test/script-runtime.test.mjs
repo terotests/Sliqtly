@@ -297,3 +297,25 @@ test("how a script opens: start, onEnter and build, no tick; the stage shows it 
   app.endScriptLive(key, "");
   assert.equal(run.hasOpen, false, "and not after it left the stage");
 });
+
+test("added shapes: an image names the deck's picture as Markdown does; the slide's size is the script's", () => {
+  const app = openDeck();
+  const key = app.deck.scriptKeyOf(0);
+  const frame = { p: {}, a: [
+    { id: "pic", k: "image", src: "media/ship.svg", x: 10, y: 10, w: 50, h: 50 },
+    { id: "dot", k: "rect", x: 100, y: 100, w: 20, h: 20, fill: "#ff0000" },
+    { id: "far", k: "rect", x: 1440, y: 40, w: 400, h: 20 },
+  ] };
+  assert.ok(app.setScriptFrame(key, JSON.stringify(frame)));
+  app.deck.showControls = true;
+  const cmds = Array.from(app.deck.slideList(0, [], 0.0).cmds);
+  assert.ok(cmds.some((c) => c.kind === 2 && c.src === "/media/ship.svg"), "the picture as /media/…");
+  assert.ok(cmds.some((c) => c.kind === 0 && c.x === 100 && c.r === 255), "the rect drawn in its fill");
+  // an https:// picture is left as it is
+  frame.a[0].src = "https://x.org/a.png";
+  assert.ok(app.setScriptFrame(key, JSON.stringify(frame)));
+  assert.ok(Array.from(app.deck.slideList(0, [], 0.0).cmds).some((c) => c.kind === 2 && c.src === "https://x.org/a.png"));
+  const { modules, ctx } = moduleRuntime();
+  ctx.__setTree(JSON.parse(app.scriptTree(key)));
+  assert.deepEqual([modules.Sliqtly.presentation.activeSlide.width, modules.Sliqtly.presentation.activeSlide.height], [960, 540]);
+});
