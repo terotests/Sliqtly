@@ -54,11 +54,13 @@ Import "../datagrid/src/script/lang/JsLanguage.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
 Import "PresChartEditor.rgr"
+Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresPanels.rgr"
 Import "PresMeet.rgr"
 Import "PresReviewUi.rgr"
+Import "PresCodeViewUi.rgr"
 Import "PresSketchUi.rgr"
 Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
@@ -300,6 +302,12 @@ class PresApp {
     def meet:PresMeet (new PresMeet())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
     def review:PresReviewUi (new PresReviewUi())
+    ; presenting, the source files a diagram's boxes link to (PresCodeLinks),
+    ; read-only over the slide (PresCodeViewUi), and the diagrams' badges
+    def codeView:PresCodeViewUi (new PresCodeViewUi())
+    def codePress:boolean false
+    ; the files under code/ asked from the page
+    def codeAsked:[string]
     ; Slide → Draw on slide: what is drawn stays on the slide (PresSketchUi,
     ; PresSketch); a drawing begun on a slide without one is the deck's
     ; until its reference is written (PresDeck.newSketchPath/newSketchSlide),
@@ -351,6 +359,7 @@ class PresApp {
         layers.add("bar" "docked")
         layers.add("panels" "docked")
         layers.add("sketch" "docked")
+        layers.add("code" "docked")
         layers.add("review" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
@@ -387,6 +396,9 @@ class PresApp {
         PresApp.lightEditor(editor)
         PresApp.lightEditor(cssEditor)
         PresApp.lightEditor(fileEditor)
+        PresApp.darkEditor(codeView.edA)
+        PresApp.darkEditor(codeView.edB)
+        codeView.dark = true
         W = w
         H = h
     }
@@ -451,6 +463,23 @@ class PresApp {
             push parts ("{\"path\":" + (PresApp.jsonStr(("/" + u.path))) + ",\"svg\":" + (PresApp.jsonStr(u.svg)) + "}")
         }
         return ("[" + (join parts ",") + "]")
+    }
+
+    ; `[{"path":"/figma:app/12:34","file":"app","node":"12:34"}]`: the
+    ; screens of shared Figma files the Markdown shows that the page has not
+    ; drawn into the store yet (`PresDeck.figmaMissing`); the page fetches
+    ; each from the server's shared files and calls `inlineSvgsAdded`.
+    fn figmaPicturesJson:string () {
+        def out:JVal (JVal.mkArr())
+        for (deck.figmaMissing()) dest:string i {
+            def r:FigmaRef (FigmaRef.parse(dest))
+            def o:JVal (JVal.mkObj())
+            o.setStr("path" (FigmaRef.pictureKey(dest)))
+            o.setStr("file" r.file)
+            o.setStr("node" r.node)
+            out.add(o)
+        }
+        return (out.toJson())
     }
 
     ; The pictures `inlineSvgsJson` named are in the store now: the slides
@@ -532,7 +561,7 @@ class PresApp {
             return ""
         }
         def use:PresPlayUse (unwrap u)
-        return (deck.dataText(use.spec.src))
+        return (deck.linkedSource(use.spec.src))
     }
 
     ; The programs on the slide the stage shows, one key a line: these run.
@@ -656,6 +685,33 @@ class PresApp {
         return ((deck.playScenes(selected)).toJson())
     }
 
+    ; The presentation as a world to fly through (src/PresFlight.rgr), for
+    ; the page's 3-D flight (web/flight3d.js).
+    fn flightJson:string () {
+        return ((PresFlightScene.of(deck)).toJson())
+    }
+
+    ; Every slide's 3-D worlds as their programs last drew them, for an
+    ; export (web/main.js renderWorldStills): {"pw": the slide's width,
+    ; "scenes": [playScenes]}.
+    fn allPlayScenesJson:string () {
+        def all:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def got:JVal (deck.playScenes(i))
+            def j:int 0
+            while (j < (got.len())) {
+                all.add((got.at(j)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def o:JVal (JVal.mkObj())
+        o.setNum("pw" deck.pageW)
+        o.set("scenes" all)
+        return (o.toJson())
+    }
+
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {
@@ -701,6 +757,7 @@ class PresApp {
         o.setStr("mode" mode)
         o.setBool("focused" (deck.playFocus == key))
         o.set("data" (deck.playData(page)))
+        o.set("code" (codeView.state()))
         return (o.toJson())
     }
 
@@ -735,6 +792,10 @@ class PresApp {
     fn playMove:void (a:PresPlayAsk) {
         def n:int (deck.slideCount())
         if (n == 0) {
+            return
+        }
+        if ((indexOf a.kind "code.") == 0) {
+            this.playCode(a)
             return
         }
         if (mode == "present") {
@@ -777,6 +838,23 @@ class PresApp {
     fn playPoint:string (key:string x:double y:double) {
         this.slidePoint(x y)
         return (deck.playPoint(key spX spY))
+    }
+
+    ; Window point (x, y) on the worlds programs on the slide shown draw
+    ; past their boxes: [{"key", "src", "u", "v"}] (PresDeck.playPast).
+    fn playPast:string (x:double y:double) {
+        if ((deck.slideCount()) == 0) {
+            return "[]"
+        }
+        this.slidePoint(x y)
+        return ((deck.playPast(selected spX spY)).toJson())
+    }
+
+    ; Whether a program that has the keyboard takes the whole stage while
+    ; presenting (PresDeck.focusTakesStage): the slide's text and the
+    ; controls give way to it.
+    fn gameTakesStage:boolean () {
+        return ((mode == "present") && (deck.focusTakesStage()))
     }
 
     ; The program that has the keyboard ("" gives it back to the deck).
@@ -1291,6 +1369,12 @@ class PresApp {
     ; one with a heading at the selected slide's level, its words selected
     ; to be typed over. The new slide is selected.
     fn addSlide:void (dup:boolean) {
+        this.addSlideAs(dup "" "")
+    }
+
+    ; A new slide after the selected one: `title` its heading ("New slide"
+    ; when ""), `more` Markdown under it.
+    fn addSlideAs:void (dup:boolean heading:string more:string) {
         this.dropPicks()
         addOpen = false
         if (edTab != "md") {
@@ -1316,7 +1400,14 @@ class PresApp {
             }
         }
         def title:string (PresI18n.t("New slide"))
+        if ((strlen heading) > 0) {
+            title = heading
+        }
         def body:string ((level + " ") + title)
+        def head:string body
+        if ((strlen more) > 0) {
+            body = (body + "\n\n" + more)
+        }
         if (dup && (from >= 0)) {
             ; its lines, the blank ones at its end left out
             def last:int (at - 1)
@@ -1365,7 +1456,7 @@ class PresApp {
         if ((dup == false) || (from < 0)) {
             ; the heading's words selected, ready to be typed over
             mdEditor.moveCaret(line ((strlen level) + 1) false)
-            mdEditor.moveCaret(line (strlen body) true)
+            mdEditor.moveCaret(line (strlen head) true)
         }
         chromeRev = (chromeRev + 1)
     }
@@ -1996,6 +2087,9 @@ class PresApp {
         clock = (PresTimeline.slideStart(deck selected))
         elapsed = 0.0
         deck.resetExplore()
+        codeView.close(-10.0)
+        review.setCodeView("")
+        this.codeWant(deck.codeLinks.links)
         push requests "fullscreen"
         chromeRev = (chromeRev + 1)
     }
@@ -2015,6 +2109,9 @@ class PresApp {
         ink.hidePointer()
         inkPress = false
         inkLine = false
+        codeView.close(-10.0)
+        codePress = false
+        review.setCodeView("")
         mode = "edit"
         ended = false
         this.viewReset()
@@ -3722,7 +3819,15 @@ class PresApp {
 
     fn uiBusy:boolean () {
         deck.showingSlide(selected)
-        return (((deck.uiBusy(selected)) || reviewBusy) || (stripMove.busy(deck.uiNow)))
+        def codeBusy:boolean false
+        if (mode == "present") {
+            ; a press held on a line becomes a comment's hold after a while
+            if (codeView.tick(deck.uiNow)) {
+                chromeRev = (chromeRev + 1)
+            }
+            codeBusy = ((codeView.view.busy(deck.uiNow)) || codePress)
+        }
+        return ((((deck.uiBusy(selected)) || reviewBusy) || (stripMove.busy(deck.uiNow))) || codeBusy)
     }
 
     ; Called by the page each frame: one more rebuild while charts are still
@@ -4285,6 +4390,18 @@ class PresApp {
             if replaying {
                 return "stage"
             }
+            if (codeView.isOpen()) {
+                codeView.press(tr x y clicks deck.uiNow)
+                codePress = true
+                this.takeCode()
+                return "code"
+            }
+            def badge:string (codeView.badgeAt(x y))
+            if ((strlen badge) > 0) {
+                this.openCodeBadge(badge)
+                return "code"
+            }
+            downClicks = clicks
             this.stageDown(x y)
             return "stage"
         }
@@ -4685,6 +4802,12 @@ class PresApp {
             if (((adx * adx) + (ady * ady)) >= (swipeMin * swipeMin)) {
                 return
             }
+            ; a box with code links: a double click opens its files, a
+            ; single click is the box's (no next step under it)
+            if (this.codeClick(downX downY downClicks)) {
+                chromeRev = (chromeRev + 1)
+                return
+            }
             if (! (this.stagePress(downX downY))) {
                 ; a link on the slide goes where it points; elsewhere on
                 ; it, the next step
@@ -4725,6 +4848,11 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if codePress {
+            codeView.drag(tr x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (sketch.busy()) {
             sketch.move(x y (this.sketchModel()))
             chromeRev = (chromeRev + 1)
@@ -4921,6 +5049,12 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        if codePress {
+            codePress = false
+            codeView.release()
+            this.takeCode()
+            return
+        }
         if (sketch.busy()) {
             sketch.release((this.sketchModel()))
             this.afterSketch()
@@ -5102,6 +5236,11 @@ class PresApp {
                 chromeRev = (chromeRev + 1)
                 return true
             }
+        }
+        if ((mode == "present") && (codeView.isOpen())) {
+            codeView.wheel(dy)
+            chromeRev = (chromeRev + 1)
+            return true
         }
         if (mode == "present") {
             return false
@@ -5402,6 +5541,15 @@ class PresApp {
             def used:boolean (chart.key(name shift ctrl))
             this.afterChart()
             return used
+        }
+        ; the source viewer has the keys while it is open (Esc closes a
+        ; comment's callout over it first)
+        if ((mode == "present") && (codeView.isOpen())) {
+            if ((name != "escape") || ((review.panelOpen()) == false)) {
+                def usedC:boolean (codeView.key(name shift ctrl deck.uiNow))
+                this.takeCode()
+                return usedC
+            }
         }
         ; a replay: Esc ends it, nothing else drives it (the host's keys
         ; pause and seek it)
@@ -6591,7 +6739,15 @@ class PresApp {
         }
         layers.setOpen("panels" ((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
-        layers.setOpen("review" (review.on && ((deck.slideCount()) > 0)))
+        ; the source viewer and the badges under the comments' pins
+        def codeWas:boolean (layers.isOpen("code"))
+        layers.setOpen("code" ((mode == "present") && ((deck.slideCount()) > 0)))
+        if ((codeWas == false) && (layers.isOpen("code"))) {
+            layers.raise("review")
+        }
+        ; a game that has the keyboard while presenting takes the stage: the
+        ; comments' bar and pins give way until Esc
+        layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -6622,6 +6778,9 @@ class PresApp {
         if (id == "review") {
             this.reviewReady()
             return (review.has(x y))
+        }
+        if (id == "code") {
+            return ((codeView.isOpen()) || ((strlen (codeView.badgeAt(x y))) > 0))
         }
         if (id == "sketch") {
             this.sketchPlace()
@@ -7565,6 +7724,7 @@ class PresApp {
                 }
             }
         }
+        this.codeSpots()
     }
 
     ; The diagram under a point of the selected slide (slide units) at time
@@ -8183,6 +8343,7 @@ class PresApp {
     fn showRooms:void () {
         if (toolbar.roomsOpen == false) {
             toolbar.roomsOpen = true
+            toolbar.filesOpen = false
             toolbar.rebuild()
         }
         chromeRev = (chromeRev + 1)
@@ -8293,6 +8454,427 @@ class PresApp {
         return (room.lastSeq())
     }
 
+    ; =========================================================================
+    ; Source code over a presented slide (PresCodeViewUi, PresCodeLinks)
+    ; =========================================================================
+
+    ; The files a set of links needs, asked from the page once each:
+    ; "code-files:<path>|<path>…" (setCodeFile / setCodeGone come back).
+    fn codeWant:void (ls:[PresCodeLink]) {
+        def ask:[string]
+        for (codeView.wanted(ls)) p:string i {
+            def seen:boolean false
+            for codeAsked q:string j {
+                if (q == p) {
+                    seen = true
+                }
+            }
+            if (seen == false) {
+                push codeAsked p
+                push ask p
+            }
+        }
+        if ((array_length ask) > 0) {
+            push requests ("code-files:" + (join ask "|"))
+        }
+    }
+
+    ; A file under code/ from the page; sources.json is read as such.
+    fn setCodeFile:void (path:string text:string) {
+        def p:string (PresCodeFiles.clean(path))
+        if (p == "sources.json") {
+            codeView.setSources(text)
+            ; the diffs it names
+            this.codeWant(deck.codeLinks.links)
+        }
+        codeView.setFile(p text)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn setCodeGone:void (path:string) {
+        codeView.setGone(path)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The deck's files changed: asked again when next wanted (each comes
+    ; back as it is now, or as gone).
+    fn codeFilesChanged:void () {
+        def noAsked:[string]
+        codeAsked = noAsked
+        if (mode == "present") {
+            this.codeWant(deck.codeLinks.links)
+        }
+    }
+
+    ; A click let go at (x, y) presenting: on a box with code links, true
+    ; (a double click opens them).
+    fn codeClick:boolean (x:double y:double clicks:int) {
+        if ((slideRect.has(x y)) == false) {
+            return false
+        }
+        this.slidePoint(x y)
+        def t:double (this.stageTime())
+        def at:[int] (deck.codeNodeAt(selected t spX spY))
+        if ((array_length at) < 2) {
+            return false
+        }
+        if (clicks >= 2) {
+            this.openCodeNode((itemAt at 0) (itemAt at 1))
+        }
+        return true
+    }
+
+    ; Opens the links of box n of diagram k (n -1: the diagram's), grown
+    ; out of where it is on the screen.
+    fn openCodeNode:void (k:int n:int) {
+        def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+        if (null? hit) {
+            return
+        }
+        def u:PresDiaUse hit
+        def dd:PresDiagram (u.active(deck.uiNow))
+        def ls:[PresCodeLink]
+        def id:string ""
+        if (n >= 0) {
+            id = (dd.nodeIdAt(n))
+            ls = (deck.codeLinks.forNode(selected k id (dd.nodeText(n))))
+        } {
+            ls = (deck.codeLinks.forDiagram(selected k))
+        }
+        if ((array_length ls) == 0) {
+            return
+        }
+        def t:double (this.stageTime())
+        def b:[double] (deck.codeNodeBox(selected k n t))
+        def sc:double (this.slideScale())
+        def bx:double 0.0
+        def by:double 0.0
+        def bw:double 0.0
+        def bh:double 0.0
+        if ((array_length b) == 4) {
+            bx = (slideRect.x + ((itemAt b 0) * sc))
+            by = (slideRect.y + ((itemAt b 1) * sc))
+            bw = ((itemAt b 2) * sc)
+            bh = ((itemAt b 3) * sc)
+        }
+        this.codeWant(ls)
+        codeView.open(ls 0 selected k id bx by bw bh deck.uiNow)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A slide script's ask of the viewer (allow: code). The viewer is a
+    ; presenting thing: in the editor the asks are let go.
+    fn playCode:void (a:PresPlayAsk) {
+        if (mode != "present") {
+            return
+        }
+        def open:boolean (codeView.isOpen())
+        if (a.kind == "code.open") {
+            def k:PresCodeLink (new PresCodeLink())
+            PresCodeLinks.readTarget(k a.value)
+            if ((strlen k.problem) > 0) {
+                return
+            }
+            if (PresCodeLinks.isMode(a.key)) {
+                k.mode = a.key
+            }
+            k.slide = selected
+            def ls:[PresCodeLink]
+            push ls k
+            this.codeWant(ls)
+            codeView.open(ls 0 selected -1 "" (W / 2.0) (H / 2.0) 1.0 1.0 deck.uiNow)
+        }
+        if (a.kind == "code.node") {
+            def at:[int] (this.codeNodeNamed(a.value))
+            if ((array_length at) == 2) {
+                this.openCodeNode((itemAt at 0) (itemAt at 1))
+            }
+        }
+        if (open == false) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (a.kind == "code.close") {
+            if (codeView.close(deck.uiNow)) {
+                review.setCodeView("")
+                this.afterReview()
+            }
+        }
+        if (a.kind == "code.mode") {
+            codeView.pickMode(a.value)
+        }
+        if (a.kind == "code.line") {
+            codeView.goLine(a.n)
+        }
+        if (a.kind == "code.scroll") {
+            codeView.scrollLines(a.n)
+        }
+        if (a.kind == "code.zoom") {
+            codeView.setZoom(a.n)
+        }
+        if (a.kind == "code.tab") {
+            codeView.pickTab((a.n - 1))
+        }
+        if (a.kind == "code.change") {
+            codeView.build()
+            codeView.jumpChange((a.n < 0))
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The diagram and box on the slide shown that a script names as a
+    ; `::: code` line does (its id or its words; "*" or "-": the first
+    ; diagram with links, whole). [k, n], or [] when none has links.
+    fn codeNodeNamed:[int] (box:string) {
+        def out:[int]
+        def b:string (trim box)
+        def ks:[int] (deck.codeLinks.diagramsOn(selected))
+        for ks k:int i {
+            if ((array_length out) == 0) {
+                if ((b == "*") || (b == "-")) {
+                    push out k
+                    push out -1
+                } {
+                    def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+                    if (!null? hit) {
+                        def u:PresDiaUse hit
+                        def dd:PresDiagram (u.active(deck.uiNow))
+                        def n:int 0
+                        while ((n < (array_length dd.nodes)) && ((array_length out) == 0)) {
+                            if (PresCodeLinks.names(b (dd.nodeIdAt(n)) (dd.nodeText(n)))) {
+                                if ((array_length (deck.codeLinks.forNode(selected k (dd.nodeIdAt(n)) (dd.nodeText(n))))) > 0) {
+                                    push out k
+                                    push out n
+                                }
+                            }
+                            n = (n + 1)
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; A badge pressed: "dia:<k>" or "node:<k>:<n>".
+    fn openCodeBadge:void (badge:string) {
+        def parts:[string] (strsplit badge ":")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def k:int (?? (to_int (itemAt parts 1)) -1)
+        def n:int -1
+        if ((array_length parts) >= 3) {
+            n = (?? (to_int (itemAt parts 2)) -1)
+        }
+        this.openCodeNode(k n)
+    }
+
+    ; A source code comment picked in the comments' list: its file, at its
+    ; line, over the slide shown.
+    fn openCodeThread:void (id:string) {
+        def f@(optional):PresReviewThread (review.model.find(id))
+        if (null? f) {
+            return
+        }
+        def th:PresReviewThread f
+        if ((th.isCode()) == false) {
+            return
+        }
+        def k:PresCodeLink (new PresCodeLink())
+        k.path = th.codePath
+        k.from = th.codeLine
+        k.to = th.codeTo
+        k.slide = selected
+        k.dia = th.viaDia
+        k.node = th.viaNode
+        def ls:[PresCodeLink]
+        push ls k
+        this.codeWant(ls)
+        if (mode == "present") {
+            def cx:double (W / 2.0)
+            def cy:double (H / 2.0)
+            codeView.open(ls 0 selected th.viaDia th.viaNode cx cy 1.0 1.0 deck.uiNow)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; What the viewer asked: a comment on the held lines, a link, the copy,
+    ; closed.
+    fn takeCode:void () {
+        while ((array_length codeView.requests) > 0) {
+            def rq:string (itemAt codeView.requests 0)
+            remove_index codeView.requests 0
+            if (rq == "comment") {
+                this.codeComment()
+            }
+            if (rq == "copy") {
+                review.clip = codeView.clip
+                push requests "review-copy"
+            }
+            if ((indexOf rq "open:") == 0) {
+                push requests ("openlink:" + (substring rq 5 (strlen rq)))
+            }
+            if (rq == "closed") {
+                review.setCodeView("")
+                this.afterReview()
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A hold let go on lines of the file shown: a new source code comment
+    ; there (always on the new version's lines: PresCodeView.commentLines).
+    fn codeComment:void () {
+        if (review.on == false) {
+            return
+        }
+        def ko@(optional):PresCodeLink (codeView.view.link())
+        if (null? ko) {
+            return
+        }
+        def k:PresCodeLink ko
+        def hl:[int] codeView.holdLines
+        if ((array_length hl) < 4) {
+            return
+        }
+        def f:PresCodeFile (codeView.fileOf(k.path))
+        def pt:[double] (codeView.pinPoint((itemAt hl 0)))
+        def fx:double 0.5
+        def fy:double 0.5
+        if ((slideRect.w > 0.0) && (slideRect.h > 0.0)) {
+            fx = (((itemAt pt 0) - slideRect.x) / slideRect.w)
+            fy = (((itemAt pt 1) - slideRect.y) / slideRect.h)
+        }
+        review.setCodeView(k.path)
+        review.startCodeDraft(selected fx fy k.path (itemAt hl 0) (itemAt hl 1) (codeView.holdText()) (itemAt hl 2) (itemAt hl 3) f.repo f.commit codeView.view.dia codeView.view.node)
+        focus = "review"
+        this.afterReview()
+    }
+
+    ; The comments on the file shown, at their lines: spots for the pins.
+    fn codeSpots:void () {
+        if (((mode != "present") || ((codeView.isOpen()) == false)) || ((slideRect.w <= 0.0) || (slideRect.h <= 0.0))) {
+            return
+        }
+        codeView.placeSpots(review.model)
+        def i:int 0
+        while (i < (array_length codeView.spotIds)) {
+            def sx:double (((itemAt codeView.spotXs i) - slideRect.x) / slideRect.w)
+            def sy:double (((itemAt codeView.spotYs i) - slideRect.y) / slideRect.h)
+            review.setSpot((itemAt codeView.spotIds i) sx sy true)
+            i = (i + 1)
+        }
+    }
+
+    ; The viewer or the diagrams' badges, as a layer over the slide.
+    fn codeJson:string () {
+        codeView.clearBadges()
+        if ((mode != "present") || ((deck.slideCount()) == 0)) {
+            return ""
+        }
+        this.place()
+        def now:double deck.uiNow
+        ; another slide (the presenting bar's buttons): the viewer closes
+        if ((codeView.isOpen()) && (codeView.view.slide != selected)) {
+            codeView.close(-10.0)
+            review.setCodeView("")
+        }
+        def dl (new EVGDisplayList())
+        if (codeView.shows(now)) {
+            def bottom:double H
+            if (barTop > 0.0) {
+                bottom = barTop
+            }
+            def v:PresCodeView codeView.view
+            codeView.place(W H bottom v.fromX v.fromY v.fromW v.fromH now)
+            codeView.paint(dl tr now)
+            if (codeView.isOpen()) {
+                def ko@(optional):PresCodeLink (codeView.view.link())
+                if (!null? ko) {
+                    def k:PresCodeLink ko
+                    review.setCodeView(k.path)
+                }
+            }
+        } {
+            if ((viewZoom <= 1.0) && (ended == false)) {
+                this.codeBadges(dl)
+            }
+        }
+        if ((array_length dl.cmds) == 0) {
+            return ""
+        }
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; The viewer has the keys (the page sends it the letters too).
+    fn codeViewOpen:boolean () {
+        return ((mode == "present") && (codeView.isOpen()))
+    }
+
+    ; Whether a comment still open is on one of the files.
+    fn codeOpenComments:boolean (ls:[PresCodeLink]) {
+        for review.model.threads t:PresReviewThread i {
+            if ((t.closed == false) && (t.isCode())) {
+                for ls k:PresCodeLink j {
+                    if (k.path == t.codePath) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    ; `‹/› N` on each diagram with links (N files), `‹/›` on each box with
+    ; its own, where the box is now.
+    fn codeBadges:void (dl:EVGDisplayList) {
+        def ks:[int] (deck.codeLinks.diagramsOn(selected))
+        if ((array_length ks) == 0) {
+            return
+        }
+        def t:double (this.stageTime())
+        def sc:double (this.slideScale())
+        def fb:[double] (deck.fullBoxNow())
+        def only:int (deck.fullAt(selected))
+        for ks k:int i {
+            def hit@(optional):PresDiaUse (deck.diagramUse(selected k))
+            if ((!null? hit) && ((only < 0) || (only == k))) {
+                def u:PresDiaUse hit
+                def b:[double] (u.boxNow(deck.uiNow fb))
+                def dd:PresDiagram (u.active(deck.uiNow))
+                def te:double (u.activeTime(t deck.uiNow))
+                def all:[PresCodeLink] (deck.codeLinks.forDiagram(selected k))
+                def files:int (deck.codeLinks.fileCount(selected k))
+                def bx:double (slideRect.x + (((itemAt b 0) + 8.0) * sc))
+                def by:double (slideRect.y + (((itemAt b 1) + 8.0) * sc))
+                if (dd.backVisible(te)) {
+                    bx = (bx + (40.0 * sc))
+                }
+                codeView.badge(dl tr ("dia:" + (to_string k)) ("‹/› " + (to_string files)) bx by (this.codeOpenComments(all)))
+                ; the boxes' own
+                def n:int 0
+                while (n < (array_length dd.nodes)) {
+                    def nid:string (dd.nodeIdAt(n))
+                    def own:[PresCodeLink] (deck.codeLinks.forNode(selected k nid (dd.nodeText(n))))
+                    if ((array_length own) > 0) {
+                        def out:[double]
+                        if (dd.anchorPoint(te (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) nid 1.0 0.0 out)) {
+                            def label:string "‹/›"
+                            if ((array_length own) > 1) {
+                                label = (label + " " + (to_string (array_length own)))
+                            }
+                            def nx:double ((slideRect.x + ((itemAt out 0) * sc)) - 14.0)
+                            def ny:double ((slideRect.y + ((itemAt out 1) * sc)) - 10.0)
+                            codeView.badge(dl tr ("node:" + (to_string k) + ":" + (to_string n)) label nx ny (this.codeOpenComments(own)))
+                        }
+                    }
+                    n = (n + 1)
+                }
+            }
+        }
+    }
+
     ; review mode's layer, for the page to paint where `layerOrder` puts it
     fn reviewJson:string () {
         reviewBusy = false
@@ -8331,6 +8913,11 @@ class PresApp {
                 meet.panelOpen = false
                 panels.setCall(false)
             }
+        }
+        if ((strlen review.wantCode) > 0) {
+            def wc:string review.wantCode
+            review.wantCode = ""
+            this.openCodeThread(wc)
         }
         if (review.wantSlide >= 0) {
             def to:int review.wantSlide
@@ -8817,6 +9404,24 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; File → Settings → Experimental: 3-D flight, as the page keeps it.
+    fn setFlight3d:void (on:boolean) {
+        panels.flight3d = on
+    }
+
+    ; File → Settings → Order of presentations: how a room lists them, as
+    ; the page keeps it ("created", "newest", "edited", "name", "custom").
+    fn setDeckOrder:void (by:string) {
+        if (panels.deckOrder == by) {
+            return
+        }
+        panels.deckOrder = by
+        if ((strlen panels.css) > 0) {
+            panels.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     ; File → Settings → Look: the standard skin's colours as chosen,
     ; "light", "dark" or "system" (what setSkin is given is the outcome).
     fn setLookMode:void (mode:string) {
@@ -8995,6 +9600,7 @@ class PresApp {
             i = (i + 1)
         }
         this.fxDiagnostics(mdOut cssOut)
+        this.headingAttrDiagnostics(mdOut)
         mdEditor.setHostDiagnostics(mdOut)
         cssEditor.setHostDiagnostics(cssOut)
         if ((array_length cssOut) != cssContrastCount) {
@@ -9020,6 +9626,18 @@ class PresApp {
                 push mdOut (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.error()) msg "fx"))
             }
             i = (i + 1)
+        }
+    }
+
+    ; A heading's `{…}` with a part that could not be read
+    ; (MdAttrs.headingAttrs), on the heading's line.
+    fn headingAttrDiagnostics:void (mdOut:[EditorDiagnostic]) {
+        for (MdAttrs.notedHeadings(deck.md.edit.doc)) h:MdNode hi {
+            def line:int (this.mdLineOf(h.srcStart))
+            if (line >= 0) {
+                def msg:string ((PresI18n.t("Heading attributes: ")) + (join h.attrNotes "; ") + ".")
+                push mdOut (EditorDiagnostic.span(line 0 -1 (DiagnosticSeverity.warning()) msg "attrs"))
+            }
         }
     }
 
@@ -9058,6 +9676,11 @@ class PresApp {
         def title:string (PresI18n.t("Low contrast"))
         if ((indexOf note lead) == 0) {
             note = (substring note (strlen lead) (strlen note))
+        }
+        def attrLead:string (PresI18n.t("Heading attributes: "))
+        if ((indexOf note attrLead) == 0) {
+            note = (substring note (strlen attrLead) (strlen note))
+            title = (PresI18n.t("Heading attributes"))
         }
         def fxLead:string (PresI18n.t("Effect: "))
         if ((indexOf note fxLead) == 0) {
@@ -10094,6 +10717,99 @@ class PresApp {
         push requests "theme-pictures"
         chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; --- the shared Files: a Figma file's window ---------------------------------
+    ; The Files panel's row pressed: the file's window, its screens as tiles.
+    ; The page hands over the file's card and, once read, its index
+    ; (`setFigmaFile`), and draws the tiles' pictures ("figma-thumbs").
+    fn openFigmaFile:boolean (id:string name:string status:string err:string indexJson:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 640.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        def b (new FigmaBrowser())
+        b.open(id name status err indexJson)
+        chart.openFigma(b px py W H)
+        focus = "chart"
+        push requests "figma-thumbs"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The open file's card or index again (indexed, failed, read).
+    fn setFigmaFile:void (id:string name:string status:string err:string indexJson:string) {
+        if ((chart.mode != "figma") || (chart.fg.fileId != id)) {
+            return
+        }
+        chart.fg.setFile(id name status err indexJson)
+        chart.figmaChanged()
+        push requests "figma-thumbs"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The file whose window is open ("" none).
+    fn figmaFileOpen:string () {
+        if (chart.isOpen && (chart.mode == "figma")) {
+            return chart.fg.fileId
+        }
+        return ""
+    }
+
+    ; `[{"key","file","node"}]`: the tiles the window shows, each a picture
+    ; the page draws from the shared file under `key`.
+    fn figmaThumbsJson:string () {
+        def out:JVal (JVal.mkArr())
+        if ((strlen (this.figmaFileOpen())) > 0) {
+            for (chart.fg.shown()) h:FigmaHit i {
+                def o:JVal (JVal.mkObj())
+                o.setStr("key" (FigmaBrowser.thumbKey(h.fileId (h.node()))))
+                o.setStr("file" h.fileId)
+                o.setStr("node" (h.node()))
+                out.add(o)
+            }
+        }
+        return (out.toJson())
+    }
+
+    fn figmaMarkdown:string () {
+        return (chart.fg.markdown())
+    }
+
+    fn figmaAct:void (act:string) {
+        def b:FigmaBrowser chart.fg
+        if (act == "thumbs") {
+            push requests "figma-thumbs"
+            return
+        }
+        if (act == "add") {
+            this.showTab("md")
+            this.insertBlock(((b.markdown()) + "\n"))
+            return
+        }
+        if (act == "slide") {
+            this.addSlideAs(false (b.layerName()) (b.markdown()))
+            return
+        }
+        if (act == "copy") {
+            push requests "figma:copy"
+            return
+        }
+        if (act == "delete") {
+            push requests ("shared:delete:" + b.fileId)
+        }
     }
 
     ; Slide → Theme…: the themes as tiles, each a picture of a sample slide
@@ -11187,6 +11903,13 @@ class PresApp {
                     push requests "picture-cancel"
                 }
             }
+        }
+        ; a shared Figma file's window: its picked screen onto the slide, onto
+        ; a new slide, or to the clipboard; the file deleted; tiles to draw
+        if ((strlen chart.fgAct) > 0) {
+            def act:string chart.fgAct
+            chart.fgAct = ""
+            this.figmaAct(act)
         }
         ; a theme's tile: the page's select changes, and with it the slides
         if chart.themePicked {
@@ -12542,6 +13265,12 @@ class PresApp {
     ; of the deck or an https address), "" when it has none (web/music.js).
     fn musicSrc:string () {
         return (trim (PresDeck.frontValue((this.source()) "music")))
+    }
+
+    ; Whether the slides' text may be selected and copied while presenting
+    ; (web/slidetext.js): not when the front matter says `select-text: off`.
+    fn selectText:boolean () {
+        return ((PresDeck.selectTextOff((this.source()))) == false)
     }
 
     ; The slides with an effect, "[1,3]", for the host to render before an

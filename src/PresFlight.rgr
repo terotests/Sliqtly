@@ -1,0 +1,1089 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlight.rgr — the presentation as a 3-D world to fly through.
+; ============================================================================
+;
+; Every slide is a station on a curving path through dark space; the camera
+; flies from one to the next (src/PresFlightCam.rgr). A slide's diagrams
+; become glass panels floating at staggered depths, their lines tubes that
+; arc between them; its charts become bars, ribbons, wedges or dots standing
+; on the station's floor. A slide with neither shows its title.
+;
+; This is plain data, made from the deck and checked under Node
+; (PresCheck.flight). The page hands its JSON to PresFlight3D (in
+; pres_3d.js), which builds the Three scene from it, so the 3-D bundle never
+; needs the deck. All positions are world units: x right, y up, z towards
+; the viewer; a station's content fits a 16 x 9 box around its centre.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "PresChartModel.rgr"
+Import "JsonValue.rgr"
+Import "../markdown/src/MdVegaRender.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+; One thing in the world. `kind`:
+;   glass  a diagram's node: a glass slab w x h x d with its text
+;   group  a diagram's frame (a subgraph): a dim slab behind its nodes
+;   title  a slide's or a chart's title; text  a slide with nothing else
+;   label  a line's or a value's name; axis  a category or series name
+;   link   a tube along pts (x,y,z triples), `head` when it has an arrow
+;   bar    a chart's bar: a box w x h x d centred at x,y,z
+;   wedge  a pie's slice around x,y,z from angle a0 to a1, radii r0..r1, d deep
+;   dot    a ball of radius w
+class FlightItem {
+    def kind:string ""
+    def station:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def d:double 0.0
+    ; colour, 0..1
+    def r:double 0.36
+    def g:double 0.88
+    def b:double 1.0
+    def text:string ""
+    ; the text's line height in world units
+    def size:double 0.4
+    ; its place in the station's reveal (0 first)
+    def order:int 0
+    def pts:[double]
+    def head:boolean false
+    def a0:double 0.0
+    def a1:double 0.0
+    def r0:double 0.0
+    def r1:double 0.0
+    ; a bar grows from here (y, or x when it lies across)
+    def base:double 0.0
+    def across:boolean false
+
+    fn toJson:JVal () {
+        def o:JVal (JVal.mkObj())
+        o.setStr("k" kind)
+        o.setInt("s" station)
+        o.setNum("x" (FlightItem.round3(x)))
+        o.setNum("y" (FlightItem.round3(y)))
+        o.setNum("z" (FlightItem.round3(z)))
+        if ((w != 0.0) || (h != 0.0)) {
+            o.setNum("w" (FlightItem.round3(w)))
+            o.setNum("h" (FlightItem.round3(h)))
+            o.setNum("d" (FlightItem.round3(d)))
+        }
+        def c:JVal (JVal.mkArr())
+        c.add((JVal.mkNum((FlightItem.round3(r)))))
+        c.add((JVal.mkNum((FlightItem.round3(g)))))
+        c.add((JVal.mkNum((FlightItem.round3(b)))))
+        o.set("c" c)
+        if ((strlen text) > 0) {
+            o.setStr("t" text)
+            o.setNum("fs" (FlightItem.round3(size)))
+        }
+        o.setInt("o" order)
+        if ((array_length pts) > 0) {
+            def p:JVal (JVal.mkArr())
+            def i:int 0
+            while (i < (array_length pts)) {
+                p.add((JVal.mkNum((FlightItem.round3((itemAt pts i))))))
+                i = (i + 1)
+            }
+            o.set("p" p)
+            o.setBool("head" head)
+        }
+        if (kind == "wedge") {
+            o.setNum("a0" (FlightItem.round3(a0)))
+            o.setNum("a1" (FlightItem.round3(a1)))
+            o.setNum("r0" (FlightItem.round3(r0)))
+            o.setNum("r1" (FlightItem.round3(r1)))
+        }
+        if (kind == "bar") {
+            o.setNum("base" (FlightItem.round3(base)))
+            o.setBool("across" across)
+        }
+        return o
+    }
+
+    sfn round3:double (v:double) {
+        def k:double (v * 1000.0)
+        if (k < 0.0) {
+            return ((to_double (0 - (floor ((0.0 - k) + 0.5)))) / 1000.0)
+        }
+        return ((to_double (floor (k + 0.5))) / 1000.0)
+    }
+}
+
+; A slide's place in the world: its centre and how far back the camera
+; stands to see it whole.
+class FlightStation {
+    def index:int 0
+    def title:string ""
+    ; "diagram", "chart" or "slide" (nothing to show but the title)
+    def kind:string "slide"
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def dist:double 13.0
+    ; where the camera looks (the middle of what the station shows) and how
+    ; high above it the camera stands
+    def fx:double 0.0
+    def fy:double 0.0
+    def lift:double 1.0
+
+    fn toJson:JVal () {
+        def o:JVal (JVal.mkObj())
+        o.setInt("i" index)
+        o.setStr("t" title)
+        o.setStr("k" kind)
+        o.setNum("x" (FlightItem.round3(x)))
+        o.setNum("y" (FlightItem.round3(y)))
+        o.setNum("z" (FlightItem.round3(z)))
+        o.setNum("dist" (FlightItem.round3(dist)))
+        o.setNum("fx" (FlightItem.round3(fx)))
+        o.setNum("fy" (FlightItem.round3(fy)))
+        o.setNum("lift" (FlightItem.round3(lift)))
+        return o
+    }
+}
+
+class PresFlightScene {
+    def stations:[FlightStation]
+    def items:[FlightItem]
+    ; the bounds `frame` measures, grown by a point (the first one starts them)
+    def fx0:double 0.0
+    def fx1:double 0.0
+    def fy0:double 0.0
+    def fy1:double 0.0
+    ; the hologram's own colours: accent (panels, axes) and warm (lines)
+    def acR:double 0.36
+    def acG:double 0.88
+    def acB:double 1.0
+    def wmR:double 1.0
+    def wmG:double 0.65
+    def wmB:double 0.27
+
+    ; how far apart the stations are along the path
+    sfn spacing:double () {
+        return 36.0
+    }
+
+    ; Where station i stands: a gentle S curve that goes away from the viewer.
+    sfn stationX:double (i:int) {
+        return ((sin(((to_double i) * 0.55))) * 14.0)
+    }
+    sfn stationY:double (i:int) {
+        return (((cos(((to_double i) * 0.35))) * 3.0) - 3.0)
+    }
+    sfn stationZ:double (i:int) {
+        return (0.0 - ((to_double i) * (PresFlightScene.spacing())))
+    }
+
+    ; The series colours: the hologram's cyan first, then colours that read
+    ; on black next to it.
+    sfn seriesColour:[double] (k:int) {
+        def pal:[string] ([] _:string ("#5ce1ff" "#ffa546" "#ff5ca8" "#a6ff5c" "#a98bff" "#2fe0b0" "#ffe15c"))
+        def n:int (array_length pal)
+        return (PresFlightScene.rgbOf((itemAt pal (k - ((idiv k n) * n)))))
+    }
+
+    ; "#rrggbb" (or any CSS colour EVG reads) as 0..1 [r, g, b]; [] when unset
+    sfn rgbOf:[double] (css:string) {
+        def out:[double]
+        if ((strlen (trim css)) == 0) {
+            return out
+        }
+        def c:EVGColor (EVGColor.parse(css))
+        if (c.isSet == false) {
+            return out
+        }
+        push out (c.r / 255.0)
+        push out (c.g / 255.0)
+        push out (c.b / 255.0)
+        return out
+    }
+
+    sfn num:double (s:string) {
+        return (?? (to_double (trim s)) 0.0)
+    }
+
+    ; The deck as a world: one station per slide.
+    sfn of:PresFlightScene (deck:PresDeck) {
+        def sc:PresFlightScene (new PresFlightScene())
+        def n:int (deck.slideCount())
+        def i:int 0
+        while (i < n) {
+            sc.addSlide(deck (deck.slideAt(i)) i)
+            i = (i + 1)
+        }
+        return sc
+    }
+
+    fn station:FlightStation (i:int title:string) {
+        def st:FlightStation (new FlightStation())
+        st.index = i
+        st.title = title
+        st.x = (PresFlightScene.stationX(i))
+        st.y = (PresFlightScene.stationY(i))
+        st.z = (PresFlightScene.stationZ(i))
+        st.fx = st.x
+        st.fy = st.y
+        push stations st
+        return st
+    }
+
+    fn item:FlightItem (kind:string station:int x:double y:double z:double) {
+        def it:FlightItem (new FlightItem())
+        it.kind = kind
+        it.station = station
+        it.x = x
+        it.y = y
+        it.z = z
+        it.r = acR
+        it.g = acG
+        it.b = acB
+        push items it
+        return it
+    }
+
+    fn colour:void (it:FlightItem rgb:[double]) {
+        if ((array_length rgb) == 3) {
+            it.r = (itemAt rgb 0)
+            it.g = (itemAt rgb 1)
+            it.b = (itemAt rgb 2)
+        }
+    }
+
+    fn addSlide:void (deck:PresDeck s:PresSlide i:int) {
+        def st:FlightStation (this.station(i s.title))
+        ; what the slide has to show: its diagrams, then its charts
+        def dias:[PresDiagram]
+        def k:int 0
+        while (k < (array_length s.diagrams)) {
+            def du:PresDiaUse (itemAt s.diagrams k)
+            if du.diagram.ok {
+                push dias du.diagram
+            }
+            k = (k + 1)
+        }
+        def charts:[PresChartModel]
+        k = 0
+        while (k < (array_length s.charts)) {
+            def cu:PresChartUse (itemAt s.charts k)
+            def m:PresChartModel (PresFlightScene.chartOf(deck cu.source))
+            if (PresFlightScene.drawable(m)) {
+                push charts m
+            }
+            k = (k + 1)
+        }
+        def blocks:int ((array_length dias) + (array_length charts))
+        if (blocks == 0) {
+            st.kind = "slide"
+            def t:string s.title
+            if ((strlen t) == 0) {
+                t = ("Slide " + (to_string (i + 1)))
+            }
+            def tt:FlightItem (this.item("text" i st.x st.y st.z))
+            tt.text = t
+            tt.size = 1.3
+            tt.w = 16.0
+            tt.h = 3.0
+            this.frameStation(st 0.6)
+            return
+        }
+        if ((array_length dias) > 0) {
+            st.kind = "diagram"
+        } {
+            st.kind = "chart"
+        }
+        if ((strlen s.title) > 0) {
+            def ti:FlightItem (this.item("title" i st.x (st.y + 6.2) st.z))
+            ti.text = s.title
+            ti.size = 0.9
+            ti.w = 16.0
+            ti.h = 1.4
+        }
+        def b:int 0
+        k = 0
+        while (k < (array_length dias)) {
+            this.addDiagram((itemAt dias k) i (st.x + (this.blockOffset(b blocks))) st.y st.z)
+            b = (b + 1)
+            k = (k + 1)
+        }
+        k = 0
+        while (k < (array_length charts)) {
+            this.addChart((itemAt charts k) i (st.x + (this.blockOffset(b blocks))) st.y st.z s.title)
+            b = (b + 1)
+            k = (k + 1)
+        }
+        ; charts are seen from above, so the rows behind show over the front
+        if (st.kind == "chart") {
+            this.frameStation(st 0.5)
+        } {
+            this.frameStation(st 0.08)
+        }
+    }
+
+    ; The station's camera framed on what it shows: looking at its middle,
+    ; back as far as its width or height needs (60 degrees up and down, a
+    ; screen 1.6 times as wide), `rise` of that distance above it.
+    fn frameStation:void (st:FlightStation rise:double) {
+        def x0:double 0.0
+        def x1:double 0.0
+        def y0:double 0.0
+        def y1:double 0.0
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:FlightItem (itemAt items i)
+            if (it.station == st.index) {
+                def hw:double (it.w * 0.5)
+                def hh:double (it.h * 0.5)
+                if (it.kind == "wedge") {
+                    hw = it.r1
+                    hh = it.r1
+                }
+                if (((it.kind == "label") || (it.kind == "axis")) && (hw == 0.0)) {
+                    hw = ((it.size * (to_double (strlen it.text))) * 0.3)
+                    hh = (it.size * 0.6)
+                }
+                def k:int 0
+                def np:int (idiv (array_length it.pts) 3)
+                if (np > 0) {
+                    while (k < np) {
+                        this.grow(any (itemAt it.pts (k * 3)) (itemAt it.pts ((k * 3) + 1)))
+                        any = true
+                        k = (k + 1)
+                    }
+                } {
+                    this.grow(any (it.x - hw) (it.y - hh))
+                    any = true
+                    this.grow(any (it.x + hw) (it.y + hh))
+                }
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return
+        }
+        st.fx = ((fx0 + fx1) * 0.5)
+        st.fy = ((fy0 + fy1) * 0.5)
+        def halfW:double ((fx1 - fx0) * 0.5)
+        def halfH:double ((fy1 - fy0) * 0.5)
+        ; tan(30 degrees)
+        def tn:double 0.57735
+        def d:double (halfH / tn)
+        if ((halfW / (tn * 1.6)) > d) {
+            d = (halfW / (tn * 1.6))
+        }
+        d = ((d * 1.1) + 2.0)
+        if (d < 7.0) {
+            d = 7.0
+        }
+        st.dist = d
+        st.lift = (d * rise)
+    }
+
+    fn grow:void (started:boolean x:double y:double) {
+        if (started == false) {
+            fx0 = x
+            fx1 = x
+            fy0 = y
+            fy1 = y
+            return
+        }
+        if (x < fx0) {
+            fx0 = x
+        }
+        if (x > fx1) {
+            fx1 = x
+        }
+        if (y < fy0) {
+            fy0 = y
+        }
+        if (y > fy1) {
+            fy1 = y
+        }
+    }
+
+    fn blockOffset:double (b:int blocks:int) {
+        return (((to_double b) - ((to_double (blocks - 1)) * 0.5)) * 18.0)
+    }
+
+    ; A chart fence's table, with its data files read in (as the chart
+    ; editor does, and the inline rows a .csv or a sheet gives).
+    sfn chartOf:PresChartModel (deck:PresDeck source:string) {
+        def spec:string (MdVegaRender.fromFile(source deck.dataUrls deck.dataTexts))
+        spec = (MdVegaRender.withFiles(spec deck.dataUrls deck.dataTexts))
+        return (PresChartModel.fromSpec(spec))
+    }
+
+    ; Whether a chart has a table this world can stand up.
+    sfn drawable:boolean (m:PresChartModel) {
+        if ((m.ok == false) || m.lookOnly) {
+            return false
+        }
+        if (((m.rows()) == 0) || ((m.cols()) < 2)) {
+            return false
+        }
+        def k:int m.kind
+        return ((k <= 4) || (((k >= 6) && (k <= 14)) || (((k >= 16) && (k <= 19)))))
+    }
+
+    ; ---- diagrams ------------------------------------------------------------
+
+    ; Each node's step from the diagram's start (its rank along the lines):
+    ; nodes one line apart stand at different depths.
+    sfn ranks:[int] (d:PresDiagram) {
+        def nn:int (array_length d.nodes)
+        def rank:[int]
+        def i:int 0
+        while (i < nn) {
+            push rank 0
+            i = (i + 1)
+        }
+        ; relax along the lines; a loop stops growing after nn rounds
+        def round:int 0
+        def moved:boolean true
+        while (moved && (round < nn)) {
+            moved = false
+            def e:int 0
+            while (e < (array_length d.edges)) {
+                def ed:PresDEdge (itemAt d.edges e)
+                if ((ed.from >= 0) && ((ed.to >= 0) && ((ed.from < nn) && (ed.to < nn)))) {
+                    def want:int ((itemAt rank ed.from) + 1)
+                    if ((want > (itemAt rank ed.to)) && (want < nn)) {
+                        set rank ed.to want
+                        moved = true
+                    }
+                }
+                e = (e + 1)
+            }
+            round = (round + 1)
+        }
+        return rank
+    }
+
+    ; The depth a rank floats at: three layers, front to back and back again.
+    sfn layerZ:double (rank:int) {
+        def m:int (rank - ((idiv rank 3) * 3))
+        return ((to_double (m - 1)) * 1.0)
+    }
+
+    sfn nodeText:string (n:PresDNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length n.items)) {
+            def it:SceneItem (itemAt n.items i)
+            if ((it.kind == 1) && ((strlen (trim it.text)) > 0)) {
+                if ((strlen out) > 0) {
+                    out = (out + "\n")
+                }
+                out = (out + (trim it.text))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn textSize:double (items:[SceneItem] fallback:double) {
+        def best:double 0.0
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SceneItem (itemAt items i)
+            if ((it.kind == 1) && (it.fontSize > best)) {
+                best = it.fontSize
+            }
+            i = (i + 1)
+        }
+        if (best <= 0.0) {
+            return fallback
+        }
+        return best
+    }
+
+    fn addDiagram:void (d:PresDiagram si:int cx:double cy:double cz:double) {
+        def ww:double d.worldW
+        def wh:double d.worldH
+        if ((ww <= 0.0) || (wh <= 0.0)) {
+            return
+        }
+        def s:double (16.0 / ww)
+        if ((9.0 / wh) < s) {
+            s = (9.0 / wh)
+        }
+        def midX:double (d.worldX + (ww * 0.5))
+        def midY:double (d.worldY + (wh * 0.5))
+        def accent:[double] ([] _:double (((to_double d.acR) / 255.0) ((to_double d.acG) / 255.0) ((to_double d.acB) / 255.0)))
+        def warm:[double] ([] _:double (((to_double d.wmR) / 255.0) ((to_double d.wmG) / 255.0) ((to_double d.wmB) / 255.0)))
+        def rank:[int] (PresFlightScene.ranks(d))
+        def nz:[double]
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:PresDNode (itemAt d.nodes i)
+            def z:double (cz + (PresFlightScene.layerZ((itemAt rank i))))
+            def kind:string "glass"
+            if n.group {
+                kind = "group"
+                z = (cz - 2.2)
+            }
+            push nz z
+            def it:FlightItem (this.item(kind si (cx + ((n.cx() - midX) * s)) (cy - ((n.cy() - midY) * s)) z))
+            it.w = (n.w * s)
+            it.h = (n.h * s)
+            it.d = 0.14
+            if n.group {
+                it.d = 0.04
+            }
+            this.colour(it accent)
+            this.colour(it (PresFlightScene.rgbOf(n.own)))
+            it.text = (PresFlightScene.nodeText(n))
+            it.size = ((PresFlightScene.textSize(n.items 14.0)) * s)
+            if (n.order >= 0) {
+                it.order = n.order
+            } {
+                it.order = i
+            }
+            i = (i + 1)
+        }
+        def e:int 0
+        while (e < (array_length d.edges)) {
+            def ed:PresDEdge (itemAt d.edges e)
+            def z0:double cz
+            def z1:double cz
+            if ((ed.from >= 0) && (ed.from < (array_length nz))) {
+                z0 = (itemAt nz ed.from)
+            }
+            if ((ed.to >= 0) && (ed.to < (array_length nz))) {
+                z1 = (itemAt nz ed.to)
+            }
+            def pts:[double] (PresFlightScene.arc(ed.line s midX midY cx cy z0 z1))
+            if ((array_length pts) >= 6) {
+                def lk:FlightItem (this.item("link" si cx cy cz))
+                lk.pts = pts
+                lk.head = ((strlen ed.head) > 0)
+                lk.w = 0.05
+                this.colour(lk warm)
+                if ed.own {
+                    lk.r = ((to_double ed.ownR) / 255.0)
+                    lk.g = ((to_double ed.ownG) / 255.0)
+                    lk.b = ((to_double ed.ownB) / 255.0)
+                }
+                lk.order = e
+                def name:string (PresFlightScene.edgeText(ed))
+                if ((strlen name) > 0) {
+                    ; the name at the middle of the arc, a little in front
+                    def mid:int ((idiv (idiv (array_length pts) 3) 2) * 3)
+                    def lb:FlightItem (this.item("label" si (itemAt pts mid) (itemAt pts (mid + 1)) ((itemAt pts (mid + 2)) + 0.25)))
+                    lb.text = name
+                    lb.size = ((PresFlightScene.textSize(ed.labels 12.0)) * s)
+                    this.colour(lb warm)
+                    lb.order = e
+                }
+            }
+            e = (e + 1)
+        }
+    }
+
+    sfn edgeText:string (ed:PresDEdge) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length ed.labels)) {
+            def it:SceneItem (itemAt ed.labels i)
+            if ((it.kind == 1) && ((strlen (trim it.text)) > 0)) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + (trim it.text))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A line of the diagram (x,y pairs) in the world: its depth goes from
+    ; its start node's to its end node's, and it bows out towards the
+    ; viewer in between. Long straight runs are cut so the bow is smooth.
+    sfn arc:[double] (line:[double] s:double midX:double midY:double cx:double cy:double z0:double z1:double) {
+        def out:[double]
+        def np:int (idiv (array_length line) 2)
+        if (np < 2) {
+            return out
+        }
+        ; the line's length, in world units
+        def total:double 0.0
+        def i:int 1
+        while (i < np) {
+            def dx:double (((itemAt line (i * 2)) - (itemAt line ((i - 1) * 2))) * s)
+            def dy:double (((itemAt line ((i * 2) + 1)) - (itemAt line (((i - 1) * 2) + 1))) * s)
+            total = (total + (sqrt(((dx * dx) + (dy * dy)))))
+            i = (i + 1)
+        }
+        if (total <= 0.0) {
+            return out
+        }
+        def bow:double (total * 0.12)
+        if (bow > 0.9) {
+            bow = 0.9
+        }
+        def run:double 0.0
+        i = 0
+        while (i < np) {
+            def x:double (cx + (((itemAt line (i * 2)) - midX) * s))
+            def y:double (cy - (((itemAt line ((i * 2) + 1)) - midY) * s))
+            if (i > 0) {
+                def px:double (cx + (((itemAt line ((i - 1) * 2)) - midX) * s))
+                def py:double (cy - (((itemAt line (((i - 1) * 2) + 1)) - midY) * s))
+                def seg:double (sqrt((((x - px) * (x - px)) + ((y - py) * (y - py)))))
+                def cuts:int (to_int (seg / 0.5))
+                def c:int 1
+                while (c <= cuts) {
+                    def f:double ((to_double c) / (to_double (cuts + 1)))
+                    def t:double ((run + (seg * f)) / total)
+                    push out (px + ((x - px) * f))
+                    push out (py + ((y - py) * f))
+                    push out (PresFlightScene.arcZ(t z0 z1 bow))
+                    c = (c + 1)
+                }
+                run = (run + seg)
+            }
+            push out x
+            push out y
+            push out (PresFlightScene.arcZ((run / total) z0 z1 bow))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn arcZ:double (t:double z0:double z1:double bow:double) {
+        return ((z0 + ((z1 - z0) * t)) + (bow * (sin((t * 3.141592653589793)))))
+    }
+
+    ; ---- charts --------------------------------------------------------------
+
+    fn addChart:void (m:PresChartModel si:int cx:double cy:double cz:double slideTitle:string) {
+        if (((strlen m.title) > 0) && (m.title != slideTitle)) {
+            def ti:FlightItem (this.item("title" si cx (cy + 4.6) cz))
+            ti.text = m.title
+            ti.size = 0.6
+            ti.w = 14.0
+            ti.h = 1.0
+        }
+        def k:int m.kind
+        if ((k >= 16) && (k <= 18)) {
+            this.addPie(m si cx cy cz)
+            return
+        }
+        if ((k == 13) || (k == 14)) {
+            this.addScatter(m si cx cy cz)
+            return
+        }
+        if ((k >= 6) && (k <= 12)) {
+            this.addLines(m si cx cy cz)
+            return
+        }
+        this.addBars(m si cx cy cz)
+    }
+
+    ; the largest size of the values in columns 1.. (1 when all are 0)
+    sfn maxAbs:double (m:PresChartModel stacked:boolean) {
+        def best:double 0.0
+        def r:int 0
+        while (r < (m.rows())) {
+            def sum:double 0.0
+            def c:int 1
+            while (c < (m.cols())) {
+                def v:double (PresFlightScene.num((m.cell(r c))))
+                if (v < 0.0) {
+                    v = (0.0 - v)
+                }
+                if stacked {
+                    sum = (sum + v)
+                } {
+                    if (v > best) {
+                        best = v
+                    }
+                }
+                c = (c + 1)
+            }
+            if (stacked && (sum > best)) {
+                best = sum
+            }
+            r = (r + 1)
+        }
+        if (best <= 0.0) {
+            return 1.0
+        }
+        return best
+    }
+
+    fn axisLine:void (si:int x0:double y0:double z0:double x1:double y1:double z1:double) {
+        def lk:FlightItem (this.item("link" si x0 y0 z0))
+        lk.pts = ([] _:double (x0 y0 z0 x1 y1 z1))
+        lk.w = 0.025
+    }
+
+    ; Columns (1), bars across (2), stacked (3), 100 % (4) and a heat map
+    ; (19, its cells as a field of columns): categories along x, series one
+    ; row deeper each (stacked: one row, on top of each other).
+    fn addBars:void (m:PresChartModel si:int cx:double cy:double cz:double) {
+        def nC:int (m.rows())
+        def nS:int ((m.cols()) - 1)
+        def across:boolean (m.kind == 2)
+        def stacked:boolean ((m.kind == 3) || (m.kind == 4))
+        def pct:boolean (m.kind == 4)
+        def bw:double 14.0
+        def bh:double 7.0
+        def base:double (cy - 3.5)
+        def left:double (cx - (bw * 0.5))
+        def back:double (cz - ((to_double (nS - 1)) * 1.4))
+        if stacked {
+            back = cz
+        }
+        def maxV:double (PresFlightScene.maxAbs(m stacked))
+        def slot:double (bw / (to_double nC))
+        if across {
+            slot = (bh / (to_double nC))
+        }
+        def thick:double (slot * 0.6)
+        if (thick > 1.6) {
+            thick = 1.6
+        }
+        ; side by side series stand in a row across the slot, each a step
+        ; further back, so the ones behind show beside the front ones
+        def side:double 0.0
+        if ((stacked == false) && (nS > 1)) {
+            thick = ((slot * 0.8) / (to_double nS))
+            if (thick > 1.6) {
+                thick = 1.6
+            }
+            side = (thick * 1.05)
+        }
+        def shift:double (side * ((to_double (nS - 1)) * 0.5))
+        def deep:double 0.9
+        if stacked {
+            deep = 1.2
+        }
+        ; the floor's axes
+        if across {
+            this.axisLine(si left base (cz + 0.8) left (base + bh) (cz + 0.8))
+        } {
+            this.axisLine(si left base (cz + 0.8) (left + bw) base (cz + 0.8))
+            this.axisLine(si left base (cz + 0.8) left base back)
+        }
+        def many:boolean ((nC * nS) > 36)
+        def r:int 0
+        while (r < nC) {
+            def total:double 0.0
+            if pct {
+                def c0:int 1
+                while (c0 <= nS) {
+                    def v0:double (PresFlightScene.num((m.cell(r c0))))
+                    if (v0 > 0.0) {
+                        total = (total + v0)
+                    }
+                    c0 = (c0 + 1)
+                }
+            }
+            def under:double 0.0
+            def c:int 1
+            while (c <= nS) {
+                def v:double (PresFlightScene.num((m.cell(r c))))
+                def size:double (v / maxV)
+                if pct {
+                    size = 0.0
+                    if (total > 0.0) {
+                        size = (v / total)
+                    }
+                }
+                def z:double (cz - ((to_double (c - 1)) * 1.4))
+                if stacked {
+                    z = cz
+                }
+                def bar:FlightItem (this.item("bar" si 0.0 0.0 z))
+                bar.d = deep
+                if across {
+                    def len:double (size * bw)
+                    bar.w = (fabs len)
+                    bar.h = thick
+                    bar.x = ((left + (under * bw)) + (len * 0.5))
+                    bar.base = (left + (under * bw))
+                    bar.across = true
+                    bar.y = (((base + bh) - (((to_double r) + 0.5) * slot)) + (shift - (side * (to_double (c - 1)))))
+                } {
+                    def tall:double (size * bh)
+                    bar.w = thick
+                    bar.h = (fabs tall)
+                    bar.x = ((left + (((to_double r) + 0.5) * slot)) + ((side * (to_double (c - 1))) - shift))
+                    bar.y = ((base + (under * bh)) + (tall * 0.5))
+                    bar.base = (base + (under * bh))
+                }
+                if stacked {
+                    under = (under + size)
+                }
+                this.colour(bar (PresFlightScene.seriesColour((c - 1))))
+                bar.order = ((r * nS) + (c - 1))
+                bar.text = (m.cell(r c))
+                if (many == false) {
+                    ; the value over the bar's end
+                    def lx:double bar.x
+                    def ly:double (bar.y + ((bar.h * 0.5) + 0.35))
+                    if across {
+                        lx = (bar.x + ((bar.w * 0.5) + 0.5))
+                        ly = bar.y
+                    }
+                    def vl:FlightItem (this.item("label" si lx ly (z + (deep * 0.5))))
+                    vl.text = (trim (m.cell(r c)))
+                    vl.size = 0.32
+                    this.colour(vl (PresFlightScene.seriesColour((c - 1))))
+                    vl.order = bar.order
+                }
+                c = (c + 1)
+            }
+            ; the category's name
+            def ax:FlightItem (this.item("axis" si 0.0 0.0 (cz + 0.9)))
+            if across {
+                ax.x = (left - 1.2)
+                ax.y = ((base + bh) - (((to_double r) + 0.5) * slot))
+            } {
+                ax.x = (left + (((to_double r) + 0.5) * slot))
+                ax.y = (base - 0.5)
+            }
+            ax.text = (m.cell(r 0))
+            ax.size = 0.34
+            ax.order = (r * nS)
+            r = (r + 1)
+        }
+        ; the series' names, at their rows' left ends
+        if ((nS > 1) && (stacked == false)) {
+            def c2:int 1
+            while (c2 <= nS) {
+                def sl:FlightItem (this.item("axis" si (left - 1.4) (base + 0.3) (cz - ((to_double (c2 - 1)) * 1.4))))
+                sl.text = (itemAt m.header c2)
+                sl.size = 0.34
+                this.colour(sl (PresFlightScene.seriesColour((c2 - 1))))
+                c2 = (c2 + 1)
+            }
+        }
+    }
+
+    ; Lines and areas (6–12): each series a glowing tube one row deeper,
+    ; with a dot on each value when there are few.
+    fn addLines:void (m:PresChartModel si:int cx:double cy:double cz:double) {
+        def nC:int (m.rows())
+        def nS:int ((m.cols()) - 1)
+        def bw:double 14.0
+        def bh:double 7.0
+        def base:double (cy - 3.5)
+        def left:double (cx - (bw * 0.5))
+        def maxV:double (PresFlightScene.maxAbs(m false))
+        def step:double 0.0
+        if (nC > 1) {
+            step = (bw / (to_double (nC - 1)))
+        }
+        this.axisLine(si left base (cz + 0.8) (left + bw) base (cz + 0.8))
+        this.axisLine(si left base (cz + 0.8) left (base + bh) (cz + 0.8))
+        def c:int 1
+        while (c <= nS) {
+            def z:double (cz - ((to_double (c - 1)) * 1.4))
+            def pts:[double]
+            def r:int 0
+            while (r < nC) {
+                def v:double (PresFlightScene.num((m.cell(r c))))
+                push pts (left + ((to_double r) * step))
+                push pts (base + ((v / maxV) * bh))
+                push pts z
+                if (nC <= 24) {
+                    def dot:FlightItem (this.item("dot" si (left + ((to_double r) * step)) (base + ((v / maxV) * bh)) z))
+                    dot.w = 0.14
+                    this.colour(dot (PresFlightScene.seriesColour((c - 1))))
+                    dot.order = r
+                    dot.text = (trim (m.cell(r c)))
+                }
+                r = (r + 1)
+            }
+            if (nC >= 2) {
+                def lk:FlightItem (this.item("link" si cx cy z))
+                lk.pts = pts
+                lk.w = 0.07
+                this.colour(lk (PresFlightScene.seriesColour((c - 1))))
+                lk.order = (c - 1)
+            }
+            if (nS > 1) {
+                def sl:FlightItem (this.item("axis" si (left - 1.4) (base + 0.3) z))
+                sl.text = (itemAt m.header c)
+                sl.size = 0.34
+                this.colour(sl (PresFlightScene.seriesColour((c - 1))))
+            }
+            c = (c + 1)
+        }
+        ; every category's name when they fit, else every few
+        def every:int (idiv (nC + 11) 12)
+        def r2:int 0
+        while (r2 < nC) {
+            def ax:FlightItem (this.item("axis" si (left + ((to_double r2) * step)) (base - 0.5) (cz + 0.9)))
+            ax.text = (m.cell(r2 0))
+            ax.size = 0.34
+            ax.order = r2
+            r2 = (r2 + every)
+        }
+    }
+
+    ; Pie (16), donut (17) and radial (18): slices standing up facing the
+    ; viewer, radial ones as long as their value.
+    fn addPie:void (m:PresChartModel si:int cx:double cy:double cz:double) {
+        def n:int (m.rows())
+        def total:double 0.0
+        def maxV:double 0.0
+        def r:int 0
+        while (r < n) {
+            def v:double (PresFlightScene.num((m.cell(r 1))))
+            if (v > 0.0) {
+                total = (total + v)
+            }
+            if (v > maxV) {
+                maxV = v
+            }
+            r = (r + 1)
+        }
+        if ((total <= 0.0) || (maxV <= 0.0)) {
+            return
+        }
+        def twoPi:double 6.283185307179586
+        def a:double (twoPi * 0.25)
+        r = 0
+        while (r < n) {
+            def v:double (PresFlightScene.num((m.cell(r 1))))
+            if (v > 0.0) {
+                def span:double ((v / total) * twoPi)
+                def outer:double 3.6
+                if (m.kind == 18) {
+                    span = (twoPi / (to_double n))
+                    outer = (1.2 + ((v / maxV) * 2.4))
+                }
+                def wd:FlightItem (this.item("wedge" si cx (cy - 0.4) cz))
+                ; clockwise from the top, as the chart draws it
+                wd.a0 = (a - span)
+                wd.a1 = a
+                wd.r1 = outer
+                if (m.kind == 17) {
+                    wd.r0 = 1.8
+                }
+                wd.d = 0.9
+                wd.text = (m.cell(r 0))
+                this.colour(wd (PresFlightScene.seriesColour(r)))
+                wd.order = r
+                def mid:double (a - (span * 0.5))
+                def lb:FlightItem (this.item("label" si (cx + ((cos(mid)) * (outer + 1.1))) ((cy - 0.4) + ((sin(mid)) * (outer + 0.8))) (cz + 0.6)))
+                def pc:int (to_int (((v / total) * 100.0) + 0.5))
+                lb.text = ((m.cell(r 0)) + " " + (to_string pc) + " %")
+                lb.size = 0.34
+                this.colour(lb (PresFlightScene.seriesColour(r)))
+                lb.order = r
+                a = (a - span)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; Scatter (13) and bubbles (14): x and y from the first two numbers, a
+    ; bubble's size from the third.
+    fn addScatter:void (m:PresChartModel si:int cx:double cy:double cz:double) {
+        def n:int (m.rows())
+        def xc:int 0
+        def yc:int 1
+        if ((m.cols()) >= 3) {
+            xc = 1
+            yc = 2
+        }
+        def lo:[double] ([] _:double (0.0 0.0 0.0))
+        def hi:[double] ([] _:double (0.0 0.0 0.0))
+        def r:int 0
+        while (r < n) {
+            def x:double (PresFlightScene.num((m.cell(r xc))))
+            def y:double (PresFlightScene.num((m.cell(r yc))))
+            def sz:double 1.0
+            if ((m.kind == 14) && ((m.cols()) > (yc + 1))) {
+                sz = (PresFlightScene.num((m.cell(r (yc + 1)))))
+            }
+            if ((r == 0) || (x < (itemAt lo 0))) {
+                set lo 0 x
+            }
+            if ((r == 0) || (x > (itemAt hi 0))) {
+                set hi 0 x
+            }
+            if ((r == 0) || (y < (itemAt lo 1))) {
+                set lo 1 y
+            }
+            if ((r == 0) || (y > (itemAt hi 1))) {
+                set hi 1 y
+            }
+            if (sz > (itemAt hi 2)) {
+                set hi 2 sz
+            }
+            r = (r + 1)
+        }
+        def sx:double ((itemAt hi 0) - (itemAt lo 0))
+        def sy:double ((itemAt hi 1) - (itemAt lo 1))
+        if (sx <= 0.0) {
+            sx = 1.0
+        }
+        if (sy <= 0.0) {
+            sy = 1.0
+        }
+        def left:double (cx - 7.0)
+        def base:double (cy - 3.5)
+        this.axisLine(si left base (cz + 0.8) (left + 14.0) base (cz + 0.8))
+        this.axisLine(si left base (cz + 0.8) left (base + 7.0) (cz + 0.8))
+        r = 0
+        while (r < n) {
+            def x:double (PresFlightScene.num((m.cell(r xc))))
+            def y:double (PresFlightScene.num((m.cell(r yc))))
+            def dot:FlightItem (this.item("dot" si (left + (((x - (itemAt lo 0)) / sx) * 14.0)) (base + (((y - (itemAt lo 1)) / sy) * 7.0)) cz))
+            dot.w = 0.18
+            if ((m.kind == 14) && ((m.cols()) > (yc + 1)) && ((itemAt hi 2) > 0.0)) {
+                dot.w = (0.15 + ((sqrt(((PresFlightScene.num((m.cell(r (yc + 1))))) / (itemAt hi 2)))) * 0.75))
+            }
+            dot.order = r
+            dot.text = (m.cell(r 0))
+            r = (r + 1)
+        }
+    }
+
+    ; ---- out -----------------------------------------------------------------
+
+    fn toJson:string () {
+        def o:JVal (JVal.mkObj())
+        def st:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (array_length stations)) {
+            def s:FlightStation (itemAt stations i)
+            st.add((s.toJson()))
+            i = (i + 1)
+        }
+        o.set("stations" st)
+        def it:JVal (JVal.mkArr())
+        i = 0
+        while (i < (array_length items)) {
+            def f:FlightItem (itemAt items i)
+            it.add((f.toJson()))
+            i = (i + 1)
+        }
+        o.set("items" it)
+        return (o.toJson())
+    }
+
+    ; how many items of a kind (for the checks)
+    fn count:int (kind:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def f:FlightItem (itemAt items i)
+            if (f.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

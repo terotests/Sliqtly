@@ -1,0 +1,1144 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresCodeViewUi.rgr — the source viewer drawn over a presented slide
+; ============================================================================
+;
+; PresCodeView is what it does; this draws it and takes its presses, keys
+; and wheel. The text is Ranger's ScriptEditor, read-only: the same editor
+; as the files tab, in the same colours, with the file's own line numbers
+; (a partial file jumps 1–12, 50–78), the change marked in red and green,
+; and two editors side by side in `split` that scroll together.
+;
+;   ┌ ‹ Back │ api.cpp 40–88 │ review.fbs │        Change  Side by side  Now  Before │ − 100% + ┐
+;   │  38 │ …                                                                          │
+;   │  41 │   if (!validate(r)) return Status::Bad;      ← pins: PresReviewUi          │
+;   │     │ ⋯ lines 89–199 not in the deck                                             │
+;   └ src/server/api.cpp · acme/server · 9a1b3c7 → 4f2c1e0 · partial   Open in repo ↗ ┘
+;
+; The comments on the file are PresReviewUi's pins: this says where each
+; one's line is on the screen (`spots`), and a hold on a line asks the host
+; to start one (`requests`: "comment").
+;
+; The file's texts come from the page (`setFile`); until they are here the
+; viewer says it is waiting for them.
+; ============================================================================
+
+Import "../datagrid/src/script/ScriptEditor.rgr"
+Import "../datagrid/src/script/lang/CLikeLanguage.rgr"
+Import "../datagrid/src/script/lang/JsLanguage.rgr"
+Import "PresCodeView.rgr"
+Import "PresReview.rgr"
+Import "PresI18n.rgr"
+
+class PresCodeHit {
+    def id:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+}
+
+class PresCodeViewUi {
+    def view:PresCodeView (new PresCodeView())
+    def files:PresCodeFiles (new PresCodeFiles())
+    ; the texts the page gave: code/ paths (without code/) and their text
+    def paths:[string]
+    def texts:[string]
+    ; the left (or only) editor and the right one of `split`
+    def edA:ScriptEditor (new ScriptEditor())
+    def edB:ScriptEditor (new ScriptEditor())
+    def langs:LanguageRegistry (new LanguageRegistry())
+    def plain:EditorLanguage (new EditorLanguage())
+    ; what is shown: the rows laid out for the tab and mode
+    def rows:PresCodeRows (new PresCodeRows())
+    def rowsA:[PresCodeRow]
+    def rowsB:[PresCodeRow]
+    def builtKey:string ""
+    ; where it is drawn (the page), its bar and foot, and the editors
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def barH:double 44.0
+    def footH:double 30.0
+    def baseFont:double 15.0
+    def hits:[PresCodeHit]
+    ; the press went to the editor (`edPress`: "a", "b" or "")
+    def edPress:string ""
+    ; what the host is asked: "comment", "open:<url>", "copy"
+    def requests:[string]
+    def clip:string ""
+    ; the comments' lines on the screen, for PresReviewUi (ids, x, y)
+    def spotIds:[string]
+    def spotXs:[double]
+    def spotYs:[double]
+    ; a new comment's pin while it is being written (0 none): its line
+    def draftLine:int 0
+    def rev:int 0
+    def dark:boolean true
+    def missing:string ""
+    ; the files the page said it does not have, and a count of what it gave
+    def gone:[string]
+    def dataRev:int 0
+    ; the link's lines, banded (`bandLink`), to put back after a hold
+    def spanFrom:int 0
+    def spanTo:int 0
+    ; what was last scrolled to the link: the file, tab and mode, once here
+    def scrolledKey:string ""
+    ; a new-version line asked for (a slide script's code.line), shown once
+    ; the file is here; 0 for none
+    def wantLine:int 0
+
+    Constructor () {
+        CLikeLanguage.addAllTo(langs)
+        langs.add((new JsLanguage()))
+        this.setupEd(edA)
+        this.setupEd(edB)
+    }
+
+    fn setupEd:void (ed:ScriptEditor) {
+        ed.autoComplete = false
+        ed.fontFamily = "Open Sans"
+        ed.layout.fontSize = baseFont
+        ed.init("")
+        ed.setReadOnly(true)
+        ed.focused = false
+    }
+
+    ; --- the files ---------------------------------------------------------
+
+    fn setSources:void (json:string) {
+        files = (PresCodeFiles.parse(json))
+        dataRev = (dataRev + 1)
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    ; A file under code/ (a path with or without code/), its text.
+    fn setFile:void (path:string text:string) {
+        def p:string (PresCodeFiles.clean(path))
+        if (this.isGone(p)) {
+            def back:[string]
+            for gone g:string gi {
+                if (g != p) {
+                    push back g
+                }
+            }
+            gone = back
+        }
+        def i:int 0
+        while (i < (array_length paths)) {
+            if ((itemAt paths i) == p) {
+                if ((itemAt texts i) == text) {
+                    return
+                }
+                set texts i text
+                dataRev = (dataRev + 1)
+                builtKey = ""
+                rev = (rev + 1)
+                return
+            }
+            i = (i + 1)
+        }
+        push paths p
+        push texts text
+        dataRev = (dataRev + 1)
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    ; The page has no such file: the viewer says so instead of waiting.
+    fn setGone:void (path:string) {
+        def p:string (PresCodeFiles.clean(path))
+        ; one it had (another deck's, or removed since) goes
+        def keepP:[string]
+        def keepT:[string]
+        def j:int 0
+        while (j < (array_length paths)) {
+            if ((itemAt paths j) != p) {
+                push keepP (itemAt paths j)
+                push keepT (itemAt texts j)
+            }
+            j = (j + 1)
+        }
+        paths = keepP
+        texts = keepT
+        if (p == "sources.json") {
+            files = (new PresCodeFiles())
+        }
+        for gone g:string i {
+            if (g == p) {
+                return
+            }
+        }
+        push gone p
+        dataRev = (dataRev + 1)
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    fn isGone:boolean (path:string) {
+        def p:string (PresCodeFiles.clean(path))
+        for gone g:string i {
+            if (g == p) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn hasFile:boolean (path:string) {
+        def p:string (PresCodeFiles.clean(path))
+        for paths q:string i {
+            if (q == p) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn textOf:string (path:string) {
+        def p:string (PresCodeFiles.clean(path))
+        def i:int 0
+        while (i < (array_length paths)) {
+            if ((itemAt paths i) == p) {
+                return (itemAt texts i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The entry of a file in sources.json, or one made up for a file that
+    ; has none there (the whole file, no repo).
+    fn fileOf:PresCodeFile (path:string) {
+        def fo@(optional):PresCodeFile (files.file(path))
+        if (!null? fo) {
+            def f:PresCodeFile fo
+            return f
+        }
+        def made (new PresCodeFile())
+        made.path = (PresCodeFiles.clean(path))
+        made.lines = (PresCodeFiles.lineCount((this.textOf(path))))
+        return made
+    }
+
+    ; The files a set of links needs from the page: each file, its diff,
+    ; and sources.json (the host asks for each once, and again after the
+    ; deck's files change).
+    fn wanted:[string] (ls:[PresCodeLink]) {
+        def out:[string]
+        push out "code/sources.json"
+        for ls k:PresCodeLink i {
+            def p:string ("code/" + k.path)
+            def f:PresCodeFile (this.fileOf(k.path))
+            def more:[string]
+            push more p
+            if ((strlen f.diff) > 0) {
+                push more ("code/" + f.diff)
+            }
+            for more q:string mi {
+                def seen:boolean false
+                for out o:string j {
+                    if (o == q) {
+                        seen = true
+                    }
+                }
+                if (seen == false) {
+                    push out q
+                }
+            }
+        }
+        return out
+    }
+
+    ; --- opening -------------------------------------------------------------
+
+    fn open:void (ls:[PresCodeLink] first:int slide:int dia:int node:string bx:double by:double bw:double bh:double now:double) {
+        view.open(ls first bx by bw bh now)
+        view.slide = slide
+        view.dia = dia
+        view.node = node
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    fn close:boolean (now:double) {
+        if (view.close(now)) {
+            edPress = ""
+            draftLine = 0
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    fn isOpen:boolean () {
+        return view.isOpen
+    }
+
+    ; drawn at all (open, or still shrinking)
+    fn shows:boolean (now:double) {
+        return ((view.amount(now)) > 0.0)
+    }
+
+    ; --- laying the text out ---------------------------------------------------
+
+    fn langFor:EditorLanguage (path:string) {
+        def lower:string (to_lowercase path)
+        def l:EditorLanguage (langs.forFile(lower))
+        return l
+    }
+
+    ; The tab's rows for its mode, given to the editors, scrolled to the
+    ; link. Again only when something they come from changed.
+    fn build:void () {
+        def ko@(optional):PresCodeLink (view.link())
+        if (null? ko) {
+            return
+        }
+        def k:PresCodeLink ko
+        def key:string (k.path + "#" + (to_string view.tab) + ":" + view.mode + ":" + (to_string dataRev))
+        if (key == builtKey) {
+            return
+        }
+        missing = ""
+        if ((this.hasFile(k.path)) == false) {
+            missing = ("code/" + k.path)
+            if (this.isGone(k.path)) {
+                missing = (missing + (PresI18n.t(" is not in the deck's files")))
+            } {
+                missing = ((PresI18n.t("Reading ")) + missing + " …")
+            }
+        }
+        def f:PresCodeFile (this.fileOf(k.path))
+        def diff:string ""
+        if ((strlen f.diff) > 0) {
+            diff = (this.textOf(f.diff))
+        }
+        def keepTop:int edA.layout.scrollLine
+        rows = (PresCodeRows.make(f (this.textOf(k.path)) diff))
+        ; the mode the link asks for is taken once the file and its change
+        ; are here (until then there is no change to show)
+        def ready:boolean ((this.hasFile(k.path)) && (((strlen f.diff) == 0) || (this.hasFile(f.diff))))
+        def m:string view.mode
+        if ((strlen m) == 0) {
+            m = (rows.modeFor(k.mode))
+            if ready {
+                view.mode = m
+            }
+        } {
+            m = (rows.modeFor(m))
+            if ready {
+                view.mode = m
+            }
+        }
+        def lang:EditorLanguage (this.langFor(k.path))
+        if (m == "split") {
+            rowsA = (rows.left())
+            rowsB = (rows.right())
+            this.fill(edA rowsA lang true)
+            this.fill(edB rowsB lang false)
+        } {
+            rowsA = (rows.rows(m))
+            def none:[PresCodeRow]
+            rowsB = none
+            this.fill(edA rowsA lang (m == "before"))
+        }
+        ; where it opens: the link's lines, its name, its hunk
+        def span:[int] (PresCodeLinks.span(k files (this.textOf(k.path))))
+        def at:int -1
+        if (k.hunk > 0) {
+            at = (PresCodeRows.hunkRow(rowsA k.hunk))
+        }
+        if ((at < 0) && ((itemAt span 0) > 0)) {
+            at = (rows.rowFor((this.mainRows()) (itemAt span 0)))
+        }
+        spanFrom = (itemAt span 0)
+        spanTo = (itemAt span 1)
+        this.bandLink(spanFrom spanTo)
+        ; to the link when the tab, the mode or the file itself is new; the
+        ; deck's files read again leave the reader where they are
+        def sk:string (k.path + "#" + (to_string view.tab) + ":" + m + ":" + (? ready "r" "-") + ":" + (to_string view.opens))
+        if (sk != scrolledKey) {
+            scrolledKey = sk
+            if (at >= 0) {
+                this.scrollToRow(at)
+            }
+        } {
+            edA.layout.scrollLine = keepTop
+            edB.layout.scrollLine = keepTop
+        }
+        if ((wantLine > 0) && ready) {
+            def wr:int (rows.rowFor((this.mainRows()) wantLine))
+            if (wr >= 0) {
+                this.scrollToRow(wr)
+            }
+            wantLine = 0
+        }
+        builtKey = (k.path + "#" + (to_string view.tab) + ":" + view.mode + ":" + (to_string dataRev))
+    }
+
+    ; the rows comments and links are found in: the new column of split
+    fn mainRows:[PresCodeRow] () {
+        if (view.mode == "split") {
+            return rowsB
+        }
+        return rowsA
+    }
+
+    fn mainEd:ScriptEditor () {
+        if (view.mode == "split") {
+            return edB
+        }
+        return edA
+    }
+
+    fn fill:void (ed:ScriptEditor rs:[PresCodeRow] lang:EditorLanguage oldSide:boolean) {
+        ed.setLanguage(lang)
+        ed.init((PresCodeRows.text(rs)))
+        ed.setReadOnly(true)
+        if oldSide {
+            ed.setLineNumbers((PresCodeRows.oldNumbers(rs)))
+        } {
+            ed.setLineNumbers((PresCodeRows.newNumbers(rs)))
+            if (view.mode == "diff") {
+                ed.setOldLineNumbers((PresCodeRows.oldNumbers(rs)))
+            }
+        }
+        if ((view.mode == "diff") || (view.mode == "split")) {
+            ed.setLineMarks((PresCodeRows.marks(rs)))
+        }
+        ed.layout.fontSize = (view.fontSize(baseFont))
+    }
+
+    ; The link's lines get a faint band, so the eye finds them.
+    fn bandLink:void (from:int to:int) {
+        def rs:[PresCodeRow] (this.mainRows())
+        def bands:[EVGColor]
+        def col:EVGColor (EVGColor.rgba(250 204 21 0.16))
+        if dark {
+            col = (EVGColor.rgba(250 204 21 0.12))
+        }
+        for rs w:PresCodeRow i {
+            def n:int (PresCodeRows.lineAt(rs i))
+            if ((((w.kind == "same") || (w.kind == "add")) && (from > 0)) && ((n >= from) && (n <= to))) {
+                push bands col
+            } {
+                push bands (ScriptEditor.noColor())
+            }
+        }
+        def ed:ScriptEditor (this.mainEd())
+        ed.setLineBands(bands)
+    }
+
+    fn scrollToRow:void (row:int) {
+        def ed:ScriptEditor (this.mainEd())
+        def show:int ((ed.layout.lastVisible(ed.buf)) - (ed.layout.firstVisible()))
+        def top:int (row - (idiv show 3))
+        if (top < 0) {
+            top = 0
+        }
+        ed.layout.scrollLine = top
+        edA.layout.scrollLine = top
+        edB.layout.scrollLine = top
+    }
+
+    ; --- where things are ------------------------------------------------------------
+
+    ; Lays it out over the page: the full box (the page less a margin, above
+    ; `bottom`) at amount `a`, grown from the box it came out of (screen).
+    fn place:void (pw:double ph:double bottom:double fx:double fy:double fw:double fh:double now:double) {
+        def a:double (view.amount(now))
+        def m:double 0.0
+        def fullX:double m
+        def fullY:double m
+        def fullW:double (pw - (2.0 * m))
+        def fullH:double (bottom - (2.0 * m))
+        x = (PresCodeView.mix(a fx fullX))
+        y = (PresCodeView.mix(a fy fullY))
+        w = (PresCodeView.mix(a fw fullW))
+        h = (PresCodeView.mix(a fh fullH))
+        this.build()
+        def top:double (y + barH)
+        def eh:double ((h - barH) - footH)
+        if (eh < 0.0) {
+            eh = 0.0
+        }
+        def size:double (view.fontSize(baseFont))
+        edA.layout.fontSize = size
+        edB.layout.fontSize = size
+        if (view.mode == "split") {
+            def half:double (w / 2.0)
+            edA.setBounds((to_int x) (to_int top) (to_int (half - 1.0)) (to_int eh))
+            edB.setBounds((to_int (x + half)) (to_int top) (to_int (w - half)) (to_int eh))
+        } {
+            edA.setBounds((to_int x) (to_int top) (to_int w) (to_int eh))
+        }
+    }
+
+    ; The screen point of new line `line`'s pin (beside its gutter), and
+    ; whether it is on the screen: [x, y, 1/0].
+    fn pinPoint:[double] (line:int) {
+        def out:[double]
+        def ed:ScriptEditor (this.mainEd())
+        def rs:[PresCodeRow] (this.mainRows())
+        def r:int (rows.rowFor(rs line))
+        if (r < 0) {
+            push out 0.0
+            push out 0.0
+            push out 0.0
+            return out
+        }
+        def py:double ((to_double (ed.layout.caretPixelY(r))) + ((to_double ed.layout.lineHeight) / 2.0))
+        def px:double ((to_double (ed.layout.x + ed.layout.gutterW)) - 2.0)
+        def on:boolean ((py >= (y + barH)) && (py <= ((y + h) - footH)))
+        push out px
+        push out py
+        push out (? on 1.0 0.0)
+        return out
+    }
+
+    ; Where the comments on the file shown are on the screen.
+    fn placeSpots:void (model:PresReview) {
+        def ids:[string]
+        def xs:[double]
+        def ys:[double]
+        def ko@(optional):PresCodeLink (view.link())
+        if (!null? ko) {
+            def k:PresCodeLink ko
+            for model.threads t:PresReviewThread i {
+                if (t.codePath == k.path) {
+                    def p:[double] (this.pinPoint(t.codeLine))
+                    if ((itemAt p 2) > 0.0) {
+                        push ids t.id
+                        push xs (itemAt p 0)
+                        push ys (itemAt p 1)
+                    }
+                }
+            }
+            if (draftLine > 0) {
+                def dp:[double] (this.pinPoint(draftLine))
+                if ((itemAt dp 2) > 0.0) {
+                    push ids "rv-draft"
+                    push xs (itemAt dp 0)
+                    push ys (itemAt dp 1)
+                }
+            }
+        }
+        spotIds = ids
+        spotXs = xs
+        spotYs = ys
+    }
+
+    ; The row of the column under a point, -1 none; "a"/"b" which column.
+    fn rowAt:int (ed:ScriptEditor tr:UITextRenderer px:double py:double) {
+        if (((px < (to_double ed.layout.x)) || (px > (to_double (ed.layout.x + ed.layout.w)))) || ((py < (to_double ed.layout.y)) || (py > (to_double (ed.layout.y + ed.layout.h))))) {
+            return -1
+        }
+        def hit:EditorPos (ed.layout.hitTest(tr ed.buf (to_int px) (to_int py)))
+        return hit.line
+    }
+
+    fn sideAt:string (px:double py:double) {
+        if ((py < (y + barH)) || (py > ((y + h) - footH))) {
+            return ""
+        }
+        if (view.mode == "split") {
+            if (px >= (to_double edB.layout.x)) {
+                return "b"
+            }
+        }
+        return "a"
+    }
+
+    fn rowsOf:[PresCodeRow] (side:string) {
+        if (side == "b") {
+            return rowsB
+        }
+        return rowsA
+    }
+
+    fn edOf:ScriptEditor (side:string) {
+        if (side == "b") {
+            return edB
+        }
+        return edA
+    }
+
+    fn has:boolean (px:double py:double) {
+        return ((((px >= x) && (px <= (x + w))) && (py >= y)) && (py <= (y + h)))
+    }
+
+    fn hitAt:string (px:double py:double) {
+        for hits c:PresCodeHit i {
+            if ((((px >= c.x) && (px <= (c.x + c.w))) && (py >= c.y)) && (py <= (c.y + c.h))) {
+                return c.id
+            }
+        }
+        return ""
+    }
+
+    ; --- presses, keys, the wheel ---------------------------------------------------
+
+    fn press:void (tr:UITextRenderer px:double py:double clicks:int now:double) {
+        def id:string (this.hitAt(px py))
+        if ((strlen id) > 0) {
+            this.act(id now)
+            return
+        }
+        def side:string (this.sideAt(px py))
+        edPress = side
+        if ((strlen side) == 0) {
+            return
+        }
+        def ed:ScriptEditor (this.edOf(side))
+        def r:int (this.rowAt(ed tr px py))
+        if (clicks >= 2) {
+            ed.selectWordAt(tr (to_int px) (to_int py))
+        } {
+            ed.pointerDown(tr (to_int px) (to_int py) false)
+        }
+        view.down(r px py now)
+        rev = (rev + 1)
+    }
+
+    fn drag:void (tr:UITextRenderer px:double py:double) {
+        if ((strlen edPress) == 0) {
+            return
+        }
+        def ed:ScriptEditor (this.edOf(edPress))
+        def r:int (this.rowAt(ed tr px py))
+        view.move(r px py)
+        if (view.held == false) {
+            ed.pointerDrag(tr (to_int px) (to_int py))
+        }
+        rev = (rev + 1)
+    }
+
+    ; Each frame while a press is held: true when it has become a hold.
+    fn tick:boolean (now:double) {
+        if (view.pressing == false) {
+            return false
+        }
+        def rs:[PresCodeRow] (this.rowsOf(edPress))
+        def can:boolean false
+        if ((view.pressRow >= 0) && (view.pressRow < (array_length rs))) {
+            def w:PresCodeRow (itemAt rs view.pressRow)
+            can = ((w.canComment()) || ((w.kind == "fill") && (w.at > 0)))
+        }
+        if (view.tick(now can)) {
+            this.bandHold()
+            rev = (rev + 1)
+            return true
+        }
+        if view.held {
+            this.bandHold()
+        }
+        return false
+    }
+
+    ; The held rows get the selection's colour while held.
+    fn bandHold:void () {
+        def rs:[PresCodeRow] (this.rowsOf(edPress))
+        def bands:[EVGColor]
+        def a:int (view.holdFrom())
+        def b:int (view.holdLast())
+        def col:EVGColor (EVGColor.rgba(234 88 12 0.22))
+        def i:int 0
+        while (i < (array_length rs)) {
+            if ((i >= a) && (i <= b)) {
+                push bands col
+            } {
+                push bands (ScriptEditor.noColor())
+            }
+            i = (i + 1)
+        }
+        def ed:ScriptEditor (this.edOf(edPress))
+        ed.setLineBands(bands)
+    }
+
+    ; Let go. A hold asks the host for a comment on its lines (`holdLines`).
+    def holdLines:[int]
+
+    fn release:void () {
+        def what:string (view.up())
+        if (what == "comment") {
+            def rs:[PresCodeRow] (this.rowsOf(edPress))
+            holdLines = (PresCodeView.commentLines(rs (view.holdFrom()) (view.holdLast())))
+            if ((itemAt holdLines 0) > 0) {
+                draftLine = (itemAt holdLines 0)
+                push requests "comment"
+            }
+            ; the held rows' colour goes, the link's lines keep theirs
+            def noBands:[EVGColor]
+            def hed:ScriptEditor (this.edOf(edPress))
+            hed.setLineBands(noBands)
+            this.bandLink(spanFrom spanTo)
+        }
+        def ed:ScriptEditor (this.edOf(edPress))
+        ed.pointerUp()
+        edPress = ""
+        rev = (rev + 1)
+    }
+
+    ; The text of the first held row (a comment finds its line again by it).
+    fn holdText:string () {
+        def ko@(optional):PresCodeLink (view.link())
+        if (null? ko) {
+            return ""
+        }
+        def first:int (itemAt holdLines 0)
+        def rs:[PresCodeRow] (this.mainRows())
+        for rs w:PresCodeRow i {
+            if (((w.kind == "same") || (w.kind == "add")) && (w.new == first)) {
+                return w.text
+            }
+        }
+        return ""
+    }
+
+    fn act:void (id:string now:double) {
+        if (id == "back") {
+            this.close(now)
+            push requests "closed"
+            return
+        }
+        if ((indexOf id "tab:") == 0) {
+            if (view.showTab((?? (to_int (substring id 4 (strlen id))) 0))) {
+                builtKey = ""
+            }
+            rev = (rev + 1)
+            return
+        }
+        if ((indexOf id "mode:") == 0) {
+            if (view.setMode((substring id 5 (strlen id)))) {
+                builtKey = ""
+            }
+            rev = (rev + 1)
+            return
+        }
+        if (id == "zoom-") {
+            view.zoomBy(-1)
+            rev = (rev + 1)
+            return
+        }
+        if (id == "zoom+") {
+            view.zoomBy(1)
+            rev = (rev + 1)
+            return
+        }
+        if (id == "zoom0") {
+            view.zoom = 0
+            rev = (rev + 1)
+            return
+        }
+        if ((indexOf id "open:") == 0) {
+            push requests id
+        }
+    }
+
+    fn wheel:void (dy:double) {
+        def n:int (to_int (dy / 40.0))
+        if (n == 0) {
+            n = (? (dy > 0.0) 1 -1)
+        }
+        edA.scrollBy((0 - n))
+        if (view.mode == "split") {
+            edB.layout.scrollLine = edA.layout.scrollLine
+        }
+        rev = (rev + 1)
+    }
+
+    fn scrollLines:void (n:int) {
+        edA.scrollBy((0 - n))
+        edB.layout.scrollLine = edA.layout.scrollLine
+        rev = (rev + 1)
+    }
+
+    ; A key while it is open; true when it took it. Esc / Backspace go back.
+    fn key:boolean (name:string shift:boolean ctrl:boolean now:double) {
+        if ((name == "escape") || (name == "backspace")) {
+            this.close(now)
+            push requests "closed"
+            return true
+        }
+        if (ctrl && ((name == "+") || (name == "="))) {
+            view.zoomBy(1)
+            rev = (rev + 1)
+            return true
+        }
+        if (ctrl && (name == "-")) {
+            view.zoomBy(-1)
+            rev = (rev + 1)
+            return true
+        }
+        if (ctrl && (name == "0")) {
+            view.zoom = 0
+            rev = (rev + 1)
+            return true
+        }
+        if (ctrl && (name == "c")) {
+            def ed:ScriptEditor (this.mainEd())
+            clip = (ed.selectionText())
+            if ((strlen clip) > 0) {
+                push requests "copy"
+            }
+            return true
+        }
+        if (((name == "d") || (name == "D")) && (rows.hasDiff)) {
+            view.setMode((PresCodeView.nextMode(view.mode)))
+            builtKey = ""
+            rev = (rev + 1)
+            return true
+        }
+        if ((name == "n") || (name == "N")) {
+            this.jumpChange((shift || (name == "N")))
+            return true
+        }
+        if ((name == "down") || (name == "j")) {
+            this.scrollLines(1)
+            return true
+        }
+        if ((name == "up") || (name == "k")) {
+            this.scrollLines(-1)
+            return true
+        }
+        if ((name == "pageDown") || (name == "space")) {
+            this.scrollLines(20)
+            return true
+        }
+        if (name == "pageUp") {
+            this.scrollLines(-20)
+            return true
+        }
+        if (name == "home") {
+            edA.layout.scrollLine = 0
+            edB.layout.scrollLine = 0
+            rev = (rev + 1)
+            return true
+        }
+        if ((name == "left") && ((array_length view.links) > 1)) {
+            if (view.showTab((view.tab - 1))) {
+                builtKey = ""
+            }
+            rev = (rev + 1)
+            return true
+        }
+        if ((name == "right") && ((array_length view.links) > 1)) {
+            if (view.showTab((view.tab + 1))) {
+                builtKey = ""
+            }
+            rev = (rev + 1)
+            return true
+        }
+        ; everything else is not the slides' while the file is open
+        return true
+    }
+
+    ; To the next change below the reading point, or (back) the one above.
+    fn jumpChange:boolean (back:boolean) {
+        def starts:[int] (PresCodeRows.changeStarts((this.mainRows())))
+        def ed2:ScriptEditor (this.mainEd())
+        def cur:int (ed2.layout.firstVisible())
+        def show:int ((ed2.layout.lastVisible(ed2.buf)) - cur)
+        def mid:int (cur + (idiv show 3))
+        def go:int -1
+        for starts s:int i {
+            if ((back == false) && ((s > mid) && (go < 0))) {
+                go = s
+            }
+            if (back && (s < mid)) {
+                go = s
+            }
+        }
+        if (go < 0) {
+            return false
+        }
+        this.scrollToRow(go)
+        rev = (rev + 1)
+        return true
+    }
+
+    ; --- what a slide script asks (PresApp.playMove) -----------------------
+
+    ; Shows new-version line n of the file open (once it is read).
+    fn goLine:void (n:int) {
+        if (n <= 0) {
+            return
+        }
+        wantLine = n
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    fn setZoom:void (level:int) {
+        view.zoomBy((level - view.zoom))
+        rev = (rev + 1)
+    }
+
+    fn pickMode:void (m:string) {
+        if (view.setMode(m)) {
+            builtKey = ""
+        }
+        rev = (rev + 1)
+    }
+
+    fn pickTab:void (i:int) {
+        if (view.showTab(i)) {
+            builtKey = ""
+        }
+        rev = (rev + 1)
+    }
+
+    ; The new-version line at the top of what is shown, 0 for none.
+    fn topLine:int () {
+        def rs:[PresCodeRow] (this.mainRows())
+        def ed:ScriptEditor (this.mainEd())
+        def i:int (ed.layout.firstVisible())
+        while (i < (array_length rs)) {
+            def n:int (PresCodeRows.lineAt(rs i))
+            if (n > 0) {
+                return n
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; What a slide script reads as presentation.code: {isOpen, path, tab
+    ; (1-based), tabs, mode, zoom, line}.
+    fn state:JVal () {
+        def o:JVal (JVal.mkObj())
+        def open:boolean view.isOpen
+        o.setBool("isOpen" open)
+        def path:string ""
+        def ko@(optional):PresCodeLink (view.link())
+        if (open && (!null? ko)) {
+            def k:PresCodeLink (unwrap ko)
+            path = k.path
+        }
+        o.setStr("path" path)
+        o.setInt("tab" (? open (view.tab + 1) 0))
+        o.setInt("tabs" (? open (array_length view.links) 0))
+        o.setStr("mode" (? open view.mode ""))
+        o.setInt("zoom" view.zoom)
+        o.setInt("line" (? open (this.topLine()) 0))
+        return o
+    }
+
+    ; --- drawing ---------------------------------------------------------------------
+
+    sfn fileName:string (p:string) {
+        def slash:int (lastIndexOf p "/")
+        if (slash >= 0) {
+            return (substring p (slash + 1) (strlen p))
+        }
+        return p
+    }
+
+    fn addHit:void (id:string hx:double hy:double hw:double hh:double) {
+        def c (new PresCodeHit())
+        c.id = id
+        c.x = hx
+        c.y = hy
+        c.w = hw
+        c.h = hh
+        push hits c
+    }
+
+    ; A button of the bar: its text at (bx, by), pressed state, the hit.
+    fn button:double (dl:EVGDisplayList tr:UITextRenderer id:string label:string bx:double by:double on:boolean) {
+        def t:ScriptEditorTheme edA.theme
+        def size:double 14.0
+        def tw:double (tr.measureWidth(label size))
+        def bw:double (tw + 20.0)
+        def bh:double 30.0
+        if on {
+            edA.pushRect(dl bx by bw bh t.selection)
+        }
+        def ink:EVGColor t.plain
+        if (on == false) {
+            ink = t.gutterActive
+        }
+        edA.pushText(dl tr label (bx + 10.0) (by + ((bh - (tr.lineHeight(size))) / 2.0)) size ink)
+        this.addHit(id bx by bw bh)
+        return bw
+    }
+
+    fn paint:void (dl:EVGDisplayList tr:UITextRenderer now:double) {
+        def none:[PresCodeHit]
+        hits = none
+        def a:double (view.amount(now))
+        if (a <= 0.0) {
+            return
+        }
+        def t:ScriptEditorTheme edA.theme
+        edA.pushClip(dl x y w h)
+        edA.pushRect(dl x y w h t.bg)
+        ; the text
+        if (a >= 0.999) {
+            edA.focused = false
+            edA.paint(dl tr 0)
+            if (view.mode == "split") {
+                edB.focused = false
+                edB.paint(dl tr 0)
+                edA.pushRect(dl (x + (w / 2.0)) (y + barH) 1.0 ((h - barH) - footH) t.border)
+            }
+        }
+        ; the bar
+        edA.pushRect(dl x y w barH t.gutterBg)
+        edA.pushRect(dl x ((y + barH) - 1.0) w 1.0 t.border)
+        def bx:double (x + 8.0)
+        def by:double (y + 7.0)
+        bx = ((bx + (this.button(dl tr "back" (PresI18n.t("‹ Back")) bx by false))) + 8.0)
+        def i:int 0
+        while (i < (array_length view.links)) {
+            def k:PresCodeLink (itemAt view.links i)
+            def cap:string (PresCodeViewUi.fileName(k.path))
+            if (k.from > 0) {
+                cap = (cap + " " + (to_string k.from))
+                if (k.to > k.from) {
+                    cap = (cap + "–" + (to_string k.to))
+                }
+            }
+            if ((strlen k.symbol) > 0) {
+                cap = (cap + " " + k.symbol)
+            }
+            bx = ((bx + (this.button(dl tr ("tab:" + (to_string i)) cap bx by (i == view.tab)))) + 2.0)
+            i = (i + 1)
+        }
+        ; from the right: the zoom, then the modes
+        def size:double 14.0
+        def pct:string ((to_string (to_int (((view.fontSize(100.0))) + 0.5))) + " %")
+        def rx:double ((x + w) - 8.0)
+        def zw:double 30.0
+        rx = (rx - zw)
+        this.button(dl tr "zoom+" "+" rx by false)
+        def pw:double ((tr.measureWidth(pct size)) + 20.0)
+        rx = (rx - pw)
+        this.button(dl tr "zoom0" pct rx by false)
+        rx = (rx - zw)
+        this.button(dl tr "zoom-" "−" rx by false)
+        if rows.hasDiff {
+            rx = (rx - 16.0)
+            def modes:[string] ([] _:string ("before" "now" "split" "diff"))
+            def names:[string] ([] _:string ((PresI18n.t("Before")) (PresI18n.t("Now")) (PresI18n.t("Side by side")) (PresI18n.t("Change"))))
+            def mi:int 0
+            while (mi < 4) {
+                def nm:string (itemAt names mi)
+                def mw:double ((tr.measureWidth(nm size)) + 20.0)
+                rx = ((rx - mw) - 2.0)
+                this.button(dl tr ("mode:" + (itemAt modes mi)) nm rx by ((itemAt modes mi) == view.mode))
+                mi = (mi + 1)
+            }
+        }
+        ; the foot: where the file is from, links to it
+        def fy:double ((y + h) - footH)
+        edA.pushRect(dl x fy w footH t.gutterBg)
+        edA.pushRect(dl x fy w 1.0 t.border)
+        def ko@(optional):PresCodeLink (view.link())
+        if (!null? ko) {
+            def k2:PresCodeLink ko
+            def origin:string (files.originText(k2.path))
+            def foot:string ("code/" + k2.path)
+            if ((strlen origin) > 0) {
+                foot = (foot + "  ·  " + origin)
+            }
+            if ((strlen missing) > 0) {
+                foot = missing
+            }
+            if ((strlen rows.problem) > 0) {
+                foot = (foot + (PresI18n.t("  ·  the change does not read: ")) + rows.problem)
+            }
+            edA.pushText(dl tr foot (x + 12.0) (fy + 7.0) 13.0 t.gutterActive)
+            def fr:double ((x + w) - 8.0)
+            def ed:ScriptEditor (this.mainEd())
+            def rs:[PresCodeRow] (this.mainRows())
+            def line:int (PresCodeRows.lineAt(rs ed.sel.caret.line))
+            ; else the first line on the screen that has a number now
+            def li:int (ed.layout.firstVisible())
+            while ((line <= 0) && (li < (array_length rs))) {
+                line = (PresCodeRows.lineAt(rs li))
+                li = (li + 1)
+            }
+            def link:string (files.link(k2.path line line false))
+            def cmp:string (files.compareLink(k2.path))
+            if ((strlen cmp) > 0) {
+                def cmpLabel:string (PresI18n.t("Compare ↗"))
+                def cw:double ((tr.measureWidth(cmpLabel 13.0)) + 20.0)
+                fr = (fr - cw)
+                edA.pushText(dl tr cmpLabel (fr + 10.0) (fy + 7.0) 13.0 t.keyword)
+                this.addHit(("open:" + cmp) fr fy cw footH)
+            }
+            if ((strlen link) > 0) {
+                def repoLabel:string (PresI18n.t("Open in repo ↗"))
+                def lw:double ((tr.measureWidth(repoLabel 13.0)) + 20.0)
+                fr = (fr - lw)
+                edA.pushText(dl tr repoLabel (fr + 10.0) (fy + 7.0) 13.0 t.keyword)
+                this.addHit(("open:" + link) fr fy lw footH)
+            }
+        }
+        def e:EVGDrawCmd (new EVGDrawCmd)
+        e.kind = 5
+        push dl.cmds e
+    }
+
+    ; --- the badges on the diagrams --------------------------------------------------
+
+    ; Presenting, a diagram with links shows `‹/› N` (N files) at its corner
+    ; and a box with links a small `‹/›` at its own: drawn on the page in
+    ; screen pixels, pressed to open the viewer. The host says where; this
+    ; draws them and finds the one under a press.
+    def badges:[PresCodeHit]
+
+    fn clearBadges:void () {
+        def none:[PresCodeHit]
+        badges = none
+    }
+
+    ; A pill with its left top at (bx, by); `warm` when the files have open
+    ; comments. Its id: "dia:<k>" or "node:<k>:<id>".
+    fn badge:void (dl:EVGDisplayList tr:UITextRenderer id:string label:string bx:double by:double warm:boolean) {
+        def size:double 12.0
+        def bw:double ((tr.measureWidth(label size)) + 14.0)
+        def bh:double 20.0
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = bx
+        c.y = by
+        c.w = bw
+        c.h = bh
+        c.radius = (bh / 2.0)
+        def col:EVGColor (EVGColor.rgba(24 24 27 0.82))
+        if warm {
+            col = (EVGColor.rgba(234 88 12 0.95))
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+        edA.pushText(dl tr label (bx + 7.0) (by + ((bh - (tr.lineHeight(size))) / 2.0)) size (EVGColor.rgb(255 255 255)))
+        def hb (new PresCodeHit())
+        hb.id = id
+        hb.x = (bx - 4.0)
+        hb.y = (by - 4.0)
+        hb.w = (bw + 8.0)
+        hb.h = (bh + 8.0)
+        push badges hb
+    }
+
+    fn badgeAt:string (px:double py:double) {
+        def i:int ((array_length badges) - 1)
+        while (i >= 0) {
+            def c:PresCodeHit (itemAt badges i)
+            if ((((px >= c.x) && (px <= (c.x + c.w))) && (py >= c.y)) && (py <= (c.y + c.h))) {
+                return c.id
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+}

@@ -962,6 +962,59 @@ try {
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
   }
 
+  // The slide's text selected with the mouse while presenting
+  // (web/slidetext.js): a drag over a line copies it and the slide stays; a
+  // click on the text is still the next step.
+  {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => { document.getElementById("keys").focus(); });
+    await page.keyboard.press("F5");
+    await page.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 8000 });
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(300);
+    // the longest line of the slide, in the page's pixels
+    const line = () => page.evaluate(() => {
+      const st = window.__lastStage;
+      const [sx, sy, sc] = JSON.parse(window.__app.layoutJson()).stage;
+      const r = document.getElementById("c").getBoundingClientRect();
+      const runs = st.list.cmds.filter((c) => c.k === 3 && c.text && !c.rot && c.text.length > 8);
+      runs.sort((a, b) => b.text.length - a.text.length);
+      const c = runs[0];
+      if (!c) return null;
+      return { text: c.text, x0: r.left + sx + (c.x + 1) * sc, x1: r.left + sx + (c.x + c.w) * sc, y: r.top + sy + (c.y + c.h / 2) * sc };
+    });
+    const where = () => page.evaluate(() => ({ slide: window.__app.slideShown(), step: window.__app.pStep }));
+    const ln = await line();
+    await page.evaluate(() => navigator.clipboard.writeText("before"));
+    let copied = "", stayed = null, cursor = "", after = null, before = null, clickedOn = null;
+    if (ln) {
+      await page.mouse.move(ln.x0 + 4, ln.y);
+      cursor = await page.evaluate(() => document.getElementById("c").style.cursor);
+      before = await where();
+      await page.mouse.move(ln.x0, ln.y);
+      await page.mouse.down();
+      await page.mouse.move((ln.x0 + ln.x1) / 2, ln.y, { steps: 4 });
+      await page.mouse.move(ln.x1 + 40, ln.y, { steps: 4 });
+      await page.mouse.up();
+      await page.keyboard.press("Control+c");
+      await page.waitForTimeout(200);
+      copied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+      stayed = await where();
+      // the click that lets go, then a click on the text: the next step
+      await page.mouse.click(ln.x0 + 10, ln.y);
+      after = await where();
+      await page.mouse.click(ln.x0 + 10, ln.y);
+      await page.waitForTimeout(200);
+      clickedOn = await where();
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    }
+    check("presenting: a drag over the slide's text copies it, the slide stays", !!ln && copied.includes(ln.text.trim()) && stayed.slide === before.slide && stayed.step === before.step && cursor === "text", JSON.stringify({ ln, copied, before, stayed, cursor }));
+    check("presenting: the click after a selection only lets go of it, the next is the slide's", !!ln && after.slide === before.slide && after.step === before.step && (clickedOn.slide !== before.slide || clickedOn.step !== before.step), JSON.stringify({ before, after, clickedOn }));
+    // (`select-text: off` itself: PresCheck selectText)
+    check("select-text is on by default", (await page.evaluate(() => window.__app.selectText())) === true);
+  }
+
   // Record (PresRecord, web/recorder.js): presenting from the start with
   // the pen on; a press that moves draws, one that does not goes on,
   // Backspace wipes; ■ keeps recordings/take.json (silent here: no
@@ -5728,6 +5781,71 @@ try {
     await page.waitForTimeout(500);
     check("the theme tab: the styles alone at the top", (await app("themeCss")).startsWith(".iso { color: #e11; }\nh2 { color: lime; }\n/*"), (await app("themeCss")).slice(0, 80));
     await ctx.close();
+  }
+
+  // Source code over a presented slide (PresCodeViewUi): a box with a
+  // `::: code` link shows a ‹/› badge, a double click on it opens its file
+  // read-only with the change (code/<file> + code/<file>.diff), and a press
+  // held on a line pins a "Source code comment" to the NEW version's line.
+  {
+    const pc = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await pc.goto(url);
+    await pc.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const oldCpp = '#include "api.h"\n\nStatus submit(const ReviewDTO& r) {\n  validate(r);\n  db.insert(r);\n  return Status::Ok;\n}\n';
+    const newCpp = '#include "api.h"\n\nStatus submit(const ReviewDTO& r) {\n  if (r.body.empty()) return Status::Empty;\n  if (!validate(r)) return Status::Bad;\n  db.insert(r);\n  return Status::Ok;\n}\n';
+    const diff = "--- a/src/api.cpp\n+++ b/src/api.cpp\n@@ -1,7 +1,8 @@\n #include \"api.h\"\n \n Status submit(const ReviewDTO& r) {\n-  validate(r);\n+  if (r.body.empty()) return Status::Empty;\n+  if (!validate(r)) return Status::Bad;\n   db.insert(r);\n   return Status::Ok;\n }\n";
+    const sources = JSON.stringify({ version: 1, repos: { server: { url: "https://github.com/acme/server", host: "github", base: "9a1b3c7d", head: "4f2c1e0a" } }, files: [{ path: "api.cpp", repo: "server", repo_path: "src/api.cpp", commit: "4f2c1e0a", base_commit: "9a1b3c7d", status: "modified", diff: "api.cpp.diff" }] });
+    const deck = "---\nslide-split-level: 2\n---\n# Review\n\n## Submit flow\n\n```mermaid\nflowchart LR\n  A[Client] --> B[API submit]\n```\n\n::: code\nB api.cpp#L3-6\n:::\n";
+    await pc.evaluate(async ({ deck, files }) => {
+      window.__app.setSource(deck);
+      for (const [p, t] of Object.entries(files)) await window.__keepText(p, t);
+    }, { deck, files: { "code/api.cpp": newCpp, "code/api.cpp.diff": diff, "code/sources.json": sources } });
+    await pc.evaluate(() => { const a = window.__app; a.setReviewMode(true); a.present(true); window.__handleRequests(); a.next(); });
+    await pc.waitForTimeout(5000);
+    const nb = await pc.evaluate(() => { const a = window.__app; a.codeJson(); const b = a.codeView.badges.find((x) => x.id.startsWith("node:")); if (!b) return null; const [k, n] = b.id.split(":").slice(1).map(Number); const r = a.deck.codeNodeBox(a.slideShown(), k, n, a.stageTime()); const sc = a.slideScale(); return { ids: a.codeView.badges.map((x) => x.id), x: a.slideRect.x + (r[0] + r[2] / 2) * sc, y: a.slideRect.y + (r[1] + r[3] / 2) * sc }; });
+    check("a box with a code link has its ‹/› badge, the diagram its count", !!nb && nb.ids.includes("dia:0"), JSON.stringify(nb));
+    await pc.mouse.click(nb.x, nb.y);
+    await pc.waitForTimeout(300);
+    const one = await pc.evaluate(() => ({ open: window.__app.codeView.isOpen(), sel: window.__app.slideShown() }));
+    check("…one click on it neither opens it nor goes on", !one.open && one.sel === 1, JSON.stringify(one));
+    await pc.mouse.dblclick(nb.x, nb.y);
+    await pc.waitForTimeout(800);
+    const v = await pc.evaluate(() => { const c = window.__app.codeView; return { open: c.isOpen(), mode: c.view.mode, missing: c.missing, rows: c.rowsA.map((w) => w.kind).join(",") }; });
+    check("…a double click opens the file with its change", v.open && v.mode === "diff" && !v.missing && v.rows.includes("del") && v.rows.includes("add"), JSON.stringify(v));
+    // held on the removed line: the comment goes to the new line it stood before
+    const del = await pc.evaluate(() => { const c = window.__app.codeView; window.__app.codeJson(); const i = c.rowsA.findIndex((w) => w.kind === "del"); const ed = c.edA; return [ed.layout.x + ed.layout.gutterW + 120, ed.layout.caretPixelY(i) + ed.layout.lineHeight / 2]; });
+    await pc.mouse.move(del[0], del[1]);
+    await pc.mouse.down();
+    await pc.waitForTimeout(800);
+    await pc.mouse.up();
+    await pc.waitForTimeout(300);
+    const d = await pc.evaluate(() => { const r = window.__app.review; return { drafting: r.drafting, path: r.draftCodePath, line: r.draftCodeLine, rem: [r.draftRemFrom, r.draftRemTo] }; });
+    check("…a press held on a removed line starts a comment on the new line 4, old line 4 removed", d.drafting && d.path === "api.cpp" && d.line === 4 && d.rem[0] === 4, JSON.stringify(d));
+    await pc.keyboard.type("Check the empty body");
+    await pc.keyboard.press("Enter");
+    await pc.waitForTimeout(400);
+    const t = await pc.evaluate(() => { const a = window.__app; const th = a.review.model.threads[0]; a.review.openList(); a.reviewJson(); return { path: th && th.codePath, line: th && th.codeLine, commit: th && th.codeCommit, list: JSON.stringify(a.review.displayList().toJson()).includes("Source code comment"), mode: a.codeView.view.mode }; });
+    check("…sent, it is a source code comment in the list, the viewer as it was", t.path === "api.cpp" && t.line === 4 && t.commit === "4f2c1e0a" && t.list && t.mode === "diff", JSON.stringify(t));
+    await pc.keyboard.press("Escape");
+    await pc.keyboard.press("Escape");
+    await pc.waitForTimeout(500);
+    const back = await pc.evaluate(() => ({ open: window.__app.codeView.isOpen(), sel: window.__app.slideShown() }));
+    check("…Esc goes back to the slide", !back.open && back.sel === 1, JSON.stringify(back));
+    // a slide script with allow: code drives the viewer (presentation.code)
+    const script = 'import { presentation } from "Sliqtly";\nlet t = 0;\nexport function tick(dt) {\n  const c = presentation.code;\n  t += dt;\n  if (t > 0.3 && !c.isOpen && c.path === "") presentation.code.open("api.cpp#L4", { mode: "split" });\n  if (c.isOpen && c.mode === "split" && c.zoom === 0) c.setZoom(2);\n}\n';
+    await pc.evaluate(async ({ script }) => {
+      const a = window.__app;
+      a.endPresent();
+      await window.__keepText("apps/code.tsx", script);
+      a.setSource(a.source().replace("## Submit flow", '## Submit flow {script=apps/code.tsx allow="code"}'));
+      a.present(true);
+      window.__handleRequests();
+      a.next();
+    }, { script });
+    await pc.waitForFunction(() => window.__app.codeView.isOpen() && window.__app.codeView.view.zoom === 2, null, { timeout: 15000 }).catch(() => {});
+    const sv = await pc.evaluate(() => { const c = window.__app.codeView; return { open: c.isOpen(), mode: c.view.mode, zoom: c.view.zoom, notes: window.__app.playNotes() }; });
+    check("a slide script opens the viewer in split view and zooms it", sv.open && sv.mode === "split" && sv.zoom === 2, JSON.stringify(sv));
+    await pc.close();
   }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike

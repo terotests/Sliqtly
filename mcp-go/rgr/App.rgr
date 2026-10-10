@@ -116,6 +116,32 @@ class App {
         App.sendJson(res 200 body)
     }
 
+    ; GET /api/view/<id>/pic?path=<path>&v=<stamp>: a picture of the deck
+    ; made for the viewer's screen (ViewPictures), kept by the CDN for good
+    ; under its stamp
+    sfn servePicture:void (host:McpHost req:HttpRequest res:HttpResponse id:string what:string) {
+        def q:MfJ (J.parse((http_query_json req)))
+        def p:ViewPic (new ViewPic)
+        if (what == "pic") {
+            p = (ViewPictures.picture(host id (q.str_("path")) (q.str_("v"))))
+        }
+        if (p.status == 302) {
+            http_set_header res "Cache-Control" "public, max-age=0, s-maxage=60"
+            App.redirect(res p.url)
+            return
+        }
+        if (p.status != 200) {
+            http_set_header res "Cache-Control" "no-store"
+            App.sendJson(res 404 "{\"error\":\"This picture was not found.\"}")
+            return
+        }
+        http_set_header res "Content-Type" p.type
+        http_set_header res "Cache-Control" "public, max-age=31536000, s-maxage=31536000, immutable"
+        http_set_header res "X-Content-Type-Options" "nosniff"
+        http_set_status res 200
+        http_send_buffer res p.bytes
+    }
+
     ; GET /s/<id>[?slide=<n>][&slides=<keys>]: the viewer's page (Hosting's
     ; index.html) with the deck's link card in its head (LinkCard), the
     ; slide's own with ?slide=, for the previews chat apps draw
@@ -320,7 +346,13 @@ class App {
             return
         }
         if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/api/view/") == 0)) {
-            App.serveView(host req res (substring path 10 (strlen path)))
+            def rest:string (substring path 10 (strlen path))
+            def slash:int (indexOf rest "/")
+            if (slash > 0) {
+                App.servePicture(host req res (substring rest 0 slash) (substring rest (slash + 1) (strlen rest)))
+                return
+            }
+            App.serveView(host req res rest)
             return
         }
         if (((method == "GET") || (method == "HEAD")) && ((indexOf path "/s/") == 0)) {

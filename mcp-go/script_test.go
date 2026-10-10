@@ -65,6 +65,17 @@ func TestSlideScript(t *testing.T) {
 	}
 	rd := call(t, s, "get_display_list", map[string]any{"deck_id": sc(rc)["deck_id"].(string), "slide": 2, "selector": "chart:1 bar"})
 	match(t, textOf(rd), `find\("chart:1 bar"\) → 3 entities`)
+	// a column's data is its category and its value from the chart's data
+	match(t, fmt.Sprint(sc(rd)["entities"]), `label:Tu value:7`)
+
+	// a > quote is a quote
+	qc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": "# Deck\n\n## Q {script=apps/fx.tsx}\n\n> Bread first\n",
+		"files": []any{map[string]any{"name": "fx.tsx", "text": "function tick(dt) { find(\"quote word\").set({ opacity: 0.5 }); }\n"}}})
+	if w := fmt.Sprint(sc(qc)["warnings"]); strings.Contains(w, "quote") {
+		t.Fatal("the quote's words not found:", w)
+	}
+	qd := call(t, s, "get_display_list", map[string]any{"deck_id": sc(qc)["deck_id"].(string), "slide": 2})
+	match(t, textOf(qd), `quote-1 quote "Bread first"`)
 
 	// the module form: its selectors are checked the same way
 	mod := "import { presentation } from \"Sliqtly\";\nconst slide = presentation.activeSlide;\nexport function tick() { slide.find(\"li:2\").set({ opacity: 0.5 }); slide.find(\"li:7\").set({ opacity: 0 }); }\n"
@@ -125,6 +136,22 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 		"files": []any{map[string]any{"name": "fx.tsx", "text": far}}})
 	match(t, fmt.Sprint(sc(fc)["warnings"]), `Slide 2: script apps/fx\.tsx: 1 shape\(s\) it adds are off the slide, which is 960 × 540`)
 
+	// the viewer gets how each script opens (start(), onEnter, its build
+	// steps), so a reloaded page paints the slide so from its first frame
+	op := "import { presentation } from \"Sliqtly\";\nconst s = presentation.activeSlide;\nexport function start() { s.find(\"li\").set({ opacity: 0 }); }\nexport function tick() { s.find(\"li\").set({ opacity: 1 }); }\nexport function final() { s.find(\"li\").set({ opacity: 1 }); }\n"
+	oc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md, "visibility": "link",
+		"files": []any{map[string]any{"name": "fx.tsx", "text": op}}})
+	_, _, _, ob := getView(t, s.root+"/api/view/"+sc(oc)["deck_id"].(string))
+	var ov struct {
+		Scripts []struct {
+			Open map[string]any `json:"open"`
+		} `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(ob), &ov); err != nil || len(ov.Scripts) != 1 {
+		t.Fatalf("scripts: %v %.300s", err, ob)
+	}
+	match(t, fmt.Sprint(ov.Scripts[0].Open["p"]), `li-1:map\[opacity:0\]`)
+
 	// a picture only a script names (add("image")) is the deck's too: drawn
 	// where the script ends, and handed to the viewer
 	pic := "import { presentation } from \"Sliqtly\";\npresentation.activeSlide.add(\"image\", { src: \"media/dot.png\", x: 20, y: 20, w: 40, h: 40 });\nexport function tick() {}\n"
@@ -154,7 +181,7 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	// a module the page does not have is said
 	nomod := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
 		"files": []any{map[string]any{"name": "fx.tsx", "text": "import { x } from \"nope\";\nfunction tick() {}\n"}}})
-	match(t, fmt.Sprint(sc(nomod)["warnings"]), `does not run: .*Cannot find module 'nope' \(modules here: Sliqtly\)`)
+	match(t, fmt.Sprint(sc(nomod)["warnings"]), `does not run: .*Cannot find module 'nope' \(modules here: Sliqtly[,)]`)
 
 	st := call(t, s, "render_strip", map[string]any{"deck_id": id, "slide": 2, "frames": 3})
 	if st.IsError {
@@ -213,11 +240,11 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 		t.Fatalf("the script's base is not the slide as the Markdown has it: %.600s", base)
 	}
 
-	// scripts/check-view.mjs's deck: a heading the script turns red while
-	// it runs (final() leaves it as the Markdown has it)
+	// scripts/check-view.mjs's deck: a heading the script opens blue and
+	// turns red while it runs (final() leaves it as the Markdown has it)
 	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
 		red := call(t, s, "create_presentation", map[string]any{"title": "Script", "markdown": "## Turns red {script=apps/red.tsx}\n\n- One\n- Two\n",
-			"files": []any{map[string]any{"name": "red.tsx", "text": "let t = 0;\nfunction tick(dt) { t += dt; if (t > 0.2) find(\"h2\").set({ color: \"#ff2020\" }); }\nfunction final() {}\n"}}})
+			"files": []any{map[string]any{"name": "red.tsx", "text": "let t = 0;\nfunction start() { find(\"h2\").set({ color: \"#2020ff\" }); }\nfunction tick(dt) { t += dt; if (t > 1) find(\"h2\").set({ color: \"#ff2020\" }); }\nfunction final() { find(\"h2\").set({ color: null }); }\n"}}})
 		_, _, _, rb := getView(t, s.root+"/api/view/"+sc(red)["deck_id"].(string))
 		if err := os.WriteFile("../scripts/fixtures/view-script.json", []byte(rb), 0o644); err != nil {
 			t.Fatal(err)

@@ -69,6 +69,22 @@ func (b *localBucket) Save(ctx context.Context, p, contentType string, data []by
 	return nil
 }
 
+// SaveFrom keeps what r reads as p without holding it in memory (a shared
+// design file can be hundreds of megabytes). → the blob as kept
+func (b *localBucket) SaveFrom(ctx context.Context, p, contentType string, r io.Reader) (store.BlobInfo, error) {
+	c, err := cleanFilePath(p)
+	if err != nil {
+		return store.BlobInfo{}, err
+	}
+	info, err := b.blobs.Put(ctx, r, contentType)
+	if err != nil {
+		return store.BlobInfo{}, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return info, b.refs.Set(ctx, c, info, contentType)
+}
+
 func (b *localBucket) Read(ctx context.Context, p string, limit int64) ([]byte, error) {
 	f, _, ok := b.open(ctx, p)
 	if !ok {

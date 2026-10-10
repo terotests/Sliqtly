@@ -1,0 +1,420 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The source files a review deck carries for the source viewer (code/, see
+; src/PresCodeFiles.rgr): the parts of each file the model, the story and
+; the change touch, its diff and code/sources.json; and the code slides
+; that show a ref's lines, as the change has them. Tested in review_test.go.
+
+Import "CrModel.rgr"
+
+class CrCodeFile {
+    ; the path in the repository
+    def path:string ""
+    ; the whole file at the PR's head
+    def body:string ""
+    def lines:[string]
+    ; added, modified, renamed, same (not in the change)
+    def status:string "same"
+    ; the change's unified diff of the file, "" = none
+    def patch:string ""
+    ; the lines kept, [from, to, …]; empty = the whole file
+    def ranges:[int]
+}
+
+class CrCode {
+    def files:[CrCodeFile]
+
+    ; context kept around each line the deck talks about
+    sfn CONTEXT:int () {
+        return 6
+    }
+    ; a file this long or shorter is kept whole
+    sfn WHOLE:int () {
+        return 400
+    }
+    ; rows a code slide shows
+    sfn ROWS:int () {
+        return 16
+    }
+
+    fn find@(optional):CrCodeFile (path:string) {
+        def found@(optional):CrCodeFile
+        for files f:CrCodeFile i {
+            if (f.path == path) {
+                found = f
+                break
+            }
+        }
+        return found
+    }
+
+    fn add:void (path:string body:string status:string patch:string) {
+        def f (new CrCodeFile)
+        f.path = path
+        f.body = body
+        def ls:[string] (strsplit body "\n")
+        if (((array_length ls) > 0) && ((strlen (itemAt ls ((array_length ls) - 1))) == 0)) {
+            removeLast ls
+        }
+        f.lines = ls
+        f.status = status
+        f.patch = patch
+        push files f
+    }
+
+    ; GitHub's file status as the source viewer names it
+    sfn status:string (gh:string) {
+        if (gh == "removed") {
+            return "deleted"
+        }
+        if (((gh == "added") || (gh == "renamed")) || (gh == "modified")) {
+            return gh
+        }
+        if ((strlen gh) == 0) {
+            return "same"
+        }
+        return "modified"
+    }
+
+    ; the number after sign ('-' or '+') in a hunk header, 0 when none
+    sfn headNum:int (line:string sign:string) {
+        def at:int (indexOf line (" " + sign))
+        if (at < 0) {
+            return 0
+        }
+        def k:int (at + 2)
+        def v:int 0
+        while ((k < (strlen line)) && (((charAt line k) >= 48) && ((charAt line k) <= 57))) {
+            v = ((v * 10) + ((charAt line k) - 48))
+            k = (k + 1)
+        }
+        return v
+    }
+
+    ; the new side of each hunk of a unified diff, [from, to, …]
+    sfn hunks:[int] (patch:string) {
+        def out:[int]
+        def n:int 0
+        def from:int 0
+        def to:int 0
+        for (strsplit patch "\n") line:string i {
+            if ((indexOf line "@@") == 0) {
+                if (to >= from) {
+                    if (from > 0) {
+                        push out from
+                        push out to
+                    }
+                }
+                n = (CrCode.headNum(line "+"))
+                from = n
+                to = (n - 1)
+                continue
+            }
+            def first:string ""
+            if ((strlen line) > 0) {
+                first = (substring line 0 1)
+            }
+            if ((first == "-") || (first == "\\")) {
+                continue
+            }
+            if (first == "+") {
+                to = n
+            }
+            n = (n + 1)
+        }
+        if ((to >= from) && (from > 0)) {
+            push out from
+            push out to
+        }
+        return out
+    }
+
+    ; ranges [from, to, …] widened by ctx, kept in 1..max, in order and
+    ; joined where they touch
+    sfn merge:[int] (r:[int] ctx:int max:int) {
+        def as:[int]
+        def bs:[int]
+        def i:int 0
+        while ((i + 1) < (array_length r)) {
+            def a:int ((itemAt r i) - ctx)
+            def b:int ((itemAt r (i + 1)) + ctx)
+            if (a < 1) {
+                a = 1
+            }
+            if (b > max) {
+                b = max
+            }
+            if (a <= b) {
+                ; insert in order of a
+                def k:int (array_length as)
+                push as a
+                push bs b
+                while ((k > 0) && ((itemAt as (k - 1)) > a)) {
+                    set as k (itemAt as (k - 1))
+                    set bs k (itemAt bs (k - 1))
+                    k = (k - 1)
+                }
+                set as k a
+                set bs k b
+            }
+            i = (i + 2)
+        }
+        def out:[int]
+        def j:int 0
+        while (j < (array_length as)) {
+            def a2:int (itemAt as j)
+            def b2:int (itemAt bs j)
+            def n:int (array_length out)
+            if ((n > 0) && (a2 <= ((itemAt out (n - 1)) + 1))) {
+                if (b2 > (itemAt out (n - 1))) {
+                    set out (n - 1) b2
+                }
+            } {
+                push out a2
+                push out b2
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; which lines of each file to keep: the refs' and the hunks' with some
+    ; context; a short file whole
+    fn keep:void (refs:[string]) {
+        for files f:CrCodeFile i {
+            def max:int (array_length f.lines)
+            if (max <= (CrCode.WHOLE())) {
+                continue
+            }
+            def want:[int]
+            for refs r:string ri {
+                def ref:CrRef (CrRef.parse(r))
+                if ((ref.ok && (ref.path == f.path)) && (ref.from <= max)) {
+                    push want ref.from
+                    push want ref.to
+                }
+            }
+            for (CrCode.hunks(f.patch)) h:int hi {
+                push want h
+            }
+            if ((array_length want) == 0) {
+                push want 1
+                push want 1
+            }
+            f.ranges = (CrCode.merge(want (CrCode.CONTEXT()) max))
+        }
+    }
+
+    ; the kept lines, one range after the other
+    sfn cut:string (f:CrCodeFile) {
+        if ((array_length f.ranges) == 0) {
+            if ((array_length f.lines) == 0) {
+                return "\n"
+            }
+            return ((join f.lines "\n") + "\n")
+        }
+        def out:[string]
+        def i:int 0
+        while ((i + 1) < (array_length f.ranges)) {
+            def n:int (itemAt f.ranges i)
+            while ((n <= (itemAt f.ranges (i + 1))) && (n <= (array_length f.lines))) {
+                push out (itemAt f.lines (n - 1))
+                n = (n + 1)
+            }
+            i = (i + 2)
+        }
+        return ((join out "\n") + "\n")
+    }
+
+    sfn fileJ:MfJ (name:string text:string) {
+        def o:MfJ (MfJ.newObj())
+        o.putStr("name" ("code/" + name))
+        o.putStr("text" text)
+        return o
+    }
+
+    ; the files for create_presentation's files: code/<path>, its diff and
+    ; code/sources.json
+    fn bundle:MfJ (repo:string ownerRepo:string head:string base:string change:string changeUrl:string) {
+        def out:MfJ (MfJ.newArr())
+        def list:MfJ (MfJ.newArr())
+        for files f:CrCodeFile i {
+            out.add((CrCode.fileJ(f.path (CrCode.cut(f)))))
+            def fo:MfJ (MfJ.newObj())
+            fo.putStr("path" f.path)
+            fo.putStr("repo" repo)
+            fo.putStr("commit" head)
+            fo.putStr("status" f.status)
+            if ((strlen f.patch) > 0) {
+                def from:string ("a/" + f.path)
+                if (f.status == "added") {
+                    from = "/dev/null"
+                }
+                def patch:string f.patch
+                if ((endsWith patch "\n") == false) {
+                    patch = (patch + "\n")
+                }
+                out.add((CrCode.fileJ((f.path + ".diff") ("--- " + from + "\n+++ b/" + f.path + "\n" + patch))))
+                fo.putStr("diff" (f.path + ".diff"))
+            }
+            fo.putInt("lines" (array_length f.lines))
+            if ((array_length f.ranges) > 0) {
+                def rs:MfJ (MfJ.newArr())
+                def k:int 0
+                while ((k + 1) < (array_length f.ranges)) {
+                    def pair:MfJ (MfJ.newArr())
+                    pair.add((MfJ.ofInt((itemAt f.ranges k))))
+                    pair.add((MfJ.ofInt((itemAt f.ranges (k + 1)))))
+                    rs.add(pair)
+                    k = (k + 2)
+                }
+                fo.put("ranges" rs)
+            }
+            list.add(fo)
+        }
+        def ro:MfJ (MfJ.newObj())
+        ro.putStr("url" ("https://github.com/" + ownerRepo))
+        ro.putStr("host" "github")
+        if ((strlen base) > 0) {
+            ro.putStr("base" base)
+        }
+        ro.putStr("head" head)
+        ro.putStr("change" change)
+        ro.putStr("change_url" changeUrl)
+        def repos:MfJ (MfJ.newObj())
+        repos.put(repo ro)
+        def src:MfJ (MfJ.newObj())
+        src.putInt("version" 1)
+        src.put("repos" repos)
+        src.put("files" list)
+        out.add((CrCode.fileJ("sources.json" (src.toJson()))))
+        return out
+    }
+
+    ; a fence language for a file name, "" = none
+    sfn lang:string (path:string) {
+        def dot:int (lastIndexOf path ".")
+        if (dot < 0) {
+            return ""
+        }
+        def ext:string (to_lowercase (substring path (dot + 1) (strlen path)))
+        def names:[string] ([] _:string ("ts" "tsx" "js" "jsx" "mjs" "go" "py" "rs" "java" "kt" "c" "h" "cc" "cpp" "hpp" "cs" "sql" "json" "sh" "rb" "php" "swift" "css" "html" "yaml" "yml"))
+        def langs:[string] ([] _:string ("ts" "ts" "js" "js" "js" "go" "py" "rust" "java" "kotlin" "c" "c" "cpp" "cpp" "cpp" "cs" "sql" "json" "sh" "ruby" "php" "swift" "css" "html" "yaml" "yaml"))
+        def at:int (indexOf names ext)
+        if (at < 0) {
+            return ""
+        }
+        return (itemAt langs at)
+    }
+
+    ; the lines from..to as the change has them: a diff of the hunk around
+    ; them when the change touches them, else the file's lines; "" when the
+    ; file or the lines are not here
+    fn snippet:string (ref:string) {
+        def r:CrRef (CrRef.parse(ref))
+        if ((r.ok == false) || (r.from < 1)) {
+            return ""
+        }
+        def got@(optional):CrCodeFile (this.find(r.path))
+        if (null? got) {
+            return ""
+        }
+        def f:CrCodeFile (unwrap got)
+        def max:int (array_length f.lines)
+        if (r.from > max) {
+            return ""
+        }
+        def lo:int r.from
+        def hi:int r.to
+        if ((hi - lo) < 4) {
+            lo = (lo - 2)
+            hi = (hi + 2)
+        }
+        if (lo < 1) {
+            lo = 1
+        }
+        if (hi > max) {
+            hi = max
+        }
+        if (((hi - lo) + 1) > (CrCode.ROWS())) {
+            hi = ((lo + (CrCode.ROWS())) - 1)
+        }
+        def lang:string (CrCode.lang(f.path))
+        def d:string (CrCode.diffPart(f.patch lo hi))
+        if ((strlen d) > 0) {
+            def info:string "diff"
+            if ((strlen lang) > 0) {
+                info = ("diff " + lang)
+            }
+            return ("```" + info + " {.numbers lines=" + r.from + "-" + r.to + "}\n" + d + "\n```")
+        }
+        def rows:[string]
+        def n:int lo
+        while (n <= hi) {
+            push rows (itemAt f.lines (n - 1))
+            n = (n + 1)
+        }
+        return ("```" + lang + " {numbers=" + lo + " lines=" + r.from + "-" + r.to + "}\n" + (join rows "\n") + "\n```")
+    }
+
+    ; the part of a unified diff whose new-side lines are lo..hi, under a
+    ; hunk header of its own; "" when it adds or removes nothing there
+    sfn diffPart:string (patch:string lo:int hi:int) {
+        if ((strlen patch) == 0) {
+            return ""
+        }
+        def rows:[string]
+        def oldNo:int 0
+        def newNo:int 0
+        def o1:int 0
+        def n1:int 0
+        def oc:int 0
+        def nc:int 0
+        def changed:boolean false
+        for (strsplit patch "\n") line:string i {
+            if ((indexOf line "@@") == 0) {
+                oldNo = (CrCode.headNum(line "-"))
+                newNo = (CrCode.headNum(line "+"))
+                continue
+            }
+            def first:string " "
+            if ((strlen line) > 0) {
+                first = (substring line 0 1)
+            }
+            if (first == "\\") {
+                continue
+            }
+            def inside:boolean ((newNo >= lo) && (newNo <= hi))
+            if (inside && ((array_length rows) < ((CrCode.ROWS()) + 6))) {
+                if ((array_length rows) == 0) {
+                    o1 = oldNo
+                    n1 = newNo
+                }
+                def row:string line
+                if ((strlen line) == 0) {
+                    row = " "
+                }
+                push rows row
+                if (first != "+") {
+                    oc = (oc + 1)
+                }
+                if (first != "-") {
+                    nc = (nc + 1)
+                }
+                if ((first == "+") || (first == "-")) {
+                    changed = true
+                }
+            }
+            if (first != "+") {
+                oldNo = (oldNo + 1)
+            }
+            if (first != "-") {
+                newNo = (newNo + 1)
+            }
+        }
+        if (changed == false) {
+            return ""
+        }
+        return ("@@ -" + o1 + "," + oc + " +" + n1 + "," + nc + " @@\n" + (join rows "\n"))
+    }
+}

@@ -145,6 +145,10 @@ class Plugins {
             out.putStr("plugin" name)
             out.putStr("plugin_version" info.version)
             out.put("ops" (J.strs(info.ops)))
+            ; the instructions in the structured result too: a client that
+            ; shows structuredContent rather than the text (Claude Code does)
+            ; otherwise sees only the version and the operations
+            out.putStr("instructions" (trim text))
             def r:MfJ (MfJ.newObj())
             r.put("content" (Tools.text(((trim text) + "\n\nplugin_version " + info.version))))
             r.put("structuredContent" out)

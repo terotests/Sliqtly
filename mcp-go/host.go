@@ -154,6 +154,9 @@ type Env struct {
 	names atomic.Pointer[nameRule]
 	// rooms (roomsapi.go): with Store and LocalUser; nil elsewhere
 	rooms *roomService
+	// shared: the files everyone on the server sees (sharedfiles.go), a
+	// server of its own only; nil elsewhere
+	shared *sharedFiles
 	// cloudRooms: the cloud's shared rooms and their chat, for the editor's
 	// signed-in people (POST /editor/api/rooms/<op>, editorrooms.go); nil
 	// elsewhere
@@ -355,6 +358,9 @@ type McpHost struct {
 	renderFx *renderFx
 	// what the renders could not draw of them, for the tool's text (FxReport)
 	fxNotes []string
+	// the picture a host tool answered with (get_figma_screen), for
+	// ToolImage
+	toolImage []byte
 }
 
 func (h *McpHost) fail(err error) {
@@ -439,10 +445,16 @@ func (h *McpHost) StoreKind() string {
 func (h *McpHost) Asset(name string) string {
 	switch name {
 	case "guide.md":
+		md := guideMD
 		if h.env.rooms == nil {
-			return withoutRooms(guideMD)
+			md = withoutRooms(md)
+		} else {
+			md = withRooms(md)
 		}
-		return withRooms(guideMD)
+		if h.env.shared == nil {
+			return withoutPart(md, "figma")
+		}
+		return withPart(md, "figma")
 	case "preview.html":
 		return previewHTML
 	}
@@ -465,21 +477,29 @@ func themeUnavailable(theme string) error {
 // the guide without its Rooms parts, on a server that has no rooms
 // (sliqtly.com): each <!-- rooms --> … <!-- /rooms --> in assets/guide.md
 // (the rooms topic, its row in Core's list of topics)
-func withoutRooms(md string) string {
+func withoutRooms(md string) string { return withoutPart(md, "rooms") }
+
+// the guide with its Rooms parts, the marker lines taken out
+func withRooms(md string) string { return withPart(md, "rooms") }
+
+// the guide without each <!-- part --> … <!-- /part -->: what only some
+// servers have (rooms; figma: the shared files of a server of one's own)
+func withoutPart(md, part string) string {
+	open, end := "<!-- "+part+" -->", "<!-- /"+part+" -->"
 	for {
-		i := strings.Index(md, "<!-- rooms -->")
-		j := strings.Index(md, "<!-- /rooms -->")
+		i := strings.Index(md, open)
+		j := strings.Index(md, end)
 		if i < 0 || j < i {
 			return md
 		}
-		md = md[:i] + strings.TrimLeft(md[j+len("<!-- /rooms -->"):], "\n")
+		md = md[:i] + strings.TrimLeft(md[j+len(end):], "\n")
 	}
 }
 
-// the guide with its Rooms parts, the marker lines taken out
-func withRooms(md string) string {
-	md = strings.ReplaceAll(md, "<!-- rooms -->\n", "")
-	return strings.ReplaceAll(md, "<!-- /rooms -->\n", "")
+// the guide with those parts, the marker lines taken out
+func withPart(md, part string) string {
+	md = strings.ReplaceAll(md, "<!-- "+part+" -->\n", "")
+	return strings.ReplaceAll(md, "<!-- /"+part+" -->\n", "")
 }
 
 // --- Firestore
@@ -825,14 +845,18 @@ func githubUsers(s string) []string {
 // HostTools is the tools the Go side adds (rooms, roomsapi.go) as a JSON
 // array of MCP tool entries; "[]" where it adds none
 func (h *McpHost) HostTools() string {
-	if h.env.rooms == nil {
-		return "[]"
+	out := []any{}
+	if h.env.rooms != nil {
+		out = append(out, h.env.rooms.toolsJSON()...)
 	}
-	return roomJSON(h.env.rooms.toolsJSON())
+	out = append(out, sharedToolsJSON(h.sharedToolsOn())...)
+	return roomJSON(out)
 }
 
 // HasTool: name is one of HostTools
-func (h *McpHost) HasTool(name string) bool { return h.env.rooms != nil && findMcpRoomTool(name) }
+func (h *McpHost) HasTool(name string) bool {
+	return (h.env.rooms != nil && findMcpRoomTool(name)) || h.hasSharedTool(name)
+}
 
 // CallTool runs one of HostTools for uid with args (JSON) → the answer as
 // JSON text; a caller's mistake or a failure is the host's error. who is
@@ -842,7 +866,7 @@ func (h *McpHost) CallTool(uid, who, name, args string) string {
 		h.fail(fmt.Errorf("no tool %s", name))
 		return ""
 	}
-	for _, t := range allRoomTools() {
+	for _, t := range append(allRoomTools(), sharedTools...) {
 		if t.name == name && !t.readOnly {
 			if why := h.env.Limiter(who); why != "" {
 				h.fail(errors.New(why))
@@ -857,7 +881,13 @@ func (h *McpHost) CallTool(uid, who, name, args string) string {
 			return ""
 		}
 	}
-	out, err := h.env.rooms.call(h.ctx, uid, name, a)
+	var out any
+	var err error
+	if h.hasSharedTool(name) {
+		out, err = h.callSharedTool(name, a)
+	} else {
+		out, err = h.env.rooms.call(h.ctx, uid, name, a)
+	}
 	if err != nil {
 		h.fail(err)
 		return ""
@@ -1038,6 +1068,13 @@ func (h *McpHost) VerifyIDToken(token string) string {
 
 func (h *McpHost) SHA256Hex(s string) string {
 	x := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(x[:])
+}
+
+// BytesSHA256 is the SHA-256 of a handle's bytes (a picture as received),
+// lowercase hex
+func (h *McpHost) BytesSHA256(handle int64) string {
+	x := sha256.Sum256(h.images[handle])
 	return hex.EncodeToString(x[:])
 }
 

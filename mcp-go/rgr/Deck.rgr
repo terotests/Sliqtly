@@ -7,6 +7,7 @@ Import "Guide.rgr"
 Import "McpJson.rgr"
 Import "../pptx/smartart/SaFile.rgr"
 Import "SvgFix.rgr"
+Import "../markdown/src/MdAttrs.rgr"
 
 class Img {
     def name:string ""
@@ -192,16 +193,12 @@ class Deck {
             k = (k + 1)
         }
         def title:string (Deck.trimEnd((substring line k n)))
-        ; `\s*\{[^}]*\}\s*$`: from the first { after the last } but one
-        if (endsWith title "}") {
-            def body:string (substring title 0 ((strlen title) - 1))
-            def lastClose:int (lastIndexOf body "}")
-            def from:int (lastClose + 1)
-            def rest:string (substring body from (strlen body))
-            def open:int (indexOf rest "{")
-            if (open >= 0) {
-                title = (substring title 0 (from + open))
-            }
+        ; the heading's {attributes}, read the way the slides read them
+        def scratch (new MdNode)
+        def notes:[string]
+        def at:int (MdAttrs.headingAttrs(scratch title notes))
+        if (at >= 0) {
+            title = (substring title 0 at)
         }
         return (trim title)
     }
@@ -306,8 +303,9 @@ class Deck {
     }
 
     ; Notes for the model: pictures the text names but nobody sent, and the
-    ; other way round.
-    sfn warnings:[string] (md:string imageNames:[string] storedNames:[string]) {
+    ; other way round. A picture the sheet names (`page { background-image:
+    ; url(media/x.png) }`) is used too.
+    sfn warnings:[string] (md:string css:string imageNames:[string] storedNames:[string]) {
         def o:Outline (Deck.outline(md))
         def out:[string]
         for o.media m:string i {
@@ -315,9 +313,11 @@ class Deck {
                 push out (Guide.see(("media/" + m + " is used in the Markdown but no image by that name was sent.") "pictures"))
             }
         }
+        def inCss:[string]
+        Tools.mediaNames(css inCss)
         for imageNames nm:string j {
-            if ((Deck.inList(o.media nm)) == false) {
-                push out ("Image " + nm + " was sent but the Markdown does not use media/" + nm + ".")
+            if (((Deck.inList(o.media nm)) == false) && ((Deck.inList(inCss nm)) == false)) {
+                push out ("Image " + nm + " is kept with the deck but not used yet: no slide shows media/" + nm + ". Show it with ![…](media/" + nm + ") now or in a later update_presentation.")
             }
         }
         for (Deck.linkedXml(md)) lx:string k {
@@ -490,6 +490,22 @@ class Deck {
         return ""
     }
 
+    ; 64 lowercase hex digits
+    sfn isSha256:boolean (s:string) {
+        if ((strlen s) != 64) {
+            return false
+        }
+        def i:int 0
+        while (i < 64) {
+            def c:int (charAt s i)
+            if ((((c >= 48) && (c <= 57)) || ((c >= 97) && (c <= 102))) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
     ; The pictures, fetched or decoded; the bytes stay with the host.
     sfn loadImages:Loaded (host:McpHost list:[MfJ]) {
         def res (new Loaded)
@@ -528,6 +544,13 @@ class Deck {
             }
             if (given > 1) {
                 res.err = ("Image " + name + ": give one of text, data_base64" + (Deck.orPath(host)) + " or url.")
+                return res
+            }
+            ; the bytes' SHA-256 as the sender has it: corruption on the
+            ; way (long base64 copied by hand) is refused, not stored
+            def sum:string (to_lowercase (trim (img.str_("sha256"))))
+            if (((strlen sum) > 0) && ((Deck.isSha256(sum)) == false)) {
+                res.err = ("Image " + name + ": sha256 is the SHA-256 of the picture's bytes as 64 hex digits.")
                 return res
             }
             if hasText {
@@ -639,6 +662,13 @@ class Deck {
             if (size > (Deck.MAX_IMAGE())) {
                 res.err = ("Image " + name + " is larger than 5 MB.")
                 return res
+            }
+            if ((strlen sum) > 0) {
+                def got5:string (host_bytes_sha256 host handle)
+                if (got5 != sum) {
+                    res.err = ("Image " + name + " was not stored: its " + (to_string size) + " bytes have SHA-256 " + got5 + ", not the sha256 sent (" + sum + "), so the picture changed on the way. Long base64 is easily corrupted when copied: send it again, or give a url (or an SVG as text) instead.")
+                    return res
+                }
             }
             if ((strlen type) == 0) {
                 res.err = ("Image " + name + ": unknown picture type; name it .png, .jpg, .gif, .webp or .svg (or .xml for a SmartArt diagram).")

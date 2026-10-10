@@ -1,0 +1,389 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresStory.rgr — a slide's story, told by the presenter in its corner
+; ============================================================================
+;
+;   ::: story
+;   conformanceIssues() kertoo, kelpaako PDF painoon X-1a-tiedostona.
+;   Paitsi RGB-tilassa. Siellä vastaus on aina nolla.
+;   Niinpä koodi bugaa tässä. {pose=aim}
+;   :::
+;
+; Each line is a BEAT and a build step of the slide (after the slide's own
+; steps). The presenter (PresPuppet) changes pose, then the speech bubble
+; pops in with the whole line, and from then on NOTHING moves until the next
+; step: every motion pulls the reader's eye, so the character, its eyes
+; included, hold still while the line is read (Tero 2026-10-10).
+;
+; A line's first word says what kind of beat it is: a BUT turns the story
+; (mutta, paitsi, vaikka, but, except, …) and is drawn red, a THEREFORE
+; follows from it (siksi, joten, niinpä, therefore, so, …) and is drawn
+; amber; anything else sets the scene. The pose follows the kind unless the
+; line says `{pose=…}`: pen, chin, open, finger, aim, thumb.
+;
+; Nothing here draws: `stateAt` is a pure function of (beats, step, seconds
+; since that step began), the puppet's numbers for one moment.
+; ============================================================================
+
+class PresStoryBeat {
+    ; the line as written, without its {…} attributes
+    def text:string ""
+    ; "setup", "but" or "so"
+    def kind:string "setup"
+    ; the connective as written ("" for a setup), coloured in the bubble
+    def word:string ""
+    ; the line after the connective
+    def rest:string ""
+    def pose:string "pen"
+    ; the build step it is shown at, 1-based on its slide
+    def step:int 0
+}
+
+; The puppet's numbers at one moment (PresPuppet draws them).
+class PresPuppetState {
+    def gazeX:double 0.0
+    def gazeY:double 0.0
+    ; 1 open, 0 shut
+    def lid:double 1.0
+    def brow:double 0.0
+    def smile:double 0.0
+    def tilt:double 0.0
+    ; hand shapes, weights that sum to 1
+    def fist:double 1.0
+    def point:double 0.0
+    def open:double 0.0
+    def chin:double 0.0
+    def thumb:double 0.0
+    def aim:double 0.0
+    ; the cut-out's bounce while it changes pose (0 otherwise)
+    def hop:double 0.0
+    def squash:double 0.0
+    ; a degree of hand-cut wobble per frame while moving, seeded
+    def jitter:double 0.0
+    ; the bubble shown: its beat (-1 none) and 0..1 how far it is in
+    def bubbleBeat:int -1
+    def bubble:double 0.0
+    ; still (nothing moves): the line is being read
+    def still:boolean true
+}
+
+class PresStory {
+    ; seconds: pose change, bubble pop, bubble out
+    sfn poseSeconds:double () { return 1.2 }
+    sfn popSeconds:double () { return 0.22 }
+    sfn outSeconds:double () { return 0.25 }
+    ; the bubble's hand-written face
+    sfn face:string () { return "Gloria Hallelujah" }
+
+    sfn butWords:[string] () {
+        return ([] _:string ("mutta" "paitsi" "vaikka" "kuitenkin" "toisaalta" "silti" "onneksi" "valitettavasti" "but" "except" "although" "though" "however" "yet" "unless" "luckily" "sadly"))
+    }
+
+    sfn soWords:[string] () {
+        return ([] _:string ("siksi" "joten" "niinpä" "siispä" "therefore" "so" "thus" "hence"))
+    }
+
+    ; "but", "so" or "setup" for a line's first word (any case, without its
+    ; comma or full stop)
+    sfn kindOf:string (word:string) {
+        def w:string (to_lowercase (PresStory.bare(word)))
+        if ((indexOf (PresStory.butWords()) w) >= 0) {
+            return "but"
+        }
+        if ((indexOf (PresStory.soWords()) w) >= 0) {
+            return "so"
+        }
+        return "setup"
+    }
+
+    sfn bare:string (word:string) {
+        def w:string word
+        while ((strlen w) > 0) {
+            def c:int (charAt w ((strlen w) - 1))
+            if ((((c == 44) || (c == 46)) || ((c == 58) || (c == 59))) || ((c == 33) || (c == 63))) {
+                w = (substring w 0 ((strlen w) - 1))
+            } {
+                return w
+            }
+        }
+        return w
+    }
+
+    sfn poseFor:string (kind:string) {
+        if (kind == "but") {
+            return "chin"
+        }
+        if (kind == "so") {
+            return "open"
+        }
+        return "pen"
+    }
+
+    sfn knownPose:boolean (p:string) {
+        return ((indexOf ([] _:string ("pen" "chin" "open" "finger" "aim" "thumb")) p) >= 0)
+    }
+
+    ; The beats of a `::: story` block's body: one per non-empty line, a
+    ; leading "- " or "* " dropped, `{pose=…}` at the end read and removed.
+    sfn parse:[PresStoryBeat] (body:string) {
+        def out:[PresStoryBeat]
+        def lines:[string] (strsplit body "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def t:string (trim (itemAt lines i))
+            if (((strlen t) >= 2) && (((substring t 0 2) == "- ") || ((substring t 0 2) == "* "))) {
+                t = (trim (substring t 2 (strlen t)))
+            }
+            if ((strlen t) > 0) {
+                def b (new PresStoryBeat())
+                def attrs:string ""
+                def ob:int (PresStory.lastIndexOf(t "{"))
+                if ((ob > 0) && ((charAt t ((strlen t) - 1)) == 125)) {
+                    attrs = (substring t (ob + 1) ((strlen t) - 1))
+                    t = (trim (substring t 0 ob))
+                }
+                b.text = t
+                def sp:int (indexOf t " ")
+                def first:string t
+                if (sp > 0) {
+                    first = (substring t 0 sp)
+                }
+                b.kind = (PresStory.kindOf(first))
+                if (b.kind != "setup") {
+                    b.word = first
+                    b.rest = ""
+                    if (sp > 0) {
+                        b.rest = (substring t sp (strlen t))
+                    }
+                } {
+                    b.rest = t
+                }
+                b.pose = (PresStory.poseFor(b.kind))
+                def want:string (PresStory.attr(attrs "pose"))
+                if (PresStory.knownPose(want)) {
+                    b.pose = want
+                }
+                push out b
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn lastIndexOf:int (s:string sub:string) {
+        def at:int -1
+        def from:int 0
+        while true {
+            def k:int (indexOf (substring s from (strlen s)) sub)
+            if (k < 0) {
+                return at
+            }
+            at = (from + k)
+            from = (at + 1)
+        }
+        return at
+    }
+
+    ; `key=value` among space-separated attributes, "" when it is not there
+    sfn attr:string (attrs:string key:string) {
+        def parts:[string] (strsplit attrs " ")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            def eq:int (indexOf p "=")
+            if ((eq > 0) && ((substring p 0 eq) == key)) {
+                return (substring p (eq + 1) (strlen p))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; How long a line takes to read: about 14 characters a second and a
+    ; moment to find the bubble, never under 2.4 s.
+    sfn readSeconds:double (b:PresStoryBeat) {
+        def r:double (1.2 + ((to_double (strlen b.text)) / 14.0))
+        if (r < 2.4) {
+            r = 2.4
+        }
+        return r
+    }
+
+    ; From the beat's step to the end of its reading time.
+    sfn beatSeconds:double (b:PresStoryBeat) {
+        return (((PresStory.poseSeconds()) + (PresStory.popSeconds())) + (PresStory.readSeconds(b)))
+    }
+
+    ; A pose's face and hand.
+    sfn poseState:PresPuppetState (pose:string) {
+        def s (new PresPuppetState())
+        s.fist = 0.0
+        if (pose == "chin") {
+            s.gazeX = 0.35
+            s.gazeY = -0.8
+            s.brow = 1.0
+            s.smile = -0.2
+            s.tilt = 5.0
+            s.chin = 1.0
+            return s
+        }
+        if (pose == "open") {
+            s.gazeX = -0.1
+            s.brow = 0.7
+            s.smile = -0.4
+            s.tilt = -5.0
+            s.open = 1.0
+            return s
+        }
+        if (pose == "finger") {
+            s.gazeX = -0.5
+            s.gazeY = -0.5
+            s.brow = 0.9
+            s.tilt = 2.0
+            s.point = 1.0
+            return s
+        }
+        if (pose == "aim") {
+            s.gazeX = -1.0
+            s.gazeY = 0.55
+            s.brow = -0.7
+            s.smile = -0.1
+            s.tilt = -6.0
+            s.aim = 1.0
+            return s
+        }
+        if (pose == "thumb") {
+            s.gazeX = -0.3
+            s.brow = 0.4
+            s.smile = 0.6
+            s.tilt = 3.0
+            s.thumb = 1.0
+            return s
+        }
+        ; pen
+        s.gazeX = -0.8
+        s.gazeY = -0.4
+        s.brow = 0.3
+        s.smile = 0.4
+        s.tilt = -3.0
+        s.fist = 1.0
+        return s
+    }
+
+    sfn lerp:double (a:double b:double t:double) {
+        return (a + ((b - a) * t))
+    }
+
+    sfn ease:double (t:double) {
+        if (t <= 0.0) { return 0.0 }
+        if (t >= 1.0) { return 1.0 }
+        return ((t * t) * (3.0 - (2.0 * t)))
+    }
+
+    ; a cut-out pose change: a little past the new pose, then settle
+    sfn back:double (t:double) {
+        if (t <= 0.0) { return 0.0 }
+        if (t >= 1.0) { return 1.0 }
+        def u:double (t - 1.0)
+        return ((1.0 + ((2.5 * u) * (u * u))) + ((1.5 * u) * u))
+    }
+
+    sfn mix:PresPuppetState (a:PresPuppetState b:PresPuppetState f:double) {
+        def s (new PresPuppetState())
+        s.gazeX = (PresStory.lerp(a.gazeX b.gazeX f))
+        s.gazeY = (PresStory.lerp(a.gazeY b.gazeY f))
+        s.brow = (PresStory.lerp(a.brow b.brow f))
+        s.smile = (PresStory.lerp(a.smile b.smile f))
+        s.tilt = (PresStory.lerp(a.tilt b.tilt f))
+        ; the hand overshoots with the body but its shape weights do not
+        def g:double f
+        if (g > 1.0) { g = 1.0 }
+        if (g < 0.0) { g = 0.0 }
+        s.fist = (PresStory.lerp(a.fist b.fist g))
+        s.point = (PresStory.lerp(a.point b.point g))
+        s.open = (PresStory.lerp(a.open b.open g))
+        s.chin = (PresStory.lerp(a.chin b.chin g))
+        s.thumb = (PresStory.lerp(a.thumb b.thumb g))
+        s.aim = (PresStory.lerp(a.aim b.aim g))
+        return s
+    }
+
+    ; a fixed small number in -0.5..0.5 for a whole number (hand-cut wobble)
+    sfn noise:double (n:int) {
+        def x:double ((sin (((to_double n) * 127.1) + 311.7)) * 43758.5453)
+        return ((x - (to_double (floor x))) - 0.5)
+    }
+
+    ; The puppet at `since` seconds into build step `step` (0: before the
+    ; first beat). Steps past the beats keep the last beat's bubble.
+    sfn stateAt:PresPuppetState (beats:[PresStoryBeat] step:int since:double) {
+        def n:int (array_length beats)
+        if (n == 0) {
+            return (new PresPuppetState())
+        }
+        if (step <= 0) {
+            def first:PresStoryBeat (itemAt beats 0)
+            def s0:PresPuppetState (PresStory.poseState(first.pose))
+            return s0
+        }
+        def k:int step
+        def at:double since
+        if (k > n) {
+            k = n
+            at = 1000000.0
+        }
+        def b:PresStoryBeat (itemAt beats (k - 1))
+        def prevPose:string b.pose
+        if (k > 1) {
+            def pb:PresStoryBeat (itemAt beats (k - 2))
+            prevPose = pb.pose
+        }
+        def change:boolean (prevPose != b.pose)
+        def poseT:double (PresStory.poseSeconds())
+        ; the first beat, or the same pose again: no change, the bubble comes sooner
+        if (change == false) {
+            poseT = 0.35
+        }
+        def moving:boolean (change && (at < poseT))
+        def f:double 1.0
+        if moving {
+            f = (PresStory.back((at / poseT)))
+        }
+        def s:PresPuppetState (PresStory.mix((PresStory.poseState(prevPose)) (PresStory.poseState(b.pose)) f))
+        s.still = true
+        if moving {
+            s.still = false
+            def hopT:double (at / 0.5)
+            if (hopT > 1.0) { hopT = 1.0 }
+            s.hop = (6.0 * (sin (hopT * 3.141592653589793)))
+            if (at < 0.12) {
+                s.squash = 0.05
+            }
+            s.jitter = ((PresStory.noise((floor (at * 12.0)))) * 1.6)
+            ; a blink hides the swap of the hand
+            def d:double (at - 0.15)
+            if ((d >= 0.0) && (d < 0.16)) {
+                s.lid = (fabs ((d / 0.08) - 1.0))
+            }
+        }
+        ; the previous line goes as the new pose starts, the new one pops in
+        ; after it and stays until the next step
+        def outT:double (PresStory.outSeconds())
+        if ((k > 1) && (at < outT)) {
+            s.bubbleBeat = (k - 2)
+            s.bubble = (1.0 - (PresStory.ease((at / outT))))
+            s.still = false
+            return s
+        }
+        if (at < poseT) {
+            return s
+        }
+        s.bubbleBeat = (k - 1)
+        s.bubble = (PresStory.ease(((at - poseT) / (PresStory.popSeconds()))))
+        if (s.bubble < 1.0) {
+            s.still = false
+        }
+        return s
+    }
+}

@@ -10,6 +10,9 @@
 //   slide.next() prev() go(n) build()                                     allow: slide.nav
 //   el("#id"/".class").style({...}) show() hide() reset()                 allow: slide.style
 //   machine.send(event, data)                                             allow: machine
+//   presentation.code.open("src/a.cpp#L40-88", {mode}) openNode(box) close()
+//     setMode(m) goToLine(n) scroll(rows) setZoom(level) showTab(n)
+//     nextChange() prevChange(); isOpen path tab tabs mode zoom line        allow: code
 //   <SliqRod from to radius length />  a rod between two points in a <scene3d>    allow: 3d
 //   <SliqGltf src="data/x.gltf" />  a .gltf of the deck in a <scene3d>              allow: 3d
 //   import * as THREE from "ranger:three"  Ranger v2's 3-D façade (init, tick)     allow: 3d
@@ -83,8 +86,86 @@ var presentation = {
 };
 Object.defineProperty(presentation, "slides", { enumerable: true, get: function () { return __slide.count; } });
 Object.defineProperty(presentation, "data", { enumerable: true, get: function () { return __deck.data; } });
+// The source code viewer over a presented slide (src/PresCodeViewUi.rgr):
+// what it shows read each frame, asks as the rest (allow: code). Opens
+// only while presenting; line is the new version's line at its top.
+var __code = {
+  isOpen: false, path: "", tab: 0, tabs: 0, mode: "", zoom: 0, line: 0,
+  open: function (target, o) { __asks.push({ k: "code.open", value: String(target || ""), key: o && o.mode ? String(o.mode) : "" }); },
+  openNode: function (box) { __asks.push({ k: "code.node", value: String(box || "") }); },
+  close: function () { __asks.push({ k: "code.close" }); },
+  setMode: function (m) { __asks.push({ k: "code.mode", value: String(m) }); },
+  goToLine: function (n) { __asks.push({ k: "code.line", n: Math.floor(Number(n) || 0) }); },
+  scroll: function (rows) { __asks.push({ k: "code.scroll", n: Math.round(Number(rows) || 0) }); },
+  setZoom: function (level) { __asks.push({ k: "code.zoom", n: Math.round(Number(level) || 0) }); },
+  showTab: function (n) { __asks.push({ k: "code.tab", n: Math.floor(Number(n) || 0) }); },
+  nextChange: function () { __asks.push({ k: "code.change", n: 1 }); },
+  prevChange: function () { __asks.push({ k: "code.change", n: -1 }); }
+};
+presentation.code = __code;
 var __sliqtly = { presentation: presentation, el: el, machine: machine };
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
+// The deck's files a program imports (src/PresPlayFiles.rgr puts this call
+// on its first line): import rows from "data/sales.csv". Each is a module:
+//   .json        default: the value          .csv / .tsv  default: rows as
+//   objects by the header row (number-like cells as numbers), rows: the
+//   cells as text; any other file  default: its text. All have text.
+// A file the deck lacks, or JSON that does not parse, throws where the
+// program reads it, naming the file.
+function __csvRows(text, sep) {
+  var rows = [], row = [], cell = "", i = 0, n = text.length, quoted = false;
+  if (text.charCodeAt(0) === 0xfeff) i = 1;
+  for (; i < n; i++) {
+    var c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false;
+      } else cell += c;
+    } else if (c === '"' && cell === "") quoted = true;
+    else if (c === sep) { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      rows.push(row); row = [];
+    } else cell += c;
+  }
+  if (cell !== "" || row.length > 0) { row.push(cell); rows.push(row); }
+  return rows.filter(function (r) { return r.length > 1 || r[0] !== ""; });
+}
+function __csvValue(s) {
+  var t = s.trim();
+  return t !== "" && /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t) ? Number(t) : s;
+}
+function __deckFile(path, text) {
+  var m = {};
+  var fail = function (why) {
+    var thrower = function () { throw new Error(why); };
+    Object.defineProperty(m, "default", { enumerable: true, get: thrower });
+    Object.defineProperty(m, "text", { enumerable: true, get: thrower });
+    Object.defineProperty(m, "rows", { enumerable: true, get: thrower });
+    return m;
+  };
+  if (text === null) return fail(path + " is not a file of the presentation (send it with the deck's files)");
+  var ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  m.text = text;
+  if (ext === "json" || ext === "gltf") {
+    try { m["default"] = JSON.parse(text); } catch (e) { return fail(path + " is not JSON: " + e.message); }
+  } else if (ext === "csv" || ext === "tsv") {
+    var rows = __csvRows(text, ext === "tsv" ? "\t" : ",");
+    var head = rows.length ? rows[0].map(function (h) { return h.trim(); }) : [];
+    m.rows = rows;
+    m["default"] = rows.slice(1).map(function (r) {
+      var o = {};
+      head.forEach(function (h, k) { o[h] = __csvValue(r[k] === undefined ? "" : r[k]); });
+      return o;
+    });
+  } else m["default"] = text;
+  return m;
+}
+function __deckFiles(list) {
+  if (typeof defineModule !== "function") return;
+  list.forEach(function (f) { defineModule(f[0], __deckFile(f[1], f[2])); });
+}
 function __deckState(d) {
   __deck.data = d.data || {};
   __slide.number = d.slide || 1;
@@ -94,6 +175,14 @@ function __deckState(d) {
   __slide.from = d.from || 0;
   __slide.presenting = d.mode === "present";
   __slide.focused = !!d.focused;
+  var c = d.code || {};
+  __code.isOpen = !!c.isOpen;
+  __code.path = c.path || "";
+  __code.tab = c.tab || 0;
+  __code.tabs = c.tabs || 0;
+  __code.mode = c.mode || "";
+  __code.zoom = c.zoom || 0;
+  __code.line = c.line || 0;
 }
 // The "ranger:three" module: Ranger v2's live 3-D façade
 // (gallery/game_engine/v2/modules/ranger_three), so a file written for that

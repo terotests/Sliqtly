@@ -21,8 +21,10 @@ risks, and draws the views as a review deck.
    warnings about the model (fix them and build again), the review order,
    the risks and the deck in Markdown. `args.slice` builds the deck for one
    slice.
-5. `create_presentation` with the deck. The views come from the model:
-   change the model rather than the diagrams.
+5. `create_presentation` with the deck and build's `files` as `files`,
+   as they are. The views come from the model: change the model rather
+   than the diagrams. Keep the code slides and the `::: code` blocks: they
+   are how the deck links to the code.
 
 `pr` is a pull request's link or `owner/repo#12`.
 
@@ -125,3 +127,34 @@ and waits without a timeout as "but"); rewrite it as the change's own.
   Data flow, When something fails, Who waits for whom, Where data rests.
   Changed items have a thick border, removed and inferred ones a dashed
   one. Each view's speaker notes list its items with links to their lines.
+- **Code slides**: one for each place of the review order, the lines as
+  the change has them (a diff of the hunk when the change touches them,
+  else the file's lines, the ref's lines highlighted), under a link to
+  them on GitHub.
+- **Source files** (`files`): the part of each file the deck talks about
+  (the refs' and the hunks' lines with some context; a file of up to 400
+  lines whole) as `code/<path>`, its diff as `code/<path>.diff`, and
+  `code/sources.json`. Under each view a `::: code` block links its boxes
+  to their lines, so clicking a box while presenting opens the source
+  viewer there, with the change, the file and a link to GitHub. The source
+  viewer is in the editor's presenting mode; a shared link shows the
+  GitHub links.
+
+## A review people follow
+
+The deck build gives is the skeleton. Make it read as one reviewer going
+through the change:
+
+- Tell the story under "What changed" in the change's own words.
+- On the code slides, say what the lines do and what you think of them,
+  in the speaker notes or on the slide: a finding is a code slide with the
+  lines, why they are a problem and what to do instead.
+- A slide script (`{script=apps/<name>.tsx}`, sliqtly_guide topic=scripts)
+  can mark the lines one after another and type the reviewer's comment
+  beside them, with a hesitation or a correction now and then, so the
+  review reads as someone thinking it through. Keep the comment beside the
+  code, not over it, and check the slide with `render_strip`.
+- Keep a link to the lines on every slide that talks about them:
+  `[src/a.ts:40-52](https://github.com/…/blob/<head sha>/src/a.ts#L40-L52)`
+  for readers of the shared link, `[ReviewDTO](code:src/a.ts#L40-52)` or a
+  `::: code` block for the source viewer.

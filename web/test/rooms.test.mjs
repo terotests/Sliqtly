@@ -1,7 +1,7 @@
 // node --test: rooms in this browser (web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
+import { emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
 
 const decks = [
   { id: "a", name: "Budget", updated: 300 },
@@ -12,11 +12,11 @@ const samples = [{ key: "welcome", name: "Welcome" }, { key: "talous", name: "Fi
 let n = 0;
 const idOf = () => "id" + ++n;
 
-test("every presentation starts in General, newest first; Onboarding holds the samples", () => {
+test("every presentation starts in General, as made; Onboarding holds the samples", () => {
   const s = emptyRooms();
   const rooms = listRooms(s, decks, samples);
   assert.deepEqual(rooms.map((r) => [r.room_id, r.presentations]), [[GENERAL, 3], [PLAYGROUND, 0], [ONBOARDING, 2]]);
-  assert.deepEqual(roomDecks(s, GENERAL, decks, samples).map((d) => d.id), ["a", "cloud:M1", "b"]);
+  assert.deepEqual(roomDecks(s, GENERAL, decks, samples).map((d) => d.id), ["b", "cloud:M1", "a"]);
   assert.deepEqual(roomDecks(s, ONBOARDING, decks, samples).map((d) => d.id), ["sample:welcome", "sample:talous"]);
 });
 
@@ -207,7 +207,7 @@ test("two tabs: opening a room in a tab that has not heard of the moves yet keep
   assert.equal(inB.touched[id], 5);
   // a reload reads both
   const now = readKept(tabStore(box), KEY);
-  assert.deepEqual(roomDecks(now, id, decks, samples).map((d) => d.id), ["a", "b"]);
+  assert.deepEqual(roomDecks(now, id, decks, samples).map((d) => d.id), ["b", "a"]);
   assert.equal(now.touched[id], 5);
   // a deck moved back in B, a room deleted in A: each only its own facts
   changeKept(b, KEY, (s) => moveDeck(s, "a", PLAYGROUND));
@@ -322,4 +322,47 @@ test("folders and filed decks are kept as facts of their own, read back by anoth
   changeKept(store, "k", (s) => deleteFolder(s, room, folder));
   assert.equal(store.getItem("k/folders/" + room), null);
   assert.equal(store.getItem("k/filed/a"), null);
+});
+
+test("a room's presentations in the order chosen; editing one moves nothing by default", () => {
+  const rows = [
+    { id: "a", name: "budget", created: 1, updated: 50 },
+    { id: "b", name: "Agenda", created: 2, updated: 10 },
+    { id: "c", name: "kickoff 10", created: 3, updated: 30 },
+    { id: "d", name: "Kickoff 9", created: 3, updated: 20 },
+  ];
+  const ids = (by, pos) => sortDecks(rows, by, pos).map((r) => r.id);
+  assert.deepEqual(ids("created"), ["a", "b", "c", "d"]);
+  assert.deepEqual(ids(), ["a", "b", "c", "d"]);
+  assert.deepEqual(ids("newest"), ["c", "d", "b", "a"]);
+  assert.deepEqual(ids("edited"), ["a", "c", "d", "b"]);
+  assert.deepEqual(ids("name"), ["b", "a", "d", "c"]);
+  // those not dragged yet come after, as made
+  assert.deepEqual(ids("custom", ["c", "a"]), ["c", "a", "b", "d"]);
+  // the rows given stay as they were
+  assert.deepEqual(rows.map((r) => r.id), ["a", "b", "c", "d"]);
+});
+
+test("a presentation dragged before another is kept in the room's own order", () => {
+  let s = placeDeck(emptyRooms(), "r-x", ["a", "b", "c"], "c", "a");
+  assert.deepEqual(s.positions["r-x"], ["c", "a", "b"]);
+  s = placeDeck(s, "r-x", ["c", "a", "b"], "c", "");
+  assert.deepEqual(s.positions["r-x"], ["a", "b", "c"]);
+  assert.equal(placeDeck(s, "r-x", ["a", "b", "c"], "a", "a"), s);
+  // kept one fact per room, and read back
+  const box = new Map();
+  const store = { getItem: (k) => (box.has(k) ? box.get(k) : null), setItem: (k, v) => box.set(k, String(v)), removeItem: (k) => box.delete(k), key: (i) => [...box.keys()][i] ?? null, get length() { return box.size; } };
+  changeKept(store, "rooms", () => s);
+  assert.deepEqual(readKept(store, "rooms").positions["r-x"], ["a", "b", "c"]);
+  // a room deleted takes its order with it
+  assert.equal(deleteRoom({ ...s, rooms: [{ id: "r-x", title: "X" }] }, "r-x").positions["r-x"], undefined);
+});
+
+test("the open presentation further down than SHOWN is listed after the first ones, the order kept", () => {
+  const many = Array.from({ length: SHOWN + 3 }, (_, i) => ({ id: "d" + i, name: "Deck " + i, current: i === SHOWN + 1 }));
+  const lines = deckLines(many, { showAll: "all" }).split("\n").map((l) => l.split("\t"));
+  assert.equal(lines.length, SHOWN + 2);
+  assert.deepEqual(lines.slice(0, SHOWN).map((l) => l[0]), many.slice(0, SHOWN).map((d) => d.id));
+  assert.deepEqual(lines[SHOWN], ["d" + (SHOWN + 1), "Deck " + (SHOWN + 1), "1", ""]);
+  assert.equal(lines[SHOWN + 1][3], "a");
 });

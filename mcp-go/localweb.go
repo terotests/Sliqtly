@@ -272,6 +272,8 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/api/files/rooms/") && r.Method == http.MethodPut:
 		out, err = s.roomFileAPI(r, strings.TrimPrefix(p, "/api/files/rooms/"))
 		status = 201
+	case p == "/api/shared" || strings.HasPrefix(p, "/api/shared/"):
+		out, status, err = s.sharedAPI(r, strings.TrimPrefix(p, "/api/shared"))
 	case strings.HasPrefix(p, "/api/files/shares/"):
 		out, err = s.fileAPI(r, strings.TrimPrefix(p, "/api/files/"))
 	case strings.HasPrefix(p, "/api/forms/"):

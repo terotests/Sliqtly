@@ -1,0 +1,184 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; DesignViewer (the Figma reader) on its own, compiled by gen.mjs to the Go
+; package figdv. It is a compile of its own like PresDataGo.rgr: it brings
+; its own copy of EVG and the zip/zstd readers, and the server only ever
+; hands it bytes and takes strings back.
+;
+; Two jobs, at two different times:
+;
+;   open + index + cut    once, when a .fig is put in the shared files: the
+;                         whole file is read, and what is kept is the index
+;                         and one EVG document per screen (sharedfiles.go)
+;   view                  whenever a screen or a part is drawn: one screen's
+;                         cut is laid out and walked into a display list for
+;                         render.go to paint; the file is not opened
+;
+; Everything is static so Go outside the package can call it
+; (FigGo_static_open, …): Ranger's methods come out unexported.
+
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "../designviewer/src/FigParser.rgr"
+Import "../designviewer/src/convert/FigToScene.rgr"
+Import "../designviewer/src/index/FigIndex.rgr"
+Import "../designviewer/src/index/FigCut.rgr"
+
+class FigGoDoc {
+    def ok:boolean false
+    def err:string ""
+    def doc:FigDoc (new FigDoc())
+    def index:FigIndex (new FigIndex())
+    def cutter@(optional):FigCutter
+
+    Constructor () {
+    }
+}
+
+class FigGo {
+    sfn open:FigGoDoc (bytes:buffer name:string) {
+        def d (new FigGoDoc())
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes name))
+        if (doc.ok == false) {
+            d.err = doc.err
+            if ((strlen d.err) == 0) {
+                d.err = "not a Figma file"
+            }
+            return d
+        }
+        def conv (new FigToScene())
+        def scene:SceneDocument (conv.convertDoc(doc))
+        d.doc = doc
+        d.index = (FigIndex.build(doc scene))
+        d.cutter = (new FigCutter(scene))
+        d.ok = true
+        return d
+    }
+
+    sfn ok:boolean (d:FigGoDoc) {
+        return d.ok
+    }
+
+    sfn err:string (d:FigGoDoc) {
+        return d.err
+    }
+
+    sfn indexJson:string (d:FigGoDoc) {
+        return (d.index.toJson())
+    }
+
+    sfn screenIds:[string] (d:FigGoDoc) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length d.index.screens)) {
+            def s:FigIndexScreen (itemAt d.index.screens i)
+            push out s.id
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; One screen as an EVG document, or "" when the file has no such layer.
+    sfn cut:string (d:FigGoDoc id:string) {
+        if (null? d.cutter) {
+            return ""
+        }
+        def cutter:FigCutter (unwrap d.cutter)
+        def c:FigCut (cutter.cut(id))
+        if (c.ok == false) {
+            return ""
+        }
+        return c.json
+    }
+
+    ; The pictures a layer paints, by the names of the file's images/.
+    sfn cutImages:[string] (d:FigGoDoc id:string) {
+        def none:[string]
+        if (null? d.cutter) {
+            return none
+        }
+        def cutter:FigCutter (unwrap d.cutter)
+        def c:FigCut (cutter.cut(id))
+        return c.images
+    }
+
+    sfn imageBytes:buffer (d:FigGoDoc name:string) {
+        def i:int 0
+        while (i < (array_length d.doc.images)) {
+            def im:FigImage (itemAt d.doc.images i)
+            if (im.name == name) {
+                return im.bytes
+            }
+            i = (i + 1)
+        }
+        return (buffer_alloc 0)
+    }
+
+    ; A cut laid out, as the display list render.go paints, after one line
+    ; "x y w h W H": the box of layer `id` in it (the whole cut when `id` is
+    ; "" or the cut's own top layer) and the size of the cut. "" when the
+    ; document does not read or has no such layer.
+    sfn view:string (cutJson:string id:string) {
+        def ro@(optional):EVGElement (EVGTreeJson.fromText(cutJson))
+        if (null? ro) {
+            return ""
+        }
+        def root:EVGElement (unwrap ro)
+        ; The cut's root says its size in pixels; the page only has to be
+        ; big enough not to matter.
+        def layout (new EVGLayout())
+        layout.setPageSize(16384.0 16384.0)
+        layout.layout(root)
+        def cw:double root.calculatedWidth
+        def ch:double root.calculatedHeight
+        if ((cw <= 0.0) || (ch <= 0.0)) {
+            return ""
+        }
+        def bx:double 0.0
+        def by:double 0.0
+        def bw:double cw
+        def bh:double ch
+        if ((strlen id) > 0) {
+            def eo@(optional):EVGElement (FigGo.findId(root id))
+            if (null? eo) {
+                return ""
+            }
+            def el:EVGElement (unwrap eo)
+            if ((array_length root.children) > 0) {
+                def top:EVGElement (itemAt root.children 0)
+                if (top.id != id) {
+                    bx = el.calculatedX
+                    by = el.calculatedY
+                    bw = el.calculatedWidth
+                    bh = el.calculatedHeight
+                }
+            }
+        }
+        def list (new EVGDisplayList())
+        list.setTextEngine((layout.getTextEngine()))
+        list.build(root)
+        def head:string ((FigIndex.num(bx)) + " " + (FigIndex.num(by)) + " " + (FigIndex.num(bw)) + " " + (FigIndex.num(bh)))
+        head = (head + " " + (FigIndex.num(cw)) + " " + (FigIndex.num(ch)))
+        return (head + "\n" + (list.toJson()))
+    }
+
+    sfn findId@(optional):EVGElement (el:EVGElement id:string) {
+        def r@(optional):EVGElement
+        if (el.id == id) {
+            r = el
+            return r
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def hit@(optional):EVGElement (FigGo.findId((itemAt el.children i) id))
+            if (!null? hit) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+}

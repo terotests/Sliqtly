@@ -33,8 +33,9 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
+import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
@@ -44,10 +45,12 @@ import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS } from "./stagelink.js";
+import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
+import { createFlight3d } from "./flight3d.js";
 import { createMusic } from "./music.js";
 import { registerBeatEffects } from "./beatfx.js";
 import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
@@ -302,7 +305,7 @@ let H = 0;
 let needsPaint = true;
 let lastRev = "";
 // programs on slides (```app, web/apps.js): CErXes in workers, painted by the app
-const apps = createApps({ app, repaint: () => { needsPaint = true; }, toast, t });
+const apps = createApps({ app, repaint: () => { needsPaint = true; }, toast, t, opaqueAt: (src, u, v) => three3d.opaqueAt(src, u, v) });
 window.__apps = apps;
 
 function resize() {
@@ -344,6 +347,22 @@ const three3d = createThree3d({
   repaint: () => { needsPaint = true; },
   toast,
   readFile: (path) => readDocFile(path),
+});
+// The 3-D flight (web/flight3d.js): G or ⋯ → 3-D flight while presenting.
+// It leaves full screen as it found it; back at the slide it ended at.
+// Experimental: off until File → Settings turns it on, per browser.
+let flightOn = false;
+try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) { /* off */ }
+const flight3d = createFlight3d({
+  three3d,
+  app,
+  toast,
+  t,
+  onExit: () => {
+    keys.focus({ preventScroll: true });
+    needsPaint = true;
+    requestAnimationFrame(resize);
+  },
 });
 // The deck's music (front matter `music:`, web/music.js), played while
 // presenting; the beat effects ({fx=spectrum}, web/beatfx.js) move with it.
@@ -398,6 +417,140 @@ function loadInlineSvgs(rev) {
       dropThumbs();
       needsPaint = true;
     });
+}
+
+// A screen of a shared Figma file on a slide (`![…](figma:<file>/<layer>)`,
+// src/PresFigma.rgr): drawn by the server from the file's index
+// (web/sharedfiles.js) and put in the store where the slide looks for it.
+// Only a server of one's own keeps shared files; elsewhere the picture
+// stays its alt text.
+let figmaRev = "";
+const figmaBusy = new Set();
+const figmaFailed = new Set();
+function loadFigmaPictures(rev) {
+  figmaRev = rev;
+  let list = [];
+  try { list = JSON.parse(app.figmaPicturesJson() || "[]"); } catch (_) { return; }
+  const fresh = list.filter((u) => !figmaBusy.has(u.path) && !figmaFailed.has(u.path));
+  if (!fresh.length) return;
+  if (!ownServer()) {
+    for (const u of fresh) figmaFailed.add(u.path);
+    return;
+  }
+  for (const u of fresh) figmaBusy.add(u.path);
+  Promise.all(fresh.map(async (u) => {
+    try {
+      const res = await fetch(sharedPngUrl(u.file, u.node));
+      // the file is still being indexed: asked again in a moment
+      if (res.status === 409) {
+        setTimeout(() => { figmaRev = ""; needsPaint = true; }, 3000);
+        return;
+      }
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`);
+      await addPicture(u.path, await res.arrayBuffer(), "image/png");
+    } catch (e) {
+      figmaFailed.add(u.path);
+      console.warn("figma picture not drawn", u.file, u.node, e);
+    }
+  }))
+    .finally(() => {
+      for (const u of fresh) figmaBusy.delete(u.path);
+      app.inlineSvgsAdded();
+      dropThumbs();
+      needsPaint = true;
+    });
+}
+
+// --- the shared Files (a server of one's own, web/sharedfiles.js) ---------------
+// Files everyone on the server can use: the rail's Files place lists them,
+// a row opens a Figma file's window (PresChartEditor "figma") with its
+// screens as tiles. The list is asked again while a file is being indexed.
+let sharedFilesList = [];
+let sharedPoll = 0;
+const sharedIndexes = new Map(); // id → { updated, json }
+async function sharedRefresh() {
+  if (viewer || !ownServer()) return;
+  let res;
+  try { res = await listShared(); } catch (e) { console.warn("shared files not listed", e); return; }
+  sharedFilesList = res?.files || [];
+  const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
+  app.setToolbarOptions("files", rows.join("\n"), "1");
+  const open = app.figmaFileOpen();
+  const card = open && sharedFilesList.find((f) => f.id === open);
+  if (card) await sharedShow(card, false);
+  clearTimeout(sharedPoll);
+  if (anyIndexing(sharedFilesList)) sharedPoll = setTimeout(sharedRefresh, 2000);
+  needsPaint = true;
+}
+async function sharedIndexOf(f) {
+  if (f.status !== "ready") return "";
+  const kept = sharedIndexes.get(f.id);
+  if (kept && kept.updated === f.updated) return kept.json;
+  const json = JSON.stringify(await sharedIndex(f.id));
+  sharedIndexes.set(f.id, { updated: f.updated, json });
+  return json;
+}
+// a file's window opened (`open`), or the open one told what changed
+async function sharedShow(f, open) {
+  const args = [f.id, f.name || "", f.status || "", f.error || ""];
+  if (open) app.openFigmaFile(...args, "");
+  let json = "";
+  try { json = await sharedIndexOf(f); } catch (e) { args[2] = "failed"; args[3] = e.message; }
+  app.setFigmaFile(...args, json);
+  needsPaint = true;
+}
+async function sharedRequest(r) {
+  if (r === "list") return sharedRefresh();
+  if (r === "add") {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".fig";
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      toast(t("Adding {name}…").replace("{name}", file.name));
+      try {
+        const card = await putShared(file);
+        await sharedRefresh();
+        if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
+      } catch (e) { toast(t("Could not add the file") + ": " + e.message); }
+    };
+    input.click();
+    return;
+  }
+  if (r.startsWith("open:")) {
+    const id = r.slice(5);
+    let f = sharedFilesList.find((x) => x.id === id);
+    if (!f) { await sharedRefresh(); f = sharedFilesList.find((x) => x.id === id); }
+    if (f) await sharedShow(f, true);
+    return;
+  }
+  if (r.startsWith("delete:")) {
+    const id = r.slice(7);
+    try {
+      await removeShared(id);
+      sharedIndexes.delete(id);
+      toast(t("File deleted"));
+    } catch (e) { toast(t("Could not delete the file") + ": " + e.message); }
+    return sharedRefresh();
+  }
+}
+// The open file window's tiles: each screen or part drawn small by the
+// server and kept among the pictures under its key (not a deck's file).
+const figmaThumbBusy = new Set();
+function loadFigmaThumbs() {
+  let list = [];
+  try { list = JSON.parse(app.figmaThumbsJson() || "[]"); } catch (_) { return; }
+  for (const u of list) {
+    if (pictures.has(u.key) || figmaThumbBusy.has(u.key)) continue;
+    figmaThumbBusy.add(u.key);
+    fetch(sharedPngUrl(u.file, u.node, 240))
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
+      .then((bytes) => registerPicture(u.key, bytes, "image/png"))
+      .then(() => { needsPaint = true; })
+      .catch((e) => console.warn("figma tile not drawn", u.node, e))
+      .finally(() => figmaThumbBusy.delete(u.key));
+  }
 }
 
 // A picture pasted or dropped on the canvas opens the image window
@@ -931,6 +1084,8 @@ let roomChatOne = null;
 let folderFor = null;
 const FOLDERS_OPEN_KEY = "sliqtly.openFolders";
 let foldersOpen = new Set();
+// the open presentation whose folder was last opened for it (room:decks)
+let revealed = "";
 function keepFoldersOpen() {
   try { mine.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...foldersOpen])); } catch (_) { /* this page only */ }
 }
@@ -1024,6 +1179,18 @@ async function keepFile(rec) {
 // there (sheets/), or its own site. See web/sheets-live.js.
 const SHEETS_BASE = "__SHEETS_BASE__";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Files under code/ for the source viewer (PresCodeViewUi): text, or "not
+// in the deck" for each one asked.
+async function readCodeFiles(paths) {
+  for (const p of paths) {
+    if (!p) continue;
+    const blob = await readDocFile(p);
+    if (blob) app.setCodeFile(p, await blob.text());
+    else app.setCodeGone(p);
+  }
+  needsPaint = true;
+}
 
 async function readDocFile(path) {
   const f = (await docFiles()).find((x) => x.path === bare(path));
@@ -1135,6 +1302,8 @@ window.__docFiles = () => docFiles().then((fs) => fs.map((f) => f.path));
 window.__docState = () => ({ id: doc.id, cloud: doc.cloud });
 window.__allDocs = () => allDocs(true);
 window.__docFile = (path) => readDocFile(path);
+// for the checks: a text file into the deck's files
+window.__keepText = (path, text) => keepFile({ path, type: "text/plain", size: text.length, data: text });
 
 async function docFiles() {
   const out = new Map();
@@ -1403,15 +1572,29 @@ async function copyDeckTo(room, deck) {
 // (renamed, not saved yet).
 async function roomView(room) {
   const live = (r) => (r.current && !r.id.startsWith("sample:") ? { ...r, name: exportName() || r.name } : r);
+  // in the order chosen in Settings (the samples as they come)
+  const ordered = (rows) => (room === ONBOARDING ? rows : sortDecks(rows, deckOrder, roomsHere.positions?.[room] || []));
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: (g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "" })),
+      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0 }))),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
-  return { rows: roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live), folders: foldersOf(roomsHere, room) };
+  return { rows: ordered(roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live)), folders: foldersOf(roomsHere, room) };
 }
+// File → Settings → Order of presentations: how a room lists its
+// presentations (rooms.js sortDecks), in this browser. As made by default,
+// so opening or editing one moves nothing.
+let deckOrder = "created";
+try { deckOrder = deckOrderOf(localStorage.getItem("sliqtly.deckOrder")); } catch (_) { /* the default */ }
+function setDeckOrder(by) {
+  deckOrder = deckOrderOf(by);
+  try { localStorage.setItem("sliqtly.deckOrder", deckOrder); } catch (_) { /* this session only */ }
+  app.setDeckOrder(deckOrder);
+  needsPaint = true;
+}
+app.setFlight3d(flightOn);
 async function roomRows(room) {
   return (await roomView(room)).rows;
 }
@@ -1724,6 +1907,17 @@ async function roomsRequest(r) {
     // pressed: a room one is active in (the list shown again is no use of it)
     if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
     const { rows, folders } = await roomView(roomShown);
+    // the presentation just opened (from a search too) in a shut folder:
+    // the folder opens once, so it is in sight; shut again, it stays shut
+    const cur = rows.find((r) => r.current);
+    if (cur && cur.id !== revealed) {
+      revealed = cur.id;
+      const key = roomShown + "/" + cur.folder;
+      if (cur.folder && folders.some((f) => f.id === cur.folder) && !foldersOpen.has(key)) {
+        foldersOpen.add(key);
+        keepFoldersOpen();
+      }
+    }
     const lines = deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
@@ -1784,6 +1978,23 @@ async function roomsRequest(r) {
       }
     }
     if (roomShown === room) await roomsRequest("room:decks:" + room);
+  } else if (action === "place") {
+    // a presentation let go on another of its room ("<room>:<deck>TAB<before>"):
+    // it goes before that one, and the room is in one's own order from then on
+    const [room, ...deckParts] = rest;
+    const [deck, before = ""] = deckParts.join(":").split("\t");
+    if (!deck || deck.startsWith("sample:")) return;
+    const { rows } = await roomView(room);
+    keepRooms((s) => placeDeck(s, room, rows.map((r) => r.id), deck, before));
+    if (deckOrder !== "custom") {
+      setDeckOrder("custom");
+      toast(t("Presentations are in your own order now: File → Settings changes it."));
+    }
+    // between the presentations of a folder: into that folder
+    const from = rows.find((r) => r.id === deck)?.folder || "";
+    const to = rows.find((r) => r.id === before)?.folder || "";
+    if (before && from !== to) await roomsRequest("room:file:" + room + ":" + to + ":" + deck);
+    else await roomsRequest("room:decks:" + room);
   } else if (action === "file") {
     // a presentation let go on a folder of its room ("<room>:<folder>:<deck>"),
     // or on its own room (folder ""): to the room's top
@@ -2526,6 +2737,8 @@ async function refreshRecent() {
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
 async function refreshFiles() {
+  // the source viewer reads its code/ files again when next wanted
+  app.codeFilesChanged();
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
   if (app.editorTab() !== "files" || filesListing) return;
@@ -3469,6 +3682,13 @@ function forgetBook() {
 }
 
 let lastLayout = null;
+// the slide's text selected with the mouse while presenting (see "selecting
+// the slide's text" below), and the stage the last paint drew: its JSON,
+// its list, where ([x, y, scale])
+const textSel = new TextSelection();
+let shownStage = null;
+let shownRead = null;
+let textPress = null;
 function paintOnce() {
   errEl.textContent = "";
   const layout = JSON.parse(app.layoutJson());
@@ -3503,9 +3723,18 @@ function paintOnce() {
     window.__lastStage = null;
     paintBookSpread(layout);
   } else forgetBook();
+  shownStage = null;
   if (layout.slides > 0 && !layout.book) {
-    const st = withTime(JSON.parse(app.stageJson()), clock);
+    const stageText = app.stageJson();
+    const st = withTime(JSON.parse(stageText), clock);
     window.__lastStage = st;
+    shownStage = { text: stageText, list: st.list, at: layout.stage };
+    if (layout.mode !== "present") textSel.clear();
+    // the slide's text selected with the mouse while presenting: its band
+    if (textSel.has()) {
+      const read = presentText();
+      if (read) st.list = { ...st.list, cmds: withBand(st.list.cmds, read, textSel.start(), textSel.end()) };
+    }
     st.width = W;
     st.height = H;
     const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
@@ -3630,6 +3859,9 @@ function paintOnce() {
         roomChatOne.want((d.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src));
         paintList(d, roomChatOne.pictures);
       } else paintList(j);
+    } else if (layer === "code") {
+      // presenting: the source viewer over the slide, or the diagrams' ‹/› badges
+      paintList(app.codeJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
     } else if (layer === "hint") {
@@ -4288,6 +4520,10 @@ function frame() {
     collab?.tick();
     meet.tick();
     apps.tick(app.revision());
+    // a game that has the keyboard while presenting takes the stage: the
+    // controls at the foot give way until Esc (PresApp.gameTakesStage)
+    const staged = app.gameTakesStage();
+    if (staged !== document.body.classList.contains("game-stage")) document.body.classList.toggle("game-stage", staged);
     if (three3d.tick(app.revision(), gl, dpr)) needsPaint = true;
     musicFrame(now);
     const rev = app.revision();
@@ -4300,6 +4536,7 @@ function frame() {
       syncRecBar();
       loadLookFaces();
       if (rev !== inlineSvgRev) loadInlineSvgs(rev);
+      if (rev !== figmaRev) loadFigmaPictures(rev);
       paintOnce();
       handleRequests();
       followAddress();
@@ -4595,8 +4832,12 @@ function handleRequests() {
       app.openHelpTab("guide");
       needsPaint = true;
     } else if (r === "settings") {
+      app.setDeckOrder(deckOrder);
       app.openSettings(autoContrast);
       needsPaint = true;
+    } else if (r.startsWith("setting:flight:")) {
+      flightOn = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.flight3d", flightOn ? "on" : "off"); } catch (_) { /* this session only */ }
     } else if (r.startsWith("setting:contrast:")) {
       autoContrast = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
@@ -4614,6 +4855,9 @@ function handleRequests() {
       setFrame(r.slice("setting:frame:".length));
     } else if (r.startsWith("setting:mode:")) {
       setMode(r.slice("setting:mode:".length));
+    } else if (r.startsWith("setting:order:")) {
+      setDeckOrder(r.slice("setting:order:".length));
+      roomDecksAgain();
     } else if (r.startsWith("setting:term:")) {
       // the page opens again with the new word, the deck saved first
       saveDoc(true).catch(() => {}).finally(() => chooseTerm(r.slice("setting:term:".length)));
@@ -4650,6 +4894,9 @@ function handleRequests() {
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
+    } else if (r.startsWith("code-files:")) {
+      // the source viewer's files (code/…): handed over as they are read
+      readCodeFiles(r.slice(11).split("|")).catch(fail);
     } else if (r.startsWith("openlink:")) {
       // a link in a comment (review mode): web addresses only, in a new tab
       const u = r.slice(9);
@@ -4676,6 +4923,12 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("shared:")) {
+      sharedRequest(r.slice(7)).catch(fail);
+    } else if (r === "figma-thumbs") {
+      loadFigmaThumbs();
+    } else if (r === "figma:copy") {
+      writeClip(app.figmaMarkdown()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r.startsWith("deckdo:")) {
       deckDo(r.slice(7)).catch(fail);
     } else if (r.startsWith("deck:switch:")) {
@@ -4974,8 +5227,16 @@ function loadEmojiFace() {
 function pickedName() {
   return exportName() + " (" + t("slides") + " " + app.pickList() + ")";
 }
+// The programs' 3-D worlds as pictures of the deck by the names the
+// slides' lists give them (PresPlayView.paintWorlds), for the PDF and the
+// PPTX: drawn as the stage draws them, sharp enough for a full page.
+async function renderWorldStills() {
+  const { pw, scenes } = JSON.parse(app.allPlayScenesJson());
+  if (!scenes.length) return;
+  for (const p of await three3d.stills(scenes, FX_STILL_W / pw)) app.addImage(p.src, asRangerBuffer(p.bytes), "image/png", p.w, p.h);
+}
 async function exportPdf(picked = false) {
-  await Promise.all([renderFxStills(), loadEmojiFace()]);
+  await Promise.all([renderFxStills(), loadEmojiFace(), renderWorldStills()]);
   window.__lastDownload = picked && app.pickCount() > 0
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
@@ -5011,7 +5272,7 @@ async function judgeExportContrast() {
 window.__judgeExportContrast = judgeExportContrast;
 
 async function exportPptx(picked = false) {
-  await renderFxStills();
+  await Promise.all([renderFxStills(), renderWorldStills()]);
   await judgeExportContrast();
   const some = picked && app.pickCount() > 0;
   window.__lastDownload = deliver(some ? app.pptxPicked() : app.pptx(), (some ? pickedName() : exportName()) + ".pptx",
@@ -6696,6 +6957,7 @@ function ownsShare() {
 }
 function toggleViewMenu(open) {
   vMenu.hidden = !open;
+  document.getElementById("vFlight").hidden = !flightOn;
   vMore.setAttribute("aria-expanded", String(open));
   if (!open) {
     openViewSub(null);
@@ -6773,6 +7035,8 @@ vMenu.addEventListener("click", (ev) => {
   } else if (act === "auto") {
     app.setAuto(!app.autoOn());
     needsPaint = true;
+  } else if (act === "flight") {
+    if (flightOn) flight3d.start().catch(fail);
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -7405,6 +7669,19 @@ keys.addEventListener("keydown", (ev) => {
     afterInput();
     return;
   }
+  if (presenting && app.codeViewOpen() && !app.reviewHasKeys()) {
+    // the source viewer over the slide: its keys (Ctrl/Cmd + / - / 0 zoom
+    // it, not the page; D the view, N the next change, Ctrl/Cmd+C copies)
+    const steps = mod ? editorZoomStep(ev) : null;
+    const name = steps === 1 ? "+" : steps === -1 ? "-" : steps === 0 ? "0"
+      : ev.key === " " ? "space" : ev.key.length === 1 ? (mod ? ev.key.toLowerCase() : ev.key) : "";
+    if (name) {
+      ev.preventDefault();
+      app.key(name, ev.shiftKey, mod);
+      afterInput();
+    }
+    return;
+  }
   if (presenting) {
     // with the text tool (Aa) letters write on the slide
     const writing = app.inkWrites();
@@ -7416,6 +7693,11 @@ keys.addEventListener("keydown", (ev) => {
     if ((ev.key === "r" || ev.key === "R") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
       ev.preventDefault();
       refreshLiveData();
+      return;
+    }
+    if (flightOn && (ev.key === "g" || ev.key === "G") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
+      ev.preventDefault();
+      flight3d.start().catch(fail);
       return;
     }
     if (ev.key.length === 1 || (writing && !mod && [...ev.key].length === 1)) {
@@ -7836,6 +8118,98 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
+// --- selecting the slide's text with the mouse while presenting -------------------------
+// (web/slidetext.js, as the public viewer does). A drag over text selects
+// it, Ctrl/Cmd+C copies it, Ctrl/Cmd+A takes the whole slide's, Esc lets
+// go. A press that does not move is the slide's own click (the next step, a
+// link), given to the app on release. `select-text: off` in the front
+// matter turns it off. (textSel and shownStage are by paintOnce.)
+const measureCtx = document.createElement("canvas").getContext("2d");
+function measureRun(text, c) {
+  measureCtx.font = fontSpec(c, 1);
+  return measureCtx.measureText(text).width;
+}
+// The slide's text, read again when the stage drew something else (a build
+// step, another slide); new words let go of the selection.
+function presentText() {
+  if (!shownStage) return null;
+  if (!shownRead || shownRead.text !== shownStage.text) {
+    shownRead = { text: shownStage.text, st: slideText(shownStage.list.cmds, measureRun) };
+    textSel.setText(shownRead.st.text);
+  }
+  return shownRead.st;
+}
+function textSelectable() {
+  return presentingNow() && !!shownStage && app.selectText() && !app.inkActive();
+}
+function stagePoint(x, y) {
+  const [sx, sy, sc] = shownStage.at;
+  return [(x - sx) / sc, (y - sy) / sc];
+}
+// A press while presenting: true when it is the selection's.
+function textPressAt(ev, x, y, clicks) {
+  if (ev.pointerType !== "mouse" || ev.button !== 0 || !textSelectable() || app.layerAt(x, y) !== "") return false;
+  const read = presentText();
+  if (!read || !read.text) return false;
+  const [px, py] = stagePoint(x, y);
+  const what = textSel.press(indexAt(read, px, py), ev.shiftKey, runAt(read, px, py, 2) >= 0);
+  if (!what) return false;
+  if (what === "select") textPress = { id: ev.pointerId, x, y, shift: ev.shiftKey, clicks };
+  needsPaint = true;
+  return true;
+}
+function textDragTo(ev, x, y) {
+  if (!textPress || textPress.id !== ev.pointerId) return false;
+  const [px, py] = stagePoint(x, y);
+  if (textSel.drag(indexAt(presentText(), px, py))) needsPaint = true;
+  return true;
+}
+function textRelease(ev) {
+  if (!textPress || textPress.id !== ev.pointerId) return false;
+  const p = textPress;
+  textPress = null;
+  const [x, y] = at(ev);
+  // a click on text: the slide's own, as it would have been
+  if (textSel.release() === "click" && ev.type === "pointerup" && Math.hypot(x - p.x, y - p.y) < 6) {
+    app.pointerDown(p.x, p.y, p.shift, Math.min(p.clicks, 3));
+    app.pointerUp();
+    afterInput();
+  }
+  needsPaint = true;
+  return true;
+}
+// over the slide's text the I-beam
+function textCursorAt(x, y) {
+  if (!textSelectable() || app.layerAt(x, y) !== "") return false;
+  const read = presentText();
+  if (!read) return false;
+  const [px, py] = stagePoint(x, y);
+  return runAt(read, px, py, 2) >= 0;
+}
+window.addEventListener("keydown", (ev) => {
+  if (!presentingNow() || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
+  const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
+  let done = false;
+  if (mod && (ev.key === "a" || ev.key === "A") && textSelectable()) {
+    const read = presentText();
+    if (read && read.text) {
+      textSel.selectAll();
+      done = true;
+    }
+  } else if (mod && (ev.key === "c" || ev.key === "C") && textSel.has()) {
+    navigator.clipboard?.writeText(textSel.selected()).catch(fail);
+    done = true;
+  } else if (ev.key === "Escape" && textSel.has()) {
+    // the first Esc lets go of the selection, the next one stops presenting
+    textSel.clear();
+    done = true;
+  }
+  if (!done) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  needsPaint = true;
+}, true);
+
 // A realistic book's page taken by its corner while presenting: the
 // presses before the stage's own (capture), which do not see them.
 const onBookPage = (ev) => {
@@ -7986,6 +8360,13 @@ canvas.addEventListener("pointerdown", (ev) => {
     ev.preventDefault();
     return;
   }
+  // the slide's text while presenting: a drag selects it
+  if (textPressAt(ev, x, y, clicks)) {
+    ev.preventDefault();
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
+    focusKeys(app.focusTarget());
+    return;
+  }
   // a finger wobbles: it has to travel further than a mouse before a tap
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
@@ -8061,8 +8442,9 @@ canvas.addEventListener("pointermove", (ev) => {
     }
     return;
   }
+  if (textDragTo(ev, x, y)) return;
   app.pointerMove(x, y);
-  canvas.style.cursor = app.cursorAt(x, y);
+  canvas.style.cursor = !ev.buttons && textCursorAt(x, y) ? "text" : app.cursorAt(x, y);
   if (ev.buttons) { needsPaint = true; if (tipFor === canvas) hideTip(); }
   else if (ev.pointerType === "mouse") {
     hintHover(x, y);
@@ -8182,6 +8564,7 @@ document.getElementById("modeBtn").addEventListener("click", () => toggleMode())
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
+  if (textRelease(ev)) return;
   if (pickRelease) {
     pickRelease = false;
     return;
@@ -8525,6 +8908,7 @@ async function start() {
   // the browser's store not answering (web/vfs.js gives up on a stuck
   // call) leaves no page behind the loader: the welcome deck opens, and the
   // notice says why one's own is not there
+  sharedRefresh();
   try {
     if (versionFrame) await openVersionView();
     else if (playerDeck) await openPlayerDeck();
