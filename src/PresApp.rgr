@@ -451,6 +451,23 @@ class PresApp {
         return ("[" + (join parts ",") + "]")
     }
 
+    ; `[{"path":"/figma:app/12:34","file":"app","node":"12:34"}]`: the
+    ; screens of shared Figma files the Markdown shows that the page has not
+    ; drawn into the store yet (`PresDeck.figmaMissing`); the page fetches
+    ; each from the server's shared files and calls `inlineSvgsAdded`.
+    fn figmaPicturesJson:string () {
+        def out:JVal (JVal.mkArr())
+        for (deck.figmaMissing()) dest:string i {
+            def r:FigmaRef (FigmaRef.parse(dest))
+            def o:JVal (JVal.mkObj())
+            o.setStr("path" (FigmaRef.pictureKey(dest)))
+            o.setStr("file" r.file)
+            o.setStr("node" r.node)
+            out.add(o)
+        }
+        return (out.toJson())
+    }
+
     ; The pictures `inlineSvgsJson` named are in the store now: the slides
     ; are laid out again to show them, and timed again (new slide objects).
     fn inlineSvgsAdded:void () {
@@ -1256,6 +1273,12 @@ class PresApp {
     ; one with a heading at the selected slide's level, its words selected
     ; to be typed over. The new slide is selected.
     fn addSlide:void (dup:boolean) {
+        this.addSlideAs(dup "" "")
+    }
+
+    ; A new slide after the selected one: `title` its heading ("New slide"
+    ; when ""), `more` Markdown under it.
+    fn addSlideAs:void (dup:boolean heading:string more:string) {
         this.dropPicks()
         addOpen = false
         if (edTab != "md") {
@@ -1281,7 +1304,14 @@ class PresApp {
             }
         }
         def title:string (PresI18n.t("New slide"))
+        if ((strlen heading) > 0) {
+            title = heading
+        }
         def body:string ((level + " ") + title)
+        def head:string body
+        if ((strlen more) > 0) {
+            body = (body + "\n\n" + more)
+        }
         if (dup && (from >= 0)) {
             ; its lines, the blank ones at its end left out
             def last:int (at - 1)
@@ -1330,7 +1360,7 @@ class PresApp {
         if ((dup == false) || (from < 0)) {
             ; the heading's words selected, ready to be typed over
             mdEditor.moveCaret(line ((strlen level) + 1) false)
-            mdEditor.moveCaret(line (strlen body) true)
+            mdEditor.moveCaret(line (strlen head) true)
         }
         chromeRev = (chromeRev + 1)
     }
@@ -8105,6 +8135,7 @@ class PresApp {
     fn showRooms:void () {
         if (toolbar.roomsOpen == false) {
             toolbar.roomsOpen = true
+            toolbar.filesOpen = false
             toolbar.rebuild()
         }
         chromeRev = (chromeRev + 1)
@@ -10018,6 +10049,99 @@ class PresApp {
         return true
     }
 
+    ; --- the shared Files: a Figma file's window ---------------------------------
+    ; The Files panel's row pressed: the file's window, its screens as tiles.
+    ; The page hands over the file's card and, once read, its index
+    ; (`setFigmaFile`), and draws the tiles' pictures ("figma-thumbs").
+    fn openFigmaFile:boolean (id:string name:string status:string err:string indexJson:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 640.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        def b (new FigmaBrowser())
+        b.open(id name status err indexJson)
+        chart.openFigma(b px py W H)
+        focus = "chart"
+        push requests "figma-thumbs"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The open file's card or index again (indexed, failed, read).
+    fn setFigmaFile:void (id:string name:string status:string err:string indexJson:string) {
+        if ((chart.mode != "figma") || (chart.fg.fileId != id)) {
+            return
+        }
+        chart.fg.setFile(id name status err indexJson)
+        chart.figmaChanged()
+        push requests "figma-thumbs"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The file whose window is open ("" none).
+    fn figmaFileOpen:string () {
+        if (chart.isOpen && (chart.mode == "figma")) {
+            return chart.fg.fileId
+        }
+        return ""
+    }
+
+    ; `[{"key","file","node"}]`: the tiles the window shows, each a picture
+    ; the page draws from the shared file under `key`.
+    fn figmaThumbsJson:string () {
+        def out:JVal (JVal.mkArr())
+        if ((strlen (this.figmaFileOpen())) > 0) {
+            for (chart.fg.shown()) h:FigmaHit i {
+                def o:JVal (JVal.mkObj())
+                o.setStr("key" (FigmaBrowser.thumbKey(h.fileId (h.node()))))
+                o.setStr("file" h.fileId)
+                o.setStr("node" (h.node()))
+                out.add(o)
+            }
+        }
+        return (out.toJson())
+    }
+
+    fn figmaMarkdown:string () {
+        return (chart.fg.markdown())
+    }
+
+    fn figmaAct:void (act:string) {
+        def b:FigmaBrowser chart.fg
+        if (act == "thumbs") {
+            push requests "figma-thumbs"
+            return
+        }
+        if (act == "add") {
+            this.showTab("md")
+            this.insertBlock(((b.markdown()) + "\n"))
+            return
+        }
+        if (act == "slide") {
+            this.addSlideAs(false (b.layerName()) (b.markdown()))
+            return
+        }
+        if (act == "copy") {
+            push requests "figma:copy"
+            return
+        }
+        if (act == "delete") {
+            push requests ("shared:delete:" + b.fileId)
+        }
+    }
+
     ; Slide → Theme…: the themes as tiles, each a picture of a sample slide
     ; in it. `rows` are the page's theme select ("value<TAB>label<TAB>group"
     ; lines), `current` the one in use; the page draws the pictures
@@ -11109,6 +11233,13 @@ class PresApp {
                     push requests "picture-cancel"
                 }
             }
+        }
+        ; a shared Figma file's window: its picked screen onto the slide, onto
+        ; a new slide, or to the clipboard; the file deleted; tiles to draw
+        if ((strlen chart.fgAct) > 0) {
+            def act:string chart.fgAct
+            chart.fgAct = ""
+            this.figmaAct(act)
         }
         ; a theme's tile: the page's select changes, and with it the slides
         if chart.themePicked {

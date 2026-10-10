@@ -114,6 +114,13 @@ func TestSharedFigma(t *testing.T) {
 	if w, _ := size("/files/shared/health-app/png/1:2.png"); w != 804 {
 		t.Fatal("kept picture")
 	}
+	// a screen by its name, as figma:health-app/Dashboard draws it
+	if w, h := size("/files/shared/health-app/png/Dashboard.png?scale=1"); w != 402 || h != 1108 {
+		t.Fatalf("Dashboard by name drawn %dx%d, want 402x1108", w, h)
+	}
+	if code, _, body := get(t, srv.URL+"/files/shared/health-app/png/No%20such%20screen.png"); code != 404 || !strings.Contains(body, "no screen called") {
+		t.Fatalf("an unknown name: %d %s", code, body)
+	}
 	if code, _, _ := get(t, srv.URL+"/files/shared/health-app/png/99:99.png"); code != 404 {
 		t.Fatalf("an unknown layer: %d", code)
 	}

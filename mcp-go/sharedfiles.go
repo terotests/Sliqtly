@@ -534,6 +534,19 @@ func (s *sharedFiles) draw(ctx context.Context, id, node string, scale float64, 
 	if f.Status != "ready" {
 		return nil, sharedErr{409, f.Name + " is " + f.Status}
 	}
+	// a screen's name (figma:<file>/Login) is the layer it names in the
+	// index (src/PresFigma.rgr, as the editor and the MCP tools read it)
+	if !FigmaRef_static_isNodeId(node) {
+		ix, err := s.index(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		t := FigmaLibrary_static_targetIn(id, ix, node)
+		if !t.ok {
+			return nil, sharedErr{404, t.err}
+		}
+		node = t.node
+	}
 	kept := sharedDir(id) + "/png/" + sharedNodeFile(node) + "@" + strconv.FormatFloat(scale, 'f', -1, 64) + "-" + strconv.Itoa(maxSide) + ".png"
 	if b, err := s.files.Read(ctx, kept, 64<<20); err == nil {
 		return b, nil

@@ -18,11 +18,12 @@
 ;
 ; where the layer is the Figma id of a screen ("12:34") or of any layer inside
 ; one (a part: "12:40"), or the name of a screen ("Login") when the name is
-; unique in the file. The picture's key in the deck's store is
-; `/figma/<file id>/<layer>.png`.
+; unique in the file. The drawn picture goes in the deck's store under the
+; path the layout resolves the address to (`FigmaRef.pictureKey`).
 ; =============================================================================
 
 Import "JsonValue.rgr"
+Import "../vfs/src/Vfs.rgr"
 
 class FigmaRef {
     def ok:boolean false
@@ -101,35 +102,71 @@ class FigmaRef {
         return ("figma:" + file + "/" + node)
     }
 
-    sfn pictureKey:string (file:string node:string) {
-        return ("/figma/" + file + "/" + node + ".png")
+    ; The picture's name in the deck's store: where the layout looks for it
+    ; (MdLayout resolves a picture's address against the document's folder,
+    ; "/"), so the page and the server put the drawn screen there.
+    sfn pictureKey:string (dest:string) {
+        def v (new Vfs())
+        return (v.resolve(dest "/"))
     }
 
-    fn key:string () {
-        return (FigmaRef.pictureKey(file node))
-    }
-
-    ; The address back out of a picture key, or a FigmaRef that is not ok.
-    sfn fromKey:FigmaRef (key:string) {
-        def r (new FigmaRef())
-        if ((strlen key) < 12) {
-            return r
+    ; Every figma: address a Markdown text names, once each, in order: a
+    ; picture's destination (`](figma:…)`, `](<figma:…>)`), an HTML src
+    ; (`src="figma:…"`) or a gallery line. An address ends at the first
+    ; space, quote, bracket or parenthesis, or at `>` when it began in `<`.
+    sfn inText:[string] (text:string) {
+        def out:[string]
+        def n:int (strlen text)
+        def from:int 0
+        while (from < n) {
+            def at:int (FigmaLibrary.findFrom(text "figma:" from))
+            if (at < 0) {
+                return out
+            }
+            def angled:boolean false
+            def lead:boolean (at == 0)
+            if (at > 0) {
+                def c:int (charAt text (at - 1))
+                angled = (c == 60)
+                lead = (((((c == 40) || (c == 60)) || ((c == 34) || (c == 39))) || ((c == 32) || (c == 10))) || (c == 61))
+            }
+            def end:int (at + 6)
+            while (end < n) {
+                def e:int (charAt text end)
+                if angled {
+                    if ((e == 62) || (e == 10)) {
+                        break
+                    }
+                } {
+                    if ((((e == 41) || (e == 32)) || ((e == 10) || (e == 13))) || ((((e == 34) || (e == 39)) || (e == 62)) || ((e == 93) || (e == 9)))) {
+                        break
+                    }
+                }
+                end = (end + 1)
+            }
+            if lead {
+                def dest:string (trim (substring text at end))
+                if ((FigmaRef.parse(dest)).ok) {
+                    if ((indexOf out dest) < 0) {
+                        push out dest
+                    }
+                }
+            }
+            from = end
         }
-        if ((substring key 0 7) != "/figma/") {
-            return r
-        }
-        if ((substring key ((strlen key) - 4) (strlen key)) != ".png") {
-            return r
-        }
-        def inner:string (substring key 7 ((strlen key) - 4))
-        return (FigmaRef.parse(("figma:" + inner)))
+        return out
     }
 
     ; Markdown for a picture of a layer: alt text is its name, made safe for
     ; the brackets it goes in.
     sfn markdown:string (file:string node:string name:string) {
         def alt:string (trim (join (strsplit (join (strsplit name "[") "") "]") ""))
-        return ("![" + alt + "](" + (FigmaRef.address(file node)) + ")")
+        def dest:string (FigmaRef.address(file node))
+        ; a name or a path with a space or brackets goes in <…>
+        if ((((indexOf dest " ") >= 0) || ((indexOf dest "(") >= 0)) || ((indexOf dest ")") >= 0)) {
+            dest = ("<" + dest + ">")
+        }
+        return ("![" + alt + "](" + dest + ")")
     }
 }
 
@@ -522,6 +559,15 @@ class FigmaLibrary {
         return t
     }
 
+    ; One file's layer, by id or a screen's name, from the file's index
+    ; alone: what the server draws for `figma:<file>/<layer>`.
+    sfn targetIn:FigmaTarget (fileId:string indexJson:string node:string) {
+        def lib (new FigmaLibrary())
+        def f:FigmaFile (FigmaFile.fromIndex(fileId indexJson))
+        lib.add(f)
+        return (lib.resolve((FigmaRef.address(fileId node))))
+    }
+
     ; --- search ---------------------------------------------------------------
     ;
     ; Every word of the query must be found somewhere on a screen: in its
@@ -800,5 +846,199 @@ class FigmaLibrary {
             out = (out + " …")
         }
         return out
+    }
+}
+
+; =============================================================================
+; FigmaBrowser — one shared file's window in the editor
+; =============================================================================
+; The window lists a file's screens, a search narrows them, one is picked,
+; and a part of it may be picked instead; what goes on the slide is the
+; picked layer. The page hands over the file's card and index; the window
+; (PresChartEditor's "figma") only draws what this says.
+class FigmaBrowser {
+    def lib:FigmaLibrary (new FigmaLibrary())
+    def fileId:string ""
+    def query:string ""
+    ; the picked screen and, inside it, the picked part ("" the whole screen)
+    def screen:string ""
+    def part:string ""
+
+    Constructor () {
+    }
+
+    ; File `id` opened: its card's name and state, and the index once read
+    ; ("" while it is not).
+    fn open:void (id:string name:string status:string err:string indexJson:string) {
+        fileId = id
+        query = ""
+        screen = ""
+        part = ""
+        this.setFile(id name status err indexJson)
+    }
+
+    fn setFile:void (id:string name:string status:string err:string indexJson:string) {
+        def f:FigmaFile (new FigmaFile())
+        if ((strlen indexJson) > 0) {
+            f = (FigmaFile.fromIndex(id indexJson))
+        }
+        f.id = id
+        if ((strlen name) > 0) {
+            f.name = name
+        }
+        ; an index that does not read stays the failure it is; else the
+        ; card says whether the file is still indexing or failed, and a
+        ; ready file whose index has not come yet is loading
+        if (f.status != "failed") {
+            if (status != "ready") {
+                f.status = status
+                f.err = err
+            } {
+                if ((strlen indexJson) == 0) {
+                    f.status = "loading"
+                }
+            }
+        }
+        lib.add(f)
+        if (id == fileId) {
+            if ((strlen screen) > 0) {
+                if (null? (f.screenById(screen))) {
+                    screen = ""
+                    part = ""
+                }
+            }
+        }
+    }
+
+    fn file@(optional):FigmaFile () {
+        return (lib.fileById(fileId))
+    }
+
+    fn name:string () {
+        def fo@(optional):FigmaFile (this.file())
+        if (null? fo) {
+            return fileId
+        }
+        def f:FigmaFile (unwrap fo)
+        return f.name
+    }
+
+    fn status:string () {
+        def fo@(optional):FigmaFile (this.file())
+        if (null? fo) {
+            return "loading"
+        }
+        def f:FigmaFile (unwrap fo)
+        return f.status
+    }
+
+    fn err:string () {
+        def fo@(optional):FigmaFile (this.file())
+        if (null? fo) {
+            return ""
+        }
+        def f:FigmaFile (unwrap fo)
+        return f.err
+    }
+
+    ; What the window shows: every screen in the file's order, or what the
+    ; search finds, best first (a hit may be a part of its screen).
+    fn shown:[FigmaHit] () {
+        def out:[FigmaHit]
+        def fo@(optional):FigmaFile (this.file())
+        if (null? fo) {
+            return out
+        }
+        def f:FigmaFile (unwrap fo)
+        if (f.status != "ready") {
+            return out
+        }
+        if ((strlen (trim query)) > 0) {
+            return (lib.search(query fileId 60))
+        }
+        def i:int 0
+        while (i < (array_length f.screens)) {
+            def h (new FigmaHit())
+            h.fileId = f.id
+            h.fileName = f.name
+            h.screen = (itemAt f.screens i)
+            push out h
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn setQuery:void (q:string) {
+        query = q
+    }
+
+    ; A hit pressed: its screen picked, and its part when the search found
+    ; one. Pressed again, the pick is let go.
+    fn pick:void (screenId:string partId:string) {
+        if ((screen == screenId) && (part == partId)) {
+            screen = ""
+            part = ""
+            return
+        }
+        screen = screenId
+        part = partId
+    }
+
+    ; One of the picked screen's parts, or the whole screen ("").
+    fn pickPart:void (partId:string) {
+        part = partId
+    }
+
+    fn picked@(optional):FigmaScreen () {
+        def none@(optional):FigmaScreen
+        def fo@(optional):FigmaFile (this.file())
+        if ((null? fo) || ((strlen screen) == 0)) {
+            return none
+        }
+        def f:FigmaFile (unwrap fo)
+        return (f.screenById(screen))
+    }
+
+    ; The layer that goes on the slide and its name: the part, else the
+    ; screen; "" when nothing is picked.
+    fn layer:string () {
+        if ((strlen part) > 0) {
+            return part
+        }
+        return screen
+    }
+
+    fn layerName:string () {
+        def so@(optional):FigmaScreen (this.picked())
+        if (null? so) {
+            return ""
+        }
+        def s:FigmaScreen (unwrap so)
+        if ((strlen part) > 0) {
+            def po@(optional):FigmaPart (s.partById(part))
+            if (!null? po) {
+                def p:FigmaPart (unwrap po)
+                return p.name
+            }
+            return part
+        }
+        return s.name
+    }
+
+    fn markdown:string () {
+        if ((strlen (this.layer())) == 0) {
+            return ""
+        }
+        return (FigmaRef.markdown(fileId (this.layer()) (this.layerName())))
+    }
+
+    fn address:string () {
+        return (FigmaRef.address(fileId (this.layer())))
+    }
+
+    ; The name a thumbnail of layer `node` is kept under among the page's
+    ; pictures (not a deck's file: nothing is saved).
+    sfn thumbKey:string (fileId:string node:string) {
+        return ("/__figma-thumb/" + fileId + "/" + node)
     }
 }

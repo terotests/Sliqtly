@@ -38,6 +38,7 @@ Import "PresDiagram.rgr"
 Import "PresChart.rgr"
 Import "PresTable.rgr"
 Import "PresSmartArt.rgr"
+Import "PresFigma.rgr"
 Import "PresSketch.rgr"
 Import "PresPlay.rgr"
 Import "PresScript.rgr"
@@ -2783,6 +2784,21 @@ class PresDeck {
             def st:VfsStat (md.edit.imageStore.stat(("/" + u.path)))
             if (st.found == false) {
                 push out u
+            }
+        }
+        return out
+    }
+
+    ; --- screens of the shared Figma files (PresFigma) ---------------------------
+    ; The figma: addresses the Markdown names whose drawn picture the store
+    ; does not have yet. The page (or the server) draws each from the shared
+    ; files into the store under `FigmaRef.pictureKey`, and the slide shows it.
+    fn figmaMissing:[string] () {
+        def out:[string]
+        for (FigmaRef.inText(text)) dest:string i {
+            def st:VfsStat (md.edit.imageStore.stat((FigmaRef.pictureKey(dest))))
+            if (st.found == false) {
+                push out dest
             }
         }
         return out
