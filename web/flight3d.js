@@ -18,6 +18,9 @@
 export function labelStyle(kind) {
   if (kind === "text") return { px: 88, weight: 700 };
   if (kind === "title") return { px: 64, weight: 700 };
+  // a slide's own words under its title, left aligned (src/PresFlight.rgr
+  // addBody: 46 characters a line)
+  if (kind === "body") return { px: 40, weight: 500, wrap: 46, left: true };
   if (kind === "glass" || kind === "group") return { px: 44, weight: 600 };
   return { px: 34, weight: 500 };
 }
@@ -100,7 +103,7 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
     for (let i = 0; i < n; i++) {
       const kind = world.labelKind(i);
       const st = labelStyle(kind);
-      const lines = wrapText(world.labelText(i), kind === "glass" ? 22 : kind === "text" ? 28 : 40);
+      const lines = wrapText(world.labelText(i), st.wrap || (kind === "glass" ? 22 : kind === "text" ? 28 : 40));
       const font = `${st.weight} ${st.px}px Inter, "Segoe UI", system-ui, sans-serif`;
       g.font = font;
       const line = Math.round(st.px * 1.25);
@@ -111,13 +114,13 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
       c.height = h;
       g.clearRect(0, 0, w, h);
       g.font = font;
-      g.textAlign = "center";
+      g.textAlign = st.left ? "left" : "center";
       g.textBaseline = "middle";
       // white, tinted by the label's colour; a soft glow behind it
       g.shadowColor = "rgba(150, 235, 255, 0.85)";
       g.shadowBlur = Math.round(st.px * 0.35);
       g.fillStyle = "#ffffff";
-      lines.forEach((l, k) => g.fillText(l, w / 2, pad + line * (k + 0.5)));
+      lines.forEach((l, k) => g.fillText(l, st.left ? pad : w / 2, pad + line * (k + 0.5)));
       const img = g.getImageData(0, 0, w, h);
       world.setLabel(i, asRangerBuffer(img.data.buffer.slice(0)), w, h, line);
     }

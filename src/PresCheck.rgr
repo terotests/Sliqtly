@@ -6923,7 +6923,7 @@ class PresCheck {
     ; slide; a diagram as glass nodes at staggered depths with arcing lines,
     ; charts as bars, ribbons, wedges; the camera and its hands.
     fn flight:void () {
-        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Keski]\n  B --> C[Loppu]\n```\n\n## Myynti\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"Q1\", \"v\": 3}, {\"k\": \"Q2\", \"v\": 6}, {\"k\": \"Q3\", \"v\": -2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n\n## Osuudet\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"a\", \"v\": 1}, {\"k\": \"b\", \"v\": 3}]}, \"mark\": \"arc\", \"encoding\": {\"theta\": {\"field\": \"v\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"k\", \"type\": \"nominal\"}}}\n```\n\n## Pelkkä otsikko\n\nTekstiä.\n"
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Keski]\n  B --> C[Loppu]\n```\n\n## Myynti\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"Q1\", \"v\": 3}, {\"k\": \"Q2\", \"v\": 6}, {\"k\": \"Q3\", \"v\": -2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n\n## Osuudet\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"a\", \"v\": 1}, {\"k\": \"b\", \"v\": 3}]}, \"mark\": \"arc\", \"encoding\": {\"theta\": {\"field\": \"v\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"k\", \"type\": \"nominal\"}}}\n```\n\n## Pelkkä otsikko\n\nTekstiä.\n\n- Yksi\n  - Sisempi\n- Kaksi\n\n### Väli\n\n1. Eka\n2. Toka\n\n| A | B |\n|---|---|\n| x | y |\n\n![kuva](kuva.png)\n\n::: notes\nPuhujan muistiinpano\n:::\n"
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
@@ -6939,6 +6939,18 @@ class PresCheck {
         this.ok((s1.kind == "chart") ("flight: slide 2 is a chart station, got " + s1.kind))
         this.ok((s3.kind == "slide") ("flight: slide 4 shows its title, got " + s3.kind))
         this.ok((s1.z < (s0.z - 30.0)) "flight: the next station is further away")
+        ; a slide's own words under its title: paragraphs and list items, a
+        ; list inside an item one step in, no pictures
+        def body:string ""
+        def bi:int 0
+        while (bi < (array_length sc.items)) {
+            def bit:FlightItem (itemAt sc.items bi)
+            if ((bit.kind == "body") && (bit.station == 3)) {
+                body = bit.text
+            }
+            bi = (bi + 1)
+        }
+        this.ok((body == "Tekstiä.\n• Yksi\n– Sisempi\n• Kaksi\nVäli\n1. Eka\n2. Toka\nA · B\nx · y") ("flight: the text slide shows its words, got " + body))
         ; the diagram: three glass nodes, two lines, ranks at different depths
         def glass:[FlightItem]
         def links:[FlightItem]
@@ -7025,14 +7037,30 @@ class PresCheck {
         cam.command("next")
         def still:PresFlightPad (new PresFlightPad())
         def peak:double cam.y
+        ; the biggest change of the view from one frame to the next, landing
+        ; included: a hop has no jerk in it
+        def jerk:double 0.0
+        def lastPitch:double cam.pitch
+        def lastYaw:double cam.yaw
         def k:int 0
         while (k < 300) {
             cam.step(0.016 still)
             if (cam.y > peak) {
                 peak = cam.y
             }
+            def dp:double (fabs (cam.pitch - lastPitch))
+            def dyw:double (fabs (cam.yaw - lastYaw))
+            if (dp > jerk) {
+                jerk = dp
+            }
+            if (dyw > jerk) {
+                jerk = dyw
+            }
+            lastPitch = cam.pitch
+            lastYaw = cam.yaw
             k = (k + 1)
         }
+        this.ok((jerk < 0.02) ("flight: the view turns smoothly all the way, landing too, biggest step " + (to_string jerk)))
         this.ok(((cam.current()) == 1) "flight: next lands at the second station")
         this.ok(((fabs (cam.z - (cam.poseZ(1)))) < 0.01) "flight: the autopilot arrives")
         this.ok((peak > ((cam.poseY(1)) + 0.5)) "flight: it hops over the way")

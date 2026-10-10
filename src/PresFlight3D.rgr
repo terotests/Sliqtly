@@ -322,6 +322,10 @@ class PresFlight3D {
     def titles:[string]
     ; when each station started coming in (-1: not yet)
     def seen:[double]
+    ; how much each station's words are in focus, 0.25..1: the station flown
+    ; to reads clearly, the words of the ones behind it stay faint, so they
+    ; do not show through its own
+    def focus:[double]
     def clock:double 0.0
     def held:PresFlightPad (new PresFlightPad())
     def pad:PresFlightPad (new PresFlightPad())
@@ -359,6 +363,8 @@ class PresFlight3D {
         titles = nt
         def ns:[double]
         seen = ns
+        def nf:[double]
+        focus = nf
         cam = (new PresFlightCam())
         clock = 0.0
         scene.setBackground(bgR bgG bgB)
@@ -387,6 +393,7 @@ class PresFlight3D {
             cam.addStation((s.numOr("fx" sx)) (s.numOr("fy" sy)) sz (s.numOr("dist" 13.0)) (s.numOr("lift" 1.0)))
             push titles (s.strOr("t" ""))
             push seen (0.0 - 1.0)
+            push focus (PresFlight3D.faint())
             this.addFloor(i sx sy sz grid)
             i = (i + 1)
         }
@@ -508,7 +515,7 @@ class PresFlight3D {
             }
             return
         }
-        if ((kind == "title") || ((kind == "text") || ((kind == "label") || (kind == "axis")))) {
+        if ((kind == "title") || ((kind == "text") || ((kind == "label") || ((kind == "axis") || (kind == "body"))))) {
             def p:FlightPart (this.part(o kind))
             this.addLabel(p (o.strOr("t" "")) kind r g b (o.numOr("fs" 0.4)) p.w 0.0 0.0 0.0)
             return
@@ -833,6 +840,22 @@ class PresFlight3D {
         ; the station shown starts coming in, and the ones near it
         def now:int (cam.current())
         def i:int 0
+        ; the station headed for comes into focus, the rest go faint
+        def goal:int now
+        if cam.auto {
+            goal = cam.target
+        }
+        def fk:double (dt * 3.0)
+        if (fk > 1.0) {
+            fk = 1.0
+        }
+        while (i < (array_length focus)) {
+            def want:double (? (i == goal) 1.0 (PresFlight3D.faint()))
+            def f0:double (itemAt focus i)
+            set focus i (f0 + ((want - f0) * fk))
+            i = (i + 1)
+        }
+        i = 0
         while (i < (array_length seen)) {
             if ((itemAt seen i) < 0.0) {
                 def dz:double ((cam.poseZ(i)) - cam.z)
@@ -878,8 +901,21 @@ class PresFlight3D {
         return ((d > (0.0 - 170.0)) && (d < 60.0))
     }
 
+    sfn faint:double () {
+        return 0.25
+    }
+
+    ; Words (titles, a slide's text, labels) fade with their station's focus.
+    sfn isWords:boolean (kind:string) {
+        return ((kind == "text") || ((kind == "body") || ((kind == "title") || ((kind == "label") || (kind == "axis")))))
+    }
+
     fn animate:void (p:FlightPart) {
         def u:double (this.shown(p.station p.order))
+        def dimTo:double 1.0
+        if ((PresFlight3D.isWords(p.kind)) && ((p.station >= 0) && (p.station < (array_length focus)))) {
+            dimTo = (itemAt focus p.station)
+        }
         def on:boolean ((u > 0.001) && ((this.near(p.z)) || (p.kind == "link")))
         if (p.kind == "link") {
             ; a link's place is in its points; its station tells how near
@@ -898,7 +934,7 @@ class PresFlight3D {
             } {
                 me.visible = on
             }
-            me.material.opacity = ((itemAt p.full k) * u)
+            me.material.opacity = (((itemAt p.full k) * u) * dimTo)
             def px:double (p.x + (itemAt p.dx k))
             def py:double ((p.y + (itemAt p.dy k)) + bob)
             def pz:double (p.z + (itemAt p.dz k))
