@@ -156,7 +156,7 @@ async function open(url, { at = base } = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   // a 404 is in `missing` (or is the missing presentation's, on purpose)
   // (the preview trying which script URLs the host's CSP lets run is no error)
-  page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource|^Refused to load the script '(data:text\/javascript,0|blob:)/.test(m.text())) fail(`${url}: console: ${m.text()}`); });
+  page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource|^(Refused to load|Loading) the script '(data:text\/javascript,0|blob:)/.test(m.text())) fail(`${url}: console: ${m.text()}`); });
   page.on("pageerror", (e) => fail(`${url}: ${e.message}`));
   await page.goto(at + url, { waitUntil: "load" });
   return page;
