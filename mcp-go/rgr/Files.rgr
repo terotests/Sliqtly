@@ -43,6 +43,45 @@ class Files {
     sfn MAX_DATA_FILES:int () {
         return 10
     }
+    ; source files under code/ for the source viewer, counted on their own:
+    ; a review deck brings a part of each file it talks about, its diff and
+    ; code/sources.json
+    sfn MAX_CODE_FILES:int () {
+        return 60
+    }
+
+    ; "code/src/a.cpp" → "src/a.cpp": the path a file has in its repository,
+    ; kept as it is (case too); "" when a part of it is not a plain name
+    sfn codePath:string (name:string) {
+        def t:string (trim name)
+        if (startsWith t "code/") {
+            t = (substring t 5 (strlen t))
+        }
+        if (((strlen t) == 0) || ((strlen t) > 300)) {
+            return ""
+        }
+        def parts:[string] (strsplit t "/")
+        if ((array_length parts) > 24) {
+            return ""
+        }
+        for parts seg:string i {
+            if ((((strlen seg) == 0) || (seg == ".")) || (seg == "..")) {
+                return ""
+            }
+            def k:int 0
+            while (k < (strlen seg)) {
+                if ((Deck.nameChar((charAt seg k))) == false) {
+                    return ""
+                }
+                k = (k + 1)
+            }
+        }
+        return t
+    }
+
+    sfn isCode:boolean (name:string) {
+        return (startsWith (trim name) "code/")
+    }
     sfn MAX_READ:int () {
         return 20971520
     }
@@ -85,6 +124,9 @@ class Files {
         }
         if (startsWith path "apps/") {
             return "program"
+        }
+        if (startsWith path "code/") {
+            return "source"
         }
         return "file"
     }
@@ -443,29 +485,61 @@ class Files {
 
     sfn loadData:Loaded (host:McpHost list:[MfJ]) {
         def res (new Loaded)
-        if ((array_length list) > (Files.MAX_DATA_FILES())) {
+        def codeCount:int 0
+        for list cf:MfJ ci {
+            if (Files.isCode((cf.str_("name")))) {
+                codeCount = (codeCount + 1)
+            }
+        }
+        if (((array_length list) - codeCount) > (Files.MAX_DATA_FILES())) {
             res.err = ("At most " + (to_string (Files.MAX_DATA_FILES())) + " data files per call.")
+            return res
+        }
+        if (codeCount > (Files.MAX_CODE_FILES())) {
+            res.err = ("At most " + (to_string (Files.MAX_CODE_FILES())) + " source files under code/ per call.")
             return res
         }
         for list f:MfJ i {
             def given:string (f.str_("name"))
             def bare:string (trim given)
+            def code:boolean (Files.isCode(bare))
             if (startsWith bare "data/") {
                 bare = (substring bare 5 (strlen bare))
             }
             if (startsWith bare "apps/") {
                 bare = (substring bare 5 (strlen bare))
             }
-            def name:string (Deck.cleanName(bare))
+            def name:string ""
             def folder:string "data/"
-            if (Files.isProgram(name)) {
-                folder = "apps/"
+            if code {
+                ; a source file keeps its repository path and its case
+                name = (Files.codePath(bare))
+                folder = "code/"
+                if ((strlen name) == 0) {
+                    res.err = ("File " + given + ": a source file is named code/<its path in the repository>, with letters, digits, \".\", \"-\" and \"_\" between the slashes.")
+                    return res
+                }
+                if (((f.field("text")).kind != 3) || ((((strlen (f.str_("data_base64"))) > 0) || ((strlen (f.str_("url"))) > 0)) || ((strlen (f.str_("path"))) > 0))) {
+                    res.err = ("File " + given + ": a source file under code/ is sent as text.")
+                    return res
+                }
+            } {
+                name = (Deck.cleanName(bare))
+                if (Files.isProgram(name)) {
+                    folder = "apps/"
+                }
             }
             if ((strlen name) == 0) {
                 res.err = ("File name \"" + given + "\" is not usable: use letters, digits, \".\", \"-\" and \"_\".")
                 return res
             }
             def type:string (Files.dataType(name))
+            if code {
+                type = "text/plain"
+                if (endsWith (to_lowercase name) ".json") {
+                    type = "application/json"
+                }
+            }
             if ((strlen type) == 0) {
                 res.err = ("File " + name + ": data files are .xlsx, .csv, .tsv, .json, .txt or .gltf; a program for an app block is .tsx (or .jsx) with its .tsx.css.")
                 return res
