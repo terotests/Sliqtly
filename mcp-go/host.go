@@ -361,6 +361,10 @@ type McpHost struct {
 	// the picture a host tool answered with (get_figma_screen), for
 	// ToolImage
 	toolImage []byte
+	// what was read may read otherwise next time: live data from the web,
+	// a picture or file that did not come (a layout made so is not kept,
+	// viewcache.go)
+	unsure bool
 }
 
 func (h *McpHost) fail(err error) {
@@ -733,9 +737,13 @@ func (h *McpHost) ImageFromURL(u string, limit int64) string {
 	req.Header.Set("user-agent", "Sliqtly-MCP/1.0")
 	res, err := h.env.Client.Do(req)
 	if err != nil {
+		h.unsure = true
 		return toJSON(map[string]any{"status": 0, "error": err.Error()})
 	}
 	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		h.unsure = true
+	}
 	ct := strings.TrimSpace(strings.Split(res.Header.Get("content-type"), ";")[0])
 	length, _ := strconv.ParseInt(res.Header.Get("content-length"), 10, 64)
 	out := map[string]any{"status": res.StatusCode, "type": ct, "length": length, "size": 0, "handle": 0}
@@ -767,6 +775,7 @@ func (h *McpHost) FileBytes(id, path string) string {
 	}
 	b, err := h.env.Bucket.Read(h.ctx, "shares/"+id+"/"+path, maxFileRead)
 	if err != nil {
+		h.unsure = true
 		h.fail(err)
 		return `{"handle":0,"size":0}`
 	}
@@ -1034,6 +1043,7 @@ func (h *McpHost) FetchGitHub(u, accept string, limit int64) string {
 }
 
 func (h *McpHost) fetch(u, accept string, limit int64, token string) string {
+	h.unsure = true
 	ctx, cancel := context.WithTimeout(h.ctx, 8*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
