@@ -262,6 +262,7 @@ test("the script-api declarations name what the runtime has", () => {
   for (const k of members("Entity")) assert.ok(k in ent, "entity." + k);
   for (const k of members("Presentation")) assert.ok(k in S.presentation, "presentation." + k);
   for (const k of members("ActiveSlide")) assert.ok(k in S.presentation.activeSlide, "activeSlide." + k);
+  for (const k of members("CodeViewer")) assert.ok(k in S.presentation.code, "presentation.code." + k);
   for (const k of members("Input")) assert.ok(k in S.input, "input." + k);
   for (const k of members("Env")) assert.ok(k in S.env, "env." + k);
   const exported = [...guide.matchAll(/^\s+export const (\w+)/gm)].map((x) => x[1]);

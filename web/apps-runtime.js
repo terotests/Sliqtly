@@ -10,6 +10,9 @@
 //   slide.next() prev() go(n) build()                                     allow: slide.nav
 //   el("#id"/".class").style({...}) show() hide() reset()                 allow: slide.style
 //   machine.send(event, data)                                             allow: machine
+//   presentation.code.open("src/a.cpp#L40-88", {mode}) openNode(box) close()
+//     setMode(m) goToLine(n) scroll(rows) setZoom(level) showTab(n)
+//     nextChange() prevChange(); isOpen path tab tabs mode zoom line        allow: code
 //   <SliqRod from to radius length />  a rod between two points in a <scene3d>    allow: 3d
 //   <SliqGltf src="data/x.gltf" />  a .gltf of the deck in a <scene3d>              allow: 3d
 //   import * as THREE from "ranger:three"  Ranger v2's 3-D façade (init, tick)     allow: 3d
@@ -83,6 +86,23 @@ var presentation = {
 };
 Object.defineProperty(presentation, "slides", { enumerable: true, get: function () { return __slide.count; } });
 Object.defineProperty(presentation, "data", { enumerable: true, get: function () { return __deck.data; } });
+// The source code viewer over a presented slide (src/PresCodeViewUi.rgr):
+// what it shows read each frame, asks as the rest (allow: code). Opens
+// only while presenting; line is the new version's line at its top.
+var __code = {
+  isOpen: false, path: "", tab: 0, tabs: 0, mode: "", zoom: 0, line: 0,
+  open: function (target, o) { __asks.push({ k: "code.open", value: String(target || ""), key: o && o.mode ? String(o.mode) : "" }); },
+  openNode: function (box) { __asks.push({ k: "code.node", value: String(box || "") }); },
+  close: function () { __asks.push({ k: "code.close" }); },
+  setMode: function (m) { __asks.push({ k: "code.mode", value: String(m) }); },
+  goToLine: function (n) { __asks.push({ k: "code.line", n: Math.floor(Number(n) || 0) }); },
+  scroll: function (rows) { __asks.push({ k: "code.scroll", n: Math.round(Number(rows) || 0) }); },
+  setZoom: function (level) { __asks.push({ k: "code.zoom", n: Math.round(Number(level) || 0) }); },
+  showTab: function (n) { __asks.push({ k: "code.tab", n: Math.floor(Number(n) || 0) }); },
+  nextChange: function () { __asks.push({ k: "code.change", n: 1 }); },
+  prevChange: function () { __asks.push({ k: "code.change", n: -1 }); }
+};
+presentation.code = __code;
 var __sliqtly = { presentation: presentation, el: el, machine: machine };
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
 function __deckState(d) {
@@ -94,6 +114,14 @@ function __deckState(d) {
   __slide.from = d.from || 0;
   __slide.presenting = d.mode === "present";
   __slide.focused = !!d.focused;
+  var c = d.code || {};
+  __code.isOpen = !!c.isOpen;
+  __code.path = c.path || "";
+  __code.tab = c.tab || 0;
+  __code.tabs = c.tabs || 0;
+  __code.mode = c.mode || "";
+  __code.zoom = c.zoom || 0;
+  __code.line = c.line || 0;
 }
 // The "ranger:three" module: Ranger v2's live 3-D façade
 // (gallery/game_engine/v2/modules/ranger_three), so a file written for that

@@ -86,6 +86,9 @@ class PresCodeViewUi {
     def spanTo:int 0
     ; what was last scrolled to the link: the file, tab and mode, once here
     def scrolledKey:string ""
+    ; a new-version line asked for (a slide script's code.line), shown once
+    ; the file is here; 0 for none
+    def wantLine:int 0
 
     Constructor () {
         CLikeLanguage.addAllTo(langs)
@@ -366,6 +369,13 @@ class PresCodeViewUi {
         } {
             edA.layout.scrollLine = keepTop
             edB.layout.scrollLine = keepTop
+        }
+        if ((wantLine > 0) && ready) {
+            def wr:int (rows.rowFor((this.mainRows()) wantLine))
+            if (wr >= 0) {
+                this.scrollToRow(wr)
+            }
+            wantLine = 0
         }
         builtKey = (k.path + "#" + (to_string view.tab) + ":" + view.mode + ":" + (to_string dataRev))
     }
@@ -784,25 +794,7 @@ class PresCodeViewUi {
             return true
         }
         if ((name == "n") || (name == "N")) {
-            def starts:[int] (PresCodeRows.changeStarts((this.mainRows())))
-            def ed2:ScriptEditor (this.mainEd())
-            def cur:int (ed2.layout.firstVisible())
-            def show:int ((ed2.layout.lastVisible(ed2.buf)) - cur)
-            def mid:int (cur + (idiv show 3))
-            def go:int -1
-            def back:boolean (shift || (name == "N"))
-            for starts s:int i {
-                if ((back == false) && ((s > mid) && (go < 0))) {
-                    go = s
-                }
-                if (back && (s < mid)) {
-                    go = s
-                }
-            }
-            if (go >= 0) {
-                this.scrollToRow(go)
-                rev = (rev + 1)
-            }
+            this.jumpChange((shift || (name == "N")))
             return true
         }
         if ((name == "down") || (name == "j")) {
@@ -843,6 +835,97 @@ class PresCodeViewUi {
         }
         ; everything else is not the slides' while the file is open
         return true
+    }
+
+    ; To the next change below the reading point, or (back) the one above.
+    fn jumpChange:boolean (back:boolean) {
+        def starts:[int] (PresCodeRows.changeStarts((this.mainRows())))
+        def ed2:ScriptEditor (this.mainEd())
+        def cur:int (ed2.layout.firstVisible())
+        def show:int ((ed2.layout.lastVisible(ed2.buf)) - cur)
+        def mid:int (cur + (idiv show 3))
+        def go:int -1
+        for starts s:int i {
+            if ((back == false) && ((s > mid) && (go < 0))) {
+                go = s
+            }
+            if (back && (s < mid)) {
+                go = s
+            }
+        }
+        if (go < 0) {
+            return false
+        }
+        this.scrollToRow(go)
+        rev = (rev + 1)
+        return true
+    }
+
+    ; --- what a slide script asks (PresApp.playMove) -----------------------
+
+    ; Shows new-version line n of the file open (once it is read).
+    fn goLine:void (n:int) {
+        if (n <= 0) {
+            return
+        }
+        wantLine = n
+        builtKey = ""
+        rev = (rev + 1)
+    }
+
+    fn setZoom:void (level:int) {
+        view.zoomBy((level - view.zoom))
+        rev = (rev + 1)
+    }
+
+    fn pickMode:void (m:string) {
+        if (view.setMode(m)) {
+            builtKey = ""
+        }
+        rev = (rev + 1)
+    }
+
+    fn pickTab:void (i:int) {
+        if (view.showTab(i)) {
+            builtKey = ""
+        }
+        rev = (rev + 1)
+    }
+
+    ; The new-version line at the top of what is shown, 0 for none.
+    fn topLine:int () {
+        def rs:[PresCodeRow] (this.mainRows())
+        def ed:ScriptEditor (this.mainEd())
+        def i:int (ed.layout.firstVisible())
+        while (i < (array_length rs)) {
+            def n:int (PresCodeRows.lineAt(rs i))
+            if (n > 0) {
+                return n
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; What a slide script reads as presentation.code: {isOpen, path, tab
+    ; (1-based), tabs, mode, zoom, line}.
+    fn state:JVal () {
+        def o:JVal (JVal.mkObj())
+        def open:boolean view.isOpen
+        o.setBool("isOpen" open)
+        def path:string ""
+        def ko@(optional):PresCodeLink (view.link())
+        if (open && (!null? ko)) {
+            def k:PresCodeLink (unwrap ko)
+            path = k.path
+        }
+        o.setStr("path" path)
+        o.setInt("tab" (? open (view.tab + 1) 0))
+        o.setInt("tabs" (? open (array_length view.links) 0))
+        o.setStr("mode" (? open view.mode ""))
+        o.setInt("zoom" view.zoom)
+        o.setInt("line" (? open (this.topLine()) 0))
+        return o
     }
 
     ; --- drawing ---------------------------------------------------------------------

@@ -1012,6 +1012,8 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     footers while the deck is open.
   - `slide.nav`: `slide.next()`, `slide.prev()`, `slide.go(n)`,
     `slide.build()`; `slide.number` and `slide.count` are read without it.
+  - `code`: `presentation.code` drives the source code viewer while
+    presenting (see topic `script-api`).
   - `slide.style`: `el("#id")` or `el(".class")` with
     `.style({ color, background, opacity, translate: "10px 0", display })`,
     `.show()`, `.hide()`, `.reset()` changes the look of the slide's blocks
@@ -1210,8 +1212,9 @@ arrows. Name it on the slide's heading; one script a slide:
   script ends.
 - `allow:` on the heading, as for `app` blocks: `slide.nav`
   (`presentation.next()`, `prev()`, `go(n)`), `deck.data`
-  (`presentation.set`). Without it the script only changes its own
-  slide's look.
+  (`presentation.set`), `code` (`presentation.code`: the source code
+  viewer while presenting, for files under `code/`). Without it the script
+  only changes its own slide's look.
 - The old globals (`find`, `add`, `tree`, `slide`, `deck`) still work; the
   page notes once in the console that `find()` is the old form.
 - Entering: the slide arrives as the script opens it. What its top level,
@@ -1283,6 +1286,38 @@ interface Presentation {
   next(): void;
   prev(): void;
   go(slide: number): void;
+  /** The source code viewer over the slide; `allow: code`. Presenting only. */
+  readonly code: CodeViewer;
+}
+
+type CodeMode = "now" | "before" | "diff" | "split";
+
+interface CodeViewer {
+  /** As the viewer is this frame. */
+  readonly isOpen: boolean;
+  /** Under code/, "" when closed. */
+  readonly path: string;
+  /** 1-based, of tabs. */
+  readonly tab: number;
+  readonly tabs: number;
+  readonly mode: CodeMode | "";
+  readonly zoom: number;
+  /** The new version's line at the top of what is shown. */
+  readonly line: number;
+  /** "src/a.cpp#L40-88", "#Symbol" or "#hunk2" as in a `::: code` line. */
+  open(target: string, options?: { mode?: CodeMode }): void;
+  /** The `::: code` links of a box on this slide (its id or words); "*" the diagram's. */
+  openNode(box: string): void;
+  close(): void;
+  setMode(mode: CodeMode): void;
+  /** Scrolls to a line of the new version. */
+  goToLine(line: number): void;
+  scroll(rows: number): void;
+  /** 0 the deck's size, each step about 12 %, -6..12. */
+  setZoom(level: number): void;
+  showTab(tab: number): void;
+  nextChange(): void;
+  prevChange(): void;
 }
 
 interface ActiveSlide {
