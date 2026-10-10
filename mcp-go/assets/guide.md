@@ -1036,9 +1036,11 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     font-size: 64px; color: #ffffff; text-align: center }
   ```
 
-- `render_slide`, PDF, PPTX and Word show a plate with the program's name
-  in the box (the editor's thumbnails and exports show its last picture).
-  A program that does not start shows why on its plate.
+- `render_slide` and `render_overview` show the program after its first
+  frames, its `<scene3d>` worlds drawn by the server as the browser draws
+  them. PDF, PPTX and Word show a plate with the program's name in the box
+  (the editor's exports show its last picture). A program that does not
+  start shows why on its plate.
 - The public viewer and the preview run programs and draw their
   `<scene3d>` worlds. There `slide.nav` works; `deck.set` and `el()` change the
   slides, which the viewer shows as saved: they work in the editor.

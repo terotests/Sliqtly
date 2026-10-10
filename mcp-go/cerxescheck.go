@@ -166,17 +166,32 @@ func (r *cerxesRun) eval(en uint64, src string) (string, error) {
 // syntax error, what it threw in its first frames, a view() that is no
 // element tree), "" when it runs, "-" when there is no engine to try it in.
 func (h *McpHost) AppCheck(src string, w, hgt float64) string {
+	why, _ := h.appRun(src, w, hgt)
+	return why
+}
+
+// AppRun is host_app_run: AppCheck's answer and the element tree of the
+// program's last frame tried (PresPlayView.setTree), as
+// {"why": "…", "tree": "…"}; the tree is "" when it did not run.
+func (h *McpHost) AppRun(src string, w, hgt float64) string {
+	why, tree := h.appRun(src, w, hgt)
+	b, _ := json.Marshal(map[string]string{"why": why, "tree": tree})
+	return string(b)
+}
+
+func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
 	if err := cerxes.start(); err != nil {
-		return "-"
+		return "-", ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cerxesCheckTime)
 	defer cancel()
 	mod, err := cerxes.rt.InstantiateModule(ctx, cerxes.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions("_initialize"))
 	if err != nil {
-		return "-"
+		return "-", ""
 	}
 	defer mod.Close(context.Background())
 	r := &cerxesRun{ctx: ctx, mod: mod}
+	last := ""
 	why, err := func() (string, error) {
 		en, err := r.call("cx_new")
 		if err != nil {
@@ -214,18 +229,27 @@ func (h *McpHost) AppCheck(src string, w, hgt float64) string {
 			if failed != 0 {
 				return out, nil
 			}
-			if tree, _, _ := strings.Cut(out, "\n"); !strings.HasPrefix(strings.TrimSpace(tree), "{") {
+			// the tree, a line break, the asks (web/apps-runtime.js __deckFrame)
+			tree := out
+			if at := strings.LastIndex(out, "\n"); at >= 0 {
+				tree = out[:at]
+			}
+			if !strings.HasPrefix(strings.TrimSpace(tree), "{") {
 				return "view() did not give an element tree", nil
 			}
+			last = tree
 		}
 		return "", nil
 	}()
 	if err != nil {
 		if ctx.Err() != nil {
-			return "its first frames took longer than 3 s (an endless loop?)"
+			return "its first frames took longer than 3 s (an endless loop?)", ""
 		}
 		// the engine itself failed, not the program: nothing to say of it
-		return "-"
+		return "-", ""
 	}
-	return why
+	if why != "" {
+		return why, ""
+	}
+	return "", last
 }

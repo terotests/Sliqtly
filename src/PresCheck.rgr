@@ -40,6 +40,7 @@ Import "PresPlay.rgr"
 Import "PresScript.rgr"
 Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
+Import "Pres3DStill.rgr"
 Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
@@ -5196,6 +5197,31 @@ class PresCheck {
     ; <scene3d> read the way React Three Fiber reads its JSX (Pres3DTree):
     ; Three's names, keys, world places, rods, lookAt, the first version's
     ; attributes, and what changes from one frame to the next.
+    ; a world drawn without a GPU (render_slide): the box where the page
+    ; draws it, lit, and the slide showing round it
+    fn stills:void () {
+        def box:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#ff0000\"}}]}"
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
+        def st:Pres3DStill (new Pres3DStill())
+        def px:buffer (st.draw(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + box + "]}") 48 27))
+        this.ok(((buffer_length px) == ((48 * 27) * 4)) "stills: RGBA, the size asked")
+        def mid:int (((13 * 48) + 24) * 4)
+        this.ok((((buffer_get px mid) == 255) && ((buffer_get px (mid + 1)) == 0)) ("stills: the red box in the middle, got " + (to_string (buffer_get px mid)) + "," + (to_string (buffer_get px (mid + 1)))))
+        this.ok(((buffer_get px (mid + 3)) == 255) "stills: the box opaque")
+        this.ok(((buffer_get px 3) == 0) "stills: the slide shows round the world")
+        this.ok(((strlen st.error) == 0) ("stills: nothing said, got " + st.error))
+        ; lit: a white face square to a light in front of it
+        def lit:string "{\"t\":\"mesh\",\"c\":[{\"t\":\"boxGeometry\"},{\"t\":\"meshLambertMaterial\",\"a\":{\"color\":\"#808080\"}}]}"
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"0,0,1\",\"intensity\":\"1\"}}"
+        def st2:Pres3DStill (new Pres3DStill())
+        def px2:buffer (st2.draw(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + sun + "," + lit + "]}") 48 27))
+        def g2:int (buffer_get px2 mid)
+        this.ok(((g2 > 60) && (g2 < 250)) ("stills: a lit grey face, got " + (to_string g2)))
+        def sun3:string "{\"t\":\"directionalLight\",\"a\":{\"position\":\"0,0,1\",\"intensity\":\"3\"}}"
+        def px3:buffer (st2.draw(("{\"t\":\"scene3d\",\"c\":[" + cam + "," + sun3 + "," + lit + "]}") 48 27))
+        this.ok(((buffer_get px3 mid) > g2) ("stills: a brighter light, a brighter face, got " + (to_string (buffer_get px3 mid))))
+    }
+
     fn sceneTree:void () {
         def ball:string "{\"t\":\"mesh\",\"a\":{\"name\":\"ball\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"sphereGeometry\",\"a\":{\"args\":\"0.5,32,16\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#4488ff\",\"metalness\":\"0.2\",\"roughness\":\"0.6\"}}]}"
         def t:Pres3DTree (PresCheck.sceneOf(ball))
@@ -5667,6 +5693,7 @@ class PresCheck {
         c.jsonPatch()
         c.scenes()
         c.sceneTree()
+        c.stills()
         c.stripDrag()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
