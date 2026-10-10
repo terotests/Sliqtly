@@ -136,6 +136,9 @@ export function ensureRanger({ update = false } = {}) {
   }
   link(ensureEvgui({ update }), path.join(dir, EVGUI_LINK));
   link(srcDir, path.join(dir, LINK));
+  // RangerDiff's unified diffs (src/PresCodeRows.rgr reads a code file's
+  // change with RdPatch), linked in as gallery/rangerdiff like mcp-go's
+  link(ensureRangerDiff({ update }), path.join(dir, "gallery", "rangerdiff"));
   return dir;
 }
 
