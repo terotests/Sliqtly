@@ -31,7 +31,7 @@ var __slide = {
   build: function () { __asks.push({ k: "slide.step" }); }
 };
 // the names a program uses; the runtime keeps its own (__deck, __slide),
-// so a program's own `const slide = …` does not take them from it
+// so a program's own const slide = … does not take them from it
 var deck = __deck;
 var slide = __slide;
 var __UNITLESS = { opacity: 1, zIndex: 1, flex: 1, fontWeight: 1, lineHeight: 1 };

@@ -64,7 +64,7 @@ var __input = {
     }
   }
 };
-// (a script's own `const env = …` keeps the runtime's: __env, __input)
+// (a script's own const env = … keeps the runtime's: __env, __input)
 var env = __env;
 var input = __input;
 var __PROPS = { x: 1, y: 1, scale: 1, scaleX: 1, scaleY: 1, rotate: 1, skew: 1, origin: 1, opacity: 1, visible: 1, color: 1, fill: 1, stroke: 1, z: 1, clip: 1 };
