@@ -142,6 +142,20 @@ operators {
             go ( (e 1) ".CallTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; the picture the last host tool answered with (get_figma_screen) as
+    ; base64 PNG, once; "" when none
+    host_tool_image _:string (h:McpHost) {
+        templates {
+            go ( (e 1) ".ToolImage()" )
+        }
+    }
+    ; layer `node` of shared file `file` drawn as a slide shows it: the
+    ; picture's handle, 0 when there is no such file or layer
+    host_shared_png _:int (h:McpHost file:string node:string) {
+        templates {
+            go ( (e 1) ".SharedPng(" (e 2) ", " (e 3) ")" )
+        }
+    }
     host_asset _:string (h:McpHost name:string) {
         templates {
             go ( (e 1) ".Asset(" (e 2) ")" )

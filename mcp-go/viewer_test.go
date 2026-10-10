@@ -57,4 +57,11 @@ func TestGuideWithoutRooms(t *testing.T) {
 	if strings.Contains(r, "<!-- rooms -->") || strings.Contains(r, "<!-- /rooms -->") || !strings.Contains(r, "# Topic: rooms") || !strings.Contains(r, "| `rooms` |") {
 		t.Fatal("a server with rooms does not get the Rooms parts as they are")
 	}
+	// the shared Figma files only a server of one's own keeps
+	if g := withoutPart(guideMD, "figma"); strings.Contains(g, "topic=figma") || strings.Contains(g, "Topic: figma") || strings.Contains(g, "figma -->") {
+		t.Fatal("the figma parts are not cut out as marked")
+	}
+	if f := withPart(guideMD, "figma"); strings.Contains(f, "<!-- figma -->") || strings.Contains(f, "<!-- /figma -->") || !strings.Contains(f, "# Topic: figma") || !strings.Contains(f, "| `figma` |") {
+		t.Fatal("a server with shared files does not get the figma parts")
+	}
 }

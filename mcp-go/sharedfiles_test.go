@@ -5,13 +5,17 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // a shared file through the page's API: put, read once, drawn from its
@@ -192,5 +196,102 @@ func TestSharedSlug(t *testing.T) {
 		"Mobile/Web v2 (final).fig": "mobile-web-v2-final",
 	} {
 		eq(t, sharedSlug(in), want)
+	}
+}
+
+// the MCP tools: a .fig added from an import folder, listed, searched,
+// looked at with its picture, and drawn on a slide by the server
+func TestSharedFigmaTools(t *testing.T) {
+	fig, err := os.ReadFile("testdata/health.fig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album := t.TempDir()
+	os.WriteFile(album+"/Health App.fig", fig, 0o644)
+	os.WriteFile(album+"/notes.txt", []byte("hi"), 0o644)
+	dirs, err := parseImportDirs(album)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan string, 4)
+	srv, session := startLocalWith(t, t.TempDir(), "", func(e *Env) {
+		e.ImportDirs = dirs
+		e.shared.indexed = func(id string) { done <- id }
+	})
+	defer srv.Close()
+	defer session.Close()
+	s := &testServer{root: srv.URL, session: session}
+
+	match(t, toolSchema(t, session, "add_shared_file"), `"path"`)
+	bad := call(t, s, "add_shared_file", map[string]any{"path": album + "/notes.txt"})
+	match(t, textOf(bad), `only Figma files`)
+	add := call(t, s, "add_shared_file", map[string]any{"path": album + "/Health App.fig"})
+	if add.IsError {
+		t.Fatal(textOf(add))
+	}
+	eq(t, sc(add)["id"], "health-app")
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the file was never read")
+	}
+
+	ls := call(t, s, "list_shared_files", nil)
+	match(t, textOf(ls), `"file_id": "health-app"`)
+	match(t, textOf(ls), `"status": "ready"`)
+	match(t, textOf(ls), `"screens": 3`)
+
+	found := call(t, s, "search_figma", map[string]any{"query": "dashboard"})
+	if found.IsError {
+		t.Fatal(textOf(found))
+	}
+	hits := sc(found)["hits"].([]any)
+	if len(hits) == 0 {
+		t.Fatalf("no hits: %s", textOf(found))
+	}
+	hit := hits[0].(map[string]any)
+	eq(t, hit["name"], "Dashboard")
+	md := hit["markdown"].(string)
+	match(t, md, `^!\[Dashboard\]\(figma:health-app/\d+:\d+\)$`)
+	none := call(t, s, "search_figma", map[string]any{"query": "dashboard", "file_id": "nope"})
+	match(t, textOf(none), `no ready shared file`)
+
+	got := call(t, s, "get_figma_screen", map[string]any{"file_id": "health-app", "node_id": "Dashboard"})
+	if got.IsError {
+		t.Fatal(textOf(got))
+	}
+	eq(t, sc(got)["node_id"], hit["node_id"])
+	eq(t, sc(got)["markdown"], md)
+	if len(got.Content) != 2 {
+		t.Fatalf("no picture: %d parts", len(got.Content))
+	}
+	pic := got.Content[1].(*mcp.ImageContent)
+	eq(t, pic.MIMEType, "image/png")
+	if im, err := png.Decode(bytes.NewReader(pic.Data)); err != nil || im.Bounds().Dx() < 100 {
+		t.Fatalf("the picture: %v", err)
+	}
+	missing := call(t, s, "get_figma_screen", map[string]any{"file_id": "health-app", "node_id": "Nowhere"})
+	match(t, textOf(missing), `no screen called`)
+
+	// the server draws the screen on the slide: the slide's picture has
+	// the screen's shape (402×1108), which only the drawn picture gives it
+	c := call(t, s, "create_presentation", map[string]any{"title": "Figma", "markdown": "# Screens\n\n## Home\n\n" + md + "\n"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	notMatch(t, textOf(c), `figma:`)
+	dl := call(t, s, "get_display_list", map[string]any{"deck_id": sc(c)["deck_id"], "slide": 2})
+	if dl.IsError {
+		t.Fatal(textOf(dl))
+	}
+	var w, h float64
+	m := regexp.MustCompile(`image-1 image @ [\d.]+,[\d.]+ ([\d.]+)x([\d.]+)`).FindStringSubmatch(textOf(dl))
+	if m == nil {
+		t.Fatalf("no picture on the slide: %s", textOf(dl))
+	}
+	fmt.Sscan(m[1], &w)
+	fmt.Sscan(m[2], &h)
+	if r := w / h; r < 0.34 || r > 0.39 {
+		t.Fatalf("the picture is %vx%v, not the screen's shape", w, h)
 	}
 }
