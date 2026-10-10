@@ -305,6 +305,9 @@ class JsonPatch {
         if ((op.has("path")) == false) {
             return "no \"path\""
         }
+        if ((op.get("path")).kind != 3) {
+            return "\"path\" is a string"
+        }
         def path:string (op.strOr("path" ""))
         if ((JsonPatch.validPointer(path)) == false) {
             return ("\"" + path + "\" is not a JSON Pointer")
@@ -356,6 +359,9 @@ class JsonPatch {
         if ((name == "move") || (name == "copy")) {
             if ((op.has("from")) == false) {
                 return (name + " has no \"from\"")
+            }
+            if ((op.get("from")).kind != 3) {
+                return "\"from\" is a string"
             }
             def from:string (op.strOr("from" ""))
             if ((JsonPatch.validPointer(from)) == false) {
