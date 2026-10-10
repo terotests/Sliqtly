@@ -6768,6 +6768,16 @@ class PresCheck {
             }
         }
         this.ok((clipped && (shown1 == 1)) "worlds: overflow: hidden draws the world in its box only")
+        ; fit="box" does the same
+        view.setTree((MdApp.replaceAll(tree "{\"t\":\"scene3d\"," "{\"t\":\"scene3d\",\"a\":{\"fit\":\"box\"},")))
+        def f2:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def shown2:int 0
+        for f2.cmds c2:EVGDrawCmd c2i {
+            if ((c2.kind == 2) && (c2.src == sc.src)) {
+                shown2 = (shown2 + 1)
+            }
+        }
+        this.ok((shown2 == 1) ("worlds: fit=box draws the world in its box only, got " + (to_string shown2)))
         def at1:JVal (deck.playScenes(0))
         if ((at1.len()) == 1) {
             this.ok(((at1.at(0)).boolOr("clip" false)) "worlds: the page is told it clips")

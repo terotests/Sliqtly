@@ -52,6 +52,9 @@ class PresPlayScene {
     def w:double 0.0
     def h:double 0.0
     def clip:boolean false
+    ; fit="box": the world stays in its element (as overflow: hidden);
+    ; fit="slide" (the default): it may draw over the whole slide
+    def boxed:boolean false
 
     Constructor () {
     }
@@ -213,6 +216,9 @@ class PresPlayView {
                 ; text (paintWorlds)
                 sc.el = el
                 el.src = sc.src
+                if (a.isObj()) {
+                    sc.boxed = (((a.get("fit")).asStr("")) == "box")
+                }
                 push scenes sc
             }
             return el
@@ -325,7 +331,7 @@ class PresPlayView {
             sc.y = ((itemAt f 1) + (sc.el.calculatedY * k))
             sc.w = (sc.el.calculatedWidth * k)
             sc.h = (sc.el.calculatedHeight * k)
-            sc.clip = ((sc.el.overflow == "hidden") || ((slideW <= 0.0) || (slideH <= 0.0)))
+            sc.clip = ((sc.boxed || (sc.el.overflow == "hidden")) || ((slideW <= 0.0) || (slideH <= 0.0)))
             i = (i + 1)
         }
     }

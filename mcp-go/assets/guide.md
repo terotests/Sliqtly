@@ -1005,7 +1005,11 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     with that id or class (`{#id}` on the line after a paragraph) without
     changing the Markdown.
   - `3d` (experimental): a `<scene3d>` element in `view()` is a 3-D world,
-    drawn over the slide with a transparent background. Its children are
+    drawn over the slide with a transparent background. The camera frames
+    the element's box; what is outside it may draw anywhere on the slide,
+    over its background and under its text (`fit="slide"`, the default).
+    `<scene3d fit="box">` (or CSS `overflow: hidden`) keeps the world in
+    its box. Its children are
     written as in React Three Fiber (Three.js names and units, no React,
     no hooks): `<group>`, `<mesh>`, `<perspectiveCamera>`,
     `<ambientLight>`, `<directionalLight>`, `<pointLight>`. A mesh holds a
