@@ -334,7 +334,11 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     the stage. It has no page, network or storage. One that does not answer in
     3 s is stopped.
   - **Keyboard:** a click on the box gives the program the keys; Esc gives them
-    back, and while editing a double click then edits the block.
+    back, and while editing a double click then edits the block. While
+    presenting, a click on what the program's 3-D world draws past its box
+    counts too (PresDeck.playPast, web/three3d.js opaqueAt). Keys are
+    `KeyboardEvent.key` names; `input.pointer` is in the program's own
+    `size:` units, past 0..width/height for a world past the box.
   - **The deck** (each needs its word on `allow:`, the rest is refused and said):
     `deck.data` / `deck.get(key)` read the deck's own keys, `deck.set(key, v)`
     fills `{key}` in headers and footers (`deck.data`); `slide.next()`,

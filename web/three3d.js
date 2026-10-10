@@ -68,6 +68,16 @@ export function worldPicture(s, k, max = MAX_SIDE) {
 }
 
 /**
+ * The pixel (u, v) falls on in a w x h picture, (u, v) from 0..1 from its
+ * top left corner (PresPlayView.pastAt): [x, y] inside it.
+ */
+export function pixelOf(u, v, w, h) {
+  const x = Math.min(w - 1, Math.max(0, Math.floor(u * w)));
+  const y = Math.min(h - 1, Math.max(0, Math.floor(v * h)));
+  return [x, y];
+}
+
+/**
  * app: playScenesJson() and selectedSlide(); pictures: the painter's
  * src → picture map the worlds' canvases go in; imageChanged(gl, src) tells
  * the painter a picture's pixels are new; slidePicture(w, h) the shown
@@ -244,6 +254,19 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     return out;
   }
 
+  // Whether world `src` drew anything at (u, v) of its picture (0..1 from
+  // its top left corner): a press there is its program's.
+  function opaqueAt(src, u, v) {
+    const c = own.get(src);
+    if (!c || !c.width || !c.height) return false;
+    const [x, y] = pixelOf(u, v, c.width, c.height);
+    try {
+      return c.getContext("2d").getImageData(x, y, 1, 1).data[3] > 8;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // Another deck: its worlds go with it.
   function reset() {
     if (p3) {
@@ -259,5 +282,5 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     said.clear();
   }
 
-  return { tick, reset, stills };
+  return { tick, reset, stills, opaqueAt };
 }

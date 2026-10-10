@@ -2,7 +2,7 @@
 // so the camera's aspect matches the box and pixels stay square.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { worldPictureSize, worldPicture } from "../three3d.js";
+import { worldPictureSize, worldPicture, pixelOf } from "../three3d.js";
 
 test("a small box is drawn at its own size", () => {
   assert.deepEqual(worldPictureSize(400, 225, 2, 1024), [800, 450]);
@@ -42,4 +42,12 @@ test("a clipped world draws only its box", () => {
   const { w, h, view } = worldPicture({ x: 100, y: 50, w: 400, h: 300, sw: 1920, sh: 1080, clip: true }, 2, 2048);
   assert.deepEqual([w, h], [800, 600]);
   assert.deepEqual(view, [0, 0, 800, 600]);
+});
+
+test("a press past a program's box finds its pixel in the world's picture", () => {
+  assert.deepEqual(pixelOf(0, 0, 200, 100), [0, 0]);
+  assert.deepEqual(pixelOf(0.5, 0.25, 200, 100), [100, 25]);
+  // the slide's far edge is the picture's last pixel, not past it
+  assert.deepEqual(pixelOf(1, 1, 200, 100), [199, 99]);
+  assert.deepEqual(pixelOf(-0.1, 1.2, 200, 100), [0, 99]);
 });

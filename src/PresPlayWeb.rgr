@@ -169,19 +169,32 @@ class PresPlayWeb {
     ; Slide point (px, py) in the program's own units with the id under it,
     ; {"x", "y", "id"}, or "" outside its picture.
     fn point:string (key:string px:double py:double) {
+        return (this.pointIn(key px py false))
+    }
+
+    ; The same, and past its picture where a 3-D world of it draws over the
+    ; whole slide ({"past": true}): where the pointer is for the program.
+    fn pointPast:string (key:string px:double py:double) {
+        return (this.pointIn(key px py true))
+    }
+
+    fn pointIn:string (key:string px:double py:double past:boolean) {
         def i:int (this.indexOf(key))
         if (i < 0) {
             return ""
         }
         def v:PresPlayView (itemAt views i)
-        def loc:[double] (v.toLocal((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py))
-        if ((itemAt loc 0) < 0.0) {
-            return ""
+        return (v.pointAt((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py past))
+    }
+
+    ; The program's worlds drawn past its picture whose pictures are under
+    ; slide point (px, py): [{"src", "u", "v"}] (PresPlayView.pastAt).
+    fn pastAt:string (key:string px:double py:double) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return "[]"
         }
-        def o:JVal (JVal.mkObj())
-        o.setNum("x" (itemAt loc 0))
-        o.setNum("y" (itemAt loc 1))
-        o.setStr("id" (v.idAt((itemAt loc 0) (itemAt loc 1))))
-        return (o.toJson())
+        def v:PresPlayView (itemAt views i)
+        return ((v.pastAt((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py)).toJson())
     }
 }

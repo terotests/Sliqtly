@@ -119,7 +119,9 @@ export function sortAsks(asks, held) {
   return now;
 }
 
-export function createApps({ app, repaint, toast, t = (s) => s }) {
+// opaqueAt(src, u, v): whether 3-D world `src` drew anything at (u, v) of
+// its picture (web/three3d.js), for a press past a program's box
+export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null }) {
   const runs = new Map(); // key -> run
   let plays = [];
   let playsRev = -1;
@@ -481,9 +483,23 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     }
   }
 
+  // A program on the stage whose 3-D world drew at window point (x, y) past
+  // its box (app.playPast, opaqueAt: whether the world's picture has
+  // anything there), "" for none.
+  function worldAt(x, y) {
+    if (!app.playPast || !opaqueAt) return "";
+    let past = [];
+    try { past = JSON.parse(app.playPast(x, y)); } catch (_) { /* none */ }
+    const shown = new Set(shownKeys());
+    for (const c of past) if (shown.has(c.key) && runs.has(c.key) && opaqueAt(c.src, c.u, c.v)) return c.key;
+    return "";
+  }
+
   // A press on the stage: a program's box takes it, and the keyboard with
-  // it (every press, however quick: a game is clicked fast). While editing,
-  // after Esc the box is a block like any other until a press elsewhere.
+  // it (every press, however quick: a game is clicked fast). While
+  // presenting, so does what its 3-D world draws past the box (the world
+  // looks like the program, all of it). While editing, after Esc the box is
+  // a block like any other until a press elsewhere.
   // True when the program took it.
   function pointerDown(x, y, presenting) {
     if (!plays.length) return false;
@@ -499,7 +515,7 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
         return true;
       }
     }
-    const key = app.playAt(x, y);
+    const key = app.playAt(x, y) || (presenting ? worldAt(x, y) : "");
     if (!key) {
       skipKey = "";
       release();

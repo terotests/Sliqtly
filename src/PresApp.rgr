@@ -833,6 +833,16 @@ class PresApp {
         return (deck.playPoint(key spX spY))
     }
 
+    ; Window point (x, y) on the worlds programs on the slide shown draw
+    ; past their boxes: [{"key", "src", "u", "v"}] (PresDeck.playPast).
+    fn playPast:string (x:double y:double) {
+        if ((deck.slideCount()) == 0) {
+            return "[]"
+        }
+        this.slidePoint(x y)
+        return ((deck.playPast(selected spX spY)).toJson())
+    }
+
     ; The program that has the keyboard ("" gives it back to the deck).
     fn setPlayFocus:void (key:string) {
         if (deck.playFocus != key) {
