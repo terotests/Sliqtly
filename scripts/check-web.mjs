@@ -962,6 +962,59 @@ try {
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
   }
 
+  // The slide's text selected with the mouse while presenting
+  // (web/slidetext.js): a drag over a line copies it and the slide stays; a
+  // click on the text is still the next step.
+  {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => { document.getElementById("keys").focus(); });
+    await page.keyboard.press("F5");
+    await page.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 8000 });
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(300);
+    // the longest line of the slide, in the page's pixels
+    const line = () => page.evaluate(() => {
+      const st = window.__lastStage;
+      const [sx, sy, sc] = JSON.parse(window.__app.layoutJson()).stage;
+      const r = document.getElementById("c").getBoundingClientRect();
+      const runs = st.list.cmds.filter((c) => c.k === 3 && c.text && !c.rot && c.text.length > 8);
+      runs.sort((a, b) => b.text.length - a.text.length);
+      const c = runs[0];
+      if (!c) return null;
+      return { text: c.text, x0: r.left + sx + (c.x + 1) * sc, x1: r.left + sx + (c.x + c.w) * sc, y: r.top + sy + (c.y + c.h / 2) * sc };
+    });
+    const where = () => page.evaluate(() => ({ slide: window.__app.slideShown(), step: window.__app.pStep }));
+    const ln = await line();
+    await page.evaluate(() => navigator.clipboard.writeText("before"));
+    let copied = "", stayed = null, cursor = "", after = null, before = null, clickedOn = null;
+    if (ln) {
+      await page.mouse.move(ln.x0 + 4, ln.y);
+      cursor = await page.evaluate(() => document.getElementById("c").style.cursor);
+      before = await where();
+      await page.mouse.move(ln.x0, ln.y);
+      await page.mouse.down();
+      await page.mouse.move((ln.x0 + ln.x1) / 2, ln.y, { steps: 4 });
+      await page.mouse.move(ln.x1 + 40, ln.y, { steps: 4 });
+      await page.mouse.up();
+      await page.keyboard.press("Control+c");
+      await page.waitForTimeout(200);
+      copied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
+      stayed = await where();
+      // the click that lets go, then a click on the text: the next step
+      await page.mouse.click(ln.x0 + 10, ln.y);
+      after = await where();
+      await page.mouse.click(ln.x0 + 10, ln.y);
+      await page.waitForTimeout(200);
+      clickedOn = await where();
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    }
+    check("presenting: a drag over the slide's text copies it, the slide stays", !!ln && copied.includes(ln.text.trim()) && stayed.slide === before.slide && stayed.step === before.step && cursor === "text", JSON.stringify({ ln, copied, before, stayed, cursor }));
+    check("presenting: the click after a selection only lets go of it, the next is the slide's", !!ln && after.slide === before.slide && after.step === before.step && (clickedOn.slide !== before.slide || clickedOn.step !== before.step), JSON.stringify({ before, after, clickedOn }));
+    // (`select-text: off` itself: PresCheck selectText)
+    check("select-text is on by default", (await page.evaluate(() => window.__app.selectText())) === true);
+  }
+
   // Record (PresRecord, web/recorder.js): presenting from the start with
   // the pen on; a press that moves draws, one that does not goes on,
   // Backspace wipes; ■ keeps recordings/take.json (silent here: no
