@@ -12,7 +12,7 @@
 // growing, a diagram tour); surface effects (waves, rain) still run, as the
 // painter runs them.
 
-import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, imageChanged } from "./gl/evg-webgl.js";
 import { registerDeckEffects, deckEffectStill } from "./fxdeck.js";
 import { decodePicture } from "./picture.js";
 import { INTRO_MS } from "./brand.js";
@@ -218,6 +218,30 @@ function ensurePage(page, pxW) {
   f.draw(null, null);
   f.dispose();
   bookGl.setPage(page, pageCanvas, pxW);
+}
+
+// A page as a small picture, its programs left out: the room a program's
+// 3-D worlds stand in (web/three3d.js). An ImageData, null without one.
+let roomGl = null;
+const roomCanvas = document.createElement("canvas");
+function pagePicture(page, w, h) {
+  if (page < 0 || page >= lists.length) return null;
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const list = lists[page];
+  for (const e of list.effects || []) e.time = deckEffectStill(e.kind) ?? 2;
+  const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
+  const f = prepareDisplayList(roomGl, { width: deck.width, height: deck.height, list }, { dpr: Math.min(w / deck.width, h / deck.height), images });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
 }
 
 let place = null;
@@ -651,6 +675,7 @@ async function start() {
         plays: deck.plays, canvas, current: () => at, count: () => lists.length,
         shownPages: () => (book ? spreadPages(book.spreads, spreadNow()).map((p) => p.page) : [at]),
         go: (i) => go(i), repaint,
+        pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: pagePicture,
       });
     } catch (e) {
       console.warn("programs on slides", e);
