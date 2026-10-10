@@ -4263,7 +4263,7 @@ class PresCheck {
         def gr:ApiRequest (this.answer(s 200 "{\"room\":{\"room_id\":\"r1\"},\"presentations\":[{\"deck_id\":\"d1\",\"name\":\"Plan\",\"folder_id\":\"\"},{\"deck_id\":\"d2\",\"name\":\"Test\",\"folder_id\":\"f1\"}],\"folders\":[{\"folder_id\":\"f1\",\"name\":\"Tests\"}]}"))
         this.ok(((indexOf gr.body "\"room_id\":\"r1\"") > 0) "rooms: then the shown room's presentations")
         def dl:string (this.optsOf(r "roomdecks"))
-        this.ok(((indexOf dl "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t\nnew\t") == 0) ("rooms: a folder, shut, then the room's top, " + dl))
+        this.ok((dl == "f:f1\tTests\t\tf\t1\ncloud:d1\tPlan\t\t") ("rooms: a folder, shut, then the room's top, " + dl))
         clear r.calls
         s.request("room:fold:r1:f1")
         this.ok(((indexOf (this.optsOf(r "roomdecks")) "f:f1\tTests\t1\tf\t1\ncloud:d2\tTest\t\ti\n") == 0) "rooms: a folder opened shows what is in it")

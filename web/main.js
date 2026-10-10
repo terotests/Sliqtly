@@ -918,7 +918,7 @@ function beginDoc(text) {
 // the Rooms panel's state (its requests: roomsRequest, below)
 const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
-// the room whose "+ Add new presentation" opened File → New's window
+// the room whose "+" → Add new… → Presentation opened File → New's window
 let roomForNew = "";
 let roomChatOne = null;
 // the folder whose window is open ({ room, id }, id "" for a new one), and
@@ -1239,7 +1239,7 @@ async function newDeck(plan) {
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
-  // made by a room's "+ Add new presentation": it goes there
+  // made from a room's "+" (Add new… → Presentation): it goes there
   const room = roomForNew;
   roomForNew = "";
   if (room) {
@@ -1723,8 +1723,6 @@ async function roomsRequest(r) {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
-      addNew: roomShown === ONBOARDING ? "" : "+ " + t("Add new presentation"),
-      newFolder: roomShown === ONBOARDING ? "" : "+ " + t("New folder"),
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
     if (action === "open") await roomChat().open(roomShown);
