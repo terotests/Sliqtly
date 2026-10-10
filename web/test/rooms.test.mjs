@@ -361,3 +361,12 @@ test("a presentation dragged before another is kept in the room's own order", ()
   // a room deleted takes its order with it
   assert.equal(deleteRoom({ ...s, rooms: [{ id: "r-x", title: "X" }] }, "r-x").positions["r-x"], undefined);
 });
+
+test("the open presentation further down than SHOWN is listed after the first ones, the order kept", () => {
+  const many = Array.from({ length: SHOWN + 3 }, (_, i) => ({ id: "d" + i, name: "Deck " + i, current: i === SHOWN + 1 }));
+  const lines = deckLines(many, { showAll: "all" }).split("\n").map((l) => l.split("\t"));
+  assert.equal(lines.length, SHOWN + 2);
+  assert.deepEqual(lines.slice(0, SHOWN).map((l) => l[0]), many.slice(0, SHOWN).map((d) => d.id));
+  assert.deepEqual(lines[SHOWN], ["d" + (SHOWN + 1), "Deck " + (SHOWN + 1), "1", ""]);
+  assert.equal(lines[SHOWN + 1][3], "a");
+});

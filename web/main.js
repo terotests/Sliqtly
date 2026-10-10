@@ -922,6 +922,8 @@ let roomChatOne = null;
 let folderFor = null;
 const FOLDERS_OPEN_KEY = "sliqtly.openFolders";
 let foldersOpen = new Set();
+// the open presentation whose folder was last opened for it (room:decks)
+let revealed = "";
 function keepFoldersOpen() {
   try { mine.setItem(FOLDERS_OPEN_KEY, JSON.stringify([...foldersOpen])); } catch (_) { /* this page only */ }
 }
@@ -1728,6 +1730,17 @@ async function roomsRequest(r) {
     // pressed: a room one is active in (the list shown again is no use of it)
     if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
     const { rows, folders } = await roomView(roomShown);
+    // the presentation just opened (from a search too) in a shut folder:
+    // the folder opens once, so it is in sight; shut again, it stays shut
+    const cur = rows.find((r) => r.current);
+    if (cur && cur.id !== revealed) {
+      revealed = cur.id;
+      const key = roomShown + "/" + cur.folder;
+      if (cur.folder && folders.some((f) => f.id === cur.folder) && !foldersOpen.has(key)) {
+        foldersOpen.add(key);
+        keepFoldersOpen();
+      }
+    }
     const lines = deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),

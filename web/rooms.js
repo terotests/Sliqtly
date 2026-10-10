@@ -384,10 +384,20 @@ export function deleteFolder(state, roomId, id) {
   return { ...state, folders, filed };
 }
 
+// The first SHOWN of rows, and the open presentation after them when it is
+// further down: the one picked (from a search too) is always in sight,
+// and the order stays as it is.
+function firstAndOpen(rows) {
+  const first = rows.slice(0, SHOWN);
+  const open = rows.slice(SHOWN).find((r) => r.current);
+  return open ? [...first, open] : first;
+}
+
 // The rows the panel draws under the open room: its folders by name, each
 // open one followed by its presentations; then at most SHOWN presentations
-// of the room's top, then "… Show all" when there are more, then the rows
-// making a new presentation and a new folder in the room.
+// of the room's top (and the open one, firstAndOpen), then "… Show all"
+// when there are more, then the rows making a new presentation and a new
+// folder in the room.
 // "id TAB name TAB 1 if open TAB kind TAB count": kind "" a presentation at
 // the top, "i" one in a folder, "f" a folder (id "f:<folder id>", count its
 // presentations), "a" Show all, "n" new presentation, "nf" new folder.
@@ -401,10 +411,10 @@ export function deckLines(rows, { folders = [], open = [], showAll = "", addNew 
   for (const f of sortFolders(folders)) {
     const inside = rows.filter((r) => r.folder === f.id);
     lines.push(["f:" + f.id, clean(f.name), isOpen.has(f.id) ? "1" : "", "f", inside.length ? String(inside.length) : ""].join("\t"));
-    if (isOpen.has(f.id)) for (const r of inside.slice(0, SHOWN)) lines.push([r.id, clean(r.name), r.current ? "1" : "", "i"].join("\t"));
+    if (isOpen.has(f.id)) for (const r of firstAndOpen(inside)) lines.push([r.id, clean(r.name), r.current ? "1" : "", "i"].join("\t"));
   }
   const top = rows.filter((r) => !r.folder || !known.has(r.folder));
-  for (const r of top.slice(0, SHOWN)) lines.push([r.id, clean(r.name), r.current ? "1" : "", ""].join("\t"));
+  for (const r of firstAndOpen(top)) lines.push([r.id, clean(r.name), r.current ? "1" : "", ""].join("\t"));
   if (top.length > SHOWN && showAll) lines.push(["all", showAll, "", "a"].join("\t"));
   if (addNew) lines.push(["new", addNew, "", "n"].join("\t"));
   if (newFolder) lines.push(["newfolder", newFolder, "", "nf"].join("\t"));
