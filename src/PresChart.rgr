@@ -1054,6 +1054,51 @@ class PresChart {
         return bars
     }
 
+    ; The columns as a slide's script finds them (`bar`): the dressed ones
+    ; and the ones the dressing leaves as their author rounded them
+    ; (`cornerRadiusEnd`), each a rect drawn in data order.
+    sfn barsIn:[EVGDrawCmd] (tail:[EVGDrawCmd] ramp:[boolean] spec:string) {
+        def bars:[EVGDrawCmd]
+        if (PresChart.rectChart(spec)) {
+            return bars
+        }
+        def groundSeen:boolean false
+        def k:int 0
+        while (k < (array_length tail)) {
+            def c:EVGDrawCmd (itemAt tail k)
+            if (c.kind == 0) {
+                if (! groundSeen) {
+                    groundSeen = true
+                } {
+                    if (((PresChart.isBar(c)) || (PresChart.isRoundedBar(c))) && ((itemAt ramp k) == false)) {
+                        push bars c
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return bars
+    }
+
+    ; A column with rounded corners: rounder than none, not round all
+    ; through (a point is drawn as a rect whose radius is half its side).
+    sfn isRoundedBar:boolean (c:EVGDrawCmd) {
+        if (((c.radius <= 0.0) || c.hasGrad) || ((c.w <= 2.0) || (c.h <= 0.5))) {
+            return false
+        }
+        if (((c.h < 1.6) && (c.w > 8.0)) || ((c.w < 1.6) && (c.h > 8.0))) {
+            return false
+        }
+        def side:double c.w
+        if (c.h < side) {
+            side = c.h
+        }
+        if (c.perCorner && (((c.radiusTR <= 0.0) || (c.radiusBR <= 0.0)) || (c.radiusBL <= 0.0))) {
+            return true
+        }
+        return (c.radius < ((side * 0.5) - 0.01))
+    }
+
     sfn isBar:boolean (c:EVGDrawCmd) {
         ; a gradient (a colour legend's ramp) is not a column
         ; nor is a rule drawn as a thin rect (a lollipop's stem)

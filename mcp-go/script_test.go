@@ -53,6 +53,18 @@ func TestSlideScript(t *testing.T) {
 		t.Fatal("slide 9 of 2 was listed")
 	}
 
+	// rounded columns (cornerRadiusEnd) are bars too
+	round := "# Deck\n\n## Cups {script=apps/fx.tsx}\n\n```vega-lite\n" +
+		`{"data":{"values":[{"d":"Mo","n":4},{"d":"Tu","n":7},{"d":"We","n":5}]},"mark":{"type":"bar","cornerRadiusEnd":4},` +
+		`"encoding":{"x":{"field":"d","type":"ordinal"},"y":{"field":"n","type":"quantitative"}}}` + "\n```\n"
+	rc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": round,
+		"files": []any{map[string]any{"name": "fx.tsx", "text": "function tick(dt) { find(\"chart:1 bar\").set({ scaleY: 0.5 }); }\n"}}})
+	if w := fmt.Sprint(sc(rc)["warnings"]); strings.Contains(w, "bar") {
+		t.Fatal("rounded bars not found:", w)
+	}
+	rd := call(t, s, "get_display_list", map[string]any{"deck_id": sc(rc)["deck_id"].(string), "slide": 2, "selector": "chart:1 bar"})
+	match(t, textOf(rd), `find\("chart:1 bar"\) → 3 entities`)
+
 	// a script the deck does not have is said once, as a script
 	c2 := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md})
 	match(t, fmt.Sprint(sc(c2)["warnings"]), `apps/fx\.tsx is a slide's script .*→ topic=scripts`)

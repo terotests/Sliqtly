@@ -5213,7 +5213,8 @@ class PresDeck {
                 }
                 if ((kb.kind == 3) && ((MdEmbedKinds.notationOf((MdEmbedKinds.firstWord(kb.embedKind)))) == "vega")) {
                     ; the columns as drawn, before a dressing makes them
-                    ; something else: what a script finds as `bar`
+                    ; something else (rounded ones too, which it leaves):
+                    ; what a script finds as `bar`
                     def raw:[EVGDrawCmd]
                     if ((strlen s.script) > 0) {
                         def tail:[EVGDrawCmd]
@@ -5222,7 +5223,7 @@ class PresDeck {
                             push tail (itemAt out.cmds ti)
                             ti = (ti + 1)
                         }
-                        def cols:[EVGDrawCmd] (PresChart.columnsIn(tail (PresChart.rampStripes(tail)) kb.embedSource))
+                        def cols:[EVGDrawCmd] (PresChart.barsIn(tail (PresChart.rampStripes(tail)) kb.embedSource))
                         def ci:int 0
                         while (ci < (array_length cols)) {
                             def col:EVGDrawCmd (itemAt cols ci)

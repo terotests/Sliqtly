@@ -4718,6 +4718,38 @@ class PresCheck {
         this.ok(((array_length end.cmds) > 3) "morph: the slide after it")
     }
 
+    sfn rectCmd:EVGDrawCmd (x:double y:double w:double h:double r:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.radius = r
+        return c
+    }
+
+    ; Rounded columns (`cornerRadiusEnd`) are a script's bars; a point (a
+    ; rect round all through) is not. The dressing still leaves them.
+    fn roundedBars:void () {
+        def tail:[EVGDrawCmd]
+        push tail (PresCheck.rectCmd(0.0 0.0 400.0 300.0 0.0))
+        push tail (PresCheck.rectCmd(20.0 100.0 40.0 200.0 0.0))
+        def top:EVGDrawCmd (PresCheck.rectCmd(80.0 150.0 40.0 150.0 4.0))
+        top.perCorner = true
+        top.radiusTR = 4.0
+        push tail top
+        push tail (PresCheck.rectCmd(140.0 120.0 40.0 180.0 4.0))
+        push tail (PresCheck.rectCmd(200.0 50.0 8.0 8.0 4.0))
+        def ramp:[boolean]
+        for tail c:EVGDrawCmd ci {
+            push ramp false
+        }
+        def spec:string "{\"mark\": {\"type\": \"bar\", \"cornerRadiusEnd\": 4}}"
+        this.ok(((array_length (PresChart.barsIn(tail ramp spec))) == 3) ("rounded bars: a script finds 3 columns, got " + (to_string (array_length (PresChart.barsIn(tail ramp spec))))))
+        this.ok(((array_length (PresChart.columnsIn(tail ramp spec))) == 1) "rounded bars: the dressing leaves the rounded ones")
+    }
+
     fn scripts:void () {
         def text:string ("---\nslide-split-level: 2\n---\n\n"
             + "## Sales grow {script=apps/fx.tsx allow=\"slide.nav, deck.data\" export-frame=3.5s}\n\n"
@@ -5633,6 +5665,7 @@ class PresCheck {
         c.clips()
         c.plays()
         c.scripts()
+        c.roundedBars()
         c.morph()
         c.worlds()
         c.beats()
