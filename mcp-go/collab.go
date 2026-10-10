@@ -5,8 +5,9 @@
 // and a chat beside the deck.
 //
 // One room per open deck holds its text and every edit taken (rev 1, 2, …).
-// A page sends its edit as a delta (otdelta.go) on the revision it had; one
-// made on an older revision is transformed over the edits taken since, the
+// A page sends its edit as a text delta on the revision it had (RangerDiff's
+// RdOt, the page's own code compiled to Go: rdiff/ot.go); one made on an
+// older revision is transformed over the edits taken since, the
 // way a central OT server does, so nobody's send is refused. Every edit goes
 // out to everyone, its sender too (that is the sender's acknowledgement), in
 // one order on the event stream:
@@ -51,10 +52,29 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/terotests/sliqtly/mcp-go/rdiff"
 	"github.com/terotests/sliqtly/mcp-go/store"
 )
+
+// the room's text is UTF-16 code units, as the page's and a delta's counts
+func toU16(s string) []uint16   { return utf16.Encode([]rune(s)) }
+func fromU16(u []uint16) string { return string(utf16.Decode(u)) }
+
+// a JSON number that is a count (decoded with decodeValue or plain)
+func count(v any) (int, bool) {
+	switch x := v.(type) {
+	case int64:
+		return int(x), x >= 0
+	case float64:
+		return int(x), x >= 0 && x == float64(int(x))
+	case int:
+		return x, x >= 0
+	}
+	return 0, false
+}
 
 const (
 	collabLogKeep  = 5000    // edits kept for late senders and reconnects
@@ -76,7 +96,7 @@ var (
 type collabEntry struct {
 	rev    int
 	client string
-	d      delta
+	d      rdiff.Delta
 }
 
 type collabPeer struct {
@@ -181,7 +201,7 @@ type collabRoom struct {
 	// such a gap until the room writes the file again)
 	fileMd  []uint16
 	fileRev int
-	fileGap []delta
+	fileGap []rdiff.Delta
 	// the deck's revision the room has taken in: a change the store tells
 	// that is not newer is one the room has read already
 	docRev store.Rev
@@ -294,23 +314,23 @@ func (s *localServer) collabWritten(c store.Change) {
 	}
 	// a write from elsewhere, made on what the file held: an edit of that,
 	// carried over what was typed since
-	x := diffU16(rm.fileMd, got)
-	var gap []delta
+	x := rdiff.TextDiff(rm.fileMd, got)
+	var gap []rdiff.Delta
 	if rm.fileRev < rm.logFrom {
-		x, gap = diffU16(rm.text, got), nil
+		x, gap = rdiff.TextDiff(rm.text, got), nil
 	} else {
 		for _, g := range rm.fileGap {
-			var g1 delta
-			x, g1 = transform(x, g)
+			var g1 rdiff.Delta
+			x, g1 = rdiff.Transform(x, g)
 			gap = append(gap, g1)
 		}
 		for _, e := range rm.log[rm.fileRev-rm.logFrom:] {
-			var e1 delta
-			x, e1 = transform(x, e.d)
+			var e1 rdiff.Delta
+			x, e1 = rdiff.Transform(x, e.d)
 			gap = append(gap, e1)
 		}
 	}
-	if !x.noop() {
+	if !x.Noop() {
 		if err := rm.take(x, "server"); err != nil {
 			// cannot be: x is on the text; read it again rather than guess
 			rm.text = got
@@ -340,8 +360,8 @@ func sameU16(a, b []uint16) bool {
 
 // an edit on the current text: applied, logged, carets moved, sent to all
 // (locked)
-func (rm *collabRoom) take(d delta, client string) error {
-	out, err := d.apply(rm.text)
+func (rm *collabRoom) take(d rdiff.Delta, client string) error {
+	out, err := d.Apply(rm.text)
 	if err != nil {
 		return err
 	}
@@ -358,16 +378,16 @@ func (rm *collabRoom) take(d delta, client string) error {
 	}
 	for _, p := range rm.peers {
 		own := p.Client == client
-		p.Caret = d.transformIndex(p.Caret, own)
-		p.Anchor = d.transformIndex(p.Anchor, own)
+		p.Caret = d.TransformIndex(p.Caret, own)
+		p.Anchor = d.TransformIndex(p.Anchor, own)
 	}
 	rm.broadcast(opEvent(rm.rev, client, d), rm.rev)
 	rm.changed()
 	return nil
 }
 
-func opEvent(rev int, client string, d delta) map[string]any {
-	return map[string]any{"t": "op", "rev": rev, "client": client, "ops": d.json()}
+func opEvent(rev int, client string, d rdiff.Delta) map[string]any {
+	return map[string]any{"t": "op", "rev": rev, "client": client, "ops": d.JSON()}
 }
 
 // (locked)
@@ -561,7 +581,7 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 	if !ok {
 		return nil, fail(400, "", "rev: a revision is expected")
 	}
-	d, err := parseDelta(body["ops"])
+	d, err := rdiff.ParseDelta(body["ops"])
 	if err != nil {
 		return nil, fail(400, "", err.Error())
 	}
@@ -583,7 +603,7 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 		return nil, fail(409, "too-old", "too far behind: read the presentation again")
 	}
 	for _, e := range rm.log[at-rm.logFrom:] {
-		d, _ = transform(d, e.d)
+		d, _ = rdiff.Transform(d, e.d)
 	}
 	if err := rm.take(d, client); err != nil {
 		var ae *apiError
@@ -635,8 +655,8 @@ func (rm *collabRoom) presence(body map[string]any, client string) (any, error) 
 			anchor = caret
 		}
 		for _, e := range rm.log[at-rm.logFrom:] {
-			caret = e.d.transformIndex(caret, false)
-			anchor = e.d.transformIndex(anchor, false)
+			caret = e.d.TransformIndex(caret, false)
+			anchor = e.d.TransformIndex(anchor, false)
 		}
 		p.Caret, p.Anchor = min(caret, len(rm.text)), min(anchor, len(rm.text))
 		if !named {
