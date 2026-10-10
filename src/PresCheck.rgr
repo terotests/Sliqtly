@@ -4584,6 +4584,53 @@ class PresCheck {
         this.ok(((PresClip.sectionName("----- styles: css -----")) == "styles: css") "clip: a section's name")
         this.ok(((PresClip.sectionName("-----")) == "") "clip: a rule is no section")
 
+        ; a whole presentation: written, read back, pasted as a new one
+        def wpaths:[string] ([] _:string ("media/logo.png" "review/comments.json" "data/myynti.csv" "media/logo.png" ""))
+        def wf:[string] (PresClip.wholeFiles(wpaths))
+        this.ok(((join wf ",") == "media/logo.png,data/myynti.csv") ("whole: files but the review comments, once, got " + (join wf ",")))
+        def wmd:string "---\ntitle: Myynti\n---\n\n# Myynti\n\n## Tulos\n\n![logo](media/logo.png)\n"
+        def w:PresClipDoc (PresClip.wholeDoc(wmd "h1 { color: red; }\n.x { top: 0; }" "aurora" "Myynti 2026" 1 2))
+        w.addFile("media/logo.png" "image/png" b64)
+        def wtext:string (PresClip.write(w))
+        this.ok((startsWith wtext "===== Sliqtly clipboard v1: presentation, 2 slides =====\nfrom: Myynti 2026\nsplit-level: 1\ntheme: aurora\n") ("whole: head and notes, got " + wtext))
+        this.ok(((indexOf wtext "----- presentation: markdown -----\n---\ntitle: Myynti\n---\n") > 0) "whole: the Markdown with its front matter")
+        this.ok(((indexOf wtext "----- theme: css -----\nh1 { color: red; }\n.x { top: 0; }\n") > 0) "whole: the theme whole, element rules too")
+        def wr:PresClipDoc (PresClip.read(wtext))
+        this.ok(((wr.kind == "presentation") && ((wr.slides == 2) && (wr.theme == "aurora"))) ("whole: read back, got " + wr.kind + " " + (to_string wr.slides) + " " + wr.theme))
+        this.ok(((wr.markdown()) == (PresClip.trimBlankLines(wmd))) ("whole: Markdown back, got " + (wr.markdown())))
+        this.ok(((wr.css == "h1 { color: red; }\n.x { top: 0; }") && ((array_length wr.files) == 1)) "whole: css and file back")
+        def wanted:[string] ([] _:string ("md" "css" "deck"))
+        for wanted wh:string wi {
+            def wp:PresClipPlan (PresClip.plan(wtext wh false false 2 "h1 { color: blue; }" "# Oma"))
+            this.ok(((wp.target == "new") && ((wp.slides == 2) && ((wp.css == (wr.css + "\n")) && ((wp.md == wmd) && ((array_length wp.doc.files) == 1))))) ("whole: pasted in " + wh + " makes a new one, got " + wp.target))
+        }
+        def wnone:PresClipPlan (PresClip.plan(wtext "" false false 2 "" ""))
+        this.ok((wnone.target == "") "whole: not in a field")
+        def wq:string (PresClip.question((PresClip.plan(wtext "deck" false false 2 "" "")) 0))
+        this.ok(((((indexOf wq "Myynti 2026") >= 0) && ((indexOf wq "2 slides") >= 0)) && ((indexOf wq "1 file comes along.") >= 0)) ("whole: the question, got " + wq))
+        def wnn (new PresClipDoc())
+        this.ok(((PresClip.newName(wnn)) == "Pasted presentation") "whole: a name when it had none")
+        ; an older copy without the count in its first line counts its slides
+        def wold:PresClipPlan (PresClip.plan("===== Sliqtly clipboard v1: presentation =====\nsplit-level: 2\n----- presentation: markdown -----\n## A\n\n## B\n\n## C\n" "deck" false false 1 "" ""))
+        this.ok((wold.slides == 3) ("whole: slides counted at its own level, got " + (to_string wold.slides)))
+        ; sizes
+        this.ok(((PresClip.fileText("a" 3)) == ((4 + 1) + 49)) ("whole: a file's text, got " + (to_string (PresClip.fileText("a" 3)))))
+        this.ok(((PresClip.fileText("a" 57)) == ((76 + 1) + 49)) "whole: 57 bytes are one line")
+        this.ok(((PresClip.fileText("a" 58)) == ((80 + 2) + 49)) "whole: 58 bytes are two lines")
+        this.ok(((PresClip.sizeWords(512)) == "512 B") ("sizeWords: bytes, got " + (PresClip.sizeWords(512))))
+        this.ok(((PresClip.sizeWords(1500)) == "2 KB") ("sizeWords: kilobytes up, got " + (PresClip.sizeWords(1500))))
+        this.ok(((PresClip.sizeWords((3 * (1024 * 1024)))) == "3.0 MB") ("sizeWords: megabytes, got " + (PresClip.sizeWords((3 * (1024 * 1024))))))
+        this.ok(((PresClip.sizeWords((48 * (1024 * 1024)))) == "48 MB") ("sizeWords: many megabytes, got " + (PresClip.sizeWords((48 * (1024 * 1024))))))
+        def bigNames:[string] ([] _:string ("media/a.png" "media/video.mp4" "data/x.csv" "media/b.jpg"))
+        def bigSizes:[int] ([] _:int (1000 30000000 20 2000000))
+        def limit:int (PresClip.maxText())
+        this.ok(((PresClip.tooLarge(5000 bigNames ([] _:int (1000 2000 20 3000)) limit)) == "") "tooLarge: a small deck fits")
+        def tl:string (PresClip.tooLarge(5000 bigNames bigSizes limit))
+        this.ok((startsWith tl "The presentation is too large to copy to the clipboard: 42 MB, at most 24 MB fits.") ("tooLarge: how large, got " + tl))
+        this.ok(((indexOf tl "Largest files: media/video.mp4 (29 MB), media/b.jpg (2.0 MB), media/a.png (1000 B).") > 0) ("tooLarge: the three largest, got " + tl))
+        this.ok(((indexOf tl "All files (.zip)") > 0) "tooLarge: the way on")
+        this.ok(((PresClip.tooLarge(limit bigNames ([] _:int (0 0 0 0)) limit)) != "") "tooLarge: right at the limit is over (sections)")
+
         ; what was pasted
         this.ok(((PresClip.classify(text)) == "sliqtly") "classify: the format")
         this.ok(((PresClip.classify("flowchart LR\n  A --> B")) == "mermaid") "classify: mermaid flowchart")

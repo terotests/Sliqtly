@@ -1468,5 +1468,19 @@
   " in the front matter.": ".",
   "The music file is not in the deck: ": "Musiikkitiedostoa ei ole esityksessä: ",
   "White frame": "Valkoinen kehys",
-  "Terracotta frame": "Terrakottakehys"
+  "Terracotta frame": "Terrakottakehys",
+  "Full presentation": "Koko esitys",
+  "Copied the whole presentation.": "Koko esitys kopioitu.",
+  "Made the presentation ": "Tehtiin esitys ",
+  "Too large for the clipboard": "Liian suuri leikepöydälle",
+  "Export ZIP…": "Vie ZIP…",
+  "Make presentation": "Tee esitys",
+  "Make a new presentation “{name}” of the copied one?": "Tehdäänkö kopioidusta uusi esitys “{name}”?",
+  "It has 1 slide.": "Siinä on 1 dia.",
+  "It has {n} slides.": "Siinä on {n} diaa.",
+  "Its theme comes along as it was.": "Sen teema tulee mukana sellaisenaan.",
+  "Pasted presentation": "Liitetty esitys",
+  "The presentation is too large to copy to the clipboard: {size}, at most {max} fits.": "Esitys on liian suuri kopioitavaksi leikepöydälle: {size}, enintään {max} mahtuu.",
+  "Largest files: {files}.": "Suurimmat tiedostot: {files}.",
+  "Export it as a ZIP file instead (File → Export → All files (.zip)).": "Vie se sen sijaan ZIP-tiedostona (Tiedosto → Vie → Kaikki tiedostot (.zip))."
 }

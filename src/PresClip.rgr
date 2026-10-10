@@ -28,6 +28,13 @@
 ;
 ;   ===== end of Sliqtly clipboard =====
 ;
+; A whole presentation (Export to Clipboard → Full presentation) is
+; "presentation, 12 slides" in the first line, a `theme:` note, one
+; "presentation: markdown" section with the whole Markdown, "theme: css"
+; with the whole theme and every file; a paste of it makes a new
+; presentation (`plan` target "new"). It is copied only when it fits
+; (`tooLarge`).
+;
 ; An element is "1 element (chart)" in the first line and one
 ; "element: markdown" section. A section's name is read loosely: a name with
 ; "css" in it is styles, with "markdown" in it a slide's Markdown, "file:" a
@@ -73,7 +80,8 @@ class PresClipFile {
 }
 
 class PresClipDoc {
-    ; "slides" or "element"; "" when the text was not this format
+    ; "slides", "element" or "presentation" (the whole deck); "" when the
+    ; text was not this format
     def kind:string ""
     ; an element's kind ("chart", "diagram", "table", "picture", "text")
     def what:string ""
@@ -81,6 +89,10 @@ class PresClipDoc {
     def from:string ""
     ; the level slides broke at there (0: not said)
     def splitLevel:int 0
+    ; a whole presentation's theme (its key in the theme list) and its
+    ; slide count, as the first line says
+    def theme:string ""
+    def slides:int 0
     ; each slide's Markdown, or the one element's
     def parts:[string]
     def css:string ""
@@ -172,12 +184,19 @@ class PresClip {
     sfn write:string (d:PresClipDoc) {
         def head:string ""
         def n:int (array_length d.parts)
+        if (d.kind == "presentation") {
+            head = ("presentation, " + (to_string d.slides) + " slide")
+            if (d.slides != 1) {
+                head = (head + "s")
+            }
+        }
         if (d.kind == "element") {
             head = "1 element"
             if ((strlen d.what) > 0) {
                 head = (head + " (" + d.what + ")")
             }
-        } {
+        }
+        if ((d.kind != "element") && (d.kind != "presentation")) {
             head = ((to_string n) + " slide")
             if (n != 1) {
                 head = (head + "s")
@@ -190,10 +209,16 @@ class PresClip {
         if (d.splitLevel > 0) {
             out = (out + "split-level: " + (to_string d.splitLevel) + "\n")
         }
+        if ((strlen d.theme) > 0) {
+            out = (out + "theme: " + (PresClip.oneLine(d.theme)) + "\n")
+        }
         def i:int 0
         while (i < n) {
             def label:string "element: markdown"
-            if (d.kind != "element") {
+            if (d.kind == "presentation") {
+                label = "presentation: markdown"
+            }
+            if (d.kind == "slides") {
                 label = ("slide " + (to_string (i + 1)) + ": markdown")
             }
             out = (out + "\n----- " + label + " -----\n" + (PresClip.trimBlankLines((itemAt d.parts i))) + "\n")
@@ -201,7 +226,11 @@ class PresClip {
         }
         def css:string (PresClip.trimBlankLines(d.css))
         if ((strlen css) > 0) {
-            out = (out + "\n----- styles: css -----\n" + css + "\n")
+            def cssLabel:string "styles: css"
+            if (d.kind == "presentation") {
+                cssLabel = "theme: css"
+            }
+            out = (out + "\n----- " + cssLabel + " -----\n" + css + "\n")
         }
         def k:int 0
         while (k < (array_length d.files)) {
@@ -319,6 +348,15 @@ class PresClip {
         return ((startsWith t "=====") && ((indexOf t "end of Sliqtly clipboard") > 0))
     }
 
+    ; The first line's words after "v1:" ("presentation, 12 slides =====").
+    sfn afterColon:string (head:string) {
+        def c:int (indexOf head ":")
+        if (c < 0) {
+            return ""
+        }
+        return (trim (substring head (c + 1) (strlen head)))
+    }
+
     ; A section line's name ("slide 1: markdown"), "" when it is no section
     ; line.
     sfn sectionName:string (line:string) {
@@ -364,6 +402,19 @@ class PresClip {
         }
         def head:string (trim (itemAt lines i))
         d.kind = "slides"
+        if ((indexOf head "presentation") > 0) {
+            ; "presentation, 12 slides"
+            d.kind = "presentation"
+            def words:[string] (strsplit (PresClip.afterColon(head)) " ")
+            def w:int 0
+            while (w < (array_length words)) {
+                def num@(optional):int (str2int (itemAt words w))
+                if (!null? num) {
+                    d.slides = (unwrap num)
+                }
+                w = (w + 1)
+            }
+        }
         if ((indexOf head "element") > 0) {
             d.kind = "element"
             def po:int (indexOf head "(")
@@ -416,6 +467,9 @@ class PresClip {
         def value:string (trim (substring line (c + 1) (strlen line)))
         if (key == "from") {
             d.from = value
+        }
+        if (key == "theme") {
+            d.theme = value
         }
         if (key == "split-level") {
             def lv@(optional):int (str2int value)
@@ -1344,6 +1398,25 @@ class PresClip {
             p.doc = (PresClip.read(text))
         }
         def doc:PresClipDoc p.doc
+        ; a whole presentation becomes a presentation of its own, wherever
+        ; in the editor it is pasted
+        if ((doc.kind == "presentation") && (((where == "md") || (where == "css")) || (where == "deck"))) {
+            p.target = "new"
+            ; a file's text ends with a line break (the format drops the
+            ; last one)
+            p.md = (PresClip.endLine1((doc.markdown())))
+            p.css = (PresClip.endLine1(doc.css))
+            p.slides = doc.slides
+            if (p.slides <= 0) {
+                def lv:int doc.splitLevel
+                if (lv <= 0) {
+                    lv = level
+                }
+                p.slides = (PresClip.slideCount(p.md lv))
+            }
+            p.ask = true
+            return p
+        }
         if (where == "css") {
             ; the styles alone, as they are, where the caret is
             if ((p.kind == "sliqtly") && ((strlen doc.css) > 0)) {
@@ -1525,6 +1598,18 @@ class PresClip {
         if (p.target == "css") {
             out = (PresI18n.t("Paste the copied styles at the caret?"))
         }
+        if (p.target == "new") {
+            out = (PresClip.fill((PresI18n.t("Make a new presentation “{name}” of the copied one?")) "name" (PresClip.newName(p.doc))))
+            if (p.slides == 1) {
+                out = (out + "\n" + (PresI18n.t("It has 1 slide.")))
+            }
+            if (p.slides > 1) {
+                out = (out + "\n" + (PresClip.fill((PresI18n.t("It has {n} slides.")) "n" (to_string p.slides))))
+            }
+            if ((strlen p.doc.css) > 0) {
+                out = (out + "\n" + (PresI18n.t("Its theme comes along as it was.")))
+            }
+        }
         if (p.cssAdded == 1) {
             out = (out + "\n" + (PresI18n.t("1 style rule comes along; this presentation's own styles win.")))
         }
@@ -1548,6 +1633,22 @@ class PresClip {
         return out
     }
 
+    sfn endLine1:string (s:string) {
+        if (((strlen s) > 0) && ((endsWith s "\n") == false)) {
+            return (s + "\n")
+        }
+        return s
+    }
+
+    ; The name of a presentation made of a pasted one.
+    sfn newName:string (d:PresClipDoc) {
+        def name:string (trim d.from)
+        if ((strlen name) == 0) {
+            return (PresI18n.t("Pasted presentation"))
+        }
+        return name
+    }
+
     ; The second answer of the question: without the styles (when there
     ; are some), the diagram as plain text, else none.
     sfn altAnswer:string (p:PresClipPlan) {
@@ -1558,6 +1659,129 @@ class PresClip {
             return (PresI18n.t("Paste as text"))
         }
         return ""
+    }
+
+    ; --- a whole presentation ----------------------------------------------------
+    ; File → Export → Export to Clipboard → Full presentation: the Markdown
+    ; as it is (front matter too), the theme CSS as it stands and every file
+    ; of the deck but the review comments (notes on the deck, not of it).
+    ; The clipboard takes only so much: a copy over `maxText` characters is
+    ; not made, and `tooLarge` says why.
+
+    sfn maxText:int () {
+        return (24 * (1024 * 1024))
+    }
+
+    sfn wholeDoc:PresClipDoc (md:string css:string theme:string from:string level:int slides:int) {
+        def d (new PresClipDoc())
+        d.kind = "presentation"
+        push d.parts md
+        d.css = css
+        d.theme = theme
+        d.from = from
+        d.splitLevel = level
+        d.slides = slides
+        return d
+    }
+
+    ; Of the deck's files, the ones a whole presentation takes along.
+    sfn wholeFiles:[string] (paths:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length paths)) {
+            def p:string (itemAt paths i)
+            if (((strlen p) > 0) && (((startsWith p "review/") == false) && ((indexOf out p) < 0))) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A file of `bytes` bytes on the clipboard: base64, 76 characters and a
+    ; line break a line, and its section line.
+    sfn fileText:int (name:string bytes:int) {
+        def b64:int (4 * (idiv (bytes + 2) 3))
+        return ((b64 + (idiv (b64 + 75) 76)) + ((strlen name) + 48))
+    }
+
+    ; How long the clipboard text of a copy is: `textLen` its Markdown and
+    ; CSS, `sizes` its files' bytes in the order of `names`.
+    sfn textSize:int (textLen:int names:[string] sizes:[int]) {
+        def n:int (textLen + 200)
+        def i:int 0
+        while (i < (array_length names)) {
+            def sz:int 0
+            if (i < (array_length sizes)) {
+                sz = (itemAt sizes i)
+            }
+            n = (n + (PresClip.fileText((itemAt names i) sz)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn sizeWords:string (n:int) {
+        if (n < 1024) {
+            return ((to_string n) + (PresI18n.t(" B")))
+        }
+        if (n < (1024 * 1024)) {
+            return ((to_string (idiv (n + 1023) 1024)) + (PresI18n.t(" KB")))
+        }
+        def tenths:int (idiv (((idiv n 1024) * 10) + 1023) 1024)
+        if (tenths >= 100) {
+            return ((to_string (idiv (tenths + 9) 10)) + (PresI18n.t(" MB")))
+        }
+        return ((to_string (idiv tenths 10)) + "." + (to_string (tenths % 10)) + (PresI18n.t(" MB")))
+    }
+
+    ; "" when the copy fits on the clipboard (`limit` characters), else what
+    ; to say: how large it would be, and its three largest files.
+    sfn tooLarge:string (textLen:int names:[string] sizes:[int] limit:int) {
+        def total:int (PresClip.textSize(textLen names sizes))
+        if (total <= limit) {
+            return ""
+        }
+        def out:string (PresI18n.t("The presentation is too large to copy to the clipboard: {size}, at most {max} fits."))
+        out = (PresClip.fill(out "size" (PresClip.sizeWords(total))))
+        out = (PresClip.fill(out "max" (PresClip.sizeWords(limit))))
+        ; the largest files first
+        def order:[int]
+        def i:int 0
+        while (i < (array_length names)) {
+            push order i
+            i = (i + 1)
+        }
+        def big:[string]
+        def k:int 0
+        while ((k < 3) && (k < (array_length order))) {
+            def best:int k
+            def j:int (k + 1)
+            while (j < (array_length order)) {
+                if ((PresClip.sizeAt(sizes (itemAt order j))) > (PresClip.sizeAt(sizes (itemAt order best)))) {
+                    best = j
+                }
+                j = (j + 1)
+            }
+            def keep:int (itemAt order k)
+            set order k (itemAt order best)
+            set order best keep
+            def at:int (itemAt order k)
+            push big ((itemAt names at) + " (" + (PresClip.sizeWords((PresClip.sizeAt(sizes at)))) + ")")
+            k = (k + 1)
+        }
+        if ((array_length big) > 0) {
+            out = (out + "\n" + (PresClip.fill((PresI18n.t("Largest files: {files}.")) "files" (join big ", "))))
+        }
+        out = (out + "\n" + (PresI18n.t("Export it as a ZIP file instead (File → Export → All files (.zip)).")))
+        return out
+    }
+
+    sfn sizeAt:int (sizes:[int] i:int) {
+        if ((i >= 0) && (i < (array_length sizes))) {
+            return (itemAt sizes i)
+        }
+        return 0
     }
 
     ; --- files --------------------------------------------------------------------

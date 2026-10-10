@@ -576,6 +576,9 @@ class PresToolbar {
         MenuCtl.addKid(parent "cp-md" ((PresI18n.t("Markdown")) + whole) false)
         MenuCtl.addKid(parent "cp-mdc" ((PresI18n.t("Markdown + comments")) + whole) false)
         MenuCtl.addKid(parent "cp-comments" (PresI18n.t("Open comments")) false)
+        ; the Markdown, the theme and the files, for a paste elsewhere
+        MenuCtl.addKidSeparator(parent)
+        MenuCtl.addKid(parent "cp-full" (PresI18n.t("Full presentation")) false)
     }
 
     ; Export's rows under the submenu `xs`: the file formats, then
@@ -2091,6 +2094,7 @@ class PresToolbar {
             this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
             this.button("dr-cp-mdc" (PresI18n.t("Markdown + comments")) "ghost" body)
             this.button("dr-cp-comments" (PresI18n.t("Open comments")) "ghost" body)
+            this.button("dr-cp-full" (PresI18n.t("Full presentation")) "ghost" body)
             body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Export")))))
             this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
             this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)

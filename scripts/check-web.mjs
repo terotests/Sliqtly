@@ -5730,6 +5730,93 @@ try {
     await ctx.close();
   }
 
+  // Export to Clipboard → Full presentation (docs/clipboard.md): the whole
+  // deck as Sliqtly's clipboard text, and a paste of it in another browser
+  // (a context of its own, no shared storage) makes a presentation of it
+  // with the same Markdown, theme CSS and files; one too large is not
+  // copied and the window says why.
+  {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const slide = ["===== Sliqtly clipboard v1: 1 slide =====", "from: Toinen", "split-level: 2", "",
+      "----- slide 1: markdown -----", "## Liitetty {.iso}", "", "![logo](media/logo.png)", "",
+      "----- styles: css -----", ".iso { color: #e11; }", "",
+      "----- file: media/logo.png (image/png, base64) -----", png, "", "===== end of Sliqtly clipboard =====", ""].join("\n");
+    const openCtx = async () => {
+      const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+      await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: url });
+      const page = await ctx.newPage();
+      await page.goto(url + "?sample=esittely");
+      await page.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+      await page.waitForTimeout(1500);
+      return { ctx, page };
+    };
+    const okButton = async (page) => {
+      const b = await page.evaluate(() => {
+        const a = window.__app; a.chartJson();
+        const walk = (e) => { if (e.id === "cf-ok") return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+        const d = a.chart.host.lastPage && walk(a.chart.host.lastPage);
+        return d ? [d.calculatedX + d.calculatedWidth / 2, d.calculatedY + d.calculatedHeight / 2] : null;
+      });
+      if (b) await page.mouse.click(b[0], b[1]);
+      await page.waitForTimeout(500);
+    };
+    const onStrip = async (page) => {
+      const l = await page.evaluate(() => JSON.parse(window.__app.layoutJson()));
+      const t = l.thumbs.find((x) => x[0] === 0);
+      await page.mouse.click(t[1] + 30, t[2] + 20);
+      await page.waitForTimeout(300);
+    };
+    const A = await openCtx();
+    await A.page.evaluate((t) => navigator.clipboard.writeText(t), slide);
+    await onStrip(A.page);
+    await A.page.keyboard.press("Control+v");
+    await A.page.waitForTimeout(800);
+    await okButton(A.page);
+    await A.page.waitForTimeout(800);
+    const srcA = await A.page.evaluate(() => window.__app.source());
+    const cssA = await A.page.evaluate(() => window.__app.themeCss());
+    const nA = await A.page.evaluate(() => window.__app.deck.slideCount());
+    const menu = await A.page.evaluate(async () => {
+      const a = window.__app;
+      const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
+      const press = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const wait = async (id) => { let r = null; for (let n = 0; n < 40 && !r; n++) { r = find(id); if (!r) await new Promise((ok) => setTimeout(ok, 100)); } return r; };
+      press(find("tb-m-file-trigger"));
+      press(await wait("tb-m-file-item-export"));
+      press(await wait("tb-m-file-item-export-item-x-clip"));
+      const row = await wait("tb-m-file-item-export-item-x-clip-item-cp-full");
+      const c = find("tb-m-file-item-export-item-x-clip-content");
+      const kids = c ? (c.children || []).map((k) => k.id.split("-item-").pop()) : [];
+      if (row) press(row);
+      window.__handleRequests();
+      return { kids };
+    });
+    check("Export to Clipboard ends with Full presentation", menu.kids.filter((k) => !k.startsWith("sep")).join() === "cp-md,cp-mdc,cp-comments,cp-full", JSON.stringify(menu));
+    let text = "";
+    for (let i = 0; i < 20 && !text.includes("presentation,"); i++) {
+      await A.page.waitForTimeout(300);
+      text = await A.page.evaluate(() => navigator.clipboard.readText());
+    }
+    check("…it copies the whole deck: Markdown, theme and files", text.startsWith(`===== Sliqtly clipboard v1: presentation, ${nA} slides =====`) && text.includes("----- theme: css -----") && text.includes("----- file: media/logo.png (image/png, base64) -----"), text.slice(0, 200));
+    const too = await A.page.evaluate(() => { const a = window.__app; a.clipWhole("media/logo.png\nmedia/video.mp4", ""); const w = a.clipTooLarge("67\n40000000"); return { w, open: a.clipSayTooLarge(w) && a.chart.isOpen }; });
+    check("…one too large is not copied: the window names its largest file and offers the ZIP", too.open && too.w.includes("media/video.mp4") && too.w.includes("All files (.zip)"), JSON.stringify(too));
+    await A.ctx.close();
+
+    const B = await openCtx();
+    await B.page.evaluate((t) => navigator.clipboard.writeText(t), text);
+    const docs0 = (await B.page.evaluate(() => window.__allDocs())).length;
+    await onStrip(B.page);
+    await B.page.keyboard.press("Control+v");
+    await B.page.waitForTimeout(800);
+    const q = await B.page.evaluate(() => window.__app.chart.cfText);
+    check("another browser: a pasted presentation asks to make a new one", q.includes("Make a new presentation") && q.includes(`It has ${nA} slides.`) && q.includes("1 file comes along."), q);
+    await okButton(B.page);
+    await B.page.waitForTimeout(2500);
+    const got = await B.page.evaluate(async () => ({ md: window.__app.source(), css: window.__app.themeCss(), files: await window.__docFiles(), docs: (await window.__allDocs()).length }));
+    check("…the new presentation has the same Markdown, theme CSS and files", got.md === srcA && got.css === cssA && got.files.includes("media/logo.png") && got.docs === docs0 + 1, JSON.stringify({ md: got.md === srcA, css: got.css === cssA, files: got.files, docs: [docs0, got.docs] }));
+    await B.ctx.close();
+  }
+
   // the interface in another language: ?lang=fi, the canvas bar and the page alike
   const pageFi = await browser.newPage({ viewport: { width: 1200, height: 760 } });
   await pageFi.goto(url + "?lang=fi&sample=talous");

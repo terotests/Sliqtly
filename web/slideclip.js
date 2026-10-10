@@ -29,6 +29,16 @@ export async function fileBytes(rec) {
   return data.arrayBuffer();
 }
 
+// A file record's size in bytes, without reading it.
+export function fileSize(rec) {
+  const data = rec?.data;
+  if (data == null) return Number(rec?.size) || 0;
+  if (typeof data === "string") return new TextEncoder().encode(data).byteLength;
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return data.byteLength;
+  if (typeof data.size === "number") return data.size;
+  return Number(rec.size) || 0;
+}
+
 // A pasted file against the deck's one of the same name: "new", "same"
 // or "differs" (src/PresClip.rgr fileSteps).
 export async function fileState(rec, b64) {
