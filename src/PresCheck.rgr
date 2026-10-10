@@ -5,6 +5,7 @@ Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresThemeGallery.rgr"
+Import "PresFigma.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresTerm.rgr"
@@ -2051,10 +2052,139 @@ class PresCheck {
         this.ok((fs.ink == "#e8ecff") "the document's ink")
         this.themeArt()
         this.themeGallery()
+        this.figmaFiles()
     }
 
     ; The theme picker's tiles from the page's select rows, their groups and
     ; pictures, and the sample slide each picture is drawn from.
+    ; An index the way DesignViewer's FigIndex writes it.
+    sfn figmaIndexJson:string () {
+        def j:string "{\"v\":1,\"file\":\"App design\",\"meta\":{\"fileName\":\"App design\",\"background\":\"#f5f5f5\",\"version\":101,\"nodes\":415},"
+        j = (j + "\"pages\":[{\"id\":\"0:1\",\"name\":\"Mobile\",\"screens\":3},{\"id\":\"0:2\",\"name\":\"Web\",\"screens\":1}],\"screens\":[")
+        j = (j + "{\"id\":\"1:2\",\"page\":\"0:1\",\"name\":\"Login\",\"section\":\"Onboarding\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Welcome back Email Password Sign in Forgot password?\",")
+        j = (j + "\"parts\":[{\"id\":\"1:9\",\"name\":\"Sign in button\",\"type\":\"INSTANCE\",\"x\":24,\"y\":700,\"w\":342,\"h\":52}],\"components\":[\"Button/Primary\"],\"links\":[{\"from\":\"1:9\",\"to\":\"2:1\"},{\"from\":\"1:2\",\"to\":\"2:1\"}],\"flowStart\":\"Onboarding flow\",\"status\":\"BUILD\"},")
+        j = (j + "{\"id\":\"2:1\",\"page\":\"0:1\",\"name\":\"Dashboard\",\"type\":\"FRAME\",\"x\":500,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Good morning Your health at a glance Sleep 86% 🔥 streak\",\"parts\":[{\"id\":\"2:5\",\"name\":\"Header\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":390,\"h\":92}],\"description\":\"Home after log in\"},")
+        j = (j + "{\"id\":\"3:1\",\"page\":\"0:1\",\"name\":\"Settings\",\"type\":\"FRAME\",\"x\":1000,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Log out Notifications Dark mode\",\"parts\":[]},")
+        j = (j + "{\"id\":\"4:1\",\"page\":\"0:2\",\"name\":\"Login\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":1440,\"h\":900,\"text\":\"Sign in to the web app\",\"parts\":[],\"notes\":[\"Copy is final\"]}]}")
+        return j
+    }
+
+    fn figmaFiles:void () {
+        def r:FigmaRef (FigmaRef.parse("figma:app-design/12:34"))
+        this.ok((r.ok && (r.file == "app-design") && (r.node == "12:34")) "figma: file and layer")
+        def r2:FigmaRef (FigmaRef.parse("  FIGMA://app-design/Login%20screen "))
+        this.ok((r2.ok && (r2.file == "app-design") && (r2.node == "Login screen")) ("figma:// and an escaped name, got " + r2.node))
+        def r3:FigmaRef (FigmaRef.parse("figma:app-design/12:34#56:7;8:9"))
+        this.ok((r3.node == "12:34#56:7;8:9") "a layer inside an instance keeps its path")
+        this.ok(((FigmaRef.parse("figma:app-design")).ok == false) "a file with no layer is refused")
+        this.ok(((FigmaRef.parse("figma:/12:34")).ok == false) "a layer with no file is refused")
+        this.ok(((FigmaRef.isFigma("media/x.png")) == false) "a picture is not figma:")
+        this.ok((FigmaRef.isNodeId("12:34") && FigmaRef.isNodeId("12:34#1:2") && ((FigmaRef.isNodeId("Login")) == false) && ((FigmaRef.isNodeId("Step 2: pay")) == false)) "ids and names")
+        this.ok(((FigmaRef.pictureKey("figma:app-design/12:34")) == "/figma:app-design/12:34") ("the picture's path in the store: " + (FigmaRef.pictureKey("figma:app-design/12:34"))))
+        def used:[string] (FigmaRef.inText("# A\n\n![Login](figma:app/1:2)\n\n![Pay](<figma:app/Pay screen>){width=50%}\n<img src=\"figma:app/3:4\">\n![again](figma:app/1:2) and the word figma: in a sentence, notfigma:x/y"))
+        this.ok(((array_length used) == 3) ("three addresses, once each: " + (join used " | ")))
+        this.ok((((itemAt used 0) == "figma:app/1:2") && ((itemAt used 1) == "figma:app/Pay screen") && ((itemAt used 2) == "figma:app/3:4")) ("in order: " + (join used " | ")))
+        this.ok(((FigmaRef.markdown("app" "Pay screen" "Pay")) == "![Pay](<figma:app/Pay screen>)") "a name with a space goes in <…>")
+        this.ok(((FigmaRef.markdown("app" "1:2" "Log [in]")) == "![Log in](figma:app/1:2)") ("markdown, brackets out of the alt: " + (FigmaRef.markdown("app" "1:2" "Log [in]"))))
+
+        def f:FigmaFile (FigmaFile.fromIndex("app-design" (PresCheck.figmaIndexJson())))
+        this.ok((f.status == "ready") ("the index reads: " + f.err))
+        this.ok((f.name == "App design") "its name")
+        this.ok(((array_length f.pages) == 2) "two pages")
+        this.ok(((array_length f.screens) == 4) "four screens")
+        def login:FigmaScreen (itemAt f.screens 0)
+        this.ok(((login.pageName == "Mobile") && (login.section == "Onboarding")) "page and section")
+        this.ok((((array_length login.linksTo) == 1) && ((itemAt login.linksTo 0) == "2:1")) "links: the screens they land on, once")
+        this.ok(((login.flowStart == "Onboarding flow") && (login.status == "BUILD")) "flow start and status")
+        def bad:FigmaFile (FigmaFile.fromIndex("x" "{nope"))
+        this.ok((bad.status == "failed") "a broken index is a failed file")
+
+        def lib (new FigmaLibrary())
+        lib.add(f)
+        def tin:FigmaTarget (FigmaLibrary.targetIn("app-design" (PresCheck.figmaIndexJson()) "Dashboard"))
+        this.ok((tin.ok && (tin.screen == tin.node) && (tin.name == "Dashboard")) ("a screen by name from the index alone: " + tin.err))
+        def t:FigmaTarget (lib.resolve("figma:app-design/1:2"))
+        this.ok((t.ok && (t.isPart == false) && (t.name == "Login")) "a screen by id")
+        def tp:FigmaTarget (lib.resolve("figma:app-design/1:9"))
+        this.ok((tp.ok && tp.isPart && (tp.screen == "1:2") && (tp.name == "Sign in button")) "a listed part")
+        def tu:FigmaTarget (lib.resolve("figma:app-design/1:77"))
+        this.ok((tu.ok && tu.isPart && (tu.screen == "")) "an id the index does not list is left to the cut")
+        def tn:FigmaTarget (lib.resolve("figma:app-design/dashboard"))
+        this.ok((tn.ok && (tn.node == "2:1")) "a unique name, any case")
+        def ta:FigmaTarget (lib.resolve("figma:app-design/Login"))
+        this.ok(((ta.ok == false) && ((indexOf ta.err "2 screens") >= 0)) ("an ambiguous name says so: " + ta.err))
+        def tm:FigmaTarget (lib.resolve("figma:nope/1:2"))
+        this.ok(((tm.ok == false) && ((indexOf tm.err "nope") >= 0)) "a missing file")
+        def again:FigmaFile (FigmaFile.fromIndex("app-design" (PresCheck.figmaIndexJson())))
+        again.status = "indexing"
+        lib.add(again)
+        this.ok(((array_length lib.files) == 1) "adding a file again replaces it")
+        this.ok(((lib.resolve("figma:app-design/1:2")).ok == false) "a file still indexing draws nothing yet")
+        lib.add(f)
+
+        def ws:[string] (FigmaLibrary.words("Sign-in, BUTTON!"))
+        this.ok((((array_length ws) == 3) && ((itemAt ws 1) == "in")) "query words, lower case")
+        this.ok((FigmaLibrary.hasWord("sign in button" "butt")) "a word's start counts")
+        this.ok(((FigmaLibrary.hasWord("rebutton" "button")) == false) "the middle of a word does not")
+
+        def h1:[FigmaHit] (lib.search("login" "" 10))
+        this.ok(((array_length h1) >= 2) ("login finds the screens called so, got " + (to_string (array_length h1))))
+        this.ok((((itemAt h1 0).screen.name == "Login") && ((itemAt h1 1).screen.name == "Login")) "named screens first")
+        def h2:[FigmaHit] (lib.search("sign in button" "" 10))
+        this.ok((((array_length h2) >= 1) && ((itemAt h2 0).partId == "1:9")) "a part named by the query is the hit")
+        def top2:FigmaHit (itemAt h2 0)
+        this.ok(((top2.markdown()) == "![Sign in button](figma:app-design/1:9)") "and its markdown points at the part")
+        def h3:[FigmaHit] (lib.search("glance" "" 10))
+        this.ok((((array_length h3) == 1) && ((itemAt h3 0).screen.id == "2:1")) "the words on a screen")
+        def top3:FigmaHit (itemAt h3 0)
+        this.ok(((indexOf top3.snippet "glance") >= 0) ("with a snippet: " + top3.snippet))
+        def h4:[FigmaHit] (lib.search("login nothinglikethis" "" 10))
+        this.ok(((array_length h4) == 0) "every word must be found")
+        def h5:[FigmaHit] (lib.search("login" "other-file" 10))
+        this.ok(((array_length h5) == 0) "limited to one file")
+        def h6:[FigmaHit] (lib.search("log" "" 1))
+        this.ok(((array_length h6) == 1) "limit")
+        def h7:[FigmaHit] (lib.search("primary" "" 10))
+        this.ok((((array_length h7) == 1) && ((itemAt h7 0).screen.id == "1:2")) "components are searched")
+        def h8:[FigmaHit] (lib.search("final" "" 10))
+        this.ok((((array_length h8) == 1) && ((itemAt h8 0).screen.id == "4:1")) "notes are searched")
+        def h9:[FigmaHit] (lib.search("🔥" "" 10))
+        this.ok(((array_length h9) == 1) "an emoji is a word")
+        def h0:[FigmaHit] (lib.search("   " "" 10))
+        this.ok(((array_length h0) == 0) "an empty query finds nothing")
+        def sn:string (FigmaLibrary.snippet("one two three four five six seven eight nine ten" "six" 12))
+        this.ok(((sn == "… five six seven …") || (sn == "… four five six seven …")) ("snippet cut at spaces: " + sn))
+
+        ; the window over one file
+        def br (new FigmaBrowser())
+        br.open("app-design" "App design.fig" "ready" "" "")
+        this.ok(((br.status()) == "loading") "a ready file whose index has not come is loading")
+        this.ok(((array_length (br.shown())) == 0) "nothing shown while it loads")
+        br.setFile("app-design" "App design.fig" "ready" "" (PresCheck.figmaIndexJson()))
+        this.ok((((br.status()) == "ready") && ((br.name()) == "App design.fig")) "the card's name over the index's")
+        this.ok(((array_length (br.shown())) == 4) "every screen in the file's order")
+        br.setQuery("sign in button")
+        def bh:[FigmaHit] (br.shown())
+        this.ok((((array_length bh) >= 1) && ((itemAt bh 0).partId == "1:9")) "a search finds the part")
+        def bh0:FigmaHit (itemAt bh 0)
+        br.pick(bh0.screen.id bh0.partId)
+        this.ok((((br.layer()) == "1:9") && ((br.layerName()) == "Sign in button")) "the part is what goes on the slide")
+        this.ok(((br.markdown()) == "![Sign in button](figma:app-design/1:9)") ("its markdown: " + (br.markdown())))
+        br.pickPart("")
+        this.ok((((br.layer()) == "1:2") && ((br.layerName()) == "Login")) "the whole screen again")
+        br.pick("1:2" "")
+        this.ok(((strlen (br.layer())) == 0) "pressed again, the pick is let go")
+        br.pick("1:2" "")
+        br.setFile("app-design" "" "indexing" "" "")
+        this.ok((((br.status()) == "indexing") && ((array_length (br.shown())) == 0)) "indexed again: nothing shown until it is ready")
+        br.setFile("app-design" "" "failed" "not a Figma file" "")
+        this.ok((((br.status()) == "failed") && ((br.err()) == "not a Figma file")) "a failure and why")
+        br.setFile("app-design" "" "ready" "" "{broken")
+        this.ok(((br.status()) == "failed") "an index that does not read is a failure")
+        this.ok(((FigmaBrowser.thumbKey("app" "1:2")) == "/__figma-thumb/app/1:2") "a thumbnail's key")
+
+    }
+
     fn themeGallery:void () {
         def rows:string "pearl\tpearl\tLight\ncorporate\tcorporate\tLight\naurora\taurora\tDark\n\tDocument's own\n\t\n"
         def tiles:[PresThemeTile] (PresThemeGallery.tiles(rows))

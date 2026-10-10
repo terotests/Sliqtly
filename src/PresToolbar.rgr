@@ -119,6 +119,12 @@ class PresToolbar {
     def reviewDot:boolean false
     ; Rooms beside the rail (a mock over ADR 0001 until the server has them)
     def roomsOpen:boolean false
+    ; the shared Files (a server of one's own keeps them): the place on the
+    ; rail when `filesOn`, its panel where Rooms' is, one of the two at a time
+    def filesOn:boolean false
+    def filesOpen:boolean false
+    ; a file a row: "id \t name \t note \t status" (web/sharedfiles.js)
+    def fileRows:string ""
     def roomsW:double 248.0
     def roomOpen:string "general"
     ; the server's rooms ("<id>\t<title>\t<presentations>" a line) and the
@@ -203,6 +209,13 @@ class PresToolbar {
         if (id == "roomdecks") {
             roomDecks = rows
             roomOpen = current
+        }
+        if (id == "files") {
+            fileRows = rows
+            filesOn = (current == "1")
+            if (filesOn == false) {
+                filesOpen = false
+            }
         }
         this.rebuild()
     }
@@ -985,7 +998,7 @@ class PresToolbar {
         if ((this.railShown()) == false) {
             return 0.0
         }
-        if roomsOpen {
+        if (this.sideOpen()) {
             return (railW + roomsW)
         }
         return railW
@@ -993,10 +1006,18 @@ class PresToolbar {
 
     ; The open place, whether there are open comments and the deck's name, from PresApp each
     ; frame: the bar is built again only when one of them changed.
+    ; Rooms or Files beside the rail
+    fn sideOpen:boolean () {
+        return (roomsOpen || filesOpen)
+    }
+
     fn setRailState:void (open:string review:boolean title:string) {
         def v:string open
         if roomsOpen {
             v = "rooms"
+        }
+        if filesOpen {
+            v = "files"
         }
         if (((v != railValue) || (review != reviewDot)) || ((title != docTitle) && (titleEditing == false))) {
             railValue = v
@@ -1018,6 +1039,9 @@ class PresToolbar {
         }
         if (id == "rooms") {
             return "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"
+        }
+        if (id == "files") {
+            return "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"
         }
         if (id == "review") {
             return "M4 5h16v11H10l-5 4v-4H4zM8 9h8M8 12h5"
@@ -1068,6 +1092,9 @@ class PresToolbar {
         r.tid = "tb-rail"
         r.tone = tone
         r.name = (PresI18n.t("Places"))
+        if filesOn {
+            r.addItem("files" (PresI18n.t("Files")) (PresToolbar.railIcon("files")))
+        }
         r.addItem("rooms" (PresI18n.t("Rooms")) (PresToolbar.railIcon("rooms")))
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
         r.addItem("history" (PresI18n.t("Versions")) (PresToolbar.railIcon("history")))
@@ -1347,6 +1374,53 @@ class PresToolbar {
             }
         }
         return ""
+    }
+
+    fn buildSide:void (root:EVGElement) {
+        if filesOpen {
+            this.buildFiles(root)
+            return
+        }
+        this.buildRooms(root)
+    }
+
+    ; The shared Files: what everyone on this server can put on a slide
+    ; (design files first: a Figma file's screens). "+" adds one; a row
+    ; opens its window (PresChartEditor's "figma").
+    fn buildFiles:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("tb-rooms"))
+        def head:EVGElement (UiKit.div("tb-rooms-head"))
+        def close:ButtonCtl (this.iconButton("files-close" (PresI18n.t("Close")) "ghost" "M15 5l-7 7 7 7" head))
+        UiTree.addClass((unwrap close.rootEl) "tb-rooms-close")
+        head.addChild((UiKit.words("tb-rooms-title" (PresI18n.t("Files")))))
+        head.addChild((UiKit.div("tb-grow")))
+        def add:ButtonCtl (this.iconButton("files-add" (PresI18n.t("Add a file")) "ghost" "M12 5v14M5 12h14" head))
+        UiTree.addClass((unwrap add.rootEl) "tb-rooms-add")
+        pane.addChild(head)
+        def w:double (roomsW - 40.0)
+        def any:boolean false
+        for (strsplit fileRows (strfromcode 10)) line:string i {
+            def parts:[string] (strsplit line (strfromcode 9))
+            if ((array_length parts) >= 2) {
+                any = true
+                def id:string (itemAt parts 0)
+                def b:ButtonCtl (this.button(("sfile-" + id) (UiText.fit((this.engine()) (itemAt parts 1) "Open Sans" 13.0 w)) "ghost" pane))
+                def el:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(el "tb-found")
+                if ((el.getChildCount()) > 0) {
+                    UiTree.addClass((el.getChild(0)) "tb-found-name")
+                }
+                if (((array_length parts) >= 3) && ((strlen (itemAt parts 2)) > 0)) {
+                    el.addChild((UiKit.words("tb-found-text" (UiText.fit((this.engine()) (itemAt parts 2) "Open Sans" 11.0 w)))))
+                }
+            }
+        }
+        if (any == false) {
+            for (UiText.wrapLines((this.engine()) (PresI18n.t("Files everyone on this server can use in a presentation. Add a Figma file (.fig) with +: its screens can then be put on a slide.")) "Open Sans" 12.0 w)) ln:string li {
+                pane.addChild((UiKit.words("tb-found-text" ln)))
+            }
+        }
+        root.addChild(pane)
     }
 
     fn buildRooms:void (root:EVGElement) {
@@ -1985,8 +2059,8 @@ class PresToolbar {
         root.addChild(bar)
         barEl = bar
         onFrame = false
-        if (small && roomsOpen) {
-            this.buildRooms(root)
+        if (small && (this.sideOpen())) {
+            this.buildSide(root)
             def rp:EVGElement (root.getChild(((root.getChildCount()) - 1)))
             def pw:double roomsW
             if (pw > w) {
@@ -2006,8 +2080,8 @@ class PresToolbar {
             colEl.setAttribute("top" "0px")
             colEl.setAttribute("width" ((EVGDisplayList.num(railW)) + "px"))
             colEl.setAttribute("height" ((EVGDisplayList.num(h)) + "px"))
-            if roomsOpen {
-                this.buildRooms(root)
+            if (this.sideOpen()) {
+                this.buildSide(root)
                 def rmEl:EVGElement (root.getChild(((root.getChildCount()) - 1)))
                 rmEl.setAttribute("position" "absolute")
                 rmEl.setAttribute("left" ((EVGDisplayList.num(railW)) + "px"))
@@ -2252,7 +2326,7 @@ class PresToolbar {
     ; Rooms over the page's left edge: a narrow window has no rail, so the
     ; panel lies over what is under the bar instead of beside it.
     fn roomsOver:boolean () {
-        return (roomsOpen && (this.compact()))
+        return ((this.sideOpen()) && (this.compact()))
     }
 
     ; The bar, or anywhere while a list is open (a press outside closes it).
@@ -2341,8 +2415,19 @@ class PresToolbar {
             this.closeLists()
             host.click(tid)
             def place:string (rail.takePressed())
+            if (place == "files") {
+                filesOpen = (filesOpen == false)
+                roomsOpen = false
+                push requests "rail:layout"
+                if filesOpen {
+                    push requests "shared:list"
+                }
+                this.rebuild()
+                return
+            }
             if (place == "rooms") {
                 roomsOpen = (roomsOpen == false)
+                filesOpen = false
                 push requests "rail:layout"
                 if roomsOpen {
                     push requests "room:list"
@@ -2354,6 +2439,20 @@ class PresToolbar {
                 push requests ("rail:" + place)
             }
             this.rebuild()
+            return
+        }
+        if (ctlTid == "tb-files-close") {
+            filesOpen = false
+            push requests "rail:layout"
+            this.rebuild()
+            return
+        }
+        if (ctlTid == "tb-files-add") {
+            push requests "shared:add"
+            return
+        }
+        if ((indexOf ctlTid "tb-sfile-") == 0) {
+            push requests ("shared:open:" + (substring ctlTid 9 (strlen ctlTid)))
             return
         }
         if (ctlTid == "tb-room-close") {

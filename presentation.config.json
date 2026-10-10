@@ -23,6 +23,10 @@
     "url": "https://github.com/terotests/RangerDiff",
     "ref": "main"
   },
+  "designviewer": {
+    "url": "https://github.com/terotests/DesignViewer",
+    "ref": "main"
+  },
   "componentengine": {
     "url": "https://github.com/terotests/componentengine",
     "ref": "main"

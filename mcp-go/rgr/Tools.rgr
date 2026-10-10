@@ -1329,6 +1329,36 @@ class Tools {
             push out.data (buffer_from_string u.svg)
             push out.types "image/svg+xml"
         }
+        ; a screen of a shared Figma file (PresFigma): drawn by this server,
+        ; under the name the layout gives the picture
+        for (FigmaRef.inText(md)) addr:string fi {
+            if (fi >= 30) {
+                break
+            }
+            def ref:FigmaRef (FigmaRef.parse(addr))
+            if (ref.ok == false) {
+                continue
+            }
+            def fh:int (host_shared_png host ref.file ref.node)
+            if (fh == 0) {
+                continue
+            }
+            def fp (new CheckPic)
+            fp.name = (FigmaRef.pictureKey(addr))
+            def fgrid:[int] (host_image_grid host fh)
+            if ((array_length fgrid) >= 2) {
+                fp.w = (itemAt fgrid 0)
+                fp.h = (itemAt fgrid 1)
+                def fk:int 2
+                while (fk < (array_length fgrid)) {
+                    push fp.grid (itemAt fgrid fk)
+                    fk = (fk + 1)
+                }
+            }
+            push out.pics fp
+            push out.data (host_image_bytes host fh)
+            push out.types "image/png"
+        }
         return out
     }
 
@@ -1486,7 +1516,14 @@ class Tools {
                 return (Tools.fail(herr))
             }
             def hr:MfJ (MfJ.newObj())
-            hr.put("content" (Tools.text(answer)))
+            def hc:MfJ (Tools.text(answer))
+            def himg:string (host_tool_image host)
+            if ((strlen himg) > 0) {
+                def hpic:MfJ (Tools.image(himg))
+                hpic.putStr("mimeType" "image/png")
+                hc.add(hpic)
+            }
+            hr.put("content" hc)
             hr.put("structuredContent" (J.parse(answer)))
             return hr
         }

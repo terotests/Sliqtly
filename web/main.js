@@ -33,6 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
+import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -398,6 +399,140 @@ function loadInlineSvgs(rev) {
       dropThumbs();
       needsPaint = true;
     });
+}
+
+// A screen of a shared Figma file on a slide (`![…](figma:<file>/<layer>)`,
+// src/PresFigma.rgr): drawn by the server from the file's index
+// (web/sharedfiles.js) and put in the store where the slide looks for it.
+// Only a server of one's own keeps shared files; elsewhere the picture
+// stays its alt text.
+let figmaRev = "";
+const figmaBusy = new Set();
+const figmaFailed = new Set();
+function loadFigmaPictures(rev) {
+  figmaRev = rev;
+  let list = [];
+  try { list = JSON.parse(app.figmaPicturesJson() || "[]"); } catch (_) { return; }
+  const fresh = list.filter((u) => !figmaBusy.has(u.path) && !figmaFailed.has(u.path));
+  if (!fresh.length) return;
+  if (!ownServer()) {
+    for (const u of fresh) figmaFailed.add(u.path);
+    return;
+  }
+  for (const u of fresh) figmaBusy.add(u.path);
+  Promise.all(fresh.map(async (u) => {
+    try {
+      const res = await fetch(sharedPngUrl(u.file, u.node));
+      // the file is still being indexed: asked again in a moment
+      if (res.status === 409) {
+        setTimeout(() => { figmaRev = ""; needsPaint = true; }, 3000);
+        return;
+      }
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`);
+      await addPicture(u.path, await res.arrayBuffer(), "image/png");
+    } catch (e) {
+      figmaFailed.add(u.path);
+      console.warn("figma picture not drawn", u.file, u.node, e);
+    }
+  }))
+    .finally(() => {
+      for (const u of fresh) figmaBusy.delete(u.path);
+      app.inlineSvgsAdded();
+      dropThumbs();
+      needsPaint = true;
+    });
+}
+
+// --- the shared Files (a server of one's own, web/sharedfiles.js) ---------------
+// Files everyone on the server can use: the rail's Files place lists them,
+// a row opens a Figma file's window (PresChartEditor "figma") with its
+// screens as tiles. The list is asked again while a file is being indexed.
+let sharedFilesList = [];
+let sharedPoll = 0;
+const sharedIndexes = new Map(); // id → { updated, json }
+async function sharedRefresh() {
+  if (viewer || !ownServer()) return;
+  let res;
+  try { res = await listShared(); } catch (e) { console.warn("shared files not listed", e); return; }
+  sharedFilesList = res?.files || [];
+  const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
+  app.setToolbarOptions("files", rows.join("\n"), "1");
+  const open = app.figmaFileOpen();
+  const card = open && sharedFilesList.find((f) => f.id === open);
+  if (card) await sharedShow(card, false);
+  clearTimeout(sharedPoll);
+  if (anyIndexing(sharedFilesList)) sharedPoll = setTimeout(sharedRefresh, 2000);
+  needsPaint = true;
+}
+async function sharedIndexOf(f) {
+  if (f.status !== "ready") return "";
+  const kept = sharedIndexes.get(f.id);
+  if (kept && kept.updated === f.updated) return kept.json;
+  const json = JSON.stringify(await sharedIndex(f.id));
+  sharedIndexes.set(f.id, { updated: f.updated, json });
+  return json;
+}
+// a file's window opened (`open`), or the open one told what changed
+async function sharedShow(f, open) {
+  const args = [f.id, f.name || "", f.status || "", f.error || ""];
+  if (open) app.openFigmaFile(...args, "");
+  let json = "";
+  try { json = await sharedIndexOf(f); } catch (e) { args[2] = "failed"; args[3] = e.message; }
+  app.setFigmaFile(...args, json);
+  needsPaint = true;
+}
+async function sharedRequest(r) {
+  if (r === "list") return sharedRefresh();
+  if (r === "add") {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".fig";
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      toast(t("Adding {name}…").replace("{name}", file.name));
+      try {
+        const card = await putShared(file);
+        await sharedRefresh();
+        if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
+      } catch (e) { toast(t("Could not add the file") + ": " + e.message); }
+    };
+    input.click();
+    return;
+  }
+  if (r.startsWith("open:")) {
+    const id = r.slice(5);
+    let f = sharedFilesList.find((x) => x.id === id);
+    if (!f) { await sharedRefresh(); f = sharedFilesList.find((x) => x.id === id); }
+    if (f) await sharedShow(f, true);
+    return;
+  }
+  if (r.startsWith("delete:")) {
+    const id = r.slice(7);
+    try {
+      await removeShared(id);
+      sharedIndexes.delete(id);
+      toast(t("File deleted"));
+    } catch (e) { toast(t("Could not delete the file") + ": " + e.message); }
+    return sharedRefresh();
+  }
+}
+// The open file window's tiles: each screen or part drawn small by the
+// server and kept among the pictures under its key (not a deck's file).
+const figmaThumbBusy = new Set();
+function loadFigmaThumbs() {
+  let list = [];
+  try { list = JSON.parse(app.figmaThumbsJson() || "[]"); } catch (_) { return; }
+  for (const u of list) {
+    if (pictures.has(u.key) || figmaThumbBusy.has(u.key)) continue;
+    figmaThumbBusy.add(u.key);
+    fetch(sharedPngUrl(u.file, u.node, 240))
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
+      .then((bytes) => registerPicture(u.key, bytes, "image/png"))
+      .then(() => { needsPaint = true; })
+      .catch((e) => console.warn("figma tile not drawn", u.node, e))
+      .finally(() => figmaThumbBusy.delete(u.key));
+  }
 }
 
 // A picture pasted or dropped on the canvas opens the image window
@@ -4223,6 +4358,7 @@ function frame() {
       syncRecBar();
       loadLookFaces();
       if (rev !== inlineSvgRev) loadInlineSvgs(rev);
+      if (rev !== figmaRev) loadFigmaPictures(rev);
       paintOnce();
       handleRequests();
       followAddress();
@@ -4602,6 +4738,12 @@ function handleRequests() {
       refreshFiles();
     } else if (r.startsWith("files:")) {
       fileRequest(r.slice(6)).catch(fail);
+    } else if (r.startsWith("shared:")) {
+      sharedRequest(r.slice(7)).catch(fail);
+    } else if (r === "figma-thumbs") {
+      loadFigmaThumbs();
+    } else if (r === "figma:copy") {
+      writeClip(app.figmaMarkdown()).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
     } else if (r.startsWith("deckdo:")) {
       deckDo(r.slice(7)).catch(fail);
     } else if (r.startsWith("deck:switch:")) {
@@ -8464,6 +8606,7 @@ async function start() {
   // the browser's store not answering (web/vfs.js gives up on a stuck
   // call) leaves no page behind the loader: the welcome deck opens, and the
   // notice says why one's own is not there
+  sharedRefresh();
   try {
     if (versionFrame) await openVersionView();
     else if (playerDeck) await openPlayerDeck();

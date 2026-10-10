@@ -33,6 +33,7 @@ Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresDocSettings.rgr"
 Import "PresThemeGallery.rgr"
+Import "PresFigma.rgr"
 Import "PresTraceSettings.rgr"
 Import "PresColorPanel.rgr"
 Import "../evgui/src/UiHost.rgr"
@@ -182,6 +183,15 @@ class PresChartEditor {
     ; theme; the window stays open to compare); "Edit theme CSS…" sets
     ; `wantsCss` and closes.
     def thRows:string ""
+    ; File ▸ a shared Figma file ("figma"): its screens as tiles, a search
+    ; over them, the picked screen's parts. `fgAct` is what PresApp does
+    ; next: "add" (onto the slide), "slide" (a new slide of it), "copy"
+    ; (its Markdown), "delete" (the file), "thumbs" (draw the tiles).
+    def fg:FigmaBrowser (new FigmaBrowser())
+    def fgAct:string ""
+    def fgArmed:boolean false
+    ; each tile's "screen \t part", by its index in the tid
+    def fgKeys:[string]
     def thValue:string ""
     ; the tab showing (a group of the select: Basic, Effects, Dark)
     def thTab:string ""
@@ -374,6 +384,25 @@ class PresChartEditor {
         themePicked = false
         wantsCss = false
         this.openAt(px py pw ph)
+    }
+
+    fn openFigma:void (b:FigmaBrowser px:double py:double pw:double ph:double) {
+        mode = "figma"
+        fg = b
+        fgAct = "thumbs"
+        fgArmed = false
+        this.openAt(px py pw ph)
+        if ((fg.status()) == "ready") {
+            this.focusInput("fg-q")
+        }
+    }
+
+    ; the file's card or index came (or changed) while the window shows
+    fn figmaChanged:void () {
+        if (isOpen && (mode == "figma")) {
+            fgAct = "thumbs"
+            this.rebuild()
+        }
     }
 
     fn openDupDeck:void (name:string px:double py:double pw:double ph:double) {
@@ -824,6 +853,19 @@ class PresChartEditor {
         return c
     }
 
+    ; A button that may be off: built once, off or on, then dressed.
+    fn offButton:ButtonCtl (tid:string name:string variant:string off:boolean parent:EVGElement) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = name
+        c.variant = variant
+        c.disabled = off
+        c.build()
+        this.dressButton(c)
+        UiKit.put(host c parent)
+        return c
+    }
+
     fn dressButton:void (c:ButtonCtl) {
         UiTree.addClass((unwrap c.rootEl) "ce-small")
         if ((c.variant == "primary") || (c.variant == "danger")) {
@@ -1065,6 +1107,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("Theme"))
             win.title = win.name
         }
+        if (mode == "figma") {
+            win.name = (fg.name())
+            win.title = win.name
+        }
         if (mode == "docset") {
             win.name = (PresI18n.t("Document settings"))
             win.title = (PresI18n.t("Document settings"))
@@ -1126,6 +1172,10 @@ class PresChartEditor {
         }
         if (mode == "themes") {
             this.themesBody(root)
+            return
+        }
+        if (mode == "figma") {
+            this.figmaBody(root)
             return
         }
         if (mode == "docset") {
@@ -2042,6 +2092,163 @@ class PresChartEditor {
         bottom.addChild((UiKit.div("ce-grow")))
         this.button("th-close" (PresI18n.t("Close")) "primary" bottom)
         root.addChild(bottom)
+    }
+
+    ; --- a shared Figma file ---------------------------------------------------------
+    ; A picture `pw` × `ph` fitted into a tile's square, its shape kept.
+    sfn fitTile:[double] (pw:double ph:double most:double) {
+        if ((pw <= 0.0) || (ph <= 0.0)) {
+            return ([] _:double (most most))
+        }
+        def k:double (most / pw)
+        if (ph > pw) {
+            k = (most / ph)
+        }
+        return ([] _:double ((pw * k) (ph * k)))
+    }
+
+    fn figmaBody:void (root:EVGElement) {
+        def none:[string]
+        fgKeys = none
+        def pane:EVGElement (UiKit.div("ce-pane"))
+        def st:string (fg.status())
+        if (st == "indexing") {
+            pane.addChild((UiKit.words("ce-doc" (PresI18n.t("Reading the file. Its screens show here when it is done.")))))
+        }
+        if (st == "loading") {
+            pane.addChild((UiKit.words("ce-doc" (PresI18n.t("Loading…")))))
+        }
+        if (st == "failed") {
+            pane.addChild((this.copyable("fg-t-err" "ce-note" ((PresI18n.t("This file could not be read.")) + " " + (fg.err())))))
+        }
+        if (st == "ready") {
+            def qr:EVGElement (UiKit.div("ce-row"))
+            this.inputWith("fg-q" (PresI18n.t("Search")) fg.query (PresI18n.t("Search screens, parts and words…")) "ce-wide" qr)
+            pane.addChild(qr)
+            def hits:[FigmaHit] (fg.shown())
+            if ((array_length hits) == 0) {
+                pane.addChild((UiKit.words("ce-doc" (PresI18n.t("No screen has all of those words.")))))
+            }
+            def row:EVGElement (UiKit.div("ce-tiles"))
+            for hits hit:FigmaHit hi {
+                def pw:double hit.screen.w
+                def ph:double hit.screen.h
+                if ((strlen hit.partId) > 0) {
+                    def po@(optional):FigmaPart (hit.screen.partById(hit.partId))
+                    if (!null? po) {
+                        def part:FigmaPart (unwrap po)
+                        pw = part.w
+                        ph = part.h
+                    }
+                }
+                def box:[double] (PresChartEditor.fitTile(pw ph 120.0))
+                def b:ButtonCtl (new ButtonCtl())
+                b.tid = ("fg-h-" + (to_string hi))
+                def label:string (hit.name())
+                if ((strlen label) > 20) {
+                    label = ((trim (substring label 0 19)) + "…")
+                }
+                b.name = label
+                b.variant = "outline"
+                b.picture = (FigmaBrowser.thumbKey(hit.fileId (hit.node())))
+                b.picW = (itemAt box 0)
+                b.picH = (itemAt box 1)
+                b.build()
+                this.dressButton(b)
+                def r:EVGElement (unwrap b.rootEl)
+                UiTree.addClass(r "ce-tile")
+                UiTree.addClass(r "fg-tile")
+                if ((hit.screen.id == fg.screen) && (hit.partId == fg.part)) {
+                    UiTree.addClass(r "ce-tile-on")
+                }
+                UiKit.put(host b row)
+                push fgKeys (hit.screen.id + (strfromcode 9) + hit.partId)
+            }
+            pane.addChild(row)
+            def so@(optional):FigmaScreen (fg.picked())
+            if (!null? so) {
+                def s:FigmaScreen (unwrap so)
+                pane.addChild((UiKit.words("ce-section" s.name)))
+                if ((array_length s.parts) > 0) {
+                    def pr:EVGElement (UiKit.div("ce-row ce-wrap"))
+                    this.chip("fg-p--" (PresI18n.t("Whole screen")) ((strlen fg.part) == 0) pr)
+                    for s.parts p:FigmaPart pi {
+                        this.chip(("fg-p-" + (to_string pi)) p.name (p.id == fg.part) pr)
+                    }
+                    pane.addChild(pr)
+                }
+                pane.addChild((this.copyable("fg-t-md" "ce-doc" (fg.markdown()))))
+            }
+        }
+        root.addChild(pane)
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        def picked:boolean ((strlen (fg.layer())) > 0)
+        this.offButton("fg-add" (PresI18n.t("Add to slide")) "primary" (picked == false) bottom)
+        this.offButton("fg-slide" (PresI18n.t("New slide")) "outline" (picked == false) bottom)
+        this.offButton("fg-copy" (PresI18n.t("Copy Markdown")) "outline" (picked == false) bottom)
+        bottom.addChild((UiKit.div("ce-grow")))
+        this.button("fg-del" (? fgArmed (PresI18n.t("Delete file?")) (PresI18n.t("Delete file"))) (? fgArmed "primary" "outline") bottom)
+        this.button("fg-close" (PresI18n.t("Close")) "outline" bottom)
+        root.addChild(bottom)
+    }
+
+    fn figmaAct:boolean (tid:string) {
+        if (tid != "fg-del") {
+            fgArmed = false
+        }
+        if ((indexOf tid "fg-h-") == 0) {
+            def k:int (?? (str2int (substring tid 5 (strlen tid))) -1)
+            if ((k >= 0) && (k < (array_length fgKeys))) {
+                def two:[string] (strsplit (itemAt fgKeys k) (strfromcode 9))
+                def part:string ""
+                if ((array_length two) > 1) {
+                    part = (itemAt two 1)
+                }
+                fg.pick((itemAt two 0) part)
+                this.rebuild()
+            }
+            return true
+        }
+        if ((indexOf tid "fg-p-") == 0) {
+            def rest:string (substring tid 5 (strlen tid))
+            if (rest == "-") {
+                fg.pickPart("")
+            } {
+                def so@(optional):FigmaScreen (fg.picked())
+                def pi:int (?? (str2int rest) -1)
+                if (!null? so) {
+                    def s:FigmaScreen (unwrap so)
+                    if ((pi >= 0) && (pi < (array_length s.parts))) {
+                        def p:FigmaPart (itemAt s.parts pi)
+                        fg.pickPart(p.id)
+                    }
+                }
+            }
+            this.rebuild()
+            return true
+        }
+        if ((tid == "fg-add") || ((tid == "fg-slide") || (tid == "fg-copy"))) {
+            if ((strlen (fg.layer())) > 0) {
+                fgAct = (substring tid 3 (strlen tid))
+            }
+            return true
+        }
+        if (tid == "fg-del") {
+            if fgArmed {
+                fgArmed = false
+                fgAct = "delete"
+                wantsClose = true
+                return true
+            }
+            fgArmed = true
+            this.rebuild()
+            return true
+        }
+        if (tid == "fg-close") {
+            wantsClose = true
+            return true
+        }
+        return false
     }
 
     fn themesAct:boolean (tid:string) {
@@ -4528,6 +4735,9 @@ class PresChartEditor {
         if ((mode == "themes") && (this.themesAct(tid))) {
             return
         }
+        if ((mode == "figma") && (this.figmaAct(tid))) {
+            return
+        }
         if ((mode == "docset") && (this.docSetAct(tid))) {
             return
         }
@@ -4688,6 +4898,12 @@ class PresChartEditor {
         }
         if (focusTid == "nd-name") {
             ndName = v
+        }
+        if ((focusTid == "fg-q") && (v != fg.query)) {
+            fg.setQuery(v)
+            fgAct = "thumbs"
+            this.rebuild()
+            return
         }
         if (focusTid == "nd-desc") {
             ndDesc = v
