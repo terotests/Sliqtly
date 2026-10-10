@@ -4087,6 +4087,39 @@ class PresCheck {
         this.ok(((PresCheck.images((PresTimeline.finalFrame(deck 0)) "/media/kansi.png")) == 1) "and is again once handed over")
     }
 
+    ; `page { background-image: url(...) }` in the deck's sheet is drawn
+    ; behind every slide, as the theme CSS support list says (MdCssSupport).
+    fn pageBackgroundImage:void () {
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in; background-image: url(media/bg.png) } deck { split-level: 2 }"
+        def text:string "# Kansi\n\n## Yksi\n\nTeksti\n"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.addImage("/media/bg.png" (buffer_from_string "png") "image/png" 40 30)
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok(((PresCheck.images((PresTimeline.finalFrame(deck 0)) "/media/bg.png")) == 1) "page background-image: drawn on the cover")
+        this.ok(((PresCheck.images((PresTimeline.finalFrame(deck 1)) "/media/bg.png")) == 1) "page background-image: …and on a slide")
+    }
+
+    ; `::: col` blocks in a `::: columns` with as many colons: the last `:::`
+    ; is left over as text, and the deck says so (PresDeck.fenceNotes)
+    fn strayFences:void () {
+        def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }"
+        def deck (new PresDeck())
+        deck.md.setStyleSheet(css)
+        deck.setTheme(css)
+        deck.setText("# Kansi\n\n## Sarakkeet\n\n::: columns\n::: col A\nx\n:::\n::: col B\ny\n:::\n:::\n")
+        def notes:[string] (deck.fenceNotes())
+        this.ok(((array_length notes) == 1) "fence notes: a ::: that closes nothing is noted")
+        if ((array_length notes) == 1) {
+            this.ok(((indexOf (itemAt notes 0) "slide \"Sarakkeet\"") >= 0) ("fence notes: …on its slide, got " + (itemAt notes 0)))
+            this.ok(((indexOf (itemAt notes 0) ":::: columns") >= 0) "fence notes: …with the form that nests")
+        }
+        deck.setText("# Kansi\n\n## Sarakkeet\n\n:::: columns\n::: col A\nx\n:::\n::: col B\ny\n:::\n::::\n")
+        this.ok(((array_length (deck.fenceNotes())) == 0) "fence notes: none for :::: columns")
+    }
+
     fn imageDrag:void () {
         ; the handles of a 200 × 100 box at (100, 50), a grip of 6
         this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 99.0 100.0 6.0)) == "l") "image drag: the left edge")
@@ -6921,6 +6954,8 @@ class PresCheck {
         c.traceChecks()
         c.imageDrag()
         c.imagesCleared()
+        c.pageBackgroundImage()
+        c.strayFences()
         c.sketches()
         c.meeting()
         c.scrollInput()

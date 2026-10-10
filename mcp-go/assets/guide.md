@@ -192,7 +192,9 @@ const total = sum(rows);
 
 - `::: columns` … `:::` puts what is in it side by side. The columns are
   read from what is inside, the first rule that applies: `::: col` blocks
-  (one column each; nest them in `:::: columns` with four colons, or write
+  (one column each; nest them in `:::: columns` with four colons — a
+  `:::` closes the outer container first, so `::: columns` with three
+  leaves its last `:::` on the slide as text — or write
   `::: col` blocks one after another without a wrapper; `::: col Title`
   sets a title over the column); `---` lines between the parts; headings
   (a column starts at each heading of the highest level there, text

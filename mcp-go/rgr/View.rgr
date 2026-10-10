@@ -61,7 +61,7 @@ class View {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs sh.id))
+        def bgs:CheckPics (Tools.backgrounds(host md (doc.str_("css")) noImgs sh.id))
         def din (new DeckIn)
         din.deckId = sh.id
         din.stored = stored
@@ -319,7 +319,7 @@ class ViewExport {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs sh.id))
+        def bgs:CheckPics (Tools.backgrounds(host md (doc.str_("css")) noImgs sh.id))
         def css:MfJ (doc.field("css"))
         def theme:string (doc.str_("theme"))
         def hasCss:boolean (css.kind == 3)
@@ -629,7 +629,7 @@ class LinkCard {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (doc.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored

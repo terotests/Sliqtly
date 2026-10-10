@@ -306,8 +306,9 @@ class Deck {
     }
 
     ; Notes for the model: pictures the text names but nobody sent, and the
-    ; other way round.
-    sfn warnings:[string] (md:string imageNames:[string] storedNames:[string]) {
+    ; other way round. A picture the sheet names (`page { background-image:
+    ; url(media/x.png) }`) is used too.
+    sfn warnings:[string] (md:string css:string imageNames:[string] storedNames:[string]) {
         def o:Outline (Deck.outline(md))
         def out:[string]
         for o.media m:string i {
@@ -315,8 +316,10 @@ class Deck {
                 push out (Guide.see(("media/" + m + " is used in the Markdown but no image by that name was sent.") "pictures"))
             }
         }
+        def inCss:[string]
+        Tools.mediaNames(css inCss)
         for imageNames nm:string j {
-            if ((Deck.inList(o.media nm)) == false) {
+            if (((Deck.inList(o.media nm)) == false) && ((Deck.inList(inCss nm)) == false)) {
                 push out ("Image " + nm + " is kept with the deck but not used yet: no slide shows media/" + nm + ". Show it with ![…](media/" + nm + ") now or in a later update_presentation.")
             }
         }

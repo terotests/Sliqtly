@@ -1251,11 +1251,13 @@ class Tools {
     ; the pictures the deck names (media/<name>), for the layout and the
     ; contrast check of its backgrounds: from
     ; this call's pictures, else from the deck's stored ones (deckId). A
-    ; slide's script names them too (add("image", {src: "media/x.svg"})).
-    sfn backgrounds:CheckPics (host:McpHost md:string imgs:[Img] deckId:string) {
+    ; slide's script names them too (add("image", {src: "media/x.svg"})),
+    ; and so does the deck's sheet (`page { background-image: url(media/x.png) }`).
+    sfn backgrounds:CheckPics (host:McpHost md:string css:string imgs:[Img] deckId:string) {
         def out (new CheckPics)
         def names:[string]
         Tools.mediaNames(md names)
+        Tools.mediaNames(css names)
         for (Tools.scriptTexts(host md imgs deckId)) st:string sti {
             Tools.mediaNames(st names)
         }
@@ -1817,7 +1819,7 @@ class Tools {
             push names im.name
         }
         def none:[string]
-        def ws:[string] (Deck.warnings(md names none))
+        def ws:[string] (Deck.warnings(md sh.css names none))
         for web.notes wn:string wnk {
             push ws wn
         }
@@ -1833,7 +1835,7 @@ class Tools {
         for data.imgs dfi:Img dfii {
             push withFiles dfi
         }
-        def bgs:CheckPics (Tools.backgrounds(host md withFiles ""))
+        def bgs:CheckPics (Tools.backgrounds(host md sh.css withFiles ""))
         def ck:Checked (Tools.checkDeck(host md theme sh.hasCss sh.css bgs data.imgs "" none2))
         if (Tools.limited(host)) {
             def long:string (Tools.slidesOver(caller ck.slides))
@@ -2666,7 +2668,7 @@ class Tools {
                 push stored (sf.str_("path"))
             }
             def css:MfJ (cur.field("css"))
-            def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+            def bgs:CheckPics (Tools.backgrounds(host md (cur.str_("css")) noImgs id))
             def ck:Checked (Tools.checkDeck(host md (cur.str_("theme")) (css.kind == 3) (cur.str_("css")) bgs noImgs id stored))
             starts = ck.starts
             titles = ck.titles
@@ -2763,14 +2765,14 @@ class Tools {
             push stored path
         }
         def md:string (saved.str_("md"))
-        def ws:[string] (Deck.warnings(md sent stored))
+        def ws:[string] (Deck.warnings(md (saved.str_("css")) sent stored))
         def savedCss:MfJ (saved.field("css"))
         def noImgs:[Img]
         def storedPaths:[string]
         for (saved.list("files")) sf:MfJ sfi {
             push storedPaths (sf.str_("path"))
         }
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (saved.str_("css")) noImgs id))
         def ck:Checked (Tools.checkDeck(host md (saved.str_("theme")) (savedCss.kind == 3) (saved.str_("css")) bgs noImgs id storedPaths))
         for ck.warnings cw:string ci {
             push ws cw
@@ -3530,7 +3532,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -3814,7 +3816,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def css:MfJ (d.field("css"))
         ; the slide by its number, or by its title once the deck is laid out
         def at:int -1
@@ -3926,7 +3928,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -4031,7 +4033,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -4618,7 +4620,7 @@ class Tools {
             push stored (f.str_("path"))
         }
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
