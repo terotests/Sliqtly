@@ -39,6 +39,12 @@ Import "../rangerflow/core/FlowLook.rgr"
 
 class PresDNode {
     def id:string ""
+    ; A frame drawn behind what it holds (a subgraph, a sequence's `opt`
+    ; block: `SceneItem.role` "group"), and how far down its title reaches;
+    ; a sequence participant's lifeline, a line however it is drawn.
+    def group:boolean false
+    def titleFoot:double 0.0
+    def lifeline:boolean false
     def x:double 0.0
     def y:double 0.0
     def w:double 0.0
@@ -892,9 +898,21 @@ class PresDiagram {
             def k:int 0
             while (k < (array_length n.items)) {
                 def it:SceneItem (itemAt n.items k)
+                if (it.role == "group") {
+                    n.group = true
+                }
+                if (it.role == "lifeline") {
+                    n.lifeline = true
+                }
                 if ((it.kind == 1) && ((strlen it.text) > 0)) {
-                    if ((boxText <= 0.0) || (it.fontSize < boxText)) {
-                        boxText = it.fontSize
+                    if ((it.y + it.h) > n.titleFoot) {
+                        n.titleFoot = (it.y + it.h)
+                    }
+                    ; a frame's title is no box's words
+                    if (n.group == false) {
+                        if ((boxText <= 0.0) || (it.fontSize < boxText)) {
+                            boxText = it.fontSize
+                        }
                     }
                 }
                 if ((it.kind == 0) && (bodied == false)) {
@@ -2829,7 +2847,21 @@ class PresDiagram {
         def i:int 0
         while (i < (array_length nodes)) {
             def n:PresDNode (itemAt nodes i)
-            if ((((x < ((n.x + n.w) + pad)) && ((x + w) > (n.x - pad))) && (y < ((n.y + n.h) + pad))) && ((y + h) > (n.y - pad))) {
+            ; a lifeline is a line: a message across three participants is
+            ; written over the middle one's (`onLine` has the other lines)
+            def meets:boolean ((n.lifeline == false) && ((((x < ((n.x + n.w) + pad)) && ((x + w) > (n.x - pad))) && (y < ((n.y + n.h) + pad))) && ((y + h) > (n.y - pad))))
+            ; a frame holds its lines' names: inside it, under its title, a
+            ; name is in the frame, not on it
+            if (meets && n.group) {
+                def top:double n.titleFoot
+                if (top < n.y) {
+                    top = n.y
+                }
+                if ((((x >= n.x) && ((x + w) <= (n.x + n.w))) && (y >= top)) && ((y + h) <= (n.y + n.h))) {
+                    meets = false
+                }
+            }
+            if meets {
                 return true
             }
             i = (i + 1)
@@ -6481,6 +6513,10 @@ class PresDiagram {
     ; Whether node `i`'s box holds another node's box: a frame.
     fn holdsOther:boolean (i:int) {
         def f:PresDNode (itemAt nodes i)
+        ; a frame says so (a sequence's `opt` block holds lines, not boxes)
+        if f.group {
+            return true
+        }
         def j:int 0
         while (j < (array_length nodes)) {
             def o:PresDNode (itemAt nodes j)

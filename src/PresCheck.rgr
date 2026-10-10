@@ -43,6 +43,7 @@ Import "PresPlay.rgr"
 Import "PresScript.rgr"
 Import "Pres3D.rgr"
 Import "PresSceneModel.rgr"
+Import "PresPlayWeb.rgr"
 Import "PresStripDrag.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
@@ -5482,6 +5483,27 @@ class PresCheck {
             ni = (ni + 1)
         }
         this.ok(said "worlds: a <scene3d> without the grant is said")
+
+        ; the public viewer (PresPlayWeb): the fence's grant comes with the
+        ; play, and the page is told where each world is
+        def web:PresPlayWeb (new PresPlayWeb())
+        web.add("w" "apps/w.tsx" 200.0 100.0 0.0 0.0 400.0 200.0)
+        web.add("x" "apps/x.tsx" 200.0 100.0 0.0 0.0 400.0 200.0)
+        web.setAllow3d("w" true)
+        web.setTree("w" tree)
+        web.setTree("x" tree)
+        def ws:JVal (JVal.parse((web.scenesJson("w"))))
+        def xs:JVal (JVal.parse((web.scenesJson("x"))))
+        this.ok(((ws.len()) == 1) "worlds: the viewer is told of the world")
+        this.ok(((xs.len()) == 0) "worlds: none in the viewer without allow: 3d")
+        if ((ws.len()) == 1) {
+            def wv:JVal (ws.at(0))
+            def wsrc:string (wv.strOr("src" ""))
+            this.ok((wsrc == "three:w:1") ("worlds: the viewer's world named after its key, got " + wsrc))
+            this.ok(((wv.numOr("x" 0.0)) == 200.0) "worlds: the viewer's world at its right half")
+            this.ok(((wv.numOr("w" 0.0)) == 200.0) "worlds: the viewer's world fitted to the box")
+            this.ok(((indexOf (web.paintJson("w")) wsrc) > 0) "worlds: the viewer paints the world's picture")
+        }
 
         ; the room: a slide red on the left, blue on the right, white along the top
         def pw:int 16

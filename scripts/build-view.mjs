@@ -15,6 +15,8 @@
  *   gl/          evg-webgl.js, the painter
  *   viewplay.js, apps.js, pres_play.js, cerxes.wasm …   programs on slides
  *                (```app), loaded only for a deck that has one
+ *   three3d.js, pres_3d.js   their 3-D worlds (allow: 3d), the engine
+ *                loaded only when a world is on the slide
  *   fonts/       the faces the slides are drawn with
  *   personal-license.txt   the Personal package's license (its download)
  *   local.html                 how to run the Personal package on Ubuntu/Debian
@@ -27,14 +29,14 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, ensureCerxes, compile, root, webDir, log } from "./lib.mjs";
-import { copyFaces, facesStamp, minify } from "./build.mjs";
+import { copyFaces, facesStamp, minify, buildThree } from "./build.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
 export const viewDir = path.join(webDir, "dist-view");
 
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
-const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"]];
+const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"]];
 const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"]];
 
 function files(dir) {
@@ -67,6 +69,7 @@ export function buildView({ ranger } = {}) {
   fs.writeFileSync(playJs, "// loaded on demand by viewplay.js: the programs and scripts on a deck's slides.\n"
     + "(function () {\n" + fs.readFileSync(playJs, "utf8") + "\n;globalThis.PresPlayWeb = PresPlayWeb;\nglobalThis.PresScriptWeb = PresScriptWeb;\n})();\n");
   minify(playJs);
+  buildThree(ranger, viewDir);
   const cerxes = ensureCerxes();
   copy(cerxes.runtime, "cerxes-runtime.js");
   copy(cerxes.wasi, "cerxes-wasi.js");
