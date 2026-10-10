@@ -49,6 +49,10 @@ func decodePicture(data []byte) (image.Image, error) {
 // of its drawing (svgraster.go); its size alone when it does not draw.
 func (h *McpHost) ImageGrid(handle int64) []int64 {
 	data := h.images[handle]
+	return cachedGrid(data, func() []int64 { return imageGrid(data) })
+}
+
+func imageGrid(data []byte) []int64 {
 	img, err := decodePicture(data)
 	if err != nil {
 		w, ht, ok := svgSize(data)

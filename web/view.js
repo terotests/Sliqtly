@@ -21,6 +21,7 @@ import { currentUser, signIn, authHeaders } from "./viewauth.js";
 import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } from "./book.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
+import { facesFor, PictureQueue } from "./viewload.js";
 import { linkOf, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
@@ -31,6 +32,7 @@ document.documentElement.lang = fi ? "fi" : "en";
 const canvas = document.getElementById("c");
 const intro = document.getElementById("brandIntro");
 const note = document.getElementById("note");
+const picWait = document.getElementById("picWait");
 const bar = document.getElementById("viewBar");
 const vCount = document.getElementById("vCount");
 const vGo = document.getElementById("vGo");
@@ -92,6 +94,7 @@ async function loadFaces(names) {
 
 function showNote(html) {
   note.innerHTML = html;
+  intro.classList.remove("loading");
   intro.hidden = false;
   started();
 }
@@ -103,6 +106,9 @@ function started() {
 }
 
 // --- the intro: Sliqtly's logo and name before the slides (web/brand.js) ----
+// Resolves when the intro has had its time (or a tap or key skipped it); the
+// screen stays up until the first slide is ready (hideIntro), with a bar
+// running under the name while it still loads.
 function playIntro() {
   return new Promise((done) => {
     let timer = 0;
@@ -114,18 +120,22 @@ function playIntro() {
       clearTimeout(timer);
       window.removeEventListener("pointerdown", end, true);
       window.removeEventListener("keydown", end, true);
-      intro.classList.add("out");
-      // a note said meanwhile (not found, no WebGL) keeps the screen up
-      setTimeout(() => {
-        intro.classList.remove("out");
-        if (!note.textContent) intro.hidden = true;
-      }, 350);
       done();
     };
     window.addEventListener("pointerdown", end, true);
     window.addEventListener("keydown", end, true);
     timer = setTimeout(end, Math.max(0, INTRO_MS - (performance.now() - (window.__introAt ?? performance.now()))));
   });
+}
+
+function hideIntro() {
+  intro.classList.remove("loading");
+  intro.classList.add("out");
+  // a note said meanwhile (not found, no WebGL) keeps the screen up
+  setTimeout(() => {
+    intro.classList.remove("out");
+    if (!note.textContent) intro.hidden = true;
+  }, 350);
 }
 
 // --- painting -----------------------------------------------------------------
@@ -354,6 +364,7 @@ function go(i) {
     sel.clear();
   }
   at = i;
+  waitForPictures();
   vCount.textContent = book ? spreadLabel(book.spreads, spreadNow(), n) : (at + 1) + " / " + n;
   if (!given) {
     const q = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -760,6 +771,30 @@ async function pictureOf(p) {
   }
 }
 
+// The deck's pictures, fetched nearest the shown slide first
+// (web/viewload.js); null until the deck is known.
+let queue = null;
+const shownPages = (i) => (book ? spreadPages(book.spreads, spreadOfPage(book.spreads, i)).map((p) => p.page) : [i]);
+const pagesReady = (pages) => Promise.all(pages.map((p) => queue.whenReady(p)));
+
+// A picture is in: painted at once when the slide shown draws it.
+function pictureIn(src) {
+  if (at < 0) return;
+  const on = queue.slidesOf.get(src);
+  // a realistic book keeps its pages as pictures of their own, the next
+  // ones too: all drawn again
+  if (bookGl) bookGl.clear();
+  if (bookGl || !on || shownPages(at).some((p) => on.includes(p))) repaint();
+  if (shownPages(at).every((p) => queue.ready(p))) picWait.hidden = true;
+}
+
+// The slide shown goes first; a spinner while its pictures are on the way.
+function waitForPictures() {
+  if (!queue) return;
+  queue.focus(at);
+  picWait.hidden = shownPages(at).every((p) => queue.ready(p));
+}
+
 // who is signed in on the page, when a private presentation needed it
 let user = null;
 
@@ -802,7 +837,6 @@ async function start() {
     return;
   }
   const shown = playIntro();
-  const fonts = loadFaces(FACES);
   let got;
   try {
     let res = await fetch(viewUrl(link));
@@ -837,8 +871,16 @@ async function start() {
     }
   }
   if (deck.name) document.title = deck.name + " · Sliqtly";
+  // the faces the slides are set in, and the first slide's pictures: the
+  // rest follow while it is shown (web/viewload.js)
   const looks = lookFacesOf(got.lists).map((name) => [name, LOOK_FACES[name]]);
-  await Promise.all([fonts.then(() => looks.length && loadFaces(looks)), ...picturesOf(deck).map(pictureOf)]);
+  const faceSets = facesFor(got.lists, FACES);
+  const first = Math.max(0, Math.min(link.slide, got.lists.length - 1));
+  queue = new PictureQueue(picturesOf(deck), got.lists, { load: pictureOf, loaded: pictureIn, at: first, parallel: 4 });
+  shown.then(() => {
+    if (!lists.length && !note.textContent) intro.classList.add("loading");
+  });
+  await Promise.all([loadFaces(faceSets.need.concat(looks)), pagesReady(shownPages(first))]);
   lists = got.lists;
   // the deck's own effects, compiled on the server from its ```fx blocks
   if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
@@ -860,11 +902,14 @@ async function start() {
     }
   }
   await shown;
+  hideIntro();
   bar.hidden = false;
   shownAt = performance.now();
   at = -1;
-  go(Math.min(link.slide, lists.length - 1));
+  go(first);
   wake();
   started();
+  // the other base faces: what a glyph the slides' faces lack is drawn with
+  if (faceSets.rest.length) loadFaces(faceSets.rest).then(repaint);
 }
 start();
