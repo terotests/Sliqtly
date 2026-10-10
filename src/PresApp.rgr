@@ -560,7 +560,7 @@ class PresApp {
             return ""
         }
         def use:PresPlayUse (unwrap u)
-        return (deck.dataText(use.spec.src))
+        return (deck.linkedSource(use.spec.src))
     }
 
     ; The programs on the slide the stage shows, one key a line: these run.

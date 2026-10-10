@@ -1,0 +1,193 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresPlayFiles.rgr — the deck's files a program imports
+; ============================================================================
+;
+;   import sales from "../data/sales.csv"      a program (```app src, or a
+;   import cfg from "data/world.json"          slide's {script=…}) reads the
+;                                              deck's files as modules
+;
+; CErXes reads an import from a module the host defined (defineModule). The
+; host here is whoever runs the program (the editor, the viewer, the MCP
+; server): it finds the files the source imports (`specs`, `resolve`),
+; reads them from the deck, and puts one call on the program's first line,
+;
+;   __deckFiles([["../data/sales.csv","data/sales.csv","a,b\n1,2"]]);import …
+;
+; so the program's own lines keep their numbers in what it reports. The
+; runtime (web/apps-runtime.js __deckFiles) turns each into a module: JSON
+; parsed, CSV rows, any other file its text.
+; ============================================================================
+
+Import "JsonValue.rgr"
+
+; A file a program imports: the name it imports it by, the deck's path
+; for it, its text, and whether the deck has it at all.
+class PresPlayFile {
+    def spec:string ""
+    def path:string ""
+    def text:string ""
+    def have:boolean false
+}
+
+class PresPlayFiles {
+
+    ; The modules a program's source imports that name the deck's files,
+    ; each once, in order: not "Sliqtly", "ranger:three" or another host's
+    ; module (a name with ':'), not a bare name with no extension (a
+    ; package), not a code file (CErXes runs one source).
+    ; An import is read at the start of a line, as a program writes it.
+    sfn specs:[string] (source:string) {
+        def out:[string]
+        def n:int (strlen source)
+        def i:int 0
+        def lineStart:boolean true
+        while (i < n) {
+            def c:int (charAt source i)
+            if (c == 10) {
+                lineStart = true
+                i = (i + 1)
+                continue
+            }
+            if ((((c == 32) || (c == 9)) || (c == 13)) || (c == 59)) {
+                i = (i + 1)
+                continue
+            }
+            if (lineStart && (PresPlayFiles.wordAt(source i "import"))) {
+                def spec:string (PresPlayFiles.moduleAfter(source (i + 6)))
+                if ((PresPlayFiles.isDeckFile(spec)) && ((indexOf out spec) < 0)) {
+                    push out spec
+                }
+            }
+            lineStart = false
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `word` at `at`, not part of a longer name, and not `import(` (a
+    ; dynamic import, which CErXes does not read).
+    sfn wordAt:boolean (s:string at:int word:string) {
+        def m:int (strlen word)
+        if ((at + m) > (strlen s)) {
+            return false
+        }
+        if ((substring s at (at + m)) != word) {
+            return false
+        }
+        if ((at + m) == (strlen s)) {
+            return false
+        }
+        def c:int (charAt s (at + m))
+        return ((((c == 32) || (c == 9)) || (c == 10)) || (((c == 123) || (c == 42)) || ((c == 34) || (c == 39))))
+    }
+
+    ; The module of an import statement starting at `from`: its first
+    ; quoted string (names cannot hold a quote), "" when a ';' comes first.
+    sfn moduleAfter:string (s:string from:int) {
+        def n:int (strlen s)
+        def i:int from
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 59) {
+                return ""
+            }
+            if ((c == 34) || (c == 39)) {
+                def j:int (i + 1)
+                while ((j < n) && ((charAt s j) != c)) {
+                    if ((charAt s j) == 10) {
+                        return ""
+                    }
+                    j = (j + 1)
+                }
+                if (j >= n) {
+                    return ""
+                }
+                return (substring s (i + 1) j)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn isDeckFile:boolean (spec:string) {
+        if ((strlen spec) == 0) {
+            return false
+        }
+        if (((indexOf spec ":") >= 0) || (spec == "Sliqtly")) {
+            return false
+        }
+        ; a file has an extension: a bare name is a package, not the deck's
+        def last:string (substring spec ((lastIndexOf spec "/") + 1) (strlen spec))
+        if ((indexOf last ".") <= 0) {
+            return false
+        }
+        def low:string (to_lowercase spec)
+        def code:[string] ([] _:string (".ts" ".tsx" ".js" ".jsx" ".mjs"))
+        for code ext:string ei {
+            if (endsWith low ext) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; The deck's path of `spec` imported by the program at `program`:
+    ; "./x" and "../x" from the program's folder, "/x" and "data/x" from
+    ; the deck's root.
+    sfn resolve:string (program:string spec:string) {
+        def s:string spec
+        if (startsWith s "/") {
+            while (startsWith s "/") {
+                s = (substring s 1 (strlen s))
+            }
+            return (PresPlayFiles.normal(s))
+        }
+        if ((startsWith s "./") || (startsWith s "../")) {
+            def slash:int (lastIndexOf program "/")
+            def dir:string ""
+            if (slash >= 0) {
+                dir = (substring program 0 (slash + 1))
+            }
+            return (PresPlayFiles.normal((dir + s)))
+        }
+        return (PresPlayFiles.normal(s))
+    }
+
+    ; "a/./b/../c" as "a/c"; a ".." past the root is dropped.
+    sfn normal:string (p:string) {
+        def parts:[string] (strsplit p "/")
+        def out:[string]
+        for parts part:string pi {
+            if (((strlen part) == 0) || (part == ".")) {
+                continue
+            }
+            if (part == "..") {
+                if ((array_length out) > 0) {
+                    removeLast out
+                }
+                continue
+            }
+            push out part
+        }
+        return (join out "/")
+    }
+
+    ; The call that makes `files` the modules the program imports, one line
+    ; with no line break in it: put before the program's first line.
+    sfn prelude:string (files:[PresPlayFile]) {
+        if ((array_length files) == 0) {
+            return ""
+        }
+        def items:[string]
+        for files f:PresPlayFile fi {
+            def text:string "null"
+            if f.have {
+                text = (JVal.quote(f.text))
+            }
+            push items ("[" + (JVal.quote(f.spec)) + "," + (JVal.quote(f.path)) + "," + text + "]")
+        }
+        return ("__deckFiles([" + (join items ",") + "]);")
+    }
+}

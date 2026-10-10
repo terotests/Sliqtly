@@ -105,6 +105,67 @@ var __code = {
 presentation.code = __code;
 var __sliqtly = { presentation: presentation, el: el, machine: machine };
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
+// The deck's files a program imports (src/PresPlayFiles.rgr puts this call
+// on its first line): import rows from "data/sales.csv". Each is a module:
+//   .json        default: the value          .csv / .tsv  default: rows as
+//   objects by the header row (number-like cells as numbers), rows: the
+//   cells as text; any other file  default: its text. All have text.
+// A file the deck lacks, or JSON that does not parse, throws where the
+// program reads it, naming the file.
+function __csvRows(text, sep) {
+  var rows = [], row = [], cell = "", i = 0, n = text.length, quoted = false;
+  if (text.charCodeAt(0) === 0xfeff) i = 1;
+  for (; i < n; i++) {
+    var c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false;
+      } else cell += c;
+    } else if (c === '"' && cell === "") quoted = true;
+    else if (c === sep) { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      rows.push(row); row = [];
+    } else cell += c;
+  }
+  if (cell !== "" || row.length > 0) { row.push(cell); rows.push(row); }
+  return rows.filter(function (r) { return r.length > 1 || r[0] !== ""; });
+}
+function __csvValue(s) {
+  var t = s.trim();
+  return t !== "" && /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t) ? Number(t) : s;
+}
+function __deckFile(path, text) {
+  var m = {};
+  var fail = function (why) {
+    var thrower = function () { throw new Error(why); };
+    Object.defineProperty(m, "default", { enumerable: true, get: thrower });
+    Object.defineProperty(m, "text", { enumerable: true, get: thrower });
+    Object.defineProperty(m, "rows", { enumerable: true, get: thrower });
+    return m;
+  };
+  if (text === null) return fail(path + " is not a file of the presentation (send it with the deck's files)");
+  var ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  m.text = text;
+  if (ext === "json" || ext === "gltf") {
+    try { m["default"] = JSON.parse(text); } catch (e) { return fail(path + " is not JSON: " + e.message); }
+  } else if (ext === "csv" || ext === "tsv") {
+    var rows = __csvRows(text, ext === "tsv" ? "\t" : ",");
+    var head = rows.length ? rows[0].map(function (h) { return h.trim(); }) : [];
+    m.rows = rows;
+    m["default"] = rows.slice(1).map(function (r) {
+      var o = {};
+      head.forEach(function (h, k) { o[h] = __csvValue(r[k] === undefined ? "" : r[k]); });
+      return o;
+    });
+  } else m["default"] = text;
+  return m;
+}
+function __deckFiles(list) {
+  if (typeof defineModule !== "function") return;
+  list.forEach(function (f) { defineModule(f[0], __deckFile(f[1], f[2])); });
+}
 function __deckState(d) {
   __deck.data = d.data || {};
   __slide.number = d.slide || 1;
