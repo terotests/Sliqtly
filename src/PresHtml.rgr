@@ -107,7 +107,7 @@ class PresHtml {
                 if (!null? shot) {
                     push parts (this.shotHtml((unwrap shot) pageW))
                 } {
-                    if (ch.kind != "front_matter") {
+                    if ((ch.kind != "front_matter") && ((deck.scriptLeaves(page ch.srcStart ch.srcEnd)) != 2)) {
                         push parts (maker.node(ch))
                     }
                 }

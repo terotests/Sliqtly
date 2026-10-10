@@ -30,6 +30,9 @@ Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
+Import "PresExport.rgr"
+Import "PresScriptWeb.rgr"
+Import "PresMorph.rgr"
 Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
@@ -4646,6 +4649,33 @@ class PresCheck {
         return (join out " ")
     }
 
+    ; the first command of the second bar of slide 0's chart, as `l` draws it
+    sfn barOf@(optional):EVGDrawCmd (deck:PresDeck l:EVGDisplayList) {
+        def none@(optional):EVGDrawCmd
+        def sc:PresScene (deck.sceneOfSlide(0))
+        def bi:int (sc.indexOf("chart-1/bar-2"))
+        if (bi < 0) {
+            return none
+        }
+        def e:PresEnt (sc.at(bi))
+        ; the bar's own colour at the middle of its box
+        def best@(optional):EVGDrawCmd
+        def bestD:double 1000000.0
+        for l.cmds c:EVGDrawCmd ci {
+            if (((c.kind == 0) || (c.kind == 6)) && ((c.w > 4.0) && (c.w < (e.w + 1.0)))) {
+                def d:double ((c.x - e.x) + 0.0)
+                if (d < 0.0) {
+                    d = (0.0 - d)
+                }
+                if ((d < 1.0) && (d < bestD)) {
+                    bestD = d
+                    best = c
+                }
+            }
+        }
+        return best
+    }
+
     sfn textCmd@(optional):EVGDrawCmd (l:EVGDisplayList text:string) {
         def i:int 0
         while (i < (array_length l.cmds)) {
@@ -4658,6 +4688,106 @@ class PresCheck {
         }
         def none@(optional):EVGDrawCmd
         return none
+    }
+
+    ; `transition=morph`: what both slides have glides from its place on the
+    ; first to its place on the second; the rest fades (PresMorph).
+    fn morph:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n"
+            + "## Sales\n\nOnly here\n\nThe total\n{#total}\n\n"
+            + "## Sales by region {transition=morph seconds=1}\n\n- North\n- South\n\nThe total\n{#total}\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) != 2) {
+            this.ok(false "morph: two slides")
+            return
+        }
+        def a:PresScene (deck.sceneOfSlide(0))
+        def b:PresScene (deck.sceneOfSlide(1))
+        def pairs:[int] (PresMorph.pairs(a b))
+        def ti:int (b.indexOf("total"))
+        def fi:int (a.indexOf("total"))
+        this.ok(((ti > 0) && (fi > 0)) "morph: the {#id} block on both slides")
+        if ((ti <= 0) || (fi <= 0)) {
+            return
+        }
+        this.ok(((itemAt pairs ti) == fi) "morph: the same {#id} is one object")
+        def hb:int (b.indexOf("h2-1"))
+        this.ok(((itemAt pairs hb) < 0) "morph: headings with other words are not")
+        def from:PresEnt (a.at(fi))
+        def to:PresEnt (b.at(ti))
+        this.ok((from.y != to.y) "morph: the block is somewhere else on the second slide")
+        ; halfway: between its two places, the first slide's own text half gone
+        def arr:PresScriptFrame (PresMorph.arriving(a b pairs 0.5))
+        def tpo@(optional):PresEntProps (arr.propsOf("total"))
+        if (!null? tpo) {
+            def tp:PresEntProps (unwrap tpo)
+            def mid:double ((from.y + to.y) * 0.5)
+            this.ok((((tp.y - mid) < 0.5) && ((mid - tp.y) < 0.5)) ("morph: halfway between, y " + (to_string tp.y)))
+        } {
+            this.ok(false "morph: the paired block moves")
+        }
+        def lea:PresScriptFrame (PresMorph.leaving(a pairs 0.5))
+        def lpo@(optional):PresEntProps (lea.propsOf("total"))
+        this.ok(((!null? lpo) && ((unwrap lpo).visible == false)) "morph: the leaving slide does not draw it twice")
+        ; on the stage, a quarter in: the block is drawn once, between
+        def f:EVGDisplayList (PresTimeline.frame(deck 1 0.5))
+        def n:int 0
+        def y:double 0.0
+        for f.cmds c:EVGDrawCmd ci {
+            if ((c.text == "The") && (c.a > 0.01)) {
+                n = (n + 1)
+                y = c.y
+            }
+            if ((c.text == "The total") && (c.a > 0.01)) {
+                n = (n + 1)
+                y = c.y
+            }
+        }
+        this.ok((n == 1) ("morph: the total drawn once mid-way, got " + (to_string n)))
+        def lo:double from.y
+        def hi:double to.y
+        if (hi < lo) {
+            lo = to.y
+            hi = from.y
+        }
+        this.ok(((y > (lo - 1.0)) && (y < (hi + to.h))) ("morph: between its places, y " + (to_string y)))
+        ; once over, the slide as it is
+        def end:EVGDisplayList (PresTimeline.frame(deck 1 5.0))
+        this.ok(((array_length end.cmds) > 3) "morph: the slide after it")
+    }
+
+    sfn rectCmd:EVGDrawCmd (x:double y:double w:double h:double r:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.radius = r
+        return c
+    }
+
+    ; Rounded columns (`cornerRadiusEnd`) are a script's bars; a point (a
+    ; rect round all through) is not. The dressing still leaves them.
+    fn roundedBars:void () {
+        def tail:[EVGDrawCmd]
+        push tail (PresCheck.rectCmd(0.0 0.0 400.0 300.0 0.0))
+        push tail (PresCheck.rectCmd(20.0 100.0 40.0 200.0 0.0))
+        def top:EVGDrawCmd (PresCheck.rectCmd(80.0 150.0 40.0 150.0 4.0))
+        top.perCorner = true
+        top.radiusTR = 4.0
+        push tail top
+        push tail (PresCheck.rectCmd(140.0 120.0 40.0 180.0 4.0))
+        push tail (PresCheck.rectCmd(200.0 50.0 8.0 8.0 4.0))
+        def ramp:[boolean]
+        for tail c:EVGDrawCmd ci {
+            push ramp false
+        }
+        def spec:string "{\"mark\": {\"type\": \"bar\", \"cornerRadiusEnd\": 4}}"
+        this.ok(((array_length (PresChart.barsIn(tail ramp spec))) == 3) ("rounded bars: a script finds 3 columns, got " + (to_string (array_length (PresChart.barsIn(tail ramp spec))))))
+        this.ok(((array_length (PresChart.columnsIn(tail ramp spec))) == 1) "rounded bars: the dressing leaves the rounded ones")
     }
 
     fn scripts:void () {
@@ -4773,6 +4903,102 @@ class PresCheck {
             this.ok((cf.a == 0.0) "scripts: visible:false makes it clear")
         }
         this.ok(((array_length after.cmds) > (array_length before.cmds)) "scripts: what it added is drawn")
+        ; what a document makes of it: the list changed, the paragraph hidden
+        this.ok((deck.scriptChanges(0)) "scripts: the slide ends changed")
+        this.ok(((deck.scriptChanges(1)) == false) "scripts: …a slide with no final frame does not")
+        def docN:MdNode deck.md.edit.doc
+        def listAt:int -1
+        def paraAt:int -1
+        def dn:int 0
+        while (dn < (docN.childCount())) {
+            def dc:MdNode (docN.childAt(dn))
+            if ((dc.kind == "list") && (listAt < 0)) {
+                listAt = dn
+            }
+            if ((dc.kind == "paragraph") && ((indexOf (dc.plainText()) "Coffee pays") >= 0)) {
+                paraAt = dn
+            }
+            dn = (dn + 1)
+        }
+        if ((listAt >= 0) && (paraAt >= 0)) {
+            def ln:MdNode (docN.childAt(listAt))
+            def pn:MdNode (docN.childAt(paraAt))
+            this.ok(((deck.scriptLeaves(0 ln.srcStart ln.srcEnd)) == 1) ("scripts: a moved item changes its list, got " + (to_string (deck.scriptLeaves(0 ln.srcStart ln.srcEnd)))))
+            this.ok(((deck.scriptLeaves(0 pn.srcStart pn.srcEnd)) == 2) "scripts: a hidden paragraph is hidden")
+            def rect:[double] (deck.scriptBlockRect(0 ln.srcStart ln.srcEnd))
+            this.ok(((array_length rect) == 4) "scripts: the list's rectangle where the script leaves it")
+            def word (new PresDocx())
+            word.findShots(deck)
+            def scriptedShots:int 0
+            for word.shots ws:PresDocxShot wsi {
+                if ws.scripted {
+                    scriptedShots = (scriptedShots + 1)
+                }
+            }
+            this.ok((scriptedShots >= 1) "scripts: Word draws a changed block as the stage shows it")
+        } {
+            this.ok(false "scripts: the deck's list and paragraph")
+        }
+        ; the PowerPoint file is drawn from the list where the script ends
+        def ex (new PresExport())
+        ex.deck = deck
+        def ppt:buffer (ex.pptx())
+        this.ok(((buffer_length ppt) > 1000) "scripts: a PPTX with a scripted slide")
+        ; one moment of it (the server's render_slide(time)) over the others
+        this.ok((deck.setScriptAt("script:apps/fx.tsx#1" "{\"p\":{\"h2-1\":{\"opacity\":0.5}}}")) "scripts: a moment taken")
+        def atList:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def head@(optional):EVGDrawCmd (PresCheck.textCmd(atList "Sales grow"))
+        if (!null? head) {
+            def hc:EVGDrawCmd (unwrap head)
+            this.ok(((hc.a > 0.4) && (hc.a < 0.6)) ("scripts: the moment is drawn, alpha " + (to_string hc.a)))
+        }
+        deck.clearScriptAt()
+        ; the public viewer lays the same frame over the slide it was sent
+        ; (View.scripts, PresScriptWeb): the heading at half alpha there too
+        def wire:JVal (JVal.parse((deck.scriptBaseJson(0))))
+        def sw (new PresScriptWeb())
+        sw.add("script:apps/fx.tsx#1" ((wire.get("list")).toJson()) ((wire.get("scene")).toJson()) (wire.strOr("ink" "")) (wire.strOr("accent" "")))
+        this.ok((sw.setFrame("script:apps/fx.tsx#1" "{\"p\":{\"h2-1\":{\"opacity\":0.5}}}")) "scripts: the viewer takes a frame")
+        def webList:EVGDisplayList (new EVGDisplayList())
+        webList.cmds = (PresListRead.cmds((sw.listJson("script:apps/fx.tsx#1"))))
+        def wh@(optional):EVGDrawCmd (PresCheck.textCmd(webList "Sales grow"))
+        if (!null? wh) {
+            def whc:EVGDrawCmd (unwrap wh)
+            this.ok(((whc.a > 0.4) && (whc.a < 0.6)) ("scripts: the viewer draws the frame, alpha " + (to_string whc.a)))
+        } {
+            this.ok(false "scripts: the viewer's list has the heading")
+        }
+        def baseCmds:[EVGDrawCmd] (PresListRead.cmds(((wire.get("list")).toJson())))
+        def again:EVGDisplayList (new EVGDisplayList())
+        again.cmds = baseCmds
+        def twice:EVGDisplayList (new EVGDisplayList())
+        twice.cmds = (PresListRead.cmds((again.toJson())))
+        this.ok(((array_length baseCmds) > 3) "scripts: the viewer's list has commands")
+        this.ok(((again.toJson()) == (twice.toJson())) "scripts: a list read back writes the same JSON")
+        def hb@(optional):EVGDrawCmd (PresCheck.textCmd(again "Sales grow"))
+        if (!null? hb) {
+            def hbc:EVGDrawCmd (unwrap hb)
+            def hit:string (sw.entityAt("script:apps/fx.tsx#1" (hbc.x + 4.0) (hbc.y + (hbc.h * 0.5))))
+            this.ok(((indexOf hit "h2-1") == 0) ("scripts: the viewer finds the heading under the pointer, got " + hit))
+        }
+        ; scaleY with origin bottom: a bar half as tall, on its axis, as wide
+        def tall:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def bar0@(optional):EVGDrawCmd (PresCheck.barOf(deck tall))
+        this.ok((deck.setScriptAt("script:apps/fx.tsx#1" "{\"p\":{\"chart-1/bar-2\":{\"scaleY\":0.5,\"origin\":\"bottom\"}}}")) "scripts: scaleY taken")
+        def half:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def bar1@(optional):EVGDrawCmd (PresCheck.barOf(deck half))
+        deck.clearScriptAt()
+        if ((!null? bar0) && (!null? bar1)) {
+            def b0:EVGDrawCmd (unwrap bar0)
+            def b1:EVGDrawCmd (unwrap bar1)
+            this.ok((((b1.h - (b0.h * 0.5)) < 0.5) && (((b0.h * 0.5) - b1.h) < 0.5)) ("scripts: scaleY halves the bar, " + (to_string b0.h) + " → " + (to_string b1.h)))
+            this.ok((((b1.w - b0.w) < 0.01) && ((b0.w - b1.w) < 0.01)) "scripts: scaleY keeps its width")
+            def bottom0:double (b0.y + b0.h)
+            def bottom1:double (b1.y + b1.h)
+            this.ok((((bottom1 - bottom0) < 0.5) && ((bottom0 - bottom1) < 0.5)) "scripts: on its axis")
+        } {
+            this.ok(false "scripts: the second bar drawn")
+        }
         ; a thumbnail is the final state; the PDF too
         def bad2:string "{\"p\":{\"chart-1/bar-2\":{\"fill\":\"#00ff00\"}}}"
         deck.setScriptFinal("script:apps/fx.tsx#1" bad2)
@@ -4807,8 +5033,8 @@ class PresCheck {
         }
         this.ok(said ("scripts: a selector naming nothing is said: " + (join notes " | ")))
         ; the selectors read off the source
-        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' )"))
-        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, got " + (join sels " | ")))
+        def sels:[string] (PresScriptCheck.selectorsIn("a.find(\"h2 word\"); refind(\"x\"); find(`p ${n}`); find( 'edge A->B' ); find(\"li:\" + n)"))
+        this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, a made one left out, got " + (join sels " | ")))
     }
 
     fn plays:void () {
@@ -5662,6 +5888,8 @@ class PresCheck {
         c.clips()
         c.plays()
         c.scripts()
+        c.roundedBars()
+        c.morph()
         c.worlds()
         c.beats()
         c.jsonPatch()

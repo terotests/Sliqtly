@@ -555,6 +555,11 @@ class PresApp {
 
     ; ---- a slide's script (`{script=…}`, PresScript) ----
 
+    ; What script `key`'s onLeave set (web/apps.js, as its slide is left).
+    fn setScriptLeave:boolean (key:string json:string) {
+        return (deck.setScriptLeave(key json))
+    }
+
     ; A frame of script `key` ({p, a, k, build, click}): false when it was
     ; none.
     fn setScriptFrame:boolean (key:string json:string) {
@@ -591,18 +596,7 @@ class PresApp {
     ; What the final frame of script `key` runs to: {steps, seconds} — its
     ; slide's build steps, and `export-frame` or the slide's length.
     fn scriptFinalArgs:string (key:string) {
-        def o:JVal (JVal.mkObj())
-        def pg:int (deck.scriptPage(key))
-        if (pg >= 0) {
-            def s:PresSlide (deck.slideAt(pg))
-            o.setInt("steps" s.steps)
-            def secs:double s.duration
-            if (s.exportFrame >= 0.0) {
-                secs = s.exportFrame
-            }
-            o.setNum("seconds" secs)
-        }
-        return (o.toJson())
+        return ((deck.scriptFinalArgs(key)).toJson())
     }
 
     ; Whether script `key` has onClick: then a press on its slide, while
@@ -677,6 +671,9 @@ class PresApp {
         o.setInt("slide" (selected + 1))
         o.setInt("slides" (deck.slideCount()))
         o.setInt("step" pStep)
+        ; the slide the stage showed before this one (1-based, 0 for none):
+        ; a script's onEnter(from)
+        o.setInt("from" cameFrom)
         o.setStr("mode" mode)
         o.setBool("focused" (deck.playFocus == key))
         o.set("data" (deck.playData(page)))
@@ -3623,7 +3620,15 @@ class PresApp {
     }
 
     ; The stage's frame: the slide, or a book's spread (PresBook).
+    ; the slide the stage drew last, and the one before it (playState)
+    def stageAt:int -1
+    def cameFrom:int 0
+
     fn stageFrame:EVGDisplayList () {
+        if (selected != stageAt) {
+            cameFrom = (stageAt + 1)
+            stageAt = selected
+        }
         def book:MdBook (deck.book())
         if (book.isBook()) {
             if (mode == "present") {

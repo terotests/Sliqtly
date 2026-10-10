@@ -95,9 +95,81 @@ test("the final frame: final(), else the ticks run out", () => {
   const ticking = runtime(`var t = 0; function tick(dt) { t += dt; find("h2").set({ opacity: Math.min(1, t / 2) }); }`);
   const a = JSON.parse(ticking.__scriptFinal(JSON.stringify({ tree, seconds: 3, steps: 0 })));
   assert.equal(a.p["h2-1"].opacity, 1);
+  // build steps taken one after another, as on the stage: what step 1 set
+  // is still there after step 2
+  const building = runtime(`var seen = []; function build(n) { seen.push(n); if (n === 1) find("li:1").set({ opacity: 0.3 }); if (n === 2) find("li:2").set({ opacity: 0.6 }); }`);
+  const s = JSON.parse(building.__scriptFinal(JSON.stringify({ tree, seconds: 0, steps: 2 })));
+  assert.deepEqual(Array.from(building.seen), [0, 1, 2]);
+  assert.equal(s.p["li-1"].opacity, 0.3);
+  assert.equal(s.p["li-2"].opacity, 0.6);
   const ending = runtime(`function tick() { find("h2").set({ opacity: 0.2 }); } function final() { find("h2").set({ color: "#ff0000" }); }`);
   const b = JSON.parse(ending.__scriptFinal(JSON.stringify({ tree, seconds: 3 })));
   assert.deepEqual(b.p["h2-1"], { color: "#ff0000" });
+});
+
+test("a find() at the script's top level finds the slide's entities", async () => {
+  const { treeFirst } = await import("../dist/apps.js");
+  const app = openDeck();
+  const tree = app.scriptTree(app.deck.scriptKeyOf(0));
+  const ctx = vm.createContext({ console, JSON, Math });
+  vm.runInContext(DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + treeFirst(tree) + `
+    const items = find("li");
+    function tick() { items.set({ opacity: 0.25 }); }
+  `, ctx);
+  assert.equal(vm.runInContext("items.length", ctx), 2);
+  const out = JSON.parse(ctx.__scriptFrame(JSON.stringify({ tree: JSON.parse(tree), dt: 0.1, deck: {}, events: [] })));
+  assert.equal(out.p["li-2"].opacity, 0.25);
+});
+
+test("onEnter hears where the slide came from, onLeave where it goes", () => {
+  const app = openDeck();
+  const key = app.deck.scriptKeyOf(0);
+  const tree = JSON.parse(app.scriptTree(key));
+  const rt = runtime(`
+    var came = -1;
+    function onEnter(from) { came = from; find("h2").set({ opacity: 0.5 }); }
+    function onLeave(to) { find("h2").set({ x: to * 100 }); }
+  `);
+  const first = JSON.parse(rt.__scriptFrame(JSON.stringify({ tree, dt: 0, deck: { slide: 1, from: 3 }, events: [] })));
+  assert.equal(rt.came, 3);
+  assert.equal(first.p["h2-1"].opacity, 0.5);
+  assert.equal(first.leave, true, "the page asks for onLeave's frame");
+  const left = JSON.parse(rt.__scriptLeave(JSON.stringify({ deck: { slide: 2 }, to: 2 })));
+  assert.equal(left.p["h2-1"].x, 200);
+  // the editor draws it while the next slide arrives, until the script runs again
+  assert.ok(app.setScriptLeave(key, JSON.stringify(left)));
+  assert.equal(app.deck.scriptRuns[0].hasLeave, true);
+  assert.ok(app.setScriptFrame(key, JSON.stringify(first)));
+  assert.equal(app.deck.scriptRuns[0].hasLeave, false);
+});
+
+test("find() walks the entities once per selector, set() says an unknown key, input.take keeps keys", () => {
+  const app = openDeck();
+  const tree = JSON.parse(app.scriptTree(app.deck.scriptKeyOf(0)));
+  const logged = [];
+  const ctx = vm.createContext({ console: { log: (l) => logged.push(String(l)) }, JSON, Math });
+  vm.runInContext(DECK_RUNTIME + "\n" + SCRIPT_RUNTIME + `
+    input.take("ArrowRight", "Escape");
+    function tick() { find("li").set({ opacity: 0.5, wobble: 2 }); }
+  `, ctx);
+  ctx.__setTree(tree);
+  let walks = 0;
+  const all = ctx.__findAll;
+  ctx.__findAll = (sel, scope) => { walks++; return all(sel, scope); };
+  vm.runInContext("__findAll = this.__findAll", ctx);
+  const a = ctx.find("li");
+  a.pop();
+  const b = ctx.find("li");
+  assert.equal(walks, 1, "the second find() is the first one's");
+  assert.equal(b.length, a.length + 1, "and a list of its own");
+  const out = JSON.parse(ctx.__scriptFrame(JSON.stringify({ dt: 0.1, deck: {}, events: [] })));
+  assert.deepEqual(out.take, ["ArrowRight"], "Escape is never taken");
+  assert.equal(out.p["li-1"].opacity, 0.5);
+  assert.equal(out.p["li-1"].wobble, undefined);
+  assert.equal(logged.filter((l) => /"wobble" is no property/.test(l)).length, 1, "said once");
+  ctx.__setTree(tree);
+  ctx.find("li");
+  assert.equal(walks, 2, "new entities, a new walk");
 });
 
 test("the frame laid over the slide moves what it names", () => {
@@ -125,4 +197,11 @@ test("a script over its budget three frames in a row is stopped", async () => {
   assert.equal(s.over, 0, "a quick frame starts the count again");
   for (const ms of [5, 5, 5]) s = overBudget(s.over, ms);
   assert.equal(s.stop, true);
+  // a slower engine (its __calibrate took longer) gets more time, up to 4×
+  const { scriptBudget, BUDGET_MS, CALIB_REF_MS } = await import("../dist/apps.js");
+  assert.equal(scriptBudget(0), BUDGET_MS);
+  assert.equal(scriptBudget(CALIB_REF_MS / 2), BUDGET_MS);
+  assert.equal(scriptBudget(CALIB_REF_MS * 2), BUDGET_MS * 2);
+  assert.equal(scriptBudget(CALIB_REF_MS * 10), BUDGET_MS * 4);
+  assert.equal(overBudget(0, 6, scriptBudget(CALIB_REF_MS * 2)).over, 0, "6 ms is within 8");
 });
