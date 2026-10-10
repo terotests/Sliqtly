@@ -55,6 +55,16 @@ test("every file the preview fetches is served to other origins", () => {
   assert.deepEqual(missing, []);
 });
 
+// a program on a slide (```app) in the preview: the files loaded beside the
+// modules (web/sitescript.js), the worker the preview makes and what that
+// worker fetches
+test("the files a program needs are served to other origins", () => {
+  const ok = corsExtensions();
+  for (const f of ["pres_play.js", "pres_3d.js", "cerxes-worker.js", "cerxes-wasi.js", "cerxes.wasm"]) {
+    assert.ok(ok.has(path.extname(f).slice(1)), f);
+  }
+});
+
 const hosting = () => JSON.parse(fs.readFileSync(path.join(root, "firebase.json"), "utf8")).hosting;
 
 test("the site is the viewer's build, not the editor's", () => {

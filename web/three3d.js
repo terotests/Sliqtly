@@ -17,6 +17,8 @@
 // each world has a 2-D canvas of its own that the slide's painter shows,
 // told by imageChanged() that its pixels are new.
 
+import { loadScript } from "./sitescript.js";
+
 const CANVAS_ID = "sliqtly-3d";
 // a world's picture at most this many device pixels a side
 const MAX_SIDE = 1024;
@@ -24,7 +26,14 @@ const MAX_SIDE = 1024;
 const ROOM_W = 96;
 const ROOM_H = 54;
 
-export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast, build = "" }) {
+/**
+ * app: playScenesJson() and selectedSlide(); pictures: the painter's
+ * src → picture map the worlds' canvases go in; imageChanged(gl, src) tells
+ * the painter a picture's pixels are new; slidePicture(w, h) the shown
+ * slide as an ImageData (or null); scale() CSS px per slide unit.
+ * Used by the editor (web/main.js) and the public viewer (web/viewplay.js).
+ */
+export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast }) {
   let loading = null;
   let p3 = null;
   let failed = "";
@@ -35,13 +44,9 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
 
   function load() {
     if (!loading) {
-      loading = new Promise((ok, bad) => {
-        const s = document.createElement("script");
-        s.src = "./pres_3d.js" + (build ? "?v=" + build : "");
-        s.onload = () => ok(globalThis.Pres3D);
-        s.onerror = () => bad(new Error("pres_3d.js did not load"));
-        document.head.appendChild(s);
-      }).then((Pres3D) => {
+      loading = loadScript("pres_3d.js").then(() => {
+        const Pres3D = globalThis.Pres3D;
+        if (!Pres3D) throw new Error("pres_3d.js did not load");
         glCanvas = document.createElement("canvas");
         glCanvas.id = CANVAS_ID;
         glCanvas.width = 64;
