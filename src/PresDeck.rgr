@@ -42,6 +42,7 @@ Import "PresSmartArt.rgr"
 Import "PresFigma.rgr"
 Import "PresSketch.rgr"
 Import "PresPlay.rgr"
+Import "PresPlayFiles.rgr"
 Import "PresScript.rgr"
 Import "Pres3DTree.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -1207,7 +1208,53 @@ class PresDeck {
             }
             si = (si + 1)
         }
+        ; the files the programs read in import (PresPlayFiles)
+        def progs:int (array_length out)
+        def oi:int 0
+        while (oi < progs) {
+            def prog:string (itemAt out oi)
+            if ((PresPlayFiles.isDeckFile(prog)) == false) {
+                for (PresPlayFiles.specs((this.dataText(prog)))) spec:string spi {
+                    def fp:string (PresPlayFiles.resolve(prog spec))
+                    if (((indexOf out fp) < 0) && ((this.fileMissing(fp)) == false)) {
+                        push out fp
+                    }
+                }
+            }
+            oi = (oi + 1)
+        }
         return out
+    }
+
+    ; The page looked for `path` and the document does not have it.
+    fn fileMissing:boolean (path:string) {
+        return (((indexOf dataMissing path) >= 0) || ((indexOf dataMissing (MdVegaRender.resolveUrl(path))) >= 0))
+    }
+
+    ; The program at `path` as it runs: the deck's files it imports made
+    ; modules on its first line (PresPlayFiles); "" while the page has not
+    ; handed over the program or one of those files yet.
+    fn linkedSource:string (path:string) {
+        def src:string (this.dataText(path))
+        if ((strlen src) == 0) {
+            return ""
+        }
+        def files:[PresPlayFile]
+        for (PresPlayFiles.specs(src)) spec:string si {
+            def f:PresPlayFile (new PresPlayFile())
+            f.spec = spec
+            f.path = (PresPlayFiles.resolve(path spec))
+            if (this.hasDataText(f.path)) {
+                f.have = true
+                f.text = (this.dataText(f.path))
+            } {
+                if ((this.fileMissing(f.path)) == false) {
+                    return ""
+                }
+            }
+            push files f
+        }
+        return ((PresPlayFiles.prelude(files)) + src)
     }
 
     ; The blocks with an id or a class (`{#tulos}`, `{.kortti}`) and the

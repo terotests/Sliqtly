@@ -46,6 +46,7 @@ Import "PresSketchUi.rgr"
 Import "PresMeet.rgr"
 Import "PresClip.rgr"
 Import "PresPlay.rgr"
+Import "PresPlayFiles.rgr"
 Import "PresScript.rgr"
 Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
@@ -5803,6 +5804,37 @@ class PresCheck {
         this.ok((((array_length sels) == 2) && ((itemAt sels 1) == "edge A->B")) ("scripts: selectors in the source, a made one left out, got " + (join sels " | ")))
     }
 
+    ; The deck's files a program imports (PresPlayFiles): which imports name
+    ; them, where they are, the page asked for them, and the program waits
+    ; for them and gets them on its first line.
+    fn playFiles:void () {
+        def src:string ("import { presentation } from \"Sliqtly\";\nimport * as THREE from \"ranger:three\";\nimport sales from \"../data/sales.csv\";\n"
+            + "import cfg, { text } from './world.json'\nimport {\n  rows\n} from \"/data/sales.csv\";\nimport notes from \"data/notes.txt\"\nimport util from \"./util.ts\";\nimport lodash from \"lodash\";\n"
+            + "// import no from \"data/no.json\"\nconst s = \"import x from 'y.json'\";\nfunction view() { return null }\n")
+        def specs:[string] (PresPlayFiles.specs(src))
+        this.ok(((join specs "|") == "../data/sales.csv|./world.json|/data/sales.csv|data/notes.txt") ("playFiles: the deck's files imported, got " + (join specs "|")))
+        this.ok(((PresPlayFiles.resolve("apps/g.tsx" "../data/sales.csv")) == "data/sales.csv") "playFiles: ../ from the program's folder")
+        this.ok(((PresPlayFiles.resolve("apps/g.tsx" "./world.json")) == "apps/world.json") "playFiles: ./ beside the program")
+        this.ok(((PresPlayFiles.resolve("apps/g.tsx" "/data/sales.csv")) == "data/sales.csv") "playFiles: / from the root")
+        this.ok(((PresPlayFiles.resolve("apps/g.tsx" "data/notes.txt")) == "data/notes.txt") "playFiles: a bare path from the root")
+        this.ok(((PresPlayFiles.resolve("g.tsx" "../../x.json")) == "x.json") "playFiles: .. past the root is dropped")
+        def md:string "# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\n```\n"
+        def deck (new PresDeck())
+        deck.setText(md)
+        PresTimeline.planAll(deck)
+        deck.setChartData("apps/g.tsx" "import cfg from \"./world.json\";\nimport rows from \"../data/sales.csv\";\nfunction view() { return null }\n")
+        def asked:[string] (deck.playFiles())
+        this.ok((((indexOf asked "apps/world.json") >= 0) && ((indexOf asked "data/sales.csv") >= 0)) ("playFiles: the page is asked for them, got " + (join asked "|")))
+        this.ok(((deck.linkedSource("apps/g.tsx")) == "") "playFiles: the program waits for its files")
+        deck.setChartData("apps/world.json" "{\"a\": \"x\\ny\"}")
+        deck.setChartDataMissing("data/sales.csv")
+        def linked:string (deck.linkedSource("apps/g.tsx"))
+        def first:string (substring linked 0 (indexOf linked (strfromcode 10)))
+        this.ok((startsWith first "__deckFiles([[\"./world.json\",\"apps/world.json\",\"{\\\"a\\\": \\\"x\\\\ny\\\"}\"],[\"../data/sales.csv\",\"data/sales.csv\",null]]);import cfg") ("playFiles: the files on the first line, got " + first))
+        this.ok(((array_length (strsplit linked (strfromcode 10))) == 4) "playFiles: the program keeps its line numbers")
+        this.ok(((indexOf (deck.playFiles()) "data/sales.csv") < 0) "playFiles: a file the deck lacks is not asked for again")
+    }
+
     fn plays:void () {
         def text:string ("---\nscore: 0\nfooter-left: \"Pisteet: {score}\"\n---\n\n"
             + "# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\nallow: deck.data, slide.style\n```\n\n"
@@ -7199,6 +7231,7 @@ class PresCheck {
         c.serverRooms()
         c.clips()
         c.plays()
+        c.playFiles()
         c.scripts()
         c.roundedBars()
         c.morph()

@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10f.** If a result names a newer version, read Core
+**Guide version 2026-10-10g.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -990,6 +990,17 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   and `Math`). A list of JSX elements can be a child (`{rows}`), and so
   can a fragment `<>…</>`. There is no `fetch`, DOM or timer: time comes
   from `tick`.
+- It reads the deck's files with `import`, sent with `files` like the
+  program: `import world from "../data/world.json"` (the parsed value),
+  `import sales from "../data/sales.csv"` (rows as objects by the header
+  row, number-like cells as numbers; `import { rows } …` the cells as
+  text; `.tsv` the same), `import notes from "../data/notes.txt"` (any
+  other file: its text). Every such module also has `text`, the file as
+  it is. `./x` and `../x` are from the program's folder, `data/x` and
+  `/data/x` from the deck's root; a workbook's sheet reads as
+  `data/<book>-<Sheet>.csv`. A file the deck does not have, or JSON that
+  does not parse, is said when the deck is saved and throws where the
+  program reads it. Slide scripts (topic `scripts`) import the same way.
 - Its elements are `div`, and `span`, `p`, `b`, `label` for text;
   `className` and `style` as in React. A number in `style` is px, except
   `opacity`, `zIndex`, `flex`, `fontWeight` and `lineHeight`.

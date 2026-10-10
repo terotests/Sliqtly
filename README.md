@@ -351,6 +351,13 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     `el("#id")` / `el(".class")` `.style({ color, background, opacity, translate, display })`,
     `.show()`, `.hide()`, `.reset()` over the slide's blocks, without changing
     the Markdown (`slide.style`). `machine.send` waits for state machines.
+  - **The deck's files:** `import world from "../data/world.json"` (its value),
+    `import sales from "../data/sales.csv"` (rows by the header; `rows` the
+    cells as text; `.tsv` too), any other file its text; each has `text`.
+    `./` and `../` from the program's folder, `data/x` from the deck's root.
+    `src/PresPlayFiles.rgr` finds the imports and puts the files on the
+    program's first line (`__deckFiles`, `web/apps-runtime.js`), in the
+    editor, the viewer and the server alike; the program waits for them.
   - **3-D worlds** (`allow: 3d`, experimental): a `<scene3d>` element with
     `<mesh>`, `<light>` and `<camera>` children is drawn by Ranger's Three.js
     port (`src/Pres3D.rgr`, `web/three3d.js`, bundle `pres_3d.js` loaded on

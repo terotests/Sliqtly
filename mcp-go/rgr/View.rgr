@@ -208,7 +208,7 @@ class View {
             def key:string (d.scriptKeyOf(i))
             if ((strlen key) > 0) {
                 def s:PresSlide (d.slideAt(i))
-                def text:string (Check.dataText(host din s.script))
+                def text:string (Check.programText(host din s.script))
                 if ((strlen text) > 0) {
                     def o:MfJ (MfJ.newObj())
                     o.putStr("key" key)
@@ -273,7 +273,7 @@ class View {
             bx.add((MfJ.ofNum(b.w)))
             bx.add((MfJ.ofNum(b.h)))
             o.put("box" bx)
-            o.putStr("text" (Check.dataText(host din u.spec.src)))
+            o.putStr("text" (Check.programText(host din u.spec.src)))
             o.putStr("cssText" (Check.dataText(host din u.spec.css)))
             out.add(o)
         }
