@@ -30,6 +30,24 @@ const ROOM_W = 96;
 const ROOM_H = 54;
 
 /**
+ * A world's picture in device pixels for its box (w x h slide units, k
+ * device pixels per unit): the box's own shape, scaled down as a whole when
+ * a side would pass `max`. The camera's aspect is the picture's, and the
+ * painter stretches the picture over the box, so a side clamped alone would
+ * squash the world (spheres drawn as ellipses). [w, h]
+ */
+export function worldPictureSize(w, h, k, max = MAX_SIDE) {
+  let pw = w * k;
+  let ph = h * k;
+  const over = Math.max(pw, ph) / max;
+  if (over > 1) {
+    pw /= over;
+    ph /= over;
+  }
+  return [Math.max(1, Math.round(pw)), Math.max(1, Math.round(ph))];
+}
+
+/**
  * app: playScenesJson() and selectedSlide(); pictures: the painter's
  * src → picture map the worlds' canvases go in; imageChanged(gl, src) tells
  * the painter a picture's pixels are new; slidePicture(w, h) the shown
@@ -159,8 +177,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
       // once per change: a scene is set again every frame it moves
       if (why && said.get(s.src) !== why) console.warn("scene3d: " + why);
       said.set(s.src, why);
-      const w = Math.max(1, Math.min(MAX_SIDE, Math.round(s.w * k)));
-      const h = Math.max(1, Math.min(MAX_SIDE, Math.round(s.h * k)));
+      const [w, h] = worldPictureSize(s.w, s.h, k);
       if (glCanvas.width !== w || glCanvas.height !== h) {
         glCanvas.width = w;
         glCanvas.height = h;
