@@ -109,8 +109,9 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	match(t, textOf(d), `Where the slide's script ends .*"li-2":\{"opacity":0\}`)
 
 	// the module form runs the same: import { presentation } from "Sliqtly"
-	mod := "import { presentation, env } from \"Sliqtly\";\nconst items = presentation.activeSlide.find(\"li\");\nlet t = 0;\n" +
-		"export function tick(dt: number) { t += dt; items.first()?.set({ opacity: env.export ? 0.25 : 1 }); }\n"
+	// (its own `const slide` does not take the runtime's `slide` from it)
+	mod := "import { presentation, env } from \"Sliqtly\";\nconst slide = presentation.activeSlide;\nconst items = slide.find(\"li\");\nlet t = 0;\n" +
+		"export function tick(dt: number) { t += dt; items.first()?.set({ opacity: env.export && slide.index > 0 && slide.step >= 0 ? 0.25 : 1 }); }\n"
 	mc := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
 		"files": []any{map[string]any{"name": "fx.tsx", "text": mod}}})
 	if w := fmt.Sprint(sc(mc)["warnings"]); strings.Contains(w, "does not run") {

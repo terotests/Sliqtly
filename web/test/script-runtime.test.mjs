@@ -263,8 +263,8 @@ test("the script-api declarations name what the runtime has", () => {
   for (const k of members("Input")) assert.ok(k in S.input, "input." + k);
   for (const k of members("Env")) assert.ok(k in S.env, "env." + k);
   const exported = [...guide.matchAll(/^\s+export const (\w+)/gm)].map((x) => x[1]);
-  assert.deepEqual(exported, ["presentation", "input", "env"]);
-  for (const k of exported) assert.ok(S[k], k);
+  assert.deepEqual(exported, ["presentation", "input", "env", "sprites"]);
+  for (const k of exported.filter((k) => k !== "sprites")) assert.ok(S[k], k);
 });
 
 test("how a script opens: start, onEnter and build, no tick; the stage shows it until the first frame", async () => {

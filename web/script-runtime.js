@@ -15,6 +15,9 @@
 //          visible, skew, origin})   e.reset()  e.clone(props)  e.remove()
 //   e.get("x")                 what it is set to, else where it was drawn
 //   add("rect"|"circle"|"text"|"image", {x, y, w, h, text, size, src, …})
+//   sprites.sheet(name, {…}) sprites.add(name, {on, size}): characters from
+//                              a spritesheet that walk and jump on the boxes
+//                              (web/sprite-runtime.js)
 //   env.reducedMotion, env.export
 //   input.keys, input.pointer {x, y, down, inside} (slide px),
 //   input.take("ArrowRight", …) keys the presentation leaves to the script
@@ -47,9 +50,9 @@ var __adds = [];
 var __addN = 0;
 var __started = false;
 var __lastStep = -1;
-var env = { reducedMotion: false, "export": false, time: 0 };
+var __env = { reducedMotion: false, "export": false, time: 0 };
 var __taken = [];
-var input = {
+var __input = {
   keys: {},
   pointer: { x: 0, y: 0, down: false, inside: false },
   // keys the script keeps while it runs: the presentation does not move on
@@ -61,8 +64,23 @@ var input = {
     }
   }
 };
+// (a script's own `const env = …` keeps the runtime's: __env, __input)
+var env = __env;
+var input = __input;
 var __PROPS = { x: 1, y: 1, scale: 1, scaleX: 1, scaleY: 1, rotate: 1, skew: 1, origin: 1, opacity: 1, visible: 1, color: 1, fill: 1, stroke: 1, z: 1, clip: 1 };
 var __saidKeys = {};
+// counts the entity trees the page sent: what is laid out against the boxes
+// (web/sprite-runtime.js) is laid out again when it moves on
+var __treeGen = 0;
+// what moves on with the slide's own clock besides tick(dt): {advance(dt),
+// toEnd()} (web/sprite-runtime.js)
+var __clockUsers = [];
+function __advanceClocks(dt) {
+  for (var i = 0; i < __clockUsers.length; i++) __clockUsers[i].advance(dt);
+}
+function __clocksToEnd() {
+  for (var i = 0; i < __clockUsers.length; i++) __clockUsers[i].toEnd();
+}
 
 // What each selector found, until the entities change (__setTree): a
 // script that finds in every tick does the walk once.
@@ -194,6 +212,7 @@ function __add(kind, p) {
 }
 
 function __setTree(list) {
+  __treeGen++;
   __ents = [];
   __selEnts = [];
   __byId = {};
@@ -252,10 +271,10 @@ function __begin(a) {
   if (a.tree) __setTree(a.tree);
   __deckState(a.deck || {});
   var e = a.env || {};
-  env.reducedMotion = !!e.reducedMotion;
-  env["export"] = !!e["export"];
-  input.keys = a.keys || {};
-  if (a.pointer) input.pointer = a.pointer;
+  __env.reducedMotion = !!e.reducedMotion;
+  __env["export"] = !!e["export"];
+  __input.keys = a.keys || {};
+  if (a.pointer) __input.pointer = a.pointer;
   __asks = [];
   if (!__started) {
     __started = true;
@@ -277,7 +296,7 @@ function __scriptLeave(arg) {
 function __scriptFrame(arg) {
   var a = JSON.parse(arg);
   __begin(a);
-  env.time = a.time || 0;
+  __env.time = a.time || 0;
   var evs = a.events || [];
   for (var i = 0; i < evs.length; i++) {
     var ev = evs[i];
@@ -287,12 +306,13 @@ function __scriptFrame(arg) {
     else if (ev.type === "click") { h = __hook("onClick"); if (h) h(ev.id ? __byId[ev.id] || null : null, ev); }
   }
   var build = __hook("build");
-  if (build && slide.step !== __lastStep) {
-    __lastStep = slide.step;
-    build(slide.step);
+  if (build && __slide.step !== __lastStep) {
+    __lastStep = __slide.step;
+    build(__slide.step);
   }
   var tick = __hook("tick");
   if (tick) tick(a.dt || 0);
+  __advanceClocks(a.dt || 0);
   return __out();
 }
 
@@ -301,13 +321,14 @@ function __scriptFrame(arg) {
 // 30 a second, at most 20 s), every build step taken first.
 function __scriptFinal(arg) {
   var a = JSON.parse(arg);
-  env["export"] = true;
+  __env["export"] = true;
   __begin(a);
-  env["export"] = true;
+  __env["export"] = true;
   __buildTo(a.steps || 0);
   var fin = __hook("final");
   if (fin) fin();
   else __tickFor(a.seconds);
+  __clocksToEnd();
   return __out();
 }
 
@@ -330,9 +351,9 @@ function __scriptOpen(arg) {
   var a = JSON.parse(arg);
   __begin(a);
   var build = __hook("build");
-  if (build && slide.step !== __lastStep) {
-    __lastStep = slide.step;
-    build(slide.step);
+  if (build && __slide.step !== __lastStep) {
+    __lastStep = __slide.step;
+    build(__slide.step);
   }
   return __out();
 }
@@ -344,19 +365,19 @@ function __buildTo(step) {
   if (!build) return;
   for (var n = 0; n <= step; n++) {
     __lastStep = n;
-    slide.step = n;
+    __slide.step = n;
     build(n);
   }
 }
 
 function __tickFor(seconds) {
   var tick = __hook("tick");
-  if (!tick) return;
   var secs = Math.min(20, Math.max(0, Number(seconds) || 0));
   var n = Math.round(secs * 30);
   for (var i = 0; i < n; i++) {
-    env.time = i / 30;
-    tick(1 / 30);
+    __env.time = i / 30;
+    if (tick) tick(1 / 30);
+    __advanceClocks(1 / 30);
   }
 }
 
@@ -371,8 +392,8 @@ __activeSlide.tree = function () { return __ents[0] || null; };
 // (960 × 540 for 16:9)
 Object.defineProperty(__activeSlide, "width", { enumerable: true, get: function () { return __ents[0] ? __ents[0].box.w : 960; } });
 Object.defineProperty(__activeSlide, "height", { enumerable: true, get: function () { return __ents[0] ? __ents[0].box.h : 540; } });
-__sliqtly.input = input;
-__sliqtly.env = env;
+__sliqtly.input = __input;
+__sliqtly.env = __env;
 `;
 
 export const SCRIPT_RUNTIME = SCRIPT_SEL + "\n" + OWN;

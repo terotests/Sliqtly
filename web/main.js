@@ -195,6 +195,10 @@ const SAMPLES = {
   skriptit: [...sample("skriptit", "Slide scripts: slides that move", "Diaskriptit: diat, jotka liikkuvat"), "aurora",
     ["apps/grow.tsx", "apps/words.tsx", "apps/flow.tsx", "apps/pick.tsx"]],
   // music and beat effects (front matter music:, {fx=spectrum}), on Nebula
+  // characters from a spritesheet that walk and jump on the slides
+  // (sprites.add in a slide script), with their files (samples/hahmot/…)
+  hahmot: [...sample("hahmot", "Characters: sprites on slides", "Hahmot: spritet kalvoilla"), "aurora",
+    ["sprites/robot.png", "apps/flow.tsx", "apps/walk.tsx"]],
   bileet: [...sample("bileet", "Party: music and beat effects", "Bileet: musiikki ja biittiefektit"), "nebula",
     ["media/bileet.mp3"]],
   deck: ["Q3 Strategy (Ranger)", "./samples/deck.md"],

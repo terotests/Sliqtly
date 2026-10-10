@@ -18,18 +18,22 @@
 // (two JSON texts, a line break between).
 export const DECK_RUNTIME = String.raw`
 var __asks = [];
-var deck = {
+var __deck = {
   data: {},
   set: function (key, value) { __asks.push({ k: "deck.set", key: String(key), value: value === undefined || value === null ? "" : String(value) }); },
-  get: function (key) { var v = deck.data[String(key).toLowerCase()]; return v === undefined ? "" : v; }
+  get: function (key) { var v = __deck.data[String(key).toLowerCase()]; return v === undefined ? "" : v; }
 };
-var slide = {
+var __slide = {
   number: 1, count: 1, home: 1, step: 0, presenting: false, focused: false,
   next: function () { __asks.push({ k: "slide.next" }); },
   prev: function () { __asks.push({ k: "slide.prev" }); },
   go: function (n) { __asks.push({ k: "slide.go", n: Math.floor(Number(n) || 0) }); },
   build: function () { __asks.push({ k: "slide.step" }); }
 };
+// the names a program uses; the runtime keeps its own (__deck, __slide),
+// so a program's own `const slide = …` does not take them from it
+var deck = __deck;
+var slide = __slide;
 var __UNITLESS = { opacity: 1, zIndex: 1, flex: 1, fontWeight: 1, lineHeight: 1 };
 function el(sel) {
   sel = String(sel);
@@ -62,32 +66,32 @@ var machine = {
 // slide.next() does (allow: slide.nav), presentation.set as deck.set
 // (allow: deck.data).
 var __activeSlide = {};
-Object.defineProperty(__activeSlide, "index", { enumerable: true, get: function () { return slide.number; } });
-Object.defineProperty(__activeSlide, "step", { enumerable: true, get: function () { return slide.step; } });
-Object.defineProperty(__activeSlide, "from", { enumerable: true, get: function () { return slide.from || 0; } });
-Object.defineProperty(__activeSlide, "presenting", { enumerable: true, get: function () { return slide.presenting; } });
-__activeSlide.build = function () { slide.build(); };
+Object.defineProperty(__activeSlide, "index", { enumerable: true, get: function () { return __slide.number; } });
+Object.defineProperty(__activeSlide, "step", { enumerable: true, get: function () { return __slide.step; } });
+Object.defineProperty(__activeSlide, "from", { enumerable: true, get: function () { return __slide.from || 0; } });
+Object.defineProperty(__activeSlide, "presenting", { enumerable: true, get: function () { return __slide.presenting; } });
+__activeSlide.build = function () { __slide.build(); };
 var presentation = {
   activeSlide: __activeSlide,
-  next: function () { slide.next(); },
-  prev: function () { slide.prev(); },
-  go: function (n) { slide.go(n); },
-  get: function (key) { return deck.get(key); },
-  set: function (key, value) { deck.set(key, value); }
+  next: function () { __slide.next(); },
+  prev: function () { __slide.prev(); },
+  go: function (n) { __slide.go(n); },
+  get: function (key) { return __deck.get(key); },
+  set: function (key, value) { __deck.set(key, value); }
 };
-Object.defineProperty(presentation, "slides", { enumerable: true, get: function () { return slide.count; } });
-Object.defineProperty(presentation, "data", { enumerable: true, get: function () { return deck.data; } });
+Object.defineProperty(presentation, "slides", { enumerable: true, get: function () { return __slide.count; } });
+Object.defineProperty(presentation, "data", { enumerable: true, get: function () { return __deck.data; } });
 var __sliqtly = { presentation: presentation, el: el, machine: machine };
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
 function __deckState(d) {
-  deck.data = d.data || {};
-  slide.number = d.slide || 1;
-  slide.count = d.slides || 1;
-  slide.home = d.home || 1;
-  slide.step = d.step || 0;
-  slide.from = d.from || 0;
-  slide.presenting = d.mode === "present";
-  slide.focused = !!d.focused;
+  __deck.data = d.data || {};
+  __slide.number = d.slide || 1;
+  __slide.count = d.slides || 1;
+  __slide.home = d.home || 1;
+  __slide.step = d.step || 0;
+  __slide.from = d.from || 0;
+  __slide.presenting = d.mode === "present";
+  __slide.focused = !!d.focused;
 }
 function __deckFrame(arg) {
   var a = JSON.parse(arg);
