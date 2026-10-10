@@ -84,6 +84,20 @@ class CrViews {
         return ((to_uppercase (substring t 0 1)) + (substring t 1 (strlen t)))
     }
 
+    ; a sentence going on after a joining word: "The mailer" → "the
+    ; mailer", but "API" and "X-1a" stay as they are
+    sfn goingOn:string (s:string) {
+        def t:string (trim s)
+        if ((strlen t) < 2) {
+            return t
+        }
+        def second:string (substring t 1 2)
+        if ((to_lowercase second) != second) {
+            return t
+        }
+        return ((to_lowercase (substring t 0 1)) + (substring t 1 (strlen t)))
+    }
+
     sfn oneLine:string (s:string) {
         def t:string (replace (replace s "\r" " ") "\n" " ")
         return (trim t)
@@ -679,36 +693,45 @@ class CrViews {
             lead = ("[" + src.name + "](" + src.url + ") · " + lead)
         }
         push out (lead + "\n{.lead}")
-        ; the story, beat by beat
+        ; the story, beat by beat: the presenter tells it (`::: story`, its
+        ; joining word first), and the lines to read are under the slide's
+        ; title
         m.draftStory()
-        def beats:[string]
+        def says:[string]
+        def reads:[string]
         for m.story b:CrBeat bi {
             def line:string (CrViews.oneLine(b.text))
             if ((strlen b.link) > 0) {
-                line = ("**" + (CrViews.capital(b.link)) + "** " + line)
+                line = (((CrViews.capital(b.link)) + " ") + (CrViews.goingOn(line)))
             }
+            push says line
             def where:[string]
             for b.refs r:string ri {
                 push where (src.link(r))
             }
-            if ((array_length where) > 0) {
-                line = (line + " · " + (join where ", "))
-            }
-            push beats ("- " + line)
+            push reads (join where ", ")
         }
         def part:int 0
-        while ((part * 5) < (array_length beats)) {
+        while ((part * 5) < (array_length says)) {
             def chunk:[string]
+            def links:[string]
             def k:int (part * 5)
-            while ((k < ((part + 1) * 5)) && (k < (array_length beats))) {
-                push chunk (itemAt beats k)
+            while ((k < ((part + 1) * 5)) && (k < (array_length says))) {
+                push chunk (itemAt says k)
+                if ((strlen (itemAt reads k)) > 0) {
+                    push links ("- " + (itemAt reads k))
+                }
                 k = (k + 1)
+            }
+            def body:string ""
+            if ((array_length links) > 0) {
+                body = ("Where to read:\n\n" + (join links "\n") + "\n\n")
             }
             def notes:string ""
             if (m.storyDrafted && (part == 0)) {
                 notes = "\n\n::: notes\nDrafted from the model: tell it as the change's own story, beats joined by but and therefore.\n:::"
             }
-            push out ("## The story\n\n" + (join chunk "\n") + "\n{.build}" + notes)
+            push out ((("## The story\n\n" + body) + "::: story\n" + (join chunk "\n")) + "\n:::" + notes)
             part = (part + 1)
         }
         ; what changed

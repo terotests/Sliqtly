@@ -244,11 +244,12 @@ func TestCodeReviewPlugin(t *testing.T) {
 	// "therefore", what can go wrong on it as "but"
 	match(t, textOf(b), `The story was drafted from the model\.`)
 	for _, want := range []string{
-		"## The story\n\n- Reviewer passes ApproveRequest to Review API · ",
-		"\n- **Therefore** Review API writes review row to reviews table (map) · ",
-		"\n- **Therefore** APPROVE moves it from In review to Approved · ",
-		"\n- **But** when DB write fails, return 500",
-		"{.build}\n\n::: notes\nDrafted from the model",
+		"## The story\n\nWhere to read:\n\n- ",
+		"::: story\nReviewer passes ApproveRequest to Review API",
+		"\nTherefore review API writes review row to reviews table (map)",
+		"\nTherefore APPROVE moves it from In review to Approved",
+		"\nBut when DB write fails, return 500",
+		"\n:::\n\n::: notes\nDrafted from the model",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("the deck has no %q:\n%s", want, md)
@@ -270,12 +271,19 @@ func TestCodeReviewPlugin(t *testing.T) {
 	if strings.Contains(textOf(tb), "drafted from the model") {
 		t.Fatal("a story given is the story told")
 	}
+	// the presenter tells it (::: story); the lines to read are on the slide
 	match(t, sc(tb)["markdown"].(string), `## The story
 
-- A reviewer approves the draft now\.
-- \*\*Then\*\* The API saves the new state\.
-- \*\*Therefore\*\* The mailer sends the author mail\.
-- \*\*But\*\* Nobody waits\. · \[src/api\.ts:4\]`)
+Where to read:
+
+- \[src/api\.ts:4\]\([^)]*\)
+
+::: story
+A reviewer approves the draft now\.
+Then the API saves the new state\.
+Therefore the mailer sends the author mail\.
+But nobody waits\.
+:::`)
 
 	// the deck is drawn without a block it cannot show
 	f := fakeFirebase()

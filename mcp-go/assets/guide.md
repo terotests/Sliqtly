@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10h.** If a result names a newer version, read Core
+**Guide version 2026-10-10i.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -40,6 +40,19 @@ Speaker notes.
   says so).
 - Pictures, SVG and SmartArt files go in `images` and are referenced as
   `![alt](media/name)`.
+- A presenter is built in: an animated cut-out character at the slide's
+  bottom right that tells lines in a speech bubble. A `::: story` block
+  under a slide gives it its lines (topic `text`); a slide script leads it
+  with `presenter` (topic `scripts`). It is not drawn as a picture or an
+  SVG.
+
+  ```markdown
+  ::: story
+  The function says whether the PDF is fit for print.
+  But in RGB mode the answer is always zero.
+  So the code breaks here. {pose=aim}
+  :::
+  ```
 
 ## Work loop
 
@@ -97,7 +110,7 @@ by default. Readability comes first.
 |---|---|
 | `layout` | placing things side by side, columns, plates, alignment, books |
 | `effects` | transitions, build steps, background effects, line art |
-| `text` | lists, quotes, inline HTML, code, diffs, math, tables |
+| `text` | lists, quotes, inline HTML, code, diffs, math, tables, the presenter (`::: story`) |
 | `charts` | Vega-Lite charts, data sources, number formats |
 | `diagrams` | Mermaid, Graphviz DOT, D2, PlantUML, XState statecharts; styles and tours |
 | `figures` | `process` `timeline` `swot` `cards` `stats` list layouts |
@@ -106,7 +119,7 @@ by default. Readability comes first.
 | `css` | colours, fonts, spacing; selectors and properties |
 | `data` | Excel / CSV / JSON files, `table` and `sheet` blocks |
 | `apps` | a program or game running on a slide (`app` blocks, TSX + CSS) |
-| `scripts` | a program that moves the slide's own text, chart bars and diagram nodes (`{script=…}`) |
+| `scripts` | a program that moves the slide's own text, chart bars and diagram nodes (`{script=…}`), sprites, the presenter |
 | `script-api` | the `"Sliqtly"` module scripts import, as TypeScript declarations |
 | `editing` | `edits`, another assistant on the same deck, review comments, the layout report |
 | `export` | PDF, PPTX, DOCX, HTML, print pages with bleed |
