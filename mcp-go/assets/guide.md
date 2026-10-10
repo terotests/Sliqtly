@@ -409,6 +409,12 @@ effect embers source {
   the text's contrast over a source effect's still.
 - A shared deck shows these effects to its viewers; raw shader code is not
   accepted.
+- Motion leads the eye: a viewer looks at whatever moves, even a blink or a
+  small drift, and motion that never stops tires the eye. While text is
+  there to be read (a speech bubble, a revealed line, a caption), nothing
+  else on the slide moves; the one change the reader should look at next
+  (a code line taking its highlight colour, a small arrow at the line) can
+  come then, on its own.
 
 <!-- topic: text -->
 # Topic: text
