@@ -45,6 +45,7 @@ function world({ socketsWork = true } = {}) {
     open: () => w.log.push("open"),
     lost: () => w.log.push("lost"),
     chat: (v) => w.log.push("chat " + v.t + " " + (v.room || "")),
+    form: (id) => w.log.push("form " + id),
   };
   w.socketsWork = socketsWork;
   w.open = () => w.sockets.filter((s) => !s.closed);
@@ -209,4 +210,22 @@ test("rooms' chat events come on the same stream, socket and events alike", () =
   es.named.chat({ data: JSON.stringify({ t: "msg", room: "r2" }) });
   es.named.chat({ data: "not json" });
   assert.deepEqual(w.log, ["chat msg r2"]);
+});
+
+test("a questionnaire's answers come on the same stream, socket and events alike", () => {
+  const w = world();
+  new EventLine(w.env, w.on).start();
+  const s = w.sockets[0];
+  s.up();
+  s.send({ k: "form", id: "deck1" });
+  s.send({ k: "form" });
+  assert.deepEqual(w.log, ["open", "form deck1"]);
+
+  const sse = new EventLine({ ...w.env, WebSocket: undefined }, w.on);
+  sse.start();
+  const es = w.sources[0];
+  w.log.length = 0;
+  es.named.form({ data: JSON.stringify({ id: "deck2" }) });
+  es.named.form({ data: "not json" });
+  assert.deepEqual(w.log, ["form deck2"]);
 });

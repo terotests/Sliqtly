@@ -4574,6 +4574,23 @@ class PresCheck {
         this.ok((((cyc.check((JVal.mkObj()))).ok) == false) "a form whose rules cannot run takes nothing")
         def bad:PresForm (PresForm.parse("## A {#a type=text visible=\"a >\"}\n"))
         this.ok(((indexOf (join bad.warnings "\n") "rule a.visible") >= 0) "a rule that does not parse is warned")
+
+        ; A chart's data from a questionnaire
+        this.ok(((PresForm.sourceFile("form:./forms/p.form.md#aihe")) == "forms/p.form.md") "form: source file")
+        this.ok(((PresForm.sourceQuestion("form:forms/p.form.md#aihe")) == "aihe") "form: source question")
+        this.ok(((PresForm.sourceFile("data/x.csv")) == "") "a file is no form: source")
+        def zero:string (PresForm.sourceRows((PresCheck.formSample()) "" "form:forms/p.form.md#aihe"))
+        this.ok((zero == "[{\"value\":\"live-data\",\"label\":\"Live-data\",\"count\":0},{\"value\":\"työnkulut\",\"label\":\"Työnkulut\",\"count\":0},{\"value\":\"muu\",\"label\":\"Muu\",\"count\":0}]") ("no results: each option at 0, got " + zero))
+        def firstQ:string (PresForm.sourceRows((PresCheck.formSample()) "" "form:forms/p.form.md"))
+        this.ok(((indexOf firstQ "\"value\":\"5\"") > 0) ("no #q: the first question a chart shows, got " + firstQ))
+        this.ok(((PresForm.sourceRows((PresCheck.formSample()) "" "form:forms/p.form.md#nosuch")) == "[]") "a question the form has not: no rows")
+        def served:string "{\"questions\":[{\"id\":\"hyoty\",\"rows\":[]},{\"id\":\"aihe\",\"rows\":[{\"value\":\"muu\",\"label\":\"Muu\",\"count\":7}]}]}"
+        this.ok(((PresForm.sourceRows((PresCheck.formSample()) served "form:forms/p.form.md#aihe")) == "[{\"value\":\"muu\",\"label\":\"Muu\",\"count\":7}]") "rows from the server's results")
+        def slides:string (f.resultSlides("forms/p.form.md"))
+        this.ok(((indexOf slides "## Mikä aihe kiinnosti eniten?") >= 0) "a results slide per question")
+        this.ok(((indexOf slides "\"url\":\"form:forms/p.form.md#kanavat\"") > 0) "the chart reads its question")
+        this.ok(((indexOf slides "#muuta") < 0) "free text gets no chart")
+        this.ok(((indexOf slides "#sana") > 0) "words get a chart")
     }
 
     fn stripDrag:void () {

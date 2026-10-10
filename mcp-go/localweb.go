@@ -227,7 +227,9 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
-	if r.Method == http.MethodGet {
+	// not a questionnaire's answers and links: a page elsewhere, open in
+	// the same browser, would read people's answers
+	if r.Method == http.MethodGet && !strings.HasPrefix(p, "/api/forms/") {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 	}

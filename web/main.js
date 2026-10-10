@@ -2042,6 +2042,83 @@ async function questionnaireResponses(path) {
   }
 }
 
+// Files → a questionnaire's Results slides: a bar chart slide per question
+// at the end of the deck, each reading the counts (form: sources).
+async function questionnaireCharts(path) {
+  const text = await questionnaireText(path);
+  if (text == null) return;
+  const before = app.source();
+  app.addFormResults(path, text);
+  if (app.source() === before) {
+    toast(t("This questionnaire has no question a chart can show."));
+    return;
+  }
+  afterInput();
+  needsPaint = true;
+  toast(t("Results slides added at the end of the presentation."));
+}
+async function questionnaireText(path) {
+  const f = (await docFiles()).find((x) => x.path === path);
+  if (!f) return null;
+  return typeof f.data === "string" ? f.data : await f.data.text();
+}
+
+// A chart's data from a questionnaire ("url": "form:forms/x.form.md#q"):
+// the counts the server keeps, for the deck saved there (the editor's own,
+// or the one a viewer shows); each option at 0 where no server keeps them.
+// Read again when the deck's answers change (formAnswered).
+const isFormSource = (url) => url.startsWith("form:");
+function formDeck() {
+  if (!ownServer()) return "";
+  return viewer ? viewShare?.id || "" : doc.cloud || "";
+}
+async function formRows(url) {
+  const path = app.formSourceFile(url);
+  const text = path ? await questionnaireText(path) : null;
+  if (text == null) return null;
+  let results = "";
+  const deck = formDeck();
+  if (deck) {
+    try {
+      const res = await fetch("/api/forms/results?" + new URLSearchParams({ deck, file: path }), { cache: "no-store" });
+      // not there yet (a file not saved to the server): the options at 0
+      if (res.ok) results = await res.text();
+    } catch (_) { /* the options at 0 */ }
+  }
+  return app.formRows(text, results, url);
+}
+let formReading = null;
+function formAnswered(deck) {
+  if (deck === formDeck()) rereadForms("");
+}
+// The charts that read questionnaire `path` ("": any) read it again.
+function rereadForms(path) {
+  if (formReading) {
+    formReading.again = true;
+    if (formReading.path !== path) formReading.path = "";
+    return;
+  }
+  const run = { again: false, path };
+  formReading = run;
+  (async () => {
+    do {
+      run.again = false;
+      const urls = [...chartFiles.keys()].filter((u) => isFormSource(u) && (!run.path || app.formSourceFile(u) === run.path));
+      for (const url of urls) {
+        const text = await formRows(url).catch(() => null);
+        if (text == null) continue;
+        chartFiles.set(url, Promise.resolve(text));
+        app.setChartData(url, text);
+      }
+      if (urls.length) {
+        dropThumbs();
+        needsPaint = true;
+      }
+    } while (run.again);
+  })().finally(() => { formReading = null; });
+}
+window.__formAnswered = (deck) => formAnswered(deck);
+
 // A row of a presentation's menu in Rooms or on its deck tab
 // ("<room|tab>:<id>\t<request>"): the File menu's rows act on the open deck,
 // so that deck opens first; one that did not open has nothing done to the
@@ -2789,6 +2866,8 @@ async function fileRequest(r) {
     await questionnaireLink(what);
   } else if (action === "formcsv") {
     await questionnaireResponses(what);
+  } else if (action === "formcharts") {
+    await questionnaireCharts(what);
   } else if (action === "duplicate") {
     // the copy's name asked first, as for a new deck
     app.openDupDeck(copyName());
@@ -2958,6 +3037,8 @@ async function saveOpenFile(path) {
   await keepFile({ path, type: (f && f.type) || "text/plain", size: text.length, data: text });
   chartFiles.set(path, Promise.resolve(text));
   app.setChartData(path, text);
+  // a questionnaire's charts show what it asks now
+  if (/\.form\.md$/i.test(path)) rereadForms(path);
   dropThumbs();
   needsPaint = true;
 }
@@ -4094,6 +4175,21 @@ function fetchChartFiles(rev) {
       showLiveButton();
       got.then((text) => {
         if (text == null) return liveFailed(url);
+        app.setChartData(url, text);
+        dropThumbs();
+        needsPaint = true;
+      });
+      continue;
+    }
+    if (isFormSource(url)) {
+      const got = formRows(url).catch(() => null);
+      chartFiles.set(url, got);
+      got.then((text) => {
+        if (text == null) {
+          app.setChartDataMissing(url);
+          needsPaint = true;
+          return;
+        }
         app.setChartData(url, text);
         dropThumbs();
         needsPaint = true;

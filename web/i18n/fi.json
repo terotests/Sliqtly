@@ -1479,5 +1479,8 @@
   "The questionnaire has warnings: ": "Kyselyssä on varoituksia: ",
   "No answer link: ": "Vastauslinkkiä ei saatu: ",
   "Responses are kept by a Sliqtly server; this presentation is not saved to one.": "Vastaukset säilyttää Sliqtly-serveri, eikä tätä esitystä ole tallennettu sellaiselle.",
-  "The responses could not be read: ": "Vastauksia ei voitu lukea: "
+  "The responses could not be read: ": "Vastauksia ei voitu lukea: ",
+  "Results slides": "Tulosdiat",
+  "Results slides added at the end of the presentation.": "Tulosdiat lisätty esityksen loppuun.",
+  "This questionnaire has no question a chart can show.": "Kyselyssä ei ole kysymystä, jonka voi näyttää kaaviona."
 }

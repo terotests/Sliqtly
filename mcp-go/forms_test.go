@@ -267,3 +267,32 @@ func TestFormPageText(t *testing.T) {
 	match(t, page, `Live-data<small>kaaviot taulukosta</small>`)
 	match(t, page, `Kuinka hyödyllinen\?`)
 }
+
+// an answer is told on the deck's event stream, and the owner's answers are
+// not readable from a page elsewhere
+func TestFormLiveAndCORS(t *testing.T) {
+	base, deck, ls := formServer(t, testForm)
+	ch := ls.hub.subscribe()
+	defer ls.hub.unsubscribe(ch)
+	tok := base + newLink(t, base, deck, "token", 1)[0]["path"].(string)
+	c := newFormClient(t)
+	_, page := c.get(tok)
+	st, _ := c.post(tok, page, url.Values{"q1": {"5"}, "q2": {"live-data"}})
+	eq(t, st, 200)
+	told := false
+	for !told {
+		select {
+		case m := <-ch:
+			told = m.form == deck
+		default:
+			t.Fatal("no form event for the deck")
+		}
+	}
+	for _, op := range []string{"results", "responses", "links"} {
+		a := v1Do(t, "GET", base+"/api/forms/"+op+"?deck="+deck+"&file=forms/palaute.form.md", nil).want(t, 200)
+		eq(t, a.header.Get("Access-Control-Allow-Origin"), "")
+	}
+	// the owner sees a count of 0 too
+	a := v1Do(t, "GET", base+"/api/forms/results?deck="+deck+"&file=forms/palaute.form.md", nil).want(t, 200)
+	match(t, a.raw, `"count":0,"label":"1","value":"1"`)
+}

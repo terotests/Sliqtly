@@ -14,6 +14,7 @@ Import "Layout.rgr"
 Import "../presentation/PresExport.rgr"
 Import "../presentation/Pres3DStill.rgr"
 Import "../presentation/Pres3DGltf.rgr"
+Import "../presentation/PresForm.rgr"
 
 ; what a deck is checked with
 class DeckIn {
@@ -118,6 +119,15 @@ class Check {
         def u:string (MdVegaRender.bareUrl(url))
         while (startsWith u "/") {
             u = (substring u 1 (strlen u))
+        }
+        ; a questionnaire's counts (form:forms/x.form.md#q): its options, from
+        ; the file
+        if (PresForm.isSource(u)) {
+            def fsrc:string (Check.dataText(host din (PresForm.sourceFile(u))))
+            if ((strlen fsrc) == 0) {
+                return ""
+            }
+            return (PresForm.sourceRows(fsrc "" u))
         }
         if (startsWith u "https://") {
             if (din.live == false) {

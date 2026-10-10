@@ -7244,6 +7244,32 @@ class PresApp {
         return (PresForm.template((PresI18n.lang())))
     }
 
+    ; Files → a questionnaire's Results slides: a bar chart slide per
+    ; question at the end of the deck, each reading its counts (a form:
+    ; source, which the page fills: formRows).
+    fn addFormResults:void (path:string src:string) {
+        def text:string ((PresForm.parse(src)).resultSlides(path))
+        if ((strlen text) == 0) {
+            return
+        }
+        this.showTab("md")
+        def lastLine:int ((editor.buf.lineCount()) - 1)
+        editor.moveCaret(lastLine (strlen (editor.buf.lineAt(lastLine))) false)
+        this.insertBlock(text)
+    }
+
+    ; A chart's form: source → the questionnaire file it reads ("" for
+    ; another kind of address).
+    fn formSourceFile:string (url:string) {
+        return (PresForm.sourceFile(url))
+    }
+
+    ; The rows a form: source gives a chart, from the server's results JSON,
+    ; or each option at 0 with none ("").
+    fn formRows:string (src:string results:string url:string) {
+        return (PresForm.sourceRows(src results url))
+    }
+
     fn openFilePath:string () {
         return filePath
     }

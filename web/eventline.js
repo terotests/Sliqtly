@@ -19,7 +19,7 @@
 // edits it missed.
 //
 //   new EventLine({ WebSocket, EventSource, location, setTimeout, clearTimeout }, {
-//     status(st), changed(id), open(), lost(),
+//     status(st), changed(id), form(id), open(), lost(),
 //   })
 //   line.start()
 //   line.join(id, query, onEvent, onOpen) → leave()
@@ -123,6 +123,7 @@ export class EventLine {
       else if (m.k === "changed") this.on.changed?.(m.id || "");
       else if (m.k === "room" && m.v?.t) this.roomEvent(m.v);
       else if (m.k === "chat" && m.v?.t) this.on.chat?.(m.v);
+      else if (m.k === "form" && m.id) this.on.form?.(m.id);
     };
     ws.onerror = () => {};
     ws.onclose = () => {
@@ -152,6 +153,11 @@ export class EventLine {
     es.addEventListener("chat", (ev) => {
       if (es !== this.conn) return;
       try { this.on.chat?.(JSON.parse(ev.data)); } catch (_) { /* not one */ }
+    });
+    // a deck's questionnaire took an answer (mcp-go/forms.go)
+    es.addEventListener("form", (ev) => {
+      if (es !== this.conn) return;
+      try { const m = JSON.parse(ev.data); if (m.id) this.on.form?.(m.id); } catch (_) { /* not one */ }
     });
     es.onopen = () => this.opened(es);
     es.onerror = () => { if (es === this.conn) this.on.lost?.(); };
