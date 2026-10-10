@@ -1520,9 +1520,11 @@
   "Presentations are in your own order now: File → Settings changes it.": "Esitykset ovat nyt omassa järjestyksessäsi: Tiedosto → Asetukset muuttaa sen.",
   "3-D flight": "3D-lento",
   "G while presenting   ⋯ → 3-D flight   Esc: back": "G esittäessä   ⋯ → 3D-lento   Esc: takaisin",
-  "The presentation as a world to fly through, full screen: every slide is a station, its diagrams and charts stand in the air as holograms. Space or → flies to the next station, ← back; W A S D, Q E, R F and the mouse fly freely, Shift faster. A gamepad works too: the sticks fly, A and B next and back. Esc lands on the slide you flew to.": "Esitys maailmana, jonka läpi lennetään koko näytössä: jokainen kalvo on asema, ja sen kaaviot ja kaaviokuvat leijuvat ilmassa hologrammeina. Välilyönti tai → lentää seuraavalle asemalle, ← takaisin; W A S D, Q E, R F ja hiiri lentävät vapaasti, Shift nopeammin. Myös peliohjain käy: tikut lentävät, A ja B eteen ja taakse. Esc laskeutuu sille kalvolle, jolle lensit.",
   "Fly through the presentation in 3-D: the diagrams and charts as holograms. Esc comes back": "Lennä esityksen läpi 3D:nä: kaaviot ja kaaviokuvat hologrammeina. Esc palaa",
   "Space / → next · ← back · W A S D fly · Q E turn · Shift fast · Esc leaves": "Välilyönti / → seuraava · ← takaisin · W A S D lennä · Q E käänny · Shift nopea · Esc poistuu",
   "The 3-D flight needs full screen": "3D-lento tarvitsee koko näytön",
-  "The 3-D flight needs WebGL": "3D-lento tarvitsee WebGL:n"
+  "The 3-D flight needs WebGL": "3D-lento tarvitsee WebGL:n",
+  "Experimental: 3-D flight": "Kokeellinen: 3D-lento",
+  "While presenting, G or ⋯ → 3-D flight flies through the presentation in full screen, its diagrams and charts as holograms. Esc comes back.": "Esittäessä G tai ⋯ → 3D-lento lentää esityksen läpi koko näytöllä, kaaviot ja vuokaaviot hologrammeina. Esc palaa takaisin.",
+  "The presentation as a world to fly through, full screen: every slide is a station, its diagrams and charts stand in the air as holograms. Space or → flies to the next station, ← back; W A S D, Q E, R F and the mouse fly freely, Shift faster. A gamepad works too: the sticks fly, A and B next and back. Esc lands on the slide you flew to. Experimental: turn it on in File → Settings.": "Esitys maailmana, jonka läpi lennetään koko näytössä: jokainen kalvo on asema, ja sen kaaviot ja kaaviokuvat leijuvat ilmassa hologrammeina. Välilyönti tai → lentää seuraavalle asemalle, ← takaisin; W A S D, Q E, R F ja hiiri lentävät vapaasti, Shift nopeammin. Myös peliohjain käy: tikut lentävät, A ja B eteen ja taakse. Esc laskeutuu sille kalvolle, jolle lensit. Kokeellinen: ota käyttöön kohdasta Tiedosto → Asetukset."
 }

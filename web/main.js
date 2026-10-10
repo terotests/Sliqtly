@@ -349,6 +349,9 @@ const three3d = createThree3d({
 });
 // The 3-D flight (web/flight3d.js): G or ⋯ → 3-D flight while presenting.
 // It leaves full screen as it found it; back at the slide it ended at.
+// Experimental: off until File → Settings turns it on, per browser.
+let flightOn = false;
+try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) { /* off */ }
 const flight3d = createFlight3d({
   three3d,
   app,
@@ -1590,6 +1593,7 @@ function setDeckOrder(by) {
   app.setDeckOrder(deckOrder);
   needsPaint = true;
 }
+app.setFlight3d(flightOn);
 async function roomRows(room) {
   return (await roomView(room)).rows;
 }
@@ -4714,6 +4718,9 @@ function handleRequests() {
       app.setDeckOrder(deckOrder);
       app.openSettings(autoContrast);
       needsPaint = true;
+    } else if (r.startsWith("setting:flight:")) {
+      flightOn = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.flight3d", flightOn ? "on" : "off"); } catch (_) { /* this session only */ }
     } else if (r.startsWith("setting:contrast:")) {
       autoContrast = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.autoContrast", autoContrast ? "on" : "off"); } catch (_) { /* this session only */ }
@@ -6833,6 +6840,7 @@ function ownsShare() {
 }
 function toggleViewMenu(open) {
   vMenu.hidden = !open;
+  document.getElementById("vFlight").hidden = !flightOn;
   vMore.setAttribute("aria-expanded", String(open));
   if (!open) {
     openViewSub(null);
@@ -6911,7 +6919,7 @@ vMenu.addEventListener("click", (ev) => {
     app.setAuto(!app.autoOn());
     needsPaint = true;
   } else if (act === "flight") {
-    flight3d.start().catch(fail);
+    if (flightOn) flight3d.start().catch(fail);
   } else if (act === "new") createFromViewed();
   else if (act === "playrec") {
     app.replayFromSlide();
@@ -7570,7 +7578,7 @@ keys.addEventListener("keydown", (ev) => {
       refreshLiveData();
       return;
     }
-    if ((ev.key === "g" || ev.key === "G") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
+    if (flightOn && (ev.key === "g" || ev.key === "G") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing) {
       ev.preventDefault();
       flight3d.start().catch(fail);
       return;
