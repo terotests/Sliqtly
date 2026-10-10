@@ -79,6 +79,28 @@ class PresPlayWeb {
         return (v.setTree(json))
     }
 
+    ; The fence allows 3-D worlds (`allow: 3d`): its <scene3d> elements show
+    ; the pictures the page draws of them (web/three3d.js).
+    fn setAllow3d:void (key:string on:boolean) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return
+        }
+        def v:PresPlayView (itemAt views i)
+        v.allow3d = on
+    }
+
+    ; The 3-D worlds of the program's last frame, placed in its box:
+    ; [{src, scene, x, y, w, h}] in the slide's units, "[]" for none.
+    fn scenesJson:string (key:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return "[]"
+        }
+        def v:PresPlayView (itemAt views i)
+        return ((v.scenesIn((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))).toJson())
+    }
+
     ; Why the page stopped the program, "" while it runs.
     fn setStopped:void (key:string why:string) {
         def i:int (this.indexOf(key))

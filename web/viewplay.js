@@ -10,17 +10,11 @@
 // What a program may ask of the deck: moving between slides (allow:
 // slide.nav). deck.set and el() change the deck's layout, which the viewer
 // does not have: they work in the editor and are said once in the console.
+// A program with `allow: 3d` draws its <scene3d> worlds with the editor's
+// web/three3d.js, into pictures the viewer paints with the slide.
 import { createApps } from "./apps.js";
-
-function loadScript(url) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = url;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("could not load " + url));
-    document.head.appendChild(s);
-  });
-}
+import { createThree3d } from "./three3d.js";
+import { loadScript } from "./sitescript.js";
 
 // The point a window position is on page `page`, given where the viewer
 // painted it ({x, y, scale}, CSS px of the canvas): slide units.
@@ -50,17 +44,20 @@ export function viewerAsks(play, asks) {
 /**
  * plays: the server's list; canvas: the viewer's; current() the slide shown,
  * count() how many; shownPages() the pages on screen; go(i) to a slide;
- * repaint() when a picture changed.
+ * repaint() when a picture changed. For 3-D worlds: pictures, the viewer's
+ * src → picture map; gl() its WebGL context; dpr() its device pixel ratio;
+ * imageChanged(gl, src) the painter's; slidePicture(page, w, h) a page as
+ * an ImageData without its programs.
  */
-export async function startPlays({ plays, canvas, current, count, shownPages, go, repaint }) {
-  const stamp = new URL(import.meta.url).search;
-  await loadScript(new URL("./pres_play.js" + stamp, import.meta.url).href);
+export async function startPlays({ plays, canvas, current, count, shownPages, go, repaint, pictures, gl, dpr, imageChanged, slidePicture }) {
+  await loadScript("pres_play.js");
   const web = new globalThis.PresPlayWeb();
   const byKey = new Map();
   for (const p of plays) {
     const [x, y, w, h] = p.box;
     web.add(p.key, p.src, p.w, p.h, x, y, w, h);
     web.setCss(p.key, p.cssText || "");
+    web.setAllow3d(p.key, (p.allow || []).includes("3d"));
     byKey.set(p.key, p);
   }
   // where each page was painted last, for the pointer
@@ -121,8 +118,27 @@ export async function startPlays({ plays, canvas, current, count, shownPages, go
 
   // the viewer has no toasts: what went wrong is on the plate and here
   const apps = createApps({ app, repaint, toast: (line) => console.warn(line) });
+  // the worlds on the slide shown, placed in the slide's units
+  const worlds = plays.some((p) => (p.allow || []).includes("3d")) ? createThree3d({
+    app: {
+      playScenesJson: () => {
+        const page = current();
+        const out = [];
+        for (const p of plays) if (p.slide === page) out.push(...JSON.parse(web.scenesJson(p.key)));
+        return JSON.stringify(out);
+      },
+      selectedSlide: current,
+    },
+    pictures,
+    imageChanged,
+    slidePicture: (w, h) => slidePicture(current(), w, h),
+    scale: () => placed.get(current())?.scale || 1,
+    repaint,
+    toast: (line) => console.warn(line),
+  }) : null;
   const loop = () => {
     apps.tick(1);
+    if (worlds && worlds.tick(0, gl(), dpr())) repaint();
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

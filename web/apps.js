@@ -23,6 +23,7 @@
 // BUDGET_MS three times running stops it, and the slide shows where it ends.
 import { RUNTIME } from "./cerxes-runtime.js";
 import { DECK_RUNTIME } from "./apps-runtime.js";
+import { workerUrl } from "./sitescript.js";
 import { SCRIPT_RUNTIME } from "./script-runtime.js";
 
 const LIMIT_MS = 3000;
@@ -125,7 +126,15 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     const next = finals.queue.shift();
     if (!next) return;
     if (!finals.worker) {
-      const w = new Worker(new URL("./cerxes-worker.js" + new URL(import.meta.url).search, import.meta.url), { type: "module" });
+      let w = null;
+      try {
+        w = new Worker(workerUrl("cerxes-worker.js"), { type: "module" });
+      } catch (e) {
+        // no engine here: the slide keeps its Markdown, and says why
+        finals.done.set(next.key, next.want);
+        say(name({ key: next.key }) + ": " + t("the program's engine did not start") + " (" + ((e && e.message) || "worker") + ")");
+        return;
+      }
       w.onmessage = (ev) => finalReply(w, ev.data);
       w.onerror = () => { if (finals.worker === w) { finals.worker = null; finals.busy = null; } };
       finals.worker = w;
@@ -183,8 +192,14 @@ export function createApps({ app, repaint, toast, t = (s) => s }) {
     r.source = source;
     r.stopped = "";
     r.events = [];
-    // with this module's build stamp (?v=…), as every import of ours has
-    const w = new Worker(new URL("./cerxes-worker.js" + new URL(import.meta.url).search, import.meta.url), { type: "module" });
+    // with the build's stamp (?v=…), as every import of ours has
+    let w = null;
+    try {
+      w = new Worker(workerUrl("cerxes-worker.js"), { type: "module" });
+    } catch (e) {
+      stopRun(r, t("the program's engine did not start") + " (" + ((e && e.message) || "worker") + ")");
+      return;
+    }
     w.onmessage = (ev) => reply(r, w, ev.data);
     w.onerror = (e) => {
       if (r.worker === w) stopRun(r, t("the program's engine did not start") + " (" + (e.message || "worker") + ")");

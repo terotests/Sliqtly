@@ -1026,7 +1026,8 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
 - `render_slide`, PDF, PPTX and Word show a plate with the program's name
   in the box (the editor's thumbnails and exports show its last picture).
   A program that does not start shows why on its plate.
-- In the public viewer `slide.nav` works; `deck.set` and `el()` change the
+- The public viewer and the preview run programs and draw their
+  `<scene3d>` worlds. There `slide.nav` works; `deck.set` and `el()` change the
   slides, which the viewer shows as saved: they work in the editor.
 - The result of create/update runs each program's first frames and says
   why one does not run (`apps/x.tsx does not run: SyntaxError: … (line
@@ -1261,7 +1262,7 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
 
 - Without sign-in: 3 presentations per conversation and 20 slides each; a
   deck is text only (no pictures or files) and is deleted 7 days after its
-  last change. Signed in: 50 presentations per account and 100 slides
+  last change. Signed in: 200 presentations per account and 100 slides
   each. A presentation's pictures and files together up to 200 MB. 20
   images per call.
 - `render_slide`, `render_overview` and `export_presentation` are counted

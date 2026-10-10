@@ -335,7 +335,6 @@ const three3d = createThree3d({
   scale: () => (lastLayout ? lastLayout.stage[2] : 1),
   repaint: () => { needsPaint = true; },
   toast,
-  build: BUILD.startsWith("__") ? "" : BUILD,
 });
 // The deck's music (front matter `music:`, web/music.js), played while
 // presenting; the beat effects ({fx=spectrum}, web/beatfx.js) move with it.
