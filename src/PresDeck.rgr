@@ -33,6 +33,7 @@ Import "PresFonts.rgr"
 Import "PresCssSupport.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "PresSource.rgr"
+Import "PresCodeLinks.rgr"
 Import "FxLang.rgr"
 Import "PresDiagram.rgr"
 Import "PresChart.rgr"
@@ -235,6 +236,10 @@ class PresDeck {
     ; The engine: fonts, pictures, templates, the PDF and the PPTX.
     def md:MarkdownWeb (new MarkdownWeb())
     def src:PresSource (new PresSource())
+    ; Which source files (code/) the diagrams' boxes are about: the deck's
+    ; `::: code` blocks and Mermaid `click … "code:…"` lines, read on every
+    ; rebuild (readCodeLinks).
+    def codeLinks:PresCodeLinks (new PresCodeLinks())
     def slides:[PresSlide]
     def text:string ""
     ; moves on every rebuild, so a host can keep what it built from the last one
@@ -4832,6 +4837,68 @@ class PresDeck {
             }
             k = (k + 1)
         }
+        this.readCodeLinks()
+    }
+
+    ; The 1-based line of the deck's text an offset is on.
+    fn lineOfOffset:int (at:int) {
+        def n:int 1
+        def i:int 0
+        def end:int at
+        if (end > (strlen text)) {
+            end = (strlen text)
+        }
+        while (i < end) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; A `::: code` block belongs to the nearest diagram above it on its slide
+    ; (none: the slide's own links); a diagram's own `click … "code:…"`
+    ; lines are its links too.
+    fn readCodeLinks:void () {
+        def cl (new PresCodeLinks())
+        def si:int 0
+        while (si < (array_length slides)) {
+            def s:PresSlide (itemAt slides si)
+            def d:int 0
+            while (d < (array_length s.diagrams)) {
+                def u:PresDiaUse (itemAt s.diagrams d)
+                if ((indexOf u.source "\"code:") >= 0) {
+                    cl.addMermaid(u.source si d ((this.lineOfOffset(u.srcStart)) + 1))
+                }
+                d = (d + 1)
+            }
+            si = (si + 1)
+        }
+        def k:int 0
+        while (k < (array_length src.blocks)) {
+            def blk:PresBlock (itemAt src.blocks k)
+            if (blk.kind == "code") {
+                def pg:int (this.pageOfOffset(blk.start))
+                if ((pg >= 0) && (pg < (array_length slides))) {
+                    def s2:PresSlide (itemAt slides pg)
+                    def dia:int -1
+                    def best:int -1
+                    def j:int 0
+                    while (j < (array_length s2.diagrams)) {
+                        def u2:PresDiaUse (itemAt s2.diagrams j)
+                        if ((u2.srcStart < blk.start) && (u2.srcStart > best)) {
+                            best = u2.srcStart
+                            dia = j
+                        }
+                        j = (j + 1)
+                    }
+                    cl.addBlock(blk.body pg dia blk.bodyLine)
+                }
+            }
+            k = (k + 1)
+        }
+        codeLinks = cl
     }
 
     sfn fxFromMeta:void (s:PresSlide meta:MdMeta) {

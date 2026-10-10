@@ -18,6 +18,8 @@ Import "PresDiaFull.rgr"
 Import "PresFollow.rgr"
 Import "PresInvite.rgr"
 Import "PresReview.rgr"
+Import "PresCodeFiles.rgr"
+Import "PresCodeLinks.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
@@ -148,6 +150,7 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.codeSource()
         this.colorWords()
         this.reviewDiagram()
         this.helpGuide()
@@ -439,6 +442,141 @@ class PresCheck {
         PresI18n.use("en" "")
         PresColorPanel.localize(c)
         this.ok(((c.fieldName(0)) == "Hex") ("back in English: " + (c.fieldName(0))))
+    }
+
+    ; Source files kept under code/, the links to them from a diagram's
+    ; boxes and the comments on their lines (PresCodeFiles, PresCodeLinks,
+    ; PresReview's code anchor).
+    fn codeSource:void () {
+        ; ranges: sorted, joined, the original numbers kept
+        def rg:[int] (PresCodeFiles.parseRanges("200-260, 40–88,89-90, 7"))
+        this.ok(((array_length rg) == 6) ("code: ranges joined, got " + (to_string (array_length rg))))
+        this.ok((((itemAt rg 0) == 7) && (((itemAt rg 2) == 40) && (((itemAt rg 3) == 90) && ((itemAt rg 5) == 260)))) "code: ranges in order, 40-88 and 89-90 one")
+        def f (new PresCodeFile())
+        f.path = "src/a.cpp"
+        f.ranges = (PresCodeFiles.parseRanges("1-12, 50-78"))
+        this.ok((((f.lineOf(0)) == 1) && (((f.lineOf(11)) == 12) && ((f.lineOf(12)) == 50))) "code: kept line 12 is line 50 of the file")
+        this.ok((((f.indexOfLine(50)) == 12) && (((f.indexOfLine(13)) == -1) && ((f.indexOfLine(78)) == 40))) "code: line 13 was not brought in")
+        this.ok(((f.rangeText()) == "1–12, 50–78") ("code: range text " + (f.rangeText())))
+        def whole:string "l1\nl2\nl3\nl4\nl5"
+        this.ok(((PresCodeFiles.cut(whole (PresCodeFiles.parseRanges("2,4-9")))) == "l2\nl4\nl5") "code: a cut keeps the lines of its ranges")
+        this.ok(((PresCodeFiles.clean("./code/src/a.cpp")) == "src/a.cpp") "code: paths under code/ by their repo path")
+        this.ok(((PresCodeFiles.clean("../etc/passwd")) == "") "code: no path climbs out")
+        ; names a file declares
+        def fbs (new PresCodeFile())
+        fbs.path = "proto/review.fbs"
+        fbs.ranges = (PresCodeFiles.parseRanges("10-14"))
+        def ft:string "namespace acme;\n// table ReviewDTO is below\ntable ReviewDTO {\n  id: string;\n}"
+        this.ok(((PresCodeFiles.symbolLine(fbs ft "ReviewDTO")) == 12) ("code: a table's line, got " + (to_string (PresCodeFiles.symbolLine(fbs ft "ReviewDTO")))))
+        def sqlF (new PresCodeFile())
+        sqlF.path = "sql/schema.sql"
+        def sqlT:string "-- reviews\nCREATE TABLE IF NOT EXISTS public.reviews (\n  id int\n);"
+        this.ok(((PresCodeFiles.symbolLine(sqlF sqlT "reviews")) == 2) "code: a SQL table, schema and IF NOT EXISTS")
+        def cpp (new PresCodeFile())
+        cpp.path = "src/api.cpp"
+        def cppT:string "#include <x>\nStatus Api::submit(const ReviewDTO& r) {\n  submit(r);\n  return submit(r);\n}\nstatic int helper(int a) {\n}"
+        this.ok(((PresCodeFiles.symbolLine(cpp cppT "submit")) == 2) "code: a member defined, not its calls")
+        this.ok(((PresCodeFiles.symbolLine(cpp cppT "helper")) == 6) "code: a free function")
+        this.ok(((PresCodeFiles.symbolLine(cpp cppT "nothing")) == 0) "code: a name nothing declares")
+        ; sources.json and links to the repository
+        def src:string "{\"version\":1,\"repos\":{\"server\":{\"url\":\"https://github.com/acme/server/\",\"host\":\"github\",\"base\":\"9a1b3c7aaaa\",\"head\":\"4f2c1e0bbbb\",\"change\":\"PR #482\"},\"gl\":{\"url\":\"https://gitlab.com/acme/db\",\"host\":\"gitlab\",\"head\":\"cafe123\"},\"own\":{\"url\":\"https://git.example.com/x\",\"link\":\"{url}/{path}?rev={commit}#L{line}\",\"head\":\"abc\"}},\"files\":[{\"path\":\"code/src/server/api.cpp\",\"repo\":\"server\",\"status\":\"renamed\",\"old_path\":\"src/api.cpp\",\"diff\":\"src/server/api.cpp.diff\",\"lines\":1840,\"ranges\":[[200,260],[40,88]]},{\"path\":\"sql/schema.sql\",\"repo\":\"gl\"},{\"path\":\"x.go\",\"repo\":\"own\"},{\"path\":\"y.h\"}]}"
+        def cf:PresCodeFiles (PresCodeFiles.parse(src))
+        this.ok((((array_length cf.repos) == 3) && ((array_length cf.files) == 4)) "code: sources.json read")
+        def api:PresCodeFile (unwrap (cf.file("src/server/api.cpp")))
+        this.ok((((itemAt api.ranges 0) == 40) && (api.diff == "src/server/api.cpp.diff")) "code: a file's ranges in order")
+        def l1:string (cf.link("src/server/api.cpp" 41 44 false))
+        this.ok((l1 == "https://github.com/acme/server/blob/4f2c1e0bbbb/src/server/api.cpp#L41-L44") ("code: github lines link " + l1))
+        def l2:string (cf.link("src/server/api.cpp" 41 41 false))
+        this.ok((l2 == "https://github.com/acme/server/blob/4f2c1e0bbbb/src/server/api.cpp#L41") ("code: one line, no -L " + l2))
+        def l3:string (cf.link("src/server/api.cpp" 7 0 true))
+        this.ok((l3 == "https://github.com/acme/server/blob/9a1b3c7aaaa/src/api.cpp#L7") ("code: the old side at base, old path " + l3))
+        def l4:string (cf.link("sql/schema.sql" 12 30 false))
+        this.ok((l4 == "https://gitlab.com/acme/db/-/blob/cafe123/sql/schema.sql#L12-30") ("code: gitlab " + l4))
+        def l5:string (cf.link("x.go" 3 0 false))
+        this.ok((l5 == "https://git.example.com/x/x.go?rev=abc#L3") ("code: a template of its own " + l5))
+        this.ok(((cf.link("y.h" 3 0 false)) == "") "code: no repo, no link")
+        this.ok(((cf.compareLink("src/server/api.cpp")) == "https://github.com/acme/server/compare/9a1b3c7aaaa...4f2c1e0bbbb") "code: compare link")
+        def ot:string (cf.originText("src/server/api.cpp"))
+        this.ok((ot == "acme/server · 9a1b3c7 → 4f2c1e0 · PR #482 · partial") ("code: origin " + ot))
+        def back:PresCodeFiles (PresCodeFiles.parse((cf.toJson())))
+        this.ok(((back.toJson()) == (cf.toJson())) "code: sources.json round trip")
+        ; links in the deck's text
+        def k1:PresCodeLink (PresCodeLinks.parseLine("api  src/server/api.cpp#L40-88 diff  \"submit handler\""))
+        this.ok(((((k1.node == "api") && (k1.path == "src/server/api.cpp")) && ((k1.from == 40) && (k1.to == 88))) && ((k1.mode == "diff") && (k1.label == "submit handler"))) "code: a link line")
+        def k2:PresCodeLink (PresCodeLinks.parseLine("- proto/review.fbs#ReviewDTO"))
+        this.ok((((k2.whole()) && (k2.symbol == "ReviewDTO")) && ((strlen k2.problem) == 0)) "code: a whole-diagram link to a name")
+        def k3:PresCodeLink (PresCodeLinks.parseLine("q src/q.cpp#hunk2 sideways"))
+        this.ok(((k3.hunk == 2) && ((strlen k3.problem) > 0)) "code: a hunk, and an unknown word is a problem")
+        def kl:PresCodeLink (PresCodeLinks.parseLine("lonely"))
+        this.ok(((strlen kl.problem) > 0) "code: a box with no file")
+        def kb:PresCodeLink (PresCodeLinks.parseLine("a b.c#L9-3"))
+        this.ok(((strlen kb.problem) > 0) "code: lines backwards")
+        def ku:PresCodeLink (PresCodeLinks.parseUrl("code:sql/schema.sql#L12"))
+        this.ok(((ku.path == "sql/schema.sql") && ((ku.from == 12) && (ku.to == 12))) "code: a code: address")
+        def deckText:string "---\nslide-split-level: 2\n---\n\n## Flow\n\n```mermaid\nflowchart LR\n  api[API] --> db[(reviews)]\n  click db \"code:sql/schema.sql#L12-30\" \"reviews table\"\n  click api \"https://example.com\"\n```\n\n::: code\napi src/server/api.cpp#L40-88\n; a remark\napi proto/review.fbs#ReviewDTO\n- y.h\nzz nowhere.cpp\n:::\n\n## Next\n\n::: code\n- y.h\n:::\n"
+        def deck (new PresDeck())
+        deck.setText(deckText)
+        def cl:PresCodeLinks deck.codeLinks
+        this.ok(((array_length cl.links) == 6) ("code: the deck's links, got " + (to_string (array_length cl.links))))
+        this.ok(((indexOf deck.src.masked "nowhere.cpp") < 0) "code: the block is not the markdown's")
+        def onApi:[PresCodeLink] (cl.forNode(0 0 "api" "API"))
+        this.ok(((array_length onApi) == 2) ("code: two links on box api, got " + (to_string (array_length onApi))))
+        def onDb:[PresCodeLink] (cl.forNode(0 0 "db" "reviews"))
+        def dbLabel:string ""
+        if ((array_length onDb) > 0) {
+            def dbl:PresCodeLink (itemAt onDb 0)
+            dbLabel = dbl.label
+        }
+        this.ok((((array_length onDb) == 1) && (dbLabel == "reviews table")) "code: Mermaid's click code: on box db")
+        this.ok(((array_length (cl.forNode(0 0 "x" "API"))) == 2) "code: a box found by its text too")
+        this.ok(((cl.fileCount(0 0)) == 5) ("code: five files on the diagram, got " + (to_string (cl.fileCount(0 0)))))
+        def own:string ""
+        for cl.links dk:PresCodeLink dki {
+            own = (own + (to_string dk.slide) + "/" + (to_string dk.dia) + " " + dk.path + "; ")
+        }
+        this.ok(((array_length (cl.forDiagram(1 -1))) == 1) ("code: a slide's own link: " + own))
+        def apiLink:PresCodeLink (itemAt onApi 0)
+        this.ok((apiLink.srcLine == 15) ("code: the link's line in the deck, got " + (to_string apiLink.srcLine)))
+        def texts:[string] ([] _:string ("" "" "" ""))
+        def nodes:[string] ([] _:string ("0:0\tapi\tAPI" "0:0\tdb\treviews"))
+        def warns:[string] (cl.check(cf texts nodes))
+        def wall:string (join warns "\n")
+        this.ok(((indexOf wall "proto/review.fbs is not in the deck") >= 0) ("code: a missing file is said: " + wall))
+        this.ok(((indexOf wall "lines 40–88 were not brought in") < 0) "code: lines that were brought in pass")
+        this.ok(((indexOf wall "no box \"zz\"") >= 0) "code: a box the diagram has not")
+        ; comments on source lines
+        def r (new PresReview())
+        def t0:double 1759658400000.0
+        r.start("c1" 0 "Flow" 0.5 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Check the error path" t0)))
+        this.ok((r.setCode("c1" "src/server/api.cpp" 41 44 "if (!validate(r)) return Status::Bad;" 0 0 "server" "4f2c1e0bbbb" 0 "api")) "code: a comment on lines")
+        r.start("c2" 0 "Flow" 0.5 0.5 (PresReview.msg("m2" "u1" "Ada" "" "Why removed?" t0)))
+        r.setCode("c2" "src/server/api.cpp" 90 90 "" 120 123 "server" "4f2c1e0bbbb" -1 "")
+        def c1:PresReviewThread (unwrap (r.find("c1")))
+        this.ok(((c1.codeWhere()) == "api.cpp:41–44") ("code: where " + (c1.codeWhere())))
+        this.ok(((indexOf (PresReview.whereText(c1)) "source code comment on code/src/server/api.cpp lines 41–44 at 4f2c1e0") == 0) ("code: in words " + (PresReview.whereText(c1))))
+        def c2b:PresReviewThread (unwrap (r.find("c2")))
+        this.ok(((indexOf (PresReview.whereText(c2b)) "120–123 the change removed") > 0) "code: a comment from removed lines says so")
+        def rr:PresReview (PresReview.parse((r.toJson())))
+        def c1r:PresReviewThread (unwrap (rr.find("c1")))
+        this.ok(((((c1r.codePath == "src/server/api.cpp") && (c1r.codeLine == 41)) && ((c1r.codeTo == 44) && (c1r.viaNode == "api"))) && ((c1r.codeCommit == "4f2c1e0bbbb") && (c1r.viaDia == 0))) "code: the anchor read back")
+        def c2r:PresReviewThread (unwrap (rr.find("c2")))
+        this.ok(((c2r.removedFrom == 120) && ((c2r.removedTo == 123) && (c2r.viaDia == -1))) "code: removed lines read back")
+        this.ok(((rr.toJson()) == (r.toJson())) "code: comments round trip")
+        this.ok(((array_length (r.onFile("src/server/api.cpp"))) == 2) "code: the comments of a file")
+        this.ok(((r.openOnFiles(([] _:string ("src/server/api.cpp" "x")))) == 2) "code: open comments on a box's files")
+        ; a copy without the anchor takes it in a merge
+        def plain (new PresReview())
+        plain.start("c1" 0 "Flow" 0.5 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Check the error path" t0)))
+        plain.merge(r)
+        def pc1:PresReviewThread (unwrap (plain.find("c1")))
+        this.ok((pc1.codeLine == 41) "code: a merge brings the anchor")
+        ; the file came in again with two lines added above: the comment follows its text
+        def lines:[string] ([] _:string ("// new" "// new" "if (!validate(r)) return Status::Bad;" "x"))
+        def nums:[int] ([] _:int (41 42 43 44))
+        this.ok((r.placeCode("src/server/api.cpp" lines nums)) "code: a moved line is found again")
+        def c1m:PresReviewThread (unwrap (r.find("c1")))
+        this.ok(((c1m.codeLine == 43) && (c1m.codeTo == 46)) ("code: the range moves with it, got " + (to_string c1m.codeLine)))
+        this.ok(((r.placeCode("src/server/api.cpp" lines nums)) == false) "code: a line in place stays")
     }
 
     fn review:void () {

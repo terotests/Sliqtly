@@ -27,6 +27,18 @@
 ;                 "messages": [{"id", "who", "name", "color", "text", "at"}]}],
 ;    "deleted": [thread ids]}
 ;
+; A thread on a source file kept under code/ (a "Source code comment", see
+; PresCodeFiles) has no point on the slide but a line of the file:
+;
+;   "code": {"path", "line", "to" (lines of the NEW version of the file, the
+;            version a link to the head commit shows), "text" (the first
+;            line's text then, to find it again when the file comes in anew),
+;            "removed": [a, b] (old-version lines, when it was made on lines
+;            the change took out), "repo", "commit", "via": {"diagram",
+;            "node"} (the box it was opened from)}
+;
+; Its `slide` and `title` are the slide the file was opened from.
+;
 ; Two copies of the file (two people, an assistant through MCP, another tab)
 ; merge (`merge`): threads and messages are united by id, a thread's open or
 ; closed state is the one set last, and a thread deleted in either stays
@@ -75,6 +87,38 @@ class PresReviewThread {
     ; yellow, red), and when it was set last (the latest wins a merge)
     def severity:string ""
     def sevAt:double 0.0
+    ; On a source file (see the top): its path under code/ ("" = not one),
+    ; new-version lines, the first line's text, old-version lines it was
+    ; made on when they were taken out (0 = not), the commit, and the box
+    ; it was opened from (-1 = none).
+    def codePath:string ""
+    def codeLine:int 0
+    def codeTo:int 0
+    def codeText:string ""
+    def removedFrom:int 0
+    def removedTo:int 0
+    def codeRepo:string ""
+    def codeCommit:string ""
+    def viaDia:int -1
+    def viaNode:string ""
+
+    fn isCode:boolean () {
+        return ((strlen codePath) > 0)
+    }
+
+    ; "api.cpp:41–44", "api.cpp:41"
+    fn codeWhere:string () {
+        def name:string codePath
+        def slash:int (lastIndexOf codePath "/")
+        if (slash >= 0) {
+            name = (substring codePath (slash + 1) (strlen codePath))
+        }
+        def s:string (name + ":" + (to_string codeLine))
+        if (codeTo > codeLine) {
+            s = (s + "–" + (to_string codeTo))
+        }
+        return s
+    }
 
     fn count:int () {
         return (array_length msgs)
@@ -326,6 +370,122 @@ class PresReview {
     }
 
     ; Dragged to (`x`, `y`) of the slide at time `at`: off any diagram until
+    ; Puts a thread on lines of a source file (see the top). `line`..`to`
+    ; are the new version's lines; `removedFrom`..`removedTo` the old
+    ; version's when it was made on lines the change took out (0 = not).
+    fn setCode:boolean (id:string path:string line:int to:int text:string removedFrom:int removedTo:int repo:string commit:string dia:int node:string) {
+        def i:int (this.indexOf(id))
+        if ((i < 0) || ((strlen path) == 0)) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        t.codePath = path
+        t.codeLine = line
+        if (line < 1) {
+            t.codeLine = 1
+        }
+        t.codeTo = to
+        if (to < t.codeLine) {
+            t.codeTo = t.codeLine
+        }
+        t.codeText = text
+        t.removedFrom = removedFrom
+        t.removedTo = removedTo
+        if (removedTo < removedFrom) {
+            t.removedTo = removedFrom
+        }
+        t.codeRepo = repo
+        t.codeCommit = commit
+        t.viaDia = dia
+        t.viaNode = node
+        rev = (rev + 1)
+        return true
+    }
+
+    ; The threads on a source file, in the order they were made.
+    fn onFile:[PresReviewThread] (path:string) {
+        def out:[PresReviewThread]
+        for threads t:PresReviewThread i {
+            if (t.codePath == path) {
+                push out t
+            }
+        }
+        return out
+    }
+
+    ; How many open threads there are on these files: a box's badge colour.
+    fn openOnFiles:int (paths:[string]) {
+        def n:int 0
+        for threads t:PresReviewThread i {
+            if ((t.closed == false) && (t.isCode())) {
+                def hit:boolean false
+                for paths p:string j {
+                    if (p == t.codePath) {
+                        hit = true
+                    }
+                }
+                if hit {
+                    n = (n + 1)
+                }
+            }
+        }
+        return n
+    }
+
+    ; A file came in anew and its lines moved: each thread on it whose line
+    ; no longer says what it said is moved to the nearest line that does
+    ; (its range moves with it). `lineAt` holds the new kept text's lines,
+    ; `numbers` their numbers in the file. A thread whose text is found
+    ; nowhere stays where it was. True when one moved.
+    fn placeCode:boolean (path:string lines:[string] numbers:[int]) {
+        def moved:boolean false
+        for threads t:PresReviewThread i {
+            if ((t.codePath == path) && ((strlen (trim t.codeText)) > 0)) {
+                def want:string (trim t.codeText)
+                def here:int -1
+                def k:int 0
+                while (k < (array_length numbers)) {
+                    if ((itemAt numbers k) == t.codeLine) {
+                        here = k
+                    }
+                    k = (k + 1)
+                }
+                def same:boolean false
+                if ((here >= 0) && (here < (array_length lines))) {
+                    same = ((trim (itemAt lines here)) == want)
+                }
+                if (same == false) {
+                    def best:int -1
+                    def bestD:int 1000000000
+                    def j:int 0
+                    while ((j < (array_length lines)) && (j < (array_length numbers))) {
+                        if ((trim (itemAt lines j)) == want) {
+                            def d:int ((itemAt numbers j) - t.codeLine)
+                            if (d < 0) {
+                                d = (0 - d)
+                            }
+                            if (d < bestD) {
+                                bestD = d
+                                best = (itemAt numbers j)
+                            }
+                        }
+                        j = (j + 1)
+                    }
+                    if (best > 0) {
+                        def span:int (t.codeTo - t.codeLine)
+                        t.codeLine = best
+                        t.codeTo = (best + span)
+                        moved = true
+                    }
+                }
+            }
+        }
+        if moved {
+            rev = (rev + 1)
+        }
+        return moved
+    }
+
     ; `anchor` puts it on one again. False when there is no such thread.
     fn move:boolean (id:string x:double y:double at:double) {
         def i:int (this.indexOf(id))
@@ -458,6 +618,13 @@ class PresReview {
                         mine.ax = ot.ax
                         mine.ay = ot.ay
                         mine.moved = ot.moved
+                        if (ot.isCode()) {
+                            PresReview.takeCode(mine ot)
+                        }
+                        changed = true
+                    }
+                    if (((mine.isCode()) == false) && (ot.isCode())) {
+                        PresReview.takeCode(mine ot)
                         changed = true
                     }
                     if (((mine.dia < 0) && (ot.dia >= 0)) && (ot.moved == mine.moved)) {
@@ -487,6 +654,19 @@ class PresReview {
         return changed
     }
 
+    sfn takeCode:void (mine:PresReviewThread ot:PresReviewThread) {
+        mine.codePath = ot.codePath
+        mine.codeLine = ot.codeLine
+        mine.codeTo = ot.codeTo
+        mine.codeText = ot.codeText
+        mine.removedFrom = ot.removedFrom
+        mine.removedTo = ot.removedTo
+        mine.codeRepo = ot.codeRepo
+        mine.codeCommit = ot.codeCommit
+        mine.viaDia = ot.viaDia
+        mine.viaNode = ot.viaNode
+    }
+
     sfn copyThread:PresReviewThread (t:PresReviewThread) {
         def c (new PresReviewThread())
         c.id = t.id
@@ -505,6 +685,16 @@ class PresReview {
         c.moved = t.moved
         c.severity = t.severity
         c.sevAt = t.sevAt
+        c.codePath = t.codePath
+        c.codeLine = t.codeLine
+        c.codeTo = t.codeTo
+        c.codeText = t.codeText
+        c.removedFrom = t.removedFrom
+        c.removedTo = t.removedTo
+        c.codeRepo = t.codeRepo
+        c.codeCommit = t.codeCommit
+        c.viaDia = t.viaDia
+        c.viaNode = t.viaNode
         for t.msgs m:PresReviewMsg i {
             push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
         }
@@ -549,6 +739,23 @@ class PresReview {
     ; where on the slide, in words: "at 42 % across, 30 % down", and the
     ; diagram's box when it is on one
     sfn whereText:string (t:PresReviewThread) {
+        if (t.isCode()) {
+            def cs:string ("source code comment on code/" + t.codePath + " line " + (to_string t.codeLine))
+            if (t.codeTo > t.codeLine) {
+                cs = ("source code comment on code/" + t.codePath + " lines " + (to_string t.codeLine) + "–" + (to_string t.codeTo))
+            }
+            if (t.removedFrom > 0) {
+                cs = (cs + ", on lines " + (to_string t.removedFrom) + "–" + (to_string t.removedTo) + " the change removed")
+            }
+            if ((strlen t.codeCommit) > 0) {
+                def c:string t.codeCommit
+                if ((strlen c) > 7) {
+                    c = (substring c 0 7)
+                }
+                cs = (cs + " at " + c)
+            }
+            return cs
+        }
         def s:string ("at " + (to_string (to_int ((t.x * 100.0) + 0.5))) + " % across, " + (to_string (to_int ((t.y * 100.0) + 0.5))) + " % down")
         if (t.dia >= 0) {
             if ((strlen t.node) > 0) {
@@ -856,6 +1063,38 @@ class PresReview {
                 on.setMember("y" (PresReview.num((PresReview.round4(t.ay)))))
                 o.setMember("on" on)
             }
+            if (t.isCode()) {
+                def co:VlJson (VlJson.objectValue())
+                co.setMember("path" (VlJson.stringValue(t.codePath)))
+                co.setMember("line" (VlJson.intValue(t.codeLine)))
+                if (t.codeTo > t.codeLine) {
+                    co.setMember("to" (VlJson.intValue(t.codeTo)))
+                }
+                if ((strlen t.codeText) > 0) {
+                    co.setMember("text" (VlJson.stringValue(t.codeText)))
+                }
+                if (t.removedFrom > 0) {
+                    def rm:VlJson (VlJson.arrayValue())
+                    push rm.arr (VlJson.intValue(t.removedFrom))
+                    push rm.arr (VlJson.intValue(t.removedTo))
+                    co.setMember("removed" rm)
+                }
+                if ((strlen t.codeRepo) > 0) {
+                    co.setMember("repo" (VlJson.stringValue(t.codeRepo)))
+                }
+                if ((strlen t.codeCommit) > 0) {
+                    co.setMember("commit" (VlJson.stringValue(t.codeCommit)))
+                }
+                if (t.viaDia >= 0) {
+                    def via:VlJson (VlJson.objectValue())
+                    via.setMember("diagram" (VlJson.intValue(t.viaDia)))
+                    if ((strlen t.viaNode) > 0) {
+                        via.setMember("node" (VlJson.stringValue(t.viaNode)))
+                    }
+                    co.setMember("via" via)
+                }
+                o.setMember("code" co)
+            }
             def ms:VlJson (VlJson.arrayValue())
             for t.msgs m:PresReviewMsg j {
                 def mo:VlJson (VlJson.objectValue())
@@ -934,6 +1173,31 @@ class PresReview {
                     t.node = (on.stringOr("node" ""))
                     t.ax = (PresReview.clamp01((on.doubleOr("x" 0.5))))
                     t.ay = (PresReview.clamp01((on.doubleOr("y" 0.5))))
+                }
+                def co:VlJson (o.get("code"))
+                if ((co.isObject()) && ((strlen (co.stringOr("path" ""))) > 0)) {
+                    t.codePath = (co.stringOr("path" ""))
+                    t.codeLine = (co.intOr("line" 1))
+                    if (t.codeLine < 1) {
+                        t.codeLine = 1
+                    }
+                    t.codeTo = (co.intOr("to" t.codeLine))
+                    if (t.codeTo < t.codeLine) {
+                        t.codeTo = t.codeLine
+                    }
+                    t.codeText = (co.stringOr("text" ""))
+                    def rm:VlJson (co.get("removed"))
+                    if ((rm.count()) >= 2) {
+                        t.removedFrom = ((rm.at(0)).asInt())
+                        t.removedTo = ((rm.at(1)).asInt())
+                    }
+                    t.codeRepo = (co.stringOr("repo" ""))
+                    t.codeCommit = (co.stringOr("commit" ""))
+                    def via:VlJson (co.get("via"))
+                    if (via.isObject()) {
+                        t.viaDia = (via.intOr("diagram" -1))
+                        t.viaNode = (via.stringOr("node" ""))
+                    }
                 }
                 def ms:VlJson (o.get("messages"))
                 def j:int 0
