@@ -339,7 +339,8 @@ func (r *fxRun) boxDistance(px, py float64) float64 {
 func (r *fxRun) at(px, py float64) vec4 {
 	reg := r.reg
 	reg[0] = vec4{(px - r.box[0]) / math.Max(r.box[2], 1), (py - r.box[1]) / math.Max(r.box[3], 1)}
-	reg[1] = vec4{px, py}
+	// p is in the box's own pixels, as FxLang.glsl's fx_p
+	reg[1] = vec4{px - r.box[0], py - r.box[1]}
 	reg[4] = vec4{r.boxDistance(px, py)}
 	for i := range r.prog.code {
 		in := &r.prog.code[i]

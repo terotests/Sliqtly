@@ -147,7 +147,12 @@ class FxEffect {
     ; The `fxColor` function and what it calls, for the WebGL2 painter.
     fn glsl:string () {
         def lib:[string]
-        def body:string ""
+        ; `p` and `size` in the box's own units (the slide's pixels), not the
+        ; canvas's: the stage draws the slide scaled and moved, and an effect
+        ; written against the slide (`render_slide`) must look the same there.
+        ; The box's size comes as the hidden parameters box-w / box-h
+        ; (PresDeck.clockParams); without them the canvas box.
+        def body:string "  vec2 fx_size = (p_box_w > 0.0) ? vec2(p_box_w, p_box_h) : uBox.zw;\n  vec2 fx_p = local * fx_size;\n"
         def i:int 0
         while (i < (array_length params)) {
             def pp:FxParam (itemAt params i)
@@ -1774,10 +1779,10 @@ class FxLang {
         }
         if (n.kind == "var") {
             if (n.op == "in:uv") { return "local" }
-            if (n.op == "in:p") { return "p" }
-            if (n.op == "in:size") { return "uBox.zw" }
+            if (n.op == "in:p") { return "fx_p" }
+            if (n.op == "in:size") { return "fx_size" }
             if (n.op == "in:time") { return "uTime" }
-            if (n.op == "in:edge") { return "fxBoxDistance(p)" }
+            if (n.op == "in:edge") { return "(fxBoxDistance(p) * fx_size.x / max(uBox.z, 1.0))" }
             if (n.op == "in:PI") { return "PI" }
             if ((indexOf n.op "in:") == 0) {
                 return ("p_clock_" + (substring n.op 3 (strlen n.op)))
@@ -1951,11 +1956,14 @@ class FxLang {
                 ps = (ps + "\"" + pp.name + "\":" + (FxLang.numText(pp.value)))
                 k = (k + 1)
             }
+            ; the box's size in slide pixels, 0 until the list says
+            if ((array_length e.params) > 0) {
+                ps = (ps + ",")
+            }
+            ps = (ps + "\"box-w\":0.0,\"box-h\":0.0")
             if e.clock {
                 ; the end state, what a list without the clock shows
-                if ((array_length e.params) > 0) {
-                    ps = (ps + ",")
-                }
+                ps = (ps + ",")
                 def ce:[double] (FxLang.clockEnd(0.0 e.still))
                 def cn:[string] (FxLang.clockNames())
                 def ck:int 0

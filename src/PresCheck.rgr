@@ -170,7 +170,7 @@ class PresCheck {
         this.ok(((indexOf g "float fxl_fbm5(vec2 q)") >= 0) "fx: fbm with its octaves")
         this.ok(((indexOf g "fxl_voronoi") < 0) "fx: only the library it uses")
         this.ok(((indexOf g "vec4 fxColor(vec2 p, vec2 local)") > 0) "fx: the plugin's function")
-        this.ok(((indexOf (c.json()) "\"params\":{\"speed\":1.0}") > 0) "fx: json params")
+        this.ok(((indexOf (c.json()) "\"params\":{\"speed\":1.0,\"box-w\":0.0,\"box-h\":0.0}") > 0) "fx: json params")
         ; dashes in the name, a filter reading the surface, a swizzle
         def f:FxLang (FxLang.compile("effect warm-glass backdrop {\n  c = source(uv + vec2(sin(uv.y * 20 + time) * 0.01, 0))\n  output = vec4(c.rgb * vec3(1.1, 1, 0.9), 1)\n}" 1))
         this.ok(((array_length f.errors) == 0) ("fx: backdrop compiles " + (PresCheck.firstOf(f.errors))))
@@ -252,6 +252,18 @@ class PresCheck {
         }
         def named:FxLang (FxLang.compile("effect embers source {\n  glow = smoothstep(0.2, 1, uv.y)\n  output = vec4(vec3(glow), 1)\n}\n" 1))
         this.ok(((array_length named.errors) == 0) ("fx reads: an older effect's value named glow still compiles, got " + (PresCheck.firstOf(named.errors))))
+        ; `p` and `size` are the box's slide pixels, whatever scale the stage
+        ; draws at: the list carries the box's size (Tero's globe, 2026-10-10)
+        def globe (new PresDeck())
+        globe.setText("```fx\neffect ball source {\n  q = (p - size * 0.5) / size.y\n  output = vec3(length(q))\n}\n```\n\n## A {fx=ball}\n")
+        def gg:[int]
+        def gl:EVGDisplayList (globe.slideList(0 gg 0.0))
+        this.ok(((PresCheck.fxParam(gl "box-w")) == globe.pageW) ("fx size: the list carries the box's width, got " + (to_string (PresCheck.fxParam(gl "box-w")))))
+        def ball@(optional):FxEffect (globe.ownEffect("ball"))
+        if (!null? ball) {
+            def bg:string ((unwrap ball).glsl())
+            this.ok((((indexOf bg "fx_p - (fx_size") > 0) || ((indexOf bg "(fx_p - (fx_size") >= 0)) ("fx size: p and size are the box's pixels: " + bg))
+        }
         def plain (new PresDeck())
         plain.setText("```fx\neffect calm source {\n  output = vec3(uv, 0)\n}\n```\n\n## A {fx=calm}\n")
         def g3:[int]

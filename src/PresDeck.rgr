@@ -5112,14 +5112,14 @@ class PresDeck {
     def fxClockAt:double -1.0
 
     fn clockParams:void (out:EVGDisplayList s:PresSlide t:double) {
+        ; every own effect gets its box's size in slide pixels (box-w,
+        ; box-h: FxLang.glsl's `p` and `size`); one with the clock its clock
         def any:boolean false
         def i:int 0
         while (i < (array_length out.fxIds)) {
             def own@(optional):FxEffect (this.ownEffect((itemAt out.fxKinds i)))
             if (!null? own) {
-                if own.clock {
-                    any = true
-                }
+                any = true
             }
             i = (i + 1)
         }
@@ -5152,6 +5152,10 @@ class PresDeck {
             }
             def own2@(optional):FxEffect (this.ownEffect((itemAt out.fxKinds i)))
             if (!null? own2) {
+                push names "box-w"
+                push values (itemAt out.fxW i)
+                push names "box-h"
+                push values (itemAt out.fxH i)
                 if own2.clock {
                     def c:[double] clock
                     if ((array_length c) == 0) {

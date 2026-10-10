@@ -356,7 +356,9 @@ effect embers source {
   the line under it, and the effect covers what the block draws.
 - The body is assignments, one per line, each name set once, ending in
   `output = <vec3 or vec4 colour>`. No loops or functions of one's own.
-- Inputs: `uv` (vec2, 0..1, y down), `p` (page pixels), `size` (vec2),
+- Inputs: `uv` (vec2, 0..1, y down), `p` (pixels from the box's top-left
+  corner: the slide's pixels for a slide effect, the same on the stage, in
+  presenting and in render_slide), `size` (vec2, the box in those pixels),
   `time` (seconds since the slide came on screen), `edge` (pixels to the
   edge, negative inside), `PI`.
 - The slide's clock, for an effect tied to its build steps: `step` (the
