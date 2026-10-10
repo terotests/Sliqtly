@@ -412,6 +412,12 @@ effect embers source {
   the text's contrast over a source effect's still.
 - A shared deck shows these effects to its viewers; raw shader code is not
   accepted.
+- Motion leads the eye: a viewer looks at whatever moves, even a blink or a
+  small drift, and motion that never stops tires the eye. While text is
+  there to be read (a speech bubble, a revealed line, a caption), nothing
+  else on the slide moves; the one change the reader should look at next
+  (a code line taking its highlight colour, a small arrow at the line) can
+  come then, on its own.
 
 <!-- topic: text -->
 # Topic: text
@@ -448,8 +454,9 @@ effect embers source {
 - Code: a fence with the language (js, ts, py, rust, go, java, c, cpp, cs,
   sql, json, sh, …) is coloured. `.numbers` (or `numbers=40`, the first
   number) puts line numbers in a gutter; `lines=3-5,9` highlights those
-  lines; `lines=3-5|9|12` with `.build` highlights them one build step after
-  another: ```` ```ts {.numbers lines=2|4-5 .build} ````.
+  lines and fades the block's other lines, so the reader looks at the marked
+  ones and not the whole block; `lines=3-5|9|12` with `.build` highlights
+  them one build step after another, nothing faded: ```` ```ts {.numbers lines=2|4-5 .build} ````.
 - Diffs: ```` ```diff ts ```` colours `+` lines on green, `-` lines on red,
   `@@` hunk headers and file headers dimmed, the code as TypeScript.
   `.numbers` follows the hunk headers' new-file side, and `lines=`
@@ -457,6 +464,34 @@ effect embers source {
   slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence
   (TeX).
+- A presenter: a `::: story` block under a slide puts a paper cut-out
+  character in the slide's bottom-right corner, and it tells the lines in a
+  speech bubble. One line per beat. Each beat is a build step after the
+  slide's own steps:
+
+  ```
+  ::: story
+  conformanceIssues() says whether the PDF is fit for X-1a print.
+  But in RGB mode the answer is always zero.
+  So the code breaks here. {pose=aim}
+  :::
+  ```
+
+  A line that starts with a turning word (but, except, although, however,
+  mutta, paitsi, vaikka) is a BUT, with that word in red. A line that
+  starts with a following word (so, therefore, thus, siksi, joten, niinpä)
+  is a THEREFORE, with that word in amber. Any other line sets the scene.
+  The pose follows that kind; `{pose=pen|chin|open|finger|aim|thumb}` at
+  the end of a line sets it. The character changes pose between lines and
+  holds still while a line is read. Played on its own, a beat lasts until
+  its line has been read. A thumbnail or an export shows the last line.
+  The character and its bubble take a strip at the slide's right, about a
+  third of its width, and the slide's text is set narrower to leave it
+  free. The bubble sits above the character's head and is about 240 px
+  wide on a 960 px slide. A line of up to about 60 characters keeps the
+  full font size; longer lines get a smaller font. A slide script can
+  lead the same character instead (topic `scripts`, Presenter): when it
+  comes, how, and which paragraph it says.
 
 ## A pull request as source
 
@@ -1253,6 +1288,34 @@ arrows. Name it on the slide's heading; one script a slide:
   after them. The sprite needs no `tick`. A thumbnail, render_slide at its
   time and the PDF show where it is; the end of its queue is where the
   script ends.
+- Presenter: the cut-out character of `::: story` slides (topic `text`),
+  led by the script, which decides when it comes and goes and what it
+  says.
+
+  ```tsx
+  import { presentation, presenter } from "Sliqtly";
+  const slide = presentation.activeSlide;
+  export function start() {
+    presenter.create()
+      .show({ fade: 0.5, from: "right" })
+      .say(slide.find("p:1"))
+      .say("But in RGB mode the answer is always zero.")
+      .call(() => slide.find("code").set({ opacity: 1 }))
+      .say("So the code breaks here.", { pose: "aim" })
+      .wait(1)
+      .hide({ fade: 0.4 });
+  }
+  ```
+
+  `say(entity)` puts the entity's words in the bubble and hides the
+  entity (`{ keep: true }` leaves it). A line is held as long as the same
+  line in a `::: story` block: the pose, the bubble's pop and the time to
+  read it, and the presenter holds still while it is read. Its first word
+  sets the kind and the pose (BUT, THEREFORE, setup), as there. Calls
+  queue: one made in `build(n)` starts at that step. An empty
+  `::: story` block on the slide keeps the strip the presenter stands in
+  free of the slide's text. A thumbnail, render_slide at its time and the
+  PDF show where its queue is; its end is where the script ends.
 - `allow:` on the heading, as for `app` blocks: `slide.nav`
   (`presentation.next()`, `prev()`, `go(n)`), `deck.data`
   (`presentation.set`), `code` (`presentation.code`: the source code
@@ -1313,6 +1376,37 @@ declare module "Sliqtly" {
   export const env: Env;
   /** Characters from a spritesheet that walk and jump on the slide's boxes (topic scripts). */
   export const sprites: any;
+  /** The cut-out presenter of `::: story` slides, led by the script (topic scripts). */
+  export const presenter: Presenters;
+}
+
+interface Presenters {
+  /** A presenter at the slide's bottom right, hidden until show() unless { visible: true }. */
+  create(options?: { id?: string; visible?: boolean }): Presenter;
+  all(): Presenter[];
+  /** Seconds from the slide's start to where every presenter's queue ends. */
+  end(): number;
+}
+
+type Pose = "pen" | "chin" | "open" | "finger" | "aim" | "thumb";
+
+/** Each call queues after the one before it, and not before the moment it is made. */
+interface Presenter {
+  readonly id: string;
+  /** Fades in over `fade` seconds (0.4), moving in `from` a side ("none"). */
+  show(options?: { fade?: number; from?: "right" | "bottom" | "left" | "none" }): Presenter;
+  /** Fades out, moving out `to` a side. */
+  hide(options?: { fade?: number; to?: "right" | "bottom" | "left" | "none" }): Presenter;
+  /** A line in the bubble, held until it has been read. An entity (or the first found) gives its words and is hidden unless keep. The pose follows the line's first word unless given. */
+  say(line: string | Entity | Entities, options?: { pose?: Pose; keep?: boolean }): Presenter;
+  wait(seconds: number): Presenter;
+  /** fn runs when the queue gets here. */
+  call(fn: (p: Presenter) => void): Presenter;
+  /** x, y move it from where it stands (slide px); scale, opacity, z as on an entity. */
+  set(props: { x?: number; y?: number; scale?: number; opacity?: number; z?: number }): Presenter;
+  /** True once its queue has ended. */
+  done(): boolean;
+  remove(): Presenter;
 }
 
 interface Presentation {

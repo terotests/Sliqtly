@@ -33,6 +33,8 @@
 
 Import "JsonValue.rgr"
 Import "PresSel.rgr"
+Import "PresStory.rgr"
+Import "PresPuppet.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "pkg:evg/EVGColor.rgr"
@@ -684,6 +686,12 @@ class PresScriptAdd {
     def cropW:double 1.0
     def cropH:double 1.0
     def flipH:boolean false
+    ; a presenter (web/presenter-runtime.js): its lines as a `::: story`
+    ; block has them, how many are shown, and how long the last one has
+    ; been; w × h is the slide it stands on
+    def story:string ""
+    def shown:int 0
+    def since:double 0.0
     def props:PresEntProps (new PresEntProps())
 
     Constructor () {
@@ -768,6 +776,9 @@ class PresScriptFrame {
                 ad.cropW = (o.numOr("cropW" 1.0))
                 ad.cropH = (o.numOr("cropH" 1.0))
                 ad.flipH = (o.boolOr("flipH" false))
+                ad.story = (o.strOr("story" ""))
+                ad.shown = (to_int (o.numOr("shown" 0.0)))
+                ad.since = (o.numOr("since" 0.0))
                 ad.props = (PresEntProps.read(o))
                 push f.adds ad
                 k = (k + 1)
@@ -1353,6 +1364,23 @@ class PresScriptApply {
         return ("/" + t)
     }
 
+    ; A presenter's commands (the `::: story` character, PresPuppet): its
+    ; lines, `shown` of them out, the last one `since` seconds ago.
+    sfn presenter:void (out:[EVGDrawCmd] ad:PresScriptAdd engine:EVGTextEngine) {
+        def beats:[PresStoryBeat] (PresStory.parse(ad.story))
+        def st:PresPuppetState (PresStory.stateAt(beats ad.shown ad.since))
+        def list:EVGDisplayList (new EVGDisplayList())
+        PresPuppet.paint(list st (PresPuppet.placeOn(ad.w ad.h)))
+        if ((st.bubbleBeat >= 0) && (st.bubbleBeat < (array_length beats))) {
+            PresPuppet.bubble(list (itemAt beats st.bubbleBeat) st.bubble ad.w ad.h engine (PresStory.face()))
+        }
+        def i:int 0
+        while (i < (array_length list.cmds)) {
+            push out (itemAt list.cmds i)
+            i = (i + 1)
+        }
+    }
+
     ; The commands for one added element, in its own look.
     sfn made:[EVGDrawCmd] (ad:PresScriptAdd sc:PresScene list:EVGDisplayList engine:EVGTextEngine ink:string accent:string) {
         def out:[EVGDrawCmd]
@@ -1437,6 +1465,16 @@ class PresScriptApply {
             p.a = 1.0
             push out p
         }
+        if (ad.kind == "presenter") {
+            PresScriptApply.presenter(out ad engine)
+            ; it turns and scales about its own strip, and x, y move it from
+            ; where it stands
+            def u:double (PresPuppet.unitOn(ad.w ad.h))
+            ent.x = (ad.w - ((PresPuppet.STRIP()) * u))
+            ent.y = 0.0
+            ent.w = ((PresPuppet.STRIP()) * u)
+            ent.h = ad.h
+        }
         ; its own properties, as on any entity: x and y name where it is
         ; already (it was made there), so only the rest moves it
         def lk:PresEntLook (new PresEntLook())
@@ -1447,7 +1485,7 @@ class PresScriptApply {
         lk.color = p0.color
         lk.fill = p0.fill
         lk.stroke = p0.stroke
-        if (ad.kind == "clone") {
+        if ((ad.kind == "clone") || (ad.kind == "presenter")) {
             def dx:double 0.0
             def dy:double 0.0
             if p0.hasX {
@@ -1455,6 +1493,11 @@ class PresScriptApply {
             }
             if p0.hasY {
                 dy = (p0.y - ent.y)
+            }
+            ; a presenter's x, y are how far it is moved
+            if (ad.kind == "presenter") {
+                dx = p0.x
+                dy = p0.y
             }
             lk.m = (PresAff.local((ent.x + (ent.w * p0.ox)) (ent.y + (ent.h * p0.oy)) (p0.scale * p0.scaleX) (p0.scale * p0.scaleY) p0.skew p0.rotate dx dy))
         } {

@@ -41,6 +41,8 @@ Import "PresTable.rgr"
 Import "PresSmartArt.rgr"
 Import "PresFigma.rgr"
 Import "PresSketch.rgr"
+Import "PresStory.rgr"
+Import "PresPuppet.rgr"
 Import "PresPlay.rgr"
 Import "PresPlayFiles.rgr"
 Import "PresScript.rgr"
@@ -200,6 +202,8 @@ class PresSlide {
     def charts:[PresChartUse]
     def smartArts:[PresSmartArtUse]
     def sketches:[PresSketchUse]
+    ; the presenter's lines (`::: story`), each a build step after the slide's own
+    def story:[PresStoryBeat]
     def plays:[PresPlayUse]
     ; A program that drives this slide's own display list (`{script=
     ; apps/fx.tsx}` on its heading, PresScript): its file, what it may ask
@@ -1883,6 +1887,12 @@ class PresDeck {
     }
 
     fn takeOwns:void (r:PresScriptRun f:PresScriptFrame) {
+        ; a script's presenter speaks in the hand face of `::: story`
+        for f.adds ad:PresScriptAdd ai {
+            if (ad.kind == "presenter") {
+                this.wantFace((PresStory.face()))
+            }
+        }
         r.ownsClick = f.ownsClick
         if (r.ownsBuild != f.ownsBuild) {
             r.ownsBuild = f.ownsBuild
@@ -4553,6 +4563,16 @@ class PresDeck {
         ; a slide with room is set larger (the front matter's `slide-grow`
         ; overrides; `slide-grow: off` keeps the document's sizes)
         e.layout.slideGrow = 1.6
+        ; a slide with a presenter (`::: story`) keeps the strip it stands in
+        ; free, so the figure and its bubble cover nothing (PresPuppet.STRIP)
+        def noAside:[int]
+        e.layout.asideAt = noAside
+        e.layout.asideFrac = (PresPuppet.STRIP() / 960.0)
+        for src.blocks sb:PresBlock sbi {
+            if (sb.kind == "story") {
+                push e.layout.asideAt sb.start
+            }
+        }
         ; the charts over the theme's defaults: every chart's, then each
         ; heading's own (`#anchor chart { … }`)
         def emb:MdEmbedCache e.layout.embeds
@@ -5052,10 +5072,73 @@ class PresDeck {
                 if (blk.kind == "audio") {
                     s2.audio = (PresSource.argValue(blk.args "src"))
                 }
+                if (blk.kind == "story") {
+                    this.readStory(s2 blk)
+                }
             }
             k = (k + 1)
         }
         this.readCodeLinks()
+    }
+
+    ; A `::: story` block: each line a beat and a build step of its own, after
+    ; the slide's (PresStory). The bubble's hand face is asked of the page.
+    fn readStory:void (s:PresSlide blk:PresBlock) {
+        def beats:[PresStoryBeat] (PresStory.parse(blk.body))
+        def i:int 0
+        while (i < (array_length beats)) {
+            def b:PresStoryBeat (itemAt beats i)
+            s.steps = (s.steps + 1)
+            b.step = s.steps
+            push s.story b
+            this.addGroup(s s.steps blk.start blk.start "story" (PresStory.beatSeconds(b)) b.text)
+            i = (i + 1)
+        }
+        this.wantFace((PresStory.face()))
+    }
+
+    ; asks the page for a face (wantFaces), once
+    fn wantFace:void (face:string) {
+        if ((indexOf ("," + wantFaces + ",") ("," + face + ",")) < 0) {
+            if ((strlen wantFaces) > 0) {
+                wantFaces = (wantFaces + ",")
+            }
+            wantFaces = (wantFaces + face)
+        }
+    }
+
+    ; The presenter and its bubble over the slide at t (the last line when
+    ; the slide is drawn still: a thumbnail, an export).
+    fn paintStory:void (out:EVGDisplayList s:PresSlide t:double l:MdLayout) {
+        def n:int (array_length s.story)
+        if (n == 0) {
+            return
+        }
+        def shown:int 0
+        def since:double 1000000.0
+        if (still == false) {
+            def k:int 0
+            while (k < n) {
+                def b:PresStoryBeat (itemAt s.story k)
+                def at:double (PresTimeline.stepTime(s b.step))
+                if ((at + 0.001) < t) {
+                    shown = (k + 1)
+                    since = (t - at)
+                }
+                k = (k + 1)
+            }
+        } {
+            shown = n
+        }
+        def st:PresPuppetState (PresStory.stateAt(s.story shown since))
+        PresPuppet.paint(out st (PresPuppet.placeOn(pageW pageH)))
+        if (st.bubbleBeat >= 0) {
+            def family:string l.style.bodyFamily
+            if (has haveFaces (PresStory.face())) {
+                family = (PresStory.face())
+            }
+            PresPuppet.bubble(out (itemAt s.story st.bubbleBeat) st.bubble pageW pageH l.engine family)
+        }
     }
 
     ; The 1-based line of the deck's text an offset is on.
@@ -5734,6 +5817,7 @@ class PresDeck {
         }
         ; the drawings made on the slide, over its content
         this.paintSketches(out i s t l)
+        this.paintStory(out s t l)
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
         }

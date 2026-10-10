@@ -29,6 +29,8 @@ Import "PresReviewDot.rgr"
 Import "PresPick.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
+Import "PresStory.rgr"
+Import "PresPuppet.rgr"
 Import "PresStageClick.rgr"
 Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
@@ -168,6 +170,7 @@ class PresCheck {
         this.fxLang()
         this.fxDeck()
         this.fxClock()
+        this.story()
         this.fileLanguages()
     }
 
@@ -3481,6 +3484,79 @@ class PresCheck {
 
     ; PresNav: the jumps while presenting (Home, End, PageUp/PageDown, a
     ; typed number) and where each lands
+    ; The presenter's story (PresStory, PresPuppet): beats, kinds and poses,
+    ; build steps, and stillness while a line is read.
+    fn story:void () {
+        def beats:[PresStoryBeat] (PresStory.parse("conformanceIssues() kertoo, kelpaako PDF painoon.\n- Paitsi RGB-tilassa. Siellä vastaus on aina nolla.\n\nNiinpä koodi bugaa tässä. {pose=aim}\nBut, luckily, the fix is small. {pose=wave}"))
+        this.ok(((array_length beats) == 4) ("story: four beats, " + (to_string (array_length beats))))
+        def b0:PresStoryBeat (itemAt beats 0)
+        def b1:PresStoryBeat (itemAt beats 1)
+        def b2:PresStoryBeat (itemAt beats 2)
+        def b3:PresStoryBeat (itemAt beats 3)
+        this.ok(((b0.kind == "setup") && (b0.pose == "pen")) "story: a plain line sets the scene, pen")
+        this.ok((((b1.kind == "but") && (b1.word == "Paitsi")) && (b1.pose == "chin")) ("story: Paitsi turns it, chin: " + b1.word))
+        this.ok((((b2.kind == "so") && (b2.pose == "aim")) && (b2.text == "Niinpä koodi bugaa tässä.")) ("story: {pose=aim} read and removed: " + b2.text))
+        this.ok(((b3.kind == "but") && (b3.pose == "chin")) "story: But, with its comma; an unknown pose keeps the kind's")
+        this.ok(((PresStory.readSeconds(b2)) >= 2.4) "story: a short line still gets 2.4 s")
+        ; the pose changes, then the bubble pops and nothing moves while it is read
+        def m0:PresPuppetState (PresStory.stateAt(beats 2 0.3))
+        this.ok(((m0.still == false) && (m0.chin > 0.0)) "story: moving into the new pose")
+        def r1:PresPuppetState (PresStory.stateAt(beats 2 2.0))
+        def r2:PresPuppetState (PresStory.stateAt(beats 2 5.0))
+        this.ok(((r1.bubbleBeat == 1) && (r1.bubble == 1.0)) "story: the second line is shown")
+        this.ok((((r1.still && r2.still) && ((r1.gazeX == r2.gazeX) && (r1.lid == r2.lid))) && ((r1.hop == 0.0) && (r1.jitter == 0.0))) "story: still while the line is read, eyes too")
+        def o:PresPuppetState (PresStory.stateAt(beats 3 0.1))
+        this.ok(((o.bubbleBeat == 1) && (o.bubble < 1.0)) "story: the old line goes as the next step starts")
+        ; drawn: pieces, and a bubble that is one outline
+        def dl (new EVGDisplayList())
+        PresPuppet.paint(dl r1 (PresPuppet.placeOn(960.0 540.0)))
+        this.ok(((dl.count()) > 40) ("story: the puppet is drawn in pieces, " + (to_string (dl.count()))))
+        def ol:[double] (PresPuppet.bubbleOutline(100.0 100.0 400.0 200.0 460.0 260.0 1.0))
+        this.ok(((array_length ol) > 40) "story: the bubble with its tail is one outline")
+        ; a deck: the lines are build steps after the slide's own
+        def deck (new PresDeck())
+        deck.setText("---\ntitle: T\n---\n\n## Löydös\n\n- a\n- b\n{.build}\n\n::: story\nYksi.\nMutta kaksi.\n:::\n")
+        PresTimeline.planAll(deck)
+        def sl:PresSlide (deck.slideAt(0))
+        this.ok(((sl.steps == 4) && ((array_length sl.story) == 2)) ("story: 2 list steps + 2 lines, " + (to_string sl.steps)))
+        def sb1:PresStoryBeat (itemAt sl.story 1)
+        this.ok((sb1.step == 4) "story: the second line is step 4")
+        def gap:double ((PresTimeline.stepTime(sl 4)) - (PresTimeline.stepTime(sl 3)))
+        def sb0:PresStoryBeat (itemAt sl.story 0)
+        this.ok(((gap + 0.001) >= (PresStory.beatSeconds(sb0))) ("story: playing, a line holds until read: " + (to_string gap)))
+        ; the slide's text keeps out of the presenter's strip; a slide
+        ; without a presenter is as wide as before
+        def body:string "a paragraph long enough to run across the whole slide and onto a second line"
+        def deck2 (new PresDeck())
+        deck2.setText(((((("---\ntitle: T\n---\n\n" + "# Yksi\n\n" + body) + "\n\n::: story\nYksi.\n:::\n\n# Kaksi\n\n") + body) + "\n")))
+        def l2:MdLayout (deck2.layout())
+        def pw:double l2.style.pageWidth
+        def r0:double 0.0
+        def r1:double 0.0
+        for l2.boxes bx:MdBox bi {
+            if (((bx.kind == 0) && (bx.text != "Yksi")) && (bx.text != "Kaksi")) {
+                if ((bx.page == 0) && ((bx.x + bx.w) > r0)) { r0 = (bx.x + bx.w) }
+                if ((bx.page == 1) && ((bx.x + bx.w) > r1)) { r1 = (bx.x + bx.w) }
+            }
+        }
+        def strip:double (pw * (PresPuppet.STRIP() / 960.0))
+        this.ok((r0 <= (pw - strip)) ((("story: the text keeps out of the strip, " + (to_string r0)) + " of ") + (to_string pw)))
+        this.ok((r1 > (pw - strip)) ("story: a slide without a presenter is full width, " + (to_string r1)))
+        ; a script's presenter (web/presenter-runtime.js) is drawn the same way
+        def fr:PresScriptFrame (PresScriptFrame.read("{\"p\":{},\"a\":[{\"id\":\"presenter-1\",\"k\":\"presenter\",\"w\":960,\"h\":540,\"story\":\"Yksi.\\nMutta kaksi. {pose=chin}\",\"shown\":2,\"since\":9}]}"))
+        this.ok(((array_length fr.adds) == 1) "story: a frame carries the presenter")
+        def pad:PresScriptAdd (itemAt fr.adds 0)
+        this.ok(((pad.shown == 2) && ((indexOf pad.story "{pose=chin}") > 0)) ("story: its lines and how many are out, " + pad.story))
+        def pc:[EVGDrawCmd]
+        PresScriptApply.presenter(pc pad l2.engine)
+        def said:boolean false
+        for pc c:EVGDrawCmd ci {
+            if ((c.kind == 3) && ((indexOf c.text "kaksi") >= 0)) { said = true }
+        }
+        this.ok(((array_length pc) > 40) ("story: a script's presenter is drawn, " + (to_string (array_length pc))))
+        this.ok(said "story: its bubble says the line out")
+    }
+
     ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
     fn recording:void () {
         def ink (new PresInk())
