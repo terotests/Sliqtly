@@ -237,6 +237,8 @@ class Store {
         host_delete_doc host "mcp_work" id
         host_clear_error host
         host_remove_files host ("shares/" + id + "/")
+        ; its kept layout for the viewer (viewcache.go)
+        host_remove_files host ("views/" + id + ".json")
     }
 
     ; the session is over: what it held goes with it

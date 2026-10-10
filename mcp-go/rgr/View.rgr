@@ -56,6 +56,25 @@ class View {
         if ((sh.link == false) && ((View.shows(doc uid)) == false)) {
             return ""
         }
+        ; laid out before for this address, these slides and this very
+        ; document by this build: kept (viewcache.go)
+        def link:string "0"
+        if sh.link {
+            link = "1"
+        }
+        def key:string (host_view_key host (id + "\n" + sh.id + "\n" + keys + "\n" + link + "\n" + (JOut.text(doc))))
+        def kept:string (host_view_get host id key)
+        if ((strlen kept) > 0) {
+            return kept
+        }
+        def body:string (View.layout(host id keys sh))
+        host_view_put host id key body
+        return body
+    }
+
+    ; the deck's layout as the page paints it (View.json)
+    sfn layout:string (host:McpHost id:string keys:string sh:Shown) {
+        def doc:MfJ sh.doc
         def md:string (doc.str_("md"))
         def stored:[string]
         for (doc.list("files")) f:MfJ fi {
@@ -180,14 +199,26 @@ class View {
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + ",\"scripts\":" + scripts + "}")
     }
 
-    ; a picture the viewer gets made for the screen: PNG, JPEG or WebP
+    ; a picture the viewer gets through the server (View.picture), which
+    ; the CDN keeps: PNG, JPEG and WebP made for the screen, SVG and GIF as
+    ; they are (Storage's own downloads are slow to start and not kept)
     sfn madeForScreen:boolean (path:string type:string) {
         def t:string (to_lowercase type)
         if (((t == "image/png") || (t == "image/jpeg")) || (t == "image/webp")) {
             return true
         }
+        if ((t == "image/svg+xml") || (t == "image/gif")) {
+            return true
+        }
         def p:string (to_lowercase path)
+        if ((endsWith p ".svg") || (endsWith p ".gif")) {
+            return true
+        }
         return ((((endsWith p ".png") || (endsWith p ".jpg")) || (endsWith p ".jpeg")) || (endsWith p ".webp"))
+    }
+
+    sfn isSvg:boolean (path:string type:string) {
+        return (((to_lowercase type) == "image/svg+xml") || (endsWith (to_lowercase path) ".svg"))
     }
 
     sfn pictureUrl:string (host:McpHost id:string path:string stamp:string) {
@@ -389,13 +420,18 @@ class ViewPictures {
             return out
         }
         def data:buffer (host_image_bytes host (got.int_("handle" 0)))
+        out.status = 200
+        out.bytes = data
+        ; an SVG as it is: its first bytes say XML only
+        if (View.isSvg(path type)) {
+            out.type = "image/svg+xml"
+            return out
+        }
         def made:buffer (host_view_picture host data 2048)
         if ((buffer_length made) > 0) {
-            data = made
+            out.bytes = made
         }
-        out.status = 200
-        out.type = (host_content_type host data)
-        out.bytes = data
+        out.type = (host_content_type host out.bytes)
         return out
     }
 }

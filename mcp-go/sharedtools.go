@@ -104,6 +104,9 @@ func (h *McpHost) SharedPng(file, node string) int64 {
 	if h.env == nil || h.env.shared == nil {
 		return 0
 	}
+	// a shared file changes without the deck: a layout that drew one is
+	// not kept (viewcache.go)
+	h.unsure = true
 	b, err := h.env.shared.draw(h.ctx, file, node, 2, 2048)
 	if err != nil {
 		return 0

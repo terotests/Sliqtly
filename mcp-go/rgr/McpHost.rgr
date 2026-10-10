@@ -433,6 +433,25 @@ operators {
             go ( (e 1) ".BytesSHA256(" (e 2) ")" )
         }
     }
+    ; the key of a public viewer layout of `parts` made by this build; ""
+    ; when none is kept (viewcache.go)
+    host_view_key _:string (h:McpHost parts:string) {
+        templates {
+            go ( (e 1) ".ViewKey(" (e 2) ")" )
+        }
+    }
+    ; the layout kept under key for address id; "" when none is
+    host_view_get _:string (h:McpHost id:string key:string) {
+        templates {
+            go ( (e 1) ".ViewGet(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    ; keeps the layout just made (not one that read live data or missed a file)
+    host_view_put _:void (h:McpHost id:string key:string body:string) {
+        templates {
+            go ( (e 1) ".ViewPut(" (e 2) ", " (e 3) ", " (e 4) ")" nl )
+        }
+    }
     ; Storage object `path` with the handle's bytes and a download token
     host_upload _:void (h:McpHost handle:int path:string contentType:string token:string) {
         templates {

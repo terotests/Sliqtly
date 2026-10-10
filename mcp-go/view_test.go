@@ -365,13 +365,14 @@ func TestViewPictures(t *testing.T) {
 		return b.Bytes()
 	}
 	big, clear := photo(2600, 1300, false), photo(2600, 1300, true)
-	md := "# Pictures\n\n![Big](media/big.png)\n\n## Clear\n\n![Clear](media/clear.png)\n\n## Dot\n\n![Dot](media/dot.png)\n"
+	md := "# Pictures\n\n![Big](media/big.png)\n\n## Clear\n\n![Clear](media/clear.png)\n\n## Dot\n\n![Dot](media/dot.png)\n\n## Mark\n\n![Mark](media/mark.svg)\n"
 	c := call(t, s, "create_presentation", map[string]any{
 		"title": "Pics", "markdown": md, "visibility": "link",
 		"images": []any{
 			map[string]any{"name": "big.png", "data_base64": base64.StdEncoding.EncodeToString(big)},
 			map[string]any{"name": "clear.png", "data_base64": base64.StdEncoding.EncodeToString(clear)},
 			map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())},
+			map[string]any{"name": "mark.svg", "data_base64": base64.StdEncoding.EncodeToString([]byte(markSVG))},
 		},
 	})
 	if c.IsError {
@@ -421,6 +422,14 @@ func TestViewPictures(t *testing.T) {
 	eq(t, res.StatusCode, 200)
 	eq(t, res.Header.Get("Content-Type"), "image/png")
 	eq(t, bytes.Equal(b, squarePNG()), true)
+	// an SVG as it is, kept by the CDN like the others, and running
+	// nothing when opened on its own
+	res, b = get(urls["media/mark.svg"])
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "image/svg+xml")
+	eq(t, res.Header.Get("Cache-Control"), "public, max-age=31536000, s-maxage=31536000, immutable")
+	match(t, res.Header.Get("Content-Security-Policy"), "sandbox")
+	eq(t, string(b), markSVG)
 
 	// an old stamp (the picture was replaced since): to the current address
 	no := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -453,4 +462,68 @@ func TestViewPictures(t *testing.T) {
 	}
 	res, _ = get(urls["media/big.png"])
 	eq(t, res.StatusCode, 404)
+}
+
+const markSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20"><rect width="40" height="20" fill="#e85d3a"/></svg>`
+
+// A deck is laid out once per version of its document (viewcache.go): the
+// layout is kept in Storage under the document's hash, a changed deck is
+// laid out again, and one that read live data from the web is not kept.
+func TestViewKept(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	forget := func() {
+		viewMem.Lock()
+		viewMem.m, viewMem.order = map[string]string{}, nil
+		viewMem.Unlock()
+	}
+	stored := func(id string) (string, string, bool) {
+		f.bucket.mu.Lock()
+		defer f.bucket.mu.Unlock()
+		o, ok := f.bucket.saved["views/"+id+".json"]
+		key, body, _ := strings.Cut(string(o.data), "\n")
+		return key, body, ok
+	}
+	c := call(t, s, "create_presentation", map[string]any{"title": "Kept", "markdown": "# One\n\n## Two\n", "visibility": "link"})
+	id := sc(c)["deck_id"].(string)
+	code, _, _, body := getView(t, s.root+"/api/view/"+id)
+	eq(t, code, 200)
+	key, kept, ok := stored(id)
+	eq(t, ok, true)
+	eq(t, len(key), 64)
+	eq(t, kept, body)
+
+	// a fresh instance reads it from Storage, not laying the deck out
+	forget()
+	f.bucket.Save(context.Background(), "views/"+id+".json", "application/json", []byte(key+"\n"+`{"deck":{"slides":7}}`), nil)
+	_, _, _, again := getView(t, s.root+"/api/view/"+id)
+	eq(t, again, `{"deck":{"slides":7}}`)
+
+	// the deck changed: laid out again, and the new layout kept
+	u := call(t, s, "update_presentation", map[string]any{"deck_id": id, "markdown": "# One\n\n## Two\n\n## Three\n"})
+	if u.IsError {
+		t.Fatal(textOf(u))
+	}
+	_, _, v, _ := getView(t, s.root+"/api/view/"+id)
+	eq(t, v.Deck.Slides, 3)
+	key2, _, _ := stored(id)
+	if key2 == key {
+		t.Fatal("the changed deck's layout is under the old key")
+	}
+
+	// the slides a link names are a layout of their own
+	_, _, one, _ := getView(t, s.root+"/api/view/"+id+"?slides=two")
+	eq(t, one.Deck.Slides, 1)
+	_, _, all, _ := getView(t, s.root+"/api/view/"+id)
+	eq(t, all.Deck.Slides, 3)
+
+	// live data from the web: laid out for every reader
+	live := call(t, s, "create_presentation", map[string]any{"title": "Live", "visibility": "link",
+		"markdown": "# Costs\n\n```vega-lite\n{\"mark\": \"bar\", \"data\": {\"url\": \"https://data.test/costs.csv\"}, \"encoding\": {\"x\": {\"field\": \"a\"}, \"y\": {\"field\": \"b\"}}}\n```\n"})
+	lid := sc(live)["deck_id"].(string)
+	code, _, _, _ = getView(t, s.root+"/api/view/"+lid)
+	eq(t, code, 200)
+	_, _, ok = stored(lid)
+	eq(t, ok, false)
 }
