@@ -49,6 +49,7 @@ Import "../game_engine/ui/UIInput.rgr"
 Import "../markdown/src/R5MdLanguage.rgr"
 Import "../markdown/src/MdSearchText.rgr"
 Import "PresCssLanguage.rgr"
+Import "PresFileLanguage.rgr"
 Import "../datagrid/src/script/lang/JsLanguage.rgr"
 Import "PresHints.rgr"
 Import "PresHelp.rgr"
@@ -119,9 +120,9 @@ class PresApp {
     ; the chart editor's chart, when it lives in a file of the document
     def chartFile:string ""
     def chartFileText:string ""
-    def jsonLang:JsLanguage (new JsLanguage())
-    def plainLang:EditorLanguage (new EditorLanguage())
     def cssLang:PresCssLanguage (new PresCssLanguage())
+    ; the files tab's editor colours a file by its name (PresFileLanguage)
+    def fileLangs:PresFileLanguage (new PresFileLanguage())
     def edTab:string "md"
     def cssSynced:int -1
     def themeText:string ""
@@ -7196,17 +7197,7 @@ class PresApp {
     ; A file of the document, opened in the files tab's editor.
     fn openFile:void (path:string text:string) {
         filePath = path
-        ; JSON in a script's colours, CSS in the theme's, the rest plain
-        def lower:string (to_lowercase path)
-        if ((indexOf lower ".json") > 0) {
-            fileEditor.setLanguage(jsonLang)
-        } {
-            if ((indexOf lower ".css") > 0) {
-                fileEditor.setLanguage(cssLang)
-            } {
-                fileEditor.setLanguage(plainLang)
-            }
-        }
+        fileEditor.setLanguage((fileLangs.forPath(path)))
         fileEditor.init(text)
         fileSynced = fileEditor.buf.version
         this.showTab("files")
