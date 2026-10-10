@@ -185,6 +185,33 @@ func TestViewBook(t *testing.T) {
 	}
 }
 
+// `select-text: off` in the front matter: the page lets nobody select the
+// slides' text (web/slidetext.js); by default the view says nothing of it.
+func TestViewSelectText(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	open := func(front string) map[string]any {
+		c := call(t, s, "create_presentation", map[string]any{"title": "Teksti", "markdown": front + "# Otsikko\n\nTeksti\n", "visibility": "link"})
+		if c.IsError {
+			t.Fatal(textOf(c))
+		}
+		code, _, _, body := getView(t, s.root+"/api/view/"+sc(c)["deck_id"].(string))
+		eq(t, code, 200)
+		var raw struct {
+			Deck map[string]any `json:"deck"`
+		}
+		if err := json.Unmarshal([]byte(body), &raw); err != nil {
+			t.Fatal(err)
+		}
+		return raw.Deck
+	}
+	if v, has := open("")["selectText"]; has {
+		t.Fatalf("selectText %v without select-text in the front matter", v)
+	}
+	eq(t, open("---\nselect-text: off\n---\n\n")["selectText"], false)
+}
+
 // A program on a slide (```app) comes with the view: the page runs it. Its
 // box is the program's own shape, centred in the column (not stretched to
 // the column's right edge).
