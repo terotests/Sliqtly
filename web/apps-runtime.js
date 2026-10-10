@@ -56,6 +56,28 @@ var machine = {
   state: "",
   send: function (event, data) { __asks.push({ k: "machine.send", event: String(event), data: data === undefined ? null : data }); }
 };
+// The "Sliqtly" module: import { presentation } from "Sliqtly". The slide
+// shown is presentation.activeSlide; moving between slides asks as
+// slide.next() does (allow: slide.nav), presentation.set as deck.set
+// (allow: deck.data).
+var __activeSlide = {};
+Object.defineProperty(__activeSlide, "index", { enumerable: true, get: function () { return slide.number; } });
+Object.defineProperty(__activeSlide, "step", { enumerable: true, get: function () { return slide.step; } });
+Object.defineProperty(__activeSlide, "from", { enumerable: true, get: function () { return slide.from || 0; } });
+Object.defineProperty(__activeSlide, "presenting", { enumerable: true, get: function () { return slide.presenting; } });
+__activeSlide.build = function () { slide.build(); };
+var presentation = {
+  activeSlide: __activeSlide,
+  next: function () { slide.next(); },
+  prev: function () { slide.prev(); },
+  go: function (n) { slide.go(n); },
+  get: function (key) { return deck.get(key); },
+  set: function (key, value) { deck.set(key, value); }
+};
+Object.defineProperty(presentation, "slides", { enumerable: true, get: function () { return slide.count; } });
+Object.defineProperty(presentation, "data", { enumerable: true, get: function () { return deck.data; } });
+var __sliqtly = { presentation: presentation, el: el, machine: machine };
+if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
 function __deckState(d) {
   deck.data = d.data || {};
   slide.number = d.slide || 1;

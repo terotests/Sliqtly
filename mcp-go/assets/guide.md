@@ -107,6 +107,7 @@ by default. Readability comes first.
 | `data` | Excel / CSV / JSON files, `table` and `sheet` blocks |
 | `apps` | a program or game running on a slide (`app` blocks, TSX + CSS) |
 | `scripts` | a program that moves the slide's own text, chart bars and diagram nodes (`{script=…}`) |
+| `script-api` | the `"Sliqtly"` module scripts import, as TypeScript declarations |
 | `editing` | `edits`, another assistant on the same deck, review comments, the layout report |
 | `export` | PDF, PPTX, DOCX, HTML, print pages with bleed |
 | `limits` | quotas, sign-in, privacy, deleting decks |
@@ -1068,13 +1069,40 @@ arrows. Name it on the slide's heading; one script a slide:
 - Send the file with `files`, as text (`{ "name": "fx.tsx", "text": "…" }`),
   kept as `apps/<name>`. The language is the one `app` blocks run (topic
   `apps`). It draws nothing of its own besides `add()`; it sets properties.
-- `find(selector)` gives the slide's entities, `tree()` the slide. The
-  selectors: a kind (`h2`, `p`, `li`, `quote`, `code`, `table`, `image`,
-  `chart`, `diagram`, `app`, `word`, `char`, `marker`, `bar`, `label`,
-  `line`, `node`, `edge`), `#id` (the `{#id}` of a block, a node's id),
-  `.class`, `:n` (the n:th of its kind under the same parent, 1 = first),
-  `*`, a space for "inside", and `edge B->D`. For example `li:2`,
+- It imports what it uses from the `"Sliqtly"` module; topic `script-api`
+  is the whole interface as TypeScript declarations:
+
+  ```tsx
+  import { presentation, input, env } from "Sliqtly";
+
+  const slide = presentation.activeSlide;   // the script's own slide
+  const bars = slide.find("chart:1 bar");
+  const items = slide.find("li");
+  let t = 0;
+
+  export function tick(dt: number) {
+    t += dt;
+    bars.each((b, i) =>
+      b.set({ scaleY: Math.min(1, Math.max(0, t - i * 0.3)), origin: "bottom" }));
+    items.each((e, i) => e.set({ opacity: Math.min(1, t - i * 0.5) }));
+  }
+  ```
+
+  Find once at the top and keep the lists: the entities stay the same
+  while the slide is shown.
+- `presentation.activeSlide` is the slide the script is on (it runs only
+  while that slide is shown): `find(selector)` its entities, `tree()` the
+  slide, `add(…)` a shape, `index` (1-based), `step` (the build step),
+  `from` (the slide it came from, 0 for none). `presentation.slides`,
+  `presentation.next()`, `prev()`, `go(n)`, `get(key)` / `set(key, value)`
+  (the deck's own data keys).
+- The selectors: a kind (`h2`, `p`, `li`, `quote`, `code`, `table`,
+  `image`, `chart`, `diagram`, `app`, `word`, `char`, `marker`, `bar`,
+  `label`, `line`, `node`, `edge`), `#id` (the `{#id}` of a block, a node's
+  id), `.class`, `:n` (the n:th of its kind under the same parent, 1 =
+  first), `*`, a space for "inside", and `edge B->D`. For example `li:2`,
   `chart:1 bar`, `diagram node#B`, `edge A->B`, `h2 word`, `p.key char`.
+  Rounded bars (`cornerRadiusEnd`) are bars too.
 - An entity has `id`, `kind`, `text`, `box` (`{x, y, w, h}` in slide px),
   `data` (a bar's `{label, value}`), `index`, `parent`, `children`, and
   `set({…})`, `get(name)`, `reset()`, `remove()`, `clone({…})`,
@@ -1085,36 +1113,25 @@ arrows. Name it on the slide's heading; one script a slide:
   `skew`, `origin` (`"left top"`, `"bottom"`, or `[0.5, 1]` as parts of
   its box; the centre when left out),
   `opacity`, `visible`, `color`, `fill`, `stroke`, `z` (drawn above
-  others), `clip` (`{x, y, w, h, r}` or `{circle: [cx, cy, r]}`).
-- `add("rect" | "circle" | "text" | "image", {x, y, w, h, text, size, src,
-  fill, color, …})` puts a shape on the slide, in the theme's colours
+  others), `clip` (`{x, y, w, h, r}` or `{circle: [cx, cy, r]}`). `null`
+  takes a property back to the slide's own.
+- `slide.add("rect" | "circle" | "text" | "image", {x, y, w, h, text, size,
+  src, fill, color, …})` puts a shape on the slide, in the theme's colours
   unless it names its own.
-- Hooks: `start()`, `onEnter(from)` (the slide arrived from slide `from`,
-  1-based, 0 for none), `tick(dt)` each frame, `build(n)` (the slide's
-  build step; with it the slide's own build animation is left out; steps
-  are taken in order, 0 first), `onKeyDown(key)`, `onKeyUp(key)`,
-  `onClick(entity)` (while presenting), `onLeave(to)` (what it sets is how
-  the slide looks while the next slide arrives), `final()`.
-  `input.pointer`, `input.keys`, `env.reducedMotion`, `env.export`.
-- Example:
-
-  ```tsx
-  let t = 0;
-  const bars = find("chart:1 bar");
-  const items = find("li");
-  function tick(dt) {
-    t += dt;
-    bars.each((b, i) =>
-      b.set({ scaleY: Math.min(1, Math.max(0, t - i * 0.3)), origin: "bottom" }));
-    items.each((e, i) => e.set({ opacity: Math.min(1, t - i * 0.5) }));
-  }
-  ```
-
-  Find once at the top and keep the lists: the entities stay the same
-  while the slide is shown.
+- Hooks, as functions (`export` is optional): `start()`, `onEnter(from)`,
+  `tick(dt)` each frame, `build(n)` (the slide's build step; with it the
+  slide's own build animation is left out; steps are taken in order, 0
+  first), `onKeyDown(key)`, `onKeyUp(key)`, `onClick(entity)` (while
+  presenting), `onLeave(to)` (what it sets is how the slide looks while the
+  next slide arrives), `final()`. `input.pointer`, `input.keys`,
+  `input.take(…keys)` (keys the presentation leaves to the script),
+  `env.reducedMotion`, `env.export`.
 - `allow:` on the heading, as for `app` blocks: `slide.nav`
-  (`slide.next()`, `slide.prev()`), `deck.data` (`deck.set`). Without it
-  the script only changes its own slide's look.
+  (`presentation.next()`, `prev()`, `go(n)`), `deck.data`
+  (`presentation.set`). Without it the script only changes its own
+  slide's look.
+- The old globals (`find`, `add`, `tree`, `slide`, `deck`) still work; the
+  page notes once in the console that `find()` is the old form.
 - It runs while its slide is shown, in the editor and in the shared
   presentation (sliqtly.com/s/…), and starts again each time the slide
   comes back. A frame over its time budget three times in a row stops it,
@@ -1135,6 +1152,148 @@ arrows. Name it on the slide's heading; one script a slide:
   not run (`Slide 3: script apps/fx.tsx does not run: SyntaxError: …`) and
   when a selector in it finds nothing on its slide
   (`find("chart:2 bar") → 0 entities`).
+
+<!-- topic: script-api -->
+# Topic: script-api
+
+The `"Sliqtly"` module a slide's script imports (topic `scripts`), as
+TypeScript declarations:
+
+```ts
+declare module "Sliqtly" {
+  /** The deck. A script runs only while its own slide is shown. */
+  export const presentation: Presentation;
+  /** Keys and pointer while the slide is shown. */
+  export const input: Input;
+  export const env: Env;
+}
+
+interface Presentation {
+  /** The slide the script is on. */
+  readonly activeSlide: ActiveSlide;
+  /** How many slides the deck has. */
+  readonly slides: number;
+  /** The deck's own data keys (front matter, headings). */
+  readonly data: Record<string, string>;
+  get(key: string): string;
+  /** Needs `allow: deck.data` on the heading. */
+  set(key: string, value: string | number): void;
+  /** Need `allow: slide.nav` on the heading. */
+  next(): void;
+  prev(): void;
+  go(slide: number): void;
+}
+
+interface ActiveSlide {
+  /** 1-based. */
+  readonly index: number;
+  /** The build step shown, 0 first. */
+  readonly step: number;
+  /** The slide shown before this one, 1-based; 0 for none. */
+  readonly from: number;
+  readonly presenting: boolean;
+  /** The slide's entities a selector finds: "li:2", "chart:1 bar", "edge A->B". */
+  find(selector: string): Entities;
+  /** The slide itself, its entities as children. */
+  tree(): Entity;
+  add(kind: "rect" | "circle" | "text" | "image", props: AddProps): Added;
+  /** The next build step, as a click would. */
+  build(): void;
+}
+
+interface Entity {
+  readonly id: string;
+  readonly kind: string;
+  readonly text: string;
+  /** Where Sliqtly drew it, in slide px. */
+  readonly box: { x: number; y: number; w: number; h: number };
+  /** A bar's { label, value }; null otherwise. */
+  readonly data: any;
+  readonly index: number;
+  readonly parent: Entity | null;
+  readonly children: Entity[];
+  set(props: Props): Entity;
+  get<K extends keyof Props>(name: K): Props[K];
+  reset(): Entity;
+  remove(): Entity;
+  clone(props?: Props): Added;
+  find(selector: string): Entities;
+}
+
+interface Entities extends Array<Entity> {
+  set(props: Props): Entities;
+  reset(): Entities;
+  remove(): Entities;
+  each(fn: (e: Entity, i: number) => void): Entities;
+  first(): Entity | null;
+}
+
+/** null takes a property back to the slide's own. */
+interface Props {
+  x?: number | null;
+  y?: number | null;
+  scale?: number | null;
+  scaleX?: number | null;
+  scaleY?: number | null;
+  /** Degrees. */
+  rotate?: number | null;
+  skew?: number | null;
+  /** "left top", "bottom", or [0.5, 1] as parts of the box; the centre by default. */
+  origin?: string | [number, number] | null;
+  opacity?: number | null;
+  visible?: boolean | null;
+  color?: string | null;
+  fill?: string | null;
+  stroke?: string | null;
+  /** Drawn above others when higher. */
+  z?: number | null;
+  clip?: { x: number; y: number; w: number; h: number; r?: number } | { circle: [number, number, number] } | null;
+}
+
+interface AddProps {
+  id?: string;
+  x?: number; y?: number; w?: number; h?: number;
+  text?: string; size?: number; src?: string;
+  fill?: string; color?: string; stroke?: string;
+  opacity?: number; rotate?: number; z?: number;
+}
+
+interface Added {
+  readonly id: string;
+  readonly kind: string;
+  set(props: AddProps): Added;
+  get(name: string): any;
+  remove(): Added;
+  reset(): Added;
+}
+
+interface Input {
+  readonly keys: Record<string, boolean>;
+  /** Slide px; inside: over the slide. */
+  readonly pointer: { x: number; y: number; down: boolean; inside: boolean };
+  /** Keys the presentation leaves to the script (never Escape). */
+  take(...keys: string[]): void;
+}
+
+interface Env {
+  readonly reducedMotion: boolean;
+  /** True where the script runs to its end for a picture or an export. */
+  readonly export: boolean;
+  /** Seconds. */
+  readonly time: number;
+}
+
+/** Hooks: functions of these names at the script's top level. */
+declare function start(): void;
+declare function onEnter(from: number): void;
+declare function tick(dt: number): void;
+declare function build(step: number): void;
+declare function onKeyDown(key: string): void;
+declare function onKeyUp(key: string): void;
+declare function onClick(entity: Entity | null): void;
+declare function onLeave(to: number): void;
+declare function final(): void;
+```
 
 <!-- topic: editing -->
 # Topic: editing

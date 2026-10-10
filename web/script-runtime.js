@@ -161,8 +161,15 @@ function __findAll(sel, scope) {
   return out;
 }
 
-function find(sel) { return __find(sel, null); }
-function tree() { return __ents[0] || null; }
+// The old globals (find, add, tree): they work, and say once where they went.
+var __saidOld = {};
+function __old(name, now) {
+  if (__saidOld[name]) return;
+  __saidOld[name] = true;
+  console.log(name + "() is the old form: import { presentation } from \"Sliqtly\" and use presentation.activeSlide." + now);
+}
+function find(sel) { __old("find", "find(…)"); return __find(sel, null); }
+function tree() { __old("tree", "tree()"); return __ents[0] || null; }
 
 // An array of entities that sets, resets and removes them all at once.
 function __list(a) {
@@ -222,7 +229,7 @@ __Ent.prototype.find = function (sel) { return __find(sel, this); };
 __Ent.prototype.clone = function (p) {
   var o = { of: this.id };
   for (var k in p || {}) o[k] = p[k];
-  return add("clone", o);
+  return __add("clone", o);
 };
 
 // An element of the program's own, in the slide's list: drawn in the theme's
@@ -251,7 +258,8 @@ __Added.prototype.remove = function () {
 };
 __Added.prototype.reset = __Added.prototype.remove;
 
-function add(kind, p) {
+function add(kind, p) { __old("add", "add(…)"); return __add(kind, p); }
+function __add(kind, p) {
   var a = new __Added(String(kind), p);
   __adds.push(a);
   return a;
@@ -396,4 +404,14 @@ function __tickFor(seconds) {
     tick(1 / 30);
   }
 }
+
+// The "Sliqtly" module (import { presentation, input, env } from "Sliqtly"):
+// the deck runtime's presentation, its active slide with the slide's
+// entities. A script runs only while its own slide is shown, so the active
+// slide is the script's slide.
+__activeSlide.find = function (sel) { return __find(sel, null); };
+__activeSlide.add = function (kind, p) { return __add(kind, p); };
+__activeSlide.tree = function () { return __ents[0] || null; };
+__sliqtly.input = input;
+__sliqtly.env = env;
 `;
