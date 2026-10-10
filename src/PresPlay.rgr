@@ -55,6 +55,9 @@ class PresPlayScene {
     ; fit="box": the world stays in its element (as overflow: hidden);
     ; fit="slide" (the default): it may draw over the whole slide
     def boxed:boolean false
+    ; focus="keep": the slide's text and the controls stay while the
+    ; program has the keyboard (by default a world past its box covers them)
+    def keep:boolean false
 
     Constructor () {
     }
@@ -218,6 +221,7 @@ class PresPlayView {
                 el.src = sc.src
                 if (a.isObj()) {
                     sc.boxed = (((a.get("fit")).asStr("")) == "box")
+                    sc.keep = (((a.get("focus")).asStr("")) == "keep")
                 }
                 push scenes sc
             }
@@ -570,6 +574,46 @@ class PresPlayView {
         o.setStr("id" "")
         o.setBool("past" true)
         return (o.toJson())
+    }
+
+    ; Whether the program takes the whole stage while it has the keyboard
+    ; (presenting): a world of it draws past the box (bx, by, bw, bh) and
+    ; does not say focus="keep". The slide's text and the controls then
+    ; give way to the game (paintOver).
+    fn takesStage:boolean (bx:double by:double bw:double bh:double) {
+        if (drawn == false) {
+            return false
+        }
+        this.place(bx by bw bh)
+        def takes:boolean false
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            if ((sc.clip == false) && (sc.keep == false)) {
+                takes = true
+            }
+            i = (i + 1)
+        }
+        return takes
+    }
+
+    ; The program over the whole slide, into `out` after everything else:
+    ; its worlds' whole-slide pictures (they cover the slide's text where
+    ; they drew), then its own picture in the box (bx, by, bw, bh) again.
+    ; Nothing unless it takes the stage.
+    fn paintOver:void (out:EVGDisplayList bx:double by:double bw:double bh:double) {
+        if ((this.takesStage(bx by bw bh)) == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length scenes)) {
+            def sc:PresPlayScene (itemAt scenes i)
+            if ((sc.clip == false) && (sc.keep == false)) {
+                this.windowOf(out sc 0.0 0.0 slideW slideH)
+            }
+            i = (i + 1)
+        }
+        this.paint(out bx by bw bh)
     }
 
     ; The worlds drawn past the box (bx, by, bw, bh) whose picture is under

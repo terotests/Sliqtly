@@ -344,6 +344,10 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
     counts too (PresDeck.playPast, web/three3d.js opaqueAt). Keys are
     `KeyboardEvent.key` names; `input.pointer` is in the program's own
     `size:` units, past 0..width/height for a world past the box.
+    A focused program whose world reaches past its box takes the stage while
+    presenting: its world is painted over the slide's text
+    (PresDeck.paintFocusOver) and the controls hide (body.game-stage);
+    `<scene3d focus="keep">` opts out.
   - **The deck** (each needs its word on `allow:`, the rest is refused and said):
     `deck.data` / `deck.get(key)` read the deck's own keys, `deck.set(key, v)`
     fills `{key}` in headers and footers (`deck.data`); `slide.next()`,

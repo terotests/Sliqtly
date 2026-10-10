@@ -187,6 +187,30 @@ class PresPlayWeb {
         return (v.pointAt((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)) px py past))
     }
 
+    ; Whether the program takes the whole stage while it has the keyboard
+    ; (PresPlayView.takesStage).
+    fn takesStage:boolean (key:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return false
+        }
+        def v:PresPlayView (itemAt views i)
+        return (v.takesStage((this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3))))
+    }
+
+    ; The program over the whole slide when it takes the stage, as display
+    ; list JSON in the slide's units, for the page to paint after the
+    ; slide (PresPlayView.paintOver); no commands otherwise.
+    fn overJson:string (key:string) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        def i:int (this.indexOf(key))
+        if (i >= 0) {
+            def v:PresPlayView (itemAt views i)
+            v.paintOver(out (this.boxAt(i 0)) (this.boxAt(i 1)) (this.boxAt(i 2)) (this.boxAt(i 3)))
+        }
+        return (out.toJson())
+    }
+
     ; The program's worlds drawn past its picture whose pictures are under
     ; slide point (px, py): [{"src", "u", "v"}] (PresPlayView.pastAt).
     fn pastAt:string (key:string px:double py:double) {

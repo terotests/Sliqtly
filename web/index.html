@@ -126,6 +126,8 @@
   }
   body.viewer #viewBar, body.presenting #viewBar { display: flex; }
   body.viewer.idle #viewBar, body.presenting.idle #viewBar { opacity: 0; pointer-events: none; }
+  /* a game on the slide has the keyboard and takes the stage (Esc gives it back) */
+  body.game-stage #viewBar, body.game-stage #endPanel { opacity: 0; pointer-events: none; }
   /* presenting from the editor: the way round the slides; the … menu only
      switches the speaker view and auto-advance (the rest is the reader's) */
   body.presenting:not(.viewer) #vMenu > :not([role="menuitemcheckbox"]) { display: none; }
