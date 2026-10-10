@@ -5,10 +5,10 @@ name: MCP Go
 
 on:
   pull_request:
-    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "scripts/themes.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
   push:
     branches: [main]
-    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
+    paths: ["mcp-go/**", "src/**", "themes/**", "scripts/lib.mjs", "scripts/themes.mjs", "presentation.config.json", "mcp/**", ".dockerignore", ".github/workflows/mcp-go.yml"]
 
 permissions:
   contents: read

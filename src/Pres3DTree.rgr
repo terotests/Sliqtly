@@ -53,6 +53,7 @@
 ; ============================================================================
 
 Import "JsonValue.rgr"
+Import "ColorLinear.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "../game_engine/three/src/three_vector3.rgr"
 Import "../game_engine/three/src/three_quaternion.rgr"
@@ -117,6 +118,12 @@ class P3Node {
     def rodB:[double]
     def radius:double 0.05
     def length:double 0.0
+    ; from a .gltf (<SliqGltf src>): the file a "gltfGeometry" mesh reads
+    ; (geoArgs: its mesh and primitive), a rotation given as a quaternion,
+    ; a glTF sun (shines down its own -z)
+    def gltfSrc:string ""
+    def fixedQuat:boolean false
+    def gltfSun:boolean false
     ; where it is in the world (after its groups): position and rotation
     def worldPos:[double] (([] _:double (0.0 0.0 0.0)))
     def worldQuat:[double] (([] _:double (0.0 0.0 0.0 1.0)))
@@ -138,6 +145,429 @@ class P3Op {
     }
 }
 
+; The triangles of one primitive of a .gltf: positions, normals (empty when
+; the file has none: then the faces are flat), texture places and indices
+; (empty when it lists its corners in order).
+class P3Tris {
+    def pos:[double]
+    def nrm:[double]
+    def uv:[double]
+    def idx:[int]
+    ; why it could not be read, "" when it could
+    def error:string ""
+}
+
+; The deck's .gltf files a <SliqGltf src> may name, kept by the host across
+; frames: each file parsed once, each primitive's triangles decoded once.
+class P3Files {
+    def names:[string]
+    def texts:[string]
+    def docNames:[string]
+    def docs:[JVal]
+    ; files given whose text is not glTF 2.0 JSON
+    def bad:[string]
+    def trisKeys:[string]
+    def tris:[P3Tris]
+    def bufKeys:[string]
+    def bufs:[[int]]
+
+    Constructor () {
+    }
+
+    ; A file of the deck (its name as `src` names it, its text); a new text
+    ; for a name forgets what was read of the old one.
+    fn setFile:void (name:string text:string) {
+        def at:int (indexOf names name)
+        if (at >= 0) {
+            if ((itemAt texts at) == text) {
+                return
+            }
+            set texts at text
+        } {
+            push names name
+            push texts text
+        }
+        this.forget(name)
+    }
+
+    fn has:boolean (name:string) {
+        return ((indexOf names name) >= 0)
+    }
+
+    ; asked for, and the deck has no such file (the host gave "")
+    fn absent:boolean (name:string) {
+        def at:int (indexOf names name)
+        return ((at >= 0) && ((strlen (itemAt texts at)) == 0))
+    }
+
+    fn forget:void (name:string) {
+        def d:int (indexOf docNames name)
+        if (d >= 0) {
+            remove_index docNames d
+            remove_index docs d
+        }
+        def b:int (indexOf bad name)
+        if (b >= 0) {
+            remove_index bad b
+        }
+        def pre:string (name + "#")
+        def keep:[string]
+        def kept:[P3Tris]
+        def i:int 0
+        while (i < (array_length trisKeys)) {
+            def k:string (itemAt trisKeys i)
+            if ((indexOf k pre) != 0) {
+                push keep k
+                push kept (itemAt tris i)
+            }
+            i = (i + 1)
+        }
+        trisKeys = keep
+        tris = kept
+        def keepB:[string]
+        def keptB:[[int]]
+        def j:int 0
+        while (j < (array_length bufKeys)) {
+            def bk:string (itemAt bufKeys j)
+            if ((indexOf bk pre) != 0) {
+                push keepB bk
+                push keptB (itemAt bufs j)
+            }
+            j = (j + 1)
+        }
+        bufKeys = keepB
+        bufs = keptB
+    }
+
+    ; The parsed file; an empty object when there is none or it is not glTF 2.0.
+    fn doc:JVal (src:string) {
+        def at:int (indexOf docNames src)
+        if (at >= 0) {
+            return (itemAt docs at)
+        }
+        def d:JVal (JVal.mkObj())
+        def fi:int (indexOf names src)
+        if (fi >= 0) {
+            def parsed:JVal (JVal.parse((itemAt texts fi)))
+            def asset:JVal (parsed.get("asset"))
+            if ((parsed.isObj()) && ((asset.strOr("version" "")) == "2.0")) {
+                d = parsed
+            } {
+                push bad src
+            }
+        }
+        push docNames src
+        push docs d
+        return d
+    }
+
+    ; The triangles of primitive `prim` of mesh `mesh` of the file.
+    fn trianglesOf:P3Tris (src:string mesh:int prim:int) {
+        def key:string (src + "#" + (to_string mesh) + "/" + (to_string prim))
+        def at:int (indexOf trisKeys key)
+        if (at >= 0) {
+            return (itemAt tris at)
+        }
+        def t:P3Tris (this.decode(src mesh prim))
+        push trisKeys key
+        push tris t
+        return t
+    }
+
+    fn decode:P3Tris (src:string mesh:int prim:int) {
+        def t:P3Tris (new P3Tris())
+        def d:JVal (this.doc(src))
+        def meshes:JVal (d.get("meshes"))
+        if ((mesh < 0) || (mesh >= (meshes.len()))) {
+            t.error = (src + " has no mesh " + (to_string mesh))
+            return t
+        }
+        def prims:JVal ((meshes.at(mesh)).get("primitives"))
+        if ((prim < 0) || (prim >= (prims.len()))) {
+            t.error = (src + " has no primitive " + (to_string prim) + " in mesh " + (to_string mesh))
+            return t
+        }
+        def pr:JVal (prims.at(prim))
+        def attrs:JVal (pr.get("attributes"))
+        if ((attrs.has("POSITION")) == false) {
+            t.error = ("a mesh of " + src + " has no POSITION")
+            return t
+        }
+        t.pos = (this.floats(src d (attrs.intOr("POSITION" -1)) "VEC3" t))
+        if (attrs.has("NORMAL")) {
+            t.nrm = (this.floats(src d (attrs.intOr("NORMAL" -1)) "VEC3" t))
+        }
+        if (attrs.has("TEXCOORD_0")) {
+            t.uv = (this.floats(src d (attrs.intOr("TEXCOORD_0" -1)) "VEC2" t))
+        }
+        def nv:int (idiv (array_length t.pos) 3)
+        if (pr.has("indices")) {
+            def raw:[double] (this.floats(src d (pr.intOr("indices" -1)) "SCALAR" t))
+            def i:int 0
+            while (i < (array_length raw)) {
+                def v:int (floor ((itemAt raw i) + 0.5))
+                if ((v < 0) || (v >= nv)) {
+                    t.error = ("an index of a mesh of " + src + " is past its corners")
+                    i = (array_length raw)
+                } {
+                    push t.idx v
+                }
+                i = (i + 1)
+            }
+        }
+        if ((strlen t.error) > 0) {
+            def noNums:[double]
+            def noInts:[int]
+            t.pos = noNums
+            t.nrm = noNums
+            t.uv = noNums
+            t.idx = noInts
+        }
+        return t
+    }
+
+    ; An accessor's values in order (`type` the one its use asks for);
+    ; integers as numbers, normalized ones scaled to 0..1 (-1..1 signed).
+    fn floats:[double] (src:string d:JVal ai:int type:string t:P3Tris) {
+        def out:[double]
+        if ((strlen t.error) > 0) {
+            return out
+        }
+        def accs:JVal (d.get("accessors"))
+        if ((ai < 0) || (ai >= (accs.len()))) {
+            t.error = (src + " has no accessor " + (to_string ai))
+            return out
+        }
+        def acc:JVal (accs.at(ai))
+        if ((acc.strOr("type" "")) != type) {
+            t.error = ("accessor " + (to_string ai) + " of " + src + " is " + (acc.strOr("type" "")) + ", " + type + " was needed")
+            return out
+        }
+        if (acc.has("sparse")) {
+            t.error = ("accessor " + (to_string ai) + " of " + src + " is sparse, which is not read yet")
+            return out
+        }
+        def nc:int 1
+        if (type == "VEC2") {
+            nc = 2
+        }
+        if (type == "VEC3") {
+            nc = 3
+        }
+        def ct:int (acc.intOr("componentType" 0))
+        def cb:int 4
+        if ((ct == 5120) || (ct == 5121)) {
+            cb = 1
+        }
+        if ((ct == 5122) || (ct == 5123)) {
+            cb = 2
+        }
+        if ((((ct < 5120) || (ct > 5126)) || (ct == 5124))) {
+            t.error = ("accessor " + (to_string ai) + " of " + src + " has component type " + (to_string ct))
+            return out
+        }
+        def count:int (acc.intOr("count" 0))
+        if ((acc.has("bufferView")) == false) {
+            ; no view: all zeros
+            def z:int 0
+            while (z < (count * nc)) {
+                push out 0.0
+                z = (z + 1)
+            }
+            return out
+        }
+        def views:JVal (d.get("bufferViews"))
+        def vi:int (acc.intOr("bufferView" -1))
+        if ((vi < 0) || (vi >= (views.len()))) {
+            t.error = (src + " has no buffer view " + (to_string vi))
+            return out
+        }
+        def view:JVal (views.at(vi))
+        def bytes:[int] (this.bufferOf(src d (view.intOr("buffer" -1)) t))
+        if ((strlen t.error) > 0) {
+            return out
+        }
+        def stride:int (view.intOr("byteStride" 0))
+        if (stride <= 0) {
+            stride = (nc * cb)
+        }
+        def base:int ((view.intOr("byteOffset" 0)) + (acc.intOr("byteOffset" 0)))
+        def viewEnd:int ((view.intOr("byteOffset" 0)) + (view.intOr("byteLength" 0)))
+        if (count > 0) {
+            def lastByte:int (((base + ((count - 1) * stride)) + (nc * cb)))
+            if ((lastByte > viewEnd) || (viewEnd > (array_length bytes))) {
+                t.error = ("accessor " + (to_string ai) + " of " + src + " reaches past its data")
+                return out
+            }
+        }
+        def norm:boolean (acc.boolOr("normalized" false))
+        def i:int 0
+        while (i < count) {
+            def c:int 0
+            while (c < nc) {
+                def off:int ((base + (i * stride)) + (c * cb))
+                push out (P3Files.valueAt(bytes off ct norm))
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn valueAt:double (b:[int] off:int ct:int norm:boolean) {
+        if (ct == 5126) {
+            return (P3Files.f32((itemAt b off) (itemAt b (off + 1)) (itemAt b (off + 2)) (itemAt b (off + 3))))
+        }
+        if (ct == 5121) {
+            def u8:double (to_double (itemAt b off))
+            if norm {
+                return (u8 / 255.0)
+            }
+            return u8
+        }
+        if (ct == 5120) {
+            def s8:int (itemAt b off)
+            if (s8 >= 128) {
+                s8 = (s8 - 256)
+            }
+            if norm {
+                def n8:double ((to_double s8) / 127.0)
+                if (n8 < -1.0) {
+                    return -1.0
+                }
+                return n8
+            }
+            return (to_double s8)
+        }
+        if (ct == 5123) {
+            def u16:double (to_double ((itemAt b off) + ((itemAt b (off + 1)) * 256)))
+            if norm {
+                return (u16 / 65535.0)
+            }
+            return u16
+        }
+        if (ct == 5122) {
+            def s16:int ((itemAt b off) + ((itemAt b (off + 1)) * 256))
+            if (s16 >= 32768) {
+                s16 = (s16 - 65536)
+            }
+            if norm {
+                def n16:double ((to_double s16) / 32767.0)
+                if (n16 < -1.0) {
+                    return -1.0
+                }
+                return n16
+            }
+            return (to_double s16)
+        }
+        ; 5125: unsigned 32-bit
+        def lo:double (to_double ((itemAt b off) + ((itemAt b (off + 1)) * 256)))
+        def hi:double (to_double ((itemAt b (off + 2)) + ((itemAt b (off + 3)) * 256)))
+        return (lo + (hi * 65536.0))
+    }
+
+    ; A little-endian float32 from its four bytes.
+    sfn f32:double (b0:int b1:int b2:int b3:int) {
+        def neg:boolean (b3 >= 128)
+        def e:int (((b3 % 128) * 2) + (idiv b2 128))
+        def m:double (to_double ((((b2 % 128) * 65536) + (b1 * 256)) + b0))
+        if (e == 255) {
+            return 0.0
+        }
+        def v:double 0.0
+        if (e == 0) {
+            v = ((m / 8388608.0) * (P3Files.pow2(-126)))
+        } {
+            v = ((1.0 + (m / 8388608.0)) * (P3Files.pow2((e - 127))))
+        }
+        if neg {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn pow2:double (k:int) {
+        def p:double 1.0
+        def i:int 0
+        if (k >= 0) {
+            while (i < k) {
+                p = (p * 2.0)
+                i = (i + 1)
+            }
+            return p
+        }
+        while (i > k) {
+            p = (p / 2.0)
+            i = (i - 1)
+        }
+        return p
+    }
+
+    ; The bytes of buffer `bi`: a data: URI (base64) in the file. A .bin
+    ; beside it or a .glb is not read.
+    fn bufferOf:[int] (src:string d:JVal bi:int t:P3Tris) {
+        def key:string (src + "#buffer" + (to_string bi))
+        def at:int (indexOf bufKeys key)
+        if (at >= 0) {
+            return (itemAt bufs at)
+        }
+        def out:[int]
+        def list:JVal (d.get("buffers"))
+        if ((bi < 0) || (bi >= (list.len()))) {
+            t.error = (src + " has no buffer " + (to_string bi))
+            return out
+        }
+        def uri:string ((list.at(bi)).strOr("uri" ""))
+        def comma:int (indexOf uri ",")
+        if (((indexOf uri "data:") != 0) || ((comma < 0) || ((indexOf uri ";base64,") < 0))) {
+            t.error = ("the data of " + src + " is not in the file (a data: URI); save it as .gltf with embedded data")
+            return out
+        }
+        out = (P3Files.unbase64((substring uri (comma + 1) (strlen uri))))
+        push bufKeys key
+        push bufs out
+        return out
+    }
+
+    ; Base64 text to bytes (ends with or without "=", spaces skipped).
+    sfn unbase64:[int] (s:string) {
+        def abc:string "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        def out:[int]
+        def acc:int 0
+        def bits:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:string (substring s i (i + 1))
+            i = (i + 1)
+            if (ch == "=") {
+                i = n
+            } {
+                def v:int (indexOf abc ch)
+                if (v >= 0) {
+                    acc = (((acc % 4096) * 64) + v)
+                    bits = (bits + 6)
+                    if (bits >= 8) {
+                        bits = (bits - 8)
+                        push out ((idiv acc (P3Files.pow2i(bits))) % 256)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn pow2i:int (k:int) {
+        def p:int 1
+        def i:int 0
+        while (i < k) {
+            p = (p * 2)
+            i = (i + 1)
+        }
+        return p
+    }
+}
+
 class Pres3DTree {
     def nodes:[P3Node]
     def warnings:[string]
@@ -148,12 +578,16 @@ class Pres3DTree {
     def roomLight:double 0.45
     ; the first version's attributes were met (said once)
     def legacy:boolean false
+    ; the deck's .gltf files the host gave (<SliqGltf src>)
+    def files:P3Files (new P3Files())
+    ; files a <SliqGltf> asked for that the host did not give
+    def missing:[string]
 
     Constructor () {
     }
 
     sfn objectTags:[string] () {
-        return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "sliqRod" "camera" "light" "object3D"))
+        return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "sliqRod" "sliqGltf" "camera" "light" "object3D"))
     }
 
     sfn geometryTags:[string] () {
@@ -315,7 +749,13 @@ class Pres3DTree {
     ; The world of one frame's <scene3d> (its JSON as PresPlay keeps it).
     ; False when it was no <scene3d>.
     sfn read:Pres3DTree (json:string) {
+        return (Pres3DTree.readWith(json (new P3Files())))
+    }
+
+    ; read, with the deck's files a <SliqGltf src> may name
+    sfn readWith:Pres3DTree (json:string files:P3Files) {
         def t:Pres3DTree (new Pres3DTree())
+        t.files = files
         def n:JVal (JVal.parse(json))
         if (((n.isObj()) == false) || ((n.strOr("t" "")) != "scene3d")) {
             t.warn("not a <scene3d>")
@@ -443,8 +883,15 @@ class Pres3DTree {
         if ((p.tag == "camera") && (this.camera < 0)) {
             this.camera = (array_length nodes)
         }
+        if (tag == "sliqGltf") {
+            p.tag = "group"
+        }
         def me:int (array_length nodes)
         push nodes p
+        if (tag == "sliqGltf") {
+            this.gltfIn(k me p.key where)
+            return
+        }
         if (p.tag == "mesh") {
             this.parts(p k where)
             return
@@ -459,8 +906,394 @@ class Pres3DTree {
         }
     }
 
+    ; --- <SliqGltf src> ---------------------------------------------------------
+
+    ; The parsed .gltf the host gave under `src`; an empty object when it
+    ; gave none (then `missing` names it) or the text is not glTF 2.0 JSON.
+    fn docOf:JVal (src:string where:string) {
+        if ((files.has(src)) == false) {
+            if ((indexOf missing src) < 0) {
+                push missing src
+            }
+            return (JVal.mkObj())
+        }
+        if (files.absent(src)) {
+            this.warn((where + ": the deck has no file " + src))
+            return (JVal.mkObj())
+        }
+        def doc:JVal (files.doc(src))
+        if ((indexOf files.bad src) >= 0) {
+            this.warn((where + ": " + src + " is not a glTF 2.0 .gltf (JSON) file"))
+        }
+        return doc
+    }
+
+    ; A <SliqGltf src>: the file's scene under the group at `me`; a named
+    ; child changes the file's object of that name (its place, its material,
+    ; what is put in it), other children are objects of the group.
+    fn gltfIn:void (k:JVal me:int key:string where:string) {
+        def p:P3Node (itemAt nodes me)
+        def a:JVal (k.get("a"))
+        def src:string (trim (Pres3DTree.text(a "src")))
+        while ((indexOf src "/") == 0) {
+            src = (substring src 1 (strlen src))
+        }
+        if ((strlen src) == 0) {
+            this.warn((where + ": src names the deck's .gltf file, <SliqGltf src=\"scenes/x.gltf\" />"))
+        } {
+            def doc:JVal (this.docOf(src where))
+            if ((doc.has("nodes")) && (doc.has("asset"))) {
+                def scenes:JVal (doc.get("scenes"))
+                def si:int (doc.intOr("scene" 0))
+                if (si < (scenes.len())) {
+                    def roots:JVal ((scenes.at(si)).get("nodes"))
+                    def r:int 0
+                    while (r < (roots.len())) {
+                        this.gltfNode(doc src (floor ((roots.at(r)).asNum(-1.0))) me key 0)
+                        r = (r + 1)
+                    }
+                }
+            }
+        }
+        ; the element's own children
+        def first:int (me + 1)
+        def last:int (array_length nodes)
+        def list:JVal (k.get("c"))
+        def rest:JVal (JVal.mkObj())
+        def kept:JVal (JVal.mkArr())
+        def i:int 0
+        while (i < (list.len())) {
+            def c:JVal (list.at(i))
+            i = (i + 1)
+            def ca:JVal (c.get("a"))
+            def nm:string ""
+            if (ca.isObj()) {
+                nm = (Pres3DTree.text(ca "name"))
+            }
+            def hit:int -1
+            if ((strlen nm) > 0) {
+                def j:int first
+                while ((j < last) && (hit < 0)) {
+                    if ((itemAt nodes j).name == nm) {
+                        hit = j
+                    }
+                    j = (j + 1)
+                }
+            }
+            if (hit >= 0) {
+                this.gltfOverride(hit c)
+            } {
+                kept.add(c)
+            }
+        }
+        rest.set("c" kept)
+        this.kids(rest me key)
+    }
+
+    ; A named child of <SliqGltf> laid over the file's object of that name.
+    fn gltfOverride:void (at:int c:JVal) {
+        def p:P3Node (itemAt nodes at)
+        def a0:JVal (c.get("a"))
+        def a:JVal a0
+        if ((a0.isObj()) == false) {
+            a = (JVal.mkObj())
+        }
+        def where:string ("<" + (c.strOr("t" "")) + " name=\"" + p.name + "\"> in <SliqGltf>")
+        if ((strlen (Pres3DTree.text(a "rotation"))) > 0) {
+            p.fixedQuat = false
+        }
+        if ((Pres3DTree.has(a "rotation-x")) || ((Pres3DTree.has(a "rotation-y")) || (Pres3DTree.has(a "rotation-z")))) {
+            if p.fixedQuat {
+                ; the file's turn as Euler angles, so one axis can change
+                def q:ThreeQuaternion (Pres3DTree.q4(p.quat))
+                p.euler = (Pres3DTree.eulerOf(q))
+                p.order = "XYZ"
+                p.fixedQuat = false
+            }
+        }
+        def jsx:string p.jsx
+        p.jsx = "group"
+        this.props(p a where)
+        p.jsx = jsx
+        def list:JVal (c.get("c"))
+        def i:int 0
+        def objs:JVal (JVal.mkArr())
+        while (i < (list.len())) {
+            def ch:JVal (list.at(i))
+            i = (i + 1)
+            def tag:string (ch.strOr("t" ""))
+            def ca0:JVal (ch.get("a"))
+            def ca:JVal ca0
+            if ((ca0.isObj()) == false) {
+                ca = (JVal.mkObj())
+            }
+            if ((indexOf (Pres3DTree.materialTags()) tag) >= 0) {
+                if (p.tag == "mesh") {
+                    this.material(p tag ca)
+                } {
+                    this.warn((where + ": it is not a mesh, so it has no material"))
+                }
+                continue
+            }
+            if ((indexOf (Pres3DTree.geometryTags()) tag) >= 0) {
+                if (p.tag == "mesh") {
+                    p.geo = tag
+                    p.geoArgs = (this.args(tag ca where))
+                    p.gltfSrc = ""
+                }
+                continue
+            }
+            objs.add(ch)
+        }
+        if ((objs.len()) > 0) {
+            def holder:JVal (JVal.mkObj())
+            holder.set("c" objs)
+            this.kids(holder at p.key)
+        }
+    }
+
+    ; Euler angles (XYZ) of a rotation
+    sfn eulerOf:[double] (q:ThreeQuaternion) {
+        def m:ThreeMatrix4 ((new ThreeMatrix4()).makeRotationFromQuaternion(q))
+        def m11:double (itemAt m.elements 0)
+        def m12:double (itemAt m.elements 4)
+        def m13:double (itemAt m.elements 8)
+        def m22:double (itemAt m.elements 5)
+        def m23:double (itemAt m.elements 9)
+        def m32:double (itemAt m.elements 6)
+        def m33:double (itemAt m.elements 10)
+        def c13:double m13
+        if (c13 > 1.0) {
+            c13 = 1.0
+        }
+        if (c13 < -1.0) {
+            c13 = -1.0
+        }
+        def y:double (asin c13)
+        if ((c13 < 0.9999999) && (c13 > -0.9999999)) {
+            return ([] _:double ((atan2 (0.0 - m23) m33) y (atan2 (0.0 - m12) m11)))
+        }
+        return ([] _:double ((atan2 m32 m22) y 0.0))
+    }
+
+    ; One node of the file (and what is under it) under `parent`.
+    fn gltfNode:void (doc:JVal src:string ni:int parent:int parentKey:string depth:int) {
+        def list:JVal (doc.get("nodes"))
+        if (((ni < 0) || (ni >= (list.len()))) || (depth > 64)) {
+            return
+        }
+        def nd:JVal (list.at(ni))
+        def ex:JVal ((nd.get("extras")).get("sliqtly"))
+        ; Sliqtly's own key and fill: the world adds them again when it needs them
+        if (ex.boolOr("default" false)) {
+            return
+        }
+        def ext:JVal (nd.get("extensions"))
+        def lightAt:int ((ext.get("KHR_lights_punctual")).intOr("light" -1))
+        def hasMesh:boolean (nd.has("mesh"))
+        def kids:JVal (nd.get("children"))
+        ; a camera of the file: the program's camera shows the world
+        if (((nd.has("camera")) && (hasMesh == false)) && ((kids.len()) == 0)) {
+            return
+        }
+        def p:P3Node (new P3Node())
+        p.parent = parent
+        p.name = (nd.strOr("name" ""))
+        def own:string p.name
+        if ((strlen own) == 0) {
+            own = ("node" + (to_string ni))
+        }
+        p.key = (parentKey + "/" + own)
+        p.jsx = "group"
+        p.tag = "group"
+        p.fixedQuat = true
+        this.gltfPlace(p nd)
+        p.visible = (ex.boolOr("visible" true))
+        p.castShadow = (ex.boolOr("castShadow" false))
+        p.receiveShadow = (ex.boolOr("receiveShadow" false))
+        if (lightAt >= 0) {
+            def lights:JVal (((doc.get("extensions")).get("KHR_lights_punctual")).get("lights"))
+            this.gltfLight(p (lights.at(lightAt)))
+        }
+        def prims:JVal (JVal.mkArr())
+        def mi:int -1
+        if hasMesh {
+            mi = (nd.intOr("mesh" -1))
+            def meshes:JVal (doc.get("meshes"))
+            if ((mi >= 0) && (mi < (meshes.len()))) {
+                prims = ((meshes.at(mi)).get("primitives"))
+            }
+        }
+        if (((prims.len()) == 1) && (p.tag == "group")) {
+            this.gltfMesh(p doc src mi 0 ex)
+        }
+        def me:int (array_length nodes)
+        push nodes p
+        if (((prims.len()) > 1) && (p.tag == "group")) {
+            def pi:int 0
+            while (pi < (prims.len())) {
+                def part:P3Node (new P3Node())
+                part.parent = me
+                part.key = (p.key + "/part" + (to_string pi))
+                part.jsx = "mesh"
+                part.tag = "mesh"
+                part.castShadow = p.castShadow
+                part.receiveShadow = p.receiveShadow
+                this.gltfMesh(part doc src mi pi (JVal.mkObj()))
+                push nodes part
+                pi = (pi + 1)
+            }
+        }
+        def c:int 0
+        while (c < (kids.len())) {
+            this.gltfNode(doc src (floor ((kids.at(c)).asNum(-1.0))) me p.key (depth + 1))
+            c = (c + 1)
+        }
+    }
+
+    ; The node's translation, rotation and scale (or its matrix taken apart)
+    fn gltfPlace:void (p:P3Node nd:JVal) {
+        def m:JVal (nd.get("matrix"))
+        if ((m.len()) == 16) {
+            def e:[double]
+            def i:int 0
+            while (i < 16) {
+                push e ((m.at(i)).asNum(0.0))
+                i = (i + 1)
+            }
+            def sx:double (sqrt ((((itemAt e 0) * (itemAt e 0)) + ((itemAt e 1) * (itemAt e 1))) + ((itemAt e 2) * (itemAt e 2))))
+            def sy:double (sqrt ((((itemAt e 4) * (itemAt e 4)) + ((itemAt e 5) * (itemAt e 5))) + ((itemAt e 6) * (itemAt e 6))))
+            def sz:double (sqrt ((((itemAt e 8) * (itemAt e 8)) + ((itemAt e 9) * (itemAt e 9))) + ((itemAt e 10) * (itemAt e 10))))
+            if (((sx < 0.000000001) || (sy < 0.000000001)) || (sz < 0.000000001)) {
+                this.warn("a node of the .gltf is scaled to nothing")
+                return
+            }
+            p.pos = ([] _:double ((itemAt e 12) (itemAt e 13) (itemAt e 14)))
+            p.scale = ([] _:double (sx sy sz))
+            def r:ThreeMatrix4 (new ThreeMatrix4())
+            r.set(((itemAt e 0) / sx) ((itemAt e 4) / sy) ((itemAt e 8) / sz) 0.0 ((itemAt e 1) / sx) ((itemAt e 5) / sy) ((itemAt e 9) / sz) 0.0 ((itemAt e 2) / sx) ((itemAt e 6) / sy) ((itemAt e 10) / sz) 0.0 0.0 0.0 0.0 1.0)
+            def q:ThreeQuaternion (new ThreeQuaternion())
+            r.toQuaternion(q)
+            p.quat = ([] _:double (q.x q.y q.z q.w))
+            return
+        }
+        p.pos = (Pres3DTree.numsOf((nd.get("translation")) ([] _:double (0.0 0.0 0.0))))
+        p.quat = (Pres3DTree.numsOf((nd.get("rotation")) ([] _:double (0.0 0.0 0.0 1.0))))
+        p.scale = (Pres3DTree.numsOf((nd.get("scale")) ([] _:double (1.0 1.0 1.0))))
+    }
+
+    ; a JSON list of numbers, `fallback` when it is not one of that length
+    sfn numsOf:[double] (v:JVal fallback:[double]) {
+        if ((v.len()) != (array_length fallback)) {
+            return fallback
+        }
+        def out:[double]
+        def i:int 0
+        while (i < (v.len())) {
+            def x:JVal (v.at(i))
+            if (x.kind != 2) {
+                return fallback
+            }
+            push out (x.asNum(0.0))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a colour of the file (linear light) as the tree holds colours (sRGB)
+    sfn srgbOf:[double] (v:JVal fallback:[double]) {
+        def lin:[double] (Pres3DTree.numsOf(v fallback))
+        if ((array_length lin) < 3) {
+            return ([] _:double (1.0 1.0 1.0))
+        }
+        return ([] _:double ((ColorLinear.toSrgb((itemAt lin 0))) (ColorLinear.toSrgb((itemAt lin 1))) (ColorLinear.toSrgb((itemAt lin 2)))))
+    }
+
+    fn gltfLight:void (p:P3Node l:JVal) {
+        def kind:string (l.strOr("type" ""))
+        if ((kind != "directional") && (kind != "point")) {
+            this.warn(("a " + kind + " light of the .gltf is not drawn (directional and point lights are)"))
+            return
+        }
+        p.tag = "light"
+        p.jsx = (kind + "Light")
+        p.kind = kind
+        p.color = (Pres3DTree.numsOf((l.get("color")) ([] _:double (1.0 1.0 1.0))))
+        p.intensity = (l.numOr("intensity" 1.0))
+        if (kind == "point") {
+            p.distance = (l.numOr("range" 0.0))
+            p.decay = (((l.get("extras")).get("sliqtly")).numOr("decay" 2.0))
+        }
+        p.gltfSun = (kind == "directional")
+        this.lights = (this.lights + 1)
+    }
+
+    ; A mesh of the file: R3F's geometry when the file says which (a world
+    ; Sliqtly saved), else the file's own triangles; its material.
+    fn gltfMesh:void (p:P3Node doc:JVal src:string mesh:int prim:int ex:JVal) {
+        p.tag = "mesh"
+        p.jsx = "mesh"
+        def gname:string (ex.strOr("geometry" ""))
+        if ((indexOf (Pres3DTree.geometryTags()) gname) >= 0) {
+            p.geo = gname
+            p.geoArgs = (Pres3DTree.numsOf((ex.get("args")) (this.args(gname (JVal.mkObj()) ""))))
+        } {
+            p.geo = "gltfGeometry"
+            p.geoArgs = ([] _:double ((to_double mesh) (to_double prim)))
+            p.gltfSrc = src
+            def tris:P3Tris (files.trianglesOf(src mesh prim))
+            if ((strlen tris.error) > 0) {
+                this.warn(tris.error)
+                p.visible = false
+            }
+        }
+        def pr:JVal ((((doc.get("meshes")).at(mesh)).get("primitives")).at(prim))
+        def mode:int (pr.intOr("mode" 4))
+        if (mode != 4) {
+            this.warn(("a mesh of " + src + " is not triangles (mode " + (to_string mode) + ") and is not drawn"))
+            p.visible = false
+        }
+        def mats:JVal (doc.get("materials"))
+        def mi:int (pr.intOr("material" -1))
+        def m:JVal (JVal.mkObj())
+        if ((mi >= 0) && (mi < (mats.len()))) {
+            m = (mats.at(mi))
+        }
+        def pbr:JVal (m.get("pbrMetallicRoughness"))
+        def base:[double] (Pres3DTree.numsOf((pbr.get("baseColorFactor")) ([] _:double (1.0 1.0 1.0 1.0))))
+        p.color = (Pres3DTree.srgbOf((pbr.get("baseColorFactor")) ([] _:double (1.0 1.0 1.0 1.0))))
+        p.opacity = (itemAt base 3)
+        p.metalness = (pbr.numOr("metallicFactor" 1.0))
+        p.roughness = (pbr.numOr("roughnessFactor" 1.0))
+        p.emissive = (Pres3DTree.srgbOf((m.get("emissiveFactor")) ([] _:double (0.0 0.0 0.0))))
+        p.transparent = ((m.strOr("alphaMode" "OPAQUE")) == "BLEND")
+        if (m.boolOr("doubleSided" false)) {
+            p.side = 2
+        }
+        p.mat = "meshStandardMaterial"
+        if ((m.get("extensions")).has("KHR_materials_unlit")) {
+            p.mat = "meshBasicMaterial"
+        }
+        if ((pbr.has("baseColorTexture")) || ((m.has("normalTexture")) || (m.has("emissiveTexture")))) {
+            this.warn(("the textures of " + src + " are not drawn yet; its colours are"))
+        }
+        ; what Sliqtly wrote of R3F's material
+        def mx:JVal ((m.get("extras")).get("sliqtly"))
+        def cls:string (mx.strOr("material" ""))
+        if ((indexOf (Pres3DTree.materialTags()) cls) >= 0) {
+            p.mat = cls
+        }
+        p.shininess = (mx.numOr("shininess" p.shininess))
+        p.specular = (Pres3DTree.numsOf((mx.get("specular")) p.specular))
+        p.flat = (mx.boolOr("flatShading" false))
+        p.wire = (mx.boolOr("wireframe" false))
+        if ((mx.intOr("side" 0)) == 1) {
+            p.side = 1
+        }
+    }
+
     sfn shownTags:[string] () {
-        return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "SliqRod"))
+        return ([] _:string ("group" "mesh" "perspectiveCamera" "ambientLight" "directionalLight" "pointLight" "hemisphereLight" "SliqRod" "SliqGltf"))
     }
 
     fn indexOfKey:int (key:string) {
@@ -556,6 +1389,9 @@ class Pres3DTree {
         }
         if (tag == "sliqRod") {
             extra = ([] _:string ("from" "to" "radius" "length" "color" "metalness" "roughness" "segments"))
+        }
+        if (tag == "sliqGltf") {
+            extra = ([] _:string ("src"))
         }
         def i:int 0
         while (i < (array_length a.keys)) {
@@ -870,8 +1706,10 @@ class Pres3DTree {
         def i:int 0
         while (i < (array_length nodes)) {
             def p:P3Node (itemAt nodes i)
-            def q:ThreeQuaternion (Pres3DTree.quatOfEuler(p.euler p.order))
-            p.quat = ([] _:double (q.x q.y q.z q.w))
+            if (p.fixedQuat == false) {
+                def q:ThreeQuaternion (Pres3DTree.quatOfEuler(p.euler p.order))
+                p.quat = ([] _:double (q.x q.y q.z q.w))
+            }
             this.toWorld(i)
             i = (i + 1)
         }
@@ -889,8 +1727,17 @@ class Pres3DTree {
             }
             j = (j + 1)
         }
-        if (this.camera < 0) {
-            return
+        ; a glTF sun shines down its own -z; Three's from where it stands
+        ; toward the origin: it stands back along its beam
+        def k:int 0
+        while (k < (array_length nodes)) {
+            def sun:P3Node (itemAt nodes k)
+            if sun.gltfSun {
+                def turn:ThreeMatrix4 ((new ThreeMatrix4()).makeRotationFromQuaternion((Pres3DTree.q4(sun.worldQuat))))
+                def beam:ThreeVector3 (turn.transformPoint((ThreeVector3.of(0.0 0.0 -1.0))))
+                sun.worldPos = ([] _:double ((0.0 - (beam.x * 10.0)) (0.0 - (beam.y * 10.0)) (0.0 - (beam.z * 10.0))))
+            }
+            k = (k + 1)
         }
     }
 
@@ -1105,7 +1952,7 @@ class Pres3DTree {
     }
 
     sfn geoSig:string (p:P3Node) {
-        return (p.geo + ":" + (Pres3DTree.listText(p.geoArgs)))
+        return (p.geo + ":" + p.gltfSrc + ":" + (Pres3DTree.listText(p.geoArgs)))
     }
 
     sfn matSig:string (p:P3Node) {

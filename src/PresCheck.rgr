@@ -49,6 +49,7 @@ Import "PresSceneModel.rgr"
 Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
+Import "PresForm.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -4322,6 +4323,162 @@ class PresCheck {
     ; --- PresClip: slides and elements on the clipboard, and pastes ---------------
     ; PresStripDrag: a slide carried along the filmstrip, the others moving
     ; out of its way, and the glide into place when let go
+    ; Sliqtly Curious: the questionnaire file, response checks, tallies and
+    ; what a respondent's browser is sent (src/PresForm.rgr).
+    sfn formSample:string () {
+        return ("---\nform: Tapahtumapalaute\naudience: public        # room | signed-in | public\nlimit: 500\nonce: soft\nresults: live\n---\n\n"
+            + "## Kuinka hyödyllinen esitys oli? {#hyoty type=scale min=1 max=5 required}\nlabels: Ei lainkaan | Erittäin\n\n"
+            + "## Mikä aihe kiinnosti eniten? {#aihe type=choice required}\n- Live-data — kaaviot taulukosta\n- Työnkulut\n- Muu {other}\n\n"
+            + "## Mitä muuta? {#muuta type=text max=50 visible=\"aihe = 'muu'\"}\n\n"
+            + "## Mitkä kanavat? {#kanavat type=multi}\n- Slack\n- Sähköposti {#email}\n- Teams\n\n"
+            + "## Suosittelisitko? {#nps type=nps required=\"hyoty >= 4\"}\n\n"
+            + "## Yhdellä sanalla {#sana type=words}\n\n"
+            + "## Ikä {#ika type=number min=0 max=120}\n\n"
+            + "## Päivä {#pv type=date}\n")
+    }
+
+    fn forms:void () {
+        def f:PresForm (PresForm.parse((PresCheck.formSample())))
+        this.ok(((array_length f.warnings) == 0) ("form sample parses cleanly: " + (join f.warnings "; ")))
+        this.ok((f.title == "Tapahtumapalaute") "form title from front matter")
+        this.ok((f.audience == "public") "audience without its # comment")
+        this.ok(((f.limit == 500) && (f.once == "soft") && (f.results == "live")) "limit, once, results")
+        this.ok(f.anonymous "anonymous by default")
+        this.ok(((f.count()) == 8) ("eight questions, got " + (to_string (f.count()))))
+        if ((f.count()) < 8) {
+            return
+        }
+        def hyoty:PresFormQuestion (itemAt f.questions 0)
+        this.ok(((array_length hyoty.options) == 5) "a 1–5 scale has five points")
+        def first:PresFormOption (itemAt hyoty.options 0)
+        def fifth:PresFormOption (itemAt hyoty.options 4)
+        this.ok(((first.desc == "Ei lainkaan") && (fifth.desc == "Erittäin")) "scale end labels")
+        def aihe:PresFormQuestion (itemAt f.questions 1)
+        def live:PresFormOption (itemAt aihe.options 0)
+        this.ok(((live.value == "live-data") && (live.label == "Live-data") && (live.desc == "kaaviot taulukosta")) "option value, label, description")
+        def work:PresFormOption (itemAt aihe.options 1)
+        this.ok((work.value == "työnkulut") ("a value keeps ä/ö: " + work.value))
+        this.ok(((aihe.otherValue()) == "muu") "{other} option")
+        def kanavat:PresFormQuestion (itemAt f.questions 3)
+        this.ok(((kanavat.optionIndex("email")) == 1) "{#value} names an option")
+        def nps:PresFormQuestion (itemAt f.questions 4)
+        this.ok(((array_length nps.options) == 11) "nps is 0–10")
+        def muuta:PresFormQuestion (itemAt f.questions 2)
+        this.ok(((muuta.maxLength == 50) && (muuta.visibleWhen == "aihe = 'muu'")) "text max and quoted visible rule")
+
+        ; The version follows what is asked, not spacing.
+        def spaced:PresForm (PresForm.parse((PresCheck.formSample()) + "\n\n\n"))
+        this.ok((spaced.version == f.version) "version ignores blank lines")
+        def reworded:PresForm (PresForm.parse((MdApp.replaceAll((PresCheck.formSample()) "Työnkulut" "Prosessit"))))
+        this.ok((reworded.version != f.version) "version changes with an option")
+
+        ; Checking responses
+        def a:JVal (JVal.parse("{\"hyoty\": 5, \"aihe\": \"muu\", \"aihe.other\": \" Hinnoittelu \", \"muuta\": \"Lisää esimerkkejä\", \"kanavat\": [\"slack\", \"email\"], \"nps\": 9, \"sana\": \"Hyvä hyvä esitys\", \"ika\": 42, \"pv\": \"2026-10-10\"}"))
+        def r:PresFormResult (f.check(a))
+        this.ok(r.ok ("a full response is taken: " + (join r.messages "; ")))
+        this.ok(((r.record.get("aihe.other")).str == "Hinnoittelu") "other text stored, trimmed")
+        this.ok((((r.record.get("kanavat")).len()) == 2) "multi stored as a list")
+        this.ok(((r.record.get("hyoty")).kind == 2) "scale stored as a number")
+
+        def noReq:PresFormResult (f.check((JVal.parse("{\"aihe\": \"työnkulut\"}"))))
+        this.ok(((noReq.ok == false) && ((noReq.errorFor("hyoty")) == "answer this question")) "required scale missing")
+        def low:PresFormResult (f.check((JVal.parse("{\"hyoty\": 2, \"aihe\": \"työnkulut\"}"))))
+        this.ok(low.ok ("nps not required when hyoty < 4: " + (join low.messages "; ")))
+        def high:PresFormResult (f.check((JVal.parse("{\"hyoty\": 4, \"aihe\": \"työnkulut\"}"))))
+        this.ok(((high.errorFor("nps")) == "answer this question") "required=\"hyoty >= 4\" asks for nps")
+        def outOf:PresFormResult (f.check((JVal.parse("{\"hyoty\": 6, \"aihe\": \"työnkulut\"}"))))
+        this.ok(((strlen (outOf.errorFor("hyoty"))) > 0) "6 is off a 1–5 scale")
+        def half:PresFormResult (f.check((JVal.parse("{\"hyoty\": 2.5, \"aihe\": \"työnkulut\"}"))))
+        this.ok(((strlen (half.errorFor("hyoty"))) > 0) "a scale takes whole numbers")
+        def badOpt:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"Live-data\"}"))))
+        this.ok(((strlen (badOpt.errorFor("aihe"))) > 0) "an option is answered by value, not label")
+        def two:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": [\"muu\"]}"))))
+        this.ok(((strlen (two.errorFor("aihe"))) > 0) "a list for a single choice is refused")
+        def dup:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"kanavat\": [\"slack\", \"slack\"]}"))))
+        this.ok(((strlen (dup.errorFor("kanavat"))) > 0) "the same option twice is refused")
+        def unknown:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"hacked\": 1}"))))
+        this.ok(((strlen (unknown.errorFor("hacked"))) > 0) "an unknown key is refused")
+        def tooLong:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"muuta\": \"012345678901234567890123456789012345678901234567890123456789\"}"))))
+        this.ok(((strlen (tooLong.errorFor("muuta"))) > 0) "text over max is refused")
+        def smiles:string ""
+        def sm:int 0
+        while (sm < 50) {
+            smiles = (smiles + "😀")
+            sm = (sm + 1)
+        }
+        def emoji:PresFormResult (f.check((JVal.parse(("{\"hyoty\": 3, \"aihe\": \"muu\", \"muuta\": \"" + smiles + "\"}")))))
+        this.ok(emoji.ok ("max counts characters, not units: " + (join emoji.messages "; ")))
+        def badDate:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"pv\": \"10.10.2026\"}"))))
+        this.ok(((strlen (badDate.errorFor("pv"))) > 0) "a date is YYYY-MM-DD")
+        def age:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"ika\": \"abc\"}"))))
+        this.ok(((strlen (age.errorFor("ika"))) > 0) "a number field refuses text")
+        def notObj:PresFormResult (f.check((JVal.parse("[1]"))))
+        this.ok(((notObj.ok == false) && ((notObj.errorFor("")) != "")) "a response is an object")
+
+        ; A hidden question's answer is not stored, and other text only goes
+        ; with its option.
+        def hidden:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"työnkulut\", \"aihe.other\": \"x\", \"muuta\": \"piilossa\"}"))))
+        this.ok(hidden.ok ("hidden answers do not block: " + (join hidden.messages "; ")))
+        this.ok(((hidden.record.has("muuta")) == false) "a hidden question's answer is not stored")
+        this.ok(((hidden.record.has("aihe.other")) == false) "other text without its option is not stored")
+        def blank:PresFormResult (f.check((JVal.parse("{\"hyoty\": 3, \"aihe\": \"muu\", \"muuta\": \"   \"}"))))
+        this.ok((blank.ok && ((blank.record.has("muuta")) == false)) "a blank text is no answer")
+
+        ; Tallies
+        def t:PresFormTally (PresFormTally.of(f))
+        t.apply(r.record 1)
+        t.apply(low.record 1)
+        t.apply(hidden.record 1)
+        this.ok((t.total == 3) "three responses counted")
+        def ch:PresFormCount (t.countFor("aihe"))
+        this.ok((((ch.countOf("muu")) == 1) && ((ch.countOf("työnkulut")) == 2)) "choice counts")
+        def sc:PresFormCount (t.countFor("hyoty"))
+        this.ok((((sc.countOf("5")) == 1) && ((sc.countOf("3")) == 1) && ((sc.countOf("1")) == 0)) "scale counts per point")
+        def ws:PresFormCount (t.countFor("sana"))
+        this.ok((((ws.countOf("hyvä")) == 1) && ((ws.countOf("esitys")) == 1)) "a word counts once per answer")
+        def ages:PresFormCount (t.countFor("ika"))
+        this.ok(((ages.countOf("42")) == 1) "number values counted")
+        def rowsAll:JVal (t.rows("aihe" 1))
+        this.ok(((rowsAll.len()) == 3) "rows in option order")
+        def row0:JVal (rowsAll.at(0))
+        this.ok((((row0.get("label")).str == "Live-data") && ((row0.get("count")).num == 0.0)) "row label and count")
+        this.ok((((t.rows("aihe" 5)).len()) == 0) "rows hidden below the minimum group")
+        t.apply(hidden.record -1)
+        this.ok((((t.countFor("aihe")).countOf("työnkulut")) == 1) "a removed response is counted out")
+
+        ; What a respondent's browser gets
+        def pub:string ((f.publicJson()).toJson())
+        this.ok((((indexOf pub "\"hyoty\"") < 0) && ((indexOf pub "aihe =") < 0)) ("public form has no question ids: " + pub))
+        this.ok(((indexOf pub f.version) < 0) "public form has no version hash")
+        this.ok(((indexOf pub "\"visible\":\"q2 = 'muu'\"") >= 0) "rules use public ids")
+        this.ok(((indexOf pub "\"requiredWhen\":\"q1 >= 4\"") >= 0) "required rule uses public ids")
+        this.ok(((f.publicRule("count(kanavat) > 1 and aihe = 'aihe'")) == "count(q4) > 1 and q2 = 'aihe'") "strings and calls stay")
+        this.ok((((f.realId("q2")) == "aihe") && ((f.realId("q9")) == "") && ((f.realId("q02")) == "")) "public id back to the real one")
+        def back:JVal (f.fromPublic((JVal.parse("{\"q1\": 4, \"q2\": \"muu\", \"q2.other\": \"x\", \"q5\": 10}"))))
+        def br:PresFormResult (f.check(back))
+        this.ok((br.ok && ((br.record.get("aihe.other")).str == "x")) ("a public answer maps back: " + (join br.messages "; ")))
+        def forged:PresFormResult (f.check((f.fromPublic((JVal.parse("{\"q1\": 4, \"q2\": \"muu\", \"hyoty\": 1}"))))))
+        this.ok((forged.ok == false) "a real id sent by a respondent is refused")
+
+        ; Warnings, never silent drops
+        def w:PresForm (PresForm.parse("---\nform: X\naudience: everyone\nfoo: 1\n---\n## A {#a type=ranking}\n- x\n- y\n## B\n- one\n## A again {#a type=choice}\n- p\n- q\n## C {#c type=scale visible=\"nosuch > 1\"}\n- z\n"))
+        def wt:string (join w.warnings "\n")
+        this.ok(((indexOf wt "audience is room") >= 0) "bad audience warned")
+        this.ok(((indexOf wt "unknown setting foo") >= 0) "unknown setting warned")
+        this.ok(((indexOf wt "type ranking is not supported yet") >= 0) "unsupported type warned")
+        this.ok(((indexOf wt "no {#id}, using b") >= 0) "missing id warned")
+        this.ok(((indexOf wt "fewer than two options") >= 0) "one option warned")
+        this.ok(((indexOf wt "id a twice") >= 0) "duplicate id warned")
+        this.ok(((indexOf wt "a scale question has no options") >= 0) "options on a scale warned")
+        this.ok(((indexOf wt "names nosuch") >= 0) "a rule naming no question warned")
+        this.ok(((w.count()) == 3) "the duplicate is left out")
+        def cyc:PresForm (PresForm.parse("## A {#a type=text visible=\"len(b) > 0\"}\n## B {#b type=text visible=\"len(a) > 0\"}\n"))
+        this.ok(((indexOf (join cyc.warnings "\n") "cannot run") >= 0) "a rule cycle is warned")
+        this.ok((((cyc.check((JVal.mkObj()))).ok) == false) "a form whose rules cannot run takes nothing")
+        def bad:PresForm (PresForm.parse("## A {#a type=text visible=\"a >\"}\n"))
+        this.ok(((indexOf (join bad.warnings "\n") "rule a.visible") >= 0) "a rule that does not parse is warned")
+    }
+
     fn stripDrag:void () {
         def d (new PresStripDrag())
         d.start(5 1 1.0 10.0)
@@ -5451,6 +5608,137 @@ class PresCheck {
 
     ; a world saved as glTF 2.0 (export format gltf): the tree's nodes, the
     ; page's triangles, PBR materials in linear light, lights and camera
+    ; the node of tree `t` named `name`, -1 when none
+    sfn p3named:int (t:Pres3DTree name:string) {
+        def i:int 0
+        while (i < (array_length t.nodes)) {
+            def p:P3Node (itemAt t.nodes i)
+            if (p.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; <SliqGltf src>: a deck's .gltf read back into the world (Pres3DTree)
+    fn gltfIn:void () {
+        ; the decoder
+        def b3:[int] (P3Files.unbase64("AQID"))
+        this.ok((((array_length b3) == 3) && ((itemAt b3 2) == 3)) "gltf in: base64 to bytes")
+        def b1:[int] (P3Files.unbase64("/w=="))
+        this.ok((((array_length b1) == 1) && ((itemAt b1 0) == 255)) "gltf in: base64 with padding")
+        this.ok(((P3Files.f32(0 0 128 63)) == 1.0) "gltf in: float32 1")
+        this.ok(((P3Files.f32(0 0 32 192)) == -2.5) "gltf in: float32 -2.5")
+        def tenth:double (P3Files.f32(205 204 204 61))
+        this.ok(((tenth > 0.0999999) && (tenth < 0.1000001)) "gltf in: float32 0.1")
+        ; Sliqtly's own export, read back
+        def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,2,3\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff8000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
+        def grp:string ("{\"t\":\"group\",\"a\":{\"name\":\"rig\",\"scale\":\"2\",\"rotation-y\":\"0.5\"},\"c\":[" + box + "]}")
+        def sun:string "{\"t\":\"directionalLight\",\"a\":{\"name\":\"sun\",\"position\":\"0,4,0\",\"intensity\":\"2\"}}"
+        def text:string (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + grp + "," + sun + "]}") 1.0))
+        def files:P3Files (new P3Files())
+        def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,9\"}}"
+        def at:string "{\"t\":\"sliqGltf\",\"a\":{\"src\":\"/scenes/a.gltf\",\"position\":\"0,1,0\"}}"
+        def scene:string ("{\"t\":\"scene3d\",\"c\":[" + cam + "," + at + "]}")
+        def first:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok((((array_length first.missing) == 1) && ((itemAt first.missing 0) == "scenes/a.gltf")) "gltf in: the file asked for, without its slash")
+        files.setFile("scenes/a.gltf" text)
+        def t:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length t.missing) == 0) "gltf in: nothing missing once given")
+        this.ok(((array_length t.warnings) == 0) ("gltf in: no warnings, got " + (join t.warnings "; ")))
+        def ci:int (PresCheck.p3named(t "crate"))
+        this.ok((ci >= 0) "gltf in: the crate is there by its name")
+        if (ci < 0) {
+            return
+        }
+        def crate:P3Node (itemAt t.nodes ci)
+        this.ok(((crate.tag == "mesh") && (crate.geo == "boxGeometry")) "gltf in: R3F's box again, from extras")
+        this.ok((PresCheck.near(crate.geoArgs ([] _:double (1.0 2.0 3.0 1.0 1.0 1.0)))) ("gltf in: the box's args, got " + (Pres3DTree.listText(crate.geoArgs))))
+        this.ok((PresCheck.near(crate.color ([] _:double (1.0 (128.0 / 255.0) 0.0)))) ("gltf in: the colour back in sRGB, got " + (Pres3DTree.listText(crate.color))))
+        this.ok(((crate.metalness == 0.5) && (crate.roughness == 0.25)) "gltf in: metalness and roughness")
+        this.ok((crate.mat == "meshStandardMaterial") "gltf in: its material class")
+        ; where it is: the group at y 1, the rig scaled 2 and turned 0.5 round y
+        def want:[double] ([] _:double ((2.0 * (cos 0.5)) 1.0 (0.0 - (2.0 * (sin 0.5)))))
+        this.ok((PresCheck.near(crate.worldPos want)) ("gltf in: the crate's place in the world, got " + (Pres3DTree.listText(crate.worldPos))))
+        ; the sun shines from above, not the default key and fill
+        def si:int (PresCheck.p3named(t "sun"))
+        this.ok((si >= 0) "gltf in: the sun is there")
+        if (si >= 0) {
+            def sunN:P3Node (itemAt t.nodes si)
+            this.ok((((sunN.tag == "light") && (sunN.kind == "directional")) && (sunN.intensity == 2.0)) "gltf in: a directional light of intensity 2")
+            def sp:[double] sunN.worldPos
+            this.ok((((itemAt sp 1) > 9.0) && (((itemAt sp 0) * (itemAt sp 0)) < 0.0001)) ("gltf in: the sun stands above (from its -z), got " + (Pres3DTree.listText(sp))))
+        }
+        this.ok((t.lights == 1) ("gltf in: only the file's own light, got " + (to_string t.lights)))
+        ; the same frame again: nothing to change
+        def again:Pres3DTree (Pres3DTree.readWith(scene files))
+        this.ok(((array_length (Pres3DTree.diff(t again))) == 0) "gltf in: keys stable across frames")
+        ; a named child changes the file's object; others are added
+        def over:string "{\"t\":\"sliqGltf\",\"a\":{\"src\":\"scenes/a.gltf\"},\"c\":[{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position-y\":\"3\"},\"c\":[{\"t\":\"meshBasicMaterial\",\"a\":{\"color\":\"#00ff00\"}}]},{\"t\":\"mesh\",\"a\":{\"name\":\"extra\"},\"c\":[{\"t\":\"sphereGeometry\"}]}]}"
+        def to:Pres3DTree (Pres3DTree.readWith(("{\"t\":\"scene3d\",\"c\":[" + over + "]}") files))
+        def oi:int (PresCheck.p3named(to "crate"))
+        if (oi >= 0) {
+            def oc:P3Node (itemAt to.nodes oi)
+            this.ok((PresCheck.near(oc.pos ([] _:double (1.0 3.0 0.0)))) ("gltf in: y changed, x kept, got " + (Pres3DTree.listText(oc.pos))))
+            this.ok(((oc.mat == "meshBasicMaterial") && (PresCheck.near(oc.color ([] _:double (0.0 1.0 0.0))))) "gltf in: its material changed")
+            this.ok((oc.geo == "boxGeometry") "gltf in: its shape kept")
+        } {
+            this.ok(false "gltf in: the overridden crate")
+        }
+        this.ok(((PresCheck.p3named(to "extra")) >= 0) "gltf in: another child added")
+        this.ok(((array_length to.warnings) == 0) ("gltf in: no warnings on override, got " + (join to.warnings "; ")))
+        ; a file not Sliqtly's: its own triangles
+        def bytes:[int] ([] _:int (0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 0 0 0 0 0 0 0 0 128 63 0 0 0 0 0 0 1 0 2 0 0 0))
+        def triPre:string ("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"tri\",\"mesh\":0}],\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}],\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0,0,1,1]}}],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]},{\"bufferView\":1,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":6}],\"buffers\":[{\"byteLength\":44,\"uri\":\"")
+        def raw:string (triPre + "data:application/octet-stream;base64," + (SceneGeom.base64(bytes)) + "\"}]}")
+        files.setFile("tri.gltf" raw)
+        def tt:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" files))
+        def ti:int (PresCheck.p3named(tt "tri"))
+        this.ok(((array_length tt.warnings) == 0) ("gltf in: a plain file read, got " + (join tt.warnings "; ")))
+        if (ti >= 0) {
+            def tri:P3Node (itemAt tt.nodes ti)
+            this.ok(((tri.geo == "gltfGeometry") && (tri.gltfSrc == "tri.gltf")) "gltf in: the file's own triangles")
+            this.ok((PresCheck.near(tri.color ([] _:double (0.0 0.0 1.0)))) "gltf in: blue")
+            this.ok(((tri.metalness == 1.0) && (tri.roughness == 1.0)) "gltf in: glTF's material defaults")
+        } {
+            this.ok(false "gltf in: the triangle node")
+        }
+        def tris:P3Tris (files.trianglesOf("tri.gltf" 0 0))
+        this.ok((PresCheck.near(tris.pos ([] _:double (0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 0.0)))) ("gltf in: positions decoded, got " + (Pres3DTree.listText(tris.pos))))
+        this.ok((((array_length tris.idx) == 3) && ((itemAt tris.idx 2) == 2)) "gltf in: indices decoded")
+        this.ok(((array_length tris.nrm) == 0) "gltf in: no normals: flat faces")
+        ; the world makes it: one mesh, three corners
+        def wo:Pres3DWorld (new Pres3DWorld())
+        wo.setFile("tri.gltf" raw)
+        wo.setScene("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" (new Pres3DEnv()))
+        this.ok((wo.meshes == 1) ("gltf in: the world has the mesh, got " + (to_string wo.meshes)))
+        def made:ThreeBufferGeometry (itemAt wo.geos 0)
+        this.ok(((made.vertexCount()) == 3) ("gltf in: three corners, got " + (to_string (made.vertexCount()))))
+        ; a new text for the file is read again
+        files.setFile("tri.gltf" (Pres3DGltf.write(("{\"t\":\"scene3d\",\"c\":[" + box + "]}") 1.0)))
+        def tn:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"tri.gltf\"}}]}" files))
+        this.ok(((PresCheck.p3named(tn "crate")) >= 0) "gltf in: a changed file read again")
+        ; what goes wrong is said
+        files.setFile("none.gltf" "")
+        def tm:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"none.gltf\"}}]}" files))
+        this.ok(((indexOf (join tm.warnings ";") "has no file none.gltf") >= 0) ("gltf in: a file the deck lacks, said, got " + (join tm.warnings ";")))
+        files.setFile("x.gltf" "{\"hello\":1}")
+        def tx:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"x.gltf\"}}]}" files))
+        this.ok(((indexOf (join tx.warnings ";") "not a glTF 2.0") >= 0) "gltf in: not glTF, said")
+        def ext:string (triPre + "tri.bin\"}]}")
+        files.setFile("ext.gltf" ext)
+        def te:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\",\"a\":{\"src\":\"ext.gltf\"}}]}" files))
+        this.ok(((indexOf (join te.warnings ";") "embedded data") >= 0) ("gltf in: an outside .bin, said, got " + (join te.warnings ";")))
+        def ei:int (PresCheck.p3named(te "tri"))
+        if (ei >= 0) {
+            def en:P3Node (itemAt te.nodes ei)
+            this.ok((en.visible == false) "gltf in: a mesh not read is not drawn")
+        }
+        def ts:Pres3DTree (Pres3DTree.readWith("{\"t\":\"scene3d\",\"c\":[{\"t\":\"sliqGltf\"}]}" files))
+        this.ok(((indexOf (join ts.warnings ";") "src names") >= 0) "gltf in: no src, said")
+    }
+
     fn gltfOut:void () {
         def cam:string "{\"t\":\"perspectiveCamera\",\"a\":{\"position\":\"0,0,3\",\"fov\":\"50\"}}"
         def box:string "{\"t\":\"mesh\",\"a\":{\"name\":\"crate\",\"position\":\"1,0,0\"},\"c\":[{\"t\":\"boxGeometry\",\"a\":{\"args\":\"1,1,1\"}},{\"t\":\"meshStandardMaterial\",\"a\":{\"color\":\"#ff0000\",\"metalness\":\"0.5\",\"roughness\":\"0.25\"}}]}"
@@ -6060,7 +6348,9 @@ class PresCheck {
         c.sceneTree()
         c.stills()
         c.gltfOut()
+        c.gltfIn()
         c.stripDrag()
+        c.forms()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

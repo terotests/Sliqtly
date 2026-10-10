@@ -12,7 +12,7 @@
 FROM mirror.gcr.io/library/node:22 AS gen
 WORKDIR /src
 COPY presentation.config.json ./
-COPY scripts/lib.mjs scripts/format-css.mjs scripts/
+COPY scripts/lib.mjs scripts/format-css.mjs scripts/themes.mjs scripts/
 COPY src/ src/
 COPY themes/ themes/
 COPY fonts/ fonts/

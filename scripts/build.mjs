@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import { ensureRanger, ensureRangerDiff, ensureCerxes, depsUsed, compile, root, webDir, distDir, log } from "./lib.mjs";
 import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
+import { themeCss, themeNames } from "./themes.mjs";
 import { buildPlayer } from "./player.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
@@ -172,7 +173,9 @@ export function build({ ranger } = {}) {
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
   copy(path.join(ranger, "lib/evg/gl/evg-a11y.js"), path.join(distDir, "gl/evg-a11y.js"));
   copyFaces(ranger, distDir, { emoji: true });
-  for (const f of fs.readdirSync(path.join(root, "themes"))) copy(path.join(root, "themes", f), path.join(distDir, "themes", f));
+  // each theme put together with themes/base.css (scripts/themes.mjs)
+  fs.mkdirSync(path.join(distDir, "themes"), { recursive: true });
+  for (const t of themeNames()) fs.writeFileSync(path.join(distDir, "themes", `${t}.css`), themeCss(t));
   // Live spreadsheets (```sheet, .xlsx in Files) are EVGSheets. A built copy
   // goes beside the page when there is one — $EVGSHEETS_DIST, or
   // .deps/EVGSheets/dist — and otherwise the page loads it from its own

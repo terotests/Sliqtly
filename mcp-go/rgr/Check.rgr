@@ -462,7 +462,7 @@ class Check {
     ; drawn here (src/Pres3DStill.rgr) and handed to the painter by the
     ; names the list gives them, as the page draws them (web/three3d.js): in
     ; a room made of the slide's own picture, 96 x 54 as the page's.
-    sfn worlds:void (host:McpHost d:PresDeck li:int listJson:string c:Checked) {
+    sfn worlds:void (host:McpHost din:DeckIn d:PresDeck li:int listJson:string c:Checked) {
         def l:MdLayout (d.layout())
         def room:buffer (buffer_alloc 0)
         def roomDone:boolean false
@@ -505,11 +505,22 @@ class Check {
                     if ((buffer_length room) == ((96 * 54) * 4)) {
                         st.setSlide(room 96 54)
                     }
-                    def px:buffer (st.draw(((sc.get("scene")).toJson()) iw ih))
+                    def sjson:string ((sc.get("scene")).toJson())
+                    Check.sceneFiles(host din sjson st.world.files)
+                    def px:buffer (st.draw(sjson iw ih))
                     host_render_rgba host (sc.strOr("src" "")) px iw ih
                 }
                 si = (si + 1)
             }
+        }
+    }
+
+    ; The deck's .gltf files a world's <SliqGltf src> names, given to it
+    ; ("" for one the deck does not have, which the world then says).
+    sfn sceneFiles:void (host:McpHost din:DeckIn json:string files:P3Files) {
+        def t:Pres3DTree (Pres3DTree.readWith(json files))
+        for t.missing name:string ni {
+            files.setFile(name (Check.dataText(host din name)))
         }
     }
 
@@ -682,7 +693,7 @@ class Check {
                     d.clearScriptAt()
                     def slj:string (sl.toJson())
                     push c.lists slj
-                    Check.worlds(host d li slj c)
+                    Check.worlds(host din d li slj c)
                     li = (li + 1)
                 }
                 if ((din.fxAt >= 0) && (din.fxAt < c.slides)) {
@@ -785,7 +796,7 @@ class Check {
                 c.file = (PptxWriter.utf8((ex.html())))
             }
             if (din.export == "gltf") {
-                Check.gltf(d din c)
+                Check.gltf(host d din c)
             }
         }
         return c
@@ -794,7 +805,7 @@ class Check {
     ; export "gltf": the first 3-D world of the slides asked for (a
     ; program's <scene3d> at its first frames, as render_slide draws it)
     ; as a glTF 2.0 file (src/Pres3DGltf.rgr)
-    sfn gltf:void (d:PresDeck din:DeckIn c:Checked) {
+    sfn gltf:void (host:McpHost d:PresDeck din:DeckIn c:Checked) {
         def l:MdLayout (d.layout())
         def li:int 0
         while (li < c.slides) {
@@ -818,7 +829,9 @@ class Check {
                         def sc:JVal (got.at(si))
                         if (((strlen c.gltfFrom) == 0) && ((sc.numOr("h" 0.0)) > 0.0)) {
                             def g:Pres3DGltf (new Pres3DGltf())
-                            def text:string (g.build(((sc.get("scene")).toJson()) ((sc.numOr("w" 0.0)) / (sc.numOr("h" 0.0)))))
+                            def gjson:string ((sc.get("scene")).toJson())
+                            Check.sceneFiles(host din gjson g.world.files)
+                            def text:string (g.build(gjson ((sc.numOr("w" 0.0)) / (sc.numOr("h" 0.0)))))
                             if ((strlen text) > 0) {
                                 c.file = (PptxWriter.utf8(text))
                                 c.gltfFrom = ("slide " + (to_string (li + 1)))

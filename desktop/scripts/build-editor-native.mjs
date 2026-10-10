@@ -22,6 +22,7 @@ import { execSync, execFileSync, spawnSync } from "node:child_process";
 import { MAC, cxx, sdl2, glFlags, macFlags, macApp } from "./native-link.mjs";
 import { ensureRanger, LINK, root } from "../../scripts/lib.mjs";
 import { ROOT, evgDir } from "./ranger.mjs";
+import { themeCss, themeNames } from "../../scripts/themes.mjs";
 
 const NATIVE = path.join(ROOT, "native");
 const BUILD = path.join(NATIVE, "build-editor");
@@ -52,7 +53,7 @@ fs.mkdirSync(path.join(RES, "fonts"), { recursive: true });
 const copy = (from, to) => fs.copyFileSync(from, to);
 copy(path.join(root, ".deps", "EVGUI", "theme", "base.css"), path.join(RES, "base.css"));
 for (const f of ["chart-editor.css", "hint.css", "panels.css", "toolbar.css", "pres.css"]) copy(path.join(root, "web", f), path.join(RES, f));
-for (const f of fs.readdirSync(path.join(root, "themes")).filter((f) => f.endsWith(".css"))) copy(path.join(root, "themes", f), path.join(RES, "themes", f));
+for (const t of themeNames()) fs.writeFileSync(path.join(RES, "themes", `${t}.css`), themeCss(t));
 for (const f of fs.readdirSync(path.join(NATIVE, "fonts")).filter((f) => f.endsWith(".ttf"))) copy(path.join(NATIVE, "fonts", f), path.join(RES, "fonts", f));
 copy(path.join(root, "samples", "welcome.en.md"), path.join(RES, "welcome.en.md"));
 console.log("  2/3 stylesheets, themes, fonts -> native/build-editor/editor-res/");
