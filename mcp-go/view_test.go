@@ -3,11 +3,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
+	"math/rand"
 	"net/http"
 	"regexp"
 	"strings"
@@ -80,7 +85,8 @@ func TestViewLists(t *testing.T) {
 	// was read here and is not sent
 	eq(t, len(v.Deck.Files), 1)
 	eq(t, v.Deck.Files[0].Path, "media/dot.png")
-	if !strings.HasPrefix(v.Deck.Files[0].URL, "https://") {
+	// …made for the screen by this server (TestViewPictures)
+	if !strings.HasPrefix(v.Deck.Files[0].URL, "/api/view/"+id+"/pic?path=media%2Fdot.png&v=") {
 		t.Fatalf("file url %q", v.Deck.Files[0].URL)
 	}
 	drawn := false
@@ -330,4 +336,121 @@ func TestViewDeckEffects(t *testing.T) {
 	if !strings.Contains(textOf(bad), "line 5: 'nope' has no value here") {
 		t.Fatalf("no warning: %s", textOf(bad))
 	}
+}
+
+// the viewer's pictures: a deck anyone with the link sees gets its raster
+// pictures from /api/view/<id>/pic, an opaque one as a JPEG and a large
+// one scaled; the address carries the file's stamp, so the CDN keeps it
+// for good. A private deck's page (its owner's) reads them from Storage.
+func TestViewPictures(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	photo := func(w, h int, alpha bool) []byte {
+		im := image.NewNRGBA(image.Rect(0, 0, w, h))
+		rng := rand.New(rand.NewSource(1))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				a := uint8(255)
+				if alpha && x < w/2 {
+					a = 90
+				}
+				// a photograph's grain: what a PNG keeps every bit of
+				n := uint8(rng.Intn(24))
+				im.Set(x, y, color.NRGBA{uint8(x/12) + n, uint8(y/6) + n, 120 + n, a})
+			}
+		}
+		var b bytes.Buffer
+		png.Encode(&b, im)
+		return b.Bytes()
+	}
+	big, clear := photo(2600, 1300, false), photo(2600, 1300, true)
+	md := "# Pictures\n\n![Big](media/big.png)\n\n## Clear\n\n![Clear](media/clear.png)\n\n## Dot\n\n![Dot](media/dot.png)\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Pics", "markdown": md, "visibility": "link",
+		"images": []any{
+			map[string]any{"name": "big.png", "data_base64": base64.StdEncoding.EncodeToString(big)},
+			map[string]any{"name": "clear.png", "data_base64": base64.StdEncoding.EncodeToString(clear)},
+			map[string]any{"name": "dot.png", "data_base64": base64.StdEncoding.EncodeToString(squarePNG())},
+		},
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	code, _, v, _ := getView(t, s.root+"/api/view/"+id)
+	eq(t, code, 200)
+	urls := map[string]string{}
+	for _, f := range v.Deck.Files {
+		urls[f.Path] = f.URL
+	}
+	get := func(u string) (*http.Response, []byte) {
+		t.Helper()
+		res, err := http.Get(s.root + u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res, b
+	}
+	size := func(b []byte) (int, int, string) {
+		cfg, format, err := image.DecodeConfig(bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg.Width, cfg.Height, format
+	}
+
+	res, b := get(urls["media/big.png"])
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "image/jpeg")
+	eq(t, res.Header.Get("Cache-Control"), "public, max-age=31536000, s-maxage=31536000, immutable")
+	w, h, format := size(b)
+	eq(t, []any{w, h, format}, []any{2048, 1024, "jpeg"})
+	if len(b) >= len(big) {
+		t.Fatalf("JPEG %d bytes, the PNG %d", len(b), len(big))
+	}
+	// transparent: stays a PNG, scaled
+	res, b = get(urls["media/clear.png"])
+	eq(t, res.StatusCode, 200)
+	w, h, format = size(b)
+	eq(t, []any{w, h, format}, []any{2048, 1024, "png"})
+	// a small picture a JPEG would not shrink: the file as it is
+	res, b = get(urls["media/dot.png"])
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "image/png")
+	eq(t, bytes.Equal(b, squarePNG()), true)
+
+	// an old stamp (the picture was replaced since): to the current address
+	no := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := no.Get(s.root + "/api/view/" + id + "/pic?path=media%2Fbig.png&v=old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	eq(t, res.StatusCode, 302)
+	eq(t, res.Header.Get("Location"), urls["media/big.png"])
+	// not a file of the deck, not a picture route
+	for _, bad := range []string{"/api/view/" + id + "/pic?path=media%2Fnone.png&v=x", "/api/view/" + id + "/other", "/api/view/AbCdEf1234/pic?path=media%2Fbig.png"} {
+		res, _ := get(bad)
+		eq(t, res.StatusCode, 404, bad)
+		eq(t, res.Header.Get("Cache-Control"), "no-store", bad)
+	}
+
+	// private: the owner's page reads Storage; the route shows nothing
+	if err := f.db.Update(context.Background(), "shares", id, Doc{"visibility": "private"}); err != nil {
+		t.Fatal(err)
+	}
+	code, _, mine := getAs(t, s.root+"/api/view/"+id, "google-ok")
+	eq(t, code, 200)
+	var pv viewAnswer
+	json.Unmarshal(mine, &pv)
+	for _, f := range pv.Deck.Files {
+		if !strings.HasPrefix(f.URL, "https://") {
+			t.Fatalf("private deck's %s: %s", f.Path, f.URL)
+		}
+	}
+	res, _ = get(urls["media/big.png"])
+	eq(t, res.StatusCode, 404)
 }

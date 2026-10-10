@@ -43,7 +43,7 @@
   body { font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
   html.deck, html.deck body { height: 100%; overflow: hidden; overscroll-behavior: none; background: #0b0f1f; }
   html.deck .home { display: none; }
-  html:not(.deck) #c, html:not(.deck) #brandIntro, html:not(.deck) #viewBar { display: none !important; }
+  html:not(.deck) #c, html:not(.deck) #brandIntro, html:not(.deck) #viewBar, html:not(.deck) #picWait { display: none !important; }
 
   /* ------------------------------------------------ the front page ---- */
   .home a { color: inherit; }
@@ -154,6 +154,17 @@
   #brandIntro .note button { margin-top: 14px; height: 40px; padding: 0 18px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.3);
     background: rgba(24, 24, 27, 0.72); color: #fafafa; font: 15px/1 "Open Sans", system-ui, sans-serif; cursor: pointer; }
   #brandIntro .note button:hover { border-color: #fafafa; }
+  /* still loading when the intro is over: a bar running under the name */
+  #brandIntro .load { width: min(220px, 50vw); height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; visibility: hidden; }
+  #brandIntro.loading .load { visibility: visible; }
+  #brandIntro .load::before { content: ""; display: block; width: 40%; height: 100%; border-radius: 2px; background: #fafafa; animation: loadRun 1.1s ease-in-out infinite; }
+  @keyframes loadRun { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  /* a slide shown while its pictures are still on their way */
+  #picWait { position: fixed; top: 14px; right: 14px; z-index: 6; width: 22px; height: 22px; border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.25); border-top-color: #fafafa; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+    animation: picSpin .8s linear infinite; pointer-events: none; }
+  #picWait[hidden] { display: none; }
+  @keyframes picSpin { to { transform: rotate(360deg); } }
   @keyframes introTurn {
     0% { transform: perspective(600px) scale(.4) rotateY(0deg); opacity: 0; }
     25% { opacity: 1; }
@@ -162,6 +173,8 @@
   @keyframes introRise { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
   @media (prefers-reduced-motion: reduce) {
     #brandIntro .logo, #brandIntro .name, #brandIntro .site { animation: none; }
+    #brandIntro .load::before { animation-duration: 3s; }
+    #picWait { animation-duration: 3s; }
   }
   /* the way round the slides: a small bar that fades when nothing moves */
   #viewBar { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 5; transition: opacity .4s; }
@@ -337,7 +350,8 @@
 
 
 <canvas id="c" aria-label="Presentation"></canvas>
-<div id="brandIntro" role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span><span id="note" class="note" role="status"></span></div>
+<div id="brandIntro" role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span><span class="load" aria-hidden="true"></span><span id="note" class="note" role="status"></span></div>
+<div id="picWait" role="status" aria-label="Loading pictures" hidden></div>
 <script>window.__introAt = performance.now();</script>
 <div id="viewBar" aria-label="Presentation controls" hidden>
   <button id="vFirst" title="First slide (Home)">⏮&#xFE0E;</button>

@@ -118,6 +118,7 @@ class View {
             progs = (progs + (pj.str_("text")))
         }
         def files:MfJ (MfJ.newArr())
+        def public:boolean (sh.link || (View.shows(doc "")))
         for (doc.list("files")) f2:MfJ f2i {
             def path:string (f2.str_("path"))
             def url:string (f2.str_("url"))
@@ -135,6 +136,11 @@ class View {
             def o:MfJ (MfJ.newObj())
             o.putStr("path" path)
             o.putStr("type" (f2.str_("type")))
+            ; a picture anyone with the link sees comes made for the
+            ; screen (View.picture); a private deck's from Storage as it is
+            if (public && (View.madeForScreen(path (f2.str_("type"))))) {
+                url = (View.pictureUrl(host id path (View.fileStamp(doc url))))
+            }
             o.putStr("url" url)
             files.add(o)
         }
@@ -172,6 +178,40 @@ class View {
         ; the deck's own effects (```fx, the theme's @effect) as shader
         ; text the deck's compiler wrote (FxLang), for the page to register
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + ",\"scripts\":" + scripts + "}")
+    }
+
+    ; a picture the viewer gets made for the screen: PNG, JPEG or WebP
+    sfn madeForScreen:boolean (path:string type:string) {
+        def t:string (to_lowercase type)
+        if (((t == "image/png") || (t == "image/jpeg")) || (t == "image/webp")) {
+            return true
+        }
+        def p:string (to_lowercase path)
+        return ((((endsWith p ".png") || (endsWith p ".jpg")) || (endsWith p ".jpeg")) || (endsWith p ".webp"))
+    }
+
+    sfn pictureUrl:string (host:McpHost id:string path:string stamp:string) {
+        return ("/api/view/" + id + "/pic?path=" + (host_uri_encode host path) + "&v=" + stamp)
+    }
+
+    ; what changes when a stored file is replaced: its download token (a new
+    ; one with every upload), else the deck's own stamp
+    sfn fileStamp:string (doc:MfJ url:string) {
+        def at:int (indexOf url "token=")
+        if (at >= 0) {
+            def tok:string (substring url (at + 6) (strlen url))
+            def amp:int (indexOf tok "&")
+            if (amp >= 0) {
+                tok = (substring tok 0 amp)
+            }
+            if ((strlen tok) > 12) {
+                tok = (substring tok 0 12)
+            }
+            if ((strlen tok) > 0) {
+                return tok
+            }
+        }
+        return (LinkCard.stamp(doc))
     }
 
     ; The slides' scripts ({script=…}), which the page runs itself while
@@ -289,6 +329,76 @@ class View {
 ; animations); md is the deck's text without Sliqtly's styling (PlainMd).
 ; Nothing is stored: the file goes straight to the browser.
 ; =============================================================================
+
+; --- the viewer's pictures: GET /api/view/<id>/pic?path=<path>&v=<stamp>
+;
+; A deck keeps its pictures as they were given (often PNGs of 1–2 MB), and
+; the page fetched them all before it showed a slide. A raster picture of a
+; deck anyone with the link sees is sent made for the screen instead
+; (host_view_picture: a JPEG, scaled when large), at an address that
+; changes with the file (`v`), so the CDN keeps it for good.
+
+class ViewPic {
+    ; 200, 302 (`url`: the address with the file's own stamp) or 404
+    def status:int 404
+    def type:string ""
+    def bytes:buffer (buffer_from_string "")
+    def url:string ""
+}
+
+class ViewPictures {
+    sfn picture:ViewPic (host:McpHost id:string path:string v:string) {
+        def out (new ViewPic)
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return out
+        }
+        def sh:Shown (Store.shown(host id))
+        def doc:MfJ sh.doc
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view picture " + id + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        ; only a deck anyone with the link sees (a private one's page gets
+        ; its pictures from Storage, View.json)
+        if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
+            return out
+        }
+        def type:string ""
+        def stamp:string ""
+        def found:boolean false
+        for (doc.list("files")) f:MfJ fi {
+            if ((f.str_("path")) == path) {
+                found = true
+                type = (f.str_("type"))
+                stamp = (View.fileStamp(doc (f.str_("url"))))
+            }
+        }
+        if ((found == false) || ((View.madeForScreen(path type)) == false)) {
+            return out
+        }
+        if (v != stamp) {
+            out.status = 302
+            out.url = (View.pictureUrl(host id path stamp))
+            return out
+        }
+        def got:MfJ (J.parse((host_file_bytes host sh.id path)))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view picture " + id + "/" + path + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        def data:buffer (host_image_bytes host (got.int_("handle" 0)))
+        def made:buffer (host_view_picture host data 2048)
+        if ((buffer_length made) > 0) {
+            data = made
+        }
+        out.status = 200
+        out.type = (host_content_type host data)
+        out.bytes = data
+        return out
+    }
+}
 
 class ViewFile {
     ; 200, 400 (no such format), 404 (no such shared presentation) or 500
