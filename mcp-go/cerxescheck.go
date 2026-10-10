@@ -80,7 +80,7 @@ func (e *cerxesEngine) start() error {
 			return
 		}
 		var parts []string
-		for _, f := range []string{"cerxes-runtime.js", "apps-runtime.js", "script-runtime.js"} {
+		for _, f := range []string{"cerxes-runtime.js", "apps-runtime.js", "script-sel.js", "script-runtime.js"} {
 			b, err := fs.ReadFile(files, f)
 			if err != nil {
 				e.err = err

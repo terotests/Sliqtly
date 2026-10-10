@@ -4818,29 +4818,29 @@ class PresCheck {
         this.ok(((indexOf files "apps/fx.tsx") >= 0) "scripts: the page is asked for the file")
         ; the slide's entities
         def sc:PresScene (deck.sceneOfSlide(0))
-        def heads:[int] (PresSel.findIn(sc "h2"))
+        def heads:[int] (PresSel.findIn(sc.ents "h2"))
         this.ok(((array_length heads) == 1) ("scripts: one h2, got " + (to_string (array_length heads))))
         if ((array_length heads) == 1) {
             def h:PresEnt (sc.at((itemAt heads 0)))
             this.ok((h.text == "Sales grow") ("scripts: the heading's text, got " + h.text))
             this.ok(((h.w > 50.0) && (h.h > 10.0)) "scripts: the heading's box")
         }
-        def items:[int] (PresSel.findIn(sc "li"))
+        def items:[int] (PresSel.findIn(sc.ents "li"))
         this.ok(((array_length items) == 3) ("scripts: three items, got " + (to_string (array_length items)) + "\n" + (join (sc.outline(false)) "\n")))
-        def second:[int] (PresSel.findIn(sc "li:2"))
+        def second:[int] (PresSel.findIn(sc.ents "li:2"))
         if ((array_length second) == 1) {
             def e2:PresEnt (sc.at((itemAt second 0)))
             this.ok((e2.text == "Buns sell") ("scripts: li:2 is the second, got " + e2.text))
         } {
             this.ok(false "scripts: li:2 names one item")
         }
-        def kahvi:[int] (PresSel.findIn(sc "#kahvi"))
+        def kahvi:[int] (PresSel.findIn(sc.ents "#kahvi"))
         this.ok(((array_length kahvi) == 1) "scripts: #id names a block")
         if ((array_length kahvi) == 1) {
             this.ok(((sc.at((itemAt kahvi 0))).id == "kahvi") "scripts: the block's own id is its id")
         }
-        this.ok(((array_length (PresSel.findIn(sc "p.key"))) == 1) "scripts: .class")
-        def words:[int] (PresSel.findIn(sc "h2 word"))
+        this.ok(((array_length (PresSel.findIn(sc.ents "p.key"))) == 1) "scripts: .class")
+        def words:[int] (PresSel.findIn(sc.ents "h2 word"))
         this.ok(((array_length words) == 2) ("scripts: the heading in words, got " + (to_string (array_length words))))
         if ((array_length words) == 2) {
             def w0:PresEnt (sc.at((itemAt words 0)))
@@ -4848,8 +4848,8 @@ class PresCheck {
             this.ok(((w0.text == "Sales") && (w1.text == "grow")) "scripts: the words")
             this.ok(((w1.x > (w0.x + w0.w)) && (w0.w > 10.0)) "scripts: each word where it is drawn")
         }
-        this.ok(((array_length (PresSel.findIn(sc "h2 char"))) == 9) "scripts: the heading in letters")
-        def bars:[int] (PresSel.findIn(sc "chart:1 bar"))
+        this.ok(((array_length (PresSel.findIn(sc.ents "h2 char"))) == 9) "scripts: the heading in letters")
+        def bars:[int] (PresSel.findIn(sc.ents "chart:1 bar"))
         this.ok(((array_length bars) == 3) ("scripts: the chart's columns, got " + (to_string (array_length bars))))
         if ((array_length bars) == 3) {
             def b1:PresEnt (sc.at((itemAt bars 1)))
@@ -4857,19 +4857,19 @@ class PresCheck {
             def b0:PresEnt (sc.at((itemAt bars 0)))
             this.ok((b1.h > b0.h) "scripts: a column's box is its own")
         }
-        this.ok(((array_length (PresSel.findIn(sc "chart:2 bar"))) == 0) "scripts: no second chart")
+        this.ok(((array_length (PresSel.findIn(sc.ents "chart:2 bar"))) == 0) "scripts: no second chart")
         def bad:PresSel (PresSel.parse("li:x"))
         this.ok(((strlen bad.error) > 0) "scripts: a bad selector is said")
         ; a diagram's nodes and lines
         def sc1:PresScene (deck.sceneOfSlide(1))
-        def nb:[int] (PresSel.findIn(sc1 "diagram:1 node#B"))
+        def nb:[int] (PresSel.findIn(sc1.ents "diagram:1 node#B"))
         this.ok(((array_length nb) == 1) ("scripts: node#B, got " + (to_string (array_length nb)) + "\n" + (join (sc1.outline(false)) "\n")))
         if ((array_length nb) == 1) {
             def nbe:PresEnt (sc1.at((itemAt nb 0)))
             this.ok((nbe.text == "Bake") ("scripts: the node's label, got " + nbe.text))
         }
-        this.ok(((array_length (PresSel.findIn(sc1 "edge A->B"))) == 1) "scripts: an edge by its ends")
-        this.ok(((array_length (PresSel.findIn(sc1 "diagram node"))) == 3) "scripts: every node")
+        this.ok(((array_length (PresSel.findIn(sc1.ents "edge A->B"))) == 1) "scripts: an edge by its ends")
+        this.ok(((array_length (PresSel.findIn(sc1.ents "diagram node"))) == 3) "scripts: every node")
         ; the tree a script is handed
         def tree:string (deck.scriptTree("script:apps/fx.tsx#1"))
         this.ok(((indexOf tree "\"k\":\"bar\"") > 0) "scripts: the tree carries the columns")
