@@ -1071,6 +1071,13 @@ func (h *McpHost) SHA256Hex(s string) string {
 	return hex.EncodeToString(x[:])
 }
 
+// BytesSHA256 is the SHA-256 of a handle's bytes (a picture as received),
+// lowercase hex
+func (h *McpHost) BytesSHA256(handle int64) string {
+	x := sha256.Sum256(h.images[handle])
+	return hex.EncodeToString(x[:])
+}
+
 func (h *McpHost) SameSecret(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

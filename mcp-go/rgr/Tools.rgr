@@ -166,8 +166,9 @@ class Tools {
         p.put("visibility" vis)
         def ip:MfJ (MfJ.newObj())
         ip.put("name" (Tools.prop("string" "File name the Markdown uses as media/<name>, e.g. \"team.jpg\" → ![](media/team.jpg)")))
-        ip.put("url" (Tools.prop("string" "A public https URL of the picture")))
-        ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url)")))
+        ip.put("url" (Tools.prop("string" "A public https URL of the picture: the server fetches its bytes (up to 5 MB, a picture type checked). The way for a photo or any large picture: no base64 to copy, nothing to corrupt.")))
+        ip.put("data_base64" (Tools.prop("string" "The picture's bytes as base64 (instead of url). Fine for a small picture; long base64 is easily corrupted when copied, so for a large one give url, or send sha256 with it.")))
+        ip.put("sha256" (Tools.prop("string" "Optional: the SHA-256 of the picture's bytes (64 hex digits, e.g. from sha256sum). The server compares it with the bytes it got and refuses the picture when they differ, so a picture corrupted on the way is caught instead of stored.")))
         ip.put("text" (Tools.prop("string" "An SVG's source as it is (instead of url or data_base64): readable and fixable, no base64. Name it .svg.")))
         ip.put("text_to_path" (Tools.prop("boolean" "SVG only: turn its text into paths in the editor's fonts, so it looks the same on every viewer (it is then no longer text)")))
         def dirs:string (host_import_dirs host)
@@ -179,7 +180,7 @@ class Tools {
         item.putStr("type" "object")
         item.put("properties" ip)
         item.put("required" (J.strs(([] _:string ("name")))))
-        def images:MfJ (Tools.prop("array" "Pictures the Markdown refers to as media/<name>. Needs sign-in."))
+        def images:MfJ (Tools.prop("array" "Pictures kept with the deck as media/<name>, for the Markdown to show as ![](media/<name>). A picture is kept even when no slide uses it yet (the result says which are not used yet), so it can be sent first and used in a later call. Needs sign-in."))
         images.put("items" item)
         p.put("images" images)
         def fp:MfJ (MfJ.newObj())
@@ -1102,7 +1103,7 @@ class Tools {
             if ((img.field("name")).kind != 3) {
                 return "Invalid arguments: every image needs a name."
             }
-            for ([] _:string ("url" "data_base64" "path" "mime_type")) f:string m {
+            for ([] _:string ("url" "data_base64" "path" "mime_type" "sha256")) f:string m {
                 def fv:MfJ (img.field(f))
                 if ((fv.kind != 0) && (fv.kind != 3)) {
                     return ("Invalid arguments: image " + f + " is a string.")
@@ -2036,6 +2037,10 @@ class Tools {
         if ((strlen loaded.err) > 0) {
             return (Tools.fail(loaded.err))
         }
+        def sent:[string]
+        for loaded.imgs si:Img sk {
+            push sent si.name
+        }
         def data:Loaded (Files.loadData(host (a.list("files"))))
         if ((strlen data.err) > 0) {
             return (Tools.fail(data.err))
@@ -2100,7 +2105,7 @@ class Tools {
         for webNotes wnt:string wni {
             push notes wnt
         }
-        def r:MfJ (Tools.updated(host caller id ws.saved (join notes "\n")))
+        def r:MfJ (Tools.updatedSent(host caller id ws.saved (join notes "\n") sent))
         Tools.withWork(host r ws.version ws.others)
         Tools.withUserEdits(r ws.changes true)
         return (Tools.withData(host r data.imgs))
@@ -2739,6 +2744,13 @@ class Tools {
 
     ; the answer to a change; note goes on its own line after the rest
     sfn updated:MfJ (host:McpHost caller:Caller id:string saved:MfJ note:string) {
+        def none0:[string]
+        return (Tools.updatedSent(host caller id saved note none0))
+    }
+
+    ; updated, with the names of the pictures this call sent: one no slide
+    ; uses yet is kept all the same, and the result says so
+    sfn updatedSent:MfJ (host:McpHost caller:Caller id:string saved:MfJ note:string sent:[string]) {
         if ((saved.isObj()) == false) {
             return (Tools.fail("No presentation by that id any more."))
         }
@@ -2751,13 +2763,7 @@ class Tools {
             push stored path
         }
         def md:string (saved.str_("md"))
-        def none:[string]
-        def ws:[string]
-        for (Deck.warnings(md none stored)) w:string j {
-            if ((startsWith w "Image") == false) {
-                push ws w
-            }
-        }
+        def ws:[string] (Deck.warnings(md sent stored))
         def savedCss:MfJ (saved.field("css"))
         def noImgs:[Img]
         def storedPaths:[string]

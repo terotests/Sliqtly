@@ -413,6 +413,12 @@ operators {
             go ( (e 1) ".Bytes(" (e 2) ")" )
         }
     }
+    ; the SHA-256 of the handle's bytes, lowercase hex
+    host_bytes_sha256 _:string (h:McpHost handle:int) {
+        templates {
+            go ( (e 1) ".BytesSHA256(" (e 2) ")" )
+        }
+    }
     ; Storage object `path` with the handle's bytes and a download token
     host_upload _:void (h:McpHost handle:int path:string contentType:string token:string) {
         templates {

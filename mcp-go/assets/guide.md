@@ -704,6 +704,17 @@ can edit.
   call's `images` with the same `name`: a public `https` URL, base64 data,
   or an SVG's (or a SmartArt file's) source as `text`. PNG, JPEG, GIF, WebP, SVG up to 5 MB each,
   at most 20 pictures in one call (send more with `update_presentation`).
+- **A photo or any large picture: give its `url`** (`{ "name":
+  "cover.jpg", "url": "https://…/cover.jpg" }`); the server fetches the
+  bytes itself, so there is no base64 to copy and nothing to corrupt. Long
+  base64 copied by hand is easily changed on the way (a few characters in
+  a long `AAAA…` run, and the picture breaks).
+- With `data_base64`, add `sha256`: the SHA-256 of the picture's bytes in
+  hex (`sha256sum cover.jpg`). The server compares it with the bytes it
+  got and refuses the picture, saying so, when they differ; send it again.
+- A picture is kept with the deck even when no slide uses it yet; the
+  result notes which ones are not used yet. Pictures can be sent first
+  (`update_presentation` with only `images`) and used in a later call.
 - A picture written with a web address (`![Logo](https://…/logo.png)`, or
   `![Logo][id]` with `[id]: https://…`) is fetched into `media/` when the
   deck is saved and the Markdown is pointed at it.
