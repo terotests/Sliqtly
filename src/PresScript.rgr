@@ -63,6 +63,9 @@ class PresEnt {
     def parent:int -1
     ; a painter's part (a bar, a node): the layout box it was drawn for
     def ofBox:int -1
+    ; a block's first offset in the Markdown, -1 for none (a part, a word)
+    def src:int -1
+    def srcEnd:int -1
     ; an edge's ends, by node name
     def from:string ""
     def to:string ""

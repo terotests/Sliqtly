@@ -30,6 +30,7 @@ Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresTrace.rgr"
+Import "PresExport.rgr"
 Import "PresImageDrag.rgr"
 Import "PresImageModel.rgr"
 Import "PresSketch.rgr"
@@ -4732,6 +4733,56 @@ class PresCheck {
             this.ok((cf.a == 0.0) "scripts: visible:false makes it clear")
         }
         this.ok(((array_length after.cmds) > (array_length before.cmds)) "scripts: what it added is drawn")
+        ; what a document makes of it: the list changed, the paragraph hidden
+        this.ok((deck.scriptChanges(0)) "scripts: the slide ends changed")
+        this.ok(((deck.scriptChanges(1)) == false) "scripts: …a slide with no final frame does not")
+        def docN:MdNode deck.md.edit.doc
+        def listAt:int -1
+        def paraAt:int -1
+        def dn:int 0
+        while (dn < (docN.childCount())) {
+            def dc:MdNode (docN.childAt(dn))
+            if ((dc.kind == "list") && (listAt < 0)) {
+                listAt = dn
+            }
+            if ((dc.kind == "paragraph") && ((indexOf (dc.plainText()) "Coffee pays") >= 0)) {
+                paraAt = dn
+            }
+            dn = (dn + 1)
+        }
+        if ((listAt >= 0) && (paraAt >= 0)) {
+            def ln:MdNode (docN.childAt(listAt))
+            def pn:MdNode (docN.childAt(paraAt))
+            this.ok(((deck.scriptLeaves(0 ln.srcStart ln.srcEnd)) == 1) ("scripts: a moved item changes its list, got " + (to_string (deck.scriptLeaves(0 ln.srcStart ln.srcEnd)))))
+            this.ok(((deck.scriptLeaves(0 pn.srcStart pn.srcEnd)) == 2) "scripts: a hidden paragraph is hidden")
+            def rect:[double] (deck.scriptBlockRect(0 ln.srcStart ln.srcEnd))
+            this.ok(((array_length rect) == 4) "scripts: the list's rectangle where the script leaves it")
+            def word (new PresDocx())
+            word.findShots(deck)
+            def scriptedShots:int 0
+            for word.shots ws:PresDocxShot wsi {
+                if ws.scripted {
+                    scriptedShots = (scriptedShots + 1)
+                }
+            }
+            this.ok((scriptedShots >= 1) "scripts: Word draws a changed block as the stage shows it")
+        } {
+            this.ok(false "scripts: the deck's list and paragraph")
+        }
+        ; the PowerPoint file is drawn from the list where the script ends
+        def ex (new PresExport())
+        ex.deck = deck
+        def ppt:buffer (ex.pptx())
+        this.ok(((buffer_length ppt) > 1000) "scripts: a PPTX with a scripted slide")
+        ; one moment of it (the server's render_slide(time)) over the others
+        this.ok((deck.setScriptAt("script:apps/fx.tsx#1" "{\"p\":{\"h2-1\":{\"opacity\":0.5}}}")) "scripts: a moment taken")
+        def atList:EVGDisplayList (PresTimeline.finalFrame(deck 0))
+        def head@(optional):EVGDrawCmd (PresCheck.textCmd(atList "Sales grow"))
+        if (!null? head) {
+            def hc:EVGDrawCmd (unwrap head)
+            this.ok(((hc.a > 0.4) && (hc.a < 0.6)) ("scripts: the moment is drawn, alpha " + (to_string hc.a)))
+        }
+        deck.clearScriptAt()
         ; a thumbnail is the final state; the PDF too
         def bad2:string "{\"p\":{\"chart-1/bar-2\":{\"fill\":\"#00ff00\"}}}"
         deck.setScriptFinal("script:apps/fx.tsx#1" bad2)

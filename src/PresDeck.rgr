@@ -1753,6 +1753,113 @@ class PresDeck {
         return o
     }
 
+    ; Whether slide i's script ends with the slide looking otherwise than
+    ; the Markdown lays it out: an export draws it from its display list.
+    fn scriptChanges:boolean (i:int) {
+        def key:string (this.scriptKeyOf(i))
+        if ((strlen key) == 0) {
+            return false
+        }
+        def ro@(optional):PresScriptRun (this.scriptRun(key))
+        if (null? ro) {
+            return false
+        }
+        def r:PresScriptRun (unwrap ro)
+        return (r.hasFinal && ((r.final.count()) > 0))
+    }
+
+    ; How slide `page`'s script leaves the Markdown from `from` to `to` where
+    ; it ends: 0 untouched, 1 changed (moved, recoloured, a part of it
+    ; changed), 2 hidden (the block made invisible or clear). A document
+    ; (Word, HTML) draws a changed block as the stage shows it and leaves a
+    ; hidden one out.
+    fn scriptLeaves:int (page:int from:int to:int) {
+        if ((this.scriptChanges(page)) == false) {
+            return 0
+        }
+        def ro@(optional):PresScriptRun (this.scriptRun((this.scriptKeyOf(page))))
+        def r:PresScriptRun (unwrap ro)
+        def sc:PresScene (this.sceneOfSlide(page))
+        def out:int 0
+        def i:int 1
+        while (i < (sc.count())) {
+            def e:PresEnt (sc.at(i))
+            def po@(optional):PresEntProps (r.final.propsOf(e.id))
+            if (!null? po) {
+                def p:PresEntProps (unwrap po)
+                if (p.changes(e)) {
+                    ; the block it is in
+                    def bi:int i
+                    def be:PresEnt e
+                    while ((be.src < 0) && (be.parent > 0)) {
+                        bi = be.parent
+                        be = (sc.at(bi))
+                    }
+                    if ((be.src >= from) && (be.src < to)) {
+                        ; the node itself hidden, not a part of it
+                        if (((bi == i) && ((be.src == from) && (be.srcEnd == to))) && ((p.visible == false) || (p.opacity <= 0.0))) {
+                            return 2
+                        }
+                        out = 1
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Slide i drawn at rest, its script where it ends.
+    fn stillSlide:EVGDisplayList (i:int) {
+        def was:boolean still
+        still = true
+        def s:PresSlide (itemAt slides i)
+        def g:[int]
+        def dl:EVGDisplayList (this.slideList(i g s.duration))
+        still = was
+        return dl
+    }
+
+    ; Where the blocks from `from` to `to` of slide `page` are once its
+    ; script ends: [x, y, w, h] around them and their parts, [] for none.
+    fn scriptBlockRect:[double] (page:int from:int to:int) {
+        def out:[double]
+        def dl:EVGDisplayList (this.stillSlide(page))
+        def sc:PresScene (this.sceneOfList(page dl))
+        def x0:double 0.0
+        def y0:double 0.0
+        def x1:double 0.0
+        def y1:double 0.0
+        def any:boolean false
+        def i:int 1
+        while (i < (sc.count())) {
+            def e:PresEnt (sc.at(i))
+            if ((((e.src >= from) && (e.src < to)) && e.hasBox) && ((e.w > 0.0) && (e.h > 0.0))) {
+                if ((any == false) || (e.x < x0)) {
+                    x0 = e.x
+                }
+                if ((any == false) || (e.y < y0)) {
+                    y0 = e.y
+                }
+                if ((any == false) || ((e.x + e.w) > x1)) {
+                    x1 = (e.x + e.w)
+                }
+                if ((any == false) || ((e.y + e.h) > y1)) {
+                    y1 = (e.y + e.h)
+                }
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            push out x0
+            push out y0
+            push out (x1 - x0)
+            push out (y1 - y0)
+        }
+        return out
+    }
+
     ; The scripts' keys, for a host that runs them itself (the server).
     fn scriptKeys:[string] () {
         def out:[string]
@@ -1886,6 +1993,7 @@ class PresDeck {
         if (b.kind == 4) {
             e.kind = "image"
             e.id = ("box:" + (to_string bi))
+            e.src = (PresDeck.boxSrc(b))
             e.data = ((JVal.mkObj()).setStr("src" b.imagePath).toJson())
             return e
         }
@@ -1989,6 +2097,8 @@ class PresDeck {
         }
         if (use >= 0) {
             e.id = ("blk:" + (to_string use))
+            e.src = (itemAt blkStart use)
+            e.srcEnd = (itemAt blkEnd use)
         } {
             e.id = ("box:" + (to_string bi))
         }
