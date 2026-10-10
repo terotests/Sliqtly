@@ -14,17 +14,102 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"image"
 	"image/color"
 	"math"
 	"strconv"
+	"strings"
+	"time"
 
 	"golang.org/x/image/draw"
 )
 
+// an instruction's operator, decided once when the program is read
+type fxOp uint8
+
+const (
+	opConst fxOp = iota
+	opAdd
+	opSub
+	opMul
+	opDiv
+	opLt
+	opGt
+	opLe
+	opGe
+	opEq
+	opNe
+	opAnd
+	opOr
+	opNeg
+	opNot
+	opSwz
+	opSin
+	opCos
+	opTan
+	opAsin
+	opAcos
+	opAbs
+	opFloor
+	opCeil
+	opFract
+	opSqrt
+	opExp
+	opLog
+	opSign
+	opNormalize
+	opMin
+	opMax
+	opMod
+	opPow
+	opStep
+	opClamp
+	opMix
+	opSmoothstep
+	opLength
+	opDistance
+	opDot
+	opAtan
+	opVec
+	opRgba
+	opHsv
+	opHash
+	opNoise
+	opFbm
+	opVoronoi
+	opRotate
+	opSource
+	opBlur
+	opGlow
+	opEdges
+	opSelect
+)
+
+// each operator by FxCode's name, with how many arguments it takes (-1:
+// one or more, -2: one or two)
+var fxOps = map[string]struct {
+	op    fxOp
+	arity int
+}{
+	"const": {opConst, 0}, "+": {opAdd, 2}, "-": {opSub, 2}, "*": {opMul, 2}, "/": {opDiv, 2},
+	"<": {opLt, 2}, ">": {opGt, 2}, "<=": {opLe, 2}, ">=": {opGe, 2}, "==": {opEq, 2}, "!=": {opNe, 2},
+	"&&": {opAnd, 2}, "||": {opOr, 2}, "neg": {opNeg, 1}, "not": {opNot, 1}, "swz": {opSwz, 1},
+	"sin": {opSin, 1}, "cos": {opCos, 1}, "tan": {opTan, 1}, "asin": {opAsin, 1}, "acos": {opAcos, 1},
+	"abs": {opAbs, 1}, "floor": {opFloor, 1}, "ceil": {opCeil, 1}, "fract": {opFract, 1}, "sqrt": {opSqrt, 1},
+	"exp": {opExp, 1}, "log": {opLog, 1}, "sign": {opSign, 1}, "normalize": {opNormalize, 1},
+	"min": {opMin, 2}, "max": {opMax, 2}, "mod": {opMod, 2}, "pow": {opPow, 2}, "step": {opStep, 2},
+	"clamp": {opClamp, 3}, "mix": {opMix, 3}, "smoothstep": {opSmoothstep, 3}, "length": {opLength, 1},
+	"distance": {opDistance, 2}, "dot": {opDot, 2}, "atan": {opAtan, -2},
+	"vec2": {opVec, -1}, "vec3": {opVec, -1}, "vec4": {opVec, -1}, "rgba": {opRgba, 2}, "hsv": {opHsv, 3},
+	"hash": {opHash, 1}, "noise": {opNoise, 1}, "fbm": {opFbm, 1}, "voronoi": {opVoronoi, 1},
+	"rotate": {opRotate, 2}, "source": {opSource, 1}, "blur": {opBlur, 2}, "glow": {opGlow, 2},
+	"edges": {opEdges, 1}, "select": {opSelect, 3},
+}
+
 type fxIns struct {
-	op    string
+	op    fxOp
 	dst   int
 	dims  int
 	extra string
@@ -38,6 +123,7 @@ type fxProgram struct {
 	name, layer string
 	still       float64
 	cost        int
+	clockEnd    [4]float64
 	params      []fxParamDef
 	regs, out   int
 	outDims     int
@@ -49,85 +135,151 @@ type fxParamDef struct {
 	value, lo, hi float64
 }
 
+// how long one request may spend drawing the deck's own effects
+const fxBudget = 10 * time.Second
+
 // the programs of one render, and the moment they are drawn at
 type renderFx struct {
 	progs map[string]*fxProgram
 	time  float64 // < 0: each at its still
+	// past it the effects not yet drawn are left out (fxBudget, or the
+	// request's own end)
+	ctx      context.Context
+	deadline time.Time
+	cut      bool
+	notes    *[]string
 }
 
 // RenderFx keeps the deck's effects (FxLang.programsJson) for the renders
-// that follow; "" forgets them.
+// that follow; "" forgets them. An effect whose code does not read is left
+// out and said (FxReport).
 func (h *McpHost) RenderFx(programs string, t float64) {
 	if programs == "" || programs == "[]" {
 		h.renderFx = nil
 		return
 	}
-	progs, err := parseFxPrograms(programs)
-	if err != nil {
-		h.Log("render fx: " + err.Error())
-		h.renderFx = nil
-		return
+	progs, bad := parseFxPrograms(programs)
+	h.fxNotes = append(h.fxNotes, bad...)
+	ctx := h.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	h.renderFx = &renderFx{progs: progs, time: t}
+	h.renderFx = &renderFx{progs: progs, time: t, ctx: ctx, deadline: time.Now().Add(fxBudget), notes: &h.fxNotes}
 }
 
-func parseFxPrograms(text string) (map[string]*fxProgram, error) {
+// FxReport is what the renders since the last report could not draw of the
+// deck's own effects, one line each; "" when they drew them all.
+func (h *McpHost) FxReport() string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range h.fxNotes {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	h.fxNotes = nil
+	return strings.Join(out, "\n")
+}
+
+// parseFxPrograms reads FxLang's register code. Every index an instruction
+// names is checked here, once, so running it cannot reach outside its
+// registers: a program that does is left out, with the reason.
+func parseFxPrograms(text string) (map[string]*fxProgram, []string) {
 	var raw []struct {
-		Name    string  `json:"name"`
-		Layer   string  `json:"layer"`
-		Still   float64 `json:"still"`
-		Cost    int     `json:"cost"`
-		Params  [][]any `json:"params"`
-		Regs    int     `json:"regs"`
-		Out     int     `json:"out"`
-		OutDims int     `json:"outDims"`
-		Code    [][]any `json:"code"`
+		Name     string    `json:"name"`
+		Layer    string    `json:"layer"`
+		Still    float64   `json:"still"`
+		Cost     int       `json:"cost"`
+		ClockEnd []float64 `json:"clockEnd"`
+		Params   [][]any   `json:"params"`
+		Regs     int       `json:"regs"`
+		Out      int       `json:"out"`
+		OutDims  int       `json:"outDims"`
+		Code     [][]any   `json:"code"`
 	}
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		return nil, err
+		return nil, []string{"The deck's own effects could not be read (" + err.Error() + "); they are not drawn."}
 	}
 	out := map[string]*fxProgram{}
+	var bad []string
 	for _, r := range raw {
-		p := &fxProgram{name: r.Name, layer: r.Layer, still: r.Still, cost: r.Cost, regs: r.Regs, out: r.Out, outDims: r.OutDims}
-		for _, pa := range r.Params {
-			if len(pa) < 4 {
-				continue
-			}
-			name, _ := pa[0].(string)
-			p.params = append(p.params, fxParamDef{name, num(pa[1]), num(pa[2]), num(pa[3])})
-		}
-		for _, c := range r.Code {
-			if len(c) < 4 {
-				continue
-			}
-			op, _ := c[0].(string)
-			in := fxIns{op: op, dst: int(num(c[1])), dims: int(num(c[2]))}
-			if s, ok := c[3].(string); ok {
-				in.extra = s
-			} else {
-				in.oct = int(num(c[3]))
-			}
-			if op == "const" {
-				for _, v := range c[4:] {
-					in.vals = append(in.vals, num(v))
-				}
-			} else {
-				for i := 4; i+1 < len(c); i += 2 {
-					in.args = append(in.args, int(num(c[i])))
-					in.adims = append(in.adims, int(num(c[i+1])))
-				}
-			}
-			if in.dst < 0 || in.dst >= p.regs {
-				continue
-			}
-			p.code = append(p.code, in)
-		}
-		if p.out < 0 || p.out >= p.regs || p.regs > 4096 {
+		p, err := readFxProgram(r.Name, r.Layer, r.Still, r.Cost, r.ClockEnd, r.Params, r.Regs, r.Out, r.OutDims, r.Code)
+		if err != "" {
+			bad = append(bad, "The effect '"+r.Name+"' could not be run ("+err+"); it is not drawn.")
 			continue
 		}
 		out[p.name] = p
 	}
-	return out, nil
+	return out, bad
+}
+
+func readFxProgram(name, layer string, still float64, cost int, clockEnd []float64, params [][]any, regs, outReg, outDims int, code [][]any) (*fxProgram, string) {
+	p := &fxProgram{name: name, layer: layer, still: still, cost: cost, regs: regs, out: outReg, outDims: outDims}
+	p.clockEnd = [4]float64{0, 0, still, 1}
+	if len(clockEnd) == 4 {
+		copy(p.clockEnd[:], clockEnd)
+	}
+	for _, pa := range params {
+		if len(pa) < 4 {
+			return nil, "a parameter is not [name, default, lo, hi]"
+		}
+		n, _ := pa[0].(string)
+		p.params = append(p.params, fxParamDef{n, num(pa[1]), num(pa[2]), num(pa[3])})
+	}
+	if regs > 4096 || regs < 10+len(p.params) {
+		return nil, "registers " + strconv.Itoa(regs)
+	}
+	if outReg < 0 || outReg >= regs || outDims < 1 || outDims > 4 {
+		return nil, "its output register"
+	}
+	in := func(r int) bool { return r >= 0 && r < regs }
+	for at, c := range code {
+		where := "instruction " + strconv.Itoa(at+1)
+		if len(c) < 4 {
+			return nil, where + " is short"
+		}
+		opName, _ := c[0].(string)
+		def, ok := fxOps[opName]
+		if !ok {
+			return nil, where + ": no operation '" + opName + "'"
+		}
+		ins := fxIns{op: def.op, dst: int(num(c[1])), dims: int(num(c[2]))}
+		if !in(ins.dst) || ins.dims < 1 || ins.dims > 4 {
+			return nil, where + ": its result"
+		}
+		if s, ok := c[3].(string); ok {
+			ins.extra = s
+		} else {
+			ins.oct = int(num(c[3]))
+		}
+		if def.op == opConst {
+			for _, v := range c[4:] {
+				ins.vals = append(ins.vals, num(v))
+			}
+			if len(ins.vals) > 4 {
+				return nil, where + ": more than 4 numbers"
+			}
+		} else {
+			if (len(c)-4)%2 != 0 {
+				return nil, where + ": an argument without its size"
+			}
+			for i := 4; i+1 < len(c); i += 2 {
+				a, d := int(num(c[i])), int(num(c[i+1]))
+				if !in(a) || d < 1 || d > 4 {
+					return nil, where + ": argument " + strconv.Itoa((i-4)/2+1)
+				}
+				ins.args = append(ins.args, a)
+				ins.adims = append(ins.adims, d)
+			}
+			n := len(ins.args)
+			if (def.arity > 0 && n != def.arity) || (def.arity == -1 && n < 1) || (def.arity == -2 && (n < 1 || n > 2)) {
+				return nil, where + ": " + opName + " with " + strconv.Itoa(n) + " arguments"
+			}
+		}
+		p.code = append(p.code, ins)
+	}
+	return p, ""
 }
 
 func num(v any) float64 {
@@ -156,11 +308,10 @@ func newFxRun(prog *fxProgram, inst *dlFx, t float64) *fxRun {
 	run.reg[3] = vec4{t}
 	run.reg[5] = vec4{math.Pi}
 	clock := []string{"step", "steps", "steptime", "progress"}
-	ends := []float64{0, 0, prog.still, 1}
 	for i, name := range clock {
 		v, ok := inst.P["clock-"+name]
 		if !ok {
-			v = ends[i]
+			v = prog.clockEnd[i]
 		}
 		run.reg[6+i] = vec4{v}
 	}
@@ -239,56 +390,59 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 	var o vec4
 	n := in.dims
 	switch in.op {
-	case "const":
-		for k := 0; k < len(in.vals) && k < 4; k++ {
-			o[k] = in.vals[k]
-		}
+	case opConst:
+		copy(o[:], in.vals)
 		return o
-	case "+", "-", "*", "/":
+	case opAdd:
 		for k := 0; k < n; k++ {
-			a, b := r.arg(in, 0, k), r.arg(in, 1, k)
-			switch in.op {
-			case "+":
-				o[k] = a + b
-			case "-":
-				o[k] = a - b
-			case "*":
-				o[k] = a * b
-			default:
-				o[k] = a / b
-			}
+			o[k] = r.arg(in, 0, k) + r.arg(in, 1, k)
 		}
 		return o
-	case "<", ">", "<=", ">=", "==", "!=", "&&", "||":
+	case opSub:
+		for k := 0; k < n; k++ {
+			o[k] = r.arg(in, 0, k) - r.arg(in, 1, k)
+		}
+		return o
+	case opMul:
+		for k := 0; k < n; k++ {
+			o[k] = r.arg(in, 0, k) * r.arg(in, 1, k)
+		}
+		return o
+	case opDiv:
+		for k := 0; k < n; k++ {
+			o[k] = r.arg(in, 0, k) / r.arg(in, 1, k)
+		}
+		return o
+	case opLt, opGt, opLe, opGe, opEq, opNe, opAnd, opOr:
 		a, b := r.arg(in, 0, 0), r.arg(in, 1, 0)
 		switch in.op {
-		case "<":
+		case opLt:
 			o[0] = b2f(a < b)
-		case ">":
+		case opGt:
 			o[0] = b2f(a > b)
-		case "<=":
+		case opLe:
 			o[0] = b2f(a <= b)
-		case ">=":
+		case opGe:
 			o[0] = b2f(a >= b)
-		case "==":
+		case opEq:
 			o[0] = b2f(a == b)
-		case "!=":
+		case opNe:
 			o[0] = b2f(a != b)
-		case "&&":
+		case opAnd:
 			o[0] = b2f(a != 0 && b != 0)
 		default:
 			o[0] = b2f(a != 0 || b != 0)
 		}
 		return o
-	case "neg":
+	case opNeg:
 		for k := 0; k < n; k++ {
 			o[k] = -r.arg(in, 0, k)
 		}
 		return o
-	case "not":
+	case opNot:
 		o[0] = b2f(r.arg(in, 0, 0) == 0)
 		return o
-	case "swz":
+	case opSwz:
 		src := r.reg[in.args[0]]
 		for k := 0; k < len(in.extra) && k < 4; k++ {
 			switch in.extra[k] {
@@ -303,40 +457,13 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 			}
 		}
 		return o
-	case "sin", "cos", "tan", "asin", "acos", "abs", "floor", "ceil", "fract", "sqrt", "exp", "log", "sign":
+	case opSin, opCos, opTan, opAsin, opAcos, opAbs, opFloor, opCeil, opFract, opSqrt, opExp, opLog, opSign:
+		f := unaryFns[in.op]
 		for k := 0; k < n; k++ {
-			x := r.arg(in, 0, k)
-			switch in.op {
-			case "sin":
-				o[k] = math.Sin(x)
-			case "cos":
-				o[k] = math.Cos(x)
-			case "tan":
-				o[k] = math.Tan(x)
-			case "asin":
-				o[k] = math.Asin(x)
-			case "acos":
-				o[k] = math.Acos(x)
-			case "abs":
-				o[k] = math.Abs(x)
-			case "floor":
-				o[k] = math.Floor(x)
-			case "ceil":
-				o[k] = math.Ceil(x)
-			case "fract":
-				o[k] = fract(x)
-			case "sqrt":
-				o[k] = math.Sqrt(x)
-			case "exp":
-				o[k] = math.Exp(x)
-			case "log":
-				o[k] = math.Log(x)
-			default:
-				o[k] = sign(x)
-			}
+			o[k] = f(r.arg(in, 0, k))
 		}
 		return clean(o)
-	case "normalize":
+	case opNormalize:
 		l := r.length(in, 0)
 		for k := 0; k < n; k++ {
 			if l > 0 {
@@ -344,43 +471,43 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 			}
 		}
 		return o
-	case "min", "max", "mod", "pow", "step":
+	case opMin, opMax, opMod, opPow, opStep:
 		for k := 0; k < n; k++ {
 			a, b := r.arg(in, 0, k), r.arg(in, 1, k)
 			switch in.op {
-			case "min":
+			case opMin:
 				o[k] = math.Min(a, b)
-			case "max":
+			case opMax:
 				o[k] = math.Max(a, b)
-			case "mod":
+			case opMod:
 				o[k] = glslMod(a, b)
-			case "pow":
+			case opPow:
 				o[k] = math.Pow(a, b)
 			default:
 				o[k] = b2f(b >= a)
 			}
 		}
 		return clean(o)
-	case "clamp":
+	case opClamp:
 		for k := 0; k < n; k++ {
 			o[k] = math.Min(math.Max(r.arg(in, 0, k), r.arg(in, 1, k)), r.arg(in, 2, k))
 		}
 		return o
-	case "mix":
+	case opMix:
 		for k := 0; k < n; k++ {
 			a, b, t := r.arg(in, 0, k), r.arg(in, 1, k), r.arg(in, 2, k)
 			o[k] = a + (b-a)*t
 		}
 		return o
-	case "smoothstep":
+	case opSmoothstep:
 		for k := 0; k < n; k++ {
 			o[k] = smooth(r.arg(in, 0, k), r.arg(in, 1, k), r.arg(in, 2, k))
 		}
 		return clean(o)
-	case "length":
+	case opLength:
 		o[0] = r.length(in, 0)
 		return o
-	case "distance":
+	case opDistance:
 		s := 0.0
 		for k := 0; k < in.adims[0]; k++ {
 			d := r.arg(in, 0, k) - r.arg(in, 1, k)
@@ -388,19 +515,19 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 		}
 		o[0] = math.Sqrt(s)
 		return o
-	case "dot":
+	case opDot:
 		for k := 0; k < in.adims[0]; k++ {
 			o[0] += r.arg(in, 0, k) * r.arg(in, 1, k)
 		}
 		return o
-	case "atan":
+	case opAtan:
 		if len(in.args) == 2 {
 			o[0] = math.Atan2(r.arg(in, 0, 0), r.arg(in, 1, 0))
 		} else {
 			o[0] = math.Atan(r.arg(in, 0, 0))
 		}
 		return o
-	case "vec2", "vec3", "vec4":
+	case opVec:
 		if len(in.args) == 1 && in.adims[0] == 1 {
 			for k := 0; k < n; k++ {
 				o[k] = r.arg(in, 0, 0)
@@ -415,11 +542,11 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 			}
 		}
 		return o
-	case "rgba":
+	case opRgba:
 		o = r.reg[in.args[0]]
 		o[3] = r.arg(in, 1, 0)
 		return o
-	case "hsv":
+	case opHsv:
 		h, s, v := r.arg(in, 0, 0), r.arg(in, 1, 0), r.arg(in, 2, 0)
 		s = math.Max(0, math.Min(1, s))
 		off := [3]float64{0, 4, 2}
@@ -428,13 +555,13 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 			o[k] = v * (1 + (c-1)*s)
 		}
 		return o
-	case "hash":
+	case opHash:
 		o[0] = fxHash(r.arg(in, 0, 0), r.arg(in, 0, 1))
 		return o
-	case "noise":
+	case opNoise:
 		o[0] = fxNoise(r.arg(in, 0, 0), r.arg(in, 0, 1))
 		return o
-	case "fbm":
+	case opFbm:
 		x, y := r.arg(in, 0, 0), r.arg(in, 0, 1)
 		s, a := 0.0, 0.5
 		for i := 0; i < in.oct && i < 8; i++ {
@@ -444,34 +571,40 @@ func (r *fxRun) exec(in *fxIns) vec4 {
 		}
 		o[0] = s
 		return o
-	case "voronoi":
+	case opVoronoi:
 		o[0] = fxVoronoi(r.arg(in, 0, 0), r.arg(in, 0, 1))
 		return o
-	case "rotate":
+	case opRotate:
 		a := r.arg(in, 1, 0) * math.Pi / 180
 		c, s := math.Cos(a), math.Sin(a)
 		x, y := r.arg(in, 0, 0), r.arg(in, 0, 1)
 		o[0], o[1] = c*x-s*y, s*x+c*y
 		return o
-	case "source":
+	case opSource:
 		return r.sample(r.arg(in, 0, 0), r.arg(in, 0, 1))
-	case "blur":
+	case opBlur:
 		return r.blur(r.arg(in, 0, 0), r.arg(in, 0, 1), r.arg(in, 1, 0))
-	case "glow":
+	case opGlow:
 		qx, qy := r.arg(in, 0, 0), r.arg(in, 0, 1)
 		s, b := r.sample(qx, qy), r.blur(qx, qy, r.arg(in, 1, 0))
 		k := smooth(0.25, 0.9, lum(b)) * 1.2
 		return vec4{s[0] + b[0]*k, s[1] + b[1]*k, s[2] + b[2]*k, s[3]}
-	case "edges":
+	case opEdges:
 		o[0] = r.edges(r.arg(in, 0, 0), r.arg(in, 0, 1))
 		return o
-	case "select":
+	case opSelect:
 		if r.arg(in, 0, 0) != 0 {
 			return r.reg[in.args[1]]
 		}
 		return r.reg[in.args[2]]
 	}
 	return o
+}
+
+var unaryFns = [...]func(float64) float64{
+	opSin: math.Sin, opCos: math.Cos, opTan: math.Tan, opAsin: math.Asin, opAcos: math.Acos,
+	opAbs: math.Abs, opFloor: math.Floor, opCeil: math.Ceil, opFract: fract, opSqrt: math.Sqrt,
+	opExp: math.Exp, opLog: math.Log, opSign: sign,
 }
 
 // sample is fxl_source: the surface at uv, held inside the box
@@ -601,6 +734,9 @@ func (p *painter) drawFx(id, layer string) {
 	if prog == nil || prog.layer != layer {
 		return
 	}
+	if p.fx.cut {
+		return
+	}
 	run := newFxRun(prog, inst, p.fx.time)
 	a, z := p.dev(run.box[0], run.box[1]), p.dev(run.box[0]+run.box[2], run.box[1]+run.box[3])
 	area := image.Rect(int(math.Floor(a.x)), int(math.Floor(a.y)), int(math.Ceil(z.x)), int(math.Ceil(z.y))).Intersect(p.clip())
@@ -631,6 +767,9 @@ func (p *painter) drawFx(id, layer string) {
 		}
 	}
 	for y := area.Min.Y; y < area.Max.Y; y += stride {
+		if p.fx.overTime() {
+			return
+		}
 		for x := area.Min.X; x < area.Max.X; x += stride {
 			sx := (float64(x) + 0.5*float64(stride) - p.off.x) / p.k
 			sy := (float64(y) + 0.5*float64(stride) - p.off.y) / p.k
@@ -643,6 +782,23 @@ func (p *painter) drawFx(id, layer string) {
 			}
 		}
 	}
+}
+
+// overTime says once that the effects ran out of time, and from then on
+// that they did: what is left is drawn without them
+func (f *renderFx) overTime() bool {
+	if f.cut {
+		return true
+	}
+	if time.Now().Before(f.deadline) && f.ctx.Err() == nil {
+		return false
+	}
+	f.cut = true
+	if f.notes != nil {
+		*f.notes = append(*f.notes, "The deck's own effects took longer than "+strconv.Itoa(int(fxBudget/time.Second))+
+			" s to draw here and were cut short; the rest of the picture is drawn without them. A smaller or cheaper effect draws in full.")
+	}
+	return true
 }
 
 func unit(v float64) float64 { return math.Max(0, math.Min(1, v)) }
@@ -681,33 +837,63 @@ func (h *McpHost) FxGrid(listJSON string, slideW, slideH float64) []int64 {
 	return lumaGrid(dst)
 }
 
-// FxFlashes says how an own effect on the slide flashes, "" when it does
-// not: WCAG 2.3.1's general flash, a pair of opposing changes of 10% of
-// relative luminance (the darker under 0.8), more than three a second over
-// a tenth of the slide or more. Each effect's box is sampled on an 8×6 grid
-// for two seconds at 30 frames a second; a backdrop reads a grey page.
-func (h *McpHost) FxFlashes(listJSON string, slideW, slideH float64) string {
+// FxNotes is what the check says of the own effects on a slide's list:
+// WCAG 2.3.1's general flash (a pair of opposing changes of 10% of relative
+// luminance, the darker under 0.8, more than three a second over a tenth
+// of the slide or more; each box sampled on an 8×6 grid for two seconds at
+// 30 frames a second, a backdrop reading a grey page), and a backdrop or
+// filter whose output lets the slide through (alpha under 1), which since
+// 2026-10-09 leaves the slide as it was where it used to clear it.
+func (h *McpHost) FxNotes(listJSON string, slideW, slideH float64) []string {
+	out := []string{}
 	if h.renderFx == nil || slideW <= 0 || slideH <= 0 {
-		return ""
+		return out
 	}
 	var doc dlDoc
 	if err := json.Unmarshal([]byte(listJSON), &doc); err != nil {
-		return ""
+		return out
 	}
+	flashed, seen := false, map[string]bool{}
 	for i := range doc.Effects {
 		inst := &doc.Effects[i]
 		prog := h.renderFx.progs[utf8Of(inst.Kind)]
 		if prog == nil || len(inst.Box) < 4 {
 			continue
 		}
-		rate, share := fxFlashRate(prog, inst, slideW*slideH)
-		if share >= 0.1 {
-			return "the effect '" + prog.name + "' flashes about " + strconv.Itoa(int(math.Round(rate))) +
-				" times a second over " + strconv.Itoa(int(math.Round(share*100))) +
-				"% of the slide; more than 3 a second can cause seizures (WCAG 2.3.1). Slow it down or keep it to a small part of the slide."
+		if rate, share := fxFlashRate(prog, inst, slideW*slideH); share >= 0.1 && !flashed {
+			flashed = true
+			out = append(out, "the effect '"+prog.name+"' flashes about "+strconv.Itoa(int(math.Round(rate)))+
+				" times a second over "+strconv.Itoa(int(math.Round(share*100)))+
+				"% of the slide; more than 3 a second can cause seizures (WCAG 2.3.1). Slow it down or keep it to a small part of the slide.")
+		}
+		if prog.layer != "source" && !seen[prog.name] && fxSeeThrough(prog, inst) {
+			seen[prog.name] = true
+			out = append(out, "The "+prog.layer+" effect '"+prog.name+"' gives alpha under 1, so there the slide shows through: "+
+				"alpha is how much of the effect's colour covers the slide, and rgba(c, 0) leaves it as it was. "+
+				"Until 2026-10-09 alpha 0 cleared the slide instead; to hide the slide, give the colour to show with alpha 1 (vec3 or rgba(c, 1)).")
 		}
 	}
-	return ""
+	return out
+}
+
+// fxSeeThrough is whether a backdrop or filter gives alpha under 1 anywhere
+// on an 8×6 grid of its box, from 0 s to two seconds past its still, over
+// an opaque grey page
+func fxSeeThrough(prog *fxProgram, inst *dlFx) bool {
+	run := newFxRun(prog, inst, prog.still)
+	run.src = func(x, y float64) vec4 { return vec4{0.5, 0.5, 0.5, 1} }
+	for t := 0.0; t <= math.Max(prog.still, 0)+2; t += 0.25 {
+		run.reg[3] = vec4{t}
+		for j := 0; j < 6; j++ {
+			for i := 0; i < 8; i++ {
+				c := run.at(run.box[0]+(float64(i)+0.5)*run.box[2]/8, run.box[1]+(float64(j)+0.5)*run.box[3]/6)
+				if c[3] < 0.98 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // fxFlashRate is the most flashes a second any flashing point of the box

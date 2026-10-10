@@ -52,6 +52,11 @@ effect neon backdrop {
   e = edges(uv)
   output = vec4(g.rgb + #22d3ee * e * 0.6, 1)
 }
+
+effect outline filter {
+  e = edges(uv)
+  output = vec4(source(uv).rgb + #22d3ee * e, 1)
+}
 ```
 
 # Omat efektit
@@ -97,3 +102,13 @@ effect embers source {
 ## Neon {fx=neon}
 
 `glow(uv, r)` tuo kirkkaan ympärille hehkun, `edges(uv)` löytää ääriviivat, `blur(uv, r)` pehmentää.
+
+## Yhden lohkon päällä
+
+Suodin yhden lohkon päällä: `{fx=…}` sen alla olevalla rivillä.
+
+```mermaid
+flowchart LR
+  A[Markdown] --> B[Slide]
+```
+{fx=outline}

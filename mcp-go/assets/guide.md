@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-09.** If a result names a newer version, read Core
+**Guide version 2026-10-10.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -348,7 +348,12 @@ effect embers source {
   paints the slide's background (the text over it), `backdrop` rewrites the
   finished slide (read it with `source(uv)`), `filter` the same for an
   element. In all three `output`'s alpha is how much covers what was
-  there: `rgba(c, 0)` leaves the pixel as it was.
+  there: `rgba(c, 0)` leaves the pixel as it was (until 2026-10-09 alpha 0
+  cleared it; the check says when a backdrop or filter lets the slide
+  through). The slide is opaque, so `source(uv).a` is 1 everywhere.
+- Where: `fx=` on the slide's heading for the whole slide; for one block
+  (a paragraph, list, table, chart or diagram), `{fx=name fx-power=2}` on
+  the line under it, and the effect covers what the block draws.
 - The body is assignments, one per line, each name set once, ending in
   `output = <vec3 or vec4 colour>`. No loops or functions of one's own.
 - Inputs: `uv` (vec2, 0..1, y down), `p` (page pixels), `size` (vec2),
@@ -356,7 +361,8 @@ effect embers source {
   edge, negative inside), `PI`.
 - The slide's clock, for an effect tied to its build steps: `step` (the
   step shown, 0 before the first), `steps` (how many), `steptime` (seconds
-  since the shown step began), `progress` (0..1 through the slide). A
+  since the shown step began), `progress` (0..1 through the slide); `step`
+  without brackets is this input, `step(edge, x)` the function. A
   reveal on a click: `a = smoothstep(0, 1.5, steptime) * select(step >= 1,
   1, 0)`. A still (thumbnail, PDF, PPTX) shows the last step, progress 1,
   `time` and `steptime` at `still`. `time` keeps running while a step
@@ -382,7 +388,9 @@ effect embers source {
   reports each effect's cost; more than the limit is refused. Errors name
   the line and come back in the check's warnings.
 - `render_slide` draws them as the player does, at `still`; pass `time`
-  (seconds into the slide) to see a moment, the clock with it.
+  (seconds into the slide) to see a moment, the clock with it. An effect
+  that cannot be run, or that takes longer than 10 s to draw, is said in
+  its text.
 - A viewer who asks for less motion (prefers-reduced-motion) sees each
   effect held at its still. The check warns of an effect that flashes
   more than 3 times a second over a tenth of the slide or more, and checks

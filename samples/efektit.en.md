@@ -52,6 +52,11 @@ effect neon backdrop {
   e = edges(uv)
   output = vec4(g.rgb + #22d3ee * e * 0.6, 1)
 }
+
+effect outline filter {
+  e = edges(uv)
+  output = vec4(source(uv).rgb + #22d3ee * e, 1)
+}
 ```
 
 # Effects of your own
@@ -97,3 +102,13 @@ A `backdrop` effect reads the finished slide with `source(uv)` and bends it.
 ## Neon {fx=neon}
 
 `glow(uv, r)` puts a halo round what is bright, `edges(uv)` finds the outlines, `blur(uv, r)` softens.
+
+## On one block
+
+A filter on one block: `{fx=…}` on the line under it.
+
+```mermaid
+flowchart LR
+  A[Markdown] --> B[Slide]
+```
+{fx=outline}

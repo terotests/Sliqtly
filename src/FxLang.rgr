@@ -213,6 +213,12 @@ class FxEffect {
         }
         def out:string ("{\"name\":\"" + name + "\",\"layer\":\"" + layer + "\",\"still\":" + (FxLang.numText(still)))
         out = (out + ",\"fallback\":\"" + fallback + "\",\"cost\":" + (to_string cost) + ",\"clock\":" + (? clock "true" "false"))
+        def ends:[double] (FxLang.clockEnd(0.0 still))
+        def es:[string]
+        for ends ev:double evi {
+            push es (FxLang.numText(ev))
+        }
+        out = (out + ",\"clockEnd\":[" + (join es ",") + "]")
         out = (out + ",\"params\":[" + ps + "],\"regs\":" + (to_string c.regs) + ",\"out\":" + (to_string outReg) + ",\"outDims\":" + (to_string outDims))
         return (out + ",\"code\":[" + (join c.code ",") + "]}")
     }
@@ -1029,6 +1035,16 @@ class FxLang {
         return k
     }
 
+    ; The clock at a slide's end, what a still shows: the last of `steps`
+    ; build steps, `still` seconds into it, all the way through. With no
+    ; slide to ask (a list without the clock), steps is 0. The one place
+    ; these values are written: PresDeck.clockParams, the page's plugin
+    ; defaults (pluginsJson) and fxvm.go (the program's "clockEnd").
+    sfn clockEnd:[double] (steps:double still:double) {
+        def k:[double] ([] _:double (steps steps still 1.0))
+        return k
+    }
+
     sfn isClock:boolean (name:string) {
         return ((((name == "step") || (name == "steps")) || (name == "steptime")) || (name == "progress"))
     }
@@ -1575,7 +1591,9 @@ class FxLang {
         }
         if (f == "step") {
             if ((n != 2) || ((FxLang.isNum(t1)) == false)) {
-                return (this.argsWrong(f l "edge, x"))
+                ; `step` without brackets is the clock's build step
+                this.fail(l "step(edge, x) takes two; the build step shown is `step` without brackets, as in select(step >= 1, a, b)")
+                return ""
             }
             if ((t0 != t1) && (t0 != "float")) {
                 return (this.argsWrong(f l "edge is a number or the same as x"))
@@ -1938,7 +1956,16 @@ class FxLang {
                 if ((array_length e.params) > 0) {
                     ps = (ps + ",")
                 }
-                ps = (ps + "\"clock-step\":0.0,\"clock-steps\":0.0,\"clock-steptime\":" + (FxLang.numText(e.still)) + ",\"clock-progress\":1.0")
+                def ce:[double] (FxLang.clockEnd(0.0 e.still))
+                def cn:[string] (FxLang.clockNames())
+                def ck:int 0
+                while (ck < 4) {
+                    if (ck > 0) {
+                        ps = (ps + ",")
+                    }
+                    ps = (ps + "\"clock-" + (itemAt cn ck) + "\":" + (FxLang.numText((itemAt ce ck))))
+                    ck = (ck + 1)
+                }
             }
             ps = (ps + "}")
             out = (out + "{\"name\":\"" + e.name + "\",\"layer\":\"" + e.layer + "\",\"params\":" + ps + ",\"still\":" + (FxLang.numText(e.still)) + ",\"fallback\":\"" + e.fallback + "\",\"frag\":" + (FxLang.quote((e.glsl()))) + "}")
