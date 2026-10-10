@@ -4183,6 +4183,27 @@ class PresCheck {
 
     ; `::: col` blocks in a `::: columns` with as many colons: the last `:::`
     ; is left over as text, and the deck says so (PresDeck.fenceNotes)
+    ; A heading's `{…}` with a part that could not be read: the rest is
+    ; applied, the title is the title, and the deck says what was left out.
+    fn headingAttrs:void () {
+        def deck (new PresDeck())
+        deck.setText("---\nslide-split-level: 2\n---\n\n## Revenue {transition=fade owner=Väinö Linna}\n\nA\n\n## Costs {title=\"Q3 {draft}\"}\n\nB\n")
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideCount()) == 2) ("heading attrs: two slides, got " + (to_string (deck.slideCount()))))
+        if ((deck.slideCount()) < 2) {
+            return
+        }
+        this.ok(((deck.slideAt(0)).title == "Revenue") ("heading attrs: the title is the title, got " + (deck.slideAt(0)).title))
+        this.ok(((deck.slideAt(1)).title == "Costs") ("heading attrs: braces in a quoted value stay out of it, got " + (deck.slideAt(1)).title))
+        def notes:[string] (deck.headingAttrNotes())
+        this.ok(((array_length notes) == 1) ("heading attrs: one note, got " + (to_string (array_length notes))))
+        if ((array_length notes) > 0) {
+            def n0:string (itemAt notes 0)
+            this.ok(((indexOf n0 "Revenue") >= 0) "heading attrs: the note names the slide")
+            this.ok(((indexOf n0 "owner=\"Väinö Linna\"") >= 0) ("heading attrs: and says how to quote it, got " + n0))
+        }
+    }
+
     fn strayFences:void () {
         def css:string "page { width: 13.333in; height: 7.5in; padding: 0.6in } deck { split-level: 2 }"
         def deck (new PresDeck())
@@ -7340,6 +7361,7 @@ class PresCheck {
         c.imagesCleared()
         c.pageBackgroundImage()
         c.strayFences()
+        c.headingAttrs()
         c.sketches()
         c.meeting()
         c.scrollInput()

@@ -961,6 +961,9 @@ func TestOutline(t *testing.T) {
 	eq(t, Deck_static_cleanName("media/My Pic.PNG"), "My-Pic.png")
 	eq(t, (&McpHost{}).URIEncode("shares/a b/media/x(1).png"), "shares%2Fa%20b%2Fmedia%2Fx(1).png")
 	eq(t, Deck_static_headingOf("## Cat {bg=media/cat.png}"), "Cat")
+	eq(t, Deck_static_headingOf(`## Cat {title="a {b}"}`), "Cat")
+	eq(t, Deck_static_headingOf("## Cat {transition=fade} {jira=A-1}"), "Cat")
+	eq(t, Deck_static_headingOf("## Price {in €} today"), "Price {in €} today")
 	eq(t, Deck_static_privateHost("172.20.1.1"), true)
 	eq(t, Deck_static_privateHost("172.32.1.1"), false)
 }
