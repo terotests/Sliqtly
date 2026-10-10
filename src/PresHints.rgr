@@ -125,6 +125,7 @@ class PresHints {
         if (key == "zoom") { return (PresI18n.t("Largest scale a diagram box is drawn at.")) }
         if (key == "style") { return (PresI18n.t("Diagram style: holo (glass), sketch (hand-drawn), mermaid (pastel cards), jurassic (poster), cartoon (speech bubbles) or romantic (black and terracotta).")) }
         if (key == "slide-grow") { return (PresI18n.t("How much a sparse slide may grow (off: not at all).")) }
+        if (key == "select-text") { return (PresI18n.t("off: the slides' text cannot be selected and copied with the mouse in the viewer or while presenting.")) }
         if (key == "slide-split-level") { return (PresI18n.t("Which heading level starts a new slide.")) }
         if (key == "title") { return (PresI18n.t("Presentation title.")) }
         ; On a heading, a key Sliqtly does not know is the slide's own data
@@ -145,6 +146,7 @@ class PresHints {
         if ((key == "tour") || ((key == "ball") || (key == "choose"))) { return "on off" }
         if (key == "style") { return "holo sketch mermaid jurassic cartoon romantic" }
         if (key == "furniture") { return "off" }
+        if (key == "select-text") { return "on off" }
         if (key == "art") { return "waves off" }
         if (key == "list-style") { return "process swot timeline stats cards" }
         if (key == "container") { return "box bubble none" }

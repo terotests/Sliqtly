@@ -5362,6 +5362,14 @@ class PresDeck {
         return ""
     }
 
+    ; `select-text: off` (no, false, none) in the front matter: the slides'
+    ; text cannot be selected and copied in the viewer or while presenting
+    ; (web/slidetext.js). By default it can, as text on a web page can.
+    sfn selectTextOff:boolean (t:string) {
+        def v:string (PresDeck.frontValue(t "select-text"))
+        return ((((v == "off") || (v == "no")) || ((v == "false") || (v == "none"))) || (v == "0"))
+    }
+
     sfn num:double (v:string fallback:double) {
         def t:string (trim v)
         if ((strlen t) == 0) {

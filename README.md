@@ -114,6 +114,11 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
   1.6×, as long as it fits and a one-line title stays one line. Slides with a
   picture or a diagram keep their sizes. `slide-grow: 1.3` in the front matter
   changes the limit, `slide-grow: off` turns it off.
+- The slides' text can be selected with the mouse and copied, in the shared
+  viewer and while presenting: a drag over text selects it, Ctrl/Cmd+C copies
+  it, Ctrl/Cmd+A takes the whole slide's and Esc lets go. A click is still the
+  next slide, and the click after a selection only lets go of it.
+  `select-text: off` in the front matter turns it off (`web/slidetext.js`).
 - `anim`: `fade`, `rise`, `fly` or `zoom`.
 - `fx`: EVG surface effects (`starfield`, `plasma-wave`, `smoke`,
   `ambient-light`, `liquid-glass`, `drops`, `raindrops2`, `bubbles`). `fx-<name>=<number>`
