@@ -100,6 +100,9 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([~+.-][A-Za-z0-9.~+-]+)?$'
+      # programs on slides (```app): CErXes built to WebAssembly
+      - name: Rust's WebAssembly target
+        run: rustup target add wasm32-wasip1
       - name: Build and check the viewer
         run: npm ci --no-audit --no-fund && node scripts/build-view.mjs && node scripts/check-view.mjs
       - name: Generate and test the server, the viewer built in
