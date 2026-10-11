@@ -1715,6 +1715,12 @@ class PresFlightScene {
         if (big <= 22.0) {
             sh.fill = 0.85
         }
+        ; the presenter is a figure standing there, not a see-through outline
+        if (curEnt == "presenter") {
+            sh.fill = 0.9
+            ; in its own colours: dark hair stays dark
+            PresFlightScene.colour(sh ([] _:double (((to_double c.r) / 255.0) ((to_double c.g) / 255.0) ((to_double c.b) / 255.0))))
+        }
         sh.op = 0.95
         push sh.cmds k
         return sh
