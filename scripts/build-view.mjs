@@ -30,7 +30,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, ensureCerxes, compile, root, webDir, log } from "./lib.mjs";
 import { copyFaces, facesStamp, minify, buildThree, buildScriptSel } from "./build.mjs";
-import { stampImports, unstampedImports } from "./stamp.mjs";
+import { stampImports, unstampedImports, ON_DEMAND, markBuilt } from "./stamp.mjs";
 
 export const viewDir = path.join(webDir, "dist-view");
 
@@ -105,6 +105,10 @@ export function buildView({ ranger } = {}) {
   }
   const left = modules.flatMap((f) => unstampedImports(fs.readFileSync(path.join(viewDir, f), "utf8")).map((u) => `${f}: ${u}`));
   if (left.length) throw new Error("imports without the build stamp:\n  " + left.join("\n  "));
+  for (const f of ON_DEMAND.filter((f) => fs.existsSync(path.join(viewDir, f)))) {
+    const file = path.join(viewDir, f);
+    fs.writeFileSync(file, markBuilt(fs.readFileSync(file, "utf8"), f, stamp));
+  }
   const bytes = files(viewDir).reduce((n, f) => n + fs.statSync(path.join(viewDir, f)).size, 0);
   log(`build  web/dist-view (${stamp}, ${files(viewDir).length} files, ${(bytes / 1048576).toFixed(1)} MB)`);
   return stamp;

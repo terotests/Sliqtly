@@ -346,6 +346,7 @@ const three3d = createThree3d({
   scale: () => (lastLayout ? lastLayout.stage[2] : 1),
   repaint: () => { needsPaint = true; },
   toast,
+  t,
   readFile: (path) => readDocFile(path),
 });
 // The 3-D flight (web/flight3d.js): G or ⋯ → 3-D flight while presenting.

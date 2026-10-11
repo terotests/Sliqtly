@@ -1,7 +1,7 @@
 // The 3-D flight's page side (web/flight3d.js): what needs no browser.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { drawWords, gamepadState, canvasSize } from "../flight3d.js";
+import { drawWords, gamepadState, canvasSize, createFlight3d } from "../flight3d.js";
 
 // a canvas whose letters are half as wide as they are tall
 function fakeCanvas() {
@@ -53,4 +53,77 @@ test("the first connected gamepad, as numbers", () => {
 test("the canvas keeps the screen's shape under its cap", () => {
   assert.deepEqual(canvasSize(1920, 1080, 1), [1920, 1080]);
   assert.deepEqual(canvasSize(1920, 1080, 2), [2560, 1440]);
+});
+
+// A page just enough for start(): full screen granted, listeners counted.
+function fakePage() {
+  const listeners = new Map();
+  const on = (k) => (type, f) => listeners.set(k + type, f);
+  const off = (k) => (type) => listeners.delete(k + type);
+  const doc = {
+    fullscreenElement: null,
+    documentElement: { async requestFullscreen() { doc.fullscreenElement = {}; } },
+    async exitFullscreen() { doc.fullscreenElement = null; },
+    createElement: () => ({ style: {}, setAttribute() {}, querySelector: () => ({ style: {} }), remove() {}, getContext: () => ({}) }),
+    body: { appendChild() {} },
+    addEventListener: on("doc:"),
+    removeEventListener: off("doc:"),
+  };
+  globalThis.document = doc;
+  globalThis.window = { addEventListener: on("win:"), removeEventListener: off("win:"), innerWidth: 800, innerHeight: 600 };
+  globalThis.requestAnimationFrame = () => 1;
+  globalThis.cancelAnimationFrame = () => {};
+  const canvas = { id: "gl", style: { cssText: "display:none" }, addEventListener: on("canvas:"), removeEventListener: off("canvas:") };
+  const paused = [];
+  const three3d = { glReady: async () => canvas, pause: (on) => paused.push(on), problem: () => null };
+  return { doc, listeners, canvas, paused, three3d };
+}
+
+test("a flight that cannot start leaves the page as it was, out of full screen", async () => {
+  const page = fakePage();
+  // 2026-10-11: an old page with a newer pres_3d.js threw here and left a
+  // black canvas over the page that no key took away
+  globalThis.PresFlight3D = class {
+    attach() { return true; }
+    load() { return ""; }
+    startAt() { throw new TypeError("world.labelCount is not a function"); }
+  };
+  const toasts = [];
+  const flight = createFlight3d({ three3d: page.three3d, app: { flightJson: () => "{}", selectedSlide: () => 11 }, picturePixels: () => null, toast: (s) => toasts.push(s), t: (s) => s, onExit() {} });
+  await flight.start();
+  assert.equal(flight.flying(), false);
+  assert.equal(page.canvas.style.cssText, "display:none");
+  assert.equal(page.listeners.size, 0);
+  assert.equal(page.doc.fullscreenElement, null);
+  assert.match(toasts[0], /could not start: world\.labelCount/);
+});
+
+test("a throw after the canvas covers the page is undone too", async () => {
+  const page = fakePage();
+  globalThis.PresFlight3D = class {
+    attach() { return true; }
+    load() { return ""; }
+    startAt() {}
+  };
+  // the HUD is made after the canvas is shown
+  page.doc.body.appendChild = () => { throw new Error("no body"); };
+  const toasts = [];
+  const flight = createFlight3d({ three3d: page.three3d, app: { flightJson: () => "{}", selectedSlide: () => 0 }, picturePixels: () => null, toast: (s) => toasts.push(s), t: (s) => s, onExit() {} });
+  await flight.start();
+  assert.equal(flight.flying(), false);
+  assert.equal(page.canvas.style.cssText, "display:none");
+  assert.deepEqual(page.paused, [true, false]);
+  assert.equal(page.listeners.size, 0);
+  assert.equal(toasts.length, 1);
+});
+
+test("a script from another build than the page is told, not run with it", async () => {
+  const { staleScript, STALE } = await import("../sitescript.js");
+  assert.equal(staleScript("https://x/editor/pres_3d.js?v=abc", "abc"), null);
+  assert.equal(staleScript("https://x/editor/pres_3d.js", "abc"), null, "no stamp asked: nothing to compare");
+  assert.equal(staleScript("https://x/editor/pres_3d.js?v=abc", undefined), null, "an old script names no build");
+  assert.equal(staleScript("./pres_3d.js?v=__BUILD__", "abc"), null, "unbuilt page");
+  const e = staleScript("https://x/editor/pres_3d.js?v=d64f37e303", "cf84271abc");
+  assert.equal(e.stale, true);
+  assert.equal(e.message, STALE);
 });
