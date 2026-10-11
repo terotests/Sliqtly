@@ -58,8 +58,9 @@ export function drawWords(c, spec, k) {
       g.font = fontOf(r);
       const [cr, cg, cb] = (r.c || [0.6, 0.9, 1]).map((v) => Math.round(Math.min(1, v) * 255));
       if (glow) {
-        g.shadowColor = `rgba(${cr}, ${cg}, ${cb}, 0.9)`;
-        g.shadowBlur = Math.round(px * 0.4);
+        // words on a line of light (spec.soft) glow less, so they read
+        g.shadowColor = `rgba(${cr}, ${cg}, ${cb}, ${spec.soft ? 0.45 : 0.9})`;
+        g.shadowBlur = Math.round(px * (spec.soft ? 0.15 : 0.4));
         g.fillStyle = `rgb(${cr}, ${cg}, ${cb})`;
       } else {
         g.shadowBlur = 0;
@@ -174,7 +175,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
       + "display:flex;flex-direction:column;align-items:center;gap:8px;font:500 15px Inter,system-ui,sans-serif;"
       + "color:#9feaff;text-shadow:0 0 8px rgba(92,225,255,.8);letter-spacing:.04em";
     hud.innerHTML = '<div class="where"></div><div class="help" style="opacity:.75;font-size:13px;transition:opacity .8s"></div>';
-    hud.querySelector(".help").textContent = t("Space / → next · ← back · W A S D fly · Q E turn · Shift fast · Esc leaves");
+    hud.querySelector(".help").textContent = t("Space / → next · ← back · W A S D fly · Q E turn · V layout · Shift fast · Esc leaves");
     document.body.appendChild(hud);
   }
 
@@ -186,6 +187,14 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     shown = now;
     const title = world.stationTitle(now);
     hud.querySelector(".where").textContent = `${now + 1} / ${world.stationCount()}${title ? "  ·  " + title : ""}`;
+  }
+
+  // V turned the stations to another layout: its name a moment in the HUD
+  function showLayout() {
+    const help = hud.querySelector(".help");
+    const names = { path: t("Layout: path"), wall: t("Layout: wall"), ring: t("Layout: ring") };
+    help.textContent = names[world.layoutName()] || world.layoutName();
+    hintUntil = performance.now() + 2500;
   }
 
   function size() {
@@ -219,6 +228,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
       stop();
       return;
     }
+    if (said.split("\n").includes("layout")) showLayout();
     world.frame(dt);
     makePictures(world.stationNow());
     const [w, h] = size();
@@ -237,7 +247,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
       return;
     }
     if (FLIGHT_KEYS.has(ev.code)) held.add(ev.code);
-    if (!ev.repeat) world.key(ev.code);
+    if (!ev.repeat && world.key(ev.code) === "layout") showLayout();
   }
 
   function onKeyUp(ev) {
