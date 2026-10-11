@@ -33,6 +33,7 @@ Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresDocSettings.rgr"
 Import "PresThemeGallery.rgr"
+Import "PresFlightLook.rgr"
 Import "PresFigma.rgr"
 Import "PresTraceSettings.rgr"
 Import "PresColorPanel.rgr"
@@ -197,6 +198,11 @@ class PresChartEditor {
     def thTab:string ""
     def wantsTheme:string ""
     def themePicked:boolean false
+    ; the 3-D flight's look (tab 3-D, front matter `look-3d:`): the one in
+    ; use, and the one a tile picked (`lookPicked`)
+    def thLook:string "minority"
+    def wantsLook:string ""
+    def lookPicked:boolean false
     def wantsCss:boolean false
     ; File → Duplicate asks only the copy's name: `ndDup` hides the theme and
     ; data tabs, the name starts as the page's suggestion, all selected
@@ -382,6 +388,8 @@ class PresChartEditor {
         thTab = (PresThemeGallery.tabOf((PresThemeGallery.tiles(rows)) current))
         wantsTheme = ""
         themePicked = false
+        wantsLook = ""
+        lookPicked = false
         wantsCss = false
         this.openAt(px py pw ph)
     }
@@ -2059,7 +2067,8 @@ class PresChartEditor {
             this.dressButton(b)
             def r:EVGElement (unwrap b.rootEl)
             UiTree.addClass(r "ce-tile")
-            if (t.key == current) {
+            def look:string (FlightLook.ofTile(t.key))
+            if ((t.key == current) || (((strlen look) > 0) && (look == thLook))) {
                 UiTree.addClass(r "ce-tile-on")
             }
             UiKit.put(host b row)
@@ -2084,7 +2093,11 @@ class PresChartEditor {
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
         UiKit.put(host tabs root)
         def pane:EVGElement (UiKit.div("ce-pane"))
-        pane.addChild((UiKit.words("ce-doc" (PresI18n.t("Pick a theme: every slide changes at once. Your own changes stay in the Theme (CSS) tab.")))))
+        def why:string (PresI18n.t("Pick a theme: every slide changes at once. Your own changes stay in the Theme (CSS) tab."))
+        if (thTab == "3-D") {
+            why = (PresI18n.t("The colours of the 3-D flight (G while presenting). The slides keep their theme."))
+        }
+        pane.addChild((UiKit.words("ce-doc" why)))
         pane.addChild((this.tileRow("th-pick-" (PresThemeGallery.onTab(tiles thTab)) thValue)))
         root.addChild(pane)
         def bottom:EVGElement (UiKit.div("ce-foot"))
@@ -2254,6 +2267,16 @@ class PresChartEditor {
     fn themesAct:boolean (tid:string) {
         if ((indexOf tid "th-pick-") == 0) {
             def key:string (substring tid 8 (strlen tid))
+            def look:string (FlightLook.ofTile(key))
+            if ((strlen look) > 0) {
+                if (look != thLook) {
+                    thLook = look
+                    wantsLook = look
+                    lookPicked = true
+                    this.rebuild()
+                }
+                return true
+            }
             if (key != thValue) {
                 thValue = key
                 wantsTheme = key

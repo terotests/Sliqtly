@@ -495,6 +495,9 @@ class PresFlight3D {
     def bgR:double 0.008
     def bgG:double 0.016
     def bgB:double 0.03
+    ; the look's floor grid and dust (PresFlightScene's "look")
+    def gridC:[double] ([] _:double (0.2 0.75 0.95))
+    def dustC:[double] ([] _:double (0.55 0.8 1.0))
 
     Constructor () {
     }
@@ -547,8 +550,6 @@ class PresFlight3D {
         ride = -1
         curGroup = -1
         clock = 0.0
-        scene.setBackground(bgR bgG bgB)
-        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
         def amb:ThreeAmbientLight (new ThreeAmbientLight)
         amb.setIntensity(0.55)
         scene.add(amb)
@@ -562,6 +563,17 @@ class PresFlight3D {
             error = "the flight's world did not read"
             return error
         }
+        def lk:JVal (js.get("look"))
+        if (lk.isObj()) {
+            def bg:[double] (this.colourOf(lk "bg" ([] _:double (bgR bgG bgB))))
+            bgR = (itemAt bg 0)
+            bgG = (itemAt bg 1)
+            bgB = (itemAt bg 2)
+            gridC = (this.colourOf(lk "grid" gridC))
+            dustC = (this.colourOf(lk "dust" dustC))
+        }
+        scene.setBackground(bgR bgG bgB)
+        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
         def st:JVal (js.get("stations"))
         def grid:ThreeTexture (FlightGeo.gridTexture())
         def i:int 0
@@ -680,10 +692,10 @@ class PresFlight3D {
         push p.dz dz
     }
 
-    fn colourOf:[double] (o:JVal) {
-        def c:JVal (o.get("c"))
+    fn colourOf:[double] (o:JVal key:string deflt:[double]) {
+        def c:JVal (o.get(key))
         if ((c.len()) < 3) {
-            return ([] _:double (0.36 0.88 1.0))
+            return deflt
         }
         def cr:JVal (c.at(0))
         def cg:JVal (c.at(1))
@@ -705,7 +717,7 @@ class PresFlight3D {
 
     fn addItem:void (o:JVal) {
         def kind:string (o.strOr("k" ""))
-        def c:[double] (this.colourOf(o))
+        def c:[double] (this.colourOf(o "c" ([] _:double (0.36 0.88 1.0))))
         def r:double (itemAt c 0)
         def g:double (itemAt c 1)
         def b:double (itemAt c 2)
@@ -1055,7 +1067,7 @@ class PresFlight3D {
     fn addFloor:void (i:int sx:double sy:double sz:double grid:ThreeTexture) {
         def plane:ThreePlaneGeometry (new ThreePlaneGeometry)
         plane.build(56.0 56.0 1 1)
-        def m:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.42 true))
+        def m:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.42 true))
         m.setMap(grid)
         def me:ThreeMesh (this.mesh(plane m))
         me.position.set(sx (sy - 5.5) sz)
@@ -1076,7 +1088,7 @@ class PresFlight3D {
         def bh:double (((to_double rows) * layout.cellH) + 40.0)
         def back:ThreePlaneGeometry (new ThreePlaneGeometry)
         back.build(bw bh 1 1)
-        def bm:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.0 true))
+        def bm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
         bm.setMap(grid)
         def bk:ThreeMesh (this.mesh(back bm))
         def p0:[double] (layout.placeOf(1 0))
@@ -1087,7 +1099,7 @@ class PresFlight3D {
         def rr:double ((layout.radius()) * 2.6)
         def ring:ThreePlaneGeometry (new ThreePlaneGeometry)
         ring.build(rr rr 1 1)
-        def rm:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.0 true))
+        def rm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
         rm.setMap(grid)
         def rf:ThreeMesh (this.mesh(ring rm))
         rf.position.set((itemAt layout.ox 0) ((itemAt layout.oy 0) - 5.5) ((itemAt layout.oz 0) + (layout.radius())))
@@ -1239,7 +1251,7 @@ class PresFlight3D {
             i = (i + 1)
         }
         def g:ThreeBufferGeometry (FlightGeo.boxes(spec))
-        def m:ThreeMeshBasicMaterial (this.basic(0.55 0.8 1.0 0.7 true))
+        def m:ThreeMeshBasicMaterial (this.basic((itemAt dustC 0) (itemAt dustC 1) (itemAt dustC 2) 0.7 true))
         this.mesh(g m)
     }
 

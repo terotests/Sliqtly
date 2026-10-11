@@ -54,7 +54,7 @@ import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
 import { createMusic } from "./music.js";
 import { registerBeatEffects } from "./beatfx.js";
-import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
+import { themePicture, picturesToDraw, fitPage, lookTiles, drawLookTile } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
 // Where the editor's addresses start: sliqtly.com serves the editor at
@@ -3569,6 +3569,18 @@ function queueThemePictures() {
   themePicQueue = picturesToDraw(selectRows(themeSel), themePicDrawn, lang);
   needsPaint = true;
 }
+// The 3-D looks' tiles: drawn at once, they are only colours.
+function drawLookPictures(rows) {
+  for (const look of lookTiles(rows)) {
+    if (pictures.has(themePicture(look.key))) continue;
+    const c = document.createElement("canvas");
+    c.width = THEME_PIC.w * THEME_PIC.dpr;
+    c.height = THEME_PIC.h * THEME_PIC.dpr;
+    drawLookTile(c.getContext("2d"), c.width, c.height, look);
+    pictures.set(themePicture(look.key), asPicture(c));
+  }
+  needsPaint = true;
+}
 function drawThemePicture() {
   const key = themePicQueue.shift();
   if (key === undefined) return;
@@ -4943,7 +4955,10 @@ function handleRequests() {
       }
     } else if (r === "themes") {
       // Slide → Theme…: the themes as tiles with their pictures
-      if (app.openThemes(selectRows(themeSel), themeSel.value || "")) needsPaint = true;
+      // with the 3-D flight on, its looks on a tab of their own
+      const rows = selectRows(themeSel) + (flightOn ? "\n" + app.flightLookRows() : "");
+      if (app.openThemes(rows, themeSel.value || "")) needsPaint = true;
+      if (flightOn) drawLookPictures(rows);
     } else if (r === "theme-pictures") {
       queueThemePictures();
     } else if (r === "theme-edited") {

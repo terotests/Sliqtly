@@ -30,6 +30,7 @@
 
 Import "PresDeck.rgr"
 Import "JsonValue.rgr"
+Import "PresFlightLook.rgr"
 
 ; A run of a line of words: its text and how it is set, `dx` from the
 ; line's left and `w` wide, `size` its font's size (world units).
@@ -369,6 +370,8 @@ class PresFlightScene {
     ; a slide's size in the world: as wide as a 16 x 9 screen holds it
     def frameW:double 16.0
     def frameH:double 9.0
+    ; the colours it glows in (front matter `look-3d:`)
+    def look:FlightLook (new FlightLook())
     ; the hologram's own light: cyan, and the warm yellow of a diagram's lines
     def acR:double 0.36
     def acG:double 0.88
@@ -413,7 +416,26 @@ class PresFlightScene {
             sc.addSlide(deck (deck.slideAt(i)) i)
             i = (i + 1)
         }
+        sc.useLook((FlightLook.named((PresDeck.frontMatterValue(deck.text "look-3d")))))
         return sc
+    }
+
+    ; Every colour of the world as the look shows it (front matter
+    ; `look-3d:`), the look kept for the air, the floor and the dust.
+    fn useLook:void (l:FlightLook) {
+        look = l
+        for items it:FlightItem k {
+            def c:[double] (l.tint(it.r it.g it.b))
+            it.r = (itemAt c 0)
+            it.g = (itemAt c 1)
+            it.b = (itemAt c 2)
+            for it.runs ru:FlightRun j {
+                def rc:[double] (l.tint(ru.r ru.g ru.b))
+                ru.r = (itemAt rc 0)
+                ru.g = (itemAt rc 1)
+                ru.b = (itemAt rc 2)
+            }
+        }
     }
 
     ; A slide w x h px in the world: as wide as a 16 x 9 screen holds it.
@@ -2217,6 +2239,13 @@ class PresFlightScene {
             i = (i + 1)
         }
         o.set("items" it)
+        def lk:JVal (JVal.mkObj())
+        lk.setStr("key" look.key)
+        lk.set("bg" (FlightItem.rgbJson(look.bgR look.bgG look.bgB)))
+        lk.set("grid" (FlightItem.rgbJson(look.gridR look.gridG look.gridB)))
+        lk.set("dust" (FlightItem.rgbJson(look.dustR look.dustG look.dustB)))
+        lk.set("glow" (FlightItem.rgbJson(look.r look.g look.b)))
+        o.set("look" lk)
         return (o.toJson())
     }
 
