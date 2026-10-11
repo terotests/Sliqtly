@@ -11940,6 +11940,46 @@ class PresApp {
         return true
     }
 
+    ; A long job's window (a video being made): `words` say what it is, the
+    ; bar starts at 0. setProgress moves it, closeProgress closes it; Cancel
+    ; asks the page "progress-cancel:<key>", × and Esc only hide it.
+    fn openProgress:boolean (key:string title:string words:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openProgress(key title words px (barH + 24.0) W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; `value` of `max` (below 0: no number), `note` under the bar, and
+    ; whether Cancel is offered; nothing when that job's window is not open.
+    fn setProgress:void (key:string value:int max:int note:string cancel:boolean) {
+        if (chart.setProgress(key value max note cancel)) {
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn closeProgress:void (key:string) {
+        if ((chart.isOpen && (chart.mode == "progress")) && (chart.pgKey == key)) {
+            this.closeChart()
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
     ; Help → About: the same window with the app's name and version, `words`
     ; one line each, and only an OK button
     fn openAbout:boolean (title:string words:string) {
@@ -12568,6 +12608,10 @@ class PresApp {
                 chart.wantsAlt = false
                 push requests ("confirm:" + chart.cfKey + ":alt")
             }
+            if ((chart.mode == "progress") && chart.wantsCancelJob) {
+                chart.wantsCancelJob = false
+                push requests ("progress-cancel:" + chart.pgKey)
+            }
             if (chart.mode == "paste") {
                 if chart.wantsPlace {
                     chart.wantsPlace = false
@@ -12633,7 +12677,7 @@ class PresApp {
             return
         }
         chart.changed = false
-        if (((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) {
+        if ((((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) || (chart.mode == "progress")) {
             return
         }
         if (chart.mode == "docset") {

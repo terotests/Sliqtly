@@ -5093,6 +5093,8 @@ function handleRequests() {
       needsPaint = true;
     } else if (r === "review-save") {
       keepReview().catch(fail);
+    } else if (r === "progress-cancel:" + VIDEO_KEY) {
+      if (videoJob) videoJob.cancel();
     } else if (r === "confirm:zip") {
       exportZip(true).catch(fail);
     } else if (r === "confirm:zip:alt") {
@@ -5525,10 +5527,29 @@ async function exportPdf(picked = false) {
 // (web/video-worker.js) and saved here. A few frames wait at most, so the
 // page holds two or three pictures, not the whole video.
 let videoBusy = false;
-// The WebM's bytes, or null when a video is already being made.
-async function makeVideo() {
+// The video being made: its window's key and how to stop it (Cancel in the
+// window asks "progress-cancel:video").
+let videoJob = null;
+const VIDEO_KEY = "video";
+function videoWindow() {
+  app.openProgress(VIDEO_KEY, t("Video"), t("Making the video…"));
+}
+// "N / M frames · about K min left" from how long the frames so far took
+function videoNote(n, frames, since) {
+  let note = n + " / " + frames + " " + t("frames");
+  if (n >= 10) {
+    const left = ((Date.now() - since) / n) * (frames - n);
+    note += " · " + (left < 60000 ? t("under a minute left")
+      : t("about {n} min left").replace("{n}", String(Math.round(left / 60000))));
+  }
+  return note;
+}
+// The video's bytes, or null when one is already being made (its window is
+// shown again) or it was cancelled. `keepOpen`: the window stays, busy, for
+// what comes after (the upload); the caller closes it.
+async function makeVideo(keepOpen = false) {
   if (videoBusy) {
-    toast(t("A video is already being made."));
+    videoWindow();
     return null;
   }
   videoBusy = true;
@@ -5536,6 +5557,15 @@ async function makeVideo() {
   const waiting = [];
   let done = null;
   let failed = null;
+  let cancelled = false;
+  const release = () => { while (waiting.length) waiting.shift()(); };
+  videoJob = {
+    cancel() {
+      cancelled = true;
+      worker.terminate();
+      release();
+    },
+  };
   worker.onmessage = (e) => {
     const m = e.data;
     if (m.kind === "error") failed = new Error(m.message);
@@ -5545,36 +5575,50 @@ async function makeVideo() {
   };
   worker.onerror = (e) => {
     failed = new Error(e.message || "the video encoder did not load");
-    while (waiting.length) waiting.shift()();
+    release();
   };
   const send = (msg) => new Promise((resolve) => {
     waiting.push(resolve);
     worker.postMessage(msg);
   });
   const check = () => { if (failed) throw failed; };
+  let closed = false;
+  videoWindow();
   try {
     await loadEmojiFace();
     const tl = window.__video.begin({ codec: "vp8" });
     let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
-    let shown = -1;
-    for (let n = 0; n < tl.frames; n++) {
+    const since = Date.now();
+    for (let n = 0; n < tl.frames && !cancelled; n++) {
       const f = window.__video.frame(n);
       pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
       if (pending.length > 2) await pending.shift();
+      if (cancelled) break;
       check();
-      const pct = Math.floor((n * 100) / tl.frames);
-      if (pct !== shown) {
-        shown = pct;
-        toast(t("Making the video…") + " " + pct + " %");
-      }
+      app.setProgress(VIDEO_KEY, n, tl.frames, videoNote(n, tl.frames, since), true);
+    }
+    if (cancelled) {
+      toast(t("The video was cancelled."));
+      return null;
     }
     await Promise.all(pending);
+    app.setProgress(VIDEO_KEY, tl.frames, tl.frames, t("Finishing the file…"), true);
     await send({ kind: "end", frames: tl.frames });
+    if (cancelled) {
+      toast(t("The video was cancelled."));
+      return null;
+    }
     check();
+    if (keepOpen) {
+      closed = true;
+      app.setProgress(VIDEO_KEY, 1, 1, t("Sending the video to the cloud…"), false);
+    }
     return done.bytes;
   } finally {
+    if (!closed) app.closeProgress(VIDEO_KEY);
     window.__video.close();
     worker.terminate();
+    videoJob = null;
     videoBusy = false;
   }
 }
@@ -5789,10 +5833,14 @@ async function exportCloudVideo() {
     return;
   }
   if (!(await cloudTakesDeck())) return;
-  const bytes = await makeVideo();
+  const bytes = await makeVideo(true);
   if (!bytes) return;
-  await publishForWeb(bytes, ".webm", "video/webm",
-    t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
+  try {
+    await publishForWeb(bytes, ".webm", "video/webm",
+      t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
+  } finally {
+    app.closeProgress(VIDEO_KEY);
+  }
 }
 window.__exportCloudVideo = exportCloudVideo;
 // The deck saved in the cloud before a recording or a video is made for it

@@ -3,6 +3,7 @@
 Import "PresTimeline.rgr"
 Import "PresVideo.rgr"
 Import "PresToolbar.rgr"
+Import "PresChartEditor.rgr"
 Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
@@ -3739,6 +3740,16 @@ class PresCheck {
         this.ok((((indexOf local "x-video") >= 0) && noCloud) "export: no Cloud rows on a server of one's own")
         def d:PresVideoOptions (PresVideoOptions.parse(""))
         this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
+        ; the video's window: how far, Cancel asks the page, another job's
+        ; progress does not move it
+        def pw (new PresChartEditor())
+        pw.openProgress("video" "Video" "Making the video…" 0.0 0.0 1280.0 720.0)
+        this.ok((((pw.mode == "progress") && pw.isOpen) && (pw.pgValue == 0)) "progress: opens at 0")
+        this.ok((pw.setProgress("video" 30 120 "30 / 120 frames" true)) "progress: moves")
+        this.ok(((pw.pgValue == 30) && (pw.pgMax == 120)) "progress: 30 of 120")
+        this.ok(((pw.setProgress("other" 1 2 "" true)) == false) "progress: another job's is not this window's")
+        pw.act("pg-cancel")
+        this.ok((pw.wantsCancelJob && pw.wantsClose) "progress: Cancel asks the page to stop")
 
         ; the deck on its own
         def tl:PresVideoTimeline (PresVideoTimeline.ofDeck(deck d))
