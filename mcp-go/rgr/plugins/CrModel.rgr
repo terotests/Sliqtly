@@ -651,7 +651,7 @@ class CrModel {
                 push guessed it.id
             }
             for it.badRefs b:string bi {
-                push warnings (it.id + ": " + b + " is no line of the change's files (refs are path:line or path:a-b at the PR's head).")
+                push warnings (it.id + ": " + b + " is no line of the change's files (refs are path:line or path:a-b at the change's head).")
             }
         }
         if ((array_length guessed) > 0) {

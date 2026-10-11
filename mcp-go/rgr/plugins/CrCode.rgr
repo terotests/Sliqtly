@@ -235,7 +235,7 @@ class CrCode {
 
     ; the files for create_presentation's files: code/<path>, its diff and
     ; code/sources.json
-    fn bundle:MfJ (repo:string ownerRepo:string head:string base:string change:string changeUrl:string) {
+    fn bundle:MfJ (repo:string url:string host:string head:string base:string change:string changeUrl:string) {
         def out:MfJ (MfJ.newArr())
         def list:MfJ (MfJ.newArr())
         for files f:CrCodeFile i {
@@ -273,14 +273,22 @@ class CrCode {
             list.add(fo)
         }
         def ro:MfJ (MfJ.newObj())
-        ro.putStr("url" ("https://github.com/" + ownerRepo))
-        ro.putStr("host" "github")
+        if ((strlen url) > 0) {
+            ro.putStr("url" url)
+        }
+        if ((strlen host) > 0) {
+            ro.putStr("host" host)
+        }
         if ((strlen base) > 0) {
             ro.putStr("base" base)
         }
-        ro.putStr("head" head)
+        if ((strlen head) > 0) {
+            ro.putStr("head" head)
+        }
         ro.putStr("change" change)
-        ro.putStr("change_url" changeUrl)
+        if ((strlen changeUrl) > 0) {
+            ro.putStr("change_url" changeUrl)
+        }
         def repos:MfJ (MfJ.newObj())
         repos.put(repo ro)
         def src:MfJ (MfJ.newObj())
