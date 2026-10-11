@@ -1,0 +1,452 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresAi.rgr — the AI assistant's conversation, without its drawer
+; ============================================================================
+;
+; The ✨ AI drawer (PresPanels, an EVGUI ChatCtl docked on the right) asks
+; Claude about the slide shown or the whole presentation. This is what it
+; knows and decides, so it can be tested without a page:
+;
+;   context   what a question is about (PresAiContext): the slide, its
+;             Markdown, what is selected in the editor, the whole deck when
+;             the scope is "deck"; "Context: Slide 7 / 11" in words
+;   actions   the quick actions (Improve slide, Explain code, …), each a
+;             question written out for the model
+;   credits   AI actions left this month, as the server counts them
+;             (mcp-go/aiassist.go), in words a person reads: "42 AI actions
+;             left", "≈ 14 chats", never tokens or money
+;   asking    one question at a time: `ask` leaves the request in `pending`
+;             for the page to post (POST /editor/api/ai/ask), `answer` and
+;             `fail` take what came back
+;   using     the new version of the slide an answer gave (its ````markdown
+;             block, `suggestion`), for "Use on slide"
+; ============================================================================
+
+Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
+
+class PresAiMsg {
+    ; "user", "assistant", or "note" (a failure said in the conversation)
+    def role:string ""
+    def text:string ""
+    def id:string ""
+
+    Constructor () {
+    }
+}
+
+; What a question is about, as the app sees it when it is asked.
+class PresAiContext {
+    ; the slide shown, from 0, and how many there are
+    def slide:int 0
+    def slides:int 0
+    def title:string ""
+    def slideMd:string ""
+    def selection:string ""
+    def deckMd:string ""
+    def deckName:string ""
+
+    Constructor () {
+    }
+}
+
+class PresAi {
+    def msgs:[PresAiMsg]
+    def count:int 0
+    ; waiting for an answer
+    def busy:boolean false
+    ; whether the server has an assistant: -1 not asked yet, 0 no, 1 yes
+    def available:int -1
+    ; the month's AI actions (known once the server said)
+    def creditsKnown:boolean false
+    def left:int 0
+    def monthly:int 0
+    def unlimited:boolean false
+    def perChat:int 3
+    def resets:string ""
+    ; what questions are about: "slide" or "deck"
+    def scope:string "slide"
+    ; the request for the page to post ("" none)
+    def pending:string ""
+    ; the answer whose slide was used already (its id): not offered again
+    def usedId:string ""
+    def rev:int 0
+
+    Constructor () {
+    }
+
+    ; --- the quick actions ---------------------------------------------------------
+    sfn actionIds:[string] () {
+        return ([] _:string ("improve" "explain" "visual" "notes" "animate"))
+    }
+
+    sfn actionLabel:string (id:string) {
+        if (id == "improve") {
+            return (PresI18n.t("Improve slide"))
+        }
+        if (id == "explain") {
+            return (PresI18n.t("Explain this code"))
+        }
+        if (id == "visual") {
+            return (PresI18n.t("Make it more visual"))
+        }
+        if (id == "notes") {
+            return (PresI18n.t("Add speaker notes"))
+        }
+        if (id == "animate") {
+            return (PresI18n.t("Create animation"))
+        }
+        return ""
+    }
+
+    ; the question a quick action asks, in the interface's language, so the
+    ; answer comes in it too
+    sfn actionPrompt:string (id:string) {
+        if (id == "improve") {
+            return (PresI18n.t("Improve this slide: clearer wording, a better structure and layout. Keep its message."))
+        }
+        if (id == "explain") {
+            return (PresI18n.t("Explain the code on this slide in plain words, as the presenter would."))
+        }
+        if (id == "visual") {
+            return (PresI18n.t("Make this slide more visual: a diagram, a chart, a figure or a better layout instead of plain text."))
+        }
+        if (id == "notes") {
+            return (PresI18n.t("Write speaker notes for this slide and add them to it."))
+        }
+        if (id == "animate") {
+            return (PresI18n.t("Add animation to this slide: build the points in one by one, or a fitting effect."))
+        }
+        return ""
+    }
+
+    ; Whether a quick action fits the slide: Explain only with code on it.
+    sfn actionFits:boolean (id:string ctx:PresAiContext) {
+        if (id == "explain") {
+            return ((indexOf ctx.slideMd "```") >= 0)
+        }
+        return true
+    }
+
+    ; --- the context, in words ----------------------------------------------------------
+    fn contextLine:string (ctx:PresAiContext) {
+        def s:string ""
+        if (scope == "deck") {
+            s = ((PresI18n.t("Context: whole presentation")) + " (" + (to_string ctx.slides) + ")")
+        } {
+            if (ctx.slides <= 0) {
+                return (PresI18n.t("Context: no slides yet"))
+            }
+            s = ((PresI18n.t("Context: Slide")) + " " + (to_string (ctx.slide + 1)) + " / " + (to_string ctx.slides))
+        }
+        if ((strlen (trim ctx.selection)) > 0) {
+            s = (s + " · " + (PresI18n.t("selection")))
+        }
+        return s
+    }
+
+    ; --- credits --------------------------------------------------------------------
+    ; what a question costs: the whole presentation sends all of it
+    fn cost:int () {
+        if (scope == "deck") {
+            return 2
+        }
+        return 1
+    }
+
+    ; the server's {"available": …, "credits": {…}} (or an answer's "credits")
+    fn setCredits:void (json:string) {
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(json))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            return
+        }
+        this.readCredits(root)
+        rev = (rev + 1)
+    }
+
+    fn readCredits:void (root:VlJson) {
+        if (root.has("available")) {
+            available = (? (root.boolOr("available" false)) 1 0)
+        }
+        if (root.has("credits")) {
+            def c:VlJson (root.get("credits"))
+            if (c.isObject()) {
+                creditsKnown = true
+                available = 1
+                unlimited = (c.boolOr("unlimited" false))
+                left = (c.intOr("left" 0))
+                monthly = (c.intOr("monthly" 0))
+                perChat = (c.intOr("perChat" 3))
+                if (perChat < 1) {
+                    perChat = 1
+                }
+                resets = (c.stringOr("resets" ""))
+            }
+        }
+    }
+
+    ; the pill in the drawer's title: "42 left"
+    fn creditsShort:string () {
+        if (creditsKnown == false) {
+            return ""
+        }
+        if unlimited {
+            return (PresI18n.t("no limit"))
+        }
+        return ((to_string left) + " " + (PresI18n.t("left")))
+    }
+
+    ; the longer line: "42 AI actions left · ≈ 14 chats"
+    fn creditsText:string () {
+        if (creditsKnown == false) {
+            return ""
+        }
+        if unlimited {
+            return (PresI18n.t("AI actions: no limit"))
+        }
+        def s:string ((to_string left) + " " + (PresI18n.t("AI actions left")))
+        def chats:int (idiv left perChat)
+        if (chats > 0) {
+            s = (s + " · ≈ " + (to_string chats) + " " + (PresI18n.t("chats")))
+        }
+        return s
+    }
+
+    ; how the actions are counted, for the empty conversation
+    fn creditsHelp:string () {
+        def s:string (PresI18n.t("Ask about this slide or the whole presentation. A question or a quick action uses one AI action; a question about the whole presentation uses two."))
+        if (((strlen resets) > 0) && (unlimited == false)) {
+            s = (s + " " + (PresI18n.t("More come on")) + " " + resets + ".")
+        }
+        return s
+    }
+
+    ; -> "" when a question can be asked now, else why not
+    fn blocked:string () {
+        if (available == 0) {
+            return (PresI18n.t("The AI assistant is not available on this server."))
+        }
+        if busy {
+            return (PresI18n.t("Wait for the answer first."))
+        }
+        if ((creditsKnown && (unlimited == false)) && (left < (this.cost()))) {
+            return (PresI18n.t("This month's AI actions are used up."))
+        }
+        return ""
+    }
+
+    ; --- asking ------------------------------------------------------------------------
+    fn add:PresAiMsg (role:string text:string) {
+        def m (new PresAiMsg())
+        count = (count + 1)
+        m.id = ("ai-" + (to_string count))
+        m.role = role
+        m.text = text
+        push msgs m
+        rev = (rev + 1)
+        return m
+    }
+
+    ; The question (written, or a quick action's `action`) asked about ctx:
+    ; in the conversation, and its request in `pending`. False when it
+    ; cannot be asked (`blocked`, or nothing written).
+    fn ask:boolean (text:string action:string ctx:PresAiContext) {
+        def q:string (trim text)
+        if ((strlen q) == 0) {
+            q = (PresAi.actionPrompt(action))
+        }
+        if ((strlen q) == 0) {
+            return false
+        }
+        if ((strlen (this.blocked())) > 0) {
+            return false
+        }
+        pending = (this.requestJson(q action ctx))
+        this.add("user" q)
+        busy = true
+        return true
+    }
+
+    ; the request the page posts: the question, the context, the turns so far
+    fn requestJson:string (q:string action:string ctx:PresAiContext) {
+        def root:VlJson (VlJson.objectValue())
+        root.setMember("message" (VlJson.stringValue(q)))
+        root.setMember("action" (VlJson.stringValue(action)))
+        root.setMember("scope" (VlJson.stringValue(scope)))
+        def c:VlJson (VlJson.objectValue())
+        c.setMember("slide" (VlJson.intValue((ctx.slide + 1))))
+        c.setMember("slides" (VlJson.intValue(ctx.slides)))
+        c.setMember("title" (VlJson.stringValue(ctx.title)))
+        c.setMember("slideMarkdown" (VlJson.stringValue(ctx.slideMd)))
+        c.setMember("selection" (VlJson.stringValue(ctx.selection)))
+        c.setMember("deckName" (VlJson.stringValue(ctx.deckName)))
+        if (scope == "deck") {
+            c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
+        }
+        root.setMember("context" c)
+        def hist:VlJson (VlJson.arrayValue())
+        for msgs m:PresAiMsg i {
+            if ((m.role == "user") || (m.role == "assistant")) {
+                def o:VlJson (VlJson.objectValue())
+                o.setMember("role" (VlJson.stringValue(m.role)))
+                o.setMember("text" (VlJson.stringValue(m.text)))
+                push hist.arr o
+            }
+        }
+        root.setMember("history" hist)
+        def w (new VlJsonWriter())
+        return (w.write(root))
+    }
+
+    ; the request, once, for the page
+    fn takePending:string () {
+        def s:string pending
+        pending = ""
+        return s
+    }
+
+    ; The server's answer: {"reply", "credits"}, or {"error", "credits"}.
+    fn answer:void (json:string) {
+        busy = false
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(json))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            this.add("note" (PresI18n.t("The answer could not be read.")))
+            return
+        }
+        this.readCredits(root)
+        def reply:string (root.stringOr("reply" ""))
+        if ((strlen reply) > 0) {
+            this.add("assistant" reply)
+            return
+        }
+        def err:string (root.stringOr("error" ""))
+        if ((strlen err) == 0) {
+            err = (PresI18n.t("No answer came."))
+        }
+        this.add("note" err)
+    }
+
+    ; the post failed before an answer (no connection, signed out)
+    fn fail:void (why:string) {
+        busy = false
+        this.add("note" why)
+    }
+
+    fn clear:void () {
+        def none:[PresAiMsg]
+        msgs = none
+        busy = false
+        pending = ""
+        rev = (rev + 1)
+    }
+
+    fn setScope:void (s:string) {
+        if ((s == "slide") || (s == "deck")) {
+            scope = s
+            rev = (rev + 1)
+        }
+    }
+
+    ; --- using an answer -------------------------------------------------------------------
+    ; The slide in an answer: what is inside its first fenced block marked
+    ; markdown (or md); "" when it has none. The fence closes on a line of
+    ; at least as many backticks, so a ```code block inside a ````markdown
+    ; one stays in it.
+    sfn slideBlock:string (reply:string) {
+        def lines:[string] (strsplit reply (strfromcode 10))
+        def open:int 0
+        def out:string ""
+        def inside:boolean false
+        def first:boolean true
+        for lines raw:string i {
+            def ln:string (trim raw)
+            if inside {
+                def ticks:int (PresAi.ticks(ln))
+                if ((ticks >= open) && ((strlen ln) == ticks)) {
+                    return out
+                }
+                if first {
+                    out = raw
+                    first = false
+                } {
+                    out = (out + (strfromcode 10) + raw)
+                }
+            } {
+                def t:int (PresAi.ticks(ln))
+                if (t >= 3) {
+                    def lang:string (trim (substring ln t (strlen ln)))
+                    if ((lang == "markdown") || (lang == "md")) {
+                        inside = true
+                        open = t
+                    }
+                }
+            }
+        }
+        ; never closed: not a whole slide
+        return ""
+    }
+
+    ; how many backticks a line starts with
+    sfn ticks:int (ln:string) {
+        def n:int 0
+        while ((n < (strlen ln)) && ((charAt ln n) == 96)) {
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; the slide the last answer suggests ("" none)
+    fn suggestion:string () {
+        def i:int ((array_length msgs) - 1)
+        while (i >= 0) {
+            def m:PresAiMsg (itemAt msgs i)
+            if (m.role == "assistant") {
+                if (m.id == usedId) {
+                    return ""
+                }
+                return (PresAi.slideBlock(m.text))
+            }
+            if (m.role == "user") {
+                return ""
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; the last answer's slide was put on the slide
+    fn markUsed:void () {
+        def i:int ((array_length msgs) - 1)
+        while (i >= 0) {
+            def m:PresAiMsg (itemAt msgs i)
+            if (m.role == "assistant") {
+                usedId = m.id
+                rev = (rev + 1)
+                return
+            }
+            i = (i - 1)
+        }
+    }
+
+    ; An answer as the chat shows it: a ````markdown fence as ``` so the chat
+    ; draws it as a block (its own ``` lines inside, if any, stay as written).
+    sfn shown:string (text:string) {
+        def lines:[string] (strsplit text (strfromcode 10))
+        def out:string ""
+        for lines raw:string i {
+            def ln:string raw
+            def t:int (PresAi.ticks((trim raw)))
+            if (t > 3) {
+                ln = ("```" + (substring (trim raw) t (strlen (trim raw))))
+            }
+            if (i > 0) {
+                out = (out + (strfromcode 10))
+            }
+            out = (out + ln)
+        }
+        return out
+    }
+}
