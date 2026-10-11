@@ -3329,6 +3329,66 @@ try {
       decks.open && decks.times && decks.names && !decks.delOnCloud && !decks.openButtons && decks.aligned && decks.sort.join() === "decks:sort:name" && decks.armed.length === 0 && decks.asks &&
       decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed && decks.page1 && decks.page2 && decks.page3 && decks.arrowUp && decks.arrowDown, JSON.stringify(decks));
 
+    // File → Published in the cloud…: the same window with its own title,
+    // heads and rows (web/published.js); while the cloud is read it says it
+    // is loading; a row asks the page to open its address and the window
+    // stays; every row has a ✕ that asks once; no New presentation. File
+    // has the row only where the page publishes to sliqtly.com.
+    const pub = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const texts = (e, out = []) => { if (e.textContent) out.push(e.textContent); for (const k of e.children || []) texts(k, out); return out; };
+      const lp = () => { a.panelsJson(); return a.panels.host.lastPage; };
+      const drain = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      const press = (id) => { const b = walk(lp(), id); if (!b) return false; a.pointerDown(b.calculatedX + 6, b.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      drain();
+      a.openDecks(JSON.stringify({ list: "pub", title: "Published in the cloud" }));
+      const loading = texts(lp()).includes("Loading…") && texts(lp()).includes("Published in the cloud");
+      a.setDecks(JSON.stringify({ list: "pub", title: "Published in the cloud", head1: "created", head1Label: "Published", head2: "size", head2Label: "Size", empty: "Nothing published.", sort: "created", dir: "desc", note: "", rows: [
+        { id: "file:S1:recordings/web-0123456789abcdef01234567.webm", name: "Sales", where: "Cloud video (.webm) · sliqtly.com/r/L1/012345…", added: "4.10.2026 10:00", modified: "12.0 MB", canDelete: true, current: false },
+        { id: "link:L1", name: "Sales", where: "Viewing link · sliqtly.com/s/L1", added: "3.10.2026 09:00", modified: "", canDelete: true, current: false },
+      ] }));
+      const shown = texts(lp());
+      const heads = shown.includes("Published ↓") && shown.includes("Size") && !shown.includes("Modified");
+      const noNew = !walk(lp(), "pd-new");
+      const dels = !!walk(lp(), "pd-x-0") && !!walk(lp(), "pd-x-1");
+      press("pd-sort-size");
+      const sort = drain();
+      press("pd-r-1");
+      const opened = drain();
+      const stays = a.decksShowing();
+      press("pd-x-1");
+      const armed = drain();
+      press("pd-x-1");
+      const del = drain();
+      a.setDecks(JSON.stringify({ list: "pub", title: "Published in the cloud", empty: "Nothing published.", rows: [] }));
+      const empty = texts(lp()).includes("Nothing published.");
+      press("pd-close");
+      const closed = !a.decksShowing();
+      // File's row, and none where the page does not publish
+      const fileRows = () => { a.toolbarJson(); const ids = []; const w = (e) => { if (e.id) ids.push(e.id); for (const k of e.children || []) w(k); }; w(a.toolbar.host.lastPage); return ids; };
+      const findT = (id) => { a.toolbarJson(); return walk(a.toolbar.host.lastPage, id); };
+      const pressT = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      a.setCloud(true);
+      pressT(findT("tb-m-file-trigger"));
+      const row = findT("tb-m-file-item-published");
+      const inFile = !!row;
+      drain();
+      if (row) pressT(row);
+      const asked = drain();
+      shut();
+      a.setCloud(false);
+      pressT(findT("tb-m-file-trigger"));
+      const hidden = !fileRows().includes("tb-m-file-item-published");
+      shut();
+      a.setCloud(true);
+      return { loading, heads, noNew, dels, sort, opened, stays, armed, del, empty, closed, inFile, asked, hidden };
+    });
+    check("…File → Published in the cloud… lists what is out with its kind and address; a row opens it, ✕ removes after asking; not on a server of one's own",
+      pub.loading && pub.heads && pub.noNew && pub.dels && pub.sort.join() === "pub:sort:size" && pub.opened.join() === "pub:open:link:L1" && pub.stays &&
+      pub.armed.length === 0 && pub.del.join() === "pub:del:link:L1" && pub.empty && pub.closed && pub.inFile && pub.asked.includes("published") && pub.hidden, JSON.stringify(pub));
+
     // A long deck name widens the menu up to a limit and is cut with "…"
     // there; every row stays inside the card and they are all one width
     const long = await page.evaluate(async () => {

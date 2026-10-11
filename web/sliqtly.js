@@ -410,6 +410,61 @@ async function stopSharing(id) {
   await Promise.all(had.docs.map((d) => d.ref.delete()));
 }
 
+// File → Published… (web/published.js): what the signed-in user has put
+// out on sliqtly.com. → { shares: [{ id, name, visibility ("" when the
+// share has none: open, as firestore.rules reads it), files: [{ path,
+// size, at }] }], links: [{ id, of, created }] }. A recording's `at` is when
+// its file went up (Storage keeps it); the other files are left out.
+async function listPublished() {
+  if (!user) return { shares: [], links: [] };
+  const { db, files } = await store();
+  const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  const [own, made] = await Promise.all([
+    db.collection("shares").where("owner", "==", user.uid).limit(200).get(),
+    db.collection("links").where("owner", "==", user.uid).limit(500).get(),
+  ]);
+  const rec = /^recordings\/web-[0-9a-f]{24}\.(sliqrec|webm)$/;
+  const shares = await Promise.all(own.docs.map(async (d) => {
+    const v = d.data();
+    const kept = await Promise.all((v.files || []).filter((f) => rec.test(f.path || "")).map(async (f) => {
+      const meta = await files.ref(`shares/${d.id}/${f.path}`).getMetadata().catch(() => null);
+      const at = meta?.timeCreated ? Date.parse(meta.timeCreated) || 0 : 0;
+      return { path: f.path, size: f.size || meta?.size || 0, at };
+    }));
+    return { id: d.id, name: v.name || "", visibility: v.visibility ?? "", files: kept };
+  }));
+  const links = made.docs.map((d) => ({ id: d.id, of: d.data().of || "", created: ms(d.data().created) }));
+  return { shares, links };
+}
+
+// One viewing link removed: /s/{linkId} shows nothing more.
+async function removeLink(linkId) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  await db.collection("links").doc(linkId).delete();
+}
+
+// A file of the owner's share removed from the cloud (a recording, File →
+// Published…): out of the share's list first, then out of Storage. The
+// deck open in the editor removes its own files instead (main.js
+// deleteFiles), since its next save would send them again.
+async function removeShareFile(id, path) {
+  if (!user) throw new Error("not signed in");
+  const { db, files } = await store();
+  const ref = db.collection("shares").doc(id);
+  const had = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const cur = snap.data();
+    if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+    const left = (cur.files || []).filter((f) => f.path !== path);
+    if (left.length === (cur.files || []).length) return false;
+    tx.update(ref, { files: left, updated: globalThis.firebase.firestore.FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (had) await files.ref(`shares/${id}/${path}`).delete().catch(() => {});
+}
+
 // The shares the user was invited to edit: [{ id, name, owner, updated }]
 async function listInvited() {
   const me = myAddress();
@@ -705,7 +760,7 @@ async function uploadFigma(file, folder) {
   return path;
 }
 
-window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, listPublished, removeLink, removeShareFile, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 // sliqtly.com/editor's Rooms search: the signed-in user's own presentations
 // and those they were invited to edit, whose words hold q, searched by
 // the server (mcp-go/searchapi.go)

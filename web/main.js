@@ -35,6 +35,7 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
+import { publishedRows, publishedListJson, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -2819,15 +2820,19 @@ async function decksJson(fresh = false) {
   const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
   return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }
+// which list the presentations window shows: "decks", or "pub" (File →
+// Published…, below)
+let listShown = "decks";
 async function openDecks() {
   if (!vfs) return;
+  listShown = "decks";
   app.openDecks(await decksJson());
   needsPaint = true;
   // the cloud read again: a deck made elsewhere since shows at once
   if (window.sliqtly?.user?.()) refreshDecks(true).catch(() => {});
 }
 async function refreshDecks(fresh = false) {
-  if (!vfs || !app.decksShowing()) return;
+  if (!vfs || !app.decksShowing() || listShown !== "decks") return;
   app.setDecks(await decksJson(fresh));
   needsPaint = true;
 }
@@ -5130,6 +5135,10 @@ function handleRequests() {
       openDecks().catch(fail);
     } else if (r.startsWith("decks:")) {
       decksRequest(r).catch(fail);
+    } else if (r === "published") {
+      openPublished().catch(fail);
+    } else if (r.startsWith("pub:")) {
+      publishedRequest(r).catch(fail);
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
@@ -5740,6 +5749,83 @@ async function exportPlayer() {
   window.__lastDownload = deliver(enc.encode(html), exportName() + "-player.html", "text/html;charset=utf-8");
 }
 window.__exportPlayer = exportPlayer;
+
+// File → Published…: what the signed-in user has out on sliqtly.com (viewing
+// links, presentations open at their own address, Cloud HTML, Cloud video),
+// in the presentations window (web/published.js). A row opens its address
+// in a new tab; its ✕ takes it out of the cloud.
+let pubRows = [];
+let pubSort = { by: "created", dir: "desc" };
+let pubNote = "";
+const pubJson = () => publishedListJson(pubRows, pubSort.by, t, pubNote, pubSort.dir);
+function showPub() {
+  if (listShown === "pub" && app.decksShowing()) app.setDecks(pubJson());
+  needsPaint = true;
+}
+async function openPublished() {
+  if (noCloudHere()) return;
+  const p = window.sliqtly;
+  if (!p?.user?.()) {
+    toast(t("Sign in to see what you have published in the cloud."));
+    return;
+  }
+  listShown = "pub";
+  pubNote = "";
+  // its title at once, its rows once the cloud is read
+  app.openDecks(JSON.stringify({ list: "pub", title: t("Published in the cloud") }));
+  needsPaint = true;
+  try {
+    const { shares, links } = await p.listPublished();
+    pubRows = publishedRows(shares, links, location.origin);
+  } catch (e) {
+    pubRows = [];
+    pubNote = t("What you have published could not be read: ") + (e?.code || e?.message || e);
+  }
+  showPub();
+}
+async function publishedRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  const id = rest.join(":");
+  if (action === "sort") {
+    pubSort = nextPubSort(pubSort, id);
+  } else if (action === "open") {
+    const row = pubRows.find((x) => x.id === id);
+    if (row?.url) window.open(row.url, "_blank", "noopener");
+    else if (row) toast(t("Nobody sees this recording: the presentation has no viewing link. Share it to show it, or remove the recording."));
+    return;
+  } else if (action === "del") {
+    await removePublished(id);
+  }
+  showPub();
+}
+// A row's ✕: a viewing link goes, a presentation open at its own address
+// becomes its owner's only, a recording leaves the cloud. The open deck's
+// recording is removed as its own file (its next save would send it
+// again); another deck kept in this browser loses its copy too.
+async function removePublished(id) {
+  const r = removal(id);
+  if (!r) return;
+  const p = window.sliqtly;
+  try {
+    if (r.what === "link") await p.removeLink(r.link);
+    else if (r.what === "private") await p.setVisibility(r.deck, "private");
+    else if (r.deck === doc.cloud && (await docFiles()).some((f) => f.path === r.path)) {
+      await deleteFiles([r.path], { quiet: true });
+      await cloudSync();
+      refreshFiles();
+    } else {
+      for (const d of await vfs.listDocs()) {
+        if (d.cloud === r.deck) await vfs.deleteFile(d.id, r.path);
+      }
+      await p.removeShareFile(r.deck, r.path);
+    }
+  } catch (e) {
+    toast(t("Not removed: ") + (e?.code || e?.message || e));
+    return;
+  }
+  pubRows = afterRemoval(pubRows, id, location.origin);
+  toast(r.what === "file" ? t("The recording was removed from the cloud.") : r.what === "link" ? t("The viewing link was removed.") : t("The presentation is now private."));
+}
 
 // The presentation exported to the cloud as a light HTML page (Export ▸
 // Cloud HTML): the deck played on its own, frame by frame at n / fps (the
