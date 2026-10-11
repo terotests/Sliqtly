@@ -584,7 +584,10 @@ class FlightSteps {
 ; How the stations stand in the world (V turns to the next): "path" one
 ; behind another as flown, "wall" all side by side in rows, as square a
 ; block as their count makes (fly back to see every slide at once),
-; "ring" round the viewer, every slide facing the middle, the first ahead.
+; "ring" round the viewer, every slide facing the middle, the first ahead,
+; "room" a situation room: rows of slides on a curved wall in front of the
+; viewer, every one facing the middle of its curve (the one the flight
+; starts in).
 ; Each station's place is x, y, z of its middle and the angle it is turned
 ; by about the upright (0 faces +z, the way it was made); station 0 stays
 ; where it stands in the path, so the one in view does not leap.
@@ -598,10 +601,15 @@ class FlightLayout {
     def cellH:double 10.4
 
     sfn names:[string] () {
-        return ([] _:string ("path" "wall" "ring"))
+        return ([] _:string ("path" "wall" "ring" "room"))
     }
 
     sfn count:int () {
+        return 4
+    }
+
+    ; the layout the flight starts in
+    sfn first:int () {
         return 3
     }
 
@@ -645,6 +653,43 @@ class FlightLayout {
         return r
     }
 
+    ; The room's columns: rows of at most 7 slides, as even as they come.
+    fn roomColumns:int () {
+        def n:int (this.size())
+        if (n <= 1) {
+            return 1
+        }
+        def rows:int (idiv (n + 6) 7)
+        return (idiv ((n + rows) - 1) rows)
+    }
+
+    ; The room's radius: its columns round about a third of a circle.
+    fn roomRadius:double () {
+        def r:double (((to_double (this.roomColumns())) * (cellW * 1.04)) / 2.1)
+        if (r < (cellW * 1.6)) {
+            r = (cellW * 1.6)
+        }
+        return r
+    }
+
+    ; The angle from one column of the room to the next.
+    fn roomStep:double () {
+        return ((cellW * 1.04) / (this.roomRadius()))
+    }
+
+    ; The middle of the room's curve [x, z]: where the first slide's place
+    ; on it is where it stood in the path.
+    fn roomMiddle:[double] () {
+        def rr:double (this.roomRadius())
+        def th0:double ((0.0 - ((to_double ((this.roomColumns()) - 1)) * 0.5)) * (this.roomStep()))
+        return ([] _:double (((itemAt ox 0) - (rr * (sin(th0)))) ((itemAt oz 0) + (rr * (cos(th0))))))
+    }
+
+    ; The room's ends, the angles of its first and last columns' outer edges.
+    fn roomSpan:double () {
+        return (((to_double (this.roomColumns())) * 0.5) * (this.roomStep()))
+    }
+
     ; Station i's place in layout k: [x, y, z, angle].
     fn placeOf:[double] (k:int i:int) {
         def n:int (this.size())
@@ -664,6 +709,15 @@ class FlightLayout {
             def mx:double (itemAt ox 0)
             def mz:double ((itemAt oz 0) + rr)
             return ([] _:double ((mx + (rr * (sin(th)))) (itemAt oy 0) (mz - (rr * (cos(th)))) (0.0 - th)))
+        }
+        if (k == 3) {
+            def cols:int (this.roomColumns())
+            def r:int (idiv i cols)
+            def c:int (i - (r * cols))
+            def rr:double (this.roomRadius())
+            def th:double (((to_double c) - ((to_double (cols - 1)) * 0.5)) * (this.roomStep()))
+            def mid:[double] (this.roomMiddle())
+            return ([] _:double (((itemAt mid 0) + (rr * (sin(th)))) ((itemAt oy 0) - ((to_double r) * cellH)) ((itemAt mid 1) - (rr * (cos(th)))) (0.0 - th)))
         }
         return ([] _:double ((itemAt ox i) (itemAt oy i) (itemAt oz i) 0.0))
     }

@@ -535,6 +535,9 @@ class PresFlight3D {
     def floors:[ThreeMesh]
     def backdrop@(optional):ThreeMesh
     def ringFloor@(optional):ThreeMesh
+    ; the room's floor, its light overhead and its rim, each at full strength
+    def roomParts:[ThreeMesh]
+    def roomFull:[double]
     def clock:double 0.0
     def held:PresFlightPad (new PresFlightPad())
     def pad:PresFlightPad (new PresFlightPad())
@@ -597,6 +600,10 @@ class PresFlight3D {
         midZ = nm
         def nfl:[ThreeMesh]
         floors = nfl
+        def nrp:[ThreeMesh]
+        roomParts = nrp
+        def nrf:[double]
+        roomFull = nrf
         layoutNow = 0
         layoutFrom = 0
         morph = 1.0
@@ -668,9 +675,28 @@ class PresFlight3D {
         }
         curGroup = -1
         this.addDust()
+        ; the flight starts in the situation room
+        this.startIn((FlightLayout.first()))
         cam.jumpTo(0)
         error = ""
         return ""
+    }
+
+    ; Every station in layout k at once, its ground shown, the others' hidden.
+    fn startIn:void (k:int) {
+        layoutFrom = k
+        layoutNow = k
+        morph = 1.0
+        this.placeStations()
+        this.groundsNow()
+        if (k != 0) {
+            ; every slide in view once they stand side by side
+            def i:int 0
+            while (i < (array_length seen)) {
+                set seen i clock
+                i = (i + 1)
+            }
+        }
     }
 
     ; ---- building -----------------------------------------------------------
@@ -1199,6 +1225,83 @@ class PresFlight3D {
         rf.renderOrder = -1
         rf.visible = false
         ringFloor = rf
+        this.addRoom(grid)
+    }
+
+    ; The situation room's grounds: a grid floor under its curve, a line of
+    ; light over its slides, a rim on the floor, posts at its ends.
+    fn addRoom:void (grid:ThreeTexture) {
+        def cols:int (layout.roomColumns())
+        def rows:int (idiv (((layout.size()) + cols) - 1) cols)
+        def rr:double (layout.roomRadius())
+        def mid:[double] (layout.roomMiddle())
+        def mx:double (itemAt mid 0)
+        def mz:double (itemAt mid 1)
+        def top:double ((itemAt layout.oy 0) + 7.0)
+        def low:double (((itemAt layout.oy 0) - ((to_double (rows - 1)) * layout.cellH)) - 5.5)
+        def a:double ((layout.roomSpan()) + 0.03)
+        ; the floor in tiles the size of a station's own, so its grid is as
+        ; fine as theirs: from the curve's middle out past the slides
+        def tiles:int ((to_int ((rr + 12.0) / 56.0)) + 1)
+        def tx:int (0 - tiles)
+        while (tx < tiles) {
+            def tz:int (0 - tiles)
+            while (tz < 1) {
+                def plane:ThreePlaneGeometry (new ThreePlaneGeometry)
+                plane.build(56.0 56.0 1 1)
+                def fm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
+                fm.setMap(grid)
+                def fl:ThreeMesh (this.mesh(plane fm))
+                fl.position.set((mx + (((to_double tx) + 0.5) * 56.0)) low (mz + (((to_double tz) + 0.5) * 56.0)))
+                fl.rotation.set((0.0 - 1.5707963267948966) 0.0 0.0)
+                fl.renderOrder = -1
+                this.roomPart(fl 0.42)
+                tz = (tz + 1)
+            }
+            tx = (tx + 1)
+        }
+        ; a thin line of light overhead, barely there
+        this.roomTube((this.roomArc(mx mz (rr - 3.0) top a)) 0.025 0.35)
+        ; the rim on the floor, just past the slides
+        def rim:[double] (this.roomArc(mx mz (rr + 1.5) (low + 0.05) a))
+        this.roomTube(rim 0.02 0.3)
+        ; the posts at the ends
+        def s:int (0 - 1)
+        while (s <= 1) {
+            def th:double ((to_double s) * a)
+            def px:double (mx + ((rr + 0.6) * (sin(th))))
+            def pz:double (mz - ((rr + 0.6) * (cos(th))))
+            this.roomTube(([] _:double (px low pz px top pz)) 0.02 0.3)
+            s = (s + 2)
+        }
+    }
+
+    ; Points along the room's curve at height y, radius r, from -a to a.
+    fn roomArc:[double] (mx:double mz:double r:double y:double a:double) {
+        def pts:[double]
+        def n:int 48
+        def k:int 0
+        while (k <= n) {
+            def th:double ((0.0 - a) + (((2.0 * a) * (to_double k)) / (to_double n)))
+            push pts (mx + (r * (sin(th))))
+            push pts y
+            push pts (mz - (r * (cos(th))))
+            k = (k + 1)
+        }
+        return pts
+    }
+
+    fn roomTube:void (pts:[double] rad:double op:double) {
+        def tube:ThreePathTubeGeometry (new ThreePathTubeGeometry)
+        tube.build(pts rad 6)
+        def tm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
+        this.roomPart((this.mesh(tube tm)) op)
+    }
+
+    fn roomPart:void (me:ThreeMesh full:double) {
+        me.visible = false
+        push roomParts me
+        push roomFull full
     }
 
     ; V: the next layout, the stations moving there in a while.
@@ -1257,6 +1360,20 @@ class PresFlight3D {
         if (morph > 1.0) {
             morph = 1.0
         }
+        this.placeStations()
+        if (ride >= 0) {
+            if (cam.auto || ((held.plus(pad)).active())) {
+                ; flown off while it turns: let go
+                ride = -1
+            } {
+                cam.sitAt(ride)
+            }
+        }
+        this.groundsNow()
+    }
+
+    ; Each station's group and its camera place, morph of the way.
+    fn placeStations:void () {
         def i:int 0
         while (i < (array_length groups)) {
             def pl:[double] (layout.between(layoutFrom layoutNow i morph))
@@ -1269,21 +1386,16 @@ class PresFlight3D {
             set midZ i (itemAt pl 2)
             i = (i + 1)
         }
-        if (ride >= 0) {
-            if (cam.auto || ((held.plus(pad)).active())) {
-                ; flown off while it turns: let go
-                ride = -1
-            } {
-                cam.sitAt(ride)
-            }
-        }
-        ; the grounds: each layout's own, fading in as it comes
+    }
+
+    ; The grounds: each layout's own, fading in as it comes.
+    fn groundsNow:void () {
         def e:double (PresFlightCam.ease(morph))
-        def wFrom:double (? (layoutFrom == 0) (1.0 - e) 0.0)
-        def wTo:double (? (layoutNow == 0) e 0.0)
-        this.groundTo(0 (wFrom + wTo))
-        this.groundTo(1 ((? (layoutFrom == 1) (1.0 - e) 0.0) + (? (layoutNow == 1) e 0.0)))
-        this.groundTo(2 ((? (layoutFrom == 2) (1.0 - e) 0.0) + (? (layoutNow == 2) e 0.0)))
+        def k:int 0
+        while (k < (FlightLayout.count())) {
+            this.groundTo(k ((? (layoutFrom == k) (1.0 - e) 0.0) + (? (layoutNow == k) e 0.0)))
+            k = (k + 1)
+        }
     }
 
     ; Layout k's ground at strength w (0 hides it).
@@ -1300,6 +1412,13 @@ class PresFlight3D {
                 def bg:ThreeMesh (unwrap backdrop)
                 bg.visible = (w > 0.01)
                 bg.material.opacity = (0.18 * w)
+            }
+            return
+        }
+        if (k == 3) {
+            for roomParts rm:ThreeMesh ri {
+                rm.visible = (w > 0.01)
+                rm.material.opacity = ((itemAt roomFull ri) * w)
             }
             return
         }
