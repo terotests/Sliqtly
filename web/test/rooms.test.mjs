@@ -1,7 +1,7 @@
 // node --test: rooms in this browser (web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
+import { deckOrderOf, editedOutOfPlace, emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
 
 const decks = [
   { id: "a", name: "Budget", updated: 300 },
@@ -370,4 +370,25 @@ test("the open presentation further down than SHOWN is lifted on top of the firs
   assert.equal(kept.length, SHOWN + 1);
   assert.deepEqual(kept.slice(0, SHOWN).map((l) => l[0]), many.slice(0, SHOWN).map((d) => d.id));
   assert.equal(kept[3][2], "1");
+});
+
+test("a room lists its presentations last edited first unless one chose another order", () => {
+  assert.equal(deckOrderOf(null), "edited");
+  assert.equal(deckOrderOf("bogus"), "edited");
+  assert.equal(deckOrderOf("created"), "created");
+  const rows = sortDecks([
+    { id: "a", created: 1, updated: 50 },
+    { id: "b", created: 2, updated: 90 },
+    { id: "c", created: 3, updated: 10 },
+  ], deckOrderOf(null));
+  assert.deepEqual(rows.map((r) => r.id), ["b", "a", "c"]);
+});
+
+test("a save draws the list again only when the open one is not on top yet, last edited first", () => {
+  const rows = [{ id: "b" }, { id: "a", current: true }, { id: "c", folder: "f" }];
+  assert.equal(editedOutOfPlace(rows, "edited"), true);
+  assert.equal(editedOutOfPlace(rows, "created"), false);
+  assert.equal(editedOutOfPlace([{ id: "a", current: true }, { id: "b" }], "edited"), false);
+  assert.equal(editedOutOfPlace([{ id: "x", folder: "f", current: true }, { id: "b" }], "edited"), false);
+  assert.equal(editedOutOfPlace([{ id: "b" }], "edited"), false);
 });

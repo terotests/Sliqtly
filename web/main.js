@@ -35,7 +35,7 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
@@ -1395,6 +1395,7 @@ async function saveDocNow(force) {
   try { r = await saving; } finally { saving = null; }
   if (r === "merge") return takeLocal();
   if (renamedNow) roomDecksAgain();
+  else roomDecksAfterSave();
   refreshFiles();
   cloudSoon();
   tellTabs();
@@ -1609,9 +1610,9 @@ async function roomView(room) {
   return { rows: ordered(roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live)), folders: foldersOf(roomsHere, room) };
 }
 // File → Settings → Order of presentations: how a room lists its
-// presentations (rooms.js sortDecks), in this browser. As made by default,
-// so opening or editing one moves nothing.
-let deckOrder = "created";
+// presentations (rooms.js sortDecks), in this browser. Last edited first by
+// default; opening one moves nothing.
+let deckOrder = DECK_ORDER;
 try { deckOrder = deckOrderOf(localStorage.getItem("sliqtly.deckOrder")); } catch (_) { /* the default */ }
 function setDeckOrder(by) {
   deckOrder = deckOrderOf(by);
@@ -1642,6 +1643,12 @@ async function clearRoom(room) {
 // The open room's presentations listed again (the open deck renamed).
 function roomDecksAgain() {
   if (roomShown) roomsRequest("room:decks:" + roomShown).catch(() => {});
+}
+// The open deck saved: listed last edited first, it goes to the top of its
+// room, so the list is drawn again when it is not there yet.
+let roomListed = [];
+function roomDecksAfterSave() {
+  if (editedOutOfPlace(roomListed, deckOrder)) roomDecksAgain();
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -1943,6 +1950,7 @@ async function roomsRequest(r) {
         keepFoldersOpen();
       }
     }
+    roomListed = rows;
     const lines = deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
@@ -5933,6 +5941,8 @@ async function cloudSync() {
     cloudError = "";
     cloudNoRight = false;
     plainAddress();
+    // a server's room lists it by the server's time of this save
+    if (ownServer()) roomDecksAfterSave();
     return id;
   })();
   try { return await cloudBusy; } finally {
