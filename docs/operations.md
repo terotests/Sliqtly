@@ -175,6 +175,14 @@ repository variable `SLIQTLY_ADMIN_EMAILS` (Settings → Variables), or the
 owner's address when that is unset. A report is kept a minute per instance;
 Refresh reads again.
 
+The Licenses card lists every `licenses/{uid}` (address, plan, presentations
+used, last seen) and sets an account's quota of presentations it may edit in
+the cloud: `POST /main/admin/api/license {uid, maxDocs, plan?}` writes
+`maxDocs` (−1, an empty field on the page, is no limit). An account has a
+license from its first visit to /editor; admins always have no limit. The
+same field can be changed by hand in the Firebase console (Firestore →
+`licenses` → the account's uid → `maxDocs`).
+
 What the service account needs for each part (a part it cannot read says so
 on the page, the rest still shows):
 
