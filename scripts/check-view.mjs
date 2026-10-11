@@ -648,7 +648,7 @@ try {
 
   // the owner's dashboard: signed out it asks for sign-in and shows no
   // numbers; with the server's answer (mcp-go/admin.go) it draws them, a
-  // phone's width included
+  // phone's width included, the licenses too
   page = await open("/main/admin");
   await page.waitForFunction(() => !document.getElementById("signin").hidden, null, { timeout: 15000 })
     .catch(() => fail("/main/admin does not ask a visitor to sign in"));
@@ -665,12 +665,18 @@ try {
     const m = await import("./admin.js?v=" + document.querySelector('meta[name="build"]').content);
     m.show("board");
     m.render(r);
+    m.renderLicenses([
+      { uid: "u1", email: "anna.with.a.long.address@example.com", name: "Anna", plan: "trial", maxDocs: 2, used: 2, seen: "2026-10-08T09:00:00Z" },
+      { uid: "u2", email: "tero@example.com", plan: "admin", maxDocs: -1, used: 7, admin: true },
+    ]);
     return {
+      licenses: [document.querySelectorAll("#lBody tr").length, document.querySelectorAll("#lBody form.quota").length],
       tiles: document.querySelectorAll("#tiles .tile").length,
       bars: ["cVisitors", "cDecks", "cUsers", "cBilling"].map((id) => document.querySelectorAll(`#${id} svg path`).length),
       month: document.querySelector("#tiles").textContent.includes("€1.08"),
     };
   });
+  if (drawn.licenses.join() !== "2,1") fail(`the licenses did not draw: ${JSON.stringify(drawn.licenses)}`);
   if (drawn.tiles !== 4 || drawn.bars.some((n) => n < 2) || !drawn.month) fail(`the dashboard did not draw: ${JSON.stringify(drawn)}`);
   await page.setViewportSize({ width: 360, height: 740 });
   await page.waitForTimeout(200);

@@ -24,6 +24,7 @@ type fakeAdmin struct {
 	costs   []adminCost
 	costErr error
 	reads   int
+	db      *fakeDB // the licenses, as Firestore keeps them
 }
 
 func (f *fakeAdmin) StatsDays(_ context.Context, days []string) (map[string]Doc, error) {
@@ -50,6 +51,19 @@ func (f *fakeAdmin) Users(context.Context) ([]adminUser, error) {
 }
 func (f *fakeAdmin) Costs(context.Context, time.Time) ([]adminCost, error) {
 	return f.costs, f.costErr
+}
+
+func (f *fakeAdmin) Licenses(context.Context) ([]string, []Doc, error) {
+	if f.db == nil {
+		return nil, nil, errors.New("PERMISSION_DENIED")
+	}
+	ids, docs := []string{}, []Doc{}
+	for k, d := range f.db.data {
+		if id, ok := strings.CutPrefix(k, licenseCol+"/"); ok {
+			ids, docs = append(ids, id), append(docs, clone(d))
+		}
+	}
+	return ids, docs, nil
 }
 
 var adminNow = time.Date(2026, 10, 8, 15, 0, 0, 0, time.UTC)
@@ -154,6 +168,9 @@ func adminServer(t *testing.T, src adminSource) (string, func()) {
 		return nil, fmt.Errorf("bad token")
 	}
 	e.Admin = newAdminConfig([]string{" teroktolonen@gmail.com "}, src)
+	if f, ok := src.(*fakeAdmin); ok && f.db != nil {
+		e.DB = f.db
+	}
 	srv := httptest.NewServer(NewApp(e))
 	return srv.URL, srv.Close
 }
@@ -226,5 +243,110 @@ func TestAdminOffWithoutList(t *testing.T) {
 	srv := httptest.NewServer(NewApp(e))
 	defer srv.Close()
 	code, _ := adminGet(t, srv.URL+"/main/admin/api/stats", "x")
+	eq(t, code, 404)
+}
+
+func TestAdminLicensesList(t *testing.T) {
+	rows := buildAdminLicenses(
+		[]string{"u-old", "u-tero", "u-anna", "u-none"},
+		[]Doc{
+			{"email": "old@example.com", "plan": "trial", "maxDocs": int64(2), "docs": []any{"a"}, "seen": at("2026-09-01", 0)},
+			{"email": "TeroKtolonen@gmail.com", "plan": "trial", "maxDocs": int64(2), "seen": at("2026-10-08", 9)},
+			{"email": "anna@example.com", "name": "Anna", "plan": "pro", "maxDocs": int64(10), "docs": []any{"a", "b", "a"}, "seen": at("2026-10-08", 9), "editUntil": "2027-01-01T00:00:00Z"},
+			nil,
+		}, []string{"teroktolonen@gmail.com"})
+	eq(t, len(rows), 3)
+	// the last seen first, then by address
+	eq(t, []any{rows[0].UID, rows[1].UID, rows[2].UID}, []any{"u-anna", "u-tero", "u-old"})
+	eq(t, rows[0], adminLicense{UID: "u-anna", Email: "anna@example.com", Name: "Anna", Plan: "pro", MaxDocs: 10, Used: 2, EditUntil: "2027-01-01T00:00:00Z", Seen: "2026-10-08T09:00:00Z"})
+	// an admin's is without limits, whatever the document says
+	eq(t, []any{rows[1].Admin, rows[1].Plan, rows[1].MaxDocs}, []any{true, "admin", -1})
+	eq(t, []any{rows[2].Plan, rows[2].MaxDocs, rows[2].Used}, []any{"trial", 2, 1})
+}
+
+func TestAdminLicenseEdit(t *testing.T) {
+	uid, set, err := parseLicenseEdit([]byte(`{"uid":"u-anna","maxDocs":10,"plan":" Pro "}`))
+	eq(t, []any{uid, set, err}, []any{"u-anna", Doc{"maxDocs": int64(10), "plan": "pro"}, error(nil)})
+	_, set, _ = parseLicenseEdit([]byte(`{"uid":"u-anna","maxDocs":-1}`))
+	eq(t, set, Doc{"maxDocs": int64(-1)})
+	for _, bad := range []string{
+		`nope`, `{"maxDocs":3}`, `{"uid":"../x","maxDocs":3}`, `{"uid":"u"}`,
+		`{"uid":"u","maxDocs":-2}`, `{"uid":"u","maxDocs":10001}`, `{"uid":"u","maxDocs":1.5}`,
+		`{"uid":"u","maxDocs":3,"plan":"admin"}`, `{"uid":"u","maxDocs":3,"plan":""}`, `{"uid":"u","maxDocs":3,"plan":"<b>"}`,
+	} {
+		if _, _, err := parseLicenseEdit([]byte(bad)); err == nil {
+			t.Fatalf("%s was taken", bad)
+		}
+	}
+}
+
+func adminPost(t *testing.T, url, token, body string) (int, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	out := map[string]any{}
+	json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
+}
+
+// the owner lists the licenses and gives an account more presentations;
+// nobody else does either
+func TestAdminLicensesRoute(t *testing.T) {
+	db := newFakeDB()
+	ctx := context.Background()
+	db.Set(ctx, licenseCol, "u-anna", Doc{"email": "anna@example.com", "plan": "trial", "maxDocs": int64(2), "docs": []any{"a", "b"}, "rev": "r1"})
+	base, stop := adminServer(t, &fakeAdmin{db: db})
+	defer stop()
+	list, one := base+"/main/admin/api/licenses", base+"/main/admin/api/license"
+
+	for _, tok := range []string{"other", "unverified"} {
+		code, body := adminGet(t, list, tok)
+		eq(t, code, 403, tok)
+		if strings.Contains(fmt.Sprint(body), "anna") {
+			t.Fatal("an address went out")
+		}
+		code, _ = adminPost(t, one, tok, `{"uid":"u-anna","maxDocs":100}`)
+		eq(t, code, 403, tok)
+	}
+	d, _ := db.Get(ctx, licenseCol, "u-anna")
+	eq(t, d["maxDocs"], int64(2))
+
+	code, body := adminGet(t, list, "tero")
+	eq(t, code, 200)
+	rows := body["licenses"].([]any)
+	eq(t, len(rows), 1)
+	eq(t, []any{rows[0].(map[string]any)["email"], rows[0].(map[string]any)["used"]}, []any{"anna@example.com", 2.0})
+
+	code, body = adminPost(t, one, "tero", `{"uid":"u-anna","maxDocs":10,"plan":"pro"}`)
+	eq(t, code, 200)
+	got := body["license"].(map[string]any)
+	eq(t, []any{got["maxDocs"], got["plan"], got["used"]}, []any{10.0, "pro", 2.0})
+	d, _ = db.Get(ctx, licenseCol, "u-anna")
+	eq(t, []any{d["maxDocs"], d["plan"], len(d["docs"].([]any))}, []any{int64(10), "pro", 2})
+	if d["rev"] == "r1" {
+		t.Fatal("rev kept: a claim in flight would not read the license again")
+	}
+
+	code, body = adminPost(t, one, "tero", `{"uid":"u-anna","maxDocs":-5}`)
+	eq(t, code, 400)
+	match(t, body["error"].(string), "-1 for no limit")
+	code, _ = adminPost(t, one, "tero", `{"uid":"u-nobody","maxDocs":5}`)
+	eq(t, code, 404)
+	code, _ = adminGet(t, one, "tero")
+	eq(t, code, 405)
+	code, _ = adminPost(t, list, "tero", `{}`)
+	eq(t, code, 405)
+}
+
+// a server without a database has no license routes
+func TestAdminLicensesNeedDB(t *testing.T) {
+	base, stop := adminServer(t, &fakeAdmin{})
+	defer stop()
+	code, _ := adminGet(t, base+"/main/admin/api/licenses", "tero")
 	eq(t, code, 404)
 }
