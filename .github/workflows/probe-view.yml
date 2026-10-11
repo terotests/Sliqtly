@@ -8,33 +8,23 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Time the viewer's requests
+      - name: Show the bad bytes in a view
         run: |
-          set +e
-          for id in LGXZ6WIgX6 is9nyvY7BK; do
-            echo "=== $id"
-            for path in "/s/$id" "/index.html"; do
-              curl -sS -o /dev/null -w "$path %{http_code} %{size_download}B ttfb=%{time_starttransfer} total=%{time_total}\n" "https://sliqtly.com$path"
-            done
-            for i in 1 2; do
-              curl -sS -D /tmp/h -o /tmp/v.json -w "view#$i %{http_code} %{size_download}B ttfb=%{time_starttransfer} total=%{time_total}\n" "https://sliqtly.com/api/view/$id"
-              grep -i "cache-control\|x-cache\|age:\|server-timing" /tmp/h
-            done
-            python3 - <<'PY' > /tmp/urls
-          import json
-          d = json.load(open("/tmp/v.json"))
-          print(len(d["lists"]), "slides", file=__import__("sys").stderr)
-          for f in d["deck"]["files"]:
-              print(f["path"], f["type"], f["url"])
+          curl -sS -o /tmp/v.json "https://sliqtly.com/api/view/LGXZ6WIgX6"
+          python3 - <<'PY'
+          b = open("/tmp/v.json", "rb").read()
+          bad = []
+          i = 0
+          while i < len(b):
+              try:
+                  b[i:].decode("utf-8"); break
+              except UnicodeDecodeError as e:
+                  p = i + e.start
+                  bad.append(p)
+                  i = p + 1
+          print(len(bad), "bad positions", bad[:20])
+          for p in bad[:6]:
+              s = b[max(0, p - 160):p + 60]
+              print("@", p, s.hex(" "))
+              print(repr(s.decode("utf-8", "replace")))
           PY
-            cat /tmp/urls | cut -c1-160
-            while read p t u; do
-              case "$u" in /*) u="https://sliqtly.com$u";; esac
-              for i in 1 2; do
-                curl -sS -D /tmp/h -o /dev/null -w "  pic#$i $p %{http_code} %{content_type} %{size_download}B ttfb=%{time_starttransfer} total=%{time_total}" "$u"
-                echo " $(grep -i '^x-cache' /tmp/h | tr -d '\r')"
-              done
-            done < /tmp/urls
-          done
-          echo "=== fonts and modules"
-          curl -sS https://sliqtly.com/s/is9nyvY7BK | grep -o 'view.js?v=[a-z0-9]*' | head -1
