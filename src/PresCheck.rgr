@@ -7161,6 +7161,45 @@ class PresCheck {
         this.ok(((PresFlightScene.edgeOf(([] _:double (100.0 100.0 200.0 100.0)) 960.0 540.0)) == -1) "flight: a box inside the slide stands on no edge")
         this.ok((PresFlightScene.isBox(([] _:double (0.0 0.0 10.0 0.0 10.0 5.0 0.0 5.0)) ([] _:double (0.0 0.0 10.0 5.0)))) "flight: four corners are a box")
         this.ok(((PresFlightScene.isBox(([] _:double (0.0 0.0 10.0 0.0 5.0 5.0 0.0 5.0)) ([] _:double (0.0 0.0 10.0 5.0)))) == false) "flight: a slanted side is no box")
+        ; a presenter's lines: one at a time, each at its own step, gone at
+        ; the next one's
+        def pdeck (new PresDeck())
+        pdeck.setText("# Esittäjä\n\nTeksti.\n\n::: story\nEka rivi tässä.\nMutta toinen rivi.\nJoten kolmas rivi.\n:::\n")
+        PresTimeline.planAll(pdeck)
+        def ps:PresFlightScene (PresFlightScene.of(pdeck))
+        def ls:PresSlide (pdeck.slideAt(0))
+        def said:[int]
+        def goes:[int]
+        def early:int 0
+        for ps.items pi:FlightItem pin {
+            if ((pi.kind == "text") && ((indexOf pi.ent "story-") == 0)) {
+                push said pi.step
+                push goes pi.until
+                if (pi.step == 0) {
+                    early = (early + 1)
+                }
+            }
+        }
+        this.ok(((array_length said) >= 3) ("flight: each of the presenter's lines is there, got " + (to_string (array_length said))))
+        this.ok((early == 0) "flight: no line is said before its step")
+        def b0:PresStoryBeat (itemAt ls.story 0)
+        def b1:PresStoryBeat (itemAt ls.story 1)
+        this.ok((((indexOf said b0.step) >= 0) && ((indexOf goes b1.step) >= 0)) "flight: the first line goes when the second is said")
+        this.ok(((indexOf goes -1) >= 0) "flight: the last line stays")
+        def pst:FlightStation (itemAt ps.stations 0)
+        this.ok((pst.steps == ls.steps) ("flight: the station has the slide's steps, got " + (to_string pst.steps)))
+        ; Space takes a station's steps before flying on, ← gives them back
+        def fs:FlightSteps (new FlightSteps())
+        fs.add(2)
+        fs.add(0)
+        this.ok(((fs.next(0 1.0)) && (fs.next(0 2.0))) "flight: Space takes a slide's two steps")
+        this.ok(((fs.next(0 3.0)) == false) "flight: then it flies on")
+        this.ok(((fs.next(1 4.0)) == false) "flight: a slide with no steps flies on at once")
+        this.ok(((fs.back(0 5.0)) && ((fs.stepAt(0)) == 1)) "flight: back gives a step back")
+        fs.arrive(0 false 6.0)
+        this.ok(((fs.stepAt(0)) == 2) "flight: flown back to, a slide shows all its steps")
+        fs.arrive(0 true 7.0)
+        this.ok((((fs.stepAt(0)) == 0) && ((fs.takenAt(0)) == 7.0)) "flight: flown to forward, its first look")
         def js:JVal (JVal.parse((sc.toJson())))
         def jst:JVal (js.get("stations"))
         def jit:JVal (js.get("items"))
