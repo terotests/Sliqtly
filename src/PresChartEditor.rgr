@@ -244,6 +244,18 @@ class PresChartEditor {
     ; a question that deletes nothing (a paste): its button is not red
     def cfSafe:boolean false
     def wantsAlt:boolean false
+    ; A long job's window (`mode` "progress": a video being made): `pgKey`
+    ; names the job to the page, `pgText` says what it is, the bar shows
+    ; `pgValue` of `pgMax` (below 0: no number yet) and `pgNote` is said
+    ; under it. Cancel (shown while `pgCancel`) sets `wantsCancelJob`; × and
+    ; Esc only hide the window and the job goes on.
+    def pgKey:string ""
+    def pgText:string ""
+    def pgNote:string ""
+    def pgValue:int -1
+    def pgMax:int 100
+    def pgCancel:boolean true
+    def wantsCancelJob:boolean false
     ; The document's settings (`mode` "docset"): the front matter's title,
     ; transition, header and footer (`ds`), the tab showing ("header",
     ; "footer", "deck") and the deck's pictures, for a logo. Every change is
@@ -569,6 +581,33 @@ class PresChartEditor {
         wantsConfirm = false
         wantsAlt = false
         this.openAt(px py pw ph)
+    }
+
+    fn openProgress:void (key:string title:string words:string px:double py:double pw:double ph:double) {
+        mode = "progress"
+        pgKey = key
+        cfTitle = title
+        pgText = words
+        pgNote = ""
+        pgValue = 0
+        pgMax = 100
+        pgCancel = true
+        wantsCancelJob = false
+        this.openAt(px py pw ph)
+    }
+
+    ; How far the job named `key` has got; nothing when its window is not
+    ; the one showing.
+    fn setProgress:boolean (key:string value:int max:int note:string cancel:boolean) {
+        if (((isOpen == false) || (mode != "progress")) || (pgKey != key)) {
+            return false
+        }
+        pgValue = value
+        pgMax = max
+        pgNote = note
+        pgCancel = cancel
+        this.rebuild()
+        return true
     }
 
     fn openDiagram:void (m:PresFlowModel px:double py:double pw:double ph:double) {
@@ -1157,7 +1196,7 @@ class PresChartEditor {
             win.name = (PresI18n.t("Document settings"))
             win.title = (PresI18n.t("Document settings"))
         }
-        if (mode == "confirm") {
+        if ((mode == "confirm") || (mode == "progress")) {
             win.name = cfTitle
             win.title = cfTitle
         }
@@ -1206,6 +1245,10 @@ class PresChartEditor {
         }
         if (mode == "confirm") {
             this.confirmBody(root)
+            return
+        }
+        if (mode == "progress") {
+            this.progressBody(root)
             return
         }
         if (mode == "newdeck") {
@@ -2829,6 +2872,42 @@ class PresChartEditor {
         }
         if (tid == "cf-alt") {
             wantsAlt = true
+            wantsClose = true
+            return true
+        }
+        return false
+    }
+
+    ; --- a long job: what it is, how far, Cancel ---------------------------------
+    fn progressBody:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("ce-pane"))
+        pane.addChild((this.copyable("pg-t-what" "ce-doc" pgText)))
+        def bar (new ProgressCtl())
+        bar.tid = "pg-bar"
+        bar.name = pgText
+        bar.indeterminate = (pgValue < 0)
+        bar.value = (to_double pgValue)
+        bar.maxValue = (to_double pgMax)
+        bar.valueLabel = pgNote
+        bar.build()
+        ; as wide as the window, not the control's own 200 px
+        UiTree.inline((unwrap bar.rootEl) "width" "100%")
+        UiKit.put(host bar pane)
+        if ((strlen pgNote) > 0) {
+            pane.addChild((this.copyable("pg-t-note" "ce-doc" pgNote)))
+        }
+        root.addChild(pane)
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        bottom.addChild((UiKit.div("ce-grow")))
+        if pgCancel {
+            this.button("pg-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        }
+        root.addChild(bottom)
+    }
+
+    fn progressAct:boolean (tid:string) {
+        if (tid == "pg-cancel") {
+            wantsCancelJob = true
             wantsClose = true
             return true
         }
@@ -4838,6 +4917,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "confirm") && (this.confirmAct(tid))) {
+            return
+        }
+        if ((mode == "progress") && (this.progressAct(tid))) {
             return
         }
         if ((mode == "diagram") && (this.diagramAct(tid))) {
