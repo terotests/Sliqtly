@@ -214,8 +214,10 @@ async function serverVersion() {
   return res.ok ? (await res.json()).version || "" : "";
 }
 
+// local: a server of one's own, not sliqtly.com: the editor offers no
+// publishing to the cloud (Export ▸ Cloud HTML, Cloud video) here
 window.sliqtly = {
-  auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
+  local: true, auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
   putObject, getObject, pushHead, readHead, collab, serverVersion,
   sheetsToken: () => null, askSheets: async () => null, sheetName: () => null,
 };

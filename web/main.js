@@ -5754,12 +5754,21 @@ async function recordedPictures(cmds) {
   }
   return out;
 }
+// A server of one's own publishes nothing to sliqtly.com: its Export has no
+// Cloud rows (PresApp.setCloud), and a click from elsewhere is said no to.
+function noCloudHere() {
+  if (!window.sliqtly?.local) return false;
+  toast(t("This server does not publish to the cloud. Export a web page, a player or a video to a file instead."));
+  return true;
+}
 async function exportRecWeb() {
+  if (noCloudHere()) return;
   const p = window.sliqtly;
   if (!p?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
+  if (!(await cloudTakesDeck())) return;
   const bytes = await packStream(await recordForWeb());
   await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
     t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."));
@@ -5768,16 +5777,30 @@ async function exportRecWeb() {
 // kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
 // browser's own player plays it.
 async function exportCloudVideo() {
+  if (noCloudHere()) return;
   if (!window.sliqtly?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
+  if (!(await cloudTakesDeck())) return;
   const bytes = await makeVideo();
   if (!bytes) return;
   await publishForWeb(bytes, ".webm", "video/webm",
     t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
 }
 window.__exportCloudVideo = exportCloudVideo;
+// The deck saved in the cloud before a recording or a video is made for it
+// there: a deck the cloud will not take (the license's limit, another
+// account's) is said so at once, not after the work. False then.
+async function cloudTakesDeck() {
+  try {
+    await shareCloud();
+    return true;
+  } catch (e) {
+    toast(cloudFailure(e));
+    return false;
+  }
+}
 // The recording's or the video's bytes kept with the deck as
 // recordings/web-{hash}{ext} (the one before of the same kind removed), the
 // deck shared, and its /r/ link shown with `note`.
@@ -6543,12 +6566,16 @@ async function shareCloud() {
   return Promise.race([timeout, cloudSync().then((id) => id || Promise.reject(new Error("not saved")))]);
 }
 
-function cloudFailure(e) {
+// Why the cloud did not take the deck, said to the reader. The license's
+// refusal (sliqtly.js editRight, code "no-edit-right") is its own sentence;
+// `textLink`: the dialog shows the link with the text packed in instead.
+function cloudFailure(e, textLink = false) {
   console.warn("cloud sharing failed", e);
+  if (e?.code === "no-edit-right") return e.message;
   const why = e?.code === "permission-denied" || e?.code === "storage/unauthorized" ? t("the cloud refused it (rules not set up?)")
     : e?.code === "timeout" ? t("no answer from the cloud (is Firestore created?)")
     : (e?.code || e?.message || String(e));
-  return t("Cloud sharing failed: ") + why + ". " + t("Sharing the text in the link instead.");
+  return t("Cloud sharing failed: ") + why + "." + (textLink ? " " + t("Sharing the text in the link instead.") : "");
 }
 
 function showShare(showUrl, editUrl, note, viewUrl = "", live = false) {
@@ -6649,7 +6676,7 @@ async function shareLink() {
     const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
     showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Anyone with the link can view it; only you can change the original."), view, true);
   } catch (e) {
-    showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote, viewUrl);
+    showShare(showUrl, editUrl, cloudFailure(e, true) + " " + textNote, viewUrl);
   }
 }
 
@@ -9428,8 +9455,11 @@ async function start() {
   if (!viewer) applySkin();
   reviewMe();
   applyReviewMode();
-  // a server of one's own is known once its window.sliqtly is there
-  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); });
+  // a server of one's own is known once its window.sliqtly is there; it
+  // publishes nothing to sliqtly.com (Export ▸ Cloud HTML, Cloud video)
+  const cloudOrNot = () => { if (window.sliqtly) app.setCloud(!window.sliqtly.local); needsPaint = true; };
+  cloudOrNot();
+  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); cloudOrNot(); });
   window.addEventListener("sliqtly:user", () => reviewMe());
   app.setCoarse(isCoarse());
   app.setMac(IS_MAC);

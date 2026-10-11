@@ -6868,6 +6868,20 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Whether Export offers publishing to sliqtly.com (Cloud HTML, Cloud
+    ; video): not on a server of one's own (its sliqtly.js says so), nor in
+    ; the desktop editor. Its files go to the computer there.
+    fn setCloud:void (on:boolean) {
+        if (on == toolbar.cloud) {
+            return
+        }
+        toolbar.cloud = on
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setToolbarCss:void (css:string) {
         toolbar.css = css
         toolbar.rebuild()
