@@ -1,0 +1,326 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTopicView.rgr — a topic's stories as cards, grouped
+; ============================================================================
+;
+; A room is a topic and its presentations its stories (web/stories.js). A
+; room pressed in the rail shows them here, in the work area where its chat
+; is (PresRoomView, its "Stories" tab): the topic's name and how many
+; stories it has, + New story, Group by (Type, Phase, Tag, None) and Sort
+; (Updated, Title, Created), then a group a type (or phase, or tag) with its
+; cards. A card has its type's colour only as an accent: the line down its
+; left edge and its Type pill; the Phase pill is grey. A card opens its
+; story; a pill opens the menu that changes it.
+;
+; What it shows the page works out (web/stories.js groupStories) and hands
+; over as JSON (`setData`): the words already in the reader's language. What
+; the reader asked for goes back as requests (`take`):
+;   topic:open\t<deck>           a card pressed
+;   topic:by\t<type|phase|tag|none>, topic:sort\t<updated|title|created>
+;   topic:new                    + New story
+;   topic:menu\t<deck>\t<type|phase>\t<type>\t<phase>\t<x>\t<y>\t<name>
+;   topic:ctx\t<deck>\t<1 when open>\t<x>\t<y>\t<name>   a card's context menu
+; ============================================================================
+
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/UiScroll.rgr"
+Import "../evgui/src/UiText.rgr"
+Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
+Import "UiKit.rgr"
+
+class PresTopicView {
+    def json:string ""
+    def by:string "type"
+    def sort:string "updated"
+    def scroll:UiScroll (new UiScroll())
+    def requests:[string]
+    ; the cards as built: their decks, names, types, phases and whether open
+    def ids:[string]
+    def names:[string]
+    def types:[string]
+    def phases:[string]
+    def currents:[boolean]
+    def room:string ""
+
+    ; the topic's stories, as the page says them (web/main.js topicJson)
+    fn setData:void (text:string) {
+        json = text
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(text))
+        def r:string (j.stringOr("room" ""))
+        if (r != room) {
+            scroll.reset()
+            room = r
+        }
+        by = (j.stringOr("by" "type"))
+        sort = (j.stringOr("sort" "updated"))
+    }
+
+    ; a request of the room's own (its × : "close")
+    fn ask:void (what:string) {
+        push requests ("topic:" + what)
+    }
+
+    fn take:string () {
+        if ((array_length requests) == 0) {
+            return ""
+        }
+        def r:string (itemAt requests 0)
+        remove_index requests 0
+        return r
+    }
+
+    ; a segment of Group by or Sort: the chosen one stands out
+    fn segment:void (host:UiHost parent:EVGElement tid:string label:string on:boolean) {
+        def b:ButtonCtl (UiKit.button(tid label (? on "secondary" "ghost")))
+        def el:EVGElement (unwrap b.rootEl)
+        UiTree.addClass(el "rm-seg")
+        if on {
+            UiTree.addClass(el "rm-seg-on")
+        }
+        UiKit.put(host b parent)
+    }
+
+    ; The view, w × h, under `frame`.
+    fn build:void (host:UiHost frame:EVGElement w:double h:double eng:EVGTextEngine) {
+        def none:[string]
+        ids = none
+        def nn:[string]
+        names = nn
+        def nt:[string]
+        types = nt
+        def np:[string]
+        phases = np
+        def nc:[boolean]
+        currents = nc
+        def p (new VlJsonParser())
+        def j:VlJson (p.parse(json))
+        def view:EVGElement (UiKit.div("rm-topic"))
+        UiTree.inline(view "width" ((EVGDisplayList.num(w)) + "px"))
+        UiTree.inline(view "height" ((EVGDisplayList.num(h)) + "px"))
+
+        def head:EVGElement (UiKit.div("rm-thead"))
+        def tw:double (w - 200.0)
+        if (tw < 120.0) {
+            tw = 120.0
+        }
+        head.addChild((UiKit.words("rm-ttitle" (UiText.fit(eng (j.stringOr("title" "")) "Open Sans" 20.0 tw)))))
+        head.addChild((UiKit.words("rm-tcount" (j.stringOr("count" "")))))
+        head.addChild((UiKit.div("rm-grow")))
+        if (j.boolOr("canNew" true)) {
+            def nb:ButtonCtl (UiKit.button("rm-tnew" (PresI18n.t("+ New presentation")) "primary"))
+            UiKit.labelClass(nb "pn-onprimary")
+            UiKit.put(host nb head)
+        }
+        view.addChild(head)
+
+        def ctl:EVGElement (UiKit.div("rm-tctl"))
+        ctl.addChild((UiKit.words("rm-tlabel" (PresI18n.t("Group by")))))
+        this.segment(host ctl "rm-by-type" (PresI18n.t("Type")) (by == "type"))
+        this.segment(host ctl "rm-by-phase" (PresI18n.t("Phase")) (by == "phase"))
+        this.segment(host ctl "rm-by-tag" (PresI18n.t("Tag")) (by == "tag"))
+        this.segment(host ctl "rm-by-none" (PresI18n.t("None")) (by == "none"))
+        ctl.addChild((UiKit.div("rm-tgap")))
+        ctl.addChild((UiKit.words("rm-tlabel" (PresI18n.t("Sort")))))
+        this.segment(host ctl "rm-sort-updated" (PresI18n.t("Updated")) (sort == "updated"))
+        this.segment(host ctl "rm-sort-title" (PresI18n.t("Title")) (sort == "title"))
+        this.segment(host ctl "rm-sort-created" (PresI18n.t("Created")) (sort == "created"))
+        view.addChild(ctl)
+
+        def body:EVGElement (UiTree.div("rm-tbody" "rm-tbody"))
+        ; what is left under the head and the controls (.rm-thead, .rm-tctl)
+        def bh:double (h - 96.0)
+        if (bh < 80.0) {
+            bh = 80.0
+        }
+        UiTree.inline(body "height" ((EVGDisplayList.num(bh)) + "px"))
+        body.scrollTop = scroll.top
+        def groups:VlJson (j.get("groups"))
+        if ((groups.count()) == 0) {
+            body.addChild((UiKit.words("rm-tempty" (j.stringOr("empty" "")))))
+        }
+        ; as many cards a row as fit, each as wide as that leaves
+        def inner:double (w - 48.0)
+        def per:int (to_int ((inner + 12.0) / 272.0))
+        if (per < 1) {
+            per = 1
+        }
+        ; a pixel spare, so rounding never sends the last of a row down
+        def cw:double ((to_double (floor (((inner + 12.0) / (to_double per)) - 12.0))) - 1.0)
+        def gi:int 0
+        while (gi < (groups.count())) {
+            def g:VlJson (groups.at(gi))
+            def grp:EVGElement (UiKit.div("rm-group"))
+            def label:string (g.stringOr("label" ""))
+            def stories:VlJson (g.get("stories"))
+            if ((strlen label) > 0) {
+                def gh:EVGElement (UiKit.div("rm-ghead"))
+                def col:string (g.stringOr("color" ""))
+                if ((strlen col) > 0) {
+                    def dot:EVGElement (UiKit.div("rm-gdot"))
+                    UiTree.inline(dot "background-color" col)
+                    gh.addChild(dot)
+                }
+                gh.addChild((UiKit.words("rm-glabel" (to_uppercase label))))
+                gh.addChild((UiKit.words("rm-gcount" (to_string (stories.count())))))
+                grp.addChild(gh)
+            }
+            def cards:EVGElement (UiKit.div("rm-cards"))
+            def si:int 0
+            while (si < (stories.count())) {
+                this.card(host cards (stories.at(si)) cw eng)
+                si = (si + 1)
+            }
+            grp.addChild(cards)
+            body.addChild(grp)
+            gi = (gi + 1)
+        }
+        view.addChild(body)
+        frame.addChild(view)
+    }
+
+    ; One story's card: the Type and Phase pills, its name, when it was last
+    ; changed, its tags.
+    fn card:void (host:UiHost parent:EVGElement s:VlJson cw:double eng:EVGTextEngine) {
+        def i:int (array_length ids)
+        def n:string (to_string i)
+        def id:string (s.stringOr("id" ""))
+        def name:string (s.stringOr("name" ""))
+        def col:string (s.stringOr("color" "#8a8f98"))
+        def cur:boolean (s.boolOr("current" false))
+        push ids id
+        push names name
+        push types (s.stringOr("type" "story"))
+        push phases (s.stringOr("phase" "active"))
+        push currents cur
+        def b:ButtonCtl (UiKit.button(("rm-card-" + n) "" "ghost"))
+        def el:EVGElement (unwrap b.rootEl)
+        UiTree.clearChildren(el)
+        UiTree.addClass(el "rm-card")
+        if cur {
+            UiTree.addClass(el "rm-card-cur")
+        }
+        ; its 1px border outside the width
+        UiTree.inline(el "width" ((EVGDisplayList.num((cw - 2.0))) + "px"))
+        UiKit.put(host b parent)
+        ; the type's colour down the left edge, the rest beside it
+        def bar:EVGElement (UiKit.div("rm-cbar"))
+        UiTree.inline(bar "background-color" col)
+        el.addChild(bar)
+        def inner:EVGElement (UiKit.div("rm-cbody"))
+        UiTree.inline(inner "width" ((EVGDisplayList.num((cw - 30.0))) + "px"))
+        el.addChild(inner)
+
+        def top:EVGElement (UiKit.div("rm-ctop"))
+        def tp:ButtonCtl (UiKit.button(("rm-sty-" + n) (s.stringOr("typeLabel" "")) "ghost"))
+        def tpe:EVGElement (unwrap tp.rootEl)
+        UiTree.addClass(tpe "rm-pill")
+        UiTree.addClass(tpe "rm-pill-type")
+        UiTree.inline(tpe "border-color" col)
+        if ((tpe.getChildCount()) > 0) {
+            def tl:EVGElement (tpe.getChild(0))
+            UiTree.addClass(tl "rm-pill-label")
+            UiTree.inline(tl "color" col)
+        }
+        UiKit.put(host tp top)
+        top.addChild((UiKit.div("rm-grow")))
+        def pp:ButtonCtl (UiKit.button(("rm-stp-" + n) (s.stringOr("phaseLabel" "")) "ghost"))
+        def ppe:EVGElement (unwrap pp.rootEl)
+        UiTree.addClass(ppe "rm-pill")
+        UiTree.addClass(ppe "rm-pill-phase")
+        UiKit.labelClass(pp "rm-pill-label")
+        UiKit.put(host pp top)
+        inner.addChild(top)
+
+        inner.addChild((UiKit.words("rm-ctitle" (UiText.fit(eng name "Open Sans" 14.0 (cw - 34.0))))))
+        inner.addChild((UiKit.words("rm-cmeta" (s.stringOr("when" "")))))
+        def tags:VlJson (s.get("tags"))
+        if ((tags.count()) > 0) {
+            def tr:EVGElement (UiKit.div("rm-ctags"))
+            def k:int 0
+            while (k < (tags.count())) {
+                def tj:VlJson (tags.at(k))
+                tr.addChild((UiKit.words("rm-tag" (tj.asString()))))
+                k = (k + 1)
+            }
+            inner.addChild(tr)
+        }
+    }
+
+    ; the card a test id belongs to (its own, or one of its pills), -1 none
+    fn cardOf:int (tid:string prefix:string) {
+        if ((indexOf tid prefix) != 0) {
+            return -1
+        }
+        def i:int (?? (str2int (substring tid (strlen prefix) (strlen tid))) -1)
+        if ((i < 0) || (i >= (array_length ids))) {
+            return -1
+        }
+        return i
+    }
+
+    ; A press on `tid` at px, py (the page's), its rectangle `rect` (x,y,w,h
+    ; from the host): → true when it was the view's.
+    fn press:boolean (tid:string rect:string) {
+        if ((indexOf tid "rm-by-") == 0) {
+            by = (substring tid 6 (strlen tid))
+            push requests ("topic:by\t" + by)
+            return true
+        }
+        if ((indexOf tid "rm-sort-") == 0) {
+            sort = (substring tid 8 (strlen tid))
+            push requests ("topic:sort\t" + sort)
+            return true
+        }
+        if (tid == "rm-tnew") {
+            push requests "topic:new"
+            return true
+        }
+        def r:[string] (strsplit rect ",")
+        def x:string "0"
+        def y:string "0"
+        if ((array_length r) == 4) {
+            x = (itemAt r 0)
+            y = (EVGDisplayList.num(((?? (str2double (itemAt r 1)) 0.0) + (?? (str2double (itemAt r 3)) 0.0))))
+        }
+        def part:string ""
+        def i:int (this.cardOf(tid "rm-sty-"))
+        if (i >= 0) {
+            part = "type"
+        } {
+            i = (this.cardOf(tid "rm-stp-"))
+            if (i >= 0) {
+                part = "phase"
+            }
+        }
+        if (i >= 0) {
+            push requests ("topic:menu\t" + (itemAt ids i) + "\t" + part + "\t" + (itemAt types i) + "\t" + (itemAt phases i) + "\t" + x + "\t" + y + "\t" + (itemAt names i))
+            return true
+        }
+        i = (this.cardOf(tid "rm-card-"))
+        if (i >= 0) {
+            push requests ("topic:open\t" + (itemAt ids i))
+            return true
+        }
+        return false
+    }
+
+    ; A right click on a card: its context menu at px, py. → true when it
+    ; was over a card.
+    fn menuAt:boolean (tid:string px:double py:double) {
+        def i:int (this.cardOf(tid "rm-card-"))
+        if (i < 0) {
+            i = (this.cardOf(tid "rm-sty-"))
+        }
+        if (i < 0) {
+            i = (this.cardOf(tid "rm-stp-"))
+        }
+        if (i < 0) {
+            return false
+        }
+        push requests ("topic:ctx\t" + (itemAt ids i) + "\t" + (? (itemAt currents i) "1" "") + "\t" + (EVGDisplayList.num(px)) + "\t" + (EVGDisplayList.num(py)) + "\t" + (itemAt names i))
+        return true
+    }
+}

@@ -1,0 +1,52 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresStoryNames.rgr — a story's types and phases, and their names
+; ============================================================================
+; The same lists as web/stories.js (STORY_TYPES, STORY_PHASES) and
+; mcp-go/store/story.go: a story menu (PresToolbar) and Document settings
+; (PresChartEditor) offer them by these names, in the reader's language.
+; ============================================================================
+
+Import "PresI18n.rgr"
+
+class PresStoryNames {
+    ; i18n: "Review" "Problem" "Task" "Pitch" "Report" "Lesson" "Demo" "Decision" "Story"
+    ; i18n: "Draft" "Active" "In review" "Done" "Archived"
+    ; the story types and phases (web/stories.js STORY_TYPES, STORY_PHASES)
+    ; and their names
+    sfn types:[string] () {
+        return (strsplit "review,problem,task,pitch,report,lesson,demo,decision,story" ",")
+    }
+
+    sfn phases:[string] () {
+        return (strsplit "draft,active,review,done,archived" ",")
+    }
+
+    sfn typeName:string (ty:string) {
+        def names:[string] (strsplit "Review,Problem,Task,Pitch,Report,Lesson,Demo,Decision,Story" ",")
+        def all:[string] (PresStoryNames.types())
+        def i:int 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == ty) {
+                return (PresI18n.t((itemAt names i)))
+            }
+            i = (i + 1)
+        }
+        return ty
+    }
+
+    sfn phaseName:string (phase:string) {
+        def names:[string] (strsplit "Draft,Active,In review,Done,Archived" ",")
+        def all:[string] (PresStoryNames.phases())
+        def i:int 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == phase) {
+                return (PresI18n.t((itemAt names i)))
+            }
+            i = (i + 1)
+        }
+        return phase
+    }
+
+}

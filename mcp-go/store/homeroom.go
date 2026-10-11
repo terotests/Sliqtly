@@ -102,14 +102,18 @@ func (h *HomeRooms) Update(ctx context.Context, col, id string, fn UpdateFunc) (
 			if next["tenant"] == nil {
 				next["tenant"] = h.Tenant
 			}
+			// a new presentation is a draft of a story (store/story.go)
+			if cur == nil && next[StoryField] == nil {
+				next[StoryField] = map[string]any{"type": DefaultStoryType, "phase": NewStoryPhase, "tags": []any{}}
+			}
 			if next[RoomField] != nil {
 				return next, nil
 			}
 			if cur != nil && cur[RoomField] != nil {
-				// a writer that replaces the document keeps its room (and
-				// its folder there)
+				// a writer that replaces the document keeps its room (its
+				// folder there, and its story)
 				next[RoomField] = cur[RoomField]
-				for _, k := range []string{InheritField, FolderField} {
+				for _, k := range []string{InheritField, FolderField, StoryField} {
 					if v, ok := cur[k]; ok {
 						if _, set := next[k]; !set {
 							next[k] = v
