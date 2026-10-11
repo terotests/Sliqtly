@@ -949,7 +949,10 @@ class PresFlight3D {
             }
             if (rad < 0.025) {
                 this.hold(p (this.mesh((FlightGeo.ribbons(pts ends rad)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
-                this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                ; the theme's line art: no halo, its lines sum up as they cross
+                if (o.boolOr("art" false) == false) {
+                    this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                }
                 return
             }
             ; a thick line broken in pieces (a timeline past its numbers):

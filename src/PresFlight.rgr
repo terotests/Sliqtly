@@ -123,6 +123,8 @@ class FlightItem {
     def disc:boolean false
     ; words on a line of light: less glow, a dark plate behind them
     def soft:boolean false
+    ; the theme's line art behind the slide: dim, no halo
+    def art:boolean false
     ; that plate: still (it does not float as glass panes do)
     def plate:boolean false
     ; words whose own panel became their plate
@@ -227,6 +229,9 @@ class FlightItem {
         }
         if plate {
             o.setBool("plate" true)
+        }
+        if art {
+            o.setBool("art" true)
         }
         if (step > 0) {
             o.setInt("step" step)
@@ -1903,8 +1908,18 @@ class PresFlightScene {
             PresFlightScene.colour(sh ([] _:double (((to_double c.r) / 255.0) ((to_double c.g) / 255.0) ((to_double c.b) / 255.0))))
         }
         sh.op = 0.95
+        if (block == "ground") {
+            sh.op = (0.95 * (PresFlightScene.artDim()))
+            sh.art = true
+        }
         push sh.cmds k
         return sh
+    }
+
+    ; How bright the theme's line art behind a slide (waves, frames) is,
+    ; next to the slide's own lines: dim, so the slide stands out.
+    sfn artDim:double () {
+        return 0.3
     }
 
     ; The slide's points (x,y pairs) where the station's camera sees them
@@ -2109,6 +2124,10 @@ class PresFlightScene {
             ln.rad = 0.012
         }
         ln.op = ((? (hued || (block == "diagram")) 0.95 0.5) * (PresFlightScene.alphaOf(c)))
+        if (block == "ground") {
+            ln.op = (ln.op * (PresFlightScene.artDim()))
+            ln.art = true
+        }
         if ((block == "diagram") || ((block == "chart") && hued)) {
             ln.pulse = spark
             if (ln.rad < 0.03) {
