@@ -11,8 +11,10 @@
 // in), Space through the build steps (the sub times) and on, A plays it all.
 //
 // The same address can hold the presentation as a video (the editor's
-// Export ▸ Cloud video, a WebM): the browser's own player plays it, from
-// the bytes already read (no range requests to the server).
+// Export ▸ Cloud video, a WebM): the browser's own player plays it. A video
+// kept in Storage comes as a redirect there, and the player streams it in
+// pieces (Range) as it plays; one the server answers with (no Storage)
+// plays from the bytes already read.
 
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { registerDeckEffects, reducedMotion, holdStill } from "./fxdeck.js";
@@ -184,9 +186,10 @@ function fail(text) {
 function isWebm(b) {
   return b.length > 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
 }
-function showVideo(bytes) {
+function showVideo(src) {
   const v = document.getElementById("v");
-  v.src = URL.createObjectURL(new Blob([bytes], { type: "video/webm" }));
+  v.preload = "metadata";
+  v.src = src;
   canvas.hidden = true;
   note.hidden = true;
   v.hidden = false;
@@ -200,10 +203,11 @@ async function start() {
   if (!link) return fail(say("This address names no presentation.", "Tämä osoite ei ole esitys."));
   let rec;
   try {
-    const res = await fetch(recUrl(link));
+    const res = await fetch(recUrl(link), { redirect: "manual" });
+    if (res.type === "opaqueredirect") return showVideo(recUrl(link));
     if (!res.ok) throw new Error("HTTP " + res.status);
     const bytes = new Uint8Array(await res.arrayBuffer());
-    if (isWebm(bytes)) return showVideo(bytes);
+    if (isWebm(bytes)) return showVideo(URL.createObjectURL(new Blob([bytes], { type: "video/webm" })));
     rec = await unpackStream(bytes);
   } catch (e) {
     console.warn(e);
