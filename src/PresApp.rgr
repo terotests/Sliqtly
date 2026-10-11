@@ -3762,7 +3762,14 @@ class PresApp {
         if (selected != stageAt) {
             cameFrom = (stageAt + 1)
             stageAt = selected
+            deck.storyFrom = (this.stageTime())
         }
+        ; the presenter tells the lines whose steps are taken from here on
+        def st:double (this.stageTime())
+        if (st < deck.storyFrom) {
+            deck.storyFrom = st
+        }
+        deck.storySlide = selected
         def book:MdBook (deck.book())
         if (book.isBook()) {
             if (mode == "present") {

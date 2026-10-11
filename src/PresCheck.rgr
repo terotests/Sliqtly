@@ -3488,6 +3488,18 @@ class PresCheck {
     ; typed number) and where each lands
     ; The presenter's story (PresStory, PresPuppet): beats, kinds and poses,
     ; build steps, and stillness while a line is read.
+    ; Whether slide 0 of `deck` drawn at `t` has `word` in its bubble.
+    sfn saysIn:boolean (deck:PresDeck t:double word:string) {
+        def g:[int]
+        def dl:EVGDisplayList (deck.slideList(0 g t))
+        for dl.cmds c:EVGDrawCmd ci {
+            if ((c.kind == 3) && ((indexOf c.text word) >= 0)) {
+                return true
+            }
+        }
+        return false
+    }
+
     fn story:void () {
         def beats:[PresStoryBeat] (PresStory.parse("conformanceIssues() kertoo, kelpaako PDF painoon.\n- Paitsi RGB-tilassa. Siellä vastaus on aina nolla.\n\nNiinpä koodi bugaa tässä. {pose=aim}\nBut, luckily, the fix is small. {pose=wave}"))
         this.ok(((array_length beats) == 4) ("story: four beats, " + (to_string (array_length beats))))
@@ -3500,6 +3512,28 @@ class PresCheck {
         this.ok((((b2.kind == "so") && (b2.pose == "aim")) && (b2.text == "Niinpä koodi bugaa tässä.")) ("story: {pose=aim} read and removed: " + b2.text))
         this.ok(((b3.kind == "but") && (b3.pose == "chin")) "story: But, with its comma; an unknown pose keeps the kind's")
         this.ok(((PresStory.readSeconds(b2)) >= 2.4) "story: a short line still gets 2.4 s")
+        ; attributes wherever they stand, never in the bubble
+        def tb:[PresStoryBeat] (PresStory.parse("Niinpä koodi bugaa tässä {pose=aim}.\nSiellä vastaus on { pose = \"finger\" } nolla\n{pose=thumb}\nTästä syystä testi kaatuu.\nToisaalta korjaus on pieni.\nKerroin on nolla. {kind=but}\nFunktio {x} palauttaa nollan.\nKoodi bugaa \\{pose=aim\\}"))
+        this.ok(((array_length tb) == 7) ("story: an attributes-only line is no beat, " + (to_string (array_length tb))))
+        def t0:PresStoryBeat (itemAt tb 0)
+        this.ok(((t0.text == "Niinpä koodi bugaa tässä.") && (t0.pose == "aim")) ("story: {pose=aim} before the full stop: " + t0.text))
+        def t1:PresStoryBeat (itemAt tb 1)
+        this.ok(((t1.text == "Siellä vastaus on nolla") && (t1.pose == "thumb")) ("story: spaced, quoted, then the next line's {pose=thumb}: " + t1.text + " " + t1.pose))
+        def t2:PresStoryBeat (itemAt tb 2)
+        this.ok((((t2.kind == "so") && (t2.word == "Tästä syystä")) && (t2.pose == "open")) ("story: a following phrase, " + t2.word))
+        def t3:PresStoryBeat (itemAt tb 3)
+        this.ok(((t3.kind == "but") && (t3.word == "Toisaalta")) "story: a turning synonym")
+        def t4:PresStoryBeat (itemAt tb 4)
+        this.ok((((t4.kind == "but") && (t4.word == "Kerroin")) && (t4.text == "Kerroin on nolla.")) ("story: {kind=but} on any opening word, " + t4.word))
+        def t5:PresStoryBeat (itemAt tb 5)
+        this.ok(((t5.text == "Funktio {x} palauttaa nollan.") && (t5.kind == "setup")) ("story: braces that are not attributes stay: " + t5.text))
+        def t6:PresStoryBeat (itemAt tb 6)
+        this.ok(((t6.text == "Koodi bugaa") && (t6.pose == "aim")) ("story: an escaped group is read too: " + t6.text))
+        def so1:PresStoryBeat (itemAt (PresStory.parse("Something happened.")) 0)
+        this.ok(((so1.kind == "setup") && ((strlen so1.word) == 0)) "story: so- at a word's start is not so")
+        ; a beat written as the slide's own bullet
+        def lk:[string] (PresStory.leaked("## Löydös\n\n- Funktio kertoo, kelpaako PDF.\n- Mutta RGB-tilassa vastaus on nolla.\n1. Therefore the test fails.\n\n```js\nbut(x)\n```\n\n::: story\nMutta tämä on tarinassa.\n:::\n"))
+        this.ok(((array_length lk) == 2) ("story: two beats leaked into the slide's text, " + (join lk " | ")))
         ; the pose changes, then the bubble pops and nothing moves while it is read
         def m0:PresPuppetState (PresStory.stateAt(beats 2 0.3))
         this.ok(((m0.still == false) && (m0.chin > 0.0)) "story: moving into the new pose")
@@ -3526,6 +3560,23 @@ class PresCheck {
         def gap:double ((PresTimeline.stepTime(sl 4)) - (PresTimeline.stepTime(sl 3)))
         def sb0:PresStoryBeat (itemAt sl.story 0)
         this.ok(((gap + 0.001) >= (PresStory.beatSeconds(sb0))) ("story: playing, a line holds until read: " + (to_string gap)))
+        ; come to the slide at its end (back from the next one): at rest;
+        ; played from its start: the last line is out
+        def endT:double sl.duration
+        deck.storySlide = 0
+        deck.storyFrom = endT
+        this.ok(((PresCheck.saysIn(deck endT "kaksi")) == false) "story: a slide come back to has the presenter at rest, no conclusion")
+        deck.storyFrom = 0.0
+        this.ok((PresCheck.saysIn(deck endT "kaksi")) "story: played from its start, the last line is out")
+        deck.storyFrom = (PresTimeline.stepTime(sl 4))
+        this.ok((PresCheck.saysIn(deck endT "kaksi")) "story: stepped back to a line, that line is said again")
+        deck.storySlide = -1
+        deck.storyFrom = 0.0
+        ; a script's presenter where it ends, on the stage before its first frame: at rest
+        def rf:PresScriptFrame (PresScriptFrame.read("{\"p\":{},\"a\":[{\"id\":\"presenter-1\",\"k\":\"presenter\",\"w\":960,\"h\":540,\"story\":\"Yksi.\\nMutta kaksi.\",\"shown\":2,\"since\":9}]}"))
+        rf.presentersAtRest()
+        def ra:PresScriptAdd (itemAt rf.adds 0)
+        this.ok(((ra.shown == 0) && (ra.since == 0.0)) "story: a final frame's presenter at rest has no line out")
         ; the slide's text keeps out of the presenter's strip; a slide
         ; without a presenter is as wide as before
         def body:string "a paragraph long enough to run across the whole slide and onto a second line"

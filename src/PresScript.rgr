@@ -728,6 +728,16 @@ class PresScriptFrame {
         return ((array_length ids) + (array_length adds))
     }
 
+    ; its presenters before their first line: no bubble, the first pose
+    fn presentersAtRest:void () {
+        for adds ad:PresScriptAdd ai {
+            if (ad.kind == "presenter") {
+                ad.shown = 0
+                ad.since = 0.0
+            }
+        }
+    }
+
     fn propsOf@(optional):PresEntProps (id:string) {
         def i:int (indexOf ids id)
         if (i < 0) {
@@ -1709,6 +1719,9 @@ class PresScriptRun {
     ; where it ends (`final()`, or its ticks run to the end): thumbnails,
     ; the PDF, the stage before its first frame
     def final:PresScriptFrame (new PresScriptFrame())
+    ; …with its presenters at rest, no line out: the stage before the
+    ; script's first frame
+    def finalRest:PresScriptFrame (new PresScriptFrame())
     def hasFinal:boolean false
     ; …as the script gave it ({p, a, …})
     def finalJson:string ""
