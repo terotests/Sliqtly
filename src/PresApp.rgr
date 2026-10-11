@@ -41,6 +41,7 @@ Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
 Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
+Import "PresVideo.rgr"
 Import "PresExport.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
@@ -1642,10 +1643,7 @@ class PresApp {
                     k = (k + 1)
                 }
             } {
-                def hold:double (start + s.duration)
-                if (pStep < s.steps) {
-                    hold = (start + (PresTimeline.stepTime(s (pStep + 1))))
-                }
+                def hold:double (PresTimeline.holdAt(deck selected pStep))
                 if (want > hold) {
                     want = hold
                 }
@@ -2442,16 +2440,7 @@ class PresApp {
     ; How wide the last line being written is, in the hand-written face as
     ; the slides measure it; -1 until the face is here.
     fn inkCaretW:double (k:PresInk) {
-        if (((k.typing == false) || ((array_length k.strokes) == 0)) || ((deck.md.fontManager.hasFont((PresInk.FACE()))) == false)) {
-            return -1.0
-        }
-        def s:PresInkStroke (itemAt k.strokes ((array_length k.strokes) - 1))
-        def lines:[string] (strsplit s.text "\n")
-        def last:string ""
-        if ((array_length lines) > 0) {
-            last = (itemAt lines ((array_length lines) - 1))
-        }
-        return (deck.md.fontManager.measureText(last (PresInk.FACE()) (PresInk.textSize(s))))
+        return (PresVideo.inkCaretW(deck k))
     }
 
     fn inkJson:string () {
@@ -3998,6 +3987,36 @@ class PresApp {
         def i:int (PresTimeline.slideAtTime(deck t))
         def local:double (t - (PresTimeline.slideStart(deck i)))
         return (this.listJson((PresTimeline.frame(deck i local))))
+    }
+
+    ; --- a video (PresVideo) ---------------------------------------------------
+    ; The host walks the frames 0 .. frames-1 and rasterises each list; the
+    ; app keeps no clock for it and the stage is left as it was.
+    def video:PresVideoTimeline (new PresVideoTimeline())
+    def videoReplay:PresReplay (new PresReplay())
+
+    ; A video begins: from the recording when asked for and there is one,
+    ; else the deck played on its own. The timeline's JSON (PresVideoTimeline).
+    fn videoBegin:string (options:string fromRecording:boolean) {
+        this.settleAll()
+        def o:PresVideoOptions (PresVideoOptions.parse(options))
+        if (fromRecording && (this.hasRecording())) {
+            video = (PresVideoTimeline.ofRecording(deck take o))
+            videoReplay = (new PresReplay())
+            videoReplay.load(take)
+        } {
+            video = (PresVideoTimeline.ofDeck(deck o))
+        }
+        return (video.toJson())
+    }
+
+    ; Frame n of it: the slide's list as listJson gives it, with the slide
+    ; and its effects' clock ("fx").
+    fn videoFrameJson:string (n:int) {
+        this.settleAll()
+        def a:PresVideoAt (video.at(deck n))
+        def l:EVGDisplayList (PresVideo.frame(deck video n videoReplay))
+        return ("{\"width\":" + (EVGDisplayList.num(deck.pageW)) + ",\"height\":" + (EVGDisplayList.num(deck.pageH)) + ",\"slide\":" + (to_string a.slide) + ",\"fx\":" + (EVGDisplayList.num(a.fxTime)) + ",\"list\":" + (l.toJson()) + "}")
     }
 
     ; =========================================================================

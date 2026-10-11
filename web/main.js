@@ -48,6 +48,7 @@ import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
+import { createVideoFrames } from "./videoexport.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
@@ -5194,6 +5195,19 @@ async function renderFxStills() {
   if (lose) lose.loseContext();
 }
 window.__renderFxStills = renderFxStills;
+
+// A video's frames (web/videoexport.js, src/PresVideo.rgr): the slides at
+// frame n / fps, drawn by the stage's painter. scripts/video.mjs encodes
+// them; the page has no button for it yet.
+window.__video = createVideoFrames({
+  app,
+  prepareDisplayList,
+  images: pictures,
+  timed: (doc, t) => {
+    syncDeckEffects();
+    return withTime(doc, t);
+  },
+});
 
 // The faces a diagram look draws with ({style=cartoon}, …): fetched the first
 // time a deck asks for one (app.wantedFaces), not with every page. Until a
