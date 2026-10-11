@@ -29,7 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, ensureCerxes, compile, root, webDir, log } from "./lib.mjs";
-import { copyFaces, facesStamp, minify, buildThree, buildScriptSel } from "./build.mjs";
+import { copyFaces, facesStamp, minify, buildThree, buildScriptSel, markParts } from "./build.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
 export const viewDir = path.join(webDir, "dist-view");
@@ -88,6 +88,7 @@ export function buildView({ ranger } = {}) {
     }
   }
 
+  markParts(viewDir, ["pres_3d.js", "pres_play.js"]);
   // the build's stamp on the page's script and every module import, as in
   // build.mjs: a reload never mixes an old module with a new one
   const h = crypto.createHash("sha1");

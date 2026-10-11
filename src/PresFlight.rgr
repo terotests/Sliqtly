@@ -117,6 +117,10 @@ class FlightItem {
     def ends:[int]
     def fill:double 0.0
     def brackets:boolean false
+    ; a band of light with no frame (a marked code line)
+    def band:boolean false
+    ; the slide block it was made of (-1: none)
+    def top:int -1
     def pulse:boolean false
     def src:string ""
     def a0:double 0.0
@@ -199,6 +203,9 @@ class FlightItem {
         }
         if brackets {
             o.setBool("br" true)
+        }
+        if band {
+            o.setBool("band" true)
         }
         if pulse {
             o.setBool("pulse" true)
@@ -336,6 +343,9 @@ class PresFlightScene {
     def curPH:double 540.0
     def curEnt:string ""
     def curOrder:int 0
+    ; shapes of the slide so far: each a hair in front of the one before,
+    ; as the slide paints them
+    def shapesHere:int 0
     def firstItem:int 0
 
     ; how far apart the stations are along the path
@@ -515,6 +525,13 @@ class PresFlightScene {
 
     ; The colour a thing of the slide glows in: its own hue, else the
     ; hologram's (`deflt`).
+    ; A soft dark copy under a shape (its drop shadow): light has no
+    ; shadow, so the hologram leaves it out.
+    sfn isShadow:boolean (c:EVGDrawCmd) {
+        def mx:double ((PresFlightScene.max3((to_double c.r) (to_double c.g) (to_double c.b))) / 255.0)
+        return ((mx < 0.08) && (c.a < 0.5))
+    }
+
     sfn glow:[double] (c:EVGDrawCmd deflt:[double]) {
         if (PresFlightScene.hued(c)) {
             return (PresFlightScene.neon(c))
@@ -789,6 +806,7 @@ class PresFlightScene {
         }
         def made:int (array_length items)
         firstItem = made
+        shapesHere = 0
         k = 0
         while (k < nCmd) {
             def c:EVGDrawCmd (itemAt cmds k)
@@ -840,7 +858,7 @@ class PresFlightScene {
                     pi.order = order
                     pi.ent = ent
                 }
-                if (c.kind == 6) {
+                if ((c.kind == 6) && ((PresFlightScene.isShadow(c)) == false)) {
                     def si:FlightItem (this.addPath(st c k block (itemAt pies top) dz))
                     si.order = order
                     si.ent = ent
@@ -883,6 +901,7 @@ class PresFlightScene {
             }
             e = (e + 1)
         }
+        this.dimUnmarked(made)
         ; everything in its place in the world
         def m:int made
         while (m < (array_length items)) {
@@ -1031,6 +1050,7 @@ class PresFlightScene {
             it.rot = c.rotate
             it.order = order
             it.ent = ent
+            it.top = top
             set lineOf top ((array_length items) - 1)
         }
         def ru:FlightRun (new FlightRun())
@@ -1050,9 +1070,14 @@ class PresFlightScene {
             deflt = (PresFlightScene.white())
         }
         def rgb:[double] (PresFlightScene.glow(c deflt))
-        ru.r = (itemAt rgb 0)
-        ru.g = (itemAt rgb 1)
-        ru.b = (itemAt rgb 2)
+        ; faded words (code lines out of focus) give less light
+        def lit:double (PresFlightScene.alphaOf(c))
+        if (lit < 0.35) {
+            lit = 0.35
+        }
+        ru.r = ((itemAt rgb 0) * lit)
+        ru.g = ((itemAt rgb 1) * lit)
+        ru.b = ((itemAt rgb 2) * lit)
         push it.runs ru
         push it.cmds k
         it.grow(bx)
@@ -1133,7 +1158,13 @@ class PresFlightScene {
         pn.op = ((? (PresFlightScene.hued(c)) 0.95 0.7) * (PresFlightScene.alphaOf(c)))
         pn.peak = c.a
         ; a card, a node, a plate: brackets at its corners (not a table's cells)
-        pn.brackets = (((w >= 60.0) && (h >= 30.0)) && ((block != "table") && ((block != "chart") && (block != "html"))))
+        pn.brackets = (((w >= 60.0) && (h >= 30.0)) && ((block != "table") && ((block != "chart") && ((block != "html") && (block != "code")))))
+        ; a marked line of code: a band of light behind its words
+        if (((block == "code") && (c.kind == 0)) && ((h < 60.0) && (w > (h * 4.0)))) {
+            pn.band = true
+            pn.top = top
+            pn.fill = (0.1 + (0.3 * c.a))
+        }
         push pn.cmds k
         return pn
     }
@@ -1279,13 +1310,16 @@ class PresFlightScene {
         if (block == "ground") {
             lift = 0.08
         }
+        lift = (lift + ((to_double shapesHere) * 0.002))
+        shapesHere = (shapesHere + 1)
         this.placePts(st sh c.pts lift)
         def j:int 0
         while (j < (array_length c.ringEnds)) {
             push sh.ends (idiv (itemAt c.ringEnds j) 2)
             j = (j + 1)
         }
-        sh.fill = (? (PresFlightScene.hued(c)) 0.22 0.1)
+        ; a coloured shape (a figure's face, hood, hair) is coloured glass
+        sh.fill = (? (PresFlightScene.hued(c)) 0.4 0.1)
         ; a small solid mark (an arrow's head, a bullet) glows whole
         if (big <= 22.0) {
             sh.fill = 0.85
@@ -1399,6 +1433,39 @@ class PresFlightScene {
     }
 
     ; Two thin whole rings round a pie that turn slowly, one each way.
+    ; A code block with marked lines: the words of its other lines give
+    ; less light, as the slide fades them, so the marked ones stand out.
+    fn dimUnmarked:void (made:int) {
+        def i:int made
+        while (i < (array_length items)) {
+            def t:FlightItem (itemAt items i)
+            if ((t.kind == "text") && (t.top >= 0)) {
+                def cy:double (t.sy + (t.sh * 0.5))
+                def banded:boolean false
+                def marked:boolean false
+                def j:int made
+                while (j < (array_length items)) {
+                    def b:FlightItem (itemAt items j)
+                    if (b.band && (b.top == t.top)) {
+                        banded = true
+                        if ((cy >= b.sy) && (cy <= (b.sy + b.sh))) {
+                            marked = true
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (banded && (marked == false)) {
+                    for t.runs ru:FlightRun n {
+                        ru.r = (ru.r * 0.45)
+                        ru.g = (ru.g * 0.45)
+                        ru.b = (ru.b * 0.45)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn addHalo:void (st:FlightStation pie:FlightPie dz:double pw:double) {
         def u:double (this.unitAt(st pw dz))
         def k:int 0

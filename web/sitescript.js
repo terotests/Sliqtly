@@ -26,14 +26,37 @@ function besidePage(name) {
   return "./" + name + (build && !build.startsWith("__") ? "?v=" + build : "");
 }
 
+// The hash each on-demand script of this build carries (filled in by
+// scripts/build.mjs markParts; the placeholder when run from the sources).
+const PARTS = "__PARTS__";
+
+// After a deploy the host serves only the new files, whatever ?v= a page
+// asks with: a page open since an older build gets a script made for other
+// modules. Its mark says so, and the page asks to be reloaded.
+function sameBuild(name) {
+  const want = typeof PARTS === "object" ? PARTS[name] : "";
+  const got = globalThis.__sliqtlyParts && globalThis.__sliqtlyParts[name];
+  return !want || !got || want === got;
+}
+
 // A classic script beside the modules, run once its promise resolves.
 export function loadScript(name) {
   const src = besideUs(name) || besidePage(name);
-  if (globalThis.__sliqtlyLoadScript) return globalThis.__sliqtlyLoadScript(src);
+  const checked = () => {
+    if (!sameBuild(name)) throw new Error("Sliqtly was updated: reload the page");
+  };
+  if (globalThis.__sliqtlyLoadScript) return globalThis.__sliqtlyLoadScript(src).then(checked);
   return new Promise((ok, bad) => {
     const s = document.createElement("script");
     s.src = src;
-    s.onload = ok;
+    s.onload = () => {
+      try {
+        checked();
+        ok();
+      } catch (e) {
+        bad(e);
+      }
+    };
     s.onerror = () => bad(new Error("could not load " + name));
     document.head.appendChild(s);
   });
