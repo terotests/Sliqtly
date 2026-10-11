@@ -119,6 +119,8 @@ class FlightItem {
     def brackets:boolean false
     ; a band of light with no frame (a marked code line)
     def band:boolean false
+    ; a circle, as the slide draws it (a box rounded all the way)
+    def disc:boolean false
     ; the slide block it was made of (-1: none)
     def top:int -1
     def pulse:boolean false
@@ -206,6 +208,9 @@ class FlightItem {
         }
         if band {
             o.setBool("band" true)
+        }
+        if disc {
+            o.setBool("disc" true)
         }
         if pulse {
             o.setBool("pulse" true)
@@ -908,6 +913,151 @@ class PresFlightScene {
             this.place(st (itemAt items m) pw ph)
             m = (m + 1)
         }
+        this.breakAtDiscs(made)
+    }
+
+    ; A line of the block that runs through its circles (a timeline through
+    ; its numbers) stops short of each and goes on past it.
+    fn breakAtDiscs:void (made:int) {
+        def i:int made
+        while (i < (array_length items)) {
+            def ln:FlightItem (itemAt items i)
+            if ((ln.kind == "line") && ((array_length ln.pts) >= 6)) {
+                def cs:[double]
+                def j:int made
+                while (j < (array_length items)) {
+                    def d:FlightItem (itemAt items j)
+                    if (d.disc && (d.ent == ln.ent)) {
+                        push cs d.x
+                        push cs d.y
+                        push cs d.z
+                        push cs (((? (d.w > d.h) d.w d.h) * 0.5) + 0.08)
+                    }
+                    j = (j + 1)
+                }
+                if ((array_length cs) > 0) {
+                    def cut:[double] (PresFlightScene.cutPts(ln.pts ln.ends cs))
+                    def pts:[double]
+                    def ends:[int]
+                    def n:int (idiv (array_length cut) 4)
+                    def q:int 0
+                    while (q < n) {
+                        if (((itemAt cut ((q * 4) + 3)) > 0.5) && ((array_length pts) > 0)) {
+                            push ends (idiv (array_length pts) 3)
+                        }
+                        push pts (itemAt cut (q * 4))
+                        push pts (itemAt cut ((q * 4) + 1))
+                        push pts (itemAt cut ((q * 4) + 2))
+                        q = (q + 1)
+                    }
+                    if ((array_length pts) > 0) {
+                        push ends (idiv (array_length pts) 3)
+                    }
+                    ln.pts = pts
+                    ln.ends = ends
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Polylines (x,y,z points, `ends` where each ends) less what lies inside
+    ; the spheres `cs` (x,y,z,r each): the points that are left as
+    ; x,y,z,starts, starts 1 where a new line begins.
+    sfn cutPts:[double] (pts:[double] ends:[int] cs:[double]) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 3)
+        def from:int 0
+        for ends to0:int e {
+            def to:int (? (to0 > n) n to0)
+            def open:boolean false
+            def j:int (from + 1)
+            while (j < to) {
+                def ax:double (itemAt pts ((j - 1) * 3))
+                def ay:double (itemAt pts (((j - 1) * 3) + 1))
+                def az:double (itemAt pts (((j - 1) * 3) + 2))
+                def dx:double ((itemAt pts (j * 3)) - ax)
+                def dy:double ((itemAt pts ((j * 3) + 1)) - ay)
+                def dz:double ((itemAt pts ((j * 3) + 2)) - az)
+                ; the pieces of t in 0..1 inside a sphere, in turn
+                def ins:[double]
+                def aa:double (((dx * dx) + (dy * dy)) + (dz * dz))
+                def c:int 0
+                while ((aa > 0.0) && ((c + 3) < (array_length cs))) {
+                    def fx:double (ax - (itemAt cs c))
+                    def fy:double (ay - (itemAt cs (c + 1)))
+                    def fz:double (az - (itemAt cs (c + 2)))
+                    def rr:double (itemAt cs (c + 3))
+                    def bb:double (2.0 * (((fx * dx) + (fy * dy)) + (fz * dz)))
+                    def cc:double ((((fx * fx) + (fy * fy)) + (fz * fz)) - (rr * rr))
+                    def disc:double ((bb * bb) - ((4.0 * aa) * cc))
+                    if (disc > 0.0) {
+                        def sq:double (sqrt(disc))
+                        def t0:double (((0.0 - bb) - sq) / (2.0 * aa))
+                        def t1:double (((0.0 - bb) + sq) / (2.0 * aa))
+                        if ((t1 > 0.0) && (t0 < 1.0)) {
+                            push ins (? (t0 < 0.0) 0.0 t0)
+                            push ins (? (t1 > 1.0) 1.0 t1)
+                        }
+                    }
+                    c = (c + 4)
+                }
+                PresFlightScene.sortPairs(ins)
+                ; walk the segment: light between the pieces inside
+                def t:double 0.0
+                def p:int 0
+                while (p <= (array_length ins)) {
+                    def stop:double (? (p < (array_length ins)) (itemAt ins p) 1.0)
+                    if (stop > (t + 0.0001)) {
+                        if (open == false) {
+                            push out (ax + (dx * t))
+                            push out (ay + (dy * t))
+                            push out (az + (dz * t))
+                            push out 1.0
+                        }
+                        push out (ax + (dx * stop))
+                        push out (ay + (dy * stop))
+                        push out (az + (dz * stop))
+                        push out 0.0
+                        open = true
+                    }
+                    if (p < (array_length ins)) {
+                        def past:double (itemAt ins (p + 1))
+                        if (past > t) {
+                            t = past
+                        }
+                        if (stop < 1.0) {
+                            open = false
+                        }
+                    }
+                    if (t < stop) {
+                        t = stop
+                    }
+                    p = (p + 2)
+                }
+                j = (j + 1)
+            }
+            from = to
+        }
+        return out
+    }
+
+    ; Pairs (start, end) sorted by their start.
+    sfn sortPairs:void (v:[double]) {
+        def i:int 2
+        while (i < (array_length v)) {
+            def j:int i
+            while ((j >= 2) && ((itemAt v (j - 2)) > (itemAt v j))) {
+                def a:double (itemAt v (j - 2))
+                def b:double (itemAt v (j - 1))
+                set v (j - 2) (itemAt v j)
+                set v (j - 1) (itemAt v (j + 1))
+                set v j a
+                set v (j + 1) b
+                j = (j - 2)
+            }
+            i = (i + 2)
+        }
     }
 
     ; An item made of the slide's rectangle (sx sy sw sh at dz) put where
@@ -1103,6 +1253,14 @@ class PresFlightScene {
             push gr.cmds k
             return gr
         }
+        ; the theme's own marks at the slide's edge (a strip, a tab, a bar):
+        ; light along the screen's edge they stand on, not panes at its rim
+        if ((top == 0) && (c.kind == 0)) {
+            def side:int (PresFlightScene.edgeOf(bx pw ph))
+            if (side >= 0) {
+                return (this.addEdgeMark(st c k bx side pw ph))
+            }
+        }
         def host:int (this.hostOf(c.kind bx))
         if (host >= 0) {
             return (this.attach(host k c))
@@ -1165,8 +1323,112 @@ class PresFlightScene {
             pn.top = top
             pn.fill = (0.1 + (0.3 * c.a))
         }
+        ; a box rounded all the way is a circle: a numbered dot on a timeline
+        if (PresFlightScene.isDisc(c)) {
+            pn.disc = true
+            pn.brackets = false
+            pn.top = top
+            pn.fill = (? (PresFlightScene.hued(c)) 0.35 0.12)
+        }
         push pn.cmds k
         return pn
+    }
+
+    ; The edge of the slide (0 top, 1 right, 2 bottom, 3 left) a box x,y,w,h
+    ; stands on along most of its side: -1 for none.
+    sfn edgeOf:int (bx:[double] pw:double ph:double) {
+        def x:double (itemAt bx 0)
+        def y:double (itemAt bx 1)
+        def w:double (itemAt bx 2)
+        def h:double (itemAt bx 3)
+        def best:int -1
+        def most:double 0.0
+        def near:double 2.0
+        if ((y <= near) && (w > most)) {
+            best = 0
+            most = w
+        }
+        if (((x + w) >= (pw - near)) && (h > most)) {
+            best = 1
+            most = h
+        }
+        if (((y + h) >= (ph - near)) && (w > most)) {
+            best = 2
+            most = w
+        }
+        if ((x <= near) && (h > most)) {
+            best = 3
+            most = h
+        }
+        return best
+    }
+
+    ; A mark of the theme on the slide's edge `side`: a line of its colour
+    ; along that edge as far as it reaches, dim as the mark is dark.
+    fn addEdgeMark:FlightItem (st:FlightStation c:EVGDrawCmd k:int bx:[double] side:int pw:double ph:double) {
+        def x:double (itemAt bx 0)
+        def y:double (itemAt bx 1)
+        def w:double (itemAt bx 2)
+        def h:double (itemAt bx 3)
+        def ln:FlightItem (this.item("line" st.index))
+        PresFlightScene.colour(ln (PresFlightScene.glow(c (PresFlightScene.cyan()))))
+        def x0:double (? (side == 3) 0.0 (? (side == 1) pw x))
+        def x1:double (? (side == 3) 0.0 (? (side == 1) pw (x + w)))
+        def y0:double (? (side == 0) 0.0 (? (side == 2) ph y))
+        def y1:double (? (side == 0) 0.0 (? (side == 2) ph (y + h)))
+        def dz:double 0.05
+        PresFlightScene.pushAll(ln.pts (this.placePoint(st x0 y0 pw ph dz)))
+        PresFlightScene.pushAll(ln.pts (this.placePoint(st x1 y1 pw ph dz)))
+        push ln.ends 2
+        ln.rad = 0.03
+        def lum:double ((PresFlightScene.max3((to_double c.r) (to_double c.g) (to_double c.b))) / 255.0)
+        def lit:double (lum * 1.5)
+        if (lit > 1.0) {
+            lit = 1.0
+        }
+        ln.op = ((0.9 * lit) * (PresFlightScene.alphaOf(c)))
+        ln.grow(bx)
+        push ln.cmds k
+        return ln
+    }
+
+    ; Whether points (x,y pairs) are only the corners of their bounds bx: a
+    ; plain box drawn as a path.
+    sfn isBox:boolean (pts:[double] bx:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        if ((n < 4) || (n > 5)) {
+            return false
+        }
+        def x0:double (itemAt bx 0)
+        def y0:double (itemAt bx 1)
+        def x1:double (x0 + (itemAt bx 2))
+        def y1:double (y0 + (itemAt bx 3))
+        def j:int 0
+        while (j < n) {
+            def x:double (itemAt pts (j * 2))
+            def y:double (itemAt pts ((j * 2) + 1))
+            def onX:boolean (((fabs (x - x0)) < 0.5) || ((fabs (x - x1)) < 0.5))
+            def onY:boolean (((fabs (y - y0)) < 0.5) || ((fabs (y - y1)) < 0.5))
+            if ((onX == false) || (onY == false)) {
+                return false
+            }
+            j = (j + 1)
+        }
+        return true
+    }
+
+    ; A box the slide draws as a circle: square, its corners rounded to
+    ; half its side.
+    sfn isDisc:boolean (c:EVGDrawCmd) {
+        if ((c.kind != 0) && (c.kind != 1)) {
+            return false
+        }
+        if (((c.w <= 0.0) || (c.h <= 0.0)) || c.perCorner) {
+            return false
+        }
+        def lo:double (? (c.w < c.h) c.w c.h)
+        def hi:double (? (c.w < c.h) c.h c.w)
+        return ((hi <= (lo * 1.1)) && (c.radius >= (lo * 0.45)))
     }
 
     fn addPicture:FlightItem (st:FlightStation c:EVGDrawCmd k:int top:int dz:double) {
@@ -1290,6 +1552,13 @@ class PresFlightScene {
         def h:double (itemAt bx 3)
         if (pie.is && ((w > 40.0) || (h > 40.0))) {
             return (this.addSlice(st c k pie dz))
+        }
+        ; the theme's box at the slide's edge: light along that edge
+        if ((block == "ground") && (PresFlightScene.isBox(c.pts bx))) {
+            def side:int (PresFlightScene.edgeOf(bx curPW curPH))
+            if (side >= 0) {
+                return (this.addEdgeMark(st c k bx side curPW curPH))
+            }
         }
         def big:double (? (w > h) w h)
         if (((block == "chart") && (big <= 24.0)) && ((fabs (w - h)) <= ((big * 0.25) + 0.5))) {
