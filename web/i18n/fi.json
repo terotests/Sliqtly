@@ -681,6 +681,8 @@
   "A video is already being made.": "Videota tehdään jo.",
   "Making the video…": "Tehdään videota…",
   "The video is ready.": "Video on valmis.",
+  "Cloud video (.webm)": "Pilvivideo (.webm)",
+  "The presentation as a video, played by the browser's own player. A new export gets a new link.": "Esitys videona, jonka selaimen oma soitin toistaa. Uusi vienti saa uuden linkin.",
   "Photo": "Valokuva",
   "Pick at least one column of numbers.": "Valitse vähintään yksi numerosarake.",
   "Pick the columns; Sliqtly suggests the chart type.": "Valitse sarakkeet, Sliqtly ehdottaa kaaviotyypin.",

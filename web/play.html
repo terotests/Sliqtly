@@ -3,7 +3,8 @@
 <!-- The light player at /r/{id}/{hash} (firebase.json): a presentation
      exported to the cloud as recorded (the editor's Export ▸ Cloud HTML).
      play.js reads the recording and paints its frames; no layout, no
-     engine, only the faces the slides use (scripts/build-view.mjs). -->
+     engine, only the faces the slides use (scripts/build-view.mjs). A
+     presentation exported as a video (Export ▸ Cloud video) plays in #v. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -21,6 +22,8 @@
   #note { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px;
     color: #d4d4d8; font: 16px/1.5 system-ui, sans-serif; text-align: center; }
   #note[hidden] { display: none; }
+  #v { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; }
+  #v[hidden] { display: none; }
   #bar { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; transition: opacity .4s; }
   #bar[hidden] { display: none; }
   body.idle #bar { opacity: 0; pointer-events: none; }
@@ -31,6 +34,7 @@
 </head>
 <body>
 <canvas id="c" aria-label="Presentation"></canvas>
+<video id="v" controls playsinline hidden></video>
 <div id="note" role="status">…</div>
 <div id="bar" aria-label="Presentation controls" hidden>
   <button id="pPrev" title="Previous slide (←)">◀</button>

@@ -439,7 +439,10 @@ bytes must be equal) and has FFmpeg decode it to the encoder's own pictures.
 
 In the editor, File → Export → Video (.webm) makes the same video in the
 page: 1920x1080 at 30 frames a second, coded by `vp8enc.js` in a worker
-(`web/video-worker.js`), saved as a file.
+(`web/video-worker.js`), saved as a file. Export → Cloud video keeps it
+with the deck as `recordings/web-<hash>.webm` and links
+`/r/{viewing link}/{hash}`, where the page (`web/play.js`) hands it to the
+browser's own video player instead of painting a recording.
 
 `--size=1920x1080`, `--fps=30`, `--codec=vp9|av1|vp8`, `--quality=0..63` (crf; vp8: quantizer index),
 `--pix=yuv420p|yuv444p`, `--frames=N` (the first N), `--raw=FILE` (the RGBA

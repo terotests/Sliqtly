@@ -333,8 +333,8 @@ export async function streamHash(bytes) {
 }
 
 /** The deck file a recording is kept in. */
-export function streamPath(hash) {
-  return "recordings/web-" + hash + ".sliqrec";
+export function streamPath(hash, ext = ".sliqrec") {
+  return "recordings/web-" + hash + ext;
 }
 
 export const STREAM_TYPE = "application/vnd.sliqtly.rec+gzip";

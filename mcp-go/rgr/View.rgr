@@ -436,9 +436,10 @@ class ViewPictures {
     }
 
     ; The deck recorded for the web (web/recstream.js, the editor's Export ▸
-    ; Recorded presentation): its file recordings/web-<hash>.sliqrec as it
-    ; is, gzipped JSON the page reads. Its name is its bytes' hash, so the
-    ; answer never changes; only a deck anyone with the link sees.
+    ; Cloud HTML): its file recordings/web-<hash>.sliqrec as it is, gzipped
+    ; JSON the page reads; or the deck as a video (Export ▸ Cloud video),
+    ; recordings/web-<hash>.webm. Its name is its bytes' hash, so the answer
+    ; never changes; only a deck anyone with the link sees.
     sfn recording:ViewPic (host:McpHost id:string hash:string) {
         def out (new ViewPic)
         if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
@@ -457,14 +458,16 @@ class ViewPictures {
         if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
             return out
         }
-        def path:string ("recordings/web-" + hash + ".sliqrec")
-        def found:boolean false
+        def rec:string ("recordings/web-" + hash + ".sliqrec")
+        def video:string ("recordings/web-" + hash + ".webm")
+        def path:string ""
         for (doc.list("files")) f:MfJ fi {
-            if ((f.str_("path")) == path) {
-                found = true
+            def fp:string (f.str_("path"))
+            if ((fp == rec) || (fp == video)) {
+                path = fp
             }
         }
-        if (found == false) {
+        if ((strlen path) == 0) {
             return out
         }
         def got:MfJ (J.parse((host_file_bytes host sh.id path)))
@@ -476,6 +479,9 @@ class ViewPictures {
         out.status = 200
         out.bytes = (host_image_bytes host (got.int_("handle" 0)))
         out.type = "application/octet-stream"
+        if (path == video) {
+            out.type = "video/webm"
+        }
         return out
     }
 }
