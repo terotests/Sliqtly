@@ -1,7 +1,7 @@
 // node --test: the light player's address and keys (web/playlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { playLinkOf, playUrl, recUrl, recActionForKey } from "../playlink.js";
+import { playLinkOf, playUrl, recUrl, recActionForKey, slideOfHash } from "../playlink.js";
 
 test("/r/{id}/{hash} names a deck's recording", () => {
   const l = playLinkOf("/r/AbCdEf1234/0123456789abcdef01234567");
@@ -21,4 +21,10 @@ test("keys: Space the steps, arrows the slides, A plays it all", () => {
   assert.equal(recActionForKey("End"), "last");
   assert.equal(recActionForKey("a"), "auto");
   assert.equal(recActionForKey("x"), "");
+});
+
+test("#slide=N opens slide N", () => {
+  assert.equal(slideOfHash("#slide=8"), 7);
+  assert.equal(slideOfHash(""), 0);
+  assert.equal(slideOfHash("#slide=x"), 0);
 });
