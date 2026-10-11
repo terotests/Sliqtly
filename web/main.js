@@ -5650,7 +5650,15 @@ async function recordedPictures(cmds) {
   }
   return out;
 }
+// A server of one's own publishes nothing to sliqtly.com: its Export has no
+// Cloud rows (PresApp.setCloud), and a click from elsewhere is said no to.
+function noCloudHere() {
+  if (!window.sliqtly?.local) return false;
+  toast(t("This server does not publish to the cloud. Export a web page, a player or a video to a file instead."));
+  return true;
+}
 async function exportRecWeb() {
+  if (noCloudHere()) return;
   const p = window.sliqtly;
   if (!p?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
@@ -5664,6 +5672,7 @@ async function exportRecWeb() {
 // kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
 // browser's own player plays it.
 async function exportCloudVideo() {
+  if (noCloudHere()) return;
   if (!window.sliqtly?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
@@ -9324,8 +9333,11 @@ async function start() {
   if (!viewer) applySkin();
   reviewMe();
   applyReviewMode();
-  // a server of one's own is known once its window.sliqtly is there
-  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); });
+  // a server of one's own is known once its window.sliqtly is there; it
+  // publishes nothing to sliqtly.com (Export ▸ Cloud HTML, Cloud video)
+  const cloudOrNot = () => { if (window.sliqtly) app.setCloud(!window.sliqtly.local); needsPaint = true; };
+  cloudOrNot();
+  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); cloudOrNot(); });
   window.addEventListener("sliqtly:user", () => reviewMe());
   app.setCoarse(isCoarse());
   app.setMac(IS_MAC);

@@ -682,6 +682,7 @@
   "Making the video…": "Tehdään videota…",
   "The video is ready.": "Video on valmis.",
   "Cloud video (.webm)": "Pilvivideo (.webm)",
+  "This server does not publish to the cloud. Export a web page, a player or a video to a file instead.": "Tämä palvelin ei julkaise pilveen. Vie sen sijaan verkkosivu, soitin tai video tiedostoon.",
   "The presentation as a video, played by the browser's own player. A new export gets a new link.": "Esitys videona, jonka selaimen oma soitin toistaa. Uusi vienti saa uuden linkin.",
   "Photo": "Valokuva",
   "Pick at least one column of numbers.": "Valitse vähintään yksi numerosarake.",

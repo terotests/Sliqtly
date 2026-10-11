@@ -87,6 +87,9 @@ class PresToolbar {
     def portrait:boolean false
     ; slides picked on the strip: Export and the strip's menu offer them
     def picked:int 0
+    ; the page can publish to sliqtly.com (Export ▸ Cloud HTML, Cloud
+    ; video); not on a server of one's own, nor in the desktop editor
+    def cloud:boolean true
     ; The filmstrip's context menu (PresApp.openSlideMenu): open, where it
     ; was asked for, and which of its rows can act on the slide.
     def ctxOpen:boolean false
@@ -518,7 +521,7 @@ class PresToolbar {
 
     ; Export's file formats, as "value<TAB>label" rows ("" a separator): the
     ; Markdown, PowerPoint, Word, a web page, a player that plays the deck
-    ; from one file, a light page in the cloud that plays the deck as recorded, the deck as a video there, PDF, a video, a zip of every file, and with slides picked the
+    ; from one file, a light page in the cloud that plays the deck as recorded, the deck as a video there (only where the page publishes to sliqtly.com), PDF, a video, a zip of every file, and with slides picked the
     ; picked slides' formats.
     fn exportFormats:[string] () {
         def t:string (strfromcode 9)
@@ -528,8 +531,10 @@ class PresToolbar {
         push out ("x-docx" + t + (PresI18n.t("Word (.docx)")))
         push out ("x-html" + t + (PresI18n.t("Web page (.html)")))
         push out ("x-player" + t + (PresI18n.t("Presentation player (.html)")))
-        push out ("x-recweb" + t + (PresI18n.t("Cloud HTML (light player)")))
-        push out ("x-vidweb" + t + (PresI18n.t("Cloud video (.webm)")))
+        if cloud {
+            push out ("x-recweb" + t + (PresI18n.t("Cloud HTML (light player)")))
+            push out ("x-vidweb" + t + (PresI18n.t("Cloud video (.webm)")))
+        }
         push out ("x-pdf" + t + (PresI18n.t("PDF (.pdf)")))
         push out ("x-video" + t + (PresI18n.t("Video (.webm)")))
         push out ("x-zip" + t + (PresI18n.t("All files (.zip)")))
@@ -2204,8 +2209,10 @@ class PresToolbar {
             this.button("dr-docx" (PresI18n.t("Word (.docx)")) "ghost" body)
             this.button("dr-html" (PresI18n.t("Web page (.html)")) "ghost" body)
             this.button("dr-player" (PresI18n.t("Presentation player (.html)")) "ghost" body)
-            this.button("dr-recweb" (PresI18n.t("Cloud HTML (light player)")) "ghost" body)
-            this.button("dr-vidweb" (PresI18n.t("Cloud video (.webm)")) "ghost" body)
+            if cloud {
+                this.button("dr-recweb" (PresI18n.t("Cloud HTML (light player)")) "ghost" body)
+                this.button("dr-vidweb" (PresI18n.t("Cloud video (.webm)")) "ghost" body)
+            }
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
             this.button("dr-video" (PresI18n.t("Video (.webm)")) "ghost" body)
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)

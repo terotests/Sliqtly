@@ -2,6 +2,7 @@
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
 Import "PresVideo.rgr"
+Import "PresToolbar.rgr"
 Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
@@ -3690,6 +3691,16 @@ class PresCheck {
         this.ok((((o.fps == 25) && (o.codec == "vp9")) && (o.quality == 32)) "video: an unknown codec and quality keep the defaults")
         def o8:PresVideoOptions (PresVideoOptions.parse("{\"codec\":\"vp8\"}"))
         this.ok((o8.codec == "vp8") "video: vp8 is Sliqtly's own encoder")
+        ; Export's rows: Video always, the Cloud rows only where the page
+        ; publishes to sliqtly.com (not a server of one's own, PresApp.setCloud)
+        def tb (new PresToolbar())
+        def rows:string (join (tb.exportFormats()) "\n")
+        def cloudRows:boolean (((indexOf rows "x-vidweb") >= 0) && ((indexOf rows "x-recweb") >= 0))
+        this.ok((((indexOf rows "x-video") >= 0) && cloudRows) "export: Video and the Cloud rows on sliqtly.com")
+        tb.cloud = false
+        def local:string (join (tb.exportFormats()) "\n")
+        def noCloud:boolean (((indexOf local "x-vidweb") < 0) && ((indexOf local "x-recweb") < 0))
+        this.ok((((indexOf local "x-video") >= 0) && noCloud) "export: no Cloud rows on a server of one's own")
         def d:PresVideoOptions (PresVideoOptions.parse(""))
         this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
 
