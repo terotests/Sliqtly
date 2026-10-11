@@ -2761,9 +2761,23 @@ async function refreshRecent() {
 // The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
+// The files kept with the deck, counted into the size beside the editor's
+// tabs (PresDeckSize: the Markdown and the theme are counted there).
+async function measureDeckFiles() {
+  if (!vfs && !pending.size && !readFiles.size) return;
+  const id = doc.id;
+  const all = await docFiles();
+  if (doc.id !== id) return;
+  const size = (f) => (f.size > 0 ? f.size : (f.data && (f.data.size || f.data.length)) || 0);
+  const bytes = all.reduce((n, f) => n + size(f), 0);
+  app.setDeckFiles(all.length, bytes);
+  needsPaint = true;
+}
+
 async function refreshFiles() {
   // the source viewer reads its code/ files again when next wanted
   app.codeFilesChanged();
+  measureDeckFiles().catch(() => {});
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
   if (app.editorTab() !== "files" || filesListing) return;

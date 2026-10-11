@@ -1,0 +1,107 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDeckSize.rgr — how many bytes the whole presentation takes
+; ============================================================================
+;
+; The editor shows the deck's total size beside its tabs ("Size: 18 KB"):
+; the Markdown, the theme's CSS and every file kept with the deck (pictures,
+; data, recordings, questionnaires…), the way they are stored. Text counts
+; as UTF-8, so "ä" is two bytes and an emoji four, on every target.
+;
+; The texts are given as they stand in the editors; the files' bytes come
+; from the page, which knows what is stored (setFiles). Nothing here draws.
+;
+;   setMarkdown(text)    the deck's Markdown
+;   setCss(text)         the theme's CSS as edited
+;   setFiles(n bytes)    n files kept with the deck, `bytes` in all
+;   total()              every byte above
+;   label()              "Size: 18 KB"
+;   sizeText(n)          "812 B", "3.4 KB", "18 KB", "1.2 MB"
+Import "pkg:evg/EVGCodepoint.rgr"
+Import "PresI18n.rgr"
+
+class PresDeckSize {
+    def mdBytes:int 0
+    def cssBytes:int 0
+    def fileCount:int 0
+    def fileBytes:int 0
+
+    fn setMarkdown:void (text:string) {
+        mdBytes = (PresDeckSize.utf8Bytes(text))
+    }
+
+    fn setCss:void (text:string) {
+        cssBytes = (PresDeckSize.utf8Bytes(text))
+    }
+
+    fn setFiles:void (n:int bytes:int) {
+        fileCount = n
+        fileBytes = bytes
+        if (fileBytes < 0) {
+            fileBytes = 0
+        }
+    }
+
+    fn total:int () {
+        return ((mdBytes + cssBytes) + fileBytes)
+    }
+
+    fn label:string () {
+        return ((PresI18n.t("Size: ")) + (PresDeckSize.sizeText((this.total()))))
+    }
+
+    ; The bytes of `s` written as UTF-8.
+    sfn utf8Bytes:int (s:string) {
+        if (EVGCodepoint.stringIsBytes()) {
+            return (strlen s)
+        }
+        def cps:[int] (to_chars s)
+        def n:int 0
+        def i:int 0
+        def len:int (array_length cps)
+        while (i < len) {
+            def cp:int (itemAt cps i)
+            if (cp < 128) {
+                n = (n + 1)
+            } {
+                if (cp < 2048) {
+                    n = (n + 2)
+                } {
+                    if (cp < 65536) {
+                        n = (n + 3)
+                    } {
+                        n = (n + 4)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; A byte count to read at a glance: whole bytes under a kilobyte, one
+    ; decimal under ten of a unit, whole units above (1 KB = 1024 B); in
+    ; Finnish the decimal is a comma ("3,4 kt").
+    sfn sizeText:string (n:int) {
+        if (n < 1024) {
+            return ((to_string n) + (PresI18n.t(" B")))
+        }
+        if (n < (1024 * 1024)) {
+            return ((PresDeckSize.amount(((to_double n) / 1024.0))) + (PresI18n.t(" KB")))
+        }
+        return ((PresDeckSize.amount(((to_double n) / 1048576.0))) + (PresI18n.t(" MB")))
+    }
+
+    sfn amount:string (v:double) {
+        if (v < 9.95) {
+            def tenths:int (to_int ((v * 10.0) + 0.5))
+            def point:string "."
+            if ((PresI18n.lang()) == "fi") {
+                point = ","
+            }
+            return ((to_string (idiv tenths 10)) + point + (to_string (tenths % 10)))
+        }
+        return (to_string (to_int (v + 0.5)))
+    }
+}
