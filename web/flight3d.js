@@ -266,7 +266,7 @@ export function createFlight3d({ three3d, app, picturePixels, spritePixels, toas
   // V turned the stations to another layout: its name a moment in the HUD
   function showLayout() {
     const help = hud.querySelector(".help");
-    const names = { path: t("Layout: path"), wall: t("Layout: wall"), ring: t("Layout: ring") };
+    const names = { path: t("Layout: path"), wall: t("Layout: wall"), ring: t("Layout: ring"), room: t("Layout: situation room") };
     help.textContent = names[world.layoutName()] || world.layoutName();
     hintUntil = performance.now() + 2500;
   }

@@ -1558,6 +1558,7 @@
   "Layout: path": "Asettelu: jono",
   "Layout: wall": "Asettelu: seinä",
   "Layout: ring": "Asettelu: karuselli",
+  "Layout: situation room": "Asettelu: tilannehuone",
   "The 3-D flight needs full screen": "3D-lento tarvitsee koko näytön",
   "The 3-D flight needs WebGL": "3D-lento tarvitsee WebGL:n",
   "Experimental: 3-D flight": "Kokeellinen: 3D-lento",
