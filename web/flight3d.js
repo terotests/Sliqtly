@@ -127,7 +127,7 @@ function asRangerBuffer(ab) {
 const PICS_NEAR = 2;
 
 /**
- * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(), playScenesJson(), allPlayScenesJson(),
+ * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(), playScenesJson(), allPlayScenesJson(), playsWaiting(i),
  * selectedSlide(), selectSlide(i); picturePixels(src, max) a picture of the
  * slides as ImageData, its long side at most `max` (null: not here yet);
  * spritePixels(spec, max) the same of a slide's presenter (its picSpec);
@@ -217,12 +217,23 @@ export function createFlight3d({ three3d, app, picturePixels, spritePixels, toas
     const n = world.standCount();
     let here = false;
     for (let i = 0; i < n && !here; i++) here = world.standStation(i) === now;
-    if (!here) return;
+    // a program that had not drawn when the flight started (its slide was
+    // never on the stage): it runs now, and once it has drawn the station
+    // is made again with what it drew in place of its plate
+    const waits = world.stationWaits(now);
+    if (!here && !waits) return;
     // its slide on the stage: its program runs
     if (app.selectedSlide() !== now) {
       app.selectSlide(now);
       standJson = "";
     }
+    if (waits && !app.playsWaiting(now)) {
+      const why = world.restation(now, app.flightJson());
+      if (why) console.warn("3-D flight: " + why);
+      standJson = "";
+      return;
+    }
+    if (!here) return;
     const json = app.playScenesJson();
     if (json === standJson) return;
     standJson = json;

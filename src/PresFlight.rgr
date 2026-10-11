@@ -359,12 +359,18 @@ class FlightStation {
     def lift:double 1.0
     ; the slide's build steps after the first look (a Space each)
     def steps:int 0
+    ; a program on it has not drawn yet: the station is made again once it
+    ; has (PresFlight3D.restation)
+    def waits:boolean false
 
     fn toJson:JVal () {
         def o:JVal (JVal.mkObj())
         o.setInt("i" index)
         if (steps > 0) {
             o.setInt("steps" steps)
+        }
+        if waits {
+            o.setBool("waits" true)
         }
         o.setStr("t" title)
         o.setStr("k" kind)
@@ -829,6 +835,7 @@ class PresFlightScene {
         def rest:PresRest (deck.restOfSlide(i))
         def sc:PresScene rest.scene
         st.steps = s.steps
+        st.waits = (deck.playsWaiting(i))
         ; the slide at rest ends with its presenter saying the last line: in
         ; the flight it says them one at a time, as its steps are taken
         def nStory:int (array_length s.story)

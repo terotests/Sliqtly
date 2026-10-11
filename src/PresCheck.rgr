@@ -6218,6 +6218,14 @@ class PresCheck {
         this.ok((startsWith first "__deckFiles([[\"./world.json\",\"apps/world.json\",\"{\\\"a\\\": \\\"x\\\\ny\\\"}\"],[\"../data/sales.csv\",\"data/sales.csv\",null]]);import cfg") ("playFiles: the files on the first line, got " + first))
         this.ok(((array_length (strsplit linked (strfromcode 10))) == 4) "playFiles: the program keeps its line numbers")
         this.ok(((indexOf (deck.playFiles()) "data/sales.csv") < 0) "playFiles: a file the deck lacks is not asked for again")
+        this.ok(((deck.linkedSource("apps/g.tsx")) == linked) "playFiles: asked again, the same program")
+        deck.setChartData("apps/world.json" "{\"a\": 2}")
+        this.ok(((indexOf (deck.linkedSource("apps/g.tsx")) "{\\\"a\\\": 2}") > 0) "playFiles: a file changed, the program has it")
+        this.ok((deck.playsWaiting(0)) "playFiles: a program that has not drawn is waited for")
+        this.ok(((deck.playsWaiting(1)) == false) "playFiles: no slide, nothing waited for")
+        def wsc:PresFlightScene (PresFlightScene.of(deck))
+        def wst:FlightStation (itemAt wsc.stations 0)
+        this.ok(wst.waits "flight: a station whose program has not drawn waits for it")
     }
 
     fn plays:void () {

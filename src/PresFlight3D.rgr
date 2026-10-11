@@ -522,6 +522,11 @@ class PresFlight3D {
     ; (1: there), and the station the camera rides on while it turns
     def layout:FlightLayout (new FlightLayout())
     def groups:[ThreeObject3D]
+    ; in each group, what its station's items are made of (its floor is
+    ; not): what restation makes again
+    def holders:[ThreeObject3D]
+    ; a station whose programs have not drawn yet (made again once they have)
+    def waits:[boolean]
     def curGroup:int -1
     def lookAt:[double]
     def layoutNow:int 0
@@ -594,6 +599,10 @@ class PresFlight3D {
         layout = (new FlightLayout())
         def ng:[ThreeObject3D]
         groups = ng
+        def nh:[ThreeObject3D]
+        holders = nh
+        def nw:[boolean]
+        waits = nw
         def nl:[double]
         lookAt = nl
         def nm:[double]
@@ -657,6 +666,10 @@ class PresFlight3D {
             push focus (PresFlight3D.faint())
             steps.add((s.intOr("steps" 0)))
             this.addFloor(i sx sy sz grid)
+            def hold:ThreeObject3D (new ThreeObject3D)
+            grp.add(hold)
+            push holders hold
+            push waits (s.boolOr("waits" false))
             i = (i + 1)
         }
         curGroup = -1
@@ -730,6 +743,11 @@ class PresFlight3D {
         def me:ThreeMesh (new ThreeMesh)
         me.setGeometry(g)
         me.setMaterial(m)
+        if ((curGroup >= 0) && (curGroup < (array_length holders))) {
+            def hd:ThreeObject3D (itemAt holders curGroup)
+            hd.add(me)
+            return me
+        }
         if ((curGroup >= 0) && (curGroup < (array_length groups))) {
             def grp:ThreeObject3D (itemAt groups curGroup)
             grp.add(me)
@@ -1485,6 +1503,82 @@ class PresFlight3D {
         cam.jumpTo(i)
     }
 
+    ; Whether station i waits for a program's first drawing.
+    fn stationWaits:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length waits))) {
+            return false
+        }
+        return (itemAt waits i)
+    }
+
+    ; Station i made again from the flight's JSON (PresFlightScene) as it is
+    ; now, the rest of the world as it was: a program that had not drawn
+    ; when the flight started has, and its world or picture takes the plate
+    ; that stood for it. "" when made, else why not.
+    fn restation:string (i:int json:string) {
+        if ((i < 0) || (i >= (array_length holders))) {
+            return "no such station"
+        }
+        def js:JVal (JVal.parse(json))
+        if ((js.isObj()) == false) {
+            return "the flight's world did not read"
+        }
+        def st:JVal (js.get("stations"))
+        if (i < (st.len())) {
+            def s:JVal (st.at(i))
+            set waits i (s.boolOr("waits" false))
+        }
+        def kp:[FlightPart]
+        for parts p:FlightPart pn {
+            if (p.station != i) {
+                push kp p
+            }
+        }
+        parts = kp
+        def kc:[FlightPic]
+        for pics pc:FlightPic cn {
+            if (pc.station != i) {
+                push kc pc
+            } {
+                if (pc.tex >= 0) {
+                    push free pc.tex
+                }
+            }
+        }
+        pics = kc
+        def ks:[FlightStand]
+        for stands sd:FlightStand sn {
+            if (sd.station != i) {
+                push ks sd
+            }
+        }
+        stands = ks
+        def ku:[FlightPulse]
+        for pulses pu:FlightPulse un {
+            if (pu.station != i) {
+                push ku pu
+            }
+        }
+        pulses = ku
+        def grp:ThreeObject3D (itemAt groups i)
+        grp.remove((itemAt holders i))
+        def hold:ThreeObject3D (new ThreeObject3D)
+        grp.add(hold)
+        set holders i hold
+        def it:JVal (js.get("items"))
+        curGroup = i
+        def k:int 0
+        while (k < (it.len())) {
+            def one:JVal (it.at(k))
+            if ((one.intOr("s" -1)) == i) {
+                this.addItem(one)
+            }
+            k = (k + 1)
+        }
+        curGroup = -1
+        return ""
+    }
+
     ; The pictures the page makes: how many, whose station, "text" (a line
     ; of words, its spec {"w", "h", "runs"}: world units, each run {"t",
     ; "dx", "w", "fs", "b", "i", "m", "c"}), "picture" (its spec the
@@ -1558,6 +1652,12 @@ class PresFlight3D {
         st.shift.add(st.turn)
         st.turn.add(st.back)
         st.back.add(st.wo.scene)
+        if ((curGroup >= 0) && (curGroup < (array_length holders))) {
+            def hd:ThreeObject3D (itemAt holders curGroup)
+            hd.add(st.root)
+            push stands st
+            return
+        }
         if ((curGroup >= 0) && (curGroup < (array_length groups))) {
             def grp:ThreeObject3D (itemAt groups curGroup)
             grp.add(st.root)
