@@ -80,6 +80,7 @@ Import "pkg:evg/EVGImageDecode.rgr"
 ; questionnaires (Sliqtly Curious): File → New ▸ Questionnaire…
 Import "PresForm.rgr"
 Import "PresAi.rgr"
+Import "PresDeckSize.rgr"
 
 class PresRect {
     def x:double 0.0
@@ -138,6 +139,9 @@ class PresApp {
     ; (`tabs` is made again by showTab before the next layout places it)
     def laidTabs:TabsCtl (new TabsCtl())
     def tabRect:PresRect (new PresRect())
+    ; the whole deck's bytes, shown beside the tabs (PresDeckSize)
+    def deckSize:PresDeckSize (new PresDeckSize())
+    def sizeShown:string ""
     def tabH:double 34.0
     ; The presentations open in this tab of the browser, a tab each, in a row
     ; of their own under the top bar (EVGUI's DocTabsCtl). The page says
@@ -1229,6 +1233,29 @@ class PresApp {
     fn rebuildDeck:void () {
         this.rebuildWith((? (mode == "edit") 2 -1) true)
         this.docSetFollow()
+        this.measureSize()
+    }
+
+    ; The deck's size beside the tabs follows its Markdown and theme as
+    ; they are typed; the chrome is laid again only when the words change.
+    fn measureSize:void () {
+        deckSize.setMarkdown((mdEditor.text()))
+        deckSize.setCss((cssEditor.text()))
+        def l:string (deckSize.label())
+        if (l != sizeShown) {
+            sizeShown = l
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; The page's count of the files kept with the deck and their bytes.
+    fn setDeckFiles:void (n:int bytes:int) {
+        deckSize.setFiles(n bytes)
+        this.measureSize()
+    }
+
+    fn deckSizeLabel:string () {
+        return (deckSize.label())
     }
 
     ; One rebuild that draws again at most `budget` charts and figures whose
@@ -4113,6 +4140,15 @@ class PresApp {
             this.makeTabs()
             laidTabs = tabs
             tabBar.addChild((unwrap tabs.rootEl))
+            ; the whole deck's size at the row's right end
+            def gap:EVGElement (EVGElement.createDiv())
+            gap.className = "ed-tabs-gap"
+            tabBar.addChild(gap)
+            def size:EVGElement (EVGElement.createDiv())
+            size.id = "ed-size"
+            size.className = "ed-size"
+            size.textContent = (deckSize.label())
+            tabBar.addChild(size)
             root.addChild(tabBar)
             root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
         }

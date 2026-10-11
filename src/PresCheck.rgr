@@ -64,6 +64,7 @@ Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
 Import "PresForm.rgr"
+Import "PresDeckSize.rgr"
 Import "PresFormHtml.rgr"
 Import "PresAi.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
@@ -5373,6 +5374,26 @@ class PresCheck {
         this.ok(((indexOf slides "#sana") > 0) "words get a chart")
     }
 
+    ; The size beside the editor's tabs: Markdown + theme + the deck's files.
+    fn deckSize:void () {
+        this.ok(((PresDeckSize.utf8Bytes("abc")) == 3) "deck size: ASCII is a byte a character")
+        this.ok(((PresDeckSize.utf8Bytes("ä")) == 2) ("deck size: ä is two bytes, got " + (to_string (PresDeckSize.utf8Bytes("ä")))))
+        this.ok(((PresDeckSize.utf8Bytes("—")) == 3) "deck size: an em dash is three bytes")
+        this.ok(((PresDeckSize.utf8Bytes("😀")) == 4) ("deck size: an emoji is four bytes, got " + (to_string (PresDeckSize.utf8Bytes("😀")))))
+        this.ok(((PresDeckSize.sizeText(812)) == "812 B") "deck size: bytes under a kilobyte")
+        this.ok(((PresDeckSize.sizeText(3482)) == "3.4 KB") ("deck size: one decimal under ten, got " + (PresDeckSize.sizeText(3482))))
+        this.ok(((PresDeckSize.sizeText(18432)) == "18 KB") "deck size: whole kilobytes above ten")
+        this.ok(((PresDeckSize.sizeText(1258291)) == "1.2 MB") ("deck size: megabytes, got " + (PresDeckSize.sizeText(1258291))))
+        def z (new PresDeckSize())
+        z.setMarkdown("## Hei\nMäärä")
+        z.setCss("h1{}")
+        z.setFiles(2 1000)
+        this.ok(((z.total()) == 1019) ("deck size: Markdown + theme + files, got " + (to_string (z.total()))))
+        this.ok(((z.label()) == "Size: 1019 B") ("deck size: the label, got " + (z.label())))
+        z.setFiles(0 -1)
+        this.ok(((z.total()) == 19) "deck size: no files, nothing counted for them")
+    }
+
     fn stripDrag:void () {
         def d (new PresStripDrag())
         d.start(5 1 1.0 10.0)
@@ -8002,6 +8023,7 @@ class PresCheck {
         c.forms()
         c.selectText()
         c.aiAssist()
+        c.deckSize()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

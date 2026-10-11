@@ -129,7 +129,11 @@
 .ui-doctab-add:hover { background-color: #a1a1aa; color: #ffffff; }
 
 /* The tabs over the editor pane (Ranger UI TabsCtl) */
-.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; }
+.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; display: flex; flex-direction: row; align-items: center; }
+/* The whole deck's size at the tab row's right end: a reminder of how
+   little a presentation takes */
+.ed-tabs-gap { flex-grow: 1; }
+.ed-size { font-size: 12px; font-weight: 600; color: #047857; background-color: #d1fae5; height: 22px; line-height: 22px; padding: 0 10px; border-radius: 11px; margin-right: 10px; }
 /* EVGUI's pill tabs on the white of the deck's tab above, so the tab and
    its document read as one piece; the active tab a pill with an edge. The
    tab is a text leaf, so its height and line-height place the label. */
