@@ -87,7 +87,8 @@ let shownSlide = -1;
 function showState() {
   if (nav.slide !== shownSlide) {
     shownSlide = nav.slide;
-    history.replaceState(null, "", "#slide=" + (nav.slide + 1));
+    // the page's own path: a bare "#…" would go against <base href="/">
+    history.replaceState(null, "", location.pathname + location.search + "#slide=" + (nav.slide + 1));
   }
   pCount.textContent = nav.slide + 1 + " / " + nav.count;
   pAuto.textContent = nav.auto && nav.playing ? "⏸\uFE0E" : "⏵\uFE0E";
