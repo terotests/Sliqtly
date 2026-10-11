@@ -292,6 +292,18 @@ class PresTimeline {
         return out
     }
 
+    ; Presenting, the deck time the clock stops at on slide i with build
+    ; step `step` shown: the next step's start, or the slide's end. A click
+    ; moves it on; a recording plays the same holds (PresVideo).
+    sfn holdAt:double (deck:PresDeck i:int step:int) {
+        def s:PresSlide (deck.slideAt(i))
+        def start:double (PresTimeline.slideStart(deck i))
+        if (step < s.steps) {
+            return (start + (PresTimeline.stepTime(s (step + 1))))
+        }
+        return (start + s.duration)
+    }
+
     sfn slideStart:double (deck:PresDeck i:int) {
         def t:double 0.0
         def k:int 0

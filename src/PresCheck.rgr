@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
+Import "PresVideo.rgr"
 Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
@@ -3611,6 +3612,94 @@ class PresCheck {
         this.ok(said "story: its bubble says the line out")
     }
 
+    ; A presentation as a video (PresVideo): frame n is time n / fps, the
+    ; same frame twice is the same list, a recording holds at its steps.
+    fn video:void () {
+        def text:string ("---\nslide-split-level: 2\nstep: 1.0\nhold: 2.0\n---\n\n## Yksi\n\nTeksti\n"
+            + "\n## Kaksi {transition=fade seconds=0.5}\n\n1. eka\n2. toka\n{.build}\n"
+            + "\n## Kolme\n\nLoppu\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) != 3) {
+            this.ok(false ("video: three slides, got " + (to_string (deck.slideCount()))))
+            return
+        }
+        ; options: kept when sensible, the defaults otherwise
+        def o:PresVideoOptions (PresVideoOptions.parse("{\"width\":1281,\"height\":720,\"fps\":25,\"codec\":\"h264\",\"quality\":99}"))
+        this.ok(((o.width == 1280) && (o.height == 720)) ("video: sides even, " + (to_string o.width)))
+        this.ok((((o.fps == 25) && (o.codec == "vp9")) && (o.quality == 32)) "video: an unknown codec and quality keep the defaults")
+        def d:PresVideoOptions (PresVideoOptions.parse(""))
+        this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
+
+        ; the deck on its own
+        def tl:PresVideoTimeline (PresVideoTimeline.ofDeck(deck d))
+        def total:double (PresTimeline.total(deck))
+        this.ok(((fabs (tl.duration - total)) < 0.000001) ("video: as long as the deck, " + (to_string tl.duration)))
+        def frames:int (tl.frameCount())
+        def lastT:double ((to_double (frames - 1)) / 30.0)
+        def endT:double ((to_double frames) / 30.0)
+        this.ok(((lastT < total) && (endT >= (total - 0.000001))) ("video: frames cover it, " + (to_string frames)))
+        this.ok(((tl.frameTime(9000)) == 300.0) "video: frame 9000 is exactly 300 s")
+        def builds:int 0
+        def trans:int 0
+        for tl.events e:PresVideoEvent ei {
+            if (e.kind == "build") {
+                builds = (builds + 1)
+            }
+            if (e.kind == "transition") {
+                trans = (trans + 1)
+            }
+        }
+        this.ok((builds == 2) ("video: the build steps are events, " + (to_string builds)))
+        this.ok((trans == 2) ("video: the transitions too, " + (to_string trans)))
+        def s1start:double (PresTimeline.slideStart(deck 1))
+        def nf:int (to_int ((s1start * 30.0) + 1.0))
+        def a1:PresVideoAt (tl.at(deck nf))
+        this.ok(((a1.slide == 1) && (a1.local >= 0.0)) ("video: a frame past slide 2's start shows it, " + (to_string a1.slide)))
+        def last:PresVideoAt (tl.at(deck (frames - 1)))
+        this.ok((last.slide == 2) "video: the last frame is on the last slide")
+        def rp (new PresReplay())
+        def f1:string ((PresVideo.frame(deck tl nf rp)).toJson())
+        def f2:string ((PresVideo.frame(deck tl nf rp)).toJson())
+        def f3:string ((PresVideo.frame(deck tl (nf + 20) rp)).toJson())
+        this.ok((f1 == f2) "video: the same frame twice is the same list")
+        this.ok((f1 != f3) "video: a build step later it is not")
+        this.ok((((strlen (tl.toJson())) > 100) && ((indexOf (tl.toJson()) "\"frames\":") > 0)) "video: the timeline as JSON")
+
+        ; a recording: slide 2 shown at 1 s and held before its first step,
+        ; a click at 6 s, slide 3 at 9 s; 2 s cut out of the hold
+        def r (new PresRecording())
+        r.nav(0.0 0 0 0.0 false)
+        def s1:PresSlide (deck.slideAt(1))
+        r.nav(1.0 1 0 s1start false)
+        r.nav(6.0 1 1 (s1start + (PresTimeline.stepTime(s1 1))) false)
+        r.nav(9.0 2 0 (PresTimeline.slideStart(deck 2)) false)
+        r.ptr(9.5 100.0 100.0)
+        r.duration = 11.0
+        r.addCut(3.0 5.0)
+        def rt:PresVideoTimeline (PresVideoTimeline.ofRecording(deck r d))
+        this.ok(((fabs (rt.duration - 9.0)) < 0.000001) ("video: a recording without its cut, " + (to_string rt.duration)))
+        ; play 3.5 s is source 5.5 s: slide 2, held where step 1 begins
+        def h:PresVideoAt (rt.at(deck 105))
+        this.ok(((h.slide == 1) && ((fabs (h.source - 5.5)) < 0.000001)) ("video: after the cut it is the recording's 5.5 s, " + (to_string h.source)))
+        this.ok(((fabs (h.local - (PresTimeline.stepTime(s1 1)))) < 0.000001) ("video: held at the next step, " + (to_string h.local)))
+        this.ok((h.fxTime > h.local) "video: its effect runs on through the hold")
+        def h2:PresVideoAt (rt.at(deck 130))
+        this.ok(((h2.slide == 1) && (h2.local > (PresTimeline.stepTime(s1 1)))) "video: the click moves it on")
+        def keep:[double] (rt.audioKeep())
+        this.ok(((((array_length keep) == 4) && ((itemAt keep 1) == 3.0)) && ((itemAt keep 2) == 5.0)) "video: the sound keeps what is not cut")
+        ; the pointer shows on the frame at 9.5 s of the recording (7.5 s played)
+        def rr (new PresReplay())
+        rr.load(r)
+        def withPtr:EVGDisplayList (PresVideo.frame(deck rt 225 rr))
+        def plain:EVGDisplayList (PresVideo.frame(deck tl (to_int (((PresTimeline.slideStart(deck 2)) + 0.5) * 30.0)) rp))
+        this.ok(((array_length withPtr.cmds) > (array_length plain.cmds)) ("video: the recorded pointer is drawn, " + (to_string (array_length withPtr.cmds)) + " > " + (to_string (array_length plain.cmds))))
+        ; and seeking back starts the ink over
+        def back:EVGDisplayList (PresVideo.frame(deck rt 30 rr))
+        this.ok(((rr.ink.count()) == 0) "video: a frame before the drawing has none")
+    }
+
     ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
     fn recording:void () {
         def ink (new PresInk())
@@ -7116,6 +7205,90 @@ class PresCheck {
         }
         this.ok(((array_length tri) == 12) ("flight: an L is four triangles, got " + (to_string (idiv (array_length tri) 3))))
         this.ok(((fabs (covered - 3.0)) < 0.001) ("flight: they cover the L and no more, got " + (to_string covered)))
+        ; a timeline: its numbers in circles, its line broken at each
+        def tdeck (new PresDeck())
+        tdeck.setText("# Aikajana\n\n```timeline\n- Vaihe 1: Toiminimi\n- Vaihekynnys: Ensimmäinen asiakas\n- Vaihe 2: Osakeyhtiö\n```\n")
+        PresTimeline.planAll(tdeck)
+        def ts:PresFlightScene (PresFlightScene.of(tdeck))
+        def discs:[FlightItem]
+        for ts.items di:FlightItem dn {
+            if di.disc {
+                push discs di
+            }
+        }
+        this.ok(((array_length discs) == 3) ("flight: a timeline's numbers are circles, got " + (to_string (array_length discs))))
+        def pieces:int 0
+        def through:int 0
+        for ts.items tl:FlightItem tn {
+            if ((tl.kind == "line") && (tl.ent != "slide")) {
+                pieces = (pieces + (array_length tl.ends))
+                def q:int 0
+                while ((q + 2) < (array_length tl.pts)) {
+                    for discs dd:FlightItem dq {
+                        def ex:double ((itemAt tl.pts q) - dd.x)
+                        def ey:double ((itemAt tl.pts (q + 1)) - dd.y)
+                        if ((sqrt(((ex * ex) + (ey * ey)))) < (dd.w * 0.5)) {
+                            through = (through + 1)
+                        }
+                    }
+                    q = (q + 3)
+                }
+            }
+        }
+        this.ok((pieces >= 4) ("flight: the timeline's line breaks at its three circles, got " + (to_string pieces) + " pieces"))
+        this.ok((through == 0) ("flight: no part of the line inside a circle, got " + (to_string through)))
+        ; a line through a sphere: two lines, either side of it
+        def cut:[double] (PresFlightScene.cutPts(([] _:double ((0.0 - 10.0) 0.0 0.0 10.0 0.0 0.0)) ([] _:int (2)) ([] _:double (0.0 0.0 0.0 1.0))))
+        this.ok(((array_length cut) == 16) ("flight: a cut line is two of two points, got " + (to_string (idiv (array_length cut) 4))))
+        if ((array_length cut) == 16) {
+            this.ok((((fabs ((itemAt cut 4) + 1.0)) < 0.001) && ((fabs ((itemAt cut 8) - 1.0)) < 0.001)) "flight: it stops at the sphere and goes on past it")
+            this.ok((((itemAt cut 11) > 0.5) && ((itemAt cut 7) < 0.5)) "flight: the second part is a line of its own")
+        }
+        ; the theme's boxes at the slide's edge are found by the edge they stand on
+        this.ok(((PresFlightScene.edgeOf(([] _:double (920.0 0.0 40.0 540.0)) 960.0 540.0)) == 1) "flight: a strip at the right edge stands on it")
+        this.ok(((PresFlightScene.edgeOf(([] _:double (0.0 528.0 200.0 12.0)) 960.0 540.0)) == 2) "flight: a bar at the bottom left stands on the bottom")
+        this.ok(((PresFlightScene.edgeOf(([] _:double (100.0 100.0 200.0 100.0)) 960.0 540.0)) == -1) "flight: a box inside the slide stands on no edge")
+        this.ok((PresFlightScene.isBox(([] _:double (0.0 0.0 10.0 0.0 10.0 5.0 0.0 5.0)) ([] _:double (0.0 0.0 10.0 5.0)))) "flight: four corners are a box")
+        this.ok(((PresFlightScene.isBox(([] _:double (0.0 0.0 10.0 0.0 5.0 5.0 0.0 5.0)) ([] _:double (0.0 0.0 10.0 5.0)))) == false) "flight: a slanted side is no box")
+        ; a presenter's lines: one at a time, each at its own step, gone at
+        ; the next one's
+        def pdeck (new PresDeck())
+        pdeck.setText("# Esittäjä\n\nTeksti.\n\n::: story\nEka rivi tässä.\nMutta toinen rivi.\nJoten kolmas rivi.\n:::\n")
+        PresTimeline.planAll(pdeck)
+        def ps:PresFlightScene (PresFlightScene.of(pdeck))
+        def ls:PresSlide (pdeck.slideAt(0))
+        def said:[int]
+        def goes:[int]
+        def early:int 0
+        for ps.items pi:FlightItem pin {
+            if ((pi.kind == "text") && ((indexOf pi.ent "story-") == 0)) {
+                push said pi.step
+                push goes pi.until
+                if (pi.step == 0) {
+                    early = (early + 1)
+                }
+            }
+        }
+        this.ok(((array_length said) >= 3) ("flight: each of the presenter's lines is there, got " + (to_string (array_length said))))
+        this.ok((early == 0) "flight: no line is said before its step")
+        def b0:PresStoryBeat (itemAt ls.story 0)
+        def b1:PresStoryBeat (itemAt ls.story 1)
+        this.ok((((indexOf said b0.step) >= 0) && ((indexOf goes b1.step) >= 0)) "flight: the first line goes when the second is said")
+        this.ok(((indexOf goes -1) >= 0) "flight: the last line stays")
+        def pst:FlightStation (itemAt ps.stations 0)
+        this.ok((pst.steps == ls.steps) ("flight: the station has the slide's steps, got " + (to_string pst.steps)))
+        ; Space takes a station's steps before flying on, ← gives them back
+        def fs:FlightSteps (new FlightSteps())
+        fs.add(2)
+        fs.add(0)
+        this.ok(((fs.next(0 1.0)) && (fs.next(0 2.0))) "flight: Space takes a slide's two steps")
+        this.ok(((fs.next(0 3.0)) == false) "flight: then it flies on")
+        this.ok(((fs.next(1 4.0)) == false) "flight: a slide with no steps flies on at once")
+        this.ok(((fs.back(0 5.0)) && ((fs.stepAt(0)) == 1)) "flight: back gives a step back")
+        fs.arrive(0 false 6.0)
+        this.ok(((fs.stepAt(0)) == 2) "flight: flown back to, a slide shows all its steps")
+        fs.arrive(0 true 7.0)
+        this.ok((((fs.stepAt(0)) == 0) && ((fs.takenAt(0)) == 7.0)) "flight: flown to forward, its first look")
         def js:JVal (JVal.parse((sc.toJson())))
         def jst:JVal (js.get("stations"))
         def jit:JVal (js.get("items"))
@@ -7581,6 +7754,7 @@ class PresCheck {
         c.navJumps()
         c.stageClicks()
         c.recording()
+        c.video()
         c.docx()
         c.htmlPage()
         c.traceChecks()
