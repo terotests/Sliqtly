@@ -3364,7 +3364,7 @@ function lookTheme() {
 }
 // Every chrome sheet without the skins, as loaded (start), and the skins'
 // own text: the skins go after each sheet with the chosen hue at the end.
-const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
+const chromeSheets = { files: "", chrome: null, chart: null, hint: null, find: null, panels: null, toolbar: null };
 // The dark look of a sheet is derived from it (EVGUI's UiDark, through
 // PresApp.darkCss): every colour it sets, scoped to .theme-dark and mapped so
 // each contrast stays what it was. Worked out once per sheet and host theme,
@@ -3390,6 +3390,7 @@ function sendChromeCss() {
   const c = chromeSheets;
   if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
   if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
+  if (c.find != null) app.setFindCss(c.find + skinCss(c.find, "fb"));
   if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
   if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
 }
@@ -3903,6 +3904,8 @@ function paintOnce() {
       paintList(app.codeJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
+    } else if (layer === "find") {
+      paintList(app.findJson());
     } else if (layer === "hint") {
       paintList(app.hintJson());
     } else if (layer === "chart") {
@@ -7604,6 +7607,27 @@ const KEY_MAP = {
   Home: "home", End: "end", PageUp: "pageUp", PageDown: "pageDown", Escape: "escape",
 };
 const CLIPBOARD_CHORD = /^[cxvCXV]$/;
+// Find and replace in the code editor (src/PresFindBar.rgr), VS Code's keys:
+// Ctrl/Cmd+F find, Ctrl+H (Cmd+Alt+F on a Mac, where Cmd+H hides the window)
+// replace; while the bar is open F3 / Ctrl/Cmd+G the next match (Shift: the
+// one before), and with the bar's field in focus Alt+C / W / R / L its
+// switches (match case, whole word, regex, in selection). By `code`, since
+// Alt changes the letter a Mac reports.
+function findChordOf(ev) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  const where = app.focusTarget();
+  if (where === "editor" || where === "find") {
+    if (mod && !ev.shiftKey && ev.code === "KeyF") return !ev.altKey ? "find" : IS_MAC ? "replace" : "";
+    if (!IS_MAC && ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey && ev.code === "KeyH") return "replace";
+  }
+  if (!app.findIsOpen()) return "";
+  if (ev.key === "F3" && !mod && !ev.altKey) return ev.shiftKey ? "prev" : "next";
+  if (mod && !ev.altKey && ev.code === "KeyG") return ev.shiftKey ? "prev" : "next";
+  if (ev.altKey && !mod && !ev.shiftKey && where === "find") {
+    return { KeyC: "case", KeyW: "word", KeyR: "regex", KeyL: "scope" }[ev.code] || "";
+  }
+  return "";
+}
 // The code editor's text size: Ctrl/Cmd + plus / minus / 0 while the editor
 // has the keyboard (the browser's own zoom everywhere else), and Ctrl + wheel
 // or a trackpad pinch over it. Kept per browser.
@@ -7769,9 +7793,16 @@ keys.addEventListener("keydown", (ev) => {
     afterInput();
     return;
   }
-  if (!presenting && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
+  if (!presenting && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter" && app.focusTarget() !== "find") {
     ev.preventDefault();
     if (app.isPlaying()) app.stop(); else app.play();
+    afterInput();
+    return;
+  }
+  const findChord = presenting ? "" : findChordOf(ev);
+  if (findChord && app.findChord(findChord)) {
+    ev.preventDefault();
+    closeHint();
     afterInput();
     return;
   }
@@ -7786,7 +7817,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room" && app.focusTarget() !== "find") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
@@ -9031,6 +9062,7 @@ async function start() {
   chromeSheets.chart = kit + "\n" + chartCss;
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
+  textOf("./find.css").then((c) => { chromeSheets.find = kit + "\n" + c; app.setFindCss(chromeSheets.find + skinCss(chromeSheets.find, "fb")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   // the signed-in account's own store and keys, before anything kept is read
   useAccount(await accountScope().catch((e) => { console.warn("no account known", e); return EDITOR_ROOT && !viewer ? "signed-out" : ""; }));

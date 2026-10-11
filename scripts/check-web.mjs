@@ -720,6 +720,60 @@ try {
     check("…Ctrl + 0 goes back to the default", s4 === s0 && zoom === 1, `${s4}`);
   }
 
+  // Ctrl+F over the editor: EVGUI's FindBarCtl in the corner (VS Code's
+  // find widget). Typing searches and counts, Enter / F3 step, Alt+C matches
+  // case, Ctrl+H opens the replace row, replace all is one edit (one Ctrl+Z),
+  // Esc closes the bar and gives the keys back to the text.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const want = (src0.match(/## /g) || []).length;
+    await page.keyboard.press("Control+f");
+    const open = await page.evaluate(() => [window.__app.findIsOpen(), window.__app.focusTarget()]);
+    await page.keyboard.type("## ");
+    await page.waitForTimeout(50);
+    const bar = () => page.evaluate(() => ({ status: window.__app.find.bar.status, query: window.__app.find.bar.query(), sel: window.__app.editor.selectionText(), line: window.__app.editor.sel.caret.line }));
+    const b1 = await bar();
+    await page.keyboard.press("Enter");
+    const b2 = await bar();
+    await page.keyboard.press("Shift+Enter");
+    const b3 = await bar();
+    await page.keyboard.press("Alt+KeyC");
+    const caseOn = await page.evaluate(() => window.__app.find.bar.matchCase);
+    await page.keyboard.press("Alt+KeyC");
+    check("Ctrl+F opens the find bar with the keys", open[0] && open[1] === "find", open.join(" "));
+    check("…typing searches and counts", b1.query === "## " && b1.status.endsWith(` ${want}`) && b1.sel === "## ", JSON.stringify(b1));
+    check("…Enter goes to the next match", b2.line > b1.line && b2.status.startsWith("2 "), JSON.stringify(b2));
+    check("…Shift+Enter back", b3.line === b1.line, JSON.stringify(b3));
+    check("…Alt+C switches match case", caseOn === true);
+    if (shots) {
+      await page.keyboard.press("Control+h");
+      await page.keyboard.type("### ");
+      await page.screenshot({ path: path.join(shots, "find-bar.png") });
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+f");
+    }
+    await page.keyboard.press("Control+h");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("#### ");
+    await page.keyboard.press("Control+Enter");
+    const src1 = await page.evaluate(() => window.__app.source());
+    const status1 = await page.evaluate(() => window.__app.find.bar.status);
+    await page.keyboard.press("Escape");
+    const after = await page.evaluate(() => [window.__app.findIsOpen(), window.__app.focusTarget()]);
+    await page.keyboard.press("Control+z");
+    const src2 = await page.evaluate(() => window.__app.source());
+    check("…Ctrl+Enter in the replace field replaces all", src1 === src0.replaceAll("## ", "#### "), status1);
+    check("…Esc closes it and the text has the keys", !after[0] && after[1] === "editor", after.join(" "));
+    check("…one Ctrl+Z takes replace all back", src2 === src0);
+    // the checks after this read the top of the text and slide 1
+    await page.evaluate(() => {
+      const a = window.__app;
+      a.editor.moveCaret(0, 0, false);
+      a.editor.layout.scrollLine = 0;
+      a.selectSlide(0);
+    });
+  }
+
   // ⌃⌘Space (Ctrl+Shift+Space off a Mac): EVGUI's emoji picker at the
   // caret. Typing searches, Enter writes the emoji where the caret is (one
   // edit: Ctrl+Z takes it back), Esc closes it, a click on a cell picks it.
