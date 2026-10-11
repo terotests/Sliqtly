@@ -67,6 +67,10 @@ const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-t
 // gzipped as web/recstream.js packStream keeps it), under its hash
 const recFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec.sliqrec"));
 const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice(0, 24);
+// a presentation exported as a video (Export ▸ Cloud video): a 2 s WebM by
+// Sliqtly's own encoder, at the same kind of address
+const videoFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-video.webm"));
+const VIDEO_HASH = crypto.createHash("sha256").update(videoFile).digest("hex").slice(0, 24);
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -88,6 +92,11 @@ const server = http.createServer((req, res) => {
   if (rel === "/fixture/view-gltf.gltf") {
     res.writeHead(200, { "content-type": "model/gltf+json", "access-control-allow-origin": "*" });
     res.end(gltfFile);
+    return;
+  }
+  if (rel === "/api/view/" + ID + "/rec/" + VIDEO_HASH) {
+    res.writeHead(200, { "content-type": "video/webm" });
+    res.end(videoFile);
     return;
   }
   if (rel === "/api/view/" + ID + "/rec/" + REC_HASH) {
@@ -280,6 +289,19 @@ try {
     await gone.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
     if (!(await gone.evaluate(() => document.getElementById("note").textContent)).length) fail("a missing recording says nothing");
     await gone.close();
+    // a video at the same kind of address: the browser's player, its whole length
+    const vp = await browser.newPage();
+    vp.on("pageerror", (e) => fail(`/r/ video: ${e.message}`));
+    await vp.goto(base + "/r/" + ID + "/" + VIDEO_HASH, { waitUntil: "load" });
+    await vp.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+    const shown = await vp.evaluate(() => ({ video: !document.getElementById("v").hidden, canvas: !document.getElementById("c").hidden, bar: !document.getElementById("bar").hidden }));
+    if (!shown.video || shown.canvas || shown.bar) fail("a video at /r/ is not shown in the video player: " + JSON.stringify(shown));
+    const dur = await vp.waitForFunction(() => {
+      const v = document.getElementById("v");
+      return v.readyState >= 1 && v.duration;
+    }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => 0);
+    if (Math.abs(dur - 2) > 0.05) fail(`the video at /r/ lasts ${dur} s, not 2 s`);
+    await vp.close();
   }
 
   // the slide's text selected with the mouse (web/slidetext.js): a drag
@@ -651,4 +673,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), the light player (/r/) played, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), the light player (/r/) played, a video there, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

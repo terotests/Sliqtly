@@ -5322,7 +5322,7 @@ window.__renderFxStills = renderFxStills;
 
 // A video's frames (web/videoexport.js, src/PresVideo.rgr): the slides at
 // frame n / fps, drawn by the stage's painter. scripts/video.mjs encodes
-// them; the page has no button for it yet.
+// them, and so does File → Export → Video (exportVideo).
 window.__video = createVideoFrames({
   app,
   prepareDisplayList,
@@ -5408,6 +5408,71 @@ async function exportPdf(picked = false) {
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
+// Video: the frames the presentation shows at n / fps (web/videoexport.js),
+// coded to WebM by Sliqtly's own VP8 encoder in a worker
+// (web/video-worker.js) and saved here. A few frames wait at most, so the
+// page holds two or three pictures, not the whole video.
+let videoBusy = false;
+// The WebM's bytes, or null when a video is already being made.
+async function makeVideo() {
+  if (videoBusy) {
+    toast(t("A video is already being made."));
+    return null;
+  }
+  videoBusy = true;
+  const worker = new Worker("./video-worker.js?v=" + BUILD, { name: BUILD });
+  const waiting = [];
+  let done = null;
+  let failed = null;
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.kind === "error") failed = new Error(m.message);
+    if (m.kind === "done") done = m;
+    const w = waiting.shift();
+    if (w) w();
+  };
+  worker.onerror = (e) => {
+    failed = new Error(e.message || "the video encoder did not load");
+    while (waiting.length) waiting.shift()();
+  };
+  const send = (msg) => new Promise((resolve) => {
+    waiting.push(resolve);
+    worker.postMessage(msg);
+  });
+  const check = () => { if (failed) throw failed; };
+  try {
+    await loadEmojiFace();
+    const tl = window.__video.begin({ codec: "vp8" });
+    let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
+    let shown = -1;
+    for (let n = 0; n < tl.frames; n++) {
+      const f = window.__video.frame(n);
+      pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
+      if (pending.length > 2) await pending.shift();
+      check();
+      const pct = Math.floor((n * 100) / tl.frames);
+      if (pct !== shown) {
+        shown = pct;
+        toast(t("Making the video…") + " " + pct + " %");
+      }
+    }
+    await Promise.all(pending);
+    await send({ kind: "end", frames: tl.frames });
+    check();
+    return done.bytes;
+  } finally {
+    window.__video.close();
+    worker.terminate();
+    videoBusy = false;
+  }
+}
+async function exportVideo() {
+  const bytes = await makeVideo();
+  if (!bytes) return;
+  window.__lastDownload = deliver(bytes, exportName() + ".webm", "video/webm");
+  toast(t("The video is ready.") + " " + (bytes.length / 1048576).toFixed(1) + " MB");
+}
+window.__exportVideo = exportVideo;
 // The runs the contrast guard repairs on the stage (a colour that reads, or an
 // outline round big letters) are a judgement made while drawing, over the
 // pictures under them, so the PPTX would have the theme's colour where the
@@ -5584,13 +5649,35 @@ async function exportRecWeb() {
     return;
   }
   const bytes = await packStream(await recordForWeb());
+  await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
+    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."));
+}
+// Export ▸ Cloud video: the presentation as a video (makeVideo) at the same
+// kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
+// browser's own player plays it.
+async function exportCloudVideo() {
+  if (!window.sliqtly?.user?.()) {
+    toast(t("Sign in to export the presentation to the cloud."));
+    return;
+  }
+  const bytes = await makeVideo();
+  if (!bytes) return;
+  await publishForWeb(bytes, ".webm", "video/webm",
+    t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
+}
+window.__exportCloudVideo = exportCloudVideo;
+// The recording's or the video's bytes kept with the deck as
+// recordings/web-{hash}{ext} (the one before of the same kind removed), the
+// deck shared, and its /r/ link shown with `note`.
+async function publishForWeb(bytes, ext, type, note) {
+  const p = window.sliqtly;
   const hash = await streamHash(bytes);
-  const path = streamPath(hash);
-  const old = (await docFiles()).map((f) => f.path).filter((x) => /^recordings\/web-[0-9a-f]+\.sliqrec$/.test(x) && x !== path);
+  const path = streamPath(hash, ext);
+  const kind = new RegExp("^recordings/web-[0-9a-f]+\\" + ext + "$");
+  const old = (await docFiles()).map((f) => f.path).filter((x) => kind.test(x) && x !== path);
   if (old.length) await deleteFiles(old, { quiet: true });
-  await keepFile({ path, type: STREAM_TYPE, size: bytes.length, data: new Blob([bytes], { type: STREAM_TYPE }) });
+  await keepFile({ path, type, size: bytes.length, data: new Blob([bytes], { type }) });
   toast(t("Sending the recording to the cloud…"));
-  const note = t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link.");
   try {
     const id = await shareCloud();
     let shown = id;
@@ -5624,6 +5711,8 @@ document.getElementById("player").addEventListener("click", () => { exportPlayer
 document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
+document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
+document.getElementById("vidweb").addEventListener("click", () => { exportCloudVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
 document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });

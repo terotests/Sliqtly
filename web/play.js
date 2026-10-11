@@ -9,6 +9,10 @@
 //
 // ← → go from slide to slide (each from its master time, playing its way
 // in), Space through the build steps (the sub times) and on, A plays it all.
+//
+// The same address can hold the presentation as a video (the editor's
+// Export ▸ Cloud video, a WebM): the browser's own player plays it, from
+// the bytes already read (no range requests to the server).
 
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { registerDeckEffects, reducedMotion, holdStill } from "./fxdeck.js";
@@ -176,20 +180,37 @@ function fail(text) {
   window.__pageStarted = true;
 }
 
+// a WebM starts with the EBML header's id
+function isWebm(b) {
+  return b.length > 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
+}
+function showVideo(bytes) {
+  const v = document.getElementById("v");
+  v.src = URL.createObjectURL(new Blob([bytes], { type: "video/webm" }));
+  canvas.hidden = true;
+  note.hidden = true;
+  v.hidden = false;
+  v.addEventListener("error", () => fail(say("This browser cannot play the video (WebM).", "Selain ei osaa toistaa videota (WebM).")));
+  window.__play = { video: v };
+  window.__pageStarted = true;
+}
+
 async function start() {
   link = playLinkOf(location.pathname);
   if (!link) return fail(say("This address names no presentation.", "Tämä osoite ei ole esitys."));
-  gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
-  if (!gl) return fail(say("This browser cannot draw the slides (no WebGL).", "Selain ei osaa piirtää dioja (ei WebGL:ää)."));
   let rec;
   try {
     const res = await fetch(recUrl(link));
     if (!res.ok) throw new Error("HTTP " + res.status);
-    rec = await unpackStream(new Uint8Array(await res.arrayBuffer()));
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (isWebm(bytes)) return showVideo(bytes);
+    rec = await unpackStream(bytes);
   } catch (e) {
     console.warn(e);
     return fail(say("This presentation is not here, or no longer shared.", "Esitystä ei löydy, tai sitä ei enää jaeta."));
   }
+  gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!gl) return fail(say("This browser cannot draw the slides (no WebGL).", "Selain ei osaa piirtää dioja (ei WebGL:ää)."));
   const s = rec.s;
   if (s.deckEffects) registerDeckEffects(s.deckEffects);
   const faces = (s.faces || []).filter((f) => Array.isArray(f) && /^[\w-]+\.ttf$/.test(f[1]));
