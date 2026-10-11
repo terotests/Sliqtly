@@ -518,7 +518,7 @@ class PresToolbar {
 
     ; Export's file formats, as "value<TAB>label" rows ("" a separator): the
     ; Markdown, PowerPoint, Word, a web page, a player that plays the deck
-    ; from one file, PDF, a zip of every file, and with slides picked the
+    ; from one file, the deck recorded for the web (a link that plays it), PDF, a zip of every file, and with slides picked the
     ; picked slides' formats.
     fn exportFormats:[string] () {
         def t:string (strfromcode 9)
@@ -528,6 +528,7 @@ class PresToolbar {
         push out ("x-docx" + t + (PresI18n.t("Word (.docx)")))
         push out ("x-html" + t + (PresI18n.t("Web page (.html)")))
         push out ("x-player" + t + (PresI18n.t("Presentation player (.html)")))
+        push out ("x-recweb" + t + (PresI18n.t("Recorded presentation (web link)")))
         push out ("x-pdf" + t + (PresI18n.t("PDF (.pdf)")))
         push out ("x-zip" + t + (PresI18n.t("All files (.zip)")))
         if (picked > 0) {
@@ -2201,6 +2202,7 @@ class PresToolbar {
             this.button("dr-docx" (PresI18n.t("Word (.docx)")) "ghost" body)
             this.button("dr-html" (PresI18n.t("Web page (.html)")) "ghost" body)
             this.button("dr-player" (PresI18n.t("Presentation player (.html)")) "ghost" body)
+            this.button("dr-recweb" (PresI18n.t("Recorded presentation (web link)")) "ghost" body)
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
             body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Record")))))

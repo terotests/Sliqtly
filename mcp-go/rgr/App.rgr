@@ -118,12 +118,17 @@ class App {
 
     ; GET /api/view/<id>/pic?path=<path>&v=<stamp>: a picture of the deck
     ; made for the viewer's screen (ViewPictures), kept by the CDN for good
-    ; under its stamp
+    ; under its stamp. GET /api/view/<id>/rec/<hash>: the deck recorded
+    ; for the web (ViewPictures.recording), for good under its hash.
     sfn servePicture:void (host:McpHost req:HttpRequest res:HttpResponse id:string what:string) {
         def q:MfJ (J.parse((http_query_json req)))
         def p:ViewPic (new ViewPic)
         if (what == "pic") {
             p = (ViewPictures.picture(host id (q.str_("path")) (q.str_("v"))))
+        }
+        ; GET /api/view/<id>/rec/<hash>: the deck recorded for the web
+        if ((indexOf what "rec/") == 0) {
+            p = (ViewPictures.recording(host id (substring what 4 (strlen what))))
         }
         if (p.status == 302) {
             http_set_header res "Cache-Control" "public, max-age=0, s-maxage=60"

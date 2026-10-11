@@ -49,6 +49,7 @@ import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
+import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
@@ -3192,7 +3193,7 @@ async function copyFiles(paths) {
     : t("Copied ") + files.length + t(" files: open another presentation and press Paste in Files."));
 }
 
-async function deleteFiles(paths) {
+async function deleteFiles(paths, { quiet = false } = {}) {
   const files = await docFiles();
   for (const path of paths) {
     const f = files.find((x) => x.path === path);
@@ -3208,6 +3209,7 @@ async function deleteFiles(paths) {
   }
   cloudSoon();
   dropThumbs();
+  if (quiet) return;
   toast(paths.length === 1 ? t("Deleted 1 file.") : t("Deleted ") + paths.length + t(" files."));
 }
 
@@ -5395,6 +5397,68 @@ async function exportPlayer() {
   window.__lastDownload = deliver(enc.encode(html), exportName() + "-player.html", "text/html;charset=utf-8");
 }
 window.__exportPlayer = exportPlayer;
+
+// The presentation recorded for the web: the deck played on its own, frame
+// by frame at n / fps (the video's timeline, PresApp.videoBegin; no clock on
+// the wall), each frame's display list kept once (web/recstream.js). The
+// recording is the deck's file recordings/web-<hash>.sliqrec, the one
+// before it goes, and the cloud copy carries it; its link is the
+// presentation's viewing link with ?rec=<hash>, which the public viewer
+// plays (web/view.js) from the server's immutable copy, so a new recording
+// is a new address. A slide's script is drawn as the timeline poses it.
+async function recordForWeb(fps = 30) {
+  const tl = JSON.parse(app.videoBegin(JSON.stringify({ fps }), false));
+  const enc = new RecEncoder(tl);
+  let said = 0;
+  for (let n = 0; n < tl.frames; n++) {
+    const f = JSON.parse(app.videoFrameJson(n));
+    enc.add(f.list, f.width, f.height);
+    // the page stays alive, and says how far it is
+    if (performance.now() - said > 500) {
+      said = performance.now();
+      toast(t("Recording the presentation… ") + Math.round((100 * n) / tl.frames) + " %");
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  return enc.finish();
+}
+async function exportRecWeb() {
+  const p = window.sliqtly;
+  if (!p?.user?.()) {
+    toast(t("Sign in to publish a recorded presentation."));
+    return;
+  }
+  const bytes = await packStream(await recordForWeb());
+  const hash = await streamHash(bytes);
+  const path = streamPath(hash);
+  const old = (await docFiles()).map((f) => f.path).filter((x) => /^recordings\/web-[0-9a-f]+\.sliqrec$/.test(x) && x !== path);
+  if (old.length) await deleteFiles(old, { quiet: true });
+  await keepFile({ path, type: STREAM_TYPE, size: bytes.length, data: new Blob([bytes], { type: STREAM_TYPE }) });
+  toast(t("Sending the recording to the cloud…"));
+  const note = t("A link that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. A new recording gets a new link.");
+  try {
+    const id = await shareCloud();
+    let shown = id;
+    if (typeof p.viewLink === "function") {
+      // as Share: only the owner hands out a viewing link
+      const cur = await p.loadShare(id);
+      if (cur && cur.owner !== p.user()?.uid) {
+        app.closeShare?.();
+        toast(t("Only the owner of this presentation shares it. You were invited to edit it."));
+        return;
+      }
+      shown = await p.viewLink(id);
+    }
+    else await p.setVisibility(id, "link");
+    const url = location.origin + "/s/" + shown + "?rec=" + hash;
+    window.__lastRecLink = url;
+    showShare(url, "", note, "", true);
+  } catch (e) {
+    showShare("", "", cloudFailure(e), "");
+  }
+}
+window.__recordForWeb = recordForWeb;
+window.__exportRecWeb = exportRecWeb;
 window.__exportDocx = exportDocx;
 window.__exportHtml = exportHtml;
 window.__renderDocxShots = renderDocxShots;
@@ -5402,6 +5466,7 @@ document.getElementById("docx").addEventListener("click", () => { exportDocx().c
 document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
 document.getElementById("html").addEventListener("click", () => { exportHtml().catch(fail); });
 document.getElementById("player").addEventListener("click", () => { exportPlayer().catch(fail); });
+document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
@@ -7040,7 +7105,7 @@ function exportOnSite(kind) {
   q.set("export", kind);
   siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
-const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), player: () => exportPlayer(), md: () => exportMd() };
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), player: () => exportPlayer(), recweb: () => exportRecWeb(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
