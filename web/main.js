@@ -33,7 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote } from "./sharedfiles.js";
+import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -426,8 +426,9 @@ function loadInlineSvgs(rev) {
 // A screen of a shared Figma file on a slide (`![…](figma:<file>/<layer>)`,
 // src/PresFigma.rgr): drawn by the server from the file's index
 // (web/sharedfiles.js) and put in the store where the slide looks for it.
-// Only a server of one's own keeps shared files; elsewhere the picture
-// stays its alt text.
+// A server of one's own keeps shared files, and sliqtly.com/editor each
+// account's own, a deck's pictures drawn from its owner's; elsewhere the
+// picture stays its alt text.
 let figmaRev = "";
 const figmaBusy = new Set();
 const figmaFailed = new Set();
@@ -437,14 +438,15 @@ function loadFigmaPictures(rev) {
   try { list = JSON.parse(app.figmaPicturesJson() || "[]"); } catch (_) { return; }
   const fresh = list.filter((u) => !figmaBusy.has(u.path) && !figmaFailed.has(u.path));
   if (!fresh.length) return;
-  if (!ownServer()) {
+  if (!sharedOn()) {
     for (const u of fresh) figmaFailed.add(u.path);
     return;
   }
   for (const u of fresh) figmaBusy.add(u.path);
+  const deck = CLOUD_ONLY ? (viewer ? viewShare?.id : doc.cloud) || "" : "";
   Promise.all(fresh.map(async (u) => {
     try {
-      const res = await fetch(sharedPngUrl(u.file, u.node));
+      const res = await fetch(sharedPngUrl(u.file, u.node, 2048, deck));
       // the file is still being indexed: asked again in a moment
       if (res.status === 409) {
         setTimeout(() => { figmaRev = ""; needsPaint = true; }, 3000);
@@ -466,17 +468,27 @@ function loadFigmaPictures(rev) {
 }
 
 // --- the shared Files (a server of one's own, web/sharedfiles.js) ---------------
-// Files everyone on the server can use: the rail's Files place lists them,
-// a row opens a Figma file's window (PresChartEditor "figma") with its
-// screens as tiles. The list is asked again while a file is being indexed.
+// Files everyone on the server can use (on sliqtly.com/editor: the
+// account's own): the rail's Files place lists them, a row opens a Figma
+// file's window (PresChartEditor "figma") with its screens as tiles. The
+// list is asked again while a file is being indexed.
+function sharedOn() {
+  return ownServer() || CLOUD_ONLY;
+}
+if (CLOUD_ONLY) useEditorRoots();
+// sliqtly.com: the Storage folder a file is uploaded to first
+let sharedUpload = "";
+let sharedMax = 0;
 let sharedFilesList = [];
 let sharedPoll = 0;
 const sharedIndexes = new Map(); // id → { updated, json }
 async function sharedRefresh() {
-  if (viewer || !ownServer()) return;
+  if (viewer || !sharedOn()) return;
   let res;
   try { res = await listShared(); } catch (e) { console.warn("shared files not listed", e); return; }
   sharedFilesList = res?.files || [];
+  sharedUpload = res?.upload || "";
+  sharedMax = Number(res?.max) || 0;
   const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
   app.setToolbarOptions("files", rows.join("\n"), "1");
   const open = app.figmaFileOpen();
@@ -512,9 +524,15 @@ async function sharedRequest(r) {
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
+      // said here, before a long upload the server would refuse
+      if (sharedMax && file.size > sharedMax) {
+        toast(t("Could not add the file") + ": " + t("a shared file is at most {n} MB").replace("{n}", String(Math.round(sharedMax / (1 << 20)))));
+        return;
+      }
       toast(t("Adding {name}…").replace("{name}", file.name));
       try {
-        const card = await putShared(file);
+        const upload = CLOUD_ONLY ? (f) => window.sliqtly.uploadFigma(f, sharedUpload) : null;
+        const card = await putShared(file, fetch, upload);
         await sharedRefresh();
         if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
       } catch (e) { toast(t("Could not add the file") + ": " + e.message); }

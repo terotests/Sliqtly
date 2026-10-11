@@ -54,6 +54,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		os.Exit(backupCmd(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "figma-index" {
+		os.Exit(figmaIndexCmd(os.Args[2:]))
+	}
 	data := flag.String("data", env("SLIQTLY_DATA", ""), "keep decks in this folder (SLIQTLY_DATA)")
 	port := flag.String("port", env("PORT", "8080"), "port to listen on (PORT)")
 	base := flag.String("url", env("SLIQTLY_URL", ""), "the address people and links use, e.g. https://sliqtly.example.com (SLIQTLY_URL)")
@@ -232,7 +235,7 @@ func main() {
 			cloud = false
 		}
 		if cloud {
-			err := connectFirebase(context.Background(), e, env("GOOGLE_CLOUD_PROJECT", env("GCLOUD_PROJECT", "sliqtly")), env("SLIQTLY_BUCKET", "sliqtly.firebasestorage.app"))
+			err := connectFirebase(context.Background(), e, cloudProject(), cloudBucketName())
 			if err != nil {
 				log.Fatalf("firebase: %v", err)
 			}

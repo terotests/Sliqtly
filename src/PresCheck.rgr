@@ -2080,6 +2080,8 @@ class PresCheck {
     }
 
     fn figmaFiles:void () {
+        ; the Files tab tags a file it does not know by its extension
+        this.ok((((PresFileLanguage.extTag("data/dashboard3.fig")) == "FIG") && ((PresFileLanguage.extTag("apps/x.tsx")) == "TSX") && ((PresFileLanguage.extTag("notes")) == "TXT") && ((PresFileLanguage.extTag("a.b/README")) == "TXT") && ((PresFileLanguage.extTag(".env")) == "TXT") && ((PresFileLanguage.extTag("x.toolong")) == "TXT")) ("extension tags: " + (PresFileLanguage.extTag("data/dashboard3.fig"))))
         def r:FigmaRef (FigmaRef.parse("figma:app-design/12:34"))
         this.ok((r.ok && (r.file == "app-design") && (r.node == "12:34")) "figma: file and layer")
         def r2:FigmaRef (FigmaRef.parse("  FIGMA://app-design/Login%20screen "))

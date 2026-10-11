@@ -132,7 +132,7 @@ by default. Readability comes first.
 | `rooms` | rooms for presentations, a room's chat |
 <!-- /rooms -->
 <!-- figma -->
-| `figma` | screens of the server's shared Figma files on slides |
+| `figma` | screens of Figma files kept on the server on slides |
 <!-- /figma -->
 
 <!-- topic: layout -->
@@ -1925,11 +1925,13 @@ assistants working for them talk.
 <!-- topic: figma -->
 # Topic: figma
 
-This server keeps shared design files that everyone on it sees (the
-editor's Files rail): Figma files (.fig) read once into an index of their
-pages, screens and the named parts of the screens. A screen goes on a
-slide as a picture, drawn by the server from the index, without the whole
-file being opened.
+This server keeps design files (the editor's Files place): Figma files
+(.fig) read once into an index of their pages, screens and the named parts
+of the screens. On a server of one's own everyone on it sees them; on
+sliqtly.com each account sees its own, added in the editor, and a deck's
+Figma pictures are drawn from its owner's files. A screen goes on a slide
+as a picture, drawn by the server from the index, without the whole file
+being opened.
 
 1. `list_shared_files`: the files, their `file_id`, status (`indexing`,
    `ready`, `failed`) and pages.

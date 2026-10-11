@@ -1190,7 +1190,8 @@ class PresPanels {
             push imgW (f.intOr("w" 0))
             push imgH (f.intOr("h" 0))
         }
-        def tag:string "TXT"
+        ; a file of a kind not known here says its extension (FIG, TSX), not TXT
+        def tag:string (PresFileLanguage.extTag(path))
         if (kind == "md") { tag = "MD" }
         if (kind == "css") { tag = "CSS" }
         if (kind == "image") { tag = (PresI18n.t("IMAGE")) }
