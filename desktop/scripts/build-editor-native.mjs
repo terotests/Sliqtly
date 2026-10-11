@@ -52,7 +52,7 @@ fs.mkdirSync(path.join(RES, "themes"), { recursive: true });
 fs.mkdirSync(path.join(RES, "fonts"), { recursive: true });
 const copy = (from, to) => fs.copyFileSync(from, to);
 copy(path.join(root, ".deps", "EVGUI", "theme", "base.css"), path.join(RES, "base.css"));
-for (const f of ["chart-editor.css", "hint.css", "panels.css", "toolbar.css", "pres.css"]) copy(path.join(root, "web", f), path.join(RES, f));
+for (const f of ["chart-editor.css", "hint.css", "find.css", "panels.css", "toolbar.css", "pres.css"]) copy(path.join(root, "web", f), path.join(RES, f));
 for (const t of themeNames()) fs.writeFileSync(path.join(RES, "themes", `${t}.css`), themeCss(t));
 for (const f of fs.readdirSync(path.join(NATIVE, "fonts")).filter((f) => f.endsWith(".ttf"))) copy(path.join(NATIVE, "fonts", f), path.join(RES, "fonts", f));
 copy(path.join(root, "samples", "welcome.en.md"), path.join(RES, "welcome.en.md"));

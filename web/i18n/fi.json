@@ -1550,5 +1550,16 @@
   "The presentation as a world to fly through, full screen: every slide is a station, its diagrams and charts stand in the air as holograms. Space or → flies to the next station, ← back; W A S D, Q E, R F and the mouse fly freely, Shift faster. A gamepad works too: the sticks fly, A and B next and back. Esc lands on the slide you flew to. Experimental: turn it on in File → Settings.": "Esitys maailmana, jonka läpi lennetään koko näytössä: jokainen kalvo on asema, ja sen kaaviot ja kaaviokuvat leijuvat ilmassa hologrammeina. Välilyönti tai → lentää seuraavalle asemalle, ← takaisin; W A S D, Q E, R F ja hiiri lentävät vapaasti, Shift nopeammin. Myös peliohjain käy: tikut lentävät, A ja B eteen ja taakse. Esc laskeutuu sille kalvolle, jolle lensit. Kokeellinen: ota käyttöön kohdasta Tiedosto → Asetukset.",
   "The 3-D flight could not start: ": "3D-lento ei käynnistynyt: ",
   "The 3-D flight stopped: ": "3D-lento pysähtyi: ",
-  "Sliqtly was updated: reload the page": "Sliqtly päivittyi: lataa sivu uudelleen"
+  "Sliqtly was updated: reload the page": "Sliqtly päivittyi: lataa sivu uudelleen",
+  "Find": "Etsi",
+  "Match Case": "Sama kirjainkoko",
+  "Match Whole Word": "Koko sana",
+  "Use Regular Expression": "Säännöllinen lauseke",
+  "Previous Match": "Edellinen osuma",
+  "Next Match": "Seuraava osuma",
+  "Find in Selection": "Etsi valinnasta",
+  "Toggle Replace": "Näytä korvaus",
+  "Replace All": "Korvaa kaikki",
+  "of": "/",
+  "No results": "Ei tuloksia"
 }

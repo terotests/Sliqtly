@@ -57,6 +57,7 @@ Import "PresChartEditor.rgr"
 Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
+Import "PresFindBar.rgr"
 Import "PresPanels.rgr"
 Import "PresMeet.rgr"
 Import "PresReviewUi.rgr"
@@ -291,6 +292,8 @@ class PresApp {
     ; what the page calls the app: the bar's name and the canvas's label
     def appName:string "EVG Presentation"
     def hint:PresHintPopover (new PresHintPopover())
+    ; Ctrl/Cmd+F over the code editor
+    def find:PresFindBar (new PresFindBar())
     ; the element picked on the slide, with its handles (PresSelect.rgr)
     def pick:PresSelect (new PresSelect())
     ; the popover was opened from the pick: it stays where it was opened,
@@ -363,6 +366,7 @@ class PresApp {
         layers.add("sketch" "docked")
         layers.add("code" "docked")
         layers.add("review" "docked")
+        layers.add("find" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
         layers.add("dialog" "modal")
@@ -4466,6 +4470,13 @@ class PresApp {
                 this.closeHint()
             }
         }
+        if (top == "find") {
+            focus = "find"
+            find.focused = true
+            find.press(x y clicks shift)
+            this.afterFind()
+            return "find"
+        }
         if (top == "room") {
             room.press(x y clicks shift)
             this.afterRoom()
@@ -4967,6 +4978,22 @@ class PresApp {
                 panels.hoverAt(-1000000.0 -1000000.0)
             }
         }
+        if (find.isOpen && find.selecting) {
+            find.dragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (this.findShown()) {
+            def findHot:int find.rev
+            if (top == "find") {
+                find.hoverAt(x y)
+            } {
+                find.hoverAt(-1000000.0 -1000000.0)
+            }
+            if (find.rev != findHot) {
+                chromeRev = (chromeRev + 1)
+            }
+        }
         if hint.isOpen {
             if (hint.dragging()) {
                 hint.dragTo(x y)
@@ -5099,6 +5126,10 @@ class PresApp {
         if (hint.isOpen && (hint.dragging())) {
             hint.release()
             this.afterHint()
+        }
+        if (find.isOpen && find.selecting) {
+            find.release()
+            chromeRev = (chromeRev + 1)
         }
         if chart.isOpen {
             ; a finger's tap on the window is pressed as it lifts
@@ -5390,6 +5421,9 @@ class PresApp {
             if (top == "hint") {
                 lc = (hint.cursorAt(x y))
             }
+            if (top == "find") {
+                lc = (find.cursorAt(x y))
+            }
             if (top == "chart") {
                 lc = (chart.cursorAt(x y))
             }
@@ -5533,6 +5567,16 @@ class PresApp {
         if (((barH > 0.0) && (toolbar.listOpen())) && (name == "escape")) {
             toolbar.closeLists()
             chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (this.findHasKeys()) {
+            find.key(name shift ctrl)
+            this.afterFind()
+            return true
+        }
+        ; Esc in the text closes the bar over it (a popover first)
+        if (((name == "escape") && (this.findShown())) && (((hint.isOpen == false) && (focus == "editor")) && (editor.completionOpen == false))) {
+            this.closeFind()
             return true
         }
         if (hint.isOpen && (mode != "present")) {
@@ -5826,6 +5870,11 @@ class PresApp {
             this.afterHint()
             return
         }
+        if (this.findHasKeys()) {
+            find.type(s)
+            this.afterFind()
+            return
+        }
         if ((mode == "present") && replaying) {
             return
         }
@@ -5918,6 +5967,12 @@ class PresApp {
             this.afterChart()
             return
         }
+        ; one line into the find bar's field
+        if (this.findHasKeys()) {
+            find.type((PresReviewUi.oneLine(s)))
+            this.afterFind()
+            return
+        }
         if ((mode == "present") || (focus != "editor")) {
             return
         }
@@ -6002,6 +6057,14 @@ class PresApp {
         if ((hint.isOpen && (hint.hasKeys())) && (ch == "a")) {
             hint.selectAllInField()
             this.afterHint()
+            return true
+        }
+        ; Ctrl+A in the find bar's field: all of its text
+        if (this.findHasKeys()) {
+            if (ch == "a") {
+                find.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
             return true
         }
         ; Ctrl+A in the chat's field: all of its text
@@ -6757,6 +6820,7 @@ class PresApp {
         ; a game that has the keyboard while presenting takes the stage: the
         ; comments' bar and pins give way until Esc
         layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
+        layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -6797,6 +6861,9 @@ class PresApp {
         }
         if (id == "hint") {
             return (hint.has(x y))
+        }
+        if (id == "find") {
+            return (find.has(x y))
         }
         if (id == "chart") {
             return (chart.has(x y))
@@ -6866,6 +6933,14 @@ class PresApp {
     ; --- the value popover --------------------------------------------------------
     fn setHintCss:void (css:string) {
         hint.css = css
+    }
+
+    fn setFindCss:void (css:string) {
+        find.css = css
+        if find.isOpen {
+            find.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; Open the popover on a hint (hintAt / hintAtCaret's JSON); "" closes it.
@@ -7387,6 +7462,203 @@ class PresApp {
             hint.rebuild()
         }
         def dl:EVGDisplayList (hint.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    ; --- find and replace in the code editor (Ctrl/Cmd+F) -------------------------------
+    ; The bar is PresFindBar (EVGUI's FindBarCtl); the finding, the matches
+    ; painted in the text and the replacing are the editor's (ScriptEditor
+    ; with EditorFind). While the bar has the keys `focus` is "find"; a press
+    ; in the text gives them back to the editor and the bar stays, as in
+    ; VS Code, until Esc or its ×.
+    fn findShown:boolean () {
+        return (find.isOpen && (mode != "present"))
+    }
+
+    fn findHasKeys:boolean () {
+        return ((this.findShown()) && (focus == "find"))
+    }
+
+    ; Is there a text to search: the Markdown, the theme, or an open file.
+    fn findAvailable:boolean () {
+        if ((mode == "present") || (edRect.w <= 0.0)) {
+            return false
+        }
+        return ((this.filesListShowing()) == false)
+    }
+
+    ; The page's chords: "find" (Ctrl/Cmd+F), "replace" (Ctrl+H, Cmd+Alt+F),
+    ; "next" / "prev" (F3, Cmd+G, with Shift back), and the switches "case",
+    ; "word", "regex", "scope" (Alt+C, Alt+W, Alt+R, Alt+L) while it is open.
+    ; True when the chord was the bar's.
+    fn findChord:boolean (what:string) {
+        if ((what == "find") || (what == "replace")) {
+            return (this.openFind((what == "replace")))
+        }
+        if ((this.findShown()) == false) {
+            return false
+        }
+        if ((what == "next") || (what == "prev")) {
+            this.findSync()
+            editor.findNext((what == "prev"))
+            this.findStatus()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if ((((what == "case") || (what == "word")) || (what == "regex")) || (what == "scope")) {
+            find.bar.toggle(what)
+            find.rebuild()
+            this.afterFind()
+            return true
+        }
+        return false
+    }
+
+    fn openFind:boolean (withReplace:boolean) {
+        if ((this.findAvailable()) == false) {
+            return false
+        }
+        this.closeHint()
+        editor.findBar = false
+        editor.openFind()
+        ; a selection on one line is the query; with none the bar keeps the
+        ; last one
+        def q:string ""
+        if ((editor.sel.isCollapsed()) == false) {
+            q = editor.findQuery
+        }
+        find.measurer = measurer
+        find.w = W
+        find.h = H
+        find.bar.inSelection = false
+        this.placeFind()
+        find.open(q withReplace)
+        focus = "find"
+        this.findSync()
+        editor.setFindQuery((find.bar.query()))
+        this.findStatus()
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    fn closeFind:void () {
+        if (find.isOpen == false) {
+            return
+        }
+        find.close()
+        mdEditor.closeFind()
+        cssEditor.closeFind()
+        fileEditor.closeFind()
+        if (focus == "find") {
+            focus = "editor"
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The editor shown has the bar's query and switches (another tab may
+    ; have been opened since).
+    fn findSync:void () {
+        editor.findBar = false
+        if (editor.findActive()) {
+            return
+        }
+        editor.findOpen = true
+        editor.findQuery = (find.bar.query())
+        editor.find.query = editor.findQuery
+        editor.find.matchCase = find.bar.matchCase
+        editor.find.wholeWord = find.bar.wholeWord
+        editor.find.regex = find.bar.regex
+        editor.find.clearScope()
+        find.bar.inSelection = false
+        editor.refreshFindCount()
+    }
+
+    fn placeFind:void () {
+        ; over the minimap, as VS Code's: a narrow editor still has room
+        find.right = (to_double ((editor.layout.x + editor.layout.w) - 14))
+        find.top = (to_double (editor.layout.y + 4))
+    }
+
+    ; The count beside the query: "3 of 17", "No results", or why a pattern
+    ; cannot be read.
+    fn findStatus:void () {
+        editor.refreshFindCount()
+        def q:string (find.bar.query())
+        if ((strlen q) == 0) {
+            find.setStatus((PresI18n.t("No results")) false)
+            return
+        }
+        def text:string (editor.find.status((PresI18n.t("of")) (PresI18n.t("No results"))))
+        find.setStatus(text ((editor.find.count()) == 0))
+    }
+
+    ; What the bar asked for, done in the editor.
+    fn afterFind:void () {
+        this.findSync()
+        def asked:[string] (find.bar.takeAsked())
+        def i:int 0
+        while (i < (array_length asked)) {
+            def a:string (itemAt asked i)
+            if (a == "query") {
+                editor.setFindQuery((find.bar.query()))
+            }
+            if (a == "options") {
+                editor.setFindOptions(find.bar.matchCase find.bar.wholeWord find.bar.regex)
+            }
+            if (a == "scope") {
+                editor.setFindInSelection(find.bar.inSelection)
+            }
+            if (a == "next") {
+                editor.findNext(false)
+            }
+            if (a == "prev") {
+                editor.findNext(true)
+            }
+            if (a == "replace") {
+                if (editor.findReplace((find.bar.replacement()))) {
+                    this.syncEditor()
+                }
+            }
+            if (a == "replaceAll") {
+                if ((editor.findReplaceAll((find.bar.replacement()))) > 0) {
+                    this.syncEditor()
+                }
+            }
+            if (a == "close") {
+                this.closeFind()
+                return
+            }
+            i = (i + 1)
+        }
+        this.findStatus()
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn findIsOpen:boolean () {
+        return (this.findShown())
+    }
+
+    ; The bar as a display list over the page: "" when it is closed.
+    fn findJson:string () {
+        if ((this.findShown()) == false) {
+            return ""
+        }
+        if (this.filesListShowing()) {
+            return ""
+        }
+        this.findSync()
+        find.measurer = measurer
+        def was:double (find.right + (find.top * 100000.0))
+        this.placeFind()
+        def keys:boolean (focus == "find")
+        if ((((find.w != W) || (find.h != H)) || (was != (find.right + (find.top * 100000.0)))) || (keys != find.focused)) {
+            find.w = W
+            find.h = H
+            find.focused = keys
+            find.rebuild()
+        }
+        this.findStatus()
+        def dl:EVGDisplayList (find.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
@@ -9475,6 +9747,7 @@ class PresApp {
         panels.skin = s
         panels.skinHue = hue
         hint.skin = s
+        find.skin = s
         chart.skin = s
         PresApp.skinEditor(editor s hue)
         PresApp.skinEditor(cssEditor s hue)
@@ -13184,6 +13457,9 @@ class PresApp {
     }
 
     fn copySelection:string () {
+        if (this.findHasKeys()) {
+            return (find.selectedText())
+        }
         def other:string (this.readSelection())
         if ((strlen other) > 0) {
             return other
@@ -13194,6 +13470,14 @@ class PresApp {
     ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
     ; editor's to cut (and is read, not edited), so nothing is cut then.
     fn cutSelection:string () {
+        if (this.findHasKeys()) {
+            def cut:string (find.selectedText())
+            if ((strlen cut) > 0) {
+                find.key("backspace" false false)
+                this.afterFind()
+            }
+            return cut
+        }
         ; the bar's name field is not the editor's: nothing of the editor goes
         if (((strlen (this.readSelection())) > 0) || ((barH > 0.0) && toolbar.titleEditing)) {
             return ""
