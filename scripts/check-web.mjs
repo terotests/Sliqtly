@@ -83,6 +83,22 @@ const browser = await chromium.launch({
   executablePath: chromiumPath(),
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
+// The checks read the interface's words as written ("room",
+// "presentation"): every page starts with that term unless a check sets
+// another. The "topic" words have checks of their own (PresCheck).
+const roomWords = () => { try { if (!localStorage.getItem("sliqtly.roomWord")) localStorage.setItem("sliqtly.roomWord", "room"); } catch (_) {} };
+const plainContext = browser.newContext.bind(browser);
+browser.newContext = async (opts) => {
+  const c = await plainContext(opts);
+  await c.addInitScript(roomWords);
+  return c;
+};
+browser.newPage = async (opts) => {
+  const c = await browser.newContext(opts);
+  const p = await c.newPage();
+  p.once("close", () => c.close().catch(() => {}));
+  return p;
+};
 try {
   // A phone: the filmstrip swipes, a tap picks a thumbnail, two fingers
   // zoom the slide (clipped to the stage) and a double tap goes back out.
@@ -3133,6 +3149,8 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
       press(find("tb-room-close"));
       for (const k of Object.keys(localStorage)) if (k.startsWith("sliqtly.rooms")) localStorage.removeItem(k);
+      // as another tab clearing them: the page reads the rooms again
+      window.dispatchEvent(new StorageEvent("storage", { key: null }));
     }, findJs);
     // General's gear: no name to change, Clear asks first and takes this
     // browser's copies out of it, the open presentation kept

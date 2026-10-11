@@ -1,0 +1,174 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresHeadingAttr.rgr — one `key=value` of a heading's attributes, set or
+; taken out, the rest of the line as it was written
+; ============================================================================
+;
+;   ## Costs                       + phase=review  →  ## Costs {phase=review}
+;   ## Costs {bg=a.png}            + phase=review  →  ## Costs {bg=a.png phase=review}
+;   ## Costs {phase=draft .wide}   + phase=done    →  ## Costs {phase=done .wide}
+;   ## Costs {phase=done}          - phase         →  ## Costs
+;
+; A slide's phase (where its work is: draft, in review, done) is its own
+; data in its heading, `{phase=review}` (MdSlideMeta), so it travels with
+; the slide's text: a copy, a diff, an assistant over MCP all see it. The
+; attributes are found the way the deck reads them (MdAttrs.headingAttrs),
+; so the line written is the line read back.
+; ============================================================================
+
+Import "../markdown/web/markdown_web.rgr"
+
+class PresHeadingAttr {
+
+    ; `line` with `key` set to `value`, or taken out when `value` is "".
+    ; A value with a space in it is quoted.
+    sfn put:string (line:string key:string value:string) {
+        def k:string (MdChar.lower((trim key)))
+        def v:string (trim value)
+        if ((strlen v) > 0) {
+            if ((indexOf v " ") >= 0) {
+                v = ("\"" + v + "\"")
+            }
+        }
+        def tok:string (k + "=" + v)
+        def notes:[string]
+        def cut:int (MdAttrs.headingAttrs((new MdNode()) line notes))
+        if (cut < 0) {
+            if ((strlen v) == 0) {
+                return line
+            }
+            return ((PresHeadingAttr.trimEnd(line)) + " {" + tok + "}")
+        }
+        def b:int (strlen (PresHeadingAttr.trimEnd(line)))
+        ; the tokens of the attribute groups: [start end start end …]
+        def spans:[int] (PresHeadingAttr.tokenSpans(line cut b))
+        def i:int 0
+        while (i < (array_length spans)) {
+            def s:int (itemAt spans i)
+            def e:int (itemAt spans (i + 1))
+            def word:string (substring line s e)
+            def eq:int (indexOf word "=")
+            if (eq > 0) {
+                if ((MdChar.lower((trim (substring word 0 eq)))) == k) {
+                    if ((strlen v) > 0) {
+                        return ((substring line 0 s) + tok + (substring line e (strlen line)))
+                    }
+                    return (PresHeadingAttr.takeOut(line s e))
+                }
+            }
+            i = (i + 2)
+        }
+        if ((strlen v) == 0) {
+            return line
+        }
+        ; into the last group, before its `}` (or at the end of one never closed)
+        if ((charAt line (b - 1)) == 125) {
+            def at:int (b - 1)
+            def before:int (charAt line (at - 1))
+            if ((before == 123) || (MdAttrs.isSpaceCode(before))) {
+                return ((substring line 0 at) + tok + (substring line at (strlen line)))
+            }
+            return ((substring line 0 at) + " " + tok + (substring line at (strlen line)))
+        }
+        return ((substring line 0 b) + " " + tok)
+    }
+
+    ; The slide's heading line among `lines` from..at-1: the first that
+    ; starts with `#`, -1 when there is none (a slide begun by `---`).
+    sfn headingIn:int (lines:[string] from:int at:int) {
+        def i:int from
+        if (i < 0) {
+            return -1
+        }
+        while ((i < at) && (i < (array_length lines))) {
+            def l:string (itemAt lines i)
+            if (((strlen l) > 0) && ((charAt l 0) == 35)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn trimEnd:string (s:string) {
+        def b:int (strlen s)
+        while (b > 0) {
+            if (! (MdAttrs.isSpaceCode((charAt s (b - 1))))) {
+                break
+            }
+            b = (b - 1)
+        }
+        return (substring s 0 b)
+    }
+
+    ; Where each token of the groups from `cut` to `b` starts and ends; a
+    ; quoted value's spaces and braces are its own.
+    sfn tokenSpans:[int] (line:string cut:int b:int) {
+        def out:[int]
+        def i:int cut
+        def start:int -1
+        def quote:boolean false
+        while (i < b) {
+            def c:int (charAt line i)
+            if quote {
+                if (c == 34) {
+                    quote = false
+                }
+            } {
+                if (c == 34) {
+                    quote = true
+                    if (start < 0) {
+                        start = i
+                    }
+                } {
+                    if (((c == 123) || (c == 125)) || (MdAttrs.isSpaceCode(c))) {
+                        if (start >= 0) {
+                            push out start
+                            push out i
+                            start = -1
+                        }
+                    } {
+                        if (start < 0) {
+                            start = i
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (start >= 0) {
+            push out start
+            push out b
+        }
+        return out
+    }
+
+    ; The token s..e out of `line`, with the space before it; a group left
+    ; empty goes too, with the spaces before it.
+    sfn takeOut:string (line:string s:int e:int) {
+        def a:int s
+        while ((a > 0) && (MdAttrs.isSpaceCode((charAt line (a - 1))))) {
+            a = (a - 1)
+        }
+        def z:int e
+        ; `{phase=x other}`: the space after it goes instead
+        if ((a > 0) && ((charAt line (a - 1)) == 123)) {
+            while ((z < (strlen line)) && (MdAttrs.isSpaceCode((charAt line z)))) {
+                z = (z + 1)
+            }
+        }
+        def out:string ((substring line 0 a) + (substring line z (strlen line)))
+        ; an empty `{}` left where the token was
+        if ((a > 0) && ((charAt out (a - 1)) == 123)) {
+            if ((a < (strlen out)) && ((charAt out a) == 125)) {
+                def g:int (a - 1)
+                while ((g > 0) && (MdAttrs.isSpaceCode((charAt out (g - 1))))) {
+                    g = (g - 1)
+                }
+                out = ((substring out 0 g) + (substring out (a + 1) (strlen out)))
+            }
+        }
+        return out
+    }
+}

@@ -82,6 +82,9 @@
 .thumb-picked:hover { background-color: #f59e0b; }
 .thumb-drop { background-color: rgba(0, 0, 0, 0); border: 2px dashed var(--accent); border-radius: 6px; }
 .thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
+/* a slide's own phase ({phase=review}) above its thumbnail, right; neutral */
+.thumb-phase-row { display: flex; flex-direction: row; justify-content: flex-end; }
+.thumb-phase { height: 15px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background-color: var(--panel-2); color: var(--ink-dim); font-size: 10px; font-weight: 700; line-height: 13px; }
 /* the "+" after the last thumbnail, and its two choices once pressed */
 .thumb-add { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink-dim); font-size: 40px; text-align: center; cursor: pointer; }
 .thumb-add-btn { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); font-size: 12px; font-weight: 600; text-align: center; cursor: pointer; }

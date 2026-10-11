@@ -21,6 +21,7 @@
 
 Import "../evgui/src/UiHost.rgr"
 Import "UiKit.rgr"
+Import "PresStoryNames.rgr"
 Import "PresI18n.rgr"
 Import "../evgui/src/UiText.rgr"
 Import "../evgui/src/UiShapes.rgr"
@@ -90,6 +91,10 @@ class PresToolbar {
     ; the page can publish to sliqtly.com (Export ▸ Cloud HTML, Cloud
     ; video); not on a server of one's own, nor in the desktop editor
     def cloud:boolean true
+    ; the strip menu's slide: its phase (`{phase=review}`), and whether it
+    ; has a heading to keep one in
+    def ctxSlidePhase:string ""
+    def ctxSlidePhaseOn:boolean false
     ; The filmstrip's context menu (PresApp.openSlideMenu): open, where it
     ; was asked for, and which of its rows can act on the slide.
     def ctxOpen:boolean false
@@ -109,6 +114,12 @@ class PresToolbar {
     def ctxDeckFrom:string "room"
     def ctxDeckName:string ""
     def ctxDeckCurrent:boolean false
+    ; a story's Type or Phase pill (the room's Stories tab, PresTopicView)
+    ; opened the menu: "type" or "phase" ("" the whole menu), and the
+    ; story's type and phase now
+    def ctxStoryPart:string ""
+    def ctxStoryType:string ""
+    def ctxStoryPhase:string ""
     ; a room whose "+" opened the context menu as "Add new…" ("" not that
     ; menu): a presentation or a folder in that room
     def ctxAdd:string ""
@@ -430,6 +441,9 @@ class PresToolbar {
         if (id == "slideDraw") {
             return "slide:draw"
         }
+        if ((indexOf id "slph-") == 0) {
+            return ("slide:phase:" + (substring id 5 (strlen id)))
+        }
         if (id == "slideLeft") {
             return "slide:left"
         }
@@ -706,6 +720,7 @@ class PresToolbar {
         ctxRight = canRight
         ctxDelete = canDelete
         ctxDeck = ""
+        ctxStoryPart = ""
         ctxAdd = ""
         ctxOpen = true
         this.rebuild()
@@ -734,6 +749,7 @@ class PresToolbar {
         ctxX = x
         ctxY = (y + 2.0)
         ctxDeck = ""
+        ctxStoryPart = ""
         ctxAdd = room
         ctxOpen = true
         this.rebuild()
@@ -762,6 +778,9 @@ class PresToolbar {
     ; from: "room" (a row of Rooms, `id` its deck) or "tab" (a deck tab, `id`
     ; its key).
     fn openDeckContext:void (x:double y:double from:string id:string name:string current:boolean) {
+        ctxStoryPart = ""
+        ctxStoryType = ""
+        ctxStoryPhase = ""
         ctxDeckFrom = from
         ctxDeckName = name
         ctxDeckCurrent = current
@@ -776,6 +795,37 @@ class PresToolbar {
         ctxAdd = ""
         ctxOpen = true
         this.rebuild()
+    }
+
+    ; A story's Type or Phase pill pressed (`part` "type" or "phase"): the
+    ; menu of that part under it, the story's own one marked.
+    fn openStoryMenu:void (x:double y:double id:string part:string ty:string phase:string name:string) {
+        this.openDeckContext(x (y + 2.0) "room" id name false)
+        ctxStoryPart = part
+        ctxStoryType = ty
+        ctxStoryPhase = phase
+        this.rebuild()
+    }
+
+    ; the types as rows "sty-<type>" under `parent`, the story's own greyed
+    fn storyTypeKids:void (parent:UiItem) {
+        def all:[string] (PresStoryNames.types())
+        def i:int 0
+        while (i < (array_length all)) {
+            def ty:string (itemAt all i)
+            MenuCtl.addKid(parent ("sty-" + ty) (PresStoryNames.typeName(ty)) (ty == ctxStoryType))
+            i = (i + 1)
+        }
+    }
+
+    fn storyPhaseKids:void (parent:UiItem) {
+        def all:[string] (PresStoryNames.phases())
+        def i:int 0
+        while (i < (array_length all)) {
+            def ph:string (itemAt all i)
+            MenuCtl.addKid(parent ("stp-" + ph) (PresStoryNames.phaseName(ph)) (ph == ctxStoryPhase))
+            i = (i + 1)
+        }
     }
 
     ; Is the presentation `id` of the open room's list the open deck?
@@ -814,6 +864,13 @@ class PresToolbar {
     ; File request itself for the open deck, else the deck opened first
     ; ("deckdo:<room|tab>:<id>\t<request>"); Open only opens it.
     fn deckRequest:string (choice:string) {
+        ; a story's type or phase: the deck need not be open either
+        if ((indexOf choice "sty-") == 0) {
+            return ("story:set:" + ctxDeck + (strfromcode 9) + "type" + (strfromcode 9) + (substring choice 4 (strlen choice)))
+        }
+        if ((indexOf choice "stp-") == 0) {
+            return ("story:set:" + ctxDeck + (strfromcode 9) + "phase" + (strfromcode 9) + (substring choice 4 (strlen choice)))
+        }
         ; Move to folder: in the open room, the deck need not be open
         if (choice == "mvf-new") {
             return ("room:newfolder:" + roomOpen + ":" + ctxDeck)
@@ -851,10 +908,14 @@ class PresToolbar {
             cm.addItem("addDeck" (PresI18n.t("Presentation")) false)
             cm.addItem("addFolder" (PresI18n.t("Folder")) false)
         } {
-            if ((strlen ctxDeck) > 0) {
-                this.deckContextRows(cm)
+            if ((strlen ctxStoryPart) > 0) {
+                this.storyPartRows(cm)
             } {
-                this.slideContextRows(cm)
+                if ((strlen ctxDeck) > 0) {
+                    this.deckContextRows(cm)
+                } {
+                    this.slideContextRows(cm)
+                }
             }
         }
         cm.openMenu()
@@ -882,8 +943,36 @@ class PresToolbar {
         if ((ctxDeckFrom == "room") && ((indexOf ctxDeck "sample:") != 0)) {
             this.folderKids((cm.addSub("moveFolder" (PresI18n.t("Move to folder")) false)))
         }
+        ; a story's type and phase (not a sample's: it is no one's to change)
+        if ((indexOf ctxDeck "sample:") != 0) {
+            this.storyTypeKids((cm.addSub("storyType" (PresI18n.t("Type")) false)))
+            this.storyPhaseKids((cm.addSub("storyPhase" (PresI18n.t("Phase")) false)))
+        }
         cm.addSeparator()
         this.deckRows(cm ((indexOf ctxDeck "sample:") != 0))
+    }
+
+    ; A story pill's menu: the types or the phases, a head naming which.
+    fn storyPartRows:void (cm:MenuCtl) {
+        def all:[string] (PresStoryNames.types())
+        if (ctxStoryPart == "phase") {
+            all = (PresStoryNames.phases())
+            cm.name = (PresI18n.t("Phase"))
+            cm.addLabel("storyHead" (PresI18n.t("Phase")))
+        } {
+            cm.name = (PresI18n.t("Type"))
+            cm.addLabel("storyHead" (PresI18n.t("Type")))
+        }
+        def i:int 0
+        while (i < (array_length all)) {
+            def v:string (itemAt all i)
+            if (ctxStoryPart == "phase") {
+                cm.addItem(("stp-" + v) (PresStoryNames.phaseName(v)) (v == ctxStoryPhase))
+            } {
+                cm.addItem(("sty-" + v) (PresStoryNames.typeName(v)) (v == ctxStoryType))
+            }
+            i = (i + 1)
+        }
     }
 
     ; Move to folder's rows: the open room's folders (the one the deck is in
@@ -925,10 +1014,26 @@ class PresToolbar {
         MenuCtl.addKid(parent "mvf-new" (PresI18n.t("New folder…")) false)
     }
 
+    ; The slide's own phase: the presentation's phases, and none.
+    fn slidePhaseKids:void (parent:UiItem) {
+        MenuCtl.addKid(parent "slph-none" (PresI18n.t("No phase")) ((strlen ctxSlidePhase) == 0))
+        def all:[string] (PresStoryNames.phases())
+        def i:int 0
+        while (i < (array_length all)) {
+            def p:string (itemAt all i)
+            MenuCtl.addKid(parent ("slph-" + p) (PresStoryNames.phaseName(p)) (p == ctxSlidePhase))
+            i = (i + 1)
+        }
+    }
+
     fn slideContextRows:void (cm:MenuCtl) {
         cm.addItem("slideNew" (PresI18n.t("New slide")) false)
         cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
         cm.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
+        if ctxSlidePhaseOn {
+            def ph:UiItem (cm.addSub("slide-phase" (PresI18n.t("Phase")) false))
+            this.slidePhaseKids(ph)
+        }
         cm.addSeparator()
         cm.addItem("slideLeft" (PresI18n.t("Move left")) (ctxLeft == false))
         cm.addItem("slideRight" (PresI18n.t("Move right")) (ctxRight == false))

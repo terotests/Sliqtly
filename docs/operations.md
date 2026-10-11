@@ -136,8 +136,8 @@ licenses.
 The editor's ✨ AI drawer asks a model through this service
 (`/editor/api/ai/ask`, mcp-go/aiassist.go). Deploy MCP (Go) sets
 `SLIQTLY_AI=gemini` (repository variable `SLIQTLY_AI`; `off` turns it off):
-Gemini Flash (`gemini-3.8-flash`; `SLIQTLY_AI_MODEL` picks another, such as
-`gemini-3.5-flash-lite`) runs on Vertex AI in the same project, signed by
+Gemini Flash-Lite (`gemini-3.5-flash-lite`; `SLIQTLY_AI_MODEL` picks another,
+such as `gemini-3.8-flash`) runs on Vertex AI in the same project, signed by
 the service's own account, so no API key is needed and it is billed to the
 project and its Cloud credits. Before it answers:
 

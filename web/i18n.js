@@ -47,15 +47,18 @@ if (lang !== "en") {
   }
 }
 
-// What the interface calls a room: "room" or "project" (File → Settings,
+// What the interface calls a room: "topic" (the default; its presentations
+// are then stories), "room" or "project" (File → Settings,
 // src/PresTerm.rgr). Changing it reloads the page, as the language does.
 const TERM_KEY = "sliqtly.roomWord";
+const TERMS = ["topic", "room", "project"];
+export const termOf = (word) => (TERMS.includes(word) ? word : "topic");
 export const term = (() => {
-  try { return localStorage.getItem(TERM_KEY) === "project" ? "project" : "room"; } catch (_) { return "room"; }
+  try { return termOf(localStorage.getItem(TERM_KEY)); } catch (_) { return "topic"; }
 })();
 
 export function chooseTerm(word) {
-  try { localStorage.setItem(TERM_KEY, word === "project" ? "project" : "room"); } catch (_) { return false; }
+  try { localStorage.setItem(TERM_KEY, termOf(word)); } catch (_) { return false; }
   location.reload();
   return true;
 }

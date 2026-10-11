@@ -30,6 +30,8 @@
 
 Import "PresTimeline.rgr"
 Import "PresSlideSpans.rgr"
+Import "PresHeadingAttr.rgr"
+Import "PresStoryNames.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresClip.rgr"
@@ -4353,6 +4355,16 @@ class PresApp {
             num = ("✓ " + num)
         }
         box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" num (x - ox) 4.0)))
+        ; its own phase, at the row's other end
+        def ph:string (this.slidePhase(i))
+        if ((strlen ph) > 0) {
+            def row:EVGElement (PresApp.div(("tph" + (to_string i)) "thumb-phase-row" (x - ox) 2.0 thumbW 16.0))
+            def pill (EVGElement.createDiv())
+            pill.className = ("thumb-phase thumb-phase-" + ph)
+            pill.textContent = (PresStoryNames.phaseName(ph))
+            row.addChild(pill)
+            box.addChild(row)
+        }
     }
 
     ; A box with its words in the middle (`line-height` is its height).
@@ -8695,10 +8707,34 @@ class PresApp {
         }
         def r:string (room.take())
         while ((strlen r) > 0) {
-            push requests ("roomchat:" + r)
+            if ((indexOf r "topic:") == 0) {
+                this.topicRequest(r)
+            } {
+                push requests ("roomchat:" + r)
+            }
             r = (room.take())
         }
         chromeRev = (chromeRev + 1)
+    }
+
+    ; What the room's Stories tab asked for (PresTopicView): a pill's menu
+    ; or a card's context menu is the bar's (PresToolbar), drawn over the
+    ; page; the × closes the room; the rest is the page's ("topic:…").
+    fn topicRequest:void (r:string) {
+        def f:[string] (strsplit r (strfromcode 9))
+        if ((itemAt f 0) == "topic:close") {
+            push requests "roomchat:close"
+            return
+        }
+        if (((itemAt f 0) == "topic:menu") && ((array_length f) >= 8)) {
+            toolbar.openStoryMenu((?? (str2double (itemAt f 5)) 0.0) (?? (str2double (itemAt f 6)) 0.0) (itemAt f 1) (itemAt f 2) (itemAt f 3) (itemAt f 4) (itemAt f 7))
+            return
+        }
+        if (((itemAt f 0) == "topic:ctx") && ((array_length f) >= 6)) {
+            toolbar.openDeckContext((?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0) "room" (itemAt f 1) (itemAt f 5) ((itemAt f 2) == "1"))
+            return
+        }
+        push requests r
     }
 
     ; --- the page's side ---------------------------------------------------------
@@ -8709,6 +8745,13 @@ class PresApp {
         room.show(id title about readOnly notice)
         focus = "room"
         room.ch.keys = "main"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The open room's stories, grouped by the page (web/stories.js), for its
+    ; Stories tab (PresTopicView.setData)
+    fn roomStories:void (json:string) {
+        room.setStories(json)
         chromeRev = (chromeRev + 1)
     }
 
@@ -11566,6 +11609,13 @@ class PresApp {
     ; `pics` is the deck's pictures, one path a line, for the logo. Each change
     ; rewrites the front matter at once; closing the window makes all of them
     ; one undo step.
+    ; The open presentation's type, phase and tags for Document settings
+    ; (PresChartEditor setDocStory).
+    fn setDocStory:void (on:boolean ty:string phase:string tags:string) {
+        chart.setDocStory(on ty phase tags)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; The rooms for the open Document settings window (PresChartEditor
     ; setDocRooms); nothing when it is not open.
     fn setDocRooms:void (rows:string current:string note:string) {
@@ -12481,6 +12531,12 @@ class PresApp {
             push requests ("docroom:" + chart.dsRoomAct)
             chart.dsRoomAct = ""
         }
+        ; its type, phase and tags (the tags once their field is left)
+        chart.storyTagsDone()
+        while ((array_length chart.dsStoryActs) > 0) {
+            push requests ("docstory:" + (itemAt chart.dsStoryActs 0))
+            remove_index chart.dsStoryActs 0
+        }
         if chart.wantsClose {
             chart.wantsClose = false
             this.closeChart()
@@ -12754,7 +12810,50 @@ class PresApp {
             this.setSketching(true)
             return true
         }
+        if ((indexOf what "phase:") == 0) {
+            def ph:string (substring what 6 (strlen what))
+            if (ph == "none") {
+                ph = ""
+            }
+            return (this.setSlidePhase(selected ph))
+        }
         return false
+    }
+
+    ; Slide i's own phase (`## Costs {phase=review}`), "" when it has none
+    ; or one that is not a phase.
+    fn slidePhase:string (i:int) {
+        def p:string (trim (deck.slideMetaValue(i "phase")))
+        if ((indexOf (PresStoryNames.phases()) p) < 0) {
+            return ""
+        }
+        return p
+    }
+
+    ; The Markdown line of slide i's heading, -1 when it has none.
+    fn slideHeadingLine:int (i:int) {
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            return -1
+        }
+        this.slideLines(i)
+        def lines:[string] (strsplit (mdEditor.text()) "\n")
+        return (PresHeadingAttr.headingIn(lines linesFrom linesAt))
+    }
+
+    ; Slide i's phase written into its heading ("" takes it out), as one edit.
+    fn setSlidePhase:boolean (i:int phase:string) {
+        def at:int (this.slideHeadingLine(i))
+        if (at < 0) {
+            return false
+        }
+        def line:string (mdEditor.buf.lineAt(at))
+        def next:string (PresHeadingAttr.put(line "phase" phase))
+        if (next == line) {
+            return true
+        }
+        this.replaceLines(at at next)
+        this.selectSlide(i)
+        return true
     }
 
     ; The slide's Markdown (its whole section, as slideLines finds it) taken
@@ -13616,6 +13715,8 @@ class PresApp {
         if ((pick.on && (pick.page == i)) && (pick.srcA >= 0)) {
             toolbar.ctxElement = (PresClip.elementWord(pick.sel))
         }
+        toolbar.ctxSlidePhase = (this.slidePhase(i))
+        toolbar.ctxSlidePhaseOn = ((this.slideHeadingLine(i)) >= 0)
         toolbar.openContext(x y (i > 0) (i < (n - 1)) (n > 1))
         chromeRev = (chromeRev + 1)
     }

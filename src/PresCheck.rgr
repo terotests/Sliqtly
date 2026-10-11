@@ -28,6 +28,7 @@ Import "PresCodeView.rgr"
 Import "../rangerdiff/src/RdText.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
+Import "PresHeadingAttr.rgr"
 Import "PresPick.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
@@ -147,6 +148,9 @@ class PresCheck {
     }
 
     fn run:void () {
+        ; the interface's words as written (PresTerm "room"): the checks
+        ; below read them; the words for "topic" have checks of their own
+        PresI18n.useTerm("room")
         def text:string (PresCheck.sample())
         def src (new PresSource())
         src.read(text)
@@ -220,6 +224,7 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.headingAttr()
         this.codeSource()
         this.codeRows()
         this.codeView()
@@ -2392,6 +2397,31 @@ class PresCheck {
 
     ; File → Settings' word for a room: whole words swapped, case kept, each
     ; Finnish case form its own
+    ; A slide's phase in its heading: one key set or taken out, the rest of
+    ; the line as written, and read back by the deck as the slide's data.
+    fn headingAttr:void () {
+        this.ok(((PresHeadingAttr.put("## Costs" "phase" "review")) == "## Costs {phase=review}") "heading attr: a group added")
+        this.ok(((PresHeadingAttr.put("## Costs   " "phase" "draft")) == "## Costs {phase=draft}") "heading attr: trailing spaces dropped")
+        this.ok(((PresHeadingAttr.put("## Costs {bg=a.png}" "phase" "review")) == "## Costs {bg=a.png phase=review}") "heading attr: into the group there")
+        this.ok(((PresHeadingAttr.put("## Costs {phase=draft .wide}" "phase" "done")) == "## Costs {phase=done .wide}") "heading attr: replaced in place")
+        this.ok(((PresHeadingAttr.put("## Costs {Phase=draft}" "phase" "done")) == "## Costs {phase=done}") "heading attr: the key in any case")
+        this.ok(((PresHeadingAttr.put("## Costs {phase=done}" "phase" "")) == "## Costs") "heading attr: the last one out takes the group")
+        this.ok(((PresHeadingAttr.put("## Costs {bg=a.png phase=done}" "phase" "")) == "## Costs {bg=a.png}") "heading attr: one out of two")
+        this.ok(((PresHeadingAttr.put("## Costs {phase=done .wide}" "phase" "")) == "## Costs {.wide}") "heading attr: the first out of two")
+        this.ok(((PresHeadingAttr.put("## Costs {a} {transition=fade}" "phase" "done")) == "## Costs {a} {transition=fade phase=done}") "heading attr: words in braces stay the title's")
+        this.ok(((PresHeadingAttr.put("## Costs {title=\"a {b}\" phase=x}" "phase" "done")) == "## Costs {title=\"a {b}\" phase=done}") "heading attr: quoted braces are the value's")
+        this.ok(((PresHeadingAttr.put("## Costs" "phase" "")) == "## Costs") "heading attr: nothing to take out")
+        this.ok(((PresHeadingAttr.put("## Costs" "owner" "Tero K")) == "## Costs {owner=\"Tero K\"}") "heading attr: a value with a space quoted")
+        def lines:[string] ([] _:string ("---" "title: x" "---" "" "## One {phase=review}" "text" "## Two"))
+        this.ok(((PresHeadingAttr.headingIn(lines 3 6)) == 4) "heading attr: the slide's heading line")
+        this.ok(((PresHeadingAttr.headingIn(lines 5 6)) == -1) "heading attr: a slide without one")
+        def d (new PresDeck())
+        d.setText(((PresHeadingAttr.put("## One" "phase" "review")) + "\n\ntext\n\n## Two\n"))
+        this.ok((((d.slideMetaValue(0 "phase")) == "review") && ((d.slideMetaValue(1 "phase")) == "")) "heading attr: the deck reads the slide's phase")
+        def s0:PresSlide (d.slideAt(0))
+        this.ok(((s0.title == "One") && (((array_length s0.meta.suspect) == 0) && ((array_length (d.headingAttrNotes())) == 0))) "heading attr: phase is data, no warning")
+    }
+
     fn roomTerm:void () {
         this.ok(((PresTerm.apply("New room" "en" "room")) == "New room") "term: room keeps the words")
         this.ok(((PresTerm.apply("Search rooms…" "en" "project")) == "Search projects…") "term: rooms → projects")
@@ -2404,6 +2434,12 @@ class PresCheck {
         this.ok(((PresTerm.apply("Ei huonetta nimeltä #" "fi" "project")) == "Ei projektia nimeltä #") "term: huonetta → projektia")
         this.ok(((PresTerm.apply("room" "fi" "project")) == "room") "term: the language's own words only")
         this.ok(((PresTerm.apply("Room–room ×rooms" "en" "project")) == "Project–project ×projects") "term: dashes and signs are not letters")
+        this.ok(((PresTerm.apply("Move the presentation to a room" "en" "topic")) == "Move the story to a topic") "term: topic swaps presentations too")
+        this.ok(((PresTerm.apply("Rooms and Presentations" "en" "topic")) == "Topics and Stories") "term: topic plurals, capitals kept")
+        this.ok(((PresTerm.apply("Move the presentation" "en" "project")) == "Move the presentation") "term: project keeps presentations")
+        this.ok(((PresTerm.apply("Siirretäänkö esitys huoneeseen?" "fi" "topic")) == "Siirretäänkö tarina aiheeseen?") "term: esitys → tarina, huoneeseen → aiheeseen")
+        this.ok(((PresTerm.apply("Huoneen esitykset" "fi" "topic")) == "Aiheen tarinat") "term: Huoneen esitykset → Aiheen tarinat")
+        this.ok(((PresTerm.apply("Esitystila" "fi" "topic")) == "Esitystila") "term: compounds stay")
     }
 
     ; The document settings window's model: the front matter read into the

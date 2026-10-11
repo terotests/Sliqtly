@@ -31,7 +31,7 @@ type claudeModel struct {
 
 // The model the environment names; nil when it names none (no assistant).
 //
-//	gemini     Gemini (gemini-3.8-flash unless SLIQTLY_AI_MODEL): with
+//	gemini     Gemini (gemini-3.5-flash-lite unless SLIQTLY_AI_MODEL): with
 //	           GEMINI_API_KEY through the Gemini API (AI Studio), else on
 //	           Vertex AI signed by the service's own account
 //	vertex     Claude on Vertex AI (claude-opus-5-5 unless SLIQTLY_AI_MODEL)
@@ -41,7 +41,7 @@ func newAIModel(ctx context.Context) (aiModel, string) {
 	project := env("SLIQTLY_AI_PROJECT", cloudProject())
 	switch strings.ToLower(os.Getenv("SLIQTLY_AI")) {
 	case "gemini":
-		model := env("SLIQTLY_AI_MODEL", "gemini-3.8-flash")
+		model := env("SLIQTLY_AI_MODEL", "gemini-3.5-flash-lite")
 		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
 			return &geminiModel{http: &http.Client{Timeout: 3 * time.Minute}, model: model, key: key}, "Gemini API (" + model + ")"
 		}
