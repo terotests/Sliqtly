@@ -2,8 +2,9 @@
 
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Claude for the AI assistant (aiassist.go), through the Anthropic Go SDK:
-// on Vertex AI or the Claude API, as SLIQTLY_AI says.
+// The AI assistant's model (aiassist.go), as SLIQTLY_AI says: Gemini
+// (aigemini.go), or Claude through the Anthropic Go SDK on Vertex AI or the
+// Claude API.
 
 package main
 
@@ -12,12 +13,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/vertex"
+	"golang.org/x/oauth2/google"
 )
 
 type claudeModel struct {
@@ -26,15 +30,34 @@ type claudeModel struct {
 }
 
 // The model the environment names; nil when it names none (no assistant).
+//
+//	gemini     Gemini (gemini-3.8-flash unless SLIQTLY_AI_MODEL): with
+//	           GEMINI_API_KEY through the Gemini API (AI Studio), else on
+//	           Vertex AI signed by the service's own account
+//	vertex     Claude on Vertex AI (claude-opus-5-5 unless SLIQTLY_AI_MODEL)
+//	anthropic  Claude through the Claude API, with ANTHROPIC_API_KEY
 func newAIModel(ctx context.Context) (aiModel, string) {
-	model := env("SLIQTLY_AI_MODEL", "claude-opus-5-5")
+	region := env("SLIQTLY_AI_REGION", "global")
+	project := env("SLIQTLY_AI_PROJECT", cloudProject())
 	switch strings.ToLower(os.Getenv("SLIQTLY_AI")) {
+	case "gemini":
+		model := env("SLIQTLY_AI_MODEL", "gemini-3.8-flash")
+		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+			return &geminiModel{http: &http.Client{Timeout: 3 * time.Minute}, model: model, key: key}, "Gemini API (" + model + ")"
+		}
+		c, err := google.DefaultClient(ctx, "https://www.googleapis.com/auth/cloud-platform")
+		if err != nil {
+			log.Printf("ai: no Google credentials for Gemini on Vertex AI: %v; no assistant", err)
+			return nil, ""
+		}
+		c.Timeout = 3 * time.Minute
+		return &geminiModel{http: c, model: model, project: project, region: region}, "Gemini on Vertex AI (" + project + ", " + region + ", " + model + ")"
 	case "vertex":
-		region := env("SLIQTLY_AI_REGION", "global")
-		project := env("SLIQTLY_AI_PROJECT", cloudProject())
+		model := env("SLIQTLY_AI_MODEL", "claude-opus-5-5")
 		c := anthropic.NewClient(vertex.WithGoogleAuth(ctx, region, project, "https://www.googleapis.com/auth/cloud-platform"))
 		return &claudeModel{client: c, model: model}, "Claude on Vertex AI (" + project + ", " + region + ", " + model + ")"
 	case "anthropic":
+		model := env("SLIQTLY_AI_MODEL", "claude-opus-5-5")
 		if os.Getenv("ANTHROPIC_API_KEY") == "" {
 			log.Print("ai: SLIQTLY_AI=anthropic needs ANTHROPIC_API_KEY; no assistant")
 			return nil, ""

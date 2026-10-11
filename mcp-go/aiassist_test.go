@@ -8,6 +8,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -151,4 +156,43 @@ func TestAIRoutes(t *testing.T) {
 
 	res, _ = editorDo(t, "POST", api+"ask", "tero", base, `{"message":""}`)
 	eq(t, res.StatusCode, 400)
+}
+
+func TestAIGemini(t *testing.T) {
+	var got map[string]any
+	var path, key string
+	status, reply := 200, `{"candidates":[{"content":{"role":"model","parts":[{"text":"Hi "},{"text":"there"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":120,"candidatesTokenCount":7,"thoughtsTokenCount":3}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, key = r.URL.Path, r.Header.Get("x-goog-api-key")
+		json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(status)
+		io.WriteString(w, reply)
+	}))
+	defer srv.Close()
+	m := &geminiModel{http: srv.Client(), model: "gemini-3.8-flash", key: "k1", base: srv.URL}
+	a, err := m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}, {"assistant", "b"}, {"user", "c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, []any{a.Text, a.In, a.Out, a.Declined}, []any{"Hi there", int64(120), int64(10), false})
+	eq(t, []any{path, key}, []any{"/v1beta/models/gemini-3.8-flash:generateContent", "k1"})
+	cs := got["contents"].([]any)
+	eq(t, cs[1].(map[string]any)["role"], "model")
+	match(t, fmt.Sprint(got["systemInstruction"]), "sys")
+
+	// on Vertex AI: the project's endpoint, no key
+	v := &geminiModel{http: srv.Client(), model: "gemini-3.8-flash", project: "p1", region: "global", base: srv.URL}
+	if _, err := v.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, []any{path, key}, []any{"/v1/projects/p1/locations/global/publishers/google/models/gemini-3.8-flash:generateContent", ""})
+
+	reply = `{"candidates":[{"finishReason":"SAFETY"}]}`
+	a, _ = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	eq(t, a.Declined, true)
+	status, reply = 404, `{"error":{"message":"model not found"}}`
+	_, err = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	if !errors.Is(err, errAINotSetUp) {
+		t.Fatalf("404 should read as not set up: %v", err)
+	}
 }

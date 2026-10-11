@@ -133,22 +133,27 @@ licenses.
 
 ### The AI assistant
 
-The editor's ✨ AI drawer asks Claude through this service
+The editor's ✨ AI drawer asks a model through this service
 (`/editor/api/ai/ask`, mcp-go/aiassist.go). Deploy MCP (Go) sets
-`SLIQTLY_AI=vertex` (repository variable `SLIQTLY_AI`; `off` turns it off):
-Claude runs on Vertex AI in the same project, signed by the service's own
-account, so it is billed to the project and its Cloud credits. Before it
-answers:
+`SLIQTLY_AI=gemini` (repository variable `SLIQTLY_AI`; `off` turns it off):
+Gemini Flash (`gemini-3.8-flash`; `SLIQTLY_AI_MODEL` picks another, such as
+`gemini-3.5-flash-lite`) runs on Vertex AI in the same project, signed by
+the service's own account, so no API key is needed and it is billed to the
+project and its Cloud credits. Before it answers:
 
-- enable the Vertex AI API and Claude Opus 5.5 in Vertex AI → Model Garden
-  (the model id is `claude-opus-5-5`; `SLIQTLY_AI_MODEL` picks another);
+- enable the Vertex AI API in the project;
 - give the Cloud Run service account the role Vertex AI User
   (`roles/aiplatform.user`).
 
-Until then the drawer says the assistant is not set up. `SLIQTLY_AI_REGION`
-(default `global`) and `SLIQTLY_AI_PROJECT` (default the service's project)
-point it elsewhere; `SLIQTLY_AI=anthropic` with `ANTHROPIC_API_KEY` uses the
-Claude API instead.
+Until then the drawer says the assistant is not set up. A Gemini API key
+from aistudio.google.com/apikey in the repository secret `GEMINI_API_KEY`
+uses the Gemini API instead of Vertex AI; that spend shows at
+aistudio.google.com/spend. `SLIQTLY_AI=vertex` asks Claude on Vertex AI
+(enable Claude Opus 5.5 in Model Garden; model `claude-opus-5-5`),
+`SLIQTLY_AI=anthropic` with `ANTHROPIC_API_KEY` the Claude API.
+`SLIQTLY_AI_REGION` (default `global`) and `SLIQTLY_AI_PROJECT` (default the
+service's project) point Vertex AI elsewhere. Cloud credits left:
+console.cloud.google.com/billing/credits.
 
 Each user has AI actions per calendar month (UTC): one per question or quick
 action, two for a question about the whole presentation. The Trial has 50;

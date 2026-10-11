@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // The editor's AI assistant (the ✨ AI drawer, src/PresAi.rgr): a question
-// about the slide shown or the whole presentation, answered by Claude.
+// about the slide shown or the whole presentation, answered by Gemini or
+// Claude.
 //
 //	GET  /editor/api/ai/credits         what the signed-in user has left
 //	POST /editor/api/ai/ask   {message, action, scope, context, history}
 //	                                    the answer and what is left after it
 //
-// Claude runs on Google Cloud's Vertex AI (SLIQTLY_AI=vertex): the service's
-// own account signs the calls, so they are billed to the project, its Cloud
-// credits first. SLIQTLY_AI=anthropic calls the Claude API with
-// ANTHROPIC_API_KEY instead. Unset: no assistant, and the drawer says so.
+// SLIQTLY_AI=gemini asks Gemini (gemini-3.8-flash unless set): on Vertex AI,
+// signed by the service's own account and billed to the project, its Cloud
+// credits first, or with GEMINI_API_KEY through the Gemini API (AI Studio).
+// SLIQTLY_AI=vertex asks Claude on Vertex AI, SLIQTLY_AI=anthropic the
+// Claude API with ANTHROPIC_API_KEY. Unset: no assistant, and the drawer
+// says so.
 //
-//	SLIQTLY_AI          vertex | anthropic | (none)
-//	SLIQTLY_AI_MODEL    the model, claude-opus-5-5 unless set
+//	SLIQTLY_AI          gemini | vertex | anthropic | (none)
+//	SLIQTLY_AI_MODEL    the model, gemini-3.8-flash or claude-opus-5-5 unless set
 //	SLIQTLY_AI_REGION   Vertex AI region, global unless set
 //	SLIQTLY_AI_PROJECT  Vertex AI project, the server's own unless set
 //
