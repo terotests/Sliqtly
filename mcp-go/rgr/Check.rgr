@@ -425,6 +425,40 @@ class Check {
     }
 
     ; whether `file` is named by a slide's {script=…}
+    ; A presenter's beat written into its slide's own text: a list item or
+    ; paragraph that opens with a turning or following word (but, therefore,
+    ; mutta, siksi…) on a slide whose presenter tells the story.
+    sfn storyLeaks:void (host:McpHost din:DeckIn d:PresDeck c:Checked) {
+        def n:int (d.slideCount())
+        def i:int 0
+        while (i < n) {
+            def s:PresSlide (d.slideAt(i))
+            if (s.srcStart >= 0) {
+                def end:int (strlen d.text)
+                def j:int (i + 1)
+                while (j < n) {
+                    def sn:PresSlide (d.slideAt(j))
+                    if (sn.srcStart > s.srcStart) {
+                        end = sn.srcStart
+                        break
+                    }
+                    j = (j + 1)
+                }
+                def md:string (substring d.text s.srcStart end)
+                def tells:boolean (((array_length s.story) > 0) || ((indexOf md "::: story") >= 0))
+                if ((tells == false) && ((strlen s.script) > 0)) {
+                    tells = ((indexOf (Check.programText(host din s.script)) "presenter") >= 0)
+                }
+                if tells {
+                    for (PresStory.leaked(md)) line:string li {
+                        push c.warnings (Guide.see(("Slide " + (to_string (i + 1)) + ": \"" + line + "\" reads as one of the presenter's beats (it opens with \"" + (PresStory.leadOf(line)) + "\") but is in the slide's own text. The presenter tells the story: put the line in ::: story (or presenter.say) and keep the slide's text to the facts.") "text"))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     sfn isScript:boolean (d:PresDeck file:string) {
         def i:int 0
         while (i < (d.slideCount())) {
@@ -783,6 +817,7 @@ class Check {
         for (d.slideMetaWarnings()) smw:string smi {
             push c.warnings (Guide.see(smw "layout"))
         }
+        Check.storyLeaks(host din d c)
         ; the deck's own effects (```fx, the theme's @effect) that did not
         ; compile: the slide that names one draws none
         for (d.fxNotes()) fxn:string fxi {

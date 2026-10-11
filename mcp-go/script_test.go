@@ -290,3 +290,23 @@ func TestSlideScriptLettersWhole(t *testing.T) {
 		}
 	}
 }
+
+// A presenter's beat written as the slide's own bullet is said (Tero
+// 2026-10-11): the story is the presenter's, the slide keeps the facts.
+func TestStoryLeak(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Deck\n\n## Löydös\n\n- conformanceIssues() kertoo, kelpaako PDF.\n- Mutta RGB-tilassa vastaus on nolla.\n\n" +
+		"::: story\nFunktio kertoo, kelpaako PDF painoon.\nToisaalta RGB-tilassa vastaus on aina nolla.\nTästä syystä koodi bugaa. {pose=aim}\n:::\n\n" +
+		"## Ilman esittäjää\n\n- But this slide has no presenter.\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	w := fmt.Sprint(sc(c)["warnings"])
+	match(t, w, `Slide 2: "Mutta RGB-tilassa vastaus on nolla\." reads as one of the presenter's beats \(it opens with "Mutta"\).*→ topic=text`)
+	if strings.Contains(w, "Toisaalta") || strings.Contains(w, "this slide has no presenter") {
+		t.Fatal("a story line or a slide without a presenter was reported:", w)
+	}
+}

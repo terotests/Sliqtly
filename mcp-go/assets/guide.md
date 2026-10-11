@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-11.** If a result names a newer version, read Core
+**Guide version 2026-10-11b.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -48,7 +48,7 @@ Speaker notes.
   bottom right that tells lines in a speech bubble. A `::: story` block
   under a slide gives it its lines (topic `text`); a slide script leads it
   with `presenter` (topic `scripts`). It is not drawn as a picture or an
-  SVG.
+  SVG. Its lines go only there, never into the slide's own bullets.
 
   ```markdown
   ::: story
@@ -494,10 +494,9 @@ effect embers source {
   :::
   ```
 
-  A line that starts with a turning word (but, except, although, however,
-  mutta, paitsi, vaikka) is a BUT, with that word in red. A line that
-  starts with a following word (so, therefore, thus, siksi, joten, niinpä)
-  is a THEREFORE, with that word in amber. Any other line sets the scene.
+  A line that opens with a turning word or phrase is a BUT, with that
+  word in red; one that opens with a following word or phrase is a
+  THEREFORE, with that word in amber. Any other line sets the scene.
   Write the story so: after the scene, join each beat to the one before
   by BUT (it contradicts or limits the beat before; if "and" fits as
   well, it is not a BUT) or THEREFORE ("because the beat before, this
@@ -505,10 +504,31 @@ effect embers source {
   step is its own beat after its reason. Read the chain by its first
   words alone; if a link does not hold, rewrite the beat, not only its
   word. Vary the beats' lengths, and write them in the deck's language.
-  The pose follows that kind; `{pose=pen|chin|open|finger|aim|thumb}` at
-  the end of a line sets it. The character changes pose between lines and
-  holds still while a line is read. Played on its own, a beat lasts until
-  its line has been read. A thumbnail or an export shows the last line.
+
+  BUT and THEREFORE are the logic, not the words: write the beats in
+  rich, natural language and vary the joining words. Known turning words
+  include mutta, paitsi, vaikka, kuitenkin, toisaalta, silti, sen sijaan,
+  päinvastoin, ikävä kyllä, onneksi, but, except, although, however, yet,
+  instead, unfortunately, nevertheless, on the other hand; following
+  words include siksi, joten, niinpä, siispä, tästä syystä, sen vuoksi,
+  näin ollen, so, therefore, thus, hence, as a result, that is why,
+  consequently. A beat that opens with another joining word takes
+  `{kind=but}` or `{kind=so}`, and its first word is coloured.
+
+  The beats are the presenter's to say. Never write them, or any line
+  that opens with a joining word, as the slide's own bullets or
+  paragraphs: the slide's text keeps the facts (code, numbers, names)
+  the presenter talks about. The result of create_presentation and
+  update_presentation warns about such a line.
+
+  The pose follows the kind; `{pose=pen|chin|open|finger|aim|thumb}`
+  sets it. Braces are read anywhere on the line, or on a line of their
+  own under it, and never shown in the bubble. The character changes
+  pose between lines and holds still while a line is read. Played on its
+  own, a beat lasts until its line has been read. On the stage a line is
+  said when its step is taken: a slide come back to, jumped to or opened
+  in the editor has the presenter at rest with no bubble. A thumbnail or
+  an export shows the last line.
   The character and its bubble take a strip at the slide's right, about a
   third of its width, and the slide's text is set narrower to leave it
   free. The bubble sits above the character's head and is about 240 px
@@ -1366,8 +1386,10 @@ arrows. Name it on the slide's heading; one script a slide:
   line in a `::: story` block: the pose, the bubble's pop and the time to
   read it, and the presenter holds still while it is read. Its first word
   sets the kind and the pose (BUT, THEREFORE, setup), as there, and the
-  lines follow the same story rule (BUT or THEREFORE, never "and then";
-  topic `text`). Calls queue: one made in `build(n)` starts at that step. An empty
+  lines follow the same story rule (BUT or THEREFORE, never "and then",
+  in rich language; topic `text`). The lines are the presenter's: the
+  slide's own text does not repeat them. Before its first frame the
+  presenter stands at rest. Calls queue: one made in `build(n)` starts at that step. An empty
   `::: story` block on the slide keeps the strip the presenter stands in
   free of the slide's text. A thumbnail, render_slide at its time and the
   PDF show where its queue is; its end is where the script ends.
