@@ -113,7 +113,7 @@ function asRangerBuffer(ab) {
 const PICS_NEAR = 2;
 
 /**
- * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(),
+ * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(), playScenesJson(), allPlayScenesJson(),
  * selectedSlide(), selectSlide(i); picturePixels(src, max) a picture of the
  * slides as ImageData, its long side at most `max` (null: not here yet);
  * toast(text); t(text) the UI's language; onExit() after the flight, back
@@ -165,6 +165,52 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
         if (performance.now() - t0 > 8) return;
       }
     }
+  }
+
+  // The slides' 3-D worlds on their stands: each as its program last drew
+  // it, and the one of the station flown to live. Only that slide is on the
+  // stage, so only its program runs; the others stand still.
+  let standJson = "";
+  function standBox(s) {
+    const whole = !s.clip && s.sw > 0 && s.sh > 0;
+    const rx = whole ? 0 : s.x;
+    const ry = whole ? 0 : s.y;
+    const rw = whole ? s.sw : s.w;
+    const rh = whole ? s.sh : s.h;
+    if (!(rw > 0 && rh > 0)) return null;
+    return [(s.x - rx) / rw, (s.y - ry) / rh, s.w / rw, s.h / rh];
+  }
+  function giveStands(list, only) {
+    const n = world.standCount();
+    for (const s of list) {
+      const box = standBox(s);
+      if (!box) continue;
+      for (let i = 0; i < n; i++) {
+        if (world.standSrc(i) !== s.src || (only >= 0 && world.standStation(i) !== only)) continue;
+        const why = world.setStand(i, JSON.stringify(s.scene), box[0], box[1], box[2], box[3]);
+        if (why) console.warn("scene3d: " + why);
+      }
+    }
+  }
+  function seedStands() {
+    standJson = "";
+    if (!world.standCount()) return;
+    try { giveStands(JSON.parse(app.allPlayScenesJson()).scenes || [], -1); } catch (e) { console.warn(e); }
+  }
+  function feedStands(now) {
+    const n = world.standCount();
+    let here = false;
+    for (let i = 0; i < n && !here; i++) here = world.standStation(i) === now;
+    if (!here) return;
+    // its slide on the stage: its program runs
+    if (app.selectedSlide() !== now) {
+      app.selectSlide(now);
+      standJson = "";
+    }
+    const json = app.playScenesJson();
+    if (json === standJson) return;
+    standJson = json;
+    try { giveStands(JSON.parse(json), now); } catch (e) { console.warn(e); }
   }
 
   // The look's own hue (front matter `look-3d:`) for the words over the world.
@@ -243,6 +289,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     if (said.split("\n").includes("layout")) showLayout();
     world.frame(dt);
     makePictures(world.stationNow());
+    feedStands(world.stationNow());
     const [w, h] = size();
     world.draw(w, h);
     showStation();
@@ -312,6 +359,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     if (why) return why;
     hudGlow = lookGlow(json);
     world.startAt(app.selectedSlide());
+    seedStands();
     canvas = gl;
     three3d.pause(true);
     canvas.style.cssText = "display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;background:#02040a;cursor:grab;touch-action:none";

@@ -7508,6 +7508,33 @@ class PresCheck {
         def groups1:[int]
         deck.slideList(1 groups1 0.0)
         this.ok((deck.worldsAt < 0) "worlds: no worldsAt on a slide without allow: 3d")
+        ; the 3-D flight: the world's bands are one stand, its own meshes
+        def fsc:PresFlightScene (PresFlightScene.of(deck))
+        def standsN:int 0
+        def standW:double 0.0
+        for fsc.items fi:FlightItem fk {
+            if ((fi.kind == "world") && (fi.src == sc.src)) {
+                standsN = (standsN + 1)
+                standW = fi.sw
+            }
+        }
+        this.ok((standsN == 1) ("worlds: the flight stands the world once, got " + (to_string standsN)))
+        this.ok(((fabs (standW - deck.pageW)) < 0.5) ("worlds: …its picture's box the whole slide, got " + (to_string standW)))
+        def fw:PresFlight3D (new PresFlight3D())
+        def why:string (fw.load((fsc.toJson())))
+        this.ok(((why == "") && ((fw.standCount()) == 1)) ("worlds: the flight's world has the stand, " + why))
+        if ((fw.standCount()) == 1) {
+            this.ok(((fw.standSrc(0)) == sc.src) "worlds: …by the picture's name")
+            def taken:string (fw.setStand(0 scene 0.25 0.0 0.25 0.5))
+            def fst:FlightStand (itemAt fw.stands 0)
+            this.ok(fst.built ("worlds: a frame builds it, " + taken))
+            this.ok(((fabs (fst.aim - 6.0)) < 0.1) ("worlds: …aimed as far as its camera stands from the knot, got " + (to_string fst.aim)))
+            def seenH:double ((2.0 * fst.aim) * (tan ((20.0 * 3.141592653589793) / 180.0)))
+            this.ok(((fabs ((fst.fit * seenH) - (0.5 * fst.h))) < 0.01) "worlds: …what its camera sees fills the element's box")
+            this.ok(((fabs (fst.root.position.x - ((fst.x - (fst.w * 0.5)) + (0.375 * fst.w)))) < 0.001) "worlds: …standing at the element's box")
+            def back:ThreeObject3D (fst.back)
+            this.ok((back.position.z == -6.0) "worlds: …its camera's place undone")
+        }
         def at:JVal (deck.playScenes(0))
         this.ok(((at.len()) == 1) "worlds: the page is told of one world on slide 1")
         if ((at.len()) == 1) {
