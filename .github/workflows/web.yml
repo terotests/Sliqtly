@@ -39,6 +39,10 @@ jobs:
         run: node scripts/build.mjs
       - name: Check the deck and the timeline
         run: node scripts/check.mjs
+      # how much of what the slides draw the 3-D flight shows
+      # (src/PresFlightBench.rgr); fewer than scripts/fixtures/flight-bench.floor fails
+      - name: Benchmark the 3-D flight
+        run: node scripts/flight-bench.mjs
       - name: Check the sample decks load cleanly
         run: node scripts/check-samples.mjs
       # sliqtly.com/editor: the editor under /editor/ for a signed-in user,

@@ -1,0 +1,1200 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlightBench.rgr — how much of the 2-D slide the 3-D flight shows.
+; ============================================================================
+;
+; The benchmark's cases (scripts/fixtures/flight-bench.md) are one thing the
+; 2-D renderer draws each: a paragraph, bold, a table, a picture, a bar
+; chart, a sequence diagram, a build step, an effect. Each case is a deck
+; of its own and its last slide is measured: the slide as the 2-D renderer
+; draws it at rest (PresDeck.restOfSlide: its list of draw commands and the
+; blocks that drew them) against the world the flight makes of the deck
+; (PresFlightScene).
+;
+; Nothing here asks the flight what it supports. It reads what the flight
+; would put on the screen, and checks it against the 2-D list:
+;
+;   words       every word the slide draws is shown
+;   type        every text the slide draws is drawn as it is (its font,
+;               size, weight, colour): a plate carries the command itself
+;   pictures    every picture is shown
+;   shapes      every plate, fill, border and line of a block is shown
+;   background  the slide's own ground (paper, picture, art) is shown
+;   layout      each block stands where the slide has it, as seen from
+;               the station's camera
+;   steps       what a build step reveals comes in the flight in that order
+;   effects     the slide's effects run
+;   colours     a chart's or diagram's own colours stay
+;
+; Charts and diagrams the flight stands up in 3-D ("native") are not held
+; to the slide's typography and lines: they are drawn as holograms by
+; design. Their words, their colours and their place still count.
+;
+; A case passes when every aspect that applies to it passes. A case whose
+; 2-D slide does not show what it says it needs is broken (`valid` false):
+; the catalogue is wrong, not the flight.
+; ============================================================================
+
+Import "PresFlight.rgr"
+Import "PresTimeline.rgr"
+
+class FlightBenchCase {
+    def id:string ""
+    def group:string ""
+    def title:string ""
+    def needs:[string]
+    def files:[string]
+    def md:string ""
+}
+
+class FlightBenchAspect {
+    def name:string ""
+    def ok:boolean false
+    ; what was missing, a few examples
+    def detail:string ""
+}
+
+class FlightBenchResult {
+    def c:FlightBenchCase (new FlightBenchCase())
+    def valid:boolean true
+    def why:string ""
+    def aspects:[FlightBenchAspect]
+    def ok:boolean false
+
+    ; the aspect called `name`: -1 it does not apply, 0 missing, 1 shown
+    fn aspectState:int (name:string) {
+        def i:int 0
+        while (i < (array_length aspects)) {
+            def a:FlightBenchAspect (itemAt aspects i)
+            if (a.name == name) {
+                return (? a.ok 1 0)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn missing:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length aspects)) {
+            def a:FlightBenchAspect (itemAt aspects i)
+            if (a.ok == false) {
+                if ((strlen out) > 0) {
+                    out = (out + ", ")
+                }
+                out = (out + a.name)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; One case's slide, read: its commands, who drew each, what the flight
+; carries of it.
+class FlightBenchSlide {
+    def deck:PresDeck (new PresDeck())
+    def page:int 0
+    def rest:PresRest (new PresRest())
+    def world:PresFlightScene (new PresFlightScene())
+    def st:FlightStation (new FlightStation())
+    ; per command: its block (the scene's entity under the slide, 0 for the
+    ; slide itself), whether it is seen, whether a plate carries it
+    def topOf:[int]
+    def seen:[boolean]
+    def carried:[boolean]
+    ; per entity: the flight stands it up in 3-D
+    def native:[boolean]
+    ; the station's own items
+    def mine:[FlightItem]
+}
+
+class PresFlightBench {
+
+    ; ---- the catalogue -------------------------------------------------------
+
+    sfn parse:[FlightBenchCase] (text:string) {
+        def out:[FlightBenchCase]
+        def lines:[string] (strsplit text "\n")
+        def cur@(optional):FlightBenchCase
+        def body:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((indexOf line "<!-- case:") == 0) {
+                if (!null? cur) {
+                    def done:FlightBenchCase (unwrap cur)
+                    done.md = body
+                    push out done
+                }
+                cur = (PresFlightBench.header(line))
+                body = ""
+            } {
+                if (!null? cur) {
+                    body = (body + line + "\n")
+                }
+            }
+            i = (i + 1)
+        }
+        if (!null? cur) {
+            def last:FlightBenchCase (unwrap cur)
+            last.md = body
+            push out last
+        }
+        return out
+    }
+
+    ; `<!-- case: id | group | title | needs: a b | files: x y -->`
+    sfn header:FlightBenchCase (line:string) {
+        def c:FlightBenchCase (new FlightBenchCase())
+        def t:string (trim (substring line 10 (strlen line)))
+        def end:int (indexOf t "-->")
+        if (end >= 0) {
+            t = (trim (substring t 0 end))
+        }
+        def parts:[string] (strsplit t "|")
+        def k:int 0
+        while (k < (array_length parts)) {
+            def p:string (trim (itemAt parts k))
+            if (k == 0) {
+                c.id = p
+            }
+            if (k == 1) {
+                c.group = p
+            }
+            if (k == 2) {
+                c.title = p
+            }
+            if ((k > 2) && ((indexOf p "needs:") == 0)) {
+                c.needs = (PresFlightBench.words((substring p 6 (strlen p))))
+            }
+            if ((k > 2) && ((indexOf p "files:") == 0)) {
+                c.files = (PresFlightBench.words((substring p 6 (strlen p))))
+            }
+            k = (k + 1)
+        }
+        return c
+    }
+
+    sfn words:[string] (s:string) {
+        def out:[string]
+        def parts:[string] (strsplit (trim s) " ")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def w:string (trim (itemAt parts i))
+            if ((strlen w) > 0) {
+                push out w
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---- one case ------------------------------------------------------------
+
+    ; The theme a case's deck names (front matter `theme:`), "aurora" when
+    ; it names none: the one the editor starts with.
+    sfn themeOf:string (c:FlightBenchCase) {
+        def t:string (trim (PresDeck.frontMatterValue(c.md "theme")))
+        if ((strlen t) == 0) {
+            return "aurora"
+        }
+        return t
+    }
+
+    sfn read:FlightBenchSlide (c:FlightBenchCase css:string) {
+        def b:FlightBenchSlide (new FlightBenchSlide())
+        def deck:PresDeck (new PresDeck())
+        if ((strlen css) > 0) {
+            deck.setStyleSheet(css)
+        }
+        def f:int 0
+        while (f < (array_length c.files)) {
+            deck.addImage(("/" + (itemAt c.files f)) (buffer_from_string "png") "image/png" 400 300)
+            f = (f + 1)
+        }
+        deck.setText(c.md)
+        PresTimeline.planAll(deck)
+        b.deck = deck
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return b
+        }
+        b.page = (n - 1)
+        b.world = (PresFlightScene.of(deck))
+        b.rest = (deck.restOfSlide(b.page))
+        if (b.page < (array_length b.world.stations)) {
+            b.st = (itemAt b.world.stations b.page)
+        }
+        def sc:PresScene b.rest.scene
+        def cmds:[EVGDrawCmd] b.rest.list.cmds
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def o:int 0
+            if (k < (array_length sc.ownerOfCmd)) {
+                o = (itemAt sc.ownerOfCmd k)
+            }
+            push b.topOf (PresFlightBench.topEnt(sc o))
+            push b.seen (PresFlightBench.visible((itemAt cmds k)))
+            push b.carried false
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < (array_length b.world.items)) {
+            def it:FlightItem (itemAt b.world.items i)
+            if (it.station == b.page) {
+                push b.mine it
+                def j:int 0
+                while (j < (array_length it.cmds)) {
+                    def ci:int (itemAt it.cmds j)
+                    if ((ci >= 0) && (ci < (array_length b.carried))) {
+                        set b.carried ci true
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        ; the blocks the flight stands up itself: a chart or a diagram with
+        ; items of its own (by its id; a world that names no block: the
+        ; station's marks)
+        def anyEnt:boolean false
+        def m:int 0
+        while (m < (array_length b.mine)) {
+            def mi:FlightItem (itemAt b.mine m)
+            if ((strlen mi.ent) > 0) {
+                anyEnt = true
+            }
+            m = (m + 1)
+        }
+        def e:int 0
+        while (e < (array_length sc.ents)) {
+            def en:PresEnt (itemAt sc.ents e)
+            def nat:boolean false
+            if ((en.parent == 0) && ((en.kind == "chart") || (en.kind == "diagram"))) {
+                def q:int 0
+                while (q < (array_length b.mine)) {
+                    def qi:FlightItem (itemAt b.mine q)
+                    if (PresFlightBench.isMark(qi.kind)) {
+                        if anyEnt {
+                            if (qi.ent == en.id) {
+                                nat = true
+                            }
+                        } {
+                            nat = true
+                        }
+                    }
+                    q = (q + 1)
+                }
+            }
+            push b.native nat
+            e = (e + 1)
+        }
+        return b
+    }
+
+    ; An item the flight stands up in 3-D (not a picture of the slide)
+    sfn isMark:boolean (kind:string) {
+        return ((kind == "glass") || ((kind == "group") || ((kind == "link") || ((kind == "bar") || ((kind == "wedge") || (kind == "dot"))))))
+    }
+
+    ; The entity under the slide that entity `o` belongs to (0: the slide).
+    sfn topEnt:int (sc:PresScene o:int) {
+        def at:int o
+        def guard:int 0
+        while ((at > 0) && (guard < 1000)) {
+            def en:PresEnt (itemAt sc.ents at)
+            if (en.parent <= 0) {
+                return at
+            }
+            at = en.parent
+            guard = (guard + 1)
+        }
+        return 0
+    }
+
+    ; Whether a command shows anything.
+    sfn visible:boolean (c:EVGDrawCmd) {
+        if ((c.kind == 4) || (c.kind == 5)) {
+            return false
+        }
+        if (c.a <= 0.01) {
+            return false
+        }
+        if (c.kind == 3) {
+            return ((strlen (trim c.text)) > 0)
+        }
+        if (c.kind == 2) {
+            return ((strlen c.src) > 0)
+        }
+        if ((c.kind == 6) || (c.kind == 7)) {
+            return ((array_length c.pts) >= 4)
+        }
+        return ((c.w > 0.0) && (c.h > 0.0))
+    }
+
+    sfn run:FlightBenchResult (c:FlightBenchCase css:string) {
+        def r:FlightBenchResult (new FlightBenchResult())
+        r.c = c
+        def b:FlightBenchSlide (PresFlightBench.read(c css))
+        if ((b.deck.slideCount()) == 0) {
+            r.valid = false
+            r.why = "no slide"
+            return r
+        }
+        def miss:string (PresFlightBench.unmet(b c.needs))
+        if ((strlen miss) > 0) {
+            r.valid = false
+            r.why = ("the 2-D slide shows no " + miss)
+            return r
+        }
+        PresFlightBench.words2d(b r)
+        PresFlightBench.typeOf(b r)
+        PresFlightBench.pictures(b r)
+        PresFlightBench.shapes(b r)
+        if (((indexOf c.needs "paper") >= 0) || ((indexOf c.needs "bg") >= 0)) {
+            PresFlightBench.background(b r)
+        }
+        if ((indexOf c.needs "layout") >= 0) {
+            PresFlightBench.layout(b r)
+        }
+        if ((indexOf c.needs "steps") >= 0) {
+            PresFlightBench.steps(b r)
+        }
+        if ((indexOf c.needs "effect") >= 0) {
+            PresFlightBench.effects(b r)
+        }
+        PresFlightBench.colours(b r)
+        def all:boolean true
+        def i:int 0
+        while (i < (array_length r.aspects)) {
+            def a:FlightBenchAspect (itemAt r.aspects i)
+            if (a.ok == false) {
+                all = false
+            }
+            i = (i + 1)
+        }
+        r.ok = all
+        return r
+    }
+
+    sfn add:void (r:FlightBenchResult name:string ok:boolean detail:string) {
+        def a:FlightBenchAspect (new FlightBenchAspect())
+        a.name = name
+        a.ok = ok
+        a.detail = detail
+        push r.aspects a
+    }
+
+    ; ---- what the 2-D slide must show ------------------------------------------
+
+    ; The needs the slide does not meet, "" for none.
+    sfn unmet:string (b:FlightBenchSlide needs:[string]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length needs)) {
+            def nd:string (itemAt needs i)
+            if ((PresFlightBench.meets(b nd)) == false) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + nd)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn meets:boolean (b:FlightBenchSlide nd:string) {
+        def sc:PresScene b.rest.scene
+        def cmds:[EVGDrawCmd] b.rest.list.cmds
+        if ((indexOf nd "ent:") == 0) {
+            def want:string (substring nd 4 (strlen nd))
+            def e:int 1
+            while (e < (array_length sc.ents)) {
+                def en:PresEnt (itemAt sc.ents e)
+                if (en.kind == want) {
+                    return true
+                }
+                e = (e + 1)
+            }
+            return false
+        }
+        if (nd == "layout") {
+            return true
+        }
+        if (nd == "effect") {
+            def s:PresSlide (b.deck.slideAt(b.page))
+            if (((strlen s.fx) > 0) || ((array_length b.rest.list.fxIds) > 0)) {
+                return true
+            }
+        }
+        if (nd == "steps") {
+            def s2:PresSlide (b.deck.slideAt(b.page))
+            def k2:int 0
+            while (k2 < (array_length cmds)) {
+                if ((itemAt b.seen k2) && ((PresFlightBench.stepOf(b s2 k2)) > 0)) {
+                    return true
+                }
+                k2 = (k2 + 1)
+            }
+            return false
+        }
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds k)
+            if (itemAt b.seen k) {
+                if ((indexOf nd "cmd:") == 0) {
+                    if ((PresFlightBench.kindName(c.kind)) == (substring nd 4 (strlen nd))) {
+                        return true
+                    }
+                }
+                if ((nd == "bold") && ((c.kind == 3) && (PresFlightBench.isBold(c)))) {
+                    return true
+                }
+                if ((nd == "italic") && ((c.kind == 3) && (PresFlightBench.isItalic(c)))) {
+                    return true
+                }
+                if ((nd == "paper") && ((itemAt b.topOf k) == 0)) {
+                    return true
+                }
+                if ((nd == "bg") && ((c.kind == 2) && ((itemAt b.topOf k) == 0))) {
+                    return true
+                }
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    sfn kindName:string (k:int) {
+        def names:[string] ([] _:string ("rect" "border" "image" "text" "clip" "unclip" "path" "stroke"))
+        if ((k >= 0) && (k < (array_length names))) {
+            return (itemAt names k)
+        }
+        return "?"
+    }
+
+    ; bold as a weight, or as the face (MdToEvg names it: "Open Sans-Bold")
+    sfn isBold:boolean (c:EVGDrawCmd) {
+        def w:string (to_lowercase c.fontWeight)
+        if ((indexOf (to_lowercase c.fontFamily) "bold") >= 0) {
+            return true
+        }
+        return (((w == "bold") || (w == "bolder")) || (((w == "600") || (w == "700")) || ((w == "800") || (w == "900"))))
+    }
+    sfn isItalic:boolean (c:EVGDrawCmd) {
+        return ((c.textAlign == "italic") || ((indexOf (to_lowercase c.fontFamily) "italic") >= 0))
+    }
+
+    ; The build step command k comes with (0: with the slide).
+    sfn stepOf:int (b:FlightBenchSlide s:PresSlide k:int) {
+        if (k >= (array_length b.rest.groupOfCmd)) {
+            return 0
+        }
+        def g:int (itemAt b.rest.groupOfCmd k)
+        if ((g < 0) || (g >= (array_length s.groups))) {
+            return 0
+        }
+        def gr:PresGroup (itemAt s.groups g)
+        return gr.step
+    }
+
+    ; ---- the aspects ---------------------------------------------------------
+
+    ; A text's words, lower case, without the marks around them.
+    sfn wordsOf:[string] (text:string out:[string]) {
+        def parts:[string] (strsplit (to_lowercase text) " ")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def w:string (PresFlightBench.bare((itemAt parts i)))
+            if ((strlen w) > 0) {
+                push out w
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a word without what is not a letter or a digit at its ends
+    sfn bare:string (w0:string) {
+        def w:string (trim w0)
+        def a:int 0
+        def z:int (strlen w)
+        while ((a < z) && ((PresFlightBench.letter((charAt w a))) == false)) {
+            a = (a + 1)
+        }
+        while ((z > a) && ((PresFlightBench.letter((charAt w (z - 1)))) == false)) {
+            z = (z - 1)
+        }
+        return (substring w a z)
+    }
+
+    sfn letter:boolean (ch:int) {
+        if ((ch >= 48) && (ch <= 57)) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        return (ch > 191)
+    }
+
+    ; Every word the slide draws is in the flight: in a plate's commands,
+    ; an item's text or the station's title.
+    sfn words2d:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def cmds:[EVGDrawCmd] b.rest.list.cmds
+        def want:[string]
+        def shown:[string]
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds k)
+            if ((c.kind == 3) && (itemAt b.seen k)) {
+                PresFlightBench.wordsOf(c.text want)
+                if (itemAt b.carried k) {
+                    PresFlightBench.wordsOf(c.text shown)
+                }
+            }
+            k = (k + 1)
+        }
+        if ((array_length want) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length b.mine)) {
+            def it:FlightItem (itemAt b.mine i)
+            PresFlightBench.wordsOf((PresFlightBench.unbreak(it.text)) shown)
+            i = (i + 1)
+        }
+        PresFlightBench.wordsOf(b.st.title shown)
+        def lost:[string]
+        def j:int 0
+        while (j < (array_length want)) {
+            def w:string (itemAt want j)
+            if (((indexOf shown w) < 0) && ((indexOf lost w) < 0)) {
+                push lost w
+            }
+            j = (j + 1)
+        }
+        PresFlightBench.add(r "words" ((array_length lost) == 0) (PresFlightBench.some(lost)))
+    }
+
+    sfn unbreak:string (t:string) {
+        def parts:[string] (strsplit t "\n")
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (itemAt parts i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn some:string (list:[string]) {
+        def out:string ""
+        def i:int 0
+        while ((i < (array_length list)) && (i < 6)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (itemAt list i))
+            i = (i + 1)
+        }
+        if ((array_length list) > 6) {
+            out = (out + " …")
+        }
+        return out
+    }
+
+    sfn nativeCmd:boolean (b:FlightBenchSlide k:int) {
+        def t:int (itemAt b.topOf k)
+        return ((t > 0) && ((t < (array_length b.native)) && (itemAt b.native t)))
+    }
+
+    ; Every text not in a native block is drawn as the slide draws it.
+    sfn typeOf:void (b:FlightBenchSlide r:FlightBenchResult) {
+        PresFlightBench.carriedOf(b r "type" 3 3 false)
+    }
+
+    ; The commands of kinds k0..k1 that are seen (in the slide's blocks, or
+    ; on the slide itself when `ground`) and not in a native block are all
+    ; carried by plates.
+    sfn carriedOf:void (b:FlightBenchSlide r:FlightBenchResult name:string k0:int k1:int ground:boolean) {
+        def cmds:[EVGDrawCmd] b.rest.list.cmds
+        def total:int 0
+        def lost:int 0
+        def what:[string]
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds k)
+            def top:int (itemAt b.topOf k)
+            def onGround:boolean (top == 0)
+            if ((((c.kind >= k0) && (c.kind <= k1)) && (itemAt b.seen k)) && (onGround == ground)) {
+                if ((PresFlightBench.nativeCmd(b k)) == false) {
+                    total = (total + 1)
+                    if ((itemAt b.carried k) == false) {
+                        lost = (lost + 1)
+                        def nm:string (PresFlightBench.kindName(c.kind))
+                        if (c.kind == 3) {
+                            nm = ("\"" + (trim c.text) + "\"")
+                        }
+                        if (c.kind == 2) {
+                            nm = c.src
+                        }
+                        if ((indexOf what nm) < 0) {
+                            push what nm
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if (total == 0) {
+            return
+        }
+        def detail:string ""
+        if (lost > 0) {
+            detail = ((to_string lost) + "/" + (to_string total) + " not drawn: " + (PresFlightBench.some(what)))
+        }
+        PresFlightBench.add(r name (lost == 0) detail)
+    }
+
+    sfn pictures:void (b:FlightBenchSlide r:FlightBenchResult) {
+        PresFlightBench.carriedOf(b r "pictures" 2 2 false)
+    }
+
+    ; the plates, fills, borders and lines of the blocks (rect, border,
+    ; path, stroke)
+    sfn shapes:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def r0:FlightBenchResult (new FlightBenchResult())
+        PresFlightBench.carriedOf(b r0 "shapes" 0 1 false)
+        PresFlightBench.carriedOf(b r0 "shapes" 6 7 false)
+        if ((array_length r0.aspects) == 0) {
+            return
+        }
+        def ok:boolean true
+        def detail:string ""
+        def i:int 0
+        while (i < (array_length r0.aspects)) {
+            def a:FlightBenchAspect (itemAt r0.aspects i)
+            if (a.ok == false) {
+                ok = false
+                if ((strlen detail) > 0) {
+                    detail = (detail + "; ")
+                }
+                detail = (detail + a.detail)
+            }
+            i = (i + 1)
+        }
+        PresFlightBench.add(r "shapes" ok detail)
+    }
+
+    sfn background:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def r0:FlightBenchResult (new FlightBenchResult())
+        PresFlightBench.carriedOf(b r0 "background" 0 7 true)
+        if ((array_length r0.aspects) == 0) {
+            PresFlightBench.add(r "background" false "the slide draws no ground")
+            return
+        }
+        def a:FlightBenchAspect (itemAt r0.aspects 0)
+        PresFlightBench.add(r "background" a.ok a.detail)
+    }
+
+    ; Where a world point is seen on the slide from the station's camera:
+    ; [u, v], 0..1 across and down the slide.
+    sfn seenAt:[double] (w:PresFlightScene st:FlightStation x:double y:double z:double) {
+        def cx:double st.fx
+        def cy:double (st.fy + st.lift)
+        def cz:double (st.z + st.dist)
+        def t:double 1.0
+        if ((cz - z) > 0.001) {
+            t = ((cz - st.z) / (cz - z))
+        }
+        def px:double (cx + ((x - cx) * t))
+        def py:double (cy + ((y - cy) * t))
+        def u:double (((px - st.x) / w.frameW) + 0.5)
+        def v:double (0.5 - ((py - st.y) / w.frameH))
+        return ([] _:double (u v))
+    }
+
+    ; Each block of the slide stands where the slide has it.
+    sfn layout:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def sc:PresScene b.rest.scene
+        def pw:double sc.pageW
+        def ph:double sc.pageH
+        def lost:[string]
+        def any:boolean false
+        def e:int 1
+        while (e < (array_length sc.ents)) {
+            def en:PresEnt (itemAt sc.ents e)
+            if ((en.parent == 0) && (en.hasBox && ((en.w > 0.0) && (en.h > 0.0)))) {
+                any = true
+                def u0:double ((en.x + (en.w * 0.5)) / pw)
+                def v0:double ((en.y + (en.h * 0.5)) / ph)
+                def at:[double] (PresFlightBench.placeOf(b e))
+                def fine:boolean false
+                if ((array_length at) == 2) {
+                    def du:double ((itemAt at 0) - u0)
+                    def dv:double ((itemAt at 1) - v0)
+                    fine = ((((du * du) + (dv * dv))) < (0.06 * 0.06))
+                }
+                if (fine == false) {
+                    push lost en.kind
+                }
+            }
+            e = (e + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def detail:string ""
+        if ((array_length lost) > 0) {
+            detail = ("not in place: " + (PresFlightBench.some(lost)))
+        }
+        PresFlightBench.add(r "layout" ((array_length lost) == 0) detail)
+    }
+
+    ; Where the flight shows block e, as seen from the station ([u, v]), []
+    ; when nothing stands for it: the middle of the plates that carry its
+    ; commands and of the items that name it.
+    sfn placeOf:[double] (b:FlightBenchSlide e:int) {
+        def sc:PresScene b.rest.scene
+        def en:PresEnt (itemAt sc.ents e)
+        def u0:double 0.0
+        def u1:double 0.0
+        def v0:double 0.0
+        def v1:double 0.0
+        def got:boolean false
+        def i:int 0
+        while (i < (array_length b.mine)) {
+            def it:FlightItem (itemAt b.mine i)
+            def mineToo:boolean (((strlen it.ent) > 0) && (it.ent == en.id))
+            if (mineToo == false) {
+                def j:int 0
+                while ((j < (array_length it.cmds)) && (mineToo == false)) {
+                    def ci:int (itemAt it.cmds j)
+                    if ((ci >= 0) && (ci < (array_length b.topOf))) {
+                        if ((itemAt b.topOf ci) == e) {
+                            mineToo = true
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            if mineToo {
+                def hw:double (it.w * 0.5)
+                def hh:double (it.h * 0.5)
+                if (it.kind == "wedge") {
+                    hw = it.r1
+                    hh = it.r1
+                }
+                def a:[double] (PresFlightBench.seenAt(b.world b.st (it.x - hw) (it.y + hh) it.z))
+                def c:[double] (PresFlightBench.seenAt(b.world b.st (it.x + hw) (it.y - hh) it.z))
+                def ua:double (itemAt a 0)
+                def uc:double (itemAt c 0)
+                def va:double (itemAt a 1)
+                def vc:double (itemAt c 1)
+                if (got == false) {
+                    u0 = ua
+                    u1 = uc
+                    v0 = va
+                    v1 = vc
+                    got = true
+                } {
+                    if (ua < u0) {
+                        u0 = ua
+                    }
+                    if (uc > u1) {
+                        u1 = uc
+                    }
+                    if (va < v0) {
+                        v0 = va
+                    }
+                    if (vc > v1) {
+                        v1 = vc
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def out:[double]
+        if got {
+            push out ((u0 + u1) * 0.5)
+            push out ((v0 + v1) * 0.5)
+        }
+        return out
+    }
+
+    ; What a build step reveals comes in the flight after what the step
+    ; before it revealed.
+    sfn steps:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def s:PresSlide (b.deck.slideAt(b.page))
+        def cmds:[EVGDrawCmd] b.rest.list.cmds
+        ; per step: the earliest and the latest order of what carries it
+        def lo:[int]
+        def hi:[int]
+        def has:[boolean]
+        def q:int 0
+        while (q <= s.steps) {
+            push lo 0
+            push hi 0
+            push has false
+            q = (q + 1)
+        }
+        def lost:int 0
+        def k:int 0
+        while (k < (array_length cmds)) {
+            if ((itemAt b.seen k) && ((itemAt b.topOf k) > 0)) {
+                def st:int (PresFlightBench.stepOf(b s k))
+                if (st > s.steps) {
+                    st = s.steps
+                }
+                def o:int (PresFlightBench.orderOf(b k))
+                if (o < 0) {
+                    lost = (lost + 1)
+                } {
+                    if ((itemAt has st) == false) {
+                        set lo st o
+                        set hi st o
+                        set has st true
+                    } {
+                        if (o < (itemAt lo st)) {
+                            set lo st o
+                        }
+                        if (o > (itemAt hi st)) {
+                            set hi st o
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def ordered:boolean true
+        def prev:int -1
+        def p:int 0
+        while (p <= s.steps) {
+            if (itemAt has p) {
+                if ((prev >= 0) && ((itemAt lo p) <= (itemAt hi prev))) {
+                    ordered = false
+                }
+                prev = p
+            }
+            p = (p + 1)
+        }
+        def detail:string ""
+        if (lost > 0) {
+            detail = ((to_string lost) + " commands of the steps have no plate")
+        }
+        if (ordered == false) {
+            detail = (detail + (? ((strlen detail) > 0) "; " "") + "the steps come in together")
+        }
+        PresFlightBench.add(r "steps" ((lost == 0) && ordered) detail)
+    }
+
+    ; the order of the plate that carries command k (-1: none)
+    sfn orderOf:int (b:FlightBenchSlide k:int) {
+        def i:int 0
+        while (i < (array_length b.mine)) {
+            def it:FlightItem (itemAt b.mine i)
+            if ((indexOf it.cmds k) >= 0) {
+                return it.order
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The slide's effects run in the flight: an `fx` item on its station.
+    sfn effects:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def ok:boolean false
+        def i:int 0
+        while (i < (array_length b.mine)) {
+            def it:FlightItem (itemAt b.mine i)
+            if (it.kind == "fx") {
+                ok = true
+            }
+            i = (i + 1)
+        }
+        PresFlightBench.add(r "effects" ok (? ok "" "no effect is run"))
+    }
+
+    ; A native chart's or diagram's own colours: each saturated fill it
+    ; draws on the slide is the colour of one of its items.
+    sfn colours:void (b:FlightBenchSlide r:FlightBenchResult) {
+        def cmds:[EVGDrawCmd] b.rest.list.cmds
+        def want:[double]
+        def k:int 0
+        while (k < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds k)
+            if ((itemAt b.seen k) && (((c.kind == 0) || (c.kind == 6)) && (PresFlightBench.nativeCmd(b k)))) {
+                def rr:double ((to_double c.r) / 255.0)
+                def gg:double ((to_double c.g) / 255.0)
+                def bb:double ((to_double c.b) / 255.0)
+                if ((PresFlightBench.saturation(rr gg bb)) > 0.3) {
+                    if ((PresFlightBench.nearIn(want rr gg bb 0.04)) == false) {
+                        push want rr
+                        push want gg
+                        push want bb
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if ((array_length want) == 0) {
+            return
+        }
+        def have:[double]
+        def i:int 0
+        while (i < (array_length b.mine)) {
+            def it:FlightItem (itemAt b.mine i)
+            if (PresFlightBench.isMark(it.kind)) {
+                push have it.r
+                push have it.g
+                push have it.b
+            }
+            i = (i + 1)
+        }
+        def lost:int 0
+        def n:int (idiv (array_length want) 3)
+        def j:int 0
+        while (j < n) {
+            if ((PresFlightBench.nearIn(have (itemAt want (j * 3)) (itemAt want ((j * 3) + 1)) (itemAt want ((j * 3) + 2)) 0.15)) == false) {
+                lost = (lost + 1)
+            }
+            j = (j + 1)
+        }
+        def detail:string ""
+        if (lost > 0) {
+            detail = ((to_string lost) + "/" + (to_string n) + " of its colours are not used")
+        }
+        PresFlightBench.add(r "colours" (lost == 0) detail)
+    }
+
+    sfn saturation:double (r:double g:double b:double) {
+        def mx:double r
+        def mn:double r
+        if (g > mx) {
+            mx = g
+        }
+        if (b > mx) {
+            mx = b
+        }
+        if (g < mn) {
+            mn = g
+        }
+        if (b < mn) {
+            mn = b
+        }
+        if (mx <= 0.0) {
+            return 0.0
+        }
+        return ((mx - mn) / mx)
+    }
+
+    sfn nearIn:boolean (list:[double] r:double g:double b:double d:double) {
+        def n:int (idiv (array_length list) 3)
+        def i:int 0
+        while (i < n) {
+            def dr:double ((itemAt list (i * 3)) - r)
+            def dg:double ((itemAt list ((i * 3) + 1)) - g)
+            def db:double ((itemAt list ((i * 3) + 2)) - b)
+            if ((((dr * dr) + (dg * dg)) + (db * db)) < (d * d)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ---- the whole benchmark -------------------------------------------------
+
+    ; Case `id`'s slide, a line a command: what draws it and who, for
+    ; writing a case.
+    sfn dump:string (text:string id:string names:[string] sheets:[string]) {
+        def cases:[FlightBenchCase] (PresFlightBench.parse(text))
+        def i:int 0
+        while (i < (array_length cases)) {
+            def c:FlightBenchCase (itemAt cases i)
+            if (c.id == id) {
+                def b:FlightBenchSlide (PresFlightBench.read(c (PresFlightBench.sheetOf(c names sheets))))
+                def s:PresSlide (b.deck.slideAt(b.page))
+                def out:string ""
+                def k:int 0
+                while (k < (array_length b.rest.list.cmds)) {
+                    def cm:EVGDrawCmd (itemAt b.rest.list.cmds k)
+                    def top:int (itemAt b.topOf k)
+                    def en:PresEnt (itemAt b.rest.scene.ents top)
+                    out = (out + (to_string k) + " " + (PresFlightBench.kindName(cm.kind)) + " ent=" + en.kind + ":" + en.id + " step=" + (to_string (PresFlightBench.stepOf(b s k))) + " seen=" + (? (itemAt b.seen k) "y" "n") + " carried=" + (? (itemAt b.carried k) "y" "n"))
+                    out = (out + " xywh=" + (to_string (floor cm.x)) + "," + (to_string (floor cm.y)) + "," + (to_string (floor cm.w)) + "," + (to_string (floor cm.h)) + " rgba=" + (to_string cm.r) + "," + (to_string cm.g) + "," + (to_string cm.b) + "," + (to_string cm.a))
+                    if (cm.kind == 3) {
+                        out = (out + " font=" + cm.fontFamily + "/" + cm.fontWeight + "/" + cm.textAlign + "/" + (to_string cm.fontSize) + " \"" + cm.text + "\"")
+                    }
+                    if (cm.kind == 2) {
+                        out = (out + " src=" + cm.src)
+                    }
+                    out = (out + "\n")
+                    k = (k + 1)
+                }
+                def e:int 0
+                while (e < (array_length b.rest.scene.ents)) {
+                    def en2:PresEnt (itemAt b.rest.scene.ents e)
+                    out = (out + "ent " + (to_string e) + " " + en2.kind + " " + en2.id + " parent=" + (to_string en2.parent) + " native=" + (? (itemAt b.native e) "y" "n") + "\n")
+                    e = (e + 1)
+                }
+                return out
+            }
+            i = (i + 1)
+        }
+        return ("no case " + id)
+    }
+
+    ; Every case; `themes` the theme sheets by name, `css` beside it.
+    sfn runAll:[FlightBenchResult] (text:string names:[string] sheets:[string]) {
+        def out:[FlightBenchResult]
+        def cases:[FlightBenchCase] (PresFlightBench.parse(text))
+        def i:int 0
+        while (i < (array_length cases)) {
+            def c:FlightBenchCase (itemAt cases i)
+            push out (PresFlightBench.run(c (PresFlightBench.sheetOf(c names sheets))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn sheetOf:string (c:FlightBenchCase names:[string] sheets:[string]) {
+        def at:int (indexOf names (PresFlightBench.themeOf(c)))
+        if (at < 0) {
+            return ""
+        }
+        return (itemAt sheets at)
+    }
+
+    sfn countOk:int (rs:[FlightBenchResult]) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length rs)) {
+            def r:FlightBenchResult (itemAt rs i)
+            if (r.valid && r.ok) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn countValid:int (rs:[FlightBenchResult]) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length rs)) {
+            def r:FlightBenchResult (itemAt rs i)
+            if r.valid {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn aspectNames:[string] () {
+        return ([] _:string ("words" "type" "pictures" "shapes" "background" "layout" "steps" "effects" "colours"))
+    }
+
+    ; The results as a Markdown report.
+    sfn report:string (rs:[FlightBenchResult]) {
+        def valid:int (PresFlightBench.countValid(rs))
+        def ok:int (PresFlightBench.countOk(rs))
+        def out:string "# 3-D flight benchmark\n\n"
+        out = (out + "**" + (to_string ok) + " / " + (to_string valid) + "** render features shown in the flight; **" + (to_string (valid - ok)) + "** missing")
+        if (valid < (array_length rs)) {
+            out = (out + "; " + (to_string ((array_length rs) - valid)) + " broken cases")
+        }
+        out = (out + ".\n\n| Aspect | Cases it applies to | Shown | Missing |\n|---|---:|---:|---:|\n")
+        def names:[string] (PresFlightBench.aspectNames())
+        def a:int 0
+        while (a < (array_length names)) {
+            def nm:string (itemAt names a)
+            def total:int 0
+            def pass:int 0
+            def i:int 0
+            while (i < (array_length rs)) {
+                def r:FlightBenchResult (itemAt rs i)
+                if r.valid {
+                    def got:int (r.aspectState(nm))
+                    if (got >= 0) {
+                        total = (total + 1)
+                        if (got == 1) {
+                            pass = (pass + 1)
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            out = (out + "| " + nm + " | " + (to_string total) + " | " + (to_string pass) + " | " + (to_string (total - pass)) + " |\n")
+            a = (a + 1)
+        }
+        out = (out + "\n| Case | Group | Result | Missing |\n|---|---|---|---|\n")
+        def j:int 0
+        while (j < (array_length rs)) {
+            def r2:FlightBenchResult (itemAt rs j)
+            def res:string "✗"
+            def det:string ""
+            if r2.valid {
+                if r2.ok {
+                    res = "✓"
+                } {
+                    det = (PresFlightBench.details(r2))
+                }
+            } {
+                res = "broken"
+                det = r2.why
+            }
+            out = (out + "| " + r2.c.title + " (`" + r2.c.id + "`) | " + r2.c.group + " | " + res + " | " + det + " |\n")
+            j = (j + 1)
+        }
+        ; for scripts/flight-bench.mjs
+        out = (out + "\n<!-- flight-bench: shown=" + (to_string ok) + " valid=" + (to_string valid) + " cases=" + (to_string (array_length rs)) + " -->\n")
+        return out
+    }
+
+    sfn details:string (r:FlightBenchResult) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length r.aspects)) {
+            def a:FlightBenchAspect (itemAt r.aspects i)
+            if (a.ok == false) {
+                if ((strlen out) > 0) {
+                    out = (out + "; ")
+                }
+                out = (out + "**" + a.name + "**")
+                if ((strlen a.detail) > 0) {
+                    out = (out + " " + (PresFlightBench.cell(a.detail)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a text fit for a table cell
+    sfn cell:string (t:string) {
+        def parts:[string] (strsplit t "|")
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            if (i > 0) {
+                out = (out + "\\|")
+            }
+            out = (out + (itemAt parts i))
+            i = (i + 1)
+        }
+        return out
+    }
+}

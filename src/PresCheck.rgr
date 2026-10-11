@@ -54,6 +54,7 @@ Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
 Import "PresFlight.rgr"
 Import "PresFlightCam.rgr"
+Import "PresFlightBench.rgr"
 Import "Pres3DStill.rgr"
 Import "Pres3DGltf.rgr"
 Import "PresSceneModel.rgr"
@@ -7410,6 +7411,31 @@ class PresCheck {
         this.ok(((PresDeck.selectTextOff("# A\n\nselect-text: off\n")) == false) "select-text outside the front matter is text")
     }
 
+    ; The 3-D flight's benchmark (src/PresFlightBench.rgr): its cases read,
+    ; a case its slide does not meet is broken, the aspects measured.
+    fn flightBench:void () {
+        def text:string "<!-- notes -->\n<!-- case: para | Text | A paragraph | needs: ent:p -->\n## Otsikko\n\nYksi kappale.\n<!-- case: tbl | Tables | A table | needs: ent:table | files: media/a.png media/b.png -->\n## Ei taulukkoa\n\nVain tekstiä.\n"
+        def cases:[FlightBenchCase] (PresFlightBench.parse(text))
+        this.ok(((array_length cases) == 2) ("flight bench: two cases, got " + (to_string (array_length cases))))
+        if ((array_length cases) < 2) {
+            return
+        }
+        def c0:FlightBenchCase (itemAt cases 0)
+        def c1:FlightBenchCase (itemAt cases 1)
+        this.ok((((c0.id == "para") && (c0.group == "Text")) && (c0.title == "A paragraph")) "flight bench: a case's id, group and name")
+        this.ok((((array_length c1.files) == 2) && ((itemAt c1.needs 0) == "ent:table")) "flight bench: its needs and files")
+        this.ok(((indexOf c0.md "Yksi kappale.") > 0) "flight bench: its deck is the lines under it")
+        def r0:FlightBenchResult (PresFlightBench.run(c0 ""))
+        this.ok(r0.valid ("flight bench: a paragraph case is valid: " + r0.why))
+        this.ok(((r0.aspectState("words")) >= 0) "flight bench: the words are measured")
+        this.ok(((r0.aspectState("layout")) < 0) "flight bench: places only when the case asks")
+        def r1:FlightBenchResult (PresFlightBench.run(c1 ""))
+        this.ok((r1.valid == false) "flight bench: a table case with no table is broken")
+        this.ok(((PresFlightBench.bare("(Tampere),")) == "Tampere") "flight bench: a word without its marks")
+        def rep:string (PresFlightBench.report(([] _:FlightBenchResult (r0 r1))))
+        this.ok(((indexOf rep "cases=2") > 0) "flight bench: the report's summary line")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -7468,6 +7494,7 @@ class PresCheck {
         c.morph()
         c.worlds()
         c.flight()
+        c.flightBench()
         c.beats()
         c.jsonPatch()
         c.scenes()
