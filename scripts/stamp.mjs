@@ -25,15 +25,3 @@ export function unstampedImports(code) {
   }
   return out;
 }
-
-// The classic scripts the page loads only when it needs them
-// (web/sitescript.js loadScript). A tab opened before a deploy asks for its
-// own build's copy, but the server holds only the newest one: each says
-// which build it is, so the page can tell instead of running a mix
-// ("world.labelCount is not a function", 2026-10-11).
-export const ON_DEMAND = ["pres_3d.js", "pres_play.js"];
-
-/** The script's text with the line that names its build. */
-export function markBuilt(code, name, stamp) {
-  return code + `\n;(globalThis.__sliqtlyBuilt || (globalThis.__sliqtlyBuilt = {}))[${JSON.stringify(name)}] = ${JSON.stringify(stamp)};\n`;
-}

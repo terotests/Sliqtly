@@ -82,12 +82,3 @@ test("the modules the page loads are cached for good (their URLs carry the build
   for (const f of seen) assert.match(cacheControl("/" + f) || "", /immutable/, f);
   assert.equal(cacheControl("/index.html"), "no-cache");
 });
-
-test("the scripts loaded on demand name their build", async () => {
-  const { markBuilt, ON_DEMAND } = await import("../../scripts/stamp.mjs");
-  assert.ok(ON_DEMAND.includes("pres_3d.js"));
-  const code = markBuilt("var x = 1;", "pres_3d.js", "abc123");
-  const g = {};
-  new Function("globalThis", code)(g);
-  assert.deepEqual(g.__sliqtlyBuilt, { "pres_3d.js": "abc123" });
-});

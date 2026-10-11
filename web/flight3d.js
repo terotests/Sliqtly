@@ -277,7 +277,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
   // is set up after it is undone again by land() if it throws.
   async function takeOff() {
     const gl = await three3d.glReady();
-    if (!gl || !globalThis.PresFlight3D) return three3d.problem?.() || t("The 3-D flight needs WebGL");
+    if (!gl || !globalThis.PresFlight3D) return t(three3d.problem?.() || "The 3-D flight needs WebGL");
     if (!world) {
       world = new globalThis.PresFlight3D();
       if (!world.attach(gl.id)) {
@@ -360,7 +360,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
       // left a black canvas over the page that no key took away)
       console.error(e);
       land();
-      why = (e && e.stale) ? t(e.message) : t("The 3-D flight could not start: ") + ((e && e.message) || e);
+      why = t("The 3-D flight could not start: ") + ((e && e.message) || e);
     }
     starting = false;
     if (why) {

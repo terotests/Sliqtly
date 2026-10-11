@@ -116,14 +116,3 @@ test("a throw after the canvas covers the page is undone too", async () => {
   assert.equal(page.listeners.size, 0);
   assert.equal(toasts.length, 1);
 });
-
-test("a script from another build than the page is told, not run with it", async () => {
-  const { staleScript, STALE } = await import("../sitescript.js");
-  assert.equal(staleScript("https://x/editor/pres_3d.js?v=abc", "abc"), null);
-  assert.equal(staleScript("https://x/editor/pres_3d.js", "abc"), null, "no stamp asked: nothing to compare");
-  assert.equal(staleScript("https://x/editor/pres_3d.js?v=abc", undefined), null, "an old script names no build");
-  assert.equal(staleScript("./pres_3d.js?v=__BUILD__", "abc"), null, "unbuilt page");
-  const e = staleScript("https://x/editor/pres_3d.js?v=d64f37e303", "cf84271abc");
-  assert.equal(e.stale, true);
-  assert.equal(e.message, STALE);
-});

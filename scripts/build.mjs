@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import { formatCss } from "./format-css.mjs";
 import { themeCss, themeNames } from "./themes.mjs";
 import { buildPlayer } from "./player.mjs";
-import { stampImports, unstampedImports, ON_DEMAND, markBuilt } from "./stamp.mjs";
+import { stampImports, unstampedImports } from "./stamp.mjs";
 
 // esbuild (npm install) shrinks the two compiled bundles to about 60 %
 // (pres_app.js 8.2 MB → 4.9 MB, 1.7 MB → 1.4 MB gzipped): every visit
@@ -258,11 +258,6 @@ export function build({ ranger } = {}) {
   }
   const left = modules.flatMap((f) => unstampedImports(fs.readFileSync(path.join(distDir, f), "utf8")).map((u) => `${f}: ${u}`));
   if (left.length) throw new Error("imports without the build stamp:\n  " + left.join("\n  "));
-  // the scripts loaded on demand say which build they are (stamp.mjs)
-  for (const f of ON_DEMAND.filter((f) => fs.existsSync(path.join(distDir, f)))) {
-    const file = path.join(distDir, f);
-    fs.writeFileSync(file, markBuilt(fs.readFileSync(file, "utf8"), f, stamp));
-  }
   log(`build  web/dist (${stamp})`);
   return stamp;
 }
