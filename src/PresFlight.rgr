@@ -81,6 +81,8 @@ class FlightRun {
 ;   panel    a plate: a glass pane w x h with glowing edges (`fill` its
 ;            pane's opacity, 0 for edges only; `brackets` corner brackets)
 ;   picture  a picture of the slide (`src`) as a see-through screen
+;   world    a program's 3-D world (`src` its `three:` picture, w x h the
+;            picture's box): its meshes stand in front of the slide
 ;   ground   the slide's own paper: the edges of the screen it stands in
 ;   bar      a chart's bar: a box w x h x d centred at x,y,z that grows from
 ;            `base` (y, or x when it lies `across`)
@@ -1758,6 +1760,19 @@ class PresFlightScene {
     }
 
     fn addPicture:FlightItem (st:FlightStation c:EVGDrawCmd k:int top:int dz:double) {
+        ; a world is painted in bands round the slide's words: one stand
+        if ((indexOf c.src "three:") == 0) {
+            def j:int ((array_length items) - 1)
+            while (j >= firstItem) {
+                def had:FlightItem (itemAt items j)
+                if ((had.kind == "world") && (had.src == c.src)) {
+                    had.grow((PresScene.boundsOf(c)))
+                    push had.cmds k
+                    return had
+                }
+                j = (j - 1)
+            }
+        }
         def pc:FlightItem (this.item("picture" st.index))
         pc.src = c.src
         pc.grow((PresScene.boundsOf(c)))
@@ -1767,6 +1782,12 @@ class PresFlightScene {
             ; a picture behind the slide, dimmer, at its back
             pc.dz = 0.02
             pc.op = 0.5
+        }
+        ; a program's 3-D world: its own meshes on a stand before the slide
+        if ((indexOf c.src "three:") == 0) {
+            pc.kind = "world"
+            pc.dz = (dz + 1.0)
+            pc.op = 1.0
         }
         push pc.cmds k
         return pc
