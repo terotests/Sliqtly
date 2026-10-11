@@ -315,6 +315,30 @@ class FlightGeo {
 
     ; Lines of points (x,y,z triples, `ends` where each ends, in points) as
     ; flat bands `rad` either side, facing +z: many short lines in one.
+    ; A w x h box round its middle with its corners cut `b` off, as one
+    ; closed line of points (x, y, z).
+    sfn bevelLoop:[double] (w:double h:double b:double) {
+        def hw:double (w * 0.5)
+        def hh:double (h * 0.5)
+        def c:double b
+        if (c > (hw * 0.5)) {
+            c = (hw * 0.5)
+        }
+        if (c > (hh * 0.5)) {
+            c = (hh * 0.5)
+        }
+        def xy:[double] ([] _:double (((0.0 - hw) + c) hh (hw - c) hh hw (hh - c) hw ((0.0 - hh) + c) (hw - c) (0.0 - hh) ((0.0 - hw) + c) (0.0 - hh) (0.0 - hw) ((0.0 - hh) + c) (0.0 - hw) (hh - c) ((0.0 - hw) + c) hh))
+        def out:[double]
+        def i:int 0
+        while ((i + 1) < (array_length xy)) {
+            push out (itemAt xy i)
+            push out (itemAt xy (i + 1))
+            push out 0.0
+            i = (i + 2)
+        }
+        return out
+    }
+
     sfn ribbons:ThreeBufferGeometry (pts:[double] ends:[int] rad:double) {
         def g:ThreeBufferGeometry (new ThreeBufferGeometry)
         def n:int (idiv (array_length pts) 3)
@@ -807,6 +831,19 @@ class PresFlight3D {
                 def pane:ThreeMesh (this.mesh((FlightGeo.picture()) (this.basic((r * 0.55) (g * 0.55) (b * 0.55) fill false))))
                 pane.scale.set(p.w p.h 1.0)
                 this.hold(p pane fill 0.0 0.0 0.0)
+            }
+            if (o.boolOr("bare" false)) {
+                ; a table's stripe: the pane alone
+                return
+            }
+            def bevel:double (o.numOr("bevel" 0.0))
+            if (bevel > 0.0) {
+                ; a table's frame: corners cut, a soft light along it
+                def loop:[double] (FlightGeo.bevelLoop(p.w p.h bevel))
+                def ends:[int] ([] _:int ((idiv (array_length loop) 3)))
+                this.hold(p (this.mesh((FlightGeo.ribbons(loop ends t)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+                this.hold(p (this.mesh((FlightGeo.ribbons(loop ends (t * 3.0))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                return
             }
             if band {
                 ; a marked code line: the light alone, an edge on its left
