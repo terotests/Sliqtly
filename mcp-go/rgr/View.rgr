@@ -434,6 +434,50 @@ class ViewPictures {
         out.type = (host_content_type host out.bytes)
         return out
     }
+
+    ; The deck recorded for the web (web/recstream.js, the editor's Export ▸
+    ; Recorded presentation): its file recordings/web-<hash>.sliqrec as it
+    ; is, gzipped JSON the page reads. Its name is its bytes' hash, so the
+    ; answer never changes; only a deck anyone with the link sees.
+    sfn recording:ViewPic (host:McpHost id:string hash:string) {
+        def out (new ViewPic)
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return out
+        }
+        if (((strlen hash) != 24) || ((Deck.allAlnum(hash)) == false)) {
+            return out
+        }
+        def sh:Shown (Store.shown(host id))
+        def doc:MfJ sh.doc
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view recording " + id + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
+            return out
+        }
+        def path:string ("recordings/web-" + hash + ".sliqrec")
+        def found:boolean false
+        for (doc.list("files")) f:MfJ fi {
+            if ((f.str_("path")) == path) {
+                found = true
+            }
+        }
+        if (found == false) {
+            return out
+        }
+        def got:MfJ (J.parse((host_file_bytes host sh.id path)))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view recording " + id + "/" + path + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        out.status = 200
+        out.bytes = (host_image_bytes host (got.int_("handle" 0)))
+        out.type = "application/octet-stream"
+        return out
+    }
 }
 
 class ViewFile {
