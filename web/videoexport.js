@@ -12,8 +12,9 @@
 // as the one before is not drawn again: `same` says so and the pixels are
 // the last ones. An encoder takes that as "nothing changed".
 //
-// The encoder is not here: scripts/video.mjs pipes the pixels into FFmpeg
-// (milestone 1, README "Video"); a WASM encoder in the page comes later.
+// The encoder is not here: scripts/video.mjs pipes the pixels into FFmpeg or
+// Sliqtly's own VP8 encoder (README "Video"), and File → Export → Video
+// hands them to that encoder in a worker (web/video-worker.js).
 
 /**
  * @param {object} deps

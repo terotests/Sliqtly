@@ -437,6 +437,10 @@ is coded coarser and the one it stops at sharp. No sound yet.
 `npm run check:vp8` builds a test video with rustc and with Ranger (the
 bytes must be equal) and has FFmpeg decode it to the encoder's own pictures.
 
+In the editor, File → Export → Video (.webm) makes the same video in the
+page: 1920x1080 at 30 frames a second, coded by `vp8enc.js` in a worker
+(`web/video-worker.js`), saved as a file.
+
 `--size=1920x1080`, `--fps=30`, `--codec=vp9|av1|vp8`, `--quality=0..63` (crf; vp8: quantizer index),
 `--pix=yuv420p|yuv444p`, `--frames=N` (the first N), `--raw=FILE` (the RGBA
 stream), `--timeline=FILE` (the compiled timeline: events, the sound's kept
@@ -458,7 +462,7 @@ voice filter, the deck's music, a realistic book's page turns. Needs
 | `src/PresInk.rgr`, `src/PresRecord.rgr` | Drawing on the slide while presenting and the pointer; a recording's operations, its file and its replay |
 | `web/recorder.js` | The microphone into a file, and the voices it plays through (Web Audio) |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
-| `src/PresVideo.rgr`, `web/videoexport.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
+| `src/PresVideo.rgr`, `web/videoexport.js`, `web/video-worker.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
 | `src/PresVp8.rs`, `src/PresVp8Check.rs`, `scripts/check-vp8.mjs` | Sliqtly's own VP8/WebM video encoder (Rust that Ranger builds to JavaScript) and its check |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |

@@ -5268,7 +5268,7 @@ window.__renderFxStills = renderFxStills;
 
 // A video's frames (web/videoexport.js, src/PresVideo.rgr): the slides at
 // frame n / fps, drawn by the stage's painter. scripts/video.mjs encodes
-// them; the page has no button for it yet.
+// them, and so does File → Export → Video (exportVideo).
 window.__video = createVideoFrames({
   app,
   prepareDisplayList,
@@ -5354,6 +5354,65 @@ async function exportPdf(picked = false) {
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
+// Video: the frames the presentation shows at n / fps (web/videoexport.js),
+// coded to WebM by Sliqtly's own VP8 encoder in a worker
+// (web/video-worker.js) and saved here. A few frames wait at most, so the
+// page holds two or three pictures, not the whole video.
+let videoBusy = false;
+async function exportVideo() {
+  if (videoBusy) {
+    toast(t("A video is already being made."));
+    return;
+  }
+  videoBusy = true;
+  const worker = new Worker("./video-worker.js?v=" + BUILD, { name: BUILD });
+  const waiting = [];
+  let done = null;
+  let failed = null;
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.kind === "error") failed = new Error(m.message);
+    if (m.kind === "done") done = m;
+    const w = waiting.shift();
+    if (w) w();
+  };
+  worker.onerror = (e) => {
+    failed = new Error(e.message || "the video encoder did not load");
+    while (waiting.length) waiting.shift()();
+  };
+  const send = (msg) => new Promise((resolve) => {
+    waiting.push(resolve);
+    worker.postMessage(msg);
+  });
+  const check = () => { if (failed) throw failed; };
+  try {
+    await loadEmojiFace();
+    const tl = window.__video.begin({ codec: "vp8" });
+    let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
+    let shown = -1;
+    for (let n = 0; n < tl.frames; n++) {
+      const f = window.__video.frame(n);
+      pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
+      if (pending.length > 2) await pending.shift();
+      check();
+      const pct = Math.floor((n * 100) / tl.frames);
+      if (pct !== shown) {
+        shown = pct;
+        toast(t("Making the video…") + " " + pct + " %");
+      }
+    }
+    await Promise.all(pending);
+    await send({ kind: "end", frames: tl.frames });
+    check();
+    window.__lastDownload = deliver(done.bytes, exportName() + ".webm", "video/webm");
+    toast(t("The video is ready.") + " " + (done.bytes.length / 1048576).toFixed(1) + " MB");
+  } finally {
+    window.__video.close();
+    worker.terminate();
+    videoBusy = false;
+  }
+}
+window.__exportVideo = exportVideo;
 // The runs the contrast guard repairs on the stage (a colour that reads, or an
 // outline round big letters) are a judgement made while drawing, over the
 // pictures under them, so the PPTX would have the theme's colour where the
@@ -5570,6 +5629,7 @@ document.getElementById("player").addEventListener("click", () => { exportPlayer
 document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
+document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
 document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });
