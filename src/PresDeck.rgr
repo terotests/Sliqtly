@@ -357,6 +357,9 @@ class PresDeck {
     ; true: slideList draws the slide as the Markdown has it, whatever a
     ; script set (the tree a script is handed, the layout report)
     def scriptsOff:boolean false
+    ; the parts of charts and diagrams (bars, nodes) are marked on every
+    ; slide, not only on one with a script (restOfSlide)
+    def partsAlways:boolean false
     ; Every block node of the document with the source it spans and the
     ; block it is inside (-1 for the document), for what kind of thing a
     ; box of the layout is: what `find("li")` names
@@ -2530,7 +2533,8 @@ class PresDeck {
 
     ; Slide i at rest as the Markdown lays it out (sceneOfSlide): its list,
     ; each command's build group (an index into the slide's groups, -1 for
-    ; none) and its entities. The 3-D flight paints the blocks of this list.
+    ; none) and its entities, a chart's bars and a diagram's nodes among
+    ; them. The 3-D flight paints the blocks of this list.
     def restHeld:PresRest (new PresRest())
 
     fn restOfSlide:PresRest (i:int) {
@@ -2540,9 +2544,11 @@ class PresDeck {
         def wasOff:boolean scriptsOff
         def wasStill:boolean still
         def wasControls:boolean showControls
+        def wasParts:boolean partsAlways
         scriptsOff = true
         still = true
         showControls = false
+        partsAlways = true
         def s:PresSlide (itemAt slides i)
         def g:[int]
         def dl:EVGDisplayList (this.slideList(i g s.duration))
@@ -2550,6 +2556,7 @@ class PresDeck {
         scriptsOff = wasOff
         still = wasStill
         showControls = wasControls
+        partsAlways = wasParts
         def r:PresRest (new PresRest())
         r.list = dl
         r.groupOfCmd = g
@@ -5796,7 +5803,7 @@ class PresDeck {
                         dia.diagram.paint(out (itemAt span 0) kb.y (itemAt span 1) room (t - dia.start) l.style.textColor paper l)
                     }
                 }
-                if (((strlen s.script) > 0) && (dia.diagram.partFrom >= dBefore)) {
+                if ((((strlen s.script) > 0) || partsAlways) && (dia.diagram.partFrom >= dBefore)) {
                     this.diagramParts(out dia.diagram (itemAt mineAt k))
                 }
             } {
@@ -5821,7 +5828,8 @@ class PresDeck {
                     ; something else (rounded ones too, which it leaves):
                     ; what a script finds as `bar`
                     def raw:[EVGDrawCmd]
-                    if ((strlen s.script) > 0) {
+                    def marks:boolean (((strlen s.script) > 0) || partsAlways)
+                    if marks {
                         def tail:[EVGDrawCmd]
                         def ti:int before
                         while (ti < (array_length out.cmds)) {
@@ -5845,7 +5853,7 @@ class PresDeck {
                     if still {
                         PresChart.flatten(out before paper)
                     }
-                    if ((strlen s.script) > 0) {
+                    if marks {
                         this.chartParts(out before raw (itemAt mineAt k) kb.embedSource)
                     }
                 }

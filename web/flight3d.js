@@ -78,12 +78,18 @@ function asRangerBuffer(ab) {
   return ab;
 }
 
+// The plates of the stations this near the one flown to hold pictures.
+const PLATES_NEAR = 2;
+
 /**
  * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(),
- * selectedSlide(), selectSlide(i); toast(text); t(text) the UI's language;
- * onExit() after the flight, back in the presentation.
+ * flightPlateJson(pl), selectedSlide(), selectSlide(i); platePicture(doc, k, time)
+ * a plate (its parsed plateJson) drawn by the slide's painter, its effects
+ * `time` seconds in (null: at their still) ({img, waiting}, null without);
+ * toast(text); t(text) the UI's language; onExit() after the flight, back
+ * in the presentation.
  */
-export function createFlight3d({ three3d, app, toast, t, onExit }) {
+export function createFlight3d({ three3d, app, platePicture, toast, t, onExit }) {
   let world = null;
   let canvas = null;
   let hud = null;
@@ -95,6 +101,56 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
   const held = new Set();
   let drag = null;
   let fullAtStart = false;
+  // plates whose pictures had not all arrived: painted again after this
+  let plateRetry = new Map();
+  // the station whose effects run, and since when (ms)
+  let liveAt = -1;
+  let liveSince = 0;
+
+  // A plate or two a frame, the station flown to first, then the ones
+  // nearest it; the far ones give their pictures back.
+  function platePictures(now) {
+    world.releasePlates(now, PLATES_NEAR);
+    const n = world.plateCount();
+    const t0 = performance.now();
+    for (let d = 0; d <= PLATES_NEAR; d++) {
+      for (let i = 0; i < n; i++) {
+        const s = world.plateStation(i);
+        if (Math.abs(s - now) !== d) continue;
+        const again = plateRetry.get(i);
+        if (world.plateReady(i) ? again === undefined || again > t0 : again > t0) continue;
+        const text = app.flightPlateJson(world.plateIndex(i));
+        if (!text) continue;
+        const doc = JSON.parse(text);
+        const k = Math.min(2, 2048 / Math.max(1, doc.width, doc.height));
+        const got = platePicture(doc, k, null);
+        if (!got) return;
+        world.setPlate(i, asRangerBuffer(got.img.data.buffer.slice(0)), got.img.width, got.img.height);
+        if (got.waiting) plateRetry.set(i, t0 + 600);
+        else plateRetry.delete(i);
+        if (performance.now() - t0 > 8) return;
+      }
+    }
+    livePlates(now, t0);
+  }
+
+  // The effects on the station flown to run: its plates that carry one
+  // are painted again each frame, a slide unit a pixel.
+  function livePlates(now, t0) {
+    if (now !== liveAt) {
+      liveAt = now;
+      liveSince = t0;
+    }
+    const n = world.plateCount();
+    for (let i = 0; i < n; i++) {
+      if (world.plateStation(i) !== now || !world.plateLive(i) || !world.plateReady(i)) continue;
+      const text = app.flightPlateJson(world.plateIndex(i));
+      if (!text) continue;
+      const got = platePicture(JSON.parse(text), 1, (t0 - liveSince) / 1000);
+      if (!got) return;
+      world.setPlate(i, asRangerBuffer(got.img.data.buffer.slice(0)), got.img.width, got.img.height);
+    }
+  }
 
   function labelPictures() {
     const n = world.labelCount();
@@ -169,6 +225,7 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
       return;
     }
     world.frame(dt);
+    platePictures(world.stationNow());
     const [w, h] = size();
     world.draw(w, h);
     showStation();
@@ -250,6 +307,8 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
     canvas = gl;
     canvas.style.cssText = "display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;background:#02040a;cursor:grab;touch-action:none";
     labelPictures();
+    plateRetry = new Map();
+    liveAt = -1;
     makeHud();
     shown = -1;
     hintUntil = performance.now() + 5000;
