@@ -3629,6 +3629,8 @@ class PresCheck {
         def o:PresVideoOptions (PresVideoOptions.parse("{\"width\":1281,\"height\":720,\"fps\":25,\"codec\":\"h264\",\"quality\":99}"))
         this.ok(((o.width == 1280) && (o.height == 720)) ("video: sides even, " + (to_string o.width)))
         this.ok((((o.fps == 25) && (o.codec == "vp9")) && (o.quality == 32)) "video: an unknown codec and quality keep the defaults")
+        def o8:PresVideoOptions (PresVideoOptions.parse("{\"codec\":\"vp8\"}"))
+        this.ok((o8.codec == "vp8") "video: vp8 is Sliqtly's own encoder")
         def d:PresVideoOptions (PresVideoOptions.parse(""))
         this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
 

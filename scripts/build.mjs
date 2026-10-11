@@ -161,8 +161,15 @@ export function build({ ranger } = {}) {
   compile(ranger, "PresBeat.rgr", beatJs);
   fs.writeFileSync(beatJs, "// the deck's music: bars, beats and tempo for the beat effects.\n"
     + "(function () {\n" + fs.readFileSync(beatJs, "utf8") + "\n;globalThis.PresBeat = PresBeat;\n})();\n");
+  // Sliqtly's own video encoder (src/PresVp8.rs, Rust that Ranger reads):
+  // VP8 frames in WebM, loaded only when a video is made.
+  const vp8Js = path.join(distDir, "vp8enc.js");
+  compile(ranger, "PresVp8.rs", vp8Js);
+  fs.writeFileSync(vp8Js, "// loaded on demand: the VP8/WebM video encoder (src/PresVp8.rs).\n"
+    + "(function () {\n" + fs.readFileSync(vp8Js, "utf8") + "\n;globalThis.Vp8Video = Vp8Video;\n})();\n");
   minify(appJs);
   minify(beatJs);
+  minify(vp8Js);
   minify(dataJs);
   minify(traceJs);
 

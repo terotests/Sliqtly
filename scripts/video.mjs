@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
- * npm run video — a presentation as a video file, through FFmpeg.
+ * npm run video — a presentation as a video file, through FFmpeg or
+ * Sliqtly's own VP8 encoder.
  *
  * Milestone 1 of the video export (README, "Video"): the page draws
  * each frame at time n / fps with its own painter (web/videoexport.js,
  * src/PresVideo.rgr) in headless Chromium, and FFmpeg encodes the RGBA
- * frames to VP9 (or AV1) in a WebM. No screen is filmed and no clock is
- * read, so the same deck gives the same frames every time.
+ * frames to VP9 (or AV1) in a WebM. `--codec=vp8` encodes them with
+ * src/PresVp8.rs instead (Rust that Ranger builds as dist/vp8enc.js): no
+ * FFmpeg, and a frame equal to the one before costs nothing. No screen is
+ * filmed and no clock is read, so the same deck gives the same frames every
+ * time.
  *
  *   npm run video -- --sample=esittely --out=esittely.webm
  *   npm run video -- --deck=talk.md --recording=take.json --audio=take.webm
@@ -18,8 +22,8 @@
  *   --out=FILE         default video.webm
  *   --size=WxH         default 1920x1080
  *   --fps=N            default 30
- *   --codec=vp9|av1    default vp9
- *   --quality=0..63    the encoder's crf, default 32
+ *   --codec=vp9|av1|vp8  default vp9; vp8 is the own encoder (no sound yet)
+ *   --quality=0..63    the encoder's crf (vp8: its quantizer index), default 32
  *   --pix=yuv420p|yuv444p
  *   --frames=N         only the first N frames
  *   --raw=FILE         also write the raw RGBA stream (rawvideo)
@@ -123,8 +127,13 @@ async function main() {
     process.exit(1);
   });
   build();
+  const own = options.codec === "vp8";
+  if (own && args.audio) log("vp8: the own encoder writes no sound yet; --audio is left out");
+  if (own) await import(path.join(distDir, "vp8enc.js"));
 
   let ff = null;
+  let enc = null;
+  let n = 0;
   let prev = null;
   let drawn = 0;
   let repeated = 0;
@@ -143,7 +152,9 @@ async function main() {
     }
     hash.update(prev);
     if (raw) await write(raw, prev);
-    await write(ff.stdin, prev);
+    if (enc) enc.add(prev, n, body.length === 0);
+    else await write(ff.stdin, prev);
+    n += 1;
   });
   const base = `http://127.0.0.1:${server.address().port}/`;
   const browser = await chromium.launch({
@@ -169,12 +180,16 @@ async function main() {
     const tl = await page.evaluate(([o, rec]) => window.__video.begin(o, rec), [options, !!args.recording]);
     if (args.timeline) fs.writeFileSync(path.resolve(args.timeline), JSON.stringify(tl, null, 2));
     const frames = Math.min(tl.frames, Number(args.frames || tl.frames));
-    const audio = args.recording && args.audio ? path.resolve(args.audio) : "";
-    ff = spawn(process.env.FFMPEG || "ffmpeg", ffmpegArgs(tl, { out, audio, ...options }), { stdio: ["pipe", "inherit", "inherit"] });
-    const done = new Promise((resolve, reject) => {
-      ff.on("error", reject);
-      ff.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`))));
-    });
+    const audio = args.recording && args.audio && !own ? path.resolve(args.audio) : "";
+    let done = Promise.resolve();
+    if (own) enc = globalThis.Vp8Video.new_(tl.width, tl.height, tl.fps, options.quality);
+    else {
+      ff = spawn(process.env.FFMPEG || "ffmpeg", ffmpegArgs(tl, { out, audio, ...options }), { stdio: ["pipe", "inherit", "inherit"] });
+      done = new Promise((resolve, reject) => {
+        ff.on("error", reject);
+        ff.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`))));
+      });
+    }
     log(`video  ${tl.source}, ${tl.slides} slides, ${tl.duration} s, ${frames} frames at ${tl.width}x${tl.height}/${tl.fps} → ${path.relative(root, out) || out}`);
     const started = Date.now();
     await page.evaluate(async (n) => {
@@ -185,7 +200,11 @@ async function main() {
       }
       window.__video.close();
     }, frames);
-    ff.stdin.end();
+    if (enc) {
+      enc.set_length(frames);
+      fs.writeFileSync(out, Buffer.from(enc.webm()));
+      log(`vp8    ${enc.frame_count()} frames coded, ${enc.key_count()} of them key frames`);
+    } else ff.stdin.end();
     if (raw) raw.end();
     await done;
     const secs = (Date.now() - started) / 1000;

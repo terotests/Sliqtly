@@ -428,7 +428,16 @@ npm run video -- --sample=esittely --out=esittely.webm
 npm run video -- --deck=talk.md --recording=take.json --audio=take.webm --out=talk.webm
 ```
 
-`--size=1920x1080`, `--fps=30`, `--codec=vp9|av1`, `--quality=0..63` (crf),
+`--codec=vp8` encodes with Sliqtly's own encoder instead of FFmpeg:
+`src/PresVp8.rs`, VP8 in WebM, written in Rust that Ranger reads, so rustc
+builds it as it is and the build writes it as `web/dist/vp8enc.js` (13 KB
+gzipped) for the page and this script. A frame equal to the one before is
+not coded, the picture's motion is followed with vectors, a moving picture
+is coded coarser and the one it stops at sharp. No sound yet.
+`npm run check:vp8` builds a test video with rustc and with Ranger (the
+bytes must be equal) and has FFmpeg decode it to the encoder's own pictures.
+
+`--size=1920x1080`, `--fps=30`, `--codec=vp9|av1|vp8`, `--quality=0..63` (crf; vp8: quantizer index),
 `--pix=yuv420p|yuv444p`, `--frames=N` (the first N), `--raw=FILE` (the RGBA
 stream), `--timeline=FILE` (the compiled timeline: events, the sound's kept
 parts). With a recording the video follows it as a replay does: its slides
@@ -450,6 +459,7 @@ voice filter, the deck's music, a realistic book's page turns. Needs
 | `web/recorder.js` | The microphone into a file, and the voices it plays through (Web Audio) |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresVideo.rgr`, `web/videoexport.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
+| `src/PresVp8.rs`, `src/PresVp8Check.rs`, `scripts/check-vp8.mjs` | Sliqtly's own VP8/WebM video encoder (Rust that Ranger builds to JavaScript) and its check |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome), `sheets-live.js` (live spreadsheets: EVGSheets over a ```sheet box, and the .xlsx editor dialog) |
