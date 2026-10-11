@@ -167,13 +167,25 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     }
   }
 
+  // The look's own hue (front matter `look-3d:`) for the words over the world.
+  let hudGlow = [0.36, 0.88, 1.0];
+  function lookGlow(json) {
+    try {
+      const g = JSON.parse(json).look?.glow;
+      if (Array.isArray(g) && g.length === 3) return g;
+    } catch (_) { /* the default */ }
+    return [0.36, 0.88, 1.0];
+  }
+
   function makeHud() {
+    const [r, g, b] = hudGlow.map((v) => Math.round(v * 255));
+    const lite = hudGlow.map((v) => Math.round((v * 0.6 + 0.4) * 255));
     hud = document.createElement("div");
     hud.id = "flightHud";
     hud.setAttribute("aria-live", "polite");
     hud.style.cssText = "position:fixed;left:0;right:0;bottom:24px;z-index:2147483001;pointer-events:none;"
       + "display:flex;flex-direction:column;align-items:center;gap:8px;font:500 15px Inter,system-ui,sans-serif;"
-      + "color:#9feaff;text-shadow:0 0 8px rgba(92,225,255,.8);letter-spacing:.04em";
+      + `color:rgb(${lite.join(",")});text-shadow:0 0 8px rgba(${r},${g},${b},.8);letter-spacing:.04em`;
     hud.innerHTML = '<div class="where"></div><div class="help" style="opacity:.75;font-size:13px;transition:opacity .8s"></div>';
     hud.querySelector(".help").textContent = t("Space / → next · ← back · W A S D fly · Q E turn · V layout · Shift fast · Esc leaves");
     document.body.appendChild(hud);
@@ -295,8 +307,10 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
         return t("The 3-D flight needs WebGL");
       }
     }
-    const why = world.load(app.flightJson());
+    const json = app.flightJson();
+    const why = world.load(json);
     if (why) return why;
+    hudGlow = lookGlow(json);
     world.startAt(app.selectedSlide());
     canvas = gl;
     three3d.pause(true);
