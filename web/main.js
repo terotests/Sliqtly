@@ -356,6 +356,7 @@ try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) 
 const flight3d = createFlight3d({
   three3d,
   app,
+  picturePixels,
   toast,
   t,
   onExit: () => {
@@ -3597,6 +3598,28 @@ function drawThemePicture() {
 // its 3-D worlds stand in (web/three3d.js): an ImageData, null without one.
 let roomGl = null;
 const roomCanvas = document.createElement("canvas");
+// A picture of the slides (by its src) as ImageData, its long side at most
+// `max` px, for the 3-D flight's screens; null while it is not here.
+function picturePixels(src, max) {
+  const img = pictures.get(src);
+  if (!img || String(src).startsWith("three:")) return null;
+  const iw = img.naturalWidth || img.videoWidth || img.width || 0;
+  const ih = img.naturalHeight || img.videoHeight || img.height || 0;
+  if (!iw || !ih) return null;
+  const k = Math.min(1, max / Math.max(iw, ih));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(iw * k));
+  c.height = Math.max(1, Math.round(ih * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  try {
+    g.drawImage(img, 0, 0, c.width, c.height);
+    return g.getImageData(0, 0, c.width, c.height);
+  } catch (_) {
+    // a picture from elsewhere the page may not read
+    return null;
+  }
+}
+
 function slidePicture(w, h) {
   const text = app.slideJson(app.selectedSlide());
   if (!text) return null;

@@ -55,6 +55,7 @@ Import "Pres3D.rgr"
 Import "PresFlight.rgr"
 Import "PresFlightCam.rgr"
 Import "PresFlightBench.rgr"
+Import "PresFlightHolo.rgr"
 Import "Pres3DStill.rgr"
 Import "Pres3DGltf.rgr"
 Import "PresSceneModel.rgr"
@@ -6921,8 +6922,9 @@ class PresCheck {
     }
 
     ; The 3-D flight (src/PresFlight.rgr, PresFlightCam.rgr): a station per
-    ; slide; a diagram as glass nodes at staggered depths with arcing lines,
-    ; charts as bars, ribbons, wedges; the camera and its hands.
+    ; slide, each drawn again as a hologram where the slide has its things
+    ; (words of light, glass panes, bars, pink rings, glowing lines); the
+    ; camera and its hands.
     fn flight:void () {
         def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Keski]\n  B --> C[Loppu]\n```\n\n## Myynti\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"Q1\", \"v\": 3}, {\"k\": \"Q2\", \"v\": 6}, {\"k\": \"Q3\", \"v\": -2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n\n## Osuudet\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"a\", \"v\": 1}, {\"k\": \"b\", \"v\": 3}]}, \"mark\": \"arc\", \"encoding\": {\"theta\": {\"field\": \"v\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"k\", \"type\": \"nominal\"}}}\n```\n\n## Pelkkä otsikko\n\nTekstiä.\n\n- Yksi\n  - Sisempi\n- Kaksi\n\n### Väli\n\n1. Eka\n2. Toka\n\n| A | B |\n|---|---|\n| x | y |\n\n![kuva](kuva.png)\n\n::: notes\nPuhujan muistiinpano\n:::\n"
         def deck (new PresDeck())
@@ -6940,74 +6942,88 @@ class PresCheck {
         this.ok((s1.kind == "chart") ("flight: slide 2 is a chart station, got " + s1.kind))
         this.ok((s3.kind == "slide") ("flight: slide 4 shows its title, got " + s3.kind))
         this.ok((s1.z < (s0.z - 30.0)) "flight: the next station is further away")
-        ; a slide's own words under its title: paragraphs and list items, a
-        ; list inside an item one step in, no pictures
-        def body:string ""
-        def bi:int 0
-        while (bi < (array_length sc.items)) {
-            def bit:FlightItem (itemAt sc.items bi)
-            if ((bit.kind == "body") && (bit.station == 3)) {
-                body = bit.text
-            }
-            bi = (bi + 1)
-        }
-        this.ok((body == "Tekstiä.\n• Yksi\n– Sisempi\n• Kaksi\nVäli\n1. Eka\n2. Toka\nA · B\nx · y") ("flight: the text slide shows its words, got " + body))
-        ; the diagram: three glass nodes, two lines, ranks at different depths
-        def glass:[FlightItem]
-        def links:[FlightItem]
+        ; each slide drawn again in the hologram's own look
+        def words:string ""
+        def panels:[FlightItem]
+        def lines:[FlightItem]
         def bars:[FlightItem]
-        def wedges:[FlightItem]
+        def slices:[FlightItem]
+        def turning:int 0
+        def nodeWords:boolean false
         def i:int 0
         while (i < (array_length sc.items)) {
             def it:FlightItem (itemAt sc.items i)
-            if ((it.kind == "glass") && (it.station == 0)) {
-                push glass it
+            if ((it.kind == "text") && (it.station == 3)) {
+                words = (words + it.text + "\n")
             }
-            if ((it.kind == "link") && (it.station == 0)) {
-                push links it
+            if ((it.kind == "text") && ((it.station == 0) && (it.text == "Alku"))) {
+                nodeWords = true
             }
-            if (it.kind == "bar") {
+            if ((it.kind == "panel") && ((it.station == 0) && it.brackets)) {
+                push panels it
+            }
+            if ((it.kind == "line") && ((it.station == 0) && it.pulse)) {
+                push lines it
+            }
+            if ((it.kind == "bar") && (it.station == 1)) {
                 push bars it
             }
-            if (it.kind == "wedge") {
-                push wedges it
+            if ((it.kind == "ring") && (it.spin == 0.0)) {
+                push slices it
+            }
+            if ((it.kind == "ring") && (it.spin != 0.0)) {
+                turning = (turning + 1)
             }
             i = (i + 1)
         }
-        this.ok(((array_length glass) == 3) ("flight: three glass nodes, got " + (to_string (array_length glass))))
-        this.ok(((array_length links) == 2) ("flight: two lines, got " + (to_string (array_length links))))
-        if (((array_length glass) == 3) && ((array_length links) == 2)) {
-            def a:FlightItem (itemAt glass 0)
-            def b:FlightItem (itemAt glass 1)
-            this.ok((a.text == "Alku") ("flight: the node's text, got " + a.text))
-            this.ok((a.z != b.z) "flight: nodes a line apart float at different depths")
-            ; as the slide lays it out (this one turns it top to bottom)
-            this.ok(((b.x > a.x) || (b.y < a.y)) "flight: the nodes stand as the slide draws them")
-            this.ok(((a.w > 0.5) && (a.w < 16.0)) "flight: a node fits the station")
-            def l0:FlightItem (itemAt links 0)
-            def np:int (idiv (array_length l0.pts) 3)
-            this.ok((np >= 3) "flight: a line is cut for its bow")
-            this.ok(l0.head "flight: an arrow keeps its head")
-            ; the line starts at its start node's depth and bows towards us
-            this.ok(((fabs ((itemAt l0.pts 2) - a.z)) < 0.01) "flight: a line leaves at its node's depth")
-            def midZ:double (itemAt l0.pts (((idiv np 2) * 3) + 2))
-            def straight:double ((a.z + b.z) * 0.5)
-            this.ok((midZ > straight) "flight: a line bows out towards the viewer")
+        this.ok((((indexOf words "Tekstiä.") >= 0) && ((indexOf words "Sisempi") >= 0)) ("flight: the text slide's words are lines of light, got " + words))
+        this.ok(((indexOf words "Puhujan") < 0) "flight: not the speaker's notes")
+        ; the diagram: its nodes glass panes with brackets, its lines bright
+        ; yellow tubes with sparks
+        this.ok(((array_length panels) == 3) ("flight: three nodes as glass panes, got " + (to_string (array_length panels))))
+        this.ok(nodeWords "flight: a node's words")
+        this.ok(((array_length lines) == 2) ("flight: the diagram's lines carry sparks, got " + (to_string (array_length lines))))
+        if ((array_length lines) > 0) {
+            def l0:FlightItem (itemAt lines 0)
+            this.ok((l0.r > l0.b) "flight: a diagram's line glows in its own colour")
         }
-        ; the chart: a bar per value, the negative one under the floor
+        if ((array_length panels) == 3) {
+            def a:FlightItem (itemAt panels 0)
+            def b:FlightItem (itemAt panels 1)
+            this.ok(((b.x > a.x) || (b.y < a.y)) "flight: the nodes stand as the slide draws them")
+            this.ok(((a.z - s0.z) > 0.5) "flight: a diagram floats in front of its slide")
+        }
+        ; the chart: a bar per value, the negative one under the line
         this.ok(((array_length bars) == 3) ("flight: three bars, got " + (to_string (array_length bars))))
         if ((array_length bars) == 3) {
             def q2:FlightItem (itemAt bars 1)
             def q3:FlightItem (itemAt bars 2)
-            this.ok(((fabs (q2.h - 7.0)) < 0.01) "flight: the largest value is the chart's height")
-            this.ok(((q3.y + (q3.h * 0.5)) < ((q2.y - (q2.h * 0.5)) + 0.01)) "flight: a negative bar hangs under the floor")
+            this.ok((q2.h > (q3.h * 2.0)) "flight: a bar as tall as its value")
+            this.ok(((q3.y + (q3.h * 0.5)) < ((q2.y - (q2.h * 0.5)) + 0.05)) "flight: a negative bar hangs under the line")
+            this.ok(((q2.d > 0.05) && (q2.base < q2.y)) "flight: a bar is a box that grows from its base")
         }
-        ; the pie: two slices, a quarter and three quarters of the turn
-        this.ok(((array_length wedges) == 2) ("flight: two slices, got " + (to_string (array_length wedges))))
-        if ((array_length wedges) == 2) {
-            def w0:FlightItem (itemAt wedges 0)
-            this.ok(((fabs ((w0.a1 - w0.a0) - 1.5708)) < 0.001) "flight: a quarter of the pie is a quarter turn")
+        ; the pie: two pink rings, a quarter and three quarters of the turn,
+        ; and thin rings that turn round it
+        this.ok(((array_length slices) == 2) ("flight: two slices, got " + (to_string (array_length slices))))
+        if ((array_length slices) == 2) {
+            def w0:FlightItem (itemAt slices 0)
+            def w1:FlightItem (itemAt slices 1)
+            def quarter:boolean (((fabs ((w0.a1 - w0.a0) - 1.5708)) < 0.08) || ((fabs ((w1.a1 - w1.a0) - 1.5708)) < 0.08))
+            this.ok(quarter ("flight: a quarter of the pie is a quarter turn, got " + (to_string (w0.a1 - w0.a0)) + " and " + (to_string (w1.a1 - w1.a0))))
+            this.ok(((w0.r > w0.g) && (w0.r > 0.8)) "flight: a slice glows pink")
+            this.ok(((w0.r0 > (w0.r1 * 0.5)) && (w0.r0 < w0.r1)) "flight: a pie is a ring")
         }
+        this.ok((turning == 2) "flight: two thin rings turn round the pie")
+        ; a picture of the slide as a hologram's screen: dark is see-through
+        def px:buffer (buffer_alloc 8)
+        buffer_set px 3 255
+        buffer_set px 4 255
+        buffer_set px 5 255
+        buffer_set px 6 255
+        buffer_set px 7 255
+        FlightHolo.pixels(px 2 1 0.36 0.88 1.0)
+        this.ok(((buffer_get px 3) < 80) "flight: a picture's dark is see-through")
+        this.ok(((buffer_get px 7) == 255) "flight: its light stays")
         def js:JVal (JVal.parse((sc.toJson())))
         def jst:JVal (js.get("stations"))
         def jit:JVal (js.get("items"))

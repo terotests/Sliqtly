@@ -1,0 +1,51 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlightHolo.rgr — a picture of a slide as the 3-D flight shows it.
+; ============================================================================
+;
+; The flight (src/PresFlight3D.rgr) shows a slide's pictures as screens of a
+; hologram: their light kept, their colours drawn towards the glow of the
+; flight, a dark line every third row, see-through where they are dark.
+; Plain pixels in and out, so the checks (PresCheck.flight) run it too.
+; ============================================================================
+
+class FlightHolo {
+    ; RGBA rows w x h, in place; r g b the glow (0..1).
+    sfn pixels:void (px:buffer w:int h:int r:double g:double b:double) {
+        def y:int 0
+        while (y < h) {
+            def scan:double (? ((y - ((idiv y 3) * 3)) == 0) 0.55 1.0)
+            def x:int 0
+            while (x < w) {
+                def o:int (((y * w) + x) * 4)
+                def pr:double (to_double (buffer_get px o))
+                def pg:double (to_double (buffer_get px (o + 1)))
+                def pb:double (to_double (buffer_get px (o + 2)))
+                def pa:double (to_double (buffer_get px (o + 3)))
+                def lum:double ((((pr * 0.3) + (pg * 0.59)) + (pb * 0.11)) / 255.0)
+                def k:double (0.25 + (lum * 0.75))
+                def nr:double ((((pr / 255.0) * 0.45) + ((r * lum) * 0.55)) * scan)
+                def ng:double ((((pg / 255.0) * 0.45) + ((g * lum) * 0.55)) * scan)
+                def nb:double ((((pb / 255.0) * 0.45) + ((b * lum) * 0.55)) * scan)
+                buffer_set px o (FlightHolo.byte(nr))
+                buffer_set px (o + 1) (FlightHolo.byte(ng))
+                buffer_set px (o + 2) (FlightHolo.byte(nb))
+                buffer_set px (o + 3) (FlightHolo.byte(((pa / 255.0) * k)))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    sfn byte:int (v:double) {
+        def n:int (to_int ((v * 255.0) + 0.5))
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+}
