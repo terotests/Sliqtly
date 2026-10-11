@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-11b.** If a result names a newer version, read Core
+**Guide version 2026-10-11c.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -477,8 +477,11 @@ effect embers source {
 - Diffs: ```` ```diff ts ```` colours `+` lines on green, `-` lines on red,
   `@@` hunk headers and file headers dimmed, the code as TypeScript.
   `.numbers` follows the hunk headers' new-file side, and `lines=`
-  highlights by those numbers. Paste `git diff` output as it is. Keep a
-  slide to one hunk of about 15 lines.
+  highlights by those numbers (fading the context, never the `+`/`-`
+  lines). A `-` line followed by its `+` line also marks the characters
+  that changed between them. Paste `git diff` output as it is, never
+  shortened with `...`; for changed code a diff shows what changed where a
+  plain fence cannot. Keep a slide to one hunk of about 15 lines.
 - Math: `$…$` inline, `$$…$$` as a display, or a ```` ```math ```` fence
   (TeX).
 - A presenter: a `::: story` block under a slide puts a paper cut-out
