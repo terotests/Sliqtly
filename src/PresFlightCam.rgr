@@ -151,6 +151,9 @@ class PresFlightPad {
         if (code == "Escape") {
             return "exit"
         }
+        if (code == "KeyV") {
+            return "layout"
+        }
         return ""
     }
 
@@ -188,6 +191,9 @@ class PresFlightPad {
         if (i == 13) {
             return "last"
         }
+        if (i == 3) {
+            return "layout"
+        }
         if ((i == 8) || (i == 9)) {
             return "exit"
         }
@@ -208,6 +214,8 @@ class PresFlightCam {
     ; the stations: where to look (x, y, z), how far back to stand and how
     ; high above, five each
     def stations:[double]
+    ; and the angle each is turned by about the upright (its layout)
+    def angles:[double]
     ; the autopilot: on, where from, where to, how far along (s) and how long
     def auto:boolean false
     def target:int 0
@@ -236,17 +244,63 @@ class PresFlightCam {
         push stations sz
         push stations dist
         push stations lift
+        push angles 0.0
+    }
+
+    ; Station i moved: where to look and the angle it faces at.
+    fn setStation:void (i:int sx:double sy:double sz:double a:double) {
+        if ((i < 0) || (i >= (this.stationCount()))) {
+            return
+        }
+        set stations (i * 5) sx
+        set stations ((i * 5) + 1) sy
+        set stations ((i * 5) + 2) sz
+        set angles i a
+    }
+
+    fn angleOf:double (i:int) {
+        if ((i < 0) || (i >= (array_length angles))) {
+            return 0.0
+        }
+        return (itemAt angles i)
     }
 
     ; Where the camera stands to see station i, and the way it looks.
     fn poseX:double (i:int) {
-        return (itemAt stations (i * 5))
+        return ((itemAt stations (i * 5)) + ((sin((this.angleOf(i)))) * (itemAt stations ((i * 5) + 3))))
     }
     fn poseY:double (i:int) {
         return ((itemAt stations ((i * 5) + 1)) + (itemAt stations ((i * 5) + 4)))
     }
     fn poseZ:double (i:int) {
-        return ((itemAt stations ((i * 5) + 2)) + (itemAt stations ((i * 5) + 3)))
+        return ((itemAt stations ((i * 5) + 2)) + ((cos((this.angleOf(i)))) * (itemAt stations ((i * 5) + 3))))
+    }
+    ; the heading that faces station i
+    fn poseYaw:double (i:int) {
+        return (0.0 - (this.angleOf(i)))
+    }
+
+    ; At station i's pose at once, still (a layout moving under it).
+    fn sitAt:void (i:int) {
+        if ((i < 0) || (i >= (this.stationCount()))) {
+            return
+        }
+        x = (this.poseX(i))
+        y = (this.poseY(i))
+        z = (this.poseZ(i))
+        yaw = (this.poseYaw(i))
+        pitch = (this.posePitch(i))
+    }
+
+    ; Whether the camera stands at station i's pose (not flown off from it).
+    fn isAt:boolean (i:int) {
+        if ((i < 0) || (i >= (this.stationCount()))) {
+            return false
+        }
+        def dx:double ((this.poseX(i)) - x)
+        def dy:double ((this.poseY(i)) - y)
+        def dz:double ((this.poseZ(i)) - z)
+        return ((((dx * dx) + (dy * dy)) + (dz * dz)) < 0.5)
     }
     fn posePitch:double (i:int) {
         return (0.0 - (atan2 (itemAt stations ((i * 5) + 4)) (itemAt stations ((i * 5) + 3))))
@@ -261,7 +315,7 @@ class PresFlightCam {
         x = (this.poseX(k))
         y = (this.poseY(k))
         z = (this.poseZ(k))
-        yaw = 0.0
+        yaw = (this.poseYaw(k))
         pitch = (this.posePitch(k))
         vx = 0.0
         vy = 0.0
@@ -394,7 +448,7 @@ class PresFlightCam {
             def tx:double (this.poseX(target))
             def ty:double (this.poseY(target))
             def tz:double (this.poseZ(target))
-            def tyaw:double (PresFlightCam.near(0.0 fyaw))
+            def tyaw:double (PresFlightCam.near((this.poseYaw(target)) fyaw))
             x = (fx + ((tx - fx) * u))
             y = ((fy + ((ty - fy) * u)) + (hop * (sin((u * (PresFlightCam.pi()))))))
             z = (fz + ((tz - fz) * u))
@@ -406,7 +460,7 @@ class PresFlightCam {
             pitch = ((fpitch + (((this.posePitch(target)) - fpitch) * u)) + nod)
             if (u >= 1.0) {
                 auto = false
-                yaw = 0.0
+                yaw = (this.poseYaw(target))
                 pitch = (this.posePitch(target))
             }
             return
@@ -524,5 +578,114 @@ class FlightSteps {
         }
         set at i (? forward 0 (itemAt counts i))
         set taken i now
+    }
+}
+
+; How the stations stand in the world (V turns to the next): "path" one
+; behind another as flown, "wall" all side by side in rows, as square a
+; block as their count makes (fly back to see every slide at once),
+; "ring" round the viewer, every slide facing the middle, the first ahead.
+; Each station's place is x, y, z of its middle and the angle it is turned
+; by about the upright (0 faces +z, the way it was made); station 0 stays
+; where it stands in the path, so the one in view does not leap.
+class FlightLayout {
+    ; each station's own middle (in the path)
+    def ox:[double]
+    def oy:[double]
+    def oz:[double]
+    ; one slide's size in the world, a little room around it
+    def cellW:double 17.6
+    def cellH:double 10.4
+
+    sfn names:[string] () {
+        return ([] _:string ("path" "wall" "ring"))
+    }
+
+    sfn count:int () {
+        return 3
+    }
+
+    fn add:void (x:double y:double z:double) {
+        push ox x
+        push oy y
+        push oz z
+    }
+
+    fn size:int () {
+        return (array_length ox)
+    }
+
+    ; The wall's columns: cols x rows about as wide as tall.
+    fn columns:int () {
+        def n:int (this.size())
+        if (n <= 1) {
+            return 1
+        }
+        def best:int 1
+        def bestD:double -1.0
+        def c:int 1
+        while (c <= n) {
+            def rows:int (idiv ((n + c) - 1) c)
+            def d:double (fabs (((to_double c) * cellW) - ((to_double rows) * cellH)))
+            if ((bestD < 0.0) || (d < bestD)) {
+                best = c
+                bestD = d
+            }
+            c = (c + 1)
+        }
+        return best
+    }
+
+    ; The ring's radius: the slides round it with room between.
+    fn radius:double () {
+        def r:double (((to_double (this.size())) * (cellW * 1.08)) / (2.0 * (PresFlightCam.pi())))
+        if (r < (cellW * 1.2)) {
+            r = (cellW * 1.2)
+        }
+        return r
+    }
+
+    ; Station i's place in layout k: [x, y, z, angle].
+    fn placeOf:[double] (k:int i:int) {
+        def n:int (this.size())
+        if ((i < 0) || (i >= n)) {
+            return ([] _:double (0.0 0.0 0.0 0.0))
+        }
+        if (k == 1) {
+            def cols:int (this.columns())
+            def r:int (idiv i cols)
+            def c:int (i - (r * cols))
+            return ([] _:double (((itemAt ox 0) + ((to_double c) * cellW)) ((itemAt oy 0) - ((to_double r) * cellH)) (itemAt oz 0) 0.0))
+        }
+        if (k == 2) {
+            def rr:double (this.radius())
+            def th:double (((2.0 * (PresFlightCam.pi())) * (to_double i)) / (to_double n))
+            ; the middle of the ring, behind the first slide's viewer
+            def mx:double (itemAt ox 0)
+            def mz:double ((itemAt oz 0) + rr)
+            return ([] _:double ((mx + (rr * (sin(th)))) (itemAt oy 0) (mz - (rr * (cos(th)))) (0.0 - th)))
+        }
+        return ([] _:double ((itemAt ox i) (itemAt oy i) (itemAt oz i) 0.0))
+    }
+
+    ; Station i between layout `from` and `to`, u of the way (eased).
+    fn between:[double] (from:int to:int i:int u:double) {
+        def a:[double] (this.placeOf(from i))
+        def b:[double] (this.placeOf(to i))
+        def e:double (PresFlightCam.ease(u))
+        def a3:double (itemAt a 3)
+        def b3:double (PresFlightCam.near((itemAt b 3) a3))
+        return ([] _:double (((itemAt a 0) + (((itemAt b 0) - (itemAt a 0)) * e)) ((itemAt a 1) + (((itemAt b 1) - (itemAt a 1)) * e)) ((itemAt a 2) + (((itemAt b 2) - (itemAt a 2)) * e)) (a3 + ((b3 - a3) * e))))
+    }
+
+    ; A point (x, y, z) of station i as made, where it is when the station
+    ; stands at place pl ([x, y, z, angle]).
+    fn moved:[double] (i:int pl:[double] x:double y:double z:double) {
+        def a:double (itemAt pl 3)
+        def dx:double (x - (itemAt ox i))
+        def dz:double (z - (itemAt oz i))
+        def c:double (cos(a))
+        def s:double (sin(a))
+        return ([] _:double (((itemAt pl 0) + ((dx * c) + (dz * s))) ((itemAt pl 1) + (y - (itemAt oy i))) ((itemAt pl 2) + ((0.0 - (dx * s)) + (dz * c)))))
     }
 }
