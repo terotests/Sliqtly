@@ -359,12 +359,12 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     if (why) return why;
     hudGlow = lookGlow(json);
     world.startAt(app.selectedSlide());
-    seedStands();
     canvas = gl;
     three3d.pause(true);
     canvas.style.cssText = "display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;background:#02040a;cursor:grab;touch-action:none";
     picRetry = new Map();
     makeHud();
+    seedStands();
     shown = -1;
     hintUntil = performance.now() + 5000;
     held.clear();
