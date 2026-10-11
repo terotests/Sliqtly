@@ -7227,6 +7227,36 @@ class PresCheck {
         def lscene:PresFlightScene (PresFlightScene.of(ldeck))
         this.ok((lscene.look.key == "gold") "flight look: the deck's look-3d picks the look")
         this.ok(((indexOf (lscene.toJson()) "\"look\":{\"key\":\"gold\"") >= 0) "flight look: …and the world's JSON carries it")
+        ; a table as a scoreboard: a stripe a row, the header lit, one frame
+        def tbdeck (new PresDeck())
+        tbdeck.setText("# Tulostaulu\n\n| Sija | Pelaaja |\n|---|---|\n| 1 | Aino |\n| 2 | Eero |\n| 3 | Lumi |\n")
+        def tbs:PresFlightScene (PresFlightScene.of(tbdeck))
+        def stripes:[FlightItem]
+        def frames:int 0
+        def cellsLeft:int 0
+        for tbs.items ti:FlightItem tk {
+            if ti.cell {
+                cellsLeft = (cellsLeft + 1)
+            }
+            if ti.bare {
+                push stripes ti
+            }
+            if (ti.bevel > 0.0) {
+                frames = (frames + 1)
+            }
+        }
+        this.ok(((array_length stripes) == 4) ("flight table: a stripe a row, got " + (to_string (array_length stripes))))
+        this.ok((cellsLeft == 0) "flight table: …the cells gone into them")
+        this.ok((frames == 1) "flight table: …one frame round it, its corners cut")
+        if ((array_length stripes) == 4) {
+            def s0:FlightItem (itemAt stripes 0)
+            def s1:FlightItem (itemAt stripes 1)
+            def s2:FlightItem (itemAt stripes 2)
+            this.ok(((s0.y > s1.y) && (s0.fill > s1.fill)) "flight table: …the header on top, lit")
+            this.ok((s1.fill > s2.fill) "flight table: …the rows in turns")
+            this.ok(((array_length s1.cmds) == 2) ("flight table: …a row's stripe draws its cells, got " + (to_string (array_length s1.cmds))))
+        }
+        this.ok(((array_length (FlightGeo.bevelLoop(4.0 2.0 0.3))) == 27) "flight table: a frame with cut corners is a closed line of 9 points")
         ; the theme's line art behind the slide is dim next to the slide's lines
         def adeck (new PresDeck())
         adeck.setTheme("page { width: 13.333in; height: 7.5in; padding: 0.8in; background-color: #ffffff } deck { art: tide } document { color: #1f2933 }")
