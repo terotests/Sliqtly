@@ -143,6 +143,29 @@ func (b *localBucket) RemoveAll(p string) error {
 	return b.refs.RemoveAll(context.Background(), c)
 }
 
+// Move makes the file `from` the file `to` (cloudshared.go's tests: a
+// server of its own never moves a file) → its size and hash
+func (b *localBucket) Move(ctx context.Context, from, to string) (int64, string, error) {
+	f, err := cleanFilePath(from)
+	if err != nil {
+		return 0, "", err
+	}
+	t, err := cleanFilePath(to)
+	if err != nil {
+		return 0, "", err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ref, err := b.refs.Get(ctx, f)
+	if err != nil {
+		return 0, "", err
+	}
+	if err := b.refs.Set(ctx, t, store.BlobInfo{Hash: ref.Hash, Size: ref.Size, Mime: ref.Mime}, ref.Mime); err != nil {
+		return 0, "", err
+	}
+	return ref.Size, fmt.Sprintf("%x", ref.Hash[:]), b.refs.Remove(ctx, f)
+}
+
 func (b *localBucket) RemovePrefix(_ context.Context, prefix string) error {
 	return b.RemoveAll(strings.TrimSuffix(prefix, "/"))
 }

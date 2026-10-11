@@ -150,10 +150,18 @@ operators {
         }
     }
     ; layer `node` of shared file `file` drawn as a slide shows it: the
-    ; picture's handle, 0 when there is no such file or layer
-    host_shared_png _:int (h:McpHost file:string node:string) {
+    ; picture's handle, 0 when there is no such file or layer.
+    ; On sliqtly.com from the files of deck's owner, or of the caller
+    ; (host_set_caller) for a deck not kept yet ("").
+    host_shared_png _:int (h:McpHost file:string node:string deck:string) {
         templates {
-            go ( (e 1) ".SharedPng(" (e 2) ", " (e 3) ")" )
+            go ( (e 1) ".SharedPng(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; the signed-in account the request is for, "" for none
+    host_set_caller _:void (h:McpHost uid:string) {
+        templates {
+            go ( (e 1) ".SetCaller(" (e 2) ")" )
         }
     }
     host_asset _:string (h:McpHost name:string) {

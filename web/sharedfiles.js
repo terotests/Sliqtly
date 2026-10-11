@@ -9,16 +9,33 @@
 //
 //   /files/shared/<file>/png/<layer>.png        (layer: an id or a screen's name)
 //   /files/shared/<file>/index.json             (pages, screens, parts, words)
+//
+// On sliqtly.com/editor each account has its own files, under
+// /editor/api/shared (mcp-go/editorshared.go): a file goes to Storage first
+// (the page's `upload`), then the server moves it in and reads it.
+
+const roots = { api: "/api/shared", files: "/files/shared" };
+
+// sliqtly.com/editor: every call under /editor/api/shared
+export function useEditorRoots() {
+  roots.api = "/editor/api/shared";
+  roots.files = "/editor/api/shared";
+}
 
 // The address of layer `node` of shared file `file` drawn as a PNG, at most
 // `max` pixels on its long side. A layer inside an instance is "12:34#1:2;3:4",
 // a name may hold anything: the whole layer is one escaped path segment.
-export function sharedPngUrl(file, node, max = 2048) {
-  return `/files/shared/${encodeURIComponent(file)}/png/${encodeURIComponent(node)}.png${max ? `?max=${max}` : ""}`;
+// On sliqtly.com `deck` (its cloud id) draws it from the deck owner's files.
+export function sharedPngUrl(file, node, max = 2048, deck = "") {
+  const q = new URLSearchParams();
+  if (max) q.set("max", String(max));
+  if (deck) q.set("deck", deck);
+  const qs = q.toString();
+  return `${roots.files}/${encodeURIComponent(file)}/png/${encodeURIComponent(node)}.png${qs ? "?" + qs : ""}`;
 }
 
 export function sharedIndexUrl(file) {
-  return `/files/shared/${encodeURIComponent(file)}/index.json`;
+  return `${roots.files}/${encodeURIComponent(file)}/index.json`;
 }
 
 async function answer(res) {
@@ -30,24 +47,33 @@ async function answer(res) {
 }
 
 // { files: [{ id, name, kind, bytes, status, error, pages, screens, added, updated }], max }
+// (sliqtly.com adds `upload`: the Storage folder the page puts a file in)
 export async function listShared(fetchFn = fetch) {
-  return answer(await fetchFn("/api/shared"));
+  return answer(await fetchFn(roots.api));
 }
 
 // A file from the page (a File or Blob with a name) put in the shared
 // files; resolves to its card, status "indexing" until the server is done.
-export async function putShared(file, fetchFn = fetch) {
-  return answer(await fetchFn("/api/shared/" + encodeURIComponent(file.name), { method: "PUT", body: file }));
+// `upload` (sliqtly.com) puts the file in Storage and resolves to where;
+// the server then moves it in.
+export async function putShared(file, fetchFn = fetch, upload = null) {
+  if (upload) {
+    const path = await upload(file);
+    return answer(await fetchFn(`${roots.api}/add`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name, upload: path }),
+    }));
+  }
+  return answer(await fetchFn(`${roots.api}/` + encodeURIComponent(file.name), { method: "PUT", body: file }));
 }
 
 export async function renameShared(id, name, fetchFn = fetch) {
-  return answer(await fetchFn(`/api/shared/${encodeURIComponent(id)}/rename`, {
+  return answer(await fetchFn(`${roots.api}/${encodeURIComponent(id)}/rename`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
   }));
 }
 
 export async function removeShared(id, fetchFn = fetch) {
-  return answer(await fetchFn(`/api/shared/${encodeURIComponent(id)}`, { method: "DELETE" }));
+  return answer(await fetchFn(`${roots.api}/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }
 
 export async function sharedIndex(id, fetchFn = fetch) {

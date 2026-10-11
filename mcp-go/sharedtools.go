@@ -5,7 +5,8 @@ package main
 // The shared files' MCP tools (sharedfiles.go), on a server of one's own:
 // list the files, search a Figma file's screens by words, look at one
 // screen (its index entry and its picture), and add a .fig from an import
-// folder. Searching and naming a layer are src/PresFigma.rgr's
+// folder. On sliqtly.com the same tools, but add_shared_file, see the
+// signed-in account's own files (cloudshared.go). Searching and naming a layer are src/PresFigma.rgr's
 // (FigmaLibrary), the same model the editor's Figma window uses; this file
 // only gives its answers the tools' shape.
 
@@ -55,17 +56,47 @@ func sharedToolOf(name string) (roomTool, bool) {
 // the shared files' tools this host offers: the files are kept by a server
 // of one's own, and add_shared_file needs import folders to read from
 func (h *McpHost) sharedToolsOn() []roomTool {
-	if h.env == nil || h.env.shared == nil {
+	if h.env == nil {
 		return nil
 	}
 	var out []roomTool
-	for _, t := range sharedTools {
-		if t.name == "add_shared_file" && h.ImportDirs() == "" {
-			continue
+	switch {
+	case h.env.shared != nil:
+		for _, t := range sharedTools {
+			if t.name == "add_shared_file" && h.ImportDirs() == "" {
+				continue
+			}
+			out = append(out, t)
 		}
-		out = append(out, t)
+	case h.env.cloudShared != nil:
+		// sliqtly.com: the caller's own files, added in the editor
+		for _, t := range sharedTools {
+			if t.name == "add_shared_file" {
+				continue
+			}
+			for from, to := range sharedCloudWords {
+				t.desc = strings.ReplaceAll(t.desc, from, to)
+			}
+			out = append(out, t)
+		}
 	}
 	return out
+}
+
+// the tools' words as sliqtly.com says them
+var sharedCloudWords = map[string]string{
+	"The design files everyone on this Sliqtly server shares (File rail → Files)": "Your own design files on sliqtly.com, seen by your account alone (the editor's Files place, where you add them)",
+	"in the shared Figma files":         "in your Figma files",
+	"One screen of a shared Figma file": "One screen of your Figma files",
+}
+
+// the shared files uid sees: the server's on a server of its own, the
+// account's own on sliqtly.com; nil for none
+func (e *Env) sharedFor(uid string) *sharedFiles {
+	if e.shared != nil {
+		return e.shared
+	}
+	return e.cloudShared.of(uid)
 }
 
 func (h *McpHost) hasSharedTool(name string) bool {
@@ -100,22 +131,44 @@ func (h *McpHost) ToolImage() string {
 // (the editor's size, sharedfiles.js), kept as a picture → its handle; 0
 // when there is no such file or layer (the slide then draws what is
 // missing, as for any picture)
-func (h *McpHost) SharedPng(file, node string) int64 {
-	if h.env == nil || h.env.shared == nil {
+// On sliqtly.com the picture is drawn from the files of the deck's owner
+// (shares/{deck}), or of the caller for a deck not kept yet.
+func (h *McpHost) SharedPng(file, node, deck string) int64 {
+	if h.env == nil {
+		return 0
+	}
+	sh := h.env.shared
+	if sh == nil && h.env.cloudShared != nil {
+		owner := h.caller
+		if deck != "" && h.env.DB != nil {
+			if d, err := h.env.DB.Get(h.ctx, "shares", deck); err == nil && fieldText(d, "owner") != "" {
+				owner = fieldText(d, "owner")
+			}
+		}
+		sh = h.env.cloudShared.of(owner)
+	}
+	if sh == nil {
 		return 0
 	}
 	// a shared file changes without the deck: a layout that drew one is
 	// not kept (viewcache.go)
 	h.unsure = true
-	b, err := h.env.shared.draw(h.ctx, file, node, 2, 2048)
+	b, err := sh.draw(h.ctx, file, node, 2, 2048)
 	if err != nil {
 		return 0
 	}
 	return h.keep(b)
 }
 
-func (h *McpHost) callSharedTool(name string, a map[string]any) (any, error) {
-	sh := h.env.shared
+// SetCaller: the signed-in account the request is for ("" for none), whose
+// shared files a deck not kept yet draws from on sliqtly.com
+func (h *McpHost) SetCaller(uid string) { h.caller = uid }
+
+func (h *McpHost) callSharedTool(uid, name string, a map[string]any) (any, error) {
+	sh := h.env.sharedFor(uid)
+	if sh == nil {
+		return nil, roomErr{"sign in to Sliqtly to use your Figma files: they are your account's own"}
+	}
 	ctx := h.ctx
 	if ctx == nil {
 		ctx = context.Background()

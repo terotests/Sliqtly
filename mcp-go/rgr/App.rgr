@@ -470,6 +470,7 @@ class App {
             caller.uid = local
             caller.name = local
         }
+        host_set_caller host caller.uid
         caller.who = (App.clientIp(host req))
         caller.ip = caller.who
         if caller.signedIn {

@@ -1574,5 +1574,7 @@
   "Gold HUD": "Kulta-HUD",
   "Violet hologram": "Violetti hologrammi",
   "Red panels": "Punaiset paneelit",
-  "The colours of the 3-D flight (G while presenting). The slides keep their theme.": "3D-lennon värit (G esittäessä). Diat pitävät teemansa."
+  "The colours of the 3-D flight (G while presenting). The slides keep their theme.": "3D-lennon värit (G esittäessä). Diat pitävät teemansa.",
+  "a shared file is at most {n} MB": "jaettu tiedosto on enintään {n} Mt",
+  "Sign in first": "Kirjaudu ensin sisään"
 }

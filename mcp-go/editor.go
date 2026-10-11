@@ -23,6 +23,7 @@
 //	POST /editor/api/claim    {id}       a presentation taken under the license
 //	GET  /editor/api/search?q=words      the user's own presentations holding them (searchapi.go)
 //	POST /editor/api/rooms/<op>          shared rooms and their chat (editorrooms.go)
+//	     /editor/api/shared…             the account's own Figma files (editorshared.go)
 //
 // Licenses: licenses/{uid} in Firestore, written only here and by the
 // owner in the Firebase console (firestore.rules lets a user read their
@@ -478,6 +479,10 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
 	if room, ok := strings.CutPrefix(op, "rooms/"); ok {
 		serveCloudRooms(env, g, w, r, room)
+		return
+	}
+	if op == "shared" || strings.HasPrefix(op, "shared/") {
+		serveCloudShared(env, g, w, r, strings.TrimPrefix(strings.TrimPrefix(op, "shared"), "/"))
 		return
 	}
 	limit := g.limit

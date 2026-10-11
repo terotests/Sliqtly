@@ -48,6 +48,17 @@ service firebase.storage {
       allow get: if true;
     }
 
+    // A design file (.fig) on its way into the user's own Figma files
+    // (web/sliqtly.js uploadFigma): larger than a deck's files, up to what
+    // the server takes (mcp-go/cloudshared.go cloudSharedMaxDefault), which
+    // moves it at once to figma/{uid}/, where no page reads or writes.
+    match /users/{uid}/figma-upload/{name} {
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && name.matches('[A-Za-z0-9]{6,32}[.]fig')
+                    && request.resource.size < 200 * 1024 * 1024
+                    && request.resource.contentType == 'application/octet-stream';
+    }
+
     // A signed-in user's own files (pictures added to a deck, web/sliqtly.js
     // putFile): read and written by that user only.
     match /users/{uid}/{path=**} {
