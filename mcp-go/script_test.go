@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -254,4 +255,38 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	bad := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
 		"files": []any{map[string]any{"name": "fx.tsx", "text": "function tick( {"}}})
 	match(t, fmt.Sprint(sc(bad)["warnings"]), `Slide 2: script apps/fx\.tsx does not run: .*→ topic=scripts`)
+}
+
+// A scripted slide's words and letters (the entities its script finds) are
+// whole characters on the server too, where a string is UTF-8 bytes: "≠"
+// ends in 0xA0, which is no space, and "·" is one letter, not two halves.
+func TestSlideScriptLettersWhole(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "# Deck\n\n## Recognition ≠ production {script=apps/fx.tsx}\n\nOtto · Shotoka\n"
+	src := "function tick(dt) { find(\"p\").set({ opacity: 0.5 }); }\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md, "visibility": "link",
+		"files": []any{map[string]any{"name": "fx.tsx", "text": src}}})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	code, _, _, body := getView(t, s.root+"/api/view/"+sc(c)["deck_id"].(string))
+	eq(t, code, 200)
+	if !utf8.ValidString(body) {
+		i := 0
+		for i < len(body) {
+			r, n := utf8.DecodeRuneInString(body[i:])
+			if r == utf8.RuneError && n == 1 {
+				break
+			}
+			i += n
+		}
+		t.Fatalf("the view is not UTF-8 at %d: %q", i, body[max(0, i-80):min(len(body), i+40)])
+	}
+	for _, w := range []string{`"≠"`, `"·"`} {
+		if !strings.Contains(body, w) {
+			t.Fatalf("no whole %s among the words and letters", w)
+		}
+	}
 }

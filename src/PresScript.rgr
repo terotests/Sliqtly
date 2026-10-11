@@ -256,20 +256,26 @@ class PresScene {
     }
 
     ; Text command `ci` of entity `owner` as words, each with its letters.
+    ; It walks whole characters (EVGCodepoint): where a string is UTF-8 bytes
+    ; (the Go server) "≠" is three of them and its last, 0xA0, is no space,
+    ; and "·" is one letter, not two halves.
     fn words:void (ci:int c:EVGDrawCmd owner:int engine:EVGTextEngine) {
         def t:string c.text
         def n:int (strlen t)
         def i:int 0
         while (i < n) {
-            while ((i < n) && (PresScene.isSpace((charAt t i)))) {
-                i = (i + 1)
+            while ((i < n) && (PresScene.isSpace((EVGCodepoint.codeAt(t i))))) {
+                i = (i + (EVGCodepoint.unitsAt(t i)))
             }
             if (i >= n) {
                 break
             }
             def start:int i
-            while ((i < n) && ((PresScene.isSpace((charAt t i))) == false)) {
-                i = (i + 1)
+            while ((i < n) && ((PresScene.isSpace((EVGCodepoint.codeAt(t i)))) == false)) {
+                i = (i + (EVGCodepoint.unitsAt(t i)))
+            }
+            if (i > n) {
+                i = n
             }
             def wd:PresEnt (PresEnt.of("word"))
             wd.parent = owner
@@ -281,13 +287,12 @@ class PresScene {
             def x1:double (PresScene.widthOf(c i engine))
             wd.grow((c.x + x0) c.y (x1 - x0) c.h)
             def we:int (this.add(wd))
-            ; its letters, a surrogate pair kept whole
+            ; its letters, each a whole character
             def j:int start
             while (j < i) {
-                def ch:int (charAt t j)
-                def step:int 1
-                if (((ch >= 55296) && (ch <= 56319)) && ((j + 1) < i)) {
-                    step = 2
+                def step:int (EVGCodepoint.unitsAt(t j))
+                if ((j + step) > i) {
+                    step = (i - j)
                 }
                 def le:PresEnt (PresEnt.of("char"))
                 le.parent = we
