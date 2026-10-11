@@ -456,3 +456,73 @@ class PresFlightCam {
         return (0.0 - ((cos(yaw)) * (cos(pitch))))
     }
 }
+
+; Where each station is in its build steps, as Space takes them: a station
+; flown to forward shows its first look and waits; Space takes its steps
+; one at a time (a presenter's lines among them) before flying on, ← takes
+; them back, and a station flown back to shows all of them.
+class FlightSteps {
+    ; per station, its steps after the first look, the ones taken, and when
+    ; the last was taken or given back
+    def counts:[int]
+    def at:[int]
+    def taken:[double]
+
+    fn add:void (n:int) {
+        push counts (? (n < 0) 0 n)
+        push at 0
+        push taken 0.0
+    }
+
+    fn stepAt:int (i:int) {
+        if ((i < 0) || (i >= (array_length at))) {
+            return 0
+        }
+        return (itemAt at i)
+    }
+
+    fn takenAt:double (i:int) {
+        if ((i < 0) || (i >= (array_length taken))) {
+            return 0.0
+        }
+        return (itemAt taken i)
+    }
+
+    ; Space at station i: true when it took a step there, false when all
+    ; are taken (fly on).
+    fn next:boolean (i:int now:double) {
+        if ((i < 0) || (i >= (array_length at))) {
+            return false
+        }
+        def a:int (itemAt at i)
+        if (a >= (itemAt counts i)) {
+            return false
+        }
+        set at i (a + 1)
+        set taken i now
+        return true
+    }
+
+    ; ← at station i: true when it gave a step back, false at its first look.
+    fn back:boolean (i:int now:double) {
+        if ((i < 0) || (i >= (array_length at))) {
+            return false
+        }
+        def a:int (itemAt at i)
+        if (a <= 0) {
+            return false
+        }
+        set at i (a - 1)
+        set taken i now
+        return true
+    }
+
+    ; Flying to station i: forward its first look, back all its steps.
+    fn arrive:void (i:int forward:boolean now:double) {
+        if ((i < 0) || (i >= (array_length at))) {
+            return
+        }
+        set at i (? forward 0 (itemAt counts i))
+        set taken i now
+    }
+}

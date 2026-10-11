@@ -121,6 +121,10 @@ class FlightItem {
     def band:boolean false
     ; a circle, as the slide draws it (a box rounded all the way)
     def disc:boolean false
+    ; the build step it comes in at, and the one it goes at (-1: stays): a
+    ; presenter's line is said at its step and goes at the next line's
+    def step:int 0
+    def until:int -1
     ; the slide block it was made of (-1: none)
     def top:int -1
     def pulse:boolean false
@@ -211,6 +215,12 @@ class FlightItem {
         }
         if disc {
             o.setBool("disc" true)
+        }
+        if (step > 0) {
+            o.setInt("step" step)
+        }
+        if (until >= 0) {
+            o.setInt("until" until)
         }
         if pulse {
             o.setBool("pulse" true)
@@ -304,10 +314,15 @@ class FlightStation {
     def fx:double 0.0
     def fy:double 0.0
     def lift:double 1.0
+    ; the slide's build steps after the first look (a Space each)
+    def steps:int 0
 
     fn toJson:JVal () {
         def o:JVal (JVal.mkObj())
         o.setInt("i" index)
+        if (steps > 0) {
+            o.setInt("steps" steps)
+        }
         o.setStr("t" title)
         o.setStr("k" kind)
         o.setNum("x" (FlightItem.round3(x)))
@@ -348,6 +363,8 @@ class PresFlightScene {
     def curPH:double 540.0
     def curEnt:string ""
     def curOrder:int 0
+    def curStep:int 0
+    def curUntil:int -1
     ; shapes of the slide so far: each a hair in front of the one before,
     ; as the slide paints them
     def shapesHere:int 0
@@ -600,6 +617,8 @@ class PresFlightScene {
         it.b = acB
         it.ent = curEnt
         it.order = curOrder
+        it.step = curStep
+        it.until = curUntil
         push items it
         return it
     }
@@ -745,7 +764,28 @@ class PresFlightScene {
         def st:FlightStation (this.station(i s.title))
         def rest:PresRest (deck.restOfSlide(i))
         def sc:PresScene rest.scene
-        def cmds:[EVGDrawCmd] rest.list.cmds
+        st.steps = s.steps
+        ; the slide at rest ends with its presenter saying the last line: in
+        ; the flight it says them one at a time, as its steps are taken
+        def nStory:int (array_length s.story)
+        def nOwn:int (array_length rest.list.cmds)
+        ; the presenter's own commands in that list (before its bubble)
+        def tailPup:int 0
+        if (nStory > 0) {
+            def tail:EVGDisplayList (deck.storyList(i nStory true true))
+            nOwn = (nOwn - (array_length tail.cmds))
+            if (nOwn < 0) {
+                nOwn = 0
+            }
+            def tailOnly:EVGDisplayList (deck.storyList(i nStory true false))
+            tailPup = (array_length tailOnly.cmds)
+        }
+        def cmds:[EVGDrawCmd]
+        def k0:int 0
+        while (k0 < nOwn) {
+            push cmds (itemAt rest.list.cmds k0)
+            k0 = (k0 + 1)
+        }
         def pw:double sc.pageW
         def ph:double sc.pageH
         if ((pw <= 0.0) || (ph <= 0.0)) {
@@ -766,6 +806,53 @@ class PresFlightScene {
             }
             push topOf (PresFlightScene.topOf(sc o))
             k = (k + 1)
+        }
+        ; per command, its step when not its group's (-1), the step it goes
+        ; at and the block it stands for (the presenter, a line of it)
+        def stepAt:[int]
+        def untilAt:[int]
+        def entAt:[string]
+        ; per command, the one of the slide at rest it stands for (-1: none)
+        def srcOf:[int]
+        k = 0
+        while (k < nCmd) {
+            push stepAt -1
+            push untilAt -1
+            push entAt ""
+            push srcOf k
+            k = (k + 1)
+        }
+        if (nStory > 0) {
+            def pup:EVGDisplayList (deck.storyList(i 0 true false))
+            for pup.cmds pc:EVGDrawCmd pn {
+                push cmds pc
+                push topOf 0
+                push stepAt 0
+                push untilAt -1
+                push entAt "presenter"
+                push srcOf (? (pn < tailPup) (nOwn + pn) -1)
+            }
+            def j:int 0
+            while (j < nStory) {
+                def b:PresStoryBeat (itemAt s.story j)
+                def goes:int -1
+                if ((j + 1) < nStory) {
+                    def nb:PresStoryBeat (itemAt s.story (j + 1))
+                    goes = nb.step
+                }
+                def said:EVGDisplayList (deck.storyList(i (j + 1) false true))
+                for said.cmds bc:EVGDrawCmd bn {
+                    push cmds bc
+                    push topOf 0
+                    push stepAt b.step
+                    push untilAt goes
+                    push entAt ("story-" + (to_string j))
+                    ; the last line is the one the slide at rest says
+                    push srcOf (? ((j + 1) == nStory) ((nOwn + tailPup) + bn) -1)
+                }
+                j = (j + 1)
+            }
+            nCmd = (array_length cmds)
         }
         st.kind = "slide"
         def e:int 1
@@ -820,7 +907,10 @@ class PresFlightScene {
                 def top:int (itemAt topOf k)
                 def te:PresEnt (itemAt sc.ents top)
                 def block:string (? (top > 0) te.kind "ground")
-                def step:int (PresFlightScene.stepOf(s rest.groupOfCmd k))
+                def step:int (itemAt stepAt k)
+                if (step < 0) {
+                    step = (PresFlightScene.stepOf(s rest.groupOfCmd k))
+                }
                 if (step > s.steps) {
                     step = s.steps
                 }
@@ -848,8 +938,19 @@ class PresFlightScene {
                     dz = (PresFlightScene.depth(block))
                 }
                 def ent:string (? (top > 0) te.id "slide")
+                def own:string (itemAt entAt k)
+                if ((strlen own) > 0) {
+                    ent = own
+                    order = (1 + (step * 4))
+                    if (ent != curEnt) {
+                        ; a line of its own: its words not on the last one's
+                        set lineOf 0 -1
+                    }
+                }
                 curEnt = ent
                 curOrder = order
+                curStep = step
+                curUntil = (itemAt untilAt k)
                 if (c.kind == 3) {
                     this.addText(st c k top block lineOf order dz ent)
                 }
@@ -885,6 +986,27 @@ class PresFlightScene {
                 }
             }
             k = (k + 1)
+        }
+        curStep = 0
+        curUntil = -1
+        ; the commands each item is made of, as the slide at rest has them
+        if (nStory > 0) {
+            def m0:int made
+            while (m0 < (array_length items)) {
+                def mi:FlightItem (itemAt items m0)
+                def mapped:[int]
+                for mi.cmds ck:int cq {
+                    def sk:int (? ((ck >= 0) && (ck < (array_length srcOf))) (itemAt srcOf ck) -1)
+                    if (sk >= 0) {
+                        push mapped sk
+                    }
+                }
+                mi.cmds = mapped
+                for mi.runs mr:FlightRun mrn {
+                    mr.cmd = (? ((mr.cmd >= 0) && (mr.cmd < (array_length srcOf))) (itemAt srcOf mr.cmd) -1)
+                }
+                m0 = (m0 + 1)
+            }
         }
         ; the slide's own effect, over all of it
         if ((strlen (trim s.fx)) > 0) {
@@ -1592,6 +1714,12 @@ class PresFlightScene {
         ; a small solid mark (an arrow's head, a bullet) glows whole
         if (big <= 22.0) {
             sh.fill = 0.85
+        }
+        ; the presenter is a figure standing there, not a see-through outline
+        if (curEnt == "presenter") {
+            sh.fill = 0.9
+            ; in its own colours: dark hair stays dark
+            PresFlightScene.colour(sh ([] _:double (((to_double c.r) / 255.0) ((to_double c.g) / 255.0) ((to_double c.b) / 255.0))))
         }
         sh.op = 0.95
         push sh.cmds k

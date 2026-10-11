@@ -376,6 +376,9 @@ class FlightPart {
     def kind:string ""
     def station:int 0
     def order:int 0
+    ; the build step it comes in at and the one it goes at (-1: stays)
+    def step:int 0
+    def until:int -1
     def x:double 0.0
     def y:double 0.0
     def z:double 0.0
@@ -459,6 +462,8 @@ class PresFlight3D {
     ; the station flown to: the ones past it go dark while it is in focus,
     ; so nothing of them shows through it
     def goalAt:int 0
+    ; each station's build steps, taken with Space
+    def steps:FlightSteps (new FlightSteps())
     def clock:double 0.0
     def held:PresFlightPad (new PresFlightPad())
     def pad:PresFlightPad (new PresFlightPad())
@@ -506,6 +511,7 @@ class PresFlight3D {
         def nf:[double]
         focus = nf
         cam = (new PresFlightCam())
+        steps = (new FlightSteps())
         clock = 0.0
         scene.setBackground(bgR bgG bgB)
         scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
@@ -534,6 +540,7 @@ class PresFlight3D {
             push titles (s.strOr("t" ""))
             push seen (0.0 - 1.0)
             push focus (PresFlight3D.faint())
+            steps.add((s.intOr("steps" 0)))
             this.addFloor(i sx sy sz grid)
             i = (i + 1)
         }
@@ -593,6 +600,8 @@ class PresFlight3D {
         p.kind = kind
         p.station = (o.intOr("s" 0))
         p.order = (o.intOr("o" 0))
+        p.step = (o.intOr("step" 0))
+        p.until = (o.intOr("until" -1))
         p.x = (o.numOr("x" 0.0))
         p.y = (o.numOr("y" 0.0))
         p.z = (o.numOr("z" 0.0))
@@ -1167,8 +1176,33 @@ class PresFlight3D {
         return c
     }
 
+    ; Space and ← take the station's build steps first, then fly on.
     fn command:void (c:string) {
+        def here:int (cam.current())
+        if (c == "next") {
+            if (steps.next(here clock)) {
+                return
+            }
+            cam.command(c)
+            if ((cam.current()) != here) {
+                steps.arrive((cam.current()) true clock)
+            }
+            return
+        }
+        if (c == "prev") {
+            if (steps.back(here clock)) {
+                return
+            }
+            cam.command(c)
+            if ((cam.current()) != here) {
+                steps.arrive((cam.current()) false clock)
+            }
+            return
+        }
         cam.command(c)
+        if (((c == "first") || (c == "last")) && ((cam.current()) != here)) {
+            steps.arrive((cam.current()) true clock)
+        }
     }
 
     ; The mouse dragged: radians to turn and to look up.
@@ -1254,7 +1288,10 @@ class PresFlight3D {
     }
 
     ; how far in a part is, 0..1
-    fn shown:double (station:int order:int) {
+    ; How far in a thing of station `station` is, 0..1: it comes in in its
+    ; turn (order) once the station is seen, or once its build step is
+    ; taken; it goes when the step `until` is.
+    fn shown:double (station:int order:int step:int until:int) {
         if ((station < 0) || (station >= (array_length seen))) {
             return 1.0
         }
@@ -1262,12 +1299,38 @@ class PresFlight3D {
         if (at < 0.0) {
             return 0.0
         }
+        def now:int (steps.stepAt(station))
+        if (step > now) {
+            return 0.0
+        }
         def o:int order
+        if (step > 0) {
+            ; its turn within its own step
+            o = (order - (step * 4))
+            if (step == now) {
+                def t0:double (steps.takenAt(station))
+                if (t0 > at) {
+                    at = t0
+                }
+            }
+        }
+        if (o < 0) {
+            o = 0
+        }
         if (o > 40) {
             o = 40
         }
         def u:double (((clock - at) - (0.25 + ((to_double o) * 0.12))) / 0.7)
-        return (PresFlightCam.ease(u))
+        def v:double (PresFlightCam.ease(u))
+        if ((until >= 0) && (now >= until)) {
+            if (now > until) {
+                return 0.0
+            }
+            ; the next line is said: this one goes
+            def gone:double (PresFlightCam.ease(((clock - (steps.takenAt(station))) / 0.3)))
+            return (v * (1.0 - gone))
+        }
+        return v
     }
 
     fn near:boolean (z:double) {
@@ -1307,7 +1370,7 @@ class PresFlight3D {
     }
 
     fn animate:void (p:FlightPart) {
-        def u:double (this.shown(p.station p.order))
+        def u:double (this.shown(p.station p.order p.step p.until))
         def dimTo:double 1.0
         if ((p.kind == "text") && ((p.station >= 0) && (p.station < (array_length focus)))) {
             dimTo = (itemAt focus p.station)
@@ -1418,7 +1481,7 @@ class PresFlight3D {
     }
 
     fn runPulse:void (pu:FlightPulse) {
-        def u:double (this.shown(pu.station pu.order))
+        def u:double (this.shown(pu.station pu.order 0 -1))
         def np:int (array_length pu.run)
         if ((u < 1.0) || ((pu.total <= 0.0) || ((this.near(((cam.poseZ(pu.station)) - 13.0))) == false))) {
             pu.mesh.visible = false

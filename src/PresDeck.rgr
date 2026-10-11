@@ -5218,15 +5218,38 @@ class PresDeck {
         } {
             shown = n
         }
-        def st:PresPuppetState (PresStory.stateAt(s.story shown since))
-        PresPuppet.paint(out st (PresPuppet.placeOn(pageW pageH)))
-        if (st.bubbleBeat >= 0) {
+        this.drawStory(out s (PresStory.stateAt(s.story shown since)) l true true)
+    }
+
+    ; The presenter in state st and its bubble, either or both.
+    fn drawStory:void (out:EVGDisplayList s:PresSlide st:PresPuppetState l:MdLayout puppet:boolean bubble:boolean) {
+        if puppet {
+            PresPuppet.paint(out st (PresPuppet.placeOn(pageW pageH)))
+        }
+        if (bubble && (st.bubbleBeat >= 0)) {
             def family:string l.style.bodyFamily
             if (has haveFaces (PresStory.face())) {
                 family = (PresStory.face())
             }
             PresPuppet.bubble(out (itemAt s.story st.bubbleBeat) st.bubble pageW pageH l.engine family)
         }
+    }
+
+    ; Slide i's presenter as it stands after `shown` lines (0: before the
+    ; first), with or without the bubble of the last of them: what the
+    ; 3-D flight shows a line at a time. The slide at rest (restOfSlide)
+    ; ends with storyList(i, all its lines, true, true).
+    fn storyList:EVGDisplayList (i:int shown:int puppet:boolean bubble:boolean) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        if ((i < 0) || (i >= (array_length slides))) {
+            return out
+        }
+        def s:PresSlide (itemAt slides i)
+        if ((array_length s.story) == 0) {
+            return out
+        }
+        this.drawStory(out s (PresStory.stateAt(s.story shown 1000000.0)) (this.layout()) puppet bubble)
+        return out
     }
 
     ; The 1-based line of the deck's text an offset is on.
