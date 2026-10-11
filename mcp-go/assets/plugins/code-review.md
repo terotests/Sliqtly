@@ -183,6 +183,17 @@ The deck build gives is the skeleton. Make it read as one reviewer going
 through the change:
 
 - Tell the story under "What changed" in the change's own words.
+- Show changed code as a diff, never as plain code. Keep build's code
+  slides, or write your own the same way: ```` ```diff ts {.numbers lines=41-42} ````
+  with the hunk's `@@` header and its `-`/`+` lines as `git diff` prints
+  them, the language word after `diff` (ts, js, py, go, rust, java, sql,
+  rgr, …) so the code is coloured, and `lines=` on the lines the slide is
+  about (new-file numbers). A removed line followed by its added line gets
+  a stronger band behind the characters that changed, so the reader sees
+  what changed in the line and where; `lines=` fades the context around
+  the change, not the change. Never shorten changed code with `...` or
+  retype it from memory: copy the lines exactly, cut the hunk to the
+  lines that matter (about 15) instead.
 - On the code slides, say what the lines do and what you think of them,
   in the speaker notes or on the slide: a finding is a code slide with the
   lines, why they are a problem and what to do instead.
