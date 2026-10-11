@@ -4,3 +4,4 @@ web/dist/
 bin/
 *.log
 web/dist-view/
+__pycache__/
