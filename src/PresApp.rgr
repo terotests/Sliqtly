@@ -698,6 +698,23 @@ class PresApp {
         return ((PresFlightScene.of(deck)).toJson())
     }
 
+    ; The 3-D flight's looks as the theme picker's rows (FlightLook.rows).
+    fn flightLookRows:string () {
+        return (FlightLook.rows())
+    }
+
+    ; The deck's 3-D look: `look-3d:` in its front matter, else the first.
+    fn flightLook:string () {
+        return ((FlightLook.named((PresDeck.frontMatterValue(deck.text "look-3d")))).key)
+    }
+
+    ; The deck's 3-D look, as `look-3d:` in the front matter: the first look
+    ; is the one a deck has without it, so picking it takes the line out.
+    fn setFlightLook:void (key:string) {
+        def l:FlightLook (FlightLook.named(key))
+        this.setFrontLine("look-3d" l.key (l.key != (itemAt (FlightLook.keys()) 0)))
+    }
+
     ; Every slide's 3-D worlds as their programs last drew them, for an
     ; export (web/main.js renderWorldStills): {"pw": the slide's width,
     ; "scenes": [playScenes]}.
@@ -11135,6 +11152,7 @@ class PresApp {
         chartFile = ""
         chart.measurer = measurer
         chart.openThemes(rows current px py W H)
+        chart.thLook = (this.flightLook())
         focus = "chart"
         push requests "theme-pictures"
         chromeRev = (chromeRev + 1)
@@ -12211,6 +12229,12 @@ class PresApp {
             def act:string chart.fgAct
             chart.fgAct = ""
             this.figmaAct(act)
+        }
+        ; a 3-D look's tile: `look-3d:` in the front matter
+        if chart.lookPicked {
+            chart.lookPicked = false
+            this.setFlightLook(chart.wantsLook)
+            chart.wantsLook = ""
         }
         ; a theme's tile: the page's select changes, and with it the slides
         if chart.themePicked {
@@ -13303,8 +13327,14 @@ class PresApp {
     ; `page:`), taken out when it does not. A deck with no front matter gets
     ; one.
     fn setOrientation:void (o:string) {
-        def write:boolean ((o == "portrait") != deck.themeTall)
-        def line:string ("orientation: " + o)
+        this.setFrontLine("orientation" o ((o == "portrait") != deck.themeTall))
+    }
+
+    ; One `key: value` line of the front matter: written when `write`, else
+    ; taken out. A deck with no front matter gets one. The caret stays on
+    ; its line of text.
+    fn setFrontLine:void (key:string value:string write:boolean) {
+        def line:string (key + ": " + value)
         def n:int (mdEditor.buf.lineCount())
         def cl:int mdEditor.sel.caret.line
         def cc:int mdEditor.sel.caret.col
@@ -13317,7 +13347,7 @@ class PresApp {
                 if ((ln == "---") || (ln == "...")) {
                     close = k
                 } {
-                    if ((indexOf ln "orientation:") == 0) {
+                    if ((indexOf ln (key + ":")) == 0) {
                         at = k
                     }
                 }

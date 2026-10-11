@@ -379,6 +379,8 @@ class FlightPart {
     ; the build step it comes in at and the one it goes at (-1: stays)
     def step:int 0
     def until:int -1
+    ; a plate behind words: it does not float as the glass panes do
+    def still:boolean false
     def x:double 0.0
     def y:double 0.0
     def z:double 0.0
@@ -464,6 +466,24 @@ class PresFlight3D {
     def goalAt:int 0
     ; each station's build steps, taken with Space
     def steps:FlightSteps (new FlightSteps())
+    ; how the stations stand (V turns to the next), each in a group of its
+    ; own the layout moves; the one shown, the one it turns from, how far
+    ; (1: there), and the station the camera rides on while it turns
+    def layout:FlightLayout (new FlightLayout())
+    def groups:[ThreeObject3D]
+    def curGroup:int -1
+    def lookAt:[double]
+    def layoutNow:int 0
+    def layoutFrom:int 0
+    def morph:double 1.0
+    def ride:int -1
+    ; each station's middle z now (things far from the camera hide)
+    def midZ:[double]
+    ; the floor under each station (the path), the backdrop behind the wall,
+    ; the floor under the ring
+    def floors:[ThreeMesh]
+    def backdrop@(optional):ThreeMesh
+    def ringFloor@(optional):ThreeMesh
     def clock:double 0.0
     def held:PresFlightPad (new PresFlightPad())
     def pad:PresFlightPad (new PresFlightPad())
@@ -475,6 +495,9 @@ class PresFlight3D {
     def bgR:double 0.008
     def bgG:double 0.016
     def bgB:double 0.03
+    ; the look's floor grid and dust (PresFlightScene's "look")
+    def gridC:[double] ([] _:double (0.2 0.75 0.95))
+    def dustC:[double] ([] _:double (0.55 0.8 1.0))
 
     Constructor () {
     }
@@ -512,9 +535,21 @@ class PresFlight3D {
         focus = nf
         cam = (new PresFlightCam())
         steps = (new FlightSteps())
+        layout = (new FlightLayout())
+        def ng:[ThreeObject3D]
+        groups = ng
+        def nl:[double]
+        lookAt = nl
+        def nm:[double]
+        midZ = nm
+        def nfl:[ThreeMesh]
+        floors = nfl
+        layoutNow = 0
+        layoutFrom = 0
+        morph = 1.0
+        ride = -1
+        curGroup = -1
         clock = 0.0
-        scene.setBackground(bgR bgG bgB)
-        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
         def amb:ThreeAmbientLight (new ThreeAmbientLight)
         amb.setIntensity(0.55)
         scene.add(amb)
@@ -528,6 +563,17 @@ class PresFlight3D {
             error = "the flight's world did not read"
             return error
         }
+        def lk:JVal (js.get("look"))
+        if (lk.isObj()) {
+            def bg:[double] (this.colourOf(lk "bg" ([] _:double (bgR bgG bgB))))
+            bgR = (itemAt bg 0)
+            bgG = (itemAt bg 1)
+            bgB = (itemAt bg 2)
+            gridC = (this.colourOf(lk "grid" gridC))
+            dustC = (this.colourOf(lk "dust" dustC))
+        }
+        scene.setBackground(bgR bgG bgB)
+        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
         def st:JVal (js.get("stations"))
         def grid:ThreeTexture (FlightGeo.gridTexture())
         def i:int 0
@@ -537,6 +583,15 @@ class PresFlight3D {
             def sy:double (s.numOr("y" 0.0))
             def sz:double (s.numOr("z" 0.0))
             cam.addStation((s.numOr("fx" sx)) (s.numOr("fy" sy)) sz (s.numOr("dist" 13.0)) (s.numOr("lift" 1.0)))
+            layout.add(sx sy sz)
+            push lookAt (s.numOr("fx" sx))
+            push lookAt (s.numOr("fy" sy))
+            push lookAt sz
+            push midZ sz
+            def grp:ThreeObject3D (new ThreeObject3D)
+            scene.add(grp)
+            push groups grp
+            curGroup = i
             push titles (s.strOr("t" ""))
             push seen (0.0 - 1.0)
             push focus (PresFlight3D.faint())
@@ -544,6 +599,8 @@ class PresFlight3D {
             this.addFloor(i sx sy sz grid)
             i = (i + 1)
         }
+        curGroup = -1
+        this.addLayoutFloors(grid)
         if ((st.len()) == 0) {
             error = "nothing to fly to"
             return error
@@ -551,9 +608,12 @@ class PresFlight3D {
         def it:JVal (js.get("items"))
         i = 0
         while (i < (it.len())) {
-            this.addItem((it.at(i)))
+            def one:JVal (it.at(i))
+            curGroup = (one.intOr("s" -1))
+            this.addItem(one)
             i = (i + 1)
         }
+        curGroup = -1
         this.addDust()
         cam.jumpTo(0)
         error = ""
@@ -591,7 +651,12 @@ class PresFlight3D {
         def me:ThreeMesh (new ThreeMesh)
         me.setGeometry(g)
         me.setMaterial(m)
-        scene.add(me)
+        if ((curGroup >= 0) && (curGroup < (array_length groups))) {
+            def grp:ThreeObject3D (itemAt groups curGroup)
+            grp.add(me)
+        } {
+            scene.add(me)
+        }
         return me
     }
 
@@ -602,6 +667,7 @@ class PresFlight3D {
         p.order = (o.intOr("o" 0))
         p.step = (o.intOr("step" 0))
         p.until = (o.intOr("until" -1))
+        p.still = (o.boolOr("plate" false))
         p.x = (o.numOr("x" 0.0))
         p.y = (o.numOr("y" 0.0))
         p.z = (o.numOr("z" 0.0))
@@ -626,10 +692,10 @@ class PresFlight3D {
         push p.dz dz
     }
 
-    fn colourOf:[double] (o:JVal) {
-        def c:JVal (o.get("c"))
+    fn colourOf:[double] (o:JVal key:string deflt:[double]) {
+        def c:JVal (o.get(key))
         if ((c.len()) < 3) {
-            return ([] _:double (0.36 0.88 1.0))
+            return deflt
         }
         def cr:JVal (c.at(0))
         def cg:JVal (c.at(1))
@@ -651,7 +717,7 @@ class PresFlight3D {
 
     fn addItem:void (o:JVal) {
         def kind:string (o.strOr("k" ""))
-        def c:[double] (this.colourOf(o))
+        def c:[double] (this.colourOf(o "c" ([] _:double (0.36 0.88 1.0))))
         def r:double (itemAt c 0)
         def g:double (itemAt c 1)
         def b:double (itemAt c 2)
@@ -659,7 +725,8 @@ class PresFlight3D {
         if (kind == "text") {
             def p:FlightPart (this.part(o kind))
             def runs:JVal (o.get("runs"))
-            def spec:string ("{\"w\":" + (to_string p.w) + ",\"h\":" + (to_string p.h) + ",\"runs\":" + (runs.toJson()) + "}")
+            def soft:string (? (o.boolOr("soft" false)) ",\"soft\":1" "")
+            def spec:string ("{\"w\":" + (to_string p.w) + ",\"h\":" + (to_string p.h) + soft + ",\"runs\":" + (runs.toJson()) + "}")
             this.addPic(p "text" spec 1.0 1.0 1.0 op)
             return
         }
@@ -695,6 +762,13 @@ class PresFlight3D {
                 def rim:ThreeBufferGeometry (FlightGeo.sector((rr - t) rr 0.0 6.2832 0.01))
                 this.hold(p (this.mesh(rim (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
                 return
+            }
+            if (o.boolOr("plate" false)) {
+                ; a plate under words on a line: dark, so they read
+                def dark:ThreeMesh (this.mesh((FlightGeo.picture()) (this.basic(0.02 0.03 0.06 fill false))))
+                dark.scale.set(p.w p.h 1.0)
+                this.hold(p dark fill 0.0 0.0 0.0)
+                fill = 0.0
             }
             if (fill > 0.0) {
                 def pane:ThreeMesh (this.mesh((FlightGeo.picture()) (this.basic((r * 0.55) (g * 0.55) (b * 0.55) fill false))))
@@ -887,7 +961,10 @@ class PresFlight3D {
             }
             if (rad < 0.025) {
                 this.hold(p (this.mesh((FlightGeo.ribbons(pts ends rad)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
-                this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                ; the theme's line art: no halo, its lines sum up as they cross
+                if (o.boolOr("art" false) == false) {
+                    this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                }
                 return
             }
             ; a thick line broken in pieces (a timeline past its numbers):
@@ -929,8 +1006,8 @@ class PresFlight3D {
             }
             pu.total = run
             def spark:ThreeSphereGeometry (new ThreeSphereGeometry)
-            spark.build((rad * 2.4) 10 8 0.0 6.283185307179586 0.0 3.141592653589793)
-            pu.mesh = (this.mesh(spark (this.basic((0.5 + (r * 0.5)) (0.5 + (g * 0.5)) (0.5 + (b * 0.5)) 1.0 true))))
+            spark.build((rad * 1.7) 10 8 0.0 6.283185307179586 0.0 3.141592653589793)
+            pu.mesh = (this.mesh(spark (this.basic((0.25 + (r * 0.6)) (0.25 + (g * 0.6)) (0.25 + (b * 0.6)) 0.8 true))))
             pu.mesh.visible = false
             push pulses pu
         }
@@ -941,9 +1018,10 @@ class PresFlight3D {
         def tube:ThreePathTubeGeometry (new ThreePathTubeGeometry)
         tube.build(pts rad 6)
         this.hold(p (this.mesh(tube (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+        ; a soft glow round it, faint enough that the line itself reads
         def glow:ThreePathTubeGeometry (new ThreePathTubeGeometry)
-        glow.build(pts (rad * 3.5) 6)
-        this.hold(p (this.mesh(glow (this.basic(r g b 0.12 true)))) (0.12 * op) 0.0 0.0 0.0)
+        glow.build(pts (rad * 2.6) 6)
+        this.hold(p (this.mesh(glow (this.basic(r g b 0.05 true)))) (0.05 * op) 0.0 0.0 0.0)
     }
 
     ; An effect: three layers of sparks in its box that drift and twinkle
@@ -989,12 +1067,155 @@ class PresFlight3D {
     fn addFloor:void (i:int sx:double sy:double sz:double grid:ThreeTexture) {
         def plane:ThreePlaneGeometry (new ThreePlaneGeometry)
         plane.build(56.0 56.0 1 1)
-        def m:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.42 true))
+        def m:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.42 true))
         m.setMap(grid)
         def me:ThreeMesh (this.mesh(plane m))
         me.position.set(sx (sy - 5.5) sz)
         me.rotation.set((0.0 - 1.5707963267948966) 0.0 0.0)
         me.renderOrder = -1
+        push floors me
+    }
+
+    ; The grounds of the other layouts, hidden till one is shown: a grid
+    ; standing behind the wall, a floor round the ring.
+    fn addLayoutFloors:void (grid:ThreeTexture) {
+        if ((layout.size()) == 0) {
+            return
+        }
+        def cols:int (layout.columns())
+        def rows:int (idiv (((layout.size()) + cols) - 1) cols)
+        def bw:double (((to_double cols) * layout.cellW) + 40.0)
+        def bh:double (((to_double rows) * layout.cellH) + 40.0)
+        def back:ThreePlaneGeometry (new ThreePlaneGeometry)
+        back.build(bw bh 1 1)
+        def bm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
+        bm.setMap(grid)
+        def bk:ThreeMesh (this.mesh(back bm))
+        def p0:[double] (layout.placeOf(1 0))
+        bk.position.set(((itemAt p0 0) + (((to_double (cols - 1)) * layout.cellW) * 0.5)) ((itemAt p0 1) - (((to_double (rows - 1)) * layout.cellH) * 0.5)) ((itemAt p0 2) - 3.0))
+        bk.renderOrder = -1
+        bk.visible = false
+        backdrop = bk
+        def rr:double ((layout.radius()) * 2.6)
+        def ring:ThreePlaneGeometry (new ThreePlaneGeometry)
+        ring.build(rr rr 1 1)
+        def rm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
+        rm.setMap(grid)
+        def rf:ThreeMesh (this.mesh(ring rm))
+        rf.position.set((itemAt layout.ox 0) ((itemAt layout.oy 0) - 5.5) ((itemAt layout.oz 0) + (layout.radius())))
+        rf.rotation.set((0.0 - 1.5707963267948966) 0.0 0.0)
+        rf.renderOrder = -1
+        rf.visible = false
+        ringFloor = rf
+    }
+
+    ; V: the next layout, the stations moving there in a while.
+    fn nextLayout:void () {
+        if (morph < 1.0) {
+            ; still turning: let it get there first
+            return
+        }
+        def here:int (cam.current())
+        ride = -1
+        if ((cam.auto == false) && (cam.isAt(here))) {
+            ride = here
+        }
+        layoutFrom = layoutNow
+        layoutNow = (layoutNow + 1)
+        if (layoutNow >= (FlightLayout.count())) {
+            layoutNow = 0
+        }
+        morph = 0.0
+        ; every slide in view once they stand side by side
+        if (layoutNow != 0) {
+            def i:int 0
+            while (i < (array_length seen)) {
+                if ((itemAt seen i) < 0.0) {
+                    set seen i clock
+                }
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; How much the layout is the path now, 0..1 (1 while it is).
+    fn pathWeight:double () {
+        def e:double (PresFlightCam.ease(morph))
+        def w:double 0.0
+        if (layoutFrom == 0) {
+            w = (w + (1.0 - e))
+        }
+        if (layoutNow == 0) {
+            w = (w + e)
+        }
+        return w
+    }
+
+    fn layoutName:string () {
+        return (itemAt (FlightLayout.names()) layoutNow)
+    }
+
+    ; The layout's turn, one frame: each station's group and its camera
+    ; place; the camera riding on its station; the grounds crossfading.
+    fn moveLayout:void (dt:double) {
+        if (morph >= 1.0) {
+            return
+        }
+        morph = (morph + (dt / 1.8))
+        if (morph > 1.0) {
+            morph = 1.0
+        }
+        def i:int 0
+        while (i < (array_length groups)) {
+            def pl:[double] (layout.between(layoutFrom layoutNow i morph))
+            def grp:ThreeObject3D (itemAt groups i)
+            def at:[double] (layout.moved(i pl 0.0 0.0 0.0))
+            grp.position.set((itemAt at 0) (itemAt at 1) (itemAt at 2))
+            grp.rotation.set(0.0 (itemAt pl 3) 0.0)
+            def lk:[double] (layout.moved(i pl (itemAt lookAt (i * 3)) (itemAt lookAt ((i * 3) + 1)) (itemAt lookAt ((i * 3) + 2))))
+            cam.setStation(i (itemAt lk 0) (itemAt lk 1) (itemAt lk 2) (itemAt pl 3))
+            set midZ i (itemAt pl 2)
+            i = (i + 1)
+        }
+        if (ride >= 0) {
+            if (cam.auto || ((held.plus(pad)).active())) {
+                ; flown off while it turns: let go
+                ride = -1
+            } {
+                cam.sitAt(ride)
+            }
+        }
+        ; the grounds: each layout's own, fading in as it comes
+        def e:double (PresFlightCam.ease(morph))
+        def wFrom:double (? (layoutFrom == 0) (1.0 - e) 0.0)
+        def wTo:double (? (layoutNow == 0) e 0.0)
+        this.groundTo(0 (wFrom + wTo))
+        this.groundTo(1 ((? (layoutFrom == 1) (1.0 - e) 0.0) + (? (layoutNow == 1) e 0.0)))
+        this.groundTo(2 ((? (layoutFrom == 2) (1.0 - e) 0.0) + (? (layoutNow == 2) e 0.0)))
+    }
+
+    ; Layout k's ground at strength w (0 hides it).
+    fn groundTo:void (k:int w:double) {
+        if (k == 0) {
+            for floors fm:ThreeMesh fi {
+                fm.visible = (w > 0.01)
+                fm.material.opacity = (0.42 * w)
+            }
+            return
+        }
+        if (k == 1) {
+            if (!null? backdrop) {
+                def bg:ThreeMesh (unwrap backdrop)
+                bg.visible = (w > 0.01)
+                bg.material.opacity = (0.18 * w)
+            }
+            return
+        }
+        if (!null? ringFloor) {
+            def rg:ThreeMesh (unwrap ringFloor)
+            rg.visible = (w > 0.01)
+            rg.material.opacity = (0.42 * w)
+        }
     }
 
     ; dust in the air all along the way: one mesh of many small specks
@@ -1030,7 +1251,7 @@ class PresFlight3D {
             i = (i + 1)
         }
         def g:ThreeBufferGeometry (FlightGeo.boxes(spec))
-        def m:ThreeMeshBasicMaterial (this.basic(0.55 0.8 1.0 0.7 true))
+        def m:ThreeMeshBasicMaterial (this.basic((itemAt dustC 0) (itemAt dustC 1) (itemAt dustC 2) 0.7 true))
         this.mesh(g m)
     }
 
@@ -1178,6 +1399,10 @@ class PresFlight3D {
 
     ; Space and ← take the station's build steps first, then fly on.
     fn command:void (c:string) {
+        if (c == "layout") {
+            this.nextLayout()
+            return
+        }
         def here:int (cam.current())
         if (c == "next") {
             if (steps.next(here clock)) {
@@ -1235,6 +1460,7 @@ class PresFlight3D {
             dt = 0.1
         }
         clock = (clock + dt)
+        this.moveLayout(dt)
         def hands:PresFlightPad (held.plus(pad))
         if ((lookX != 0.0) || (lookY != 0.0)) {
             cam.auto = false
@@ -1258,7 +1484,7 @@ class PresFlight3D {
             fk = 1.0
         }
         while (i < (array_length focus)) {
-            def want:double (? (i == goal) 1.0 (PresFlight3D.faint()))
+            def want:double (? (i == goal) 1.0 ((PresFlight3D.faint()) + ((1.0 - (this.pathWeight())) * 0.45)))
             def f0:double (itemAt focus i)
             set focus i (f0 + ((want - f0) * fk))
             i = (i + 1)
@@ -1333,6 +1559,14 @@ class PresFlight3D {
         return v
     }
 
+    ; A z of station i as made, about where it is now the layout moved it.
+    fn zNow:double (i:int z:double) {
+        if ((i < 0) || (i >= (array_length midZ))) {
+            return z
+        }
+        return ((z - (itemAt layout.oz i)) + (itemAt midZ i))
+    }
+
     fn near:boolean (z:double) {
         def d:double (z - cam.z)
         return ((d > (0.0 - 170.0)) && (d < 60.0))
@@ -1344,7 +1578,10 @@ class PresFlight3D {
         if (((station <= goalAt) || (goalAt < 0)) || (station >= (array_length focus))) {
             return 1.0
         }
-        return (PresFlight3D.pastLight((itemAt focus goalAt)))
+        ; only in the path do they stand behind the slide in view: side by
+        ; side all show
+        def w:double (this.pathWeight())
+        return (1.0 - (w * (1.0 - (PresFlight3D.pastLight((itemAt focus goalAt))))))
     }
 
     ; How much of a station past the one flown to shows, by that one's focus
@@ -1376,9 +1613,9 @@ class PresFlight3D {
             dimTo = (itemAt focus p.station)
         }
         dimTo = (dimTo * (this.pastGoal(p.station)))
-        def on:boolean (((u > 0.001) && (dimTo > 0.001)) && (this.near(p.z)))
+        def on:boolean (((u > 0.001) && (dimTo > 0.001)) && (this.near((this.zNow(p.station p.z)))))
         def bob:double 0.0
-        if (p.kind == "panel") {
+        if ((p.kind == "panel") && (p.still == false)) {
             bob = ((sin(((clock * 0.8) + p.phase))) * 0.025)
         }
         def ahead:double 0.0

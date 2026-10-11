@@ -527,3 +527,58 @@ func TestViewKept(t *testing.T) {
 	_, _, ok = stored(lid)
 	eq(t, ok, false)
 }
+
+// The deck recorded for the web (web/recstream.js): its file
+// recordings/web-<hash>.sliqrec as it is, kept for good under its hash, for
+// a deck anyone with the link sees; nothing for another name or a private deck.
+func TestViewRecording(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Rec", "markdown": "# One\n\n## Two\n", "visibility": "link"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	ctx := context.Background()
+	hash := "0123456789abcdef01234567"
+	path := "recordings/web-" + hash + ".sliqrec"
+	data := []byte{0x1f, 0x8b, 8, 0, 1, 2, 3}
+	if err := f.bucket.Save(ctx, "shares/"+id+"/"+path, "application/vnd.sliqtly.rec+gzip", data, nil); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := f.db.Get(ctx, "shares", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := cur["files"].([]any)
+	files = append(files, map[string]any{"path": path, "type": "application/vnd.sliqtly.rec+gzip", "url": "https://storage.test/" + path})
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(u string) (*http.Response, []byte) {
+		t.Helper()
+		res, err := http.Get(s.root + u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res, b
+	}
+	res, b := get("/api/view/" + id + "/rec/" + hash)
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "application/octet-stream")
+	eq(t, res.Header.Get("Cache-Control"), "public, max-age=31536000, s-maxage=31536000, immutable")
+	eq(t, bytes.Equal(b, data), true)
+	for _, bad := range []string{"/api/view/" + id + "/rec/ffffffffffffffffffffffff", "/api/view/" + id + "/rec/" + hash + "x", "/api/view/" + id + "/rec/../../x", "/api/view/AbCdEf1234/rec/" + hash} {
+		res, _ := get(bad)
+		eq(t, res.StatusCode, 404, bad)
+		eq(t, res.Header.Get("Cache-Control"), "no-store", bad)
+	}
+	if err := f.db.Update(ctx, "shares", id, Doc{"visibility": "private"}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = get("/api/view/" + id + "/rec/" + hash)
+	eq(t, res.StatusCode, 404)
+}

@@ -1,7 +1,7 @@
 // node --test: the public viewer's addresses and keys (web/viewlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkOf, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
+import { linkOf, recUrl, recActionForKey, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
 
 test("/s/{id} is a shared presentation, its picked slides and the slide shown", () => {
   assert.deepEqual(linkOf("/s/AbCdEf1234", "", ""), { id: "AbCdEf1234", slides: "", slide: 0 });
@@ -94,4 +94,19 @@ test("a zoomed slide is dragged no further than its edges", () => {
   assert.equal(panView(z, 400, 800, 960, 540, -5000, 0).x, 400 - 960 * z.scale);
   // shorter than the window: it stays centred up and down
   assert.equal(panView(z, 400, 800, 960, 540, 0, 300).y, (800 - 540 * z.scale) / 2);
+});
+
+test("?rec=<hash>: the deck as recorded for the web, and its keys", () => {
+  const l = linkOf("/s/AbCdEf1234", "?rec=0123456789abcdef01234567", "#slide=2");
+  assert.deepEqual(l, { id: "AbCdEf1234", slides: "", slide: 1, rec: "0123456789abcdef01234567" });
+  assert.equal(recUrl(l), "/api/view/AbCdEf1234/rec/0123456789abcdef01234567");
+  // not a hash: the deck as it is
+  assert.equal(linkOf("/s/AbCdEf1234", "?rec=../x", "").rec, undefined);
+  assert.equal(recActionForKey(" "), "next");
+  assert.equal(recActionForKey("ArrowRight"), "nextSlide");
+  assert.equal(recActionForKey("ArrowLeft"), "prevSlide");
+  assert.equal(recActionForKey("Home"), "first");
+  assert.equal(recActionForKey("End"), "last");
+  assert.equal(recActionForKey("a"), "auto");
+  assert.equal(recActionForKey("x"), "");
 });

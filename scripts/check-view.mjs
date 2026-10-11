@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import crypto from "node:crypto";
 import { root, log } from "./lib.mjs";
 import { viewDir } from "./build-view.mjs";
 
@@ -61,6 +62,11 @@ const THREE_ID = "ThreeFixture1";
 const NOSEL_ID = "NoSelect12";
 const noSelDeck = JSON.stringify({ ...JSON.parse(deck), deck: { ...JSON.parse(deck).deck, selectText: false } });
 const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
+// the Finance sample recorded for the web at 10 frames a second (the
+// editor's Export ▸ Recorded presentation, web/main.js recordForWeb(10),
+// gzipped as web/recstream.js packStream keeps it), under its hash
+const recFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec.sliqrec"));
+const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice(0, 24);
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -82,6 +88,11 @@ const server = http.createServer((req, res) => {
   if (rel === "/fixture/view-gltf.gltf") {
     res.writeHead(200, { "content-type": "model/gltf+json", "access-control-allow-origin": "*" });
     res.end(gltfFile);
+    return;
+  }
+  if (rel === "/api/view/" + ID + "/rec/" + REC_HASH) {
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    res.end(recFile);
     return;
   }
   if (rel.startsWith("/api/view/")) {
@@ -200,6 +211,45 @@ try {
   await page.keyboard.press("End");
   await page.waitForTimeout(200);
   if ((await text(page, "vCount")) !== `${slides} / ${slides}`) fail("End did not go to the last slide");
+
+  // the deck recorded for the web (?rec=<hash>, web/recstream.js): its
+  // frames played from each slide's master time, held at a build step
+  // until Space, → the next slide, A plays it all through
+  {
+    const rp = await open("/s/" + ID + "?rec=" + REC_HASH);
+    await rp.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+    const look = () => rp.evaluate(() => {
+      const g = document.createElement("canvas");
+      g.width = 96;
+      g.height = 54;
+      const x = g.getContext("2d");
+      x.drawImage(document.getElementById("c"), 0, 0, 96, 54);
+      return Array.from(x.getImageData(0, 0, 96, 54).data).join(",");
+    });
+    if (await rp.evaluate(() => document.getElementById("vAuto").hidden)) fail("a recording shows no ⏵ (play it all) button");
+    if ((await text(rp, "vCount")) !== `1 / ${slides}`) fail(`a recording starts at "${await text(rp, "vCount")}"`);
+    // slide 2 slides in ({transition=slide})
+    await rp.keyboard.press("ArrowRight");
+    await rp.waitForTimeout(50);
+    const coming = await look();
+    await rp.waitForTimeout(1500);
+    if ((await look()) === coming) fail("a recorded slide did not move as it came in");
+    // slide 3 waits at its first build step
+    await rp.keyboard.press("ArrowRight");
+    await rp.waitForTimeout(100);
+    if ((await text(rp, "vCount")) !== `3 / ${slides}`) fail("→ → in a recording did not go to slide 3");
+    await rp.waitForTimeout(1500);
+    const held = await look();
+    await rp.waitForTimeout(600);
+    if ((await look()) !== held) fail("a recorded slide did not hold at its build step");
+    await rp.keyboard.press(" ");
+    await rp.waitForTimeout(1500);
+    if ((await look()) === held) fail("Space did not play the recording's next step");
+    if ((await text(rp, "vCount")) !== `3 / ${slides}`) fail("Space at a build step left the slide");
+    await rp.keyboard.press("a");
+    await rp.waitForFunction((n) => document.getElementById("vCount").textContent === `4 / ${n}`, slides, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
+    await rp.close();
+  }
 
   // the slide's text selected with the mouse (web/slidetext.js): a drag
   // over the two lines under the title copies them as one sentence, the
@@ -570,4 +620,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), a recording played, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

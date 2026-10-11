@@ -296,7 +296,7 @@ class PresServer {
         if ((id == "pdf") || (id == "pptx")) {
             format = id
         }
-        if ((((id == "docx") || (id == "html")) || (id == "player")) || (id == "zip")) {
+        if (((((id == "docx") || (id == "html")) || (id == "player")) || (id == "recweb")) || (id == "zip")) {
             this.note((PresI18n.t("This export is in the browser editor for now.")))
             return true
         }

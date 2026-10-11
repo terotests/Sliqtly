@@ -7205,6 +7205,47 @@ class PresCheck {
         }
         this.ok(((array_length tri) == 12) ("flight: an L is four triangles, got " + (to_string (idiv (array_length tri) 3))))
         this.ok(((fabs (covered - 3.0)) < 0.001) ("flight: they cover the L and no more, got " + (to_string covered)))
+        ; 3-D looks: the first keeps the colours, the others pull them to their hue
+        def lm:FlightLook (FlightLook.named(""))
+        this.ok((lm.key == "minority") "flight look: a deck without look-3d is Minority Report")
+        def same:[double] (lm.tint(0.2 0.4 0.6))
+        this.ok(((itemAt same 1) == 0.4) "flight look: …which keeps the slide's colours")
+        def gl:FlightLook (FlightLook.named(" gold "))
+        def gc:[double] (gl.tint(0.36 0.88 1.0))
+        this.ok((((itemAt gc 0) > (itemAt gc 2)) && ((itemAt gc 0) > 0.8)) ("flight look: gold turns cyan golden, got " + (to_string (itemAt gc 0)) + "," + (to_string (itemAt gc 2))))
+        def gw:[double] (gl.tint(1.0 1.0 1.0))
+        this.ok((((itemAt gw 2) > 0.3) && ((itemAt gw 0) > 0.95)) "flight look: …white words stay light and readable")
+        def gk:[double] (gl.tint(0.0 0.0 0.0))
+        this.ok(((itemAt gk 0) == 0.0) "flight look: …black stays black")
+        this.ok(((FlightLook.named("nope")).key == "minority") "flight look: an unknown key is the first look")
+        this.ok((((FlightLook.ofTile("look3d:red")) == "red") && ((FlightLook.ofTile("aurora")) == "")) "flight look: a tile's look, none for a theme")
+        def lrows:[PresThemeTile] (PresThemeGallery.tiles((FlightLook.rows())))
+        def lt1:PresThemeTile (itemAt lrows 1)
+        this.ok((((array_length lrows) == 4) && (lt1.group == "3-D")) "flight look: four tiles on the picker's 3-D tab")
+        def ldeck (new PresDeck())
+        ldeck.setText("---\nlook-3d: gold\n---\n\n# Kulta\n\nTeksti.\n")
+        def lscene:PresFlightScene (PresFlightScene.of(ldeck))
+        this.ok((lscene.look.key == "gold") "flight look: the deck's look-3d picks the look")
+        this.ok(((indexOf (lscene.toJson()) "\"look\":{\"key\":\"gold\"") >= 0) "flight look: …and the world's JSON carries it")
+        ; the theme's line art behind the slide is dim next to the slide's lines
+        def adeck (new PresDeck())
+        adeck.setTheme("page { width: 13.333in; height: 7.5in; padding: 0.8in; background-color: #ffffff } deck { art: tide } document { color: #1f2933 }")
+        adeck.setText("# Aallot\n\nTeksti.\n")
+        def ascene:PresFlightScene (PresFlightScene.of(adeck))
+        def artN:int 0
+        def artTop:double 0.0
+        for ascene.items ai:FlightItem an {
+            if ((ai.ent == "slide") && (((ai.kind == "line") || (ai.kind == "shape")) && (ai.rad < 0.025))) {
+                if ai.art {
+                    artN = (artN + 1)
+                }
+                if (ai.op > artTop) {
+                    artTop = ai.op
+                }
+            }
+        }
+        this.ok((artN > 0) "flight: the tide theme's waves come along")
+        this.ok((artTop <= 0.3) ("flight: …dim, at most 0.3, got " + (to_string artTop)))
         ; a timeline: its numbers in circles, its line broken at each
         def tdeck (new PresDeck())
         tdeck.setText("# Aikajana\n\n```timeline\n- Vaihe 1: Toiminimi\n- Vaihekynnys: Ensimmäinen asiakas\n- Vaihe 2: Osakeyhtiö\n```\n")
@@ -7238,12 +7279,16 @@ class PresCheck {
         this.ok((pieces >= 4) ("flight: the timeline's line breaks at its three circles, got " + (to_string pieces) + " pieces"))
         this.ok((through == 0) ("flight: no part of the line inside a circle, got " + (to_string through)))
         ; a line through a sphere: two lines, either side of it
-        def cut:[double] (PresFlightScene.cutPts(([] _:double ((0.0 - 10.0) 0.0 0.0 10.0 0.0 0.0)) ([] _:int (2)) ([] _:double (0.0 0.0 0.0 1.0))))
+        def noCut:[double]
+        def cut:[double] (PresFlightScene.cutPts(([] _:double ((0.0 - 10.0) 0.0 0.0 10.0 0.0 0.0)) ([] _:int (2)) ([] _:double (0.0 0.0 0.0 1.0)) noCut))
         this.ok(((array_length cut) == 16) ("flight: a cut line is two of two points, got " + (to_string (idiv (array_length cut) 4))))
         if ((array_length cut) == 16) {
             this.ok((((fabs ((itemAt cut 4) + 1.0)) < 0.001) && ((fabs ((itemAt cut 8) - 1.0)) < 0.001)) "flight: it stops at the sphere and goes on past it")
             this.ok((((itemAt cut 11) > 0.5) && ((itemAt cut 7) < 0.5)) "flight: the second part is a line of its own")
         }
+        ; a label box on a line cuts it too
+        def bcut:[double] (PresFlightScene.cutPts(([] _:double ((0.0 - 10.0) 0.0 0.0 10.0 0.0 0.0)) ([] _:int (2)) noCut ([] _:double ((0.0 - 2.0) (0.0 - 0.5) 2.0 0.5))))
+        this.ok((((array_length bcut) == 16) && ((fabs ((itemAt bcut 4) + 2.0)) < 0.001)) "flight: a line stops at a label's box")
         ; the theme's boxes at the slide's edge are found by the edge they stand on
         this.ok(((PresFlightScene.edgeOf(([] _:double (920.0 0.0 40.0 540.0)) 960.0 540.0)) == 1) "flight: a strip at the right edge stands on it")
         this.ok(((PresFlightScene.edgeOf(([] _:double (0.0 528.0 200.0 12.0)) 960.0 540.0)) == 2) "flight: a bar at the bottom left stands on the bottom")
@@ -7277,6 +7322,41 @@ class PresCheck {
         this.ok(((indexOf goes -1) >= 0) "flight: the last line stays")
         def pst:FlightStation (itemAt ps.stations 0)
         this.ok((pst.steps == ls.steps) ("flight: the station has the slide's steps, got " + (to_string pst.steps)))
+        ; V: the stations side by side (a block about as tall as wide) or in a
+        ; ring facing its middle, the first slide where it stood
+        def lay:FlightLayout (new FlightLayout())
+        def li:int 0
+        while (li < 12) {
+            lay.add((PresFlightScene.stationX(li)) (PresFlightScene.stationY(li)) (PresFlightScene.stationZ(li)))
+            li = (li + 1)
+        }
+        def cols:int (lay.columns())
+        this.ok(((cols >= 3) && (cols <= 4)) ("flight: twelve slides on a wall in 3 or 4 columns, got " + (to_string cols)))
+        def w0:[double] (lay.placeOf(1 0))
+        def w1:[double] (lay.placeOf(1 1))
+        def wn:[double] (lay.placeOf(1 cols))
+        this.ok((((fabs ((itemAt w0 0) - (PresFlightScene.stationX(0)))) < 0.001) && ((fabs ((itemAt w0 2) - (PresFlightScene.stationZ(0)))) < 0.001)) "flight: the first slide stays where it stood")
+        this.ok(((((itemAt w1 0) > (itemAt w0 0)) && ((itemAt w1 2) == (itemAt w0 2))) && ((itemAt wn 1) < (itemAt w0 1))) "flight: the wall runs right, then down a row")
+        def r0:[double] (lay.placeOf(2 0))
+        def r3:[double] (lay.placeOf(2 3))
+        def mz:double ((itemAt r0 2) + (lay.radius()))
+        def d3:double (sqrt(((((itemAt r3 0) - (itemAt r0 0)) * ((itemAt r3 0) - (itemAt r0 0))) + (((itemAt r3 2) - mz) * ((itemAt r3 2) - mz)))))
+        this.ok(((fabs (d3 - (lay.radius()))) < 0.001) "flight: the ring's slides stand round its middle")
+        ; a slide turned to the ring faces its middle: its front (+z) points there
+        def fr:[double] (lay.moved(3 r3 (itemAt lay.ox 3) (itemAt lay.oy 3) ((itemAt lay.oz 3) + 1.0)))
+        def mx:double (itemAt r0 0)
+        def dBefore:double (((itemAt r3 0) - mx) * ((itemAt r3 0) - mx)) + (((itemAt r3 2) - mz) * ((itemAt r3 2) - mz))
+        def dFront:double (((itemAt fr 0) - mx) * ((itemAt fr 0) - mx)) + (((itemAt fr 2) - mz) * ((itemAt fr 2) - mz))
+        this.ok((dFront < dBefore) "flight: a ring slide faces the middle")
+        def half:[double] (lay.between(0 1 1 0.5))
+        def p1:[double] (lay.placeOf(0 1))
+        this.ok(((((itemAt half 0) - (itemAt p1 0)) * ((itemAt half 0) - (itemAt w1 0))) < 0.0) "flight: half way it stands between")
+        ; the camera faces a turned station from in front of it
+        def fc:PresFlightCam (new PresFlightCam())
+        fc.addStation(0.0 0.0 0.0 10.0 0.0)
+        fc.setStation(0 0.0 0.0 0.0 (0.0 - 1.5707963))
+        this.ok((((fabs ((fc.poseX(0)) + 10.0)) < 0.01) && ((fabs ((fc.poseYaw(0)) - 1.5707963)) < 0.001)) "flight: the camera stands before a turned slide, looking at it")
+        this.ok(((PresFlightPad.commandOfKey("KeyV")) == "layout") "flight: V turns the layout")
         ; Space takes a station's steps before flying on, ← gives them back
         def fs:FlightSteps (new FlightSteps())
         fs.add(2)
