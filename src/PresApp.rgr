@@ -708,6 +708,11 @@ class PresApp {
         return ((PresFlightScene.of(deck)).toJson())
     }
 
+    ; Whether a program on slide i has not drawn yet (PresDeck.playsWaiting).
+    fn playsWaiting:boolean (i:int) {
+        return (deck.playsWaiting(i))
+    }
+
     ; Slide i's presenter as the slide at rest draws it (no bubble), for the
     ; 3-D flight's picture of it: a list as slideJson gives one.
     fn presenterJson:string (i:int) {
