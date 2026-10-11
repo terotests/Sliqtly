@@ -698,6 +698,12 @@ class PresApp {
         return ((PresFlightScene.of(deck)).toJson())
     }
 
+    ; Slide i's presenter as the slide at rest draws it (no bubble), for the
+    ; 3-D flight's picture of it: a list as slideJson gives one.
+    fn presenterJson:string (i:int) {
+        return (this.listJson((deck.storyList(i 0 true false))))
+    }
+
     ; The 3-D flight's looks as the theme picker's rows (FlightLook.rows).
     fn flightLookRows:string () {
         return (FlightLook.rows())

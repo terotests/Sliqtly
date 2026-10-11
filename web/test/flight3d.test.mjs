@@ -12,8 +12,21 @@ function fakeCanvas() {
       return { width: t.length * Number(/(\d+(\.\d+)?)px/.exec(this.font)[1]) * 0.5 };
     },
     clearRect() {},
+    tx: 0,
+    kx: 1,
+    save() {},
+    restore() {
+      this.tx = 0;
+      this.kx = 1;
+    },
+    translate(x) {
+      this.tx += x;
+    },
+    scale(k) {
+      this.kx *= k;
+    },
     fillText(t, x, y) {
-      drawn.push({ t, x, y, font: this.font });
+      drawn.push({ t, x: this.tx + x, y, font: this.font, kx: this.kx });
     },
   };
   return { width: 0, height: 0, getContext: () => g, drawn };
@@ -42,6 +55,18 @@ test("words that run on past their box widen the picture to the right", () => {
   assert.ok(Math.abs(ox - 0.5) < 1e-9);
   const centred = drawWords(fakeCanvas(), { w: 4, h: 0.5, runs: [{ t: "ab", dx: 0, w: 4, fs: 0.4, al: "center" }] }, 100);
   assert.equal(centred[4], 0);
+});
+
+test("a bold run wider than the slide set it is narrowed to its place, not run into the next", () => {
+  const c = fakeCanvas();
+  // "abcd" takes 80 px here, the slide set it in 50
+  const spec = { w: 4, h: 0.5, runs: [{ t: "abcd", dx: 0, w: 0.5, fs: 0.4, b: true }, { t: "ef", dx: 0.5, w: 1, fs: 0.4 }] };
+  drawWords(c, spec, 100);
+  const bold = c.drawn.find((d) => d.t === "abcd");
+  const next = c.drawn.find((d) => d.t === "ef");
+  assert.ok(Math.abs(bold.kx - 50 / 80) < 1e-9);
+  assert.equal(next.x - bold.x, 50);
+  assert.equal(next.kx, 1);
 });
 
 test("the first connected gamepad, as numbers", () => {
