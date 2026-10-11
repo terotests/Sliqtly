@@ -343,6 +343,9 @@ class PresFlightScene {
     def curPH:double 540.0
     def curEnt:string ""
     def curOrder:int 0
+    ; shapes of the slide so far: each a hair in front of the one before,
+    ; as the slide paints them
+    def shapesHere:int 0
     def firstItem:int 0
 
     ; how far apart the stations are along the path
@@ -522,6 +525,13 @@ class PresFlightScene {
 
     ; The colour a thing of the slide glows in: its own hue, else the
     ; hologram's (`deflt`).
+    ; A soft dark copy under a shape (its drop shadow): light has no
+    ; shadow, so the hologram leaves it out.
+    sfn isShadow:boolean (c:EVGDrawCmd) {
+        def mx:double ((PresFlightScene.max3((to_double c.r) (to_double c.g) (to_double c.b))) / 255.0)
+        return ((mx < 0.08) && (c.a < 0.5))
+    }
+
     sfn glow:[double] (c:EVGDrawCmd deflt:[double]) {
         if (PresFlightScene.hued(c)) {
             return (PresFlightScene.neon(c))
@@ -796,6 +806,7 @@ class PresFlightScene {
         }
         def made:int (array_length items)
         firstItem = made
+        shapesHere = 0
         k = 0
         while (k < nCmd) {
             def c:EVGDrawCmd (itemAt cmds k)
@@ -847,7 +858,7 @@ class PresFlightScene {
                     pi.order = order
                     pi.ent = ent
                 }
-                if (c.kind == 6) {
+                if ((c.kind == 6) && ((PresFlightScene.isShadow(c)) == false)) {
                     def si:FlightItem (this.addPath(st c k block (itemAt pies top) dz))
                     si.order = order
                     si.ent = ent
@@ -1299,13 +1310,16 @@ class PresFlightScene {
         if (block == "ground") {
             lift = 0.08
         }
+        lift = (lift + ((to_double shapesHere) * 0.002))
+        shapesHere = (shapesHere + 1)
         this.placePts(st sh c.pts lift)
         def j:int 0
         while (j < (array_length c.ringEnds)) {
             push sh.ends (idiv (itemAt c.ringEnds j) 2)
             j = (j + 1)
         }
-        sh.fill = (? (PresFlightScene.hued(c)) 0.22 0.1)
+        ; a coloured shape (a figure's face, hood, hair) is coloured glass
+        sh.fill = (? (PresFlightScene.hued(c)) 0.4 0.1)
         ; a small solid mark (an arrow's head, a bullet) glows whole
         if (big <= 22.0) {
             sh.fill = 0.85

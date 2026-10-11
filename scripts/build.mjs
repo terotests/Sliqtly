@@ -82,6 +82,26 @@ export function buildThree(ranger, dir) {
   return threeJs;
 }
 
+// The scripts loadScript (web/sitescript.js) brings in on demand, each
+// marked with a hash of its own code, and that hash written into
+// sitescript.js: a page open since an older build fetches today's file
+// under its old ?v= (the host does not keep old builds), and the mark
+// tells it so instead of a new engine running under old modules.
+export function markParts(dir, names) {
+  const parts = {};
+  for (const name of names) {
+    const file = path.join(dir, name);
+    const code = fs.readFileSync(file, "utf8");
+    const hash = crypto.createHash("sha1").update(code).digest("hex").slice(0, 10);
+    fs.writeFileSync(file, code + `;(globalThis.__sliqtlyParts = globalThis.__sliqtlyParts || {})[${JSON.stringify(name)}] = ${JSON.stringify(hash)};\n`);
+    parts[name] = hash;
+  }
+  const site = path.join(dir, "sitescript.js");
+  const text = fs.readFileSync(site, "utf8");
+  if (!text.includes('"__PARTS__"')) throw new Error("sitescript.js has no __PARTS__ to fill");
+  fs.writeFileSync(site, text.split('"__PARTS__"').join(JSON.stringify(parts)));
+}
+
 // The selector language of slide scripts (src/PresSel.rgr) for the
 // program's sandbox: dir/script-sel.js, SCRIPT_SEL in the String.raw form
 // of the other runtimes (web/script-runtime.js starts with it, and the Go
@@ -228,6 +248,7 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(path.join(distDir, "deps.json"), JSON.stringify(deps, null, 2) + "\n");
   for (const [name, d] of Object.entries(deps)) log(`deps   ${name} ${d.ref || "HEAD"} ${d.commit.slice(0, 12)}${d.changed ? " (with local changes)" : ""}`);
 
+  markParts(distDir, ["pres_3d.js"]);
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
