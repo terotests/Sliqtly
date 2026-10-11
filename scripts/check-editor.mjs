@@ -11,8 +11,9 @@
  *   - a reload there opens it from the cloud
  *   - Share gives a viewing link of its own (/s/{linkId}), never the deck's
  *     id, and People who can edit… keeps the addresses on the deck
- *   - Export ▸ Recorded presentation keeps the deck recorded for the web
- *     as its file recordings/web-<hash>.sliqrec, linked as /s/{linkId}?rec=<hash>
+ *   - Export ▸ Cloud HTML keeps the deck recorded for the web as its file
+ *     recordings/web-<hash>.sliqrec, with its faces and pictures, linked as
+ *     /r/{linkId}/<hash>
  *   - someone else's deck at /editor/d/{id} is shown, not copied, and
  *     nothing of it is saved under the other user
  *   - invited to someone else's deck, the user edits that same deck
@@ -199,9 +200,9 @@ try {
   check("Share gives a link of its own to view the deck, and no editing link",
     !!link && link.of === id && link.owner === "u1" && shown.show.endsWith("/s/" + link.id) && !shown.show.includes(id) && shown.edit === "",
     JSON.stringify({ shown, link }));
-  // Export ▸ Recorded presentation (web link): the deck recorded for the
-  // web (web/recstream.js) is a file of the deck named by its hash, and its
-  // link the viewing link with ?rec=<hash>; recorded again unchanged, the same
+  // Export ▸ Cloud HTML: the deck recorded for the web (web/recstream.js)
+  // is a file of the deck named by its hash, and its link the light
+  // player's /r/{viewing link}/<hash>; recorded again unchanged, the same
   await pg.evaluate(() => window.__app.closeShare());
   const recLink = async () => {
     await pg.evaluate(() => { window.__lastRecLink = ""; return window.__exportRecWeb(); });
@@ -209,11 +210,11 @@ try {
   };
   const rec1 = await recLink();
   const rec2 = await recLink();
-  const recHash = (/\?rec=([0-9a-f]{24})$/.exec(rec1) || [])[1] || "";
+  const recHash = (/\/r\/[A-Za-z0-9]+\/([0-9a-f]{24})$/.exec(rec1) || [])[1] || "";
   await pg.waitForFunction((h) => window.__docFiles().then((fs) => fs.includes("recordings/web-" + h + ".sliqrec")), recHash, { timeout: 15000 }).catch(() => {});
   const recFiles = (fakeDb.get("shares/" + id)?.files || []).map((f) => f.path).filter((p) => p.startsWith("recordings/"));
-  check("Export ▸ Recorded presentation keeps the recording under its hash and links it from the viewing link",
-    !!recHash && rec1.endsWith("/s/" + link.id + "?rec=" + recHash) && rec2 === rec1 && JSON.stringify(recFiles) === JSON.stringify(["recordings/web-" + recHash + ".sliqrec"]),
+  check("Export ▸ Cloud HTML keeps the recording under its hash and links the light player to it",
+    !!recHash && rec1.endsWith("/r/" + link.id + "/" + recHash) && rec2 === rec1 && JSON.stringify(recFiles) === JSON.stringify(["recordings/web-" + recHash + ".sliqrec"]),
     JSON.stringify({ rec1, rec2, recFiles }));
 
   // People who can edit…: the window, an address, Save

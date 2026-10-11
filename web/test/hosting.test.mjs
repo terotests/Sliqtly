@@ -118,3 +118,20 @@ test("the editor comes only from the server, which sends it to signed-in people 
   assert.ok(rw.slice(0, first).every((r) => !r.destination), "a file rule before /editor");
   assert.ok(!fs.existsSync(path.join(web, "dist-view", "editor")));
 });
+
+test("a presentation exported to the cloud (/r/{id}/{hash}) is the light player's page", () => {
+  const rw = hosting().rewrites;
+  assert.equal(rw.find((r) => r.source === "/r/**").destination, "/play.html");
+  // the page is always asked for afresh; the recording it reads is immutable
+  for (const src of ["/r/**", "/play.html"]) {
+    const h = hosting().headers.find((x) => x.source === src);
+    assert.equal(h.headers.find((k) => k.key === "Cache-Control").value, "no-cache", src);
+  }
+  const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
+  assert.ok(src.includes('["play.html", "play.html"]'));
+  // the player imports none of the viewer's own heavy parts
+  const play = fs.readFileSync(path.join(web, "play.js"), "utf8");
+  for (const m of play.matchAll(/from "\.\/([^"]+)"/g)) {
+    assert.ok(["gl/evg-webgl.js", "fxdeck.js", "recstream.js", "playlink.js", "viewlink.js"].includes(m[1]), m[1]);
+  }
+});

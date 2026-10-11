@@ -63,7 +63,7 @@ const NOSEL_ID = "NoSelect12";
 const noSelDeck = JSON.stringify({ ...JSON.parse(deck), deck: { ...JSON.parse(deck).deck, selectText: false } });
 const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
 // the Finance sample recorded for the web at 10 frames a second (the
-// editor's Export ▸ Recorded presentation, web/main.js recordForWeb(10),
+// editor's Export ▸ Cloud HTML, web/main.js recordForWeb(10),
 // gzipped as web/recstream.js packStream keeps it), under its hash
 const recFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec.sliqrec"));
 const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice(0, 24);
@@ -116,6 +116,7 @@ const server = http.createServer((req, res) => {
   }
   if (rel === "/main/admin") rel = "/main/admin.html";
   if (rel === "/" || rel.startsWith("/s/")) rel = "/index.html";
+  if (rel.startsWith("/r/")) rel = "/play.html";
   const file = path.join(viewDir, rel);
   if (!file.startsWith(viewDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     missing.push(rel);
@@ -212,12 +213,20 @@ try {
   await page.waitForTimeout(200);
   if ((await text(page, "vCount")) !== `${slides} / ${slides}`) fail("End did not go to the last slide");
 
-  // the deck recorded for the web (?rec=<hash>, web/recstream.js): its
-  // frames played from each slide's master time, held at a build step
-  // until Space, → the next slide, A plays it all through
+  // the deck exported to the cloud as a light page (/r/{id}/{hash},
+  // web/play.js): its frames played from each slide's master time, held at
+  // a build step until Space, → the next slide, A plays it all through;
+  // the page loads the painter, the recording and its faces, nothing else
   {
-    const rp = await open("/s/" + ID + "?rec=" + REC_HASH);
-    await rp.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+    const loaded = [];
+    const rp = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    rp.on("console", (m) => { if (m.type() === "error") fail(`/r/: console: ${m.text()}`); });
+    rp.on("pageerror", (e) => fail(`/r/: ${e.message}`));
+    rp.on("request", (r) => loaded.push(new URL(r.url()).pathname));
+    await rp.goto(base + "/r/" + ID + "/" + REC_HASH, { waitUntil: "load" });
+    await rp.waitForFunction(() => !document.getElementById("bar").hidden, null, { timeout: 15000 });
+    const recN = await rp.evaluate(() => window.__play.nav.count);
+    const count = () => rp.evaluate(() => document.getElementById("pCount").textContent);
     const look = () => rp.evaluate(() => {
       const g = document.createElement("canvas");
       g.width = 96;
@@ -226,8 +235,11 @@ try {
       x.drawImage(document.getElementById("c"), 0, 0, 96, 54);
       return Array.from(x.getImageData(0, 0, 96, 54).data).join(",");
     });
-    if (await rp.evaluate(() => document.getElementById("vAuto").hidden)) fail("a recording shows no ⏵ (play it all) button");
-    if ((await text(rp, "vCount")) !== `1 / ${slides}`) fail(`a recording starts at "${await text(rp, "vCount")}"`);
+    const allowed = /^\/(r\/|play\.js|playlink\.js|recstream\.js|fxdeck\.js|viewlink\.js|gl\/evg-webgl\.js|fonts\/[\w-]+\.ttf|favicon\.svg|api\/view\/[^/]+\/rec\/)/;
+    const extra = loaded.filter((p) => !allowed.test(p));
+    if (extra.length) fail("the light player loaded more than it needs: " + extra.join(", "));
+    if (!loaded.some((p) => p.startsWith("/fonts/"))) fail("the light player loaded no face");
+    if ((await count()) !== `1 / ${recN}`) fail(`the light player starts at "${await count()}"`);
     // slide 2 slides in ({transition=slide})
     await rp.keyboard.press("ArrowRight");
     await rp.waitForTimeout(50);
@@ -237,7 +249,7 @@ try {
     // slide 3 waits at its first build step
     await rp.keyboard.press("ArrowRight");
     await rp.waitForTimeout(100);
-    if ((await text(rp, "vCount")) !== `3 / ${slides}`) fail("→ → in a recording did not go to slide 3");
+    if ((await count()) !== `3 / ${recN}`) fail("→ → in the light player did not go to slide 3");
     await rp.waitForTimeout(1500);
     const held = await look();
     await rp.waitForTimeout(600);
@@ -245,10 +257,19 @@ try {
     await rp.keyboard.press(" ");
     await rp.waitForTimeout(1500);
     if ((await look()) === held) fail("Space did not play the recording's next step");
-    if ((await text(rp, "vCount")) !== `3 / ${slides}`) fail("Space at a build step left the slide");
+    if ((await count()) !== `3 / ${recN}`) fail("Space at a build step left the slide");
+    await rp.keyboard.press("ArrowLeft");
+    await rp.waitForTimeout(100);
+    if ((await count()) !== `2 / ${recN}`) fail("← in the light player did not go back a slide");
     await rp.keyboard.press("a");
-    await rp.waitForFunction((n) => document.getElementById("vCount").textContent === `4 / ${n}`, slides, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
+    await rp.waitForFunction((n) => document.getElementById("pCount").textContent === `4 / ${n}`, recN, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
     await rp.close();
+    // another hash: said so, no error
+    const gone = await browser.newPage();
+    await gone.goto(base + "/r/" + ID + "/0123456789abcdef01234567", { waitUntil: "load" });
+    await gone.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+    if (!(await gone.evaluate(() => document.getElementById("note").textContent)).length) fail("a missing recording says nothing");
+    await gone.close();
   }
 
   // the slide's text selected with the mouse (web/slidetext.js): a drag
@@ -620,4 +641,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), a recording played, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), the light player (/r/) played, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
