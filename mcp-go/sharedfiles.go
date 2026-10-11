@@ -29,8 +29,10 @@
 //	GET    /files/shared/{id}/index.json
 //	GET    /files/shared/{id}/png/{node}.png[?scale=1|2|3][&max=px]
 //
-// Only a server of its own keeps them (a folder: SLIQTLY_DATA or -data);
-// everyone who reaches it is its one user, as with rooms.
+// A server of its own keeps one set (a folder: SLIQTLY_DATA or -data);
+// everyone who reaches it is its one user, as with rooms. sliqtly.com keeps
+// one set for each signed-in account, seen by that account alone
+// (cloudshared.go).
 
 package main
 
@@ -80,10 +82,17 @@ type sharedFiles struct {
 	files sharedStore
 	max   int64
 	log   func(string)
-	// one file read at a time: reading one takes several times its size
-	queue chan string
+	// read a file put here: one at a time on a server of its own (reading
+	// one takes several times its size), a job of its own on sliqtly.com
+	queue func(id string)
 	// at most two drawings at once
 	draws chan struct{}
+	// where the page reads a file's index and pictures: /files/shared/
+	// (localweb.go) or /editor/api/shared/ (editorshared.go)
+	urls string
+	// a file still "indexing" this long after it was put was lost on the
+	// way (its job ran out of memory or time); 0: never
+	stale time.Duration
 	mu    sync.Mutex // the cards
 	// the indexes as read, by file id and the card's update time, so a
 	// search does not read every index from the store
@@ -115,16 +124,22 @@ type sharedFile struct {
 }
 
 func newSharedFiles(files sharedStore, logf func(string)) *sharedFiles {
-	max := int64(sharedMaxDefault)
-	if v, err := strconv.ParseInt(os.Getenv("SLIQTLY_SHARED_MAX"), 10, 64); err == nil && v > 0 {
-		max = v << 20
-	}
+	max := sharedMaxFromEnv(sharedMaxDefault)
 	if logf == nil {
 		logf = func(string) {}
 	}
-	s := &sharedFiles{files: files, max: max, log: logf, queue: make(chan string, 64), draws: make(chan struct{}, 2), idx: map[string]cachedIndex{}}
-	go s.worker()
+	q := make(chan string, 64)
+	s := &sharedFiles{files: files, max: max, log: logf, queue: func(id string) { q <- id }, draws: make(chan struct{}, 2), urls: "/files/shared/", idx: map[string]cachedIndex{}}
+	go s.worker(q)
 	return s
+}
+
+// the largest shared file SLIQTLY_SHARED_MAX allows (in MB), else def
+func sharedMaxFromEnv(def int64) int64 {
+	if v, err := strconv.ParseInt(os.Getenv("SLIQTLY_SHARED_MAX"), 10, 64); err == nil && v > 0 {
+		return v << 20
+	}
+	return def
 }
 
 func sharedDir(id string) string      { return "shared/" + id }
@@ -208,11 +223,19 @@ func (s *sharedFiles) list(ctx context.Context) ([]sharedFile, error) {
 	for _, r := range refs {
 		id := strings.TrimSuffix(strings.TrimPrefix(r.Path, "sharedmeta/"), ".json")
 		if f, err := s.card(ctx, id); err == nil {
-			out = append(out, f)
+			out = append(out, s.seen(f))
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Added > out[j].Added })
 	return out, nil
+}
+
+// the card as it is shown: one whose reading was lost on the way failed
+func (s *sharedFiles) seen(f sharedFile) sharedFile {
+	if s.stale > 0 && f.Status == "indexing" && time.Since(time.UnixMilli(f.Updated)) > s.stale {
+		f.Status, f.Error = "failed", "reading it did not finish: the file may be too large"
+	}
+	return f
 }
 
 // --- putting a file in
@@ -227,6 +250,16 @@ func (e sharedErr) Error() string { return e.msg }
 // put keeps body as the shared file `name` (replacing the file `id`, or the
 // one the name gives, when there is one) and queues it to be read.
 func (s *sharedFiles) put(ctx context.Context, name, id string, body io.Reader) (sharedFile, error) {
+	return s.place(ctx, name, id, func(src string) (int64, string, error) {
+		info, err := s.files.SaveFrom(ctx, src, "application/octet-stream", io.LimitReader(body, s.max+1))
+		return info.Size, fmt.Sprintf("%x", info.Hash[:]), err
+	})
+}
+
+// place makes `name` the shared file `id` (or the one the name gives):
+// keep puts its bytes at src and says their size and a sum that changes
+// with them; the file is then queued to be read
+func (s *sharedFiles) place(ctx context.Context, name, id string, keep func(src string) (size int64, sum string, err error)) (sharedFile, error) {
 	name = sharedName(name)
 	if !strings.EqualFold(pathExt(name), ".fig") {
 		return sharedFile{}, sharedErr{400, "only Figma files (.fig) can be shared yet"}
@@ -237,30 +270,39 @@ func (s *sharedFiles) put(ctx context.Context, name, id string, body io.Reader) 
 	if !sharedIDPattern.MatchString(id) {
 		return sharedFile{}, sharedErr{400, "bad file id"}
 	}
+	f, err := s.keep(ctx, name, id, keep)
+	if err != nil {
+		return f, err
+	}
+	s.queue(id)
+	return f, nil
+}
+
+// keep places the file and writes its card, under the cards' lock
+func (s *sharedFiles) keep(ctx context.Context, name, id string, keep func(src string) (int64, string, error)) (sharedFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	src := sharedDir(id) + "/source.fig"
-	info, err := s.files.SaveFrom(ctx, src, "application/octet-stream", io.LimitReader(body, s.max+1))
+	size, sum, err := keep(src)
 	if err != nil {
 		return sharedFile{}, err
 	}
-	if info.Size > s.max {
+	if size > s.max {
 		s.files.Remove(src)
 		return sharedFile{}, sharedErr{413, fmt.Sprintf("a shared file is at most %d MB", s.max>>20)}
 	}
-	if info.Size == 0 {
+	if size == 0 {
 		s.files.Remove(src)
 		return sharedFile{}, sharedErr{400, "the file is empty"}
 	}
 	old, oldErr := s.card(ctx, id)
-	f := sharedFile{ID: id, Name: name, Kind: "figma", Bytes: info.Size, Sha: fmt.Sprintf("%x", info.Hash[:]), Status: "indexing", Added: time.Now().UnixMilli()}
+	f := sharedFile{ID: id, Name: name, Kind: "figma", Bytes: size, Sha: sum, Status: "indexing", Added: time.Now().UnixMilli()}
 	if oldErr == nil {
 		f.Added = old.Added
 	}
 	if err := s.putCard(ctx, f); err != nil {
 		return sharedFile{}, err
 	}
-	s.queue <- id
 	return f, nil
 }
 
@@ -301,8 +343,8 @@ func (s *sharedFiles) remove(ctx context.Context, id string) error {
 
 // --- reading a file (once)
 
-func (s *sharedFiles) worker() {
-	for id := range s.queue {
+func (s *sharedFiles) worker(q chan string) {
+	for id := range q {
 		s.read(context.Background(), id)
 		if s.indexed != nil {
 			s.indexed(id)
@@ -422,7 +464,7 @@ func sniffPicture(b []byte) string {
 	return "application/octet-stream"
 }
 
-func (s *sharedFiles) indexURL(id string) string { return "/files/shared/" + id + "/index.json" }
+func (s *sharedFiles) indexURL(id string) string { return s.urls + id + "/index.json" }
 
 // --- the indexes, for searching
 
@@ -532,8 +574,13 @@ func (s *sharedFiles) draw(ctx context.Context, id, node string, scale float64, 
 	if err != nil {
 		return nil, err
 	}
-	if f.Status != "ready" {
-		return nil, sharedErr{409, f.Name + " is " + f.Status}
+	switch f = s.seen(f); f.Status {
+	case "ready":
+	case "indexing":
+		// the page asks again in a moment (web/main.js)
+		return nil, sharedErr{409, f.Name + " is indexing"}
+	default:
+		return nil, sharedErr{422, f.Name + " could not be read"}
 	}
 	// a screen's name (figma:<file>/Login) is the layer it names in the
 	// index (src/PresFigma.rgr, as the editor and the MCP tools read it)

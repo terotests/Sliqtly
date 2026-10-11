@@ -24,6 +24,7 @@
 Import "JsonValue.rgr"
 Import "PresFlightHolo.rgr"
 Import "PresFlightCam.rgr"
+Import "Pres3DWorld.rgr"
 Import "../game_engine/three/src/three_webgl_renderer.rgr"
 Import "../game_engine/three/src/three_gl_backend.rgr"
 Import "../game_engine/three/src/three_scene.rgr"
@@ -314,6 +315,30 @@ class FlightGeo {
 
     ; Lines of points (x,y,z triples, `ends` where each ends, in points) as
     ; flat bands `rad` either side, facing +z: many short lines in one.
+    ; A w x h box round its middle with its corners cut `b` off, as one
+    ; closed line of points (x, y, z).
+    sfn bevelLoop:[double] (w:double h:double b:double) {
+        def hw:double (w * 0.5)
+        def hh:double (h * 0.5)
+        def c:double b
+        if (c > (hw * 0.5)) {
+            c = (hw * 0.5)
+        }
+        if (c > (hh * 0.5)) {
+            c = (hh * 0.5)
+        }
+        def xy:[double] ([] _:double (((0.0 - hw) + c) hh (hw - c) hh hw (hh - c) hw ((0.0 - hh) + c) (hw - c) (0.0 - hh) ((0.0 - hw) + c) (0.0 - hh) (0.0 - hw) ((0.0 - hh) + c) (0.0 - hw) (hh - c) ((0.0 - hw) + c) hh))
+        def out:[double]
+        def i:int 0
+        while ((i + 1) < (array_length xy)) {
+            push out (itemAt xy i)
+            push out (itemAt xy (i + 1))
+            push out 0.0
+            i = (i + 2)
+        }
+        return out
+    }
+
     sfn ribbons:ThreeBufferGeometry (pts:[double] ends:[int] rad:double) {
         def g:ThreeBufferGeometry (new ThreeBufferGeometry)
         def n:int (idiv (array_length pts) 3)
@@ -369,6 +394,31 @@ class FlightGeo {
         }
         return out
     }
+}
+
+; A slide's 3-D world (a program's <scene3d>) on a stand in front of its
+; slide, as a machine stands before a poster at a fair: the world's own
+; meshes in the flight's scene, seen as the world's camera saw them on the
+; slide. `root` is at the world's box, scaled; inside it `shift` sets the
+; camera's aim at the box, `turn` and `back` undo the camera's turn and
+; place, and the world's scene hangs under `back`.
+class FlightStand {
+    def src:string ""
+    def station:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def root:ThreeObject3D (new ThreeObject3D)
+    def shift:ThreeObject3D (new ThreeObject3D)
+    def turn:ThreeObject3D (new ThreeObject3D)
+    def back:ThreeObject3D (new ThreeObject3D)
+    def wo:Pres3DWorld (new Pres3DWorld())
+    ; its first frame came; its size and aim, fixed from that frame on
+    def built:boolean false
+    def fit:double 1.0
+    def aim:double 5.0
 }
 
 ; A thing in the flight that comes in with its station.
@@ -449,6 +499,7 @@ class PresFlight3D {
     def cam:PresFlightCam (new PresFlightCam())
     def parts:[FlightPart]
     def pics:[FlightPic]
+    def stands:[FlightStand]
     def pulses:[FlightPulse]
     ; the pictures' textures, kept from world to world and handed from
     ; picture to picture: only the stations near the camera hold them
@@ -495,6 +546,9 @@ class PresFlight3D {
     def bgR:double 0.008
     def bgG:double 0.016
     def bgB:double 0.03
+    ; the look's floor grid and dust (PresFlightScene's "look")
+    def gridC:[double] ([] _:double (0.2 0.75 0.95))
+    def dustC:[double] ([] _:double (0.55 0.8 1.0))
 
     Constructor () {
     }
@@ -515,6 +569,8 @@ class PresFlight3D {
         parts = np
         def nl:[FlightPic]
         pics = nl
+        def nst:[FlightStand]
+        stands = nst
         def nu:[FlightPulse]
         pulses = nu
         def nfr:[int]
@@ -547,8 +603,6 @@ class PresFlight3D {
         ride = -1
         curGroup = -1
         clock = 0.0
-        scene.setBackground(bgR bgG bgB)
-        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
         def amb:ThreeAmbientLight (new ThreeAmbientLight)
         amb.setIntensity(0.55)
         scene.add(amb)
@@ -562,6 +616,17 @@ class PresFlight3D {
             error = "the flight's world did not read"
             return error
         }
+        def lk:JVal (js.get("look"))
+        if (lk.isObj()) {
+            def bg:[double] (this.colourOf(lk "bg" ([] _:double (bgR bgG bgB))))
+            bgR = (itemAt bg 0)
+            bgG = (itemAt bg 1)
+            bgB = (itemAt bg 2)
+            gridC = (this.colourOf(lk "grid" gridC))
+            dustC = (this.colourOf(lk "dust" dustC))
+        }
+        scene.setBackground(bgR bgG bgB)
+        scene.setFog((ThreeFog.linear(bgR bgG bgB 30.0 120.0)))
         def st:JVal (js.get("stations"))
         def grid:ThreeTexture (FlightGeo.gridTexture())
         def i:int 0
@@ -680,10 +745,10 @@ class PresFlight3D {
         push p.dz dz
     }
 
-    fn colourOf:[double] (o:JVal) {
-        def c:JVal (o.get("c"))
+    fn colourOf:[double] (o:JVal key:string deflt:[double]) {
+        def c:JVal (o.get(key))
         if ((c.len()) < 3) {
-            return ([] _:double (0.36 0.88 1.0))
+            return deflt
         }
         def cr:JVal (c.at(0))
         def cg:JVal (c.at(1))
@@ -705,7 +770,7 @@ class PresFlight3D {
 
     fn addItem:void (o:JVal) {
         def kind:string (o.strOr("k" ""))
-        def c:[double] (this.colourOf(o))
+        def c:[double] (this.colourOf(o "c" ([] _:double (0.36 0.88 1.0))))
         def r:double (itemAt c 0)
         def g:double (itemAt c 1)
         def b:double (itemAt c 2)
@@ -716,6 +781,10 @@ class PresFlight3D {
             def soft:string (? (o.boolOr("soft" false)) ",\"soft\":1" "")
             def spec:string ("{\"w\":" + (to_string p.w) + ",\"h\":" + (to_string p.h) + soft + ",\"runs\":" + (runs.toJson()) + "}")
             this.addPic(p "text" spec 1.0 1.0 1.0 op)
+            return
+        }
+        if (kind == "world") {
+            this.addStand(o)
             return
         }
         if (kind == "picture") {
@@ -762,6 +831,19 @@ class PresFlight3D {
                 def pane:ThreeMesh (this.mesh((FlightGeo.picture()) (this.basic((r * 0.55) (g * 0.55) (b * 0.55) fill false))))
                 pane.scale.set(p.w p.h 1.0)
                 this.hold(p pane fill 0.0 0.0 0.0)
+            }
+            if (o.boolOr("bare" false)) {
+                ; a table's stripe: the pane alone
+                return
+            }
+            def bevel:double (o.numOr("bevel" 0.0))
+            if (bevel > 0.0) {
+                ; a table's frame: corners cut, a soft light along it
+                def loop:[double] (FlightGeo.bevelLoop(p.w p.h bevel))
+                def ends:[int] ([] _:int ((idiv (array_length loop) 3)))
+                this.hold(p (this.mesh((FlightGeo.ribbons(loop ends t)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+                this.hold(p (this.mesh((FlightGeo.ribbons(loop ends (t * 3.0))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                return
             }
             if band {
                 ; a marked code line: the light alone, an edge on its left
@@ -938,6 +1020,23 @@ class PresFlight3D {
         p.abs = true
         def rad:double (o.numOr("rad" 0.02))
         def ej:JVal (o.get("ends"))
+        ; the theme's line art: thin bands without a halo, as its many lines
+        ; add up where they cross
+        if (o.boolOr("art" false)) {
+            def aends:[int]
+            def ae:int 0
+            while (ae < (ej.len())) {
+                def av:JVal (ej.at(ae))
+                push aends (to_int (av.asNum(0.0)))
+                ae = (ae + 1)
+            }
+            if ((array_length aends) == 0) {
+                push aends np
+            }
+            def arad:double (? (rad < 0.015) rad 0.015)
+            this.hold(p (this.mesh((FlightGeo.ribbons(pts aends arad)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+            return
+        }
         if ((ej.len()) > 1) {
             ; many lines of one look (a grid, ticks, rules): flat bands
             def ends:[int]
@@ -949,10 +1048,7 @@ class PresFlight3D {
             }
             if (rad < 0.025) {
                 this.hold(p (this.mesh((FlightGeo.ribbons(pts ends rad)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
-                ; the theme's line art: no halo, its lines sum up as they cross
-                if (o.boolOr("art" false) == false) {
-                    this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
-                }
+                this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
                 return
             }
             ; a thick line broken in pieces (a timeline past its numbers):
@@ -1055,7 +1151,7 @@ class PresFlight3D {
     fn addFloor:void (i:int sx:double sy:double sz:double grid:ThreeTexture) {
         def plane:ThreePlaneGeometry (new ThreePlaneGeometry)
         plane.build(56.0 56.0 1 1)
-        def m:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.42 true))
+        def m:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.42 true))
         m.setMap(grid)
         def me:ThreeMesh (this.mesh(plane m))
         me.position.set(sx (sy - 5.5) sz)
@@ -1076,7 +1172,7 @@ class PresFlight3D {
         def bh:double (((to_double rows) * layout.cellH) + 40.0)
         def back:ThreePlaneGeometry (new ThreePlaneGeometry)
         back.build(bw bh 1 1)
-        def bm:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.0 true))
+        def bm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
         bm.setMap(grid)
         def bk:ThreeMesh (this.mesh(back bm))
         def p0:[double] (layout.placeOf(1 0))
@@ -1087,7 +1183,7 @@ class PresFlight3D {
         def rr:double ((layout.radius()) * 2.6)
         def ring:ThreePlaneGeometry (new ThreePlaneGeometry)
         ring.build(rr rr 1 1)
-        def rm:ThreeMeshBasicMaterial (this.basic(0.2 0.75 0.95 0.0 true))
+        def rm:ThreeMeshBasicMaterial (this.basic((itemAt gridC 0) (itemAt gridC 1) (itemAt gridC 2) 0.0 true))
         rm.setMap(grid)
         def rf:ThreeMesh (this.mesh(ring rm))
         rf.position.set((itemAt layout.ox 0) ((itemAt layout.oy 0) - 5.5) ((itemAt layout.oz 0) + (layout.radius())))
@@ -1239,7 +1335,7 @@ class PresFlight3D {
             i = (i + 1)
         }
         def g:ThreeBufferGeometry (FlightGeo.boxes(spec))
-        def m:ThreeMeshBasicMaterial (this.basic(0.55 0.8 1.0 0.7 true))
+        def m:ThreeMeshBasicMaterial (this.basic((itemAt dustC 0) (itemAt dustC 1) (itemAt dustC 2) 0.7 true))
         this.mesh(g m)
     }
 
@@ -1318,6 +1414,118 @@ class PresFlight3D {
             set pc.part.dx pc.slot ox
         }
     }
+    ; ---- the slides' 3-D worlds on their stands ------------------------------------
+
+    fn addStand:void (o:JVal) {
+        def st:FlightStand (new FlightStand())
+        st.src = (o.strOr("src" ""))
+        st.station = (o.intOr("s" 0))
+        st.x = (o.numOr("x" 0.0))
+        st.y = (o.numOr("y" 0.0))
+        st.z = (o.numOr("z" 0.0))
+        st.w = (o.numOr("w" 0.0))
+        st.h = (o.numOr("h" 0.0))
+        st.root.position.set(st.x st.y st.z)
+        st.root.visible = false
+        st.root.add(st.shift)
+        st.shift.add(st.turn)
+        st.turn.add(st.back)
+        st.back.add(st.wo.scene)
+        if ((curGroup >= 0) && (curGroup < (array_length groups))) {
+            def grp:ThreeObject3D (itemAt groups curGroup)
+            grp.add(st.root)
+        } {
+            scene.add(st.root)
+        }
+        push stands st
+    }
+
+    ; The worlds on stands, for the page: their pictures' src (the slide's
+    ; `three:` picture, PresApp.playScenesJson's "src") and stations.
+    fn standCount:int () {
+        return (array_length stands)
+    }
+    fn standSrc:string (i:int) {
+        def st:FlightStand (itemAt stands i)
+        return st.src
+    }
+    fn standStation:int (i:int) {
+        def st:FlightStand (itemAt stands i)
+        return st.station
+    }
+
+    ; World i's frame (its <scene3d> as JSON): its meshes changed in place,
+    ; and the stand turned so the flight sees it as its camera does. ""
+    ; when taken, else why not.
+    ; The world's element's box in its picture: from the picture's left and
+    ; top, its width and height, each a share of the picture's (a world's
+    ; picture is the whole slide, its camera framing the element's box).
+    fn setStand:string (i:int json:string bx:double by:double bw:double bh:double) {
+        if ((i < 0) || (i >= (array_length stands))) {
+            return "no such world"
+        }
+        def st:FlightStand (itemAt stands i)
+        st.wo.setScene(json (new Pres3DEnv()))
+        def eh:double (bh * st.h)
+        st.root.position.set(((st.x - (st.w * 0.5)) + ((bx + (bw * 0.5)) * st.w)) ((st.y + (st.h * 0.5)) - ((by + (bh * 0.5)) * st.h)) st.z)
+        def c:ThreeVector3 st.wo.camera.position
+        def q:ThreeQuaternion st.wo.camera.quaternion
+        if (st.built == false) {
+            def fv:double (PresFlight3D.fitOf(st (st.wo.scene.boundingBox()) eh))
+            st.fit = fv
+            st.built = true
+        }
+        st.root.scale.set(st.fit st.fit st.fit)
+        st.shift.position.set(0.0 0.0 st.aim)
+        st.turn.quaternion.set((0.0 - q.x) (0.0 - q.y) (0.0 - q.z) q.w)
+        st.turn.quatDriven = true
+        st.back.position.set((0.0 - c.x) (0.0 - c.y) (0.0 - c.z))
+        return st.wo.error
+    }
+
+    ; How much the world is scaled on its stand: what its camera sees at
+    ; its aim (how far ahead the world's middle is) fills the world's box
+    ; on the slide, as the slide's picture of it did.
+    sfn fitOf:double (st:FlightStand box:ThreeBox3 eh:double) {
+        def c:ThreeVector3 st.wo.camera.position
+        def q:ThreeQuaternion st.wo.camera.quaternion
+        ; the camera looks down its own -z
+        def fx:double (0.0 - (2.0 * ((q.x * q.z) + (q.w * q.y))))
+        def fy:double (0.0 - (2.0 * ((q.y * q.z) - (q.w * q.x))))
+        def fz:double (0.0 - (1.0 - (2.0 * ((q.x * q.x) + (q.y * q.y)))))
+        def d:double 0.0
+        if ((box.isEmpty()) == false) {
+            def mx:double ((box.min.x + box.max.x) * 0.5)
+            def my:double ((box.min.y + box.max.y) * 0.5)
+            def mz:double ((box.min.z + box.max.z) * 0.5)
+            d = ((((mx - c.x) * fx) + ((my - c.y) * fy)) + ((mz - c.z) * fz))
+        }
+        if (d <= 0.1) {
+            d = (sqrt ((((c.x * c.x) + (c.y * c.y)) + (c.z * c.z))))
+        }
+        if (d <= 0.1) {
+            d = 5.0
+        }
+        st.aim = d
+        def fov:double ((st.wo.camera.fov * 3.141592653589793) / 180.0)
+        def seen:double ((2.0 * d) * (tan ((fov * 0.5))))
+        if (seen <= 0.0) {
+            return 1.0
+        }
+        return (eh / seen)
+    }
+
+    ; The stands come and go with their stations.
+    fn showStands:void () {
+        def i:int 0
+        while (i < (array_length stands)) {
+            def st:FlightStand (itemAt stands i)
+            def u:double (this.shown(st.station 0 0 -1))
+            st.root.visible = ((st.built && (u > 0.001)) && ((this.pastGoal(st.station)) > 0.001)) && (this.near((this.zNow(st.station st.z))))
+            i = (i + 1)
+        }
+    }
+
     ; The pictures of stations further than `keep` from station `now` give
     ; their textures back (they are made again when the camera nears).
     fn releasePics:void (now:int keep:int) {
@@ -1492,6 +1700,7 @@ class PresFlight3D {
             this.animate((itemAt parts i))
             i = (i + 1)
         }
+        this.showStands()
         i = 0
         while (i < (array_length pulses)) {
             this.runPulse((itemAt pulses i))

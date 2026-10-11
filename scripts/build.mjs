@@ -161,8 +161,15 @@ export function build({ ranger } = {}) {
   compile(ranger, "PresBeat.rgr", beatJs);
   fs.writeFileSync(beatJs, "// the deck's music: bars, beats and tempo for the beat effects.\n"
     + "(function () {\n" + fs.readFileSync(beatJs, "utf8") + "\n;globalThis.PresBeat = PresBeat;\n})();\n");
+  // Sliqtly's own video encoder (src/PresVp8.rs, Rust that Ranger reads):
+  // VP8 frames in WebM, loaded only when a video is made.
+  const vp8Js = path.join(distDir, "vp8enc.js");
+  compile(ranger, "PresVp8.rs", vp8Js);
+  fs.writeFileSync(vp8Js, "// loaded on demand: the VP8/WebM video encoder (src/PresVp8.rs).\n"
+    + "(function () {\n" + fs.readFileSync(vp8Js, "utf8") + "\n;globalThis.Vp8Video = Vp8Video;\n})();\n");
   minify(appJs);
   minify(beatJs);
+  minify(vp8Js);
   minify(dataJs);
   minify(traceJs);
 
@@ -170,7 +177,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "videoexport.js", "recstream.js", "playlink.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "flight3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "videoexport.js", "recstream.js", "playlink.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "flight3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "find.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
   // frames go through, and the WASI the engine needs, from componentengine
   const cerxes = ensureCerxes();

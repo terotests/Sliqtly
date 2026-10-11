@@ -692,7 +692,20 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+// A design file (.fig) for the signed-in account's own files
+// (web/sharedfiles.js): put in its Storage upload folder (storage.rules
+// figma-upload), from where the server moves it in (mcp-go/cloudshared.go).
+// `folder` is the one the server named. → the object's path
+async function uploadFigma(file, folder) {
+  if (!user) throw new Error(t("Sign in first"));
+  if (!folder.startsWith(`users/${user.uid}/figma-upload/`)) throw new Error("bad upload folder");
+  const { files } = await store();
+  const path = folder + shortId() + ".fig";
+  await files.ref(path).put(file, { contentType: "application/octet-stream" });
+  return path;
+}
+
+window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 // sliqtly.com/editor's Rooms search: the signed-in user's own presentations
 // and those they were invited to edit, whose words hold q, searched by
 // the server (mcp-go/searchapi.go)

@@ -33,7 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote } from "./sharedfiles.js";
+import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -56,7 +56,7 @@ import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
 import { createMusic } from "./music.js";
 import { registerBeatEffects } from "./beatfx.js";
-import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
+import { themePicture, picturesToDraw, fitPage, lookTiles, drawLookTile } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
 // Where the editor's addresses start: sliqtly.com serves the editor at
@@ -427,8 +427,9 @@ function loadInlineSvgs(rev) {
 // A screen of a shared Figma file on a slide (`![…](figma:<file>/<layer>)`,
 // src/PresFigma.rgr): drawn by the server from the file's index
 // (web/sharedfiles.js) and put in the store where the slide looks for it.
-// Only a server of one's own keeps shared files; elsewhere the picture
-// stays its alt text.
+// A server of one's own keeps shared files, and sliqtly.com/editor each
+// account's own, a deck's pictures drawn from its owner's; elsewhere the
+// picture stays its alt text.
 let figmaRev = "";
 const figmaBusy = new Set();
 const figmaFailed = new Set();
@@ -438,14 +439,15 @@ function loadFigmaPictures(rev) {
   try { list = JSON.parse(app.figmaPicturesJson() || "[]"); } catch (_) { return; }
   const fresh = list.filter((u) => !figmaBusy.has(u.path) && !figmaFailed.has(u.path));
   if (!fresh.length) return;
-  if (!ownServer()) {
+  if (!sharedOn()) {
     for (const u of fresh) figmaFailed.add(u.path);
     return;
   }
   for (const u of fresh) figmaBusy.add(u.path);
+  const deck = CLOUD_ONLY ? (viewer ? viewShare?.id : doc.cloud) || "" : "";
   Promise.all(fresh.map(async (u) => {
     try {
-      const res = await fetch(sharedPngUrl(u.file, u.node));
+      const res = await fetch(sharedPngUrl(u.file, u.node, 2048, deck));
       // the file is still being indexed: asked again in a moment
       if (res.status === 409) {
         setTimeout(() => { figmaRev = ""; needsPaint = true; }, 3000);
@@ -467,17 +469,27 @@ function loadFigmaPictures(rev) {
 }
 
 // --- the shared Files (a server of one's own, web/sharedfiles.js) ---------------
-// Files everyone on the server can use: the rail's Files place lists them,
-// a row opens a Figma file's window (PresChartEditor "figma") with its
-// screens as tiles. The list is asked again while a file is being indexed.
+// Files everyone on the server can use (on sliqtly.com/editor: the
+// account's own): the rail's Files place lists them, a row opens a Figma
+// file's window (PresChartEditor "figma") with its screens as tiles. The
+// list is asked again while a file is being indexed.
+function sharedOn() {
+  return ownServer() || CLOUD_ONLY;
+}
+if (CLOUD_ONLY) useEditorRoots();
+// sliqtly.com: the Storage folder a file is uploaded to first
+let sharedUpload = "";
+let sharedMax = 0;
 let sharedFilesList = [];
 let sharedPoll = 0;
 const sharedIndexes = new Map(); // id → { updated, json }
 async function sharedRefresh() {
-  if (viewer || !ownServer()) return;
+  if (viewer || !sharedOn()) return;
   let res;
   try { res = await listShared(); } catch (e) { console.warn("shared files not listed", e); return; }
   sharedFilesList = res?.files || [];
+  sharedUpload = res?.upload || "";
+  sharedMax = Number(res?.max) || 0;
   const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
   app.setToolbarOptions("files", rows.join("\n"), "1");
   const open = app.figmaFileOpen();
@@ -513,9 +525,15 @@ async function sharedRequest(r) {
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
+      // said here, before a long upload the server would refuse
+      if (sharedMax && file.size > sharedMax) {
+        toast(t("Could not add the file") + ": " + t("a shared file is at most {n} MB").replace("{n}", String(Math.round(sharedMax / (1 << 20)))));
+        return;
+      }
       toast(t("Adding {name}…").replace("{name}", file.name));
       try {
-        const card = await putShared(file);
+        const upload = CLOUD_ONLY ? (f) => window.sliqtly.uploadFigma(f, sharedUpload) : null;
+        const card = await putShared(file, fetch, upload);
         await sharedRefresh();
         if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
       } catch (e) { toast(t("Could not add the file") + ": " + e.message); }
@@ -3365,7 +3383,7 @@ function lookTheme() {
 }
 // Every chrome sheet without the skins, as loaded (start), and the skins'
 // own text: the skins go after each sheet with the chosen hue at the end.
-const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
+const chromeSheets = { files: "", chrome: null, chart: null, hint: null, find: null, panels: null, toolbar: null };
 // The dark look of a sheet is derived from it (EVGUI's UiDark, through
 // PresApp.darkCss): every colour it sets, scoped to .theme-dark and mapped so
 // each contrast stays what it was. Worked out once per sheet and host theme,
@@ -3391,6 +3409,7 @@ function sendChromeCss() {
   const c = chromeSheets;
   if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
   if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
+  if (c.find != null) app.setFindCss(c.find + skinCss(c.find, "fb"));
   if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
   if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
 }
@@ -3570,6 +3589,18 @@ let themePicGl = null;
 const themePicCanvas = document.createElement("canvas");
 function queueThemePictures() {
   themePicQueue = picturesToDraw(selectRows(themeSel), themePicDrawn, lang);
+  needsPaint = true;
+}
+// The 3-D looks' tiles: drawn at once, they are only colours.
+function drawLookPictures(rows) {
+  for (const look of lookTiles(rows)) {
+    if (pictures.has(themePicture(look.key))) continue;
+    const c = document.createElement("canvas");
+    c.width = THEME_PIC.w * THEME_PIC.dpr;
+    c.height = THEME_PIC.h * THEME_PIC.dpr;
+    drawLookTile(c.getContext("2d"), c.width, c.height, look);
+    pictures.set(themePicture(look.key), asPicture(c));
+  }
   needsPaint = true;
 }
 function drawThemePicture() {
@@ -3892,6 +3923,8 @@ function paintOnce() {
       paintList(app.codeJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
+    } else if (layer === "find") {
+      paintList(app.findJson());
     } else if (layer === "hint") {
       paintList(app.hintJson());
     } else if (layer === "chart") {
@@ -4946,7 +4979,10 @@ function handleRequests() {
       }
     } else if (r === "themes") {
       // Slide → Theme…: the themes as tiles with their pictures
-      if (app.openThemes(selectRows(themeSel), themeSel.value || "")) needsPaint = true;
+      // with the 3-D flight on, its looks on a tab of their own
+      const rows = selectRows(themeSel) + (flightOn ? "\n" + app.flightLookRows() : "");
+      if (app.openThemes(rows, themeSel.value || "")) needsPaint = true;
+      if (flightOn) drawLookPictures(rows);
     } else if (r === "theme-pictures") {
       queueThemePictures();
     } else if (r === "theme-edited") {
@@ -7623,6 +7659,27 @@ const KEY_MAP = {
   Home: "home", End: "end", PageUp: "pageUp", PageDown: "pageDown", Escape: "escape",
 };
 const CLIPBOARD_CHORD = /^[cxvCXV]$/;
+// Find and replace in the code editor (src/PresFindBar.rgr), VS Code's keys:
+// Ctrl/Cmd+F find, Ctrl+H (Cmd+Alt+F on a Mac, where Cmd+H hides the window)
+// replace; while the bar is open F3 / Ctrl/Cmd+G the next match (Shift: the
+// one before), and with the bar's field in focus Alt+C / W / R / L its
+// switches (match case, whole word, regex, in selection). By `code`, since
+// Alt changes the letter a Mac reports.
+function findChordOf(ev) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  const where = app.focusTarget();
+  if (where === "editor" || where === "find") {
+    if (mod && !ev.shiftKey && ev.code === "KeyF") return !ev.altKey ? "find" : IS_MAC ? "replace" : "";
+    if (!IS_MAC && ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey && ev.code === "KeyH") return "replace";
+  }
+  if (!app.findIsOpen()) return "";
+  if (ev.key === "F3" && !mod && !ev.altKey) return ev.shiftKey ? "prev" : "next";
+  if (mod && !ev.altKey && ev.code === "KeyG") return ev.shiftKey ? "prev" : "next";
+  if (ev.altKey && !mod && !ev.shiftKey && where === "find") {
+    return { KeyC: "case", KeyW: "word", KeyR: "regex", KeyL: "scope" }[ev.code] || "";
+  }
+  return "";
+}
 // The code editor's text size: Ctrl/Cmd + plus / minus / 0 while the editor
 // has the keyboard (the browser's own zoom everywhere else), and Ctrl + wheel
 // or a trackpad pinch over it. Kept per browser.
@@ -7788,9 +7845,16 @@ keys.addEventListener("keydown", (ev) => {
     afterInput();
     return;
   }
-  if (!presenting && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
+  if (!presenting && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter" && app.focusTarget() !== "find") {
     ev.preventDefault();
     if (app.isPlaying()) app.stop(); else app.play();
+    afterInput();
+    return;
+  }
+  const findChord = presenting ? "" : findChordOf(ev);
+  if (findChord && app.findChord(findChord)) {
+    ev.preventDefault();
+    closeHint();
     afterInput();
     return;
   }
@@ -7805,7 +7869,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room" && app.focusTarget() !== "find") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
@@ -9050,6 +9114,7 @@ async function start() {
   chromeSheets.chart = kit + "\n" + chartCss;
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
+  textOf("./find.css").then((c) => { chromeSheets.find = kit + "\n" + c; app.setFindCss(chromeSheets.find + skinCss(chromeSheets.find, "fb")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   // the signed-in account's own store and keys, before anything kept is read
   useAccount(await accountScope().catch((e) => { console.warn("no account known", e); return EDITOR_ROOT && !viewer ? "signed-out" : ""; }));

@@ -1,0 +1,150 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; The 3-D flight's looks: the colours its holograms glow in. "minority" is
+; the flight as it was made (cyan glass, the slide's own colours); the
+; others pull every colour towards one hue of their own (a gold HUD, a
+; violet hologram, red panels). The deck picks one with `look-3d:` in its
+; front matter (Slide → Theme…, tab 3-D); no drawing here.
+Import "PresI18n.rgr"
+
+class FlightLook {
+    def key:string "minority"
+    def label:string "Minority Report"
+    ; the hue everything glows in
+    def r:double 0.36
+    def g:double 0.88
+    def b:double 1.0
+    ; how far the slide's own colours go towards it (0: kept, 1: that hue only)
+    def mono:double 0.0
+    ; the air
+    def bgR:double 0.008
+    def bgG:double 0.016
+    def bgB:double 0.03
+    ; the floor's grid
+    def gridR:double 0.2
+    def gridG:double 0.75
+    def gridB:double 0.95
+    ; dust in the air
+    def dustR:double 0.55
+    def dustG:double 0.8
+    def dustB:double 1.0
+
+    ; The looks there are, the first the one a deck has without `look-3d:`.
+    sfn keys:[string] () {
+        return ([] _:string ("minority" "gold" "violet" "red"))
+    }
+
+    ; The look by its key; an unknown key is the first look.
+    sfn named:FlightLook (key:string) {
+        def k:string (trim key)
+        def l:FlightLook (new FlightLook())
+        if (k == "gold") {
+            l.key = k
+            l.label = "Gold HUD"
+            l.set(1.0 0.74 0.22 0.85)
+            l.air(0.018 0.012 0.0)
+            l.grid(0.95 0.62 0.12)
+            l.dust(1.0 0.8 0.4)
+        }
+        if (k == "violet") {
+            l.key = k
+            l.label = "Violet hologram"
+            l.set(0.78 0.5 1.0 0.7)
+            l.air(0.016 0.006 0.04)
+            l.grid(0.62 0.36 1.0)
+            l.dust(0.85 0.6 1.0)
+        }
+        if (k == "red") {
+            l.key = k
+            l.label = "Red panels"
+            l.set(1.0 0.3 0.24 0.8)
+            l.air(0.03 0.004 0.006)
+            l.grid(0.9 0.18 0.14)
+            l.dust(1.0 0.5 0.4)
+        }
+        return l
+    }
+
+    ; The looks as the theme picker's rows ("look3d:key<TAB>label<TAB>3-D"),
+    ; each with its colours for the tile's picture: glow, air and grid as
+    ; "r,g,b" (0..255) after a fourth tab, split by ";".
+    sfn rows:string () {
+        def out:string ""
+        for (FlightLook.keys()) k:string i {
+            def l:FlightLook (FlightLook.named(k))
+            if (i > 0) {
+                out = (out + (strfromcode 10))
+            }
+            def cs:string ((FlightLook.rgb255(l.r l.g l.b)) + ";" + (FlightLook.rgb255(l.bgR l.bgG l.bgB)) + ";" + (FlightLook.rgb255(l.gridR l.gridG l.gridB)))
+            out = (out + (FlightLook.tileKey(k)) + (strfromcode 9) + (PresI18n.t(l.label)) + (strfromcode 9) + "3-D" + (strfromcode 9) + cs)
+        }
+        return out
+    }
+
+    ; A look's tile in the theme picker, and the look a tile is of ("" for
+    ; a theme's tile).
+    sfn tileKey:string (key:string) {
+        return ("look3d:" + key)
+    }
+    sfn ofTile:string (tile:string) {
+        if ((indexOf tile "look3d:") == 0) {
+            return (substring tile 7 (strlen tile))
+        }
+        return ""
+    }
+
+    sfn rgb255:string (cr:double cg:double cb:double) {
+        return ((to_string (to_int ((cr * 255.0) + 0.5))) + "," + (to_string (to_int ((cg * 255.0) + 0.5))) + "," + (to_string (to_int ((cb * 255.0) + 0.5))))
+    }
+
+    fn set:void (cr:double cg:double cb:double m:double) {
+        r = cr
+        g = cg
+        b = cb
+        mono = m
+    }
+    fn air:void (cr:double cg:double cb:double) {
+        bgR = cr
+        bgG = cg
+        bgB = cb
+    }
+    fn grid:void (cr:double cg:double cb:double) {
+        gridR = cr
+        gridG = cg
+        gridB = cb
+    }
+    fn dust:void (cr:double cg:double cb:double) {
+        dustR = cr
+        dustG = cg
+        dustB = cb
+    }
+
+    ; A colour (0..1 each) as this look shows it: as bright as it was, its hue
+    ; `mono` of the way to the look's own. White stays a little whiter than
+    ; the hue, so words read on it.
+    fn tint:[double] (cr:double cg:double cb:double) {
+        if (mono <= 0.0) {
+            return ([] _:double (cr cg cb))
+        }
+        def v:double cr
+        if (cg > v) {
+            v = cg
+        }
+        if (cb > v) {
+            v = cb
+        }
+        def lo:double cr
+        if (cg < lo) {
+            lo = cg
+        }
+        if (cb < lo) {
+            lo = cb
+        }
+        ; a grey's share of white: how far towards white it goes
+        def white:double (? (v > 0.0) ((lo / v) * 0.3) 0.0)
+        def tr:double (v * (r + ((1.0 - r) * white)))
+        def tg:double (v * (g + ((1.0 - g) * white)))
+        def tb:double (v * (b + ((1.0 - b) * white)))
+        def k:double (1.0 - mono)
+        return ([] _:double (((cr * k) + (tr * mono)) ((cg * k) + (tg * mono)) ((cb * k) + (tb * mono))))
+    }
+}

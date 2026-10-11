@@ -157,6 +157,9 @@ type Env struct {
 	// shared: the files everyone on the server sees (sharedfiles.go), a
 	// server of its own only; nil elsewhere
 	shared *sharedFiles
+	// cloudShared: each signed-in account's own shared files on
+	// sliqtly.com (cloudshared.go); nil elsewhere
+	cloudShared *cloudShared
 	// cloudRooms: the cloud's shared rooms and their chat, for the editor's
 	// signed-in people (POST /editor/api/rooms/<op>, editorrooms.go); nil
 	// elsewhere
@@ -361,6 +364,8 @@ type McpHost struct {
 	// the picture a host tool answered with (get_figma_screen), for
 	// ToolImage
 	toolImage []byte
+	// the signed-in account the request is for (SetCaller), "" for none
+	caller string
 	// what was read may read otherwise next time: live data from the web,
 	// a picture or file that did not come (a layout made so is not kept,
 	// viewcache.go)
@@ -455,7 +460,7 @@ func (h *McpHost) Asset(name string) string {
 		} else {
 			md = withRooms(md)
 		}
-		if h.env.shared == nil {
+		if h.env.shared == nil && h.env.cloudShared == nil {
 			return withoutPart(md, "figma")
 		}
 		return withPart(md, "figma")
@@ -893,7 +898,7 @@ func (h *McpHost) CallTool(uid, who, name, args string) string {
 	var out any
 	var err error
 	if h.hasSharedTool(name) {
-		out, err = h.callSharedTool(name, a)
+		out, err = h.callSharedTool(uid, name, a)
 	} else {
 		out, err = h.env.rooms.call(h.ctx, uid, name, a)
 	}

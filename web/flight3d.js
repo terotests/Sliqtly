@@ -113,7 +113,7 @@ function asRangerBuffer(ab) {
 const PICS_NEAR = 2;
 
 /**
- * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(),
+ * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(), playScenesJson(), allPlayScenesJson(),
  * selectedSlide(), selectSlide(i); picturePixels(src, max) a picture of the
  * slides as ImageData, its long side at most `max` (null: not here yet);
  * toast(text); t(text) the UI's language; onExit() after the flight, back
@@ -167,13 +167,71 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     }
   }
 
+  // The slides' 3-D worlds on their stands: each as its program last drew
+  // it, and the one of the station flown to live. Only that slide is on the
+  // stage, so only its program runs; the others stand still.
+  let standJson = "";
+  function standBox(s) {
+    const whole = !s.clip && s.sw > 0 && s.sh > 0;
+    const rx = whole ? 0 : s.x;
+    const ry = whole ? 0 : s.y;
+    const rw = whole ? s.sw : s.w;
+    const rh = whole ? s.sh : s.h;
+    if (!(rw > 0 && rh > 0)) return null;
+    return [(s.x - rx) / rw, (s.y - ry) / rh, s.w / rw, s.h / rh];
+  }
+  function giveStands(list, only) {
+    const n = world.standCount();
+    for (const s of list) {
+      const box = standBox(s);
+      if (!box) continue;
+      for (let i = 0; i < n; i++) {
+        if (world.standSrc(i) !== s.src || (only >= 0 && world.standStation(i) !== only)) continue;
+        const why = world.setStand(i, JSON.stringify(s.scene), box[0], box[1], box[2], box[3]);
+        if (why) console.warn("scene3d: " + why);
+      }
+    }
+  }
+  function seedStands() {
+    standJson = "";
+    if (!world.standCount()) return;
+    try { giveStands(JSON.parse(app.allPlayScenesJson()).scenes || [], -1); } catch (e) { console.warn(e); }
+  }
+  function feedStands(now) {
+    const n = world.standCount();
+    let here = false;
+    for (let i = 0; i < n && !here; i++) here = world.standStation(i) === now;
+    if (!here) return;
+    // its slide on the stage: its program runs
+    if (app.selectedSlide() !== now) {
+      app.selectSlide(now);
+      standJson = "";
+    }
+    const json = app.playScenesJson();
+    if (json === standJson) return;
+    standJson = json;
+    try { giveStands(JSON.parse(json), now); } catch (e) { console.warn(e); }
+  }
+
+  // The look's own hue (front matter `look-3d:`) for the words over the world.
+  let hudGlow = [0.36, 0.88, 1.0];
+  function lookGlow(json) {
+    try {
+      const g = JSON.parse(json).look?.glow;
+      if (Array.isArray(g) && g.length === 3) return g;
+    } catch (_) { /* the default */ }
+    return [0.36, 0.88, 1.0];
+  }
+
   function makeHud() {
+    const [r, g, b] = hudGlow.map((v) => Math.round(v * 255));
+    const lite = hudGlow.map((v) => Math.round((v * 0.6 + 0.4) * 255));
     hud = document.createElement("div");
     hud.id = "flightHud";
     hud.setAttribute("aria-live", "polite");
     hud.style.cssText = "position:fixed;left:0;right:0;bottom:24px;z-index:2147483001;pointer-events:none;"
       + "display:flex;flex-direction:column;align-items:center;gap:8px;font:500 15px Inter,system-ui,sans-serif;"
-      + "color:#9feaff;text-shadow:0 0 8px rgba(92,225,255,.8);letter-spacing:.04em";
+      + `color:rgb(${lite.join(",")});text-shadow:0 0 8px rgba(${r},${g},${b},.8);letter-spacing:.04em`;
     hud.innerHTML = '<div class="where"></div><div class="help" style="opacity:.75;font-size:13px;transition:opacity .8s"></div>';
     hud.querySelector(".help").textContent = t("Space / → next · ← back · W A S D fly · Q E turn · V layout · Shift fast · Esc leaves");
     document.body.appendChild(hud);
@@ -231,6 +289,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     if (said.split("\n").includes("layout")) showLayout();
     world.frame(dt);
     makePictures(world.stationNow());
+    feedStands(world.stationNow());
     const [w, h] = size();
     world.draw(w, h);
     showStation();
@@ -295,14 +354,17 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
         return t("The 3-D flight needs WebGL");
       }
     }
-    const why = world.load(app.flightJson());
+    const json = app.flightJson();
+    const why = world.load(json);
     if (why) return why;
+    hudGlow = lookGlow(json);
     world.startAt(app.selectedSlide());
     canvas = gl;
     three3d.pause(true);
     canvas.style.cssText = "display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;background:#02040a;cursor:grab;touch-action:none";
     picRetry = new Map();
     makeHud();
+    seedStands();
     shown = -1;
     hintUntil = performance.now() + 5000;
     held.clear();

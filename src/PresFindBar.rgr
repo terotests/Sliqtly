@@ -1,0 +1,255 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFindBar.rgr — Ctrl/Cmd+F in the code editor: EVGUI's FindBarCtl
+; ============================================================================
+;
+; The bar (find, Aa / ab / .*, the count, ↑ ↓, find in selection, ×, and the
+; replace row) is EVGUI's FindBarCtl in a UiHost of its own as big as the app,
+; drawn over the editor's top right corner like VS Code's. What it finds is
+; the editor's (ScriptEditor's EditorFind): PresApp sends the query and the
+; switches there and puts the editor's count back here (`setStatus`).
+;
+; The card has a sheet of its own (ui.css + web/find.css) and runs under the
+; theme "fb", which the page derives the dark and retro looks for.
+; ============================================================================
+
+Import "PresI18n.rgr"
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/FindBarCtl.rgr"
+Import "UiKit.rgr"
+
+class PresFindBar {
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def skin:string ""
+    def isOpen:boolean false
+    def w:double 1200.0
+    def h:double 700.0
+    ; the right edge and the top the card keeps to (app coordinates)
+    def right:double 800.0
+    def top:double 40.0
+    ; keys go to the bar (true) or to the editor under it
+    def focused:boolean false
+    def bar:FindBarCtl (new FindBarCtl())
+    def selecting:boolean false
+    def measurer@(optional):TTFTextMeasurer
+    def rev:int 0
+
+    Constructor () {
+        bar.setup("findbar" "Find")
+    }
+
+    fn words:void () {
+        bar.name = (PresI18n.t("Find"))
+        bar.findLabel = (PresI18n.t("Find"))
+        bar.replaceLabel = (PresI18n.t("Replace"))
+        bar.caseLabel = (PresI18n.t("Match Case"))
+        bar.wordLabel = (PresI18n.t("Match Whole Word"))
+        bar.regexLabel = (PresI18n.t("Use Regular Expression"))
+        bar.prevLabel = (PresI18n.t("Previous Match"))
+        bar.nextLabel = (PresI18n.t("Next Match"))
+        bar.scopeLabel = (PresI18n.t("Find in Selection"))
+        bar.closeLabel = (PresI18n.t("Close"))
+        bar.toggleLabel = (PresI18n.t("Toggle Replace"))
+        bar.replaceOneLabel = (PresI18n.t("Replace"))
+        bar.replaceAllLabel = (PresI18n.t("Replace All"))
+    }
+
+    fn open:void (query:string withReplace:boolean) {
+        this.words()
+        bar.open(query withReplace)
+        isOpen = true
+        focused = true
+        this.rebuild()
+    }
+
+    fn close:void () {
+        isOpen = false
+        focused = false
+        selecting = false
+    }
+
+    ; "3 of 17", "No results" — or why the pattern cannot be read.
+    fn setStatus:void (text:string miss:boolean) {
+        if ((bar.status == text) && (bar.noMatch == miss)) {
+            return
+        }
+        bar.status = text
+        bar.noMatch = miss
+        this.rebuild()
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
+        fresh.hoverTid = host.hoverTid
+        host = fresh
+        host.setTheme((trim ("fb " + skin)))
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root"
+        bar.hasKeys = focused
+        bar.build()
+        def card:EVGElement (unwrap bar.rootEl)
+        UiTree.surface(card "free" "start")
+        card.overlayX = (right - 480.0)
+        card.overlayY = top
+        UiKit.put(host bar root)
+        rev = (rev + 1)
+    }
+
+    fn page:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        ; held to the right edge by its own width
+        def c:EVGElement (unwrap bar.rootEl)
+        def x:double (right - c.calculatedWidth)
+        if (x < 8.0) {
+            x = 8.0
+        }
+        if (x != c.overlayX) {
+            c.overlayX = x
+            lay.layout(pg)
+        }
+        host.placeText((lay.getTextEngine()))
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- the pointer -------------------------------------------------------------
+    fn has:boolean (px:double py:double) {
+        if (isOpen == false) {
+            return false
+        }
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def c:EVGElement (unwrap bar.rootEl)
+        return (((px >= c.calculatedX) && (px <= (c.calculatedX + c.calculatedWidth))) && ((py >= c.calculatedY) && (py <= (c.calculatedY + c.calculatedHeight))))
+    }
+
+    fn press:void (px:double py:double clicks:int shift:boolean) {
+        if (null? host.lastPage) {
+            this.page()
+        }
+        focused = true
+        def t:string (host.hitTest(px py))
+        if (bar.textPointerDown(t px clicks shift)) {
+            selecting = true
+            this.rebuild()
+            return
+        }
+        bar.activate(t)
+        this.rebuild()
+    }
+
+    fn dragTo:void (px:double py:double) {
+        if selecting {
+            bar.textPointerDrag(px)
+            this.rebuild()
+        }
+    }
+
+    fn release:void () {
+        if selecting {
+            selecting = false
+            bar.textPointerUp()
+            this.rebuild()
+        }
+    }
+
+    fn hoverAt:void (px:double py:double) {
+        def was:string bar.hot
+        def t:string ""
+        if (this.has(px py)) {
+            t = (host.hitTest(px py))
+        }
+        bar.hover(t)
+        if (bar.hot != was) {
+            this.rebuild()
+        }
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        def t:string (host.hitTest(px py))
+        if ((t == bar.findField.tid) || (t == bar.replaceField.tid)) {
+            return "text"
+        }
+        if ((indexOf t (bar.findField.tid + "-")) == 0) {
+            return "text"
+        }
+        if ((indexOf t (bar.replaceField.tid + "-")) == 0) {
+            return "text"
+        }
+        if (((strlen t) == 0) || (t == "findbar-count")) {
+            return "default"
+        }
+        return "pointer"
+    }
+
+    ; --- keys ----------------------------------------------------------------------
+    ; PresApp's key names, as the bar's.
+    fn key:void (name0:string shift:boolean ctrl:boolean) {
+        def k:string ""
+        if (name0 == "left") { k = "ArrowLeft" }
+        if (name0 == "right") { k = "ArrowRight" }
+        if (name0 == "up") { k = "ArrowUp" }
+        if (name0 == "down") { k = "ArrowDown" }
+        if (name0 == "home") { k = "Home" }
+        if (name0 == "end") { k = "End" }
+        if (name0 == "backspace") { k = "Backspace" }
+        if (name0 == "delete") { k = "Delete" }
+        if (name0 == "enter") { k = "Enter" }
+        if (name0 == "tab") { k = "Tab" }
+        if (name0 == "escape") { k = "Escape" }
+        if ((strlen k) > 0) {
+            bar.keyDownWith("" k shift ctrl)
+            this.rebuild()
+        }
+    }
+
+    fn type:void (s:string) {
+        bar.typeChar("" s)
+        this.rebuild()
+    }
+
+    fn selectAll:void () {
+        bar.fieldWithKeys().selectAll()
+        this.rebuild()
+    }
+
+    fn selectedText:string () {
+        return (bar.fieldWithKeys().selectedText())
+    }
+}

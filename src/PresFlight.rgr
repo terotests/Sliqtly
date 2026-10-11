@@ -30,6 +30,7 @@
 
 Import "PresDeck.rgr"
 Import "JsonValue.rgr"
+Import "PresFlightLook.rgr"
 
 ; A run of a line of words: its text and how it is set, `dx` from the
 ; line's left and `w` wide, `size` its font's size (world units).
@@ -80,6 +81,8 @@ class FlightRun {
 ;   panel    a plate: a glass pane w x h with glowing edges (`fill` its
 ;            pane's opacity, 0 for edges only; `brackets` corner brackets)
 ;   picture  a picture of the slide (`src`) as a see-through screen
+;   world    a program's 3-D world (`src` its `three:` picture, w x h the
+;            picture's box): its meshes stand in front of the slide
 ;   ground   the slide's own paper: the edges of the screen it stands in
 ;   bar      a chart's bar: a box w x h x d centred at x,y,z that grows from
 ;            `base` (y, or x when it lies `across`)
@@ -125,6 +128,12 @@ class FlightItem {
     def soft:boolean false
     ; the theme's line art behind the slide: dim, no halo
     def art:boolean false
+    ; a table's cell (made into its row's stripe, not drawn itself)
+    def cell:boolean false
+    ; a pane without edges (a table's stripe)
+    def bare:boolean false
+    ; a frame with its corners cut this far (a table's frame)
+    def bevel:double 0.0
     ; that plate: still (it does not float as glass panes do)
     def plate:boolean false
     ; words whose own panel became their plate
@@ -232,6 +241,12 @@ class FlightItem {
         }
         if art {
             o.setBool("art" true)
+        }
+        if bare {
+            o.setBool("bare" true)
+        }
+        if (bevel > 0.0) {
+            o.setNum("bevel" (FlightItem.round3(bevel)))
         }
         if (step > 0) {
             o.setInt("step" step)
@@ -369,6 +384,8 @@ class PresFlightScene {
     ; a slide's size in the world: as wide as a 16 x 9 screen holds it
     def frameW:double 16.0
     def frameH:double 9.0
+    ; the colours it glows in (front matter `look-3d:`)
+    def look:FlightLook (new FlightLook())
     ; the hologram's own light: cyan, and the warm yellow of a diagram's lines
     def acR:double 0.36
     def acG:double 0.88
@@ -413,7 +430,26 @@ class PresFlightScene {
             sc.addSlide(deck (deck.slideAt(i)) i)
             i = (i + 1)
         }
+        sc.useLook((FlightLook.named((PresDeck.frontMatterValue(deck.text "look-3d")))))
         return sc
+    }
+
+    ; Every colour of the world as the look shows it (front matter
+    ; `look-3d:`), the look kept for the air, the floor and the dust.
+    fn useLook:void (l:FlightLook) {
+        look = l
+        for items it:FlightItem k {
+            def c:[double] (l.tint(it.r it.g it.b))
+            it.r = (itemAt c 0)
+            it.g = (itemAt c 1)
+            it.b = (itemAt c 2)
+            for it.runs ru:FlightRun j {
+                def rc:[double] (l.tint(ru.r ru.g ru.b))
+                ru.r = (itemAt rc 0)
+                ru.g = (itemAt rc 1)
+                ru.b = (itemAt rc 2)
+            }
+        }
     }
 
     ; A slide w x h px in the world: as wide as a 16 x 9 screen holds it.
@@ -1053,6 +1089,193 @@ class PresFlightScene {
             m = (m + 1)
         }
         this.breakAtDiscs(made)
+        this.tableLook(made)
+    }
+
+    ; A table as a scoreboard: its cells give way to one stripe per row
+    ; across the table (the header row lit, the others in turns faint and
+    ; fainter) and one frame round it all with its corners cut. Their
+    ; commands go to the stripes, so what was on the slide is still there.
+    fn tableLook:void (made:int) {
+        def ents:[string]
+        def m:int made
+        while (m < (array_length items)) {
+            def it:FlightItem (itemAt items m)
+            if (it.cell && ((indexOf ents it.ent) < 0)) {
+                push ents it.ent
+            }
+            m = (m + 1)
+        }
+        if ((array_length ents) == 0) {
+            return
+        }
+        def kept:[FlightItem]
+        def i:int 0
+        while (i < made) {
+            push kept (itemAt items i)
+            i = (i + 1)
+        }
+        def added:[FlightItem]
+        for ents en:string ei {
+            ; rows by their middle, from the top
+            def rowY:[double]
+            def rows:[FlightItem]
+            m = made
+            while (m < (array_length items)) {
+                def c:FlightItem (itemAt items m)
+                if (c.cell && (c.ent == en)) {
+                    def at:int -1
+                    for rowY ry:double ri {
+                        if ((fabs (ry - c.y)) < (c.h * 0.25)) {
+                            at = ri
+                        }
+                    }
+                    if (at < 0) {
+                        def st:FlightItem (new FlightItem())
+                        st.kind = "panel"
+                        st.station = c.station
+                        st.ent = c.ent
+                        st.order = c.order
+                        st.step = c.step
+                        st.until = c.until
+                        st.r = c.r
+                        st.g = c.g
+                        st.b = c.b
+                        st.op = c.op
+                        st.bare = true
+                        st.x = (c.x - (c.w * 0.5))
+                        st.w = (c.x + (c.w * 0.5))
+                        st.y = c.y
+                        st.h = c.h
+                        st.z = c.z
+                        st.fill = c.fill
+                        push rowY c.y
+                        push rows st
+                        at = ((array_length rows) - 1)
+                    }
+                    def row:FlightItem (itemAt rows at)
+                    ; x and w hold the row's left and right edges for now
+                    if ((c.x - (c.w * 0.5)) < row.x) {
+                        row.x = (c.x - (c.w * 0.5))
+                    }
+                    if ((c.x + (c.w * 0.5)) > row.w) {
+                        row.w = (c.x + (c.w * 0.5))
+                    }
+                    if (c.h > row.h) {
+                        row.h = c.h
+                    }
+                    if (c.fill > row.fill) {
+                        row.fill = c.fill
+                    }
+                    PresFlightScene.pushAllInt(row.cmds c.cmds)
+                }
+                m = (m + 1)
+            }
+            def order:[int] (PresFlightScene.topFirst(rowY))
+            def fx0:double 1000000.0
+            def fx1:double -1000000.0
+            def fy0:double 1000000.0
+            def fy1:double -1000000.0
+            def fz:double 0.0
+            def head:FlightItem (itemAt rows (itemAt order 0))
+            for order oi:int k {
+                def row:FlightItem (itemAt rows oi)
+                def x0:double row.x
+                def x1:double row.w
+                row.x = ((x0 + x1) * 0.5)
+                row.w = (x1 - x0)
+                row.fill = (PresFlightScene.stripeFill(k (row.fill > 0.1)))
+                if (x0 < fx0) {
+                    fx0 = x0
+                }
+                if (x1 > fx1) {
+                    fx1 = x1
+                }
+                if ((row.y - (row.h * 0.5)) < fy0) {
+                    fy0 = (row.y - (row.h * 0.5))
+                }
+                if ((row.y + (row.h * 0.5)) > fy1) {
+                    fy1 = (row.y + (row.h * 0.5))
+                }
+                fz = row.z
+                push added row
+            }
+            def fr:FlightItem (new FlightItem())
+            fr.kind = "panel"
+            fr.station = head.station
+            fr.ent = head.ent
+            fr.order = head.order
+            fr.step = head.step
+            fr.until = head.until
+            fr.r = head.r
+            fr.g = head.g
+            fr.b = head.b
+            fr.op = 0.95
+            fr.fill = 0.0
+            def pad:double (head.h * 0.18)
+            fr.x = ((fx0 + fx1) * 0.5)
+            fr.y = ((fy0 + fy1) * 0.5)
+            fr.w = ((fx1 - fx0) + (pad * 2.0))
+            fr.h = ((fy1 - fy0) + (pad * 2.0))
+            fr.z = (fz + 0.01)
+            fr.bevel = (head.h * 0.45)
+            push added fr
+        }
+        m = made
+        while (m < (array_length items)) {
+            def it2:FlightItem (itemAt items m)
+            if (it2.cell == false) {
+                push kept it2
+            }
+            m = (m + 1)
+        }
+        for added a:FlightItem ai {
+            push kept a
+        }
+        items = kept
+    }
+
+    ; A table row's pane by its place from the top: the header row lit,
+    ; the rows under it in turns faint and fainter (a header is a row the
+    ; slide filled).
+    sfn stripeFill:double (k:int header:boolean) {
+        if ((k == 0) && header) {
+            return 0.34
+        }
+        if ((k - ((idiv k 2) * 2)) == 1) {
+            return 0.16
+        }
+        return 0.05
+    }
+
+    ; The indices of ys from the highest (the top of the slide) down.
+    sfn topFirst:[int] (ys:[double]) {
+        def out:[int]
+        def used:[boolean]
+        for ys y:double i {
+            push used false
+        }
+        def n:int 0
+        while (n < (array_length ys)) {
+            def best:int -1
+            for ys y2:double j {
+                if ((itemAt used j) == false) {
+                    if ((best < 0) || (y2 > (itemAt ys best))) {
+                        best = j
+                    }
+                }
+            }
+            set used best true
+            push out best
+            n = (n + 1)
+        }
+        return out
+    }
+
+    sfn pushAllInt:void (to:[int] from:[int]) {
+        for from v:int i {
+            push to v
+        }
     }
 
     ; A line of the block that runs through its circles (a timeline through
@@ -1627,6 +1850,7 @@ class PresFlightScene {
             pn.top = top
             pn.fill = (0.1 + (0.3 * c.a))
         }
+        pn.cell = (block == "table")
         ; a box rounded all the way is a circle: a numbered dot on a timeline
         if (PresFlightScene.isDisc(c)) {
             pn.disc = true
@@ -1736,6 +1960,19 @@ class PresFlightScene {
     }
 
     fn addPicture:FlightItem (st:FlightStation c:EVGDrawCmd k:int top:int dz:double) {
+        ; a world is painted in bands round the slide's words: one stand
+        if ((indexOf c.src "three:") == 0) {
+            def j:int ((array_length items) - 1)
+            while (j >= firstItem) {
+                def had:FlightItem (itemAt items j)
+                if ((had.kind == "world") && (had.src == c.src)) {
+                    had.grow((PresScene.boundsOf(c)))
+                    push had.cmds k
+                    return had
+                }
+                j = (j - 1)
+            }
+        }
         def pc:FlightItem (this.item("picture" st.index))
         pc.src = c.src
         pc.grow((PresScene.boundsOf(c)))
@@ -1745,6 +1982,12 @@ class PresFlightScene {
             ; a picture behind the slide, dimmer, at its back
             pc.dz = 0.02
             pc.op = 0.5
+        }
+        ; a program's 3-D world: its own meshes on a stand before the slide
+        if ((indexOf c.src "three:") == 0) {
+            pc.kind = "world"
+            pc.dz = (dz + 1.0)
+            pc.op = 1.0
         }
         push pc.cmds k
         return pc
@@ -2217,6 +2460,13 @@ class PresFlightScene {
             i = (i + 1)
         }
         o.set("items" it)
+        def lk:JVal (JVal.mkObj())
+        lk.setStr("key" look.key)
+        lk.set("bg" (FlightItem.rgbJson(look.bgR look.bgG look.bgB)))
+        lk.set("grid" (FlightItem.rgbJson(look.gridR look.gridG look.gridB)))
+        lk.set("dust" (FlightItem.rgbJson(look.dustR look.dustG look.dustB)))
+        lk.set("glow" (FlightItem.rgbJson(look.r look.g look.b)))
+        o.set("look" lk)
         return (o.toJson())
     }
 
