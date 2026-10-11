@@ -6,7 +6,7 @@
 // export's timeline, src/PresVideo.rgr: PresApp.videoBegin/videoFrameJson,
 // no clock on the wall), and keeps what each frame draws. A page then shows
 // the recording with only the painter (gl/evg-webgl.js): no layout, no
-// engine. The public viewer plays it (web/view.js, /s/{id}?rec=<hash>).
+// engine. The light player plays it (web/play.js, /r/{id}/{hash}).
 //
 // The stream (JSON, gzipped in the file):
 //
@@ -20,9 +20,16 @@
 //             one before; a frame between two keys draws the earlier one
 //   effects   [[n, effects]]: the slide's surface effects from frame n on,
 //             without their clock (the page runs it, as the viewer does)
+//   faces     [[name, file]]: the faces the text is set in (fonts/{file})
+//   pictures  [{ src, type, b64 }]: each picture a command draws (src), as
+//             the export encoded it
+//   deckEffects  the deck's own surface effects (FxLang JSON, web/fxdeck.js)
 //   scripts   [] for now. A slide's script (TSX) is recorded as the poses
 //             the timeline draws; running it live over the recording comes
 //             later, and goes here.
+//
+// The light player (web/play.js, /r/{id}/{hash}) needs nothing else: the
+// faces come from the site's fonts/, the pictures are in the stream.
 //
 // Played (RecNav): ← → go from slide to slide (each plays its way in up to
 // its first step), Space goes on to the next step and from a slide's end to
@@ -86,7 +93,9 @@ export class RecEncoder {
     this.n++;
   }
 
-  finish() {
+  /** The stream; `with`: what the page needs besides the frames (faces,
+   * pictures, deckEffects). */
+  finish(withAssets = {}) {
     const tl = this.timeline;
     return {
       sliqrec: FORMAT,
@@ -99,6 +108,9 @@ export class RecEncoder {
       cmds: this.cmds,
       keys: this.keys,
       effects: this.effects,
+      faces: withAssets.faces || [],
+      pictures: withAssets.pictures || [],
+      deckEffects: withAssets.deckEffects || "",
       scripts: [],
     };
   }

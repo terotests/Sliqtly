@@ -124,3 +124,14 @@ test("packed as gzip and read back; the name follows the bytes", async () => {
 test("another format is refused", () => {
   assert.throws(() => new Recording({ sliqrec: 2 }));
 });
+
+test("what the light player needs goes with the frames", () => {
+  const enc = new RecEncoder(timeline);
+  enc.add({ cmds: [{ k: 2, text: "Hi", font: "Lato" }] }, 960, 540);
+  const s = enc.finish({ faces: [["Lato", "Lato-Regular.ttf"]], pictures: [{ src: "/media/a.png", type: "image/webp", b64: "AA==" }], deckEffects: "[]" });
+  assert.deepEqual(s.faces, [["Lato", "Lato-Regular.ttf"]]);
+  assert.equal(s.pictures[0].src, "/media/a.png");
+  assert.equal(s.deckEffects, "[]");
+  // without them: none
+  assert.deepEqual(new RecEncoder(timeline).finish().faces, []);
+});

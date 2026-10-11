@@ -10,7 +10,6 @@ const ID = /^[A-Za-z0-9]{6,32}$/;
  * { md: true } for a link that carries the Markdown itself (#md=…), which
  * this page cannot lay out, or null for the front page.
  *   /s/{id}[?slides=a,b][#slide=3]
- *   /s/{id}?rec={hash}  the deck as recorded for the web, played (rec)
  *   /s/{id}?slide=3  one slide's link (Share slide): the server reads it too
  *                (its link card, mcp-go/linkcard.go); #slide= wins
  *   #share={id}  the same where the page has no address of its own: the
@@ -25,11 +24,7 @@ export function linkOf(pathname, search, hash, given = "") {
   if (m) {
     const q = new URLSearchParams(search || "");
     const named = parseInt(q.get("slide") || "", 10);
-    const out = { id: m[1], slides: q.get("slides") || "", slide: slide > 0 || !(named > 0) ? at : named - 1 };
-    // ?rec=<hash>: the deck as recorded for the web (web/recstream.js)
-    const rec = q.get("rec") || "";
-    if (/^[0-9a-f]{24}$/.test(rec)) out.rec = rec;
-    return out;
+    return { id: m[1], slides: q.get("slides") || "", slide: slide > 0 || !(named > 0) ? at : named - 1 };
   }
   const share = h.get("share");
   if (share && ID.test(share)) return { id: share, slides: "", slide: at };
@@ -52,11 +47,6 @@ export function slideLink(origin, link, at) {
 /** The address of the slides of `link` (GET, answered by View.rgr). */
 export function viewUrl(link) {
   return "/api/view/" + link.id + (link.slides ? "?slides=" + encodeURIComponent(link.slides) : "");
-}
-
-/** The address of the recording `link` names (GET, View.rgr ViewPictures.recording). */
-export function recUrl(link) {
-  return "/api/view/" + link.id + "/rec/" + link.rec;
 }
 
 /** The address of `link`'s download as format (pdf, pptx or md; View.rgr ViewExport). */
@@ -118,31 +108,6 @@ export function slideForKey(key, at, n) {
       return n - 1;
     default:
       return -1;
-  }
-}
-
-/**
- * A key in a recorded presentation (web/recstream.js RecNav): Space, Enter
- * and N go on to the next step ("next"); the arrows and the page keys from
- * slide to slide; Home and End the first and last slide; A plays it all
- * ("auto"). "" for any other key.
- */
-export function recActionForKey(key) {
-  switch (key) {
-    case " ": case "Enter": case "n": case "N":
-      return "next";
-    case "ArrowRight": case "ArrowDown": case "PageDown":
-      return "nextSlide";
-    case "ArrowLeft": case "ArrowUp": case "PageUp": case "Backspace": case "p": case "P":
-      return "prevSlide";
-    case "Home":
-      return "first";
-    case "End":
-      return "last";
-    case "a": case "A":
-      return "auto";
-    default:
-      return "";
   }
 }
 

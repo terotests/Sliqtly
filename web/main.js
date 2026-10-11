@@ -50,6 +50,7 @@ import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trac
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
 import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
+import { playUrl } from "./playlink.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
@@ -5398,14 +5399,15 @@ async function exportPlayer() {
 }
 window.__exportPlayer = exportPlayer;
 
-// The presentation recorded for the web: the deck played on its own, frame
-// by frame at n / fps (the video's timeline, PresApp.videoBegin; no clock on
-// the wall), each frame's display list kept once (web/recstream.js). The
-// recording is the deck's file recordings/web-<hash>.sliqrec, the one
-// before it goes, and the cloud copy carries it; its link is the
-// presentation's viewing link with ?rec=<hash>, which the public viewer
-// plays (web/view.js) from the server's immutable copy, so a new recording
-// is a new address. A slide's script is drawn as the timeline poses it.
+// The presentation exported to the cloud as a light HTML page (Export ▸
+// Cloud HTML): the deck played on its own, frame by frame at n / fps (the
+// video's timeline, PresApp.videoBegin; no clock on the wall), each frame's
+// display list kept once (web/recstream.js), with the faces its text is set
+// in, its pictures and its own effects. The recording is the deck's file
+// recordings/web-<hash>.sliqrec, the one before it goes, and the cloud copy
+// carries it; the page /r/{viewing link}/{hash} (web/play.js) plays it from
+// the server's immutable copy, so a new recording is a new address. A
+// slide's script, program or 3-D world is drawn as the timeline poses it.
 async function recordForWeb(fps = 30) {
   const tl = JSON.parse(app.videoBegin(JSON.stringify({ fps }), false));
   const enc = new RecEncoder(tl);
@@ -5420,12 +5422,44 @@ async function recordForWeb(fps = 30) {
       await new Promise((r) => setTimeout(r, 0));
     }
   }
-  return enc.finish();
+  const cmds = enc.cmds;
+  return enc.finish({ faces: recordedFaces(cmds), pictures: await recordedPictures(cmds), deckEffects: app.deckEffectsJson() });
+}
+// The faces the recorded text is set in: [[name, file]] (text in no named
+// face is set in the first, Open Sans).
+function recordedFaces(cmds) {
+  const files = new Map([...FACES, ...Object.entries(LOOK_FACES)]);
+  const used = new Set();
+  for (const c of cmds) {
+    if (c.font) used.add(c.font);
+    else if (typeof c.text === "string") used.add(FACES[0][0]);
+  }
+  return [...used].filter((name) => files.has(name)).map((name) => [name, files.get(name)]);
+}
+// Each picture the recording draws, as WebP no larger than a 4K screen
+// shows it (a 3-D world as it is drawn now).
+async function recordedPictures(cmds) {
+  const MAX = 2560;
+  const out = [];
+  for (const src of new Set(cmds.map((c) => c.src).filter(Boolean))) {
+    const img = pictures.get(src);
+    const w = img && (img.width || img.naturalWidth);
+    const h = img && (img.height || img.naturalHeight);
+    if (!w || !h) continue;
+    const k = Math.min(1, MAX / Math.max(w, h));
+    const cut = document.createElement("canvas");
+    cut.width = Math.max(1, Math.round(w * k));
+    cut.height = Math.max(1, Math.round(h * k));
+    cut.getContext("2d").drawImage(img, 0, 0, cut.width, cut.height);
+    const blob = await new Promise((r) => cut.toBlob(r, "image/webp", 0.86));
+    if (blob) out.push({ src, type: blob.type, b64: base64(new Uint8Array(await blob.arrayBuffer())) });
+  }
+  return out;
 }
 async function exportRecWeb() {
   const p = window.sliqtly;
   if (!p?.user?.()) {
-    toast(t("Sign in to publish a recorded presentation."));
+    toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
   const bytes = await packStream(await recordForWeb());
@@ -5435,7 +5469,7 @@ async function exportRecWeb() {
   if (old.length) await deleteFiles(old, { quiet: true });
   await keepFile({ path, type: STREAM_TYPE, size: bytes.length, data: new Blob([bytes], { type: STREAM_TYPE }) });
   toast(t("Sending the recording to the cloud…"));
-  const note = t("A link that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. A new recording gets a new link.");
+  const note = t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link.");
   try {
     const id = await shareCloud();
     let shown = id;
@@ -5450,7 +5484,7 @@ async function exportRecWeb() {
       shown = await p.viewLink(id);
     }
     else await p.setVisibility(id, "link");
-    const url = location.origin + "/s/" + shown + "?rec=" + hash;
+    const url = playUrl(location.origin, shown, hash);
     window.__lastRecLink = url;
     showShare(url, "", note, "", true);
   } catch (e) {

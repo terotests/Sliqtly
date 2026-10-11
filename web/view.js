@@ -22,8 +22,7 @@ import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } fro
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
 import { facesFor, PictureQueue } from "./viewload.js";
-import { RecNav, unpackStream } from "./recstream.js";
-import { linkOf, recUrl, recActionForKey, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
+import { linkOf, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
 const fi = /^fi\b/i.test(navigator.language || "");
@@ -41,7 +40,6 @@ for (const [id, en, fiText] of [
   ["vFirst", "First slide (Home)", "Ensimmäinen dia (Home)"],
   ["vPrev", "Previous (←)", "Edellinen (←)"],
   ["vNext", "Next (→, Space)", "Seuraava (→, välilyönti)"],
-  ["vAuto", "Play it all (A)", "Toista kaikki (A)"],
   ["vCount", "Go to slide… (type the number and Enter)", "Siirry diaan… (kirjoita numero ja Enter)"],
   ["vFull", "Full screen", "Koko näyttö"],
   ["vExport", "Download the presentation", "Lataa esitys"],
@@ -154,12 +152,6 @@ let raf = 0;
 let plays = null;
 // the slide seen closer by a pinch ({ x, y, scale }), or null: fitted
 let zoom = null;
-// the deck as recorded for the web (/s/{id}?rec=<hash>, web/recstream.js):
-// its frames are drawn instead of the slides at rest, played by `nav`; null
-// without one. navAt: when the clock last moved it (0: stopped)
-let nav = null;
-let navAt = 0;
-const vAuto = document.getElementById("vAuto");
 
 // `mode: book` (web/book.js): the spreads, and with `render: realistic`
 // the pages drawn as paper and turned by their corner (web/bookgl.js) on a
@@ -209,9 +201,7 @@ function paint() {
   // less motion asked for: every effect held at its still, drawn once
   const still = reducedMotion();
   // a slide's script, while it runs, lays its frames over the list
-  if (nav) playRecording();
   const items = shown.map(({ page, x }) => {
-    if (nav) return { page, x, list: nav.rec.list(nav.frame()) };
     const atRest = (plays && plays.listOf(page)) || lists[page];
     return { page, x, list: plays ? plays.withWorlds(page, atRest) : atRest };
   });
@@ -236,39 +226,9 @@ function paint() {
       pf.dispose();
     }
   }
-  // a surface effect moves, or the recording plays: drawn again on the next frame
-  if (moving || (nav && nav.playing)) raf = requestAnimationFrame(paint);
+  // a surface effect moves: drawn again on the next frame
+  if (moving) raf = requestAnimationFrame(paint);
 }
-
-// The recording's clock moved on by the time since the last frame; the
-// slide it is on is the one shown (its count, its address).
-function playRecording() {
-  const now = performance.now();
-  if (nav.playing) {
-    if (navAt) nav.tick(Math.min(0.25, (now - navAt) / 1000));
-    navAt = nav.playing ? now : 0;
-  } else navAt = 0;
-  if (nav.slide !== at) showSlide(nav.slide);
-  vAuto.textContent = nav.auto && nav.playing ? "⏸\uFE0E" : "⏵\uFE0E";
-  vAuto.setAttribute("aria-pressed", String(nav.auto && nav.playing));
-}
-
-// What the recording is asked: a key's or a button's action.
-function recDo(action) {
-  if (action === "next") nav.next();
-  else if (action === "nextSlide") nav.nextSlide();
-  else if (action === "prevSlide") nav.prevSlide();
-  else if (action === "first") nav.go(0);
-  else if (action === "last") {
-    nav.go(nav.count - 1);
-    nav.finish();
-  } else if (action === "auto") nav.setAuto(!(nav.auto && nav.playing));
-  else return false;
-  navAt = 0;
-  repaint();
-  return true;
-}
-vAuto.addEventListener("click", () => recDo("auto"));
 
 // --- selecting the slide's text with the mouse (web/slidetext.js) ---------------
 // A drag over text selects it, Ctrl/Cmd+C copies it, Ctrl/Cmd+A takes the
@@ -376,10 +336,6 @@ function turnBy(side) {
 
 // The next or previous spread, or slide: turned in a realistic book.
 function step(by) {
-  if (nav) {
-    recDo(by > 0 ? "nextSlide" : "prevSlide");
-    return;
-  }
   if (realistic()) {
     turnBy(by);
     return;
@@ -400,17 +356,6 @@ function go(i) {
   const n = lists.length;
   if (!n) return;
   i = Math.max(0, Math.min(n - 1, i));
-  // a recording goes to the slide's master time and plays its way in
-  if (nav && i !== nav.slide) {
-    nav.go(i);
-    navAt = 0;
-  }
-  showSlide(i);
-}
-
-// The slide i shown: its pictures, the count, the address.
-function showSlide(i) {
-  const n = lists.length;
   // a book is shown a spread at a time, from the spread's first page
   if (book) i = firstPage(book.spreads, spreadOfPage(book.spreads, i));
   if (i !== at) {
@@ -620,10 +565,6 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.target.closest?.("#viewBar")) return;
-  if (nav && recDo(recActionForKey(ev.key))) {
-    ev.preventDefault();
-    return;
-  }
   if (book) {
     const units = book.spreads.length;
     const s = spreadNow();
@@ -881,21 +822,6 @@ function notFound() {
   });
 }
 
-// The recording /s/{id}?rec=<hash> names, played from its slide; null (and
-// the deck shown as it is) when it cannot be read or has other slides.
-async function openRecording(slides) {
-  try {
-    const res = await fetch(recUrl(link));
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const rec = await unpackStream(new Uint8Array(await res.arrayBuffer()));
-    if (rec.slides.length !== slides) throw new Error("the recording has " + rec.slides.length + " slides, the deck " + slides);
-    return new RecNav(rec);
-  } catch (e) {
-    console.warn("recording not played", e);
-    return null;
-  }
-}
-
 async function start() {
   // the front page (view.html shows it when the address is no presentation)
   if (!link) return;
@@ -934,8 +860,6 @@ async function start() {
   }
   deck = got.deck;
   book = bookOf(deck);
-  // the recording the address names: a book is shown as it is
-  if (link.rec && !book) nav = await openRecording(got.lists.length);
   if (book && book.render === "realistic") {
     try {
       canvas.after(sheet);
@@ -950,7 +874,7 @@ async function start() {
   // the faces the slides are set in, and the first slide's pictures: the
   // rest follow while it is shown (web/viewload.js)
   const looks = lookFacesOf(got.lists).map((name) => [name, LOOK_FACES[name]]);
-  const faceSets = facesFor(nav ? got.lists.concat([{ cmds: nav.rec.allCmds() }]) : got.lists, FACES);
+  const faceSets = facesFor(got.lists, FACES);
   const first = Math.max(0, Math.min(link.slide, got.lists.length - 1));
   queue = new PictureQueue(picturesOf(deck), got.lists, { load: pictureOf, loaded: pictureIn, at: first, parallel: 4 });
   shown.then(() => {
@@ -962,8 +886,7 @@ async function start() {
   if (got.effects) registerDeckEffects(JSON.stringify(got.effects));
   // a program (or a slide's script) runs in the page; its engine and the
   // little it is painted with are loaded only for a deck that has one
-  // (a recording draws them as they were recorded)
-  if (((deck.plays || []).length || (got.scripts || []).length) && !realistic() && !nav) {
+  if (((deck.plays || []).length || (got.scripts || []).length) && !realistic()) {
     try {
       const { startPlays } = await import("./viewplay.js");
       plays = await startPlays({
@@ -983,7 +906,6 @@ async function start() {
   bar.hidden = false;
   shownAt = performance.now();
   at = -1;
-  if (nav) vAuto.hidden = false;
   go(first);
   wake();
   started();
