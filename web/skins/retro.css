@@ -238,3 +238,26 @@
 }
 .theme-retro .pn-toast-text { color: var(--retro-ink); }
 .theme-retro .cp-panel { background-color: var(--retro-screen); border-color: var(--retro-screen-3); }
+
+/* a room's tabs and its stories (PresRoomView, PresTopicView) */
+.theme-retro .rm-tabs { background-color: var(--retro-screen-2); border-bottom: 1px solid var(--retro-screen-3); }
+.theme-retro .rm-tab-on,
+.theme-retro .rm-seg-on { background-color: var(--retro-screen-3); border-color: var(--retro-shell-b); }
+.theme-retro .rm-topic { background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen)); }
+.theme-retro .rm-ttitle,
+.theme-retro .rm-ctitle,
+.theme-retro .rm-glabel { color: var(--retro-ink); }
+.theme-retro .rm-tcount,
+.theme-retro .rm-tlabel,
+.theme-retro .rm-gcount,
+.theme-retro .rm-cmeta,
+.theme-retro .rm-tempty { color: var(--retro-ink-dim); }
+.theme-retro .rm-ghead { border-bottom: 1px solid var(--retro-screen-3); }
+.theme-retro .rm-card { background-color: var(--retro-screen-2); border-color: var(--retro-screen-3); }
+.theme-retro .rm-card:hover,
+.theme-retro .rm-card-cur { background-color: var(--retro-screen-3); }
+.theme-retro .rm-pill,
+.theme-retro .rm-pill-phase,
+.theme-retro .rm-tag { background-color: var(--retro-screen); border-color: var(--retro-screen-3); }
+.theme-retro .rm-pill-label,
+.theme-retro .rm-tag { color: var(--retro-ink); }

@@ -35,7 +35,8 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
@@ -1437,6 +1438,12 @@ async function newDeck(plan) {
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
+  // a new story is a draft (web/stories.js; a server of one's own makes
+  // its new shares drafts itself)
+  if (!ownServer()) {
+    const made = await currentRoomId();
+    if (made) keepRooms((s) => setStory(s, made, NEW_STORY));
+  }
   // made from a room's "+" (Add new… → Presentation): it goes there
   const room = roomForNew;
   roomForNew = "";
@@ -1601,11 +1608,91 @@ async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0 }))),
+      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
   return { rows: ordered(roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live)), folders: foldersOf(roomsHere, room) };
+}
+// A room as a topic, its presentations as stories (web/stories.js): its
+// Stories tab (src/PresTopicView.rgr) shows them grouped by type, phase or
+// tag, or not at all, sorted as chosen there; both kept in this browser.
+let topicBy = "type";
+let topicSort = "updated";
+try {
+  topicBy = groupByOf(localStorage.getItem("sliqtly.topicGroup"));
+  topicSort = storySortOf(localStorage.getItem("sliqtly.topicSort"));
+} catch (_) { /* the defaults */ }
+// i18n: "Updated just now" "Updated {n} min ago" "Updated {n} h ago" "Updated {n} d ago" "Updated {n} wk ago" "Updated {n} mo ago" "Updated {n} y ago"
+const AGO = { now: "Updated just now", min: "Updated {n} min ago", h: "Updated {n} h ago", d: "Updated {n} d ago", w: "Updated {n} wk ago", mo: "Updated {n} mo ago", y: "Updated {n} y ago" };
+async function showTopic(room, rows) {
+  const info = (await roomsList({ archived: true })).find((r) => r.room_id === room);
+  const now = Date.now();
+  const groups = groupStories(rows, { by: topicBy, sort: topicSort }).map((g) => ({
+    label: g.label ? (topicBy === "tag" && g.key !== "notag" ? g.label : t(g.label)) : "",
+    color: g.color,
+    stories: g.rows.map((r) => {
+      const ago = agoOf(r.updated, now);
+      return {
+        id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current,
+        typeLabel: t(TYPE_LABEL[r.type]), phaseLabel: t(PHASE_LABEL[r.phase]), color: storyColor(r),
+        when: r.updated ? t(AGO[ago.unit]).replace("{n}", String(ago.n)) : "",
+      };
+    }),
+  }));
+  app.roomStories(JSON.stringify({
+    room, title: info?.title || "", by: topicBy, sort: topicSort, groups,
+    count: rows.length === 1 ? t("1 presentation") : t("{n} presentations").replace("{n}", String(rows.length)),
+    empty: t("No presentations in this room yet. + New presentation makes one."),
+    canNew: room !== ONBOARDING && !info?.archived,
+  }));
+  needsPaint = true;
+}
+// What the Stories tab asked for ("topic:<what>\t…").
+async function topicRequest(r) {
+  const [what, ...f] = r.slice("topic:".length).split("\t");
+  const room = roomShown;
+  if (what === "open") {
+    await roomsRequest("room:deck:" + f[0]);
+  } else if (what === "by" || what === "sort") {
+    if (what === "by") topicBy = groupByOf(f[0]);
+    else topicSort = storySortOf(f[0]);
+    try {
+      localStorage.setItem("sliqtly.topicGroup", topicBy);
+      localStorage.setItem("sliqtly.topicSort", topicSort);
+    } catch (_) { /* this page only */ }
+    if (room) await showTopic(room, await roomRows(room));
+  } else if (what === "new" && room) {
+    await roomsRequest("room:newin:" + room);
+  }
+}
+// The presentation `id`'s story (web/stories.js storyOf): on a server of
+// one's own its share's, else this browser's.
+async function deckStory(id) {
+  if (!ownServer()) return storyFor(roomsHere, id);
+  const g = await roomsCall("get_room", { room_id: await deckRoom(id) });
+  return storyOf((g.presentations || []).find((p) => "cloud:" + p.deck_id === id));
+}
+// Document settings changed the open presentation's story
+// ("docstory:<type|phase|tags>\t<value>"; tags with commas between).
+async function docStoryRequest(r) {
+  const [part, value] = r.slice("docstory:".length).split("\t");
+  const id = await currentRoomId();
+  if (!id || !["type", "phase", "tags"].includes(part)) return;
+  const v = part === "tags" ? cleanTags(value) : value;
+  if (ownServer()) await roomsCall("set_story", { deck_id: id.replace(/^cloud:/, ""), [part]: v });
+  else keepRooms((s) => setStory(s, id, { [part]: v }));
+  roomDecksAgain();
+}
+// A story's type or phase changed ("story:set:<deck>\t<type|phase>\t<value>",
+// a pill's menu or a presentation's context menu): on a server of one's own
+// its share's, else this browser's (web/rooms.js setStory).
+async function storyRequest(r) {
+  const [deck, part, value] = r.slice("story:set:".length).split("\t");
+  if (!deck || deck.startsWith("sample:") || (part !== "type" && part !== "phase")) return;
+  if (ownServer()) await roomsCall("set_story", { deck_id: deck.replace(/^cloud:/, ""), [part]: value });
+  else keepRooms((s) => setStory(s, deck, { [part]: value }));
+  roomDecksAgain();
 }
 // File → Settings → Order of presentations: how a room lists its
 // presentations (rooms.js sortDecks), in this browser. As made by default,
@@ -1632,6 +1719,7 @@ async function clearRoom(room) {
     if (r.id.startsWith("cloud:") || r.id.startsWith("sample:")) continue;
     if (r.id === doc.id) { kept++; continue; }
     await vfs.deleteDoc(r.id);
+    keepRooms((s) => forgetStory(s, r.id));
     gone++;
   }
   toast(t("Removed from this browser: ") + gone + (kept ? " · " + t("the open presentation stays") : ""));
@@ -1663,9 +1751,14 @@ async function docRooms() {
   const id = await currentRoomId();
   if (!id) {
     app.setDocRooms("", "", t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+    app.setDocStory(false, "story", "active", "");
     needsPaint = true;
     return;
   }
+  deckStory(id).then((st) => {
+    app.setDocStory(true, st.type, st.phase, st.tags.join(", "));
+    needsPaint = true;
+  }).catch(() => {});
   const [rooms, all, cur] = await Promise.all([roomsList(), roomsList({ archived: true }), deckRoom(id)]);
   const shown = rooms.filter((x) => x.room_id !== ONBOARDING);
   if (cur && !shown.some((x) => x.room_id === cur)) {
@@ -1948,6 +2041,7 @@ async function roomsRequest(r) {
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
+    await showTopic(roomShown, rows);
     if (action === "open") await roomChat().open(roomShown);
   } else if (action === "fold") {
     // a folder pressed: open or shut, in this browser
@@ -2404,6 +2498,7 @@ async function deleteDeck() {
     }
   }
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  keepRooms((s) => forgetStory(s, id));
   // its tab goes; the tab used before it comes to the front
   if (shownKey) app.deckTabClose(shownKey);
   shownKey = null;
@@ -2736,7 +2831,10 @@ async function decksRequest(r) {
   } else if (action === "del") {
     // a deck kept here, not the open one; one only in the cloud is deleted
     // once open (File → Delete presentation…)
-    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
+    if (what !== doc.id && !what.startsWith("cloud:")) {
+      await vfs.deleteDoc(what);
+      keepRooms((s) => forgetStory(s, what));
+    }
   }
   await refreshDecks();
   refreshRecent().catch(() => {});
@@ -4957,6 +5055,12 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("topic:")) {
+      topicRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("docstory:")) {
+      docStoryRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("story:set:")) {
+      storyRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("roomchat:")) {
       roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {

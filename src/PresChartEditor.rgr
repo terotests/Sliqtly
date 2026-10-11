@@ -41,6 +41,7 @@ Import "../evgui/src/UiHost.rgr"
 Import "UiKit.rgr"
 Import "PresKeep.rgr"
 Import "PresInvite.rgr"
+Import "PresStoryNames.rgr"
 Import "PresI18n.rgr"
 
 class PresChartEditor {
@@ -265,6 +266,15 @@ class PresChartEditor {
     def dsRoom:string ""
     def dsRoomNote:string ""
     def dsRoomAct:string ""
+    ; the open presentation as a story (setDocStory): its type, phase and
+    ; tags (commas between); what was changed here, for the page
+    ; ("type\t<v>", "phase\t<v>", "tags\t<text>"); the tags as last sent
+    def dsStoryOn:boolean false
+    def dsType:string "story"
+    def dsPhase:string "active"
+    def dsTags:string ""
+    def dsTagsSent:string ""
+    def dsStoryActs:[string]
     ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
     ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
@@ -496,7 +506,31 @@ class PresChartEditor {
         dsRoom = ""
         dsRoomNote = ""
         dsRoomAct = ""
+        dsStoryOn = false
         this.openAt(px py pw ph)
+    }
+
+    ; The open presentation as a story: its type, phase and tags (commas
+    ; between); `on` false for one that is not kept yet.
+    fn setDocStory:void (on:boolean ty:string phase:string tags:string) {
+        dsStoryOn = on
+        dsType = ty
+        dsPhase = phase
+        if (focusTid != "ds-tags") {
+            dsTags = tags
+            dsTagsSent = tags
+        }
+        if (isOpen && (mode == "docset")) {
+            this.rebuild()
+        }
+    }
+
+    ; the tags typed since they were last sent, once the field is left
+    fn storyTagsDone:void () {
+        if ((focusTid != "ds-tags") && (dsTags != dsTagsSent)) {
+            dsTagsSent = dsTags
+            push dsStoryActs ("tags\t" + dsTags)
+        }
     }
 
     ; The rooms the presentation can be in: `rows` one "id\tname" a line,
@@ -2398,6 +2432,29 @@ class PresChartEditor {
                     sec4.addChild((UiKit.words("ce-doc" (PresI18n.t("The presentation's home room. Choosing another moves it there, as dragging it onto a room in the left rail does.")))))
                 }
             }
+            if dsStoryOn {
+                def sec5:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
+                def tyr:EVGElement (this.field((PresI18n.t("Type"))))
+                def tys:[string] (PresStoryNames.types())
+                def tyn:[string]
+                for tys ty:string ti {
+                    push tyn (PresStoryNames.typeName(ty))
+                }
+                this.dropdown("ds-sty" (PresI18n.t("Type")) dsType tys tyn tyr)
+                sec5.addChild(tyr)
+                def phr:EVGElement (this.field((PresI18n.t("Phase"))))
+                def phs:[string] (PresStoryNames.phases())
+                def phn:[string]
+                for phs ph:string pi {
+                    push phn (PresStoryNames.phaseName(ph))
+                }
+                this.dropdown("ds-stp" (PresI18n.t("Phase")) dsPhase phs phn phr)
+                sec5.addChild(phr)
+                def tgr:EVGElement (this.field((PresI18n.t("Tags"))))
+                this.inputWith("ds-tags" (PresI18n.t("Tags")) dsTags (PresI18n.t("e.g. PDF, Renderer")) "ce-wide" tgr)
+                sec5.addChild(tgr)
+                sec5.addChild((UiKit.words("ce-doc" (PresI18n.t("What kind of presentation this is and where it is in its life. Its room lists its presentations by them; the colour comes from the type.")))))
+            }
         } {
             if ((dsTab == "header") || (dsTab == "footer")) {
                 this.edgePane(pane (this.dsEdge()))
@@ -2586,6 +2643,22 @@ class PresChartEditor {
         def e:int (this.dsEdge())
         if (tid == "ds-done") {
             wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-sty-") == 0) {
+            def to:string (substring tid 7 (strlen tid))
+            if (to != dsType) {
+                dsType = to
+                push dsStoryActs ("type\t" + to)
+            }
+            return true
+        }
+        if ((indexOf tid "ds-stp-") == 0) {
+            def to:string (substring tid 7 (strlen tid))
+            if (to != dsPhase) {
+                dsPhase = to
+                push dsStoryActs ("phase\t" + to)
+            }
             return true
         }
         if ((indexOf tid "ds-room-") == 0) {
@@ -4933,6 +5006,9 @@ class PresChartEditor {
         }
         if (focusTid == "ds-title") {
             ds.title = v
+        }
+        if (focusTid == "ds-tags") {
+            dsTags = v
         }
         if ((indexOf focusTid "ds-dk-") == 0) {
             def dk:int (?? (str2int (substring focusTid 6 (strlen focusTid))) -1)

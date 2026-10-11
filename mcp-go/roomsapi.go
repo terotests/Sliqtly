@@ -169,6 +169,12 @@ var roomTools = []roomTool{
 		desc:     "Make room_id the presentation's home room, at its top or into one of its folders (folder_id). Needs editor rights in both rooms. Its files stay its own; the room's files are not shared with it. The open pages show it in its new place at once. → the room and folder it came from (from_room_id, from_folder_id), the new room's and folder's names, and moved false when it was there already",
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to"), "folder_id": strProp("A folder of that room (get_room lists them, create_folder makes one); leave out for the room's top")},
 		required: []string{"deck_id", "room_id"}},
+	{name: "set_story", title: "Set a presentation's type, phase or tags",
+		desc:     "A presentation is a story of its room (people see rooms called topics): its type says what kind of story it is (" + strings.Join(store.StoryTypes, ", ") + "; story when nothing fits), its phase where it is in its life (" + strings.Join(store.StoryPhases, ", ") + "), tags are free words for search and grouping, and color (#rrggbb) goes over the type's colour (\"\" back to the type's). Give only what changes. A new presentation is a draft; one from before stories is active. Suggest a type from what the presentation is (a code review is review, a pitch deck pitch), and set phase only when the user says so. → the story as it is now",
+		props: map[string]any{"deck_id": strProp("The presentation's deck_id"), "type": strProp("One of " + strings.Join(store.StoryTypes, ", ")), "phase": strProp("One of " + strings.Join(store.StoryPhases, ", ")),
+			"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "All of its tags (replaces them), at most 20"},
+			"color": strProp("#rrggbb over the type's colour, \"\" for the type's")},
+		required: []string{"deck_id"}},
 	{name: "create_folder", title: "Create a folder in a room",
 		desc:     "Make a folder in a room (one level, no folders in folders), e.g. \"Testing\" for a room's test presentations, then move them there with move_presentation folder_id. Editors of the room, General and Playground too. A name the room has already (any case) is that folder. → folder_id, made false when it was there",
 		props:    map[string]any{"room_id": strProp("The room"), "name": strProp("The folder's name, at most 100 characters")},
@@ -346,7 +352,7 @@ var cloudRoomOps = map[string]bool{
 // ({"t":"rooms"}) and reads its list again
 var roomListChanges = map[string]bool{
 	"create_room": true, "update_room": true, "delete_room": true,
-	"archive_room": true, "move_presentation": true,
+	"archive_room": true, "move_presentation": true, "set_story": true,
 	"create_folder": true, "rename_folder": true, "delete_folder": true,
 }
 
@@ -475,6 +481,7 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			Created int64  `json:"created"`
 			Inherit bool   `json:"inherit_room_files"`
 			Folder  string `json:"folder_id"`
+			store.Story
 		}
 		type folderRow struct {
 			FolderID string `json:"folder_id"`
@@ -501,7 +508,7 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 				folder = ""
 			}
 			inFolder[folder]++
-			decks = append(decks, deckRow{it.ID, name, owner, at, made, it.Doc[store.InheritField] == true, folder})
+			decks = append(decks, deckRow{it.ID, name, owner, at, made, it.Doc[store.InheritField] == true, folder, store.StoryOf(it.Doc)})
 		}
 		folders := []folderRow{}
 		for _, f := range fs {
@@ -642,6 +649,51 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			}
 		}
 		return out, nil
+
+	case "set_story":
+		var c store.StoryChange
+		for k, at := range map[string]**string{"type": &c.Type, "phase": &c.Phase, "color": &c.Color} {
+			if v, ok := a[k]; ok {
+				str, ok := v.(string)
+				if !ok {
+					return nil, roomErr{k + " is not a string"}
+				}
+				*at = &str
+			}
+		}
+		if v, ok := a["tags"]; ok {
+			list, ok := v.([]any)
+			if !ok {
+				return nil, roomErr{"tags is not a list of strings"}
+			}
+			tags := []string{}
+			for _, t := range list {
+				if t, ok := t.(string); ok {
+					tags = append(tags, t)
+				}
+			}
+			c.Tags = &tags
+		}
+		var now store.Story
+		_, _, err := s.st.Update(ctx, p, "shares", argStr(a, "deck_id"), func(cur store.Doc, _ store.Rev) (store.Doc, error) {
+			if cur == nil {
+				return nil, store.ErrNotFound
+			}
+			next, err := c.Apply(store.StoryOf(cur))
+			if err != nil {
+				return nil, err
+			}
+			now = next
+			cur[store.StoryField] = store.StoryDoc(next)
+			return cur, nil
+		})
+		if errors.Is(err, store.ErrStory) {
+			return nil, roomErr{"type is one of " + strings.Join(store.StoryTypes, ", ") + "; phase one of " + strings.Join(store.StoryPhases, ", ") + "; color #rrggbb or \"\""}
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"deck_id": argStr(a, "deck_id"), "type": now.Type, "phase": now.Phase, "tags": now.Tags, "color": now.Color}, nil
 
 	case "create_folder":
 		room := argStr(a, "room_id")

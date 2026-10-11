@@ -270,3 +270,58 @@ func TestRoomFolders(t *testing.T) {
 	ok("archive_room", map[string]any{"room_id": arch})
 	bad("create_folder", map[string]any{"room_id": arch, "name": "X"}, `role does not allow`)
 }
+
+// a presentation's story: a new one is a draft, one from before stories
+// active; type, phase, tags and colour set, kept when the deck is written
+// again, shown by get_room
+func TestRoomStories(t *testing.T) {
+	srv, session := startLocal(t, t.TempDir(), "")
+	defer srv.Close()
+	defer session.Close()
+	s := &testServer{root: srv.URL, session: session}
+	ok := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		r := call(t, s, name, args)
+		if r.IsError {
+			t.Fatalf("%s: %s", name, textOf(r))
+		}
+		return sc(r)
+	}
+	bad := func(name string, args map[string]any, want string) {
+		t.Helper()
+		r := call(t, s, name, args)
+		if !r.IsError {
+			t.Fatalf("%s worked: %s", name, textOf(r))
+		}
+		match(t, textOf(r), want)
+	}
+	a := ok("create_presentation", map[string]any{"title": "PDF/X transparency review", "markdown": DECK})["deck_id"].(string)
+	storyIn := func() map[string]any {
+		t.Helper()
+		for _, d := range list(ok("get_room", map[string]any{"room_id": "general"})["presentations"]) {
+			if mapOf(d)["deck_id"] == a {
+				m := mapOf(d)
+				return map[string]any{"type": m["type"], "phase": m["phase"], "tags": m["tags"], "color": m["color"]}
+			}
+		}
+		t.Fatal("not in General")
+		return nil
+	}
+	eq(t, storyIn(), map[string]any{"type": "story", "phase": "draft", "tags": []any{}, "color": nil})
+
+	got := ok("set_story", map[string]any{"deck_id": a, "type": "review", "tags": []any{" PDF ", "Renderer", "pdf"}})
+	eq(t, []any{got["type"], got["phase"], got["tags"]}, []any{"review", "draft", []any{"PDF", "Renderer"}})
+	ok("set_story", map[string]any{"deck_id": a, "phase": "review", "color": "#AA0000"})
+	eq(t, storyIn(), map[string]any{"type": "review", "phase": "review", "tags": []any{"PDF", "Renderer"}, "color": "#aa0000"})
+
+	// writing the deck again keeps its story
+	ok("update_presentation", map[string]any{"deck_id": a, "markdown": DECK + "\n---\n\n# More\n"})
+	eq(t, storyIn()["type"], "review")
+
+	ok("set_story", map[string]any{"deck_id": a, "color": ""})
+	eq(t, storyIn()["color"], nil)
+	bad("set_story", map[string]any{"deck_id": a, "type": "folder"}, `type is one of review`)
+	bad("set_story", map[string]any{"deck_id": a, "phase": "later"}, `phase one of draft`)
+	bad("set_story", map[string]any{"deck_id": a, "tags": "PDF"}, `list of strings`)
+	bad("set_story", map[string]any{"deck_id": "nothere", "type": "demo"}, `not found`)
+}

@@ -1,3 +1,5 @@
+import { storyOf, changeStory } from "./stories.js";
+
 // Rooms in this browser (ADR 0001), for a page with no rooms server: the
 // rooms made here and which room each presentation is in. Everything starts
 // in General; Playground is for trying things; Onboarding holds the sample
@@ -15,8 +17,11 @@
 //          room, e.g. its test decks out of the way; Onboarding has none)
 //          filed: { deckId: folderId },  (the folder a deck is in, within
 //          its room; none, or a folder gone, is the room's top)
-//          positions: { roomId: [deckId] } }  (a room's presentations as one
+//          positions: { roomId: [deckId] },  (a room's presentations as one
 //          dragged them, for the order "custom": sortDecks)
+//          stories: { deckId: { type, phase, tags, color } } }  (a
+//          presentation as a story of its room: web/stories.js; none is
+//          the default story, a deck from before stories)
 //
 // The order is this browser's view of the rooms, the server's rooms too.
 
@@ -33,7 +38,7 @@ export const ACTIVE_MAX = 8;
 const DAY = 86400000;
 
 export function emptyRooms() {
-  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {} };
+  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {}, stories: {} };
 }
 
 export const isBuiltIn = (id) => BUILT_IN.includes(id);
@@ -53,7 +58,9 @@ export function parseRooms(text) {
     const filed = s?.filed && typeof s.filed === "object" ? { ...s.filed } : {};
     const positions = {};
     if (s?.positions && typeof s.positions === "object") for (const [r, list] of Object.entries(s.positions)) if (Array.isArray(list)) positions[r] = list.filter((x) => typeof x === "string");
-    return { rooms, placed, touched, order, folders, filed, positions };
+    const stories = {};
+    if (s?.stories && typeof s.stories === "object") for (const [d, st] of Object.entries(s.stories)) stories[d] = storyOf(st);
+    return { rooms, placed, touched, order, folders, filed, positions, stories };
   } catch (_) {
     return emptyRooms();
   }
@@ -79,6 +86,7 @@ function factsOf(state) {
   for (const [room, list] of Object.entries(state.folders || {})) if (list.length) out.set("folders/" + room, JSON.stringify(list));
   for (const [deck, folder] of Object.entries(state.filed || {})) out.set("filed/" + deck, String(folder));
   for (const [room, list] of Object.entries(state.positions || {})) if (list.length) out.set("positions/" + room, JSON.stringify(list));
+  for (const [deck, st] of Object.entries(state.stories || {})) out.set("story/" + deck, JSON.stringify(storyOf(st)));
   return out;
 }
 
@@ -104,6 +112,7 @@ export function readKept(store, key) {
       else if (kind === "touched" && id && Number.isFinite(Number(v))) s.touched[id] = Number(v);
       else if (kind === "folders" && id) s.folders[id] = folderList(JSON.parse(v));
       else if (kind === "filed" && id) s.filed[id] = v;
+      else if (kind === "story" && id) s.stories[id] = storyOf(JSON.parse(v));
       else if (kind === "positions" && id) {
         const o = JSON.parse(v);
         if (Array.isArray(o)) s.positions[id] = o.filter((x) => typeof x === "string");
@@ -174,13 +183,35 @@ export function listRooms(state, decks, samples, { archived = false } = {}) {
 }
 
 // A room's presentations as made, oldest first (sortDecks orders them as
-// one chose): { id, name, current, folder, created, updated } (folder "" at
-// the room's top). Those of Onboarding are the samples, "sample:<key>".
+// one chose): { id, name, current, folder, created, updated } and the
+// story's { type, phase, tags, color } (folder "" at the room's top). Those
+// of Onboarding are the samples, "sample:<key>", stories of the default.
 export function roomDecks(state, roomId, decks, samples) {
-  if (roomId === ONBOARDING) return samples.map((s) => ({ id: "sample:" + s.key, name: s.name, current: !!s.current }));
+  if (roomId === ONBOARDING) return samples.map((s) => ({ id: "sample:" + s.key, name: s.name, current: !!s.current, ...storyOf(null) }));
   return sortDecks(decks
     .filter((d) => roomOf(state, d.id) === roomId)
-    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id), created: d.created || d.updated || 0, updated: d.updated || d.created || 0 })));
+    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id), created: d.created || d.updated || 0, updated: d.updated || d.created || 0, ...storyFor(state, d.id) })));
+}
+
+// --- stories: a presentation as a story of its room (web/stories.js) -------
+
+// The deck's story; one with nothing kept is the default (a deck from
+// before stories: type story, phase active).
+export const storyFor = (state, deckId) => storyOf(state.stories?.[deckId]);
+
+// The deck's story with `patch` ({ type, phase, tags, color }, stories.js
+// changeStory); a sample is no one's to change.
+export function setStory(state, deckId, patch) {
+  if (!deckId || deckId.startsWith("sample:")) return state;
+  return { ...state, stories: { ...(state.stories || {}), [deckId]: changeStory(storyFor(state, deckId), patch) } };
+}
+
+// A deck gone (deleted): its story goes with it.
+export function forgetStory(state, deckId) {
+  if (!state.stories?.[deckId]) return state;
+  const stories = { ...state.stories };
+  delete stories[deckId];
+  return { ...state, stories };
 }
 
 // The orders a room's presentations can be listed in (File → Settings):
