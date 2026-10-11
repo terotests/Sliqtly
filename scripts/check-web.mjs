@@ -817,6 +817,40 @@ try {
   check("a build item is hidden before its step", !r.beforeStep);
   check("all four numbers at the end", r.afterAll === 4, String(r.afterAll));
   check("a frame is a function of its time", r.deterministic);
+  // the video export's frames (web/videoexport.js): drawn at n / fps, the
+  // same pixels on a second run (the sample's starfield too), and in a deck
+  // without an effect a frame like the one before is not drawn again
+  {
+    const pv = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+    await pv.goto(url + "?sample=esittely");
+    await pv.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const run = (n) => pv.evaluate((n) => {
+      const v = window.__video;
+      const sum = (a) => {
+        let h = 0;
+        for (let i = 0; i < a.length; i += 61) h = (h * 31 + a[i]) >>> 0;
+        return h;
+      };
+      const tl = v.begin({ width: 320, height: 180, fps: 10 }, false);
+      const out = [];
+      for (let i = 0; i < Math.min(tl.frames, n); i++) {
+        const f = v.frame(i);
+        out.push([sum(f.rgba), f.same, f.rgba.length]);
+      }
+      v.close();
+      return out;
+    }, n);
+    const a = await run(30);
+    const b = await run(30);
+    check("a video frame is RGBA of the asked size", a[0][2] === 320 * 180 * 4, String(a[0][2]));
+    check("…the same pixels on a second run", a.every((x, i) => x[0] === b[i][0]));
+    await pv.evaluate(() => window.__app.setSource("---\nfx: none\nstep: 1.0\nhold: 1.5\n---\n\n## Yksi\n\nTeksti\n\n## Kaksi\n\n1. eka\n2. toka\n{.build}\n"));
+    const c = await run(60);
+    const still = c.filter((x) => x[1]).length;
+    const pictures = new Set(c.map((x) => x[0])).size;
+    check("…a frame like the one before is not drawn again", still > 0 && pictures > 1, `${still} still, ${pictures} different of ${c.length}`);
+    await pv.close();
+  }
   check("typing a heading makes a slide", r.slidesAfterTyping === 7, String(r.slidesAfterTyping));
   check("the stage follows the caret to it", r.selectedAfterTyping === 6, String(r.selectedAfterTyping));
   check("present mode", r.presentMode === "present");
@@ -5783,7 +5817,6 @@ try {
     await ctx.close();
   }
 
-<<<<<<< HEAD
   // Export to Clipboard → Full presentation (docs/clipboard.md): the whole
   // deck as Sliqtly's clipboard text, and a paste of it in another browser
   // (a context of its own, no shared storage) makes a presentation of it
@@ -5869,7 +5902,8 @@ try {
     const got = await B.page.evaluate(async () => ({ md: window.__app.source(), css: window.__app.themeCss(), files: await window.__docFiles(), docs: (await window.__allDocs()).length }));
     check("…the new presentation has the same Markdown, theme CSS and files", got.md === srcA && got.css === cssA && got.files.includes("media/logo.png") && got.docs === docs0 + 1, JSON.stringify({ md: got.md === srcA, css: got.css === cssA, files: got.files, docs: [docs0, got.docs] }));
     await B.ctx.close();
-=======
+  }
+
   // Source code over a presented slide (PresCodeViewUi): a box with a
   // `::: code` link shows a ‹/› badge, a double click on it opens its file
   // read-only with the change (code/<file> + code/<file>.diff), and a press
@@ -5933,7 +5967,6 @@ try {
     const sv = await pc.evaluate(() => { const c = window.__app.codeView; return { open: c.isOpen(), mode: c.view.mode, zoom: c.view.zoom, notes: window.__app.playNotes() }; });
     check("a slide script opens the viewer in split view and zooms it", sv.open && sv.mode === "split" && sv.zoom === 2, JSON.stringify(sv));
     await pc.close();
->>>>>>> origin/main
   }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike

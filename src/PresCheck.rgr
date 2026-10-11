@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
+Import "PresVideo.rgr"
 Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
@@ -3609,6 +3610,94 @@ class PresCheck {
         }
         this.ok(((array_length pc) > 40) ("story: a script's presenter is drawn, " + (to_string (array_length pc))))
         this.ok(said "story: its bubble says the line out")
+    }
+
+    ; A presentation as a video (PresVideo): frame n is time n / fps, the
+    ; same frame twice is the same list, a recording holds at its steps.
+    fn video:void () {
+        def text:string ("---\nslide-split-level: 2\nstep: 1.0\nhold: 2.0\n---\n\n## Yksi\n\nTeksti\n"
+            + "\n## Kaksi {transition=fade seconds=0.5}\n\n1. eka\n2. toka\n{.build}\n"
+            + "\n## Kolme\n\nLoppu\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) != 3) {
+            this.ok(false ("video: three slides, got " + (to_string (deck.slideCount()))))
+            return
+        }
+        ; options: kept when sensible, the defaults otherwise
+        def o:PresVideoOptions (PresVideoOptions.parse("{\"width\":1281,\"height\":720,\"fps\":25,\"codec\":\"h264\",\"quality\":99}"))
+        this.ok(((o.width == 1280) && (o.height == 720)) ("video: sides even, " + (to_string o.width)))
+        this.ok((((o.fps == 25) && (o.codec == "vp9")) && (o.quality == 32)) "video: an unknown codec and quality keep the defaults")
+        def d:PresVideoOptions (PresVideoOptions.parse(""))
+        this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
+
+        ; the deck on its own
+        def tl:PresVideoTimeline (PresVideoTimeline.ofDeck(deck d))
+        def total:double (PresTimeline.total(deck))
+        this.ok(((fabs (tl.duration - total)) < 0.000001) ("video: as long as the deck, " + (to_string tl.duration)))
+        def frames:int (tl.frameCount())
+        def lastT:double ((to_double (frames - 1)) / 30.0)
+        def endT:double ((to_double frames) / 30.0)
+        this.ok(((lastT < total) && (endT >= (total - 0.000001))) ("video: frames cover it, " + (to_string frames)))
+        this.ok(((tl.frameTime(9000)) == 300.0) "video: frame 9000 is exactly 300 s")
+        def builds:int 0
+        def trans:int 0
+        for tl.events e:PresVideoEvent ei {
+            if (e.kind == "build") {
+                builds = (builds + 1)
+            }
+            if (e.kind == "transition") {
+                trans = (trans + 1)
+            }
+        }
+        this.ok((builds == 2) ("video: the build steps are events, " + (to_string builds)))
+        this.ok((trans == 2) ("video: the transitions too, " + (to_string trans)))
+        def s1start:double (PresTimeline.slideStart(deck 1))
+        def nf:int (to_int ((s1start * 30.0) + 1.0))
+        def a1:PresVideoAt (tl.at(deck nf))
+        this.ok(((a1.slide == 1) && (a1.local >= 0.0)) ("video: a frame past slide 2's start shows it, " + (to_string a1.slide)))
+        def last:PresVideoAt (tl.at(deck (frames - 1)))
+        this.ok((last.slide == 2) "video: the last frame is on the last slide")
+        def rp (new PresReplay())
+        def f1:string ((PresVideo.frame(deck tl nf rp)).toJson())
+        def f2:string ((PresVideo.frame(deck tl nf rp)).toJson())
+        def f3:string ((PresVideo.frame(deck tl (nf + 20) rp)).toJson())
+        this.ok((f1 == f2) "video: the same frame twice is the same list")
+        this.ok((f1 != f3) "video: a build step later it is not")
+        this.ok((((strlen (tl.toJson())) > 100) && ((indexOf (tl.toJson()) "\"frames\":") > 0)) "video: the timeline as JSON")
+
+        ; a recording: slide 2 shown at 1 s and held before its first step,
+        ; a click at 6 s, slide 3 at 9 s; 2 s cut out of the hold
+        def r (new PresRecording())
+        r.nav(0.0 0 0 0.0 false)
+        def s1:PresSlide (deck.slideAt(1))
+        r.nav(1.0 1 0 s1start false)
+        r.nav(6.0 1 1 (s1start + (PresTimeline.stepTime(s1 1))) false)
+        r.nav(9.0 2 0 (PresTimeline.slideStart(deck 2)) false)
+        r.ptr(9.5 100.0 100.0)
+        r.duration = 11.0
+        r.addCut(3.0 5.0)
+        def rt:PresVideoTimeline (PresVideoTimeline.ofRecording(deck r d))
+        this.ok(((fabs (rt.duration - 9.0)) < 0.000001) ("video: a recording without its cut, " + (to_string rt.duration)))
+        ; play 3.5 s is source 5.5 s: slide 2, held where step 1 begins
+        def h:PresVideoAt (rt.at(deck 105))
+        this.ok(((h.slide == 1) && ((fabs (h.source - 5.5)) < 0.000001)) ("video: after the cut it is the recording's 5.5 s, " + (to_string h.source)))
+        this.ok(((fabs (h.local - (PresTimeline.stepTime(s1 1)))) < 0.000001) ("video: held at the next step, " + (to_string h.local)))
+        this.ok((h.fxTime > h.local) "video: its effect runs on through the hold")
+        def h2:PresVideoAt (rt.at(deck 130))
+        this.ok(((h2.slide == 1) && (h2.local > (PresTimeline.stepTime(s1 1)))) "video: the click moves it on")
+        def keep:[double] (rt.audioKeep())
+        this.ok(((((array_length keep) == 4) && ((itemAt keep 1) == 3.0)) && ((itemAt keep 2) == 5.0)) "video: the sound keeps what is not cut")
+        ; the pointer shows on the frame at 9.5 s of the recording (7.5 s played)
+        def rr (new PresReplay())
+        rr.load(r)
+        def withPtr:EVGDisplayList (PresVideo.frame(deck rt 225 rr))
+        def plain:EVGDisplayList (PresVideo.frame(deck tl (to_int (((PresTimeline.slideStart(deck 2)) + 0.5) * 30.0)) rp))
+        this.ok(((array_length withPtr.cmds) > (array_length plain.cmds)) ("video: the recorded pointer is drawn, " + (to_string (array_length withPtr.cmds)) + " > " + (to_string (array_length plain.cmds))))
+        ; and seeking back starts the ink over
+        def back:EVGDisplayList (PresVideo.frame(deck rt 30 rr))
+        this.ok(((rr.ink.count()) == 0) "video: a frame before the drawing has none")
     }
 
     ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
@@ -7626,6 +7715,7 @@ class PresCheck {
         c.navJumps()
         c.stageClicks()
         c.recording()
+        c.video()
         c.docx()
         c.htmlPage()
         c.traceChecks()
