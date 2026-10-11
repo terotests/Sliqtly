@@ -1133,13 +1133,7 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
 - The keyboard and the pointer: a click or tap on the program gives it the
   keyboard (the arrow keys too, which then no longer move the slides);
   Esc gives it back. Until then `input.keys` is empty and no `onKeyDown`
-  comes, so tell the audience to click it first. A program's 3-D world
-  that reaches past its box (`allow: 3d` below) is the program too while
-  presenting: a click on anything it drew counts. While such a program
-  has the keyboard in a presentation it takes the stage: its world is
-  drawn over the slide's text and the controls at the foot hide, until
-  Esc (or another slide). `<scene3d focus="keep">` keeps the text and the
-  controls; a world kept in its box (`fit="box"`) never hides them.
+  comes, so tell the audience to click it first.
   - Key names are the browser's `KeyboardEvent.key`: `"ArrowUp"`,
     `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `" "` (space), `"Enter"`,
     `"Escape"` is never sent, letters as typed (`"w"`, with Shift `"W"`),
@@ -1151,8 +1145,7 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   - `input.pointer` is `{ x, y, down, inside }` in the program's own units
     (`size:`, from its top left corner, not slide px): x 0..480 across a
     `size: 480x270` box however big the box is drawn. It follows the
-    pointer once the program has been clicked; past the box (a world that
-    reaches past it) x and y fall outside 0..width, 0..height. `down` is
+    pointer once the program has been clicked. `down` is
     true while the button or finger is held; a press shorter than a frame
     is still seen by `onPointerDown(x, y)` (called when no element's
     `onClick` took the press) and by `onClick`, whose event has `x`, `y`.
@@ -1171,7 +1164,10 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     with that id or class (`{#id}` on the line after a paragraph) without
     changing the Markdown.
   - `3d` (experimental): a `<scene3d>` element in `view()` is a 3-D world,
-    drawn over the slide with a transparent background. The camera frames
+    drawn over the slide with a transparent background. Make it an object
+    shown beside the slide's words (a robot arm in a column, a model that
+    turns), not a whole-slide world the audience plays or drives: the
+    presentation's 3-D flight cannot show those yet. The camera frames
     the element's box; what is outside it may draw anywhere on the slide,
     over its background and under its text (`fit="slide"`, the default).
     `<scene3d fit="box">` (or CSS `overflow: hidden`) keeps the world in
