@@ -156,6 +156,13 @@ class PresPlayUse {
     }
 }
 
+; A slide at rest (PresDeck.restOfSlide).
+class PresRest {
+    def list:EVGDisplayList (new EVGDisplayList())
+    def groupOfCmd:[int]
+    def scene:PresScene (new PresScene())
+}
+
 class PresSlide {
     def index:int 0
     def id:string ""
@@ -2517,8 +2524,18 @@ class PresDeck {
     }
 
     fn sceneOfSlide:PresScene (i:int) {
+        def r:PresRest (this.restOfSlide(i))
+        return r.scene
+    }
+
+    ; Slide i at rest as the Markdown lays it out (sceneOfSlide): its list,
+    ; each command's build group (an index into the slide's groups, -1 for
+    ; none) and its entities. The 3-D flight paints the blocks of this list.
+    def restHeld:PresRest (new PresRest())
+
+    fn restOfSlide:PresRest (i:int) {
         if ((sceneRev == revision) && (scenePage == i)) {
-            return sceneHeld
+            return restHeld
         }
         def wasOff:boolean scriptsOff
         def wasStill:boolean still
@@ -2533,10 +2550,15 @@ class PresDeck {
         scriptsOff = wasOff
         still = wasStill
         showControls = wasControls
+        def r:PresRest (new PresRest())
+        r.list = dl
+        r.groupOfCmd = g
+        r.scene = sc
         sceneRev = revision
         scenePage = i
         sceneHeld = sc
-        return sc
+        restHeld = r
+        return r
     }
 
     ; The ids a selector names on slide i as the Markdown lays it out:

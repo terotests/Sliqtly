@@ -59,6 +59,15 @@ class FlightItem {
     ; a bar grows from here (y, or x when it lies across)
     def base:double 0.0
     def across:boolean false
+    ; the slide's block it stands for (its PresEnt id), "" for none
+    def ent:string ""
+    ; a plate: the commands of the slide's list at rest it paints
+    ; (PresDeck.restOfSlide), and that rectangle of the slide, slide px
+    def cmds:[int]
+    def sx:double 0.0
+    def sy:double 0.0
+    def sw:double 0.0
+    def sh:double 0.0
 
     fn toJson:JVal () {
         def o:JVal (JVal.mkObj())
@@ -150,6 +159,9 @@ class FlightStation {
 class PresFlightScene {
     def stations:[FlightStation]
     def items:[FlightItem]
+    ; a slide's size in the world: its long side 16 units on a 16:9 screen
+    def frameW:double 16.0
+    def frameH:double 9.0
     ; the bounds `frame` measures, grown by a point (the first one starts them)
     def fx0:double 0.0
     def fx1:double 0.0

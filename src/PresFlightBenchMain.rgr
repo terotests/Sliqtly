@@ -1,0 +1,48 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The 3-D flight's benchmark as a command (scripts/flight-bench.mjs):
+; `node flight_bench.cjs <dir> <cases file> <themes dir> [case id]` prints
+; the Markdown report, or with a case id that case's slide command by
+; command. <themes dir> holds each theme whole as <name>.css.
+
+Import "PresFlightBench.rgr"
+
+class PresFlightBenchMain {
+    sfn main:void () {
+        if ((shell_arg_cnt) < 3) {
+            print "usage: flight_bench <dir> <cases file> <themes dir> [case id]"
+            return
+        }
+        def dir:string (shell_arg 0)
+        def name:string (shell_arg 1)
+        def themes:string (shell_arg 2)
+        def got@(optional):string (read_file dir name)
+        if (null? got) {
+            print ("no cases at " + dir + "/" + name)
+            return
+        }
+        def text:string (unwrap got)
+        ; the themes the cases name
+        def names:[string]
+        def sheets:[string]
+        def cases:[FlightBenchCase] (PresFlightBench.parse(text))
+        def i:int 0
+        while (i < (array_length cases)) {
+            def t:string (PresFlightBench.themeOf((itemAt cases i)))
+            if ((indexOf names t) < 0) {
+                def css@(optional):string (read_file themes (t + ".css"))
+                if (!null? css) {
+                    push names t
+                    push sheets (unwrap css)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((shell_arg_cnt) >= 4) {
+            print (PresFlightBench.dump(text (shell_arg 3) names sheets))
+            return
+        }
+        def rs:[FlightBenchResult] (PresFlightBench.runAll(text names sheets))
+        print (PresFlightBench.report(rs))
+    }
+}

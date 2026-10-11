@@ -21,7 +21,8 @@
     "check:samples": "node scripts/check-samples.mjs",
     "check:view": "node scripts/check-view.mjs",
     "check:editor": "node scripts/check-editor.mjs",
-    "check:links": "node scripts/check-share-links.mjs"
+    "check:links": "node scripts/check-share-links.mjs",
+    "bench:flight": "node scripts/flight-bench.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.0",
