@@ -456,6 +456,9 @@ class PresFlight3D {
     ; to reads clearly, the words of the ones behind it stay faint, so they
     ; do not show through its own
     def focus:[double]
+    ; the station flown to: the ones past it go dark while it is in focus,
+    ; so nothing of them shows through it
+    def goalAt:int 0
     def clock:double 0.0
     def held:PresFlightPad (new PresFlightPad())
     def pad:PresFlightPad (new PresFlightPad())
@@ -675,6 +678,15 @@ class PresFlight3D {
                 op = 0.32
                 t = 0.03
             }
+            if (o.boolOr("disc" false)) {
+                ; a circle as the slide draws it: tinted glass, light round its rim
+                def rr:double ((? (p.w > p.h) p.w p.h) * 0.5)
+                def glass:ThreeBufferGeometry (FlightGeo.sector(0.0 rr 0.0 6.2832 0.0))
+                this.hold(p (this.mesh(glass (this.basic((r * 0.55) (g * 0.55) (b * 0.55) fill false)))) fill 0.0 0.0 0.0)
+                def rim:ThreeBufferGeometry (FlightGeo.sector((rr - t) rr 0.0 6.2832 0.01))
+                this.hold(p (this.mesh(rim (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+                return
+            }
             if (fill > 0.0) {
                 def pane:ThreeMesh (this.mesh((FlightGeo.picture()) (this.basic((r * 0.55) (g * 0.55) (b * 0.55) fill false))))
                 pane.scale.set(p.w p.h 1.0)
@@ -864,17 +876,31 @@ class PresFlight3D {
                 push ends (to_int (v.asNum(0.0)))
                 e = (e + 1)
             }
-            this.hold(p (this.mesh((FlightGeo.ribbons(pts ends rad)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
-            this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+            if (rad < 0.025) {
+                this.hold(p (this.mesh((FlightGeo.ribbons(pts ends rad)) (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+                this.hold(p (this.mesh((FlightGeo.ribbons(pts ends (rad * 3.5))) (this.basic(r g b 0.1 true)))) (0.1 * op) 0.0 0.0 0.0)
+                return
+            }
+            ; a thick line broken in pieces (a timeline past its numbers):
+            ; a tube each
+            def from:int 0
+            for ends to:int k {
+                def piece:[double]
+                def j:int from
+                while ((j < to) && (j < np)) {
+                    push piece (itemAt pts (j * 3))
+                    push piece (itemAt pts ((j * 3) + 1))
+                    push piece (itemAt pts ((j * 3) + 2))
+                    j = (j + 1)
+                }
+                if ((to - from) >= 2) {
+                    this.addTube(p piece rad r g b op)
+                }
+                from = to
+            }
             return
         }
-        def tube:ThreePathTubeGeometry (new ThreePathTubeGeometry)
-        tube.build(pts rad 6)
-        this.hold(p (this.mesh(tube (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
-        ; a soft glow around it
-        def glow:ThreePathTubeGeometry (new ThreePathTubeGeometry)
-        glow.build(pts (rad * 3.5) 6)
-        this.hold(p (this.mesh(glow (this.basic(r g b 0.12 true)))) (0.12 * op) 0.0 0.0 0.0)
+        this.addTube(p pts rad r g b op)
         if (o.boolOr("pulse" false)) {
             def pu:FlightPulse (new FlightPulse())
             pu.pts = pts
@@ -899,6 +925,16 @@ class PresFlight3D {
             pu.mesh.visible = false
             push pulses pu
         }
+    }
+
+    ; A tube of light along points, a soft glow around it.
+    fn addTube:void (p:FlightPart pts:[double] rad:double r:double g:double b:double op:double) {
+        def tube:ThreePathTubeGeometry (new ThreePathTubeGeometry)
+        tube.build(pts rad 6)
+        this.hold(p (this.mesh(tube (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
+        def glow:ThreePathTubeGeometry (new ThreePathTubeGeometry)
+        glow.build(pts (rad * 3.5) 6)
+        this.hold(p (this.mesh(glow (this.basic(r g b 0.12 true)))) (0.12 * op) 0.0 0.0 0.0)
     }
 
     ; An effect: three layers of sparks in its box that drift and twinkle
@@ -1182,6 +1218,7 @@ class PresFlight3D {
         if cam.auto {
             goal = cam.target
         }
+        goalAt = goal
         def fk:double (dt * 3.0)
         if (fk > 1.0) {
             fk = 1.0
@@ -1238,6 +1275,28 @@ class PresFlight3D {
         return ((d > (0.0 - 170.0)) && (d < 60.0))
     }
 
+    ; 1 for a station up to the one flown to; one past it fades out as that
+    ; one comes into focus.
+    fn pastGoal:double (station:int) {
+        if (((station <= goalAt) || (goalAt < 0)) || (station >= (array_length focus))) {
+            return 1.0
+        }
+        return (PresFlight3D.pastLight((itemAt focus goalAt)))
+    }
+
+    ; How much of a station past the one flown to shows, by that one's focus
+    ; (faint..1): all of it while it is faint, none once it reads clearly.
+    sfn pastLight:double (f:double) {
+        def v:double ((1.0 - f) / (1.0 - (PresFlight3D.faint())))
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
     sfn faint:double () {
         return 0.25
     }
@@ -1253,7 +1312,8 @@ class PresFlight3D {
         if ((p.kind == "text") && ((p.station >= 0) && (p.station < (array_length focus)))) {
             dimTo = (itemAt focus p.station)
         }
-        def on:boolean ((u > 0.001) && (this.near(p.z)))
+        dimTo = (dimTo * (this.pastGoal(p.station)))
+        def on:boolean (((u > 0.001) && (dimTo > 0.001)) && (this.near(p.z)))
         def bob:double 0.0
         if (p.kind == "panel") {
             bob = ((sin(((clock * 0.8) + p.phase))) * 0.025)
