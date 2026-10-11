@@ -16,6 +16,10 @@
 ;   chat    docked on the right like help (one of the two at a time): the
 ;           deck's conversation on a server of one's own (EVGUI ChatCtl);
 ;           the page adds the messages and posts what is sent
+;   ai      the AI assistant (the ✨ AI drawer, PresAi), docked on the right
+;           like the chat and in its place: a ChatCtl whose buttons are the
+;           quick actions; PresApp fills it from PresAi and asks the page
+;           to post the question
 ;   call    the people in the deck's call (EVGUI ParticipantsCtl, PresMeet
 ;           holds it), docked on the right above the chat; a press on its
 ;           buttons is "call-press\t<target>" for PresMeet
@@ -164,6 +168,9 @@ class PresPanels {
     def chatW:double 340.0
     ; a press in the chat's text field, while the button is down
     def chatSelecting:boolean false
+    ; the AI assistant (its `open` says whether it shows, in the chat's place)
+    def aiChat:ChatCtl (new ChatCtl())
+    def aiW:double 380.0
     ; the call's people (PresMeet's control) and whether they show
     def call:ParticipantsCtl (new ParticipantsCtl())
     def callOpen:boolean false
@@ -189,17 +196,26 @@ class PresPanels {
         chat.sendText = (PresI18n.t("Send"))
         chat.closeText = (PresI18n.t("Close"))
         chat.newText = (PresI18n.t("new"))
+        aiChat.setup("pn-ai" (PresI18n.t("AI Assistant")))
+        aiChat.placeholder = (PresI18n.t("Ask about this slide…"))
+        aiChat.sendText = (PresI18n.t("Ask"))
+        aiChat.closeText = (PresI18n.t("Close"))
+        aiChat.newText = (PresI18n.t("new"))
+        aiChat.keep = 200
     }
 
     ; --- what is showing ---------------------------------------------------------
     fn any:boolean () {
-        return (((((helpOpen || shareOpen) || filesOpen) || chat.open) || callOpen) || ((strlen toastText) > 0))
+        return ((((((helpOpen || shareOpen) || filesOpen) || chat.open) || aiChat.open) || callOpen) || ((strlen toastText) > 0))
     }
 
     ; the width a docked panel takes off the right edge (0: none open)
     fn dockW:double () {
         if helpOpen {
             return helpW
+        }
+        if aiChat.open {
+            return aiW
         }
         if (chat.open || callOpen) {
             return chatW
@@ -220,7 +236,7 @@ class PresPanels {
     }
 
     fn callShows:boolean () {
-        return ((callOpen && (helpOpen == false)) && (quiet == false))
+        return (((callOpen && (helpOpen == false)) && (aiChat.open == false)) && (quiet == false))
     }
 
     ; the height the call takes off the top of the right edge
@@ -280,9 +296,49 @@ class PresPanels {
             chat.setOpen(on)
             if on {
                 helpOpen = false
+                if aiChat.open {
+                    aiChat.setOpen(false)
+                    push requests "ai-closed"
+                }
             }
             this.rebuild()
         }
+    }
+
+    ; The AI drawer in the right edge's place: help, the chat and the call
+    ; make room for it (the page hears they closed).
+    fn setAi:void (on:boolean) {
+        if (on != aiChat.open) {
+            aiChat.setOpen(on)
+            if on {
+                helpOpen = false
+                if chat.open {
+                    chat.setOpen(false)
+                    push requests "chat-closed"
+                }
+                if callOpen {
+                    callOpen = false
+                    push requests "call-closed"
+                }
+            }
+            this.rebuild()
+        }
+    }
+
+    ; the conversation docked on the right now: the AI's while it is open,
+    ; else the deck's chat
+    fn dockChat:ChatCtl () {
+        if aiChat.open {
+            return aiChat
+        }
+        return chat
+    }
+
+    fn dockChatW:double () {
+        if aiChat.open {
+            return aiW
+        }
+        return chatW
     }
 
     ; A selectable text (TextCtl `selectable`), in the host.
@@ -341,7 +397,8 @@ class PresPanels {
     ; has the keyboard, else what was selected in a text or a link.
     fn copyText:string (chatFocused:boolean) {
         if chatFocused {
-            def ct:string (chat.input.selectedText())
+            def dc:ChatCtl (this.dockChat())
+            def ct:string (dc.input.selectedText())
             if ((strlen ct) > 0) {
                 return ct
             }
@@ -376,57 +433,93 @@ class PresPanels {
 
     fn chatDragTo:void (px:double py:double) {
         if chatSelecting {
-            chat.textPointerDragAt(px py)
+            def dc:ChatCtl (this.dockChat())
+            dc.textPointerDragAt(px py)
         }
     }
 
     fn chatRelease:void () {
         if chatSelecting {
-            chat.textPointerUp()
+            def dc:ChatCtl (this.dockChat())
+            dc.textPointerUp()
         }
         chatSelecting = false
     }
 
     fn chatHas:boolean (px:double py:double) {
-        return (((chat.open && (quiet == false)) && (px >= (w - chatW))) && (py >= (barH + (this.callH()))))
+        def dc:ChatCtl (this.dockChat())
+        def top:double barH
+        if (aiChat.open == false) {
+            top = (barH + (this.callH()))
+        }
+        return (((dc.open && (quiet == false)) && (px >= (w - (this.dockChatW())))) && (py >= top))
     }
 
     fn chatPanel:EVGElement () {
-        def p:EVGElement (UiKit.div("pn-chat-dock"))
-        p.id = "pn-chat-dock"
+        def dc:ChatCtl (this.dockChat())
+        def cw:double (this.dockChatW())
+        def id:string "pn-chat-dock"
+        def top:double barH
+        if aiChat.open {
+            id = "pn-ai-dock"
+        } {
+            top = (barH + (this.callH()))
+        }
+        def p:EVGElement (UiKit.div(id))
+        p.id = id
         UiTree.surface(p "free" "start")
-        def top:double (barH + (this.callH()))
-        p.overlayX = (w - chatW)
+        p.overlayX = (w - cw)
         p.overlayY = top
-        p.width = (EVGUnit.px(chatW))
+        p.width = (EVGUnit.px(cw))
         p.height = (EVGUnit.px((h - top)))
-        chat.height = (h - top)
-        chat.build()
-        def cr:EVGElement (unwrap chat.rootEl)
-        UiTree.inline(cr "width" ((to_string chatW) + "px"))
+        dc.height = (h - top)
+        dc.build()
+        def cr:EVGElement (unwrap dc.rootEl)
+        UiTree.inline(cr "width" ((to_string cw) + "px"))
         UiTree.inline(cr "border-radius" "0px")
         UiTree.inline(cr "border-width" "0px")
-        UiKit.put(host chat p)
+        UiKit.put(host dc p)
         return p
+    }
+
+    ; What the docked conversation asks after a key or a press: the deck's
+    ; chat "chat-send" / "chat-closed", the AI "ai-send", "ai-act<TAB>value"
+    ; (a quick action's button) and "ai-closed".
+    fn chatAsks:void (dc:ChatCtl) {
+        if (dc.tid == aiChat.tid) {
+            if ((strlen aiChat.sent) > 0) {
+                push requests "ai-send"
+            }
+            def act:string (aiChat.takeAction())
+            if ((strlen act) > 0) {
+                push requests ("ai-act" + (strfromcode 9) + act)
+            }
+            if (aiChat.open == false) {
+                push requests "ai-closed"
+            }
+            return
+        }
+        if ((strlen chat.sent) > 0) {
+            push requests "chat-send"
+        }
+        if (chat.open == false) {
+            push requests "chat-closed"
+        }
     }
 
     ; A press in the chat: its buttons, or the text field (the caret, a word
     ; on a double click, all of it on a triple; a drag selects).
     fn chatPress:void (px:double py:double clicks:int shift:boolean) {
+        def dc:ChatCtl (this.dockChat())
         def tid:string (host.hitTest(px py))
-        def c:string (chat.tid)
-        if (chat.input.owns(tid)) {
-            chatSelecting = (chat.textPointerDownAt(tid px py clicks shift))
+        def c:string (dc.tid)
+        if (dc.input.owns(tid)) {
+            chatSelecting = (dc.textPointerDownAt(tid px py clicks shift))
             return
         }
-        if ((tid == (c + "-close")) || (tid == (c + "-send")) || (tid == (c + "-jump"))) {
-            chat.activate(tid)
-            if (tid == (c + "-close")) {
-                push requests "chat-closed"
-            }
-            if ((strlen chat.sent) > 0) {
-                push requests "chat-send"
-            }
+        if (((tid == (c + "-close")) || (tid == (c + "-send")) || (tid == (c + "-jump"))) || ((indexOf tid (c + "-act-")) == 0)) {
+            dc.activate(tid)
+            this.chatAsks(dc)
         }
         this.rebuild()
     }
@@ -470,6 +563,10 @@ class PresPanels {
             if (on && chat.open) {
                 chat.setOpen(false)
                 push requests "chat-closed"
+            }
+            if (on && aiChat.open) {
+                aiChat.setOpen(false)
+                push requests "ai-closed"
             }
             if (on && callOpen) {
                 callOpen = false
@@ -559,7 +656,7 @@ class PresPanels {
     ; review mode (comments on the slides); a comment's colour is picked
     ; with it (how serious, PresReviewUi), not here
     ; how a room lists its presentations (web/rooms.js sortDecks)
-    def deckOrder:string "created"
+    def deckOrder:string "edited"
     ; experimental: the 3-D flight while presenting (web/flight3d.js), off
     ; until turned on here
     def flight3d:boolean false
@@ -663,7 +760,7 @@ class PresPanels {
         if (this.callShows()) {
             root.addChild((this.callPanel()))
         }
-        if ((chat.open && (helpOpen == false)) && (quiet == false)) {
+        if ((((this.dockChat()).open) && (helpOpen == false)) && (quiet == false)) {
             root.addChild((this.chatPanel()))
         }
         if (filesOpen && (quiet == false)) {
@@ -2397,6 +2494,11 @@ class PresPanels {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        ; a docked conversation's messages get what its buttons (wrapped onto
+        ; more rows in the narrow panel) and its composer leave
+        if (host.settle()) {
+            lay.layout(pg)
+        }
         ; the dialog in the middle, now that its height is known, and on the
         ; page (`holdDialog` keeps it no taller)
         if shareOpen {

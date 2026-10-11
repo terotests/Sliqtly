@@ -119,6 +119,7 @@ test("packed as gzip and read back; the name follows the bytes", async () => {
   assert.match(h, /^[0-9a-f]{24}$/);
   assert.equal(h, await streamHash(bytes));
   assert.equal(streamPath(h), "recordings/web-" + h + ".sliqrec");
+  assert.equal(streamPath(h, ".webm"), "recordings/web-" + h + ".webm");
 });
 
 test("another format is refused", () => {

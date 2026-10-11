@@ -581,4 +581,38 @@ func TestViewRecording(t *testing.T) {
 	}
 	res, _ = get("/api/view/" + id + "/rec/" + hash)
 	eq(t, res.StatusCode, 404)
+
+	// the deck as a video (Export ▸ Cloud video): the same address, a WebM
+	if err := f.db.Update(ctx, "shares", id, Doc{"visibility": "link"}); err != nil {
+		t.Fatal(err)
+	}
+	vhash := "89abcdef0123456789abcdef"
+	vpath := "recordings/web-" + vhash + ".webm"
+	vdata := []byte{0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3}
+	if err := f.bucket.Save(ctx, "shares/"+id+"/"+vpath, "video/webm", vdata, nil); err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, map[string]any{"path": vpath, "type": "video/webm", "url": "https://storage.test/" + vpath})
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	res, b = get("/api/view/" + id + "/rec/" + vhash)
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "video/webm")
+	eq(t, bytes.Equal(b, vdata), true)
+
+	// kept in Storage: the player is sent there, to read it in pieces as it plays
+	stored := "https://firebasestorage.googleapis.com/v0/b/bucket.test/o/shares%2F" + id + "%2Frecordings%2Fweb-" + vhash + ".webm?alt=media&token=t"
+	files[len(files)-1] = map[string]any{"path": vpath, "type": "video/webm", "url": stored}
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err = noFollow.Get(s.root + "/api/view/" + id + "/rec/" + vhash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	eq(t, res.StatusCode, 302)
+	eq(t, res.Header.Get("Location"), stored)
 }

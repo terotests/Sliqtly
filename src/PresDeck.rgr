@@ -1161,6 +1161,26 @@ class PresDeck {
         return none
     }
 
+    ; Whether a program on slide i has not drawn yet (its fence's plate is
+    ; what the slide shows of it) and has not been stopped: what it draws
+    ; comes later.
+    fn playsWaiting:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return false
+        }
+        def s:PresSlide (itemAt slides i)
+        for s.plays u:PresPlayUse ui {
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if (null? v) {
+                return true
+            }
+            if ((v.drawn == false) && ((strlen v.stopped) == 0)) {
+                return true
+            }
+        }
+        return false
+    }
+
     ; The text the page handed over for a file of the deck, "" for none.
     fn dataText:string (path:string) {
         def want:string (MdVegaRender.bareUrl((MdVegaRender.resolveUrl(path))))
@@ -1269,6 +1289,26 @@ class PresDeck {
     ; modules on its first line (PresPlayFiles); "" while the page has not
     ; handed over the program or one of those files yet.
     fn linkedSource:string (path:string) {
+        ; the page asks every frame: the files are quoted again only once
+        ; they changed (a program importing a big library spent seconds here)
+        if (linkedRev != dataRev) {
+            def lp:[string]
+            def lt:[string]
+            linkedPaths = lp
+            linkedTexts = lt
+            linkedRev = dataRev
+        }
+        def at:int (indexOf linkedPaths path)
+        if (at >= 0) {
+            return (itemAt linkedTexts at)
+        }
+        def made:string (this.linkSource(path))
+        push linkedPaths path
+        push linkedTexts made
+        return made
+    }
+
+    fn linkSource:string (path:string) {
         def src:string (this.dataText(path))
         if ((strlen src) == 0) {
             return ""
@@ -4456,6 +4496,12 @@ class PresDeck {
     def dataTexts:[string]
     ; files the page looked for and the document does not have
     def dataMissing:[string]
+    ; how many times the files above changed (what linkedSource keeps hangs on it)
+    def dataRev:int 0
+    ; programs as they run (linkedSource), by path, as of linkedRev
+    def linkedPaths:[string]
+    def linkedTexts:[string]
+    def linkedRev:int -1
     ; the ```table fences (PresTable), and the page each was left on, by
     ; "<path>#<ordinal>"
     def tables:[PresTableUse]
@@ -4469,6 +4515,7 @@ class PresDeck {
         dataTexts = t
         def m:[string]
         dataMissing = m
+        dataRev = (dataRev + 1)
     }
 
     ; The page found no such file: a table that reads it says so instead of
@@ -4478,6 +4525,7 @@ class PresDeck {
             return
         }
         push dataMissing url
+        dataRev = (dataRev + 1)
         this.rebuild()
     }
 
@@ -4491,6 +4539,7 @@ class PresDeck {
         while (i < (array_length dataUrls)) {
             if ((itemAt dataUrls i) == url) {
                 set_at dataTexts i body
+                dataRev = (dataRev + 1)
                 this.rebuild()
                 return
             }
@@ -4498,6 +4547,7 @@ class PresDeck {
         }
         push dataUrls url
         push dataTexts body
+        dataRev = (dataRev + 1)
         this.rebuild()
     }
 

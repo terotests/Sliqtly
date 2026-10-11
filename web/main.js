@@ -35,9 +35,10 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
+import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -1395,6 +1396,7 @@ async function saveDocNow(force) {
   try { r = await saving; } finally { saving = null; }
   if (r === "merge") return takeLocal();
   if (renamedNow) roomDecksAgain();
+  else roomDecksAfterSave();
   refreshFiles();
   cloudSoon();
   tellTabs();
@@ -1695,9 +1697,9 @@ async function storyRequest(r) {
   roomDecksAgain();
 }
 // File → Settings → Order of presentations: how a room lists its
-// presentations (rooms.js sortDecks), in this browser. As made by default,
-// so opening or editing one moves nothing.
-let deckOrder = "created";
+// presentations (rooms.js sortDecks), in this browser. Last edited first by
+// default; opening one moves nothing.
+let deckOrder = DECK_ORDER;
 try { deckOrder = deckOrderOf(localStorage.getItem("sliqtly.deckOrder")); } catch (_) { /* the default */ }
 function setDeckOrder(by) {
   deckOrder = deckOrderOf(by);
@@ -1729,6 +1731,12 @@ async function clearRoom(room) {
 // The open room's presentations listed again (the open deck renamed).
 function roomDecksAgain() {
   if (roomShown) roomsRequest("room:decks:" + roomShown).catch(() => {});
+}
+// The open deck saved: listed last edited first, it goes to the top of its
+// room, so the list is drawn again when it is not there yet.
+let roomListed = [];
+function roomDecksAfterSave() {
+  if (editedOutOfPlace(roomListed, deckOrder)) roomDecksAgain();
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -2035,6 +2043,7 @@ async function roomsRequest(r) {
         keepFoldersOpen();
       }
     }
+    roomListed = rows;
     const lines = deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
@@ -2858,9 +2867,23 @@ async function refreshRecent() {
 // The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
+// The files kept with the deck, counted into the size beside the editor's
+// tabs (PresDeckSize: the Markdown and the theme are counted there).
+async function measureDeckFiles() {
+  if (!vfs && !pending.size && !readFiles.size) return;
+  const id = doc.id;
+  const all = await docFiles();
+  if (doc.id !== id) return;
+  const size = (f) => (f.size > 0 ? f.size : (f.data && (f.data.size || f.data.length)) || 0);
+  const bytes = all.reduce((n, f) => n + size(f), 0);
+  app.setDeckFiles(all.length, bytes);
+  needsPaint = true;
+}
+
 async function refreshFiles() {
   // the source viewer reads its code/ files again when next wanted
   app.codeFilesChanged();
+  measureDeckFiles().catch(() => {});
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
   if (app.editorTab() !== "files" || filesListing) return;
@@ -4889,6 +4912,41 @@ function refreshCollabBar() {
   if (chat.dataset.short !== chatShort) chat.dataset.short = chatShort;
 }
 
+// --- the AI assistant (the ✨ AI drawer: src/PresAi.rgr, web/aiassist.js) ----------
+// Its button is the bar's last, on the editor's page on the server only. The
+// credits are asked again when the drawer opens, at most once a minute.
+let aiCreditsAt = 0;
+function aiButton() {
+  if (!aiOnPage()) return;
+  let b = document.getElementById("aiBtn");
+  if (b) return;
+  b = document.createElement("button");
+  b.id = "aiBtn";
+  b.textContent = "✨ AI";
+  b.dataset.short = "✨";
+  b.dataset.canvas = "secondary";
+  b.title = t("AI Assistant: ask about this slide or the whole presentation");
+  b.addEventListener("click", () => {
+    const open = !app.aiIsOpen();
+    app.aiOpen(open);
+    handleRequests();
+    if (open && Date.now() - aiCreditsAt > 60000) {
+      aiCreditsAt = Date.now();
+      aiCall("credits").then((text) => { app.aiCredits(text); needsPaint = true; })
+        .catch(() => { aiCreditsAt = 0; });
+    }
+    needsPaint = true;
+  });
+  document.getElementById("bar").appendChild(b);
+}
+function askAi(body) {
+  if (!body) return;
+  aiCall("ask", body)
+    .then((text) => app.aiAnswer(text))
+    .catch((e) => app.aiFail(t("The question did not reach the assistant: ") + (e?.message || e)))
+    .finally(() => { needsPaint = true; });
+}
+
 // --- what the app asks the page to do ---------------------------------------------
 function deliver(bytes, name, mime) {
   const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
@@ -5194,6 +5252,10 @@ function handleRequests() {
       collab?.say(text).catch((e) => toast(t("The message was not sent: ") + (e?.message || e)));
     } else if (r === "chat-closed") {
       refreshCollabBar();
+    } else if (r === "ai-ask") {
+      askAi(app.aiTakeAsk());
+    } else if (r === "ai-closed") {
+      needsPaint = true;
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
@@ -5372,7 +5434,7 @@ window.__renderFxStills = renderFxStills;
 
 // A video's frames (web/videoexport.js, src/PresVideo.rgr): the slides at
 // frame n / fps, drawn by the stage's painter. scripts/video.mjs encodes
-// them; the page has no button for it yet.
+// them, and so does File → Export → Video (exportVideo).
 window.__video = createVideoFrames({
   app,
   prepareDisplayList,
@@ -5458,6 +5520,71 @@ async function exportPdf(picked = false) {
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
+// Video: the frames the presentation shows at n / fps (web/videoexport.js),
+// coded to WebM by Sliqtly's own VP8 encoder in a worker
+// (web/video-worker.js) and saved here. A few frames wait at most, so the
+// page holds two or three pictures, not the whole video.
+let videoBusy = false;
+// The WebM's bytes, or null when a video is already being made.
+async function makeVideo() {
+  if (videoBusy) {
+    toast(t("A video is already being made."));
+    return null;
+  }
+  videoBusy = true;
+  const worker = new Worker("./video-worker.js?v=" + BUILD, { name: BUILD });
+  const waiting = [];
+  let done = null;
+  let failed = null;
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.kind === "error") failed = new Error(m.message);
+    if (m.kind === "done") done = m;
+    const w = waiting.shift();
+    if (w) w();
+  };
+  worker.onerror = (e) => {
+    failed = new Error(e.message || "the video encoder did not load");
+    while (waiting.length) waiting.shift()();
+  };
+  const send = (msg) => new Promise((resolve) => {
+    waiting.push(resolve);
+    worker.postMessage(msg);
+  });
+  const check = () => { if (failed) throw failed; };
+  try {
+    await loadEmojiFace();
+    const tl = window.__video.begin({ codec: "vp8" });
+    let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
+    let shown = -1;
+    for (let n = 0; n < tl.frames; n++) {
+      const f = window.__video.frame(n);
+      pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
+      if (pending.length > 2) await pending.shift();
+      check();
+      const pct = Math.floor((n * 100) / tl.frames);
+      if (pct !== shown) {
+        shown = pct;
+        toast(t("Making the video…") + " " + pct + " %");
+      }
+    }
+    await Promise.all(pending);
+    await send({ kind: "end", frames: tl.frames });
+    check();
+    return done.bytes;
+  } finally {
+    window.__video.close();
+    worker.terminate();
+    videoBusy = false;
+  }
+}
+async function exportVideo() {
+  const bytes = await makeVideo();
+  if (!bytes) return;
+  window.__lastDownload = deliver(bytes, exportName() + ".webm", "video/webm");
+  toast(t("The video is ready.") + " " + (bytes.length / 1048576).toFixed(1) + " MB");
+}
+window.__exportVideo = exportVideo;
 // The runs the contrast guard repairs on the stage (a colour that reads, or an
 // outline round big letters) are a judgement made while drawing, over the
 // pictures under them, so the PPTX would have the theme's colour where the
@@ -5634,13 +5761,35 @@ async function exportRecWeb() {
     return;
   }
   const bytes = await packStream(await recordForWeb());
+  await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
+    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."));
+}
+// Export ▸ Cloud video: the presentation as a video (makeVideo) at the same
+// kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
+// browser's own player plays it.
+async function exportCloudVideo() {
+  if (!window.sliqtly?.user?.()) {
+    toast(t("Sign in to export the presentation to the cloud."));
+    return;
+  }
+  const bytes = await makeVideo();
+  if (!bytes) return;
+  await publishForWeb(bytes, ".webm", "video/webm",
+    t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
+}
+window.__exportCloudVideo = exportCloudVideo;
+// The recording's or the video's bytes kept with the deck as
+// recordings/web-{hash}{ext} (the one before of the same kind removed), the
+// deck shared, and its /r/ link shown with `note`.
+async function publishForWeb(bytes, ext, type, note) {
+  const p = window.sliqtly;
   const hash = await streamHash(bytes);
-  const path = streamPath(hash);
-  const old = (await docFiles()).map((f) => f.path).filter((x) => /^recordings\/web-[0-9a-f]+\.sliqrec$/.test(x) && x !== path);
+  const path = streamPath(hash, ext);
+  const kind = new RegExp("^recordings/web-[0-9a-f]+\\" + ext + "$");
+  const old = (await docFiles()).map((f) => f.path).filter((x) => kind.test(x) && x !== path);
   if (old.length) await deleteFiles(old, { quiet: true });
-  await keepFile({ path, type: STREAM_TYPE, size: bytes.length, data: new Blob([bytes], { type: STREAM_TYPE }) });
+  await keepFile({ path, type, size: bytes.length, data: new Blob([bytes], { type }) });
   toast(t("Sending the recording to the cloud…"));
-  const note = t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link.");
   try {
     const id = await shareCloud();
     let shown = id;
@@ -5674,6 +5823,8 @@ document.getElementById("player").addEventListener("click", () => { exportPlayer
 document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
+document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
+document.getElementById("vidweb").addEventListener("click", () => { exportCloudVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
 document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });
@@ -5894,6 +6045,8 @@ async function cloudSync() {
     cloudError = "";
     cloudNoRight = false;
     plainAddress();
+    // a server's room lists it by the server's time of this save
+    if (ownServer()) roomDecksAfterSave();
     return id;
   })();
   try { return await cloudBusy; } finally {
@@ -9263,6 +9416,7 @@ async function start() {
     // the presentations open in this tab, as they were before a reload
     app.useDeckTabs(true);
     app.deckTabsRestore(readDeckTabs(mineTab));
+    aiButton();
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
       { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas", "data-short"] });

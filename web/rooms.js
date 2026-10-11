@@ -215,12 +215,23 @@ export function forgetStory(state, deckId) {
 }
 
 // The orders a room's presentations can be listed in (File → Settings):
-// "created" as made, oldest first (the default: opening or editing one
-// moves nothing); "newest" as made, newest first; "edited" last changed
-// first; "name" by name; "custom" as dragged (positions), those not dragged
-// yet after them as made.
+// "edited" last changed first (the default: the one worked on last is on
+// top; opening one moves nothing); "created" as made, oldest first;
+// "newest" as made, newest first; "name" by name; "custom" as dragged
+// (positions), those not dragged yet after them as made.
 export const DECK_ORDERS = ["created", "newest", "edited", "name", "custom"];
-export const deckOrderOf = (v) => (DECK_ORDERS.includes(v) ? v : "created");
+export const DECK_ORDER = "edited";
+export const deckOrderOf = (v) => (DECK_ORDERS.includes(v) ? v : DECK_ORDER);
+
+// rows as the panel lists them: true when the open one is not the first of
+// the room's top while rows are last edited first, so a save just made
+// (which puts it first) needs the list drawn again.
+export function editedOutOfPlace(rows, by) {
+  if (by !== "edited") return false;
+  const top = rows.filter((r) => !r.folder);
+  const i = top.findIndex((r) => r.current);
+  return i > 0;
+}
 
 // rows: [{ id, name, created, updated }] in a new array, ordered by `by`;
 // positions: the room's dragged order, for "custom". Ties go by id, so an
