@@ -114,7 +114,13 @@ class PresPanels {
     ; user's cloud, from the page (web/decklist.js deckListJson):
     ;   {"sort": "updated" | "created" | "name", "dir": "asc" | "desc", "rows": [{"id", "name",
     ;    "added", "modified", "where", "cloudOnly", "current"}], "note"}
+    ; File → Published… shows its list in the same window (web/published.js
+    ; publishedListJson): "list": "pub" (its requests' prefix), its own
+    ; "title", column heads ("head1"/"head1Label", "head2"/"head2Label"),
+    ; "empty" text and a row's "canDelete". Without "rows" it is loading.
     def decksJson:string ""
+    ; which list the window shows: "decks" or "pub", from decksJson
+    def decksList:string "decks"
     ; the list's pages (EVGUI's PaginationCtl does the arithmetic)
     def decksPager:PaginationCtl (new PaginationCtl())
     ; the deck id of each row on the page: `pd-r-<n>` opens it, `pd-x-<n>`
@@ -1781,7 +1787,24 @@ class PresPanels {
         def narrow:boolean (this.decksNarrow())
         def p0 (new VlJsonParser())
         def data:VlJson (p0.parse(decksJson))
-        def ready:boolean ((p0.ok) && (data.isObject()))
+        def parsed:boolean ((p0.ok) && (data.isObject()))
+        def ready:boolean (parsed && (data.has("rows")))
+        decksList = "decks"
+        def title:string (PresI18n.t("Presentations"))
+        def h1:string "created"
+        def h1Label:string (PresI18n.t("Added"))
+        def h2:string "updated"
+        def h2Label:string (PresI18n.t("Modified"))
+        def empty:string (PresI18n.t("A presentation is saved here when you edit it."))
+        if parsed {
+            decksList = (data.stringOr("list" "decks"))
+            title = (data.stringOr("title" title))
+            h1 = (data.stringOr("head1" h1))
+            h1Label = (data.stringOr("head1Label" h1Label))
+            h2 = (data.stringOr("head2" h2))
+            h2Label = (data.stringOr("head2Label" h2Label))
+            empty = (data.stringOr("empty" empty))
+        }
         def rows:VlJson (new VlJson())
         def count:int 0
         if ready {
@@ -1813,9 +1836,11 @@ class PresPanels {
         d.overlayX = ((w - dw) * 0.5)
         d.overlayY = ((h - estH) * 0.5)
         def top:EVGElement (UiKit.div("pd-top"))
-        top.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Presentations")))))
+        top.addChild((UiKit.words("pn-dtitle" title)))
         top.addChild((UiKit.div("pn-grow")))
-        this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
+        if (decksList == "decks") {
+            this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
+        }
         d.addChild(top)
         def sort:string "updated"
         def dir:string "desc"
@@ -1830,10 +1855,10 @@ class PresPanels {
         hn.width = (EVGUnit.px((rowW - 36.0)))
         this.decksHead("name" (PresI18n.t("Name")) sort dir "pd-hname" hn)
         if narrow {
-            this.decksHead("updated" (PresI18n.t("Modified")) sort dir "pd-hnarrow" hn)
+            this.decksHead(h2 h2Label sort dir "pd-hnarrow" hn)
         } {
-            this.decksHead("created" (PresI18n.t("Added")) sort dir "pd-when" hn)
-            this.decksHead("updated" (PresI18n.t("Modified")) sort dir "pd-when" hn)
+            this.decksHead(h1 h1Label sort dir "pd-when" hn)
+            this.decksHead(h2 h2Label sort dir "pd-when" hn)
         }
         head.addChild(hn)
         d.addChild(head)
@@ -1847,7 +1872,7 @@ class PresPanels {
                 i = (i + 1)
             }
             if (count == 0) {
-                body.addChild((UiKit.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
+                body.addChild((UiKit.words("pn-intro" empty)))
             }
         }
         d.addChild(body)
@@ -1938,7 +1963,7 @@ class PresPanels {
         if narrow {
             where = ((where + " · ") + (r.stringOr("modified" "")))
         }
-        nm.addChild((UiKit.words("pf-fsize" where)))
+        nm.addChild((UiKit.words("pf-fsize" (PresPanels.clip(where (to_int (nameW / 6.0)))))))
         el.addChild(nm)
         if (narrow == false) {
             el.addChild((UiKit.words("pd-when pd-time" (r.stringOr("added" "")))))
@@ -1947,8 +1972,12 @@ class PresPanels {
         def del:EVGElement (UiKit.div("pd-del"))
         del.width = (EVGUnit.px(delW))
         ; the open deck, and one only in the cloud, are deleted with File →
-        ; Delete presentation… once open
-        if (((r.boolOr("cloudOnly" false)) == false) && ((r.boolOr("current" false)) == false)) {
+        ; Delete presentation… once open; a list of its own says ("canDelete")
+        def canDel:boolean (((r.boolOr("cloudOnly" false)) == false) && ((r.boolOr("current" false)) == false))
+        if (r.has("canDelete")) {
+            canDel = (r.boolOr("canDelete" false))
+        }
+        if canDel {
             def x:ButtonCtl (this.button(("pd-x-" + (to_string k)) (? armed (PresI18n.t("Delete?")) "✕") (? armed "primary" "ghost") del))
             UiTree.addClass((unwrap x.rootEl) "pf-act")
         }
@@ -1974,7 +2003,7 @@ class PresPanels {
         }
         if ((indexOf c "pd-sort-") == 0) {
             decksPager.page = 1
-            push requests ("decks:sort:" + (substring c 8 (strlen c)))
+            push requests ((decksList + ":sort:") + (substring c 8 (strlen c)))
             return
         }
         if ((indexOf c "pd-pg-") == 0) {
@@ -1998,8 +2027,14 @@ class PresPanels {
         if ((indexOf c "pd-r-") == 0) {
             def id:string (this.deckOf(c))
             if ((strlen id) > 0) {
-                push requests ("files:doc:" + id)
-                this.closeShare()
+                ; a deck opens in the editor; another list's row is the
+                ; page's to act on (Published: its address in a new tab)
+                if (decksList == "decks") {
+                    push requests ("files:doc:" + id)
+                    this.closeShare()
+                } {
+                    push requests ((decksList + ":open:") + id)
+                }
             }
             return
         }
@@ -2013,7 +2048,7 @@ class PresPanels {
                     return
                 }
                 decksArmed = ""
-                push requests ("decks:del:" + id2)
+                push requests ((decksList + ":del:") + id2)
             }
             return
         }

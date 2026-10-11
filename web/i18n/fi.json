@@ -1670,5 +1670,19 @@
   "Ask about this slide…": "Kysy tästä diasta…",
   "Ask": "Kysy",
   "AI Assistant: ask about this slide or the whole presentation": "AI-avustaja: kysy tästä diasta tai koko esityksestä",
-  "The question did not reach the assistant: ": "Kysymys ei mennyt perille avustajalle: "
+  "The question did not reach the assistant: ": "Kysymys ei mennyt perille avustajalle: ",
+  "Published in the cloud…": "Julkaistut pilvessä…",
+  "Published in the cloud": "Julkaistut pilvessä",
+  "Published": "Julkaistu",
+  "Viewing link": "Katselulinkki",
+  "Open to anyone with its address": "Avoin kaikille, joilla on osoite",
+  "not shown: no viewing link": "ei näy: ei katselulinkkiä",
+  "Nothing published. Share, Export ▸ Cloud HTML and Export ▸ Cloud video publish a presentation on sliqtly.com.": "Ei julkaisuja. Jaa, Vie ▸ Pilveen HTML ja Vie ▸ Pilvivideo julkaisevat esityksen sliqtly.comiin.",
+  "Sign in to see what you have published in the cloud.": "Kirjaudu sisään nähdäksesi, mitä olet julkaissut pilveen.",
+  "What you have published could not be read: ": "Julkaisujasi ei voitu lukea: ",
+  "Nobody sees this recording: the presentation has no viewing link. Share it to show it, or remove the recording.": "Tätä tallennetta ei näe kukaan: esityksellä ei ole katselulinkkiä. Jaa esitys näyttääksesi sen tai poista tallenne.",
+  "Not removed: ": "Ei poistettu: ",
+  "The recording was removed from the cloud.": "Tallenne poistettiin pilvestä.",
+  "The viewing link was removed.": "Katselulinkki poistettiin.",
+  "The presentation is now private.": "Esitys on nyt yksityinen."
 }

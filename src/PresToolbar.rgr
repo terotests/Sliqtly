@@ -474,6 +474,9 @@ class PresToolbar {
         if ((id == "browse") || (id == "decks")) {
             return "decks"
         }
+        if (id == "published") {
+            return "published"
+        }
         if ((indexOf id "r-") == 0) {
             return ("files:doc:" + (substring id 2 (strlen id)))
         }
@@ -2109,6 +2112,12 @@ class PresToolbar {
             file.addItem("openbox" (PresI18n.t("Open…")) false)
             def rc:UiItem (file.addSub("recent" (PresI18n.t("Recent")) false))
             this.recentKids(rc)
+            ; what is out on sliqtly.com (viewing links, Cloud HTML, Cloud
+            ; video), to look through and remove: only where the page
+            ; publishes there
+            if cloud {
+                file.addItem("published" (PresI18n.t("Published in the cloud…")) false)
+            }
             file.addSeparator()
             this.deckRows(file true)
             file.setShortcut("openbox" (this.modKey("O")))
@@ -2278,6 +2287,9 @@ class PresToolbar {
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
+            if cloud {
+                this.button("dr-published" (PresI18n.t("Published in the cloud…")) "ghost" body)
+            }
             body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))
