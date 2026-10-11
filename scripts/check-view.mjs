@@ -71,6 +71,8 @@ const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice
 // Sliqtly's own encoder, at the same kind of address
 const videoFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-video.webm"));
 const VIDEO_HASH = crypto.createHash("sha256").update(videoFile).digest("hex").slice(0, 24);
+// the requests the video's file got (the player's own, not the page's fetch)
+const videoReads = [];
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -94,7 +96,14 @@ const server = http.createServer((req, res) => {
     res.end(gltfFile);
     return;
   }
+  // a video kept in Storage: sent there (View.rgr ViewPictures.recording)
   if (rel === "/api/view/" + ID + "/rec/" + VIDEO_HASH) {
+    res.writeHead(302, { location: "/fixture/view-video.webm" });
+    res.end();
+    return;
+  }
+  if (rel === "/fixture/view-video.webm") {
+    videoReads.push(req.headers.range || "");
     res.writeHead(200, { "content-type": "video/webm" });
     res.end(videoFile);
     return;
@@ -289,7 +298,8 @@ try {
     await gone.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
     if (!(await gone.evaluate(() => document.getElementById("note").textContent)).length) fail("a missing recording says nothing");
     await gone.close();
-    // a video at the same kind of address: the browser's player, its whole length
+    // a video at the same kind of address: the browser's player reads it from
+    // where it is kept (a redirect), its whole length
     const vp = await browser.newPage();
     vp.on("pageerror", (e) => fail(`/r/ video: ${e.message}`));
     await vp.goto(base + "/r/" + ID + "/" + VIDEO_HASH, { waitUntil: "load" });
@@ -301,6 +311,7 @@ try {
       return v.readyState >= 1 && v.duration;
     }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => 0);
     if (Math.abs(dur - 2) > 0.05) fail(`the video at /r/ lasts ${dur} s, not 2 s`);
+    if (!videoReads.length) fail("the video at /r/ was not read from where it is kept");
     await vp.close();
   }
 

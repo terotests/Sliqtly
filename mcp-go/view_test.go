@@ -600,4 +600,19 @@ func TestViewRecording(t *testing.T) {
 	eq(t, res.StatusCode, 200)
 	eq(t, res.Header.Get("Content-Type"), "video/webm")
 	eq(t, bytes.Equal(b, vdata), true)
+
+	// kept in Storage: the player is sent there, to read it in pieces as it plays
+	stored := "https://firebasestorage.googleapis.com/v0/b/bucket.test/o/shares%2F" + id + "%2Frecordings%2Fweb-" + vhash + ".webm?alt=media&token=t"
+	files[len(files)-1] = map[string]any{"path": vpath, "type": "video/webm", "url": stored}
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err = noFollow.Get(s.root + "/api/view/" + id + "/rec/" + vhash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	eq(t, res.StatusCode, 302)
+	eq(t, res.Header.Get("Location"), stored)
 }
