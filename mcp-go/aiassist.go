@@ -8,7 +8,7 @@
 //	POST /editor/api/ai/ask   {message, action, scope, context, history}
 //	                                    the answer and what is left after it
 //
-// SLIQTLY_AI=gemini asks Gemini (gemini-3.8-flash unless set): on Vertex AI,
+// SLIQTLY_AI=gemini asks Gemini (gemini-3.5-flash-lite unless set): on Vertex AI,
 // signed by the service's own account and billed to the project, its Cloud
 // credits first, or with GEMINI_API_KEY through the Gemini API (AI Studio).
 // SLIQTLY_AI=vertex asks Claude on Vertex AI, SLIQTLY_AI=anthropic the
@@ -16,7 +16,7 @@
 // says so.
 //
 //	SLIQTLY_AI          gemini | vertex | anthropic | (none)
-//	SLIQTLY_AI_MODEL    the model, gemini-3.8-flash or claude-opus-5-5 unless set
+//	SLIQTLY_AI_MODEL    the model, gemini-3.5-flash-lite or claude-opus-5-5 unless set
 //	SLIQTLY_AI_REGION   Vertex AI region, global unless set
 //	SLIQTLY_AI_PROJECT  Vertex AI project, the server's own unless set
 //
