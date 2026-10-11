@@ -67,6 +67,8 @@ const server = http.createServer(async (req, res) => {
     if (op === "session") return json(200, { uid: gate.uid, license: gate.license });
     if (!gate.signedIn) return json(401, { code: "signed-out" });
     if (op === "license") return json(200, { license: gate.license });
+    // the account's own Figma files (mcp-go/editorshared.go): none here
+    if (op === "shared") return json(200, { files: [], max: 200 << 20, upload: `users/${gate.uid}/figma-upload/` });
     if (op === "claim") {
       const { id } = JSON.parse(body || "{}");
       gate.claims.push(id);
