@@ -656,7 +656,7 @@ class PresPanels {
     ; review mode (comments on the slides); a comment's colour is picked
     ; with it (how serious, PresReviewUi), not here
     ; how a room lists its presentations (web/rooms.js sortDecks)
-    def deckOrder:string "created"
+    def deckOrder:string "edited"
     ; experimental: the 3-D flight while presenting (web/flight3d.js), off
     ; until turned on here
     def flight3d:boolean false
