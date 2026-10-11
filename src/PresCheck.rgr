@@ -65,6 +65,7 @@ Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
 Import "PresForm.rgr"
 Import "PresFormHtml.rgr"
+Import "PresAi.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -86,6 +87,61 @@ class PresCheck {
             + "1. yksi\n2. kaksi\n   jatkuu\n3. kolme\n{.build anim=fly}\n\n"
             + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n"
             + "## Toka\n\nTeksti\n{anim=zoom}\n\n::: audio src=toka.wav\n:::\n")
+    }
+
+    ; The AI drawer's model (PresAi): the request it leaves for the page, the
+    ; credits in words, and the slide an answer suggests.
+    fn aiAssist:void () {
+        def a (new PresAi())
+        def ctx (new PresAiContext())
+        ctx.slide = 6
+        ctx.slides = 11
+        ctx.slideMd = "## Results\n\nreturn 0"
+        ctx.deckMd = "# Deck\n\n## Results\n"
+        ctx.selection = "return 0"
+        this.ok(((a.contextLine(ctx)) == "Context: Slide 7 / 11 · selection") ("ai: context line " + (a.contextLine(ctx))))
+        this.ok(((a.blocked()) == "") "ai: a question can be asked before the credits are known")
+        this.ok((a.ask("  " "" ctx) == false) "ai: nothing written, no action: nothing asked")
+        this.ok((a.ask("" "improve" ctx)) "ai: a quick action asks its question")
+        this.ok(a.busy "ai: waiting for the answer")
+        def req:string (a.takePending())
+        this.ok(((indexOf req "\"action\":\"improve\"") > 0) ("ai: the action goes along " + req))
+        this.ok(((indexOf req "\"slide\":7") > 0) "ai: the slide counts from 1 for the server")
+        this.ok(((indexOf req "deckMarkdown") < 0) "ai: a slide question leaves the deck out")
+        this.ok(((indexOf req "\"history\":[]") > 0) "ai: the question itself is not history")
+        this.ok(((a.takePending()) == "") "ai: the request is taken once")
+        this.ok((a.ask("more?" "" ctx) == false) "ai: one question at a time")
+        a.answer("{\"reply\":\"Shorter:\\n\\n````markdown\\n## Results\\n\\n```js\\nreturn 0\\n```\\n````\\nDone.\",\"credits\":{\"left\":42,\"monthly\":50,\"perChat\":3,\"resets\":\"2026-11-01\"}}")
+        this.ok((a.busy == false) "ai: answered")
+        this.ok(((array_length a.msgs) == 2) "ai: question and answer")
+        this.ok(((a.creditsShort()) == "42 left") ("ai: credits pill " + (a.creditsShort())))
+        this.ok(((a.creditsText()) == "42 AI actions left · ≈ 14 chats") ("ai: credits line " + (a.creditsText())))
+        this.ok(((a.suggestion()) == "## Results\n\n```js\nreturn 0\n```") ("ai: the slide inside a four-tick fence, its code block kept: " + (a.suggestion())))
+        this.ok(((indexOf (PresAi.shown("````markdown\nx\n````")) "````") < 0) "ai: shown with a three-tick fence")
+        a.markUsed()
+        this.ok(((a.suggestion()) == "") "ai: a slide used once is not offered again")
+        this.ok(((PresAi.slideBlock("```markdown\n## A\n```")) == "## A") "ai: a three-tick fence works too")
+        this.ok(((PresAi.slideBlock("```js\nx\n```")) == "") "ai: a code block is not a slide")
+        this.ok(((PresAi.slideBlock("```markdown\n## A")) == "") "ai: an unclosed block is not a whole slide")
+        a.setScope("deck")
+        this.ok(((a.cost()) == 2) "ai: the whole presentation costs two")
+        this.ok((a.ask("Summarise" "" ctx)) "ai: a deck question")
+        def req2:string (a.takePending())
+        this.ok(((indexOf req2 "\"deckMarkdown\":\"# Deck") > 0) "ai: a deck question sends the deck")
+        this.ok(((indexOf req2 "\"role\":\"assistant\"") > 0) "ai: the turns so far go along")
+        this.ok(((a.suggestion()) == "") "ai: a new question leaves the old suggestion behind")
+        a.answer("{\"error\":\"This month's AI actions are used up.\",\"code\":\"no-credits\",\"credits\":{\"left\":1,\"monthly\":50}}")
+        def last:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok((last.role == "note") "ai: a refusal is a note in the conversation")
+        this.ok(((a.blocked()) == "This month's AI actions are used up.") ("ai: one left is not enough for the deck: " + (a.blocked())))
+        a.setScope("slide")
+        this.ok(((a.blocked()) == "") "ai: but enough for the slide")
+        a.setCredits("{\"available\":false}")
+        this.ok(((strlen (a.blocked())) > 0) "ai: no assistant on the server")
+        def u (new PresAi())
+        u.setCredits("{\"available\":true,\"credits\":{\"left\":-1,\"unlimited\":true}}")
+        this.ok(((u.creditsShort()) == "no limit") "ai: no limit")
+        this.ok(((PresAi.actionFits("explain" ctx)) == false) "ai: Explain only with code on the slide")
     }
 
     fn run:void () {
@@ -7945,6 +8001,7 @@ class PresCheck {
         c.stripDrag()
         c.forms()
         c.selectText()
+        c.aiAssist()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

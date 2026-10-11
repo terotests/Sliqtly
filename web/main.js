@@ -37,6 +37,7 @@ import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyInde
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
+import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -4791,6 +4792,41 @@ function refreshCollabBar() {
   if (chat.dataset.short !== chatShort) chat.dataset.short = chatShort;
 }
 
+// --- the AI assistant (the ✨ AI drawer: src/PresAi.rgr, web/aiassist.js) ----------
+// Its button is the bar's last, on the editor's page on the server only. The
+// credits are asked again when the drawer opens, at most once a minute.
+let aiCreditsAt = 0;
+function aiButton() {
+  if (!aiOnPage()) return;
+  let b = document.getElementById("aiBtn");
+  if (b) return;
+  b = document.createElement("button");
+  b.id = "aiBtn";
+  b.textContent = "✨ AI";
+  b.dataset.short = "✨";
+  b.dataset.canvas = "secondary";
+  b.title = t("AI Assistant: ask about this slide or the whole presentation");
+  b.addEventListener("click", () => {
+    const open = !app.aiIsOpen();
+    app.aiOpen(open);
+    handleRequests();
+    if (open && Date.now() - aiCreditsAt > 60000) {
+      aiCreditsAt = Date.now();
+      aiCall("credits").then((text) => { app.aiCredits(text); needsPaint = true; })
+        .catch(() => { aiCreditsAt = 0; });
+    }
+    needsPaint = true;
+  });
+  document.getElementById("bar").appendChild(b);
+}
+function askAi(body) {
+  if (!body) return;
+  aiCall("ask", body)
+    .then((text) => app.aiAnswer(text))
+    .catch((e) => app.aiFail(t("The question did not reach the assistant: ") + (e?.message || e)))
+    .finally(() => { needsPaint = true; });
+}
+
 // --- what the app asks the page to do ---------------------------------------------
 function deliver(bytes, name, mime) {
   const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
@@ -5090,6 +5126,10 @@ function handleRequests() {
       collab?.say(text).catch((e) => toast(t("The message was not sent: ") + (e?.message || e)));
     } else if (r === "chat-closed") {
       refreshCollabBar();
+    } else if (r === "ai-ask") {
+      askAi(app.aiTakeAsk());
+    } else if (r === "ai-closed") {
+      needsPaint = true;
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
@@ -9248,6 +9288,7 @@ async function start() {
     // the presentations open in this tab, as they were before a reload
     app.useDeckTabs(true);
     app.deckTabsRestore(readDeckTabs(mineTab));
+    aiButton();
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
       { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas", "data-short"] });

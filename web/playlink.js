@@ -18,6 +18,12 @@ export function playLinkOf(pathname) {
   return { id: m[1], hash: m[2] };
 }
 
+/** The slide (0-based) a #slide=N hash names, 0 without one. */
+export function slideOfHash(hash) {
+  const n = parseInt(new URLSearchParams(String(hash || "").replace(/^#/, "")).get("slide") || "", 10);
+  return n > 0 ? n - 1 : 0;
+}
+
 /** The page's address on `origin`. */
 export function playUrl(origin, id, hash) {
   return origin + "/r/" + id + "/" + hash;

@@ -17,7 +17,7 @@
 import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 import { registerDeckEffects, reducedMotion, holdStill } from "./fxdeck.js";
 import { RecNav, unpackStream } from "./recstream.js";
-import { playLinkOf, recUrl, recActionForKey } from "./playlink.js";
+import { playLinkOf, playUrl, recUrl, recActionForKey, slideOfHash } from "./playlink.js";
 import { fitSlide } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
@@ -34,6 +34,7 @@ for (const [id, en, fiText] of [
   ["pNext", "Next step (Space)", "Seuraava vaihe (välilyönti)"],
   ["pAuto", "Play it all (A)", "Toista kaikki (A)"],
   ["pFull", "Full screen", "Koko näyttö"],
+  ["pShare", "Share this slide (copies its link)", "Jaa tämä dia (kopioi sen linkin)"],
 ]) document.getElementById(id).title = say(en, fiText);
 
 let gl = null;
@@ -77,8 +78,15 @@ function paint() {
   const moving = !still && (list.effects || []).length > 0;
   if (moving || nav.playing) raf = requestAnimationFrame(paint);
 }
-// the count and the ⏵ button as the recording stands
+// the count and the ⏵ button as the recording stands, and the slide in the
+// address (#slide=N: a reload or a copied address opens it)
+let link = null;
+let shownSlide = -1;
 function showState() {
+  if (nav.slide !== shownSlide) {
+    shownSlide = nav.slide;
+    history.replaceState(null, "", "#slide=" + (nav.slide + 1));
+  }
   pCount.textContent = nav.slide + 1 + " / " + nav.count;
   pAuto.textContent = nav.auto && nav.playing ? "⏸\uFE0E" : "⏵\uFE0E";
   pAuto.setAttribute("aria-pressed", String(nav.auto && nav.playing));
@@ -131,6 +139,20 @@ document.getElementById("pFull").addEventListener("click", () => {
   else document.documentElement.requestFullscreen?.().catch(() => {});
 });
 window.addEventListener("resize", repaint);
+// Share: this slide's link copied, said for a moment on the button
+const pShare = document.getElementById("pShare");
+pShare.addEventListener("click", async () => {
+  if (!nav) return;
+  const url = playUrl(location.origin, link.id, link.hash) + "#slide=" + (nav.slide + 1);
+  try {
+    await navigator.clipboard.writeText(url);
+    pShare.textContent = "✓";
+  } catch (_) {
+    window.prompt(say("The slide's link", "Dian linkki"), url);
+  }
+  window.__lastShare = url;
+  setTimeout(() => { pShare.textContent = "⤴\uFE0E"; }, 1500);
+});
 
 async function loadFace(name, file) {
   const res = await fetch("./fonts/" + file + (FONTS && !FONTS.startsWith("__") ? "?v=" + FONTS : ""));
@@ -174,7 +196,7 @@ function showVideo(bytes) {
 }
 
 async function start() {
-  const link = playLinkOf(location.pathname);
+  link = playLinkOf(location.pathname);
   if (!link) return fail(say("This address names no presentation.", "Tämä osoite ei ole esitys."));
   let rec;
   try {
@@ -199,6 +221,9 @@ async function start() {
   setFontFallback(got.filter(Boolean));
   await Promise.all((s.pictures || []).map(loadPicture));
   nav = new RecNav(rec);
+  // #slide=N: that slide, played its way in
+  const first = slideOfHash(location.hash);
+  if (first > 0) nav.go(first);
   showState();
   note.hidden = true;
   bar.hidden = false;

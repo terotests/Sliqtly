@@ -79,6 +79,7 @@ Import "pkg:evg/EVGHitTest.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 ; questionnaires (Sliqtly Curious): File → New ▸ Questionnaire…
 Import "PresForm.rgr"
+Import "PresAi.rgr"
 
 class PresRect {
     def x:double 0.0
@@ -304,6 +305,11 @@ class PresApp {
     def stageHintY:double 0.0
     def stageHintH:double 0.0
     def panels:PresPanels (new PresPanels())
+    ; the AI assistant's conversation, drawn in the panels' AI drawer
+    def ai:PresAi (new PresAi())
+    ; the slide and the slide count the drawer's context line was made for
+    def aiSlideAt:int -1
+    def aiCountAt:int -1
     ; the deck's call on a server of one's own (PresMeet, web/meet.js)
     def meet:PresMeet (new PresMeet())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
@@ -5364,7 +5370,8 @@ class PresApp {
             return true
         }
         if (panels.chatHas(x y)) {
-            panels.chat.scrollBy((? (dy < 0.0) -1 1))
+            def wc:ChatCtl (panels.dockChat())
+            wc.scrollBy((? (dy < 0.0) -1 1))
             panels.rebuild()
             chromeRev = (chromeRev + 1)
             return true
@@ -5896,7 +5903,8 @@ class PresApp {
             return
         }
         if (this.chatHasKeys()) {
-            panels.chat.typeChar("" s)
+            def tc:ChatCtl (panels.dockChat())
+            tc.typeChar("" s)
             panels.rebuild()
             chromeRev = (chromeRev + 1)
             return
@@ -6112,7 +6120,8 @@ class PresApp {
         ; Ctrl+A in the chat's field: all of its text
         if (this.chatHasKeys()) {
             if (ch == "a") {
-                panels.chat.input.selectAll()
+                def ac:ChatCtl (panels.dockChat())
+                ac.input.selectAll()
                 chromeRev = (chromeRev + 1)
             }
             return true
@@ -6851,7 +6860,7 @@ class PresApp {
                 layers.setBand("bar" "docked")
             }
         }
-        layers.setOpen("panels" ((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.callOpen) && edit))
+        layers.setOpen("panels" (((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.aiChat.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
         ; the source viewer and the badges under the comments' pins
         def codeWas:boolean (layers.isOpen("code"))
@@ -9232,6 +9241,10 @@ class PresApp {
                 panels.setChat(false)
                 push requests "chat-closed"
             }
+            if panels.aiChat.open {
+                panels.setAi(false)
+                push requests "ai-closed"
+            }
             if panels.callOpen {
                 meet.panelOpen = false
                 panels.setCall(false)
@@ -9366,6 +9379,221 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; --- the AI assistant (the ✨ AI drawer: PresAi, PresPanels.aiChat) -----------
+    ; The page opens it from the bar's ✨ AI button, hands in what the server
+    ; says (`aiCredits`, `aiAnswer`, `aiFail`) and posts the question the
+    ; drawer asks: "ai-ask" asks it to take `aiTakeAsk`.
+    fn aiOpen:void (on:boolean) {
+        panels.setAi(on)
+        if on {
+            review.closePanel()
+            focus = "chat"
+            this.aiFill()
+        } {
+            if (focus == "chat") {
+                focus = "editor"
+            }
+        }
+        this.takePanels()
+        panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn aiIsOpen:boolean () {
+        return panels.aiChat.open
+    }
+
+    ; the server's {"available", "credits"}
+    fn aiCredits:void (json:string) {
+        ai.setCredits(json)
+        this.aiFill()
+    }
+
+    fn aiAnswer:void (json:string) {
+        ai.answer(json)
+        this.aiFill()
+    }
+
+    fn aiFail:void (why:string) {
+        ai.fail(why)
+        this.aiFill()
+    }
+
+    ; the question to post (JSON), once
+    fn aiTakeAsk:string () {
+        return (ai.takePending())
+    }
+
+    ; What a question is about now: the slide shown, its Markdown, what is
+    ; selected in the editor, the whole Markdown and the deck's name.
+    fn aiContext:PresAiContext () {
+        def c (new PresAiContext())
+        def n:int (deck.slideCount())
+        c.slides = n
+        c.deckMd = (mdEditor.text())
+        c.deckName = toolbar.docTitle
+        c.selection = (mdEditor.selectionText())
+        if (n > 0) {
+            def i:int selected
+            if (i >= n) {
+                i = (n - 1)
+            }
+            c.slide = i
+            def sl:PresSlide (deck.slideAt(i))
+            c.title = sl.title
+            this.slideLines(i)
+            if (linesFrom >= 0) {
+                def k:int linesFrom
+                def md:string ""
+                while ((k < linesAt) && (k < (mdEditor.buf.lineCount()))) {
+                    md = (md + (mdEditor.buf.lineAt(k)) + (strfromcode 10))
+                    k = (k + 1)
+                }
+                c.slideMd = (trim md)
+            }
+        }
+        return c
+    }
+
+    ; the drawer's requests (PresPanels.chatAsks)
+    fn aiRequest:void (r:string) {
+        if (r == "ai-send") {
+            this.aiAsk((panels.aiChat.takeSent()) "")
+            return
+        }
+        if (r == "ai-closed") {
+            if (focus == "chat") {
+                focus = "editor"
+            }
+            push requests r
+            return
+        }
+        if ((indexOf r "ai-act") == 0) {
+            def v:string (substring r 7 (strlen r))
+            if ((v == "slide") || (v == "deck")) {
+                ai.setScope(v)
+            } {
+                if (v == "use") {
+                    this.aiApply()
+                } {
+                    if (v == "clear") {
+                        ai.clear()
+                    } {
+                        this.aiAsk("" v)
+                    }
+                }
+            }
+            this.aiFill()
+        }
+    }
+
+    fn aiAsk:void (text:string action:string) {
+        if (ai.ask(text action (this.aiContext()))) {
+            push requests "ai-ask"
+        } {
+            def why:string (ai.blocked())
+            if (((strlen why) > 0) && ((strlen (trim text)) > 0)) {
+                ai.fail(why)
+            }
+        }
+        this.aiFill()
+    }
+
+    ; "Use on slide": the slide shown becomes the one the last answer gave,
+    ; as one edit (Ctrl+Z takes it back).
+    fn aiApply:void () {
+        def md:string (trim (ai.suggestion()))
+        def n:int (deck.slideCount())
+        if (((strlen md) == 0) || (n == 0)) {
+            return
+        }
+        def i:int selected
+        if (i >= n) {
+            i = (n - 1)
+        }
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return
+        }
+        def lc:int (mdEditor.buf.lineCount())
+        mdEditor.moveCaret(linesFrom 0 false)
+        if (linesAt < lc) {
+            mdEditor.moveCaret(linesAt 0 true)
+            mdEditor.insert((md + (strfromcode 10) + (strfromcode 10)))
+        } {
+            mdEditor.moveCaret((lc - 1) (strlen (mdEditor.buf.lineAt((lc - 1)))) true)
+            mdEditor.insert((md + (strfromcode 10)))
+        }
+        this.syncEditor()
+        this.selectSlide(i)
+        ai.markUsed()
+        ai.add("note" (PresI18n.t("Used on the slide. Ctrl+Z takes it back.")))
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The drawer from the conversation: its title with the credits, the
+    ; context line, the quick actions, the messages.
+    fn aiFill:void () {
+        def c:ChatCtl panels.aiChat
+        def ctx:PresAiContext (this.aiContext())
+        aiSlideAt = selected
+        aiCountAt = (deck.slideCount())
+        def title:string (PresI18n.t("AI Assistant"))
+        def pill:string (ai.creditsShort())
+        if ((strlen pill) > 0) {
+            title = (title + "  ● " + pill)
+        }
+        c.title = title
+        def sub:string (ai.contextLine(ctx))
+        def more:string (ai.creditsText())
+        if (((strlen more) > 0) && (ai.unlimited == false)) {
+            sub = (sub + " · " + more)
+        }
+        c.subtitle = sub
+        c.clearActions()
+        if ((strlen (ai.suggestion())) > 0) {
+            c.addAction("use" ("✓ " + (PresI18n.t("Use on slide"))) "primary")
+        }
+        def ids:[string] (PresAi.actionIds())
+        for ids id:string i {
+            if (PresAi.actionFits(id ctx)) {
+                c.addAction(id (PresAi.actionLabel(id)) "")
+            }
+        }
+        if (ai.scope == "deck") {
+            c.addAction("slide" ((PresI18n.t("Whole presentation")) + " ▾") "")
+        } {
+            c.addAction("deck" ((PresI18n.t("This slide")) + " ▾") "")
+        }
+        if ((array_length ai.msgs) > 0) {
+            c.addAction("clear" (PresI18n.t("Clear")) "")
+        }
+        c.emptyText = (ai.creditsHelp())
+        c.readOnly = (ai.available == 0)
+        c.readOnlyText = (PresI18n.t("The AI assistant is not available on this server."))
+        def none:[UiChatMessage]
+        c.messages = none
+        c.top = 0
+        for ai.msgs m:PresAiMsg k {
+            if (m.role == "user") {
+                c.add(m.id "me" (PresI18n.t("You")) "#2563eb" m.text "" true)
+            } {
+                if (m.role == "assistant") {
+                    c.add(m.id "ai" "AI" "#7c3aed" (PresAi.shown(m.text)) "" false)
+                } {
+                    c.add(m.id "note" "Sliqtly" "#b45309" m.text "" false)
+                }
+            }
+        }
+        if ai.busy {
+            c.add("ai-wait" "ai" "AI" "#7c3aed" (PresI18n.t("Thinking…")) "" false)
+        }
+        c.unread = 0
+        c.toEnd()
+        panels.rebuild()
+        chromeRev = (chromeRev + 1)
+    }
+
     fn chatIsOpen:boolean () {
         return panels.chat.open
     }
@@ -9491,7 +9719,8 @@ class PresApp {
     }
 
     fn chatHasKeys:boolean () {
-        return (((focus == "chat") && panels.chat.open) && (mode != "present"))
+        def dc:ChatCtl (panels.dockChat())
+        return (((focus == "chat") && dc.open) && (mode != "present"))
     }
 
     ; The chat's composer has the keys: Enter sends, Escape closes, PageUp and
@@ -9513,14 +9742,13 @@ class PresApp {
         if ((strlen k) == 0) {
             return false
         }
-        panels.chat.keyDownWith("" k shift ctrl)
-        if ((strlen panels.chat.sent) > 0) {
-            push requests "chat-send"
-        }
-        if (panels.chat.open == false) {
+        def dc:ChatCtl (panels.dockChat())
+        dc.keyDownWith("" k shift ctrl)
+        if (dc.open == false) {
             focus = "editor"
-            push requests "chat-closed"
         }
+        panels.chatAsks(dc)
+        this.takePanels()
         panels.rebuild()
         chromeRev = (chromeRev + 1)
         return true
@@ -10124,7 +10352,11 @@ class PresApp {
                       if ((indexOf r "data:") == 0) {
                         this.dataRequest((substring r 5 (strlen r)))
                       } {
-                        push requests r
+                        if ((indexOf r "ai-") == 0) {
+                          this.aiRequest(r)
+                        } {
+                          push requests r
+                        }
                       }
                     }
                   }
@@ -10160,7 +10392,12 @@ class PresApp {
     fn panelsReady:boolean () {
         this.placeFiles()
         ; the chat's field shows its caret while it has the keys
-        panels.chat.input.setFocused((this.chatHasKeys()))
+        panels.chat.input.setFocused(((this.chatHasKeys()) && (panels.aiChat.open == false)))
+        panels.aiChat.input.setFocused(((this.chatHasKeys()) && panels.aiChat.open))
+        ; the drawer's "Context: Slide 3 / 12" follows the slide shown
+        if (panels.aiChat.open && ((aiSlideAt != selected) || (aiCountAt != (deck.slideCount())))) {
+            this.aiFill()
+        }
         if ((panels.any()) == false) {
             return false
         }

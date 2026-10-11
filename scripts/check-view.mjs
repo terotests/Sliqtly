@@ -273,6 +273,16 @@ try {
     await rp.keyboard.press("a");
     await rp.waitForFunction((n) => document.getElementById("pCount").textContent === `4 / ${n}`, recN, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
     await rp.close();
+    // #slide=N opens that slide; Share copies its /r/ link
+    const sp = await browser.newPage();
+    await sp.goto(base + "/r/" + ID + "/" + REC_HASH + "#slide=3", { waitUntil: "load" });
+    await sp.waitForFunction(() => window.__play, null, { timeout: 15000 });
+    if ((await sp.evaluate(() => document.getElementById("pCount").textContent)) !== `3 / ${recN}`) fail("#slide=3 did not open the light player at slide 3");
+    await sp.click("#pShare");
+    await sp.waitForTimeout(200);
+    const shared = await sp.evaluate(() => window.__lastShare || "");
+    if (!shared.endsWith("/r/" + ID + "/" + REC_HASH + "#slide=3")) fail(`Share in the light player gave "${shared}"`);
+    await sp.close();
     // another hash: said so, no error
     const gone = await browser.newPage();
     await gone.goto(base + "/r/" + ID + "/0123456789abcdef01234567", { waitUntil: "load" });
