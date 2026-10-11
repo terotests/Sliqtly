@@ -82,27 +82,32 @@ class FigGo {
     }
 
     ; One screen as an EVG document, or "" when the file has no such layer.
-    sfn cut:string (d:FigGoDoc id:string) {
+    ; Layer `id` cut out once (FigCutter): its JSON and its pictures are
+    ; read from that one cut, as cutting a screen is most of reading a file.
+    sfn cutOf:FigCut (d:FigGoDoc id:string) {
         if (null? d.cutter) {
-            return ""
+            return (new FigCut())
         }
         def cutter:FigCutter (unwrap d.cutter)
-        def c:FigCut (cutter.cut(id))
+        return (cutter.cut(id))
+    }
+
+    ; The cut's JSON, "" when the layer could not be cut.
+    sfn cutJson:string (c:FigCut) {
         if (c.ok == false) {
             return ""
         }
         return c.json
     }
 
-    ; The pictures a layer paints, by the names of the file's images/.
-    sfn cutImages:[string] (d:FigGoDoc id:string) {
-        def none:[string]
-        if (null? d.cutter) {
-            return none
-        }
-        def cutter:FigCutter (unwrap d.cutter)
-        def c:FigCut (cutter.cut(id))
+    ; The pictures the cut paints, by the names of the file's images/.
+    sfn cutImages:[string] (c:FigCut) {
         return c.images
+    }
+
+    ; The cut of layer `id` as JSON (cutOf + cutJson).
+    sfn cut:string (d:FigGoDoc id:string) {
+        return (FigGo.cutJson((FigGo.cutOf(d id))))
     }
 
     sfn imageBytes:buffer (d:FigGoDoc name:string) {

@@ -386,14 +386,15 @@ func (s *sharedFiles) cutFile(ctx context.Context, id, name string, data []byte)
 	}
 	saved := map[string]bool{}
 	for _, node := range figdv.FigGo_static_screenIds(d) {
-		cut := figdv.FigGo_static_cut(d, node)
+		c := figdv.FigGo_static_cutOf(d, node)
+		cut := figdv.FigGo_static_cutJson(c)
 		if cut == "" {
 			continue
 		}
 		if err := s.files.Save(ctx, dir+"/cut/"+sharedNodeFile(node)+".evg.json", "application/json", []byte(cut), nil); err != nil {
 			return counts, err
 		}
-		for _, img := range figdv.FigGo_static_cutImages(d, node) {
+		for _, img := range figdv.FigGo_static_cutImages(c) {
 			if saved[img] {
 				continue
 			}
