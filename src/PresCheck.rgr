@@ -6940,28 +6940,46 @@ class PresCheck {
         this.ok((s1.kind == "chart") ("flight: slide 2 is a chart station, got " + s1.kind))
         this.ok((s3.kind == "slide") ("flight: slide 4 shows its title, got " + s3.kind))
         this.ok((s1.z < (s0.z - 30.0)) "flight: the next station is further away")
-        ; a slide's own words under its title: paragraphs and list items, a
-        ; list inside an item one step in, no pictures
-        def body:string ""
+        ; a slide's own blocks as plates the slide's painter paints: the
+        ; ground first, every block in front of it, each plate's list its own
+        ; commands moved to its corner
+        def ground:int 0
+        def blocks:[string]
+        def painted:boolean true
         def bi:int 0
         while (bi < (array_length sc.items)) {
             def bit:FlightItem (itemAt sc.items bi)
-            if ((bit.kind == "body") && (bit.station == 3)) {
-                body = bit.text
+            if ((bit.kind == "plate") && (bit.station == 3)) {
+                if (bit.block == "ground") {
+                    ground = (ground + 1)
+                    this.ok((bit.order == 0) "flight: the ground comes in first")
+                } {
+                    push blocks bit.block
+                }
+                def pj:JVal (JVal.parse((sc.plateJson(bit.pl))))
+                def pcm:JVal ((pj.get("list")).get("cmds"))
+                if (((pj.numOr("width" 0.0)) <= 0.0) || ((pcm.len()) == 0)) {
+                    painted = false
+                }
             }
             bi = (bi + 1)
         }
-        this.ok((body == "Tekstiä.\n• Yksi\n– Sisempi\n• Kaksi\nVäli\n1. Eka\n2. Toka\nA · B\nx · y") ("flight: the text slide shows its words, got " + body))
-        ; the diagram: three glass nodes, two lines, ranks at different depths
-        def glass:[FlightItem]
+        this.ok((ground == 1) ("flight: the text slide has its ground plate, got " + (to_string ground)))
+        def kinds:string (join blocks ",")
+        this.ok((((indexOf blocks "p") >= 0) && (((indexOf blocks "li") >= 0) && ((indexOf blocks "table") >= 0))) ("flight: the text slide's blocks are plates, got " + kinds))
+        this.ok(painted "flight: every plate paints its own commands")
+        this.ok(((sc.plateJson(-1)) == "") "flight: no such plate, no JSON")
+        ; the diagram: three nodes, each a plate of its own, nodes a line
+        ; apart at different depths, two lines as tubes between them
+        def nodes:[FlightItem]
         def links:[FlightItem]
         def bars:[FlightItem]
         def wedges:[FlightItem]
         def i:int 0
         while (i < (array_length sc.items)) {
             def it:FlightItem (itemAt sc.items i)
-            if ((it.kind == "glass") && (it.station == 0)) {
-                push glass it
+            if (((it.kind == "plate") && (it.block == "node")) && (it.station == 0)) {
+                push nodes it
             }
             if ((it.kind == "link") && (it.station == 0)) {
                 push links it
@@ -6974,40 +6992,53 @@ class PresCheck {
             }
             i = (i + 1)
         }
-        this.ok(((array_length glass) == 3) ("flight: three glass nodes, got " + (to_string (array_length glass))))
+        this.ok(((array_length nodes) == 3) ("flight: three node plates, got " + (to_string (array_length nodes))))
         this.ok(((array_length links) == 2) ("flight: two lines, got " + (to_string (array_length links))))
-        if (((array_length glass) == 3) && ((array_length links) == 2)) {
-            def a:FlightItem (itemAt glass 0)
-            def b:FlightItem (itemAt glass 1)
-            this.ok((a.text == "Alku") ("flight: the node's text, got " + a.text))
+        if (((array_length nodes) == 3) && ((array_length links) == 2)) {
+            def a:FlightItem (itemAt nodes 0)
+            def b:FlightItem (itemAt nodes 1)
+            this.ok(((indexOf (sc.plateJson(a.pl)) "Alku") > 0) "flight: a node's plate paints its text")
             this.ok((a.z != b.z) "flight: nodes a line apart float at different depths")
-            ; as the slide lays it out (this one turns it top to bottom)
-            this.ok(((b.x > a.x) || (b.y < a.y)) "flight: the nodes stand as the slide draws them")
-            this.ok(((a.w > 0.5) && (a.w < 16.0)) "flight: a node fits the station")
             def l0:FlightItem (itemAt links 0)
             def np:int (idiv (array_length l0.pts) 3)
-            this.ok((np >= 3) "flight: a line is cut for its bow")
+            this.ok((np >= 2) "flight: a line has its points")
             this.ok(l0.head "flight: an arrow keeps its head")
-            ; the line starts at its start node's depth and bows towards us
+            ; it leaves at its start node's depth and arrives at its end node's
             this.ok(((fabs ((itemAt l0.pts 2) - a.z)) < 0.01) "flight: a line leaves at its node's depth")
-            def midZ:double (itemAt l0.pts (((idiv np 2) * 3) + 2))
-            def straight:double ((a.z + b.z) * 0.5)
-            this.ok((midZ > straight) "flight: a line bows out towards the viewer")
+            this.ok(((fabs ((itemAt l0.pts (((np - 1) * 3) + 2)) - b.z)) < 0.01) "flight: a line arrives at its node's depth")
         }
         ; the chart: a bar per value, the negative one under the floor
         this.ok(((array_length bars) == 3) ("flight: three bars, got " + (to_string (array_length bars))))
         if ((array_length bars) == 3) {
             def q2:FlightItem (itemAt bars 1)
             def q3:FlightItem (itemAt bars 2)
-            this.ok(((fabs (q2.h - 7.0)) < 0.01) "flight: the largest value is the chart's height")
+            def q1:FlightItem (itemAt bars 0)
+            this.ok(((fabs ((q1.h / q2.h) - 0.5)) < 0.01) "flight: bars stand as tall as their values")
             this.ok(((q3.y + (q3.h * 0.5)) < ((q2.y - (q2.h * 0.5)) + 0.01)) "flight: a negative bar hangs under the floor")
         }
-        ; the pie: two slices, a quarter and three quarters of the turn
-        this.ok(((array_length wedges) == 2) ("flight: two slices, got " + (to_string (array_length wedges))))
-        if ((array_length wedges) == 2) {
-            def w0:FlightItem (itemAt wedges 0)
-            this.ok(((fabs ((w0.a1 - w0.a0) - 1.5708)) < 0.001) "flight: a quarter of the pie is a quarter turn")
+        ; the pie: no bars, the chart's own drawing on its plate
+        this.ok(((array_length wedges) == 0) "flight: a pie stays as the slide draws it")
+        def piePlate:boolean false
+        def pq:int 0
+        while (pq < (array_length sc.items)) {
+            def pit:FlightItem (itemAt sc.items pq)
+            if (((pit.kind == "plate") && (pit.station == 2)) && (pit.block == "chart")) {
+                piePlate = true
+            }
+            pq = (pq + 1)
         }
+        this.ok(piePlate "flight: the pie is a plate")
+        ; the bar chart's plate keeps its words, the bars' bodies are boxes
+        def barPlate:string ""
+        pq = 0
+        while (pq < (array_length sc.items)) {
+            def bit2:FlightItem (itemAt sc.items pq)
+            if (((bit2.kind == "plate") && (bit2.station == 1)) && (bit2.block == "chart")) {
+                barPlate = (sc.plateJson(bit2.pl))
+            }
+            pq = (pq + 1)
+        }
+        this.ok(((indexOf barPlate "\"Q2\"") > 0) "flight: the bar chart's plate has its names")
         def js:JVal (JVal.parse((sc.toJson())))
         def jst:JVal (js.get("stations"))
         def jit:JVal (js.get("items"))

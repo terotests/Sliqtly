@@ -918,7 +918,8 @@ class PresFlightBench {
         def i:int 0
         while (i < (array_length b.mine)) {
             def it:FlightItem (itemAt b.mine i)
-            if (it.kind == "fx") {
+            ; an effect of its own, or one running on a plate
+            if ((it.kind == "fx") || ((it.kind == "plate") && it.live)) {
                 ok = true
             }
             i = (i + 1)
@@ -934,7 +935,8 @@ class PresFlightBench {
         def k:int 0
         while (k < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds k)
-            if ((itemAt b.seen k) && (((c.kind == 0) || (c.kind == 6)) && (PresFlightBench.nativeCmd(b k)))) {
+            ; what a plate carries is painted as it is
+            if (((itemAt b.seen k) && ((itemAt b.carried k) == false)) && (((c.kind == 0) || (c.kind == 6)) && (PresFlightBench.nativeCmd(b k)))) {
                 def rr:double ((to_double c.r) / 255.0)
                 def gg:double ((to_double c.g) / 255.0)
                 def bb:double ((to_double c.b) / 255.0)
@@ -959,6 +961,11 @@ class PresFlightBench {
                 push have it.r
                 push have it.g
                 push have it.b
+                if (it.capR >= 0.0) {
+                    push have it.capR
+                    push have it.capG
+                    push have it.capB
+                }
             }
             i = (i + 1)
         }

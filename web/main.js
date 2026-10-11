@@ -356,6 +356,7 @@ try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) 
 const flight3d = createFlight3d({
   three3d,
   app,
+  platePicture,
   toast,
   t,
   onExit: () => {
@@ -3615,6 +3616,41 @@ function slidePicture(w, h) {
   const g = c.getContext("2d", { willReadFrequently: true });
   g.drawImage(roomCanvas, 0, 0);
   return g.getImageData(0, 0, w, h);
+}
+
+// A plate of the 3-D flight (PresFlightScene.plateJson, parsed): its part of the
+// slide drawn by EVG, k pixels a slide unit, its effects `time` seconds in
+// (null: at their still), on a clear ground. An
+// ImageData and whether a picture on it has not arrived yet; null without.
+let plateGl = null;
+const plateCanvas = document.createElement("canvas");
+function platePicture(plate, k, time) {
+  // effects `time` seconds in, or at their still (less motion asked for)
+  let doc = plate;
+  if (time === null || reducedMotion()) doc = atRest(plate);
+  else {
+    syncDeckEffects();
+    doc = withTime(plate, time);
+  }
+  const w = Math.max(1, Math.round(doc.width * k));
+  const h = Math.max(1, Math.round(doc.height * k));
+  plateCanvas.width = w;
+  plateCanvas.height = h;
+  if (!plateGl) plateGl = plateCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!plateGl) return null;
+  plateGl.clearColor(0, 0, 0, 0);
+  plateGl.clear(plateGl.COLOR_BUFFER_BIT);
+  const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
+  const f = prepareDisplayList(plateGl, doc, { dpr: k, images, contrastGuard: true, contrastRepair: autoContrast });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(plateCanvas, 0, 0);
+  const waiting = (doc.list.cmds || []).some((cmd) => cmd.k === 2 && cmd.src && !images.has(cmd.src));
+  return { img: g.getImageData(0, 0, w, h), waiting };
 }
 
 // how many are drawn (scripts/check-web.mjs)

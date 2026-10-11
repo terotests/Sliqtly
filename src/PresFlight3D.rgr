@@ -5,14 +5,17 @@
 ; ============================================================================
 ;
 ; The page (web/flight3d.js) gives this the world PresFlightScene made of
-; the deck (its JSON), the keys held and the gamepad each frame, and a
-; picture of every text; this builds Ranger's Three scene from it and draws
-; it into the one GL canvas the slides' 3-D worlds use (src/Pres3D.rgr).
+; the deck (its JSON), the keys held and the gamepad each frame, a picture
+; of every text and of every plate (a part of a slide as the slide's own
+; painter draws it, setPlate); this builds Ranger's Three scene from it and
+; draws it into the one GL canvas the slides' 3-D worlds use
+; (src/Pres3D.rgr).
 ;
-; The look is a hologram in the dark: glass panels (see-through, edges and
-; corner brackets that glow by adding light), lines as glowing tubes with a
-; pulse running along them, bars of tinted glass with a bright cap, a grid
-; on the floor of every station, dust in the air and fog in the distance.
+; The look is the slide in the dark, come apart in depth: its plates float
+; one in front of the other, a diagram's lines are glowing tubes with a
+; pulse running along them, a chart's bars are boxes of tinted glass with a
+; bright cap, a grid on the floor of every station, dust in the air and fog
+; in the distance.
 ; A station builds itself as the camera arrives: its parts come in one
 ; after another in the order the slide reveals them.
 ; ============================================================================
@@ -298,6 +301,20 @@ class FlightLabel {
     def part:FlightPart (new FlightPart())
 }
 
+; A part of a slide as the slide draws it: its picture comes from the page
+; (setPlate), painted by the slide's own painter from the scene's plateJson.
+class FlightPlate {
+    ; its index among the scene's plates (the JSON's "pl")
+    def pl:int 0
+    def station:int 0
+    ; the texture of the pool it shows (-1: none, not painted)
+    def tex:int -1
+    ; an effect runs on it: the page paints it again and again
+    def live:boolean false
+    def mesh:ThreeMesh (new ThreeMesh)
+    def part:FlightPart (new FlightPart())
+}
+
 ; A spark running along a line, again and again.
 class FlightPulse {
     def mesh:ThreeMesh (new ThreeMesh)
@@ -319,6 +336,11 @@ class PresFlight3D {
     def parts:[FlightPart]
     def labels:[FlightLabel]
     def pulses:[FlightPulse]
+    def plates:[FlightPlate]
+    ; the plates' textures, kept from world to world and handed from plate
+    ; to plate: only the stations near the camera hold pictures
+    def pool:[ThreeTexture]
+    def free:[int]
     def titles:[string]
     ; when each station started coming in (-1: not yet)
     def seen:[double]
@@ -359,6 +381,15 @@ class PresFlight3D {
         labels = nl
         def nu:[FlightPulse]
         pulses = nu
+        def npl:[FlightPlate]
+        plates = npl
+        def nfr:[int]
+        free = nfr
+        def q:int 0
+        while (q < (array_length pool)) {
+            push free q
+            q = (q + 1)
+        }
         def nt:[string]
         titles = nt
         def ns:[double]
@@ -524,6 +555,22 @@ class PresFlight3D {
             this.addLink(o r g b)
             return
         }
+        if (kind == "plate") {
+            def p:FlightPart (this.part(o kind))
+            def pt:FlightPlate (new FlightPlate())
+            pt.pl = (o.intOr("pl" 0))
+            pt.live = (o.boolOr("fx" false))
+            pt.station = p.station
+            pt.part = p
+            ; as painted, not lit nor added: the slide's own colours
+            pt.mesh = (this.mesh((FlightGeo.picture()) (this.basic(1.0 1.0 1.0 1.0 false))))
+            pt.mesh.scale.set(p.w p.h 1.0)
+            pt.mesh.visible = false
+            this.hold(p pt.mesh 1.0 0.0 0.0 0.0)
+            set p.label ((array_length p.label) - 1) true
+            push plates pt
+            return
+        }
         if (kind == "bar") {
             def p:FlightPart (this.part(o kind))
             def unit:ThreeBoxGeometry (new ThreeBoxGeometry)
@@ -535,7 +582,13 @@ class PresFlight3D {
             } {
                 cap.setSize((p.w + 0.04) 0.06 (p.d + 0.04))
             }
-            this.hold(p (this.mesh(cap (this.basic(r g b 1.0 true)))) 1.0 0.0 0.0 0.0)
+            ; the cap in the colour the slide gives its far end
+            def cc:JVal (o.get("cap"))
+            def capC:[double] c
+            if ((cc.len()) >= 3) {
+                capC = ([] _:double (((cc.at(0)).asNum(r)) ((cc.at(1)).asNum(g)) ((cc.at(2)).asNum(b))))
+            }
+            this.hold(p (this.mesh(cap (this.basic((itemAt capC 0) (itemAt capC 1) (itemAt capC 2) 1.0 true)))) 1.0 0.0 0.0 0.0)
             def edge:ThreeBufferGeometry (FlightGeo.frame(p.w p.h 0.025 false))
             this.hold(p (this.mesh(edge (this.basic(r g b 0.5 true)))) 0.5 0.0 0.0 ((p.d * 0.5) + 0.01))
             return
@@ -596,25 +649,45 @@ class PresFlight3D {
             return
         }
         def p:FlightPart (this.part(o "link"))
-        p.x = 0.0
-        p.y = 0.0
-        p.z = 0.0
+        ; the part stands at its points' middle (what the glass in front and
+        ; behind it is sorted against), the tube built round it
+        def mx:double 0.0
+        def my:double 0.0
+        def mz:double 0.0
+        i = 0
+        while (i < np) {
+            mx = (mx + (itemAt pts (i * 3)))
+            my = (my + (itemAt pts ((i * 3) + 1)))
+            mz = (mz + (itemAt pts ((i * 3) + 2)))
+            i = (i + 1)
+        }
+        p.x = (mx / (to_double np))
+        p.y = (my / (to_double np))
+        p.z = (mz / (to_double np))
+        def loc:[double]
+        i = 0
+        while (i < np) {
+            push loc ((itemAt pts (i * 3)) - p.x)
+            push loc ((itemAt pts ((i * 3) + 1)) - p.y)
+            push loc ((itemAt pts ((i * 3) + 2)) - p.z)
+            i = (i + 1)
+        }
         def rad:double (o.numOr("w" 0.05))
         def tube:ThreePathTubeGeometry (new ThreePathTubeGeometry)
-        tube.build(pts rad 6)
+        tube.build(loc rad 6)
         this.hold(p (this.mesh(tube (this.basic(r g b 0.9 true)))) 0.9 0.0 0.0 0.0)
         ; a soft glow around it
         def glow:ThreePathTubeGeometry (new ThreePathTubeGeometry)
-        glow.build(pts (rad * 3.0) 6)
+        glow.build(loc (rad * 3.0) 6)
         this.hold(p (this.mesh(glow (this.basic(r g b 0.12 true)))) 0.12 0.0 0.0 0.0)
         if (o.boolOr("head" false)) {
             def k:int ((np - 1) * 3)
-            def ex:double ((itemAt pts k) - (itemAt pts (k - 3)))
-            def ey:double ((itemAt pts (k + 1)) - (itemAt pts (k - 2)))
-            def ez:double ((itemAt pts (k + 2)) - (itemAt pts (k - 1)))
+            def ex:double ((itemAt loc k) - (itemAt loc (k - 3)))
+            def ey:double ((itemAt loc (k + 1)) - (itemAt loc (k - 2)))
+            def ez:double ((itemAt loc (k + 2)) - (itemAt loc (k - 1)))
             def el:double (sqrt((((ex * ex) + (ey * ey)) + (ez * ez))))
             if (el > 0.000001) {
-                def head:ThreeBufferGeometry (FlightGeo.cone((itemAt pts k) (itemAt pts (k + 1)) (itemAt pts (k + 2)) (ex / el) (ey / el) (ez / el) (rad * 6.0) (rad * 3.0)))
+                def head:ThreeBufferGeometry (FlightGeo.cone((itemAt loc k) (itemAt loc (k + 1)) (itemAt loc (k + 2)) (ex / el) (ey / el) (ez / el) (rad * 6.0) (rad * 3.0)))
                 this.hold(p (this.mesh(head (this.basic(r g b 1.0 true)))) 1.0 0.0 0.0 0.0)
             }
         }
@@ -745,6 +818,68 @@ class PresFlight3D {
         }
         lb.mesh.scale.set(ww hh 1.0)
         lb.mesh.visible = true
+    }
+
+    fn plateCount:int () {
+        return (array_length plates)
+    }
+    ; plate i's index among the scene's plates (PresFlightScene.plateJson)
+    fn plateIndex:int (i:int) {
+        def pt:FlightPlate (itemAt plates i)
+        return pt.pl
+    }
+    fn plateStation:int (i:int) {
+        def pt:FlightPlate (itemAt plates i)
+        return pt.station
+    }
+    ; whether an effect runs on plate i
+    fn plateLive:boolean (i:int) {
+        def pt:FlightPlate (itemAt plates i)
+        return pt.live
+    }
+    ; whether plate i shows its picture (false: the page is to paint it)
+    fn plateReady:boolean (i:int) {
+        def pt:FlightPlate (itemAt plates i)
+        return (pt.tex >= 0)
+    }
+    ; Plate i's picture: RGBA rows from the top, `w` x `h` pixels, the
+    ; whole plate.
+    fn setPlate:void (i:int px:buffer w:int h:int) {
+        if ((i < 0) || (i >= (array_length plates))) {
+            return
+        }
+        def pt:FlightPlate (itemAt plates i)
+        if (pt.tex < 0) {
+            if ((array_length free) > 0) {
+                pt.tex = (itemAt free ((array_length free) - 1))
+                removeLast free
+            } {
+                push pool (new ThreeTexture)
+                pt.tex = ((array_length pool) - 1)
+            }
+        }
+        def tex:ThreeTexture (itemAt pool pt.tex)
+        tex.setImage(px w h)
+        pt.mesh.material.setMap(tex)
+    }
+    ; The plates of stations further than `keep` from station `now` give
+    ; their textures back (they are painted again when the camera nears).
+    fn releasePlates:void (now:int keep:int) {
+        def i:int 0
+        while (i < (array_length plates)) {
+            def pt:FlightPlate (itemAt plates i)
+            def d:int (pt.station - now)
+            if (d < 0) {
+                d = (0 - d)
+            }
+            if ((pt.tex >= 0) && (d > keep)) {
+                push free pt.tex
+                pt.tex = -1
+                pt.mesh.material.hasMap = false
+                pt.mesh.visible = false
+            }
+            i = (i + 1)
+        }
     }
 
     ; The keys held (KeyboardEvent.code, comma separated).
@@ -905,9 +1040,9 @@ class PresFlight3D {
         return 0.25
     }
 
-    ; Words (titles, a slide's text, labels) fade with their station's focus.
+    ; Words (titles, a slide's text, labels, its plates) fade with their station's focus.
     sfn isWords:boolean (kind:string) {
-        return ((kind == "text") || ((kind == "body") || ((kind == "title") || ((kind == "label") || (kind == "axis")))))
+        return ((kind == "text") || ((kind == "body") || ((kind == "title") || ((kind == "label") || ((kind == "axis") || (kind == "plate"))))))
     }
 
     fn animate:void (p:FlightPart) {
@@ -938,8 +1073,8 @@ class PresFlight3D {
             def px:double (p.x + (itemAt p.dx k))
             def py:double ((p.y + (itemAt p.dy k)) + bob)
             def pz:double (p.z + (itemAt p.dz k))
-            if ((p.kind == "glass") || ((p.kind == "group") || (p.kind == "title"))) {
-                ; comes forward out of the dark
+            if ((p.kind == "glass") || ((p.kind == "group") || ((p.kind == "title") || (p.kind == "plate")))) {
+                ; comes forward out of the dark (a plate to its place on the slide)
                 pz = (pz - ((1.0 - u) * 2.5))
             }
             if (p.kind == "bar") {

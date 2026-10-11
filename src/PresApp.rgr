@@ -102,6 +102,8 @@ class PresRect {
 
 class PresApp {
     def deck:PresDeck (new PresDeck())
+    ; the 3-D flight flightJson last built (its plates are painted from it)
+    def flight:PresFlightScene (new PresFlightScene())
     ; `setSource` was given a new text: the next rebuild's slides are not
     ; the last one's (aimDeck)
     def sourceNew:boolean false
@@ -690,7 +692,14 @@ class PresApp {
     ; The presentation as a world to fly through (src/PresFlight.rgr), for
     ; the page's 3-D flight (web/flight3d.js).
     fn flightJson:string () {
-        return ((PresFlightScene.of(deck)).toJson())
+        flight = (PresFlightScene.of(deck))
+        return (flight.toJson())
+    }
+
+    ; Plate pl of the flight flightJson last gave, as the page paints it
+    ; (PresFlightScene.plateJson); "" for none.
+    fn flightPlateJson:string (pl:int) {
+        return (flight.plateJson(pl))
     }
 
     ; Every slide's 3-D worlds as their programs last drew them, for an
