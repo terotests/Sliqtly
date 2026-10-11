@@ -287,6 +287,8 @@ try {
     await sp.goto(base + "/r/" + ID + "/" + REC_HASH + "#slide=3", { waitUntil: "load" });
     await sp.waitForFunction(() => window.__play, null, { timeout: 15000 });
     if ((await sp.evaluate(() => document.getElementById("pCount").textContent)) !== `3 / ${recN}`) fail("#slide=3 did not open the light player at slide 3");
+    const addr = await sp.evaluate(() => location.pathname + location.hash);
+    if (addr !== "/r/" + ID + "/" + REC_HASH + "#slide=3") fail(`the light player's address became "${addr}"`);
     await sp.click("#pShare");
     await sp.waitForTimeout(200);
     const shared = await sp.evaluate(() => window.__lastShare || "");

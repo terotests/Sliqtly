@@ -5734,22 +5734,28 @@ function recordedFaces(cmds) {
   }
   return [...used].filter((name) => files.has(name)).map((name) => [name, files.get(name)]);
 }
-// Each picture the recording draws, as WebP no larger than a 4K screen
-// shows it (a 3-D world as it is drawn now).
+// Each picture the recording draws, as WebP no more than twice as large as
+// it is drawn (sharp on a full HD screen; a 3-D world as it is drawn now).
 async function recordedPictures(cmds) {
-  const MAX = 2560;
+  // the largest each picture is drawn, in slide units
+  const drawn = new Map();
+  for (const c of cmds) {
+    if (!c.src) continue;
+    const d = drawn.get(c.src) || { w: 0, h: 0 };
+    drawn.set(c.src, { w: Math.max(d.w, c.w || 0), h: Math.max(d.h, c.h || 0) });
+  }
   const out = [];
-  for (const src of new Set(cmds.map((c) => c.src).filter(Boolean))) {
+  for (const [src, d] of drawn) {
     const img = pictures.get(src);
     const w = img && (img.width || img.naturalWidth);
     const h = img && (img.height || img.naturalHeight);
     if (!w || !h) continue;
-    const k = Math.min(1, MAX / Math.max(w, h));
+    const k = Math.min(1, Math.max((2 * d.w) / w, (2 * d.h) / h, 64 / Math.max(w, h)));
     const cut = document.createElement("canvas");
     cut.width = Math.max(1, Math.round(w * k));
     cut.height = Math.max(1, Math.round(h * k));
     cut.getContext("2d").drawImage(img, 0, 0, cut.width, cut.height);
-    const blob = await new Promise((r) => cut.toBlob(r, "image/webp", 0.86));
+    const blob = await new Promise((r) => cut.toBlob(r, "image/webp", 0.82));
     if (blob) out.push({ src, type: blob.type, b64: base64(new Uint8Array(await blob.arrayBuffer())) });
   }
   return out;

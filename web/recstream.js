@@ -15,9 +15,14 @@
 //   slides    [{ start, end, steps: [t] }]: each slide's master time, and
 //             the build steps on it (the sub times a presenter steps
 //             through); seconds of the recording
-//   cmds      every distinct drawing command once
-//   keys      [[n, [cmd index]]]: the frames whose drawing differs from the
-//             one before; a frame between two keys draws the earlier one
+//   cmds      every distinct shape once: a drawing command without its
+//             place (x, y), its points (pts) as whole twentieths of a unit
+//             from that place, each from the one before
+//   keys      [[n, [shape, x, y, shape, x, y, …]]]: the frames whose drawing
+//             differs from the one before, each command as its shape and
+//             its place (in twentieths); a frame between two keys draws the
+//             earlier one. A slide moving in is its shapes at other places,
+//             so its frames add places, not shapes
 //   effects   [[n, effects]]: the slide's surface effects from frame n on,
 //             without their clock (the page runs it, as the viewer does)
 //   faces     [[name, file]]: the faces the text is set in (fonts/{file})
@@ -35,7 +40,56 @@
 // its first step), Space goes on to the next step and from a slide's end to
 // the next slide, and autoplay plays the whole recording through.
 
-export const FORMAT = 1;
+export const FORMAT = 2;
+
+// places and points are kept in twentieths of a slide unit (a 960 wide
+// slide drawn 3840 wide is a fifth of a pixel off at most)
+const Q = 20;
+
+// A command as its shape (no place, its points from the place, in
+// twentieths, each from the one before) and its place.
+function shapeOf(c) {
+  const ox = c.x || 0;
+  const oy = c.y || 0;
+  const sh = { ...c };
+  delete sh.x;
+  delete sh.y;
+  if (Array.isArray(c.pts)) {
+    const out = new Array(c.pts.length);
+    let px = 0;
+    let py = 0;
+    for (let i = 0; i + 1 < c.pts.length; i += 2) {
+      const x = Math.round((c.pts[i] - ox) * Q);
+      const y = Math.round((c.pts[i + 1] - oy) * Q);
+      out[i] = x - px;
+      out[i + 1] = y - py;
+      px = x;
+      py = y;
+    }
+    sh.pts = out;
+  }
+  return { sh, x: Math.round(ox * Q), y: Math.round(oy * Q) };
+}
+
+// The command a shape draws at place (x, y) (twentieths).
+function placed(sh, x, y) {
+  const ox = x / Q;
+  const oy = y / Q;
+  const c = { ...sh, x: ox, y: oy };
+  if (Array.isArray(sh.pts)) {
+    const out = new Array(sh.pts.length);
+    let px = 0;
+    let py = 0;
+    for (let i = 0; i + 1 < sh.pts.length; i += 2) {
+      px += sh.pts[i];
+      py += sh.pts[i + 1];
+      out[i] = ox + px / Q;
+      out[i + 1] = oy + py / Q;
+    }
+    c.pts = out;
+  }
+  return c;
+}
 
 // A list's effects without their clock, as text: the same effects at
 // another moment are the same effects.
@@ -71,14 +125,15 @@ export class RecEncoder {
     if (height) this.height = height;
     const ids = [];
     for (const c of (list && list.cmds) || []) {
-      const k = JSON.stringify(c);
+      const { sh, x, y } = shapeOf(c);
+      const k = JSON.stringify(sh);
       let id = this.cmdIds.get(k);
       if (id === undefined) {
         id = this.cmds.length;
         this.cmdIds.set(k, id);
-        this.cmds.push(c);
+        this.cmds.push(sh);
       }
-      ids.push(id);
+      ids.push(id, x, y);
     }
     const same = this.lastIds && ids.length === this.lastIds.length && ids.every((v, i) => v === this.lastIds[i]);
     if (!same) {
@@ -137,7 +192,7 @@ export function slidesOf(timeline) {
 /** A stream read back: what frame n (or time t) draws. */
 export class Recording {
   constructor(stream) {
-    if (!stream || stream.sliqrec !== FORMAT) throw new Error("not a recording of this format");
+    if (!stream || stream.sliqrec !== FORMAT) throw new Error("not a recording of this format (export it again)");
     this.s = stream;
     this.width = stream.width;
     this.height = stream.height;
@@ -169,18 +224,15 @@ export class Recording {
     const key = k + ":" + fx;
     let l = this.built.get(key);
     if (!l) {
-      const ids = k >= 0 ? this.s.keys[k][1] : [];
+      const refs = k >= 0 ? this.s.keys[k][1] : [];
       const effects = fx >= 0 ? this.s.effects[fx][1].map((e) => ({ ...e })) : [];
-      l = { cmds: ids.map((id) => this.s.cmds[id]), effects };
+      const cmds = [];
+      for (let i = 0; i + 2 < refs.length; i += 3) cmds.push(placed(this.s.cmds[refs[i]], refs[i + 1], refs[i + 2]));
+      l = { cmds, effects };
       if (this.built.size > 64) this.built.clear();
       this.built.set(key, l);
     }
     return l;
-  }
-
-  /** Every distinct command, for what a page loads first (faces, pictures). */
-  allCmds() {
-    return this.s.cmds;
   }
 
   /** The slide shown at time t. */

@@ -29,13 +29,14 @@ test("the slides' master times and their steps come from the timeline", () => {
   assert.deepEqual(slidesOf(timeline), [{ start: 0, end: 2, steps: [1] }, { start: 2, end: 3, steps: [] }]);
 });
 
-test("a command is kept once; a frame like the one before is no key", () => {
+test("a shape is kept once, wherever it is drawn; a frame like the one before is no key", () => {
   const s = record();
-  assert.equal(s.sliqrec, 1);
+  assert.equal(s.sliqrec, 2);
   assert.equal(s.frames, 30);
   assert.equal(s.width, 960);
-  // the fading box (6 looks), the step's box, the second slide's box
-  assert.equal(s.cmds.length, 8);
+  // the fading box's 6 looks; the step's box and the second slide's are
+  // the opaque one at other places
+  assert.equal(s.cmds.length, 6);
   // frames 0..5 fade, 10 adds the step, 20 the next slide
   assert.deepEqual(s.keys.map(([n]) => n), [0, 1, 2, 3, 4, 5, 10, 20]);
   // the effect's clock is not part of it: one change, at the next slide
@@ -123,7 +124,7 @@ test("packed as gzip and read back; the name follows the bytes", async () => {
 });
 
 test("another format is refused", () => {
-  assert.throws(() => new Recording({ sliqrec: 2 }));
+  assert.throws(() => new Recording({ sliqrec: 1 }));
 });
 
 test("what the light player needs goes with the frames", () => {
@@ -135,4 +136,19 @@ test("what the light player needs goes with the frames", () => {
   assert.equal(s.deckEffects, "[]");
   // without them: none
   assert.deepEqual(new RecEncoder(timeline).finish().faces, []);
+});
+
+test("points are kept from the command's place, in twentieths of a unit", () => {
+  const enc = new RecEncoder(timeline);
+  const line = (dx) => ({ k: 6, x: 10 + dx, y: 20, w: 5, h: 5, pts: [10 + dx, 20, 15.03 + dx, 25.5, 12 + dx, 21] });
+  enc.add({ cmds: [line(0)] }, 960, 540);
+  enc.add({ cmds: [line(100.25)] }, 960, 540);
+  const s = enc.finish();
+  // one shape at two places
+  assert.equal(s.cmds.length, 1);
+  assert.deepEqual(s.cmds[0].pts, [0, 0, 101, 110, -61, -90]);
+  const rec = new Recording(s);
+  const c = rec.list(1).cmds[0];
+  assert.equal(c.x, 110.25);
+  assert.deepEqual(c.pts.map((v) => Math.round(v * 100) / 100), [110.25, 20, 115.3, 25.5, 112.25, 21]);
 });
