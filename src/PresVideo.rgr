@@ -39,7 +39,7 @@ class PresVideoOptions {
     def width:int 1920
     def height:int 1080
     def fps:int 30
-    ; vp9 | av1
+    ; vp9 | av1 (FFmpeg) | vp8 (Sliqtly's own encoder, PresVp8.rs)
     def codec:string "vp9"
     ; yuv420p | yuv444p
     def pixelFormat:string "yuv420p"
@@ -75,7 +75,7 @@ class PresVideoOptions {
             o.fps = f
         }
         def c:string (root.stringOr("codec" "vp9"))
-        if ((c == "vp9") || (c == "av1")) {
+        if ((c == "vp9") || (c == "av1") || (c == "vp8")) {
             o.codec = c
         }
         def pf:string (root.stringOr("pixelFormat" "yuv420p"))
