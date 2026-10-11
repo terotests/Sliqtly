@@ -131,6 +131,32 @@ making private and deleting are never limited: a license that ends takes
 nothing away. The MCP server writes with the Admin SDK and is not limited by
 licenses.
 
+### The AI assistant
+
+The editor's ✨ AI drawer asks Claude through this service
+(`/editor/api/ai/ask`, mcp-go/aiassist.go). Deploy MCP (Go) sets
+`SLIQTLY_AI=vertex` (repository variable `SLIQTLY_AI`; `off` turns it off):
+Claude runs on Vertex AI in the same project, signed by the service's own
+account, so it is billed to the project and its Cloud credits. Before it
+answers:
+
+- enable the Vertex AI API and Claude Opus 5.5 in Vertex AI → Model Garden
+  (the model id is `claude-opus-5-5`; `SLIQTLY_AI_MODEL` picks another);
+- give the Cloud Run service account the role Vertex AI User
+  (`roles/aiplatform.user`).
+
+Until then the drawer says the assistant is not set up. `SLIQTLY_AI_REGION`
+(default `global`) and `SLIQTLY_AI_PROJECT` (default the service's project)
+point it elsewhere; `SLIQTLY_AI=anthropic` with `ANTHROPIC_API_KEY` uses the
+Claude API instead.
+
+Each user has AI actions per calendar month (UTC): one per question or quick
+action, two for a question about the whole presentation. The Trial has 50;
+`aiMonthly` on `licenses/{uid}` changes it (−1 = no limit); admins have no
+limit. Use is counted in `aiUsage/{uid}`, one map per month (`"2026-10"`:
+`actions`, `calls`, and the tokens `in` and `out`), which is what to read to
+see what the assistant costs.
+
 ## The owner's dashboard
 
 `sliqtly.com/main/admin` (web/admin.html, linked from nowhere) shows, per UTC

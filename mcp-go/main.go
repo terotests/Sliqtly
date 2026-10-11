@@ -248,6 +248,10 @@ func main() {
 			if e.EditorGate != nil {
 				e.Editor = true
 				kind += ", editor at /editor"
+				if m, what := newAIModel(context.Background()); m != nil {
+					e.EditorGate.ai = newAIAssist(m, e.DB)
+					kind += ", AI assistant: " + what
+				}
 			}
 		} else {
 			e.TrustHost = true

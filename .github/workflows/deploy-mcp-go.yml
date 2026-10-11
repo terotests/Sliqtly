@@ -89,6 +89,10 @@ jobs:
           # sliqtly_plugin's plugins (mcp-go/rgr/Plugins.rgr); unset:
           # code-review, "none" turns them all off
           PLUGINS: ${{ vars.SLIQTLY_PLUGINS || 'code-review' }}
+          # the editor's AI assistant (mcp-go/aiassist.go): Claude on Vertex AI
+          # in this project; "off" turns it off, SLIQTLY_AI_MODEL picks the model
+          AI: ${{ vars.SLIQTLY_AI || 'vertex' }}
+          AI_MODEL: ${{ vars.SLIQTLY_AI_MODEL || 'claude-opus-5-5' }}
         run: |
           # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
           # Run's sandbox need not show the cgroup limit memlimit.go reads,
@@ -102,7 +106,7 @@ jobs:
           # an @, and a list of them commas.
           # SLIQTLY_FIGMA_JOB: the job above reads the Figma files added;
           # SLIQTLY_SHARED_MAX the same 200 MB as storage.rules' figma-upload
-          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS|SLIQTLY_FIGMA_JOB=projects/$PROJECT/locations/$REGION/jobs/sliqtly-figma|SLIQTLY_SHARED_MAX=200"
+          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS|SLIQTLY_AI=$AI|SLIQTLY_AI_MODEL=$AI_MODEL|SLIQTLY_FIGMA_JOB=projects/$PROJECT/locations/$REGION/jobs/sliqtly-figma|SLIQTLY_SHARED_MAX=200"
           if [ -n "$GH_TOKEN_SECRET" ]; then
             ENV_VARS="$ENV_VARS|SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET|SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
           fi
