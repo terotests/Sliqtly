@@ -17,7 +17,8 @@ risks, and draws the views as a review deck.
 3. Write the model (below). Every item has `refs`: the lines it comes from
    at the PR's head. Write only what the code shows; an item no line backs
    is drawn dashed as inferred.
-4. `sliqtly_plugin(name="code-review", op="build", args={pr, model})`:
+4. `sliqtly_plugin(name="code-review", op="build", args={pr, model})`
+   (or `{source, model}`, below):
    warnings about the model (fix them and build again), the review order,
    the risks and the deck in Markdown. `args.slice` builds the deck for one
    slice.
@@ -26,7 +27,39 @@ risks, and draws the views as a review deck.
    than the diagrams. Keep the code slides and the `::: code` blocks: they
    are how the deck links to the code.
 
-`pr` is a pull request's link or `owner/repo#12`.
+`pr` is a pull request's link or `owner/repo#12`; the server reads it
+from GitHub.
+
+### The change from your own checkout
+
+When you have the repository yourself (a clone, a private repository the
+server cannot read, a branch with no pull request, another host than
+GitHub), send the change as `source` instead of `pr`, in `start` and in
+`build` alike:
+
+```json
+{"source": {
+  "repo": "https://github.com/o/app",
+  "base": "<base commit>", "head": "<head commit>",
+  "title": "Approval state for reviews", "description": "…",
+  "files": [
+    {"path": "src/api/review.ts", "text": "<the file at head>", "patch": "<git diff of the file>"},
+    {"path": "src/review/states.ts", "text": "…", "patch": "…", "status": "added"},
+    {"path": "src/db/client.ts", "text": "…"}
+  ]
+}}
+```
+
+- `files`: up to 60. Each changed file with its text at the head and its
+  unified diff (`git diff <base> <head> -- <path>`) as `patch`; `status`
+  is `added`, `modified` (the default with a patch), `renamed`, `deleted`,
+  or `same` (the default without one). Add the files around the change
+  the model refers to as text alone: every file a ref names must be here.
+- `repo`, `base`, `head` are optional: on GitHub they give the deck links
+  to the lines and to the comparison; elsewhere the source viewer names
+  the host (GitLab, Bitbucket, Azure DevOps, Gitiles) from `repo`.
+- `build`'s `whole: true` keeps every file whole in `code/` (otherwise a
+  file over 400 lines keeps the lines the deck names, with some context).
 
 ## The model
 

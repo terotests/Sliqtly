@@ -2,12 +2,17 @@
 
 ; The code review plugin's operations (sliqtly_plugin name="code-review"):
 ;
-;   start {pr}               the PR's facts, its changed files, and lines in
-;                            the change that look like storage, network,
+;   start {pr|source}        the change's facts, its changed files, and lines
+;                            in the change that look like storage, network,
 ;                            waits, failures, states and events
-;   build {pr, model, slice} the assistant's model (CrModel) checked against
-;                            the files at the PR's head, the review order,
-;                            the risks and a review deck (CrViews)
+;   build {pr|source, model, slice, whole}
+;                            the assistant's model (CrModel) checked against
+;                            the files at the change's head, the review
+;                            order, the risks and a review deck (CrViews)
+;
+; `pr` is a GitHub pull request the server reads; `source` is the change as
+; the assistant sends it from its own checkout (CrInput.fromSource), for a
+; repository the server cannot read or one not on GitHub.
 ;
 ; The assistant reads the code and writes the model; the server checks it
 ; and draws it. Tested in review_test.go.
@@ -20,6 +25,258 @@ class CrHint {
     def ref:string ""
     def kinds:[string]
     def code:string ""
+}
+
+class CrBody {
+    def status:int 0
+    def body:string ""
+}
+
+; What a review reads: a GitHub pull request the server fetches (args.pr),
+; or the files the assistant sends from its own checkout (args.source).
+class CrInput {
+    def fail:string ""
+    def fromPr:boolean false
+    def pr:GhPr (new GhPr)
+    ; the change's name ("o/app#12", or the source's own) and its page
+    def name:string ""
+    def url:string ""
+    def title:string ""
+    def body:string ""
+    def author:string ""
+    def state:string ""
+    def headSha:string ""
+    def baseSha:string ""
+    def additions:int 0
+    def deletions:int 0
+    ; github.com's owner/repo, for links to lines; "" = no links
+    def ghRepo:string ""
+    ; code/sources.json: the repository's key, its address and host
+    def repoKey:string "repo"
+    def repoUrl:string ""
+    def host:string ""
+    ; the changed files
+    def files:[GhFile]
+    ; args.source: the files' texts at the head, changed or not
+    def textPaths:[string]
+    def texts:[string]
+
+    ; the most files a source holds, and a file's size
+    sfn MAX_SOURCE_FILES:int () {
+        return 60
+    }
+
+    sfn read:CrInput (host:McpHost caller:Caller a:MfJ) {
+        def src:MfJ (a.field("source"))
+        if (src.isObj()) {
+            return (CrInput.fromSource(src))
+        }
+        def out (new CrInput)
+        out.fail = (CrInput.missing(a))
+        if ((strlen out.fail) > 0) {
+            return out
+        }
+        def got:GhFetched (Tools.fetchPr(host caller (a.str_("pr"))))
+        if ((strlen got.fail) > 0) {
+            out.fail = got.fail
+            return out
+        }
+        def p:GhPr got.pr
+        out.fromPr = true
+        out.pr = p
+        out.name = (p.ref.name())
+        out.url = (p.ref.web())
+        out.title = p.title
+        out.body = p.body
+        out.author = p.author
+        out.state = p.state
+        out.headSha = p.headSha
+        out.baseSha = p.baseSha
+        out.additions = p.additions
+        out.deletions = p.deletions
+        out.ghRepo = (p.ref.owner + "/" + p.ref.repo)
+        out.repoKey = p.ref.repo
+        out.repoUrl = ("https://github.com/" + out.ghRepo)
+        out.host = "github"
+        out.files = (p.byChange())
+        return out
+    }
+
+    ; why args name no change, "" when they do
+    sfn missing:string (a:MfJ) {
+        if (((strlen (a.str_("pr"))) > 0) || ((a.field("source")).isObj())) {
+            return ""
+        }
+        return "Invalid arguments: args.pr is the pull request's link or owner/repo#12, or args.source the change from your own checkout (see sliqtly_plugin(name=\"code-review\"))."
+    }
+
+    ; args.source: {repo, head, base, name, title, description, files:
+    ; [{path, text, patch, status}]}. A file with a patch (or a status other
+    ; than "same") is in the change; text is the file at the head.
+    sfn fromSource:CrInput (src:MfJ) {
+        def out (new CrInput)
+        def fl:MfJ (src.field("files"))
+        if (((fl.isArr()) == false) || ((fl.count()) == 0)) {
+            out.fail = "Invalid arguments: args.source.files is a list of {path, text, patch, status}: the changed files (with their unified diff as patch) and the files around them, at the change's head."
+            return out
+        }
+        if ((fl.count()) > (CrInput.MAX_SOURCE_FILES())) {
+            out.fail = ("Invalid arguments: at most " + (CrInput.MAX_SOURCE_FILES()) + " files in args.source.files.")
+            return out
+        }
+        def i:int 0
+        while (i < (fl.count())) {
+            def f:MfJ (fl.item(i))
+            i = (i + 1)
+            def raw:string (f.str_("path"))
+            def path:string (Files.codePath(raw))
+            if ((strlen path) == 0) {
+                out.fail = ("Invalid arguments: args.source.files[" + (i - 1) + "].path \"" + raw + "\" is no path in a repository (letters, digits, - _ . and /, no .. or empty parts).")
+                return out
+            }
+            if ((indexOf out.textPaths path) >= 0) {
+                out.fail = ("Invalid arguments: " + path + " is twice in args.source.files.")
+                return out
+            }
+            def text:string (f.str_("text"))
+            if ((strlen text) > (CodeReview.MAX_FILE_BYTES())) {
+                out.fail = ("Invalid arguments: " + path + " is over " + (CodeReview.MAX_FILE_BYTES()) + " bytes.")
+                return out
+            }
+            def patch:string (f.str_("patch"))
+            def status:string (to_lowercase (trim (f.str_("status"))))
+            if ((strlen status) == 0) {
+                status = (? ((strlen patch) > 0) "modified" "same")
+            }
+            if (f.has("text")) {
+                push out.textPaths path
+                push out.texts text
+            }
+            if (status != "same") {
+                def g (new GhFile)
+                g.name = path
+                g.status = (? (status == "deleted") "removed" status)
+                g.patch = patch
+                def pl:[string] (strsplit patch "\n")
+                for pl line:string li {
+                    if ((startsWith line "+") && ((startsWith line "+++") == false)) {
+                        g.additions = (g.additions + 1)
+                    }
+                    if ((startsWith line "-") && ((startsWith line "---") == false)) {
+                        g.deletions = (g.deletions + 1)
+                    }
+                }
+                out.additions = (out.additions + g.additions)
+                out.deletions = (out.deletions + g.deletions)
+                push out.files g
+            }
+        }
+        out.headSha = (trim (src.str_("head")))
+        out.baseSha = (trim (src.str_("base")))
+        out.repoUrl = (trim (src.str_("repo")))
+        if ((endsWith out.repoUrl ".git")) {
+            out.repoUrl = (substring out.repoUrl 0 ((strlen out.repoUrl) - 4))
+        }
+        while (endsWith out.repoUrl "/") {
+            out.repoUrl = (substring out.repoUrl 0 ((strlen out.repoUrl) - 1))
+        }
+        out.host = (CrInput.hostOf(out.repoUrl))
+        def tail:string out.repoUrl
+        def slash:int (lastIndexOf tail "/")
+        if (slash >= 0) {
+            tail = (substring tail (slash + 1) (strlen tail))
+        }
+        if ((strlen (Files.codePath(tail))) > 0) {
+            out.repoKey = tail
+        }
+        if (out.host == "github") {
+            def at:int (indexOf out.repoUrl "github.com/")
+            def gr:string (substring out.repoUrl (at + 11) (strlen out.repoUrl))
+            if ((array_length (strsplit gr "/")) == 2) {
+                out.ghRepo = gr
+            }
+        }
+        out.name = (trim (src.str_("name")))
+        if ((strlen out.name) == 0) {
+            out.name = out.repoKey
+            if ((strlen out.headSha) >= 7) {
+                out.name = (out.name + "@" + (substring out.headSha 0 7))
+            }
+        }
+        out.url = (trim (src.str_("url")))
+        if (((strlen out.url) == 0) && ((strlen out.ghRepo) > 0) && ((strlen out.headSha) > 0)) {
+            if ((strlen out.baseSha) > 0) {
+                out.url = (out.repoUrl + "/compare/" + out.baseSha + "..." + out.headSha)
+            } {
+                out.url = (out.repoUrl + "/commit/" + out.headSha)
+            }
+        }
+        out.title = (trim (src.str_("title")))
+        out.body = (src.str_("description"))
+        out.author = (trim (src.str_("author")))
+        out.state = "local"
+        return out
+    }
+
+    ; the host's preset in the source viewer, "" for none it knows
+    sfn hostOf:string (url:string) {
+        def u:string (to_lowercase url)
+        if ((indexOf u "github.com/") >= 0) {
+            return "github"
+        }
+        if ((indexOf u "gitlab") >= 0) {
+            return "gitlab"
+        }
+        if ((indexOf u "bitbucket.org/") >= 0) {
+            return "bitbucket"
+        }
+        if ((indexOf u "dev.azure.com/") >= 0) {
+            return "azure"
+        }
+        if ((indexOf u "googlesource.com/") >= 0) {
+            return "gitiles"
+        }
+        return ""
+    }
+
+    ; the file at the head: read from GitHub for a pull request, from what
+    ; the source sent otherwise (404 when it sent no text for it)
+    fn bodyOf:CrBody (host:McpHost path:string) {
+        def out (new CrBody)
+        if (fromPr == false) {
+            def k:int (indexOf textPaths path)
+            if (k >= 0) {
+                out.status = 200
+                out.body = (itemAt texts k)
+            } {
+                out.status = 404
+            }
+            return out
+        }
+        def segs:[string]
+        for (strsplit path "/") seg:string si {
+            push segs (host_uri_encode host seg)
+        }
+        def url:string ("https://api.github.com/repos/" + ghRepo + "/contents/" + (join segs "/") + "?ref=" + headSha)
+        def fg:MfJ (J.parse((host_fetch_github host url "application/vnd.github.raw" (CodeReview.MAX_FILE_BYTES()))))
+        out.status = (fg.int_("status" 0))
+        out.body = (fg.str_("body"))
+        return out
+    }
+
+    ; how the change is named to the assistant in "Next:" lines
+    fn argsName:string () {
+        return (? fromPr "pr" "source")
+    }
+
+    fn source:CrSource () {
+        def s (new CrSource)
+        s.repo = ghRepo
+        s.sha = headSha
+        s.name = name
+        s.url = url
+        return s
+    }
 }
 
 class CodeReview {
@@ -141,39 +398,30 @@ class CodeReview {
         return n
     }
 
-    sfn source:CrSource (p:GhPr) {
-        def s (new CrSource)
-        s.repo = (p.ref.owner + "/" + p.ref.repo)
-        s.sha = p.headSha
-        s.name = (p.ref.name())
-        s.url = (p.ref.web())
-        return s
-    }
-
     ; --- start
 
     sfn start:MfJ (host:McpHost caller:Caller a:MfJ) {
-        if ((a.str_("pr")) == "") {
-            return (Tools.fail("Invalid arguments: args.pr is the pull request's link or owner/repo#12."))
+        def p:CrInput (CrInput.read(host caller a))
+        if ((strlen p.fail) > 0) {
+            return (Tools.fail(p.fail))
         }
-        def got:GhFetched (Tools.fetchPr(host caller (a.str_("pr"))))
-        if ((strlen got.fail) > 0) {
-            return (Tools.fail(got.fail))
-        }
-        def p:GhPr got.pr
         def out:MfJ (MfJ.newObj())
-        out.putStr("pr" (p.ref.name()))
-        out.putStr("url" (p.ref.web()))
+        out.putStr("pr" p.name)
+        out.putStr("url" p.url)
         out.putStr("title" p.title)
         out.putStr("description" p.body)
         out.putStr("head_sha" p.headSha)
         def fl:MfJ (MfJ.newArr())
         def all:[CrHint]
         def lines:[string]
-        push lines ((p.ref.name()) + ": \"" + p.title + "\" by " + p.author + ", " + p.state + "; " + p.changedFiles + " files, +" + p.additions + " −" + p.deletions + ". Head " + p.headSha + ".")
+        def by:string ""
+        if ((strlen p.author) > 0) {
+            by = (" by " + p.author)
+        }
+        push lines (p.name + ": \"" + p.title + "\"" + by + ", " + p.state + "; " + (array_length p.files) + " files, +" + p.additions + " −" + p.deletions + ". Head " + p.headSha + ".")
         push lines ""
         push lines "Changed files:"
-        for (p.byChange()) f:GhFile fi {
+        for p.files f:GhFile fi {
             def fo:MfJ (MfJ.newObj())
             fo.putStr("file" f.name)
             fo.putStr("status" f.status)
@@ -212,7 +460,7 @@ class CodeReview {
         }
         out.put("evidence" ev)
         push lines ""
-        push lines "Next: read the changed code (the patches are in the structured result; read whole files with your own access to the repository when you have it), write the model as the plugin's instructions describe, every item with refs to lines at this head, then sliqtly_plugin(name=\"code-review\", op=\"build\", args={pr, model})."
+        push lines ("Next: read the changed code (the patches are in the structured result; read whole files with your own access to the repository when you have it), write the model as the plugin's instructions describe, every item with refs to lines at this head, then sliqtly_plugin(name=\"code-review\", op=\"build\", args={" + (p.argsName()) + ", model}).")
         def r:MfJ (MfJ.newObj())
         r.put("content" (Tools.text((join lines "\n"))))
         r.put("structuredContent" out)
@@ -222,18 +470,17 @@ class CodeReview {
     ; --- build
 
     sfn build:MfJ (host:McpHost caller:Caller a:MfJ) {
-        if ((a.str_("pr")) == "") {
-            return (Tools.fail("Invalid arguments: args.pr is the pull request's link or owner/repo#12."))
+        if ((strlen (CrInput.missing(a))) > 0) {
+            return (Tools.fail((CrInput.missing(a))))
         }
         def mj:MfJ (a.field("model"))
         if ((mj.isObj()) == false) {
             return (Tools.fail("Invalid arguments: args.model is the review model, a JSON object (see sliqtly_plugin(name=\"code-review\"))."))
         }
-        def got:GhFetched (Tools.fetchPr(host caller (a.str_("pr"))))
-        if ((strlen got.fail) > 0) {
-            return (Tools.fail(got.fail))
+        def p:CrInput (CrInput.read(host caller a))
+        if ((strlen p.fail) > 0) {
+            return (Tools.fail(p.fail))
         }
-        def p:GhPr got.pr
         def m:CrModel (CrModel.read(mj))
         if ((array_length m.items) == 0) {
             return (Tools.fail(("The model has no items. " + (join m.warnings " "))))
@@ -262,7 +509,7 @@ class CodeReview {
                 }
             }
         }
-        for (p.byChange()) gf:GhFile gfi {
+        for p.files gf:GhFile gfi {
             if ((gf.status != "removed") && ((indexOf paths gf.name) < 0)) {
                 push paths gf.name
             }
@@ -270,24 +517,18 @@ class CodeReview {
         def code (new CrCode)
         def counts:[int]
         def read:int 0
-        def owner:string p.ref.owner
-        def repo:string p.ref.repo
+        ; a pull request's files are read from GitHub, a source's are here
+        def most:int (? p.fromPr (CodeReview.MAX_FILES()) (CrInput.MAX_SOURCE_FILES()))
         for paths path:string pi {
-            if ((read >= (CodeReview.MAX_FILES())) || ((strlen p.headSha) == 0)) {
+            if ((read >= most) || ((p.fromPr && ((strlen p.headSha) == 0)))) {
                 ; not read: its refs are taken as written
                 push counts -2
                 continue
             }
             read = (read + 1)
-            def segs:[string]
-            for (strsplit path "/") seg:string si2 {
-                push segs (host_uri_encode host seg)
-            }
-            def url:string ("https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + (join segs "/") + "?ref=" + p.headSha)
-            def fg:MfJ (J.parse((host_fetch_github host url "application/vnd.github.raw" (CodeReview.MAX_FILE_BYTES()))))
-            if ((fg.int_("status" 0)) == 200) {
-                def body:string (fg.str_("body"))
-                push counts (CodeReview.lineCount(body))
+            def fb:CrBody (p.bodyOf(host path))
+            if (fb.status == 200) {
+                push counts (CodeReview.lineCount(fb.body))
                 def gs:string ""
                 def gp:string ""
                 for p.files cf:GhFile cfi {
@@ -297,17 +538,28 @@ class CodeReview {
                     }
                 }
                 if ((Files.codePath(path)) == path) {
-                    code.add(path body (CrCode.status(gs)) gp)
+                    code.add(path fb.body (CrCode.status(gs)) gp)
                 }
             } {
                 push counts -1
             }
         }
         if (read < (array_length paths)) {
-            push m.warnings ("Only the first " + (CodeReview.MAX_FILES()) + " files the refs name were read; refs to the others are taken as written.")
+            push m.warnings ("Only the first " + most + " files the refs name were read; refs to the others are taken as written.")
+        }
+        if (p.fromPr == false) {
+            def unsent:[string]
+            for paths up:string upi {
+                if ((itemAt counts upi) == -1) {
+                    push unsent up
+                }
+            }
+            if ((array_length unsent) > 0) {
+                push m.warnings ("Not in args.source.files with its text: " + (join unsent ", ") + ". Send each file the refs name, as it is at the head.")
+            }
         }
         m.check(paths counts)
-        def src:CrSource (CodeReview.source(p))
+        def src:CrSource (p.source())
         ; the lines the deck talks about, kept for the source viewer
         def refs:[string]
         for m.items it0:CrItem it0i {
@@ -320,13 +572,16 @@ class CodeReview {
                 push refs r1
             }
         }
-        code.keep(refs)
+        ; args.whole: every file as it is, not only the lines the deck names
+        if ((a.bool_("whole" false)) == false) {
+            code.keep(refs)
+        }
         def md:string (CrViews.deck(m src code))
         def risks:[CrRisk] (m.risks())
         def level:string (CrModel.level(risks))
         def steps:[CrStep] (m.order())
         def out:MfJ (MfJ.newObj())
-        out.putStr("pr" (p.ref.name()))
+        out.putStr("pr" p.name)
         out.putStr("head_sha" p.headSha)
         out.putStr("risk" level)
         def rl:MfJ (MfJ.newArr())
@@ -365,9 +620,9 @@ class CodeReview {
         }
         out.put("slices" sl)
         out.putStr("markdown" md)
-        out.put("files" (code.bundle(repo (owner + "/" + repo) p.headSha p.baseSha (p.ref.name()) ((p.ref.web())))))
+        out.put("files" (code.bundle(p.repoKey p.repoUrl p.host p.headSha p.baseSha p.name p.url)))
         def lines:[string]
-        push lines ((p.ref.name()) + ": risk " + level + ", " + (array_length risks) + " findings, " + (array_length m.items) + " items (" + (array_length inferred) + " inferred).")
+        push lines (p.name + ": risk " + level + ", " + (array_length risks) + " findings, " + (array_length m.items) + " items (" + (array_length inferred) + " inferred).")
         if ((array_length m.warnings) > 0) {
             push lines ""
             push lines "Fix in the model and build again:"
@@ -390,7 +645,7 @@ class CodeReview {
         push lines ""
         if ((array_length code.files) > 0) {
             push lines ""
-            push lines ("Source files: " + (array_length code.files) + " under code/ (the parts the deck talks about, their diffs and code/sources.json) are in the structured result's files. Pass them as create_presentation's files, as they are: the ::: code blocks under the diagrams and the code slides open them in the source viewer while presenting.")
+            push lines ("Source files: " + (array_length code.files) + " under code/ (" + (? (a.bool_("whole" false)) "whole" "the parts the deck talks about") + ", their diffs and code/sources.json) are in the structured result's files. Pass them as create_presentation's files, as they are: the ::: code blocks under the diagrams and the code slides open them in the source viewer while presenting.")
         }
         push lines ""
         push lines "The review deck, to pass to create_presentation (put the story of the change under \"What changed\"; keep the views, the code slides and the ::: code blocks as they are, they come from the model and the files):"

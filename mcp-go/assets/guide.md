@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-10j.** If a result names a newer version, read Core
+**Guide version 2026-10-11.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -551,7 +551,9 @@ Link to them:
 
 The source viewer is in the editor's presenting mode. A shared link has
 none: keep a link to the repository (`…/blob/<sha>/src/api.ts#L40-L88`)
-on the slide too. The code-review plugin builds all of this.
+on the slide too. The code-review plugin builds all of this, from a GitHub
+pull request or from the files you send from your own checkout
+(`args.source`).
 
 <!-- topic: charts -->
 # Topic: charts
