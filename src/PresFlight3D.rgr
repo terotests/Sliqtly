@@ -669,6 +669,7 @@ class PresFlight3D {
             def p:FlightPart (this.part(o kind))
             def fill:double (o.numOr("fill" 0.0))
             def brackets:boolean (o.boolOr("br" false))
+            def band:boolean (o.boolOr("band" false))
             def t:double (0.012 + ((? (p.w < p.h) p.w p.h) * 0.006))
             if (t > 0.035) {
                 t = 0.035
@@ -685,6 +686,14 @@ class PresFlight3D {
                 def pane:ThreeMesh (this.mesh((FlightGeo.picture()) (this.basic((r * 0.55) (g * 0.55) (b * 0.55) fill false))))
                 pane.scale.set(p.w p.h 1.0)
                 this.hold(p pane fill 0.0 0.0 0.0)
+            }
+            if band {
+                ; a marked code line: the light alone, an edge on its left
+                def mark:ThreeBoxGeometry (new ThreeBoxGeometry)
+                mark.setSize(0.02 p.h 0.01)
+                def lm:ThreeMesh (this.mesh(mark (this.basic(r g b 0.9 true))))
+                this.hold(p lm (0.9 * op) ((p.w * -0.5) + 0.01) 0.0 0.0)
+                return
             }
             def fr:ThreeBufferGeometry (FlightGeo.frame(p.w p.h t brackets))
             this.hold(p (this.mesh(fr (this.basic(r g b 1.0 true)))) op 0.0 0.0 0.0)
