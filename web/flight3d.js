@@ -130,6 +130,7 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
   const held = new Set();
   let drag = null;
   let fullAtStart = false;
+  let starting = false;
 
   // pictures that were not there yet: tried again after this (ms)
   let picRetry = new Map();
@@ -198,6 +199,17 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
 
   function frame(now) {
     if (!flying) return;
+    try {
+      step(now);
+    } catch (e) {
+      // a frame that throws lands the flight instead of freezing the screen
+      console.error(e);
+      stop();
+      toast(t("The 3-D flight stopped: ") + ((e && e.message) || e));
+    }
+  }
+
+  function step(now) {
     const dt = last ? (now - last) / 1000 : 0;
     last = now;
     world.setKeys([...held].join(","));
@@ -255,39 +267,29 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     if (flying && !document.fullscreenElement) stop();
   }
 
-  async function start() {
-    if (flying) return;
-    // full screen first, while the press that asked still counts
-    if (!document.fullscreenElement) {
-      try {
-        await document.documentElement.requestFullscreen();
-      } catch (_) {
-        toast(t("The 3-D flight needs full screen"));
-        return;
-      }
-    }
-    fullAtStart = true;
+  // Leaves full screen if the flight took it and is not flying.
+  function leaveFull(entered) {
+    if (entered && !flying && document.fullscreenElement) document.exitFullscreen?.().catch(() => { /* already out */ });
+  }
+
+  // Why the flight cannot fly (shown to the user), or "" once it flies.
+  // Everything that can fail runs before the canvas covers the page; what
+  // is set up after it is undone again by land() if it throws.
+  async function takeOff() {
     const gl = await three3d.glReady();
-    if (!gl || !globalThis.PresFlight3D) {
-      toast(t("The 3-D flight needs WebGL"));
-      return;
-    }
+    if (!gl || !globalThis.PresFlight3D) return t(three3d.problem?.() || "The 3-D flight needs WebGL");
     if (!world) {
       world = new globalThis.PresFlight3D();
       if (!world.attach(gl.id)) {
         world = null;
-        toast(t("The 3-D flight needs WebGL"));
-        return;
+        return t("The 3-D flight needs WebGL");
       }
     }
     const why = world.load(app.flightJson());
-    if (why) {
-      toast(why);
-      return;
-    }
+    if (why) return why;
     world.startAt(app.selectedSlide());
-    three3d.pause(true);
     canvas = gl;
+    three3d.pause(true);
     canvas.style.cssText = "display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;background:#02040a;cursor:grab;touch-action:none";
     picRetry = new Map();
     makeHud();
@@ -296,8 +298,6 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     held.clear();
     flying = true;
     last = 0;
-    // Esc to the page, not out of full screen, where the browser lets it
-    try { await navigator.keyboard?.lock?.(["Escape"]); } catch (_) { /* not offered */ }
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", onBlur);
@@ -306,29 +306,73 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
-    raf = requestAnimationFrame(frame);
+    // Esc to the page, not out of full screen, where the browser lets it
+    try { await navigator.keyboard?.lock?.(["Escape"]); } catch (_) { /* not offered */ }
+    if (flying) raf = requestAnimationFrame(frame);
+    return "";
   }
 
-  function stop() {
-    if (!flying) return;
+  // The page as it was before the flight: the canvas hidden and given back
+  // to the worlds, the keys and the pointer the page's again.
+  function land() {
     flying = false;
+    starting = false;
     cancelAnimationFrame(raf);
     try { navigator.keyboard?.unlock?.(); } catch (_) { /* not offered */ }
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("fullscreenchange", onFullscreen);
-    canvas.removeEventListener("pointerdown", onPointerDown);
-    canvas.removeEventListener("pointermove", onPointerMove);
-    canvas.removeEventListener("pointerup", onPointerUp);
-    canvas.removeEventListener("pointercancel", onPointerUp);
-    canvas.style.cssText = "display:none";
+    if (canvas) {
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerUp);
+      canvas.style.cssText = "display:none";
+    }
     hud?.remove();
     hud = null;
     held.clear();
     drag = null;
-    const at = world.stationNow();
     three3d.pause(false);
+  }
+
+  async function start() {
+    if (flying || starting) return;
+    starting = true;
+    // full screen first, while the press that asked still counts
+    const entered = !document.fullscreenElement;
+    if (entered) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (_) {
+        starting = false;
+        toast(t("The 3-D flight needs full screen"));
+        return;
+      }
+    }
+    fullAtStart = true;
+    let why = "";
+    try {
+      why = await takeOff();
+    } catch (e) {
+      // a page that could not fly stays usable (2026-10-11: a throw here
+      // left a black canvas over the page that no key took away)
+      console.error(e);
+      land();
+      why = t("The 3-D flight could not start: ") + ((e && e.message) || e);
+    }
+    starting = false;
+    if (why) {
+      toast(why);
+      leaveFull(entered);
+    }
+  }
+
+  function stop() {
+    if (!flying) return;
+    land();
+    const at = world.stationNow();
     // back in the presentation at the slide the flight ended at
     app.selectSlide(at);
     onExit(fullAtStart);
