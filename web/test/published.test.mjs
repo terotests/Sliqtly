@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { publishedRows, removal, afterRemoval, sortPublished, nextSort, sizeText, shortUrl, publishedListJson } from "../published.js";
 
-const O = "https://sliqtly.com";
+const O = "https://example.test";
 const H1 = "0123456789abcdef01234567";
 const H2 = "fedcba9876543210fedcba98";
 const shares = [
@@ -99,8 +99,8 @@ test("sizes and short addresses", () => {
   assert.equal(sizeText(300), "1 kB");
   assert.equal(sizeText(300000), "293 kB");
   assert.equal(sizeText(12 * 1048576), "12.0 MB");
-  assert.equal(shortUrl(O + "/r/LinkA/" + H1), "sliqtly.com/r/LinkA/012345…");
-  assert.equal(shortUrl(O + "/s/LinkA"), "sliqtly.com/s/LinkA");
+  assert.equal(shortUrl(O + "/r/LinkA/" + H1), "example.test/r/LinkA/012345…");
+  assert.equal(shortUrl(O + "/s/LinkA"), "example.test/s/LinkA");
 });
 
 test("the window's JSON: its own title, heads and request prefix", () => {
@@ -114,7 +114,7 @@ test("the window's JSON: its own title, heads and request prefix", () => {
   assert.equal(data.note, "note");
   const first = data.rows[0];
   assert.equal(first.modified, "12.0 MB");
-  assert.equal(first.where, "Cloud video (.webm) · sliqtly.com/r/LinkA/fedcba…");
+  assert.equal(first.where, "Cloud video (.webm) · example.test/r/LinkA/fedcba…");
   assert.equal(first.canDelete, true);
   const unshown = data.rows.find((r) => r.id === "file:Deck03:recordings/web-" + H2 + ".webm");
   assert.equal(unshown.where, "Cloud video (.webm) · not shown: no viewing link");

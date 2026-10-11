@@ -3345,8 +3345,8 @@ try {
       a.openDecks(JSON.stringify({ list: "pub", title: "Published in the cloud" }));
       const loading = texts(lp()).includes("Loading…") && texts(lp()).includes("Published in the cloud");
       a.setDecks(JSON.stringify({ list: "pub", title: "Published in the cloud", head1: "created", head1Label: "Published", head2: "size", head2Label: "Size", empty: "Nothing published.", sort: "created", dir: "desc", note: "", rows: [
-        { id: "file:S1:recordings/web-0123456789abcdef01234567.webm", name: "Sales", where: "Cloud video (.webm) · sliqtly.com/r/L1/012345…", added: "4.10.2026 10:00", modified: "12.0 MB", canDelete: true, current: false },
-        { id: "link:L1", name: "Sales", where: "Viewing link · sliqtly.com/s/L1", added: "3.10.2026 09:00", modified: "", canDelete: true, current: false },
+        { id: "file:S1:recordings/web-0123456789abcdef01234567.webm", name: "Sales", where: "Cloud video (.webm) · example.test/r/L1/012345…", added: "4.10.2026 10:00", modified: "12.0 MB", canDelete: true, current: false },
+        { id: "link:L1", name: "Sales", where: "Viewing link · example.test/s/L1", added: "3.10.2026 09:00", modified: "", canDelete: true, current: false },
       ] }));
       const shown = texts(lp());
       const heads = shown.includes("Published ↓") && shown.includes("Size") && !shown.includes("Modified");
