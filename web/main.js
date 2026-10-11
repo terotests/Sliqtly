@@ -5664,6 +5664,7 @@ async function exportRecWeb() {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
+  if (!(await cloudTakesDeck())) return;
   const bytes = await packStream(await recordForWeb());
   await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
     t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."));
@@ -5677,12 +5678,25 @@ async function exportCloudVideo() {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
+  if (!(await cloudTakesDeck())) return;
   const bytes = await makeVideo();
   if (!bytes) return;
   await publishForWeb(bytes, ".webm", "video/webm",
     t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
 }
 window.__exportCloudVideo = exportCloudVideo;
+// The deck saved in the cloud before a recording or a video is made for it
+// there: a deck the cloud will not take (the license's limit, another
+// account's) is said so at once, not after the work. False then.
+async function cloudTakesDeck() {
+  try {
+    await shareCloud();
+    return true;
+  } catch (e) {
+    toast(cloudFailure(e));
+    return false;
+  }
+}
 // The recording's or the video's bytes kept with the deck as
 // recordings/web-{hash}{ext} (the one before of the same kind removed), the
 // deck shared, and its /r/ link shown with `note`.
@@ -6448,12 +6462,16 @@ async function shareCloud() {
   return Promise.race([timeout, cloudSync().then((id) => id || Promise.reject(new Error("not saved")))]);
 }
 
-function cloudFailure(e) {
+// Why the cloud did not take the deck, said to the reader. The license's
+// refusal (sliqtly.js editRight, code "no-edit-right") is its own sentence;
+// `textLink`: the dialog shows the link with the text packed in instead.
+function cloudFailure(e, textLink = false) {
   console.warn("cloud sharing failed", e);
+  if (e?.code === "no-edit-right") return e.message;
   const why = e?.code === "permission-denied" || e?.code === "storage/unauthorized" ? t("the cloud refused it (rules not set up?)")
     : e?.code === "timeout" ? t("no answer from the cloud (is Firestore created?)")
     : (e?.code || e?.message || String(e));
-  return t("Cloud sharing failed: ") + why + ". " + t("Sharing the text in the link instead.");
+  return t("Cloud sharing failed: ") + why + "." + (textLink ? " " + t("Sharing the text in the link instead.") : "");
 }
 
 function showShare(showUrl, editUrl, note, viewUrl = "", live = false) {
@@ -6554,7 +6572,7 @@ async function shareLink() {
     const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
     showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Anyone with the link can view it; only you can change the original."), view, true);
   } catch (e) {
-    showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote, viewUrl);
+    showShare(showUrl, editUrl, cloudFailure(e, true) + " " + textNote, viewUrl);
   }
 }
 
