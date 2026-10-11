@@ -7356,6 +7356,22 @@ class PresCheck {
         this.ok(((indexOf goes -1) >= 0) "flight: the last line stays")
         def pst:FlightStation (itemAt ps.stations 0)
         this.ok((pst.steps == ls.steps) ("flight: the station has the slide's steps, got " + (to_string pst.steps)))
+        ; the presenter: one picture of it as the slide draws it, no shapes
+        def sprites:int 0
+        def figShapes:int 0
+        def spr:FlightItem (new FlightItem())
+        for ps.items fi:FlightItem fin {
+            if (fi.kind == "sprite") {
+                sprites = (sprites + 1)
+                spr = fi
+            }
+            if ((fi.ent == "presenter") && (fi.kind != "sprite")) {
+                figShapes = (figShapes + 1)
+            }
+        }
+        this.ok(((sprites == 1) && (figShapes == 0)) ("flight: the presenter is one picture, got " + (to_string sprites) + " and " + (to_string figShapes) + " shapes"))
+        this.ok(((spr.src == "presenter:0") && ((spr.sw > 0.0) && ((array_length spr.cmds) > 3))) "flight: the presenter's picture covers its commands")
+        this.ok(((indexOf ((spr.toJson()).toJson()) "\"box\":[") >= 0) "flight: the page is given the presenter's box")
         ; V: the stations side by side (a block about as tall as wide) or in a
         ; ring facing its middle, the first slide where it stood
         def lay:FlightLayout (new FlightLayout())

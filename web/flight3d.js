@@ -35,9 +35,19 @@ export function drawWords(c, spec, k) {
   const box = spec.w * k;
   let left = 0;
   let right = box;
-  const at = spec.runs.map((r) => {
+  // a run with words after it no wider than it was on the slide: the slide
+  // set it in its own face, and a wider one here (Inter's bold) ran into
+  // the next run; the line's last run may run on
+  const sx = spec.runs.map((r) => {
     g.font = fontOf(r);
     const tw = g.measureText(r.t).width;
+    const room = r.w * k;
+    const next = spec.runs.some((o) => o !== r && o.dx >= r.dx + r.w * 0.5);
+    return next && room > 0 && tw > room ? room / tw : 1;
+  });
+  const at = spec.runs.map((r, n) => {
+    g.font = fontOf(r);
+    const tw = g.measureText(r.t).width * sx[n];
     const room = r.w * k;
     let x = r.dx * k;
     if (r.al === "center") x += (room - tw) / 2;
@@ -67,7 +77,11 @@ export function drawWords(c, spec, k) {
         // the core: the colour lifted towards white
         g.fillStyle = `rgba(${Math.round((cr + 255) / 2)}, ${Math.round((cg + 255) / 2)}, ${Math.round((cb + 255) / 2)}, 0.85)`;
       }
-      g.fillText(r.t, pad + at[n] - left, h / 2);
+      g.save();
+      g.translate(pad + at[n] - left, h / 2);
+      g.scale(sx[n], 1);
+      g.fillText(r.t, 0, 0);
+      g.restore();
     });
   }
   // the box's middle is box / 2 from its left; the picture's (left + right) / 2
@@ -116,10 +130,11 @@ const PICS_NEAR = 2;
  * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(), playScenesJson(), allPlayScenesJson(),
  * selectedSlide(), selectSlide(i); picturePixels(src, max) a picture of the
  * slides as ImageData, its long side at most `max` (null: not here yet);
+ * spritePixels(spec, max) the same of a slide's presenter (its picSpec);
  * toast(text); t(text) the UI's language; onExit() after the flight, back
  * in the presentation.
  */
-export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }) {
+export function createFlight3d({ three3d, app, picturePixels, spritePixels, toast, t, onExit }) {
   let world = null;
   let canvas = null;
   let hud = null;
@@ -154,7 +169,8 @@ export function createFlight3d({ three3d, app, picturePixels, toast, t, onExit }
           const img = wordsCanvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h);
           world.setPic(i, asRangerBuffer(img.data.buffer.slice(0)), w, h, ww, hh, ox);
         } else {
-          const img = picturePixels(world.picSpec(i), 768);
+          const sprite = world.picKind(i) === "sprite";
+          const img = sprite ? spritePixels?.(world.picSpec(i), 768) : picturePixels(world.picSpec(i), 768);
           if (!img) {
             picRetry.set(i, t0 + 700);
             continue;

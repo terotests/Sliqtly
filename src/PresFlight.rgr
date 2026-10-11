@@ -81,6 +81,8 @@ class FlightRun {
 ;   panel    a plate: a glass pane w x h with glowing edges (`fill` its
 ;            pane's opacity, 0 for edges only; `brackets` corner brackets)
 ;   picture  a picture of the slide (`src`) as a see-through screen
+;   sprite   the presenter as the slide draws it (`src` "presenter:<slide>",
+;            `box` its rectangle on the slide, px), a picture the page draws
 ;   world    a program's 3-D world (`src` its `three:` picture, w x h the
 ;            picture's box): its meshes stand in front of the slide
 ;   ground   the slide's own paper: the edges of the screen it stands in
@@ -271,6 +273,15 @@ class FlightItem {
             if (spin != 0.0) {
                 o.setNum("spin" (FlightItem.round3(spin)))
             }
+        }
+        if (kind == "sprite") {
+            ; its box on the slide, px, for the page to draw it from
+            def bj:JVal (JVal.mkArr())
+            bj.add((JVal.mkNum((FlightItem.round3(sx)))))
+            bj.add((JVal.mkNum((FlightItem.round3(sy)))))
+            bj.add((JVal.mkNum((FlightItem.round3(sw)))))
+            bj.add((JVal.mkNum((FlightItem.round3(sh)))))
+            o.set("box" bj)
         }
         if (kind == "bar") {
             o.setNum("base" (FlightItem.round3(base)))
@@ -1004,38 +1015,43 @@ class PresFlightScene {
                 curOrder = order
                 curStep = step
                 curUntil = (itemAt untilAt k)
-                if (c.kind == 3) {
-                    this.addText(st c k top block lineOf order dz ent)
-                }
-                if (((c.kind == 0) || (c.kind == 1)) && (PresFlightScene.shows(c))) {
-                    def ri:FlightItem (this.addRect(st c k top block dz pw ph))
-                    ri.order = order
-                    ri.ent = ent
-                }
-                if (c.kind == 2) {
-                    def pi:FlightItem (this.addPicture(st c k top dz))
-                    pi.order = order
-                    pi.ent = ent
-                }
-                if ((c.kind == 6) && ((PresFlightScene.isShadow(c)) == false)) {
-                    def si:FlightItem (this.addPath(st c k block (itemAt pies top) dz))
-                    si.order = order
-                    si.ent = ent
-                }
-                if (c.kind == 7) {
-                    def li:FlightItem (this.addStroke(st c k block dz))
-                    li.order = order
-                    li.ent = ent
-                }
-                if effect {
-                    ; the block's own effect
-                    def fx:FlightItem (this.item("fx" i))
-                    fx.text = c.effectId
-                    fx.grow((PresScene.boundsOf(c)))
-                    fx.dz = (dz + 0.3)
-                    push fx.cmds k
-                    fx.order = order
-                    fx.ent = ent
+                ; the presenter: one picture of it as the slide draws it
+                if (ent == "presenter") {
+                    this.addFigure(st c k i dz)
+                } {
+                    if (c.kind == 3) {
+                        this.addText(st c k top block lineOf order dz ent)
+                    }
+                    if (((c.kind == 0) || (c.kind == 1)) && (PresFlightScene.shows(c))) {
+                        def ri:FlightItem (this.addRect(st c k top block dz pw ph))
+                        ri.order = order
+                        ri.ent = ent
+                    }
+                    if (c.kind == 2) {
+                        def pi:FlightItem (this.addPicture(st c k top dz))
+                        pi.order = order
+                        pi.ent = ent
+                    }
+                    if ((c.kind == 6) && ((PresFlightScene.isShadow(c)) == false)) {
+                        def si:FlightItem (this.addPath(st c k block (itemAt pies top) dz))
+                        si.order = order
+                        si.ent = ent
+                    }
+                    if (c.kind == 7) {
+                        def li:FlightItem (this.addStroke(st c k block dz))
+                        li.order = order
+                        li.ent = ent
+                    }
+                    if effect {
+                        ; the block's own effect
+                        def fx:FlightItem (this.item("fx" i))
+                        fx.text = c.effectId
+                        fx.grow((PresScene.boundsOf(c)))
+                        fx.dz = (dz + 0.3)
+                        push fx.cmds k
+                        fx.order = order
+                        fx.ent = ent
+                    }
                 }
             }
             k = (k + 1)
@@ -1959,6 +1975,33 @@ class PresFlightScene {
         return ((hi <= (lo * 1.1)) && (c.radius >= (lo * 0.45)))
     }
 
+    ; The slide's presenter, one picture of it (a "sprite" the page draws
+    ; from PresApp.presenterJson): a figure standing in front of the slide in
+    ; its own colours, not shapes of light one sees through. Its box grows by
+    ; each of its commands, with room for a shadow or a stroke's edge.
+    fn addFigure:void (st:FlightStation c:EVGDrawCmd k:int slide:int dz:double) {
+        def src:string ("presenter:" + (to_string slide))
+        def bx:[double] (PresScene.boundsOf(c))
+        def pad:double 4.0
+        def got:[double] ([] _:double (((itemAt bx 0) - pad) ((itemAt bx 1) - pad) ((itemAt bx 2) + (pad * 2.0)) ((itemAt bx 3) + (pad * 2.0))))
+        def j:int ((array_length items) - 1)
+        while (j >= firstItem) {
+            def had:FlightItem (itemAt items j)
+            if ((had.kind == "sprite") && (had.src == src)) {
+                had.grow(got)
+                push had.cmds k
+                return
+            }
+            j = (j - 1)
+        }
+        def it:FlightItem (this.item("sprite" st.index))
+        it.src = src
+        it.grow(got)
+        it.dz = (dz + 0.2)
+        it.op = 1.0
+        push it.cmds k
+    }
+
     fn addPicture:FlightItem (st:FlightStation c:EVGDrawCmd k:int top:int dz:double) {
         ; a world is painted in bands round the slide's words: one stand
         if ((indexOf c.src "three:") == 0) {
@@ -2143,12 +2186,6 @@ class PresFlightScene {
             if (block == "diagram") {
                 sh.fill = 0.5
             }
-        }
-        ; the presenter is a figure standing there, not a see-through outline
-        if (curEnt == "presenter") {
-            sh.fill = 0.9
-            ; in its own colours: dark hair stays dark
-            PresFlightScene.colour(sh ([] _:double (((to_double c.r) / 255.0) ((to_double c.g) / 255.0) ((to_double c.b) / 255.0))))
         }
         sh.op = 0.95
         if (block == "ground") {

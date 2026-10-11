@@ -787,6 +787,13 @@ class PresFlight3D {
             this.addStand(o)
             return
         }
+        ; the presenter: its picture as it is, over what is behind it
+        if (kind == "sprite") {
+            def p:FlightPart (this.part(o kind))
+            def bx:JVal (o.get("box"))
+            this.addPic(p "sprite" ("{\"src\":" + (JVal.quote((o.strOr("src" "")))) + ",\"box\":" + (bx.toJson()) + "}") 1.0 1.0 1.0 op)
+            return
+        }
         if (kind == "picture") {
             def p:FlightPart (this.part(o kind))
             this.addPic(p "picture" (o.strOr("src" "")) r g b op)
@@ -942,7 +949,8 @@ class PresFlight3D {
         pc.r = r
         pc.g = g
         pc.b = b
-        def m:ThreeMeshBasicMaterial (this.basic(1.0 1.0 1.0 1.0 true))
+        ; light added to what is behind it, but a sprite covers it
+        def m:ThreeMeshBasicMaterial (this.basic(1.0 1.0 1.0 1.0 (kind != "sprite")))
         pc.mesh = (this.mesh((FlightGeo.picture()) m))
         pc.mesh.scale.set(p.w p.h 1.0)
         ; no picture yet: nothing to show
@@ -1360,8 +1368,8 @@ class PresFlight3D {
 
     ; The pictures the page makes: how many, whose station, "text" (a line
     ; of words, its spec {"w", "h", "runs"}: world units, each run {"t",
-    ; "dx", "w", "fs", "b", "i", "m", "c"}) or "picture" (its spec the
-    ; slide's picture's src).
+    ; "dx", "w", "fs", "b", "i", "m", "c"}), "picture" (its spec the
+    ; slide's picture's src) or "sprite" (the presenter: {"src", "box"}).
     fn picCount:int () {
         return (array_length pics)
     }
@@ -1800,7 +1808,7 @@ class PresFlight3D {
 
     ; Things that come forward out of the dark as they come in.
     sfn comesForward:boolean (kind:string) {
-        return ((kind == "text") || ((kind == "panel") || (kind == "picture")))
+        return ((kind == "text") || (((kind == "panel") || (kind == "sprite")) || (kind == "picture")))
     }
 
     fn animate:void (p:FlightPart) {

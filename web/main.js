@@ -360,6 +360,7 @@ const flight3d = createFlight3d({
   three3d,
   app,
   picturePixels,
+  spritePixels,
   toast,
   t,
   onExit: () => {
@@ -3665,6 +3666,36 @@ function slidePicture(w, h) {
   if (!roomGl) return null;
   const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
   const f = prepareDisplayList(roomGl, doc, { dpr: Math.min(w / doc.width, h / doc.height), images });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
+}
+
+// The 3-D flight's picture of a slide's presenter (spec {"src":
+// "presenter:<slide>", "box": its rectangle on the slide, px}) as the slide
+// draws it, transparent round it, its long side at most `max` px: an
+// ImageData, null when there is nothing to draw.
+function spritePixels(spec, max) {
+  const { src, box } = JSON.parse(spec);
+  const slide = Number(String(src).split(":")[1]);
+  const [bx, by, bw, bh] = box || [];
+  if (!(bw > 0 && bh > 0) || !(slide >= 0)) return null;
+  const doc = atRest(JSON.parse(app.presenterJson(slide)));
+  // the box as the page: the list moved so its corner is the page's
+  const k = max / Math.max(bw, bh);
+  const w = Math.max(1, Math.round(bw * k));
+  const h = Math.max(1, Math.round(bh * k));
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const images = new Map([...pictures].filter(([s]) => !s.startsWith("three:")));
+  const f = prepareDisplayList(roomGl, { ...doc, width: bw, height: bh, view: { scale: 1, x: -bx, y: -by } }, { dpr: k, images });
   f.draw(null, null);
   f.dispose();
   const c = document.createElement("canvas");
