@@ -16,6 +16,10 @@
 ;   chat    docked on the right like help (one of the two at a time): the
 ;           deck's conversation on a server of one's own (EVGUI ChatCtl);
 ;           the page adds the messages and posts what is sent
+;   ai      the AI assistant (the ✨ AI drawer, PresAi), docked on the right
+;           like the chat and in its place: a ChatCtl whose buttons are the
+;           quick actions; PresApp fills it from PresAi and asks the page
+;           to post the question
 ;   call    the people in the deck's call (EVGUI ParticipantsCtl, PresMeet
 ;           holds it), docked on the right above the chat; a press on its
 ;           buttons is "call-press\t<target>" for PresMeet
@@ -110,7 +114,13 @@ class PresPanels {
     ; user's cloud, from the page (web/decklist.js deckListJson):
     ;   {"sort": "updated" | "created" | "name", "dir": "asc" | "desc", "rows": [{"id", "name",
     ;    "added", "modified", "where", "cloudOnly", "current"}], "note"}
+    ; File → Published… shows its list in the same window (web/published.js
+    ; publishedListJson): "list": "pub" (its requests' prefix), its own
+    ; "title", column heads ("head1"/"head1Label", "head2"/"head2Label"),
+    ; "empty" text and a row's "canDelete". Without "rows" it is loading.
     def decksJson:string ""
+    ; which list the window shows: "decks" or "pub", from decksJson
+    def decksList:string "decks"
     ; the list's pages (EVGUI's PaginationCtl does the arithmetic)
     def decksPager:PaginationCtl (new PaginationCtl())
     ; the deck id of each row on the page: `pd-r-<n>` opens it, `pd-x-<n>`
@@ -164,6 +174,9 @@ class PresPanels {
     def chatW:double 340.0
     ; a press in the chat's text field, while the button is down
     def chatSelecting:boolean false
+    ; the AI assistant (its `open` says whether it shows, in the chat's place)
+    def aiChat:ChatCtl (new ChatCtl())
+    def aiW:double 380.0
     ; the call's people (PresMeet's control) and whether they show
     def call:ParticipantsCtl (new ParticipantsCtl())
     def callOpen:boolean false
@@ -189,17 +202,26 @@ class PresPanels {
         chat.sendText = (PresI18n.t("Send"))
         chat.closeText = (PresI18n.t("Close"))
         chat.newText = (PresI18n.t("new"))
+        aiChat.setup("pn-ai" (PresI18n.t("AI Assistant")))
+        aiChat.placeholder = (PresI18n.t("Ask about this slide…"))
+        aiChat.sendText = (PresI18n.t("Ask"))
+        aiChat.closeText = (PresI18n.t("Close"))
+        aiChat.newText = (PresI18n.t("new"))
+        aiChat.keep = 200
     }
 
     ; --- what is showing ---------------------------------------------------------
     fn any:boolean () {
-        return (((((helpOpen || shareOpen) || filesOpen) || chat.open) || callOpen) || ((strlen toastText) > 0))
+        return ((((((helpOpen || shareOpen) || filesOpen) || chat.open) || aiChat.open) || callOpen) || ((strlen toastText) > 0))
     }
 
     ; the width a docked panel takes off the right edge (0: none open)
     fn dockW:double () {
         if helpOpen {
             return helpW
+        }
+        if aiChat.open {
+            return aiW
         }
         if (chat.open || callOpen) {
             return chatW
@@ -220,7 +242,7 @@ class PresPanels {
     }
 
     fn callShows:boolean () {
-        return ((callOpen && (helpOpen == false)) && (quiet == false))
+        return (((callOpen && (helpOpen == false)) && (aiChat.open == false)) && (quiet == false))
     }
 
     ; the height the call takes off the top of the right edge
@@ -280,9 +302,49 @@ class PresPanels {
             chat.setOpen(on)
             if on {
                 helpOpen = false
+                if aiChat.open {
+                    aiChat.setOpen(false)
+                    push requests "ai-closed"
+                }
             }
             this.rebuild()
         }
+    }
+
+    ; The AI drawer in the right edge's place: help, the chat and the call
+    ; make room for it (the page hears they closed).
+    fn setAi:void (on:boolean) {
+        if (on != aiChat.open) {
+            aiChat.setOpen(on)
+            if on {
+                helpOpen = false
+                if chat.open {
+                    chat.setOpen(false)
+                    push requests "chat-closed"
+                }
+                if callOpen {
+                    callOpen = false
+                    push requests "call-closed"
+                }
+            }
+            this.rebuild()
+        }
+    }
+
+    ; the conversation docked on the right now: the AI's while it is open,
+    ; else the deck's chat
+    fn dockChat:ChatCtl () {
+        if aiChat.open {
+            return aiChat
+        }
+        return chat
+    }
+
+    fn dockChatW:double () {
+        if aiChat.open {
+            return aiW
+        }
+        return chatW
     }
 
     ; A selectable text (TextCtl `selectable`), in the host.
@@ -338,12 +400,21 @@ class PresPanels {
     }
 
     ; What Ctrl+C copies from the panels: the chat field's selection while it
-    ; has the keyboard, else what was selected in a text or a link.
+    ; has the keyboard, else what was selected in the chat's messages, a text
+    ; or a link. (The host is made again by every rebuild, so the chat is
+    ; asked itself; a press elsewhere drops its selection.)
     fn copyText:string (chatFocused:boolean) {
+        def dc:ChatCtl (this.dockChat())
         if chatFocused {
-            def ct:string (chat.input.selectedText())
+            def ct:string (dc.input.selectedText())
             if ((strlen ct) > 0) {
                 return ct
+            }
+        }
+        if (chat.open || aiChat.open) {
+            def mt:string (dc.selectedText())
+            if ((strlen mt) > 0) {
+                return mt
             }
         }
         return (host.copyText())
@@ -376,57 +447,109 @@ class PresPanels {
 
     fn chatDragTo:void (px:double py:double) {
         if chatSelecting {
-            chat.textPointerDragAt(px py)
+            def dc:ChatCtl (this.dockChat())
+            dc.textPointerDragAt(px py)
         }
     }
 
     fn chatRelease:void () {
         if chatSelecting {
-            chat.textPointerUp()
+            def dc:ChatCtl (this.dockChat())
+            dc.textPointerUp()
+            host.textRelease()
         }
         chatSelecting = false
     }
 
     fn chatHas:boolean (px:double py:double) {
-        return (((chat.open && (quiet == false)) && (px >= (w - chatW))) && (py >= (barH + (this.callH()))))
+        def dc:ChatCtl (this.dockChat())
+        def top:double barH
+        if (aiChat.open == false) {
+            top = (barH + (this.callH()))
+        }
+        return (((dc.open && (quiet == false)) && (px >= (w - (this.dockChatW())))) && (py >= top))
     }
 
     fn chatPanel:EVGElement () {
-        def p:EVGElement (UiKit.div("pn-chat-dock"))
-        p.id = "pn-chat-dock"
+        def dc:ChatCtl (this.dockChat())
+        def cw:double (this.dockChatW())
+        def id:string "pn-chat-dock"
+        def top:double barH
+        if aiChat.open {
+            id = "pn-ai-dock"
+        } {
+            top = (barH + (this.callH()))
+        }
+        def p:EVGElement (UiKit.div(id))
+        p.id = id
         UiTree.surface(p "free" "start")
-        def top:double (barH + (this.callH()))
-        p.overlayX = (w - chatW)
+        p.overlayX = (w - cw)
         p.overlayY = top
-        p.width = (EVGUnit.px(chatW))
+        p.width = (EVGUnit.px(cw))
         p.height = (EVGUnit.px((h - top)))
-        chat.height = (h - top)
-        chat.build()
-        def cr:EVGElement (unwrap chat.rootEl)
-        UiTree.inline(cr "width" ((to_string chatW) + "px"))
+        dc.height = (h - top)
+        dc.build()
+        def cr:EVGElement (unwrap dc.rootEl)
+        UiTree.inline(cr "width" ((to_string cw) + "px"))
         UiTree.inline(cr "border-radius" "0px")
         UiTree.inline(cr "border-width" "0px")
-        UiKit.put(host chat p)
+        UiKit.put(host dc p)
         return p
     }
 
-    ; A press in the chat: its buttons, or the text field (the caret, a word
-    ; on a double click, all of it on a triple; a drag selects).
-    fn chatPress:void (px:double py:double clicks:int shift:boolean) {
-        def tid:string (host.hitTest(px py))
-        def c:string (chat.tid)
-        if (chat.input.owns(tid)) {
-            chatSelecting = (chat.textPointerDownAt(tid px py clicks shift))
+    ; What the docked conversation asks after a key or a press: the deck's
+    ; chat "chat-send" / "chat-closed", the AI "ai-send", "ai-act<TAB>value"
+    ; (a quick action's button) and "ai-closed".
+    fn chatAsks:void (dc:ChatCtl) {
+        if (dc.tid == aiChat.tid) {
+            if ((strlen aiChat.sent) > 0) {
+                push requests "ai-send"
+            }
+            def act:string (aiChat.takeAction())
+            if ((strlen act) > 0) {
+                push requests ("ai-act" + (strfromcode 9) + act)
+            }
+            if (aiChat.open == false) {
+                push requests "ai-closed"
+            }
             return
         }
-        if ((tid == (c + "-close")) || (tid == (c + "-send")) || (tid == (c + "-jump"))) {
-            chat.activate(tid)
-            if (tid == (c + "-close")) {
-                push requests "chat-closed"
+        if ((strlen chat.sent) > 0) {
+            push requests "chat-send"
+        }
+        if (chat.open == false) {
+            push requests "chat-closed"
+        }
+    }
+
+    ; A press in the chat: its buttons, the text field (the caret, a word
+    ; on a double click, all of it on a triple; a drag selects), or a
+    ; message's words (selected the same way, copied with Ctrl+C; a link in
+    ; them opens).
+    fn chatPress:void (px:double py:double clicks:int shift:boolean) {
+        def dc:ChatCtl (this.dockChat())
+        def tid:string (host.hitTest(px py))
+        def c:string (dc.tid)
+        if (dc.input.owns(tid)) {
+            chatSelecting = (dc.textPointerDownAt(tid px py clicks shift))
+            return
+        }
+        if (dc.owns(tid) && ((indexOf tid (c + "-m-")) == 0)) {
+            chatSelecting = (host.textPressAt(tid px py clicks shift))
+            def lk:string (dc.takeLink())
+            if ((strlen lk) > 0) {
+                push requests ("openlink:" + lk)
             }
-            if ((strlen chat.sent) > 0) {
-                push requests "chat-send"
-            }
+            this.rebuild()
+            return
+        }
+        if (((tid == (c + "-close")) || (tid == (c + "-send")) || (tid == (c + "-jump"))) || ((indexOf tid (c + "-act-")) == 0)) {
+            dc.activate(tid)
+            this.chatAsks(dc)
+        } {
+            ; on the panel but not on its words or a button: as on a page,
+            ; what was selected is let go
+            dc.dropSelection()
         }
         this.rebuild()
     }
@@ -470,6 +593,10 @@ class PresPanels {
             if (on && chat.open) {
                 chat.setOpen(false)
                 push requests "chat-closed"
+            }
+            if (on && aiChat.open) {
+                aiChat.setOpen(false)
+                push requests "ai-closed"
             }
             if (on && callOpen) {
                 callOpen = false
@@ -559,7 +686,7 @@ class PresPanels {
     ; review mode (comments on the slides); a comment's colour is picked
     ; with it (how serious, PresReviewUi), not here
     ; how a room lists its presentations (web/rooms.js sortDecks)
-    def deckOrder:string "created"
+    def deckOrder:string "edited"
     ; experimental: the 3-D flight while presenting (web/flight3d.js), off
     ; until turned on here
     def flight3d:boolean false
@@ -663,7 +790,7 @@ class PresPanels {
         if (this.callShows()) {
             root.addChild((this.callPanel()))
         }
-        if ((chat.open && (helpOpen == false)) && (quiet == false)) {
+        if ((((this.dockChat()).open) && (helpOpen == false)) && (quiet == false)) {
             root.addChild((this.chatPanel()))
         }
         if (filesOpen && (quiet == false)) {
@@ -1190,7 +1317,8 @@ class PresPanels {
             push imgW (f.intOr("w" 0))
             push imgH (f.intOr("h" 0))
         }
-        def tag:string "TXT"
+        ; a file of a kind not known here says its extension (FIG, TSX), not TXT
+        def tag:string (PresFileLanguage.extTag(path))
         if (kind == "md") { tag = "MD" }
         if (kind == "css") { tag = "CSS" }
         if (kind == "image") { tag = (PresI18n.t("IMAGE")) }
@@ -1683,7 +1811,24 @@ class PresPanels {
         def narrow:boolean (this.decksNarrow())
         def p0 (new VlJsonParser())
         def data:VlJson (p0.parse(decksJson))
-        def ready:boolean ((p0.ok) && (data.isObject()))
+        def parsed:boolean ((p0.ok) && (data.isObject()))
+        def ready:boolean (parsed && (data.has("rows")))
+        decksList = "decks"
+        def title:string (PresI18n.t("Presentations"))
+        def h1:string "created"
+        def h1Label:string (PresI18n.t("Added"))
+        def h2:string "updated"
+        def h2Label:string (PresI18n.t("Modified"))
+        def empty:string (PresI18n.t("A presentation is saved here when you edit it."))
+        if parsed {
+            decksList = (data.stringOr("list" "decks"))
+            title = (data.stringOr("title" title))
+            h1 = (data.stringOr("head1" h1))
+            h1Label = (data.stringOr("head1Label" h1Label))
+            h2 = (data.stringOr("head2" h2))
+            h2Label = (data.stringOr("head2Label" h2Label))
+            empty = (data.stringOr("empty" empty))
+        }
         def rows:VlJson (new VlJson())
         def count:int 0
         if ready {
@@ -1715,9 +1860,11 @@ class PresPanels {
         d.overlayX = ((w - dw) * 0.5)
         d.overlayY = ((h - estH) * 0.5)
         def top:EVGElement (UiKit.div("pd-top"))
-        top.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Presentations")))))
+        top.addChild((UiKit.words("pn-dtitle" title)))
         top.addChild((UiKit.div("pn-grow")))
-        this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
+        if (decksList == "decks") {
+            this.button("pd-new" (PresI18n.t("New presentation")) "secondary" top)
+        }
         d.addChild(top)
         def sort:string "updated"
         def dir:string "desc"
@@ -1732,10 +1879,10 @@ class PresPanels {
         hn.width = (EVGUnit.px((rowW - 36.0)))
         this.decksHead("name" (PresI18n.t("Name")) sort dir "pd-hname" hn)
         if narrow {
-            this.decksHead("updated" (PresI18n.t("Modified")) sort dir "pd-hnarrow" hn)
+            this.decksHead(h2 h2Label sort dir "pd-hnarrow" hn)
         } {
-            this.decksHead("created" (PresI18n.t("Added")) sort dir "pd-when" hn)
-            this.decksHead("updated" (PresI18n.t("Modified")) sort dir "pd-when" hn)
+            this.decksHead(h1 h1Label sort dir "pd-when" hn)
+            this.decksHead(h2 h2Label sort dir "pd-when" hn)
         }
         head.addChild(hn)
         d.addChild(head)
@@ -1749,7 +1896,7 @@ class PresPanels {
                 i = (i + 1)
             }
             if (count == 0) {
-                body.addChild((UiKit.words("pn-intro" (PresI18n.t("A presentation is saved here when you edit it.")))))
+                body.addChild((UiKit.words("pn-intro" empty)))
             }
         }
         d.addChild(body)
@@ -1840,7 +1987,7 @@ class PresPanels {
         if narrow {
             where = ((where + " · ") + (r.stringOr("modified" "")))
         }
-        nm.addChild((UiKit.words("pf-fsize" where)))
+        nm.addChild((UiKit.words("pf-fsize" (PresPanels.clip(where (to_int (nameW / 6.0)))))))
         el.addChild(nm)
         if (narrow == false) {
             el.addChild((UiKit.words("pd-when pd-time" (r.stringOr("added" "")))))
@@ -1849,8 +1996,12 @@ class PresPanels {
         def del:EVGElement (UiKit.div("pd-del"))
         del.width = (EVGUnit.px(delW))
         ; the open deck, and one only in the cloud, are deleted with File →
-        ; Delete presentation… once open
-        if (((r.boolOr("cloudOnly" false)) == false) && ((r.boolOr("current" false)) == false)) {
+        ; Delete presentation… once open; a list of its own says ("canDelete")
+        def canDel:boolean (((r.boolOr("cloudOnly" false)) == false) && ((r.boolOr("current" false)) == false))
+        if (r.has("canDelete")) {
+            canDel = (r.boolOr("canDelete" false))
+        }
+        if canDel {
             def x:ButtonCtl (this.button(("pd-x-" + (to_string k)) (? armed (PresI18n.t("Delete?")) "✕") (? armed "primary" "ghost") del))
             UiTree.addClass((unwrap x.rootEl) "pf-act")
         }
@@ -1876,7 +2027,7 @@ class PresPanels {
         }
         if ((indexOf c "pd-sort-") == 0) {
             decksPager.page = 1
-            push requests ("decks:sort:" + (substring c 8 (strlen c)))
+            push requests ((decksList + ":sort:") + (substring c 8 (strlen c)))
             return
         }
         if ((indexOf c "pd-pg-") == 0) {
@@ -1900,8 +2051,14 @@ class PresPanels {
         if ((indexOf c "pd-r-") == 0) {
             def id:string (this.deckOf(c))
             if ((strlen id) > 0) {
-                push requests ("files:doc:" + id)
-                this.closeShare()
+                ; a deck opens in the editor; another list's row is the
+                ; page's to act on (Published: its address in a new tab)
+                if (decksList == "decks") {
+                    push requests ("files:doc:" + id)
+                    this.closeShare()
+                } {
+                    push requests ((decksList + ":open:") + id)
+                }
             }
             return
         }
@@ -1915,7 +2072,7 @@ class PresPanels {
                     return
                 }
                 decksArmed = ""
-                push requests ("decks:del:" + id2)
+                push requests ((decksList + ":del:") + id2)
             }
             return
         }
@@ -2024,9 +2181,10 @@ class PresPanels {
         ; what a room is called (PresTerm); written as it is, not swapped
         def tw:EVGElement (UiKit.div("pn-opt"))
         tw.addChild((UiKit.words("pn-otitle" (PresI18n.plain("Name for rooms")))))
-        tw.addChild((UiKit.words("pn-odesc" (PresI18n.plain("A room gathers the presentations of one whole piece of work. Call them rooms or projects; the editor opens again with the word you choose.")))))
+        tw.addChild((UiKit.words("pn-odesc" (PresI18n.plain("A room gathers the presentations of one whole piece of work. Call them topics and stories, rooms, or projects; the editor opens again with the words you choose.")))))
         def tr:EVGElement (UiKit.div("pn-orow"))
         def word:string (PresI18n.term())
+        this.button("pn-set-term-topic" (PresI18n.plain("Topics and stories")) (? (word == "topic") "primary" "secondary") tr)
         this.button("pn-set-term-room" (PresI18n.plain("Room")) (? (word == "room") "primary" "secondary") tr)
         this.button("pn-set-term-project" (PresI18n.plain("Project")) (? (word == "project") "primary" "secondary") tr)
         tw.addChild(tr)
@@ -2395,6 +2553,11 @@ class PresPanels {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        ; a docked conversation's messages get what its buttons (wrapped onto
+        ; more rows in the narrow panel) and its composer leave
+        if (host.settle()) {
+            lay.layout(pg)
+        }
         ; the dialog in the middle, now that its height is known, and on the
         ; page (`holdDialog` keeps it no taller)
         if shareOpen {
@@ -2650,7 +2813,7 @@ class PresPanels {
                 this.rebuild()
                 return
             }
-            if ((sc == "pn-set-term-room") || (sc == "pn-set-term-project")) {
+            if (((sc == "pn-set-term-room") || (sc == "pn-set-term-project")) || (sc == "pn-set-term-topic")) {
                 def want:string (substring sc 12 (strlen sc))
                 if (want != (PresI18n.term())) {
                     push requests ("setting:term:" + want)

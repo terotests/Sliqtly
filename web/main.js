@@ -33,10 +33,13 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote } from "./sharedfiles.js";
+import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared } from "./rooms.js";
+import { publishedRows, publishedListJson, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
+import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -48,12 +51,16 @@ import { linkTarget, FOLLOW_MS } from "./stagelink.js";
 import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
+import { createVideoFrames } from "./videoexport.js";
+import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
+import { playUrl } from "./playlink.js";
+import { MAX_DAYS, DEFAULT_DAYS, CHOICES, linkDays, choiceLines, untilText } from "./linkdays.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
 import { createMusic } from "./music.js";
 import { registerBeatEffects } from "./beatfx.js";
-import { themePicture, picturesToDraw, fitPage } from "./themepics.js";
+import { themePicture, picturesToDraw, fitPage, lookTiles, drawLookTile } from "./themepics.js";
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 
 // Where the editor's addresses start: sliqtly.com serves the editor at
@@ -346,6 +353,7 @@ const three3d = createThree3d({
   scale: () => (lastLayout ? lastLayout.stage[2] : 1),
   repaint: () => { needsPaint = true; },
   toast,
+  t,
   readFile: (path) => readDocFile(path),
 });
 // The 3-D flight (web/flight3d.js): G or ⋯ → 3-D flight while presenting.
@@ -356,6 +364,8 @@ try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) 
 const flight3d = createFlight3d({
   three3d,
   app,
+  picturePixels,
+  spritePixels,
   toast,
   t,
   onExit: () => {
@@ -422,8 +432,9 @@ function loadInlineSvgs(rev) {
 // A screen of a shared Figma file on a slide (`![…](figma:<file>/<layer>)`,
 // src/PresFigma.rgr): drawn by the server from the file's index
 // (web/sharedfiles.js) and put in the store where the slide looks for it.
-// Only a server of one's own keeps shared files; elsewhere the picture
-// stays its alt text.
+// A server of one's own keeps shared files, and sliqtly.com/editor each
+// account's own, a deck's pictures drawn from its owner's; elsewhere the
+// picture stays its alt text.
 let figmaRev = "";
 const figmaBusy = new Set();
 const figmaFailed = new Set();
@@ -433,14 +444,15 @@ function loadFigmaPictures(rev) {
   try { list = JSON.parse(app.figmaPicturesJson() || "[]"); } catch (_) { return; }
   const fresh = list.filter((u) => !figmaBusy.has(u.path) && !figmaFailed.has(u.path));
   if (!fresh.length) return;
-  if (!ownServer()) {
+  if (!sharedOn()) {
     for (const u of fresh) figmaFailed.add(u.path);
     return;
   }
   for (const u of fresh) figmaBusy.add(u.path);
+  const deck = CLOUD_ONLY ? (viewer ? viewShare?.id : doc.cloud) || "" : "";
   Promise.all(fresh.map(async (u) => {
     try {
-      const res = await fetch(sharedPngUrl(u.file, u.node));
+      const res = await fetch(sharedPngUrl(u.file, u.node, 2048, deck));
       // the file is still being indexed: asked again in a moment
       if (res.status === 409) {
         setTimeout(() => { figmaRev = ""; needsPaint = true; }, 3000);
@@ -462,17 +474,27 @@ function loadFigmaPictures(rev) {
 }
 
 // --- the shared Files (a server of one's own, web/sharedfiles.js) ---------------
-// Files everyone on the server can use: the rail's Files place lists them,
-// a row opens a Figma file's window (PresChartEditor "figma") with its
-// screens as tiles. The list is asked again while a file is being indexed.
+// Files everyone on the server can use (on sliqtly.com/editor: the
+// account's own): the rail's Files place lists them, a row opens a Figma
+// file's window (PresChartEditor "figma") with its screens as tiles. The
+// list is asked again while a file is being indexed.
+function sharedOn() {
+  return ownServer() || CLOUD_ONLY;
+}
+if (CLOUD_ONLY) useEditorRoots();
+// sliqtly.com: the Storage folder a file is uploaded to first
+let sharedUpload = "";
+let sharedMax = 0;
 let sharedFilesList = [];
 let sharedPoll = 0;
 const sharedIndexes = new Map(); // id → { updated, json }
 async function sharedRefresh() {
-  if (viewer || !ownServer()) return;
+  if (viewer || !sharedOn()) return;
   let res;
   try { res = await listShared(); } catch (e) { console.warn("shared files not listed", e); return; }
   sharedFilesList = res?.files || [];
+  sharedUpload = res?.upload || "";
+  sharedMax = Number(res?.max) || 0;
   const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
   app.setToolbarOptions("files", rows.join("\n"), "1");
   const open = app.figmaFileOpen();
@@ -504,13 +526,19 @@ async function sharedRequest(r) {
   if (r === "add") {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".fig";
+    input.accept = ".fig,.pptx";
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
+      // said here, before a long upload the server would refuse
+      if (sharedMax && file.size > sharedMax) {
+        toast(t("Could not add the file") + ": " + t("a shared file is at most {n} MB").replace("{n}", String(Math.round(sharedMax / (1 << 20)))));
+        return;
+      }
       toast(t("Adding {name}…").replace("{name}", file.name));
       try {
-        const card = await putShared(file);
+        const upload = CLOUD_ONLY ? (f) => window.sliqtly.uploadFigma(f, sharedUpload) : null;
+        const card = await putShared(file, fetch, upload);
         await sharedRefresh();
         if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
       } catch (e) { toast(t("Could not add the file") + ": " + e.message); }
@@ -523,6 +551,16 @@ async function sharedRequest(r) {
     let f = sharedFilesList.find((x) => x.id === id);
     if (!f) { await sharedRefresh(); f = sharedFilesList.find((x) => x.id === id); }
     if (f) await sharedShow(f, true);
+    return;
+  }
+  if (r.startsWith("download:")) {
+    // the file as it is now: a deck an assistant changed in place
+    const f = sharedFilesList.find((x) => x.id === r.slice(9));
+    try {
+      const res = await fetch(sharedSourceUrl(r.slice(9)));
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`);
+      deliver(await res.arrayBuffer(), f?.name || "deck.pptx", res.headers.get("Content-Type") || "application/octet-stream");
+    } catch (e) { toast(t("Could not download the file") + ": " + e.message); }
     return;
   }
   if (r.startsWith("delete:")) {
@@ -1370,6 +1408,7 @@ async function saveDocNow(force) {
   try { r = await saving; } finally { saving = null; }
   if (r === "merge") return takeLocal();
   if (renamedNow) roomDecksAgain();
+  else roomDecksAfterSave();
   refreshFiles();
   cloudSoon();
   tellTabs();
@@ -1413,6 +1452,12 @@ async function newDeck(plan) {
   if (cloudReady()) await cloudSync().catch(cloudTrouble);
   refreshFiles();
   needsPaint = true;
+  // a new story is a draft (web/stories.js; a server of one's own makes
+  // its new shares drafts itself)
+  if (!ownServer()) {
+    const made = await currentRoomId();
+    if (made) keepRooms((s) => setStory(s, made, NEW_STORY));
+  }
   // made from a room's "+" (Add new… → Presentation): it goes there
   const room = roomForNew;
   roomForNew = "";
@@ -1577,16 +1622,131 @@ async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0 }))),
+      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
   return { rows: ordered(roomDecks(roomsHere, room, await allDocs(), sampleRows()).map(live)), folders: foldersOf(roomsHere, room) };
 }
+// A room as a topic, its presentations as stories (web/stories.js): its
+// Stories tab (src/PresTopicView.rgr) shows them grouped by type, phase or
+// tag, or not at all, sorted as chosen there; both kept in this browser.
+let topicBy = "type";
+let topicSort = "updated";
+try {
+  topicBy = groupByOf(localStorage.getItem("sliqtly.topicGroup"));
+  topicSort = storySortOf(localStorage.getItem("sliqtly.topicSort"));
+} catch (_) { /* the defaults */ }
+// i18n: "Updated just now" "Updated {n} min ago" "Updated {n} h ago" "Updated {n} d ago" "Updated {n} wk ago" "Updated {n} mo ago" "Updated {n} y ago"
+const AGO = { now: "Updated just now", min: "Updated {n} min ago", h: "Updated {n} h ago", d: "Updated {n} d ago", w: "Updated {n} wk ago", mo: "Updated {n} mo ago", y: "Updated {n} y ago" };
+// folders: the room's [{ id, name }], a card names the one it is in.
+async function showTopic(room, rows, folders = []) {
+  const info = (await roomsList({ archived: true })).find((r) => r.room_id === room);
+  const now = Date.now();
+  const groups = groupStories(rows, { by: topicBy, sort: topicSort }).map((g) => ({
+    label: g.label ? (topicBy === "tag" && g.key !== "notag" ? g.label : t(g.label)) : "",
+    color: g.color,
+    stories: g.rows.map((r) => {
+      const ago = agoOf(r.updated, now);
+      return {
+        id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current,
+        typeLabel: t(TYPE_LABEL[r.type]), phaseLabel: t(PHASE_LABEL[r.phase]), color: storyColor(r),
+        folder: (r.folder && folders.find((x) => x.id === r.folder)?.name) || "",
+        when: r.updated ? t(AGO[ago.unit]).replace("{n}", String(ago.n)) : "",
+      };
+    }),
+  }));
+  app.roomStories(JSON.stringify({
+    room, title: info?.title || "", by: topicBy, sort: topicSort, groups,
+    count: rows.length === 1 ? t("1 presentation") : t("{n} presentations").replace("{n}", String(rows.length)),
+    empty: t("No presentations in this room yet. + New presentation makes one."),
+    canNew: room !== ONBOARDING && !info?.archived,
+  }));
+  needsPaint = true;
+}
+// What the Stories tab asked for ("topic:<what>\t…").
+async function topicRequest(r) {
+  const [what, ...f] = r.slice("topic:".length).split("\t");
+  const room = roomShown;
+  if (what === "open") {
+    await roomsRequest("room:deck:" + f[0]);
+  } else if (what === "by" || what === "sort") {
+    if (what === "by") topicBy = groupByOf(f[0]);
+    else topicSort = storySortOf(f[0]);
+    try {
+      localStorage.setItem("sliqtly.topicGroup", topicBy);
+      localStorage.setItem("sliqtly.topicSort", topicSort);
+    } catch (_) { /* this page only */ }
+    if (room) {
+      const { rows, folders } = await roomView(room);
+      await showTopic(room, rows, folders);
+    }
+  } else if (what === "new" && room) {
+    await roomsRequest("room:newin:" + room);
+  } else if (what === "bulk" && room) {
+    await bulkStories(room, f[0], f.slice(1));
+  }
+}
+// Apply in a topic's Stories tab ("topic:bulk\t<action>\t<deck>…", web/
+// stories.js bulkAction): each ticked presentation into a folder of the
+// room or out of it, or its type or phase set. On a server of one's own its
+// share's, else this browser's; one that fails leaves the rest done.
+async function bulkStories(room, choice, decks) {
+  const act = bulkAction(choice);
+  const ids = [...new Set(decks)].filter((d) => d && !d.startsWith("sample:"));
+  if (!act || !ids.length) return;
+  let done = 0;
+  for (const deck of ids) {
+    try {
+      if ("folder" in act) {
+        if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room, folder_id: act.folder });
+        else keepRooms((s) => moveDeck(s, deck, room, act.folder));
+      } else if (ownServer()) await roomsCall("set_story", { deck_id: deck.replace(/^cloud:/, ""), [act.part]: act.value });
+      else keepRooms((s) => setStory(s, deck, { [act.part]: act.value }));
+      done++;
+    } catch (e) {
+      console.warn("bulk", choice, deck, e);
+    }
+  }
+  if (act.folder) {
+    foldersOpen.add(room + "/" + act.folder);
+    keepFoldersOpen();
+  }
+  toast(t("Changed {n} of {all} presentations").replace("{n}", String(done)).replace("{all}", String(ids.length)));
+  await roomsRequest("room:decks:" + room);
+}
+// The presentation `id`'s story (web/stories.js storyOf): on a server of
+// one's own its share's, else this browser's.
+async function deckStory(id) {
+  if (!ownServer()) return storyFor(roomsHere, id);
+  const g = await roomsCall("get_room", { room_id: await deckRoom(id) });
+  return storyOf((g.presentations || []).find((p) => "cloud:" + p.deck_id === id));
+}
+// Document settings changed the open presentation's story
+// ("docstory:<type|phase|tags>\t<value>"; tags with commas between).
+async function docStoryRequest(r) {
+  const [part, value] = r.slice("docstory:".length).split("\t");
+  const id = await currentRoomId();
+  if (!id || !["type", "phase", "tags"].includes(part)) return;
+  const v = part === "tags" ? cleanTags(value) : value;
+  if (ownServer()) await roomsCall("set_story", { deck_id: id.replace(/^cloud:/, ""), [part]: v });
+  else keepRooms((s) => setStory(s, id, { [part]: v }));
+  roomDecksAgain();
+}
+// A story's type or phase changed ("story:set:<deck>\t<type|phase>\t<value>",
+// a pill's menu or a presentation's context menu): on a server of one's own
+// its share's, else this browser's (web/rooms.js setStory).
+async function storyRequest(r) {
+  const [deck, part, value] = r.slice("story:set:".length).split("\t");
+  if (!deck || deck.startsWith("sample:") || (part !== "type" && part !== "phase")) return;
+  if (ownServer()) await roomsCall("set_story", { deck_id: deck.replace(/^cloud:/, ""), [part]: value });
+  else keepRooms((s) => setStory(s, deck, { [part]: value }));
+  roomDecksAgain();
+}
 // File → Settings → Order of presentations: how a room lists its
-// presentations (rooms.js sortDecks), in this browser. As made by default,
-// so opening or editing one moves nothing.
-let deckOrder = "created";
+// presentations (rooms.js sortDecks), in this browser. Last edited first by
+// default; opening one moves nothing.
+let deckOrder = DECK_ORDER;
 try { deckOrder = deckOrderOf(localStorage.getItem("sliqtly.deckOrder")); } catch (_) { /* the default */ }
 function setDeckOrder(by) {
   deckOrder = deckOrderOf(by);
@@ -1608,6 +1768,7 @@ async function clearRoom(room) {
     if (r.id.startsWith("cloud:") || r.id.startsWith("sample:")) continue;
     if (r.id === doc.id) { kept++; continue; }
     await vfs.deleteDoc(r.id);
+    keepRooms((s) => forgetStory(s, r.id));
     gone++;
   }
   toast(t("Removed from this browser: ") + gone + (kept ? " · " + t("the open presentation stays") : ""));
@@ -1617,6 +1778,12 @@ async function clearRoom(room) {
 // The open room's presentations listed again (the open deck renamed).
 function roomDecksAgain() {
   if (roomShown) roomsRequest("room:decks:" + roomShown).catch(() => {});
+}
+// The open deck saved: listed last edited first, it goes to the top of its
+// room, so the list is drawn again when it is not there yet.
+let roomListed = [];
+function roomDecksAfterSave() {
+  if (editedOutOfPlace(roomListed, deckOrder)) roomDecksAgain();
 }
 // The open presentation's id in the room lists ("" while it is not kept yet,
 // as an unedited sample is not).
@@ -1639,9 +1806,14 @@ async function docRooms() {
   const id = await currentRoomId();
   if (!id) {
     app.setDocRooms("", "", t("Make a change first: a sample becomes a presentation of your own when it is edited."));
+    app.setDocStory(false, "story", "active", "");
     needsPaint = true;
     return;
   }
+  deckStory(id).then((st) => {
+    app.setDocStory(true, st.type, st.phase, st.tags.join(", "));
+    needsPaint = true;
+  }).catch(() => {});
   const [rooms, all, cur] = await Promise.all([roomsList(), roomsList({ archived: true }), deckRoom(id)]);
   const shown = rooms.filter((x) => x.room_id !== ONBOARDING);
   if (cur && !shown.some((x) => x.room_id === cur)) {
@@ -1918,12 +2090,14 @@ async function roomsRequest(r) {
         keepFoldersOpen();
       }
     }
+    roomListed = rows;
     const lines = deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
+    await showTopic(roomShown, rows, folders);
     if (action === "open") await roomChat().open(roomShown);
   } else if (action === "fold") {
     // a folder pressed: open or shut, in this browser
@@ -2380,6 +2554,7 @@ async function deleteDeck() {
     }
   }
   if (vfs && doc.persisted) await vfs.deleteDoc(id);
+  keepRooms((s) => forgetStory(s, id));
   // its tab goes; the tab used before it comes to the front
   if (shownKey) app.deckTabClose(shownKey);
   shownKey = null;
@@ -2691,15 +2866,19 @@ async function decksJson(fresh = false) {
   const inRoom = decksRoom ? t("Room: ") + decksRoom.title : "";
   return deckListJson(rows, decksSort.by, t, [inRoom, note].filter(Boolean).join(" · "), decksSort.dir);
 }
+// which list the presentations window shows: "decks", or "pub" (File →
+// Published…, below)
+let listShown = "decks";
 async function openDecks() {
   if (!vfs) return;
+  listShown = "decks";
   app.openDecks(await decksJson());
   needsPaint = true;
   // the cloud read again: a deck made elsewhere since shows at once
   if (window.sliqtly?.user?.()) refreshDecks(true).catch(() => {});
 }
 async function refreshDecks(fresh = false) {
-  if (!vfs || !app.decksShowing()) return;
+  if (!vfs || !app.decksShowing() || listShown !== "decks") return;
   app.setDecks(await decksJson(fresh));
   needsPaint = true;
 }
@@ -2712,7 +2891,10 @@ async function decksRequest(r) {
   } else if (action === "del") {
     // a deck kept here, not the open one; one only in the cloud is deleted
     // once open (File → Delete presentation…)
-    if (what !== doc.id && !what.startsWith("cloud:")) await vfs.deleteDoc(what);
+    if (what !== doc.id && !what.startsWith("cloud:")) {
+      await vfs.deleteDoc(what);
+      keepRooms((s) => forgetStory(s, what));
+    }
   }
   await refreshDecks();
   refreshRecent().catch(() => {});
@@ -2736,9 +2918,23 @@ async function refreshRecent() {
 // The files tab's list, when it shows; again when PRO signs in or out.
 let filesListing = false;
 window.addEventListener("sliqtly:user", () => refreshFiles());
+// The files kept with the deck, counted into the size beside the editor's
+// tabs (PresDeckSize: the Markdown and the theme are counted there).
+async function measureDeckFiles() {
+  if (!vfs && !pending.size && !readFiles.size) return;
+  const id = doc.id;
+  const all = await docFiles();
+  if (doc.id !== id) return;
+  const size = (f) => (f.size > 0 ? f.size : (f.data && (f.data.size || f.data.length)) || 0);
+  const bytes = all.reduce((n, f) => n + size(f), 0);
+  app.setDeckFiles(all.length, bytes);
+  needsPaint = true;
+}
+
 async function refreshFiles() {
   // the source viewer reads its code/ files again when next wanted
   app.codeFilesChanged();
+  measureDeckFiles().catch(() => {});
   refreshRecent().catch(() => {});
   refreshDecks().catch(() => {});
   if (app.editorTab() !== "files" || filesListing) return;
@@ -3189,7 +3385,7 @@ async function copyFiles(paths) {
     : t("Copied ") + files.length + t(" files: open another presentation and press Paste in Files."));
 }
 
-async function deleteFiles(paths) {
+async function deleteFiles(paths, { quiet = false } = {}) {
   const files = await docFiles();
   for (const path of paths) {
     const f = files.find((x) => x.path === path);
@@ -3205,6 +3401,7 @@ async function deleteFiles(paths) {
   }
   cloudSoon();
   dropThumbs();
+  if (quiet) return;
   toast(paths.length === 1 ? t("Deleted 1 file.") : t("Deleted ") + paths.length + t(" files."));
 }
 
@@ -3359,7 +3556,7 @@ function lookTheme() {
 }
 // Every chrome sheet without the skins, as loaded (start), and the skins'
 // own text: the skins go after each sheet with the chosen hue at the end.
-const chromeSheets = { files: "", chrome: null, chart: null, hint: null, panels: null, toolbar: null };
+const chromeSheets = { files: "", chrome: null, chart: null, hint: null, find: null, panels: null, toolbar: null };
 // The dark look of a sheet is derived from it (EVGUI's UiDark, through
 // PresApp.darkCss): every colour it sets, scoped to .theme-dark and mapped so
 // each contrast stays what it was. Worked out once per sheet and host theme,
@@ -3385,6 +3582,7 @@ function sendChromeCss() {
   const c = chromeSheets;
   if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
   if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
+  if (c.find != null) app.setFindCss(c.find + skinCss(c.find, "fb"));
   if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
   if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
 }
@@ -3460,6 +3658,16 @@ let thumbRev = -1;
 // the slide lists of thumbnails cut by the strip's edge, as JSON text
 let thumbDocs = new Map();
 let thumbDocsRev = -1;
+// A list in the slide's units, drawn at `at` = [x, y, scale] on the page. The
+// scale goes into the list as its view, so the frame is BUILT at it: the glyph
+// atlas is rasterised at dpr × scale and each run lands texel for pixel. Given
+// only to draw(), the frame was built at scale 1 and its text stretched by
+// the stage's scale (1.15 presenting on a 1470-wide window, 0.58 in the
+// editor), which the linear filter drew soft.
+function atScale(doc, at) {
+  return { ...doc, view: { x: at[0], y: at[1], scale: at[2] } };
+}
+
 function dropThumbs() {
   for (const f of thumbs.values()) f.dispose();
   thumbs = new Map();
@@ -3566,6 +3774,18 @@ function queueThemePictures() {
   themePicQueue = picturesToDraw(selectRows(themeSel), themePicDrawn, lang);
   needsPaint = true;
 }
+// The 3-D looks' tiles: drawn at once, they are only colours.
+function drawLookPictures(rows) {
+  for (const look of lookTiles(rows)) {
+    if (pictures.has(themePicture(look.key))) continue;
+    const c = document.createElement("canvas");
+    c.width = THEME_PIC.w * THEME_PIC.dpr;
+    c.height = THEME_PIC.h * THEME_PIC.dpr;
+    drawLookTile(c.getContext("2d"), c.width, c.height, look);
+    pictures.set(themePicture(look.key), asPicture(c));
+  }
+  needsPaint = true;
+}
 function drawThemePicture() {
   const key = themePicQueue.shift();
   if (key === undefined) return;
@@ -3597,6 +3817,28 @@ function drawThemePicture() {
 // its 3-D worlds stand in (web/three3d.js): an ImageData, null without one.
 let roomGl = null;
 const roomCanvas = document.createElement("canvas");
+// A picture of the slides (by its src) as ImageData, its long side at most
+// `max` px, for the 3-D flight's screens; null while it is not here.
+function picturePixels(src, max) {
+  const img = pictures.get(src);
+  if (!img || String(src).startsWith("three:")) return null;
+  const iw = img.naturalWidth || img.videoWidth || img.width || 0;
+  const ih = img.naturalHeight || img.videoHeight || img.height || 0;
+  if (!iw || !ih) return null;
+  const k = Math.min(1, max / Math.max(iw, ih));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(iw * k));
+  c.height = Math.max(1, Math.round(ih * k));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  try {
+    g.drawImage(img, 0, 0, c.width, c.height);
+    return g.getImageData(0, 0, c.width, c.height);
+  } catch (_) {
+    // a picture from elsewhere the page may not read
+    return null;
+  }
+}
+
 function slidePicture(w, h) {
   const text = app.slideJson(app.selectedSlide());
   if (!text) return null;
@@ -3607,6 +3849,36 @@ function slidePicture(w, h) {
   if (!roomGl) return null;
   const images = new Map([...pictures].filter(([src]) => !src.startsWith("three:")));
   const f = prepareDisplayList(roomGl, doc, { dpr: Math.min(w / doc.width, h / doc.height), images });
+  f.draw(null, null);
+  f.dispose();
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(roomCanvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
+}
+
+// The 3-D flight's picture of a slide's presenter (spec {"src":
+// "presenter:<slide>", "box": its rectangle on the slide, px}) as the slide
+// draws it, transparent round it, its long side at most `max` px: an
+// ImageData, null when there is nothing to draw.
+function spritePixels(spec, max) {
+  const { src, box } = JSON.parse(spec);
+  const slide = Number(String(src).split(":")[1]);
+  const [bx, by, bw, bh] = box || [];
+  if (!(bw > 0 && bh > 0) || !(slide >= 0)) return null;
+  const doc = atRest(JSON.parse(app.presenterJson(slide)));
+  // the box as the page: the list moved so its corner is the page's
+  const k = max / Math.max(bw, bh);
+  const w = Math.max(1, Math.round(bw * k));
+  const h = Math.max(1, Math.round(bh * k));
+  roomCanvas.width = w;
+  roomCanvas.height = h;
+  if (!roomGl) roomGl = roomCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!roomGl) return null;
+  const images = new Map([...pictures].filter(([s]) => !s.startsWith("three:")));
+  const f = prepareDisplayList(roomGl, { ...doc, width: bw, height: bh, view: { scale: 1, x: -bx, y: -by } }, { dpr: k, images });
   f.draw(null, null);
   f.dispose();
   const c = document.createElement("canvas");
@@ -3737,8 +4009,8 @@ function paintOnce() {
     }
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
-    const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
+    const sf = prepareDisplayList(gl, atScale(st, layout.stage), { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+    const stageStats = sf.draw(null, null, { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
     // what is drawn on the slide and the pointer (presenting with the pen,
@@ -3748,8 +4020,8 @@ function paintOnce() {
       const ink = JSON.parse(ij);
       ink.width = W;
       ink.height = H;
-      const inf = prepareDisplayList(gl, ink, { dpr });
-      grew = grewBy(inf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+      const inf = prepareDisplayList(gl, atScale(ink, layout.stage), { dpr });
+      grew = grewBy(inf.draw(null, null, { clear: false })) || grew;
       inf.dispose();
     }
     // Only while editing: not to an audience, and not mid-animation, where a
@@ -3798,18 +4070,23 @@ function paintOnce() {
       const none = [0, 0, 0, 0];
       doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
       doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
-      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
-      if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
+      const cf = prepareDisplayList(gl, atScale(doc, [x, y, s]), { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+      if (grewBy(cf.draw(null, null, { clear: false }))) thumbsGrew = true;
       cf.dispose();
       continue;
     }
     let f = thumbs.get(i);
+    // built at the scale it is drawn at; a scroll only moves it
+    if (f && f.view.scale !== s) {
+      f.dispose();
+      f = null;
+    }
     const fresh = !f;
     if (fresh) {
       const doc = atRest(JSON.parse(app.slideJson(i)));
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+      f = prepareDisplayList(gl, atScale(doc, [x, y, s]), { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
@@ -3864,6 +4141,8 @@ function paintOnce() {
       paintList(app.codeJson());
     } else if (layer === "review") {
       paintList(app.reviewJson());
+    } else if (layer === "find") {
+      paintList(app.findJson());
     } else if (layer === "hint") {
       paintList(app.hintJson());
     } else if (layer === "chart") {
@@ -4699,6 +4978,101 @@ function refreshCollabBar() {
   if (chat.dataset.short !== chatShort) chat.dataset.short = chatShort;
 }
 
+// --- the AI assistant (the ✨ AI drawer: src/PresAi.rgr, web/aiassist.js) ----------
+// Its button is the bar's last, on the editor's page on the server only. The
+// credits are asked again when the drawer opens, at most once a minute.
+let aiCreditsAt = 0;
+function aiButton() {
+  if (!aiOnPage()) return;
+  let b = document.getElementById("aiBtn");
+  if (b) return;
+  b = document.createElement("button");
+  b.id = "aiBtn";
+  b.textContent = "✨ AI";
+  b.dataset.short = "✨";
+  b.dataset.canvas = "secondary";
+  b.title = t("AI Assistant: ask about this slide or the whole presentation");
+  b.addEventListener("click", () => {
+    const open = !app.aiIsOpen();
+    app.aiOpen(open);
+    handleRequests();
+    if (open && Date.now() - aiCreditsAt > 60000) {
+      aiCreditsAt = Date.now();
+      aiCall("credits").then((text) => { app.aiCredits(text); needsPaint = true; })
+        .catch(() => { aiCreditsAt = 0; });
+    }
+    needsPaint = true;
+  });
+  document.getElementById("bar").appendChild(b);
+}
+// A picture pasted into the AI assistant's drawer, made at most 1600 px on
+// its longer side (what a model sees anyway) and sent as PNG, or as JPEG
+// when the PNG would be large (a photo).
+const AI_PICTURE_SIDE = 1600;
+async function aiPicture(file) {
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    app.aiAttach(file.name || "", file.type, "");
+    return;
+  }
+  const k = Math.min(1, AI_PICTURE_SIDE / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  let url = c.toDataURL("image/png");
+  if (url.length > 1500000) url = c.toDataURL("image/jpeg", 0.85);
+  const comma = url.indexOf(",");
+  app.aiAttach(file.name || "", url.slice(5, url.indexOf(";")), url.slice(comma + 1));
+}
+
+// The files an answer adds (add_file): kept in the deck before its slides,
+// which show them, are changed. The server checked each path (media/ SVG,
+// data/, charts/, code/).
+async function aiFiles(text) {
+  let edits = [];
+  try {
+    edits = JSON.parse(text).edits || [];
+  } catch { return; }
+  for (const e of edits) {
+    if (e.tool !== "add_file" || !e.path || typeof e.text !== "string") continue;
+    if (/\.svg$/i.test(e.path)) {
+      const bytes = new TextEncoder().encode(e.text).buffer;
+      await addPicture("/" + e.path, bytes, "image/svg+xml");
+      await keepFile({ path: e.path, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
+      continue;
+    }
+    const type = /\.json$/i.test(e.path) ? "application/json" : /\.csv$/i.test(e.path) ? "text/csv" : "text/plain";
+    await keepFile({ path: e.path, type, size: e.text.length, data: e.text });
+    chartFiles.set(e.path, Promise.resolve(e.text));
+    app.setChartData(e.path, e.text);
+  }
+  dropThumbs();
+}
+
+function askAi(body) {
+  if (!body) return;
+  // the share the deck is kept in, for the assistant's read tools (its files,
+  // pictures and comments); none when the deck is only in this browser
+  if (doc.cloud) {
+    try {
+      const q = JSON.parse(body);
+      q.context = { ...(q.context || {}), deckId: doc.cloud };
+      body = JSON.stringify(q);
+    } catch { /* sent as it is */ }
+  }
+  aiCall("ask", body)
+    .then(async (text) => {
+      await aiFiles(text).catch(fail);
+      app.aiAnswer(text);
+    })
+    .catch((e) => app.aiFail(t("The question did not reach the assistant: ") + (e?.message || e)))
+    .finally(() => { needsPaint = true; });
+}
+
 // --- what the app asks the page to do ---------------------------------------------
 function deliver(bytes, name, mime) {
   const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
@@ -4817,6 +5191,12 @@ function handleRequests() {
           docRooms().catch((e) => console.warn("no rooms for the settings", e));
         }
       });
+    } else if (r === "slidebg") {
+      // a slide's own background picture: the deck's pictures to pick from
+      docFiles().then((fs) => {
+        const pics = fs.filter((f) => kindOf(f.path, f.type) === "image").map((f) => f.path).sort();
+        if (app.openSlideBg(pics.join("\n"))) needsPaint = true;
+      });
     } else if (r.startsWith("docroom:")) {
       // Document settings moved the presentation to another room
       const room = r.slice(8);
@@ -4845,6 +5225,10 @@ function handleRequests() {
       needsPaint = true;
     } else if (r === "review-save") {
       keepReview().catch(fail);
+    } else if (r === "progress-cancel:" + VIDEO_KEY) {
+      if (videoJob) videoJob.cancel();
+    } else if (r === "confirm:linkdays") {
+      answerLinkDays();
     } else if (r === "confirm:zip") {
       exportZip(true).catch(fail);
     } else if (r === "confirm:zip:alt") {
@@ -4865,6 +5249,12 @@ function handleRequests() {
       setSkinHue(parseInt(r.slice("setting:skinhue:".length), 10));
     } else if (r.startsWith("room:")) {
       roomsRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("topic:")) {
+      topicRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("docstory:")) {
+      docStoryRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
+    } else if (r.startsWith("story:set:")) {
+      storyRequest(r).catch((e) => toast(t("Rooms: ") + (e.message || e)));
     } else if (r.startsWith("roomchat:")) {
       roomChat().request(r.slice(9)).catch((e) => toast(t("Chat: ") + (e.message || e)));
     } else if (r.startsWith("title:")) {
@@ -4874,6 +5264,10 @@ function handleRequests() {
       openDecks().catch(fail);
     } else if (r.startsWith("decks:")) {
       decksRequest(r).catch(fail);
+    } else if (r === "published") {
+      openPublished().catch(fail);
+    } else if (r.startsWith("pub:")) {
+      publishedRequest(r).catch(fail);
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
@@ -4918,7 +5312,10 @@ function handleRequests() {
       }
     } else if (r === "themes") {
       // Slide → Theme…: the themes as tiles with their pictures
-      if (app.openThemes(selectRows(themeSel), themeSel.value || "")) needsPaint = true;
+      // with the 3-D flight on, its looks on a tab of their own
+      const rows = selectRows(themeSel) + (flightOn ? "\n" + app.flightLookRows() : "");
+      if (app.openThemes(rows, themeSel.value || "")) needsPaint = true;
+      if (flightOn) drawLookPictures(rows);
     } else if (r === "theme-pictures") {
       queueThemePictures();
     } else if (r === "theme-edited") {
@@ -4995,6 +5392,10 @@ function handleRequests() {
       collab?.say(text).catch((e) => toast(t("The message was not sent: ") + (e?.message || e)));
     } else if (r === "chat-closed") {
       refreshCollabBar();
+    } else if (r === "ai-ask") {
+      askAi(app.aiTakeAsk());
+    } else if (r === "ai-closed") {
+      needsPaint = true;
     } else if (r === "picture-place") {
       placePasted().catch(fail);
     } else if (r === "picture-cancel") {
@@ -5171,6 +5572,19 @@ async function renderFxStills() {
 }
 window.__renderFxStills = renderFxStills;
 
+// A video's frames (web/videoexport.js, src/PresVideo.rgr): the slides at
+// frame n / fps, drawn by the stage's painter. scripts/video.mjs encodes
+// them, and so does File → Export → Video (exportVideo).
+window.__video = createVideoFrames({
+  app,
+  prepareDisplayList,
+  images: pictures,
+  timed: (doc, t) => {
+    syncDeckEffects();
+    return withTime(doc, t);
+  },
+});
+
 // The faces a diagram look draws with ({style=cartoon}, …): fetched the first
 // time a deck asks for one (app.wantedFaces), not with every page. Until a
 // face is here the look's words are set in Open Sans.
@@ -5246,6 +5660,113 @@ async function exportPdf(picked = false) {
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
+// Video: the frames the presentation shows at n / fps (web/videoexport.js),
+// coded to WebM by Sliqtly's own VP8 encoder in a worker
+// (web/video-worker.js) and saved here. A few frames wait at most, so the
+// page holds two or three pictures, not the whole video.
+let videoBusy = false;
+// The video being made: its window's key and how to stop it (Cancel in the
+// window asks "progress-cancel:video").
+let videoJob = null;
+const VIDEO_KEY = "video";
+function videoWindow() {
+  app.openProgress(VIDEO_KEY, t("Video"), t("Making the video…"));
+}
+// "N / M frames · about K min left" from how long the frames so far took
+function videoNote(n, frames, since) {
+  let note = n + " / " + frames + " " + t("frames");
+  if (n >= 10) {
+    const left = ((Date.now() - since) / n) * (frames - n);
+    note += " · " + (left < 60000 ? t("under a minute left")
+      : t("about {n} min left").replace("{n}", String(Math.round(left / 60000))));
+  }
+  return note;
+}
+// The video's bytes, or null when one is already being made (its window is
+// shown again) or it was cancelled. `keepOpen`: the window stays, busy, for
+// what comes after (the upload); the caller closes it.
+async function makeVideo(keepOpen = false) {
+  if (videoBusy) {
+    videoWindow();
+    return null;
+  }
+  videoBusy = true;
+  const worker = new Worker("./video-worker.js?v=" + BUILD, { name: BUILD });
+  const waiting = [];
+  let done = null;
+  let failed = null;
+  let cancelled = false;
+  const release = () => { while (waiting.length) waiting.shift()(); };
+  videoJob = {
+    cancel() {
+      cancelled = true;
+      worker.terminate();
+      release();
+    },
+  };
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.kind === "error") failed = new Error(m.message);
+    if (m.kind === "done") done = m;
+    const w = waiting.shift();
+    if (w) w();
+  };
+  worker.onerror = (e) => {
+    failed = new Error(e.message || "the video encoder did not load");
+    release();
+  };
+  const send = (msg) => new Promise((resolve) => {
+    waiting.push(resolve);
+    worker.postMessage(msg);
+  });
+  const check = () => { if (failed) throw failed; };
+  let closed = false;
+  videoWindow();
+  try {
+    await loadEmojiFace();
+    const tl = window.__video.begin({ codec: "vp8" });
+    let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
+    const since = Date.now();
+    for (let n = 0; n < tl.frames && !cancelled; n++) {
+      const f = window.__video.frame(n);
+      pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
+      if (pending.length > 2) await pending.shift();
+      if (cancelled) break;
+      check();
+      app.setProgress(VIDEO_KEY, n, tl.frames, videoNote(n, tl.frames, since), true);
+    }
+    if (cancelled) {
+      toast(t("The video was cancelled."));
+      return null;
+    }
+    await Promise.all(pending);
+    app.setProgress(VIDEO_KEY, tl.frames, tl.frames, t("Finishing the file…"), true);
+    await send({ kind: "end", frames: tl.frames });
+    if (cancelled) {
+      toast(t("The video was cancelled."));
+      return null;
+    }
+    check();
+    if (keepOpen) {
+      closed = true;
+      app.setProgress(VIDEO_KEY, 1, 1, t("Sending the video to the cloud…"), false);
+    }
+    return done.bytes;
+  } finally {
+    if (!closed) app.closeProgress(VIDEO_KEY);
+    window.__video.close();
+    worker.terminate();
+    videoJob = null;
+    videoBusy = false;
+  }
+}
+async function exportVideo() {
+  const bytes = await makeVideo();
+  if (!bytes) return;
+  window.__lastDownload = deliver(bytes, exportName() + ".webm", "video/webm");
+  toast(t("The video is ready.") + " " + (bytes.length / 1048576).toFixed(1) + " MB");
+}
+window.__exportVideo = exportVideo;
 // The runs the contrast guard repairs on the stage (a colour that reads, or an
 // outline round big letters) are a judgement made while drawing, over the
 // pictures under them, so the PPTX would have the theme's colour where the
@@ -5357,6 +5878,335 @@ async function exportPlayer() {
   window.__lastDownload = deliver(enc.encode(html), exportName() + "-player.html", "text/html;charset=utf-8");
 }
 window.__exportPlayer = exportPlayer;
+
+// File → Published…: what the signed-in user has out on sliqtly.com (viewing
+// links, presentations open at their own address, Cloud HTML, Cloud video),
+// in the presentations window (web/published.js). A row opens its address
+// in a new tab; its ✕ takes it out of the cloud.
+let pubRows = [];
+let pubSort = { by: "created", dir: "desc" };
+let pubNote = "";
+const pubJson = () => publishedListJson(pubRows, pubSort.by, t, pubNote, pubSort.dir);
+function showPub() {
+  if (listShown === "pub" && app.decksShowing()) app.setDecks(pubJson());
+  needsPaint = true;
+}
+async function openPublished() {
+  if (noCloudHere()) return;
+  const p = window.sliqtly;
+  if (!p?.user?.()) {
+    toast(t("Sign in to see what you have published in the cloud."));
+    return;
+  }
+  listShown = "pub";
+  pubNote = "";
+  // its title at once, its rows once the cloud is read
+  app.openDecks(JSON.stringify({ list: "pub", title: t("Published in the cloud") }));
+  needsPaint = true;
+  try {
+    const { shares, links } = await p.listPublished();
+    pubRows = publishedRows(shares, links, location.origin);
+  } catch (e) {
+    pubRows = [];
+    pubNote = t("What you have published could not be read: ") + (e?.code || e?.message || e);
+  }
+  showPub();
+}
+async function publishedRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  const id = rest.join(":");
+  if (action === "sort") {
+    pubSort = nextPubSort(pubSort, id);
+  } else if (action === "open") {
+    const row = pubRows.find((x) => x.id === id);
+    if (row?.url) window.open(row.url, "_blank", "noopener");
+    else if (row) toast(t("Nobody sees this recording: the presentation has no viewing link. Share it to show it, or remove the recording."));
+    return;
+  } else if (action === "del") {
+    await removePublished(id);
+  }
+  showPub();
+}
+// A row's ✕: a viewing link goes, a presentation open at its own address
+// becomes its owner's only, a recording leaves the cloud. The open deck's
+// recording is removed as its own file (its next save would send it
+// again); another deck kept in this browser loses its copy too.
+async function removePublished(id) {
+  const r = removal(id);
+  if (!r) return;
+  const p = window.sliqtly;
+  try {
+    if (r.what === "link") await p.removeLink(r.link);
+    else if (r.what === "private") await p.setVisibility(r.deck, "private");
+    else if (r.deck === doc.cloud && (await docFiles()).some((f) => f.path === r.path)) {
+      await deleteFiles([r.path], { quiet: true });
+      await cloudSync();
+      refreshFiles();
+    } else {
+      for (const d of await vfs.listDocs()) {
+        if (d.cloud === r.deck) await vfs.deleteFile(d.id, r.path);
+      }
+      await p.removeShareFile(r.deck, r.path);
+    }
+    if (r.what === "file") await p.removeFileLinks?.(r.deck, r.path);
+  } catch (e) {
+    toast(t("Not removed: ") + (e?.code || e?.message || e));
+    return;
+  }
+  pubRows = afterRemoval(pubRows, id, location.origin);
+  toast(r.what === "file" ? t("The recording was removed from the cloud.") : r.what === "link" ? t("The viewing link was removed.") : t("The presentation is now private."));
+}
+
+// The presentation exported to the cloud as a light HTML page (Export ▸
+// Cloud HTML): the deck played on its own, frame by frame at n / fps (the
+// video's timeline, PresApp.videoBegin; no clock on the wall), each frame's
+// display list kept once (web/recstream.js), with the faces its text is set
+// in, its pictures and its own effects. The recording is the deck's file
+// recordings/web-<hash>.sliqrec, the one before it goes, and the cloud copy
+// carries it; the page /r/{viewing link}/{hash} (web/play.js) plays it from
+// the server's immutable copy, so a new recording is a new address. A
+// slide's script, program or 3-D world is drawn as the timeline poses it.
+async function recordForWeb(fps = 30) {
+  const tl = JSON.parse(app.videoBegin(JSON.stringify({ fps }), false));
+  const enc = new RecEncoder(tl);
+  let said = 0;
+  for (let n = 0; n < tl.frames; n++) {
+    const f = JSON.parse(app.videoFrameJson(n));
+    enc.add(f.list, f.width, f.height);
+    // the page stays alive, and says how far it is
+    if (performance.now() - said > 500) {
+      said = performance.now();
+      toast(t("Recording the presentation… ") + Math.round((100 * n) / tl.frames) + " %");
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  const cmds = enc.cmds;
+  return enc.finish({ faces: recordedFaces(cmds), pictures: await recordedPictures(cmds), deckEffects: app.deckEffectsJson() });
+}
+// The 3-D flight through the slides for the light player (web/play.js):
+// the world as PresFlight makes it, the slides' 3-D worlds as their
+// programs last drew them, and the pictures its screens and presenters
+// show as WebP (long side at most FLIGHT_PIC px, as the flight asks).
+const FLIGHT_PIC = 768;
+async function recordFlight() {
+  const json = app.flightJson();
+  const srcs = new Set();
+  const sprites = new Map();
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") {
+      if (v.k === "picture" && v.src) srcs.add(v.src);
+      if (v.k === "sprite" && v.src && v.box) sprites.set(v.src, JSON.stringify({ src: v.src, box: v.box }));
+      Object.values(v).forEach(walk);
+    }
+  };
+  walk(JSON.parse(json));
+  const webp = async (img) => {
+    if (!img) return null;
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext("2d").putImageData(img, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, "image/webp", 0.85));
+    return blob ? { type: blob.type, b64: base64(new Uint8Array(await blob.arrayBuffer())) } : null;
+  };
+  const pics = [];
+  for (const src of srcs) {
+    const got = await webp(picturePixels(src, FLIGHT_PIC));
+    if (got) pics.push({ src, ...got });
+  }
+  for (const [src, spec] of sprites) {
+    const got = await webp(spritePixels(spec, FLIGHT_PIC));
+    if (got) pics.push({ src, ...got });
+  }
+  return { json, scenes: app.allPlayScenesJson(), pictures: pics };
+}
+// The faces the recorded text is set in: [[name, file]] (text in no named
+// face is set in the first, Open Sans).
+function recordedFaces(cmds) {
+  const files = new Map([...FACES, ...Object.entries(LOOK_FACES)]);
+  const used = new Set();
+  for (const c of cmds) {
+    if (c.font) used.add(c.font);
+    else if (typeof c.text === "string") used.add(FACES[0][0]);
+  }
+  return [...used].filter((name) => files.has(name)).map((name) => [name, files.get(name)]);
+}
+// Each picture the recording draws, as WebP no more than twice as large as
+// it is drawn (sharp on a full HD screen; a 3-D world as it is drawn now).
+async function recordedPictures(cmds) {
+  // the largest each picture is drawn, in slide units
+  const drawn = new Map();
+  for (const c of cmds) {
+    if (!c.src) continue;
+    const d = drawn.get(c.src) || { w: 0, h: 0 };
+    drawn.set(c.src, { w: Math.max(d.w, c.w || 0), h: Math.max(d.h, c.h || 0) });
+  }
+  const out = [];
+  for (const [src, d] of drawn) {
+    const img = pictures.get(src);
+    const w = img && (img.width || img.naturalWidth);
+    const h = img && (img.height || img.naturalHeight);
+    if (!w || !h) continue;
+    const k = Math.min(1, Math.max((2 * d.w) / w, (2 * d.h) / h, 64 / Math.max(w, h)));
+    const cut = document.createElement("canvas");
+    cut.width = Math.max(1, Math.round(w * k));
+    cut.height = Math.max(1, Math.round(h * k));
+    cut.getContext("2d").drawImage(img, 0, 0, cut.width, cut.height);
+    const blob = await new Promise((r) => cut.toBlob(r, "image/webp", 0.82));
+    if (blob) out.push({ src, type: blob.type, b64: base64(new Uint8Array(await blob.arrayBuffer())) });
+  }
+  return out;
+}
+// A server of one's own publishes nothing to sliqtly.com: its Export has no
+// Cloud rows (PresApp.setCloud), and a click from elsewhere is said no to.
+function noCloudHere() {
+  if (!window.sliqtly?.local) return false;
+  toast(t("This server does not publish to the cloud. Export a web page, a player or a video to a file instead."));
+  return true;
+}
+// `days`: how long its link works, `look` "3d" with the 3-D flight
+// through the slides (both asked first when not given)
+async function exportRecWeb(days, look = "2d") {
+  if (noCloudHere()) return;
+  const p = window.sliqtly;
+  if (!p?.user?.()) {
+    toast(t("Sign in to export the presentation to the cloud."));
+    return;
+  }
+  if (!days) return askLinkDays(t("Export as Cloud HTML"), exportRecWeb, true);
+  if (!(await cloudTakesDeck())) return;
+  const stream = await recordForWeb();
+  if (look === "3d") stream.flight = await recordFlight();
+  const bytes = await packStream(stream);
+  await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
+    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
+}
+// Export ▸ Cloud video: the presentation as a video (makeVideo) at the same
+// kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
+// browser's own player plays it.
+async function exportCloudVideo(days) {
+  if (noCloudHere()) return;
+  if (!window.sliqtly?.user?.()) {
+    toast(t("Sign in to export the presentation to the cloud."));
+    return;
+  }
+  if (!days) return askLinkDays(t("Export as Cloud video"), exportCloudVideo);
+  if (!(await cloudTakesDeck())) return;
+  const bytes = await makeVideo(true);
+  if (!bytes) return;
+  try {
+    await publishForWeb(bytes, ".webm", "video/webm",
+      t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)", days);
+  } finally {
+    app.closeProgress(VIDEO_KEY);
+  }
+}
+window.__exportCloudVideo = exportCloudVideo;
+// The deck saved in the cloud before a recording or a video is made for it
+// there: a deck the cloud will not take (the license's limit, another
+// account's) is said so at once, not after the work. False then.
+async function cloudTakesDeck() {
+  try {
+    await shareCloud();
+    return true;
+  } catch (e) {
+    toast(cloudFailure(e));
+    return false;
+  }
+}
+// How long a link works (web/linkdays.js), asked in the app's window before
+// Share and the cloud exports make one: `go(days, look)` runs on the
+// answer, Cancel drops it. With `looks` (Cloud HTML) the window also asks
+// which version: "2d" the slides, "3d" the 3-D flight through them. The
+// last answers are picked first next time.
+const LINK_DAYS_KEY = "sliqtly.linkDays";
+const LOOK_KEY = "sliqtly.publishLook";
+let linkAsk = null;
+function lastLinkDays() {
+  let d = DEFAULT_DAYS;
+  try { d = linkDays(localStorage.getItem(LINK_DAYS_KEY) || DEFAULT_DAYS); } catch (_) { /* the default */ }
+  return CHOICES.includes(d) ? d : DEFAULT_DAYS;
+}
+function lastLook() {
+  try { return localStorage.getItem(LOOK_KEY) === "3d" ? "3d" : "2d"; } catch (_) { return "2d"; }
+}
+function askLinkDays(title, go, looks = false) {
+  const most = String(MAX_DAYS);
+  linkAsk = { go, looks };
+  const asked = looks
+    ? app.openPick("linkdays", title, t("Pick the version, and how long the link works. After that it shows nothing. At most {n} days.").replace("{n}", most), t("Create link"),
+      t("Version") + "\n2d=" + t("Slides (2-D)") + "\n3d=" + t("3-D flight") + "\n\n" + t("The link works") + "\n" + choiceLines(t),
+      lastLook() + "," + lastLinkDays())
+    : app.openPick("linkdays", title, t("How long should the link work? After that it shows nothing. At most {n} days.").replace("{n}", most), t("Create link"),
+      choiceLines(t), String(lastLinkDays()));
+  if (asked) {
+    needsPaint = true;
+    return;
+  }
+  // no window now (presenting): the last answers
+  linkAsk = null;
+  return go(lastLinkDays(), looks ? lastLook() : "2d");
+}
+function answerLinkDays() {
+  const ask = linkAsk;
+  linkAsk = null;
+  if (!ask) return;
+  const got = app.picked().split(",");
+  const look = ask.looks && got[0] === "3d" ? "3d" : "2d";
+  const days = linkDays(ask.looks ? got[1] : got[0]);
+  try {
+    localStorage.setItem(LINK_DAYS_KEY, String(days));
+    if (ask.looks) localStorage.setItem(LOOK_KEY, look);
+  } catch (_) { /* this time only */ }
+  Promise.resolve(ask.go(days, look)).catch(fail);
+}
+window.__answerLinkDays = (days, look = "2d") => {
+  app.closeChart?.();
+  const ask = linkAsk;
+  linkAsk = null;
+  return ask ? ask.go(linkDays(days), look) : null;
+};
+// The recording's or the video's bytes kept with the deck as
+// recordings/web-{hash}{ext} (the one before of the same kind removed), the
+// deck shared, and its /r/ link, a link of the recording's own working
+// `days`, shown with `note`.
+async function publishForWeb(bytes, ext, type, note, days) {
+  const p = window.sliqtly;
+  const hash = await streamHash(bytes);
+  const path = streamPath(hash, ext);
+  const kind = new RegExp("^recordings/web-[0-9a-f]+\\" + ext + "$");
+  const old = (await docFiles()).map((f) => f.path).filter((x) => kind.test(x) && x !== path);
+  if (old.length) await deleteFiles(old, { quiet: true });
+  // their own links show nothing now: gone with them
+  if (old.length && doc.cloud) await Promise.all(old.map((x) => p.removeFileLinks?.(doc.cloud, x))).catch((e) => console.warn("old links", e));
+  await keepFile({ path, type, size: bytes.length, data: new Blob([bytes], { type }) });
+  toast(t("Sending the recording to the cloud…"));
+  try {
+    const id = await shareCloud();
+    let shown = id;
+    if (typeof p.viewLink === "function") {
+      // as Share: only the owner hands out a viewing link
+      const cur = await p.loadShare(id);
+      if (cur && cur.owner !== p.user()?.uid) {
+        app.closeShare?.();
+        toast(t("Only the owner of this presentation shares it. You were invited to edit it."));
+        return;
+      }
+      shown = await p.viewLink(id, days, path);
+      note += " " + untilText(Date.now() + linkDays(days) * 864e5, t);
+    }
+    else await p.setVisibility(id, "link");
+    const url = playUrl(location.origin, shown, hash);
+    window.__lastRecLink = url;
+    showShare(url, "", note, "", true);
+  } catch (e) {
+    showShare("", "", cloudFailure(e), "");
+  }
+}
+window.__recordForWeb = recordForWeb;
+window.__recordFlight = recordFlight;
+window.__exportRecWeb = exportRecWeb;
 window.__exportDocx = exportDocx;
 window.__exportHtml = exportHtml;
 window.__renderDocxShots = renderDocxShots;
@@ -5364,8 +6214,11 @@ document.getElementById("docx").addEventListener("click", () => { exportDocx().c
 document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
 document.getElementById("html").addEventListener("click", () => { exportHtml().catch(fail); });
 document.getElementById("player").addEventListener("click", () => { exportPlayer().catch(fail); });
+document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
+document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
+document.getElementById("vidweb").addEventListener("click", () => { exportCloudVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
 document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });
@@ -5586,6 +6439,8 @@ async function cloudSync() {
     cloudError = "";
     cloudNoRight = false;
     plainAddress();
+    // a server's room lists it by the server's time of this save
+    if (ownServer()) roomDecksAfterSave();
     return id;
   })();
   try { return await cloudBusy; } finally {
@@ -6082,12 +6937,16 @@ async function shareCloud() {
   return Promise.race([timeout, cloudSync().then((id) => id || Promise.reject(new Error("not saved")))]);
 }
 
-function cloudFailure(e) {
+// Why the cloud did not take the deck, said to the reader. The license's
+// refusal (sliqtly.js editRight, code "no-edit-right") is its own sentence;
+// `textLink`: the dialog shows the link with the text packed in instead.
+function cloudFailure(e, textLink = false) {
   console.warn("cloud sharing failed", e);
+  if (e?.code === "no-edit-right") return e.message;
   const why = e?.code === "permission-denied" || e?.code === "storage/unauthorized" ? t("the cloud refused it (rules not set up?)")
     : e?.code === "timeout" ? t("no answer from the cloud (is Firestore created?)")
     : (e?.code || e?.message || String(e));
-  return t("Cloud sharing failed: ") + why + ". " + t("Sharing the text in the link instead.");
+  return t("Cloud sharing failed: ") + why + "." + (textLink ? " " + t("Sharing the text in the link instead.") : "");
 }
 
 function showShare(showUrl, editUrl, note, viewUrl = "", live = false) {
@@ -6125,7 +6984,11 @@ async function stopSharing() {
   toast(t("The presentation link no longer shows this presentation. Share makes a new one."));
 }
 
-async function shareLink() {
+// `days`: how long the cloud's viewing link works (asked first there)
+async function shareLink(days) {
+  if (!days && window.sliqtly?.user?.() && typeof window.sliqtly.viewLink === "function") {
+    return askLinkDays(t("Share"), shareLink);
+  }
   const text = app.source();
   const code = await packText(text);
   const q = new URLSearchParams();
@@ -6167,12 +7030,12 @@ async function shareLink() {
         toast(t("Only the owner of this presentation shares it. You were invited to edit it."));
         return;
       }
-      const link = await p.viewLink(id);
+      const link = await p.viewLink(id, days);
       const short = location.origin + "/s/" + link;
       const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
       shareEditors = cur?.editors || [];
       app.setShareEditors(shareEditors.length);
-      showShare(short, "", t("A link of its own that shows the presentation, with its images and data, as you change it. Anyone with the link can view it; it never lets anyone edit."), view, true);
+      showShare(short, "", t("A link of its own that shows the presentation, with its images and data, as you change it. Anyone with the link can view it; it never lets anyone edit.") + " " + untilText(Date.now() + linkDays(days) * 864e5, t), view, true);
     } catch (e) {
       showShare("", "", cloudFailure(e), "");
     }
@@ -6188,7 +7051,7 @@ async function shareLink() {
     const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
     showShare(short, short + "?edit", t("A short link to a copy in the cloud, with its images and data. Anyone with the link can view it; only you can change the original."), view, true);
   } catch (e) {
-    showShare(showUrl, editUrl, cloudFailure(e) + " " + textNote, viewUrl);
+    showShare(showUrl, editUrl, cloudFailure(e, true) + " " + textNote, viewUrl);
   }
 }
 
@@ -7002,7 +7865,7 @@ function exportOnSite(kind) {
   q.set("export", kind);
   siteLink(siteUrl("").replace(/#.*$/, "") + "#" + q.toString());
 }
-const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), player: () => exportPlayer(), md: () => exportMd() };
+const EXPORTS = { pdf: () => exportPdf(), pptx: () => exportPptx(), docx: () => exportDocx(), html: () => exportHtml(), player: () => exportPlayer(), recweb: () => exportRecWeb(), md: () => exportMd() };
 async function exportMd() {
   window.__lastDownload = deliver(new TextEncoder().encode(app.source()), exportName() + ".md", "text/markdown");
 }
@@ -7486,6 +8349,27 @@ const KEY_MAP = {
   Home: "home", End: "end", PageUp: "pageUp", PageDown: "pageDown", Escape: "escape",
 };
 const CLIPBOARD_CHORD = /^[cxvCXV]$/;
+// Find and replace in the code editor (src/PresFindBar.rgr), VS Code's keys:
+// Ctrl/Cmd+F find, Ctrl+H (Cmd+Alt+F on a Mac, where Cmd+H hides the window)
+// replace; while the bar is open F3 / Ctrl/Cmd+G the next match (Shift: the
+// one before), and with the bar's field in focus Alt+C / W / R / L its
+// switches (match case, whole word, regex, in selection). By `code`, since
+// Alt changes the letter a Mac reports.
+function findChordOf(ev) {
+  const mod = ev.ctrlKey || ev.metaKey;
+  const where = app.focusTarget();
+  if (where === "editor" || where === "find") {
+    if (mod && !ev.shiftKey && ev.code === "KeyF") return !ev.altKey ? "find" : IS_MAC ? "replace" : "";
+    if (!IS_MAC && ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey && ev.code === "KeyH") return "replace";
+  }
+  if (!app.findIsOpen()) return "";
+  if (ev.key === "F3" && !mod && !ev.altKey) return ev.shiftKey ? "prev" : "next";
+  if (mod && !ev.altKey && ev.code === "KeyG") return ev.shiftKey ? "prev" : "next";
+  if (ev.altKey && !mod && !ev.shiftKey && where === "find") {
+    return { KeyC: "case", KeyW: "word", KeyR: "regex", KeyL: "scope" }[ev.code] || "";
+  }
+  return "";
+}
 // The code editor's text size: Ctrl/Cmd + plus / minus / 0 while the editor
 // has the keyboard (the browser's own zoom everywhere else), and Ctrl + wheel
 // or a trackpad pinch over it. Kept per browser.
@@ -7532,6 +8416,8 @@ let composing = false;
 // passing through beforeinput, and the input handler below carries it over.
 let mirrored = "";
 function mirrorLine() {
+  // the field holds the composition's marked text; rewriting it cancels it
+  if (composing) return;
   if (app.focusTarget() !== "editor" || (lastLayout && lastLayout.mode === "present")) {
     if (keys.value !== "") keys.value = "";
     mirrored = "";
@@ -7638,6 +8524,13 @@ keys.addEventListener("keydown", (ev) => {
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
+  // A key pressed while a composition is open (a dead key's ` or ´ waiting
+  // for the next key, an IME's candidates) is the composition's: what it
+  // commits comes as compositionend, and Enter or Backspace after it as
+  // beforeinput. Taken here, Enter split the line before the pending ` was
+  // committed, and the mirror reset under the composition lost or misplaced
+  // it: ``` + Enter left a broken fence and a stray backtick.
+  if (ev.isComposing || ev.keyCode === 229) return;
   if (recCounting) {
     ev.preventDefault();
     if (ev.key === "Escape") recCounting();
@@ -7651,9 +8544,16 @@ keys.addEventListener("keydown", (ev) => {
     afterInput();
     return;
   }
-  if (!presenting && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
+  if (!presenting && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter" && app.focusTarget() !== "find") {
     ev.preventDefault();
     if (app.isPlaying()) app.stop(); else app.play();
+    afterInput();
+    return;
+  }
+  const findChord = presenting ? "" : findChordOf(ev);
+  if (findChord && app.findChord(findChord)) {
+    ev.preventDefault();
+    closeHint();
     afterInput();
     return;
   }
@@ -7668,7 +8568,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   const special = KEY_MAP[ev.key];
   if (special) {
-    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room") return;
+    if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room" && app.focusTarget() !== "find") return;
     if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
@@ -7756,6 +8656,10 @@ keys.addEventListener("compositionend", (ev) => {
 });
 
 keys.addEventListener("beforeinput", (ev) => {
+  // an edit that is not the composition's says it is over, whether or not a
+  // compositionend came (Enter or a click can end one without it): left
+  // switched on, the flag swallowed the commit and every key after it
+  if (!ev.isComposing && ev.inputType !== "insertCompositionText") composing = false;
   if (composing || ev.isComposing) return;
   const type = ev.inputType;
   let handled = true;
@@ -7820,6 +8724,23 @@ keys.addEventListener("paste", (ev) => {
       needsPaint = true;
       return;
     }
+  }
+  // while a conversation's composer has the keys, text goes into it as it
+  // is, and pictures with the AI assistant's next question
+  if (app.chatHasKeys()) {
+    const pics = app.aiTakesPictures()
+      ? items.filter((it) => it.kind === "file" && it.type.startsWith("image/")).map((it) => it.getAsFile()).filter(Boolean)
+      : [];
+    if (pics.length) {
+      (async () => { for (const f of pics) await aiPicture(f); })().catch(fail).finally(() => { needsPaint = true; });
+      return;
+    }
+    const text = ev.clipboardData?.getData("text/plain") || "";
+    if (text) {
+      app.pasteText(text);
+      afterInput();
+    }
+    return;
   }
   const text = ev.clipboardData?.getData("text/plain") || "";
   // Sliqtly's own copy carries a picture of itself for other apps: here the
@@ -8913,6 +9834,7 @@ async function start() {
   chromeSheets.chart = kit + "\n" + chartCss;
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
+  textOf("./find.css").then((c) => { chromeSheets.find = kit + "\n" + c; app.setFindCss(chromeSheets.find + skinCss(chromeSheets.find, "fb")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   // the signed-in account's own store and keys, before anything kept is read
   useAccount(await accountScope().catch((e) => { console.warn("no account known", e); return EDITOR_ROOT && !viewer ? "signed-out" : ""; }));
@@ -8926,6 +9848,7 @@ async function start() {
     // the presentations open in this tab, as they were before a reload
     app.useDeckTabs(true);
     app.deckTabsRestore(readDeckTabs(mineTab));
+    aiButton();
     syncBarExtras();
     new MutationObserver(syncBarExtras).observe(document.getElementById("bar"),
       { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "data-canvas", "data-short"] });
@@ -8937,8 +9860,11 @@ async function start() {
   if (!viewer) applySkin();
   reviewMe();
   applyReviewMode();
-  // a server of one's own is known once its window.sliqtly is there
-  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); });
+  // a server of one's own is known once its window.sliqtly is there; it
+  // publishes nothing to sliqtly.com (Export ▸ Cloud HTML, Cloud video)
+  const cloudOrNot = () => { if (window.sliqtly) app.setCloud(!window.sliqtly.local); needsPaint = true; };
+  cloudOrNot();
+  window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); cloudOrNot(); });
   window.addEventListener("sliqtly:user", () => reviewMe());
   app.setCoarse(isCoarse());
   app.setMac(IS_MAC);

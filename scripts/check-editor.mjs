@@ -11,6 +11,9 @@
  *   - a reload there opens it from the cloud
  *   - Share gives a viewing link of its own (/s/{linkId}), never the deck's
  *     id, and People who can edit… keeps the addresses on the deck
+ *   - Export ▸ Cloud HTML keeps the deck recorded for the web as its file
+ *     recordings/web-<hash>.sliqrec, with its faces and pictures, linked as
+ *     /r/{linkId}/<hash>
  *   - someone else's deck at /editor/d/{id} is shown, not copied, and
  *     nothing of it is saved under the other user
  *   - invited to someone else's deck, the user edits that same deck
@@ -65,6 +68,8 @@ const server = http.createServer(async (req, res) => {
     if (op === "session") return json(200, { uid: gate.uid, license: gate.license });
     if (!gate.signedIn) return json(401, { code: "signed-out" });
     if (op === "license") return json(200, { license: gate.license });
+    // the account's own Figma files (mcp-go/editorshared.go): none here
+    if (op === "shared") return json(200, { files: [], max: 200 << 20, upload: `users/${gate.uid}/figma-upload/` });
     if (op === "claim") {
       const { id } = JSON.parse(body || "{}");
       gate.claims.push(id);
@@ -187,14 +192,37 @@ try {
     first.shares.length === 1 && gate.license.docs.includes(id) && first.claims[0] === id && first.at === "/editor/d/" + id
       && fakeDb.get("shares/" + id)?.visibility === "private", JSON.stringify(first));
 
-  // Share: a viewing link of its own, never the deck's id
+  // Share: first asks how long the link works (web/linkdays.js), then a
+  // viewing link of its own, never the deck's id, working that long
   await pg.evaluate(() => document.getElementById("share").click());
+  const asked = await pg.waitForFunction(() => window.__app.chartIsOpen?.() && window.__app.picked() === "7", null, { timeout: 15000 }).then(() => true, () => false);
+  await pg.evaluate(() => window.__answerLinkDays(30));
   await pg.waitForFunction(() => /\/s\/[A-Za-z0-9]+$/.test(window.__lastShareShow || ""), null, { timeout: 15000 }).catch(() => {});
   const shown = await pg.evaluate(() => ({ show: window.__lastShareShow || "", edit: window.__lastShare || "" }));
   const link = links()[0];
-  check("Share gives a link of its own to view the deck, and no editing link",
-    !!link && link.of === id && link.owner === "u1" && shown.show.endsWith("/s/" + link.id) && !shown.show.includes(id) && shown.edit === "",
-    JSON.stringify({ shown, link }));
+  check("Share asks how long the link works, then gives a link of its own to view the deck for that long, and no editing link",
+    asked && !!link && link.of === id && link.owner === "u1" && link.days === 30 && link.since > 0 && !link.file
+      && shown.show.endsWith("/s/" + link.id) && !shown.show.includes(id) && shown.edit === "",
+    JSON.stringify({ asked, shown, link }));
+  // Export ▸ Cloud HTML: the deck recorded for the web (web/recstream.js)
+  // is a file of the deck named by its hash, and its link the light
+  // player's /r/{viewing link}/<hash>; recorded again unchanged, the same
+  await pg.evaluate(() => window.__app.closeShare());
+  const recLink = async () => {
+    await pg.evaluate(() => { window.__lastRecLink = ""; return window.__exportRecWeb(1); });
+    return pg.evaluate(() => window.__lastRecLink || "");
+  };
+  const rec1 = await recLink();
+  const rec2 = await recLink();
+  const recHash = (/\/r\/[A-Za-z0-9]+\/([0-9a-f]{24})$/.exec(rec1) || [])[1] || "";
+  await pg.waitForFunction((h) => window.__docFiles().then((fs) => fs.includes("recordings/web-" + h + ".sliqrec")), recHash, { timeout: 15000 }).catch(() => {});
+  const recFiles = (fakeDb.get("shares/" + id)?.files || []).map((f) => f.path).filter((p) => p.startsWith("recordings/"));
+  const recOwn = links().filter((l) => l.file === "recordings/web-" + recHash + ".sliqrec");
+  check("Export ▸ Cloud HTML keeps the recording under its hash and links the light player to it through a link of its own for the days asked",
+    !!recHash && recOwn.length === 1 && recOwn[0].days === 1 && rec1.endsWith("/r/" + recOwn[0].id + "/" + recHash) && rec2 === rec1
+      && JSON.stringify(recFiles) === JSON.stringify(["recordings/web-" + recHash + ".sliqrec"]),
+    JSON.stringify({ rec1, rec2, recFiles, recOwn }));
+
   // People who can edit…: the window, an address, Save
   await pg.evaluate(() => window.__app.closeShare());
   await pg.evaluate(() => window.__app.openInvite("", "t@example.com"));

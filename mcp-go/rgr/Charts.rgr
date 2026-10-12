@@ -10,6 +10,7 @@ Import "McpJson.rgr"
 ; a ```vega-lite fence: its line numbers, the spec's text and the title of
 ; the slide it is on
 class ChartFence {
+    def lang:string ""
     def open:int 0
     def close:int 0
     def text:string ""
@@ -103,6 +104,17 @@ class Charts {
     }
 
     sfn all:[ChartFence] (md:string) {
+        def out:[ChartFence]
+        for (Charts.fences(md)) f:ChartFence i {
+            if ((f.lang == "vega-lite") || (f.lang == "vegalite")) {
+                push out f
+            }
+        }
+        return out
+    }
+
+    ; every closed fence of the Markdown, with its info word lowercased
+    sfn fences:[ChartFence] (md:string) {
         def ls:[string] (Charts.lines(md))
         def out:[ChartFence]
         def inFence:boolean false
@@ -125,20 +137,19 @@ class Charts {
                     open = i
                 } {
                     if ((((charAt m 0) == (charAt mark 0)) && ((strlen m) >= (strlen mark))) && ((strlen word) == 0)) {
-                        if ((lang == "vega-lite") || (lang == "vegalite")) {
-                            def f (new ChartFence)
-                            f.open = open
-                            f.close = i
-                            def body:[string]
-                            def k:int (open + 1)
-                            while (k < i) {
-                                push body (itemAt ls k)
-                                k = (k + 1)
-                            }
-                            f.text = (join body "\n")
-                            f.title = title
-                            push out f
+                        def f (new ChartFence)
+                        f.lang = lang
+                        f.open = open
+                        f.close = i
+                        def body:[string]
+                        def k:int (open + 1)
+                        while (k < i) {
+                            push body (itemAt ls k)
+                            k = (k + 1)
                         }
+                        f.text = (join body "\n")
+                        f.title = title
+                        push out f
                         inFence = false
                     }
                 }
@@ -387,6 +398,51 @@ class Charts {
                     on = (" on \"" + f.title + "\"")
                 }
                 push ws (Guide.see(("Chart " + (i + 1) + on + ": " + (join bad ", ") + "; Vega-Lite types are quantitative, ordinal, nominal and temporal. Sliqtly reads the type from the data and draws the chart, but Vega-Lite itself and other tools reject it: write one of the four.") "charts"))
+            }
+        }
+        return ws
+    }
+
+    ; Charts written as another tool writes them, which Sliqtly shows as code
+    ; or draws empty: a ```chart block or Chart.js JSON ("datasets") — what a
+    ; model writes when asked for charts unless it has read the guide — and
+    ; a ```vega-lite spec with nothing to draw.
+    sfn fenceWarnings:[string] (md:string) {
+        def ws:[string]
+        def write:string "a chart is a ```vega-lite block holding a Vega-Lite v5 spec: \"data\": {\"values\": [...]}, \"mark\" and \"encoding\""
+        for (Charts.fences(md)) f:ChartFence i {
+            def on:string ""
+            if ((strlen f.title) > 0) {
+                on = (" on slide \"" + f.title + "\"")
+            }
+            def vl:boolean ((f.lang == "vega-lite") || (f.lang == "vegalite"))
+            def spec:MfJ (J.parse(f.text))
+            def chartJs:boolean false
+            if (spec.isObj()) {
+                def dat:MfJ (spec.field("data"))
+                chartJs = ((spec.has("datasets")) || ((dat.isObj()) && (dat.has("datasets"))))
+            }
+            if ((f.lang == "chart") || ((f.lang == "chartjs") || (f.lang == "chart.js"))) {
+                push ws (Guide.see(("The ```" + f.lang + " block" + on + " is shown as code: Sliqtly has no ```" + f.lang + "; " + write + ".") "charts"))
+                continue
+            }
+            if chartJs {
+                def as:string "shown as code"
+                if vl {
+                    as = "drawn empty"
+                }
+                push ws (Guide.see(("The block" + on + " is Chart.js (\"datasets\"), " + as + ": " + write + ".") "charts"))
+                continue
+            }
+            if (vl && (spec.isObj())) {
+                def draws:boolean false
+                def keys:[string] (strsplit "mark layer concat hconcat vconcat repeat facet spec" " ")
+                for keys key:string ki {
+                    draws = (draws || (spec.has(key)))
+                }
+                if (draws == false) {
+                    push ws (Guide.see(("The vega-lite block" + on + " has no \"mark\" (or \"layer\"), so it draws nothing.") "charts"))
+                }
             }
         }
         return ws

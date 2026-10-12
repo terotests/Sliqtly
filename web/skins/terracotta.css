@@ -5,8 +5,7 @@
    under the dark look; these go after the derived dark overlay, so they
    win over it. */
 .theme-terracotta .tb-bar,
-.theme-terracotta .tb-railcol,
-.theme-terracotta .tb-frameunder { background-color: #9a5229; }
+.theme-terracotta .tb-railcol { background-color: #9a5229; }
 .theme-terracotta .tb-corner { fill: #9a5229; }
 /* the mark on a light tile, as a workspace's icon on Slack's frame */
 .theme-terracotta .tb-logo { background-color: #fff8ef; border-radius: 9px; }
@@ -43,7 +42,6 @@
    white) yet a step above the near-black panels set into it (2.1:1); Rooms
    a step lighter than the editor beside it (Slack's sidebar). */
 .theme-terracotta-dark .tb-bar,
-.theme-terracotta-dark .tb-railcol,
-.theme-terracotta-dark .tb-frameunder { background-color: #6b391e; }
+.theme-terracotta-dark .tb-railcol { background-color: #6b391e; }
 .theme-terracotta-dark .tb-corner { fill: #6b391e; }
 .theme-terracotta-dark .tb-rooms { background-color: #1f1c1a; border-color: #2e2a27; }

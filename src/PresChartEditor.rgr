@@ -33,6 +33,7 @@ Import "PresFlowModel.rgr"
 Import "PresGridModel.rgr"
 Import "PresDocSettings.rgr"
 Import "PresThemeGallery.rgr"
+Import "PresFlightLook.rgr"
 Import "PresFigma.rgr"
 Import "PresTraceSettings.rgr"
 Import "PresColorPanel.rgr"
@@ -40,6 +41,7 @@ Import "../evgui/src/UiHost.rgr"
 Import "UiKit.rgr"
 Import "PresKeep.rgr"
 Import "PresInvite.rgr"
+Import "PresStoryNames.rgr"
 Import "PresI18n.rgr"
 
 class PresChartEditor {
@@ -197,6 +199,11 @@ class PresChartEditor {
     def thTab:string ""
     def wantsTheme:string ""
     def themePicked:boolean false
+    ; the 3-D flight's look (tab 3-D, front matter `look-3d:`): the one in
+    ; use, and the one a tile picked (`lookPicked`)
+    def thLook:string "minority"
+    def wantsLook:string ""
+    def lookPicked:boolean false
     def wantsCss:boolean false
     ; File → Duplicate asks only the copy's name: `ndDup` hides the theme and
     ; data tabs, the name starts as the page's suggestion, all selected
@@ -236,7 +243,26 @@ class PresChartEditor {
     def cfAlt:string ""
     ; a question that deletes nothing (a paste): its button is not red
     def cfSafe:boolean false
+    ; Choices to make before going on (PresApp.openPick: how long a link
+    ; works, which version): `cfPicks` one "key=label" line per chip, a row
+    ; of chips per group (groups apart by an empty line, a line without "="
+    ; their heading), `cfPick` the key chosen in each group, "," between,
+    ; which the page reads when it hears "confirm:<key>"
+    def cfPicks:string ""
+    def cfPick:string ""
     def wantsAlt:boolean false
+    ; A long job's window (`mode` "progress": a video being made): `pgKey`
+    ; names the job to the page, `pgText` says what it is, the bar shows
+    ; `pgValue` of `pgMax` (below 0: no number yet) and `pgNote` is said
+    ; under it. Cancel (shown while `pgCancel`) sets `wantsCancelJob`; × and
+    ; Esc only hide the window and the job goes on.
+    def pgKey:string ""
+    def pgText:string ""
+    def pgNote:string ""
+    def pgValue:int -1
+    def pgMax:int 100
+    def pgCancel:boolean true
+    def wantsCancelJob:boolean false
     ; The document's settings (`mode` "docset"): the front matter's title,
     ; transition, header and footer (`ds`), the tab showing ("header",
     ; "footer", "deck") and the deck's pictures, for a logo. Every change is
@@ -250,6 +276,13 @@ class PresChartEditor {
     ; to do with it: "set:<path>", "none", "edit", "trace" ("" nothing)
     def dsBg:string ""
     def dsBgAct:string ""
+    ; One slide's background picture (`mode` "slidebg", the slide menu's
+    ; Background image…): the slide (sbSlide), its `bg=` ("" none), and
+    ; what was asked of the app, as dsBgAct: "set:<path>", "none", "edit",
+    ; "trace" ("" nothing). The pictures are dsPics.
+    def sbSlide:int -1
+    def sbBg:string ""
+    def sbAct:string ""
     ; the presentation's home room (ADR 0001), as the page gave the rooms
     ; (setDocRooms): their ids and names, the one it is in, a note in place
     ; of the list ("" none), and the room chosen here for the app to move it
@@ -259,6 +292,15 @@ class PresChartEditor {
     def dsRoom:string ""
     def dsRoomNote:string ""
     def dsRoomAct:string ""
+    ; the open presentation as a story (setDocStory): its type, phase and
+    ; tags (commas between); what was changed here, for the page
+    ; ("type\t<v>", "phase\t<v>", "tags\t<text>"); the tags as last sent
+    def dsStoryOn:boolean false
+    def dsType:string "story"
+    def dsPhase:string "active"
+    def dsTags:string ""
+    def dsTagsSent:string ""
+    def dsStoryActs:[string]
     ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
     ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
@@ -382,7 +424,18 @@ class PresChartEditor {
         thTab = (PresThemeGallery.tabOf((PresThemeGallery.tiles(rows)) current))
         wantsTheme = ""
         themePicked = false
+        wantsLook = ""
+        lookPicked = false
         wantsCss = false
+        this.openAt(px py pw ph)
+    }
+
+    fn openSlideBg:void (slide:int bg:string pics:[string] px:double py:double pw:double ph:double) {
+        mode = "slidebg"
+        sbSlide = slide
+        sbBg = bg
+        sbAct = ""
+        dsPics = pics
         this.openAt(px py pw ph)
     }
 
@@ -488,7 +541,31 @@ class PresChartEditor {
         dsRoom = ""
         dsRoomNote = ""
         dsRoomAct = ""
+        dsStoryOn = false
         this.openAt(px py pw ph)
+    }
+
+    ; The open presentation as a story: its type, phase and tags (commas
+    ; between); `on` false for one that is not kept yet.
+    fn setDocStory:void (on:boolean ty:string phase:string tags:string) {
+        dsStoryOn = on
+        dsType = ty
+        dsPhase = phase
+        if (focusTid != "ds-tags") {
+            dsTags = tags
+            dsTagsSent = tags
+        }
+        if (isOpen && (mode == "docset")) {
+            this.rebuild()
+        }
+    }
+
+    ; the tags typed since they were last sent, once the field is left
+    fn storyTagsDone:void () {
+        if ((focusTid != "ds-tags") && (dsTags != dsTagsSent)) {
+            dsTagsSent = dsTags
+            push dsStoryActs ("tags\t" + dsTags)
+        }
     }
 
     ; The rooms the presentation can be in: `rows` one "id\tname" a line,
@@ -524,9 +601,38 @@ class PresChartEditor {
         cfOk = ok
         cfAlt = ""
         cfSafe = false
+        cfPicks = ""
+        cfPick = ""
         wantsConfirm = false
         wantsAlt = false
         this.openAt(px py pw ph)
+    }
+
+    fn openProgress:void (key:string title:string words:string px:double py:double pw:double ph:double) {
+        mode = "progress"
+        pgKey = key
+        cfTitle = title
+        pgText = words
+        pgNote = ""
+        pgValue = 0
+        pgMax = 100
+        pgCancel = true
+        wantsCancelJob = false
+        this.openAt(px py pw ph)
+    }
+
+    ; How far the job named `key` has got; nothing when its window is not
+    ; the one showing.
+    fn setProgress:boolean (key:string value:int max:int note:string cancel:boolean) {
+        if (((isOpen == false) || (mode != "progress")) || (pgKey != key)) {
+            return false
+        }
+        pgValue = value
+        pgMax = max
+        pgNote = note
+        pgCancel = cancel
+        this.rebuild()
+        return true
     }
 
     fn openDiagram:void (m:PresFlowModel px:double py:double pw:double ph:double) {
@@ -1115,7 +1221,11 @@ class PresChartEditor {
             win.name = (PresI18n.t("Document settings"))
             win.title = (PresI18n.t("Document settings"))
         }
-        if (mode == "confirm") {
+        if (mode == "slidebg") {
+            win.name = (PresI18n.t("Slide background"))
+            win.title = win.name
+        }
+        if ((mode == "confirm") || (mode == "progress")) {
             win.name = cfTitle
             win.title = cfTitle
         }
@@ -1166,6 +1276,10 @@ class PresChartEditor {
             this.confirmBody(root)
             return
         }
+        if (mode == "progress") {
+            this.progressBody(root)
+            return
+        }
         if (mode == "newdeck") {
             this.newDeckBody(root)
             return
@@ -1180,6 +1294,10 @@ class PresChartEditor {
         }
         if (mode == "docset") {
             this.docSetBody(root)
+            return
+        }
+        if (mode == "slidebg") {
+            this.slideBgBody(root)
             return
         }
         if (mode == "paste") {
@@ -2059,7 +2177,8 @@ class PresChartEditor {
             this.dressButton(b)
             def r:EVGElement (unwrap b.rootEl)
             UiTree.addClass(r "ce-tile")
-            if (t.key == current) {
+            def look:string (FlightLook.ofTile(t.key))
+            if ((t.key == current) || (((strlen look) > 0) && (look == thLook))) {
                 UiTree.addClass(r "ce-tile-on")
             }
             UiKit.put(host b row)
@@ -2084,7 +2203,11 @@ class PresChartEditor {
         UiTree.addClass((unwrap tabs.rootEl) "ce-tabs")
         UiKit.put(host tabs root)
         def pane:EVGElement (UiKit.div("ce-pane"))
-        pane.addChild((UiKit.words("ce-doc" (PresI18n.t("Pick a theme: every slide changes at once. Your own changes stay in the Theme (CSS) tab.")))))
+        def why:string (PresI18n.t("Pick a theme: every slide changes at once. Your own changes stay in the Theme (CSS) tab."))
+        if (thTab == "3-D") {
+            why = (PresI18n.t("The colours of the 3-D flight (G while presenting). The slides keep their theme."))
+        }
+        pane.addChild((UiKit.words("ce-doc" why)))
         pane.addChild((this.tileRow("th-pick-" (PresThemeGallery.onTab(tiles thTab)) thValue)))
         root.addChild(pane)
         def bottom:EVGElement (UiKit.div("ce-foot"))
@@ -2186,6 +2309,10 @@ class PresChartEditor {
         this.offButton("fg-add" (PresI18n.t("Add to slide")) "primary" (picked == false) bottom)
         this.offButton("fg-slide" (PresI18n.t("New slide")) "outline" (picked == false) bottom)
         this.offButton("fg-copy" (PresI18n.t("Copy Markdown")) "outline" (picked == false) bottom)
+        ; a PowerPoint deck an assistant may have changed in place
+        if ((fg.scheme()) == "pptx") {
+            this.button("fg-download" (PresI18n.t("Download")) "outline" bottom)
+        }
         bottom.addChild((UiKit.div("ce-grow")))
         this.button("fg-del" (? fgArmed (PresI18n.t("Delete file?")) (PresI18n.t("Delete file"))) (? fgArmed "primary" "outline") bottom)
         this.button("fg-close" (PresI18n.t("Close")) "outline" bottom)
@@ -2233,6 +2360,10 @@ class PresChartEditor {
             }
             return true
         }
+        if (tid == "fg-download") {
+            fgAct = "download"
+            return true
+        }
         if (tid == "fg-del") {
             if fgArmed {
                 fgArmed = false
@@ -2254,6 +2385,16 @@ class PresChartEditor {
     fn themesAct:boolean (tid:string) {
         if ((indexOf tid "th-pick-") == 0) {
             def key:string (substring tid 8 (strlen tid))
+            def look:string (FlightLook.ofTile(key))
+            if ((strlen look) > 0) {
+                if (look != thLook) {
+                    thLook = look
+                    wantsLook = look
+                    lookPicked = true
+                    this.rebuild()
+                }
+                return true
+            }
             if (key != thValue) {
                 thValue = key
                 wantsTheme = key
@@ -2374,6 +2515,29 @@ class PresChartEditor {
                     sec4.addChild(rr)
                     sec4.addChild((UiKit.words("ce-doc" (PresI18n.t("The presentation's home room. Choosing another moves it there, as dragging it onto a room in the left rail does.")))))
                 }
+            }
+            if dsStoryOn {
+                def sec5:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
+                def tyr:EVGElement (this.field((PresI18n.t("Type"))))
+                def tys:[string] (PresStoryNames.types())
+                def tyn:[string]
+                for tys ty:string ti {
+                    push tyn (PresStoryNames.typeName(ty))
+                }
+                this.dropdown("ds-sty" (PresI18n.t("Type")) dsType tys tyn tyr)
+                sec5.addChild(tyr)
+                def phr:EVGElement (this.field((PresI18n.t("Phase"))))
+                def phs:[string] (PresStoryNames.phases())
+                def phn:[string]
+                for phs ph:string pi {
+                    push phn (PresStoryNames.phaseName(ph))
+                }
+                this.dropdown("ds-stp" (PresI18n.t("Phase")) dsPhase phs phn phr)
+                sec5.addChild(phr)
+                def tgr:EVGElement (this.field((PresI18n.t("Tags"))))
+                this.inputWith("ds-tags" (PresI18n.t("Tags")) dsTags (PresI18n.t("e.g. PDF, Renderer")) "ce-wide" tgr)
+                sec5.addChild(tgr)
+                sec5.addChild((UiKit.words("ce-doc" (PresI18n.t("What kind of presentation this is and where it is in its life. Its room lists its presentations by them; the colour comes from the type.")))))
             }
         } {
             if ((dsTab == "header") || (dsTab == "footer")) {
@@ -2499,26 +2663,35 @@ class PresChartEditor {
     ; edited or vectorized where it is.
     fn docSetBg:void (pane:EVGElement) {
         def sec:EVGElement (this.section(pane (PresI18n.t("Background image"))))
+        this.bgPictures(sec "ds-bg-" dsBg)
+        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Behind every slide: background-image in the theme's page rule. A slide's own bg= in its heading goes over it.")))))
+    }
+
+    ; The deck's pictures as chips under `sec` (None first), the one in use
+    ; `bg` on, and for a picture that is not a vector Edit image… and
+    ; Vectorize…; the buttons' ids start with `pre` ("none", the picture's
+    ; index, "edit", "trace").
+    fn bgPictures:void (sec:EVGElement pre:string bg:string) {
         if ((array_length dsPics) == 0) {
             sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Add a picture to the presentation first (paste it, or drop it on the Files tab), then pick it here.")))))
         } {
             def pc:EVGElement (UiKit.div("ce-chips"))
-            this.chip("ds-bg-none" (PresI18n.t("None")) ((strlen dsBg) == 0) pc)
+            this.chip((pre + "none") (PresI18n.t("None")) ((strlen bg) == 0) pc)
             def p:int 0
             while (p < (array_length dsPics)) {
                 def path:string (itemAt dsPics p)
-                this.chip(("ds-bg-" + (to_string p)) (PresChartEditor.fileName(path)) (path == dsBg) pc)
+                this.chip((pre + (to_string p)) (PresChartEditor.fileName(path)) (path == bg) pc)
                 p = (p + 1)
             }
             sec.addChild(pc)
         }
-        if ((strlen dsBg) > 0) {
+        if ((strlen bg) > 0) {
             def er:EVGElement (UiKit.div("ce-row"))
-            def low:string (to_lowercase dsBg)
+            def low:string (to_lowercase bg)
             def vector:boolean ((endsWith low ".svg") || (endsWith low ".svgz"))
             if (vector == false) {
-                this.button("ds-bg-edit" (PresI18n.t("Edit image…")) "outline" er)
-                this.button("ds-bg-trace" (PresI18n.t("Vectorize…")) "outline" er)
+                this.button((pre + "edit") (PresI18n.t("Edit image…")) "outline" er)
+                this.button((pre + "trace") (PresI18n.t("Vectorize…")) "outline" er)
             }
             sec.addChild(er)
             if vector {
@@ -2527,7 +2700,55 @@ class PresChartEditor {
                 sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Vectorize… turns a blurry or small picture into an SVG that stays sharp on any screen.")))))
             }
         }
-        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Behind every slide: background-image in the theme's page rule. A slide's own bg= in its heading goes over it.")))))
+    }
+
+    ; --- one slide's background picture ------------------------------------------
+    fn slideBgBody:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("Background image"))))
+        this.bgPictures(sec "sb-bg-" sbBg)
+        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("This slide only: bg= in its heading, over the theme's background. Document settings → Background sets it for every slide.")))))
+        root.addChild(pane)
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        bottom.addChild((UiKit.words("ce-doc" (PresI18n.t("Changes show on the slides right away, and Ctrl+Z undoes them.")))))
+        bottom.addChild((UiKit.div("ce-grow")))
+        this.button("sb-done" (PresI18n.t("Done")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn slideBgAct:boolean (tid:string) {
+        if (tid == "sb-done") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "sb-bg-none") {
+            if ((strlen sbBg) > 0) {
+                sbBg = ""
+                sbAct = "none"
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if ((tid == "sb-bg-edit") || (tid == "sb-bg-trace")) {
+            sbAct = (substring tid 6 (strlen tid))
+            changed = true
+            wantsClose = true
+            return true
+        }
+        if ((indexOf tid "sb-bg-") == 0) {
+            def bp:int (?? (str2int (substring tid 6 (strlen tid))) -1)
+            if ((bp >= 0) && (bp < (array_length dsPics))) {
+                if ((itemAt dsPics bp) != sbBg) {
+                    sbBg = (itemAt dsPics bp)
+                    sbAct = ("set:" + sbBg)
+                    changed = true
+                }
+            }
+            this.rebuild()
+            return true
+        }
+        return false
     }
 
     fn docSetAct:boolean (tid:string) {
@@ -2563,6 +2784,22 @@ class PresChartEditor {
         def e:int (this.dsEdge())
         if (tid == "ds-done") {
             wantsClose = true
+            return true
+        }
+        if ((indexOf tid "ds-sty-") == 0) {
+            def to:string (substring tid 7 (strlen tid))
+            if (to != dsType) {
+                dsType = to
+                push dsStoryActs ("type\t" + to)
+            }
+            return true
+        }
+        if ((indexOf tid "ds-stp-") == 0) {
+            def to:string (substring tid 7 (strlen tid))
+            if (to != dsPhase) {
+                dsPhase = to
+                push dsStoryActs ("phase\t" + to)
+            }
             return true
         }
         if ((indexOf tid "ds-room-") == 0) {
@@ -2706,6 +2943,31 @@ class PresChartEditor {
             return
         }
         pane.addChild((this.copyable("ce-t-confirm" "ce-doc" cfText)))
+        if ((strlen cfPicks) > 0) {
+            def nl:string (strfromcode 10)
+            def chosen:[string] (strsplit cfPick ",")
+            def g:int 0
+            for (strsplit cfPicks (nl + nl)) group:string gi {
+                def pick:string ""
+                if (g < (array_length chosen)) {
+                    pick = (itemAt chosen g)
+                }
+                def pc:EVGElement (UiKit.div("ce-chips"))
+                for (strsplit group nl) line:string li {
+                    def at:int (indexOf line "=")
+                    if (at > 0) {
+                        def k:string (substring line 0 at)
+                        this.chip(("cf-pick-" + (to_string g) + "-" + k) (substring line (at + 1) (strlen line)) (k == pick) pc)
+                    } {
+                        if ((strlen line) > 0) {
+                            pane.addChild((UiKit.words("ce-flabel" line)))
+                        }
+                    }
+                }
+                pane.addChild(pc)
+                g = (g + 1)
+            }
+        }
         root.addChild(pane)
         def bottom:EVGElement (UiKit.div("ce-foot"))
         this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
@@ -2733,6 +2995,67 @@ class PresChartEditor {
         }
         if (tid == "cf-alt") {
             wantsAlt = true
+            wantsClose = true
+            return true
+        }
+        if ((indexOf tid "cf-pick-") == 0) {
+            ; "cf-pick-<group>-<key>": that group's choice
+            def rest:string (substring tid 8 (strlen tid))
+            def dash:int (indexOf rest "-")
+            if (dash > 0) {
+                def g:int (?? (to_int (substring rest 0 dash)) 0)
+                def chosen:[string] (strsplit cfPick ",")
+                def out:[string]
+                def i:int 0
+                while ((i < (array_length chosen)) || (i <= g)) {
+                    def v:string ""
+                    if (i < (array_length chosen)) {
+                        v = (itemAt chosen i)
+                    }
+                    if (i == g) {
+                        v = (substring rest (dash + 1) (strlen rest))
+                    }
+                    push out v
+                    i = (i + 1)
+                }
+                cfPick = (join out ",")
+                this.rebuild()
+            }
+            return true
+        }
+        return false
+    }
+
+    ; --- a long job: what it is, how far, Cancel ---------------------------------
+    fn progressBody:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("ce-pane"))
+        pane.addChild((this.copyable("pg-t-what" "ce-doc" pgText)))
+        def bar (new ProgressCtl())
+        bar.tid = "pg-bar"
+        bar.name = pgText
+        bar.indeterminate = (pgValue < 0)
+        bar.value = (to_double pgValue)
+        bar.maxValue = (to_double pgMax)
+        bar.valueLabel = pgNote
+        bar.build()
+        ; as wide as the window, not the control's own 200 px
+        UiTree.inline((unwrap bar.rootEl) "width" "100%")
+        UiKit.put(host bar pane)
+        if ((strlen pgNote) > 0) {
+            pane.addChild((this.copyable("pg-t-note" "ce-doc" pgNote)))
+        }
+        root.addChild(pane)
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        bottom.addChild((UiKit.div("ce-grow")))
+        if pgCancel {
+            this.button("pg-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        }
+        root.addChild(bottom)
+    }
+
+    fn progressAct:boolean (tid:string) {
+        if (tid == "pg-cancel") {
+            wantsCancelJob = true
             wantsClose = true
             return true
         }
@@ -4741,7 +5064,13 @@ class PresChartEditor {
         if ((mode == "docset") && (this.docSetAct(tid))) {
             return
         }
+        if ((mode == "slidebg") && (this.slideBgAct(tid))) {
+            return
+        }
         if ((mode == "confirm") && (this.confirmAct(tid))) {
+            return
+        }
+        if ((mode == "progress") && (this.progressAct(tid))) {
             return
         }
         if ((mode == "diagram") && (this.diagramAct(tid))) {
@@ -4910,6 +5239,9 @@ class PresChartEditor {
         }
         if (focusTid == "ds-title") {
             ds.title = v
+        }
+        if (focusTid == "ds-tags") {
+            dsTags = v
         }
         if ((indexOf focusTid "ds-dk-") == 0) {
             def dk:int (?? (str2int (substring focusTid 6 (strlen focusTid))) -1)

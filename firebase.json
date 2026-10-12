@@ -28,6 +28,28 @@
         ]
       },
       {
+        "source": "/r/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          },
+          {
+            "key": "X-Robots-Tag",
+            "value": "noindex"
+          }
+        ]
+      },
+      {
+        "source": "/play.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
         "source": "/index.html",
         "headers": [
           {
@@ -227,6 +249,10 @@
       {
         "source": "/main/admin",
         "destination": "/main/admin.html"
+      },
+      {
+        "source": "/r/**",
+        "destination": "/play.html"
       }
     ],
     "redirects": [

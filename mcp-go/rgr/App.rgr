@@ -116,14 +116,31 @@ class App {
         App.sendJson(res 200 body)
     }
 
+    ; Cache-Control for what never changes under its address: kept `most`
+    ; seconds, or only as long as the viewing link it was shown through
+    ; still works (Store.keepFor), so nothing is handed out past its term
+    sfn keepHeader:void (host:McpHost res:HttpResponse sh:Shown most:int) {
+        def n:int (Store.keepFor(host sh most))
+        if (n < most) {
+            http_set_header res "Cache-Control" ("public, max-age=" + (to_string n) + ", s-maxage=" + (to_string n))
+            return
+        }
+        http_set_header res "Cache-Control" ("public, max-age=" + (to_string most) + ", s-maxage=" + (to_string most) + ", immutable")
+    }
+
     ; GET /api/view/<id>/pic?path=<path>&v=<stamp>: a picture of the deck
     ; made for the viewer's screen (ViewPictures), kept by the CDN for good
-    ; under its stamp
+    ; under its stamp. GET /api/view/<id>/rec/<hash>: the deck recorded
+    ; for the web (ViewPictures.recording), for good under its hash.
     sfn servePicture:void (host:McpHost req:HttpRequest res:HttpResponse id:string what:string) {
         def q:MfJ (J.parse((http_query_json req)))
         def p:ViewPic (new ViewPic)
         if (what == "pic") {
             p = (ViewPictures.picture(host id (q.str_("path")) (q.str_("v"))))
+        }
+        ; GET /api/view/<id>/rec/<hash>: the deck recorded for the web
+        if ((indexOf what "rec/") == 0) {
+            p = (ViewPictures.recording(host id (substring what 4 (strlen what))))
         }
         if (p.status == 302) {
             http_set_header res "Cache-Control" "public, max-age=0, s-maxage=60"
@@ -136,7 +153,7 @@ class App {
             return
         }
         http_set_header res "Content-Type" p.type
-        http_set_header res "Cache-Control" "public, max-age=31536000, s-maxage=31536000, immutable"
+        App.keepHeader(host res p.shown 31536000)
         http_set_header res "X-Content-Type-Options" "nosniff"
         ; an SVG opened on its own runs nothing on the site's address
         http_set_header res "Content-Security-Policy" "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox"
@@ -195,7 +212,8 @@ class App {
         if ((indexOf id ".jpg") == ((strlen id) - 4)) {
             id = (substring id 0 ((strlen id) - 4))
         }
-        def doc:MfJ (LinkCard.shown(host id)).doc
+        def sh:Shown (LinkCard.shown(host id))
+        def doc:MfJ sh.doc
         if ((doc.isObj()) == false) {
             http_set_header res "Cache-Control" "no-store"
             App.sendJson(res 404 "{\"error\":\"This shared presentation was not found.\"}")
@@ -235,7 +253,7 @@ class App {
             }
             host_card_put host key jpg
         }
-        http_set_header res "Cache-Control" "public, max-age=86400, s-maxage=86400, immutable"
+        App.keepHeader(host res sh 86400)
         http_set_header res "Content-Type" "image/jpeg"
         http_set_header res "X-Content-Type-Options" "nosniff"
         http_set_status res 200
@@ -465,6 +483,7 @@ class App {
             caller.uid = local
             caller.name = local
         }
+        host_set_caller host caller.uid
         caller.who = (App.clientIp(host req))
         caller.ip = caller.who
         if caller.signedIn {

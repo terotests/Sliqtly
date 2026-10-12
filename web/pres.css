@@ -82,6 +82,9 @@
 .thumb-picked:hover { background-color: #f59e0b; }
 .thumb-drop { background-color: rgba(0, 0, 0, 0); border: 2px dashed var(--accent); border-radius: 6px; }
 .thumb-num { color: var(--ink-dim); font-size: 11px; height: 14px; }
+/* a slide's own phase ({phase=review}) above its thumbnail, right; neutral */
+.thumb-phase-row { display: flex; flex-direction: row; justify-content: flex-end; }
+.thumb-phase { height: 15px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background-color: var(--panel-2); color: var(--ink-dim); font-size: 10px; font-weight: 700; line-height: 13px; }
 /* the "+" after the last thumbnail, and its two choices once pressed */
 .thumb-add { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink-dim); font-size: 40px; text-align: center; cursor: pointer; }
 .thumb-add-btn { background-color: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); font-size: 12px; font-weight: 600; text-align: center; cursor: pointer; }
@@ -129,7 +132,11 @@
 .ui-doctab-add:hover { background-color: #a1a1aa; color: #ffffff; }
 
 /* The tabs over the editor pane (Ranger UI TabsCtl) */
-.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; }
+.ed-tabs { background-color: var(--panel); border-bottom: 1px solid var(--line); padding-left: 10px; padding-top: 1px; display: flex; flex-direction: row; align-items: center; }
+/* The whole deck's size at the tab row's right end: a reminder of how
+   little a presentation takes */
+.ed-tabs-gap { flex-grow: 1; }
+.ed-size { font-size: 12px; font-weight: 600; color: #047857; background-color: #d1fae5; height: 22px; line-height: 22px; padding: 0 10px; border-radius: 11px; margin-right: 10px; }
 /* EVGUI's pill tabs on the white of the deck's tab above, so the tab and
    its document read as one piece; the active tab a pill with an edge. The
    tab is a text leaf, so its height and line-height place the label. */

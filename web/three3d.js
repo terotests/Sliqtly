@@ -84,7 +84,7 @@ export function pixelOf(u, v, w, h) {
  * slide as an ImageData (or null); scale() CSS px per slide unit.
  * Used by the editor (web/main.js) and the public viewer (web/viewplay.js).
  */
-export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast, readFile }) {
+export function createThree3d({ app, pictures, imageChanged, slidePicture, scale, repaint, toast, readFile, t = (s) => s }) {
   let loading = null;
   let p3 = null;
   let failed = "";
@@ -119,7 +119,7 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
         repaint();
       }).catch((e) => {
         failed = String((e && e.message) || e);
-        toast(failed);
+        toast(t(failed));
       });
     }
     return loading;
@@ -292,6 +292,12 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     return p3 ? glCanvas : null;
   }
 
+  // Why the worlds could not start (null while they could): the flight
+  // says it instead of guessing.
+  function problem() {
+    return failed || null;
+  }
+
   // Hands the canvas to the flight (true) and takes it back (false): the
   // worlds are drawn again from scratch afterwards.
   function pause(on) {
@@ -307,5 +313,5 @@ export function createThree3d({ app, pictures, imageChanged, slidePicture, scale
     }
   }
 
-  return { tick, reset, stills, opaqueAt, glReady, pause };
+  return { tick, reset, stills, opaqueAt, glReady, pause, problem };
 }

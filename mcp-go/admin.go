@@ -17,6 +17,17 @@
 // Auth), and the Cloud bill from the billing export in BigQuery
 // (SLIQTLY_BILLING_TABLE). Counts only: no email, name or id goes out.
 // adminReport is the model; the sources (firebase.go) only read.
+//
+// The licenses (editor.go) and the AI assistant's use are the lists with
+// people in them:
+//
+//	GET  /main/admin/api/licenses            every licenses/{uid}
+//	POST /main/admin/api/license {uid, maxDocs, plan?}
+//	GET  /main/admin/api/ai                  aiUsage/{uid} by month and account
+//
+// the second sets how many presentations an account may edit in the cloud
+// (-1: no limit). It changes only an existing license (made at the
+// account's first visit to /editor), and never takes presentations away.
 
 package main
 
@@ -29,6 +40,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,6 +82,10 @@ type adminSource interface {
 	ShareCount(ctx context.Context) (int64, error)
 	Users(ctx context.Context) ([]adminUser, error)
 	Costs(ctx context.Context, since time.Time) ([]adminCost, error)
+	// every licenses/{uid}: the ids and the documents, in the same order
+	Licenses(ctx context.Context) ([]string, []Doc, error)
+	// every aiUsage/{uid} (aiassist.go), the same way
+	AIUsage(ctx context.Context) ([]string, []Doc, error)
 }
 
 type adminConfig struct {
@@ -455,12 +471,13 @@ func serveAdmin(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := strings.TrimPrefix(r.URL.Path, adminPath)
-	if p != "stats" && p != "me" {
+	method, known := map[string]string{"stats": "GET", "me": "GET", "licenses": "GET", "license": "POST", "ai": "GET"}[p]
+	if !known || ((strings.HasPrefix(p, "license") || p == "ai") && env.DB == nil) {
 		http.NotFound(w, r)
 		return
 	}
-	if r.Method != http.MethodGet {
-		adminError(w, 405, "GET only")
+	if r.Method != method {
+		adminError(w, 405, method+" only")
 		return
 	}
 	if why := a.limit(clientIP(r)); why != "" {
@@ -486,6 +503,14 @@ func serveAdmin(env *Env, w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		b, _ := json.Marshal(map[string]any{"email": t.Email, "ok": true})
 		w.Write(b)
+		return
+	}
+	if p == "licenses" || p == "license" {
+		serveAdminLicenses(env, w, r, p == "license")
+		return
+	}
+	if p == "ai" {
+		serveAdminAI(env, w, r)
 		return
 	}
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
@@ -515,6 +540,138 @@ func serveAdmin(env *Env, w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	io.WriteString(w, string(c.out))
+}
+
+// --------------------------------------------------------------- licenses --
+
+const adminMaxQuota = 10000
+
+// a license as the owner's list shows it
+type adminLicense struct {
+	UID       string `json:"uid"`
+	Email     string `json:"email"`
+	Name      string `json:"name,omitempty"`
+	Plan      string `json:"plan"`
+	MaxDocs   int    `json:"maxDocs"` // < 0: no limit
+	Used      int    `json:"used"`    // presentations it covers
+	EditUntil string `json:"editUntil,omitempty"`
+	Seen      string `json:"seen,omitempty"`
+	// in SLIQTLY_ADMIN_EMAILS: no limit whatever the document says
+	Admin bool `json:"admin,omitempty"`
+}
+
+// The licenses as the list shows them, the last seen first. admins: lower
+// case, as adminConfig keeps them.
+func buildAdminLicenses(ids []string, docs []Doc, admins []string) []adminLicense {
+	out := []adminLicense{}
+	for i, d := range docs {
+		if i >= len(ids) || d == nil {
+			continue
+		}
+		email, _ := d["email"].(string)
+		name, _ := d["name"].(string)
+		admin := email != "" && slices.Contains(admins, strings.ToLower(email))
+		l := licenseOf(d, admin)
+		row := adminLicense{UID: ids[i], Email: email, Name: name, Plan: l.Plan, MaxDocs: l.MaxDocs, Used: len(l.Docs), Admin: admin}
+		if !l.EditUntil.IsZero() {
+			row.EditUntil = l.EditUntil.UTC().Format(time.RFC3339)
+		}
+		if t := docTime(d["seen"]); !t.IsZero() {
+			row.Seen = t.UTC().Format(time.RFC3339)
+		}
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Seen != out[j].Seen {
+			return out[i].Seen > out[j].Seen
+		}
+		return strings.ToLower(out[i].Email) < strings.ToLower(out[j].Email)
+	})
+	return out
+}
+
+var (
+	adminUID  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+	adminPlan = regexp.MustCompile(`^[a-z0-9][a-z0-9 _-]{0,31}$`)
+)
+
+// The owner's change to a license, {uid, maxDocs, plan?}: the account and
+// the fields to write, or why not. "admin" is not a plan one gives: it
+// comes from SLIQTLY_ADMIN_EMAILS.
+func parseLicenseEdit(b []byte) (string, Doc, error) {
+	var in struct {
+		UID     string  `json:"uid"`
+		MaxDocs *int    `json:"maxDocs"`
+		Plan    *string `json:"plan"`
+	}
+	if err := json.Unmarshal(b, &in); err != nil {
+		return "", nil, errors.New("not JSON")
+	}
+	if !adminUID.MatchString(in.UID) {
+		return "", nil, errors.New("no such account")
+	}
+	if in.MaxDocs == nil || *in.MaxDocs < -1 || *in.MaxDocs > adminMaxQuota {
+		return "", nil, fmt.Errorf("presentations: a number from 0 to %d, or -1 for no limit", adminMaxQuota)
+	}
+	set := Doc{"maxDocs": int64(*in.MaxDocs)}
+	if in.Plan != nil {
+		plan := strings.ToLower(strings.TrimSpace(*in.Plan))
+		if !adminPlan.MatchString(plan) || plan == "admin" {
+			return "", nil, errors.New("plan: lower-case letters, digits, space, - or _ (not admin)")
+		}
+		set["plan"] = plan
+	}
+	return in.UID, set, nil
+}
+
+// GET licenses: the list; POST license: one changed, and its new row
+func serveAdminLicenses(env *Env, w http.ResponseWriter, r *http.Request, edit bool) {
+	a := env.Admin
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if !edit {
+		ids, docs, err := a.Source.Licenses(ctx)
+		if err != nil {
+			log.Printf("admin licenses: %v", err)
+			adminError(w, 502, "The licenses could not be read: "+errText(err))
+			return
+		}
+		b, _ := json.Marshal(map[string]any{"licenses": buildAdminLicenses(ids, docs, a.Emails)})
+		w.Write(b)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
+		adminError(w, 400, "The change is too long.")
+		return
+	}
+	uid, set, err := parseLicenseEdit(body)
+	if err != nil {
+		adminError(w, 400, err.Error())
+		return
+	}
+	d, err := env.DB.Get(ctx, licenseCol, uid)
+	if err != nil {
+		adminError(w, 502, "The license could not be read: "+errText(err))
+		return
+	}
+	if d == nil {
+		adminError(w, 404, "That account has no license yet; it gets one at its first visit to the editor.")
+		return
+	}
+	// a new rev: a claim in flight (editor.go) reads the license again
+	set["rev"] = newShareID()
+	if err := env.DB.Update(ctx, licenseCol, uid, set); err != nil {
+		adminError(w, 502, "The license was not changed: "+errText(err))
+		return
+	}
+	for k, v := range set {
+		d[k] = v
+	}
+	log.Printf("admin: license of %s set to %v", uid, set["maxDocs"])
+	b, _ := json.Marshal(map[string]any{"license": buildAdminLicenses([]string{uid}, []Doc{d}, a.Emails)[0]})
+	w.Write(b)
 }
 
 // ---------------------------------------------------------------- billing --
@@ -567,4 +724,125 @@ func parseBillingRows(status int, b []byte) ([]adminCost, error) {
 		out = append(out, adminCost{Day: s(0), Service: s(1), Currency: s(2), Cost: cost})
 	}
 	return out, nil
+}
+
+// --------------------------------------------------------------------- ai --
+
+const adminAIMonths = 6
+
+// the assistant's use summed: AI actions (what the month's allowance
+// counts), calls to the model, and its tokens in and out
+type adminAIUse struct {
+	Actions int64 `json:"actions"`
+	Calls   int64 `json:"calls"`
+	In      int64 `json:"in"`
+	Out     int64 `json:"out"`
+}
+
+func (u *adminAIUse) add(d map[string]any) {
+	u.Actions += docInt(d["actions"])
+	u.Calls += docInt(d["calls"])
+	u.In += docInt(d["in"])
+	u.Out += docInt(d["out"])
+}
+
+type adminAIMonth struct {
+	Month string `json:"month"` // YYYY-MM, UTC
+	adminAIUse
+}
+
+type adminAIPerson struct {
+	UID   string `json:"uid"`
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name,omitempty"`
+	adminAIUse
+}
+
+type adminAI struct {
+	Month  string          `json:"month"`  // the month People is for
+	Months []adminAIMonth  `json:"months"` // newest first
+	People []adminAIPerson `json:"people"` // this month, the most used first
+}
+
+// The assistant's use from aiUsage/{uid} (one key per month), with each
+// account's address from its license.
+func buildAdminAI(now time.Time, ids []string, usage []Doc, licIDs []string, lics []Doc) adminAI {
+	out := adminAI{Month: aiMonth(now), Months: []adminAIMonth{}, People: []adminAIPerson{}}
+	t := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	at := map[string]int{}
+	for i := 0; i < adminAIMonths; i++ {
+		m := aiMonth(t.AddDate(0, -i, 0))
+		at[m] = i
+		out.Months = append(out.Months, adminAIMonth{Month: m})
+	}
+	who := map[string]Doc{}
+	for i, id := range licIDs {
+		if i < len(lics) {
+			who[id] = lics[i]
+		}
+	}
+	for i, d := range usage {
+		if i >= len(ids) || d == nil {
+			continue
+		}
+		for m, v := range d {
+			if k, ok := at[m]; ok {
+				out.Months[k].add(docMap(v))
+			}
+		}
+		this := docMap(d[out.Month])
+		if len(this) == 0 {
+			continue
+		}
+		p := adminAIPerson{UID: ids[i]}
+		p.add(this)
+		if l := who[ids[i]]; l != nil {
+			p.Email, _ = l["email"].(string)
+			p.Name, _ = l["name"].(string)
+		}
+		out.People = append(out.People, p)
+	}
+	sort.SliceStable(out.People, func(i, j int) bool {
+		a, b := out.People[i], out.People[j]
+		if a.Actions != b.Actions {
+			return a.Actions > b.Actions
+		}
+		if a.In+a.Out != b.In+b.Out {
+			return a.In+a.Out > b.In+b.Out
+		}
+		return a.UID < b.UID
+	})
+	return out
+}
+
+func serveAdminAI(env *Env, w http.ResponseWriter, r *http.Request) {
+	a := env.Admin
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	var (
+		wg                sync.WaitGroup
+		ids, licIDs       []string
+		usage, lics       []Doc
+		usageErr, licsErr error
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); ids, usage, usageErr = a.Source.AIUsage(ctx) }()
+	go func() { defer wg.Done(); licIDs, lics, licsErr = a.Source.Licenses(ctx) }()
+	wg.Wait()
+	if usageErr != nil {
+		log.Printf("admin ai: %v", usageErr)
+		adminError(w, 502, "The AI use could not be read: "+errText(usageErr))
+		return
+	}
+	if licsErr != nil {
+		// the counts without the addresses
+		log.Printf("admin ai licenses: %v", licsErr)
+	}
+	now := time.Now()
+	if env.Now != nil {
+		now = env.Now()
+	}
+	b, _ := json.Marshal(buildAdminAI(now, ids, usage, licIDs, lics))
+	w.Write(b)
 }

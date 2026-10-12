@@ -1,0 +1,51 @@
+from pptx.enum import enum
+
+
+@enum
+class PP_PARAGRAPH_ALIGNMENT:
+    CENTER = 2
+    DISTRIBUTE = 5
+    JUSTIFY = 4
+    JUSTIFY_LOW = 7
+    LEFT = 1
+    RIGHT = 3
+    THAI_DISTRIBUTE = 6
+    MIXED = -2
+
+
+PP_ALIGN = PP_PARAGRAPH_ALIGNMENT
+
+
+@enum
+class MSO_VERTICAL_ANCHOR:
+    TOP = 1
+    MIDDLE = 3
+    BOTTOM = 4
+    MIXED = -2
+
+
+MSO_ANCHOR = MSO_VERTICAL_ANCHOR
+
+
+@enum
+class MSO_AUTO_SIZE:
+    NONE = 0
+    SHAPE_TO_FIT_TEXT = 1
+    TEXT_TO_FIT_SHAPE = 2
+    MIXED = -2
+
+
+@enum
+class MSO_TEXT_UNDERLINE_TYPE:
+    NONE = 0
+    SINGLE_LINE = 2
+    DOUBLE_LINE = 3
+    HEAVY_LINE = 4
+    DOTTED_LINE = 5
+    DASH_LINE = 7
+    WAVY_LINE = 11
+    WORDS = 1
+    MIXED = -2
+
+
+MSO_UNDERLINE = MSO_TEXT_UNDERLINE_TYPE

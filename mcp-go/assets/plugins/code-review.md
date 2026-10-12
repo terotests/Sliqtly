@@ -17,7 +17,8 @@ risks, and draws the views as a review deck.
 3. Write the model (below). Every item has `refs`: the lines it comes from
    at the PR's head. Write only what the code shows; an item no line backs
    is drawn dashed as inferred.
-4. `sliqtly_plugin(name="code-review", op="build", args={pr, model})`:
+4. `sliqtly_plugin(name="code-review", op="build", args={pr, model})`
+   (or `{source, model}`, below):
    warnings about the model (fix them and build again), the review order,
    the risks and the deck in Markdown. `args.slice` builds the deck for one
    slice.
@@ -26,7 +27,39 @@ risks, and draws the views as a review deck.
    than the diagrams. Keep the code slides and the `::: code` blocks: they
    are how the deck links to the code.
 
-`pr` is a pull request's link or `owner/repo#12`.
+`pr` is a pull request's link or `owner/repo#12`; the server reads it
+from GitHub.
+
+### The change from your own checkout
+
+When you have the repository yourself (a clone, a private repository the
+server cannot read, a branch with no pull request, another host than
+GitHub), send the change as `source` instead of `pr`, in `start` and in
+`build` alike:
+
+```json
+{"source": {
+  "repo": "https://github.com/o/app",
+  "base": "<base commit>", "head": "<head commit>",
+  "title": "Approval state for reviews", "description": "…",
+  "files": [
+    {"path": "src/api/review.ts", "text": "<the file at head>", "patch": "<git diff of the file>"},
+    {"path": "src/review/states.ts", "text": "…", "patch": "…", "status": "added"},
+    {"path": "src/db/client.ts", "text": "…"}
+  ]
+}}
+```
+
+- `files`: up to 60. Each changed file with its text at the head and its
+  unified diff (`git diff <base> <head> -- <path>`) as `patch`; `status`
+  is `added`, `modified` (the default with a patch), `renamed`, `deleted`,
+  or `same` (the default without one). Add the files around the change
+  the model refers to as text alone: every file a ref names must be here.
+- `repo`, `base`, `head` are optional: on GitHub they give the deck links
+  to the lines and to the comparison; elsewhere the source viewer names
+  the host (GitLab, Bitbucket, Azure DevOps, Gitiles) from `repo`.
+- `build`'s `whole: true` keeps every file whole in `code/` (otherwise a
+  file over 400 lines keeps the lines the deck names, with some context).
 
 ## The model
 
@@ -108,10 +141,11 @@ old behaviour to keep) or **therefore** (what follows from it), never by
 Vary the length of the beats, a short one after long ones and a long one
 after short; three of about the same length in a row read as a drone.
 `link` takes `but` or `therefore` (also `however`, `so`, `mutta`,
-`siksi`, `joten`); the deck says the word in the story's language
-(`lang`, `"fi"` or `"en"`, on the model or its narrative; left out,
-Finnish when the story has ä or ö in it), so `but` in a Finnish story is
-told as "Mutta". Build warns about a beat joined any other way, beats
+`siksi`, `joten`). Write the story and its `link` words in the language
+of the person you are writing for: the deck says them as you wrote them,
+`mutta` and `siksi` in a Finnish story. End the story with the next
+action: what is done next and how it is checked, not a request alone.
+Build warns about a beat joined any other way, beats
 of one length in a row, and a story with no "but". Without a story, build
 drafts one from the model (the critical path as "therefore", its failures
 and waits without a timeout as "but"); rewrite it as the change's own.
@@ -149,6 +183,17 @@ The deck build gives is the skeleton. Make it read as one reviewer going
 through the change:
 
 - Tell the story under "What changed" in the change's own words.
+- Show changed code as a diff, never as plain code. Keep build's code
+  slides, or write your own the same way: ```` ```diff ts {.numbers lines=41-42} ````
+  with the hunk's `@@` header and its `-`/`+` lines as `git diff` prints
+  them, the language word after `diff` (ts, js, py, go, rust, java, sql,
+  rgr, …) so the code is coloured, and `lines=` on the lines the slide is
+  about (new-file numbers). A removed line followed by its added line gets
+  a stronger band behind the characters that changed, so the reader sees
+  what changed in the line and where; `lines=` fades the context around
+  the change, not the change. Never shorten changed code with `...` or
+  retype it from memory: copy the lines exactly, cut the hunk to the
+  lines that matter (about 15) instead.
 - On the code slides, say what the lines do and what you think of them,
   in the speaker notes or on the slide: a finding is a code slide with the
   lines, why they are a problem and what to do instead.

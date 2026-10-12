@@ -4,10 +4,11 @@
 ; PresRoomView.rgr — a room's chat in the work area
 ; ============================================================================
 ;
-; A room pressed in Rooms opens its channel where the editor and the slides
-; are, right of the rail and under the bar: EVGUI's ChannelCtl in a host of
-; its own, painted as the app's "room" layer. Its × (or a presentation
-; opened) closes it again.
+; A room pressed in Rooms opens where the editor and the slides are, right
+; of the rail and under the bar, in a host of its own painted as the app's
+; "room" layer: two tabs, its stories (PresTopicView: the room as a topic,
+; its presentations as cards) and its chat (EVGUI's ChannelCtl). Its × (or a
+; presentation opened) closes it again.
 ;
 ; The page (web/roomchat.js) talks to the folder server: it hands over what
 ; the server says as JSON (`load`, `put`, `here`) and takes what the reader
@@ -18,11 +19,16 @@
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ChannelCtl.rgr"
 Import "../vela/src/VlJson.rgr"
+Import "UiKit.rgr"
 Import "PresI18n.rgr"
+Import "PresTopicView.rgr"
 
 class PresRoomView {
     def host:UiHost (new UiHost())
     def ch:ChannelCtl (new ChannelCtl())
+    ; the room's stories, and which tab shows: "stories" or "chat"
+    def topic:PresTopicView (new PresTopicView())
+    def view:string "stories"
     def css:string ""
     def skin:string ""
     def measurer@(optional):TTFTextMeasurer
@@ -103,6 +109,7 @@ class PresRoomView {
     fn show:void (id:string title:string about:string readOnly:boolean notice:string) {
         if (id != room) {
             ch.reset()
+            view = "stories"
         }
         room = id
         open = true
@@ -114,6 +121,27 @@ class PresRoomView {
             ch.keys = "main"
         }
         this.changed()
+    }
+
+    ; the room's stories as the page grouped them (PresTopicView.setData)
+    fn setStories:void (text:string) {
+        topic.setData(text)
+        this.changed()
+    }
+
+    ; a row of the bar's Actions menu, for the Stories tab's ticked cards
+    fn topicChoose:void (what:string words:string) {
+        topic.choose(what words)
+        this.changed()
+    }
+
+    ; the Stories or the Chat tab
+    fn showView:void (v:string) {
+        if (v != view) {
+            ch.closeMenu()
+            view = v
+            this.changed()
+        }
     }
 
     ; the room renamed or described again (by anyone): the head shows it
@@ -370,6 +398,10 @@ class PresRoomView {
 
     ; the next thing the reader asked for, "" none
     fn take:string () {
+        def t:string (topic.take())
+        if ((strlen t) > 0) {
+            return t
+        }
         return (ch.take())
     }
 
@@ -413,8 +445,30 @@ class PresRoomView {
             built = true
             return
         }
+        def frame:EVGElement (UiTree.div("rm-frame" "rm-frame"))
+        UiTree.inline(frame "margin-left" ((EVGDisplayList.num(x)) + "px"))
+        UiTree.inline(frame "margin-top" ((EVGDisplayList.num(y)) + "px"))
+        UiTree.inline(frame "width" ((EVGDisplayList.num(w)) + "px"))
+        UiTree.inline(frame "height" ((EVGDisplayList.num(h)) + "px"))
+        def tabs:EVGElement (UiKit.div("rm-tabs"))
+        this.tab(tabs "rm-tab-stories" (PresI18n.t("Presentations")) (view == "stories"))
+        this.tab(tabs "rm-tab-chat" (PresI18n.t("Chat")) (view == "chat"))
+        tabs.addChild((UiKit.div("rm-grow")))
+        if (view == "stories") {
+            def cb:ButtonCtl (UiKit.button("rm-close" "×" "ghost"))
+            UiTree.addClass((unwrap cb.rootEl) "rm-close")
+            UiKit.put(host cb tabs)
+        }
+        frame.addChild(tabs)
+        root.addChild(frame)
+        def bh:double (h - 40.0)
+        if (view == "stories") {
+            topic.build(host frame w bh (this.engine()))
+            built = true
+            return
+        }
         ch.width = w
-        ch.height = h
+        ch.height = bh
         ; the thread's default width; one dragged wider is the reader's own
         ; (ChannelCtl.split, kept by the page as sliqtly.chatThreadW)
         ch.threadW = 380.0
@@ -424,15 +478,30 @@ class PresRoomView {
         ch.build()
         ; in the page's flow, moved to its place (an overlay of its own would
         ; put the channel's anchored lists, the suggestions, out of place)
-        def frame:EVGElement (UiTree.div("rm-frame" "rm-frame"))
-        UiTree.inline(frame "margin-left" ((EVGDisplayList.num(x)) + "px"))
-        UiTree.inline(frame "margin-top" ((EVGDisplayList.num(y)) + "px"))
-        UiTree.inline(frame "width" ((EVGDisplayList.num(w)) + "px"))
-        UiTree.inline(frame "height" ((EVGDisplayList.num(h)) + "px"))
         frame.addChild((unwrap ch.rootEl))
-        root.addChild(frame)
         push host.ctls ch
         built = true
+    }
+
+    ; a tab of the head: the shown one stands out
+    fn tab:void (parent:EVGElement tid:string label:string on:boolean) {
+        def b:ButtonCtl (UiKit.button(tid label "ghost"))
+        def el:EVGElement (unwrap b.rootEl)
+        UiTree.addClass(el "rm-tab")
+        if on {
+            UiTree.addClass(el "rm-tab-on")
+            UiKit.labelClass(b "rm-tab-label-on")
+        }
+        UiKit.put(host b parent)
+    }
+
+    ; what the names are measured with
+    fn engine:EVGTextEngine () {
+        def lay (new EVGLayout())
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        return (lay.getTextEngine())
     }
 
     fn page:EVGElement () {
@@ -480,6 +549,14 @@ class PresRoomView {
 
     fn readScroll:boolean (pg:EVGElement) {
         def again:boolean false
+        if (view == "stories") {
+            def b@(optional):EVGElement (host.findEl(pg "rm-tbody"))
+            if (!null? b) {
+                def be:EVGElement (unwrap b)
+                topic.scroll.top = be.scrollTop
+            }
+            return false
+        }
         def f@(optional):EVGElement (host.findEl(pg "ch-feed"))
         if (!null? f) {
             def fe:EVGElement (unwrap f)
@@ -527,6 +604,24 @@ class PresRoomView {
         def tid:string (this.hitAt(px py))
         selecting = false
         resizing = false
+        if (tid == "rm-tab-stories") {
+            this.showView("stories")
+            return true
+        }
+        if (tid == "rm-tab-chat") {
+            this.showView("chat")
+            return true
+        }
+        if (tid == "rm-close") {
+            topic.ask("close")
+            return true
+        }
+        if (view == "stories") {
+            if (topic.press(tid (host.rectOf(tid)) px py shift)) {
+                this.changed()
+            }
+            return true
+        }
         if (ch.splitPointerDown(tid px clicks)) {
             resizing = (ch.splitDragging())
             this.changed()
@@ -551,7 +646,12 @@ class PresRoomView {
         }
         def tid:string (this.hitAt(px py))
         selecting = false
-        ch.openMenuAt(tid (px - x) (py - y))
+        if (view == "stories") {
+            topic.menuAt(tid px py)
+            return true
+        }
+        ; the channel starts under the tabs (40px)
+        ch.openMenuAt(tid (px - x) ((py - y) - 40.0))
         this.changed()
         return true
     }
@@ -608,6 +708,12 @@ class PresRoomView {
         ; what the pointer is over shows its hover look
         if (host.hoverTo(px py (this.has(px py)))) {
             rev = (rev + 1)
+            if (view == "stories") {
+                return true
+            }
+        }
+        if (view == "stories") {
+            return false
         }
         if ((this.has(px py)) == false) {
             if (ch.hoverSeq != 0) {
@@ -636,6 +742,17 @@ class PresRoomView {
             return false
         }
         this.closeMenu()
+        if (view == "stories") {
+            if (null? host.lastPage) {
+                this.page()
+            }
+            def b@(optional):EVGElement (host.findEl((unwrap host.lastPage) "rm-tbody"))
+            if (!null? b) {
+                topic.scroll.scrollBy((unwrap b) dy)
+                this.changed()
+            }
+            return true
+        }
         def inThread:boolean (((strlen ch.threadId) > 0) && (px >= ((x + w) - ch.threadShown)))
         if (((strlen ch.threadId) > 0) && (w < 720.0)) {
             inThread = true
@@ -652,13 +769,20 @@ class PresRoomView {
         if ((this.has(px py)) == false) {
             return ""
         }
-        return (ch.cursorFor((this.hitAt(px py))))
+        def tid:string (this.hitAt(px py))
+        if ((indexOf tid "rm-") == 0) {
+            return "pointer"
+        }
+        if (view == "stories") {
+            return ""
+        }
+        return (ch.cursorFor(tid))
     }
 
     ; --- keys ----------------------------------------------------------------------------------
 
     fn hasKeys:boolean () {
-        return (open && ((ch.hasField()) || (ch.menuOpen())))
+        return ((open && (view == "chat")) && ((ch.hasField()) || (ch.menuOpen())))
     }
 
     fn key:void (k:string shift:boolean ctrl:boolean) {

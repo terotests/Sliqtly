@@ -1,0 +1,704 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; RangerPPTX (the PowerPoint reader and writer) on its own, compiled by
+; gen.mjs to the Go package pptxgo, like FigGo.rgr is to figdv: a compile of
+; its own with its own EVG, and the server only ever hands it bytes and
+; takes strings and bytes back.
+;
+; Three jobs, as for a shared .fig (sharedfiles.go):
+;
+;   open + index + views  once, when a .pptx is put in the shared files: the
+;                         index (slides, their text as Markdown, shapes,
+;                         theme and text styles) and one display list per
+;                         slide are kept; a slide is drawn from its list
+;   edit + save           an assistant changes text in place: the package is
+;                         written over (PptxDeck.save keeps every part the
+;                         model does not know) and read again
+;
+; Everything is static so Go outside the package can call it
+; (PptxGo_static_open, …): Ranger's methods come out unexported.
+
+Import "../pptx/api/PptxApi.rgr"
+Import "../pptx/src/PptxToEvg.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+
+class PptxGoDoc {
+    def ok:boolean false
+    def err:string ""
+    def deck:PptxDeck (new PptxDeck())
+    def conv:PptxToEvg (new PptxToEvg())
+
+    Constructor () {
+    }
+}
+
+class PptxGo {
+    ; `presets` is Office's preset shape catalogue (gallery/office/geom/
+    ; assets/presets.txt, built into the server): without it every preset —
+    ; an ellipse, an arrow, a star — is drawn as its box.
+    sfn open:PptxGoDoc (bytes:buffer presets:string) {
+        def d (new PptxGoDoc())
+        if ((strlen presets) > 0) {
+            d.conv.loadPresets(presets)
+        }
+        def deck:PptxDeck (PptxApi.open(bytes))
+        if (deck.ok == false) {
+            d.err = deck.error
+            return d
+        }
+        d.deck = deck
+        d.ok = true
+        return d
+    }
+
+    sfn ok:boolean (d:PptxGoDoc) {
+        return d.ok
+    }
+
+    sfn err:string (d:PptxGoDoc) {
+        return d.err
+    }
+
+    sfn slideCount:int (d:PptxGoDoc) {
+        return (array_length d.deck.pres.slides)
+    }
+
+    ; --- JSON bits
+
+    ; A JSON string. Line breaks are kept (\n): the Markdown of a slide is
+    ; lines. The bytes of a multi-byte character pass as they are.
+    sfn q:string (v:string) {
+        def out:string "\""
+        def n:int (strlen v)
+        def from:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if (((c == 34) || (c == 92)) || (c < 32)) {
+                out = (out + (substring v from i))
+                if (c == 34) {
+                    out = (out + "\\\"")
+                } {
+                    if (c == 92) {
+                        out = (out + "\\\\")
+                    } {
+                        if (c == 10) {
+                            out = (out + "\\n")
+                        } {
+                            if (c == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (c != 13) {
+                                    out = (out + " ")
+                                }
+                            }
+                        }
+                    }
+                }
+                from = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + (substring v from n) + "\"")
+    }
+
+    sfn num:string (v:double) {
+        return (EVGDisplayList.num(v))
+    }
+
+    sfn hex:string (c:PptxColor) {
+        if (c.isSet == false) {
+            return ""
+        }
+        if ((strlen c.srgb) == 0) {
+            return ""
+        }
+        return ("#" + c.srgb)
+    }
+
+    ; --- what a shape is
+
+    sfn kindName:string (sh:PptxShape) {
+        if (sh.kind == (PptxShapeKind.picture())) {
+            return "picture"
+        }
+        if (sh.kind == (PptxShapeKind.group())) {
+            return "group"
+        }
+        if (sh.kind == (PptxShapeKind.table())) {
+            return "table"
+        }
+        if (sh.kind == (PptxShapeKind.chart())) {
+            return "chart"
+        }
+        if (sh.kind == (PptxShapeKind.connector())) {
+            return "connector"
+        }
+        if sh.isDiagram {
+            return "diagram"
+        }
+        if sh.hasText {
+            return "text"
+        }
+        return "shape"
+    }
+
+    sfn isTitle:boolean (sh:PptxShape) {
+        if sh.isPlaceholder {
+            if ((sh.phType == "title") || (sh.phType == "ctrTitle")) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; The shape's paragraphs as Markdown lines: a bulleted paragraph is a
+    ; list item indented by its level, a title placeholder a heading.
+    sfn bodyMarkdown:string (sh:PptxShape heading:string) {
+        def out:string ""
+        if (sh.hasText == false) {
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length sh.text.paragraphs)) {
+            def p:PptxParagraph (itemAt sh.text.paragraphs i)
+            def t:string (trim (PptxGo.paraText(p)))
+            if ((strlen t) > 0) {
+                def line:string t
+                if ((strlen heading) > 0) {
+                    line = (heading + t)
+                } {
+                    if p.hasBullet {
+                        def pad:string ""
+                        def k:int 0
+                        while (k < p.level) {
+                            pad = (pad + "  ")
+                            k = (k + 1)
+                        }
+                        def mark:string "- "
+                        if p.bulletAutoNum {
+                            mark = "1. "
+                        }
+                        line = (pad + mark + t)
+                    }
+                }
+                if ((strlen out) > 0) {
+                    out = (out + "\n")
+                }
+                out = (out + line)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn paraText:string (p:PptxParagraph) {
+        def out:string ""
+        def k:int 0
+        while (k < (array_length p.runs)) {
+            def run:PptxTextRun (itemAt p.runs k)
+            out = (out + run.text)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn tableMarkdown:string (sh:PptxShape) {
+        if ((sh.tableRows < 1) || (sh.tableCols < 1)) {
+            return ""
+        }
+        def out:string ""
+        def r:int 0
+        while (r < sh.tableRows) {
+            def line:string "|"
+            def c:int 0
+            while (c < sh.tableCols) {
+                def at:int ((r * sh.tableCols) + c)
+                def cellText:string ""
+                if (at < (array_length sh.tableCells)) {
+                    def cell:PptxTableCell (itemAt sh.tableCells at)
+                    cellText = (PptxGo.oneLine(cell.text))
+                }
+                line = (line + " " + cellText + " |")
+                c = (c + 1)
+            }
+            if ((strlen out) > 0) {
+                out = (out + "\n")
+            }
+            out = (out + line)
+            if (r == 0) {
+                def rule:string "|"
+                def k:int 0
+                while (k < sh.tableCols) {
+                    rule = (rule + " --- |")
+                    k = (k + 1)
+                }
+                out = (out + "\n" + rule)
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    sfn oneLine:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def cp:int (charAt s i)
+            if ((cp == 10) || (cp == 13)) {
+                out = (out + " ")
+            } {
+                if (cp == 124) {
+                    out = (out + "\\|")
+                } {
+                    out = (out + (substring s i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    sfn shapeMarkdown:string (sh:PptxShape) {
+        if (sh.kind == (PptxShapeKind.table())) {
+            return (PptxGo.tableMarkdown(sh))
+        }
+        if (PptxGo.isTitle(sh)) {
+            return (PptxGo.bodyMarkdown(sh "# "))
+        }
+        def out:string (PptxGo.bodyMarkdown(sh ""))
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def t:string (PptxGo.shapeMarkdown((itemAt sh.children i)))
+            if ((strlen t) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + "\n\n")
+                }
+                out = (out + t)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn slideTitle:string (sl:PptxSlide) {
+        def i:int 0
+        while (i < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes i)
+            if (PptxGo.isTitle(sh)) {
+                def t:string (PptxGo.oneLine((PptxApi.textOf(sh))))
+                if ((strlen t) > 0) {
+                    return t
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The slide's words as Markdown, title first, the shapes in their order.
+    ; Shapes a layout put there with no text of their own are left out.
+    sfn slideMarkdown:string (sl:PptxSlide) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes i)
+            if (PptxGo.isTitle(sh)) {
+                out = (PptxGo.shapeMarkdown(sh))
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes i)
+            if ((PptxGo.isTitle(sh)) == false) {
+                def t:string (PptxGo.shapeMarkdown(sh))
+                if ((strlen t) > 0) {
+                    if ((strlen out) > 0) {
+                        out = (out + "\n\n")
+                    }
+                    out = (out + t)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn firstRun@(optional):PptxTextRun (sh:PptxShape) {
+        def r@(optional):PptxTextRun
+        if (sh.hasText == false) {
+            return r
+        }
+        def i:int 0
+        while (i < (array_length sh.text.paragraphs)) {
+            def p:PptxParagraph (itemAt sh.text.paragraphs i)
+            def k:int 0
+            while (k < (array_length p.runs)) {
+                def run:PptxTextRun (itemAt p.runs k)
+                if ((strlen (trim run.text)) > 0) {
+                    r = run
+                    return r
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+
+    sfn runJson:string (run:PptxTextRun) {
+        def o:string ("{\"font\":" + (PptxGo.q(run.fontFamily)) + ",\"size_pt\":" + (PptxGo.num(run.fontSizePt)))
+        o = (o + ",\"bold\":" + (PptxGo.boolText(run.bold)) + ",\"italic\":" + (PptxGo.boolText(run.italic)))
+        o = (o + ",\"color\":" + (PptxGo.q((PptxGo.hex(run.color)))) + "}")
+        return o
+    }
+
+    sfn boolText:string (b:boolean) {
+        if b {
+            return "true"
+        }
+        return "false"
+    }
+
+    ; One shape: its path on the slide ("2", a group's child "4.1", what
+    ; edit_pptx names it by), name, kind, place in points, the text, and how
+    ; its first words look.
+    sfn shapeJson:string (sh:PptxShape path:string) {
+        def o:string ("{\"shape\":" + (PptxGo.q(path)) + ",\"name\":" + (PptxGo.q(sh.name)))
+        o = (o + ",\"kind\":" + (PptxGo.q((PptxGo.kindName(sh)))))
+        if sh.isPlaceholder {
+            o = (o + ",\"placeholder\":" + (PptxGo.q(sh.phType)))
+        }
+        if sh.inherited {
+            o = (o + ",\"from_layout\":true")
+        }
+        o = (o + ",\"x_pt\":" + (PptxGo.num(sh.x)) + ",\"y_pt\":" + (PptxGo.num(sh.y)) + ",\"w_pt\":" + (PptxGo.num(sh.width)) + ",\"h_pt\":" + (PptxGo.num(sh.height)))
+        def fill:string (PptxGo.hex(sh.fill))
+        if ((strlen fill) > 0) {
+            o = (o + ",\"fill\":" + (PptxGo.q(fill)))
+        }
+        def text:string (PptxApi.textOf(sh))
+        if ((strlen text) > 0) {
+            o = (o + ",\"text\":" + (PptxGo.q(text)))
+        }
+        def ro@(optional):PptxTextRun (PptxGo.firstRun(sh))
+        if (!null? ro) {
+            def run:PptxTextRun (unwrap ro)
+            o = (o + ",\"style\":" + (PptxGo.runJson(run)))
+        }
+        if ((strlen sh.altText) > 0) {
+            o = (o + ",\"alt\":" + (PptxGo.q(sh.altText)))
+        }
+        if ((array_length sh.children) > 0) {
+            def kids:string ""
+            def i:int 0
+            while (i < (array_length sh.children)) {
+                if (i > 0) {
+                    kids = (kids + ",")
+                }
+                kids = (kids + (PptxGo.shapeJson((itemAt sh.children i) (path + "." + (to_string i)))))
+                i = (i + 1)
+            }
+            o = (o + ",\"children\":[" + kids + "]")
+        }
+        return (o + "}")
+    }
+
+    ; The parts of a slide as the Figma index lists a screen's (PresFigma's
+    ; FigmaPart): "<slide>:<shape path>", in pixels. A shape the layout put
+    ; there with no words of its own is the slide's furniture, not a part.
+    sfn partsJson:string (sh:PptxShape n:int path:string) {
+        def o:string ""
+        def own:boolean true
+        if (sh.inherited && ((strlen (PptxApi.textOf(sh))) == 0)) {
+            own = false
+        }
+        if ((sh.width <= 0.0) || (sh.height <= 0.0)) {
+            own = false
+        }
+        if own {
+            def k:double (96.0 / 72.0)
+            def name:string sh.name
+            if ((strlen name) == 0) {
+                name = (PptxGo.kindName(sh))
+            }
+            o = ("{\"id\":" + (PptxGo.q(((to_string n) + ":" + path))) + ",\"name\":" + (PptxGo.q(name)) + ",\"type\":" + (PptxGo.q((PptxGo.kindName(sh)))))
+            o = (o + ",\"x\":" + (PptxGo.num((sh.x * k))) + ",\"y\":" + (PptxGo.num((sh.y * k))) + ",\"w\":" + (PptxGo.num((sh.width * k))) + ",\"h\":" + (PptxGo.num((sh.height * k))) + "}")
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def kid:string (PptxGo.partsJson((itemAt sh.children i) n (path + "." + (to_string i))))
+            if ((strlen kid) > 0) {
+                if ((strlen o) > 0) {
+                    o = (o + ",")
+                }
+                o = (o + kid)
+            }
+            i = (i + 1)
+        }
+        return o
+    }
+
+    sfn levelJson:string (lv:PptxLevelStyle) {
+        def o:string ("{\"font\":" + (PptxGo.q(lv.fontFamily)) + ",\"size_pt\":" + (PptxGo.num(lv.fontSizePt)))
+        o = (o + ",\"bold\":" + (PptxGo.boolText(lv.bold)) + ",\"color\":" + (PptxGo.q((PptxGo.hex(lv.color)))))
+        o = (o + ",\"bullet\":" + (PptxGo.q(lv.bulletChar)) + "}")
+        return o
+    }
+
+    sfn listStyleJson:string (ls:PptxListStyle) {
+        def o:string "["
+        def i:int 0
+        def n:int (array_length ls.levels)
+        if (n > 3) {
+            n = 3
+        }
+        while (i < n) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            o = (o + (PptxGo.levelJson((itemAt ls.levels i))))
+            i = (i + 1)
+        }
+        return (o + "]")
+    }
+
+    ; The deck's look: slide size, the theme's colours and faces, and the
+    ; masters' title and body text styles.
+    sfn styleJson:string (d:PptxGoDoc) {
+        def pres:PptxPresentation d.deck.pres
+        def o:string ("{\"width_pt\":" + (PptxGo.num(pres.slideWidth)) + ",\"height_pt\":" + (PptxGo.num(pres.slideHeight)))
+        o = (o + ",\"heading_font\":" + (PptxGo.q(pres.theme.majorFont)) + ",\"body_font\":" + (PptxGo.q(pres.theme.minorFont)))
+        def cols:string ""
+        def names:[string] (keys pres.theme.colors)
+        def i:int 0
+        while (i < (array_length names)) {
+            def k:string (itemAt names i)
+            def v:string (?? (get pres.theme.colors k) "")
+            if ((strlen cols) > 0) {
+                cols = (cols + ",")
+            }
+            cols = (cols + (PptxGo.q(k)) + ":" + (PptxGo.q(("#" + v))))
+            i = (i + 1)
+        }
+        o = (o + ",\"colors\":{" + cols + "}")
+        def masters:string ""
+        def mk:[string] (keys pres.masters)
+        i = 0
+        while (i < (array_length mk)) {
+            def mo@(optional):PptxSheet (get pres.masters (itemAt mk i))
+            if (!null? mo) {
+                def m:PptxSheet (unwrap mo)
+                if ((strlen masters) > 0) {
+                    masters = (masters + ",")
+                }
+                masters = (masters + "{\"part\":" + (PptxGo.q(m.partPath)) + ",\"background\":" + (PptxGo.q((PptxGo.hex(m.bg)))))
+                masters = (masters + ",\"title\":" + (PptxGo.listStyleJson(m.titleStyle)) + ",\"body\":" + (PptxGo.listStyleJson(m.bodyStyle)) + "}")
+            }
+            i = (i + 1)
+        }
+        o = (o + ",\"masters\":[" + masters + "]")
+        return (o + "}")
+    }
+
+    ; Everything kept about the deck, read once, in the shape of
+    ; DesignViewer's FigIndex (pages, screens and their parts) so the shared
+    ; files' search, window and tools take a slide as they take a screen: one
+    ; page "Slides", a screen per slide (id "3", named by its title), a part
+    ; per shape ("3:2"). What is a deck's own rides beside it: "kind", the
+    ; "style" and, on each slide, its "markdown", "layout" and "shapes".
+    sfn indexJson:string (d:PptxGoDoc) {
+        def pres:PptxPresentation d.deck.pres
+        def k:double (96.0 / 72.0)
+        def count:int (array_length pres.slides)
+        def o:string ("{\"kind\":\"pptx\",\"meta\":{\"background\":\"\"},\"style\":" + (PptxGo.styleJson(d)))
+        o = (o + ",\"pages\":[{\"id\":\"slides\",\"name\":\"Slides\",\"screens\":" + (to_string count) + "}],\"screens\":[")
+        def i:int 0
+        while (i < count) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            def n:int (i + 1)
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def title:string (PptxGo.slideTitle(sl))
+            def name:string title
+            if ((strlen name) == 0) {
+                name = ("Slide " + (to_string n))
+            }
+            def md:string (PptxGo.slideMarkdown(sl))
+            o = (o + "{\"id\":" + (PptxGo.q((to_string n))) + ",\"page\":\"slides\",\"name\":" + (PptxGo.q(name)) + ",\"type\":\"SLIDE\"")
+            o = (o + ",\"x\":0,\"y\":0,\"w\":" + (PptxGo.num((sl.width * k))) + ",\"h\":" + (PptxGo.num((sl.height * k))))
+            o = (o + ",\"text\":" + (PptxGo.q(md)) + ",\"title\":" + (PptxGo.q(title)) + ",\"markdown\":" + (PptxGo.q(md)))
+            o = (o + ",\"layout\":" + (PptxGo.q(sl.layoutPart)) + ",\"background\":" + (PptxGo.q((PptxGo.hex(sl.bg)))))
+            def notes:string ""
+            if sl.notes.hasText {
+                notes = (trim (sl.notes.text.plainText()))
+            }
+            o = (o + ",\"notes\":[")
+            if ((strlen notes) > 0) {
+                o = (o + (PptxGo.q(notes)))
+            }
+            o = (o + "]")
+            def parts:string ""
+            def shapes:string ""
+            def s:int 0
+            while (s < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes s)
+                def pj:string (PptxGo.partsJson(sh n (to_string s)))
+                if ((strlen pj) > 0) {
+                    if ((strlen parts) > 0) {
+                        parts = (parts + ",")
+                    }
+                    parts = (parts + pj)
+                }
+                if (s > 0) {
+                    shapes = (shapes + ",")
+                }
+                shapes = (shapes + (PptxGo.shapeJson(sh (to_string s))))
+                s = (s + 1)
+            }
+            o = (o + ",\"parts\":[" + parts + "],\"shapes\":[" + shapes + "]}")
+            i = (i + 1)
+        }
+        return (o + "]}")
+    }
+
+    ; Slide `i` (0-based) laid out, as the display list render.go paints,
+    ; after one line "W H": its size in pixels at 96 dpi. "" for no slide.
+    sfn view:string (d:PptxGoDoc i:int) {
+        if ((i < 0) || (i >= (array_length d.deck.pres.slides))) {
+            return ""
+        }
+        def sl:PptxSlide (itemAt d.deck.pres.slides i)
+        def conv:PptxToEvg d.conv
+        conv.setScale(1.0)
+        conv.slideNumber = (i + 1)
+        def dl:EVGDisplayList (conv.slideToDisplayList(sl))
+        def head:string ((PptxGo.num((conv.ptToPx(sl.width)))) + " " + (PptxGo.num((conv.ptToPx(sl.height)))))
+        return (head + "\n" + (dl.toJson()))
+    }
+
+    ; The bytes of a package part a slide's list names as a picture.
+    sfn partBytes:buffer (d:PptxGoDoc name:string) {
+        if (d.deck.parser.pkg.hasPart(name)) {
+            return (d.deck.parser.pkg.readBinary(name))
+        }
+        return (buffer_alloc 0)
+    }
+
+    ; --- editing in place
+
+    ; The shape at `path` ("2", "4.1") of slide `i`, or none.
+    sfn shapeAt@(optional):PptxShape (d:PptxGoDoc i:int path:string) {
+        def none@(optional):PptxShape
+        if ((i < 0) || (i >= (array_length d.deck.pres.slides))) {
+            return none
+        }
+        def sl:PptxSlide (itemAt d.deck.pres.slides i)
+        def list:[PptxShape] sl.shapes
+        def cur@(optional):PptxShape
+        def num:int 0
+        def has:boolean false
+        def k:int 0
+        def n:int (strlen path)
+        while (k <= n) {
+            def cp:int 46
+            if (k < n) {
+                cp = (charAt path k)
+            }
+            if ((cp >= 48) && (cp <= 57)) {
+                num = ((num * 10) + (cp - 48))
+                has = true
+            } {
+                if ((cp != 46) || (has == false)) {
+                    return none
+                }
+                if (num >= (array_length list)) {
+                    return none
+                }
+                def sh:PptxShape (itemAt list num)
+                cur = sh
+                list = sh.children
+                num = 0
+                has = false
+            }
+            k = (k + 1)
+        }
+        return cur
+    }
+
+    ; Put `text` in the shape at `path` of slide `i`. Each line is a
+    ; paragraph; paragraph k keeps the look of the shape's paragraph k (its
+    ; level, bullet, alignment) and of that paragraph's first run, and lines
+    ; past the old ones look like the last. "" when done, else what was
+    ; wrong. The slide is marked changed, so saving writes it from the model.
+    sfn setText:string (d:PptxGoDoc i:int path:string text:string) {
+        def so@(optional):PptxShape (PptxGo.shapeAt(d i path))
+        if (null? so) {
+            return ("slide " + (to_string (i + 1)) + " has no shape " + path)
+        }
+        def sh:PptxShape (unwrap so)
+        def kind:string (PptxGo.kindName(sh))
+        if ((((kind == "picture") || (kind == "group")) || ((kind == "table") || (kind == "chart"))) || ((kind == "connector") || (kind == "diagram"))) {
+            return ("shape " + path + " is a " + kind + ": only a text box or a shape's words can be set")
+        }
+        if sh.inherited {
+            return ("shape " + path + " comes from the slide's layout: it is the same on every slide that uses the layout and is not changed here")
+        }
+        def old:[PptxParagraph]
+        if sh.hasText {
+            old = sh.text.paragraphs
+        }
+        def body (new PptxTextBody())
+        if sh.hasText {
+            body = sh.text
+        }
+        def fresh:[PptxParagraph]
+        def lines:[string] (PptxApi.lines(text))
+        def li:int 0
+        while (li < (array_length lines)) {
+            def protoPara (new PptxParagraph())
+            def protoRun (new PptxTextRun())
+            if ((array_length old) > 0) {
+                def at:int li
+                if (at >= (array_length old)) {
+                    at = ((array_length old) - 1)
+                }
+                protoPara = (itemAt old at)
+                if ((array_length protoPara.runs) > 0) {
+                    protoRun = (itemAt protoPara.runs 0)
+                }
+            }
+            def para (new PptxParagraph())
+            protoPara.copyFormatTo(para)
+            def run:PptxTextRun (PptxTextEdit.emptyLike(protoRun))
+            run.text = (itemAt lines li)
+            push para.runs run
+            push fresh para
+            li = (li + 1)
+        }
+        body.paragraphs = fresh
+        sh.text = body
+        sh.hasText = true
+        def sl:PptxSlide (itemAt d.deck.pres.slides i)
+        sl.dirty = true
+        sl.revision = (sl.revision + 1)
+        return ""
+    }
+
+    ; Remove slide `i`; "" when done.
+    sfn removeSlide:string (d:PptxGoDoc i:int) {
+        if (d.deck.removeSlide(i)) {
+            return ""
+        }
+        return ("no slide " + (to_string (i + 1)))
+    }
+
+    ; The deck written over the package it was read from: parts the model
+    ; does not know are copied as they were.
+    sfn save:buffer (d:PptxGoDoc) {
+        return (d.deck.save())
+    }
+}

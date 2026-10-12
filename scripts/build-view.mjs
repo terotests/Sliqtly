@@ -12,6 +12,11 @@
  *   index.html   web/view.html: the viewer, and the front page
  *   view.js …    web/view.js, viewlink.js, viewload.js, slidetext.js, viewauth.js (an owner's sign-in),
  *                picture.js and what it imports, brand.js
+ *   play.html    /r/{id}/{hash}: a presentation exported as recorded (the
+ *                editor's Export ▸ Cloud HTML), played by play.js with
+ *                playlink.js, recstream.js, fxdeck.js and the painter only;
+ *                one exported with the 3-D flight also playflight.js,
+ *                flight3d.js, three3d.js and pres_3d.js, loaded then only
  *   gl/          evg-webgl.js, the painter
  *   viewplay.js, apps.js, pres_play.js, cerxes.wasm …   programs on slides
  *                (```app), loaded only for a deck that has one
@@ -29,15 +34,15 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureRanger, ensureCerxes, compile, root, webDir, log } from "./lib.mjs";
-import { copyFaces, facesStamp, minify, buildThree, buildScriptSel } from "./build.mjs";
+import { copyFaces, facesStamp, minify, buildThree, buildScriptSel, markParts } from "./build.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
 
 export const viewDir = path.join(webDir, "dist-view");
 
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
-const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"]];
+const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["play.js", "play.js"], ["playlink.js", "playlink.js"], ["recstream.js", "recstream.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"], ["flight3d.js", "flight3d.js"], ["playflight.js", "playflight.js"]];
+const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })
@@ -88,13 +93,14 @@ export function buildView({ ranger } = {}) {
     }
   }
 
+  markParts(viewDir, ["pres_3d.js", "pres_play.js"]);
   // the build's stamp on the page's script and every module import, as in
   // build.mjs: a reload never mixes an old module with a new one
   const h = crypto.createHash("sha1");
   for (const f of files(viewDir).filter((f) => !f.startsWith("fonts/"))) h.update(f).update(fs.readFileSync(path.join(viewDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
   const fonts = facesStamp(viewDir);
-  for (const page of ["index.html", "main/admin.html"]) {
+  for (const page of ["index.html", "main/admin.html", "play.html"]) {
     const html = path.join(viewDir, page);
     fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
   }

@@ -1,0 +1,464 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresVideo.rgr — a presentation as a video: what frame n shows
+; ============================================================================
+;
+; A video export does not film the screen. The timeline already says what
+; the stage shows at every moment (PresTimeline: a frame is a pure function
+; of the deck, the slide and the time), so the exporter only has to say
+; WHICH time each video frame is:
+;
+;   t(n) = n / fps          frame n, never a wall clock
+;
+; Two sources of time:
+;
+;   the deck      played on its own: slide after slide, build steps at the
+;                 deck's own pace (PresTimeline.slideStart / duration)
+;   a recording   played as it was presented (PresRecord): the nav
+;                 operations say where the talk was, the clock runs from
+;                 each one and holds at the next build step as presenting
+;                 does (PresTimeline.holdAt), the cuts are left out, and
+;                 what was drawn and pointed at is drawn over the slide
+;
+; PresVideoTimeline is the compiled result: the size, the rate, how long,
+; the events (slides, transitions, build steps) and, for a recording, the
+; parts of its sound that are kept. `at(n)` places frame n; `frame` draws
+; it. Nothing here reads a clock, draws pixels or encodes: the host
+; rasterises the list and an encoder takes the pixels (web/videoexport.js,
+; scripts/video.mjs). Checked in PresCheck.video.
+; ============================================================================
+
+Import "PresTimeline.rgr"
+Import "PresRecord.rgr"
+Import "../vela/src/VlJson.rgr"
+
+; What the video is asked to be. The encoder reads the codec settings; the
+; timeline reads the size and the rate.
+class PresVideoOptions {
+    def width:int 1920
+    def height:int 1080
+    def fps:int 30
+    ; vp9 | av1 (FFmpeg) | vp8 (Sliqtly's own encoder, PresVp8.rs)
+    def codec:string "vp9"
+    ; yuv420p | yuv444p
+    def pixelFormat:string "yuv420p"
+    ; 0 (best) .. 63, the encoder's quantiser scale (crf)
+    def quality:int 32
+    def audioCodec:string "opus"
+    ; give the encoder the scene's metadata (a later milestone)
+    def sceneAware:boolean false
+
+    ; Options from the host's JSON; what is missing or out of range keeps
+    ; its default.
+    sfn parse:PresVideoOptions (text:string) {
+        def o (new PresVideoOptions())
+        if ((strlen (trim text)) == 0) {
+            return o
+        }
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(text))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            return o
+        }
+        def w:int (root.intOr("width" 1920))
+        def h:int (root.intOr("height" 1080))
+        ; even sides: 4:2:0 halves them
+        if ((w >= 16) && (w <= 7680)) {
+            o.width = (w - (w % 2))
+        }
+        if ((h >= 16) && (h <= 4320)) {
+            o.height = (h - (h % 2))
+        }
+        def f:int (root.intOr("fps" 30))
+        if ((f >= 1) && (f <= 120)) {
+            o.fps = f
+        }
+        def c:string (root.stringOr("codec" "vp9"))
+        if ((c == "vp9") || (c == "av1") || (c == "vp8")) {
+            o.codec = c
+        }
+        def pf:string (root.stringOr("pixelFormat" "yuv420p"))
+        if ((pf == "yuv420p") || (pf == "yuv444p")) {
+            o.pixelFormat = pf
+        }
+        def q:int (root.intOr("quality" 32))
+        if ((q >= 0) && (q <= 63)) {
+            o.quality = q
+        }
+        o.sceneAware = (root.boolOr("sceneAware" false))
+        return o
+    }
+}
+
+; Something that happens on the video's time line (seconds of video).
+;   slide       the slide is shown
+;   transition  it comes in
+;   build       a build step arrives
+class PresVideoEvent {
+    def kind:string ""
+    def start:double 0.0
+    def end:double 0.0
+    def slide:int 0
+    def step:int 0
+}
+
+; Where the presentation is at one video frame.
+class PresVideoAt {
+    def slide:int 0
+    ; the slide's own time the stage draws it at
+    def local:double 0.0
+    ; the slide's surface effect's clock: it runs on through the holds
+    def fxTime:double 0.0
+    ; the presenter says the lines whose steps came from this local time on
+    def storyFrom:double 0.0
+    def ended:boolean false
+    ; the recording's own time (cuts included), -1 without one
+    def source:double -1.0
+}
+
+class PresVideoTimeline {
+    def opts:PresVideoOptions (new PresVideoOptions())
+    def duration:double 0.0
+    def events:[PresVideoEvent]
+    def recorded:boolean false
+    def rec:PresRecording (new PresRecording())
+    def slides:int 0
+
+    ; The deck played on its own.
+    sfn ofDeck:PresVideoTimeline (deck:PresDeck opts:PresVideoOptions) {
+        def tl (new PresVideoTimeline())
+        tl.opts = opts
+        tl.slides = (deck.slideCount())
+        tl.duration = (PresTimeline.total(deck))
+        def i:int 0
+        while (i < (deck.slideCount())) {
+            def s:PresSlide (deck.slideAt(i))
+            def start:double (PresTimeline.slideStart(deck i))
+            tl.add("slide" start (start + s.duration) i 0)
+            def tr:double (PresTimeline.transitionSeconds(s))
+            if (tr > 0.0) {
+                tl.add("transition" start (start + tr) i 0)
+            }
+            def k:int 1
+            while (k <= s.steps) {
+                tl.add("build" (start + (PresTimeline.stepTime(s k))) (start + (PresTimeline.stepDone(s k))) i k)
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return tl
+    }
+
+    ; A recording played as it went, its cuts left out.
+    sfn ofRecording:PresVideoTimeline (deck:PresDeck rec:PresRecording opts:PresVideoOptions) {
+        def tl (new PresVideoTimeline())
+        tl.opts = opts
+        tl.slides = (deck.slideCount())
+        tl.recorded = true
+        tl.rec = rec
+        tl.duration = (rec.playLength())
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return tl
+        }
+        ; a slide shown from its nav until the next nav to another slide
+        def cur:int -1
+        def from:double 0.0
+        def lastStep:int 0
+        for rec.ops o:PresRecOp i {
+            if (o.k == "nav") {
+                def sl:int (PresVideoTimeline.clampSlide(o.slide n))
+                def p:double (rec.toPlay(o.t))
+                if (sl != cur) {
+                    if (cur >= 0) {
+                        tl.add("slide" from p cur 0)
+                    }
+                    cur = sl
+                    from = p
+                } {
+                    if (o.step > lastStep) {
+                        tl.add("build" p p sl o.step)
+                    }
+                }
+                lastStep = o.step
+            }
+        }
+        if (cur >= 0) {
+            tl.add("slide" from tl.duration cur 0)
+        }
+        return tl
+    }
+
+    sfn clampSlide:int (i:int n:int) {
+        if (i >= n) {
+            return (n - 1)
+        }
+        if (i < 0) {
+            return 0
+        }
+        return i
+    }
+
+    fn add:void (kind:string start:double end:double slide:int step:int) {
+        def e (new PresVideoEvent())
+        e.kind = kind
+        e.start = start
+        e.end = end
+        e.slide = slide
+        e.step = step
+        push events e
+    }
+
+    ; How many frames: every frame whose time is inside the video, at least
+    ; one (a deck of one still slide is still a picture).
+    fn frameCount:int () {
+        def fps:double (to_double opts.fps)
+        def n:int (to_int (duration * fps))
+        if (((to_double n) / fps) < (duration - 0.000001)) {
+            n = (n + 1)
+        }
+        if (n < 1) {
+            n = 1
+        }
+        return n
+    }
+
+    ; The video time of frame n, from the frame number alone: no sum of
+    ; deltas, so frame 9000 is as exact as frame 1.
+    fn frameTime:double (n:int) {
+        return ((to_double n) / (to_double opts.fps))
+    }
+
+    ; Where frame n is.
+    fn at:PresVideoAt (deck:PresDeck n:int) {
+        def t:double (this.frameTime(n))
+        if recorded {
+            return (this.recordedAt(deck t))
+        }
+        def a (new PresVideoAt())
+        if ((deck.slideCount()) == 0) {
+            return a
+        }
+        a.slide = (PresTimeline.slideAtTime(deck t))
+        a.local = (t - (PresTimeline.slideStart(deck a.slide)))
+        def s:PresSlide (deck.slideAt(a.slide))
+        if (a.local > s.duration) {
+            a.local = s.duration
+            a.ended = true
+        }
+        if (a.local < 0.0) {
+            a.local = 0.0
+        }
+        a.fxTime = a.local
+        return a
+    }
+
+    ; The recording at video time t (cuts left out): the nav in force, its
+    ; clock run on and held at the next build step, as PresApp.replayAt
+    ; and PresApp.setClock do it while a replay plays.
+    fn recordedAt:PresVideoAt (deck:PresDeck t:double) {
+        def a (new PresVideoAt())
+        def n:int (deck.slideCount())
+        def src:double (rec.toSource(t))
+        a.source = src
+        if (n == 0) {
+            return a
+        }
+        ; the nav in force and the first of its run on the same slide
+        def nav:int -1
+        def entry:int -1
+        for rec.ops o:PresRecOp i {
+            if (o.t > src) {
+                break
+            }
+            if (o.k == "nav") {
+                def was:int -1
+                if (nav >= 0) {
+                    def prev:PresRecOp (itemAt rec.ops nav)
+                    was = (PresVideoTimeline.clampSlide(prev.slide n))
+                }
+                if ((PresVideoTimeline.clampSlide(o.slide n)) != was) {
+                    entry = i
+                }
+                nav = i
+            }
+        }
+        if (nav < 0) {
+            ; before the first nav: the first slide at its start
+            return a
+        }
+        def o:PresRecOp (itemAt rec.ops nav)
+        a.slide = (PresVideoTimeline.clampSlide(o.slide n))
+        a.ended = o.ended
+        def s:PresSlide (deck.slideAt(a.slide))
+        def start:double (PresTimeline.slideStart(deck a.slide))
+        def want:double (o.clock + (src - o.t))
+        def hold:double (PresTimeline.holdAt(deck a.slide o.step))
+        if (want > hold) {
+            want = hold
+        }
+        a.local = (want - start)
+        if (a.local < 0.0) {
+            a.local = 0.0
+        }
+        if (a.local > s.duration) {
+            a.local = s.duration
+        }
+        ; the effect runs from when the slide came on, through the holds;
+        ; the presenter's lines from the lowest time the stage was at
+        def eo:PresRecOp (itemAt rec.ops entry)
+        def came:double (eo.clock - start)
+        if (came < 0.0) {
+            came = 0.0
+        }
+        a.fxTime = (came + (src - eo.t))
+        if (a.fxTime < a.local) {
+            a.fxTime = a.local
+        }
+        a.storyFrom = came
+        def k:int entry
+        while (k <= nav) {
+            def ok:PresRecOp (itemAt rec.ops k)
+            if (ok.k == "nav") {
+                def lo:double (ok.clock - start)
+                if (lo < a.storyFrom) {
+                    a.storyFrom = lo
+                }
+            }
+            k = (k + 1)
+        }
+        if (a.storyFrom < 0.0) {
+            a.storyFrom = 0.0
+        }
+        return a
+    }
+
+    ; The recording's sound as played: the parts between the cuts, in the
+    ; recording's own seconds [start, end, start, end, …].
+    fn audioKeep:[double] () {
+        def out:[double]
+        if (recorded == false) {
+            return out
+        }
+        def from:double 0.0
+        def i:int 0
+        while (i < (rec.cutCount())) {
+            def a:double (rec.cutStart(i))
+            def b:double (rec.cutEnd(i))
+            if (a > from) {
+                push out from
+                push out a
+            }
+            from = b
+            i = (i + 1)
+        }
+        if (rec.duration > from) {
+            push out from
+            push out rec.duration
+        }
+        return out
+    }
+
+    sfn num:VlJson (v:double) {
+        return (VlJson.numberValue((PresRecording.r3(v))))
+    }
+
+    ; The compiled timeline for the host and the encoder.
+    fn toJson:string () {
+        def root:VlJson (VlJson.objectValue())
+        root.setMember("width" (VlJson.intValue(opts.width)))
+        root.setMember("height" (VlJson.intValue(opts.height)))
+        root.setMember("fps" (VlJson.intValue(opts.fps)))
+        root.setMember("duration" (PresVideoTimeline.num(duration)))
+        root.setMember("frames" (VlJson.intValue((this.frameCount()))))
+        root.setMember("slides" (VlJson.intValue(slides)))
+        root.setMember("codec" (VlJson.stringValue(opts.codec)))
+        root.setMember("pixelFormat" (VlJson.stringValue(opts.pixelFormat)))
+        root.setMember("quality" (VlJson.intValue(opts.quality)))
+        root.setMember("audioCodec" (VlJson.stringValue(opts.audioCodec)))
+        root.setMember("sceneAware" (VlJson.boolValue(opts.sceneAware)))
+        root.setMember("source" (VlJson.stringValue((? recorded "recording" "deck"))))
+        if recorded {
+            def au:VlJson (VlJson.objectValue())
+            au.setMember("path" (VlJson.stringValue(rec.audio)))
+            au.setMember("voice" (VlJson.stringValue(rec.voice)))
+            def keep:VlJson (VlJson.arrayValue())
+            def kk:[double] (this.audioKeep())
+            for kk v:double ki {
+                push keep.arr (PresVideoTimeline.num(v))
+            }
+            au.setMember("keep" keep)
+            root.setMember("audio" au)
+        }
+        def arr:VlJson (VlJson.arrayValue())
+        for events e:PresVideoEvent i {
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("kind" (VlJson.stringValue(e.kind)))
+            o.setMember("start" (PresVideoTimeline.num(e.start)))
+            o.setMember("end" (PresVideoTimeline.num(e.end)))
+            o.setMember("slide" (VlJson.intValue(e.slide)))
+            if (e.step > 0) {
+                o.setMember("step" (VlJson.intValue(e.step)))
+            }
+            push arr.arr o
+        }
+        root.setMember("events" arr)
+        def w (new VlJsonWriter())
+        w.decimals = 3
+        return (w.write(root))
+    }
+}
+
+class PresVideo {
+    ; The caret's width for ink being written, in the hand-written face as
+    ; the slides measure it; -1 until the face is here (the stage and the
+    ; video draw the same caret).
+    sfn inkCaretW:double (deck:PresDeck k:PresInk) {
+        if (((k.typing == false) || ((array_length k.strokes) == 0)) || ((deck.md.fontManager.hasFont((PresInk.FACE()))) == false)) {
+            return -1.0
+        }
+        def s:PresInkStroke (itemAt k.strokes ((array_length k.strokes) - 1))
+        def lines:[string] (strsplit s.text "\n")
+        def last:string ""
+        if ((array_length lines) > 0) {
+            last = (itemAt lines ((array_length lines) - 1))
+        }
+        return (deck.md.fontManager.measureText(last (PresInk.FACE()) (PresInk.textSize(s))))
+    }
+
+    ; Frame n as a display list in slide units: the stage as presenting
+    ; shows it (no controls), and for a recording what was drawn and
+    ; pointed at then. `replay` carries the ink forward between frames
+    ; (a frame before the last one starts it over: PresReplay.seek).
+    sfn frame:EVGDisplayList (deck:PresDeck tl:PresVideoTimeline n:int replay:PresReplay) {
+        def a:PresVideoAt (tl.at(deck n))
+        ; the stage's own state, as it was after
+        def wasLive:boolean deck.live
+        def wasControls:boolean deck.showControls
+        def wasSlide:int deck.storySlide
+        def wasFrom:double deck.storyFrom
+        deck.live = true
+        deck.showControls = false
+        deck.storySlide = a.slide
+        deck.storyFrom = a.storyFrom
+        def out:EVGDisplayList (PresTimeline.frame(deck a.slide a.local))
+        deck.live = wasLive
+        deck.showControls = wasControls
+        deck.storySlide = wasSlide
+        deck.storyFrom = wasFrom
+        if (tl.recorded && (a.source >= 0.0)) {
+            replay.seek(a.source)
+            def k:PresInk replay.ink
+            if (((k.count()) > 0) || ((k.pointerAlpha(a.source)) > 0.0)) {
+                k.caretW = (PresVideo.inkCaretW(deck k))
+                def unit:double 1.0
+                if (deck.pageW > 0.0) {
+                    unit = (deck.pageW / 1280.0)
+                }
+                k.draw(out a.source unit)
+            }
+        }
+        return out
+    }
+}

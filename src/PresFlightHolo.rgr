@@ -1,0 +1,159 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFlightHolo.rgr — a picture of a slide as the 3-D flight shows it.
+; ============================================================================
+;
+; The flight (src/PresFlight3D.rgr) shows a slide's pictures as screens of a
+; hologram: their light kept, their colours drawn towards the glow of the
+; flight, a dark line every third row, see-through where they are dark.
+; Plain pixels in and out, so the checks (PresCheck.flight) run it too.
+; ============================================================================
+
+class FlightHolo {
+    ; RGBA rows w x h, in place; r g b the glow (0..1).
+    sfn pixels:void (px:buffer w:int h:int r:double g:double b:double) {
+        def y:int 0
+        while (y < h) {
+            def scan:double (? ((y - ((idiv y 3) * 3)) == 0) 0.55 1.0)
+            def x:int 0
+            while (x < w) {
+                def o:int (((y * w) + x) * 4)
+                def pr:double (to_double (buffer_get px o))
+                def pg:double (to_double (buffer_get px (o + 1)))
+                def pb:double (to_double (buffer_get px (o + 2)))
+                def pa:double (to_double (buffer_get px (o + 3)))
+                def lum:double ((((pr * 0.3) + (pg * 0.59)) + (pb * 0.11)) / 255.0)
+                def k:double (0.25 + (lum * 0.75))
+                def nr:double ((((pr / 255.0) * 0.45) + ((r * lum) * 0.55)) * scan)
+                def ng:double ((((pg / 255.0) * 0.45) + ((g * lum) * 0.55)) * scan)
+                def nb:double ((((pb / 255.0) * 0.45) + ((b * lum) * 0.55)) * scan)
+                buffer_set px o (FlightHolo.byte(nr))
+                buffer_set px (o + 1) (FlightHolo.byte(ng))
+                buffer_set px (o + 2) (FlightHolo.byte(nb))
+                buffer_set px (o + 3) (FlightHolo.byte(((pa / 255.0) * k)))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    ; A picture on the slide (a screen, a photo) as it is: its colours and
+    ; how opaque it is kept, every third row a little darker so it reads
+    ; as the hologram's screen.
+    sfn solid:void (px:buffer w:int h:int) {
+        def y:int 2
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def o:int (((y * w) + x) * 4)
+                buffer_set px o (FlightHolo.byte((((to_double (buffer_get px o)) / 255.0) * 0.85)))
+                buffer_set px (o + 1) (FlightHolo.byte((((to_double (buffer_get px (o + 1))) / 255.0) * 0.85)))
+                buffer_set px (o + 2) (FlightHolo.byte((((to_double (buffer_get px (o + 2))) / 255.0) * 0.85)))
+                x = (x + 1)
+            }
+            y = (y + 3)
+        }
+    }
+
+    sfn byte:int (v:double) {
+        def n:int (to_int ((v * 255.0) + 0.5))
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    ; The triangles that fill a polygon (x,y pairs, one ring, no holes),
+    ; as index triples into its points: ears cut off one by one, so a
+    ; concave outline (a hood, spikes of hair, a mouth) fills only its
+    ; inside. What is left when no ear is found (a ring that crosses
+    ; itself) is fanned.
+    sfn ears:[int] (xy:[double]) {
+        def out:[int]
+        def n:int (idiv (array_length xy) 2)
+        if (n < 3) {
+            return out
+        }
+        ; which way round it goes
+        def area:double 0.0
+        def i:int 0
+        while (i < n) {
+            def j:int (? ((i + 1) < n) (i + 1) 0)
+            area = (area + (((itemAt xy (i * 2)) * (itemAt xy ((j * 2) + 1))) - ((itemAt xy (j * 2)) * (itemAt xy ((i * 2) + 1)))))
+            i = (i + 1)
+        }
+        def turn:double (? (area < 0.0) -1.0 1.0)
+        def left:[int]
+        i = 0
+        while (i < n) {
+            push left i
+            i = (i + 1)
+        }
+        def guard:int 0
+        def at:int 0
+        while (((array_length left) > 3) && (guard < (n * n))) {
+            guard = (guard + 1)
+            def m:int (array_length left)
+            def a:int (itemAt left ((at + (m - 1)) % m))
+            def b:int (itemAt left (at % m))
+            def c:int (itemAt left ((at + 1) % m))
+            if (FlightHolo.isEar(xy left a b c turn)) {
+                push out a
+                push out b
+                push out c
+                remove_index left (at % m)
+                guard = 0
+            } {
+                at = (at + 1)
+            }
+            if (guard > (array_length left)) {
+                ; no ear left: fan the rest
+                def k:int 1
+                while ((k + 1) < (array_length left)) {
+                    push out (itemAt left 0)
+                    push out (itemAt left k)
+                    push out (itemAt left (k + 1))
+                    k = (k + 1)
+                }
+                return out
+            }
+        }
+        if ((array_length left) == 3) {
+            push out (itemAt left 0)
+            push out (itemAt left 1)
+            push out (itemAt left 2)
+        }
+        return out
+    }
+
+    ; b is an ear: a convex corner whose triangle holds no other point.
+    sfn isEar:boolean (xy:[double] left:[int] a:int b:int c:int turn:double) {
+        def ax:double (itemAt xy (a * 2))
+        def ay:double (itemAt xy ((a * 2) + 1))
+        def bx:double (itemAt xy (b * 2))
+        def by:double (itemAt xy ((b * 2) + 1))
+        def cx:double (itemAt xy (c * 2))
+        def cy:double (itemAt xy ((c * 2) + 1))
+        def cr:double ((((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax))) * turn)
+        if (cr <= 0.0) {
+            return false
+        }
+        for left q:int k {
+            if (((q != a) && (q != b)) && (q != c)) {
+                def px:double (itemAt xy (q * 2))
+                def py:double (itemAt xy ((q * 2) + 1))
+                def d1:double ((((bx - ax) * (py - ay)) - ((by - ay) * (px - ax))) * turn)
+                def d2:double ((((cx - bx) * (py - by)) - ((cy - by) * (px - bx))) * turn)
+                def d3:double ((((ax - cx) * (py - cy)) - ((ay - cy) * (px - cx))) * turn)
+                if (((d1 >= 0.0) && (d2 >= 0.0)) && (d3 >= 0.0)) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+}

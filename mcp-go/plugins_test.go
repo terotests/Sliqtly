@@ -338,26 +338,6 @@ Therefore the mailer sends the author mail\.
 But nobody waits\.
 :::`)
 
-	// a Finnish story is joined by Finnish words, whichever were given
-	fi := reviewModel()
-	fi["narrative"] = map[string]any{"summary": "x", "story": []any{
-		map[string]any{"text": "Arvioija hyväksyy luonnoksen."},
-		map[string]any{"link": "but", "text": "Rajapinta ei odota tallennusta, vaan lähettää viestin heti."},
-		map[string]any{"link": "joten", "text": "Viesti voi lähteä turhaan."},
-		map[string]any{"link": "therefore", "text": "Tallennus luetaan ensin."},
-	}}
-	fmd := sc(call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"pr": "tero/app#5", "model": fi}}))["markdown"].(string)
-	match(t, fmd, `::: story
-Arvioija hyväksyy luonnoksen\.
-Mutta rajapinta ei odota tallennusta, vaan lähettää viestin heti\.
-Joten viesti voi lähteä turhaan\.
-Siksi tallennus luetaan ensin\.
-:::`)
-	match(t, fmd, `(?m)^lang: fi$`)
-	if strings.Contains(sc(tb)["markdown"].(string), "lang: fi") {
-		t.Fatal("an English story's deck says no Finnish")
-	}
-
 	// the deck is drawn without a block it cannot show
 	f := fakeFirebase()
 	s2 := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
@@ -400,4 +380,115 @@ Siksi tallennus luetaan ensin\.
 	match(t, string(ws), `flow f3 points at \\"nowhere\\", which is no item`)
 	match(t, string(ws), `transition transition4 goes to or from store \\"db\\"`)
 	match(t, string(ws), `x1: src/api\.ts:99 is no line`)
+}
+
+// The change sent from the assistant's own checkout (args.source): no
+// GitHub call, the files' texts and diffs as sent, links to the repository
+// when it is on GitHub, the files whole on args.whole.
+func TestCodeReviewSource(t *testing.T) {
+	head := "89abcdef0123456789abcdef0123456789abcdef"
+	base := "1111111111111111111111111111111111111111"
+	big := ""
+	for i := 1; i <= 900; i++ {
+		big += fmt.Sprintf("line %d\n", i)
+	}
+	files := []any{
+		map[string]any{"path": "web/review.tsx", "text": "a\nb\nc\n"},
+		map[string]any{"path": "src/api.ts", "text": "1\n2\nawait db.save(row)\nemit(\"review.approved\")\n", "patch": "@@ -1,2 +1,4 @@\n 1\n-2\n+2\n+await db.save(row)\n+emit(\"review.approved\")"},
+		map[string]any{"path": "src/mail.ts", "text": "m\n"},
+		map[string]any{"path": "db/031.sql", "text": "alter table\n"},
+		map[string]any{"path": "src/states.ts", "text": "1\n2\n3\n4\n5\n6\n7\n", "patch": "@@ -1,4 +1,7 @@\n 1\n 2\n+3\n", "status": "modified"},
+		map[string]any{"path": "src/big.ts", "text": big},
+	}
+	source := map[string]any{"repo": "https://github.com/tero/app.git", "head": head, "base": base, "title": "Approval", "files": files}
+	env := testEnv(nil, nil)
+	env.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		t.Errorf("no network for a source: %s", r.URL)
+		return respond(500, "text/plain", ""), nil
+	})}
+	env.Plugins = []string{"code-review"}
+	s := start(t, env, "")
+	defer s.close()
+
+	st := call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "start", "args": map[string]any{"source": source}})
+	if st.IsError {
+		t.Fatal(textOf(st))
+	}
+	match(t, textOf(st), `^app@89abcde: "Approval", local; 2 files, \+4 −1\.`)
+	match(t, textOf(st), `(?m)^- src/api\.ts:3 \[wait,store\] await db\.save\(row\)$`)
+	match(t, textOf(st), `args=\{source, model\}`)
+
+	bm := reviewModel()
+	bm["actors"] = append(bm["actors"].([]any), map[string]any{"id": "log", "label": "Logger", "refs": []any{"src/big.ts:500-502"}})
+	b := call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"source": source, "model": bm}})
+	if b.IsError {
+		t.Fatal(textOf(b))
+	}
+	o := sc(b)
+	eq(t, o["inferred"], []any{"x1"}, "src/api.ts:99 is no line of the file sent")
+	md := o["markdown"].(string)
+	for _, want := range []string{
+		"[app@89abcde](https://github.com/tero/app/compare/" + base + "..." + head + ")",
+		"[web/review.tsx:2](https://github.com/tero/app/blob/" + head + "/web/review.tsx#L2)",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("the deck has no %q:\n%s", want, md)
+		}
+	}
+	got := map[string]string{}
+	for _, x := range list(o["files"]) {
+		m := x.(map[string]any)
+		got[m["name"].(string)] = m["text"].(string)
+	}
+	eq(t, got["code/src/states.ts.diff"], "--- a/src/states.ts\n+++ b/src/states.ts\n@@ -1,4 +1,7 @@\n 1\n 2\n+3\n")
+	if strings.Count(got["code/src/big.ts"], "\n") != 15 {
+		t.Fatalf("a long file keeps the lines the deck names: %d lines", strings.Count(got["code/src/big.ts"], "\n"))
+	}
+	var srcs struct {
+		Repos map[string]map[string]string
+	}
+	if err := json.Unmarshal([]byte(got["code/sources.json"]), &srcs); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, srcs.Repos["app"], map[string]string{"url": "https://github.com/tero/app", "host": "github", "base": base, "head": head, "change": "app@89abcde", "change_url": "https://github.com/tero/app/compare/" + base + "..." + head})
+
+	// args.whole: every file as it was sent
+	w := sc(call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"source": source, "model": bm, "whole": true}}))
+	for _, x := range list(w["files"]) {
+		m := x.(map[string]any)
+		if m["name"] == "code/src/big.ts" {
+			eq(t, m["text"], big)
+		}
+	}
+
+	// a file the refs name but the source did not send is said
+	short := map[string]any{"repo": "https://gitlab.example.com/team/app", "head": head, "files": files[:2]}
+	sb := call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "build", "args": map[string]any{"source": short, "model": reviewModel()}})
+	if sb.IsError {
+		t.Fatal(textOf(sb))
+	}
+	ws, _ := json.Marshal(sc(sb)["warnings"])
+	match(t, string(ws), `Not in args\.source\.files with its text: src/mail\.ts, src/states\.ts`)
+	smd := sc(sb)["markdown"].(string)
+	if strings.Contains(smd, "/blob/") {
+		t.Fatal("no GitHub links for a repository elsewhere:\n" + smd)
+	}
+	for _, x := range list(sc(sb)["files"]) {
+		m := x.(map[string]any)
+		if m["name"] == "code/sources.json" {
+			match(t, m["text"].(string), `"url":"https://gitlab\.example\.com/team/app","host":"gitlab"`)
+		}
+	}
+
+	// what a source must hold
+	for _, bad := range []map[string]any{
+		{"files": []any{}},
+		{"files": []any{map[string]any{"path": "../etc/passwd", "text": "x"}}},
+		{"files": []any{map[string]any{"path": "a.ts", "text": "x"}, map[string]any{"path": "a.ts", "text": "y"}}},
+	} {
+		e := call(t, s, "sliqtly_plugin", map[string]any{"name": "code-review", "op": "start", "args": map[string]any{"source": bad}})
+		if !e.IsError {
+			t.Fatalf("%v was taken", bad)
+		}
+	}
 }

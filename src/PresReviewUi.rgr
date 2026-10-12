@@ -109,6 +109,10 @@ class PresReviewUi {
     ; (`draftAsk`), -1 when it is on no diagram (PresReviewThread.dia)
     def draftAsk:boolean false
     def draftDia:int -1
+    ; the element under the new comment (PresReview.pinTo; "" none)
+    def draftEl:string ""
+    def draftEX:double 0.5
+    def draftEY:double 0.5
     def draftNode:string ""
     def draftAX:double 0.0
     def draftAY:double 0.0
@@ -368,6 +372,17 @@ class PresReviewUi {
         }
     }
 
+    ; The slides' titles and every slide's elements: each comment to its
+    ; element again (PresReview.follow); saved when one moved, so the file
+    ; says where it is.
+    fn setPlaces:void (t:[string] blocks:[PresReviewBlock]) {
+        titles = t
+        if (model.follow(blocks titles nowMs)) {
+            this.changed()
+            this.save()
+        }
+    }
+
     fn save:void () {
         push requests "review-save"
     }
@@ -504,6 +519,9 @@ class PresReviewUi {
                 if t.closed {
                     what = (what + " (" + (PresI18n.t("resolved")) + ")")
                 }
+                if t.lost {
+                    what = (what + " (" + (PresI18n.t("its element was removed")) + ")")
+                }
                 p.info = what
                 p.build()
                 p.pose(pulseNow shown)
@@ -629,8 +647,13 @@ class PresReviewUi {
                         who = (this.nameOf(t t.by))
                     }
                     sub = (sub + " · " + (PresI18n.t("Resolved")))
-                    if ((strlen who) > 0) {
-                        sub = (sub + " (" + who + ")")
+                    if t.lost {
+                        ; closed because what it was on was taken out
+                        sub = (sub + " · " + (PresI18n.t("its element was removed")))
+                    } {
+                        if ((strlen who) > 0) {
+                            sub = (sub + " (" + who + ")")
+                        }
                     }
                     chat.addAction("reopen" (PresI18n.t("Reopen")) "")
                     if armed {
@@ -1061,6 +1084,7 @@ class PresReviewUi {
         draftAsk = true
         draftDia = -1
         draftNode = ""
+        draftEl = ""
         draftCodePath = ""
         chat.input.setValue("")
         chat.input.moveTo(0 false)
@@ -1369,6 +1393,7 @@ class PresReviewUi {
                 draftAsk = true
                 draftDia = -1
                 draftNode = ""
+                draftEl = ""
             }
             typing = true
             this.changed()
@@ -1394,7 +1419,7 @@ class PresReviewUi {
         if ((this.inPanel(px py)) == false) {
             return false
         }
-        chat.scrollBy((? (dy < 0.0) -1 1))
+        chat.wheel(dy)
         this.changed()
         return true
     }
@@ -1444,6 +1469,9 @@ class PresReviewUi {
                 if (model.start(id draftSlide title draftX draftY m)) {
                     if (draftDia >= 0) {
                         model.anchor(id draftDia draftNode draftAX draftAY)
+                    }
+                    if (((strlen draftEl) > 0) && ((strlen draftCodePath) == 0)) {
+                        model.pinTo(id draftEl draftEX draftEY)
                     }
                     if ((strlen draftCodePath) > 0) {
                         model.setCode(id draftCodePath draftCodeLine draftCodeTo draftCodeText draftRemFrom draftRemTo draftRepo draftCommit draftViaDia draftViaNode)

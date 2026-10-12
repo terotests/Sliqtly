@@ -806,11 +806,7 @@ class CrViews {
         if ((strlen title) == 0) {
             title = src.name
         }
-        def langLine:string ""
-        if ((m.language()) == "fi") {
-            langLine = "\nlang: fi"
-        }
-        push out ("---\ntitle: \"" + (CrViews.quoted(("Review: " + title))) + "\"\nfooter-left: \"" + (CrViews.quoted(src.name)) + "\"\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first" + langLine + "\n---")
+        push out ("---\ntitle: \"" + (CrViews.quoted(("Review: " + title))) + "\"\nfooter-left: \"" + (CrViews.quoted(src.name)) + "\"\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first\n---")
         push out ("# " + (CrViews.oneLine(title)))
         def lead:string ("Risk: **" + level + "**")
         if ((strlen src.url) > 0) {
@@ -821,13 +817,12 @@ class CrViews {
         ; joining word first), and the lines to read are under the slide's
         ; title
         m.draftStory()
-        def language:string (m.language())
         def says:[string]
         def reads:[string]
         for m.story b:CrBeat bi {
             def line:string (CrViews.oneLine(b.text))
             if ((strlen b.link) > 0) {
-                line = (((CrViews.capital((CrBeat.wordIn(b.link language)))) + " ") + (CrViews.goingOn(line)))
+                line = (((CrViews.capital(b.link)) + " ") + (CrViews.goingOn(line)))
             }
             push says line
             def where:[string]

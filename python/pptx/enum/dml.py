@@ -1,0 +1,66 @@
+from pptx.enum import enum
+
+
+@enum
+class MSO_THEME_COLOR_INDEX:
+    NOT_THEME_COLOR = 0
+    ACCENT_1 = 5
+    ACCENT_2 = 6
+    ACCENT_3 = 7
+    ACCENT_4 = 8
+    ACCENT_5 = 9
+    ACCENT_6 = 10
+    BACKGROUND_1 = 14
+    BACKGROUND_2 = 16
+    DARK_1 = 1
+    DARK_2 = 3
+    FOLLOWED_HYPERLINK = 12
+    HYPERLINK = 11
+    LIGHT_1 = 2
+    LIGHT_2 = 4
+    TEXT_1 = 13
+    TEXT_2 = 15
+    MIXED = -2
+
+
+MSO_THEME_COLOR = MSO_THEME_COLOR_INDEX
+
+
+@enum
+class MSO_COLOR_TYPE:
+    RGB = 1
+    SCHEME = 2
+    HSL = 101
+    PRESET = 102
+    SCRGB = 103
+    SYSTEM = 104
+
+
+@enum
+class MSO_FILL_TYPE:
+    BACKGROUND = 5
+    GRADIENT = 3
+    GROUP = 101
+    PATTERNED = 2
+    PICTURE = 6
+    SOLID = 1
+    TEXTURED = 4
+
+
+MSO_FILL = MSO_FILL_TYPE
+
+
+@enum
+class MSO_LINE_DASH_STYLE:
+    DASH = 4
+    DASH_DOT = 5
+    DASH_DOT_DOT = 6
+    DASH_STYLE_MIXED = -2
+    LONG_DASH = 7
+    LONG_DASH_DOT = 8
+    ROUND_DOT = 3
+    SOLID = 1
+    SQUARE_DOT = 2
+
+
+MSO_LINE = MSO_LINE_DASH_STYLE

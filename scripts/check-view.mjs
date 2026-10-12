@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import crypto from "node:crypto";
 import { root, log } from "./lib.mjs";
 import { viewDir } from "./build-view.mjs";
 
@@ -61,6 +62,20 @@ const THREE_ID = "ThreeFixture1";
 const NOSEL_ID = "NoSelect12";
 const noSelDeck = JSON.stringify({ ...JSON.parse(deck), deck: { ...JSON.parse(deck).deck, selectText: false } });
 const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
+// the Finance sample recorded for the web at 10 frames a second (the
+// editor's Export ▸ Cloud HTML, web/main.js recordForWeb(10),
+// gzipped as web/recstream.js packStream keeps it), under its hash
+const recFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec.sliqrec"));
+const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice(0, 24);
+// the same kind of recording exported with the 3-D flight (version 3-D)
+const rec3dFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec3d.sliqrec"));
+const REC3D_HASH = crypto.createHash("sha256").update(rec3dFile).digest("hex").slice(0, 24);
+// a presentation exported as a video (Export ▸ Cloud video): a 2 s WebM by
+// Sliqtly's own encoder, at the same kind of address
+const videoFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-video.webm"));
+const VIDEO_HASH = crypto.createHash("sha256").update(videoFile).digest("hex").slice(0, 24);
+// the requests the video's file got (the player's own, not the page's fetch)
+const videoReads = [];
 
 // web/dist-view as firebase.json serves it: a file, /s/** the page, and
 // /api/view/** the server's (here the fixture)
@@ -84,6 +99,28 @@ const server = http.createServer((req, res) => {
     res.end(gltfFile);
     return;
   }
+  // a video kept in Storage: sent there (View.rgr ViewPictures.recording)
+  if (rel === "/api/view/" + ID + "/rec/" + VIDEO_HASH) {
+    res.writeHead(302, { location: "/fixture/view-video.webm" });
+    res.end();
+    return;
+  }
+  if (rel === "/fixture/view-video.webm") {
+    videoReads.push(req.headers.range || "");
+    res.writeHead(200, { "content-type": "video/webm" });
+    res.end(videoFile);
+    return;
+  }
+  if (rel === "/api/view/" + ID + "/rec/" + REC3D_HASH) {
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    res.end(rec3dFile);
+    return;
+  }
+  if (rel === "/api/view/" + ID + "/rec/" + REC_HASH) {
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    res.end(recFile);
+    return;
+  }
   if (rel.startsWith("/api/view/")) {
     const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck, [NOSEL_ID]: noSelDeck };
     const found = answers[rel.slice("/api/view/".length)];
@@ -105,6 +142,7 @@ const server = http.createServer((req, res) => {
   }
   if (rel === "/main/admin") rel = "/main/admin.html";
   if (rel === "/" || rel.startsWith("/s/")) rel = "/index.html";
+  if (rel.startsWith("/r/")) rel = "/play.html";
   const file = path.join(viewDir, rel);
   if (!file.startsWith(viewDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     missing.push(rel);
@@ -200,6 +238,141 @@ try {
   await page.keyboard.press("End");
   await page.waitForTimeout(200);
   if ((await text(page, "vCount")) !== `${slides} / ${slides}`) fail("End did not go to the last slide");
+
+  // the deck exported to the cloud as a light page (/r/{id}/{hash},
+  // web/play.js): its frames played from each slide's master time, held at
+  // a build step until Space, → the next slide, A plays it all through;
+  // the page loads the painter, the recording and its faces, nothing else
+  {
+    const loaded = [];
+    const rp = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    rp.on("console", (m) => { if (m.type() === "error") fail(`/r/: console: ${m.text()}`); });
+    rp.on("pageerror", (e) => fail(`/r/: ${e.message}`));
+    rp.on("request", (r) => loaded.push(new URL(r.url()).pathname));
+    await rp.goto(base + "/r/" + ID + "/" + REC_HASH, { waitUntil: "load" });
+    await rp.waitForFunction(() => !document.getElementById("bar").hidden, null, { timeout: 15000 });
+    const recN = await rp.evaluate(() => window.__play.nav.count);
+    const count = () => rp.evaluate(() => document.getElementById("pCount").textContent);
+    const look = () => rp.evaluate(() => {
+      const g = document.createElement("canvas");
+      g.width = 96;
+      g.height = 54;
+      const x = g.getContext("2d");
+      x.drawImage(document.getElementById("c"), 0, 0, 96, 54);
+      return Array.from(x.getImageData(0, 0, 96, 54).data).join(",");
+    });
+    const allowed = /^\/(r\/|play\.js|playlink\.js|recstream\.js|fxdeck\.js|viewlink\.js|gl\/evg-webgl\.js|fonts\/[\w-]+\.ttf|favicon\.svg|api\/view\/[^/]+\/rec\/)/;
+    const extra = loaded.filter((p) => !allowed.test(p));
+    if (extra.length) fail("the light player loaded more than it needs: " + extra.join(", "));
+    if (!loaded.some((p) => p.startsWith("/fonts/"))) fail("the light player loaded no face");
+    if ((await count()) !== `1 / ${recN}`) fail(`the light player starts at "${await count()}"`);
+    // slide 2 slides in ({transition=slide})
+    await rp.keyboard.press("ArrowRight");
+    await rp.waitForTimeout(50);
+    const coming = await look();
+    await rp.waitForTimeout(1500);
+    if ((await look()) === coming) fail("a recorded slide did not move as it came in");
+    // slide 3 waits at its first build step
+    await rp.keyboard.press("ArrowRight");
+    await rp.waitForTimeout(100);
+    if ((await count()) !== `3 / ${recN}`) fail("→ → in the light player did not go to slide 3");
+    await rp.waitForTimeout(1500);
+    const held = await look();
+    await rp.waitForTimeout(600);
+    if ((await look()) !== held) fail("a recorded slide did not hold at its build step");
+    await rp.keyboard.press(" ");
+    await rp.waitForTimeout(1500);
+    if ((await look()) === held) fail("Space did not play the recording's next step");
+    if ((await count()) !== `3 / ${recN}`) fail("Space at a build step left the slide");
+    await rp.keyboard.press("ArrowLeft");
+    await rp.waitForTimeout(100);
+    if ((await count()) !== `2 / ${recN}`) fail("← in the light player did not go back a slide");
+    await rp.keyboard.press("a");
+    await rp.waitForFunction((n) => document.getElementById("pCount").textContent === `4 / ${n}`, recN, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
+    await rp.close();
+    const rp0Flightless = async () => {
+      const p0 = await browser.newPage();
+      await p0.goto(base + "/r/" + ID + "/" + REC_HASH, { waitUntil: "load" });
+      await p0.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+      const none = await p0.evaluate(() => document.getElementById("pFlight").hidden && document.getElementById("start3d").hidden && !window.__play.flight);
+      await p0.close();
+      return none;
+    };
+    // #slide=N opens that slide; Share copies its /r/ link
+    const sp = await browser.newPage();
+    await sp.goto(base + "/r/" + ID + "/" + REC_HASH + "#slide=3", { waitUntil: "load" });
+    await sp.waitForFunction(() => window.__play, null, { timeout: 15000 });
+    if ((await sp.evaluate(() => document.getElementById("pCount").textContent)) !== `3 / ${recN}`) fail("#slide=3 did not open the light player at slide 3");
+    const addr = await sp.evaluate(() => location.pathname + location.hash);
+    if (addr !== "/r/" + ID + "/" + REC_HASH + "#slide=3") fail(`the light player's address became "${addr}"`);
+    await sp.click("#pShare");
+    await sp.waitForTimeout(200);
+    const shared = await sp.evaluate(() => window.__lastShare || "");
+    if (!shared.endsWith("/r/" + ID + "/" + REC_HASH + "#slide=3")) fail(`Share in the light player gave "${shared}"`);
+    await sp.close();
+    // another hash: said so, no error
+    const gone = await browser.newPage();
+    await gone.goto(base + "/r/" + ID + "/0123456789abcdef01234567", { waitUntil: "load" });
+    await gone.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+    if (!(await gone.evaluate(() => document.getElementById("note").textContent)).length) fail("a missing recording says nothing");
+    await gone.close();
+    // exported with the 3-D flight: offered on the page and on the bar; a
+    // press flies it in full screen (the editor's flight, web/flight3d.js),
+    // Esc lands back in the slides; a 2-D recording offers none
+    if (!(await rp0Flightless())) fail("a 2-D recording offers the 3-D flight");
+    const fp = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    fp.on("pageerror", (e) => fail(`/r/ 3-D: ${e.message}`));
+    fp.on("console", (m) => { if (m.type() === "error") fail(`/r/ 3-D: console: ${m.text()}`); });
+    await fp.goto(base + "/r/" + ID + "/" + REC3D_HASH, { waitUntil: "load" });
+    await fp.waitForFunction(() => window.__pageStarted && window.__play?.flight, null, { timeout: 15000 }).catch(() => fail("the 3-D recording offers no flight"));
+    const offered = await fp.evaluate(() => ({ bar: !document.getElementById("pFlight").hidden, start: !document.getElementById("start3d").hidden }));
+    if (!offered.bar || !offered.start) fail("the 3-D flight is not offered: " + JSON.stringify(offered));
+    await fp.click("#start3d");
+    const flew = await fp.waitForFunction(() => window.__play.flight.flying(), null, { timeout: 15000 }).then(() => true, () => false);
+    if (!flew) fail("the light player's 3-D flight did not take off: " + await fp.evaluate(() => document.getElementById("note").textContent));
+    else {
+      await fp.waitForTimeout(1500);
+      // what the screen shows (the GL canvas keeps no frame to read back)
+      const shot = await fp.screenshot({ path: process.env.SHOT_3D || undefined });
+      const lit = await fp.evaluate(async (b64) => {
+        const img = new Image();
+        img.src = "data:image/png;base64," + b64;
+        await img.decode();
+        const g = document.createElement("canvas");
+        g.width = 64;
+        g.height = 36;
+        const x = g.getContext("2d");
+        x.drawImage(img, 0, 0, 64, 36);
+        const d = x.getImageData(0, 0, 64, 36).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 120) n++;
+        return n;
+      }, shot.toString("base64"));
+      if (lit < 5) fail(`the 3-D flight drew nothing (${lit} bright cells)`);
+      await fp.keyboard.press("Space");
+      await fp.waitForTimeout(2500);
+      if (process.env.SHOT_3D) await fp.screenshot({ path: process.env.SHOT_3D.replace(/\.png$/, "-2.png") });
+      await fp.keyboard.press("Escape");
+      const landed = await fp.waitForFunction(() => !window.__play.flight.flying(), null, { timeout: 5000 }).then(() => true, () => false);
+      if (!landed) fail("Esc did not land the 3-D flight");
+    }
+    await fp.close();
+    // a video at the same kind of address: the browser's player reads it from
+    // where it is kept (a redirect), its whole length
+    const vp = await browser.newPage();
+    vp.on("pageerror", (e) => fail(`/r/ video: ${e.message}`));
+    await vp.goto(base + "/r/" + ID + "/" + VIDEO_HASH, { waitUntil: "load" });
+    await vp.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+    const shown = await vp.evaluate(() => ({ video: !document.getElementById("v").hidden, canvas: !document.getElementById("c").hidden, bar: !document.getElementById("bar").hidden }));
+    if (!shown.video || shown.canvas || shown.bar) fail("a video at /r/ is not shown in the video player: " + JSON.stringify(shown));
+    const dur = await vp.waitForFunction(() => {
+      const v = document.getElementById("v");
+      return v.readyState >= 1 && v.duration;
+    }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => 0);
+    if (Math.abs(dur - 2) > 0.05) fail(`the video at /r/ lasts ${dur} s, not 2 s`);
+    if (!videoReads.length) fail("the video at /r/ was not read from where it is kept");
+    await vp.close();
+  }
 
   // the slide's text selected with the mouse (web/slidetext.js): a drag
   // over the two lines under the title copies them as one sentence, the
@@ -532,7 +705,7 @@ try {
 
   // the owner's dashboard: signed out it asks for sign-in and shows no
   // numbers; with the server's answer (mcp-go/admin.go) it draws them, a
-  // phone's width included
+  // phone's width included, the licenses too
   page = await open("/main/admin");
   await page.waitForFunction(() => !document.getElementById("signin").hidden, null, { timeout: 15000 })
     .catch(() => fail("/main/admin does not ask a visitor to sign in"));
@@ -549,12 +722,18 @@ try {
     const m = await import("./admin.js?v=" + document.querySelector('meta[name="build"]').content);
     m.show("board");
     m.render(r);
+    m.renderLicenses([
+      { uid: "u1", email: "anna.with.a.long.address@example.com", name: "Anna", plan: "trial", maxDocs: 2, used: 2, seen: "2026-10-08T09:00:00Z" },
+      { uid: "u2", email: "tero@example.com", plan: "admin", maxDocs: -1, used: 7, admin: true },
+    ]);
     return {
+      licenses: [document.querySelectorAll("#lBody tr").length, document.querySelectorAll("#lBody form.quota").length],
       tiles: document.querySelectorAll("#tiles .tile").length,
       bars: ["cVisitors", "cDecks", "cUsers", "cBilling"].map((id) => document.querySelectorAll(`#${id} svg path`).length),
       month: document.querySelector("#tiles").textContent.includes("€1.08"),
     };
   });
+  if (drawn.licenses.join() !== "2,1") fail(`the licenses did not draw: ${JSON.stringify(drawn.licenses)}`);
   if (drawn.tiles !== 4 || drawn.bars.some((n) => n < 2) || !drawn.month) fail(`the dashboard did not draw: ${JSON.stringify(drawn)}`);
   await page.setViewportSize({ width: 360, height: 740 });
   await page.waitForTimeout(200);
@@ -570,4 +749,4 @@ if (failures.length) {
   for (const f of failures) log(`FAIL ${f}`);
   process.exit(1);
 }
-log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);
+log(`view   web/dist-view: ${slides} slides painted, a program and a script run, a 3-D world drawn (also from a .gltf, from a ranger:three file and in the assistant's preview), the light player (/r/) played, a video there, keys, a pinch and a swipe, links, Export, 404, the front page and the dashboard`);

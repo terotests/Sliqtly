@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- GET /api/view/<id>: the public viewer's slides as display lists (rgr/View.rgr)
@@ -132,8 +133,8 @@ func TestViewLists(t *testing.T) {
 	// it, its files from the deck's own place; a link to someone else's deck
 	// shows nothing
 	d, _ := f.db.Get(ctx, "shares", id)
-	f.db.Set(ctx, "links", "LinkToIt01", Doc{"of": id, "owner": d["owner"]})
-	f.db.Set(ctx, "links", "NotTheirs1", Doc{"of": id, "owner": "someone-else"})
+	f.db.Set(ctx, "links", "LinkToIt01", Doc{"of": id, "owner": d["owner"], "since": time.Now().UnixMilli(), "days": int64(7)})
+	f.db.Set(ctx, "links", "NotTheirs1", Doc{"of": id, "owner": "someone-else", "since": time.Now().UnixMilli(), "days": int64(7)})
 	code, _, lv, _ := getView(t, s.root+"/api/view/LinkToIt01")
 	eq(t, []any{code, lv.Deck.Name, lv.Deck.Slides}, []any{200, "Viewed", n})
 	code, _, _, _ = getView(t, s.root+"/api/view/NotTheirs1")
@@ -543,4 +544,166 @@ func TestViewKept(t *testing.T) {
 	eq(t, code, 200)
 	_, _, ok = stored(lid)
 	eq(t, ok, false)
+}
+
+// The deck recorded for the web (web/recstream.js): its file
+// recordings/web-<hash>.sliqrec as it is, kept for good under its hash, for
+// a deck anyone with the link sees; nothing for another name or a private deck.
+func TestViewRecording(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Rec", "markdown": "# One\n\n## Two\n", "visibility": "link"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	ctx := context.Background()
+	hash := "0123456789abcdef01234567"
+	path := "recordings/web-" + hash + ".sliqrec"
+	data := []byte{0x1f, 0x8b, 8, 0, 1, 2, 3}
+	if err := f.bucket.Save(ctx, "shares/"+id+"/"+path, "application/vnd.sliqtly.rec+gzip", data, nil); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := f.db.Get(ctx, "shares", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := cur["files"].([]any)
+	files = append(files, map[string]any{"path": path, "type": "application/vnd.sliqtly.rec+gzip", "url": "https://storage.test/" + path})
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(u string) (*http.Response, []byte) {
+		t.Helper()
+		res, err := http.Get(s.root + u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res, b
+	}
+	res, b := get("/api/view/" + id + "/rec/" + hash)
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "application/octet-stream")
+	eq(t, res.Header.Get("Cache-Control"), "public, max-age=31536000, s-maxage=31536000, immutable")
+	eq(t, bytes.Equal(b, data), true)
+	for _, bad := range []string{"/api/view/" + id + "/rec/ffffffffffffffffffffffff", "/api/view/" + id + "/rec/" + hash + "x", "/api/view/" + id + "/rec/../../x", "/api/view/AbCdEf1234/rec/" + hash} {
+		res, _ := get(bad)
+		eq(t, res.StatusCode, 404, bad)
+		eq(t, res.Header.Get("Cache-Control"), "no-store", bad)
+	}
+	if err := f.db.Update(ctx, "shares", id, Doc{"visibility": "private"}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = get("/api/view/" + id + "/rec/" + hash)
+	eq(t, res.StatusCode, 404)
+
+	// the deck as a video (Export ▸ Cloud video): the same address, a WebM
+	if err := f.db.Update(ctx, "shares", id, Doc{"visibility": "link"}); err != nil {
+		t.Fatal(err)
+	}
+	vhash := "89abcdef0123456789abcdef"
+	vpath := "recordings/web-" + vhash + ".webm"
+	vdata := []byte{0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3}
+	if err := f.bucket.Save(ctx, "shares/"+id+"/"+vpath, "video/webm", vdata, nil); err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, map[string]any{"path": vpath, "type": "video/webm", "url": "https://storage.test/" + vpath})
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	res, b = get("/api/view/" + id + "/rec/" + vhash)
+	eq(t, res.StatusCode, 200)
+	eq(t, res.Header.Get("Content-Type"), "video/webm")
+	eq(t, bytes.Equal(b, vdata), true)
+
+	// kept in Storage: the player is sent there, to read it in pieces as it plays
+	stored := "https://firebasestorage.googleapis.com/v0/b/bucket.test/o/shares%2F" + id + "%2Frecordings%2Fweb-" + vhash + ".webm?alt=media&token=t"
+	files[len(files)-1] = map[string]any{"path": vpath, "type": "video/webm", "url": stored}
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err = noFollow.Get(s.root + "/api/view/" + id + "/rec/" + vhash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	eq(t, res.StatusCode, 302)
+	eq(t, res.Header.Get("Location"), stored)
+}
+
+// A viewing link works `days` from `since` (1 to 30, links/ in
+// firestore.rules); past that /s/ and /r/ show nothing through it. What
+// the CDN keeps of a link's answer it keeps no longer than the link works.
+// A recording's own link (`file`) shows that recording only, never the deck.
+func TestViewLinkTerm(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	c := call(t, s, "create_presentation", map[string]any{"title": "Term", "markdown": "# One\n\n## Two\n", "visibility": "private"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	ctx := context.Background()
+	hash := "0123456789abcdef01234567"
+	path := "recordings/web-" + hash + ".sliqrec"
+	data := []byte{0x1f, 0x8b, 8, 0, 1, 2, 3}
+	if err := f.bucket.Save(ctx, "shares/"+id+"/"+path, "application/vnd.sliqtly.rec+gzip", data, nil); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := f.db.Get(ctx, "shares", id)
+	files, _ := cur["files"].([]any)
+	files = append(files, map[string]any{"path": path, "type": "application/vnd.sliqtly.rec+gzip", "url": "https://storage.test/" + path})
+	if err := f.db.Update(ctx, "shares", id, Doc{"files": files}); err != nil {
+		t.Fatal(err)
+	}
+	owner := cur["owner"]
+	now := time.Now()
+	day := 24 * time.Hour
+	f.db.Set(ctx, "links", "Works2Days", Doc{"of": id, "owner": owner, "since": now.UnixMilli(), "days": int64(2)})
+	f.db.Set(ctx, "links", "WasOneDay1", Doc{"of": id, "owner": owner, "since": now.Add(-25 * time.Hour).UnixMilli(), "days": int64(1)})
+	// asked for more than 30 days: 30
+	f.db.Set(ctx, "links", "TooLong001", Doc{"of": id, "owner": owner, "since": now.Add(-31 * day).UnixMilli(), "days": int64(90)})
+	// made before links had a term: 30 days from when it was made
+	f.db.Set(ctx, "links", "OldLinkNew", Doc{"of": id, "owner": owner, "created": now.Add(-29 * day).UnixMilli()})
+	f.db.Set(ctx, "links", "OldLinkOld", Doc{"of": id, "owner": owner, "created": now.Add(-31 * day).UnixMilli()})
+	f.db.Set(ctx, "links", "NoTimeAtAl", Doc{"of": id, "owner": owner})
+	f.db.Set(ctx, "links", "RecOnly001", Doc{"of": id, "owner": owner, "since": now.UnixMilli(), "days": int64(1), "file": path})
+	f.db.Set(ctx, "links", "RecOther01", Doc{"of": id, "owner": owner, "since": now.UnixMilli(), "days": int64(1), "file": "recordings/web-ffffffffffffffffffffffff.webm"})
+	get := func(u string) (*http.Response, []byte) {
+		t.Helper()
+		res, err := http.Get(s.root + u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res, b
+	}
+	for link, want := range map[string]int{"Works2Days": 200, "WasOneDay1": 404, "TooLong001": 404, "OldLinkNew": 200, "OldLinkOld": 404, "NoTimeAtAl": 404, "RecOnly001": 404, "RecOther01": 404} {
+		code, _, _, body := getView(t, s.root+"/api/view/"+link)
+		eq(t, code, want, "view "+link, body)
+		res, _ := get("/api/card/" + link + ".jpg")
+		if want == 404 {
+			eq(t, res.StatusCode, 404, "card "+link)
+		}
+	}
+	for link, want := range map[string]int{"Works2Days": 200, "WasOneDay1": 404, "OldLinkOld": 404, "RecOnly001": 200, "RecOther01": 404} {
+		res, b := get("/api/view/" + link + "/rec/" + hash)
+		eq(t, res.StatusCode, want, "rec "+link)
+		if want == 200 {
+			eq(t, bytes.Equal(b, data), true)
+		}
+	}
+	// kept by the CDN for the link's last day and a half, not a year
+	res, _ := get("/api/view/RecOnly001/rec/" + hash)
+	cc := res.Header.Get("Cache-Control")
+	var n int
+	if _, err := fmt.Sscanf(cc, "public, max-age=%d,", &n); err != nil || n > 86400 || n < 86000 || strings.Contains(cc, "immutable") {
+		t.Fatalf("Cache-Control %q", cc)
+	}
 }

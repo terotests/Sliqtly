@@ -1,0 +1,951 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresAi.rgr — the AI assistant's conversation, without its drawer
+; ============================================================================
+;
+; The ✨ AI drawer (PresPanels, an EVGUI ChatCtl docked on the right) asks
+; Claude about the slide shown or the whole presentation. This is what it
+; knows and decides, so it can be tested without a page:
+;
+;   context   what a question is about (PresAiContext): the slide, its
+;             Markdown, what is selected in the editor, the whole deck when
+;             the scope is "deck"; "Context: Slide 7 / 11" in words
+;   actions   the quick actions (Improve slide, Explain code, …), each a
+;             question written out for the model
+;   credits   AI actions left this month, as the server counts them
+;             (mcp-go/aiassist.go), in words a person reads: "42 AI actions
+;             left", "≈ 14 chats", never tokens or money
+;   asking    one question at a time: `ask` leaves the request in `pending`
+;             for the page to post (POST /editor/api/ai/ask), `answer` and
+;             `fail` take what came back
+;   using     the new version of the slide an answer gave (its ````markdown
+;             block, `suggestion`), for "Use on slide"
+;   editing   the changes an answer asks for (its `edits`: front matter,
+;             slides replaced, added or taken out), made on the Markdown by
+;             PresAiDeck so the app writes them as one edit
+; ============================================================================
+
+Import "../vela/src/VlJson.rgr"
+Import "PresI18n.rgr"
+
+class PresAiMsg {
+    ; "user", "assistant", or "note" (a failure said in the conversation)
+    def role:string ""
+    def text:string ""
+    def id:string ""
+
+    Constructor () {
+    }
+}
+
+; What a question is about, as the app sees it when it is asked.
+class PresAiContext {
+    ; the slide shown, from 0, and how many there are
+    def slide:int 0
+    def slides:int 0
+    def title:string ""
+    def slideMd:string ""
+    def selection:string ""
+    def deckMd:string ""
+    def deckName:string ""
+    ; the front matter block (--- … ---), and one line per slide ("3. Title")
+    def frontMatter:string ""
+    def outline:string ""
+    ; the theme the slides are drawn with (the page's Theme choice, not the
+    ; Markdown), and the themes there are, a line per group ("Dark: aurora,
+    ; carbon, midnight")
+    def theme:string ""
+    def themes:string ""
+
+    Constructor () {
+    }
+}
+
+; A change an answer asks for (the server's aiEditTools): set_theme (value:
+; the theme's name; the app changes the page's Theme choice), set_front_matter
+; (key, value), replace_slide (slide, markdown), insert_slide (after,
+; markdown), delete_slide (slide), replace_presentation (markdown). Slides
+; count from 1, as the outline numbered them when the question was asked.
+class PresAiEdit {
+    def tool:string ""
+    def slide:int 0
+    def after:int 0
+    def key:string ""
+    def value:string ""
+    def markdown:string ""
+    ; add_file: where the page keeps the file (the page writes it)
+    def path:string ""
+
+    Constructor () {
+    }
+}
+
+; One part of the Markdown: the slide it was (-1 a new one) and its lines,
+; each ending in a newline.
+class PresAiPart {
+    def orig:int -1
+    def text:string ""
+
+    Constructor () {
+    }
+}
+
+; The edits made on the Markdown, without an editor. `spans` are each
+; slide's lines as the app finds them (from, next slide's first line; a
+; slide the overflow went on to has its heading slide's span), so a slide
+; number is the part it is in.
+class PresAiDeck {
+    def front:string ""
+    def parts:[PresAiPart]
+    ; part of each slide (from 0)
+    def partOf:[int]
+    def changed:boolean false
+
+    Constructor () {
+    }
+
+    sfn apply:string (src:string spans:[int] edits:[PresAiEdit]) {
+        def d (new PresAiDeck())
+        d.split(src spans)
+        for edits e:PresAiEdit i {
+            d.edit(e)
+        }
+        if (d.changed == false) {
+            return src
+        }
+        return (d.text())
+    }
+
+    ; The theme the edits ask for (the last set_theme), "" none. Not the
+    ; Markdown's: the app changes the page's Theme choice.
+    sfn themeOf:string (edits:[PresAiEdit]) {
+        def out:string ""
+        for edits e:PresAiEdit i {
+            if ((e.tool == "set_theme") && ((strlen (trim e.value)) > 0)) {
+                out = (trim e.value)
+            }
+        }
+        return out
+    }
+
+    ; The page's themes ("value<TAB>label<TAB>group" rows) as a line per
+    ; group: "Dark: aurora, carbon, midnight". A row with no value (the
+    ; document's own CSS) is left out.
+    sfn themeLines:string (rows:string) {
+        def groups:[string]
+        def names:[string]
+        def lines:[string] (strsplit rows (strfromcode 10))
+        for lines ln:string i {
+            def cols:[string] (strsplit ln (strfromcode 9))
+            def v:string (trim (itemAt cols 0))
+            if ((strlen v) > 0) {
+                def g:string "Other"
+                if ((array_length cols) >= 3) {
+                    if ((strlen (trim (itemAt cols 2))) > 0) {
+                        g = (trim (itemAt cols 2))
+                    }
+                }
+                def at:int -1
+                for groups gg:string gi {
+                    if (gg == g) {
+                        at = gi
+                    }
+                }
+                if (at < 0) {
+                    push groups g
+                    push names v
+                } {
+                    set names at ((itemAt names at) + ", " + v)
+                }
+            }
+        }
+        def out:[string]
+        for groups g2:string k {
+            push out (g2 + ": " + (itemAt names k))
+        }
+        return (join out (strfromcode 10))
+    }
+
+    sfn linesText:string (lines:[string] from:int to:int) {
+        def out:string ""
+        def k:int from
+        while (k < to) {
+            out = (out + (itemAt lines k) + (strfromcode 10))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn split:void (src:string spans:[int]) {
+        def lines:[string] (strsplit src (strfromcode 10))
+        ; "a\n" is one line, not a line and an empty one
+        def n:int (array_length lines)
+        if ((n > 0) && ((strlen (itemAt lines (n - 1))) == 0)) {
+            n = (n - 1)
+        }
+        def firstFrom:int n
+        def lastFrom:int -1
+        def k:int 0
+        while ((k + 1) < (array_length spans)) {
+            def from:int (itemAt spans k)
+            def at:int (itemAt spans (k + 1))
+            if (at > n) {
+                at = n
+            }
+            if ((from < 0) || (from >= at)) {
+                push partOf -1
+            } {
+                if (from == lastFrom) {
+                    push partOf ((array_length parts) - 1)
+                } {
+                    if (from < firstFrom) {
+                        firstFrom = from
+                    }
+                    def pt (new PresAiPart())
+                    pt.orig = (array_length parts)
+                    pt.text = (PresAiDeck.linesText(lines from at))
+                    push parts pt
+                    push partOf pt.orig
+                    lastFrom = from
+                }
+            }
+            k = (k + 2)
+        }
+        front = (PresAiDeck.linesText(lines 0 firstFrom))
+    }
+
+    ; where slide n (from 1) is in `parts` now; -1 gone or never there
+    fn indexOf:int (n:int) {
+        if ((n < 1) || (n > (array_length partOf))) {
+            return -1
+        }
+        def o:int (itemAt partOf (n - 1))
+        if (o < 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            def pt:PresAiPart (itemAt parts i)
+            if (pt.orig == o) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn slideText:string (md:string) {
+        return ((trim md) + (strfromcode 10))
+    }
+
+    fn edit:void (e:PresAiEdit) {
+        if (e.tool == "set_front_matter") {
+            def k:string (trim e.key)
+            if ((strlen k) > 0) {
+                front = (PresAiDeck.setFront(front k (trim e.value)))
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "replace_presentation") {
+            if ((strlen (trim e.markdown)) > 0) {
+                front = (PresAiDeck.slideText(e.markdown))
+                def none:[PresAiPart]
+                parts = none
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "replace_slide") {
+            def i:int (this.indexOf(e.slide))
+            if ((i >= 0) && ((strlen (trim e.markdown)) > 0)) {
+                def pt:PresAiPart (itemAt parts i)
+                pt.text = (PresAiDeck.slideText(e.markdown))
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "delete_slide") {
+            def i:int (this.indexOf(e.slide))
+            if (i >= 0) {
+                remove_index parts i
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "insert_slide") {
+            if ((strlen (trim e.markdown)) == 0) {
+                return
+            }
+            def at:int 0
+            if (e.after > 0) {
+                def i:int (this.indexOf(e.after))
+                if (i < 0) {
+                    at = (array_length parts)
+                } {
+                    at = (i + 1)
+                }
+            }
+            def pt (new PresAiPart())
+            pt.text = (PresAiDeck.slideText(e.markdown))
+            insert parts at pt
+            changed = true
+        }
+    }
+
+    ; the parts one after another, a blank line between each
+    fn text:string () {
+        def nl:string (strfromcode 10)
+        def out:string front
+        for parts pt:PresAiPart i {
+            if (((strlen out) > 0) && (PresAiDeck.endsBlank(out) == false)) {
+                out = (out + nl)
+            }
+            out = (out + pt.text)
+        }
+        return out
+    }
+
+    ; ends in an empty line ("…\n\n")
+    sfn endsBlank:boolean (t:string) {
+        def n:int (strlen t)
+        if (n < 2) {
+            return false
+        }
+        return (((charAt t (n - 1)) == 10) && ((charAt t (n - 2)) == 10))
+    }
+
+    ; the front matter block at the top of a deck (--- … ---), "" none
+    sfn frontOf:string (src:string) {
+        def nl:string (strfromcode 10)
+        def lines:[string] (strsplit src nl)
+        if (((array_length lines) == 0) || ((trim (itemAt lines 0)) != "---")) {
+            return ""
+        }
+        def k:int 1
+        while (k < (array_length lines)) {
+            def ln:string (trim (itemAt lines k))
+            if ((ln == "---") || (ln == "...")) {
+                return (trim (PresAiDeck.linesText(lines 0 (k + 1))))
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; One key of the front matter at the top of `front`: set, or taken out
+    ; when `value` is "". A deck without front matter gets one.
+    sfn setFront:string (front:string key:string value:string) {
+        def nl:string (strfromcode 10)
+        def lines:[string] (strsplit front nl)
+        def n:int (array_length lines)
+        def close:int -1
+        def at:int -1
+        if ((n > 0) && ((trim (itemAt lines 0)) == "---")) {
+            def k:int 1
+            while ((k < n) && (close < 0)) {
+                def ln:string (trim (itemAt lines k))
+                if ((ln == "---") || (ln == "...")) {
+                    close = k
+                } {
+                    if ((indexOf ln (key + ":")) == 0) {
+                        at = k
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        def line:string (key + ": " + value)
+        if (close < 0) {
+            if ((strlen value) == 0) {
+                return front
+            }
+            return ("---" + nl + line + nl + "---" + nl + nl + front)
+        }
+        def out:[string]
+        def k2:int 0
+        while (k2 < n) {
+            if (k2 == at) {
+                if ((strlen value) > 0) {
+                    push out line
+                }
+            } {
+                if ((k2 == close) && (at < 0)) {
+                    push out line
+                }
+                push out (itemAt lines k2)
+            }
+            k2 = (k2 + 1)
+        }
+        return (join out nl)
+    }
+}
+
+; A picture pasted into the drawer, sent with the next question.
+class PresAiPicture {
+    def name:string ""
+    def mime:string ""
+    ; base64
+    def data:string ""
+}
+
+class PresAi {
+    def msgs:[PresAiMsg]
+    ; pictures pasted for the next question
+    def pictures:[PresAiPicture]
+    def count:int 0
+    ; waiting for an answer
+    def busy:boolean false
+    ; whether the server has an assistant: -1 not asked yet, 0 no, 1 yes
+    def available:int -1
+    ; the month's AI actions (known once the server said)
+    def creditsKnown:boolean false
+    def left:int 0
+    def monthly:int 0
+    def unlimited:boolean false
+    def perChat:int 3
+    def resets:string ""
+    ; what questions are about: "slide" or "deck"
+    def scope:string "slide"
+    ; the request for the page to post ("" none)
+    def pending:string ""
+    ; the answer whose slide was used already (its id): not offered again
+    def usedId:string ""
+    ; the changes the last answer asks for, until the app takes them
+    def edits:[PresAiEdit]
+    def rev:int 0
+
+    Constructor () {
+    }
+
+    ; --- the quick actions ---------------------------------------------------------
+    sfn actionIds:[string] () {
+        return ([] _:string ("improve" "explain" "visual" "notes" "animate"))
+    }
+
+    sfn actionLabel:string (id:string) {
+        if (id == "improve") {
+            return (PresI18n.t("Improve slide"))
+        }
+        if (id == "explain") {
+            return (PresI18n.t("Explain this code"))
+        }
+        if (id == "visual") {
+            return (PresI18n.t("Make it more visual"))
+        }
+        if (id == "notes") {
+            return (PresI18n.t("Add speaker notes"))
+        }
+        if (id == "animate") {
+            return (PresI18n.t("Create animation"))
+        }
+        return ""
+    }
+
+    ; the question a quick action asks, in the interface's language, so the
+    ; answer comes in it too
+    sfn actionPrompt:string (id:string) {
+        if (id == "improve") {
+            return (PresI18n.t("Improve this slide: clearer wording, a better structure and layout. Keep its message."))
+        }
+        if (id == "explain") {
+            return (PresI18n.t("Explain the code on this slide in plain words, as the presenter would."))
+        }
+        if (id == "visual") {
+            return (PresI18n.t("Make this slide more visual: a diagram, a chart, a figure or a better layout instead of plain text."))
+        }
+        if (id == "notes") {
+            return (PresI18n.t("Write speaker notes for this slide and add them to it."))
+        }
+        if (id == "animate") {
+            return (PresI18n.t("Add animation to this slide: build the points in one by one, or a fitting effect."))
+        }
+        return ""
+    }
+
+    ; Whether a quick action fits the slide: Explain only with code on it.
+    sfn actionFits:boolean (id:string ctx:PresAiContext) {
+        if (id == "explain") {
+            return ((indexOf ctx.slideMd "```") >= 0)
+        }
+        return true
+    }
+
+    ; --- the context, in words ----------------------------------------------------------
+    fn contextLine:string (ctx:PresAiContext) {
+        def s:string ""
+        if (scope == "deck") {
+            s = ((PresI18n.t("Context: whole presentation")) + " (" + (to_string ctx.slides) + ")")
+        } {
+            if (ctx.slides <= 0) {
+                return (PresI18n.t("Context: no slides yet"))
+            }
+            s = ((PresI18n.t("Context: Slide")) + " " + (to_string (ctx.slide + 1)) + " / " + (to_string ctx.slides))
+        }
+        if ((strlen (trim ctx.selection)) > 0) {
+            s = (s + " · " + (PresI18n.t("selection")))
+        }
+        return s
+    }
+
+    ; --- credits --------------------------------------------------------------------
+    ; what a question costs: the whole presentation sends all of it
+    fn cost:int () {
+        if (scope == "deck") {
+            return 2
+        }
+        return 1
+    }
+
+    ; the server's {"available": …, "credits": {…}} (or an answer's "credits")
+    fn setCredits:void (json:string) {
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(json))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            return
+        }
+        this.readCredits(root)
+        rev = (rev + 1)
+    }
+
+    fn readCredits:void (root:VlJson) {
+        if (root.has("available")) {
+            available = (? (root.boolOr("available" false)) 1 0)
+        }
+        if (root.has("credits")) {
+            def c:VlJson (root.get("credits"))
+            if (c.isObject()) {
+                creditsKnown = true
+                available = 1
+                unlimited = (c.boolOr("unlimited" false))
+                left = (c.intOr("left" 0))
+                monthly = (c.intOr("monthly" 0))
+                perChat = (c.intOr("perChat" 3))
+                if (perChat < 1) {
+                    perChat = 1
+                }
+                resets = (c.stringOr("resets" ""))
+            }
+        }
+    }
+
+    ; the pill in the drawer's title: "42 left"
+    fn creditsShort:string () {
+        if (creditsKnown == false) {
+            return ""
+        }
+        if unlimited {
+            return (PresI18n.t("no limit"))
+        }
+        return ((to_string left) + " " + (PresI18n.t("left")))
+    }
+
+    ; the longer line: "42 AI actions left · ≈ 14 chats"
+    fn creditsText:string () {
+        if (creditsKnown == false) {
+            return ""
+        }
+        if unlimited {
+            return (PresI18n.t("AI actions: no limit"))
+        }
+        def s:string ((to_string left) + " " + (PresI18n.t("AI actions left")))
+        def chats:int (idiv left perChat)
+        if (chats > 0) {
+            s = (s + " · ≈ " + (to_string chats) + " " + (PresI18n.t("chats")))
+        }
+        return s
+    }
+
+    ; how the actions are counted, for the empty conversation
+    fn creditsHelp:string () {
+        def s:string (PresI18n.t("Ask about this slide or the whole presentation. A question or a quick action uses one AI action; a question about the whole presentation uses two."))
+        if (((strlen resets) > 0) && (unlimited == false)) {
+            s = (s + " " + (PresI18n.t("More come on")) + " " + resets + ".")
+        }
+        return s
+    }
+
+    ; -> "" when a question can be asked now, else why not
+    fn blocked:string () {
+        if (available == 0) {
+            return (PresI18n.t("The AI assistant is not available on this server."))
+        }
+        if busy {
+            return (PresI18n.t("Wait for the answer first."))
+        }
+        if ((creditsKnown && (unlimited == false)) && (left < (this.cost()))) {
+            return (PresI18n.t("This month's AI actions are used up."))
+        }
+        return ""
+    }
+
+    ; --- asking ------------------------------------------------------------------------
+    fn add:PresAiMsg (role:string text:string) {
+        def m (new PresAiMsg())
+        count = (count + 1)
+        m.id = ("ai-" + (to_string count))
+        m.role = role
+        m.text = text
+        push msgs m
+        rev = (rev + 1)
+        return m
+    }
+
+    ; The question (written, or a quick action's `action`) asked about ctx:
+    ; in the conversation, and its request in `pending`. False when it
+    ; cannot be asked (`blocked`, or nothing written).
+    fn ask:boolean (text:string action:string ctx:PresAiContext) {
+        def q:string (trim text)
+        if ((strlen q) == 0) {
+            q = (PresAi.actionPrompt(action))
+        }
+        if (((strlen q) == 0) && ((array_length pictures) > 0)) {
+            q = (PresI18n.t("What is in the picture?"))
+        }
+        if ((strlen q) == 0) {
+            return false
+        }
+        if ((strlen (this.blocked())) > 0) {
+            return false
+        }
+        pending = (this.requestJson(q action ctx))
+        def shown:string q
+        for pictures p:PresAiPicture pi {
+            shown = (shown + (strfromcode 10) + "🖼 " + p.name)
+        }
+        def none:[PresAiPicture]
+        pictures = none
+        this.add("user" shown)
+        busy = true
+        return true
+    }
+
+    ; most pictures with one question, and the most base64 of one (the
+    ; server takes 4 MB)
+    sfn maxPictures:int () {
+        return 3
+    }
+
+    sfn maxPictureData:int () {
+        return 5500000
+    }
+
+    ; A picture pasted for the next question: "" when it was taken, else why
+    ; it was not.
+    fn attach:string (name:string mime:string data:string) {
+        if ((array_length pictures) >= (PresAi.maxPictures())) {
+            return (PresI18n.t("Three pictures at most with one question."))
+        }
+        if ((strlen data) == 0) {
+            return (PresI18n.t("The picture could not be read."))
+        }
+        if ((strlen data) > (PresAi.maxPictureData())) {
+            return (PresI18n.t("The picture is too large to send."))
+        }
+        def p (new PresAiPicture())
+        p.name = name
+        if ((strlen (trim name)) == 0) {
+            p.name = ((PresI18n.t("picture")) + " " + (to_string ((array_length pictures) + 1)))
+        }
+        p.mime = mime
+        p.data = data
+        push pictures p
+        rev = (rev + 1)
+        return ""
+    }
+
+    ; the i-th pasted picture left out
+    fn detach:void (i:int) {
+        def kept:[PresAiPicture]
+        for pictures p:PresAiPicture k {
+            if (k != i) {
+                push kept p
+            }
+        }
+        pictures = kept
+        rev = (rev + 1)
+    }
+
+    ; the request the page posts: the question, the context, the turns so far
+    fn requestJson:string (q:string action:string ctx:PresAiContext) {
+        def root:VlJson (VlJson.objectValue())
+        root.setMember("message" (VlJson.stringValue(q)))
+        root.setMember("action" (VlJson.stringValue(action)))
+        root.setMember("scope" (VlJson.stringValue(scope)))
+        def c:VlJson (VlJson.objectValue())
+        c.setMember("slide" (VlJson.intValue((ctx.slide + 1))))
+        c.setMember("slides" (VlJson.intValue(ctx.slides)))
+        c.setMember("title" (VlJson.stringValue(ctx.title)))
+        c.setMember("slideMarkdown" (VlJson.stringValue(ctx.slideMd)))
+        c.setMember("selection" (VlJson.stringValue(ctx.selection)))
+        c.setMember("deckName" (VlJson.stringValue(ctx.deckName)))
+        c.setMember("frontMatter" (VlJson.stringValue(ctx.frontMatter)))
+        c.setMember("outline" (VlJson.stringValue(ctx.outline)))
+        c.setMember("theme" (VlJson.stringValue(ctx.theme)))
+        c.setMember("themes" (VlJson.stringValue(ctx.themes)))
+        ; the whole deck goes along on every question: the server puts it in
+        ; the prompt only for a deck question, and draws it when the model
+        ; looks at a slide
+        c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
+        root.setMember("context" c)
+        def imgs:VlJson (VlJson.arrayValue())
+        for pictures p:PresAiPicture pi {
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("mimeType" (VlJson.stringValue(p.mime)))
+            o.setMember("data" (VlJson.stringValue(p.data)))
+            push imgs.arr o
+        }
+        root.setMember("images" imgs)
+        def hist:VlJson (VlJson.arrayValue())
+        for msgs m:PresAiMsg i {
+            if ((m.role == "user") || (m.role == "assistant")) {
+                def o:VlJson (VlJson.objectValue())
+                o.setMember("role" (VlJson.stringValue(m.role)))
+                o.setMember("text" (VlJson.stringValue(m.text)))
+                push hist.arr o
+            }
+        }
+        root.setMember("history" hist)
+        def w (new VlJsonWriter())
+        return (w.write(root))
+    }
+
+    ; the request, once, for the page
+    fn takePending:string () {
+        def s:string pending
+        pending = ""
+        return s
+    }
+
+    ; The server's answer: {"reply", "credits"}, or {"error", "credits"}.
+    fn answer:void (json:string) {
+        busy = false
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(json))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            this.add("note" (PresI18n.t("The answer could not be read.")))
+            return
+        }
+        this.readCredits(root)
+        def reply:string (trim (root.stringOr("reply" "")))
+        def done:string ""
+        if (root.has("edits")) {
+            def arr:VlJson (root.get("edits"))
+            def k:int 0
+            while (k < (arr.count())) {
+                def o:VlJson (arr.at(k))
+                def e (new PresAiEdit())
+                e.tool = (o.stringOr("tool" ""))
+                e.slide = (o.intOr("slide" 0))
+                e.after = (o.intOr("after" 0))
+                e.key = (o.stringOr("key" ""))
+                e.value = (o.stringOr("value" ""))
+                e.markdown = (o.stringOr("markdown" ""))
+                e.path = (o.stringOr("path" ""))
+                def said:string (PresAi.editText(e))
+                if ((strlen said) > 0) {
+                    push edits e
+                    if ((strlen done) > 0) {
+                        done = (done + (strfromcode 10))
+                    }
+                    done = (done + "✓ " + said)
+                }
+                k = (k + 1)
+            }
+        }
+        if ((strlen done) > 0) {
+            if ((strlen reply) > 0) {
+                reply = (reply + (strfromcode 10) + (strfromcode 10) + done)
+            } {
+                reply = done
+            }
+        }
+        if ((strlen reply) > 0) {
+            this.add("assistant" reply)
+            return
+        }
+        def err:string (root.stringOr("error" ""))
+        if ((strlen err) == 0) {
+            err = (PresI18n.t("No answer came."))
+        }
+        this.add("note" err)
+    }
+
+    ; an edit in words for the conversation ("" one the app does not make)
+    sfn editText:string (e:PresAiEdit) {
+        if (e.tool == "set_theme") {
+            if ((strlen (trim e.value)) == 0) {
+                return ""
+            }
+            return (((PresI18n.t("Theme:")) + " ") + (trim e.value))
+        }
+        if (e.tool == "set_front_matter") {
+            if ((strlen (trim e.key)) == 0) {
+                return ""
+            }
+            if ((strlen (trim e.value)) == 0) {
+                return (((PresI18n.t("Removed from the front matter:")) + " ") + e.key)
+            }
+            return ((((PresI18n.t("Front matter:")) + " ") + e.key + ": ") + e.value)
+        }
+        if (e.tool == "replace_slide") {
+            return (PresAi.fill((PresI18n.t("Slide {n} rewritten")) e.slide))
+        }
+        if (e.tool == "insert_slide") {
+            if (e.after <= 0) {
+                return (PresI18n.t("New first slide"))
+            }
+            return (PresAi.fill((PresI18n.t("New slide after slide {n}")) e.after))
+        }
+        if (e.tool == "delete_slide") {
+            return (PresAi.fill((PresI18n.t("Slide {n} removed")) e.slide))
+        }
+        if (e.tool == "replace_presentation") {
+            return (PresI18n.t("The whole presentation rewritten"))
+        }
+        if (e.tool == "add_file") {
+            if ((strlen (trim e.path)) == 0) {
+                return ""
+            }
+            return (((PresI18n.t("File added:")) + " ") + e.path)
+        }
+        return ""
+    }
+
+    ; "{n}" in a phrase as the number
+    sfn fill:string (phrase:string n:int) {
+        return (join (strsplit phrase "{n}") (to_string n))
+    }
+
+    ; the changes the last answer asked for, once
+    fn takeEdits:[PresAiEdit] () {
+        def got:[PresAiEdit] edits
+        def none:[PresAiEdit]
+        edits = none
+        return got
+    }
+
+    ; the post failed before an answer (no connection, signed out)
+    fn fail:void (why:string) {
+        busy = false
+        this.add("note" why)
+    }
+
+    fn clear:void () {
+        def none:[PresAiMsg]
+        msgs = none
+        def nopics:[PresAiPicture]
+        pictures = nopics
+        busy = false
+        pending = ""
+        rev = (rev + 1)
+    }
+
+    fn setScope:void (s:string) {
+        if ((s == "slide") || (s == "deck")) {
+            scope = s
+            rev = (rev + 1)
+        }
+    }
+
+    ; --- using an answer -------------------------------------------------------------------
+    ; The slide in an answer: what is inside its first fenced block marked
+    ; markdown (or md); "" when it has none. The fence closes on a line of
+    ; at least as many backticks, so a ```code block inside a ````markdown
+    ; one stays in it.
+    sfn slideBlock:string (reply:string) {
+        def lines:[string] (strsplit reply (strfromcode 10))
+        def open:int 0
+        def out:string ""
+        def inside:boolean false
+        def first:boolean true
+        for lines raw:string i {
+            def ln:string (trim raw)
+            if inside {
+                def ticks:int (PresAi.ticks(ln))
+                if ((ticks >= open) && ((strlen ln) == ticks)) {
+                    return out
+                }
+                if first {
+                    out = raw
+                    first = false
+                } {
+                    out = (out + (strfromcode 10) + raw)
+                }
+            } {
+                def t:int (PresAi.ticks(ln))
+                if (t >= 3) {
+                    def lang:string (trim (substring ln t (strlen ln)))
+                    if ((lang == "markdown") || (lang == "md")) {
+                        inside = true
+                        open = t
+                    }
+                }
+            }
+        }
+        ; never closed: not a whole slide
+        return ""
+    }
+
+    ; how many backticks a line starts with
+    sfn ticks:int (ln:string) {
+        def n:int 0
+        while ((n < (strlen ln)) && ((charAt ln n) == 96)) {
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; the slide the last answer suggests ("" none)
+    fn suggestion:string () {
+        def i:int ((array_length msgs) - 1)
+        while (i >= 0) {
+            def m:PresAiMsg (itemAt msgs i)
+            if (m.role == "assistant") {
+                if (m.id == usedId) {
+                    return ""
+                }
+                return (PresAi.slideBlock(m.text))
+            }
+            if (m.role == "user") {
+                return ""
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; the last answer's slide was put on the slide
+    fn markUsed:void () {
+        def i:int ((array_length msgs) - 1)
+        while (i >= 0) {
+            def m:PresAiMsg (itemAt msgs i)
+            if (m.role == "assistant") {
+                usedId = m.id
+                rev = (rev + 1)
+                return
+            }
+            i = (i - 1)
+        }
+    }
+
+    ; An answer as the chat shows it: a ````markdown fence as ``` so the chat
+    ; draws it as a block (its own ``` lines inside, if any, stay as written).
+    sfn shown:string (text:string) {
+        def lines:[string] (strsplit text (strfromcode 10))
+        def out:string ""
+        for lines raw:string i {
+            def ln:string raw
+            def t:int (PresAi.ticks((trim raw)))
+            if (t > 3) {
+                ln = ("```" + (substring (trim raw) t (strlen (trim raw))))
+            }
+            if (i > 0) {
+                out = (out + (strfromcode 10))
+            }
+            out = (out + ln)
+        }
+        return out
+    }
+}

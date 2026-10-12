@@ -6,7 +6,7 @@
 //   cd ops/rules-test && npm install && npm test
 import { initializeTestEnvironment, assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
 import { readFileSync } from "node:fs";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { ref, getBytes, uploadBytes, listAll } from "firebase/storage";
 const env = await initializeTestEnvironment({ projectId: "demo-sliqtly",
   firestore: { rules: readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: 8085 },
@@ -41,5 +41,20 @@ await ok(updateDoc(doc(FS(u1), "shares/priv"), { visibility: "link" }));
 await ok(g(u2, "priv"));
 await no(updateDoc(doc(FS(u2), "shares/priv"), { visibility: "private" }));
 await ok(updateDoc(doc(FS(u1), "shares/old"), { md: "# changed" }));
+// viewing links (links/): a term of 1 to 30 days from the server's time
+const link = (c, id, v) => setDoc(doc(FS(c), "links/" + id), { of: "priv", owner: "u1", created: serverTimestamp(), since: serverTimestamp(), ...v });
+await ok(link(u1, "lnk7", { days: 7 }));
+await ok(link(u1, "lnk30", { days: 30 }));
+await no(link(u1, "lnk31", { days: 31 }));
+await no(link(u1, "lnk0", { days: 0 }));
+await no(setDoc(doc(FS(u1), "links/lnkno"), { of: "priv", owner: "u1", created: serverTimestamp() }));
+await no(link(u1, "lnkpast", { days: 7, since: Timestamp.fromMillis(Date.now() - 864e5) }));
+await no(link(u2, "lnku2", { days: 7, owner: "u2" }));
+await ok(link(u1, "lnkrec", { days: 1, file: "recordings/web-0123456789abcdef01234567.webm" }));
+await no(link(u1, "lnkbad", { days: 1, file: "media/a.png" }));
+await ok(updateDoc(doc(FS(u1), "links/lnk7"), { since: serverTimestamp(), days: 30 }));
+await no(updateDoc(doc(FS(u1), "links/lnk7"), { since: serverTimestamp(), days: 60 }));
+await no(updateDoc(doc(FS(u1), "links/lnk7"), { since: serverTimestamp(), days: 7, of: "open" }));
+await no(updateDoc(doc(FS(u2), "links/lnk7"), { since: serverTimestamp(), days: 7 }));
 console.log("rules checks passed:", n);
 await env.cleanup();

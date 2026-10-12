@@ -165,6 +165,28 @@ class View {
             o.putStr("url" url)
             files.add(o)
         }
+        ; a screen of a Figma file (figma:<file>/<node>) the slides draw:
+        ; drawn by this server from the deck owner's files
+        ; (ViewPictures.figma), at an address that changes with the file
+        if public {
+            for (FigmaRef.inText(md)) addr:string ai {
+                def key:string (FigmaRef.pictureKey(addr))
+                if ((indexOf all ("\"" + key + "\"")) < 0) {
+                    continue
+                }
+                def fref:FigmaRef (FigmaRef.parse(addr))
+                def fstamp:string (host_shared_stamp host fref.file sh.id)
+                if ((fref.ok == false) || ((strlen fstamp) == 0)) {
+                    continue
+                }
+                def fpath:string (substring key 1 (strlen key))
+                def fo:MfJ (MfJ.newObj())
+                fo.putStr("path" fpath)
+                fo.putStr("type" "image/png")
+                fo.putStr("url" (View.pictureUrl(host id fpath fstamp)))
+                files.add(fo)
+            }
+        }
         def deck:MfJ (MfJ.newObj())
         deck.putStr("name" (doc.str_("name")))
         deck.putNum("width" d.pageW)
@@ -377,6 +399,8 @@ class ViewPic {
     def type:string ""
     def bytes:buffer (buffer_from_string "")
     def url:string ""
+    ; what it was shown through (Store.keepFor: how long it may be kept)
+    def shown:Shown (new Shown)
 }
 
 class ViewPictures {
@@ -396,6 +420,9 @@ class ViewPictures {
         ; its pictures from Storage, View.json)
         if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
             return out
+        }
+        if (FigmaRef.isFigma(path)) {
+            return (ViewPictures.figma(host id sh path v))
         }
         def type:string ""
         def stamp:string ""
@@ -429,11 +456,110 @@ class ViewPictures {
             out.type = "image/svg+xml"
             return out
         }
+        out.shown = sh
         def made:buffer (host_view_picture host data 2048)
         if ((buffer_length made) > 0) {
             out.bytes = made
         }
         out.type = (host_content_type host out.bytes)
+        return out
+    }
+
+    ; A screen of a Figma file the deck shows (figma:<file>/<node>, View.json),
+    ; drawn from its owner's files as a PNG; `v` is the file's stamp
+    sfn figma:ViewPic (host:McpHost id:string sh:Shown path:string v:string) {
+        def out (new ViewPic)
+        ; only an address the deck's text names
+        def named:string ""
+        for (FigmaRef.inText((sh.doc.str_("md")))) addr:string ai {
+            if ((FigmaRef.pictureKey(addr)) == ("/" + path)) {
+                named = addr
+            }
+        }
+        def ref:FigmaRef (FigmaRef.parse(named))
+        if (ref.ok == false) {
+            return out
+        }
+        def stamp:string (host_shared_stamp host ref.file sh.id)
+        if ((strlen stamp) == 0) {
+            return out
+        }
+        if (v != stamp) {
+            out.status = 302
+            out.url = (View.pictureUrl(host id path stamp))
+            return out
+        }
+        def handle:int (host_shared_png host ref.file ref.node sh.id)
+        if (handle == 0) {
+            return out
+        }
+        out.status = 200
+        out.bytes = (host_image_bytes host handle)
+        out.type = "image/png"
+        return out
+    }
+
+    ; The deck recorded for the web (web/recstream.js, the editor's Export ▸
+    ; Cloud HTML): its file recordings/web-<hash>.sliqrec as it is, gzipped
+    ; JSON the page reads; or the deck as a video (Export ▸ Cloud video),
+    ; recordings/web-<hash>.webm. Its name is its bytes' hash, so the answer
+    ; never changes; only a deck anyone with the link sees. A video kept in
+    ; Storage is a redirect (302) to the file there: the page's video player
+    ; reads it in pieces (Range) as it plays, past this server.
+    sfn recording:ViewPic (host:McpHost id:string hash:string) {
+        def out (new ViewPic)
+        if ((((strlen id) < 6) || ((strlen id) > 32)) || ((Deck.allAlnum(id)) == false)) {
+            return out
+        }
+        if (((strlen hash) != 24) || ((Deck.allAlnum(hash)) == false)) {
+            return out
+        }
+        ; a recording's own link shows that recording only
+        def sh:Shown (Store.shownAny(host id))
+        def doc:MfJ sh.doc
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view recording " + id + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
+            return out
+        }
+        def rec:string ("recordings/web-" + hash + ".sliqrec")
+        def video:string ("recordings/web-" + hash + ".webm")
+        def path:string ""
+        def url:string ""
+        for (doc.list("files")) f:MfJ fi {
+            def fp:string (f.str_("path"))
+            if ((fp == rec) || (fp == video)) {
+                path = fp
+                url = (f.str_("url"))
+            }
+        }
+        if ((strlen path) == 0) {
+            return out
+        }
+        if (((strlen sh.file) > 0) && (sh.file != path)) {
+            return out
+        }
+        out.shown = sh
+        if ((path == video) && ((indexOf url "https://firebasestorage.googleapis.com/") == 0)) {
+            out.status = 302
+            out.url = url
+            return out
+        }
+        def got:MfJ (J.parse((host_file_bytes host sh.id path)))
+        if ((strlen (host_error host)) > 0) {
+            host_log host ("view recording " + id + "/" + path + ": " + (host_error host))
+            host_clear_error host
+            return out
+        }
+        out.status = 200
+        out.bytes = (host_image_bytes host (got.int_("handle" 0)))
+        out.type = "application/octet-stream"
+        if (path == video) {
+            out.type = "video/webm"
+        }
         return out
     }
 }

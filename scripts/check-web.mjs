@@ -83,6 +83,22 @@ const browser = await chromium.launch({
   executablePath: chromiumPath(),
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
+// The checks read the interface's words as written ("room",
+// "presentation"): every page starts with that term unless a check sets
+// another. The "topic" words have checks of their own (PresCheck).
+const roomWords = () => { try { if (!localStorage.getItem("sliqtly.roomWord")) localStorage.setItem("sliqtly.roomWord", "room"); } catch (_) {} };
+const plainContext = browser.newContext.bind(browser);
+browser.newContext = async (opts) => {
+  const c = await plainContext(opts);
+  await c.addInitScript(roomWords);
+  return c;
+};
+browser.newPage = async (opts) => {
+  const c = await browser.newContext(opts);
+  const p = await c.newPage();
+  p.once("close", () => c.close().catch(() => {}));
+  return p;
+};
 try {
   // A phone: the filmstrip swipes, a tap picks a thumbnail, two fingers
   // zoom the slide (clipped to the stage) and a double tap goes back out.
@@ -352,6 +368,30 @@ try {
       return { opened, chart: /\nchart-style: cartoon\n/.test(md), diagram: /\ndiagram-style: romantic\n/.test(md), md: md.slice(0, 80) };
     });
     check("Document settings: the charts' and diagrams' default styles from their dropdowns", r.opened && r.chart && r.diagram, JSON.stringify(r));
+  }
+
+  // The slide menu's Background image…: one slide's own picture, `bg=` in
+  // its heading, picked as in Document settings → Background; None takes
+  // it out. The other slides are left as they were.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("# D\n\n## A\n\nx\n\n## B {phase=review}\n\ny\n");
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const tap = (id) => { a.chartJson(); const el = walk(a.chart.host.lastPage, id); if (!el) return false; a.pointerDown(el.calculatedX + 8, el.calculatedY + 8, false, 1); a.pointerUp(); return true; };
+      a.selectSlide(2);
+      const opened = a.openSlideBg("media/a.png\nmedia/b.svg");
+      const picked = tap("sb-bg-1");
+      const set = a.source();
+      const cleared = tap("sb-bg-none");
+      const none = a.source();
+      a.key("escape", false, false);
+      a.setSource(src0);
+      return { opened, picked, cleared, set, none };
+    });
+    check("a slide's own background picture from the slide menu's window", r.opened && r.picked && r.set.includes("## B {phase=review bg=media/b.svg}") && r.set.includes("## A\n"), JSON.stringify(r));
+    check("…None takes it out of the heading", r.cleared && r.none.includes("## B {phase=review}\n"), JSON.stringify(r));
   }
 
   // A text field in a window (InputCtl draws its own caret and selection):
@@ -645,6 +685,48 @@ try {
     check("a toast's text can be selected and copied, and stays while selected", r.toast === "Could not reach the server (503)" && r.held && r.dropped, JSON.stringify(r));
   }
 
+  // The AI drawer's answers are painted over and copied like a page's text:
+  // a drag from a formatted answer's first word down into its code block
+  // copies the words without the markers and the code as written, a double
+  // click takes a word, a press elsewhere lets it go. The bug: presses on the
+  // drawer's messages went nowhere, so nothing in an answer could be copied.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const copy = () => {
+        const dt = new DataTransfer();
+        document.getElementById("keys").dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+        return dt.getData("text/plain");
+      };
+      a.aiOpen(true);
+      const c = a.panels.aiChat;
+      c.add("copy-check", "ai", "AI", "#7c3aed", "Sure, a **darker** one:\n\n```\n## Q3 {bg=#1e222a}\n```", "", false);
+      c.toEnd();
+      a.panels.rebuild();
+      const i = c.count() - 1;
+      const pg = a.panels.page();
+      const first = walk(pg, c.blockTid(i, 0) + "-s0");
+      const bold = walk(pg, c.blockTid(i, 0) + "-s1");
+      const code = walk(pg, c.blockTid(i, 2) + "-code");
+      const out = { found: !!(first && bold && code) };
+      if (!out.found) return out;
+      const y = first.calculatedY + first.calculatedHeight / 2;
+      a.pointerDown(first.calculatedX + 1, y, false, 1);
+      a.pointerMove(code.calculatedX + code.calculatedWidth - 4, code.calculatedY + code.calculatedHeight / 2);
+      a.pointerUp();
+      out.drag = copy();
+      a.pointerDown(bold.calculatedX + 4, bold.calculatedY + bold.calculatedHeight / 2, false, 2); a.pointerUp();
+      out.word = copy();
+      a.pointerDown(300, 300, false, 1); a.pointerUp();
+      out.dropped = copy();
+      a.aiOpen(false);
+      return out;
+    });
+    check("the AI drawer: a drag over an answer copies it without markers, code as written", r.found && r.drag === "Sure, a darker one:\n\n## Q3 {bg=#1e222a}", JSON.stringify(r));
+    check("…a double click takes a word, a press elsewhere lets it go", r.word === "darker" && r.dropped === "", JSON.stringify(r));
+  }
+
   // "Your name" opens with the name selected, so typing replaces it; an
   // emoji typed in one go lands whole. The bug: the window's rebuild made a
   // new field with the caret at the end, and text went in one UTF-16 unit
@@ -694,6 +776,28 @@ try {
   await page.keyboard.press("Backspace");
   check("and the document is back as it was", (await page.evaluate(() => window.__app.source().length)) === len0);
 
+  // A dead key (` on a Nordic Mac) waits in a composition for the next key.
+  // Enter then belongs to the composition: the editor takes the line break
+  // and the ` as the browser delivers them, loses neither, and typing goes
+  // on after it (a composition that ended without compositionend used to
+  // leave the page deaf to the commit and to the keys after it).
+  {
+    const cdp = await page.context().newCDPSession(page);
+    const before = await page.evaluate(() => window.__app.source());
+    const ticks = (s) => s.split("`").length - 1;
+    await cdp.send("Input.imeSetComposition", { text: "`", selectionStart: 1, selectionEnd: 1 });
+    await page.keyboard.press("Enter");
+    await cdp.send("Input.insertText", { text: "`" });
+    const after = await page.evaluate(() => window.__app.source());
+    await page.keyboard.type("z");
+    const typed = await page.evaluate(() => window.__app.source());
+    check("a dead key's ` is kept when Enter ends its composition", ticks(after) === ticks(before) + 1, JSON.stringify(after.length - before.length));
+    check("…and typing goes on after it", typed.length === after.length + 1);
+    for (let i = 0; i < 10 && (await page.evaluate(() => window.__app.source())).length > before.length; i += 1) await page.keyboard.press("Backspace");
+    check("…and Backspace takes them out", (await page.evaluate(() => window.__app.source())) === before);
+    await cdp.detach();
+  }
+
   // Ctrl + plus / minus / 0 in the editor size its text, not the page, and
   // the size is kept; Ctrl + wheel over the editor does the same
   {
@@ -718,6 +822,60 @@ try {
     check("…the size is kept by the browser", kept === String(s2), String(kept));
     check("…a Ctrl + wheel notch over the editor is one step", s3 === s2 + 1, `${s2} → ${s3}`);
     check("…Ctrl + 0 goes back to the default", s4 === s0 && zoom === 1, `${s4}`);
+  }
+
+  // Ctrl+F over the editor: EVGUI's FindBarCtl in the corner (VS Code's
+  // find widget). Typing searches and counts, Enter / F3 step, Alt+C matches
+  // case, Ctrl+H opens the replace row, replace all is one edit (one Ctrl+Z),
+  // Esc closes the bar and gives the keys back to the text.
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const want = (src0.match(/## /g) || []).length;
+    await page.keyboard.press("Control+f");
+    const open = await page.evaluate(() => [window.__app.findIsOpen(), window.__app.focusTarget()]);
+    await page.keyboard.type("## ");
+    await page.waitForTimeout(50);
+    const bar = () => page.evaluate(() => ({ status: window.__app.find.bar.status, query: window.__app.find.bar.query(), sel: window.__app.editor.selectionText(), line: window.__app.editor.sel.caret.line }));
+    const b1 = await bar();
+    await page.keyboard.press("Enter");
+    const b2 = await bar();
+    await page.keyboard.press("Shift+Enter");
+    const b3 = await bar();
+    await page.keyboard.press("Alt+KeyC");
+    const caseOn = await page.evaluate(() => window.__app.find.bar.matchCase);
+    await page.keyboard.press("Alt+KeyC");
+    check("Ctrl+F opens the find bar with the keys", open[0] && open[1] === "find", open.join(" "));
+    check("…typing searches and counts", b1.query === "## " && b1.status.endsWith(` ${want}`) && b1.sel === "## ", JSON.stringify(b1));
+    check("…Enter goes to the next match", b2.line > b1.line && b2.status.startsWith("2 "), JSON.stringify(b2));
+    check("…Shift+Enter back", b3.line === b1.line, JSON.stringify(b3));
+    check("…Alt+C switches match case", caseOn === true);
+    if (shots) {
+      await page.keyboard.press("Control+h");
+      await page.keyboard.type("### ");
+      await page.screenshot({ path: path.join(shots, "find-bar.png") });
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Control+f");
+    }
+    await page.keyboard.press("Control+h");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("#### ");
+    await page.keyboard.press("Control+Enter");
+    const src1 = await page.evaluate(() => window.__app.source());
+    const status1 = await page.evaluate(() => window.__app.find.bar.status);
+    await page.keyboard.press("Escape");
+    const after = await page.evaluate(() => [window.__app.findIsOpen(), window.__app.focusTarget()]);
+    await page.keyboard.press("Control+z");
+    const src2 = await page.evaluate(() => window.__app.source());
+    check("…Ctrl+Enter in the replace field replaces all", src1 === src0.replaceAll("## ", "#### "), status1);
+    check("…Esc closes it and the text has the keys", !after[0] && after[1] === "editor", after.join(" "));
+    check("…one Ctrl+Z takes replace all back", src2 === src0);
+    // the checks after this read the top of the text and slide 1
+    await page.evaluate(() => {
+      const a = window.__app;
+      a.editor.moveCaret(0, 0, false);
+      a.editor.layout.scrollLine = 0;
+      a.selectSlide(0);
+    });
   }
 
   // ⌃⌘Space (Ctrl+Shift+Space off a Mac): EVGUI's emoji picker at the
@@ -817,6 +975,40 @@ try {
   check("a build item is hidden before its step", !r.beforeStep);
   check("all four numbers at the end", r.afterAll === 4, String(r.afterAll));
   check("a frame is a function of its time", r.deterministic);
+  // the video export's frames (web/videoexport.js): drawn at n / fps, the
+  // same pixels on a second run (the sample's starfield too), and in a deck
+  // without an effect a frame like the one before is not drawn again
+  {
+    const pv = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+    await pv.goto(url + "?sample=esittely");
+    await pv.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const run = (n) => pv.evaluate((n) => {
+      const v = window.__video;
+      const sum = (a) => {
+        let h = 0;
+        for (let i = 0; i < a.length; i += 61) h = (h * 31 + a[i]) >>> 0;
+        return h;
+      };
+      const tl = v.begin({ width: 320, height: 180, fps: 10 }, false);
+      const out = [];
+      for (let i = 0; i < Math.min(tl.frames, n); i++) {
+        const f = v.frame(i);
+        out.push([sum(f.rgba), f.same, f.rgba.length]);
+      }
+      v.close();
+      return out;
+    }, n);
+    const a = await run(30);
+    const b = await run(30);
+    check("a video frame is RGBA of the asked size", a[0][2] === 320 * 180 * 4, String(a[0][2]));
+    check("…the same pixels on a second run", a.every((x, i) => x[0] === b[i][0]));
+    await pv.evaluate(() => window.__app.setSource("---\nfx: none\nstep: 1.0\nhold: 1.5\n---\n\n## Yksi\n\nTeksti\n\n## Kaksi\n\n1. eka\n2. toka\n{.build}\n"));
+    const c = await run(60);
+    const still = c.filter((x) => x[1]).length;
+    const pictures = new Set(c.map((x) => x[0])).size;
+    check("…a frame like the one before is not drawn again", still > 0 && pictures > 1, `${still} still, ${pictures} different of ${c.length}`);
+    await pv.close();
+  }
   check("typing a heading makes a slide", r.slidesAfterTyping === 7, String(r.slidesAfterTyping));
   check("the stage follows the caret to it", r.selectedAfterTyping === 6, String(r.selectedAfterTyping));
   check("present mode", r.presentMode === "present");
@@ -3045,6 +3237,8 @@ try {
       const press = (e) => { a.pointerDown(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2, false, 1); a.pointerUp(); };
       press(find("tb-room-close"));
       for (const k of Object.keys(localStorage)) if (k.startsWith("sliqtly.rooms")) localStorage.removeItem(k);
+      // as another tab clearing them: the page reads the rooms again
+      window.dispatchEvent(new StorageEvent("storage", { key: null }));
     }, findJs);
     // General's gear: no name to change, Clear asks first and takes this
     // browser's copies out of it, the open presentation kept
@@ -3222,6 +3416,66 @@ try {
     check("…File → Presentations… lists the decks with added and modified times; a row opens, ✕ deletes after asking, a long list has pages",
       decks.open && decks.times && decks.names && !decks.delOnCloud && !decks.openButtons && decks.aligned && decks.sort.join() === "decks:sort:name" && decks.armed.length === 0 && decks.asks &&
       decks.del.join() === "decks:del:deck-a" && decks.cloudOpen.join() === "files:doc:cloud:M1" && decks.closedByOpen && decks.closed && decks.page1 && decks.page2 && decks.page3 && decks.arrowUp && decks.arrowDown, JSON.stringify(decks));
+
+    // File → Published in the cloud…: the same window with its own title,
+    // heads and rows (web/published.js); while the cloud is read it says it
+    // is loading; a row asks the page to open its address and the window
+    // stays; every row has a ✕ that asks once; no New presentation. File
+    // has the row only where the page publishes to sliqtly.com.
+    const pub = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const texts = (e, out = []) => { if (e.textContent) out.push(e.textContent); for (const k of e.children || []) texts(k, out); return out; };
+      const lp = () => { a.panelsJson(); return a.panels.host.lastPage; };
+      const drain = () => { const out = []; for (;;) { const r = a.takeRequest(); if (!r) break; out.push(r); } return out; };
+      const press = (id) => { const b = walk(lp(), id); if (!b) return false; a.pointerDown(b.calculatedX + 6, b.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      drain();
+      a.openDecks(JSON.stringify({ list: "pub", title: "Published in the cloud" }));
+      const loading = texts(lp()).includes("Loading…") && texts(lp()).includes("Published in the cloud");
+      a.setDecks(JSON.stringify({ list: "pub", title: "Published in the cloud", head1: "created", head1Label: "Published", head2: "size", head2Label: "Size", empty: "Nothing published.", sort: "created", dir: "desc", note: "", rows: [
+        { id: "file:S1:recordings/web-0123456789abcdef01234567.webm", name: "Sales", where: "Cloud video (.webm) · example.test/r/L1/012345…", added: "4.10.2026 10:00", modified: "12.0 MB", canDelete: true, current: false },
+        { id: "link:L1", name: "Sales", where: "Viewing link · example.test/s/L1", added: "3.10.2026 09:00", modified: "", canDelete: true, current: false },
+      ] }));
+      const shown = texts(lp());
+      const heads = shown.includes("Published ↓") && shown.includes("Size") && !shown.includes("Modified");
+      const noNew = !walk(lp(), "pd-new");
+      const dels = !!walk(lp(), "pd-x-0") && !!walk(lp(), "pd-x-1");
+      press("pd-sort-size");
+      const sort = drain();
+      press("pd-r-1");
+      const opened = drain();
+      const stays = a.decksShowing();
+      press("pd-x-1");
+      const armed = drain();
+      press("pd-x-1");
+      const del = drain();
+      a.setDecks(JSON.stringify({ list: "pub", title: "Published in the cloud", empty: "Nothing published.", rows: [] }));
+      const empty = texts(lp()).includes("Nothing published.");
+      press("pd-close");
+      const closed = !a.decksShowing();
+      // File's row, and none where the page does not publish
+      const fileRows = () => { a.toolbarJson(); const ids = []; const w = (e) => { if (e.id) ids.push(e.id); for (const k of e.children || []) w(k); }; w(a.toolbar.host.lastPage); return ids; };
+      const findT = (id) => { a.toolbarJson(); return walk(a.toolbar.host.lastPage, id); };
+      const pressT = (e) => { a.pointerDown(e.calculatedX + 10, e.calculatedY + 8, false, 1); a.pointerUp(); };
+      const shut = () => { for (let n = 0; n < 3 && a.toolbar.openMenu() !== ""; n++) a.key("escape", false, false); };
+      a.setCloud(true);
+      pressT(findT("tb-m-file-trigger"));
+      const row = findT("tb-m-file-item-published");
+      const inFile = !!row;
+      drain();
+      if (row) pressT(row);
+      const asked = drain();
+      shut();
+      a.setCloud(false);
+      pressT(findT("tb-m-file-trigger"));
+      const hidden = !fileRows().includes("tb-m-file-item-published");
+      shut();
+      a.setCloud(true);
+      return { loading, heads, noNew, dels, sort, opened, stays, armed, del, empty, closed, inFile, asked, hidden };
+    });
+    check("…File → Published in the cloud… lists what is out with its kind and address; a row opens it, ✕ removes after asking; not on a server of one's own",
+      pub.loading && pub.heads && pub.noNew && pub.dels && pub.sort.join() === "pub:sort:size" && pub.opened.join() === "pub:open:link:L1" && pub.stays &&
+      pub.armed.length === 0 && pub.del.join() === "pub:del:link:L1" && pub.empty && pub.closed && pub.inFile && pub.asked.includes("published") && pub.hidden, JSON.stringify(pub));
 
     // A long deck name widens the menu up to a limit and is cut with "…"
     // there; every row stays inside the card and they are all one width
@@ -5134,6 +5388,49 @@ try {
     check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
     check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
     check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
+    // Ctrl+Z keeps the slide being worked on: an edit written by a window
+    // (Document settings) or by the AI drawer undoes without taking the
+    // caret to the front matter or the end, and with nothing to undo the
+    // caret stays put
+    await pd.evaluate(() => { const a = window.__app; if (a.chartIsOpen()) a.key("escape", false, false); });
+    const uk = await pd.evaluate(async () => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      const settle = async () => { window.__handleRequests(); await new Promise((r) => setTimeout(r, 400)); };
+      a.setSource("---\ntitle: Q3\n---\n\n# Cover\n\n## Two\n\ntext\n\n## Three\n\nmore\n");
+      a.showTab("md");
+      a.editor.moveCaret(8, 2, false);
+      a.syncEditor();
+      const out = { at: [a.selected, a.editor.sel.caret.line] };
+      a.openDocSettings("");
+      await settle();
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-tabs-tab-header");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-t-0");
+      a.text("Acme");
+      a.chartJson();
+      out.written = a.source().includes("header-left: Acme");
+      a.key("escape", false, false);
+      return out;
+    });
+    const caretNow = () => pd.evaluate(() => [window.__app.selected, window.__app.editor.sel.caret.line, window.__app.editor.sel.caret.col]);
+    await pd.keyboard.press("Control+z");
+    const ukDoc = await caretNow();
+    const ukGone = !(await pd.evaluate(() => window.__app.source().includes("header-left")));
+    await pd.keyboard.press("Control+y");
+    const ukRedo = await caretNow();
+    await pd.keyboard.press("Control+z");
+    await pd.keyboard.press("Control+z");
+    const ukEmpty = await caretNow();
+    await pd.evaluate(() => { const a = window.__app; const lc = a.mdEditor.buf.lineCount(); a.replaceLines(0, lc - 1, a.source().replace("more", "more words")); a.syncEditor(); });
+    await pd.keyboard.press("Control+z");
+    const ukAi = await caretNow();
+    check("Ctrl+Z on Document settings' edit keeps the slide and the caret", uk.written && ukGone && uk.at[0] === 1 && ukDoc[0] === 1 && ukDoc[1] === 8 && ukDoc[2] === 2, JSON.stringify([uk, ukDoc]));
+    check("…Ctrl+Y writes it again and the caret moves with its line", ukRedo[0] === 1 && ukRedo[1] === 9 && ukRedo[2] === 2, JSON.stringify(ukRedo));
+    check("…with nothing left to undo the caret stays put", ukEmpty[0] === 1 && ukEmpty[1] === 8 && ukEmpty[2] === 2, JSON.stringify(ukEmpty));
+    check("…a whole-text rewrite (the AI drawer's) undoes on the same slide", ukAi[0] === 1 && ukAi[1] === 8, JSON.stringify(ukAi));
     // the presentation's own data (front matter keys Sliqtly does not
     // read): a row a key, + Data adds one, and the footer prints it
     const dd = await pd.evaluate(async () => {
@@ -5783,7 +6080,6 @@ try {
     await ctx.close();
   }
 
-<<<<<<< HEAD
   // Export to Clipboard → Full presentation (docs/clipboard.md): the whole
   // deck as Sliqtly's clipboard text, and a paste of it in another browser
   // (a context of its own, no shared storage) makes a presentation of it
@@ -5869,7 +6165,8 @@ try {
     const got = await B.page.evaluate(async () => ({ md: window.__app.source(), css: window.__app.themeCss(), files: await window.__docFiles(), docs: (await window.__allDocs()).length }));
     check("…the new presentation has the same Markdown, theme CSS and files", got.md === srcA && got.css === cssA && got.files.includes("media/logo.png") && got.docs === docs0 + 1, JSON.stringify({ md: got.md === srcA, css: got.css === cssA, files: got.files, docs: [docs0, got.docs] }));
     await B.ctx.close();
-=======
+  }
+
   // Source code over a presented slide (PresCodeViewUi): a box with a
   // `::: code` link shows a ‹/› badge, a double click on it opens its file
   // read-only with the change (code/<file> + code/<file>.diff), and a press
@@ -5933,7 +6230,6 @@ try {
     const sv = await pc.evaluate(() => { const c = window.__app.codeView; return { open: c.isOpen(), mode: c.view.mode, zoom: c.view.zoom, notes: window.__app.playNotes() }; });
     check("a slide script opens the viewer in split view and zooms it", sv.open && sv.mode === "split" && sv.zoom === 2, JSON.stringify(sv));
     await pc.close();
->>>>>>> origin/main
   }
 
   // the interface in another language: ?lang=fi, the canvas bar and the page alike

@@ -10,8 +10,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
@@ -19,6 +21,8 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/terotests/sliqtly/mcp-go/store"
 )
 
 type firestoreDB struct{ c *firestore.Client }
@@ -203,6 +207,63 @@ func (g gcsBucket) RemovePrefix(ctx context.Context, prefix string) error {
 	}
 }
 
+// the rest of what the shared files need (cloudshared.go)
+
+func (g gcsBucket) SaveFrom(ctx context.Context, path, contentType string, r io.Reader) (store.BlobInfo, error) {
+	w := g.b.Object(path).NewWriter(ctx)
+	w.ContentType = contentType
+	n, err := io.Copy(w, r)
+	if err != nil {
+		w.Close()
+		return store.BlobInfo{}, err
+	}
+	if err := w.Close(); err != nil {
+		return store.BlobInfo{}, err
+	}
+	var h store.Hash
+	copy(h[:], w.Attrs().MD5)
+	return store.BlobInfo{Hash: h, Size: n, Mime: contentType, Created: w.Attrs().Created}, nil
+}
+
+// the objects under dir/
+func (g gcsBucket) List(ctx context.Context, dir string) ([]store.FileRef, error) {
+	it := g.b.Objects(ctx, &storage.Query{Prefix: strings.TrimSuffix(dir, "/") + "/"})
+	out := []store.FileRef{}
+	for {
+		a, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, store.FileRef{Path: a.Name, Size: a.Size, Mime: a.ContentType, Updated: a.Updated})
+	}
+}
+
+func (g gcsBucket) Remove(path string) error {
+	err := g.b.Object(path).Delete(context.Background())
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return nil
+	}
+	return err
+}
+
+func (g gcsBucket) RemoveAll(path string) error {
+	return g.RemovePrefix(context.Background(), strings.TrimSuffix(path, "/")+"/")
+}
+
+// Move copies `from` to `to` in Storage (no byte through here) and
+// removes `from` → the size and MD5
+func (g gcsBucket) Move(ctx context.Context, from, to string) (int64, string, error) {
+	a, err := g.b.Object(to).CopierFrom(g.b.Object(from)).Run(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	g.Remove(from)
+	return a.Size, fmt.Sprintf("%x", a.MD5), nil
+}
+
 // The Firebase project's Firestore, Storage and Auth, with Application
 // Default Credentials (the Cloud Run service account).
 func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) error {
@@ -239,6 +300,9 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 		verified, _ := t.Claims["email_verified"].(bool)
 		return &IDToken{UID: t.UID, Name: name, Email: email, Verified: verified}, nil
 	}
+	// each account's own Figma files (cloudshared.go), read by the job
+	// SLIQTLY_FIGMA_JOB names
+	env.cloudShared = newCloudShared(gcsBucket{b}, cloudJobStarter(os.Getenv("SLIQTLY_FIGMA_JOB")))
 	// shared rooms and their chat for the editor (editorrooms.go)
 	env.cloudRooms = newCloudRoomService(env, newFSEngine(fs, ""), newFSChat(fs, ""))
 	// the owner's dashboard (admin.go), for the accounts listed

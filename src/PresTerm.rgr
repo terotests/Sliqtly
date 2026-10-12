@@ -1,25 +1,37 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; PresTerm.rgr — what the interface calls a room
+; PresTerm.rgr — what the interface calls a room and a presentation
 ; ==============================================================================
 ;
-; A room (ADR 0001) is one whole piece of work; some teams call it a project.
-; File → Settings chooses the word, "room" (the default) or "project", and
-; every string the interface shows has the word swapped: whole words only,
-; the first letter's case kept, and in Finnish each case form of "huone" its
-; own form of "projekti" (huoneeseen → projektiin). The code, the server and
-; the assistant's tools keep calling it a room.
+; A room (ADR 0001) is one whole piece of work. File → Settings chooses the
+; words: "topic" (the default: a room is a topic, its presentations its
+; stories), "room" (as it was) or "project" (a room is a project). Every
+; string the interface shows has the words swapped: whole words only, the
+; first letter's case kept, and in Finnish each case form its own form
+; (huoneeseen → aiheeseen, esityksen → tarinan). The code, the server and
+; the assistant's tools keep calling them rooms and presentations.
 ; ==============================================================================
 
 class PresTerm {
 
-    ; the words of `lang` for a room, each beside its project form
-    sfn forms:[string] (lang:string) {
-        if (lang == "fi") {
-            return (strsplit "huone=projekti,huoneet=projektit,huoneen=projektin,huonetta=projektia,huoneeseen=projektiin,huoneessa=projektissa,huoneesta=projektista,huoneelle=projektille,huoneella=projektilla,huoneelta=projektilta,huoneeksi=projektiksi,huoneita=projekteja,huoneiden=projektien,huoneisiin=projekteihin,huoneissa=projekteissa,huoneista=projekteista,huoneille=projekteille,huoneilla=projekteilla,huoneiksi=projekteiksi" ",")
+    ; the words of `lang` for a room and a presentation, each beside its
+    ; form for `term` ("project" or "topic"; "room" has none)
+    sfn forms:[string] (lang:string term:string) {
+        if (term == "project") {
+            if (lang == "fi") {
+                return (strsplit "huone=projekti,huoneet=projektit,huoneen=projektin,huonetta=projektia,huoneeseen=projektiin,huoneessa=projektissa,huoneesta=projektista,huoneelle=projektille,huoneella=projektilla,huoneelta=projektilta,huoneeksi=projektiksi,huoneita=projekteja,huoneiden=projektien,huoneisiin=projekteihin,huoneissa=projekteissa,huoneista=projekteista,huoneille=projekteille,huoneilla=projekteilla,huoneiksi=projekteiksi" ",")
+            }
+            return (strsplit "room=project,rooms=projects" ",")
         }
-        return (strsplit "room=project,rooms=projects" ",")
+        if (term == "topic") {
+            if (lang == "fi") {
+                return (strsplit "huone=aihe,huoneet=aiheet,huoneen=aiheen,huonetta=aihetta,huoneeseen=aiheeseen,huoneessa=aiheessa,huoneesta=aiheesta,huoneelle=aiheelle,huoneella=aiheella,huoneelta=aiheelta,huoneeksi=aiheeksi,huoneena=aiheena,huoneita=aiheita,huoneiden=aiheiden,huoneisiin=aiheisiin,huoneissa=aiheissa,huoneista=aiheista,huoneille=aiheille,huoneilla=aiheilla,huoneilta=aiheilta,huoneiksi=aiheiksi,esitys=tarina,esityksen=tarinan,esitystä=tarinaa,esitykseen=tarinaan,esityksessä=tarinassa,esityksestä=tarinasta,esitykselle=tarinalle,esityksellä=tarinalla,esitykseltä=tarinalta,esitykseksi=tarinaksi,esityksenä=tarinana,esityksesi=tarinasi,esityksensä=tarinansa,esitykset=tarinat,esitysten=tarinoiden,esityksiä=tarinoita,esityksiin=tarinoihin,esityksissä=tarinoissa,esityksistä=tarinoista,esityksille=tarinoille,esityksillä=tarinoilla,esityksiltä=tarinoilta,esityksiksi=tarinoiksi,esityksinä=tarinoina" ",")
+            }
+            return (strsplit "room=topic,rooms=topics,presentation=story,presentations=stories" ",")
+        }
+        def none:[string]
+        return none
     }
 
     ; a letter of a word: ASCII letters and the Latin ones above them (ä,
@@ -34,11 +46,11 @@ class PresTerm {
         return (((c > 127) && (c < 592)) && ((c != 215) && (c != 247)))
     }
 
-    ; the project form of one word, its first letter's case kept; the word
-    ; itself when it is not a form of room
-    sfn swapWord:string (w:string lang:string) {
+    ; the `term` form of one word, its first letter's case kept; the word
+    ; itself when it is not a form of room or presentation
+    sfn swapWord:string (w:string lang:string term:string) {
         def low:string (to_lowercase w)
-        def forms:[string] (PresTerm.forms(lang))
+        def forms:[string] (PresTerm.forms(lang term))
         def i:int 0
         while (i < (array_length forms)) {
             def kv:[string] (strsplit (itemAt forms i) "=")
@@ -60,13 +72,20 @@ class PresTerm {
         return w
     }
 
-    ; text with every room word as `term` says: "room" keeps it as it is
+    ; text with every room (and presentation) word as `term` says: "room"
+    ; keeps it as it is
     sfn apply:string (text:string lang:string term:string) {
-        if (term != "project") {
+        if ((term != "project") && (term != "topic")) {
             return text
         }
         def low:string (to_lowercase text)
-        if (((indexOf low "room") < 0) && ((indexOf low "huone") < 0)) {
+        def has:boolean (((indexOf low "room") >= 0) || ((indexOf low "huone") >= 0))
+        if (term == "topic") {
+            if (((indexOf low "presentation") >= 0) || ((indexOf low "esity") >= 0)) {
+                has = true
+            }
+        }
+        if (has == false) {
             return text
         }
         def out:string ""
@@ -78,7 +97,7 @@ class PresTerm {
                 while ((j < n) && (PresTerm.letter((charAt text j)))) {
                     j = (j + 1)
                 }
-                out = (out + (PresTerm.swapWord((substring text i j) lang)))
+                out = (out + (PresTerm.swapWord((substring text i j) lang term)))
                 i = j
             } {
                 def k:int i

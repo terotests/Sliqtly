@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // What the owner's dashboard (admin.go) reads in the cloud: Firestore's
-// stats/<day> and shares, Firebase Auth's users, and the Cloud Billing
-// export in BigQuery. The service account needs Cloud Datastore User
+// stats/<day>, shares and licenses, Firebase Auth's users, and the Cloud
+// Billing export in BigQuery. The service account needs Cloud Datastore User
 // (already), Firebase Authentication Viewer for the users, and for the bill
 // BigQuery Job User on the project and BigQuery Data Viewer on the export's
 // dataset.
@@ -88,6 +88,38 @@ func countOf(v any) int64 {
 		return n
 	}
 	return 0
+}
+
+func (c *cloudAdmin) Licenses(ctx context.Context) ([]string, []Doc, error) {
+	it := c.fs.Collection(licenseCol).Select("email", "name", "plan", "maxDocs", "docs", "editUntil", "seen").Documents(ctx)
+	defer it.Stop()
+	ids, docs := []string{}, []Doc{}
+	for {
+		s, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return ids, docs, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		ids, docs = append(ids, s.Ref.ID), append(docs, s.Data())
+	}
+}
+
+func (c *cloudAdmin) AIUsage(ctx context.Context) ([]string, []Doc, error) {
+	it := c.fs.Collection(aiUsageCol).Documents(ctx)
+	defer it.Stop()
+	ids, docs := []string{}, []Doc{}
+	for {
+		s, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return ids, docs, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		ids, docs = append(ids, s.Ref.ID), append(docs, s.Data())
+	}
 }
 
 func (c *cloudAdmin) Users(ctx context.Context) ([]adminUser, error) {

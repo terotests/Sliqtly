@@ -5,8 +5,9 @@
 #
 # The FIREBASE_SERVICE_ACCOUNT secret's account needs, besides what Deploy MCP
 # needs: Artifact Registry Administrator (the first run creates the `mcp`
-# repository) and Cloud Run Admin. The service runs as the project's default
-# compute account, which needs Cloud Datastore User and Storage Object Admin.
+# repository) and Cloud Run Admin. The service and the job sliqtly-figma run
+# as the project's default compute account, which needs Cloud Datastore User
+# and Storage Object Admin.
 name: Deploy MCP (Go)
 
 on:
@@ -55,12 +56,32 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           docker build --secret id=deps_token,env=DEPS_TOKEN -f mcp-go/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
           docker push "$IMAGE:$GITHUB_SHA"
+      - name: Deploy the Figma reading job
+        run: |
+          # mcp-go/cloudshared.go: a Figma file added on sliqtly.com is read
+          # by this job, the same image run as `figma-index <uid> <id>`.
+          # Reading takes memory several times the file's size, and longer
+          # than Hosting waits for a request: the service's 512 MB
+          # instances would be killed. The service starts it as its own
+          # account, which the job lets pass the file's arguments.
+          gcloud run jobs deploy sliqtly-figma --image "$IMAGE:$GITHUB_SHA" \
+            --region "$REGION" --project "$PROJECT" \
+            --cpu 2 --memory 4Gi --task-timeout 30m --max-retries 0 --tasks 1 \
+            --args figma-index --set-env-vars "GOMEMLIMIT=3500MiB,SLIQTLY_SHARED_MAX=200"
+          SA=$(gcloud run services describe sliqtly-mcp --region "$REGION" --project "$PROJECT" --format 'value(spec.template.spec.serviceAccountName)' || true)
+          if [ -z "$SA" ]; then
+            SA="$(gcloud projects describe "$PROJECT" --format 'value(projectNumber)')-compute@developer.gserviceaccount.com"
+          fi
+          gcloud run jobs add-iam-policy-binding sliqtly-figma --region "$REGION" --project "$PROJECT" \
+            --member "serviceAccount:$SA" --role roles/run.jobsExecutorWithOverrides >/dev/null \
+            || { echo "::error::The service's account $SA could not be let run the job sliqtly-figma: the deploying account needs Cloud Run Admin"; exit 1; }
       - name: Deploy the service
         env:
           # optional: private repositories for read_github_pr,
           # for the Sliqtly user ids in SLIQTLY_GITHUB_USERS (mcp-go/README.md)
           GH_TOKEN_SECRET: ${{ secrets.SLIQTLY_GITHUB_TOKEN }}
           GH_USERS_SECRET: ${{ secrets.SLIQTLY_GITHUB_USERS }}
+          GEMINI_KEY_SECRET: ${{ secrets.GEMINI_API_KEY }}
           # the owner's dashboard, sliqtly.com/main/admin (mcp-go/admin.go):
           # the Google accounts let in, and the Cloud Billing export's
           # BigQuery table (project.dataset.table; unset: no costs shown)
@@ -69,6 +90,11 @@ jobs:
           # sliqtly_plugin's plugins (mcp-go/rgr/Plugins.rgr); unset:
           # code-review, "none" turns them all off
           PLUGINS: ${{ vars.SLIQTLY_PLUGINS || 'code-review' }}
+          # the editor's AI assistant (mcp-go/aiassist.go): Gemini Flash on
+          # Vertex AI in this project; "vertex" = Claude, "off" turns it off,
+          # SLIQTLY_AI_MODEL picks the model (empty = the provider's default)
+          AI: ${{ vars.SLIQTLY_AI || 'gemini' }}
+          AI_MODEL: ${{ vars.SLIQTLY_AI_MODEL }}
         run: |
           # GOMEMLIMIT: the Go heap kept under 400 MB of the 512 MB. Cloud
           # Run's sandbox need not show the cgroup limit memlimit.go reads,
@@ -80,9 +106,15 @@ jobs:
           # instance (up to 10) takes them.
           # The pairs are joined by "|" (gcloud's ^|^): an e-mail address has
           # an @, and a list of them commas.
-          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS"
+          # SLIQTLY_FIGMA_JOB: the job above reads the Figma files added;
+          # SLIQTLY_SHARED_MAX the same 200 MB as storage.rules' figma-upload
+          ENV_VARS="GOMEMLIMIT=400MiB|SLIQTLY_ADMIN_EMAILS=$ADMIN_EMAILS|SLIQTLY_BILLING_TABLE=$BILLING_TABLE|SLIQTLY_PLUGINS=$PLUGINS|SLIQTLY_AI=$AI|SLIQTLY_AI_MODEL=$AI_MODEL|SLIQTLY_FIGMA_JOB=projects/$PROJECT/locations/$REGION/jobs/sliqtly-figma|SLIQTLY_SHARED_MAX=200"
           if [ -n "$GH_TOKEN_SECRET" ]; then
             ENV_VARS="$ENV_VARS|SLIQTLY_GITHUB_TOKEN=$GH_TOKEN_SECRET|SLIQTLY_GITHUB_USERS=$GH_USERS_SECRET"
+          fi
+          # GEMINI_API_KEY (optional): Gemini through AI Studio, not Vertex AI
+          if [ -n "$GEMINI_KEY_SECRET" ]; then
+            ENV_VARS="$ENV_VARS|GEMINI_API_KEY=$GEMINI_KEY_SECRET"
           fi
           ENV_ARGS=(--update-env-vars "^|^$ENV_VARS")
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
@@ -112,3 +144,6 @@ jobs:
           # nothing without a sign-in, nothing to another site's page
           test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/editor/api/rooms/list_rooms" -H 'Sec-Fetch-Site: same-origin' -H 'content-type: application/json' -d '{}')" = 401
           test "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL/editor/api/rooms/list_rooms" -H 'Origin: https://example.com' -H 'content-type: application/json' -d '{}')" = 403
+          # each account's Figma files (mcp-go/editorshared.go): none
+          # without a sign-in
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$URL/editor/api/shared")" = 401

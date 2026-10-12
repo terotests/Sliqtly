@@ -30,6 +30,8 @@
 
 Import "PresTimeline.rgr"
 Import "PresSlideSpans.rgr"
+Import "PresHeadingAttr.rgr"
+Import "PresStoryNames.rgr"
 Import "PresFollow.rgr"
 Import "PresPick.rgr"
 Import "PresClip.rgr"
@@ -41,6 +43,7 @@ Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
 Import "PresThemeEdit.rgr"
 Import "PresRecord.rgr"
+Import "PresVideo.rgr"
 Import "PresExport.rgr"
 Import "PresI18n.rgr"
 Import "../datagrid/src/script/ScriptEditor.rgr"
@@ -57,6 +60,7 @@ Import "PresChartEditor.rgr"
 Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
+Import "PresFindBar.rgr"
 Import "PresPanels.rgr"
 Import "PresMeet.rgr"
 Import "PresReviewUi.rgr"
@@ -77,6 +81,8 @@ Import "pkg:evg/EVGHitTest.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 ; questionnaires (Sliqtly Curious): File → New ▸ Questionnaire…
 Import "PresForm.rgr"
+Import "PresAi.rgr"
+Import "PresDeckSize.rgr"
 
 class PresRect {
     def x:double 0.0
@@ -135,6 +141,9 @@ class PresApp {
     ; (`tabs` is made again by showTab before the next layout places it)
     def laidTabs:TabsCtl (new TabsCtl())
     def tabRect:PresRect (new PresRect())
+    ; the whole deck's bytes, shown beside the tabs (PresDeckSize)
+    def deckSize:PresDeckSize (new PresDeckSize())
+    def sizeShown:string ""
     def tabH:double 34.0
     ; The presentations open in this tab of the browser, a tab each, in a row
     ; of their own under the top bar (EVGUI's DocTabsCtl). The page says
@@ -293,6 +302,8 @@ class PresApp {
     ; what the page calls the app: the bar's name and the canvas's label
     def appName:string "EVG Presentation"
     def hint:PresHintPopover (new PresHintPopover())
+    ; Ctrl/Cmd+F over the code editor
+    def find:PresFindBar (new PresFindBar())
     ; the element picked on the slide, with its handles (PresSelect.rgr)
     def pick:PresSelect (new PresSelect())
     ; the popover was opened from the pick: it stays where it was opened,
@@ -302,6 +313,11 @@ class PresApp {
     def stageHintY:double 0.0
     def stageHintH:double 0.0
     def panels:PresPanels (new PresPanels())
+    ; the AI assistant's conversation, drawn in the panels' AI drawer
+    def ai:PresAi (new PresAi())
+    ; the slide and the slide count the drawer's context line was made for
+    def aiSlideAt:int -1
+    def aiCountAt:int -1
     ; the deck's call on a server of one's own (PresMeet, web/meet.js)
     def meet:PresMeet (new PresMeet())
     ; review mode: comments pinned to the slides (PresReviewUi, PresReview)
@@ -323,6 +339,9 @@ class PresApp {
     ; the jumps while presenting and the slide number being typed
     def nav:PresNav (new PresNav())
     def reviewTitlesKey:string ""
+    ; every slide's elements as laid out last, for comments pinned on them
+    ; (PresReview.follow)
+    def reviewBlocks:[PresReviewBlock]
     ; Which surface over the chrome is on top: the order they are painted in
     ; (`layerOrder`, read by the page) and the order a press, a wheel or the
     ; cursor goes to them (`layerAt`). EVGUI's UiLayers; see `syncLayers`.
@@ -365,6 +384,7 @@ class PresApp {
         layers.add("sketch" "docked")
         layers.add("code" "docked")
         layers.add("review" "docked")
+        layers.add("find" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
         layers.add("dialog" "modal")
@@ -693,6 +713,34 @@ class PresApp {
     ; the page's 3-D flight (web/flight3d.js).
     fn flightJson:string () {
         return ((PresFlightScene.of(deck)).toJson())
+    }
+
+    ; Whether a program on slide i has not drawn yet (PresDeck.playsWaiting).
+    fn playsWaiting:boolean (i:int) {
+        return (deck.playsWaiting(i))
+    }
+
+    ; Slide i's presenter as the slide at rest draws it (no bubble), for the
+    ; 3-D flight's picture of it: a list as slideJson gives one.
+    fn presenterJson:string (i:int) {
+        return (this.listJson((deck.storyList(i 0 true false))))
+    }
+
+    ; The 3-D flight's looks as the theme picker's rows (FlightLook.rows).
+    fn flightLookRows:string () {
+        return (FlightLook.rows())
+    }
+
+    ; The deck's 3-D look: `look-3d:` in its front matter, else the first.
+    fn flightLook:string () {
+        return ((FlightLook.named((PresDeck.frontMatterValue(deck.text "look-3d")))).key)
+    }
+
+    ; The deck's 3-D look, as `look-3d:` in the front matter: the first look
+    ; is the one a deck has without it, so picking it takes the line out.
+    fn setFlightLook:void (key:string) {
+        def l:FlightLook (FlightLook.named(key))
+        this.setFrontLine("look-3d" l.key (l.key != (itemAt (FlightLook.keys()) 0)))
     }
 
     ; Every slide's 3-D worlds as their programs last drew them, for an
@@ -1197,6 +1245,29 @@ class PresApp {
     fn rebuildDeck:void () {
         this.rebuildWith((? (mode == "edit") 2 -1) true)
         this.docSetFollow()
+        this.measureSize()
+    }
+
+    ; The deck's size beside the tabs follows its Markdown and theme as
+    ; they are typed; the chrome is laid again only when the words change.
+    fn measureSize:void () {
+        deckSize.setMarkdown((mdEditor.text()))
+        deckSize.setCss((cssEditor.text()))
+        def l:string (deckSize.label())
+        if (l != sizeShown) {
+            sizeShown = l
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; The page's count of the files kept with the deck and their bytes.
+    fn setDeckFiles:void (n:int bytes:int) {
+        deckSize.setFiles(n bytes)
+        this.measureSize()
+    }
+
+    fn deckSizeLabel:string () {
+        return (deckSize.label())
     }
 
     ; One rebuild that draws again at most `budget` charts and figures whose
@@ -1661,10 +1732,7 @@ class PresApp {
                     k = (k + 1)
                 }
             } {
-                def hold:double (start + s.duration)
-                if (pStep < s.steps) {
-                    hold = (start + (PresTimeline.stepTime(s (pStep + 1))))
-                }
+                def hold:double (PresTimeline.holdAt(deck selected pStep))
                 if (want > hold) {
                     want = hold
                 }
@@ -2461,16 +2529,7 @@ class PresApp {
     ; How wide the last line being written is, in the hand-written face as
     ; the slides measure it; -1 until the face is here.
     fn inkCaretW:double (k:PresInk) {
-        if (((k.typing == false) || ((array_length k.strokes) == 0)) || ((deck.md.fontManager.hasFont((PresInk.FACE()))) == false)) {
-            return -1.0
-        }
-        def s:PresInkStroke (itemAt k.strokes ((array_length k.strokes) - 1))
-        def lines:[string] (strsplit s.text "\n")
-        def last:string ""
-        if ((array_length lines) > 0) {
-            last = (itemAt lines ((array_length lines) - 1))
-        }
-        return (deck.md.fontManager.measureText(last (PresInk.FACE()) (PresInk.textSize(s))))
+        return (PresVideo.inkCaretW(deck k))
     }
 
     fn inkJson:string () {
@@ -3781,7 +3840,14 @@ class PresApp {
         if (selected != stageAt) {
             cameFrom = (stageAt + 1)
             stageAt = selected
+            deck.storyFrom = (this.stageTime())
         }
+        ; the presenter tells the lines whose steps are taken from here on
+        def st:double (this.stageTime())
+        if (st < deck.storyFrom) {
+            deck.storyFrom = st
+        }
+        deck.storySlide = selected
         def book:MdBook (deck.book())
         if (book.isBook()) {
             if (mode == "present") {
@@ -4012,6 +4078,36 @@ class PresApp {
         return (this.listJson((PresTimeline.frame(deck i local))))
     }
 
+    ; --- a video (PresVideo) ---------------------------------------------------
+    ; The host walks the frames 0 .. frames-1 and rasterises each list; the
+    ; app keeps no clock for it and the stage is left as it was.
+    def video:PresVideoTimeline (new PresVideoTimeline())
+    def videoReplay:PresReplay (new PresReplay())
+
+    ; A video begins: from the recording when asked for and there is one,
+    ; else the deck played on its own. The timeline's JSON (PresVideoTimeline).
+    fn videoBegin:string (options:string fromRecording:boolean) {
+        this.settleAll()
+        def o:PresVideoOptions (PresVideoOptions.parse(options))
+        if (fromRecording && (this.hasRecording())) {
+            video = (PresVideoTimeline.ofRecording(deck take o))
+            videoReplay = (new PresReplay())
+            videoReplay.load(take)
+        } {
+            video = (PresVideoTimeline.ofDeck(deck o))
+        }
+        return (video.toJson())
+    }
+
+    ; Frame n of it: the slide's list as listJson gives it, with the slide
+    ; and its effects' clock ("fx").
+    fn videoFrameJson:string (n:int) {
+        this.settleAll()
+        def a:PresVideoAt (video.at(deck n))
+        def l:EVGDisplayList (PresVideo.frame(deck video n videoReplay))
+        return ("{\"width\":" + (EVGDisplayList.num(deck.pageW)) + ",\"height\":" + (EVGDisplayList.num(deck.pageH)) + ",\"slide\":" + (to_string a.slide) + ",\"fx\":" + (EVGDisplayList.num(a.fxTime)) + ",\"list\":" + (l.toJson()) + "}")
+    }
+
     ; =========================================================================
     ; The chrome
     ; =========================================================================
@@ -4073,6 +4169,15 @@ class PresApp {
             this.makeTabs()
             laidTabs = tabs
             tabBar.addChild((unwrap tabs.rootEl))
+            ; the whole deck's size at the row's right end
+            def gap:EVGElement (EVGElement.createDiv())
+            gap.className = "ed-tabs-gap"
+            tabBar.addChild(gap)
+            def size:EVGElement (EVGElement.createDiv())
+            size.id = "ed-size"
+            size.className = "ed-size"
+            size.textContent = (deckSize.label())
+            tabBar.addChild(size)
             root.addChild(tabBar)
             root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
         }
@@ -4272,6 +4377,16 @@ class PresApp {
             num = ("✓ " + num)
         }
         box.addChild((PresApp.label(("tn" + (to_string i)) "thumb-num" num (x - ox) 4.0)))
+        ; its own phase, at the row's other end
+        def ph:string (this.slidePhase(i))
+        if ((strlen ph) > 0) {
+            def row:EVGElement (PresApp.div(("tph" + (to_string i)) "thumb-phase-row" (x - ox) 2.0 thumbW 16.0))
+            def pill (EVGElement.createDiv())
+            pill.className = ("thumb-phase thumb-phase-" + ph)
+            pill.textContent = (PresStoryNames.phaseName(ph))
+            row.addChild(pill)
+            box.addChild(row)
+        }
     }
 
     ; A box with its words in the middle (`line-height` is its height).
@@ -4477,6 +4592,13 @@ class PresApp {
             if (top != "dialog") {
                 this.closeHint()
             }
+        }
+        if (top == "find") {
+            focus = "find"
+            find.focused = true
+            find.press(x y clicks shift)
+            this.afterFind()
+            return "find"
         }
         if (top == "room") {
             room.press(x y clicks shift)
@@ -4979,6 +5101,22 @@ class PresApp {
                 panels.hoverAt(-1000000.0 -1000000.0)
             }
         }
+        if (find.isOpen && find.selecting) {
+            find.dragTo(x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (this.findShown()) {
+            def findHot:int find.rev
+            if (top == "find") {
+                find.hoverAt(x y)
+            } {
+                find.hoverAt(-1000000.0 -1000000.0)
+            }
+            if (find.rev != findHot) {
+                chromeRev = (chromeRev + 1)
+            }
+        }
         if hint.isOpen {
             if (hint.dragging()) {
                 hint.dragTo(x y)
@@ -5111,6 +5249,10 @@ class PresApp {
         if (hint.isOpen && (hint.dragging())) {
             hint.release()
             this.afterHint()
+        }
+        if (find.isOpen && find.selecting) {
+            find.release()
+            chromeRev = (chromeRev + 1)
         }
         if chart.isOpen {
             ; a finger's tap on the window is pressed as it lifts
@@ -5303,7 +5445,8 @@ class PresApp {
             return true
         }
         if (panels.chatHas(x y)) {
-            panels.chat.scrollBy((? (dy < 0.0) -1 1))
+            def wc:ChatCtl (panels.dockChat())
+            wc.wheel(dy)
             panels.rebuild()
             chromeRev = (chromeRev + 1)
             return true
@@ -5401,6 +5544,9 @@ class PresApp {
             def lc:string ""
             if (top == "hint") {
                 lc = (hint.cursorAt(x y))
+            }
+            if (top == "find") {
+                lc = (find.cursorAt(x y))
             }
             if (top == "chart") {
                 lc = (chart.cursorAt(x y))
@@ -5545,6 +5691,16 @@ class PresApp {
         if (((barH > 0.0) && (toolbar.listOpen())) && (name == "escape")) {
             toolbar.closeLists()
             chromeRev = (chromeRev + 1)
+            return true
+        }
+        if (this.findHasKeys()) {
+            find.key(name shift ctrl)
+            this.afterFind()
+            return true
+        }
+        ; Esc in the text closes the bar over it (a popover first)
+        if (((name == "escape") && (this.findShown())) && (((hint.isOpen == false) && (focus == "editor")) && (editor.completionOpen == false))) {
+            this.closeFind()
             return true
         }
         if (hint.isOpen && (mode != "present")) {
@@ -5822,7 +5978,8 @@ class PresApp {
             return
         }
         if (this.chatHasKeys()) {
-            panels.chat.typeChar("" s)
+            def tc:ChatCtl (panels.dockChat())
+            tc.typeChar("" s)
             panels.rebuild()
             chromeRev = (chromeRev + 1)
             return
@@ -5836,6 +5993,11 @@ class PresApp {
         if ((hint.isOpen && (hint.hasKeys())) && (mode != "present")) {
             hint.type(s)
             this.afterHint()
+            return
+        }
+        if (this.findHasKeys()) {
+            find.type(s)
+            this.afterFind()
             return
         }
         if ((mode == "present") && replaying) {
@@ -5915,6 +6077,14 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        ; into the docked chat's composer (the room's or the AI assistant's)
+        if (this.chatHasKeys()) {
+            def tc:ChatCtl (panels.dockChat())
+            tc.typeChar("" s)
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (this.roomHasKeys()) {
             room.text(s)
             this.afterRoom()
@@ -5928,6 +6098,12 @@ class PresApp {
         if ((this.chartHasKeys()) && (mode != "present")) {
             chart.type(s)
             this.afterChart()
+            return
+        }
+        ; one line into the find bar's field
+        if (this.findHasKeys()) {
+            find.type((PresReviewUi.oneLine(s)))
+            this.afterFind()
             return
         }
         if ((mode == "present") || (focus != "editor")) {
@@ -6016,10 +6192,19 @@ class PresApp {
             this.afterHint()
             return true
         }
+        ; Ctrl+A in the find bar's field: all of its text
+        if (this.findHasKeys()) {
+            if (ch == "a") {
+                find.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         ; Ctrl+A in the chat's field: all of its text
         if (this.chatHasKeys()) {
             if (ch == "a") {
-                panels.chat.input.selectAll()
+                def ac:ChatCtl (panels.dockChat())
+                ac.input.selectAll()
                 chromeRev = (chromeRev + 1)
             }
             return true
@@ -6713,6 +6898,20 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Whether Export offers publishing to sliqtly.com (Cloud HTML, Cloud
+    ; video): not on a server of one's own (its sliqtly.js says so), nor in
+    ; the desktop editor. Its files go to the computer there.
+    fn setCloud:void (on:boolean) {
+        if (on == toolbar.cloud) {
+            return
+        }
+        toolbar.cloud = on
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setToolbarCss:void (css:string) {
         toolbar.css = css
         toolbar.rebuild()
@@ -6758,7 +6957,7 @@ class PresApp {
                 layers.setBand("bar" "docked")
             }
         }
-        layers.setOpen("panels" ((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.callOpen) && edit))
+        layers.setOpen("panels" (((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.aiChat.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
         ; the source viewer and the badges under the comments' pins
         def codeWas:boolean (layers.isOpen("code"))
@@ -6769,6 +6968,7 @@ class PresApp {
         ; a game that has the keyboard while presenting takes the stage: the
         ; comments' bar and pins give way until Esc
         layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
+        layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -6809,6 +7009,9 @@ class PresApp {
         }
         if (id == "hint") {
             return (hint.has(x y))
+        }
+        if (id == "find") {
+            return (find.has(x y))
         }
         if (id == "chart") {
             return (chart.has(x y))
@@ -6854,7 +7057,8 @@ class PresApp {
     }
 
     fn toolbarOnTop:boolean () {
-        return (((barH > 0.0) && (mode != "present")) && (toolbar.listOpen()))
+        ; a story card dragged from a room's Stories tab: its chip over them
+        return (((barH > 0.0) && (mode != "present")) && ((toolbar.listOpen()) || toolbar.dragOn))
     }
 
     ; The bar as a display list over the page: "" when there is none.
@@ -6878,6 +7082,14 @@ class PresApp {
     ; --- the value popover --------------------------------------------------------
     fn setHintCss:void (css:string) {
         hint.css = css
+    }
+
+    fn setFindCss:void (css:string) {
+        find.css = css
+        if find.isOpen {
+            find.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; Open the popover on a hint (hintAt / hintAtCaret's JSON); "" closes it.
@@ -7402,6 +7614,203 @@ class PresApp {
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
+    ; --- find and replace in the code editor (Ctrl/Cmd+F) -------------------------------
+    ; The bar is PresFindBar (EVGUI's FindBarCtl); the finding, the matches
+    ; painted in the text and the replacing are the editor's (ScriptEditor
+    ; with EditorFind). While the bar has the keys `focus` is "find"; a press
+    ; in the text gives them back to the editor and the bar stays, as in
+    ; VS Code, until Esc or its ×.
+    fn findShown:boolean () {
+        return (find.isOpen && (mode != "present"))
+    }
+
+    fn findHasKeys:boolean () {
+        return ((this.findShown()) && (focus == "find"))
+    }
+
+    ; Is there a text to search: the Markdown, the theme, or an open file.
+    fn findAvailable:boolean () {
+        if ((mode == "present") || (edRect.w <= 0.0)) {
+            return false
+        }
+        return ((this.filesListShowing()) == false)
+    }
+
+    ; The page's chords: "find" (Ctrl/Cmd+F), "replace" (Ctrl+H, Cmd+Alt+F),
+    ; "next" / "prev" (F3, Cmd+G, with Shift back), and the switches "case",
+    ; "word", "regex", "scope" (Alt+C, Alt+W, Alt+R, Alt+L) while it is open.
+    ; True when the chord was the bar's.
+    fn findChord:boolean (what:string) {
+        if ((what == "find") || (what == "replace")) {
+            return (this.openFind((what == "replace")))
+        }
+        if ((this.findShown()) == false) {
+            return false
+        }
+        if ((what == "next") || (what == "prev")) {
+            this.findSync()
+            editor.findNext((what == "prev"))
+            this.findStatus()
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        if ((((what == "case") || (what == "word")) || (what == "regex")) || (what == "scope")) {
+            find.bar.toggle(what)
+            find.rebuild()
+            this.afterFind()
+            return true
+        }
+        return false
+    }
+
+    fn openFind:boolean (withReplace:boolean) {
+        if ((this.findAvailable()) == false) {
+            return false
+        }
+        this.closeHint()
+        editor.findBar = false
+        editor.openFind()
+        ; a selection on one line is the query; with none the bar keeps the
+        ; last one
+        def q:string ""
+        if ((editor.sel.isCollapsed()) == false) {
+            q = editor.findQuery
+        }
+        find.measurer = measurer
+        find.w = W
+        find.h = H
+        find.bar.inSelection = false
+        this.placeFind()
+        find.open(q withReplace)
+        focus = "find"
+        this.findSync()
+        editor.setFindQuery((find.bar.query()))
+        this.findStatus()
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    fn closeFind:void () {
+        if (find.isOpen == false) {
+            return
+        }
+        find.close()
+        mdEditor.closeFind()
+        cssEditor.closeFind()
+        fileEditor.closeFind()
+        if (focus == "find") {
+            focus = "editor"
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The editor shown has the bar's query and switches (another tab may
+    ; have been opened since).
+    fn findSync:void () {
+        editor.findBar = false
+        if (editor.findActive()) {
+            return
+        }
+        editor.findOpen = true
+        editor.findQuery = (find.bar.query())
+        editor.find.query = editor.findQuery
+        editor.find.matchCase = find.bar.matchCase
+        editor.find.wholeWord = find.bar.wholeWord
+        editor.find.regex = find.bar.regex
+        editor.find.clearScope()
+        find.bar.inSelection = false
+        editor.refreshFindCount()
+    }
+
+    fn placeFind:void () {
+        ; over the minimap, as VS Code's: a narrow editor still has room
+        find.right = (to_double ((editor.layout.x + editor.layout.w) - 14))
+        find.top = (to_double (editor.layout.y + 4))
+    }
+
+    ; The count beside the query: "3 of 17", "No results", or why a pattern
+    ; cannot be read.
+    fn findStatus:void () {
+        editor.refreshFindCount()
+        def q:string (find.bar.query())
+        if ((strlen q) == 0) {
+            find.setStatus((PresI18n.t("No results")) false)
+            return
+        }
+        def text:string (editor.find.status((PresI18n.t("of")) (PresI18n.t("No results"))))
+        find.setStatus(text ((editor.find.count()) == 0))
+    }
+
+    ; What the bar asked for, done in the editor.
+    fn afterFind:void () {
+        this.findSync()
+        def asked:[string] (find.bar.takeAsked())
+        def i:int 0
+        while (i < (array_length asked)) {
+            def a:string (itemAt asked i)
+            if (a == "query") {
+                editor.setFindQuery((find.bar.query()))
+            }
+            if (a == "options") {
+                editor.setFindOptions(find.bar.matchCase find.bar.wholeWord find.bar.regex)
+            }
+            if (a == "scope") {
+                editor.setFindInSelection(find.bar.inSelection)
+            }
+            if (a == "next") {
+                editor.findNext(false)
+            }
+            if (a == "prev") {
+                editor.findNext(true)
+            }
+            if (a == "replace") {
+                if (editor.findReplace((find.bar.replacement()))) {
+                    this.syncEditor()
+                }
+            }
+            if (a == "replaceAll") {
+                if ((editor.findReplaceAll((find.bar.replacement()))) > 0) {
+                    this.syncEditor()
+                }
+            }
+            if (a == "close") {
+                this.closeFind()
+                return
+            }
+            i = (i + 1)
+        }
+        this.findStatus()
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn findIsOpen:boolean () {
+        return (this.findShown())
+    }
+
+    ; The bar as a display list over the page: "" when it is closed.
+    fn findJson:string () {
+        if ((this.findShown()) == false) {
+            return ""
+        }
+        if (this.filesListShowing()) {
+            return ""
+        }
+        this.findSync()
+        find.measurer = measurer
+        def was:double (find.right + (find.top * 100000.0))
+        this.placeFind()
+        def keys:boolean (focus == "find")
+        if ((((find.w != W) || (find.h != H)) || (was != (find.right + (find.top * 100000.0)))) || (keys != find.focused)) {
+            find.w = W
+            find.h = H
+            find.focused = keys
+            find.rebuild()
+        }
+        this.findStatus()
+        def dl:EVGDisplayList (find.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
     ; --- the files tab ---------------------------------------------------------------
     ; The list shows in the editor's place while no file is open in it.
     fn filesListShowing:boolean () {
@@ -7649,7 +8058,9 @@ class PresApp {
                 }
             }
         }
-        def key:string ((to_string mdEditor.buf.version) + ":" + (to_string (deck.slideCount())))
+        ; a new text, other slides, another slide size (turned) or a layout
+        ; that finished later: the comments to their elements again
+        def key:string ((to_string mdEditor.buf.version) + ":" + (to_string deck.revision) + ":" + (to_string (deck.slideCount())) + ":" + (to_string deck.pageW) + "x" + (to_string deck.pageH))
         if (key != reviewTitlesKey) {
             reviewTitlesKey = key
             def ts:[string]
@@ -7659,7 +8070,8 @@ class PresApp {
                 push ts sl.title
                 i = (i + 1)
             }
-            review.setTitles(ts)
+            reviewBlocks = (this.reviewBlocksNow())
+            review.setPlaces(ts reviewBlocks)
         }
         review.measurer = measurer
         review.skin = skin
@@ -7671,6 +8083,103 @@ class PresApp {
             review.shift = (0.0 - ((sketch.barW + 8.0) * 0.5))
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
+    }
+
+    ; Every slide's elements, for PresReview.follow: a block's boxes on a
+    ; slide as one, keyed by its source (its first 160 characters), in
+    ; fractions of the slide; a diagram's carries its index on the slide.
+    fn reviewBlocksNow:[PresReviewBlock] () {
+        def out:[PresReviewBlock]
+        def pw:double deck.pageW
+        def ph:double deck.pageH
+        if ((pw <= 0.0) || (ph <= 0.0)) {
+            return out
+        }
+        ; the text the layout was made from (the editor's may be ahead)
+        def text:string deck.text
+        def n:int (strlen text)
+        def l:MdLayout (deck.layout())
+        def rd (new PresSelect())
+        ; one block per (slide, source start): where it is in `out`
+        def seen:[string:int]
+        for l.boxes b:MdBox i {
+            if ((((b.srcStart >= 0) && (b.srcStart < n)) && (b.furniture == 0)) && (b.retold == false)) {
+                def id:string ((to_string b.page) + ":" + (to_string b.srcStart))
+                if (has seen id) {
+                    def at:int (unwrap (get seen id))
+                    def pb:PresReviewBlock (itemAt out at)
+                    def x0:double (b.x / pw)
+                    def y0:double (b.y / ph)
+                    def x1:double ((b.x + b.w) / pw)
+                    def y1:double ((b.y + b.h) / ph)
+                    def r:double (pb.x + pb.w)
+                    def bt:double (pb.y + pb.h)
+                    if (x0 < pb.x) {
+                        pb.x = x0
+                    }
+                    if (y0 < pb.y) {
+                        pb.y = y0
+                    }
+                    if (x1 > r) {
+                        r = x1
+                    }
+                    if (y1 > bt) {
+                        bt = y1
+                    }
+                    pb.w = (r - pb.x)
+                    pb.h = (bt - pb.y)
+                } {
+                    rd.readBlock(text b.srcStart false (b.kind == 4))
+                    def end:int rd.srcB
+                    if (end > (b.srcStart + 160)) {
+                        end = (b.srcStart + 160)
+                    }
+                    if (end > n) {
+                        end = n
+                    }
+                    def k (new PresReviewBlock())
+                    k.page = b.page
+                    k.key = (trim (substring text b.srcStart end))
+                    k.x = (b.x / pw)
+                    k.y = (b.y / ph)
+                    k.w = (b.w / pw)
+                    k.h = (b.h / ph)
+                    if ((b.page >= 0) && (b.page < (deck.slideCount()))) {
+                        def ds:PresSlide (deck.slideAt(b.page))
+                        for ds.diagrams u:PresDiaUse di {
+                            if (u.srcStart == b.srcStart) {
+                                k.dia = di
+                            }
+                        }
+                    }
+                    if ((strlen k.key) > 0) {
+                        set seen id (array_length out)
+                        push out k
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; The element under a point of the selected slide (fractions): the
+    ; comment pinned there goes with it.
+    fn reviewPin:void (id:string x:double y:double) {
+        def k:int (PresReview.blockAt(reviewBlocks selected x y))
+        if (k < 0) {
+            return
+        }
+        def b:PresReviewBlock (itemAt reviewBlocks k)
+        if ((b.w <= 0.0) || (b.h <= 0.0)) {
+            return
+        }
+        if ((strlen id) == 0) {
+            review.draftEl = b.key
+            review.draftEX = ((x - b.x) / b.w)
+            review.draftEY = ((y - b.y) / b.h)
+            return
+        }
+        review.model.pinTo(id b.key ((x - b.x) / b.w) ((y - b.y) / b.h))
     }
 
     ; A comment pinned on a diagram is a point of the diagram: where the
@@ -7693,6 +8202,7 @@ class PresApp {
             if (!null? mh) {
                 def mt:PresReviewThread (unwrap mh)
                 if (mt.slide == selected) {
+                    this.reviewPin(mid mt.x mt.y)
                     def ma:[double] (this.reviewAnchorAt(t (mt.x * pw) (mt.y * ph)))
                     if ((array_length ma) == 4) {
                         def mdu@(optional):PresDiaUse (deck.diagramUse(selected (floor (itemAt ma 0))))
@@ -7708,6 +8218,7 @@ class PresApp {
         if review.draftAsk {
             review.draftAsk = false
             if (review.draftSlide == selected) {
+                this.reviewPin("" review.draftX review.draftY)
                 def a:[double] (this.reviewAnchorAt(t (review.draftX * pw) (review.draftY * ph)))
                 if ((array_length a) == 4) {
                     def k:int (floor (itemAt a 0))
@@ -8219,6 +8730,7 @@ class PresApp {
                 after = "\n"
             }
         }
+        mdEditor.holdCaret()
         mdEditor.moveCaret(last (strlen (mdEditor.buf.lineAt(last))) false)
         mdEditor.insert(("\n\n![](" + path + ")" + after))
         if (cl > last) {
@@ -8329,10 +8841,44 @@ class PresApp {
         }
         def r:string (room.take())
         while ((strlen r) > 0) {
-            push requests ("roomchat:" + r)
+            if ((indexOf r "topic:") == 0) {
+                this.topicRequest(r)
+            } {
+                push requests ("roomchat:" + r)
+            }
             r = (room.take())
         }
         chromeRev = (chromeRev + 1)
+    }
+
+    ; What the room's Stories tab asked for (PresTopicView): a pill's menu
+    ; or a card's context menu is the bar's (PresToolbar), drawn over the
+    ; page; the × closes the room; the rest is the page's ("topic:…").
+    fn topicRequest:void (r:string) {
+        def f:[string] (strsplit r (strfromcode 9))
+        if ((itemAt f 0) == "topic:close") {
+            push requests "roomchat:close"
+            return
+        }
+        if (((itemAt f 0) == "topic:menu") && ((array_length f) >= 8)) {
+            toolbar.openStoryMenu((?? (str2double (itemAt f 5)) 0.0) (?? (str2double (itemAt f 6)) 0.0) (itemAt f 1) (itemAt f 2) (itemAt f 3) (itemAt f 4) (itemAt f 7))
+            return
+        }
+        ; a card pressed: dragged by the bar (onto a folder or a room of the
+        ; rail), opened when let go where it was pressed
+        if (((itemAt f 0) == "topic:drag") && ((array_length f) >= 5)) {
+            toolbar.deckDragBegin((itemAt f 1) (itemAt f 2) (?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0))
+            return
+        }
+        if (((itemAt f 0) == "topic:bulkmenu") && ((array_length f) >= 3)) {
+            toolbar.openBulkMenu((?? (str2double (itemAt f 1)) 0.0) (?? (str2double (itemAt f 2)) 0.0))
+            return
+        }
+        if (((itemAt f 0) == "topic:ctx") && ((array_length f) >= 6)) {
+            toolbar.openDeckContext((?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0) "room" (itemAt f 1) (itemAt f 5) ((itemAt f 2) == "1"))
+            return
+        }
+        push requests r
     }
 
     ; --- the page's side ---------------------------------------------------------
@@ -8343,6 +8889,13 @@ class PresApp {
         room.show(id title about readOnly notice)
         focus = "room"
         room.ch.keys = "main"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The open room's stories, grouped by the page (web/stories.js), for its
+    ; Stories tab (PresTopicView.setData)
+    fn roomStories:void (json:string) {
+        room.setStories(json)
         chromeRev = (chromeRev + 1)
     }
 
@@ -8930,6 +9483,10 @@ class PresApp {
                 panels.setChat(false)
                 push requests "chat-closed"
             }
+            if panels.aiChat.open {
+                panels.setAi(false)
+                push requests "ai-closed"
+            }
             if panels.callOpen {
                 meet.panelOpen = false
                 panels.setCall(false)
@@ -9064,6 +9621,304 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; --- the AI assistant (the ✨ AI drawer: PresAi, PresPanels.aiChat) -----------
+    ; The page opens it from the bar's ✨ AI button, hands in what the server
+    ; says (`aiCredits`, `aiAnswer`, `aiFail`) and posts the question the
+    ; drawer asks: "ai-ask" asks it to take `aiTakeAsk`.
+    fn aiOpen:void (on:boolean) {
+        panels.setAi(on)
+        if on {
+            review.closePanel()
+            focus = "chat"
+            this.aiFill()
+        } {
+            if (focus == "chat") {
+                focus = "editor"
+            }
+        }
+        this.takePanels()
+        panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn aiIsOpen:boolean () {
+        return panels.aiChat.open
+    }
+
+    ; the server's {"available", "credits"}
+    fn aiCredits:void (json:string) {
+        ai.setCredits(json)
+        this.aiFill()
+    }
+
+    fn aiAnswer:void (json:string) {
+        ai.answer(json)
+        this.aiEdit((ai.takeEdits()))
+        this.aiFill()
+    }
+
+    ; The changes an answer asked for, made on the Markdown as one edit
+    ; (Ctrl+Z takes them all back). Slide numbers are the slides as they are
+    ; now, which is what the question's outline numbered.
+    fn aiEdit:void (edits:[PresAiEdit]) {
+        if ((array_length edits) == 0) {
+            return
+        }
+        def spans:[int]
+        def n:int (deck.slideCount())
+        def k:int 0
+        while (k < n) {
+            this.slideLines(k)
+            push spans linesFrom
+            push spans linesAt
+            k = (k + 1)
+        }
+        ; the theme is the page's Theme choice, not the Markdown's
+        def theme:string (PresAiDeck.themeOf(edits))
+        if (((strlen theme) > 0) && (theme != toolbar.themeValue)) {
+            push requests ("select:theme:" + theme)
+            toolbar.themeValue = theme
+            chromeRev = (chromeRev + 1)
+        }
+        def src:string (mdEditor.text())
+        def out:string (PresAiDeck.apply(src spans edits))
+        if (out == src) {
+            return
+        }
+        def keepSel:int selected
+        def lc:int (mdEditor.buf.lineCount())
+        this.replaceLines(0 (lc - 1) out)
+        this.syncEditor()
+        def m:int (deck.slideCount())
+        if (m > 0) {
+            if (keepSel >= m) {
+                keepSel = (m - 1)
+            }
+            this.selectSlide(keepSel)
+        }
+        ai.add("note" (PresI18n.t("Changed in the presentation. Ctrl+Z takes it back.")))
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn aiFail:void (why:string) {
+        ai.fail(why)
+        this.aiFill()
+    }
+
+    ; the question to post (JSON), once
+    fn aiTakeAsk:string () {
+        return (ai.takePending())
+    }
+
+    ; What a question is about now: the slide shown, its Markdown, what is
+    ; selected in the editor, the whole Markdown and the deck's name.
+    fn aiContext:PresAiContext () {
+        def c (new PresAiContext())
+        def n:int (deck.slideCount())
+        c.slides = n
+        c.deckMd = (mdEditor.text())
+        c.deckName = toolbar.docTitle
+        c.selection = (mdEditor.selectionText())
+        c.frontMatter = (PresAiDeck.frontOf(c.deckMd))
+        def ol:string ""
+        def k0:int 0
+        while (k0 < n) {
+            def sk:PresSlide (deck.slideAt(k0))
+            ol = (ol + (to_string (k0 + 1)) + ". " + sk.title + (strfromcode 10))
+            k0 = (k0 + 1)
+        }
+        c.outline = ol
+        c.theme = toolbar.themeValue
+        c.themes = (PresAiDeck.themeLines(toolbar.themeRows))
+        if (n > 0) {
+            def i:int selected
+            if (i >= n) {
+                i = (n - 1)
+            }
+            c.slide = i
+            def sl:PresSlide (deck.slideAt(i))
+            c.title = sl.title
+            this.slideLines(i)
+            if (linesFrom >= 0) {
+                def k:int linesFrom
+                def md:string ""
+                while ((k < linesAt) && (k < (mdEditor.buf.lineCount()))) {
+                    md = (md + (mdEditor.buf.lineAt(k)) + (strfromcode 10))
+                    k = (k + 1)
+                }
+                c.slideMd = (trim md)
+            }
+        }
+        return c
+    }
+
+    ; Whether a pasted picture goes to the AI assistant: its drawer has the
+    ; keys.
+    fn aiTakesPictures:boolean () {
+        return ((this.chatHasKeys()) && panels.aiChat.open)
+    }
+
+    ; A picture pasted into the drawer (base64), sent with the next
+    ; question; a note says why when it is not taken.
+    fn aiAttach:void (name:string mime:string data:string) {
+        def why:string (ai.attach(name mime data))
+        if ((strlen why) > 0) {
+            ai.add("note" why)
+        }
+        this.aiFill()
+    }
+
+    ; the drawer's requests (PresPanels.chatAsks)
+    fn aiRequest:void (r:string) {
+        if (r == "ai-send") {
+            this.aiAsk((panels.aiChat.takeSent()) "")
+            return
+        }
+        if (r == "ai-closed") {
+            if (focus == "chat") {
+                focus = "editor"
+            }
+            push requests r
+            return
+        }
+        if ((indexOf r "ai-act") == 0) {
+            def v:string (substring r 7 (strlen r))
+            if ((indexOf v "pic:") == 0) {
+                def pn@(optional):int (str2int (substring v 4 (strlen v)))
+                if (!null? pn) {
+                    ai.detach((unwrap pn))
+                }
+                this.aiFill()
+                return
+            }
+            if ((v == "slide") || (v == "deck")) {
+                ai.setScope(v)
+            } {
+                if (v == "use") {
+                    this.aiApply()
+                } {
+                    if (v == "clear") {
+                        ai.clear()
+                    } {
+                        this.aiAsk("" v)
+                    }
+                }
+            }
+            this.aiFill()
+        }
+    }
+
+    fn aiAsk:void (text:string action:string) {
+        if (ai.ask(text action (this.aiContext()))) {
+            push requests "ai-ask"
+        } {
+            def why:string (ai.blocked())
+            if (((strlen why) > 0) && ((strlen (trim text)) > 0)) {
+                ai.fail(why)
+            }
+        }
+        this.aiFill()
+    }
+
+    ; "Use on slide": the slide shown becomes the one the last answer gave,
+    ; as one edit (Ctrl+Z takes it back).
+    fn aiApply:void () {
+        def md:string (trim (ai.suggestion()))
+        def n:int (deck.slideCount())
+        if (((strlen md) == 0) || (n == 0)) {
+            return
+        }
+        def i:int selected
+        if (i >= n) {
+            i = (n - 1)
+        }
+        this.slideLines(i)
+        if (linesFrom < 0) {
+            return
+        }
+        def lc:int (mdEditor.buf.lineCount())
+        mdEditor.moveCaret(linesFrom 0 false)
+        if (linesAt < lc) {
+            mdEditor.moveCaret(linesAt 0 true)
+            mdEditor.insert((md + (strfromcode 10) + (strfromcode 10)))
+        } {
+            mdEditor.moveCaret((lc - 1) (strlen (mdEditor.buf.lineAt((lc - 1)))) true)
+            mdEditor.insert((md + (strfromcode 10)))
+        }
+        this.syncEditor()
+        this.selectSlide(i)
+        ai.markUsed()
+        ai.add("note" (PresI18n.t("Used on the slide. Ctrl+Z takes it back.")))
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The drawer from the conversation: its title with the credits, the
+    ; context line, the quick actions, the messages.
+    fn aiFill:void () {
+        def c:ChatCtl panels.aiChat
+        def ctx:PresAiContext (this.aiContext())
+        aiSlideAt = selected
+        aiCountAt = (deck.slideCount())
+        def title:string (PresI18n.t("AI Assistant"))
+        def pill:string (ai.creditsShort())
+        if ((strlen pill) > 0) {
+            title = (title + "  ● " + pill)
+        }
+        c.title = title
+        def sub:string (ai.contextLine(ctx))
+        def more:string (ai.creditsText())
+        if (((strlen more) > 0) && (ai.unlimited == false)) {
+            sub = (sub + " · " + more)
+        }
+        c.subtitle = sub
+        c.clearActions()
+        ; the pictures pasted for the next question; a press leaves one out
+        for ai.pictures p:PresAiPicture pi {
+            c.addAction(("pic:" + (to_string pi)) ("🖼 " + p.name + "  ✕") "primary")
+        }
+        if ((strlen (ai.suggestion())) > 0) {
+            c.addAction("use" ("✓ " + (PresI18n.t("Use on slide"))) "primary")
+        }
+        def ids:[string] (PresAi.actionIds())
+        for ids id:string i {
+            if (PresAi.actionFits(id ctx)) {
+                c.addAction(id (PresAi.actionLabel(id)) "")
+            }
+        }
+        if (ai.scope == "deck") {
+            c.addAction("slide" ((PresI18n.t("Whole presentation")) + " ▾") "")
+        } {
+            c.addAction("deck" ((PresI18n.t("This slide")) + " ▾") "")
+        }
+        if ((array_length ai.msgs) > 0) {
+            c.addAction("clear" (PresI18n.t("Clear")) "")
+        }
+        c.emptyText = (ai.creditsHelp())
+        c.readOnly = (ai.available == 0)
+        c.readOnlyText = (PresI18n.t("The AI assistant is not available on this server."))
+        def none:[UiChatMessage]
+        c.messages = none
+        c.top = 0
+        for ai.msgs m:PresAiMsg k {
+            if (m.role == "user") {
+                c.add(m.id "me" (PresI18n.t("You")) "#2563eb" m.text "" true)
+            } {
+                if (m.role == "assistant") {
+                    c.add(m.id "ai" "AI" "#7c3aed" (PresAi.shown(m.text)) "" false)
+                } {
+                    c.add(m.id "note" "Sliqtly" "#b45309" m.text "" false)
+                }
+            }
+        }
+        if ai.busy {
+            c.add("ai-wait" "ai" "AI" "#7c3aed" (PresI18n.t("Thinking…")) "" false)
+        }
+        c.unread = 0
+        c.toEnd()
+        panels.rebuild()
+        chromeRev = (chromeRev + 1)
+    }
+
     fn chatIsOpen:boolean () {
         return panels.chat.open
     }
@@ -9189,7 +10044,8 @@ class PresApp {
     }
 
     fn chatHasKeys:boolean () {
-        return (((focus == "chat") && panels.chat.open) && (mode != "present"))
+        def dc:ChatCtl (panels.dockChat())
+        return (((focus == "chat") && dc.open) && (mode != "present"))
     }
 
     ; The chat's composer has the keys: Enter sends, Escape closes, PageUp and
@@ -9211,14 +10067,13 @@ class PresApp {
         if ((strlen k) == 0) {
             return false
         }
-        panels.chat.keyDownWith("" k shift ctrl)
-        if ((strlen panels.chat.sent) > 0) {
-            push requests "chat-send"
-        }
-        if (panels.chat.open == false) {
+        def dc:ChatCtl (panels.dockChat())
+        dc.keyDownWith("" k shift ctrl)
+        if (dc.open == false) {
             focus = "editor"
-            push requests "chat-closed"
         }
+        panels.chatAsks(dc)
+        this.takePanels()
         panels.rebuild()
         chromeRev = (chromeRev + 1)
         return true
@@ -9487,6 +10342,7 @@ class PresApp {
         panels.skin = s
         panels.skinHue = hue
         hint.skin = s
+        find.skin = s
         chart.skin = s
         PresApp.skinEditor(editor s hue)
         PresApp.skinEditor(cssEditor s hue)
@@ -9821,7 +10677,11 @@ class PresApp {
                       if ((indexOf r "data:") == 0) {
                         this.dataRequest((substring r 5 (strlen r)))
                       } {
-                        push requests r
+                        if ((indexOf r "ai-") == 0) {
+                          this.aiRequest(r)
+                        } {
+                          push requests r
+                        }
                       }
                     }
                   }
@@ -9857,7 +10717,12 @@ class PresApp {
     fn panelsReady:boolean () {
         this.placeFiles()
         ; the chat's field shows its caret while it has the keys
-        panels.chat.input.setFocused((this.chatHasKeys()))
+        panels.chat.input.setFocused(((this.chatHasKeys()) && (panels.aiChat.open == false)))
+        panels.aiChat.input.setFocused(((this.chatHasKeys()) && panels.aiChat.open))
+        ; the drawer's "Context: Slide 3 / 12" follows the slide shown
+        if (panels.aiChat.open && ((aiSlideAt != selected) || (aiCountAt != (deck.slideCount())))) {
+            this.aiFill()
+        }
         if ((panels.any()) == false) {
             return false
         }
@@ -10696,6 +11561,7 @@ class PresApp {
                 if (c > 0) {
                     def cl:int editor.sel.caret.line
                     def cc:int editor.sel.caret.col
+                    editor.holdCaret()
                     editor.moveCaret(ln 0 false)
                     editor.moveCaret(ln (strlen lt) true)
                     editor.insert((PresTraceRefs.swapRef(lt from to)))
@@ -10831,6 +11697,9 @@ class PresApp {
         if (act == "delete") {
             push requests ("shared:delete:" + b.fileId)
         }
+        if (act == "download") {
+            push requests ("shared:download:" + b.fileId)
+        }
     }
 
     ; Slide → Theme…: the themes as tiles, each a picture of a sample slide
@@ -10855,6 +11724,7 @@ class PresApp {
         chartFile = ""
         chart.measurer = measurer
         chart.openThemes(rows current px py W H)
+        chart.thLook = (this.flightLook())
         focus = "chart"
         push requests "theme-pictures"
         chromeRev = (chromeRev + 1)
@@ -10970,6 +11840,13 @@ class PresApp {
     ; `pics` is the deck's pictures, one path a line, for the logo. Each change
     ; rewrites the front matter at once; closing the window makes all of them
     ; one undo step.
+    ; The open presentation's type, phase and tags for Document settings
+    ; (PresChartEditor setDocStory).
+    fn setDocStory:void (on:boolean ty:string phase:string tags:string) {
+        chart.setDocStory(on ty phase tags)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; The rooms for the open Document settings window (PresChartEditor
     ; setDocRooms); nothing when it is not open.
     fn setDocRooms:void (rows:string current:string note:string) {
@@ -11226,6 +12103,7 @@ class PresApp {
         def keep:ScriptEditor editor
         editor = mdEditor
         def oldLines:int 0
+        mdEditor.holdCaret()
         mdEditor.moveCaret(0 0 false)
         ; the block always ends with its line break, so the writes of one
         ; window all replace the same stretch and merge into one undo step
@@ -11292,6 +12170,67 @@ class PresApp {
         chart.cfAlt = alt
         chart.rebuild()
         return true
+    }
+
+    ; The same window with choices to make first: `picks` one "key=label"
+    ; line per chip, groups of them apart by an empty line (a line without
+    ; "=" heads its group), `chosen` the keys picked at the start, one per
+    ; group, "," between. `ok` goes on ("confirm:<key>"; picked() says
+    ; which, as `chosen`), Cancel only closes.
+    fn openPick:boolean (key:string title:string words:string ok:string picks:string chosen:string) {
+        if ((this.openConfirm(key title words ok)) == false) {
+            return false
+        }
+        chart.cfSafe = true
+        chart.cfPicks = picks
+        chart.cfPick = chosen
+        chart.rebuild()
+        return true
+    }
+
+    ; the keys of the chips picked in openPick's window, "," between
+    fn picked:string () {
+        return chart.cfPick
+    }
+
+    ; A long job's window (a video being made): `words` say what it is, the
+    ; bar starts at 0. setProgress moves it, closeProgress closes it; Cancel
+    ; asks the page "progress-cancel:<key>", × and Esc only hide it.
+    fn openProgress:boolean (key:string title:string words:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openProgress(key title words px (barH + 24.0) W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; `value` of `max` (below 0: no number), `note` under the bar, and
+    ; whether Cancel is offered; nothing when that job's window is not open.
+    fn setProgress:void (key:string value:int max:int note:string cancel:boolean) {
+        if (chart.setProgress(key value max note cancel)) {
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn closeProgress:void (key:string) {
+        if ((chart.isOpen && (chart.mode == "progress")) && (chart.pgKey == key)) {
+            this.closeChart()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; Help → About: the same window with the app's name and version, `words`
@@ -11412,6 +12351,7 @@ class PresApp {
         def keep:ScriptEditor editor
         editor = mdEditor
         def n:int (mdEditor.buf.lineCount())
+        mdEditor.holdCaret()
         mdEditor.moveCaret(from 0 false)
         if ((to + 1) < n) {
             mdEditor.moveCaret((to + 1) 0 true)
@@ -11885,6 +12825,12 @@ class PresApp {
             push requests ("docroom:" + chart.dsRoomAct)
             chart.dsRoomAct = ""
         }
+        ; its type, phase and tags (the tags once their field is left)
+        chart.storyTagsDone()
+        while ((array_length chart.dsStoryActs) > 0) {
+            push requests ("docstory:" + (itemAt chart.dsStoryActs 0))
+            remove_index chart.dsStoryActs 0
+        }
         if chart.wantsClose {
             chart.wantsClose = false
             this.closeChart()
@@ -11916,6 +12862,10 @@ class PresApp {
                 chart.wantsAlt = false
                 push requests ("confirm:" + chart.cfKey + ":alt")
             }
+            if ((chart.mode == "progress") && chart.wantsCancelJob) {
+                chart.wantsCancelJob = false
+                push requests ("progress-cancel:" + chart.pgKey)
+            }
             if (chart.mode == "paste") {
                 if chart.wantsPlace {
                     chart.wantsPlace = false
@@ -11931,6 +12881,12 @@ class PresApp {
             def act:string chart.fgAct
             chart.fgAct = ""
             this.figmaAct(act)
+        }
+        ; a 3-D look's tile: `look-3d:` in the front matter
+        if chart.lookPicked {
+            chart.lookPicked = false
+            this.setFlightLook(chart.wantsLook)
+            chart.wantsLook = ""
         }
         ; a theme's tile: the page's select changes, and with it the slides
         if chart.themePicked {
@@ -11975,12 +12931,16 @@ class PresApp {
             return
         }
         chart.changed = false
-        if (((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) {
+        if ((((chart.mode == "paste") || (chart.mode == "newdeck")) || (chart.mode == "confirm")) || (chart.mode == "progress")) {
             return
         }
         if (chart.mode == "docset") {
             this.writeDocSettings()
             this.writeDocBackground()
+            return
+        }
+        if (chart.mode == "slidebg") {
+            this.writeSlideBg()
             return
         }
         if (chart.mode == "adjust") {
@@ -12091,6 +13051,7 @@ class PresApp {
         }
         def cl:int editor.sel.caret.line
         def cc:int editor.sel.caret.col
+        editor.holdCaret()
         editor.moveCaret(line a false)
         editor.moveCaret(line b true)
         editor.insert(text)
@@ -12152,7 +13113,143 @@ class PresApp {
             this.setSketching(true)
             return true
         }
+        ; the slide's own background picture: the page lists the deck's
+        ; pictures first (openSlideBg)
+        if (what == "bg") {
+            if ((this.slideHeadingLine(selected)) < 0) {
+                return false
+            }
+            push requests "slidebg"
+            return true
+        }
+        if ((indexOf what "phase:") == 0) {
+            def ph:string (substring what 6 (strlen what))
+            if (ph == "none") {
+                ph = ""
+            }
+            return (this.setSlidePhase(selected ph))
+        }
         return false
+    }
+
+    ; Slide i's own phase (`## Costs {phase=review}`), "" when it has none
+    ; or one that is not a phase.
+    fn slidePhase:string (i:int) {
+        def p:string (trim (deck.slideMetaValue(i "phase")))
+        if ((indexOf (PresStoryNames.phases()) p) < 0) {
+            return ""
+        }
+        return p
+    }
+
+    ; The Markdown line of slide i's heading, -1 when it has none.
+    fn slideHeadingLine:int (i:int) {
+        if ((i < 0) || (i >= (deck.slideCount()))) {
+            return -1
+        }
+        this.slideLines(i)
+        def lines:[string] (strsplit (mdEditor.text()) "\n")
+        return (PresHeadingAttr.headingIn(lines linesFrom linesAt))
+    }
+
+    ; Slide i's phase written into its heading ("" takes it out), as one edit.
+    fn setSlidePhase:boolean (i:int phase:string) {
+        return (this.setSlideAttr(i "phase" phase))
+    }
+
+    ; One `key=value` of slide i's heading set ("" takes it out), as one edit.
+    fn setSlideAttr:boolean (i:int key:string value:string) {
+        def at:int (this.slideHeadingLine(i))
+        if (at < 0) {
+            return false
+        }
+        def line:string (mdEditor.buf.lineAt(at))
+        def next:string (PresHeadingAttr.put(line key value))
+        if (next == line) {
+            return true
+        }
+        this.replaceLines(at at next)
+        this.selectSlide(i)
+        return true
+    }
+
+    ; Slide → Background image…: the selected slide's own picture (`bg=` in
+    ; its heading) picked from `pics`, the deck's pictures one a line (the
+    ; picture it has now pickable even when it is not among them). False
+    ; when the slide has no heading to write it in.
+    fn openSlideBg:boolean (pics:string) {
+        if (mode == "present") {
+            return false
+        }
+        def i:int selected
+        if ((this.slideHeadingLine(i)) < 0) {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        def list:[string]
+        def rows:[string] (strsplit pics "\n")
+        for rows pl:string pi {
+            def p:string (trim pl)
+            if ((strlen p) > 0) {
+                push list p
+            }
+        }
+        def s:PresSlide (deck.slideAt(i))
+        def bg:string (trim s.bg)
+        if ((strlen bg) > 0) {
+            def known:boolean false
+            for list lp:string li {
+                if (lp == bg) {
+                    known = true
+                }
+            }
+            if (known == false) {
+                push list bg
+            }
+        }
+        pick.clear()
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openSlideBg(i bg list px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The slide background window's choice: `bg=` written into the slide's
+    ; heading, or the picture handed to the image editor or the vectorizer.
+    fn writeSlideBg:void () {
+        def act:string chart.sbAct
+        chart.sbAct = ""
+        if (startsWith act "set:") {
+            this.setSlideAttr(chart.sbSlide "bg" (substring act 4 (strlen act)))
+            focus = "chart"
+            return
+        }
+        if (act == "none") {
+            this.setSlideAttr(chart.sbSlide "bg" "")
+            focus = "chart"
+            return
+        }
+        if ((strlen chart.sbBg) == 0) {
+            return
+        }
+        if (act == "edit") {
+            push requests ("image-edit:" + chart.sbBg)
+        }
+        if (act == "trace") {
+            push requests ("image-trace:" + chart.sbBg)
+        }
     }
 
     ; The slide's Markdown (its whole section, as slideLines finds it) taken
@@ -13014,6 +14111,9 @@ class PresApp {
         if ((pick.on && (pick.page == i)) && (pick.srcA >= 0)) {
             toolbar.ctxElement = (PresClip.elementWord(pick.sel))
         }
+        toolbar.ctxSlidePhase = (this.slidePhase(i))
+        toolbar.ctxSlidePhaseOn = ((this.slideHeadingLine(i)) >= 0)
+        toolbar.ctxSlideBg = toolbar.ctxSlidePhaseOn
         toolbar.openContext(x y (i > 0) (i < (n - 1)) (n > 1))
         chromeRev = (chromeRev + 1)
     }
@@ -13023,8 +14123,14 @@ class PresApp {
     ; `page:`), taken out when it does not. A deck with no front matter gets
     ; one.
     fn setOrientation:void (o:string) {
-        def write:boolean ((o == "portrait") != deck.themeTall)
-        def line:string ("orientation: " + o)
+        this.setFrontLine("orientation" o ((o == "portrait") != deck.themeTall))
+    }
+
+    ; One `key: value` line of the front matter: written when `write`, else
+    ; taken out. A deck with no front matter gets one. The caret stays on
+    ; its line of text.
+    fn setFrontLine:void (key:string value:string write:boolean) {
+        def line:string (key + ": " + value)
         def n:int (mdEditor.buf.lineCount())
         def cl:int mdEditor.sel.caret.line
         def cc:int mdEditor.sel.caret.col
@@ -13037,7 +14143,7 @@ class PresApp {
                 if ((ln == "---") || (ln == "...")) {
                     close = k
                 } {
-                    if ((indexOf ln "orientation:") == 0) {
+                    if ((indexOf ln (key + ":")) == 0) {
                         at = k
                     }
                 }
@@ -13046,6 +14152,7 @@ class PresApp {
         }
         def moved:int 0
         if (at >= 0) {
+            mdEditor.holdCaret()
             mdEditor.moveCaret(at 0 false)
             if write {
                 mdEditor.moveCaret(at (strlen (mdEditor.buf.lineAt(at))) true)
@@ -13059,6 +14166,7 @@ class PresApp {
             if (write == false) {
                 return
             }
+            mdEditor.holdCaret()
             if (close > 0) {
                 mdEditor.moveCaret(close 0 false)
                 mdEditor.insert((line + "\n"))
@@ -13088,6 +14196,15 @@ class PresApp {
     ; A request from the page's keys, as a menu row would make it: "slide:…"
     ; is done here, the rest goes to the page with the others.
     fn request:void (r:string) {
+        ; the row chosen from a topic's Actions (PresToolbar.bulkRows)
+        if ((indexOf r "topic:pick") == 0) {
+            def pf:[string] (strsplit r (strfromcode 9))
+            if ((array_length pf) >= 3) {
+                room.topicChoose((itemAt pf 1) (itemAt pf 2))
+            }
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; File → Rename… (a presentation's menu, once it is open): the name at
         ; the start of the bar as a field
         if (r == "rename") {
@@ -13196,6 +14313,9 @@ class PresApp {
     }
 
     fn copySelection:string () {
+        if (this.findHasKeys()) {
+            return (find.selectedText())
+        }
         def other:string (this.readSelection())
         if ((strlen other) > 0) {
             return other
@@ -13206,6 +14326,14 @@ class PresApp {
     ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
     ; editor's to cut (and is read, not edited), so nothing is cut then.
     fn cutSelection:string () {
+        if (this.findHasKeys()) {
+            def cut:string (find.selectedText())
+            if ((strlen cut) > 0) {
+                find.key("backspace" false false)
+                this.afterFind()
+            }
+            return cut
+        }
         ; the bar's name field is not the editor's: nothing of the editor goes
         if (((strlen (this.readSelection())) > 0) || ((barH > 0.0) && toolbar.titleEditing)) {
             return ""

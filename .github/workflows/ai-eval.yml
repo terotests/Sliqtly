@@ -1,0 +1,50 @@
+# Puts the editor AI drawer's asks to the real model and checks what it
+# changes (mcp-go/aieval_test.go): "chart on the right, text on the left",
+# "darker". Run by hand: Actions → AI eval → Run workflow. A few questions
+# to Gemini on Vertex AI, billed to the project.
+#
+# The FIREBASE_SERVICE_ACCOUNT secret's account needs Vertex AI User
+# (roles/aiplatform.user) in the project for this.
+name: AI eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Gemini model (empty: the service's default)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mcp-go/go.mod
+          cache-dependency-path: mcp-go/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: go generate ./...
+        working-directory: mcp-go
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Ask the model
+        working-directory: mcp-go
+        env:
+          SLIQTLY_AI: gemini
+          SLIQTLY_AI_PROJECT: sliqtly
+          SLIQTLY_AI_MODEL: ${{ inputs.model }}
+        run: |
+          [ -n "$SLIQTLY_AI_MODEL" ] || unset SLIQTLY_AI_MODEL
+          go test -tags aieval -run TestAIEval -v -count=1 .

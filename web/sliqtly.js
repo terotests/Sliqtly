@@ -25,6 +25,7 @@
 
 import { t } from "./i18n.js";
 import { storedType } from "./storedtype.js";
+import { linkDays, linkExpired } from "./linkdays.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
 const pro = document.getElementById("pro");
@@ -382,17 +383,35 @@ async function setEditors(id, editors) {
   await db.collection("shares").doc(id).update({ editors: [...new Set(editors.map((e) => String(e).trim().toLowerCase()).filter(Boolean))] });
 }
 
-// The owner's viewing link to share `id`: the one made before, or a new
-// one (links/{linkId}, firestore.rules). → the link's id, for /s/{linkId}.
-async function viewLink(id) {
+// The owner's viewing link to share `id`, working for `days` (1 to
+// MAX_DAYS, web/linkdays.js) from now: the one made before when it still
+// works, its term begun again, or a new one (links/{linkId},
+// firestore.rules). `file`: a link of a recording's own
+// ("recordings/web-<hash>.webm", Export ▸ Cloud HTML / Cloud video) that
+// shows that file only; the same recording published again keeps its link. → the link's id, for /s/{linkId} or
+// /r/{linkId}/{hash}.
+async function viewLink(id, days, file = "") {
   if (!user) throw new Error("not signed in");
   const { db } = await store();
-  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).limit(1).get();
-  if (!had.empty) return had.docs[0].id;
+  const FieldValue = globalThis.firebase.firestore.FieldValue;
+  const term = { since: FieldValue.serverTimestamp(), days: linkDays(days) };
+  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get();
+  const ms = (v) => (typeof v === "number" ? v : v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  for (const d of had.docs) {
+    const v = d.data();
+    if ((v.file || "") !== file) continue;
+    // one past its term stays gone: its address is not given out again
+    if (linkExpired({ since: ms(v.since), days: v.days || 0, created: ms(v.created) })) {
+      await d.ref.delete();
+      continue;
+    }
+    await d.ref.update(term);
+    return d.id;
+  }
   for (let tries = 0; tries < 3; tries++) {
     const linkId = shortId();
     try {
-      await db.collection("links").doc(linkId).set({ of: id, owner: user.uid, created: globalThis.firebase.firestore.FieldValue.serverTimestamp() });
+      await db.collection("links").doc(linkId).set({ of: id, owner: user.uid, created: FieldValue.serverTimestamp(), ...term, ...(file ? { file } : {}) });
       return linkId;
     } catch (e) {
       // the id is taken (by a share): another
@@ -408,6 +427,73 @@ async function stopSharing(id) {
   const { db } = await store();
   const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get();
   await Promise.all(had.docs.map((d) => d.ref.delete()));
+}
+
+// File → Published… (web/published.js): what the signed-in user has put
+// out on sliqtly.com. → { shares: [{ id, name, visibility ("" when the
+// share has none: open, as firestore.rules reads it), files: [{ path,
+// size, at }] }], links: [{ id, of, created }] }. A recording's `at` is when
+// its file went up (Storage keeps it); the other files are left out.
+async function listPublished() {
+  if (!user) return { shares: [], links: [] };
+  const { db, files } = await store();
+  const ms = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  const [own, made] = await Promise.all([
+    db.collection("shares").where("owner", "==", user.uid).limit(200).get(),
+    db.collection("links").where("owner", "==", user.uid).limit(500).get(),
+  ]);
+  const rec = /^recordings\/web-[0-9a-f]{24}\.(sliqrec|webm)$/;
+  const shares = await Promise.all(own.docs.map(async (d) => {
+    const v = d.data();
+    const kept = await Promise.all((v.files || []).filter((f) => rec.test(f.path || "")).map(async (f) => {
+      const meta = await files.ref(`shares/${d.id}/${f.path}`).getMetadata().catch(() => null);
+      const at = meta?.timeCreated ? Date.parse(meta.timeCreated) || 0 : 0;
+      return { path: f.path, size: f.size || meta?.size || 0, at };
+    }));
+    return { id: d.id, name: v.name || "", visibility: v.visibility ?? "", files: kept };
+  }));
+  const links = made.docs.map((d) => {
+    const v = d.data();
+    return { id: d.id, of: v.of || "", created: ms(v.created), since: ms(v.since), days: v.days || 0, file: v.file || "" };
+  });
+  return { shares, links };
+}
+
+// The links of a recording of its own (`file`, viewLink) removed with the
+// recording: they would show nothing.
+async function removeFileLinks(id, path) {
+  if (!user) return;
+  const { db } = await store();
+  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get();
+  await Promise.all(had.docs.filter((d) => d.data().file === path).map((d) => d.ref.delete()));
+}
+
+// One viewing link removed: /s/{linkId} shows nothing more.
+async function removeLink(linkId) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  await db.collection("links").doc(linkId).delete();
+}
+
+// A file of the owner's share removed from the cloud (a recording, File →
+// Published…): out of the share's list first, then out of Storage. The
+// deck open in the editor removes its own files instead (main.js
+// deleteFiles), since its next save would send them again.
+async function removeShareFile(id, path) {
+  if (!user) throw new Error("not signed in");
+  const { db, files } = await store();
+  const ref = db.collection("shares").doc(id);
+  const had = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const cur = snap.data();
+    if (cur.owner !== user.uid) throw Object.assign(new Error("not the owner"), { code: "permission-denied" });
+    const left = (cur.files || []).filter((f) => f.path !== path);
+    if (left.length === (cur.files || []).length) return false;
+    tx.update(ref, { files: left, updated: globalThis.firebase.firestore.FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (had) await files.ref(`shares/${id}/${path}`).delete().catch(() => {});
 }
 
 // The shares the user was invited to edit: [{ id, name, owner, updated }]
@@ -692,7 +778,20 @@ async function readSheet(gviz, ask) {
   return rows.map((row) => Array.from({ length: width }, (_, i) => csvCell(row[i])).join(",")).join("\n") + "\n";
 }
 
-window.sliqtly = { auth, user: () => user, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+// A design file (.fig) for the signed-in account's own files
+// (web/sharedfiles.js): put in its Storage upload folder (storage.rules
+// figma-upload), from where the server moves it in (mcp-go/cloudshared.go).
+// `folder` is the one the server named. → the object's path
+async function uploadFigma(file, folder) {
+  if (!user) throw new Error(t("Sign in first"));
+  if (!folder.startsWith(`users/${user.uid}/figma-upload/`)) throw new Error("bad upload folder");
+  const { files } = await store();
+  const path = folder + shortId() + ".fig";
+  await files.ref(path).put(file, { contentType: "application/octet-stream" });
+  return path;
+}
+
+window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, listPublished, removeLink, removeFileLinks, removeShareFile, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 // sliqtly.com/editor's Rooms search: the signed-in user's own presentations
 // and those they were invited to edit, whose words hold q, searched by
 // the server (mcp-go/searchapi.go)

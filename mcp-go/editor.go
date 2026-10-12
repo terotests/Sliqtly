@@ -23,6 +23,8 @@
 //	POST /editor/api/claim    {id}       a presentation taken under the license
 //	GET  /editor/api/search?q=words      the user's own presentations holding them (searchapi.go)
 //	POST /editor/api/rooms/<op>          shared rooms and their chat (editorrooms.go)
+//	     /editor/api/shared…             the account's own Figma files (editorshared.go)
+//	     /editor/api/ai/…                the AI assistant (aiassist.go)
 //
 // Licenses: licenses/{uid} in Firestore, written only here and by the
 // owner in the Firebase console (firestore.rules lets a user read their
@@ -169,6 +171,8 @@ type editorGate struct {
 	limit  func(who string) string
 	// the Rooms search's own: it asks on every pause in typing
 	searchLimit func(who string) string
+	// the AI assistant, nil when the server has none (aiassist.go)
+	ai *aiAssist
 }
 
 // The gate, when there is an editor to serve and sign-in to check it with;
@@ -478,6 +482,14 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
 	if room, ok := strings.CutPrefix(op, "rooms/"); ok {
 		serveCloudRooms(env, g, w, r, room)
+		return
+	}
+	if what, ok := strings.CutPrefix(op, "ai/"); ok {
+		serveAI(env, g, w, r, what)
+		return
+	}
+	if op == "shared" || strings.HasPrefix(op, "shared/") {
+		serveCloudShared(env, g, w, r, strings.TrimPrefix(strings.TrimPrefix(op, "shared"), "/"))
 		return
 	}
 	limit := g.limit

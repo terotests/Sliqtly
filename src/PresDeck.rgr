@@ -156,6 +156,13 @@ class PresPlayUse {
     }
 }
 
+; A slide at rest (PresDeck.restOfSlide).
+class PresRest {
+    def list:EVGDisplayList (new EVGDisplayList())
+    def groupOfCmd:[int]
+    def scene:PresScene (new PresScene())
+}
+
 class PresSlide {
     def index:int 0
     def id:string ""
@@ -1158,6 +1165,26 @@ class PresDeck {
         return none
     }
 
+    ; Whether a program on slide i has not drawn yet (its fence's plate is
+    ; what the slide shows of it) and has not been stopped: what it draws
+    ; comes later.
+    fn playsWaiting:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return false
+        }
+        def s:PresSlide (itemAt slides i)
+        for s.plays u:PresPlayUse ui {
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if (null? v) {
+                return true
+            }
+            if ((v.drawn == false) && ((strlen v.stopped) == 0)) {
+                return true
+            }
+        }
+        return false
+    }
+
     ; The text the page handed over for a file of the deck, "" for none.
     fn dataText:string (path:string) {
         def want:string (MdVegaRender.bareUrl((MdVegaRender.resolveUrl(path))))
@@ -1266,6 +1293,26 @@ class PresDeck {
     ; modules on its first line (PresPlayFiles); "" while the page has not
     ; handed over the program or one of those files yet.
     fn linkedSource:string (path:string) {
+        ; the page asks every frame: the files are quoted again only once
+        ; they changed (a program importing a big library spent seconds here)
+        if (linkedRev != dataRev) {
+            def lp:[string]
+            def lt:[string]
+            linkedPaths = lp
+            linkedTexts = lt
+            linkedRev = dataRev
+        }
+        def at:int (indexOf linkedPaths path)
+        if (at >= 0) {
+            return (itemAt linkedTexts at)
+        }
+        def made:string (this.linkSource(path))
+        push linkedPaths path
+        push linkedTexts made
+        return made
+    }
+
+    fn linkSource:string (path:string) {
         def src:string (this.dataText(path))
         if ((strlen src) == 0) {
             return ""
@@ -1906,6 +1953,8 @@ class PresDeck {
             return false
         }
         r.final = f
+        r.finalRest = (PresScriptFrame.read(json))
+        r.finalRest.presentersAtRest()
         r.hasFinal = true
         r.finalJson = json
         this.takeOwns(r f)
@@ -2147,6 +2196,12 @@ class PresDeck {
             return lfv
         }
         if r.hasFinal {
+            ; on the stage, before the script's own frames, a presenter
+            ; stands at rest: where it ends is for thumbnails and the PDF
+            if (showControls && (still == false)) {
+                def rv@(optional):PresScriptFrame r.finalRest
+                return rv
+            }
             def fv@(optional):PresScriptFrame r.final
             return fv
         }
@@ -2521,8 +2576,18 @@ class PresDeck {
     }
 
     fn sceneOfSlide:PresScene (i:int) {
+        def r:PresRest (this.restOfSlide(i))
+        return r.scene
+    }
+
+    ; Slide i at rest as the Markdown lays it out (sceneOfSlide): its list,
+    ; each command's build group (an index into the slide's groups, -1 for
+    ; none) and its entities. The 3-D flight paints the blocks of this list.
+    def restHeld:PresRest (new PresRest())
+
+    fn restOfSlide:PresRest (i:int) {
         if ((sceneRev == revision) && (scenePage == i)) {
-            return sceneHeld
+            return restHeld
         }
         def wasOff:boolean scriptsOff
         def wasStill:boolean still
@@ -2537,10 +2602,15 @@ class PresDeck {
         scriptsOff = wasOff
         still = wasStill
         showControls = wasControls
+        def r:PresRest (new PresRest())
+        r.list = dl
+        r.groupOfCmd = g
+        r.scene = sc
         sceneRev = revision
         scenePage = i
         sceneHeld = sc
-        return sc
+        restHeld = r
+        return r
     }
 
     ; The ids a selector names on slide i as the Markdown lays it out:
@@ -4068,6 +4138,12 @@ class PresDeck {
             ; Vega's 11 read small beside them (Tero's cloud run 2026-10-06)
             if roomy {
                 parts = (parts + ", \"text\": {\"fontSize\": " + fs + "}")
+                ; points as large as the type: Vega's 30 px² (a dot 6 px
+                ; across) beside 15 pt labels read as specks on a slide
+                ; (Tero 2026-10-12). Across about 0.8 of the label size.
+                def ps:string (VlJson.formatNumber((PresDeck.pointArea(f)) 0))
+                def sym:string ("{\"size\": " + ps + "}")
+                parts = (parts + ", \"point\": " + sym + ", \"circle\": " + sym + ", \"square\": " + sym)
             }
         }
         ; every chart's: the deck's numbers and colours (`chartLook`)
@@ -4117,6 +4193,18 @@ class PresDeck {
             return ""
         }
         return ("{" + out + "}")
+    }
+
+    ; A point mark's area (Vega's `size`, px²) beside labels of `font`
+    ; points: a circle about 0.8 of the label size across, never smaller
+    ; than Vega's own 30.
+    sfn pointArea:double (font:double) {
+        def d:double (font * 0.8)
+        def a:double (((d * d) * 3.141592653589793) / 4.0)
+        if (a < 30.0) {
+            return 30.0
+        }
+        return (to_double (to_int (a + 0.5)))
     }
 
     ; What every chart in the deck shares, as `config` members:
@@ -4430,6 +4518,12 @@ class PresDeck {
     def dataTexts:[string]
     ; files the page looked for and the document does not have
     def dataMissing:[string]
+    ; how many times the files above changed (what linkedSource keeps hangs on it)
+    def dataRev:int 0
+    ; programs as they run (linkedSource), by path, as of linkedRev
+    def linkedPaths:[string]
+    def linkedTexts:[string]
+    def linkedRev:int -1
     ; the ```table fences (PresTable), and the page each was left on, by
     ; "<path>#<ordinal>"
     def tables:[PresTableUse]
@@ -4443,6 +4537,7 @@ class PresDeck {
         dataTexts = t
         def m:[string]
         dataMissing = m
+        dataRev = (dataRev + 1)
     }
 
     ; The page found no such file: a table that reads it says so instead of
@@ -4452,6 +4547,7 @@ class PresDeck {
             return
         }
         push dataMissing url
+        dataRev = (dataRev + 1)
         this.rebuild()
     }
 
@@ -4465,6 +4561,7 @@ class PresDeck {
         while (i < (array_length dataUrls)) {
             if ((itemAt dataUrls i) == url) {
                 set_at dataTexts i body
+                dataRev = (dataRev + 1)
                 this.rebuild()
                 return
             }
@@ -4472,6 +4569,7 @@ class PresDeck {
         }
         push dataUrls url
         push dataTexts body
+        dataRev = (dataRev + 1)
         this.rebuild()
     }
 
@@ -5156,9 +5254,15 @@ class PresDeck {
         }
     }
 
+    ; The stage's slide and its time when it came there (lowered when the
+    ; stage goes back in it): the presenter says only the lines whose steps
+    ; were taken from then on (PresApp.stageFrame sets them).
+    def storySlide:int -1
+    def storyFrom:double 0.0
+
     ; The presenter and its bubble over the slide at t (the last line when
     ; the slide is drawn still: a thumbnail, an export).
-    fn paintStory:void (out:EVGDisplayList s:PresSlide t:double l:MdLayout) {
+    fn paintStory:void (out:EVGDisplayList i:int s:PresSlide t:double l:MdLayout) {
         def n:int (array_length s.story)
         if ((n == 0) || presenterOff) {
             return
@@ -5167,26 +5271,40 @@ class PresDeck {
         def since:double 1000000.0
         if (still == false) {
             def k:int 0
+            def lastAt:double 0.0
             while (k < n) {
                 def b:PresStoryBeat (itemAt s.story k)
                 def at:double (PresTimeline.stepTime(s b.step))
                 if ((at + 0.001) < t) {
                     shown = (k + 1)
                     since = (t - at)
+                    lastAt = at
                 }
                 k = (k + 1)
+            }
+            ; a line is said when its step is taken on the stage: a slide
+            ; come to past it (back from the next one, a jump, the editor)
+            ; has the presenter at rest, not at its conclusion
+            if (((i == storySlide) && (shown > 0)) && ((lastAt + 0.001) < storyFrom)) {
+                shown = 0
             }
         } {
             shown = n
         }
-        def st:PresPuppetState (PresStory.stateAt(s.story shown since))
-        PresPuppet.paint(out st (PresPuppet.placeOn(pageW pageH)))
-        if (st.bubbleBeat >= 0) {
+        this.drawStory(out s (PresStory.stateAt(s.story shown since)) l true true)
+    }
+
+    ; The presenter in state st and its bubble, either or both.
+    fn drawStory:void (out:EVGDisplayList s:PresSlide st:PresPuppetState l:MdLayout puppet:boolean bubble:boolean) {
+        if puppet {
+            PresPuppet.paint(out st (PresPuppet.placeOn(pageW pageH)))
+        }
+        if (bubble && (st.bubbleBeat >= 0)) {
             def family:string l.style.bodyFamily
             if (has haveFaces (PresStory.face())) {
                 family = (PresStory.face())
             }
-            PresPuppet.bubble(out (itemAt s.story st.bubbleBeat) st.bubble pageW pageH l.engine family st.bubbleBeat n)
+            PresPuppet.bubble(out (itemAt s.story st.bubbleBeat) st.bubble pageW pageH l.engine family st.bubbleBeat (array_length s.story))
         }
     }
 
@@ -5208,6 +5326,23 @@ class PresDeck {
             }
         }
         return 0
+    }
+
+    ; Slide i's presenter as it stands after `shown` lines (0: before the
+    ; first), with or without the bubble of the last of them: what the
+    ; 3-D flight shows a line at a time. The slide at rest (restOfSlide)
+    ; ends with storyList(i, all its lines, true, true).
+    fn storyList:EVGDisplayList (i:int shown:int puppet:boolean bubble:boolean) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        if ((i < 0) || (i >= (array_length slides))) {
+            return out
+        }
+        def s:PresSlide (itemAt slides i)
+        if ((array_length s.story) == 0) {
+            return out
+        }
+        this.drawStory(out s (PresStory.stateAt(s.story shown 1000000.0)) (this.layout()) puppet bubble)
+        return out
     }
 
     ; The 1-based line of the deck's text an offset is on.
@@ -5886,7 +6021,7 @@ class PresDeck {
         }
         ; the drawings made on the slide, over its content
         this.paintSketches(out i s t l)
-        this.paintStory(out s t l)
+        this.paintStory(out i s t l)
         while ((array_length groupOfCmd) < (array_length out.cmds)) {
             push groupOfCmd -1
         }

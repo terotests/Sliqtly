@@ -40,4 +40,30 @@ class PresFileLanguage {
         }
         return (langs.forFile(lower))
     }
+
+    ; the Files tab's tag of a file whose kind it does not know: its
+    ; extension in capitals, at most four letters or digits; TXT when it
+    ; has none
+    sfn extTag:string (path:string) {
+        def slash:int (lastIndexOf path "/")
+        def dot:int (lastIndexOf path ".")
+        if ((dot <= (slash + 1)) || (dot >= ((strlen path) - 1))) {
+            return "TXT"
+        }
+        def ext:string (to_uppercase (substring path (dot + 1) (strlen path)))
+        if ((strlen ext) > 4) {
+            return "TXT"
+        }
+        def i:int 0
+        while (i < (strlen ext)) {
+            def c:int (charAt ext i)
+            def letter:boolean ((c >= 65) && (c <= 90))
+            def digit:boolean ((c >= 48) && (c <= 57))
+            if ((letter == false) && (digit == false)) {
+                return "TXT"
+            }
+            i = (i + 1)
+        }
+        return ext
+    }
 }

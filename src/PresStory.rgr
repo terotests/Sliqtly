@@ -44,6 +44,12 @@ class PresStoryBeat {
     def at:int 0
 }
 
+; A line without its `{…}` attributes, and the attributes it had.
+class PresStoryCut {
+    def text:string ""
+    def attrs:string ""
+}
+
 ; The puppet's numbers at one moment (PresPuppet draws them).
 class PresPuppetState {
     def gazeX:double 0.0
@@ -80,12 +86,15 @@ class PresStory {
     ; the bubble's hand-written face
     sfn face:string () { return "Gloria Hallelujah" }
 
+    ; The words and phrases a turning beat (BUT) opens with. A story told in
+    ; rich language uses more than "but", so the synonyms are known too.
     sfn butWords:[string] () {
-        return ([] _:string ("mutta" "paitsi" "vaikka" "kuitenkin" "toisaalta" "silti" "onneksi" "valitettavasti" "but" "except" "although" "though" "however" "yet" "unless" "luckily" "sadly"))
+        return ([] _:string ("mutta" "paitsi" "vaikka" "kuitenkin" "toisaalta" "silti" "onneksi" "valitettavasti" "sen sijaan" "päinvastoin" "ikävä kyllä" "harmi vain" "yllättäen" "tosin" "ellei" "but" "except" "although" "though" "however" "yet" "unless" "luckily" "sadly" "unfortunately" "instead" "nevertheless" "nonetheless" "on the other hand" "even so" "whereas"))
     }
 
+    ; …and a following beat (THEREFORE)
     sfn soWords:[string] () {
-        return ([] _:string ("siksi" "joten" "niinpä" "siispä" "therefore" "so" "thus" "hence"))
+        return ([] _:string ("siksi" "joten" "niinpä" "siispä" "tästä syystä" "siitä syystä" "sen vuoksi" "tämän vuoksi" "sen takia" "tämän takia" "näin ollen" "niin ollen" "seurauksena" "therefore" "so" "thus" "hence" "as a result" "that is why" "which is why" "consequently" "because of this" "accordingly" "this means" "that means"))
     }
 
     ; "but", "so" or "setup" for a line's first word (any case, without its
@@ -99,6 +108,35 @@ class PresStory {
             return "so"
         }
         return "setup"
+    }
+
+    ; The connective a line opens with, as written ("" for none): the
+    ; longest known word or phrase at its start, followed by a space, a
+    ; punctuation mark or the line's end.
+    sfn leadOf:string (t:string) {
+        def lower:string (to_lowercase t)
+        def best:string ""
+        def all:[string] (PresStory.butWords())
+        for (PresStory.soWords()) sw:string si {
+            push all sw
+        }
+        for all w:string wi {
+            def n:int (strlen w)
+            if ((n > (strlen best)) && ((n <= (strlen lower)) && ((indexOf lower w) == 0))) {
+                def ok:boolean (n == (strlen lower))
+                if (ok == false) {
+                    def c:int (charAt lower n)
+                    ok = (((c == 32) || (c == 44)) || (((c == 46) || (c == 58)) || (((c == 59) || (c == 33)) || (c == 63))))
+                }
+                if ok {
+                    best = w
+                }
+            }
+        }
+        if ((strlen best) == 0) {
+            return ""
+        }
+        return (substring t 0 (strlen best))
     }
 
     sfn bare:string (word:string) {
@@ -129,7 +167,10 @@ class PresStory {
     }
 
     ; The beats of a `::: story` block's body: one per non-empty line, a
-    ; leading "- " or "* " dropped, `{pose=…}` at the end read and removed.
+    ; leading "- " or "* " dropped. Attributes in braces (`{pose=aim}`,
+    ; `{kind=but}`) are read wherever they stand on the line, also with
+    ; spaces, quotes or punctuation after them, and never shown; a line of
+    ; nothing but attributes gives them to the line before it.
     sfn parse:[PresStoryBeat] (body:string) {
         def out:[PresStoryBeat]
         def lines:[string] (strsplit body "\n")
@@ -139,41 +180,244 @@ class PresStory {
             if (((strlen t) >= 2) && (((substring t 0 2) == "- ") || ((substring t 0 2) == "* "))) {
                 t = (trim (substring t 2 (strlen t)))
             }
+            def cut:PresStoryCut (PresStory.cutAttrs(t))
+            t = cut.text
+            if (((strlen t) == 0) && (((strlen cut.attrs) > 0) && ((array_length out) > 0))) {
+                PresStory.dress((itemAt out ((array_length out) - 1)) cut.attrs)
+            }
             if ((strlen t) > 0) {
                 def b (new PresStoryBeat())
-                def attrs:string ""
-                def ob:int (PresStory.lastIndexOf(t "{"))
-                if ((ob > 0) && ((charAt t ((strlen t) - 1)) == 125)) {
-                    attrs = (substring t (ob + 1) ((strlen t) - 1))
-                    t = (trim (substring t 0 ob))
-                }
                 b.text = t
                 b.line = i
-                def sp:int (indexOf t " ")
-                def first:string t
-                if (sp > 0) {
-                    first = (substring t 0 sp)
+                def lead:string (PresStory.leadOf(t))
+                b.kind = "setup"
+                if ((strlen lead) > 0) {
+                    b.kind = (PresStory.kindOf(lead))
                 }
-                b.kind = (PresStory.kindOf(first))
-                if (b.kind != "setup") {
-                    b.word = first
-                    b.rest = ""
-                    if (sp > 0) {
-                        b.rest = (substring t sp (strlen t))
-                    }
-                } {
-                    b.rest = t
-                }
+                b.word = lead
+                b.rest = (substring t (strlen lead) (strlen t))
                 b.pose = (PresStory.poseFor(b.kind))
-                def want:string (PresStory.attr(attrs "pose"))
-                if (PresStory.knownPose(want)) {
-                    b.pose = want
-                }
+                PresStory.dress(b cut.attrs)
                 push out b
             }
             i = (i + 1)
         }
         return out
+    }
+
+    ; A beat's attributes: `kind=but|so|setup` (when its opening word is one
+    ; the lists do not know, that word is coloured) and `pose=…`.
+    sfn dress:void (b:PresStoryBeat attrs:string) {
+        def kind:string (to_lowercase (PresStory.attr(attrs "kind")))
+        if ((((kind == "but") || (kind == "so")) || (kind == "setup")) && (kind != b.kind)) {
+            b.kind = kind
+            b.word = ""
+            if (kind != "setup") {
+                def sp:int (indexOf b.text " ")
+                b.word = b.text
+                if (sp > 0) {
+                    b.word = (PresStory.bare((substring b.text 0 sp)))
+                }
+            }
+            b.rest = (substring b.text (strlen b.word) (strlen b.text))
+            b.pose = (PresStory.poseFor(b.kind))
+        }
+        def want:string (to_lowercase (PresStory.attr(attrs "pose")))
+        if (PresStory.knownPose(want)) {
+            b.pose = want
+        }
+    }
+
+    ; The line without its attribute groups, and the attributes they held.
+    ; A group is `{…}` whose words are all `key=value`, `.class` or `#id`
+    ; (a `\{` a Markdown writer escaped counts too); other braces are text.
+    sfn cutAttrs:PresStoryCut (line:string) {
+        def c:PresStoryCut (new PresStoryCut())
+        def t:string line
+        def from:int 0
+        while true {
+            def rest:string (substring t from (strlen t))
+            def ob:int (indexOf rest "{")
+            if (ob < 0) {
+                break
+            }
+            def open:int (from + ob)
+            def cbRel:int (indexOf (substring t open (strlen t)) "}")
+            if (cbRel < 0) {
+                break
+            }
+            def close:int (open + cbRel)
+            def inner:string (substring t (open + 1) close)
+            def start:int open
+            if ((start > 0) && ((charAt t (start - 1)) == 92)) {
+                start = (start - 1)
+            }
+            if ((strlen inner) > 0) {
+                if ((charAt inner ((strlen inner) - 1)) == 92) {
+                    inner = (substring inner 0 ((strlen inner) - 1))
+                }
+            }
+            if (PresStory.isAttrs(inner)) {
+                if ((strlen c.attrs) > 0) {
+                    c.attrs = (c.attrs + " ")
+                }
+                c.attrs = (c.attrs + (PresStory.tidyAttrs(inner)))
+                t = ((substring t 0 start) + (substring t (close + 1) (strlen t)))
+                from = start
+            } {
+                from = (close + 1)
+            }
+        }
+        c.text = (PresStory.tidyText(t))
+        return c
+    }
+
+    ; `key = "value"` → `key=value`, words split by spaces
+    sfn tidyAttrs:string (inner:string) {
+        def s:string ""
+        def i:int 0
+        def n:int (strlen inner)
+        while (i < n) {
+            def ch:int (charAt inner i)
+            if ((ch == 34) || (ch == 39)) {
+                i = (i + 1)
+                continue
+            }
+            if (ch == 61) {
+                s = (trim s)
+                s = (s + "=")
+                i = (i + 1)
+                while ((i < n) && (((charAt inner i) == 32) || ((charAt inner i) == 9))) {
+                    i = (i + 1)
+                }
+                continue
+            }
+            s = (s + (substring inner i (i + 1)))
+            i = (i + 1)
+        }
+        return (trim s)
+    }
+
+    sfn isAttrs:boolean (inner:string) {
+        def words:[string] (strsplit (PresStory.tidyAttrs(inner)) " ")
+        def any:boolean false
+        for words w:string wi {
+            if ((strlen w) > 0) {
+                def c:int (charAt w 0)
+                def eq:int (indexOf w "=")
+                if (((c == 46) || (c == 35)) && ((strlen w) > 1)) {
+                    any = true
+                } {
+                    if (eq > 0) {
+                        any = true
+                    } {
+                        return false
+                    }
+                }
+            }
+        }
+        return any
+    }
+
+    ; doubled spaces gone, no space left before a punctuation mark
+    sfn tidyText:string (t:string) {
+        def s:string ""
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def ch:int (charAt t i)
+            if (((ch == 32) || (ch == 9)) && ((i + 1) < n)) {
+                def nx:int (charAt t (i + 1))
+                if ((((nx == 32) || (nx == 9)) || ((nx == 46) || (nx == 44))) || (((nx == 33) || (nx == 63)) || ((nx == 58) || (nx == 59)))) {
+                    i = (i + 1)
+                    continue
+                }
+            }
+            s = (s + (substring t i (i + 1)))
+            i = (i + 1)
+        }
+        return (trim s)
+    }
+
+    ; The lines of one slide's Markdown that read as a presenter's beat (they
+    ; open with a turning or following word) but stand in the slide's own
+    ; text: list items and paragraphs outside code fences and `:::` blocks.
+    sfn leaked:[string] (md:string) {
+        def out:[string]
+        def lines:[string] (strsplit md "\n")
+        def fence:boolean false
+        def box:int 0
+        for lines raw:string li {
+            def t:string (trim raw)
+            ; a code fence (three backticks or tildes, as char codes: this
+            ; file also goes into a String.raw runtime)
+            if (((strlen t) >= 3) && ((PresStory.fenceMark(t)) == true)) {
+                fence = (fence == false)
+                continue
+            }
+            if fence {
+                continue
+            }
+            if (((strlen t) >= 3) && ((substring t 0 3) == ":::")) {
+                if ((strlen (trim (substring t 3 (strlen t)))) > 0) {
+                    box = (box + 1)
+                } {
+                    if (box > 0) {
+                        box = (box - 1)
+                    }
+                }
+                continue
+            }
+            if ((box > 0) || ((strlen t) == 0)) {
+                continue
+            }
+            if (((charAt t 0) == 35) || (((charAt t 0) == 123) || ((charAt t 0) == 124))) {
+                continue
+            }
+            def body:string t
+            if (((strlen body) >= 2) && ((((substring body 0 2) == "- ") || ((substring body 0 2) == "* ")) || ((substring body 0 2) == "+ "))) {
+                body = (trim (substring body 2 (strlen body)))
+            }
+            def dot:int (indexOf body ". ")
+            if ((dot > 0) && (dot < 4)) {
+                if ((PresStory.allDigits((substring body 0 dot))) == true) {
+                    body = (trim (substring body (dot + 2) (strlen body)))
+                }
+            }
+            if ((strlen body) >= 2) {
+                if ((substring body 0 2) == "**") {
+                    body = (substring body 2 (strlen body))
+                }
+            }
+            if ((strlen (PresStory.leadOf(body))) > 0) {
+                def cb:PresStoryCut (PresStory.cutAttrs(body))
+                push out cb.text
+            }
+        }
+        return out
+    }
+
+    sfn fenceMark:boolean (t:string) {
+        def c:int (charAt t 0)
+        if ((c != 96) && (c != 126)) {
+            return false
+        }
+        return (((charAt t 1) == c) && ((charAt t 2) == c))
+    }
+
+    sfn allDigits:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     sfn lastIndexOf:int (s:string sub:string) {

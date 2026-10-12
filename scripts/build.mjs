@@ -82,6 +82,26 @@ export function buildThree(ranger, dir) {
   return threeJs;
 }
 
+// The scripts loadScript (web/sitescript.js) brings in on demand, each
+// marked with a hash of its own code, and that hash written into
+// sitescript.js: a page open since an older build fetches today's file
+// under its old ?v= (the host does not keep old builds), and the mark
+// tells it so instead of a new engine running under old modules.
+export function markParts(dir, names) {
+  const parts = {};
+  for (const name of names) {
+    const file = path.join(dir, name);
+    const code = fs.readFileSync(file, "utf8");
+    const hash = crypto.createHash("sha1").update(code).digest("hex").slice(0, 10);
+    fs.writeFileSync(file, code + `;(globalThis.__sliqtlyParts = globalThis.__sliqtlyParts || {})[${JSON.stringify(name)}] = ${JSON.stringify(hash)};\n`);
+    parts[name] = hash;
+  }
+  const site = path.join(dir, "sitescript.js");
+  const text = fs.readFileSync(site, "utf8");
+  if (!text.includes('"__PARTS__"')) throw new Error("sitescript.js has no __PARTS__ to fill");
+  fs.writeFileSync(site, text.split('"__PARTS__"').join(JSON.stringify(parts)));
+}
+
 // The selector language of slide scripts (src/PresSel.rgr) for the
 // program's sandbox: dir/script-sel.js, SCRIPT_SEL in the String.raw form
 // of the other runtimes (web/script-runtime.js starts with it, and the Go
@@ -141,8 +161,15 @@ export function build({ ranger } = {}) {
   compile(ranger, "PresBeat.rgr", beatJs);
   fs.writeFileSync(beatJs, "// the deck's music: bars, beats and tempo for the beat effects.\n"
     + "(function () {\n" + fs.readFileSync(beatJs, "utf8") + "\n;globalThis.PresBeat = PresBeat;\n})();\n");
+  // Sliqtly's own video encoder (src/PresVp8.rs, Rust that Ranger reads):
+  // VP8 frames in WebM, loaded only when a video is made.
+  const vp8Js = path.join(distDir, "vp8enc.js");
+  compile(ranger, "PresVp8.rs", vp8Js);
+  fs.writeFileSync(vp8Js, "// loaded on demand: the VP8/WebM video encoder (src/PresVp8.rs).\n"
+    + "(function () {\n" + fs.readFileSync(vp8Js, "utf8") + "\n;globalThis.Vp8Video = Vp8Video;\n})();\n");
   minify(appJs);
   minify(beatJs);
+  minify(vp8Js);
   minify(dataJs);
   minify(traceJs);
 
@@ -150,7 +177,7 @@ export function build({ ranger } = {}) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "rooms.js", "roomchat.js", "cloudchat.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "flight3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "published.js", "linkdays.js", "rooms.js", "stories.js", "roomchat.js", "cloudchat.js", "aiassist.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "videoexport.js", "video-worker.js", "recstream.js", "playlink.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "flight3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "find.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
   // frames go through, and the WASI the engine needs, from componentengine
   const cerxes = ensureCerxes();
@@ -228,6 +255,7 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(path.join(distDir, "deps.json"), JSON.stringify(deps, null, 2) + "\n");
   for (const [name, d] of Object.entries(deps)) log(`deps   ${name} ${d.ref || "HEAD"} ${d.commit.slice(0, 12)}${d.changed ? " (with local changes)" : ""}`);
 
+  markParts(distDir, ["pres_3d.js"]);
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");

@@ -414,6 +414,46 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | 🔗 Jaa | a dialog with two links, each with its own Kopioi: **Esitys** opens straight into the presentation (no toolbar or editor; ◀ ▶ ⛶ in a corner that fades; Esc only leaves full screen), **Muokkaus** opens the editor. The Markdown is compressed into the link (`#md=…`, `&mode=show` for the presentation) |
 | PDF / PPTX | export. The PPTX includes notes, transitions and build steps per paragraph, and opens in Keynote; its text is set in Arial (the page's own faces are not on every machine) |
 
+## Video
+
+`npm run video` makes a WebM of a presentation. Nothing is filmed: frame n
+is the stage at time n / fps (`src/PresVideo.rgr`), drawn by the stage's
+own WebGL painter in headless Chromium (`web/videoexport.js`), and FFmpeg
+encodes the RGBA frames (VP9 or AV1, Opus for the sound). The same deck
+gives the same frames on every run; the script prints their SHA-256 and
+how many frames repeated the one before.
+
+```
+npm run video -- --sample=esittely --out=esittely.webm
+npm run video -- --deck=talk.md --recording=take.json --audio=take.webm --out=talk.webm
+```
+
+`--codec=vp8` encodes with Sliqtly's own encoder instead of FFmpeg:
+`src/PresVp8.rs`, VP8 in WebM, written in Rust that Ranger reads, so rustc
+builds it as it is and the build writes it as `web/dist/vp8enc.js` (13 KB
+gzipped) for the page and this script. A frame equal to the one before is
+not coded, the picture's motion is followed with vectors, a moving picture
+is coded coarser and the one it stops at sharp. No sound yet.
+`npm run check:vp8` builds a test video with rustc and with Ranger (the
+bytes must be equal) and has FFmpeg decode it to the encoder's own pictures.
+
+In the editor, File → Export → Video (.webm) makes the same video in the
+page: 1920x1080 at 30 frames a second, coded by `vp8enc.js` in a worker
+(`web/video-worker.js`), saved as a file. Export → Cloud video keeps it
+with the deck as `recordings/web-<hash>.webm` and links
+`/r/{viewing link}/{hash}`, where the page (`web/play.js`) hands it to the
+browser's own video player instead of painting a recording.
+
+`--size=1920x1080`, `--fps=30`, `--codec=vp9|av1|vp8`, `--quality=0..63` (crf; vp8: quantizer index),
+`--pix=yuv420p|yuv444p`, `--frames=N` (the first N), `--raw=FILE` (the RGBA
+stream), `--timeline=FILE` (the compiled timeline: events, the sound's kept
+parts). With a recording the video follows it as a replay does: its slides
+and build steps, held at a step until the click, what was drawn and pointed
+at, its cuts left out of the picture and the sound. Not yet in the video:
+slide scripts, programs and 3-D worlds (their final pose), the recording's
+voice filter, the deck's music, a realistic book's page turns. Needs
+`ffmpeg` on the PATH (`FFMPEG=` names another).
+
 ## Structure
 
 | File | Contents |
@@ -425,6 +465,8 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | `src/PresInk.rgr`, `src/PresRecord.rgr` | Drawing on the slide while presenting and the pointer; a recording's operations, its file and its replay |
 | `web/recorder.js` | The microphone into a file, and the voices it plays through (Web Audio) |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
+| `src/PresVideo.rgr`, `web/videoexport.js`, `web/video-worker.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
+| `src/PresVp8.rs`, `src/PresVp8Check.rs`, `scripts/check-vp8.mjs` | Sliqtly's own VP8/WebM video encoder (Rust that Ranger builds to JavaScript) and its check |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |
 | `web/` | `index.html` (toolbar), `main.js` (WebGL, clock, keyboard, paste), `pres.css` (EVG chrome), `sheets-live.js` (live spreadsheets: EVGSheets over a ```sheet box, and the .xlsx editor dialog) |

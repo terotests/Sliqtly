@@ -885,6 +885,8 @@ int main(int argc, char** argv) {
   }
 
   h.app = std::make_shared<PresApp>();
+  // the desktop editor publishes nothing to sliqtly.com (Export ▸ Cloud rows)
+  h.app->setCloud(false);
   h.scroll = std::make_shared<PresScrollInput>();
   // macOS sends a trackpad's glide itself; SDL hands a precise scroll on to
   // us at a tenth of the pixels it moved

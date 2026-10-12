@@ -1,17 +1,72 @@
 // The 3-D flight's page side (web/flight3d.js): what needs no browser.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { labelStyle, wrapText, gamepadState, canvasSize } from "../flight3d.js";
+import { drawWords, gamepadState, canvasSize, createFlight3d } from "../flight3d.js";
 
-test("titles are drawn larger than a line's name", () => {
-  assert.ok(labelStyle("title").px > labelStyle("label").px);
-  assert.ok(labelStyle("text").px >= labelStyle("title").px);
+// a canvas whose letters are half as wide as they are tall
+function fakeCanvas() {
+  const drawn = [];
+  const g = {
+    font: "",
+    measureText(t) {
+      return { width: t.length * Number(/(\d+(\.\d+)?)px/.exec(this.font)[1]) * 0.5 };
+    },
+    clearRect() {},
+    tx: 0,
+    kx: 1,
+    save() {},
+    restore() {
+      this.tx = 0;
+      this.kx = 1;
+    },
+    translate(x) {
+      this.tx += x;
+    },
+    scale(k) {
+      this.kx *= k;
+    },
+    fillText(t, x, y) {
+      drawn.push({ t, x: this.tx + x, y, font: this.font, kx: this.kx });
+    },
+  };
+  return { width: 0, height: 0, getContext: () => g, drawn };
+}
+
+test("a line of words is drawn where its runs are set, in their weight and slant", () => {
+  const c = fakeCanvas();
+  const spec = { w: 4, h: 0.5, runs: [{ t: "ab", dx: 0, w: 1, fs: 0.4 }, { t: "cd", dx: 2, w: 1, fs: 0.4, b: true, i: true }] };
+  const [w, h, ww, hh, ox] = drawWords(c, spec, 100);
+  assert.equal(c.width, w);
+  assert.ok(ww > 4 && hh > 0.5, "room round the words for their glow");
+  assert.equal(ox, 0);
+  // glow pass and core pass, each run where the slide has it
+  const bold = c.drawn.filter((d) => d.t === "cd");
+  assert.equal(bold.length, 2);
+  assert.ok(/italic 700/.test(bold[0].font));
+  const plain = c.drawn.find((d) => d.t === "ab");
+  assert.equal(bold[0].x - plain.x, 200);
 });
 
-test("text breaks between words, and at its own line ends", () => {
-  assert.deepEqual(wrapText("one two three four", 9), ["one two", "three", "four"]);
-  assert.deepEqual(wrapText("a\nb c", 40), ["a", "b c"]);
-  assert.deepEqual(wrapText("averyveryverylongword", 5), ["averyveryverylongword"]);
+test("words that run on past their box widen the picture to the right", () => {
+  const c = fakeCanvas();
+  const spec = { w: 1, h: 0.5, runs: [{ t: "abcdefgh", dx: 0, w: 1, fs: 0.5 }] };
+  const [, , , , ox] = drawWords(c, spec, 100);
+  // 8 letters of 25 px: 200 px for a 100 px box, its middle 50 px right
+  assert.ok(Math.abs(ox - 0.5) < 1e-9);
+  const centred = drawWords(fakeCanvas(), { w: 4, h: 0.5, runs: [{ t: "ab", dx: 0, w: 4, fs: 0.4, al: "center" }] }, 100);
+  assert.equal(centred[4], 0);
+});
+
+test("a bold run wider than the slide set it is narrowed to its place, not run into the next", () => {
+  const c = fakeCanvas();
+  // "abcd" takes 80 px here, the slide set it in 50
+  const spec = { w: 4, h: 0.5, runs: [{ t: "abcd", dx: 0, w: 0.5, fs: 0.4, b: true }, { t: "ef", dx: 0.5, w: 1, fs: 0.4 }] };
+  drawWords(c, spec, 100);
+  const bold = c.drawn.find((d) => d.t === "abcd");
+  const next = c.drawn.find((d) => d.t === "ef");
+  assert.ok(Math.abs(bold.kx - 50 / 80) < 1e-9);
+  assert.equal(next.x - bold.x, 50);
+  assert.equal(next.kx, 1);
 });
 
 test("the first connected gamepad, as numbers", () => {
@@ -23,4 +78,66 @@ test("the first connected gamepad, as numbers", () => {
 test("the canvas keeps the screen's shape under its cap", () => {
   assert.deepEqual(canvasSize(1920, 1080, 1), [1920, 1080]);
   assert.deepEqual(canvasSize(1920, 1080, 2), [2560, 1440]);
+});
+
+// A page just enough for start(): full screen granted, listeners counted.
+function fakePage() {
+  const listeners = new Map();
+  const on = (k) => (type, f) => listeners.set(k + type, f);
+  const off = (k) => (type) => listeners.delete(k + type);
+  const doc = {
+    fullscreenElement: null,
+    documentElement: { async requestFullscreen() { doc.fullscreenElement = {}; } },
+    async exitFullscreen() { doc.fullscreenElement = null; },
+    createElement: () => ({ style: {}, setAttribute() {}, querySelector: () => ({ style: {} }), remove() {}, getContext: () => ({}) }),
+    body: { appendChild() {} },
+    addEventListener: on("doc:"),
+    removeEventListener: off("doc:"),
+  };
+  globalThis.document = doc;
+  globalThis.window = { addEventListener: on("win:"), removeEventListener: off("win:"), innerWidth: 800, innerHeight: 600 };
+  globalThis.requestAnimationFrame = () => 1;
+  globalThis.cancelAnimationFrame = () => {};
+  const canvas = { id: "gl", style: { cssText: "display:none" }, addEventListener: on("canvas:"), removeEventListener: off("canvas:") };
+  const paused = [];
+  const three3d = { glReady: async () => canvas, pause: (on) => paused.push(on), problem: () => null };
+  return { doc, listeners, canvas, paused, three3d };
+}
+
+test("a flight that cannot start leaves the page as it was, out of full screen", async () => {
+  const page = fakePage();
+  // 2026-10-11: an old page with a newer pres_3d.js threw here and left a
+  // black canvas over the page that no key took away
+  globalThis.PresFlight3D = class {
+    attach() { return true; }
+    load() { return ""; }
+    startAt() { throw new TypeError("world.labelCount is not a function"); }
+  };
+  const toasts = [];
+  const flight = createFlight3d({ three3d: page.three3d, app: { flightJson: () => "{}", selectedSlide: () => 11 }, picturePixels: () => null, toast: (s) => toasts.push(s), t: (s) => s, onExit() {} });
+  await flight.start();
+  assert.equal(flight.flying(), false);
+  assert.equal(page.canvas.style.cssText, "display:none");
+  assert.equal(page.listeners.size, 0);
+  assert.equal(page.doc.fullscreenElement, null);
+  assert.match(toasts[0], /could not start: world\.labelCount/);
+});
+
+test("a throw after the canvas covers the page is undone too", async () => {
+  const page = fakePage();
+  globalThis.PresFlight3D = class {
+    attach() { return true; }
+    load() { return ""; }
+    startAt() {}
+  };
+  // the HUD is made after the canvas is shown
+  page.doc.body.appendChild = () => { throw new Error("no body"); };
+  const toasts = [];
+  const flight = createFlight3d({ three3d: page.three3d, app: { flightJson: () => "{}", selectedSlide: () => 0 }, picturePixels: () => null, toast: (s) => toasts.push(s), t: (s) => s, onExit() {} });
+  await flight.start();
+  assert.equal(flight.flying(), false);
+  assert.equal(page.canvas.style.cssText, "display:none");
+  assert.deepEqual(page.paused, [true, false]);
+  assert.equal(page.listeners.size, 0);
+  assert.equal(toasts.length, 1);
 });

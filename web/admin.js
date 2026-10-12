@@ -3,7 +3,10 @@
 // The owner's dashboard, /main/admin (web/admin.html). The numbers come from
 // GET /main/admin/api/stats (mcp-go/admin.go), which answers only a Google
 // account on the server's list; this page only signs in and draws. Sign-in
-// is the viewer's (viewauth.js).
+// is the viewer's (viewauth.js). The Licenses card lists licenses/{uid} and
+// sets how many presentations an account may edit in the cloud
+// (GET licenses, POST license). The AI assistant card shows the editor
+// drawer's use by month and account (GET ai).
 
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
 
@@ -60,6 +63,42 @@ export function money(v, currency) {
   } catch {
     return (v || 0).toFixed(2) + " " + (currency || "");
   }
+}
+
+export const MAX_QUOTA = 10000;
+
+/**
+ * The quota typed in a license row: {value} (-1 = no limit) or {error}.
+ * Empty, "-1", "∞", "no limit" or "unlimited" is no limit.
+ */
+export function parseQuota(text) {
+  const s = String(text ?? "").trim().toLowerCase();
+  if (s === "" || s === "-1" || s === "∞" || s === "no limit" || s === "unlimited") return { value: -1 };
+  if (!/^\d+$/.test(s) || +s > MAX_QUOTA) return { error: `A number from 0 to ${MAX_QUOTA}, or empty for no limit.` };
+  return { value: +s };
+}
+
+/** "2 / 10", "2 / no limit": presentations used of the quota. */
+export function quotaText(l) {
+  return `${l.used} / ${l.maxDocs < 0 ? "no limit" : l.maxDocs}`;
+}
+
+/** The licenses whose address or name holds `filter` (any case), in the server's order. */
+export function licenseRows(list, filter = "") {
+  const f = filter.trim().toLowerCase();
+  if (!f) return list.slice();
+  return list.filter((l) => (l.email || "").toLowerCase().includes(f) || (l.name || "").toLowerCase().includes(f));
+}
+
+/** The list with one license replaced by its new row (same uid). */
+export function withLicense(list, row) {
+  return list.map((l) => (l.uid === row.uid ? row : l));
+}
+
+/** A use row of GET ai as table cells: actions, calls, tokens in, tokens out. */
+export function aiCells(u) {
+  const n = (v) => new Intl.NumberFormat("en").format(v || 0);
+  return [n(u.actions), n(u.calls), n(u.in), n(u.out)];
 }
 
 const num = (v) => new Intl.NumberFormat("en").format(v || 0);
@@ -179,6 +218,75 @@ export function render(r) {
   $("generated").textContent = "Updated " + new Date(r.generated).toLocaleString();
 }
 
+// ------------------------------------------------------------ licenses --
+
+let licenses = [];
+
+export function renderLicenses(list = licenses) {
+  licenses = list;
+  const rows = licenseRows(licenses, $("lFilter").value);
+  $("lCount").textContent = rows.length === licenses.length ? `${licenses.length} accounts` : `${rows.length} of ${licenses.length} accounts`;
+  $("lBody").innerHTML = rows.map((l) => {
+    const seen = l.seen ? l.seen.slice(0, 10) : "";
+    const until = l.editUntil ? `<div class="dim">edits until ${esc(l.editUntil.slice(0, 10))}</div>` : "";
+    const quota = l.admin
+      ? `<span class="dim">no limit (admin)</span>`
+      : `<form class="quota" data-uid="${esc(l.uid)}"><input name="max" inputmode="numeric" aria-label="Presentations for ${esc(l.email || l.uid)}" value="${l.maxDocs < 0 ? "" : l.maxDocs}" placeholder="no limit" /><button type="submit">Save</button><span class="msg" role="status"></span></form>`;
+    return `<tr><td><div>${esc(l.email || l.uid)}</div>${l.name ? `<div class="dim">${esc(l.name)}</div>` : ""}</td><td>${esc(l.plan)}${until}</td><td>${esc(quotaText(l))}</td><td>${quota}</td><td>${esc(seen)}</td></tr>`;
+  }).join("");
+}
+
+async function loadLicenses() {
+  $("eLicenses").textContent = "";
+  try {
+    const res = await fetch(`${API}licenses`, { headers: await authHeaders(user) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return ($("eLicenses").textContent = "Not available: " + (body.error || `the server answered ${res.status}`));
+    renderLicenses(body.licenses || []);
+  } catch (e) {
+    $("eLicenses").textContent = "Could not reach the server: " + e.message;
+  }
+}
+
+async function loadAI() {
+  $("eAI").textContent = "";
+  try {
+    const res = await fetch(`${API}ai`, { headers: await authHeaders(user) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return ($("eAI").textContent = "Not available: " + (body.error || `the server answered ${res.status}`));
+    const tds = (u) => aiCells(u).map((c) => `<td>${esc(c)}</td>`).join("");
+    $("aMonthsBody").innerHTML = (body.months || []).map((m) => `<tr><td>${esc(m.month)}</td>${tds(m)}</tr>`).join("");
+    const people = body.people || [];
+    $("aCount").textContent = `${people.length} ${people.length === 1 ? "account" : "accounts"} in ${body.month || "this month"}`;
+    $("aPeopleBody").innerHTML = people.length
+      ? people.map((p) => `<tr><td><div>${esc(p.email || p.uid)}</div>${p.name ? `<div class="dim">${esc(p.name)}</div>` : ""}</td>${tds(p)}</tr>`).join("")
+      : `<tr><td class="dim" colspan="5">No one has used the assistant this month.</td></tr>`;
+  } catch (e) {
+    $("eAI").textContent = "Could not reach the server: " + e.message;
+  }
+}
+
+async function saveQuota(form) {
+  const msg = form.querySelector(".msg");
+  const q = parseQuota(form.max.value);
+  if (q.error) return (msg.textContent = q.error);
+  msg.textContent = "Saving…";
+  try {
+    const res = await fetch(`${API}license`, {
+      method: "POST",
+      headers: { ...(await authHeaders(user)), "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: form.dataset.uid, maxDocs: q.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return (msg.textContent = body.error || `The server answered ${res.status}.`);
+    renderLicenses(withLicense(licenses, body.license));
+    const again = $("lBody").querySelector(`form[data-uid="${CSS.escape(body.license.uid)}"] .msg`);
+    if (again) again.textContent = "Saved";
+  } catch (e) {
+    msg.textContent = "Could not reach the server: " + e.message;
+  }
+}
+
 async function load(fresh = false) {
   if (!user) return show("signin");
   $("status").textContent = "Loading…";
@@ -198,6 +306,8 @@ async function load(fresh = false) {
   show("board");
   $("me").textContent = user.email || "";
   render(body);
+  loadAI();
+  loadLicenses();
 }
 
 function ranges() {
@@ -215,6 +325,11 @@ async function start() {
     load();
   });
   $("refresh").addEventListener("click", () => load(true));
+  $("lFilter").addEventListener("input", () => renderLicenses());
+  $("lBody").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveQuota(e.target);
+  });
   // the charts are drawn to their width: again when it changes
   let width = innerWidth;
   addEventListener("resize", () => {

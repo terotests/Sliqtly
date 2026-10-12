@@ -1,0 +1,11 @@
+/* ---------------------------------------------------------------------------
+   The code editor's find bar (src/PresFindBar.rgr): EVGUI's FindBarCtl in the
+   kit's look (ui.css, its .findbar rules), on the canvas. The bar's host runs
+   under "fb", so these rules and the derived dark look apply to it alone.
+   --------------------------------------------------------------------------- */
+.theme-fb .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.theme-fb .findbar { font-family: Open Sans; }
+.theme-fb .findbar-text, .theme-fb .findbar-count, .theme-fb .findbar-option-text { font-family: Open Sans; }
+.theme-fb .findbar-placeholder { font-family: Open Sans-Italic; }
+.theme-fb .ui-input-caret { background-color: #09090b; }
+.theme-fb .ui-input-selection { background-color: #bfdbfe; }

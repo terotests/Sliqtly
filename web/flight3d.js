@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // The 3-D flight: the presentation as a world flown through, a station per
-// slide, its diagrams and charts as holograms (src/PresFlight.rgr makes the
-// world of the deck, src/PresFlight3D.rgr in pres_3d.js draws it, and
-// src/PresFlightCam.rgr flies the camera).
+// slide, each slide drawn again as a hologram in the flight's own look
+// (src/PresFlight.rgr makes the world of the deck, src/PresFlight3D.rgr in
+// pres_3d.js draws it, src/PresFlightCam.rgr flies the camera). This page
+// draws the hologram's words and hands it the slides' pictures.
 //
 // Full screen only. While it flies it has the keys, the mouse and the
 // gamepad: Space / → next station, ← back, Home / End, W A S D fly, R / F up
@@ -14,30 +15,77 @@
 // It draws into the one GL canvas the slides' 3-D worlds use (web/three3d.js
 // hands it over), shown over the whole screen while it flies.
 
-// A label's picture: how big its text is drawn (CSS px a line) and how.
-export function labelStyle(kind) {
-  if (kind === "text") return { px: 88, weight: 700 };
-  if (kind === "title") return { px: 64, weight: 700 };
-  if (kind === "glass" || kind === "group") return { px: 44, weight: 600 };
-  return { px: 34, weight: 500 };
-}
-
-// A text in lines no longer than `max` characters, broken between words.
-export function wrapText(text, max) {
-  const out = [];
-  for (const para of String(text).split("\n")) {
-    let line = "";
-    for (const word of para.split(/\s+/).filter(Boolean)) {
-      if (line && (line + " " + word).length > max) {
-        out.push(line);
-        line = word;
+// A line of words drawn in light (PresFlight3D.picSpec of a "text": its
+// size in world units and its runs) into canvas `c`, `k` pixels a world
+// unit: each run where the slide sets it, in its weight, slant and colour,
+// a glow round it and a bright core. [pixels across, down, world units
+// across, down, how far right of the line's middle the picture's middle
+// is]: the picture has room round the words for the glow, and for words
+// that run on past the line's box.
+export function drawWords(c, spec, k) {
+  const g = c.getContext("2d", { willReadFrequently: true });
+  const big = Math.max(0.01, ...spec.runs.map((r) => r.fs || 0));
+  const pad = Math.ceil(big * k * 0.45) + 2;
+  const fontOf = (r) => {
+    const px = Math.max(4, r.fs * k);
+    const face = r.m ? '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace' : 'Inter, "Segoe UI", system-ui, sans-serif';
+    return `${r.i ? "italic " : ""}${r.b ? 700 : 400} ${px}px ${face}`;
+  };
+  // where each run starts, px from the line's left
+  const box = spec.w * k;
+  let left = 0;
+  let right = box;
+  // a run with words after it no wider than it was on the slide: the slide
+  // set it in its own face, and a wider one here (Inter's bold) ran into
+  // the next run; the line's last run may run on
+  const sx = spec.runs.map((r) => {
+    g.font = fontOf(r);
+    const tw = g.measureText(r.t).width;
+    const room = r.w * k;
+    const next = spec.runs.some((o) => o !== r && o.dx >= r.dx + r.w * 0.5);
+    return next && room > 0 && tw > room ? room / tw : 1;
+  });
+  const at = spec.runs.map((r, n) => {
+    g.font = fontOf(r);
+    const tw = g.measureText(r.t).width * sx[n];
+    const room = r.w * k;
+    let x = r.dx * k;
+    if (r.al === "center") x += (room - tw) / 2;
+    else if (r.al === "right") x += room - tw;
+    left = Math.min(left, x);
+    right = Math.max(right, x + tw);
+    return x;
+  });
+  const w = Math.max(4, Math.ceil(right - left) + pad * 2);
+  const h = Math.max(4, Math.ceil(spec.h * k) + pad * 2);
+  c.width = w;
+  c.height = h;
+  g.clearRect(0, 0, w, h);
+  g.textBaseline = "middle";
+  for (const glow of [true, false]) {
+    spec.runs.forEach((r, n) => {
+      const px = Math.max(4, r.fs * k);
+      g.font = fontOf(r);
+      const [cr, cg, cb] = (r.c || [0.6, 0.9, 1]).map((v) => Math.round(Math.min(1, v) * 255));
+      if (glow) {
+        // words on a line of light (spec.soft) glow less, so they read
+        g.shadowColor = `rgba(${cr}, ${cg}, ${cb}, ${spec.soft ? 0.45 : 0.9})`;
+        g.shadowBlur = Math.round(px * (spec.soft ? 0.15 : 0.4));
+        g.fillStyle = `rgb(${cr}, ${cg}, ${cb})`;
       } else {
-        line = line ? line + " " + word : word;
+        g.shadowBlur = 0;
+        // the core: the colour lifted towards white
+        g.fillStyle = `rgba(${Math.round((cr + 255) / 2)}, ${Math.round((cg + 255) / 2)}, ${Math.round((cb + 255) / 2)}, 0.85)`;
       }
-    }
-    out.push(line);
+      g.save();
+      g.translate(pad + at[n] - left, h / 2);
+      g.scale(sx[n], 1);
+      g.fillText(r.t, 0, 0);
+      g.restore();
+    });
   }
-  return out;
+  // the box's middle is box / 2 from its left; the picture's (left + right) / 2
+  return [w, h, w / k, h / k, ((left + right) / 2 - box / 2) / k];
 }
 
 // The first gamepad that is there, as the numbers PresFlight3D.setGamepad
@@ -75,12 +123,18 @@ function asRangerBuffer(ab) {
   return ab;
 }
 
+// The pictures of the stations this near the one flown to are made.
+const PICS_NEAR = 2;
+
 /**
- * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(),
- * selectedSlide(), selectSlide(i); toast(text); t(text) the UI's language;
- * onExit() after the flight, back in the presentation.
+ * three3d: web/three3d.js's glReady() and pause(on); app: flightJson(), playScenesJson(), allPlayScenesJson(), playsWaiting(i),
+ * selectedSlide(), selectSlide(i); picturePixels(src, max) a picture of the
+ * slides as ImageData, its long side at most `max` (null: not here yet);
+ * spritePixels(spec, max) the same of a slide's presenter (its picSpec);
+ * toast(text); t(text) the UI's language; onExit() after the flight, back
+ * in the presentation.
  */
-export function createFlight3d({ three3d, app, toast, t, onExit }) {
+export function createFlight3d({ three3d, app, picturePixels, spritePixels, toast, t, onExit }) {
   let world = null;
   let canvas = null;
   let hud = null;
@@ -92,46 +146,121 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
   const held = new Set();
   let drag = null;
   let fullAtStart = false;
+  let starting = false;
 
-  function labelPictures() {
-    const n = world.labelCount();
-    const c = document.createElement("canvas");
-    const g = c.getContext("2d");
-    for (let i = 0; i < n; i++) {
-      const kind = world.labelKind(i);
-      const st = labelStyle(kind);
-      const lines = wrapText(world.labelText(i), kind === "glass" ? 22 : kind === "text" ? 28 : 40);
-      const font = `${st.weight} ${st.px}px Inter, "Segoe UI", system-ui, sans-serif`;
-      g.font = font;
-      const line = Math.round(st.px * 1.25);
-      const pad = Math.round(st.px * 0.4);
-      const w = Math.max(4, Math.ceil(Math.max(...lines.map((l) => g.measureText(l).width))) + pad * 2);
-      const h = line * lines.length + pad * 2;
-      c.width = w;
-      c.height = h;
-      g.clearRect(0, 0, w, h);
-      g.font = font;
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      // white, tinted by the label's colour; a soft glow behind it
-      g.shadowColor = "rgba(150, 235, 255, 0.85)";
-      g.shadowBlur = Math.round(st.px * 0.35);
-      g.fillStyle = "#ffffff";
-      lines.forEach((l, k) => g.fillText(l, w / 2, pad + line * (k + 0.5)));
-      const img = g.getImageData(0, 0, w, h);
-      world.setLabel(i, asRangerBuffer(img.data.buffer.slice(0)), w, h, line);
+  // pictures that were not there yet: tried again after this (ms)
+  let picRetry = new Map();
+  const wordsCanvas = document.createElement("canvas");
+
+  // A few pictures a frame, the station flown to first, then the ones
+  // nearest it; the far ones give theirs back.
+  function makePictures(now) {
+    world.releasePics(now, PICS_NEAR);
+    const n = world.picCount();
+    const t0 = performance.now();
+    for (let d = 0; d <= PICS_NEAR; d++) {
+      for (let i = 0; i < n; i++) {
+        if (Math.abs(world.picStation(i) - now) !== d || world.picReady(i)) continue;
+        if ((picRetry.get(i) || 0) > t0) continue;
+        if (world.picKind(i) === "text") {
+          const spec = JSON.parse(world.picSpec(i));
+          const k = Math.min(110, 2000 / Math.max(0.1, spec.w));
+          const [w, h, ww, hh, ox] = drawWords(wordsCanvas, spec, k);
+          const img = wordsCanvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h);
+          world.setPic(i, asRangerBuffer(img.data.buffer.slice(0)), w, h, ww, hh, ox);
+        } else {
+          const sprite = world.picKind(i) === "sprite";
+          const img = sprite ? spritePixels?.(world.picSpec(i), 768) : picturePixels(world.picSpec(i), 768);
+          if (!img) {
+            picRetry.set(i, t0 + 700);
+            continue;
+          }
+          // its box on the slide, filled as the slide fills it
+          world.setPic(i, asRangerBuffer(img.data.buffer.slice(0)), img.width, img.height, -1, -1, 0);
+        }
+        if (performance.now() - t0 > 8) return;
+      }
     }
   }
 
+  // The slides' 3-D worlds on their stands: each as its program last drew
+  // it, and the one of the station flown to live. Only that slide is on the
+  // stage, so only its program runs; the others stand still.
+  let standJson = "";
+  function standBox(s) {
+    const whole = !s.clip && s.sw > 0 && s.sh > 0;
+    const rx = whole ? 0 : s.x;
+    const ry = whole ? 0 : s.y;
+    const rw = whole ? s.sw : s.w;
+    const rh = whole ? s.sh : s.h;
+    if (!(rw > 0 && rh > 0)) return null;
+    return [(s.x - rx) / rw, (s.y - ry) / rh, s.w / rw, s.h / rh];
+  }
+  function giveStands(list, only) {
+    const n = world.standCount();
+    for (const s of list) {
+      const box = standBox(s);
+      if (!box) continue;
+      for (let i = 0; i < n; i++) {
+        if (world.standSrc(i) !== s.src || (only >= 0 && world.standStation(i) !== only)) continue;
+        const why = world.setStand(i, JSON.stringify(s.scene), box[0], box[1], box[2], box[3]);
+        if (why) console.warn("scene3d: " + why);
+      }
+    }
+  }
+  function seedStands() {
+    standJson = "";
+    if (!world.standCount()) return;
+    try { giveStands(JSON.parse(app.allPlayScenesJson()).scenes || [], -1); } catch (e) { console.warn(e); }
+  }
+  function feedStands(now) {
+    const n = world.standCount();
+    let here = false;
+    for (let i = 0; i < n && !here; i++) here = world.standStation(i) === now;
+    // a program that had not drawn when the flight started (its slide was
+    // never on the stage): it runs now, and once it has drawn the station
+    // is made again with what it drew in place of its plate
+    const waits = world.stationWaits(now);
+    if (!here && !waits) return;
+    // its slide on the stage: its program runs
+    if (app.selectedSlide() !== now) {
+      app.selectSlide(now);
+      standJson = "";
+    }
+    if (waits && !app.playsWaiting(now)) {
+      const why = world.restation(now, app.flightJson());
+      if (why) console.warn("3-D flight: " + why);
+      standJson = "";
+      return;
+    }
+    if (!here) return;
+    const json = app.playScenesJson();
+    if (json === standJson) return;
+    standJson = json;
+    try { giveStands(JSON.parse(json), now); } catch (e) { console.warn(e); }
+  }
+
+  // The look's own hue (front matter `look-3d:`) for the words over the world.
+  let hudGlow = [0.36, 0.88, 1.0];
+  function lookGlow(json) {
+    try {
+      const g = JSON.parse(json).look?.glow;
+      if (Array.isArray(g) && g.length === 3) return g;
+    } catch (_) { /* the default */ }
+    return [0.36, 0.88, 1.0];
+  }
+
   function makeHud() {
+    const [r, g, b] = hudGlow.map((v) => Math.round(v * 255));
+    const lite = hudGlow.map((v) => Math.round((v * 0.6 + 0.4) * 255));
     hud = document.createElement("div");
     hud.id = "flightHud";
     hud.setAttribute("aria-live", "polite");
     hud.style.cssText = "position:fixed;left:0;right:0;bottom:24px;z-index:2147483001;pointer-events:none;"
       + "display:flex;flex-direction:column;align-items:center;gap:8px;font:500 15px Inter,system-ui,sans-serif;"
-      + "color:#9feaff;text-shadow:0 0 8px rgba(92,225,255,.8);letter-spacing:.04em";
+      + `color:rgb(${lite.join(",")});text-shadow:0 0 8px rgba(${r},${g},${b},.8);letter-spacing:.04em`;
     hud.innerHTML = '<div class="where"></div><div class="help" style="opacity:.75;font-size:13px;transition:opacity .8s"></div>';
-    hud.querySelector(".help").textContent = t("Space / → next · ← back · W A S D fly · Q E turn · Shift fast · Esc leaves");
+    hud.querySelector(".help").textContent = t("Space / → next · ← back · W A S D fly · Q E turn · V layout · Shift fast · Esc leaves");
     document.body.appendChild(hud);
   }
 
@@ -145,6 +274,14 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
     hud.querySelector(".where").textContent = `${now + 1} / ${world.stationCount()}${title ? "  ·  " + title : ""}`;
   }
 
+  // V turned the stations to another layout: its name a moment in the HUD
+  function showLayout() {
+    const help = hud.querySelector(".help");
+    const names = { path: t("Layout: path"), wall: t("Layout: wall"), ring: t("Layout: ring"), room: t("Layout: situation room") };
+    help.textContent = names[world.layoutName()] || world.layoutName();
+    hintUntil = performance.now() + 2500;
+  }
+
   function size() {
     const [w, h] = canvasSize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
     if (canvas.width !== w || canvas.height !== h) {
@@ -156,6 +293,17 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
 
   function frame(now) {
     if (!flying) return;
+    try {
+      step(now);
+    } catch (e) {
+      // a frame that throws lands the flight instead of freezing the screen
+      console.error(e);
+      stop();
+      toast(t("The 3-D flight stopped: ") + ((e && e.message) || e));
+    }
+  }
+
+  function step(now) {
     const dt = last ? (now - last) / 1000 : 0;
     last = now;
     world.setKeys([...held].join(","));
@@ -165,7 +313,10 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
       stop();
       return;
     }
+    if (said.split("\n").includes("layout")) showLayout();
     world.frame(dt);
+    makePictures(world.stationNow());
+    feedStands(world.stationNow());
     const [w, h] = size();
     world.draw(w, h);
     showStation();
@@ -182,7 +333,7 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
       return;
     }
     if (FLIGHT_KEYS.has(ev.code)) held.add(ev.code);
-    if (!ev.repeat) world.key(ev.code);
+    if (!ev.repeat && world.key(ev.code) === "layout") showLayout();
   }
 
   function onKeyUp(ev) {
@@ -212,49 +363,40 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
     if (flying && !document.fullscreenElement) stop();
   }
 
-  async function start() {
-    if (flying) return;
-    // full screen first, while the press that asked still counts
-    if (!document.fullscreenElement) {
-      try {
-        await document.documentElement.requestFullscreen();
-      } catch (_) {
-        toast(t("The 3-D flight needs full screen"));
-        return;
-      }
-    }
-    fullAtStart = true;
+  // Leaves full screen if the flight took it and is not flying.
+  function leaveFull(entered) {
+    if (entered && !flying && document.fullscreenElement) document.exitFullscreen?.().catch(() => { /* already out */ });
+  }
+
+  // Why the flight cannot fly (shown to the user), or "" once it flies.
+  // Everything that can fail runs before the canvas covers the page; what
+  // is set up after it is undone again by land() if it throws.
+  async function takeOff() {
     const gl = await three3d.glReady();
-    if (!gl || !globalThis.PresFlight3D) {
-      toast(t("The 3-D flight needs WebGL"));
-      return;
-    }
+    if (!gl || !globalThis.PresFlight3D) return t(three3d.problem?.() || "The 3-D flight needs WebGL");
     if (!world) {
       world = new globalThis.PresFlight3D();
       if (!world.attach(gl.id)) {
         world = null;
-        toast(t("The 3-D flight needs WebGL"));
-        return;
+        return t("The 3-D flight needs WebGL");
       }
     }
-    const why = world.load(app.flightJson());
-    if (why) {
-      toast(why);
-      return;
-    }
+    const json = app.flightJson();
+    const why = world.load(json);
+    if (why) return why;
+    hudGlow = lookGlow(json);
     world.startAt(app.selectedSlide());
-    three3d.pause(true);
     canvas = gl;
+    three3d.pause(true);
     canvas.style.cssText = "display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;background:#02040a;cursor:grab;touch-action:none";
-    labelPictures();
+    picRetry = new Map();
     makeHud();
+    seedStands();
     shown = -1;
     hintUntil = performance.now() + 5000;
     held.clear();
     flying = true;
     last = 0;
-    // Esc to the page, not out of full screen, where the browser lets it
-    try { await navigator.keyboard?.lock?.(["Escape"]); } catch (_) { /* not offered */ }
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", onBlur);
@@ -263,29 +405,73 @@ export function createFlight3d({ three3d, app, toast, t, onExit }) {
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
-    raf = requestAnimationFrame(frame);
+    // Esc to the page, not out of full screen, where the browser lets it
+    try { await navigator.keyboard?.lock?.(["Escape"]); } catch (_) { /* not offered */ }
+    if (flying) raf = requestAnimationFrame(frame);
+    return "";
   }
 
-  function stop() {
-    if (!flying) return;
+  // The page as it was before the flight: the canvas hidden and given back
+  // to the worlds, the keys and the pointer the page's again.
+  function land() {
     flying = false;
+    starting = false;
     cancelAnimationFrame(raf);
     try { navigator.keyboard?.unlock?.(); } catch (_) { /* not offered */ }
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("fullscreenchange", onFullscreen);
-    canvas.removeEventListener("pointerdown", onPointerDown);
-    canvas.removeEventListener("pointermove", onPointerMove);
-    canvas.removeEventListener("pointerup", onPointerUp);
-    canvas.removeEventListener("pointercancel", onPointerUp);
-    canvas.style.cssText = "display:none";
+    if (canvas) {
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerUp);
+      canvas.style.cssText = "display:none";
+    }
     hud?.remove();
     hud = null;
     held.clear();
     drag = null;
-    const at = world.stationNow();
     three3d.pause(false);
+  }
+
+  async function start() {
+    if (flying || starting) return;
+    starting = true;
+    // full screen first, while the press that asked still counts
+    const entered = !document.fullscreenElement;
+    if (entered) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (_) {
+        starting = false;
+        toast(t("The 3-D flight needs full screen"));
+        return;
+      }
+    }
+    fullAtStart = true;
+    let why = "";
+    try {
+      why = await takeOff();
+    } catch (e) {
+      // a page that could not fly stays usable (2026-10-11: a throw here
+      // left a black canvas over the page that no key took away)
+      console.error(e);
+      land();
+      why = t("The 3-D flight could not start: ") + ((e && e.message) || e);
+    }
+    starting = false;
+    if (why) {
+      toast(why);
+      leaveFull(entered);
+    }
+  }
+
+  function stop() {
+    if (!flying) return;
+    land();
+    const at = world.stationNow();
     // back in the presentation at the slide the flight ended at
     app.selectSlide(at);
     onExit(fullAtStart);

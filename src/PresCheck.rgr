@@ -1,6 +1,10 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
+Import "PresVideo.rgr"
+Import "PresToolbar.rgr"
+Import "PresStoryPick.rgr"
+Import "PresChartEditor.rgr"
 Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
@@ -26,6 +30,7 @@ Import "PresCodeView.rgr"
 Import "../rangerdiff/src/RdText.rgr"
 Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
+Import "PresHeadingAttr.rgr"
 Import "PresPick.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
@@ -54,6 +59,8 @@ Import "PresFileLanguage.rgr"
 Import "Pres3D.rgr"
 Import "PresFlight.rgr"
 Import "PresFlightCam.rgr"
+Import "PresFlightBench.rgr"
+Import "PresFlightHolo.rgr"
 Import "Pres3DStill.rgr"
 Import "Pres3DGltf.rgr"
 Import "PresSceneModel.rgr"
@@ -61,7 +68,9 @@ Import "PresPlayWeb.rgr"
 Import "Pres3DTree.rgr"
 Import "PresStripDrag.rgr"
 Import "PresForm.rgr"
+Import "PresDeckSize.rgr"
 Import "PresFormHtml.rgr"
+Import "PresAi.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -85,7 +94,170 @@ class PresCheck {
             + "## Toka\n\nTeksti\n{anim=zoom}\n\n::: audio src=toka.wav\n:::\n")
     }
 
+    ; The AI drawer's model (PresAi): the request it leaves for the page, the
+    ; credits in words, and the slide an answer suggests.
+    ; The changes an answer asks for, made on the Markdown (PresAiDeck).
+    ; Pictures pasted into the drawer go with the next question, three at
+    ; most; a press on one's button leaves it out.
+    fn aiPictures:void (ctx:PresAiContext) {
+        def a (new PresAi())
+        a.available = 1
+        this.ok(((a.attach("logo.png" "image/png" "iVBOR")) == "") "ai: a picture is taken")
+        this.ok(((a.attach("" "image/jpeg" "/9j/")) == "") "ai: a second, unnamed")
+        this.ok(((strlen (a.attach("x.png" "image/png" ""))) > 0) "ai: an empty picture is not")
+        this.ok(((a.attach("c.png" "image/png" "QUJD")) == "") "ai: a third")
+        this.ok(((strlen (a.attach("d.png" "image/png" "QUJD"))) > 0) "ai: not a fourth")
+        a.detach(1)
+        this.ok(((array_length a.pictures) == 2) "ai: one left out")
+        this.ok((a.ask("" "" ctx)) "ai: pictures alone ask what is in them")
+        def req:string (a.takePending())
+        this.ok(((indexOf req "{\"mimeType\":\"image/png\",\"data\":\"iVBOR\"}") > 0) ("ai: the picture goes along " + req))
+        this.ok(((indexOf req "/9j/") < 0) "ai: the one left out does not")
+        this.ok(((array_length a.pictures) == 0) "ai: sent once")
+        def m:PresAiMsg (itemAt a.msgs 0)
+        this.ok(((indexOf m.text "🖼 logo.png") > 0) ("ai: the question names its pictures: " + m.text))
+    }
+
+    fn aiEdits:void () {
+        def fa (new PresAi())
+        fa.answer("{\"reply\":\"Drew a forest.\",\"edits\":[{\"tool\":\"add_file\",\"path\":\"media/forest.svg\",\"text\":\"<svg/>\"},{\"tool\":\"insert_slide\",\"after\":1,\"markdown\":\"## Forest\\n\\n![Forest](media/forest.svg)\"}]}")
+        def fm:PresAiMsg (itemAt fa.msgs 0)
+        this.ok(((indexOf fm.text "✓ File added: media/forest.svg") > 0) ("ai: a file the answer adds is named: " + fm.text))
+        def fout:string (PresAiDeck.apply("## One\n" ([] _:int ( 0 1 )) (fa.takeEdits())))
+        this.ok(((indexOf fout "](media/forest.svg)") > 0) ("ai: the slide showing the file is added, the file itself is the page's: " + fout))
+        this.ok(((indexOf fout "<svg") < 0) "ai: the file's text is not written into the Markdown")
+        def th (new PresAiEdit())
+        th.tool = "set_theme"
+        th.value = "midnight"
+        def thSrc:string "---\ntitle: T\n---\n\n# One\n"
+        this.ok(((PresAiDeck.themeOf(([] _:PresAiEdit ( th )))) == "midnight") "ai edit: set_theme names the theme for the page's Theme choice")
+        this.ok(((PresAiDeck.apply(thSrc ([] _:int ( 5 6 )) ([] _:PresAiEdit ( th )))) == thSrc) "ai edit: set_theme leaves the Markdown as it is")
+        def rows:string ("white\twhite\tBasic\naurora\taurora\tDark\nmidnight\tmidnight\tDark\n\tDocument's own\t")
+        this.ok(((PresAiDeck.themeLines(rows)) == "Basic: white\nDark: aurora, midnight") ("ai context: the themes a line per group, got " + (PresAiDeck.themeLines(rows))))
+        def src:string "---\ntitle: T\ntheme: aurora\n---\n\n# One\n\nHello\n\n## Two\n\nB\n\n## Three\n\nC\n"
+        ; slides: One 5..9, Two 9..13, Three 13..17 (an overflow of Three on 13 too)
+        def spans:[int] ([] _:int ( 5 9 9 13 13 17 13 17 ))
+        def e1 (new PresAiEdit())
+        e1.tool = "set_front_matter"
+        e1.key = "theme"
+        e1.value = "mist"
+        def got:string (PresAiDeck.apply(src spans ([] _:PresAiEdit ( e1 ))))
+        this.ok((got == "---\ntitle: T\ntheme: mist\n---\n\n# One\n\nHello\n\n## Two\n\nB\n\n## Three\n\nC\n") ("ai edit: the theme set in place " + got))
+        def e2 (new PresAiEdit())
+        e2.tool = "set_front_matter"
+        e2.key = "transition"
+        e2.value = "fade"
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( e2 ))))
+        this.ok(((indexOf got "theme: aurora\ntransition: fade\n---") > 0) ("ai edit: a new key before the closing line " + got))
+        e2.value = ""
+        e2.key = "title"
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( e2 ))))
+        this.ok(((indexOf got "title:") < 0) "ai edit: an empty value takes the key out")
+        this.ok(((PresAiDeck.apply("# A\n" ([] _:int ( 0 1 )) ([] _:PresAiEdit ( e1 )))) == "---\ntheme: mist\n---\n\n# A\n") "ai edit: front matter added to a deck without")
+        ; slides by the outline's numbers, each edit against them
+        def r (new PresAiEdit())
+        r.tool = "replace_slide"
+        r.slide = 2
+        r.markdown = "## Two!\n\nNew"
+        def ins (new PresAiEdit())
+        ins.tool = "insert_slide"
+        ins.after = 2
+        ins.markdown = "## Two and a half"
+        def del (new PresAiEdit())
+        del.tool = "delete_slide"
+        del.slide = 1
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( r del ins ))))
+        this.ok((got == "---\ntitle: T\ntheme: aurora\n---\n\n## Two!\n\nNew\n\n## Two and a half\n\n## Three\n\nC\n") ("ai edit: replaced, removed and added by the old numbers " + got))
+        def del4 (new PresAiEdit())
+        del4.tool = "delete_slide"
+        del4.slide = 4
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( del4 ))))
+        this.ok((((indexOf got "## Three") < 0) && ((indexOf got "## Two") > 0)) "ai edit: an overflow slide is its heading's section")
+        def bad (new PresAiEdit())
+        bad.tool = "replace_slide"
+        bad.slide = 9
+        bad.markdown = "x"
+        this.ok(((PresAiDeck.apply(src spans ([] _:PresAiEdit ( bad )))) == src) "ai edit: a slide that is not there changes nothing")
+        def first (new PresAiEdit())
+        first.tool = "insert_slide"
+        first.after = 0
+        first.markdown = "# Zero"
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( first ))))
+        this.ok(((indexOf got "---\n\n# Zero\n\n# One") > 0) ("ai edit: a new first slide after the front matter " + got))
+        this.ok(((PresAiDeck.frontOf(src)) == "---\ntitle: T\ntheme: aurora\n---") "ai edit: the front matter of a deck")
+        ; the answer: edits taken once, said in the conversation
+        def a (new PresAi())
+        a.answer("{\"reply\":\"Mist it is.\",\"edits\":[{\"tool\":\"set_front_matter\",\"key\":\"theme\",\"value\":\"mist\"},{\"tool\":\"replace_slide\",\"slide\":2,\"markdown\":\"## B\"},{\"tool\":\"nope\"}]}")
+        def es:[PresAiEdit] (a.takeEdits())
+        this.ok(((array_length es) == 2) "ai edit: the known edits taken")
+        this.ok(((array_length (a.takeEdits())) == 0) "ai edit: taken once")
+        def last:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok((last.text == "Mist it is.\n\n✓ Front matter: theme: mist\n✓ Slide 2 rewritten") ("ai edit: said in the answer " + last.text))
+        a.answer("{\"reply\":\"\",\"edits\":[{\"tool\":\"delete_slide\",\"slide\":3}]}")
+        def last2:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok(((last2.role == "assistant") && (last2.text == "✓ Slide 3 removed")) ("ai edit: no words, the changes are the answer " + last2.text))
+    }
+
+    fn aiAssist:void () {
+        def a (new PresAi())
+        def ctx (new PresAiContext())
+        ctx.slide = 6
+        ctx.slides = 11
+        ctx.slideMd = "## Results\n\nreturn 0"
+        ctx.deckMd = "# Deck\n\n## Results\n"
+        ctx.selection = "return 0"
+        this.ok(((a.contextLine(ctx)) == "Context: Slide 7 / 11 · selection") ("ai: context line " + (a.contextLine(ctx))))
+        this.ok(((a.blocked()) == "") "ai: a question can be asked before the credits are known")
+        this.ok((a.ask("  " "" ctx) == false) "ai: nothing written, no action: nothing asked")
+        this.ok((a.ask("" "improve" ctx)) "ai: a quick action asks its question")
+        this.ok(a.busy "ai: waiting for the answer")
+        def req:string (a.takePending())
+        this.ok(((indexOf req "\"action\":\"improve\"") > 0) ("ai: the action goes along " + req))
+        this.ok(((indexOf req "\"slide\":7") > 0) "ai: the slide counts from 1 for the server")
+        this.ok(((indexOf req "\"deckMarkdown\":\"# Deck") > 0) "ai: a slide question sends the deck too, for drawing")
+        this.ok(((indexOf req "\"history\":[]") > 0) "ai: the question itself is not history")
+        this.ok(((a.takePending()) == "") "ai: the request is taken once")
+        this.ok((a.ask("more?" "" ctx) == false) "ai: one question at a time")
+        a.answer("{\"reply\":\"Shorter:\\n\\n````markdown\\n## Results\\n\\n```js\\nreturn 0\\n```\\n````\\nDone.\",\"credits\":{\"left\":42,\"monthly\":50,\"perChat\":3,\"resets\":\"2026-11-01\"}}")
+        this.ok((a.busy == false) "ai: answered")
+        this.ok(((array_length a.msgs) == 2) "ai: question and answer")
+        this.ok(((a.creditsShort()) == "42 left") ("ai: credits pill " + (a.creditsShort())))
+        this.ok(((a.creditsText()) == "42 AI actions left · ≈ 14 chats") ("ai: credits line " + (a.creditsText())))
+        this.ok(((a.suggestion()) == "## Results\n\n```js\nreturn 0\n```") ("ai: the slide inside a four-tick fence, its code block kept: " + (a.suggestion())))
+        this.ok(((indexOf (PresAi.shown("````markdown\nx\n````")) "````") < 0) "ai: shown with a three-tick fence")
+        a.markUsed()
+        this.ok(((a.suggestion()) == "") "ai: a slide used once is not offered again")
+        this.ok(((PresAi.slideBlock("```markdown\n## A\n```")) == "## A") "ai: a three-tick fence works too")
+        this.ok(((PresAi.slideBlock("```js\nx\n```")) == "") "ai: a code block is not a slide")
+        this.aiEdits()
+        this.ok(((PresAi.slideBlock("```markdown\n## A")) == "") "ai: an unclosed block is not a whole slide")
+        a.setScope("deck")
+        this.ok(((a.cost()) == 2) "ai: the whole presentation costs two")
+        this.ok((a.ask("Summarise" "" ctx)) "ai: a deck question")
+        def req2:string (a.takePending())
+        this.ok(((indexOf req2 "\"deckMarkdown\":\"# Deck") > 0) "ai: a deck question sends the deck")
+        this.ok(((indexOf req2 "\"role\":\"assistant\"") > 0) "ai: the turns so far go along")
+        this.ok(((indexOf req2 "\"images\":[]") > 0) "ai: no pictures, an empty list")
+        this.aiPictures(ctx)
+        this.ok(((a.suggestion()) == "") "ai: a new question leaves the old suggestion behind")
+        a.answer("{\"error\":\"This month's AI actions are used up.\",\"code\":\"no-credits\",\"credits\":{\"left\":1,\"monthly\":50}}")
+        def last:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok((last.role == "note") "ai: a refusal is a note in the conversation")
+        this.ok(((a.blocked()) == "This month's AI actions are used up.") ("ai: one left is not enough for the deck: " + (a.blocked())))
+        a.setScope("slide")
+        this.ok(((a.blocked()) == "") "ai: but enough for the slide")
+        a.setCredits("{\"available\":false}")
+        this.ok(((strlen (a.blocked())) > 0) "ai: no assistant on the server")
+        def u (new PresAi())
+        u.setCredits("{\"available\":true,\"credits\":{\"left\":-1,\"unlimited\":true}}")
+        this.ok(((u.creditsShort()) == "no limit") "ai: no limit")
+        this.ok(((PresAi.actionFits("explain" ctx)) == false) "ai: Explain only with code on the slide")
+    }
+
     fn run:void () {
+        ; the interface's words as written (PresTerm "room"): the checks
+        ; below read them; the words for "topic" have checks of their own
+        PresI18n.useTerm("room")
         def text:string (PresCheck.sample())
         def src (new PresSource())
         src.read(text)
@@ -159,6 +331,8 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.reviewFollow()
+        this.headingAttr()
         this.codeSource()
         this.codeRows()
         this.codeView()
@@ -761,6 +935,103 @@ class PresCheck {
         ; no change known
         def plain:PresCodeRows (PresCodeRows.make(f newT ""))
         this.ok((((plain.modeFor("diff")) == "now") && ((array_length (plain.rows("now"))) == 10)) "rows: no change, the file as it is")
+    }
+
+    sfn rvBlock:PresReviewBlock (page:int key:string x:double y:double w:double h:double) {
+        def b (new PresReviewBlock())
+        b.page = page
+        b.key = key
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        return b
+    }
+
+    ; A comment on an element goes where the element goes: to another slide,
+    ; to its new place on a turned slide; closed when the element is taken
+    ; out, open again when it comes back.
+    fn reviewFollow:void () {
+        def t0:double 1759658400000.0
+        def r (new PresReview())
+        r.start("p" 3 "Team" 0.6 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Too dark" t0)))
+        r.start("s" 3 "Team" 0.1 0.9 (PresReview.msg("m2" "u1" "Ada" "" "Add a footer" t0)))
+        def titles:[string]
+        push titles "Intro"
+        push titles "One"
+        push titles "Two"
+        push titles "Team"
+        def b0:[PresReviewBlock]
+        push b0 (PresCheck.rvBlock(3 "## Team" 0.1 0.1 0.8 0.1))
+        push b0 (PresCheck.rvBlock(3 "![Group](pictures/team.jpg)" 0.4 0.3 0.4 0.4))
+        def k:int (PresReview.blockAt(b0 3 0.6 0.5))
+        this.ok((k == 1) ("review follow: the picture under the pin: " + (to_string k)))
+        def pb:PresReviewBlock (itemAt b0 k)
+        r.pinTo("p" pb.key ((0.6 - pb.x) / pb.w) ((0.5 - pb.y) / pb.h))
+        this.ok(((r.follow(b0 titles (t0 + 1.0))) == false) "review follow: nothing moved, nothing to do")
+        ; four slides put in before it: the picture is on slide 8 now
+        def titles2:[string]
+        push titles2 "Intro"
+        push titles2 "One"
+        push titles2 "Two"
+        push titles2 "New A"
+        push titles2 "New B"
+        push titles2 "New C"
+        push titles2 "New D"
+        push titles2 "Team"
+        def b1:[PresReviewBlock]
+        push b1 (PresCheck.rvBlock(7 "## Team" 0.1 0.1 0.8 0.1))
+        push b1 (PresCheck.rvBlock(7 "![Group](pictures/team.jpg)" 0.4 0.3 0.4 0.4))
+        this.ok((r.follow(b1 titles2 (t0 + 2.0))) "review follow: slides came before it")
+        def p1:PresReviewThread (unwrap (r.find("p")))
+        this.ok(((p1.slide == 7) && (p1.title == "Team")) ("review follow: the comment went with the picture to slide 8: " + (to_string (p1.slide + 1))))
+        this.ok(((p1.x > 0.599) && (p1.x < 0.601)) "review follow: at the same point of it")
+        def s1:PresReviewThread (unwrap (r.find("s")))
+        this.ok((s1.slide == 7) "review follow: one on the slide itself goes by the title")
+        ; the picture moved to another slide whose title is not this one
+        def b2:[PresReviewBlock]
+        push b2 (PresCheck.rvBlock(7 "## Team" 0.1 0.1 0.8 0.1))
+        push b2 (PresCheck.rvBlock(2 "![Group](pictures/team.jpg)" 0.1 0.5 0.3 0.3))
+        r.follow(b2 titles2 (t0 + 3.0))
+        this.ok(((p1.slide == 2) && (p1.title == "Two")) ("review follow: moved to another slide, the comment too: " + (to_string (p1.slide + 1))))
+        ; the slide turned (portrait): the picture is elsewhere and narrower
+        def b3:[PresReviewBlock]
+        push b3 (PresCheck.rvBlock(2 "![Group](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        r.follow(b3 titles2 (t0 + 4.0))
+        this.ok((((p1.x > 0.499) && (p1.x < 0.501)) && ((p1.y > 0.6999) && (p1.y < 0.7001))) ("review follow: turned, the same point of the picture: " + (to_string p1.x) + "," + (to_string p1.y)))
+        ; edited inside: its alt text changed, still the same picture
+        def b4:[PresReviewBlock]
+        push b4 (PresCheck.rvBlock(2 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        r.follow(b4 titles2 (t0 + 5.0))
+        this.ok(((p1.lost == false) && (p1.el == "![Group photo](pictures/team.jpg)")) ("review follow: an edit inside keeps it: " + p1.el))
+        ; the same picture twice: the one nearest
+        def b5:[PresReviewBlock]
+        push b5 (PresCheck.rvBlock(0 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        push b5 (PresCheck.rvBlock(2 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        push b5 (PresCheck.rvBlock(5 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        r.follow(b5 titles2 (t0 + 6.0))
+        this.ok((p1.slide == 2) "review follow: of two the same, the nearest")
+        def none:[PresReviewBlock]
+        r.follow(none titles2 (t0 + 6.5))
+        this.ok(((p1.lost == false) && (p1.slide == 2)) "review follow: nothing laid out yet, nothing lost")
+        ; taken out: closed and marked, not counted open
+        def open0:int (r.openCount())
+        def b6:[PresReviewBlock]
+        push b6 (PresCheck.rvBlock(2 "Some other text" 0.05 0.6 0.9 0.2))
+        this.ok((r.follow(b6 titles2 (t0 + 7.0))) "review follow: the picture taken out")
+        this.ok((p1.lost && p1.closed) "review follow: its comment is closed, marked lost")
+        this.ok(((r.openCount()) == (open0 - 1)) "review follow: and no longer open")
+        def back:PresReview (PresReview.parse((r.toJson())))
+        def pb2:PresReviewThread (unwrap (back.find("p")))
+        this.ok(((pb2.lost && (pb2.el == p1.el)) && ((pb2.ex > 0.49) && (pb2.ex < 0.51))) ("review follow: the file keeps the element: " + pb2.el + " " + (to_string pb2.ex)))
+        ; an undo brings it back: open again
+        r.follow(b5 titles2 (t0 + 8.0))
+        this.ok((((p1.lost == false) && (p1.closed == false)) && (p1.slide == 2)) "review follow: back again, open again")
+        ; dragged off: on the slide itself
+        r.move("p" 0.2 0.2 (t0 + 9.0))
+        this.ok(((strlen p1.el) == 0) "review follow: a pin dragged off lets the element go")
+        this.ok(((PresReview.alike("abcdef" "abXcdef")) > 0.8) "review follow: alike keeps an edit inside")
+        this.ok(((PresReview.alike("abcdef" "zzzzzz")) < 0.1) "review follow: not alike")
     }
 
     fn review:void () {
@@ -2060,6 +2331,7 @@ class PresCheck {
         this.themeArt()
         this.themeGallery()
         this.figmaFiles()
+        this.pptxFiles()
     }
 
     ; The theme picker's tiles from the page's select rows, their groups and
@@ -2076,7 +2348,47 @@ class PresCheck {
         return j
     }
 
+    ; A shared PowerPoint deck's index (mcp-go/rgr/PptxGo.rgr): a slide is a
+    ; screen by its number, a shape a part "<slide>:<path>".
+    sfn pptxIndexJson:string () {
+        def j:string "{\"kind\":\"pptx\",\"meta\":{\"background\":\"\"},\"pages\":[{\"id\":\"slides\",\"name\":\"Slides\",\"screens\":2}],\"screens\":["
+        j = (j + "{\"id\":\"1\",\"page\":\"slides\",\"name\":\"Quarterly review\",\"type\":\"SLIDE\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"text\":\"# Quarterly review\\n\\nRevenue grew\",\"parts\":[{\"id\":\"1:2\",\"name\":\"Logo\",\"type\":\"picture\",\"x\":10,\"y\":10,\"w\":100,\"h\":50}],\"notes\":[]},")
+        j = (j + "{\"id\":\"2\",\"page\":\"slides\",\"name\":\"Slide 2\",\"type\":\"SLIDE\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"text\":\"Thanks\",\"parts\":[],\"notes\":[\"Say goodbye\"]}]}")
+        return j
+    }
+
+    fn pptxFiles:void () {
+        def r:FigmaRef (FigmaRef.parse("pptx:q3-review/3"))
+        this.ok((r.ok && (r.scheme == "pptx") && (r.file == "q3-review") && (r.node == "3")) "pptx: file and slide")
+        this.ok(((FigmaRef.parse("PPTX://q3/2:1")).node == "2:1") "pptx:// and a shape")
+        this.ok(((FigmaRef.parse("pptx:q3")).ok == false) "a deck with no slide is refused")
+        this.ok(((FigmaRef.pictureKey("pptx:q3/3")) == "/pptx:q3/3") ("the picture's path in the store: " + (FigmaRef.pictureKey("pptx:q3/3"))))
+        def used:[string] (FigmaRef.inText("![a](pptx:q3/2)\n![b](figma:app/1:2)\n![c](pptx:q3/1:2) notpptx:x/y"))
+        this.ok((((array_length used) == 3) && ((itemAt used 0) == "pptx:q3/2") && ((itemAt used 1) == "figma:app/1:2") && ((itemAt used 2) == "pptx:q3/1:2")) ("both kinds, in order: " + (join used " | ")))
+        this.ok(((FigmaRef.markdownIn("pptx" "q3" "2" "Thanks")) == "![Thanks](pptx:q3/2)") "markdown of a slide")
+        def f:FigmaFile (FigmaFile.fromIndex("q3" (PresCheck.pptxIndexJson())))
+        this.ok(((f.kind == "pptx") && ((f.scheme()) == "pptx") && ((array_length f.screens) == 2)) ("a deck's index reads as a file: " + f.err))
+        def lib (new FigmaLibrary())
+        lib.add(f)
+        def t:FigmaTarget (lib.resolve("pptx:q3/2"))
+        this.ok((t.ok && (t.node == "2") && (t.isPart == false)) ("a slide by its number: " + t.err))
+        def tp:FigmaTarget (lib.resolve("pptx:q3/1:2"))
+        this.ok((tp.ok && tp.isPart && (tp.screen == "1") && (tp.name == "Logo")) "a shape on a slide")
+        def tn:FigmaTarget (lib.resolve("pptx:q3/quarterly review"))
+        this.ok((tn.ok && (tn.node == "1")) "a slide by its title")
+        def hs:[FigmaHit] (lib.search("revenue" "" 5))
+        this.ok((((array_length hs) == 1) && (((itemAt hs 0).markdown()) == "![Quarterly review](pptx:q3/1)")) "a hit on a slide is a pptx: picture")
+        def hn:[FigmaHit] (lib.search("goodbye" "" 5))
+        this.ok((((array_length hn) == 1) && ((itemAt hn 0).screen.id == "2")) "speaker notes are searched")
+        def b (new FigmaBrowser())
+        b.open("q3" "Q3.pptx" "ready" "" (PresCheck.pptxIndexJson()))
+        b.pick("2" "")
+        this.ok(((b.address()) == "pptx:q3/2") ("the window's pick: " + (b.address())))
+    }
+
     fn figmaFiles:void () {
+        ; the Files tab tags a file it does not know by its extension
+        this.ok((((PresFileLanguage.extTag("data/dashboard3.fig")) == "FIG") && ((PresFileLanguage.extTag("apps/x.tsx")) == "TSX") && ((PresFileLanguage.extTag("notes")) == "TXT") && ((PresFileLanguage.extTag("a.b/README")) == "TXT") && ((PresFileLanguage.extTag(".env")) == "TXT") && ((PresFileLanguage.extTag("x.toolong")) == "TXT")) ("extension tags: " + (PresFileLanguage.extTag("data/dashboard3.fig"))))
         def r:FigmaRef (FigmaRef.parse("figma:app-design/12:34"))
         this.ok((r.ok && (r.file == "app-design") && (r.node == "12:34")) "figma: file and layer")
         def r2:FigmaRef (FigmaRef.parse("  FIGMA://app-design/Login%20screen "))
@@ -2329,6 +2641,63 @@ class PresCheck {
 
     ; File → Settings' word for a room: whole words swapped, case kept, each
     ; Finnish case form its own
+    ; A slide's phase in its heading: one key set or taken out, the rest of
+    ; the line as written, and read back by the deck as the slide's data.
+    fn headingAttr:void () {
+        this.ok(((PresHeadingAttr.put("## Costs" "phase" "review")) == "## Costs {phase=review}") "heading attr: a group added")
+        this.ok(((PresHeadingAttr.put("## Costs   " "phase" "draft")) == "## Costs {phase=draft}") "heading attr: trailing spaces dropped")
+        this.ok(((PresHeadingAttr.put("## Costs {bg=a.png}" "phase" "review")) == "## Costs {bg=a.png phase=review}") "heading attr: into the group there")
+        this.ok(((PresHeadingAttr.put("## Costs {phase=draft .wide}" "phase" "done")) == "## Costs {phase=done .wide}") "heading attr: replaced in place")
+        this.ok(((PresHeadingAttr.put("## Costs {Phase=draft}" "phase" "done")) == "## Costs {phase=done}") "heading attr: the key in any case")
+        this.ok(((PresHeadingAttr.put("## Costs {phase=done}" "phase" "")) == "## Costs") "heading attr: the last one out takes the group")
+        this.ok(((PresHeadingAttr.put("## Costs {bg=a.png phase=done}" "phase" "")) == "## Costs {bg=a.png}") "heading attr: one out of two")
+        this.ok(((PresHeadingAttr.put("## Costs {phase=done .wide}" "phase" "")) == "## Costs {.wide}") "heading attr: the first out of two")
+        this.ok(((PresHeadingAttr.put("## Costs {a} {transition=fade}" "phase" "done")) == "## Costs {a} {transition=fade phase=done}") "heading attr: words in braces stay the title's")
+        this.ok(((PresHeadingAttr.put("## Costs {title=\"a {b}\" phase=x}" "phase" "done")) == "## Costs {title=\"a {b}\" phase=done}") "heading attr: quoted braces are the value's")
+        this.ok(((PresHeadingAttr.put("## Costs" "phase" "")) == "## Costs") "heading attr: nothing to take out")
+        this.ok(((PresHeadingAttr.put("## Costs" "owner" "Tero K")) == "## Costs {owner=\"Tero K\"}") "heading attr: a value with a space quoted")
+        def lines:[string] ([] _:string ("---" "title: x" "---" "" "## One {phase=review}" "text" "## Two"))
+        this.ok(((PresHeadingAttr.headingIn(lines 3 6)) == 4) "heading attr: the slide's heading line")
+        this.ok(((PresHeadingAttr.headingIn(lines 5 6)) == -1) "heading attr: a slide without one")
+        def d (new PresDeck())
+        d.setText(((PresHeadingAttr.put("## One" "phase" "review")) + "\n\ntext\n\n## Two\n"))
+        this.ok((((d.slideMetaValue(0 "phase")) == "review") && ((d.slideMetaValue(1 "phase")) == "")) "heading attr: the deck reads the slide's phase")
+        def s0:PresSlide (d.slideAt(0))
+        this.ok(((s0.title == "One") && (((array_length s0.meta.suspect) == 0) && ((array_length (d.headingAttrNotes())) == 0))) "heading attr: phase is data, no warning")
+    }
+
+    ; A topic's ticked stories (PresStoryPick) and the bar's side of them:
+    ; Actions' rows named for the button, a card pressed and let go unmoved
+    ; opens it.
+    fn storyPick:void () {
+        def p (new PresStoryPick())
+        p.setDecks(([] _:string ("d1" "d2" "d1" "d3")))
+        this.ok(((array_length p.pick.keys) == 3) "story pick: a deck under two tags is one key")
+        p.pick.toggle("d2")
+        p.pick.toggle("d3")
+        this.ok(((p.pick.count()) == 2) "story pick: two ticked")
+        this.ok(((p.ready()) == false) "story pick: no Apply before an action")
+        this.ok(((p.request()) == "") "story pick: no request either")
+        p.choose("mvf-f1" "Move to folder Tests")
+        def tab:string (strfromcode 9)
+        this.ok(((p.request()) == ("topic:bulk" + tab + "mvf-f1" + tab + "d2" + tab + "d3")) ("story pick: Apply's request, " + (p.request())))
+        p.setDecks(([] _:string ("d1" "d3")))
+        this.ok(((p.pick.count()) == 1) "story pick: a deck gone is no longer ticked")
+        p.reset()
+        this.ok((((p.pick.count()) == 0) && ((strlen p.action) == 0)) "story pick: another topic starts empty")
+
+        def tb (new PresToolbar())
+        tb.roomDecks = ("f:f1" + tab + "Tests" + tab + "" + tab + "f")
+        this.ok(((tb.bulkLabel("mvf-f1")) == "Move to folder Tests") ("story pick: a folder's row, " + (tb.bulkLabel("mvf-f1"))))
+        this.ok(((tb.bulkLabel("mvf-top")) == "Out of the folder") "story pick: out of the folder")
+        this.ok(((tb.bulkLabel("stp-done")) == "Phase: Done") ("story pick: a phase, " + (tb.bulkLabel("stp-done"))))
+        tb.deckDragBegin("d7" "Seven" 100.0 100.0)
+        this.ok((tb.roomDragging()) "story card: pressed, the bar holds it")
+        tb.roomDragEnd()
+        this.ok((((array_length tb.requests) == 1) && ((itemAt tb.requests 0) == "room:deck:d7")) "story card: let go unmoved, it opens")
+        this.ok(((tb.roomDragging()) == false) "story card: and is let go")
+    }
+
     fn roomTerm:void () {
         this.ok(((PresTerm.apply("New room" "en" "room")) == "New room") "term: room keeps the words")
         this.ok(((PresTerm.apply("Search rooms…" "en" "project")) == "Search projects…") "term: rooms → projects")
@@ -2341,6 +2710,12 @@ class PresCheck {
         this.ok(((PresTerm.apply("Ei huonetta nimeltä #" "fi" "project")) == "Ei projektia nimeltä #") "term: huonetta → projektia")
         this.ok(((PresTerm.apply("room" "fi" "project")) == "room") "term: the language's own words only")
         this.ok(((PresTerm.apply("Room–room ×rooms" "en" "project")) == "Project–project ×projects") "term: dashes and signs are not letters")
+        this.ok(((PresTerm.apply("Move the presentation to a room" "en" "topic")) == "Move the story to a topic") "term: topic swaps presentations too")
+        this.ok(((PresTerm.apply("Rooms and Presentations" "en" "topic")) == "Topics and Stories") "term: topic plurals, capitals kept")
+        this.ok(((PresTerm.apply("Move the presentation" "en" "project")) == "Move the presentation") "term: project keeps presentations")
+        this.ok(((PresTerm.apply("Siirretäänkö esitys huoneeseen?" "fi" "topic")) == "Siirretäänkö tarina aiheeseen?") "term: esitys → tarina, huoneeseen → aiheeseen")
+        this.ok(((PresTerm.apply("Huoneen esitykset" "fi" "topic")) == "Aiheen tarinat") "term: Huoneen esitykset → Aiheen tarinat")
+        this.ok(((PresTerm.apply("Esitystila" "fi" "topic")) == "Esitystila") "term: compounds stay")
     }
 
     ; The document settings window's model: the front matter read into the
@@ -3487,6 +3862,18 @@ class PresCheck {
     ; typed number) and where each lands
     ; The presenter's story (PresStory, PresPuppet): beats, kinds and poses,
     ; build steps, and stillness while a line is read.
+    ; Whether slide 0 of `deck` drawn at `t` has `word` in its bubble.
+    sfn saysIn:boolean (deck:PresDeck t:double word:string) {
+        def g:[int]
+        def dl:EVGDisplayList (deck.slideList(0 g t))
+        for dl.cmds c:EVGDrawCmd ci {
+            if ((c.kind == 3) && ((indexOf c.text word) >= 0)) {
+                return true
+            }
+        }
+        return false
+    }
+
     fn story:void () {
         def beats:[PresStoryBeat] (PresStory.parse("conformanceIssues() kertoo, kelpaako PDF painoon.\n- Paitsi RGB-tilassa. Siellä vastaus on aina nolla.\n\nNiinpä koodi bugaa tässä. {pose=aim}\nBut, luckily, the fix is small. {pose=wave}"))
         this.ok(((array_length beats) == 4) ("story: four beats, " + (to_string (array_length beats))))
@@ -3499,6 +3886,28 @@ class PresCheck {
         this.ok((((b2.kind == "so") && (b2.pose == "aim")) && (b2.text == "Niinpä koodi bugaa tässä.")) ("story: {pose=aim} read and removed: " + b2.text))
         this.ok(((b3.kind == "but") && (b3.pose == "chin")) "story: But, with its comma; an unknown pose keeps the kind's")
         this.ok(((PresStory.readSeconds(b2)) >= 2.4) "story: a short line still gets 2.4 s")
+        ; attributes wherever they stand, never in the bubble
+        def tb:[PresStoryBeat] (PresStory.parse("Niinpä koodi bugaa tässä {pose=aim}.\nSiellä vastaus on { pose = \"finger\" } nolla\n{pose=thumb}\nTästä syystä testi kaatuu.\nToisaalta korjaus on pieni.\nKerroin on nolla. {kind=but}\nFunktio {x} palauttaa nollan.\nKoodi bugaa \\{pose=aim\\}"))
+        this.ok(((array_length tb) == 7) ("story: an attributes-only line is no beat, " + (to_string (array_length tb))))
+        def t0:PresStoryBeat (itemAt tb 0)
+        this.ok(((t0.text == "Niinpä koodi bugaa tässä.") && (t0.pose == "aim")) ("story: {pose=aim} before the full stop: " + t0.text))
+        def t1:PresStoryBeat (itemAt tb 1)
+        this.ok(((t1.text == "Siellä vastaus on nolla") && (t1.pose == "thumb")) ("story: spaced, quoted, then the next line's {pose=thumb}: " + t1.text + " " + t1.pose))
+        def t2:PresStoryBeat (itemAt tb 2)
+        this.ok((((t2.kind == "so") && (t2.word == "Tästä syystä")) && (t2.pose == "open")) ("story: a following phrase, " + t2.word))
+        def t3:PresStoryBeat (itemAt tb 3)
+        this.ok(((t3.kind == "but") && (t3.word == "Toisaalta")) "story: a turning synonym")
+        def t4:PresStoryBeat (itemAt tb 4)
+        this.ok((((t4.kind == "but") && (t4.word == "Kerroin")) && (t4.text == "Kerroin on nolla.")) ("story: {kind=but} on any opening word, " + t4.word))
+        def t5:PresStoryBeat (itemAt tb 5)
+        this.ok(((t5.text == "Funktio {x} palauttaa nollan.") && (t5.kind == "setup")) ("story: braces that are not attributes stay: " + t5.text))
+        def t6:PresStoryBeat (itemAt tb 6)
+        this.ok(((t6.text == "Koodi bugaa") && (t6.pose == "aim")) ("story: an escaped group is read too: " + t6.text))
+        def so1:PresStoryBeat (itemAt (PresStory.parse("Something happened.")) 0)
+        this.ok(((so1.kind == "setup") && ((strlen so1.word) == 0)) "story: so- at a word's start is not so")
+        ; a beat written as the slide's own bullet
+        def lk:[string] (PresStory.leaked("## Löydös\n\n- Funktio kertoo, kelpaako PDF.\n- Mutta RGB-tilassa vastaus on nolla.\n1. Therefore the test fails.\n\n```js\nbut(x)\n```\n\n::: story\nMutta tämä on tarinassa.\n:::\n"))
+        this.ok(((array_length lk) == 2) ("story: two beats leaked into the slide's text, " + (join lk " | ")))
         ; the pose changes, then the bubble pops and nothing moves while it is read
         def m0:PresPuppetState (PresStory.stateAt(beats 2 0.3))
         this.ok(((m0.still == false) && (m0.chin > 0.0)) "story: moving into the new pose")
@@ -3553,6 +3962,23 @@ class PresCheck {
         def gap:double ((PresTimeline.stepTime(sl 4)) - (PresTimeline.stepTime(sl 3)))
         def sb0:PresStoryBeat (itemAt sl.story 0)
         this.ok(((gap + 0.001) >= (PresStory.beatSeconds(sb0))) ("story: playing, a line holds until read: " + (to_string gap)))
+        ; come to the slide at its end (back from the next one): at rest;
+        ; played from its start: the last line is out
+        def endT:double sl.duration
+        deck.storySlide = 0
+        deck.storyFrom = endT
+        this.ok(((PresCheck.saysIn(deck endT "kaksi")) == false) "story: a slide come back to has the presenter at rest, no conclusion")
+        deck.storyFrom = 0.0
+        this.ok((PresCheck.saysIn(deck endT "kaksi")) "story: played from its start, the last line is out")
+        deck.storyFrom = (PresTimeline.stepTime(sl 4))
+        this.ok((PresCheck.saysIn(deck endT "kaksi")) "story: stepped back to a line, that line is said again")
+        deck.storySlide = -1
+        deck.storyFrom = 0.0
+        ; a script's presenter where it ends, on the stage before its first frame: at rest
+        def rf:PresScriptFrame (PresScriptFrame.read("{\"p\":{},\"a\":[{\"id\":\"presenter-1\",\"k\":\"presenter\",\"w\":960,\"h\":540,\"story\":\"Yksi.\\nMutta kaksi.\",\"shown\":2,\"since\":9}]}"))
+        rf.presentersAtRest()
+        def ra:PresScriptAdd (itemAt rf.adds 0)
+        this.ok(((ra.shown == 0) && (ra.since == 0.0)) "story: a final frame's presenter at rest has no line out")
         ; the slide's text keeps out of the presenter's strip; a slide
         ; without a presenter is as wide as before
         def body:string "a paragraph long enough to run across the whole slide and onto a second line"
@@ -3584,6 +4010,116 @@ class PresCheck {
         }
         this.ok(((array_length pc) > 40) ("story: a script's presenter is drawn, " + (to_string (array_length pc))))
         this.ok(said "story: its bubble says the line out")
+    }
+
+    ; A presentation as a video (PresVideo): frame n is time n / fps, the
+    ; same frame twice is the same list, a recording holds at its steps.
+    fn video:void () {
+        def text:string ("---\nslide-split-level: 2\nstep: 1.0\nhold: 2.0\n---\n\n## Yksi\n\nTeksti\n"
+            + "\n## Kaksi {transition=fade seconds=0.5}\n\n1. eka\n2. toka\n{.build}\n"
+            + "\n## Kolme\n\nLoppu\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        if ((deck.slideCount()) != 3) {
+            this.ok(false ("video: three slides, got " + (to_string (deck.slideCount()))))
+            return
+        }
+        ; options: kept when sensible, the defaults otherwise
+        def o:PresVideoOptions (PresVideoOptions.parse("{\"width\":1281,\"height\":720,\"fps\":25,\"codec\":\"h264\",\"quality\":99}"))
+        this.ok(((o.width == 1280) && (o.height == 720)) ("video: sides even, " + (to_string o.width)))
+        this.ok((((o.fps == 25) && (o.codec == "vp9")) && (o.quality == 32)) "video: an unknown codec and quality keep the defaults")
+        def o8:PresVideoOptions (PresVideoOptions.parse("{\"codec\":\"vp8\"}"))
+        this.ok((o8.codec == "vp8") "video: vp8 is Sliqtly's own encoder")
+        ; Export's rows: Video always, the Cloud rows only where the page
+        ; publishes to sliqtly.com (not a server of one's own, PresApp.setCloud)
+        def tb (new PresToolbar())
+        def rows:string (join (tb.exportFormats()) "\n")
+        def cloudRows:boolean (((indexOf rows "x-vidweb") >= 0) && ((indexOf rows "x-recweb") >= 0))
+        this.ok((((indexOf rows "x-video") >= 0) && cloudRows) "export: Video and the Cloud rows on sliqtly.com")
+        tb.cloud = false
+        def local:string (join (tb.exportFormats()) "\n")
+        def noCloud:boolean (((indexOf local "x-vidweb") < 0) && ((indexOf local "x-recweb") < 0))
+        this.ok((((indexOf local "x-video") >= 0) && noCloud) "export: no Cloud rows on a server of one's own")
+        def d:PresVideoOptions (PresVideoOptions.parse(""))
+        this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
+        ; the video's window: how far, Cancel asks the page, another job's
+        ; progress does not move it
+        def pw (new PresChartEditor())
+        pw.openProgress("video" "Video" "Making the video…" 0.0 0.0 1280.0 720.0)
+        this.ok((((pw.mode == "progress") && pw.isOpen) && (pw.pgValue == 0)) "progress: opens at 0")
+        this.ok((pw.setProgress("video" 30 120 "30 / 120 frames" true)) "progress: moves")
+        this.ok(((pw.pgValue == 30) && (pw.pgMax == 120)) "progress: 30 of 120")
+        this.ok(((pw.setProgress("other" 1 2 "" true)) == false) "progress: another job's is not this window's")
+        pw.act("pg-cancel")
+        this.ok((pw.wantsCancelJob && pw.wantsClose) "progress: Cancel asks the page to stop")
+
+        ; the deck on its own
+        def tl:PresVideoTimeline (PresVideoTimeline.ofDeck(deck d))
+        def total:double (PresTimeline.total(deck))
+        this.ok(((fabs (tl.duration - total)) < 0.000001) ("video: as long as the deck, " + (to_string tl.duration)))
+        def frames:int (tl.frameCount())
+        def lastT:double ((to_double (frames - 1)) / 30.0)
+        def endT:double ((to_double frames) / 30.0)
+        this.ok(((lastT < total) && (endT >= (total - 0.000001))) ("video: frames cover it, " + (to_string frames)))
+        this.ok(((tl.frameTime(9000)) == 300.0) "video: frame 9000 is exactly 300 s")
+        def builds:int 0
+        def trans:int 0
+        for tl.events e:PresVideoEvent ei {
+            if (e.kind == "build") {
+                builds = (builds + 1)
+            }
+            if (e.kind == "transition") {
+                trans = (trans + 1)
+            }
+        }
+        this.ok((builds == 2) ("video: the build steps are events, " + (to_string builds)))
+        this.ok((trans == 2) ("video: the transitions too, " + (to_string trans)))
+        def s1start:double (PresTimeline.slideStart(deck 1))
+        def nf:int (to_int ((s1start * 30.0) + 1.0))
+        def a1:PresVideoAt (tl.at(deck nf))
+        this.ok(((a1.slide == 1) && (a1.local >= 0.0)) ("video: a frame past slide 2's start shows it, " + (to_string a1.slide)))
+        def last:PresVideoAt (tl.at(deck (frames - 1)))
+        this.ok((last.slide == 2) "video: the last frame is on the last slide")
+        def rp (new PresReplay())
+        def f1:string ((PresVideo.frame(deck tl nf rp)).toJson())
+        def f2:string ((PresVideo.frame(deck tl nf rp)).toJson())
+        def f3:string ((PresVideo.frame(deck tl (nf + 20) rp)).toJson())
+        this.ok((f1 == f2) "video: the same frame twice is the same list")
+        this.ok((f1 != f3) "video: a build step later it is not")
+        this.ok((((strlen (tl.toJson())) > 100) && ((indexOf (tl.toJson()) "\"frames\":") > 0)) "video: the timeline as JSON")
+
+        ; a recording: slide 2 shown at 1 s and held before its first step,
+        ; a click at 6 s, slide 3 at 9 s; 2 s cut out of the hold
+        def r (new PresRecording())
+        r.nav(0.0 0 0 0.0 false)
+        def s1:PresSlide (deck.slideAt(1))
+        r.nav(1.0 1 0 s1start false)
+        r.nav(6.0 1 1 (s1start + (PresTimeline.stepTime(s1 1))) false)
+        r.nav(9.0 2 0 (PresTimeline.slideStart(deck 2)) false)
+        r.ptr(9.5 100.0 100.0)
+        r.duration = 11.0
+        r.addCut(3.0 5.0)
+        def rt:PresVideoTimeline (PresVideoTimeline.ofRecording(deck r d))
+        this.ok(((fabs (rt.duration - 9.0)) < 0.000001) ("video: a recording without its cut, " + (to_string rt.duration)))
+        ; play 3.5 s is source 5.5 s: slide 2, held where step 1 begins
+        def h:PresVideoAt (rt.at(deck 105))
+        this.ok(((h.slide == 1) && ((fabs (h.source - 5.5)) < 0.000001)) ("video: after the cut it is the recording's 5.5 s, " + (to_string h.source)))
+        this.ok(((fabs (h.local - (PresTimeline.stepTime(s1 1)))) < 0.000001) ("video: held at the next step, " + (to_string h.local)))
+        this.ok((h.fxTime > h.local) "video: its effect runs on through the hold")
+        def h2:PresVideoAt (rt.at(deck 130))
+        this.ok(((h2.slide == 1) && (h2.local > (PresTimeline.stepTime(s1 1)))) "video: the click moves it on")
+        def keep:[double] (rt.audioKeep())
+        this.ok(((((array_length keep) == 4) && ((itemAt keep 1) == 3.0)) && ((itemAt keep 2) == 5.0)) "video: the sound keeps what is not cut")
+        ; the pointer shows on the frame at 9.5 s of the recording (7.5 s played)
+        def rr (new PresReplay())
+        rr.load(r)
+        def withPtr:EVGDisplayList (PresVideo.frame(deck rt 225 rr))
+        def plain:EVGDisplayList (PresVideo.frame(deck tl (to_int (((PresTimeline.slideStart(deck 2)) + 0.5) * 30.0)) rp))
+        this.ok(((array_length withPtr.cmds) > (array_length plain.cmds)) ("video: the recorded pointer is drawn, " + (to_string (array_length withPtr.cmds)) + " > " + (to_string (array_length plain.cmds))))
+        ; and seeking back starts the ink over
+        def back:EVGDisplayList (PresVideo.frame(deck rt 30 rr))
+        this.ok(((rr.ink.count()) == 0) "video: a frame before the drawing has none")
     }
 
     ; Drawing over a slide (PresInk) and a recorded presentation (PresRecord).
@@ -5199,6 +5735,26 @@ class PresCheck {
         this.ok(((indexOf slides "#sana") > 0) "words get a chart")
     }
 
+    ; The size beside the editor's tabs: Markdown + theme + the deck's files.
+    fn deckSize:void () {
+        this.ok(((PresDeckSize.utf8Bytes("abc")) == 3) "deck size: ASCII is a byte a character")
+        this.ok(((PresDeckSize.utf8Bytes("ä")) == 2) ("deck size: ä is two bytes, got " + (to_string (PresDeckSize.utf8Bytes("ä")))))
+        this.ok(((PresDeckSize.utf8Bytes("—")) == 3) "deck size: an em dash is three bytes")
+        this.ok(((PresDeckSize.utf8Bytes("😀")) == 4) ("deck size: an emoji is four bytes, got " + (to_string (PresDeckSize.utf8Bytes("😀")))))
+        this.ok(((PresDeckSize.sizeText(812)) == "812 B") "deck size: bytes under a kilobyte")
+        this.ok(((PresDeckSize.sizeText(3482)) == "3.4 KB") ("deck size: one decimal under ten, got " + (PresDeckSize.sizeText(3482))))
+        this.ok(((PresDeckSize.sizeText(18432)) == "18 KB") "deck size: whole kilobytes above ten")
+        this.ok(((PresDeckSize.sizeText(1258291)) == "1.2 MB") ("deck size: megabytes, got " + (PresDeckSize.sizeText(1258291))))
+        def z (new PresDeckSize())
+        z.setMarkdown("## Hei\nMäärä")
+        z.setCss("h1{}")
+        z.setFiles(2 1000)
+        this.ok(((z.total()) == 1019) ("deck size: Markdown + theme + files, got " + (to_string (z.total()))))
+        this.ok(((z.label()) == "Size: 1019 B") ("deck size: the label, got " + (z.label())))
+        z.setFiles(0 -1)
+        this.ok(((z.total()) == 19) "deck size: no files, nothing counted for them")
+    }
+
     fn stripDrag:void () {
         def d (new PresStripDrag())
         d.start(5 1 1.0 10.0)
@@ -5695,6 +6251,65 @@ class PresCheck {
         return c
     }
 
+    ; A donut's outline in the colour and width its mark names
+    ; (`"stroke": "#111", "strokeWidth": 6`): kept on a dark slide (it was
+    ; lit up near white), on a light one (it took the warm colour) and in a
+    ; look (it took the first series' ink).
+    fn ownStrokes:void () {
+        def spec:string "{\"data\":{\"values\":[{\"c\":\"a\",\"v\":4},{\"c\":\"b\",\"v\":6},{\"c\":\"c\",\"v\":10}]},\"mark\":{\"type\":\"arc\",\"innerRadius\":50,\"stroke\":\"#111\",\"strokeWidth\":6},\"encoding\":{\"theta\":{\"field\":\"v\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\"}}}"
+        def keys:[string] (PresChart.ownStrokes(spec))
+        this.ok((((array_length keys) == 1) && ((itemAt keys 0) == "17,17,17")) ("own strokes: the mark's stroke is read, got " + (join keys " ")))
+        def enc:[string] (PresChart.ownStrokes("{\"mark\":\"arc\",\"encoding\":{\"stroke\":{\"value\":\"white\"}}}"))
+        this.ok((((array_length enc) == 1) && ((itemAt enc 0) == "255,255,255")) "own strokes: an encoding's stroke value is read")
+        this.ok(((array_length (PresChart.ownStrokes("{\"mark\":\"arc\"}"))) == 0) "own strokes: none named")
+        for (strsplit "flat dark|flat|forge dark|cartoon" "|") style:string si {
+            def text:string ("---\nslide-split-level: 2\n" + "---\n\n## Donut\n\n```vega-lite\n" + spec + "\n```\n")
+            if (style == "cartoon") {
+                text = ("---\nslide-split-level: 2\nstyle: cartoon\n---\n\n## Donut\n\n```vega-lite\n" + spec + "\n```\n")
+            }
+            def deck (new PresDeck())
+            deck.setText(text)
+            def l:MdLayout (deck.layout())
+            def bi:int -1
+            def i:int 0
+            while (i < (array_length l.boxes)) {
+                def b:MdBox (itemAt l.boxes i)
+                if ((b.kind == 3) && ((indexOf b.embedSource "\"arc\"") >= 0)) {
+                    bi = i
+                }
+                i = (i + 1)
+            }
+            this.ok((bi >= 0) "own strokes: the donut is laid out")
+            if (bi >= 0) {
+                def dl (new EVGDisplayList())
+                if (style == "cartoon") {
+                    dl = (deck.chartStill(bi))
+                } {
+                    def painter (new MdToEvg())
+                    def b:MdBox (itemAt l.boxes bi)
+                    painter.paintBox(dl l b 0.0)
+                    PresChart.dress(dl 0 1000000.0 true "#59C3C4" "#B96926" b.embedSource style)
+                }
+                def dark:int 0
+                def thick:int 0
+                def other:int 0
+                for dl.cmds c:EVGDrawCmd ci {
+                    if ((c.kind == 7) && ((array_length c.pts) > 20)) {
+                        if (((c.r == 17) && (c.g == 17)) && (c.b == 17)) {
+                            dark = (dark + 1)
+                            if (c.thickness >= 4.0) {
+                                thick = (thick + 1)
+                            }
+                        } {
+                            other = (other + 1)
+                        }
+                    }
+                }
+                this.ok((((dark == 3) && (thick == 3)) && (other == 0)) ((("own strokes (" + style) + "): 3 slice outlines in #111 at the mark's width, got ") + (to_string dark) + " / " + (to_string thick) + " thick, " + (to_string other) + " recoloured"))
+            }
+        }
+    }
+
     ; Rounded columns (`cornerRadiusEnd`) are a script's bars; a point (a
     ; rect round all through) is not. The dressing still leaves them.
     fn roundedBars:void () {
@@ -6023,6 +6638,14 @@ class PresCheck {
         this.ok((startsWith first "__deckFiles([[\"./world.json\",\"apps/world.json\",\"{\\\"a\\\": \\\"x\\\\ny\\\"}\"],[\"../data/sales.csv\",\"data/sales.csv\",null]]);import cfg") ("playFiles: the files on the first line, got " + first))
         this.ok(((array_length (strsplit linked (strfromcode 10))) == 4) "playFiles: the program keeps its line numbers")
         this.ok(((indexOf (deck.playFiles()) "data/sales.csv") < 0) "playFiles: a file the deck lacks is not asked for again")
+        this.ok(((deck.linkedSource("apps/g.tsx")) == linked) "playFiles: asked again, the same program")
+        deck.setChartData("apps/world.json" "{\"a\": 2}")
+        this.ok(((indexOf (deck.linkedSource("apps/g.tsx")) "{\\\"a\\\": 2}") > 0) "playFiles: a file changed, the program has it")
+        this.ok((deck.playsWaiting(0)) "playFiles: a program that has not drawn is waited for")
+        this.ok(((deck.playsWaiting(1)) == false) "playFiles: no slide, nothing waited for")
+        def wsc:PresFlightScene (PresFlightScene.of(deck))
+        def wst:FlightStation (itemAt wsc.stations 0)
+        this.ok(wst.waits "flight: a station whose program has not drawn waits for it")
     }
 
     fn plays:void () {
@@ -6947,11 +7570,56 @@ class PresCheck {
         this.ok(((((xi.get("nodes")).at(0)).strOr("kind" "x")) == "") "scenes: its own nodes have no kind")
     }
 
+    ; A point chart in the flight (Tero 2026-10-12): its points balls, not
+    ; bars a few pixels tall; its grid thin lines, not tubes as thick as the
+    ; data's; the y title on its side left of the y labels, where the slide
+    ; turns it; and on the slide points as large as the labels' type.
+    fn flightPoints:void () {
+        def text:string "## Hinta ja määrä\n\n```vega-lite\n{\"data\": {\"values\": [{\"x\": 10, \"y\": 120}, {\"x\": 15, \"y\": 100}, {\"x\": 20, \"y\": 90}, {\"x\": 25, \"y\": 60}, {\"x\": 30, \"y\": 52}, {\"x\": 35, \"y\": 40}]}, \"mark\": {\"type\": \"point\", \"filled\": true}, \"encoding\": {\"x\": {\"field\": \"x\", \"type\": \"quantitative\", \"title\": \"Hinta\", \"axis\": {\"grid\": false}}, \"y\": {\"field\": \"y\", \"type\": \"quantitative\", \"title\": \"Myyty\", \"axis\": {\"grid\": true}}}}\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def sc:PresFlightScene (PresFlightScene.of(deck))
+        def dots:int 0
+        def bars:int 0
+        def thick:int 0
+        def dotW:double 0.0
+        def titleX:double 0.0
+        def labelX:double 99.0
+        for sc.items it:FlightItem n {
+            if (it.kind == "dot") {
+                dots = (dots + 1)
+                dotW = it.w
+            }
+            if (it.kind == "bar") {
+                bars = (bars + 1)
+            }
+            if (((it.kind == "line") && (it.pulse == false)) && (it.rad > 0.02)) {
+                thick = (thick + 1)
+            }
+            if ((it.kind == "text") && (it.rot != 0.0)) {
+                titleX = it.x
+            }
+            if (((it.kind == "text") && (it.rot == 0.0)) && ((it.text == "40") || (it.text == "80"))) {
+                if (it.x < labelX) {
+                    labelX = it.x
+                }
+            }
+        }
+        this.ok(((dots == 6) && (bars == 0)) ("flight: a point chart's points are balls, got " + (to_string dots) + " balls and " + (to_string bars) + " bars"))
+        this.ok((dotW > 0.1) ("flight: …large enough to see, got " + (to_string dotW)))
+        this.ok((thick == 0) ("flight: a chart's grid and frame are thin lines, got " + (to_string thick) + " thick"))
+        this.ok((titleX < (labelX - 0.3)) ("flight: the y title stands left of the y labels, got " + (to_string titleX) + " and " + (to_string labelX)))
+        def cfg:string (deck.chartDefaults("chart" true))
+        this.ok(((indexOf cfg "\"point\": {\"size\": 113}") > 0) ("a slide's points are as large as its 15 pt labels: " + cfg))
+    }
+
     ; The 3-D flight (src/PresFlight.rgr, PresFlightCam.rgr): a station per
-    ; slide; a diagram as glass nodes at staggered depths with arcing lines,
-    ; charts as bars, ribbons, wedges; the camera and its hands.
+    ; slide, each drawn again as a hologram where the slide has its things
+    ; (words of light, glass panes, bars, pink rings, glowing lines); the
+    ; camera and its hands.
     fn flight:void () {
-        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Keski]\n  B --> C[Loppu]\n```\n\n## Myynti\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"Q1\", \"v\": 3}, {\"k\": \"Q2\", \"v\": 6}, {\"k\": \"Q3\", \"v\": -2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n\n## Osuudet\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"a\", \"v\": 1}, {\"k\": \"b\", \"v\": 3}]}, \"mark\": \"arc\", \"encoding\": {\"theta\": {\"field\": \"v\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"k\", \"type\": \"nominal\"}}}\n```\n\n## Pelkkä otsikko\n\nTekstiä.\n"
+        def text:string "---\nslide-split-level: 2\n---\n\n## Kulku\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Keski]\n  B --> C[Loppu]\n```\n\n## Myynti\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"Q1\", \"v\": 3}, {\"k\": \"Q2\", \"v\": 6}, {\"k\": \"Q3\", \"v\": -2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"k\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n\n## Osuudet\n\n```vega-lite\n{\"data\": {\"values\": [{\"k\": \"a\", \"v\": 1}, {\"k\": \"b\", \"v\": 3}]}, \"mark\": \"arc\", \"encoding\": {\"theta\": {\"field\": \"v\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"k\", \"type\": \"nominal\"}}}\n```\n\n## Pelkkä otsikko\n\nTekstiä.\n\n- Yksi\n  - Sisempi\n- Kaksi\n\n### Väli\n\n1. Eka\n2. Toka\n\n| A | B |\n|---|---|\n| x | y |\n\n![kuva](kuva.png)\n\n::: notes\nPuhujan muistiinpano\n:::\n"
         def deck (new PresDeck())
         deck.setText(text)
         PresTimeline.planAll(deck)
@@ -6967,62 +7635,388 @@ class PresCheck {
         this.ok((s1.kind == "chart") ("flight: slide 2 is a chart station, got " + s1.kind))
         this.ok((s3.kind == "slide") ("flight: slide 4 shows its title, got " + s3.kind))
         this.ok((s1.z < (s0.z - 30.0)) "flight: the next station is further away")
-        ; the diagram: three glass nodes, two lines, ranks at different depths
-        def glass:[FlightItem]
-        def links:[FlightItem]
+        ; each slide drawn again in the hologram's own look
+        def words:string ""
+        def panels:[FlightItem]
+        def lines:[FlightItem]
         def bars:[FlightItem]
-        def wedges:[FlightItem]
+        def slices:[FlightItem]
+        def turning:int 0
+        def nodeWords:boolean false
         def i:int 0
         while (i < (array_length sc.items)) {
             def it:FlightItem (itemAt sc.items i)
-            if ((it.kind == "glass") && (it.station == 0)) {
-                push glass it
+            if ((it.kind == "text") && (it.station == 3)) {
+                words = (words + it.text + "\n")
             }
-            if ((it.kind == "link") && (it.station == 0)) {
-                push links it
+            if ((it.kind == "text") && ((it.station == 0) && (it.text == "Alku"))) {
+                nodeWords = true
             }
-            if (it.kind == "bar") {
+            if ((it.kind == "panel") && ((it.station == 0) && it.brackets)) {
+                push panels it
+            }
+            if ((it.kind == "line") && ((it.station == 0) && it.pulse)) {
+                push lines it
+            }
+            if ((it.kind == "bar") && (it.station == 1)) {
                 push bars it
             }
-            if (it.kind == "wedge") {
-                push wedges it
+            if ((it.kind == "ring") && (it.spin == 0.0)) {
+                push slices it
+            }
+            if ((it.kind == "ring") && (it.spin != 0.0)) {
+                turning = (turning + 1)
             }
             i = (i + 1)
         }
-        this.ok(((array_length glass) == 3) ("flight: three glass nodes, got " + (to_string (array_length glass))))
-        this.ok(((array_length links) == 2) ("flight: two lines, got " + (to_string (array_length links))))
-        if (((array_length glass) == 3) && ((array_length links) == 2)) {
-            def a:FlightItem (itemAt glass 0)
-            def b:FlightItem (itemAt glass 1)
-            this.ok((a.text == "Alku") ("flight: the node's text, got " + a.text))
-            this.ok((a.z != b.z) "flight: nodes a line apart float at different depths")
-            ; as the slide lays it out (this one turns it top to bottom)
-            this.ok(((b.x > a.x) || (b.y < a.y)) "flight: the nodes stand as the slide draws them")
-            this.ok(((a.w > 0.5) && (a.w < 16.0)) "flight: a node fits the station")
-            def l0:FlightItem (itemAt links 0)
-            def np:int (idiv (array_length l0.pts) 3)
-            this.ok((np >= 3) "flight: a line is cut for its bow")
-            this.ok(l0.head "flight: an arrow keeps its head")
-            ; the line starts at its start node's depth and bows towards us
-            this.ok(((fabs ((itemAt l0.pts 2) - a.z)) < 0.01) "flight: a line leaves at its node's depth")
-            def midZ:double (itemAt l0.pts (((idiv np 2) * 3) + 2))
-            def straight:double ((a.z + b.z) * 0.5)
-            this.ok((midZ > straight) "flight: a line bows out towards the viewer")
+        this.ok((((indexOf words "Tekstiä.") >= 0) && ((indexOf words "Sisempi") >= 0)) ("flight: the text slide's words are lines of light, got " + words))
+        this.ok(((indexOf words "Puhujan") < 0) "flight: not the speaker's notes")
+        ; the diagram: its nodes glass panes with brackets, its lines bright
+        ; yellow tubes with sparks
+        this.ok(((array_length panels) == 3) ("flight: three nodes as glass panes, got " + (to_string (array_length panels))))
+        this.ok(nodeWords "flight: a node's words")
+        this.ok(((array_length lines) == 2) ("flight: the diagram's lines carry sparks, got " + (to_string (array_length lines))))
+        if ((array_length lines) > 0) {
+            def l0:FlightItem (itemAt lines 0)
+            this.ok((l0.r > l0.b) "flight: a diagram's line glows in its own colour")
         }
-        ; the chart: a bar per value, the negative one under the floor
+        if ((array_length panels) == 3) {
+            def a:FlightItem (itemAt panels 0)
+            def b:FlightItem (itemAt panels 1)
+            this.ok(((b.x > a.x) || (b.y < a.y)) "flight: the nodes stand as the slide draws them")
+            this.ok(((a.z - s0.z) > 0.5) "flight: a diagram floats in front of its slide")
+        }
+        ; the chart: a bar per value, the negative one under the line
         this.ok(((array_length bars) == 3) ("flight: three bars, got " + (to_string (array_length bars))))
         if ((array_length bars) == 3) {
             def q2:FlightItem (itemAt bars 1)
             def q3:FlightItem (itemAt bars 2)
-            this.ok(((fabs (q2.h - 7.0)) < 0.01) "flight: the largest value is the chart's height")
-            this.ok(((q3.y + (q3.h * 0.5)) < ((q2.y - (q2.h * 0.5)) + 0.01)) "flight: a negative bar hangs under the floor")
+            this.ok((q2.h > (q3.h * 2.0)) "flight: a bar as tall as its value")
+            this.ok(((q3.y + (q3.h * 0.5)) < ((q2.y - (q2.h * 0.5)) + 0.05)) "flight: a negative bar hangs under the line")
+            this.ok(((q2.d > 0.05) && (q2.base < q2.y)) "flight: a bar is a box that grows from its base")
         }
-        ; the pie: two slices, a quarter and three quarters of the turn
-        this.ok(((array_length wedges) == 2) ("flight: two slices, got " + (to_string (array_length wedges))))
-        if ((array_length wedges) == 2) {
-            def w0:FlightItem (itemAt wedges 0)
-            this.ok(((fabs ((w0.a1 - w0.a0) - 1.5708)) < 0.001) "flight: a quarter of the pie is a quarter turn")
+        ; the pie: two pink rings, a quarter and three quarters of the turn,
+        ; and thin rings that turn round it
+        this.ok(((array_length slices) == 2) ("flight: two slices, got " + (to_string (array_length slices))))
+        if ((array_length slices) == 2) {
+            def w0:FlightItem (itemAt slices 0)
+            def w1:FlightItem (itemAt slices 1)
+            def quarter:boolean (((fabs ((w0.a1 - w0.a0) - 1.5708)) < 0.08) || ((fabs ((w1.a1 - w1.a0) - 1.5708)) < 0.08))
+            this.ok(quarter ("flight: a quarter of the pie is a quarter turn, got " + (to_string (w0.a1 - w0.a0)) + " and " + (to_string (w1.a1 - w1.a0))))
+            this.ok(((w0.r > w0.g) && (w0.r > 0.8)) "flight: a slice glows pink")
+            this.ok(((w0.r0 > (w0.r1 * 0.5)) && (w0.r0 < w0.r1)) "flight: a pie is a ring")
         }
+        this.ok((turning == 2) "flight: two thin rings turn round the pie")
+        this.flightPoints()
+        ; code with marked lines: a band of light behind them, the other
+        ; lines dimmer
+        def cdeck (new PresDeck())
+        cdeck.setText("# Koodi\n\n```js {lines=2}\nlet a = 1\nlet b = 2\nlet c = 3\n```\n")
+        PresTimeline.planAll(cdeck)
+        def cs:PresFlightScene (PresFlightScene.of(cdeck))
+        def bands:int 0
+        def lit:double 0.0
+        def dim:double 9.0
+        for cs.items ci:FlightItem cn {
+            if ci.band {
+                bands = (bands + 1)
+            }
+            if ((ci.kind == "text") && ((array_length ci.runs) > 0)) {
+                def r0:FlightRun (itemAt ci.runs 0)
+                if ((indexOf ci.text "b = 2") >= 0) {
+                    lit = ((r0.r + r0.g) + r0.b)
+                }
+                if ((indexOf ci.text "a = 1") >= 0) {
+                    dim = ((r0.r + r0.g) + r0.b)
+                }
+            }
+        }
+        this.ok((bands == 1) ("flight: a marked code line is a band of light, got " + (to_string bands)))
+        this.ok((dim < lit) ("flight: unmarked code lines are dimmer, got " + (to_string dim) + " and " + (to_string lit)))
+        ; a picture of the slide as a hologram's screen: dark is see-through
+        def px:buffer (buffer_alloc 8)
+        buffer_set px 3 255
+        buffer_set px 4 255
+        buffer_set px 5 255
+        buffer_set px 6 255
+        buffer_set px 7 255
+        FlightHolo.pixels(px 2 1 0.36 0.88 1.0)
+        this.ok(((buffer_get px 3) < 80) "flight: a picture's dark is see-through")
+        this.ok(((buffer_get px 7) == 255) "flight: its light stays")
+        ; a picture on the slide stays opaque, its dark too
+        def sp:buffer (buffer_alloc 12)
+        def si:int 0
+        while (si < 3) {
+            buffer_set sp ((si * 4) + 1) 200
+            buffer_set sp ((si * 4) + 3) 255
+            si = (si + 1)
+        }
+        FlightHolo.solid(sp 1 3)
+        this.ok((((buffer_get sp 3) == 255) && ((buffer_get sp 11) == 255)) "flight: a solid picture keeps its opacity")
+        this.ok((((buffer_get sp 1) == 200) && ((buffer_get sp 9) < 200)) "flight: …and its colours, a scan row a little darker")
+        def pdeck (new PresDeck())
+        pdeck.addImage("/media/screen.png" (buffer_from_string "png") "image/png" 40 80)
+        pdeck.addImage("/media/bg.png" (buffer_from_string "png") "image/png" 160 90)
+        pdeck.setText("## Näkymät {bg=media/bg.png}\n\n![](media/screen.png)\n")
+        PresTimeline.planAll(pdeck)
+        def psc:PresFlightScene (PresFlightScene.of(pdeck))
+        def front:int 0
+        def back:int 0
+        for psc.items pi:FlightItem pn {
+            if (pi.kind == "picture") {
+                if (pi.src == "/media/screen.png") {
+                    front = (? pi.solid 1 -1)
+                }
+                if (pi.src == "/media/bg.png") {
+                    back = (? pi.solid -1 1)
+                }
+            }
+        }
+        this.ok((front == 1) ("flight: a picture on the slide is solid, got " + (to_string front)))
+        this.ok((back == 1) ("flight: the slide's background picture is not, got " + (to_string back)))
+        ; a concave outline is filled only inside: an L of six corners is
+        ; four triangles that together are its area
+        def ell:[double] ([] _:double (0.0 0.0 2.0 0.0 2.0 1.0 1.0 1.0 1.0 2.0 0.0 2.0))
+        def tri:[int] (FlightHolo.ears(ell))
+        def covered:double 0.0
+        def ti:int 0
+        while ((ti + 2) < (array_length tri)) {
+            def ta:int (itemAt tri ti)
+            def tb:int (itemAt tri (ti + 1))
+            def tc:int (itemAt tri (ti + 2))
+            def cr:double ((((itemAt ell (tb * 2)) - (itemAt ell (ta * 2))) * ((itemAt ell ((tc * 2) + 1)) - (itemAt ell ((ta * 2) + 1)))) - (((itemAt ell ((tb * 2) + 1)) - (itemAt ell ((ta * 2) + 1))) * ((itemAt ell (tc * 2)) - (itemAt ell (ta * 2)))))
+            covered = (covered + ((fabs cr) * 0.5))
+            ti = (ti + 3)
+        }
+        this.ok(((array_length tri) == 12) ("flight: an L is four triangles, got " + (to_string (idiv (array_length tri) 3))))
+        this.ok(((fabs (covered - 3.0)) < 0.001) ("flight: they cover the L and no more, got " + (to_string covered)))
+        ; 3-D looks: the first keeps the colours, the others pull them to their hue
+        def lm:FlightLook (FlightLook.named(""))
+        this.ok((lm.key == "minority") "flight look: a deck without look-3d is Minority Report")
+        def same:[double] (lm.tint(0.2 0.4 0.6))
+        this.ok(((itemAt same 1) == 0.4) "flight look: …which keeps the slide's colours")
+        def gl:FlightLook (FlightLook.named(" gold "))
+        def gc:[double] (gl.tint(0.36 0.88 1.0))
+        this.ok((((itemAt gc 0) > (itemAt gc 2)) && ((itemAt gc 0) > 0.8)) ("flight look: gold turns cyan golden, got " + (to_string (itemAt gc 0)) + "," + (to_string (itemAt gc 2))))
+        def gw:[double] (gl.tint(1.0 1.0 1.0))
+        this.ok((((itemAt gw 2) > 0.3) && ((itemAt gw 0) > 0.95)) "flight look: …white words stay light and readable")
+        def gk:[double] (gl.tint(0.0 0.0 0.0))
+        this.ok(((itemAt gk 0) == 0.0) "flight look: …black stays black")
+        this.ok(((FlightLook.named("nope")).key == "minority") "flight look: an unknown key is the first look")
+        this.ok((((FlightLook.ofTile("look3d:red")) == "red") && ((FlightLook.ofTile("aurora")) == "")) "flight look: a tile's look, none for a theme")
+        def lrows:[PresThemeTile] (PresThemeGallery.tiles((FlightLook.rows())))
+        def lt1:PresThemeTile (itemAt lrows 1)
+        this.ok((((array_length lrows) == 4) && (lt1.group == "3-D")) "flight look: four tiles on the picker's 3-D tab")
+        def ldeck (new PresDeck())
+        ldeck.setText("---\nlook-3d: gold\n---\n\n# Kulta\n\nTeksti.\n")
+        def lscene:PresFlightScene (PresFlightScene.of(ldeck))
+        this.ok((lscene.look.key == "gold") "flight look: the deck's look-3d picks the look")
+        this.ok(((indexOf (lscene.toJson()) "\"look\":{\"key\":\"gold\"") >= 0) "flight look: …and the world's JSON carries it")
+        ; a table as a scoreboard: a stripe a row, the header lit, one frame
+        def tbdeck (new PresDeck())
+        tbdeck.setText("# Tulostaulu\n\n| Sija | Pelaaja |\n|---|---|\n| 1 | Aino |\n| 2 | Eero |\n| 3 | Lumi |\n")
+        def tbs:PresFlightScene (PresFlightScene.of(tbdeck))
+        def stripes:[FlightItem]
+        def frames:int 0
+        def cellsLeft:int 0
+        for tbs.items ti:FlightItem tk {
+            if ti.cell {
+                cellsLeft = (cellsLeft + 1)
+            }
+            if ti.bare {
+                push stripes ti
+            }
+            if (ti.bevel > 0.0) {
+                frames = (frames + 1)
+            }
+        }
+        this.ok(((array_length stripes) == 4) ("flight table: a stripe a row, got " + (to_string (array_length stripes))))
+        this.ok((cellsLeft == 0) "flight table: …the cells gone into them")
+        this.ok((frames == 1) "flight table: …one frame round it, its corners cut")
+        if ((array_length stripes) == 4) {
+            def s0:FlightItem (itemAt stripes 0)
+            def s1:FlightItem (itemAt stripes 1)
+            def s2:FlightItem (itemAt stripes 2)
+            this.ok(((s0.y > s1.y) && (s0.fill > s1.fill)) "flight table: …the header on top, lit")
+            this.ok((s1.fill > s2.fill) "flight table: …the rows in turns")
+            this.ok(((array_length s1.cmds) == 2) ("flight table: …a row's stripe draws its cells, got " + (to_string (array_length s1.cmds))))
+        }
+        this.ok(((array_length (FlightGeo.bevelLoop(4.0 2.0 0.3))) == 27) "flight table: a frame with cut corners is a closed line of 9 points")
+        ; the theme's line art behind the slide is dim next to the slide's lines
+        def adeck (new PresDeck())
+        adeck.setTheme("page { width: 13.333in; height: 7.5in; padding: 0.8in; background-color: #ffffff } deck { art: tide } document { color: #1f2933 }")
+        adeck.setText("# Aallot\n\nTeksti.\n")
+        def ascene:PresFlightScene (PresFlightScene.of(adeck))
+        def artN:int 0
+        def artTop:double 0.0
+        for ascene.items ai:FlightItem an {
+            if ((ai.ent == "slide") && (((ai.kind == "line") || (ai.kind == "shape")) && (ai.rad < 0.025))) {
+                if ai.art {
+                    artN = (artN + 1)
+                }
+                if (ai.op > artTop) {
+                    artTop = ai.op
+                }
+            }
+        }
+        this.ok((artN > 0) "flight: the tide theme's waves come along")
+        this.ok((artTop <= 0.3) ("flight: …dim, at most 0.3, got " + (to_string artTop)))
+        ; a timeline: its numbers in circles, its line broken at each
+        def tdeck (new PresDeck())
+        tdeck.setText("# Aikajana\n\n```timeline\n- Vaihe 1: Toiminimi\n- Vaihekynnys: Ensimmäinen asiakas\n- Vaihe 2: Osakeyhtiö\n```\n")
+        PresTimeline.planAll(tdeck)
+        def ts:PresFlightScene (PresFlightScene.of(tdeck))
+        def discs:[FlightItem]
+        for ts.items di:FlightItem dn {
+            if di.disc {
+                push discs di
+            }
+        }
+        this.ok(((array_length discs) == 3) ("flight: a timeline's numbers are circles, got " + (to_string (array_length discs))))
+        def pieces:int 0
+        def through:int 0
+        for ts.items tl:FlightItem tn {
+            if ((tl.kind == "line") && (tl.ent != "slide")) {
+                pieces = (pieces + (array_length tl.ends))
+                def q:int 0
+                while ((q + 2) < (array_length tl.pts)) {
+                    for discs dd:FlightItem dq {
+                        def ex:double ((itemAt tl.pts q) - dd.x)
+                        def ey:double ((itemAt tl.pts (q + 1)) - dd.y)
+                        if ((sqrt(((ex * ex) + (ey * ey)))) < (dd.w * 0.5)) {
+                            through = (through + 1)
+                        }
+                    }
+                    q = (q + 3)
+                }
+            }
+        }
+        this.ok((pieces >= 4) ("flight: the timeline's line breaks at its three circles, got " + (to_string pieces) + " pieces"))
+        this.ok((through == 0) ("flight: no part of the line inside a circle, got " + (to_string through)))
+        ; a line through a sphere: two lines, either side of it
+        def noCut:[double]
+        def cut:[double] (PresFlightScene.cutPts(([] _:double ((0.0 - 10.0) 0.0 0.0 10.0 0.0 0.0)) ([] _:int (2)) ([] _:double (0.0 0.0 0.0 1.0)) noCut))
+        this.ok(((array_length cut) == 16) ("flight: a cut line is two of two points, got " + (to_string (idiv (array_length cut) 4))))
+        if ((array_length cut) == 16) {
+            this.ok((((fabs ((itemAt cut 4) + 1.0)) < 0.001) && ((fabs ((itemAt cut 8) - 1.0)) < 0.001)) "flight: it stops at the sphere and goes on past it")
+            this.ok((((itemAt cut 11) > 0.5) && ((itemAt cut 7) < 0.5)) "flight: the second part is a line of its own")
+        }
+        ; a label box on a line cuts it too
+        def bcut:[double] (PresFlightScene.cutPts(([] _:double ((0.0 - 10.0) 0.0 0.0 10.0 0.0 0.0)) ([] _:int (2)) noCut ([] _:double ((0.0 - 2.0) (0.0 - 0.5) 2.0 0.5))))
+        this.ok((((array_length bcut) == 16) && ((fabs ((itemAt bcut 4) + 2.0)) < 0.001)) "flight: a line stops at a label's box")
+        ; the theme's boxes at the slide's edge are found by the edge they stand on
+        this.ok(((PresFlightScene.edgeOf(([] _:double (920.0 0.0 40.0 540.0)) 960.0 540.0)) == 1) "flight: a strip at the right edge stands on it")
+        this.ok(((PresFlightScene.edgeOf(([] _:double (0.0 528.0 200.0 12.0)) 960.0 540.0)) == 2) "flight: a bar at the bottom left stands on the bottom")
+        this.ok(((PresFlightScene.edgeOf(([] _:double (100.0 100.0 200.0 100.0)) 960.0 540.0)) == -1) "flight: a box inside the slide stands on no edge")
+        this.ok((PresFlightScene.isBox(([] _:double (0.0 0.0 10.0 0.0 10.0 5.0 0.0 5.0)) ([] _:double (0.0 0.0 10.0 5.0)))) "flight: four corners are a box")
+        this.ok(((PresFlightScene.isBox(([] _:double (0.0 0.0 10.0 0.0 5.0 5.0 0.0 5.0)) ([] _:double (0.0 0.0 10.0 5.0)))) == false) "flight: a slanted side is no box")
+        ; a presenter's lines: one at a time, each at its own step, gone at
+        ; the next one's
+        def pdeck (new PresDeck())
+        pdeck.setText("# Esittäjä\n\nTeksti.\n\n::: story\nEka rivi tässä.\nMutta toinen rivi.\nJoten kolmas rivi.\n:::\n")
+        PresTimeline.planAll(pdeck)
+        def ps:PresFlightScene (PresFlightScene.of(pdeck))
+        def ls:PresSlide (pdeck.slideAt(0))
+        def said:[int]
+        def goes:[int]
+        def early:int 0
+        for ps.items pi:FlightItem pin {
+            if ((pi.kind == "text") && ((indexOf pi.ent "story-") == 0)) {
+                push said pi.step
+                push goes pi.until
+                if (pi.step == 0) {
+                    early = (early + 1)
+                }
+            }
+        }
+        this.ok(((array_length said) >= 3) ("flight: each of the presenter's lines is there, got " + (to_string (array_length said))))
+        this.ok((early == 0) "flight: no line is said before its step")
+        def b0:PresStoryBeat (itemAt ls.story 0)
+        def b1:PresStoryBeat (itemAt ls.story 1)
+        this.ok((((indexOf said b0.step) >= 0) && ((indexOf goes b1.step) >= 0)) "flight: the first line goes when the second is said")
+        this.ok(((indexOf goes -1) >= 0) "flight: the last line stays")
+        def pst:FlightStation (itemAt ps.stations 0)
+        this.ok((pst.steps == ls.steps) ("flight: the station has the slide's steps, got " + (to_string pst.steps)))
+        ; the presenter: one picture of it as the slide draws it, no shapes
+        def sprites:int 0
+        def figShapes:int 0
+        def spr:FlightItem (new FlightItem())
+        for ps.items fi:FlightItem fin {
+            if (fi.kind == "sprite") {
+                sprites = (sprites + 1)
+                spr = fi
+            }
+            if ((fi.ent == "presenter") && (fi.kind != "sprite")) {
+                figShapes = (figShapes + 1)
+            }
+        }
+        this.ok(((sprites == 1) && (figShapes == 0)) ("flight: the presenter is one picture, got " + (to_string sprites) + " and " + (to_string figShapes) + " shapes"))
+        this.ok(((spr.src == "presenter:0") && ((spr.sw > 0.0) && ((array_length spr.cmds) > 3))) "flight: the presenter's picture covers its commands")
+        this.ok(((indexOf ((spr.toJson()).toJson()) "\"box\":[") >= 0) "flight: the page is given the presenter's box")
+        ; V: the stations side by side (a block about as tall as wide) or in a
+        ; ring facing its middle, the first slide where it stood
+        def lay:FlightLayout (new FlightLayout())
+        def li:int 0
+        while (li < 12) {
+            lay.add((PresFlightScene.stationX(li)) (PresFlightScene.stationY(li)) (PresFlightScene.stationZ(li)))
+            li = (li + 1)
+        }
+        def cols:int (lay.columns())
+        this.ok(((cols >= 3) && (cols <= 4)) ("flight: twelve slides on a wall in 3 or 4 columns, got " + (to_string cols)))
+        def w0:[double] (lay.placeOf(1 0))
+        def w1:[double] (lay.placeOf(1 1))
+        def wn:[double] (lay.placeOf(1 cols))
+        this.ok((((fabs ((itemAt w0 0) - (PresFlightScene.stationX(0)))) < 0.001) && ((fabs ((itemAt w0 2) - (PresFlightScene.stationZ(0)))) < 0.001)) "flight: the first slide stays where it stood")
+        this.ok(((((itemAt w1 0) > (itemAt w0 0)) && ((itemAt w1 2) == (itemAt w0 2))) && ((itemAt wn 1) < (itemAt w0 1))) "flight: the wall runs right, then down a row")
+        def r0:[double] (lay.placeOf(2 0))
+        def r3:[double] (lay.placeOf(2 3))
+        def mz:double ((itemAt r0 2) + (lay.radius()))
+        def d3:double (sqrt(((((itemAt r3 0) - (itemAt r0 0)) * ((itemAt r3 0) - (itemAt r0 0))) + (((itemAt r3 2) - mz) * ((itemAt r3 2) - mz)))))
+        this.ok(((fabs (d3 - (lay.radius()))) < 0.001) "flight: the ring's slides stand round its middle")
+        ; a slide turned to the ring faces its middle: its front (+z) points there
+        def fr:[double] (lay.moved(3 r3 (itemAt lay.ox 3) (itemAt lay.oy 3) ((itemAt lay.oz 3) + 1.0)))
+        def mx:double (itemAt r0 0)
+        def dBefore:double (((itemAt r3 0) - mx) * ((itemAt r3 0) - mx)) + (((itemAt r3 2) - mz) * ((itemAt r3 2) - mz))
+        def dFront:double (((itemAt fr 0) - mx) * ((itemAt fr 0) - mx)) + (((itemAt fr 2) - mz) * ((itemAt fr 2) - mz))
+        this.ok((dFront < dBefore) "flight: a ring slide faces the middle")
+        ; the situation room: rows of at most 7 on a curve, each facing its
+        ; middle, the first slide where it stood; the flight starts there
+        this.ok(((lay.roomColumns()) == 6) ("flight: twelve slides in the room in two rows of 6, got " + (to_string (lay.roomColumns()))))
+        def m0:[double] (lay.placeOf(3 0))
+        def m5:[double] (lay.placeOf(3 5))
+        def m6:[double] (lay.placeOf(3 6))
+        def rmid:[double] (lay.roomMiddle())
+        this.ok((((fabs ((itemAt m0 0) - (PresFlightScene.stationX(0)))) < 0.001) && ((fabs ((itemAt m0 2) - (PresFlightScene.stationZ(0)))) < 0.001)) "flight: the room keeps the first slide where it stood")
+        def dm5:double (sqrt(((((itemAt m5 0) - (itemAt rmid 0)) * ((itemAt m5 0) - (itemAt rmid 0))) + (((itemAt m5 2) - (itemAt rmid 1)) * ((itemAt m5 2) - (itemAt rmid 1))))))
+        this.ok(((fabs (dm5 - (lay.roomRadius()))) < 0.001) "flight: the room's slides stand on its curve")
+        this.ok((((itemAt m5 0) > (itemAt m0 0)) && ((fabs ((itemAt m0 3) + (itemAt m5 3))) < 0.001)) "flight: the room's row is even about its middle")
+        this.ok(((((itemAt m6 1) < (itemAt m0 1)) && ((fabs ((itemAt m6 0) - (itemAt m0 0))) < 0.001))) "flight: the room's second row is under the first")
+        def rf:[double] (lay.moved(5 m5 (itemAt lay.ox 5) (itemAt lay.oy 5) ((itemAt lay.oz 5) + 1.0)))
+        def rBefore:double (((itemAt m5 0) - (itemAt rmid 0)) * ((itemAt m5 0) - (itemAt rmid 0))) + (((itemAt m5 2) - (itemAt rmid 1)) * ((itemAt m5 2) - (itemAt rmid 1)))
+        def rFront:double (((itemAt rf 0) - (itemAt rmid 0)) * ((itemAt rf 0) - (itemAt rmid 0))) + (((itemAt rf 2) - (itemAt rmid 1)) * ((itemAt rf 2) - (itemAt rmid 1)))
+        this.ok((rFront < rBefore) "flight: a room slide faces the middle")
+        this.ok(((itemAt (FlightLayout.names()) (FlightLayout.first())) == "room") "flight: G starts in the situation room")
+        def half:[double] (lay.between(0 1 1 0.5))
+        def p1:[double] (lay.placeOf(0 1))
+        this.ok(((((itemAt half 0) - (itemAt p1 0)) * ((itemAt half 0) - (itemAt w1 0))) < 0.0) "flight: half way it stands between")
+        ; the camera faces a turned station from in front of it
+        def fc:PresFlightCam (new PresFlightCam())
+        fc.addStation(0.0 0.0 0.0 10.0 0.0)
+        fc.setStation(0 0.0 0.0 0.0 (0.0 - 1.5707963))
+        this.ok((((fabs ((fc.poseX(0)) + 10.0)) < 0.01) && ((fabs ((fc.poseYaw(0)) - 1.5707963)) < 0.001)) "flight: the camera stands before a turned slide, looking at it")
+        this.ok(((PresFlightPad.commandOfKey("KeyV")) == "layout") "flight: V turns the layout")
+        ; Space takes a station's steps before flying on, ← gives them back
+        def fs:FlightSteps (new FlightSteps())
+        fs.add(2)
+        fs.add(0)
+        this.ok(((fs.next(0 1.0)) && (fs.next(0 2.0))) "flight: Space takes a slide's two steps")
+        this.ok(((fs.next(0 3.0)) == false) "flight: then it flies on")
+        this.ok(((fs.next(1 4.0)) == false) "flight: a slide with no steps flies on at once")
+        this.ok(((fs.back(0 5.0)) && ((fs.stepAt(0)) == 1)) "flight: back gives a step back")
+        fs.arrive(0 false 6.0)
+        this.ok(((fs.stepAt(0)) == 2) "flight: flown back to, a slide shows all its steps")
+        fs.arrive(0 true 7.0)
+        this.ok((((fs.stepAt(0)) == 0) && ((fs.takenAt(0)) == 7.0)) "flight: flown to forward, its first look")
         def js:JVal (JVal.parse((sc.toJson())))
         def jst:JVal (js.get("stations"))
         def jit:JVal (js.get("items"))
@@ -7053,14 +8047,30 @@ class PresCheck {
         cam.command("next")
         def still:PresFlightPad (new PresFlightPad())
         def peak:double cam.y
+        ; the biggest change of the view from one frame to the next, landing
+        ; included: a hop has no jerk in it
+        def jerk:double 0.0
+        def lastPitch:double cam.pitch
+        def lastYaw:double cam.yaw
         def k:int 0
         while (k < 300) {
             cam.step(0.016 still)
             if (cam.y > peak) {
                 peak = cam.y
             }
+            def dp:double (fabs (cam.pitch - lastPitch))
+            def dyw:double (fabs (cam.yaw - lastYaw))
+            if (dp > jerk) {
+                jerk = dp
+            }
+            if (dyw > jerk) {
+                jerk = dyw
+            }
+            lastPitch = cam.pitch
+            lastYaw = cam.yaw
             k = (k + 1)
         }
+        this.ok((jerk < 0.02) ("flight: the view turns smoothly all the way, landing too, biggest step " + (to_string jerk)))
         this.ok(((cam.current()) == 1) "flight: next lands at the second station")
         this.ok(((fabs (cam.z - (cam.poseZ(1)))) < 0.01) "flight: the autopilot arrives")
         this.ok((peak > ((cam.poseY(1)) + 0.5)) "flight: it hops over the way")
@@ -7146,6 +8156,33 @@ class PresCheck {
         def groups1:[int]
         deck.slideList(1 groups1 0.0)
         this.ok((deck.worldsAt < 0) "worlds: no worldsAt on a slide without allow: 3d")
+        ; the 3-D flight: the world's bands are one stand, its own meshes
+        def fsc:PresFlightScene (PresFlightScene.of(deck))
+        def standsN:int 0
+        def standW:double 0.0
+        for fsc.items fi:FlightItem fk {
+            if ((fi.kind == "world") && (fi.src == sc.src)) {
+                standsN = (standsN + 1)
+                standW = fi.sw
+            }
+        }
+        this.ok((standsN == 1) ("worlds: the flight stands the world once, got " + (to_string standsN)))
+        this.ok(((fabs (standW - deck.pageW)) < 0.5) ("worlds: …its picture's box the whole slide, got " + (to_string standW)))
+        def fw:PresFlight3D (new PresFlight3D())
+        def why:string (fw.load((fsc.toJson())))
+        this.ok(((why == "") && ((fw.standCount()) == 1)) ("worlds: the flight's world has the stand, " + why))
+        if ((fw.standCount()) == 1) {
+            this.ok(((fw.standSrc(0)) == sc.src) "worlds: …by the picture's name")
+            def taken:string (fw.setStand(0 scene 0.25 0.0 0.25 0.5))
+            def fst:FlightStand (itemAt fw.stands 0)
+            this.ok(fst.built ("worlds: a frame builds it, " + taken))
+            this.ok(((fabs (fst.aim - 6.0)) < 0.1) ("worlds: …aimed as far as its camera stands from the knot, got " + (to_string fst.aim)))
+            def seenH:double ((2.0 * fst.aim) * (tan ((20.0 * 3.141592653589793) / 180.0)))
+            this.ok(((fabs ((fst.fit * seenH) - (0.5 * fst.h))) < 0.01) "worlds: …what its camera sees fills the element's box")
+            this.ok(((fabs (fst.root.position.x - ((fst.x - (fst.w * 0.5)) + (0.375 * fst.w)))) < 0.001) "worlds: …standing at the element's box")
+            def back:ThreeObject3D (fst.back)
+            this.ok((back.position.z == -6.0) "worlds: …its camera's place undone")
+        }
         def at:JVal (deck.playScenes(0))
         this.ok(((at.len()) == 1) "worlds: the page is told of one world on slide 1")
         if ((at.len()) == 1) {
@@ -7410,6 +8447,31 @@ class PresCheck {
         this.ok(((PresDeck.selectTextOff("# A\n\nselect-text: off\n")) == false) "select-text outside the front matter is text")
     }
 
+    ; The 3-D flight's benchmark (src/PresFlightBench.rgr): its cases read,
+    ; a case its slide does not meet is broken, the aspects measured.
+    fn flightBench:void () {
+        def text:string "<!-- notes -->\n<!-- case: para | Text | A paragraph | needs: ent:p -->\n## Otsikko\n\nYksi kappale.\n<!-- case: tbl | Tables | A table | needs: ent:table | files: media/a.png media/b.png -->\n## Ei taulukkoa\n\nVain tekstiä.\n"
+        def cases:[FlightBenchCase] (PresFlightBench.parse(text))
+        this.ok(((array_length cases) == 2) ("flight bench: two cases, got " + (to_string (array_length cases))))
+        if ((array_length cases) < 2) {
+            return
+        }
+        def c0:FlightBenchCase (itemAt cases 0)
+        def c1:FlightBenchCase (itemAt cases 1)
+        this.ok((((c0.id == "para") && (c0.group == "Text")) && (c0.title == "A paragraph")) "flight bench: a case's id, group and name")
+        this.ok((((array_length c1.files) == 2) && ((itemAt c1.needs 0) == "ent:table")) "flight bench: its needs and files")
+        this.ok(((indexOf c0.md "Yksi kappale.") > 0) "flight bench: its deck is the lines under it")
+        def r0:FlightBenchResult (PresFlightBench.run(c0 ""))
+        this.ok(r0.valid ("flight bench: a paragraph case is valid: " + r0.why))
+        this.ok(((r0.aspectState("words")) >= 0) "flight bench: the words are measured")
+        this.ok(((r0.aspectState("layout")) < 0) "flight bench: places only when the case asks")
+        def r1:FlightBenchResult (PresFlightBench.run(c1 ""))
+        this.ok((r1.valid == false) "flight bench: a table case with no table is broken")
+        this.ok(((PresFlightBench.bare("(Tampere),")) == "Tampere") "flight bench: a word without its marks")
+        def rep:string (PresFlightBench.report(([] _:FlightBenchResult (r0 r1))))
+        this.ok(((indexOf rep "cases=2") > 0) "flight bench: the report's summary line")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -7425,6 +8487,7 @@ class PresCheck {
         c.smartArtSlides()
         c.docSettings()
         c.roomTerm()
+        c.storyPick()
         c.ranges()
         c.limits()
         c.chartLocale()
@@ -7447,6 +8510,7 @@ class PresCheck {
         c.navJumps()
         c.stageClicks()
         c.recording()
+        c.video()
         c.docx()
         c.htmlPage()
         c.traceChecks()
@@ -7465,9 +8529,11 @@ class PresCheck {
         c.playFiles()
         c.scripts()
         c.roundedBars()
+        c.ownStrokes()
         c.morph()
         c.worlds()
         c.flight()
+        c.flightBench()
         c.beats()
         c.jsonPatch()
         c.scenes()
@@ -7479,6 +8545,8 @@ class PresCheck {
         c.stripDrag()
         c.forms()
         c.selectText()
+        c.aiAssist()
+        c.deckSize()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"
