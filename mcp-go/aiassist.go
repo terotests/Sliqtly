@@ -221,7 +221,11 @@ Example, a chart on the right of its table:
 ` + "```" + `
 ` + "````" + `
 
-An attribute line goes on its own line right under the block it is for (` + "`{width=50%}`" + ` under a chart's closing fence), or at the end of a heading.`
+An attribute line goes on its own line right under the block it is for (` + "`{width=50%}`" + ` under a chart's closing fence), or at the end of a heading.
+
+Charts. A chart is a ` + "```vega-lite" + ` block holding one Vega-Lite v5 spec as JSON: "data": {"values": [...]}, "mark", "encoding". Nothing else draws a chart: a ` + "```chart" + ` block, Chart.js ("type": "bar", "labels", "datasets") or a JSON block of another kind shows as code on the slide. Kinds: bar ("mark": "bar"), line ("line", "point": true), area, a donut or pie ("arc" with "theta", "innerRadius" for a donut), scatter ("point"), stacked bars (a "color" field on "bar"), several marks in one chart ("layer"). Give a chart a "title" in the spec, and keep each chart on its own slide unless asked to put two together (` + "`::: columns`" + `).
+
+Adding to a presentation. "Make a set of charts here", "add a slide about X": add slides (insert_slide, one per slide) after the open one and leave the rest as it is. Replace the whole presentation only when the person asks for a new one.`
 
 const aiRole = `You are the AI assistant inside Sliqtly's editor. Sliqtly turns Markdown into animated slide presentations; the person writes the Markdown on the left and sees the slides on the right. You help with the slide they have open or, when they ask about the whole presentation, with all of it.
 
@@ -505,7 +509,7 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 		defer cancel()
-		ans, err := a.model.Ask(ctx, a.system, turns)
+		ans, err := a.ask(ctx, turns)
 		if err != nil {
 			log.Printf("ai: %v", err)
 			msg := "The assistant could not answer just now; try again in a moment."

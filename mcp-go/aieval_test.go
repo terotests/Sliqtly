@@ -68,4 +68,18 @@ func TestAIEval(t *testing.T) {
 	if !dark {
 		t.Errorf("darker: no dark theme set: %+v", a.Edits)
 	}
+	// Tero's asks: a set of charts came back as Chart.js in ```chart blocks,
+	// and "move the donut higher" as style="margin-top:-60px". Checked on
+	// the model's first answer, before the repair round (aiAssist.ask).
+	for _, ask := range []string{"Tee näyttävä setti erilaisia chartteja tähän", "siirrä donitsikaaviota ylemmäs"} {
+		a := aiEvalAsk(t, m, ask)
+		if p := aiProblems(a.Edits); len(p) > 0 {
+			t.Errorf("%s: %s", ask, strings.Join(p, "; "))
+		}
+		for _, e := range a.Edits {
+			if e.Tool == "replace_presentation" {
+				t.Errorf("%s: replaced the whole presentation", ask)
+			}
+		}
+	}
 }
