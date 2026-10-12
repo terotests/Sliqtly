@@ -7030,7 +7030,8 @@ class PresApp {
     }
 
     fn toolbarOnTop:boolean () {
-        return (((barH > 0.0) && (mode != "present")) && (toolbar.listOpen()))
+        ; a story card dragged from a room's Stories tab: its chip over them
+        return (((barH > 0.0) && (mode != "present")) && ((toolbar.listOpen()) || toolbar.dragOn))
     }
 
     ; The bar as a display list over the page: "" when there is none.
@@ -8833,6 +8834,16 @@ class PresApp {
         }
         if (((itemAt f 0) == "topic:menu") && ((array_length f) >= 8)) {
             toolbar.openStoryMenu((?? (str2double (itemAt f 5)) 0.0) (?? (str2double (itemAt f 6)) 0.0) (itemAt f 1) (itemAt f 2) (itemAt f 3) (itemAt f 4) (itemAt f 7))
+            return
+        }
+        ; a card pressed: dragged by the bar (onto a folder or a room of the
+        ; rail), opened when let go where it was pressed
+        if (((itemAt f 0) == "topic:drag") && ((array_length f) >= 5)) {
+            toolbar.deckDragBegin((itemAt f 1) (itemAt f 2) (?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0))
+            return
+        }
+        if (((itemAt f 0) == "topic:bulkmenu") && ((array_length f) >= 3)) {
+            toolbar.openBulkMenu((?? (str2double (itemAt f 1)) 0.0) (?? (str2double (itemAt f 2)) 0.0))
             return
         }
         if (((itemAt f 0) == "topic:ctx") && ((array_length f) >= 6)) {
@@ -13946,6 +13957,15 @@ class PresApp {
     ; A request from the page's keys, as a menu row would make it: "slide:…"
     ; is done here, the rest goes to the page with the others.
     fn request:void (r:string) {
+        ; the row chosen from a topic's Actions (PresToolbar.bulkRows)
+        if ((indexOf r "topic:pick") == 0) {
+            def pf:[string] (strsplit r (strfromcode 9))
+            if ((array_length pf) >= 3) {
+                room.topicChoose((itemAt pf 1) (itemAt pf 2))
+            }
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; File → Rename… (a presentation's menu, once it is open): the name at
         ; the start of the bar as a field
         if (r == "rename") {

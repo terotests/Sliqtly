@@ -1,0 +1,79 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresStoryPick.rgr — the stories ticked in a topic, and what to do to them
+; ============================================================================
+;
+; The Stories tab (PresTopicView) has a box on each card. Which are ticked
+; is a UiPick over the decks' ids (a deck listed under two tags is one key);
+; a deck no longer listed (moved away, deleted) is dropped when the cards
+; are built again. An action chosen from Actions — a row of the toolbar's
+; menu: "mvf-<folder>", "mvf-top", "sty-<type>", "stp-<phase>" — and its
+; words for the button are kept here too; Apply asks the page to do it to
+; every ticked deck (`request`). Another topic starts with nothing ticked or
+; chosen.
+; ============================================================================
+
+Import "../evgui/src/UiPick.rgr"
+
+class PresStoryPick {
+    def pick:UiPick (new UiPick())
+    def action:string ""
+    def label:string ""
+
+    ; the decks listed now, in the cards' order, each once
+    fn setDecks:void (ids:[string]) {
+        def once:[string]
+        def i:int 0
+        while (i < (array_length ids)) {
+            def d:string (itemAt ids i)
+            def k:int 0
+            def seen:boolean false
+            while (k < (array_length once)) {
+                if ((itemAt once k) == d) {
+                    seen = true
+                }
+                k = (k + 1)
+            }
+            if ((seen == false) && ((strlen d) > 0)) {
+                push once d
+            }
+            i = (i + 1)
+        }
+        pick.setKeys(once)
+    }
+
+    ; another topic: nothing ticked or chosen
+    fn reset:void () {
+        def none:[string]
+        pick.setKeys(none)
+        action = ""
+        label = ""
+    }
+
+    fn choose:void (what:string words:string) {
+        action = what
+        label = words
+    }
+
+    ; Apply can be pressed: something ticked and something chosen
+    fn ready:boolean () {
+        return (((pick.count()) > 0) && ((strlen action) > 0))
+    }
+
+    ; The page's request for Apply ("topic:bulk\t<action>\t<id>\t<id>…"),
+    ; "" when it is not ready.
+    fn request:string () {
+        if ((this.ready()) == false) {
+            return ""
+        }
+        def r:string ("topic:bulk" + (strfromcode 9) + action)
+        def ids:[string] (pick.selected())
+        def i:int 0
+        while (i < (array_length ids)) {
+            r = (r + (strfromcode 9) + (itemAt ids i))
+            i = (i + 1)
+        }
+        return r
+    }
+}

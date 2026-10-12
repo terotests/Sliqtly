@@ -168,3 +168,16 @@ export function phaseCounts(rows) {
   }
   return STORY_PHASES.filter((p) => n[p]).map((p) => ({ phase: p, n: n[p] }));
 }
+
+// A row of a topic's Actions, as what Apply does to each ticked story
+// (PresToolbar.bulkRows): "mvf-<folder>" into that folder of the room,
+// "mvf-top" out of its folder, "sty-<type>", "stp-<phase>". → { folder } or
+// { part, value }, null for anything else.
+export function bulkAction(choice) {
+  const c = String(choice || "");
+  if (c === "mvf-top") return { folder: "" };
+  if (c.startsWith("mvf-") && c.length > 4 && c !== "mvf-new") return { folder: c.slice(4) };
+  if (c.startsWith("sty-") && STORY_TYPES.includes(c.slice(4))) return { part: "type", value: c.slice(4) };
+  if (c.startsWith("stp-") && STORY_PHASES.includes(c.slice(4))) return { part: "phase", value: c.slice(4) };
+  return null;
+}

@@ -1686,5 +1686,8 @@
   "Not removed: ": "Ei poistettu: ",
   "The recording was removed from the cloud.": "Tallenne poistettiin pilvestä.",
   "The viewing link was removed.": "Katselulinkki poistettiin.",
-  "The presentation is now private.": "Esitys on nyt yksityinen."
+  "The presentation is now private.": "Esitys on nyt yksityinen.",
+  "Actions": "Toiminnot",
+  "Apply": "Suorita",
+  "Changed {n} of {all} presentations": "Muutettu {n}/{all} esitystä"
 }
