@@ -43,7 +43,7 @@ func newAIModel(ctx context.Context) (aiModel, string) {
 	case "gemini":
 		model := env("SLIQTLY_AI_MODEL", "gemini-3.5-flash-lite")
 		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
-			return &geminiModel{http: &http.Client{Timeout: 3 * time.Minute}, model: model, key: key}, "Gemini API (" + model + ")"
+			return &geminiModel{http: &http.Client{Timeout: 3 * time.Minute}, model: model, key: key, tools: aiEditTools}, "Gemini API (" + model + ")"
 		}
 		c, err := google.DefaultClient(ctx, "https://www.googleapis.com/auth/cloud-platform")
 		if err != nil {
@@ -51,7 +51,7 @@ func newAIModel(ctx context.Context) (aiModel, string) {
 			return nil, ""
 		}
 		c.Timeout = 3 * time.Minute
-		return &geminiModel{http: c, model: model, project: project, region: region}, "Gemini on Vertex AI (" + project + ", " + region + ", " + model + ")"
+		return &geminiModel{http: c, model: model, project: project, region: region, tools: aiEditTools}, "Gemini on Vertex AI (" + project + ", " + region + ", " + model + ")"
 	case "vertex":
 		model := env("SLIQTLY_AI_MODEL", "claude-opus-5-5")
 		c := anthropic.NewClient(vertex.WithGoogleAuth(ctx, region, project, "https://www.googleapis.com/auth/cloud-platform"))

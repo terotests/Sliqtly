@@ -24,6 +24,7 @@ type fakeAI struct {
 	reply  string
 	refuse bool
 	err    error
+	edits  []aiEdit
 }
 
 func (f *fakeAI) Ask(_ context.Context, system string, turns []aiTurn) (aiAnswer, error) {
@@ -31,12 +32,14 @@ func (f *fakeAI) Ask(_ context.Context, system string, turns []aiTurn) (aiAnswer
 	if f.err != nil {
 		return aiAnswer{}, f.err
 	}
-	return aiAnswer{Text: f.reply, In: 100, Out: 20, Declined: f.refuse}, nil
+	return aiAnswer{Text: f.reply, In: 100, Out: 20, Declined: f.refuse, Edits: f.edits}, nil
 }
 
 func TestAISystemHasTheGuide(t *testing.T) {
-	s := aiSystem()
+	s := aiSystem(false)
 	match(t, s, "AI assistant inside Sliqtly")
+	match(t, s, "````markdown")
+	match(t, aiSystem(true), "set_front_matter")
 	match(t, s, "# Topic: layout")
 	match(t, s, "# Topic: effects")
 	if strings.Contains(s, "# Topic: rooms") || strings.Contains(s, "# Topic: apps") {
@@ -66,6 +69,11 @@ func TestAITurns(t *testing.T) {
 	match(t, q.turns()[2].Text, "<presentation>\n# All\n</presentation>")
 	eq(t, q.cost(), int64(2))
 
+	q.Context.FrontMatter = "---\ntheme: aurora\n---"
+	q.Context.Outline = "1. One\n2. Two"
+	withFM := q.turns()[2].Text
+	match(t, withFM, "<front_matter>\n---\ntheme: aurora\n---\n</front_matter>")
+	match(t, withFM, "<slides>\n1. One\n2. Two\n</slides>")
 	eq(t, len(aiQuestion{Message: "   "}.turns()), 0)
 	long := strings.Repeat("ä", aiMaxMessage)
 	if c := aiClip(long, aiMaxMessage); !strings.HasSuffix(c, "…") || !strings.HasPrefix(c, "ää") || len(c) > aiMaxMessage+5 {
@@ -148,6 +156,15 @@ func TestAIRoutes(t *testing.T) {
 	eq(t, res.StatusCode, 200)
 	match(t, body, `"unlimited":true`)
 
+	// changes the model asked for go to the editor
+	ai.edits = []aiEdit{{Tool: "set_front_matter", Key: "theme", Value: "mist"}}
+	ai.reply = ""
+	_, body = editorDo(t, "POST", api+"ask", "tero", base, ask)
+	if !strings.Contains(body, `"edits":[{"tool":"set_front_matter","key":"theme","value":"mist"}]`) || !strings.Contains(body, `"reply":""`) {
+		t.Fatalf("edits not passed on: %s", body)
+	}
+	ai.edits = nil
+
 	// the model out of reach
 	ai.err = errAINotSetUp
 	res, body = editorDo(t, "POST", api+"ask", "tero", base, ask)
@@ -186,6 +203,21 @@ func TestAIGemini(t *testing.T) {
 		t.Fatal(err)
 	}
 	eq(t, []any{path, key}, []any{"/v1/projects/p1/locations/global/publishers/google/models/gemini-3.8-flash:generateContent", ""})
+
+	got = nil
+	_, _ = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	if _, has := got["tools"]; has {
+		t.Fatal("tools sent to a model given none")
+	}
+	m.tools = aiEditTools
+	reply = `{"candidates":[{"content":{"role":"model","parts":[{"text":"Mist it is."},{"functionCall":{"name":"set_front_matter","args":{"key":"theme","value":"mist"}},"thoughtSignature":"abc"},{"functionCall":{"name":"replace_slide","args":{"slide":2,"markdown":"## Two"}}},{"functionCall":{"name":"rm_rf","args":{}}}]},"finishReason":"STOP"}]}`
+	a, err = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	match(t, fmt.Sprint(got["tools"]), "set_front_matter")
+	eq(t, a.Text, "Mist it is.")
+	eq(t, a.Edits, []aiEdit{{Tool: "set_front_matter", Key: "theme", Value: "mist"}, {Tool: "replace_slide", Slide: 2, Markdown: "## Two"}})
 
 	reply = `{"candidates":[{"finishReason":"SAFETY"}]}`
 	a, _ = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
