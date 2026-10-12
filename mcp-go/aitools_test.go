@@ -153,3 +153,20 @@ func TestAIDeckReader(t *testing.T) {
 	got = r.Run(context.Background(), "update_presentation", map[string]any{})
 	eq(t, got.Failed, true)
 }
+
+// add_file writes text files where the deck keeps them, nowhere else.
+func TestAIAddFile(t *testing.T) {
+	for in, want := range map[string]string{
+		"media/forest.svg": "media/forest.svg", "/data/sales.csv": "data/sales.csv", "charts/c.json": "charts/c.json",
+		"code/app.tsx": "code/app.tsx", "media/x.png": "", "media/../x.svg": "", "x.svg": "", "media/.svg": "",
+		"media/a b.svg": "", "other/x.svg": "", "data/x": "", "media/sub/x.svg": "",
+	} {
+		eq(t, aiFilePath(in), want)
+	}
+	e, ok := aiEditOf("add_file", map[string]any{"path": "media/forest.svg", "text": "<svg/>"})
+	eq(t, []any{ok, e}, []any{true, aiEdit{Tool: "add_file", Path: "media/forest.svg", Text: "<svg/>"}})
+	_, ok = aiEditOf("add_file", map[string]any{"path": "../etc/x.svg", "text": "<svg/>"})
+	eq(t, ok, false)
+	_, ok = aiEditOf("add_file", map[string]any{"path": "data/a.csv", "text": " "})
+	eq(t, ok, false)
+}

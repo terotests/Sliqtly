@@ -5029,6 +5029,30 @@ async function aiPicture(file) {
   app.aiAttach(file.name || "", url.slice(5, url.indexOf(";")), url.slice(comma + 1));
 }
 
+// The files an answer adds (add_file): kept in the deck before its slides,
+// which show them, are changed. The server checked each path (media/ SVG,
+// data/, charts/, code/).
+async function aiFiles(text) {
+  let edits = [];
+  try {
+    edits = JSON.parse(text).edits || [];
+  } catch { return; }
+  for (const e of edits) {
+    if (e.tool !== "add_file" || !e.path || typeof e.text !== "string") continue;
+    if (/\.svg$/i.test(e.path)) {
+      const bytes = new TextEncoder().encode(e.text).buffer;
+      await addPicture("/" + e.path, bytes, "image/svg+xml");
+      await keepFile({ path: e.path, type: "image/svg+xml", size: bytes.byteLength, data: new Blob([bytes], { type: "image/svg+xml" }) });
+      continue;
+    }
+    const type = /\.json$/i.test(e.path) ? "application/json" : /\.csv$/i.test(e.path) ? "text/csv" : "text/plain";
+    await keepFile({ path: e.path, type, size: e.text.length, data: e.text });
+    chartFiles.set(e.path, Promise.resolve(e.text));
+    app.setChartData(e.path, e.text);
+  }
+  dropThumbs();
+}
+
 function askAi(body) {
   if (!body) return;
   // the share the deck is kept in, for the assistant's read tools (its files,
@@ -5041,7 +5065,10 @@ function askAi(body) {
     } catch { /* sent as it is */ }
   }
   aiCall("ask", body)
-    .then((text) => app.aiAnswer(text))
+    .then(async (text) => {
+      await aiFiles(text).catch(fail);
+      app.aiAnswer(text);
+    })
     .catch((e) => app.aiFail(t("The question did not reach the assistant: ") + (e?.message || e)))
     .finally(() => { needsPaint = true; });
 }
