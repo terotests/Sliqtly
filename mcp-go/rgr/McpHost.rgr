@@ -158,6 +158,13 @@ operators {
             go ( (e 1) ".SharedPng(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; what changes when shared file `file` of deck's is put again: its
+    ; card's time, "" for no such file
+    host_shared_stamp _:string (h:McpHost file:string deck:string) {
+        templates {
+            go ( (e 1) ".SharedStamp(" (e 2) ", " (e 3) ")" )
+        }
+    }
     ; the signed-in account the request is for, "" for none
     host_set_caller _:void (h:McpHost uid:string) {
         templates {
