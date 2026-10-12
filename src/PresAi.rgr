@@ -380,8 +380,18 @@ class PresAiDeck {
     }
 }
 
+; A picture pasted into the drawer, sent with the next question.
+class PresAiPicture {
+    def name:string ""
+    def mime:string ""
+    ; base64
+    def data:string ""
+}
+
 class PresAi {
     def msgs:[PresAiMsg]
+    ; pictures pasted for the next question
+    def pictures:[PresAiPicture]
     def count:int 0
     ; waiting for an answer
     def busy:boolean false
@@ -588,6 +598,9 @@ class PresAi {
         if ((strlen q) == 0) {
             q = (PresAi.actionPrompt(action))
         }
+        if (((strlen q) == 0) && ((array_length pictures) > 0)) {
+            q = (PresI18n.t("What is in the picture?"))
+        }
         if ((strlen q) == 0) {
             return false
         }
@@ -595,9 +608,61 @@ class PresAi {
             return false
         }
         pending = (this.requestJson(q action ctx))
-        this.add("user" q)
+        def shown:string q
+        for pictures p:PresAiPicture pi {
+            shown = (shown + (strfromcode 10) + "🖼 " + p.name)
+        }
+        def none:[PresAiPicture]
+        pictures = none
+        this.add("user" shown)
         busy = true
         return true
+    }
+
+    ; most pictures with one question, and the most base64 of one (the
+    ; server takes 4 MB)
+    sfn maxPictures:int () {
+        return 3
+    }
+
+    sfn maxPictureData:int () {
+        return 5500000
+    }
+
+    ; A picture pasted for the next question: "" when it was taken, else why
+    ; it was not.
+    fn attach:string (name:string mime:string data:string) {
+        if ((array_length pictures) >= (PresAi.maxPictures())) {
+            return (PresI18n.t("Three pictures at most with one question."))
+        }
+        if ((strlen data) == 0) {
+            return (PresI18n.t("The picture could not be read."))
+        }
+        if ((strlen data) > (PresAi.maxPictureData())) {
+            return (PresI18n.t("The picture is too large to send."))
+        }
+        def p (new PresAiPicture())
+        p.name = name
+        if ((strlen (trim name)) == 0) {
+            p.name = ((PresI18n.t("picture")) + " " + (to_string ((array_length pictures) + 1)))
+        }
+        p.mime = mime
+        p.data = data
+        push pictures p
+        rev = (rev + 1)
+        return ""
+    }
+
+    ; the i-th pasted picture left out
+    fn detach:void (i:int) {
+        def kept:[PresAiPicture]
+        for pictures p:PresAiPicture k {
+            if (k != i) {
+                push kept p
+            }
+        }
+        pictures = kept
+        rev = (rev + 1)
     }
 
     ; the request the page posts: the question, the context, the turns so far
@@ -622,6 +687,14 @@ class PresAi {
         ; looks at a slide
         c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
         root.setMember("context" c)
+        def imgs:VlJson (VlJson.arrayValue())
+        for pictures p:PresAiPicture pi {
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("mimeType" (VlJson.stringValue(p.mime)))
+            o.setMember("data" (VlJson.stringValue(p.data)))
+            push imgs.arr o
+        }
+        root.setMember("images" imgs)
         def hist:VlJson (VlJson.arrayValue())
         for msgs m:PresAiMsg i {
             if ((m.role == "user") || (m.role == "assistant")) {
@@ -753,6 +826,8 @@ class PresAi {
     fn clear:void () {
         def none:[PresAiMsg]
         msgs = none
+        def nopics:[PresAiPicture]
+        pictures = nopics
         busy = false
         pending = ""
         rev = (rev + 1)

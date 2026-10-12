@@ -97,6 +97,27 @@ class PresCheck {
     ; The AI drawer's model (PresAi): the request it leaves for the page, the
     ; credits in words, and the slide an answer suggests.
     ; The changes an answer asks for, made on the Markdown (PresAiDeck).
+    ; Pictures pasted into the drawer go with the next question, three at
+    ; most; a press on one's button leaves it out.
+    fn aiPictures:void (ctx:PresAiContext) {
+        def a (new PresAi())
+        a.available = 1
+        this.ok(((a.attach("logo.png" "image/png" "iVBOR")) == "") "ai: a picture is taken")
+        this.ok(((a.attach("" "image/jpeg" "/9j/")) == "") "ai: a second, unnamed")
+        this.ok(((strlen (a.attach("x.png" "image/png" ""))) > 0) "ai: an empty picture is not")
+        this.ok(((a.attach("c.png" "image/png" "QUJD")) == "") "ai: a third")
+        this.ok(((strlen (a.attach("d.png" "image/png" "QUJD"))) > 0) "ai: not a fourth")
+        a.detach(1)
+        this.ok(((array_length a.pictures) == 2) "ai: one left out")
+        this.ok((a.ask("" "" ctx)) "ai: pictures alone ask what is in them")
+        def req:string (a.takePending())
+        this.ok(((indexOf req "{\"mimeType\":\"image/png\",\"data\":\"iVBOR\"}") > 0) ("ai: the picture goes along " + req))
+        this.ok(((indexOf req "/9j/") < 0) "ai: the one left out does not")
+        this.ok(((array_length a.pictures) == 0) "ai: sent once")
+        def m:PresAiMsg (itemAt a.msgs 0)
+        this.ok(((indexOf m.text "🖼 logo.png") > 0) ("ai: the question names its pictures: " + m.text))
+    }
+
     fn aiEdits:void () {
         def th (new PresAiEdit())
         th.tool = "set_theme"
@@ -209,6 +230,8 @@ class PresCheck {
         def req2:string (a.takePending())
         this.ok(((indexOf req2 "\"deckMarkdown\":\"# Deck") > 0) "ai: a deck question sends the deck")
         this.ok(((indexOf req2 "\"role\":\"assistant\"") > 0) "ai: the turns so far go along")
+        this.ok(((indexOf req2 "\"images\":[]") > 0) "ai: no pictures, an empty list")
+        this.aiPictures(ctx)
         this.ok(((a.suggestion()) == "") "ai: a new question leaves the old suggestion behind")
         a.answer("{\"error\":\"This month's AI actions are used up.\",\"code\":\"no-credits\",\"credits\":{\"left\":1,\"monthly\":50}}")
         def last:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))

@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +58,7 @@ func TestAISystemHasTheGuide(t *testing.T) {
 
 func TestAITurns(t *testing.T) {
 	q := aiQuestion{Message: "  Make it shorter ", Scope: "slide", Context: aiContext{Slide: 2, Slides: 5, SlideMD: "## Two\n\nText", Selection: "Text", DeckMD: "# All", DeckName: "Demo"},
-		History: []aiTurn{{"assistant", "hello"}, {"user", "a"}, {"user", "b"}, {"assistant", "c"}, {"system", "x"}, {"user", "pending"}}}
+		History: []aiTurn{{Role: "assistant", Text: "hello"}, {Role: "user", Text: "a"}, {Role: "user", Text: "b"}, {Role: "assistant", Text: "c"}, {Role: "system", Text: "x"}, {Role: "user", Text: "pending"}}}
 	got := q.turns()
 	// starts with the person, takes turns, the unanswered question dropped
 	eq(t, len(got), 3)
@@ -195,7 +196,7 @@ func TestAIGemini(t *testing.T) {
 	}))
 	defer srv.Close()
 	m := &geminiModel{http: srv.Client(), model: "gemini-3.8-flash", key: "k1", base: srv.URL}
-	a, err := m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}, {"assistant", "b"}, {"user", "c"}})
+	a, err := m.Ask(context.Background(), "sys", []aiTurn{{Role: "user", Text: "a"}, {Role: "assistant", Text: "b"}, {Role: "user", Text: "c"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,19 +208,19 @@ func TestAIGemini(t *testing.T) {
 
 	// on Vertex AI: the project's endpoint, no key
 	v := &geminiModel{http: srv.Client(), model: "gemini-3.8-flash", project: "p1", region: "global", base: srv.URL}
-	if _, err := v.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}}); err != nil {
+	if _, err := v.Ask(context.Background(), "sys", []aiTurn{{Role: "user", Text: "a"}}); err != nil {
 		t.Fatal(err)
 	}
 	eq(t, []any{path, key}, []any{"/v1/projects/p1/locations/global/publishers/google/models/gemini-3.8-flash:generateContent", ""})
 
 	got = nil
-	_, _ = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	_, _ = m.Ask(context.Background(), "sys", []aiTurn{{Role: "user", Text: "a"}})
 	if _, has := got["tools"]; has {
 		t.Fatal("tools sent to a model given none")
 	}
 	m.tools = aiEditTools
 	reply = `{"candidates":[{"content":{"role":"model","parts":[{"text":"Mist it is."},{"functionCall":{"name":"set_front_matter","args":{"key":"theme","value":"mist"}},"thoughtSignature":"abc"},{"functionCall":{"name":"replace_slide","args":{"slide":2,"markdown":"## Two"}}},{"functionCall":{"name":"rm_rf","args":{}}}]},"finishReason":"STOP"}]}`
-	a, err = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	a, err = m.Ask(context.Background(), "sys", []aiTurn{{Role: "user", Text: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,10 +231,10 @@ func TestAIGemini(t *testing.T) {
 	eq(t, a.Edits, []aiEdit{{Tool: "set_theme", Value: "mist"}, {Tool: "replace_slide", Slide: 2, Markdown: "## Two"}})
 
 	reply = `{"candidates":[{"finishReason":"SAFETY"}]}`
-	a, _ = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	a, _ = m.Ask(context.Background(), "sys", []aiTurn{{Role: "user", Text: "a"}})
 	eq(t, a.Declined, true)
 	status, reply = 404, `{"error":{"message":"model not found"}}`
-	_, err = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
+	_, err = m.Ask(context.Background(), "sys", []aiTurn{{Role: "user", Text: "a"}})
 	if !errors.Is(err, errAINotSetUp) {
 		t.Fatalf("404 should read as not set up: %v", err)
 	}
@@ -251,4 +252,32 @@ func TestAIThemeEdit(t *testing.T) {
 	turns := q.turns()
 	match(t, turns[len(turns)-1].Text, "<theme>aurora</theme>")
 	match(t, turns[len(turns)-1].Text, "Dark: aurora, carbon, midnight")
+}
+
+// Pictures pasted with a question go with its turn when their bytes are a
+// picture's, at most aiMaxImages of them, and reach Gemini as inline data.
+func TestAIPictures(t *testing.T) {
+	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\n0000IHDR"))
+	q := aiQuestion{Message: "what is this?", Images: []aiImage{
+		{MimeType: "image/png", Data: png},
+		{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString([]byte("<script>"))},
+		{MimeType: "image/png", Data: "not base64!"},
+		{MimeType: "image/jpeg", Data: png}, {Data: png}, {Data: png},
+	}}
+	turns := q.turns()
+	got := turns[len(turns)-1].Images
+	eq(t, len(got), aiMaxImages)
+	eq(t, got[1].MimeType, "image/png") // as the bytes say, not as the page said
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&sent)
+		io.WriteString(w, `{"candidates":[{"content":{"role":"model","parts":[{"text":"A logo."}]}}]}`)
+	}))
+	defer srv.Close()
+	m := &geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL}
+	if _, err := m.Ask(context.Background(), "sys", turns); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(sent["contents"])
+	match(t, string(raw), `"inlineData":{"data":"`+png+`","mimeType":"image/png"}`)
 }
