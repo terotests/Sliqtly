@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -93,7 +94,7 @@ func serveDownload(env *Env, w http.ResponseWriter, r *http.Request) {
 	path, _ := d["path"].(string)
 	ct, _ := d["type"].(string)
 	name, _ := d["name"].(string)
-	if !strings.HasPrefix(path, "shares/") || !strings.Contains(path, "/exports/") {
+	if !(strings.HasPrefix(path, "shares/") && strings.Contains(path, "/exports/")) && !figmaExportPath.MatchString(path) {
 		http.NotFound(w, r)
 		return
 	}
@@ -120,6 +121,9 @@ func serveDownload(env *Env, w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write(data)
 }
+
+// a design file built for a download (export_figma): an account's own
+var figmaExportPath = regexp.MustCompile(`^figma/[A-Za-z0-9_-]{1,128}/shared/[a-z0-9-]{1,48}/export/[^/]+$`)
 
 // the tokens UUID() makes: hex and dashes
 func downloadToken(s string) bool {

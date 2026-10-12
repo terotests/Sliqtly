@@ -138,6 +138,8 @@ class FlightItem {
     def bevel:double 0.0
     ; that plate: still (it does not float as glass panes do)
     def plate:boolean false
+    ; a picture on the slide: it covers what is behind it, not lit over it
+    def solid:boolean false
     ; words whose own panel became their plate
     def plated:boolean false
     ; the build step it comes in at, and the one it goes at (-1: stays): a
@@ -240,6 +242,9 @@ class FlightItem {
         }
         if plate {
             o.setBool("plate" true)
+        }
+        if solid {
+            o.setBool("solid" true)
         }
         if art {
             o.setBool("art" true)
@@ -2027,17 +2032,22 @@ class PresFlightScene {
         pc.src = c.src
         pc.grow((PresScene.boundsOf(c)))
         pc.dz = dz
-        pc.op = 0.9
+        pc.op = 1.0
+        ; a picture on the slide (a screen, a photo): as it is, the slide's
+        ; ground and art not through it
+        pc.solid = true
         if (top == 0) {
             ; a picture behind the slide, dimmer, at its back
             pc.dz = 0.02
             pc.op = 0.5
+            pc.solid = false
         }
         ; a program's 3-D world: its own meshes on a stand before the slide
         if ((indexOf c.src "three:") == 0) {
             pc.kind = "world"
             pc.dz = (dz + 1.0)
             pc.op = 1.0
+            pc.solid = false
         }
         push pc.cmds k
         return pc

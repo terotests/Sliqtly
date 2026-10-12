@@ -473,6 +473,8 @@ class FlightPic {
     def g:double 0.88
     def b:double 1.0
     def tex:int -1
+    ; a picture that covers what is behind it, its colours as they are
+    def solid:boolean false
     def mesh:ThreeMesh (new ThreeMesh)
     ; its part, and which of the part's meshes it is
     def part:FlightPart (new FlightPart())
@@ -824,7 +826,7 @@ class PresFlight3D {
             def runs:JVal (o.get("runs"))
             def soft:string (? (o.boolOr("soft" false)) ",\"soft\":1" "")
             def spec:string ("{\"w\":" + (to_string p.w) + ",\"h\":" + (to_string p.h) + soft + ",\"runs\":" + (runs.toJson()) + "}")
-            this.addPic(p "text" spec 1.0 1.0 1.0 op)
+            this.addPic(p "text" spec 1.0 1.0 1.0 op true)
             return
         }
         if (kind == "world") {
@@ -835,12 +837,12 @@ class PresFlight3D {
         if (kind == "sprite") {
             def p:FlightPart (this.part(o kind))
             def bx:JVal (o.get("box"))
-            this.addPic(p "sprite" ("{\"src\":" + (JVal.quote((o.strOr("src" "")))) + ",\"box\":" + (bx.toJson()) + "}") 1.0 1.0 1.0 op)
+            this.addPic(p "sprite" ("{\"src\":" + (JVal.quote((o.strOr("src" "")))) + ",\"box\":" + (bx.toJson()) + "}") 1.0 1.0 1.0 op false)
             return
         }
         if (kind == "picture") {
             def p:FlightPart (this.part(o kind))
-            this.addPic(p "picture" (o.strOr("src" "")) r g b op)
+            this.addPic(p "picture" (o.strOr("src" "")) r g b op (o.boolOr("solid" false) == false))
             def fr:ThreeBufferGeometry (FlightGeo.frame(p.w p.h 0.025 true))
             this.hold(p (this.mesh(fr (this.basic(r g b 0.8 true)))) (0.8 * op) 0.0 0.0 0.0)
             return
@@ -983,7 +985,9 @@ class PresFlight3D {
     }
 
     ; A picture the page is to make for part p, on a plane in its place.
-    fn addPic:void (p:FlightPart kind:string spec:string r:double g:double b:double op:double) {
+    ; Light added to what is behind it (additive), or covering it: a sprite
+    ; and a solid picture are seen as they are, and hide what is behind.
+    fn addPic:void (p:FlightPart kind:string spec:string r:double g:double b:double op:double additive:boolean) {
         def pc:FlightPic (new FlightPic())
         pc.kind = kind
         pc.station = p.station
@@ -993,8 +997,12 @@ class PresFlight3D {
         pc.r = r
         pc.g = g
         pc.b = b
-        ; light added to what is behind it, but a sprite covers it
-        def m:ThreeMeshBasicMaterial (this.basic(1.0 1.0 1.0 1.0 (kind != "sprite")))
+        def m:ThreeMeshBasicMaterial (this.basic(1.0 1.0 1.0 1.0 additive))
+        pc.solid = ((additive == false) && (kind == "picture"))
+        if pc.solid {
+            ; lines behind it drawn after it stay behind it
+            m.setDepthWrite(true)
+        }
         pc.mesh = (this.mesh((FlightGeo.picture()) m))
         pc.mesh.scale.set(p.w p.h 1.0)
         ; no picture yet: nothing to show
@@ -1614,7 +1622,11 @@ class PresFlight3D {
         }
         def pc:FlightPic (itemAt pics i)
         if (pc.kind == "picture") {
-            FlightHolo.pixels(px w h pc.r pc.g pc.b)
+            if pc.solid {
+                FlightHolo.solid(px w h)
+            } {
+                FlightHolo.pixels(px w h pc.r pc.g pc.b)
+            }
         }
         if (pc.tex < 0) {
             if ((array_length free) > 0) {
