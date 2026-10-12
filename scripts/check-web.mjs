@@ -5364,6 +5364,49 @@ try {
     check("Document settings opens from the front matter popover and the page's pick", ds.hintBtn && ds.fromHint === "docset" && ds.page[0] === "page" && ds.page[1] && ds.fromPage === "docset", JSON.stringify(ds));
     check("Document settings writes the front matter and undoes as one step", ds.written === "---|title: Q3|footer-right: \"{page} / {pages}\"|header-left: Acme|header-skip: first|---" && ds.undone === "---|title: Q3|footer-right: \"{page} / {pages}\"|---", JSON.stringify(ds));
     check("no page errors in the document settings", derr.length === 0, derr.join(" | "));
+    // Ctrl+Z keeps the slide being worked on: an edit written by a window
+    // (Document settings) or by the AI drawer undoes without taking the
+    // caret to the front matter or the end, and with nothing to undo the
+    // caret stays put
+    await pd.evaluate(() => { const a = window.__app; if (a.chartIsOpen()) a.key("escape", false, false); });
+    const uk = await pd.evaluate(async () => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const tap = (root, id) => { const e = walk(root, id); if (!e) return false; a.pointerDown(e.calculatedX + 6, e.calculatedY + 6, false, 1); a.pointerUp(); return true; };
+      const settle = async () => { window.__handleRequests(); await new Promise((r) => setTimeout(r, 400)); };
+      a.setSource("---\ntitle: Q3\n---\n\n# Cover\n\n## Two\n\ntext\n\n## Three\n\nmore\n");
+      a.showTab("md");
+      a.editor.moveCaret(8, 2, false);
+      a.syncEditor();
+      const out = { at: [a.selected, a.editor.sel.caret.line] };
+      a.openDocSettings("");
+      await settle();
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-tabs-tab-header");
+      a.chartJson();
+      tap(a.chart.host.lastPage, "ds-t-0");
+      a.text("Acme");
+      a.chartJson();
+      out.written = a.source().includes("header-left: Acme");
+      a.key("escape", false, false);
+      return out;
+    });
+    const caretNow = () => pd.evaluate(() => [window.__app.selected, window.__app.editor.sel.caret.line, window.__app.editor.sel.caret.col]);
+    await pd.keyboard.press("Control+z");
+    const ukDoc = await caretNow();
+    const ukGone = !(await pd.evaluate(() => window.__app.source().includes("header-left")));
+    await pd.keyboard.press("Control+y");
+    const ukRedo = await caretNow();
+    await pd.keyboard.press("Control+z");
+    await pd.keyboard.press("Control+z");
+    const ukEmpty = await caretNow();
+    await pd.evaluate(() => { const a = window.__app; const lc = a.mdEditor.buf.lineCount(); a.replaceLines(0, lc - 1, a.source().replace("more", "more words")); a.syncEditor(); });
+    await pd.keyboard.press("Control+z");
+    const ukAi = await caretNow();
+    check("Ctrl+Z on Document settings' edit keeps the slide and the caret", uk.written && ukGone && uk.at[0] === 1 && ukDoc[0] === 1 && ukDoc[1] === 8 && ukDoc[2] === 2, JSON.stringify([uk, ukDoc]));
+    check("…Ctrl+Y writes it again and the caret moves with its line", ukRedo[0] === 1 && ukRedo[1] === 9 && ukRedo[2] === 2, JSON.stringify(ukRedo));
+    check("…with nothing left to undo the caret stays put", ukEmpty[0] === 1 && ukEmpty[1] === 8 && ukEmpty[2] === 2, JSON.stringify(ukEmpty));
+    check("…a whole-text rewrite (the AI drawer's) undoes on the same slide", ukAi[0] === 1 && ukAi[1] === 8, JSON.stringify(ukAi));
     // the presentation's own data (front matter keys Sliqtly does not
     // read): a row a key, + Data adds one, and the footer prints it
     const dd = await pd.evaluate(async () => {
