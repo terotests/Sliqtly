@@ -617,9 +617,10 @@ class PresAi {
         c.setMember("outline" (VlJson.stringValue(ctx.outline)))
         c.setMember("theme" (VlJson.stringValue(ctx.theme)))
         c.setMember("themes" (VlJson.stringValue(ctx.themes)))
-        if (scope == "deck") {
-            c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
-        }
+        ; the whole deck goes along on every question: the server puts it in
+        ; the prompt only for a deck question, and draws it when the model
+        ; looks at a slide
+        c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
         root.setMember("context" c)
         def hist:VlJson (VlJson.arrayValue())
         for msgs m:PresAiMsg i {

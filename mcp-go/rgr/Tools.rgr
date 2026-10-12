@@ -4036,13 +4036,57 @@ class Tools {
         if ((strlen hid) > 0) {
             return (Tools.fail(hid))
         }
-        def md:string (d.str_("md"))
         def stored:[string]
         for (d.list("files")) f:MfJ fi {
             push stored (f.str_("path"))
         }
+        def css0:MfJ (d.field("css"))
+        return (Tools.renderDeck(host a all tool id (d.str_("md")) (d.str_("theme")) (css0.kind == 3) (d.str_("css")) (d.str_("name")) stored))
+    }
+
+    ; The editor's AI assistant looking at the Markdown open in the editor
+    ; (aiassist.go): drawn as render_slide / render_overview draw a kept
+    ; deck. deckId, when the open presentation is kept in the cloud and the
+    ; caller may read it, gives its pictures and CSS; "" draws the Markdown
+    ; alone with the theme.
+    sfn renderOpen:MfJ (host:McpHost caller:Caller a:MfJ all:boolean md:string theme:string deckId:string) {
+        def tool:string "render_slide"
+        if all {
+            tool = "render_overview"
+        }
+        def stored:[string]
+        if ((strlen deckId) == 0) {
+            return (Tools.renderDeck(host a all tool "" md theme false "" "This presentation" stored))
+        }
+        if ((((strlen deckId) < 6) || ((strlen deckId) > 32)) || ((Deck.allAlnum(deckId)) == false)) {
+            return (Tools.fail("No such presentation."))
+        }
+        def d:MfJ (Store.get(host deckId))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((d.isObj()) == false) {
+            return (Tools.renderDeck(host a all tool "" md theme false "" "This presentation" stored))
+        }
+        def hid:string (Tools.hiddenFrom(caller d deckId))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host tool (host_error host)))
+        }
+        if ((strlen hid) > 0) {
+            return (Tools.fail(hid))
+        }
+        for (d.list("files")) f:MfJ fi {
+            push stored (f.str_("path"))
+        }
+        def css:MfJ (d.field("css"))
+        return (Tools.renderDeck(host a all tool deckId md theme (css.kind == 3) (d.str_("css")) (d.str_("name")) stored))
+    }
+
+    ; render_slide / render_overview of a deck's Markdown: the picture and
+    ; what the layout says
+    sfn renderDeck:MfJ (host:McpHost a:MfJ all:boolean tool:string id:string md:string theme:string hasCss:boolean cssText:string name:string stored:[string]) {
         def noImgs:[Img]
-        def bgs:CheckPics (Tools.backgrounds(host md (d.str_("css")) noImgs id))
+        def bgs:CheckPics (Tools.backgrounds(host md cssText noImgs id))
         def din (new DeckIn)
         din.deckId = id
         din.stored = stored
@@ -4063,8 +4107,7 @@ class Tools {
                 din.fxTime = fxTime
             }
         }
-        def css:MfJ (d.field("css"))
-        def ck:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+        def ck:Checked (Tools.checkWith(host md theme hasCss cssText bgs din))
         if ((array_length ck.lists) == 0) {
             return (Tools.fail("The presentation has no slides to draw (or its theme could not be read)."))
         }
@@ -4110,7 +4153,7 @@ class Tools {
                 return (Tools.fail("The slides could not be drawn."))
             }
             content.add((Tools.image(b64)))
-            push lines ("\"" + (d.str_("name")) + "\": " + (to_string n) + " slides, numbered in the picture's corners.")
+            push lines ("\"" + name + "\": " + (to_string n) + " slides, numbered in the picture's corners.")
             if (n > shown) {
                 push lines ("Only the first " + (to_string shown) + " are shown; render_slide draws any of them.")
             }
@@ -4129,7 +4172,7 @@ class Tools {
                 ; the slide named by its title: its list again, on its clock
                 din.fxAt = at
                 din.fxTime = fxTime
-                def again:Checked (Tools.checkWith(host md (d.str_("theme")) (css.kind == 3) (d.str_("css")) bgs din))
+                def again:Checked (Tools.checkWith(host md theme hasCss cssText bgs din))
                 if ((array_length again.lists) > at) {
                     ck.lists = again.lists
                 }

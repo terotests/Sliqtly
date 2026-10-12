@@ -5007,6 +5007,15 @@ function aiButton() {
 }
 function askAi(body) {
   if (!body) return;
+  // the share the deck is kept in, for the assistant's read tools (its files,
+  // pictures and comments); none when the deck is only in this browser
+  if (doc.cloud) {
+    try {
+      const q = JSON.parse(body);
+      q.context = { ...(q.context || {}), deckId: doc.cloud };
+      body = JSON.stringify(q);
+    } catch { /* sent as it is */ }
+  }
   aiCall("ask", body)
     .then((text) => app.aiAnswer(text))
     .catch((e) => app.aiFail(t("The question did not reach the assistant: ") + (e?.message || e)))

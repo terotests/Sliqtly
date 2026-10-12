@@ -54,7 +54,7 @@ func TestAIRepairRound(t *testing.T) {
 	q := aiQuestion{Message: "Tee näyttävä setti erilaisia chartteja tähän", Scope: "slide", Context: aiContext{Slide: 1, Slides: 1, SlideMD: "## One"}}
 	m := &scriptedAI{answers: []aiAnswer{bad, good}}
 	a := &aiAssist{model: m}
-	ans, err := a.ask(context.Background(), q, check)
+	ans, err := a.ask(context.Background(), q, check, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,14 +69,14 @@ func TestAIRepairRound(t *testing.T) {
 	// a clean answer is asked once
 	m = &scriptedAI{answers: []aiAnswer{good}}
 	a = &aiAssist{model: m}
-	ans, _ = a.ask(context.Background(), q, check)
+	ans, _ = a.ask(context.Background(), q, check, nil)
 	eq(t, len(m.asked), 1)
 	eq(t, ans.Text, "Added a bar chart.")
 
 	// a second answer with no changes: the first stands
 	m = &scriptedAI{answers: []aiAnswer{bad, {Text: "Sorry."}}}
 	a = &aiAssist{model: m}
-	ans, _ = a.ask(context.Background(), q, check)
+	ans, _ = a.ask(context.Background(), q, check, nil)
 	eq(t, ans.Text, "Added charts.")
 	eq(t, ans.Calls, int64(2))
 }
