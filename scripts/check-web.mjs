@@ -661,6 +661,48 @@ try {
     check("a toast's text can be selected and copied, and stays while selected", r.toast === "Could not reach the server (503)" && r.held && r.dropped, JSON.stringify(r));
   }
 
+  // The AI drawer's answers are painted over and copied like a page's text:
+  // a drag from a formatted answer's first word down into its code block
+  // copies the words without the markers and the code as written, a double
+  // click takes a word, a press elsewhere lets it go. The bug: presses on the
+  // drawer's messages went nowhere, so nothing in an answer could be copied.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const copy = () => {
+        const dt = new DataTransfer();
+        document.getElementById("keys").dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+        return dt.getData("text/plain");
+      };
+      a.aiOpen(true);
+      const c = a.panels.aiChat;
+      c.add("copy-check", "ai", "AI", "#7c3aed", "Sure, a **darker** one:\n\n```\n## Q3 {bg=#1e222a}\n```", "", false);
+      c.toEnd();
+      a.panels.rebuild();
+      const i = c.count() - 1;
+      const pg = a.panels.page();
+      const first = walk(pg, c.blockTid(i, 0) + "-s0");
+      const bold = walk(pg, c.blockTid(i, 0) + "-s1");
+      const code = walk(pg, c.blockTid(i, 2) + "-code");
+      const out = { found: !!(first && bold && code) };
+      if (!out.found) return out;
+      const y = first.calculatedY + first.calculatedHeight / 2;
+      a.pointerDown(first.calculatedX + 1, y, false, 1);
+      a.pointerMove(code.calculatedX + code.calculatedWidth - 4, code.calculatedY + code.calculatedHeight / 2);
+      a.pointerUp();
+      out.drag = copy();
+      a.pointerDown(bold.calculatedX + 4, bold.calculatedY + bold.calculatedHeight / 2, false, 2); a.pointerUp();
+      out.word = copy();
+      a.pointerDown(300, 300, false, 1); a.pointerUp();
+      out.dropped = copy();
+      a.aiOpen(false);
+      return out;
+    });
+    check("the AI drawer: a drag over an answer copies it without markers, code as written", r.found && r.drag === "Sure, a darker one:\n\n## Q3 {bg=#1e222a}", JSON.stringify(r));
+    check("…a double click takes a word, a press elsewhere lets it go", r.word === "darker" && r.dropped === "", JSON.stringify(r));
+  }
+
   // "Your name" opens with the name selected, so typing replaces it; an
   // emoji typed in one go lands whole. The bug: the window's rebuild made a
   // new field with the caret at the end, and text went in one UTF-16 unit
