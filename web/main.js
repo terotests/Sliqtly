@@ -5131,6 +5131,12 @@ function handleRequests() {
           docRooms().catch((e) => console.warn("no rooms for the settings", e));
         }
       });
+    } else if (r === "slidebg") {
+      // a slide's own background picture: the deck's pictures to pick from
+      docFiles().then((fs) => {
+        const pics = fs.filter((f) => kindOf(f.path, f.type) === "image").map((f) => f.path).sort();
+        if (app.openSlideBg(pics.join("\n"))) needsPaint = true;
+      });
     } else if (r.startsWith("docroom:")) {
       // Document settings moved the presentation to another room
       const room = r.slice(8);
