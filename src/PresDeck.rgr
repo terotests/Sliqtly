@@ -4134,6 +4134,12 @@ class PresDeck {
             ; Vega's 11 read small beside them (Tero's cloud run 2026-10-06)
             if roomy {
                 parts = (parts + ", \"text\": {\"fontSize\": " + fs + "}")
+                ; points as large as the type: Vega's 30 px² (a dot 6 px
+                ; across) beside 15 pt labels read as specks on a slide
+                ; (Tero 2026-10-12). Across about 0.8 of the label size.
+                def ps:string (VlJson.formatNumber((PresDeck.pointArea(f)) 0))
+                def sym:string ("{\"size\": " + ps + "}")
+                parts = (parts + ", \"point\": " + sym + ", \"circle\": " + sym + ", \"square\": " + sym)
             }
         }
         ; every chart's: the deck's numbers and colours (`chartLook`)
@@ -4183,6 +4189,18 @@ class PresDeck {
             return ""
         }
         return ("{" + out + "}")
+    }
+
+    ; A point mark's area (Vega's `size`, px²) beside labels of `font`
+    ; points: a circle about 0.8 of the label size across, never smaller
+    ; than Vega's own 30.
+    sfn pointArea:double (font:double) {
+        def d:double (font * 0.8)
+        def a:double (((d * d) * 3.141592653589793) / 4.0)
+        if (a < 30.0) {
+            return 30.0
+        }
+        return (to_double (to_int (a + 0.5)))
     }
 
     ; What every chart in the deck shares, as `config` members:

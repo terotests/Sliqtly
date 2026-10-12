@@ -418,6 +418,8 @@ class PresFlightScene {
     def curPW:double 960.0
     def curPH:double 540.0
     def curEnt:string ""
+    ; the kind of block the command drawn now is in ("chart", "diagram", …)
+    def curBlock:string ""
     def curOrder:int 0
     def curStep:int 0
     def curUntil:int -1
@@ -772,7 +774,9 @@ class PresFlightScene {
                     it.fill = f
                 }
             }
-            if (c.kind == 7) {
+            ; a plate drawn round with lines: a card's frame gets brackets,
+            ; a chart's plot does not (they stood over its axis labels)
+            if ((c.kind == 7) && (curBlock != "chart")) {
                 it.brackets = true
             }
         }
@@ -1024,6 +1028,7 @@ class PresFlightScene {
                     }
                 }
                 curEnt = ent
+                curBlock = block
                 curOrder = order
                 curStep = step
                 curUntil = (itemAt untilAt k)
@@ -1700,6 +1705,22 @@ class PresFlightScene {
 
     ; ---- words -------------------------------------------------------------------
 
+    ; Box x,y,w,h moved to where turning it `deg` degrees (clockwise, as
+    ; the slide turns) about ox,oy puts its middle: the same size, its middle
+    ; turned.
+    sfn turnedBox:[double] (bx:[double] deg:double ox:double oy:double) {
+        def w:double (itemAt bx 2)
+        def h:double (itemAt bx 3)
+        def dx:double (((itemAt bx 0) + (w * 0.5)) - ox)
+        def dy:double (((itemAt bx 1) + (h * 0.5)) - oy)
+        def a:double ((deg * 3.141592653589793) / 180.0)
+        def co:double (cos a)
+        def s:double (sin a)
+        def cx:double (ox + ((dx * co) - (dy * s)))
+        def cy:double (oy + ((dx * s) + (dy * co)))
+        return ([] _:double ((cx - (w * 0.5)) (cy - (h * 0.5)) w h))
+    }
+
     ; Whether a text is set in a typewriter face.
     sfn isMono:boolean (c:EVGDrawCmd) {
         def f:string (to_lowercase c.fontFamily)
@@ -1734,6 +1755,12 @@ class PresFlightScene {
         if ((itemAt bx 2) <= 0.0) {
             ; no width measured: about what its letters take
             set bx 2 ((fs * 0.55) * (to_double (strlen c.text)))
+        }
+        ; a text turned about a point of its own (an axis title on its side
+        ; turns about its anchor): its box where the turn puts it, still
+        ; unturned (the item turns about its own middle)
+        if ((c.rotate != 0.0) && c.hasRotOrigin) {
+            bx = (PresFlightScene.turnedBox(bx c.rotate c.rotOriginX c.rotOriginY))
         }
         def cy:double ((itemAt bx 1) + (h * 0.5))
         def at:int (itemAt lineOf top)
@@ -1819,6 +1846,11 @@ class PresFlightScene {
         def host:int (this.hostOf(c.kind bx))
         if (host >= 0) {
             return (this.attach(host k c))
+        }
+        ; a chart's point drawn as a small round box (Vega's circle and
+        ; point symbols): a ball, not a bar
+        if ((block == "chart") && ((PresFlightScene.isDisc(c)) && (((? (w > h) w h)) <= 24.0))) {
+            return (this.addDot(st c k bx dz))
         }
         ; a rule: a thin line of light along it
         if ((c.kind == 0) && ((w <= 2.5) || (h <= 2.5))) {
@@ -2169,12 +2201,7 @@ class PresFlightScene {
         }
         def big:double (? (w > h) w h)
         if (((block == "chart") && (big <= 24.0)) && ((fabs (w - h)) <= ((big * 0.25) + 0.5))) {
-            def dot:FlightItem (this.item("dot" st.index))
-            PresFlightScene.colour(dot (PresFlightScene.glow(c (PresFlightScene.cyan()))))
-            dot.grow(bx)
-            dot.dz = (dz + 0.15)
-            push dot.cmds k
-            return dot
+            return (this.addDot(st c k bx dz))
         }
         def sh:FlightItem (this.item("shape" st.index))
         def deflt:[double] (PresFlightScene.cyan())
@@ -2211,6 +2238,33 @@ class PresFlightScene {
         }
         push sh.cmds k
         return sh
+    }
+
+    ; A chart's point (a symbol as a path, or as a box rounded all the
+    ; way): a ball of light where the slide has it, at least `dotMin` px
+    ; across so a slide's small marks still read as points from the camera.
+    fn addDot:FlightItem (st:FlightStation c:EVGDrawCmd k:int bx:[double] dz:double) {
+        def dot:FlightItem (this.item("dot" st.index))
+        PresFlightScene.colour(dot (PresFlightScene.glow(c (PresFlightScene.cyan()))))
+        def w:double (itemAt bx 2)
+        def h:double (itemAt bx 3)
+        def big:double (? (w > h) w h)
+        def m:double (PresFlightScene.dotMin())
+        if (big < m) {
+            def cx:double ((itemAt bx 0) + (w * 0.5))
+            def cy:double ((itemAt bx 1) + (h * 0.5))
+            dot.grow(([] _:double ((cx - (m * 0.5)) (cy - (m * 0.5)) m m)))
+        } {
+            dot.grow(bx)
+        }
+        dot.dz = (dz + 0.15)
+        push dot.cmds k
+        return dot
+    }
+
+    ; How wide a chart's point is at least, px of the slide.
+    sfn dotMin:double () {
+        return 8.0
     }
 
     ; How bright the theme's line art behind a slide (waves, frames) is,
@@ -2425,7 +2479,9 @@ class PresFlightScene {
             ln.op = (ln.op * (PresFlightScene.artDim()))
             ln.art = true
         }
-        if ((block == "diagram") || ((block == "chart") && hued)) {
+        ; a diagram's lines and a chart's own lines are thick; a chart's
+        ; grid, ticks and frame (coloured by the theme too) stay thin
+        if ((block == "diagram") || ((block == "chart") && strong)) {
             ln.pulse = spark
             if (ln.rad < 0.03) {
                 ln.rad = 0.03
