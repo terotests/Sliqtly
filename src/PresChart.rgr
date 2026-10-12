@@ -92,6 +92,8 @@ class PresChart {
             wm = (EVGColor.parse(markHex))
         }
         def keepLines:boolean ((((indexOf spec "\"gridColor\"") >= 0) || ((indexOf spec "\"domainColor\"") >= 0)) || ((indexOf spec "\"tickColor\"") >= 0))
+        ; the outline colours the chart names (a donut's "stroke": "#111")
+        def strokes:[string] (PresChart.ownStrokes(spec))
         def acR:int (ac.red())
         def acG:int (ac.green())
         def acB:int (ac.blue())
@@ -269,6 +271,13 @@ class PresChart {
                         }
                     }
                 }
+                ; An outline in a colour the chart named keeps it, and its
+                ; width: not lit up on a dark slide, not the warm colour
+                if (PresChart.ownStroke(c strokes)) {
+                    push out.cmds c
+                    k = (k + 1)
+                    continue
+                }
                 ; Black data on a dark slide (points, rules, error bars a
                 ; chart coloured black for white paper): drawn light instead
                 ; of invisible, and not taken for a grid line.
@@ -435,6 +444,7 @@ class PresChart {
         ; a palette the chart chose (a scheme, a colour of its own) keeps its
         ; colours: the look then gives the shapes, the lines and the words
         def own:boolean (PresChart.ownPalette(spec))
+        def strokes:[string] (PresChart.ownStrokes(spec))
         def bars:[EVGDrawCmd] (PresChart.columnsIn(tail ramp spec))
         def nb:int (array_length bars)
         def growStart:double (PresChart.growStart())
@@ -497,6 +507,12 @@ class PresChart {
             }
             if (c.kind == 3) {
                 PresChart.lookWords(c look ink l haveFaces)
+                push out.cmds c
+                k = (k + 1)
+                continue
+            }
+            if (PresChart.ownStroke(c strokes)) {
+                ; an outline in a colour the chart named: the chart's
                 push out.cmds c
                 k = (k + 1)
                 continue
@@ -649,6 +665,64 @@ class PresChart {
         def m:VlJson (j.get("mark"))
         if (m.isObject()) {
             return ((strlen (m.stringOr("color" ""))) > 0)
+        }
+        return false
+    }
+
+    ; The outline colours the chart names outright, as "r,g,b": a mark's
+    ; or a config's `"stroke": "#111"`, an encoding's `{"value": "#111"}`.
+    ; What the spec says wins over the theme, as a mark's `color` does.
+    sfn ownStrokes:[string] (spec:string) {
+        def out:[string]
+        if ((indexOf spec "\"stroke\"") < 0) {
+            return out
+        }
+        def p (new VlJsonParser())
+        PresChart.collectStrokes((p.parse(spec)) out)
+        return out
+    }
+
+    sfn collectStrokes:void (j:VlJson out:[string]) {
+        if (j.isArray()) {
+            def i:int 0
+            while (i < (j.count())) {
+                PresChart.collectStrokes((j.at(i)) out)
+                i = (i + 1)
+            }
+            return
+        }
+        if ((j.isObject()) == false) {
+            return
+        }
+        for j.keys key:string ki {
+            def v:VlJson (j.get(key))
+            if (key == "stroke") {
+                def hex:string ""
+                if (v.isString()) {
+                    hex = v.str
+                }
+                if (v.isObject()) {
+                    hex = (v.stringOr("value" ""))
+                }
+                if (((strlen hex) > 0) && (hex != "none") && (hex != "transparent")) {
+                    def col:EVGColor (EVGColor.parse(hex))
+                    push out ((to_string (col.red())) + "," + (to_string (col.green())) + "," + (to_string (col.blue())))
+                }
+            }
+            PresChart.collectStrokes(v out)
+        }
+    }
+
+    ; A drawn outline in one of those colours.
+    sfn ownStroke:boolean (c:EVGDrawCmd strokes:[string]) {
+        if (c.kind != 7) {
+            return false
+        }
+        def key:string (PresChart.keyOf(c))
+        for strokes s:string si {
+            if (s == key) {
+                return true
+            }
         }
         return false
     }

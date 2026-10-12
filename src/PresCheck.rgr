@@ -6185,6 +6185,65 @@ class PresCheck {
         return c
     }
 
+    ; A donut's outline in the colour and width its mark names
+    ; (`"stroke": "#111", "strokeWidth": 6`): kept on a dark slide (it was
+    ; lit up near white), on a light one (it took the warm colour) and in a
+    ; look (it took the first series' ink).
+    fn ownStrokes:void () {
+        def spec:string "{\"data\":{\"values\":[{\"c\":\"a\",\"v\":4},{\"c\":\"b\",\"v\":6},{\"c\":\"c\",\"v\":10}]},\"mark\":{\"type\":\"arc\",\"innerRadius\":50,\"stroke\":\"#111\",\"strokeWidth\":6},\"encoding\":{\"theta\":{\"field\":\"v\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\"}}}"
+        def keys:[string] (PresChart.ownStrokes(spec))
+        this.ok((((array_length keys) == 1) && ((itemAt keys 0) == "17,17,17")) ("own strokes: the mark's stroke is read, got " + (join keys " ")))
+        def enc:[string] (PresChart.ownStrokes("{\"mark\":\"arc\",\"encoding\":{\"stroke\":{\"value\":\"white\"}}}"))
+        this.ok((((array_length enc) == 1) && ((itemAt enc 0) == "255,255,255")) "own strokes: an encoding's stroke value is read")
+        this.ok(((array_length (PresChart.ownStrokes("{\"mark\":\"arc\"}"))) == 0) "own strokes: none named")
+        for (strsplit "flat dark|flat|forge dark|cartoon" "|") style:string si {
+            def text:string ("---\nslide-split-level: 2\n" + "---\n\n## Donut\n\n```vega-lite\n" + spec + "\n```\n")
+            if (style == "cartoon") {
+                text = ("---\nslide-split-level: 2\nstyle: cartoon\n---\n\n## Donut\n\n```vega-lite\n" + spec + "\n```\n")
+            }
+            def deck (new PresDeck())
+            deck.setText(text)
+            def l:MdLayout (deck.layout())
+            def bi:int -1
+            def i:int 0
+            while (i < (array_length l.boxes)) {
+                def b:MdBox (itemAt l.boxes i)
+                if ((b.kind == 3) && ((indexOf b.embedSource "\"arc\"") >= 0)) {
+                    bi = i
+                }
+                i = (i + 1)
+            }
+            this.ok((bi >= 0) "own strokes: the donut is laid out")
+            if (bi >= 0) {
+                def dl (new EVGDisplayList())
+                if (style == "cartoon") {
+                    dl = (deck.chartStill(bi))
+                } {
+                    def painter (new MdToEvg())
+                    def b:MdBox (itemAt l.boxes bi)
+                    painter.paintBox(dl l b 0.0)
+                    PresChart.dress(dl 0 1000000.0 true "#59C3C4" "#B96926" b.embedSource style)
+                }
+                def dark:int 0
+                def thick:int 0
+                def other:int 0
+                for dl.cmds c:EVGDrawCmd ci {
+                    if ((c.kind == 7) && ((array_length c.pts) > 20)) {
+                        if (((c.r == 17) && (c.g == 17)) && (c.b == 17)) {
+                            dark = (dark + 1)
+                            if (c.thickness >= 4.0) {
+                                thick = (thick + 1)
+                            }
+                        } {
+                            other = (other + 1)
+                        }
+                    }
+                }
+                this.ok((((dark == 3) && (thick == 3)) && (other == 0)) ((("own strokes (" + style) + "): 3 slice outlines in #111 at the mark's width, got ") + (to_string dark) + " / " + (to_string thick) + " thick, " + (to_string other) + " recoloured"))
+            }
+        }
+    }
+
     ; Rounded columns (`cornerRadiusEnd`) are a script's bars; a point (a
     ; rect round all through) is not. The dressing still leaves them.
     fn roundedBars:void () {
@@ -8404,6 +8463,7 @@ class PresCheck {
         c.playFiles()
         c.scripts()
         c.roundedBars()
+        c.ownStrokes()
         c.morph()
         c.worlds()
         c.flight()
