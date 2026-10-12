@@ -134,6 +134,12 @@ func TestSharedPptx(t *testing.T) {
 		t.Fatalf("the picture is %vx%v, not the slide's shape", w, h)
 	}
 
+	// a deck is not a Figma file to vary or export
+	vary := call(t, s, "create_figma_variation", map[string]any{"file_id": "q3-review"})
+	match(t, textOf(vary), `is a PowerPoint deck: .*edit_pptx`)
+	exp := call(t, s, "export_figma", map[string]any{"file_id": "q3-review"})
+	match(t, textOf(exp), `is a PowerPoint deck`)
+
 	// changed in place: a title, then a slide taken out
 	bad := call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "edits": []any{map[string]any{"slide": 1, "shape": "0", "text": "x"}}})
 	match(t, textOf(bad), `comes from the slide's layout`)
