@@ -1,7 +1,7 @@
 // node --test: a room's presentations as stories (web/stories.js, web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { STORY_TYPES, STORY_PHASES, STORY_TYPE_STYLE, TYPE_GROUP_ORDER, storyOf, changeStory, cleanTags, storyColor, sortStories, groupStories, agoOf, phaseCounts, groupByOf, storySortOf, NEW_STORY } from "../stories.js";
+import { STORY_TYPES, STORY_PHASES, STORY_TYPE_STYLE, TYPE_GROUP_ORDER, storyOf, changeStory, cleanTags, storyColor, sortStories, groupStories, agoOf, phaseCounts, groupByOf, storySortOf, NEW_STORY, bulkAction } from "../stories.js";
 import { emptyRooms, readKept, changeKept, roomDecks, setStory, storyFor, forgetStory, GENERAL } from "../rooms.js";
 
 test("a presentation with no story is the default: a story, active", () => {
@@ -97,4 +97,12 @@ test("a story is kept in the browser as a fact of its own, beside the deck's roo
   assert.equal(setStory(emptyRooms(), "sample:welcome", { type: "demo" }).stories["sample:welcome"], undefined);
   changeKept(store, "r", (s) => forgetStory(s, "a"));
   assert.equal(store.getItem("r/story/a"), null);
+});
+
+test("a topic's Actions row as what Apply does to the ticked stories", () => {
+  assert.deepEqual(bulkAction("mvf-f12"), { folder: "f12" });
+  assert.deepEqual(bulkAction("mvf-top"), { folder: "" });
+  assert.deepEqual(bulkAction("sty-task"), { part: "type", value: "task" });
+  assert.deepEqual(bulkAction("stp-done"), { part: "phase", value: "done" });
+  for (const bad of ["", "mvf-", "mvf-new", "sty-nope", "stp-later", "deleteDeck", undefined]) assert.equal(bulkAction(bad), null, String(bad));
 });

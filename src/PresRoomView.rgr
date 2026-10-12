@@ -129,6 +129,12 @@ class PresRoomView {
         this.changed()
     }
 
+    ; a row of the bar's Actions menu, for the Stories tab's ticked cards
+    fn topicChoose:void (what:string words:string) {
+        topic.choose(what words)
+        this.changed()
+    }
+
     ; the Stories or the Chat tab
     fn showView:void (v:string) {
         if (v != view) {
@@ -611,7 +617,7 @@ class PresRoomView {
             return true
         }
         if (view == "stories") {
-            if (topic.press(tid (host.rectOf(tid)))) {
+            if (topic.press(tid (host.rectOf(tid)) px py shift)) {
                 this.changed()
             }
             return true
