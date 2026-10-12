@@ -243,6 +243,11 @@ class PresChartEditor {
     def cfAlt:string ""
     ; a question that deletes nothing (a paste): its button is not red
     def cfSafe:boolean false
+    ; A choice to make before going on (PresApp.openPick: how long a link
+    ; works): `cfPicks` one "key=label" line per chip, `cfPick` the key
+    ; chosen, which the page reads when it hears "confirm:<key>"
+    def cfPicks:string ""
+    def cfPick:string ""
     def wantsAlt:boolean false
     ; A long job's window (`mode` "progress": a video being made): `pgKey`
     ; names the job to the page, `pgText` says what it is, the bar shows
@@ -578,6 +583,8 @@ class PresChartEditor {
         cfOk = ok
         cfAlt = ""
         cfSafe = false
+        cfPicks = ""
+        cfPick = ""
         wantsConfirm = false
         wantsAlt = false
         this.openAt(px py pw ph)
@@ -2845,6 +2852,17 @@ class PresChartEditor {
             return
         }
         pane.addChild((this.copyable("ce-t-confirm" "ce-doc" cfText)))
+        if ((strlen cfPicks) > 0) {
+            def pc:EVGElement (UiKit.div("ce-chips"))
+            for (strsplit cfPicks (strfromcode 10)) line:string li {
+                def at:int (indexOf line "=")
+                if (at > 0) {
+                    def k:string (substring line 0 at)
+                    this.chip(("cf-pick-" + k) (substring line (at + 1) (strlen line)) (k == cfPick) pc)
+                }
+            }
+            pane.addChild(pc)
+        }
         root.addChild(pane)
         def bottom:EVGElement (UiKit.div("ce-foot"))
         this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
@@ -2873,6 +2891,11 @@ class PresChartEditor {
         if (tid == "cf-alt") {
             wantsAlt = true
             wantsClose = true
+            return true
+        }
+        if ((indexOf tid "cf-pick-") == 0) {
+            cfPick = (substring tid 8 (strlen tid))
+            this.rebuild()
             return true
         }
         return false

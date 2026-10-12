@@ -5,7 +5,7 @@
 // (links/{id}). Runs with rules.test.mjs: npm test.
 import { initializeTestEnvironment, assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
 import { readFileSync } from "node:fs";
-import { doc, setDoc, updateDoc, getDoc, deleteDoc, Timestamp, getDocs, query, collection, where } from "firebase/firestore";
+import { doc, setDoc, updateDoc, getDoc, deleteDoc, Timestamp, getDocs, query, collection, where, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, deleteObject } from "firebase/storage";
 
 const env = await initializeTestEnvironment({ projectId: "demo-sliqtly",
@@ -69,11 +69,11 @@ await check("owner editors not a list", updateDoc(doc(anna, "shares/shareA"), { 
 await check("invited lists by editors", getDocs(query(collection(bob, "shares"), where("editors", "array-contains", "bob@x.fi"))), true);
 await check("lists others by editors", getDocs(query(collection(carl, "shares"), where("editors", "array-contains", "bob@x.fi"))), false);
 await check("owner lists own", getDocs(query(collection(anna, "shares"), where("owner", "==", "anna"))), true);
-await check("owner links own", setDoc(doc(anna, "links/L1"), { of: "shareA", owner: "anna", created: 1 }), true);
-await check("link to other's deck", setDoc(doc(carl, "links/L2"), { of: "shareA", owner: "carl", created: 1 }), false);
-await check("link naming another owner", setDoc(doc(anna, "links/L3"), { of: "shareA", owner: "carl", created: 1 }), false);
-await check("link with extra fields", setDoc(doc(anna, "links/L4"), { of: "shareA", owner: "anna", created: 1, visibility: "x" }), false);
-await check("link over a share id", setDoc(doc(anna, "links/shareA"), { of: "shareA", owner: "anna", created: 1 }), false);
+await check("owner links own", setDoc(doc(anna, "links/L1"), { of: "shareA", owner: "anna", created: 1, since: serverTimestamp(), days: 7 }), true);
+await check("link to other's deck", setDoc(doc(carl, "links/L2"), { of: "shareA", owner: "carl", created: 1, since: serverTimestamp(), days: 7 }), false);
+await check("link naming another owner", setDoc(doc(anna, "links/L3"), { of: "shareA", owner: "carl", created: 1, since: serverTimestamp(), days: 7 }), false);
+await check("link with extra fields", setDoc(doc(anna, "links/L4"), { of: "shareA", owner: "anna", created: 1, since: serverTimestamp(), days: 7, visibility: "x" }), false);
+await check("link over a share id", setDoc(doc(anna, "links/shareA"), { of: "shareA", owner: "anna", created: 1, since: serverTimestamp(), days: 7 }), false);
 await check("owner reads own link", getDoc(doc(anna, "links/L1")), true);
 await check("other reads link", getDoc(doc(carl, "links/L1")), false);
 await check("link not changed", updateDoc(doc(anna, "links/L1"), { of: "shareX" }), false);

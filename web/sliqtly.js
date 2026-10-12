@@ -25,6 +25,7 @@
 
 import { t } from "./i18n.js";
 import { storedType } from "./storedtype.js";
+import { linkDays, linkExpired } from "./linkdays.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
 const pro = document.getElementById("pro");
@@ -382,17 +383,35 @@ async function setEditors(id, editors) {
   await db.collection("shares").doc(id).update({ editors: [...new Set(editors.map((e) => String(e).trim().toLowerCase()).filter(Boolean))] });
 }
 
-// The owner's viewing link to share `id`: the one made before, or a new
-// one (links/{linkId}, firestore.rules). → the link's id, for /s/{linkId}.
-async function viewLink(id) {
+// The owner's viewing link to share `id`, working for `days` (1 to
+// MAX_DAYS, web/linkdays.js) from now: the one made before when it still
+// works, its term begun again, or a new one (links/{linkId},
+// firestore.rules). `file`: a link of a recording's own
+// ("recordings/web-<hash>.webm", Export ▸ Cloud HTML / Cloud video) that
+// shows that file only; the same recording published again keeps its link. → the link's id, for /s/{linkId} or
+// /r/{linkId}/{hash}.
+async function viewLink(id, days, file = "") {
   if (!user) throw new Error("not signed in");
   const { db } = await store();
-  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).limit(1).get();
-  if (!had.empty) return had.docs[0].id;
+  const FieldValue = globalThis.firebase.firestore.FieldValue;
+  const term = { since: FieldValue.serverTimestamp(), days: linkDays(days) };
+  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get();
+  const ms = (v) => (typeof v === "number" ? v : v && typeof v.toMillis === "function" ? v.toMillis() : 0);
+  for (const d of had.docs) {
+    const v = d.data();
+    if ((v.file || "") !== file) continue;
+    // one past its term stays gone: its address is not given out again
+    if (linkExpired({ since: ms(v.since), days: v.days || 0, created: ms(v.created) })) {
+      await d.ref.delete();
+      continue;
+    }
+    await d.ref.update(term);
+    return d.id;
+  }
   for (let tries = 0; tries < 3; tries++) {
     const linkId = shortId();
     try {
-      await db.collection("links").doc(linkId).set({ of: id, owner: user.uid, created: globalThis.firebase.firestore.FieldValue.serverTimestamp() });
+      await db.collection("links").doc(linkId).set({ of: id, owner: user.uid, created: FieldValue.serverTimestamp(), ...term, ...(file ? { file } : {}) });
       return linkId;
     } catch (e) {
       // the id is taken (by a share): another
@@ -433,8 +452,20 @@ async function listPublished() {
     }));
     return { id: d.id, name: v.name || "", visibility: v.visibility ?? "", files: kept };
   }));
-  const links = made.docs.map((d) => ({ id: d.id, of: d.data().of || "", created: ms(d.data().created) }));
+  const links = made.docs.map((d) => {
+    const v = d.data();
+    return { id: d.id, of: v.of || "", created: ms(v.created), since: ms(v.since), days: v.days || 0, file: v.file || "" };
+  });
   return { shares, links };
+}
+
+// The links of a recording of its own (`file`, viewLink) removed with the
+// recording: they would show nothing.
+async function removeFileLinks(id, path) {
+  if (!user) return;
+  const { db } = await store();
+  const had = await db.collection("links").where("owner", "==", user.uid).where("of", "==", id).get();
+  await Promise.all(had.docs.filter((d) => d.data().file === path).map((d) => d.ref.delete()));
 }
 
 // One viewing link removed: /s/{linkId} shows nothing more.
@@ -760,7 +791,7 @@ async function uploadFigma(file, folder) {
   return path;
 }
 
-window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, listPublished, removeLink, removeShareFile, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, listPublished, removeLink, removeFileLinks, removeShareFile, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 // sliqtly.com/editor's Rooms search: the signed-in user's own presentations
 // and those they were invited to edit, whose words hold q, searched by
 // the server (mcp-go/searchapi.go)

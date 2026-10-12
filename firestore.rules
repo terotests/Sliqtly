@@ -99,20 +99,36 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
 
-    // links/{linkId}: {of: a share's id, owner, created}. The owner's viewing
-    // link to their presentation, under an id of its own: /s/{linkId} shows
-    // it to anyone holding the link (the server reads it, mcp-go/rgr/Store.rgr
-    // Store.shown), while the presentation's own id stays private. Made and
-    // removed (Stop sharing) by the presentation's owner only; read by that
-    // owner, who lists theirs (a query on owner).
+    // links/{linkId}: {of: a share's id, owner, created, since, days, file?}.
+    // The owner's viewing link to their presentation, under an id of its
+    // own: /s/{linkId} shows it to anyone holding the link (the server reads
+    // it, mcp-go/rgr/Store.rgr Store.shown), while the presentation's own id
+    // stays private. It works `days` (1 to 30, web/linkdays.js) from `since`,
+    // the server's time when it was made or its term begun again; the
+    // server shows nothing through it after that. `file` (a recording's
+    // path) makes it a link to that recording only (/r/{linkId}/{hash}).
+    // Made, renewed and removed (Stop sharing) by the presentation's owner
+    // only; read by that owner, who lists theirs (a query on owner).
+    function linkTerm(d) {
+      return d.since == request.time && d.days is int && d.days >= 1 && d.days <= 30;
+    }
     match /links/{linkId} {
       allow get, delete: if signedIn() && resource.data.owner == request.auth.uid;
       allow list: if signedIn() && resource.data.owner == request.auth.uid;
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid
-                    && request.resource.data.keys().hasOnly(['of', 'owner', 'created'])
+                    && request.resource.data.keys().hasOnly(['of', 'owner', 'created', 'since', 'days', 'file'])
+                    && request.resource.data.keys().hasAll(['since', 'days'])
+                    && linkTerm(request.resource.data)
+                    && (!('file' in request.resource.data)
+                        || (request.resource.data.file is string
+                            && request.resource.data.file.matches('recordings/web-[0-9a-f]{24}[.](sliqrec|webm)')))
                     && request.resource.data.of is string
                     && get(/databases/$(database)/documents/shares/$(request.resource.data.of)).data.owner == request.auth.uid
                     && !exists(/databases/$(database)/documents/shares/$(linkId));
+      // the term begun again (Share once more): nothing else changes
+      allow update: if signedIn() && resource.data.owner == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['since', 'days'])
+                    && linkTerm(request.resource.data);
     }
 
     match /licenses/{uid} {

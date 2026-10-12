@@ -397,6 +397,8 @@ class ViewPic {
     def type:string ""
     def bytes:buffer (buffer_from_string "")
     def url:string ""
+    ; what it was shown through (Store.keepFor: how long it may be kept)
+    def shown:Shown (new Shown)
 }
 
 class ViewPictures {
@@ -452,6 +454,7 @@ class ViewPictures {
             out.type = "image/svg+xml"
             return out
         }
+        out.shown = sh
         def made:buffer (host_view_picture host data 2048)
         if ((buffer_length made) > 0) {
             out.bytes = made
@@ -509,7 +512,8 @@ class ViewPictures {
         if (((strlen hash) != 24) || ((Deck.allAlnum(hash)) == false)) {
             return out
         }
-        def sh:Shown (Store.shown(host id))
+        ; a recording's own link shows that recording only
+        def sh:Shown (Store.shownAny(host id))
         def doc:MfJ sh.doc
         if ((strlen (host_error host)) > 0) {
             host_log host ("view recording " + id + ": " + (host_error host))
@@ -533,6 +537,10 @@ class ViewPictures {
         if ((strlen path) == 0) {
             return out
         }
+        if (((strlen sh.file) > 0) && (sh.file != path)) {
+            return out
+        }
+        out.shown = sh
         if ((path == video) && ((indexOf url "https://firebasestorage.googleapis.com/") == 0)) {
             out.status = 302
             out.url = url
