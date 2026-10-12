@@ -276,6 +276,13 @@ class PresChartEditor {
     ; to do with it: "set:<path>", "none", "edit", "trace" ("" nothing)
     def dsBg:string ""
     def dsBgAct:string ""
+    ; One slide's background picture (`mode` "slidebg", the slide menu's
+    ; Background image…): the slide (sbSlide), its `bg=` ("" none), and
+    ; what was asked of the app, as dsBgAct: "set:<path>", "none", "edit",
+    ; "trace" ("" nothing). The pictures are dsPics.
+    def sbSlide:int -1
+    def sbBg:string ""
+    def sbAct:string ""
     ; the presentation's home room (ADR 0001), as the page gave the rooms
     ; (setDocRooms): their ids and names, the one it is in, a note in place
     ; of the list ("" none), and the room chosen here for the app to move it
@@ -420,6 +427,15 @@ class PresChartEditor {
         wantsLook = ""
         lookPicked = false
         wantsCss = false
+        this.openAt(px py pw ph)
+    }
+
+    fn openSlideBg:void (slide:int bg:string pics:[string] px:double py:double pw:double ph:double) {
+        mode = "slidebg"
+        sbSlide = slide
+        sbBg = bg
+        sbAct = ""
+        dsPics = pics
         this.openAt(px py pw ph)
     }
 
@@ -1205,6 +1221,10 @@ class PresChartEditor {
             win.name = (PresI18n.t("Document settings"))
             win.title = (PresI18n.t("Document settings"))
         }
+        if (mode == "slidebg") {
+            win.name = (PresI18n.t("Slide background"))
+            win.title = win.name
+        }
         if ((mode == "confirm") || (mode == "progress")) {
             win.name = cfTitle
             win.title = cfTitle
@@ -1274,6 +1294,10 @@ class PresChartEditor {
         }
         if (mode == "docset") {
             this.docSetBody(root)
+            return
+        }
+        if (mode == "slidebg") {
+            this.slideBgBody(root)
             return
         }
         if (mode == "paste") {
@@ -2639,26 +2663,35 @@ class PresChartEditor {
     ; edited or vectorized where it is.
     fn docSetBg:void (pane:EVGElement) {
         def sec:EVGElement (this.section(pane (PresI18n.t("Background image"))))
+        this.bgPictures(sec "ds-bg-" dsBg)
+        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Behind every slide: background-image in the theme's page rule. A slide's own bg= in its heading goes over it.")))))
+    }
+
+    ; The deck's pictures as chips under `sec` (None first), the one in use
+    ; `bg` on, and for a picture that is not a vector Edit image… and
+    ; Vectorize…; the buttons' ids start with `pre` ("none", the picture's
+    ; index, "edit", "trace").
+    fn bgPictures:void (sec:EVGElement pre:string bg:string) {
         if ((array_length dsPics) == 0) {
             sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Add a picture to the presentation first (paste it, or drop it on the Files tab), then pick it here.")))))
         } {
             def pc:EVGElement (UiKit.div("ce-chips"))
-            this.chip("ds-bg-none" (PresI18n.t("None")) ((strlen dsBg) == 0) pc)
+            this.chip((pre + "none") (PresI18n.t("None")) ((strlen bg) == 0) pc)
             def p:int 0
             while (p < (array_length dsPics)) {
                 def path:string (itemAt dsPics p)
-                this.chip(("ds-bg-" + (to_string p)) (PresChartEditor.fileName(path)) (path == dsBg) pc)
+                this.chip((pre + (to_string p)) (PresChartEditor.fileName(path)) (path == bg) pc)
                 p = (p + 1)
             }
             sec.addChild(pc)
         }
-        if ((strlen dsBg) > 0) {
+        if ((strlen bg) > 0) {
             def er:EVGElement (UiKit.div("ce-row"))
-            def low:string (to_lowercase dsBg)
+            def low:string (to_lowercase bg)
             def vector:boolean ((endsWith low ".svg") || (endsWith low ".svgz"))
             if (vector == false) {
-                this.button("ds-bg-edit" (PresI18n.t("Edit image…")) "outline" er)
-                this.button("ds-bg-trace" (PresI18n.t("Vectorize…")) "outline" er)
+                this.button((pre + "edit") (PresI18n.t("Edit image…")) "outline" er)
+                this.button((pre + "trace") (PresI18n.t("Vectorize…")) "outline" er)
             }
             sec.addChild(er)
             if vector {
@@ -2667,7 +2700,55 @@ class PresChartEditor {
                 sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Vectorize… turns a blurry or small picture into an SVG that stays sharp on any screen.")))))
             }
         }
-        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("Behind every slide: background-image in the theme's page rule. A slide's own bg= in its heading goes over it.")))))
+    }
+
+    ; --- one slide's background picture ------------------------------------------
+    fn slideBgBody:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("Background image"))))
+        this.bgPictures(sec "sb-bg-" sbBg)
+        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("This slide only: bg= in its heading, over the theme's background. Document settings → Background sets it for every slide.")))))
+        root.addChild(pane)
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        bottom.addChild((UiKit.words("ce-doc" (PresI18n.t("Changes show on the slides right away, and Ctrl+Z undoes them.")))))
+        bottom.addChild((UiKit.div("ce-grow")))
+        this.button("sb-done" (PresI18n.t("Done")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    fn slideBgAct:boolean (tid:string) {
+        if (tid == "sb-done") {
+            wantsClose = true
+            return true
+        }
+        if (tid == "sb-bg-none") {
+            if ((strlen sbBg) > 0) {
+                sbBg = ""
+                sbAct = "none"
+                changed = true
+            }
+            this.rebuild()
+            return true
+        }
+        if ((tid == "sb-bg-edit") || (tid == "sb-bg-trace")) {
+            sbAct = (substring tid 6 (strlen tid))
+            changed = true
+            wantsClose = true
+            return true
+        }
+        if ((indexOf tid "sb-bg-") == 0) {
+            def bp:int (?? (str2int (substring tid 6 (strlen tid))) -1)
+            if ((bp >= 0) && (bp < (array_length dsPics))) {
+                if ((itemAt dsPics bp) != sbBg) {
+                    sbBg = (itemAt dsPics bp)
+                    sbAct = ("set:" + sbBg)
+                    changed = true
+                }
+            }
+            this.rebuild()
+            return true
+        }
+        return false
     }
 
     fn docSetAct:boolean (tid:string) {
@@ -4981,6 +5062,9 @@ class PresChartEditor {
             return
         }
         if ((mode == "docset") && (this.docSetAct(tid))) {
+            return
+        }
+        if ((mode == "slidebg") && (this.slideBgAct(tid))) {
             return
         }
         if ((mode == "confirm") && (this.confirmAct(tid))) {

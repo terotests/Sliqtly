@@ -169,6 +169,7 @@
   "Background effect behind every slide; a slide's own {fx=…} wins. none: no effect.": "Taustaefekti jokaisen dian takana; dian oma {fx=…} voittaa. none: ei efektiä.",
   "Background for all slides": "Kaikkien diojen tausta",
   "Background image": "Taustakuva",
+  "Background image…": "Taustakuva…",
   "Background image for all slides.": "Kaikkien diojen taustakuva.",
   "Background image: url(media/image.png); paste an image into the editor with Ctrl+V. none: no image.": "Taustakuva: url(media/kuva.png), kuva liitetään editoriin Ctrl+V:llä. none: ei kuvaa.",
   "background picture": "taustakuva",
@@ -1715,5 +1716,7 @@
   "30 days": "30 päivää",
   "Pick the version, and how long the link works. After that it shows nothing. At most {n} days.": "Valitse versio ja kuinka kauan linkki toimii. Sen jälkeen se ei näytä mitään. Enintään {n} päivää.",
   "Slides (2-D)": "Diat (2D)",
-  "The link works": "Linkki toimii"
+  "The link works": "Linkki toimii",
+  "Slide background": "Dian tausta",
+  "This slide only: bg= in its heading, over the theme's background. Document settings → Background sets it for every slide.": "Vain tämä dia: bg= sen otsikossa, teeman taustan päällä. Asiakirjan asetukset → Tausta asettaa sen kaikille dioille."
 }

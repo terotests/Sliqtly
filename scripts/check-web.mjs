@@ -370,6 +370,30 @@ try {
     check("Document settings: the charts' and diagrams' default styles from their dropdowns", r.opened && r.chart && r.diagram, JSON.stringify(r));
   }
 
+  // The slide menu's Background image…: one slide's own picture, `bg=` in
+  // its heading, picked as in Document settings → Background; None takes
+  // it out. The other slides are left as they were.
+  {
+    const r = await page.evaluate(() => {
+      const a = window.__app;
+      const src0 = a.source();
+      a.setSource("# D\n\n## A\n\nx\n\n## B {phase=review}\n\ny\n");
+      const walk = (e, id) => { if (e.id === id) return e; for (const c of e.children || []) { const f = walk(c, id); if (f) return f; } return null; };
+      const tap = (id) => { a.chartJson(); const el = walk(a.chart.host.lastPage, id); if (!el) return false; a.pointerDown(el.calculatedX + 8, el.calculatedY + 8, false, 1); a.pointerUp(); return true; };
+      a.selectSlide(2);
+      const opened = a.openSlideBg("media/a.png\nmedia/b.svg");
+      const picked = tap("sb-bg-1");
+      const set = a.source();
+      const cleared = tap("sb-bg-none");
+      const none = a.source();
+      a.key("escape", false, false);
+      a.setSource(src0);
+      return { opened, picked, cleared, set, none };
+    });
+    check("a slide's own background picture from the slide menu's window", r.opened && r.picked && r.set.includes("## B {phase=review bg=media/b.svg}") && r.set.includes("## A\n"), JSON.stringify(r));
+    check("…None takes it out of the heading", r.cleared && r.none.includes("## B {phase=review}\n"), JSON.stringify(r));
+  }
+
   // A text field in a window (InputCtl draws its own caret and selection):
   // the caret shows after what was typed, Ctrl+A's band covers exactly the
   // text, a double click takes a word, a triple click all of it, a drag

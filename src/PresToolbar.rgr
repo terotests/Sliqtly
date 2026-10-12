@@ -94,6 +94,8 @@ class PresToolbar {
     ; the strip menu's slide: its phase (`{phase=review}`), and whether it
     ; has a heading to keep one in
     def ctxSlidePhase:string ""
+    ; the slide has a heading to carry its own background picture (`bg=`)
+    def ctxSlideBg:boolean false
     def ctxSlidePhaseOn:boolean false
     ; The filmstrip's context menu (PresApp.openSlideMenu): open, where it
     ; was asked for, and which of its rows can act on the slide.
@@ -443,6 +445,9 @@ class PresToolbar {
         }
         if (id == "slideDraw") {
             return "slide:draw"
+        }
+        if (id == "slideBg") {
+            return "slide:bg"
         }
         if ((indexOf id "slph-") == 0) {
             return ("slide:phase:" + (substring id 5 (strlen id)))
@@ -1123,6 +1128,7 @@ class PresToolbar {
         cm.addItem("slideNew" (PresI18n.t("New slide")) false)
         cm.addItem("slideDuplicate" (PresI18n.t("Duplicate slide")) false)
         cm.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
+        cm.addItem("slideBg" (PresI18n.t("Background image…")) (ctxSlideBg == false))
         if ctxSlidePhaseOn {
             def ph:UiItem (cm.addSub("slide-phase" (PresI18n.t("Phase")) false))
             this.slidePhaseKids(ph)
@@ -2216,6 +2222,7 @@ class PresToolbar {
             slide.addItem("slideDelete" (PresI18n.t("Delete slide")) false)
             slide.addSeparator()
             slide.addItem("slideDraw" (PresI18n.t("Draw on slide")) false)
+            slide.addItem("slideBg" (PresI18n.t("Background image…")) false)
             slide.setShortcut("slideNew" "Control+M")
             slide.setShortcut("slideDuplicate" (this.modKey("D")))
             slide.addSeparator()

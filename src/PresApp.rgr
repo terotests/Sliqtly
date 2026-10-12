@@ -12884,6 +12884,10 @@ class PresApp {
             this.writeDocBackground()
             return
         }
+        if (chart.mode == "slidebg") {
+            this.writeSlideBg()
+            return
+        }
         if (chart.mode == "adjust") {
             if chart.adjDirty {
                 chart.adjDirty = false
@@ -13054,6 +13058,15 @@ class PresApp {
             this.setSketching(true)
             return true
         }
+        ; the slide's own background picture: the page lists the deck's
+        ; pictures first (openSlideBg)
+        if (what == "bg") {
+            if ((this.slideHeadingLine(selected)) < 0) {
+                return false
+            }
+            push requests "slidebg"
+            return true
+        }
         if ((indexOf what "phase:") == 0) {
             def ph:string (substring what 6 (strlen what))
             if (ph == "none") {
@@ -13086,18 +13099,102 @@ class PresApp {
 
     ; Slide i's phase written into its heading ("" takes it out), as one edit.
     fn setSlidePhase:boolean (i:int phase:string) {
+        return (this.setSlideAttr(i "phase" phase))
+    }
+
+    ; One `key=value` of slide i's heading set ("" takes it out), as one edit.
+    fn setSlideAttr:boolean (i:int key:string value:string) {
         def at:int (this.slideHeadingLine(i))
         if (at < 0) {
             return false
         }
         def line:string (mdEditor.buf.lineAt(at))
-        def next:string (PresHeadingAttr.put(line "phase" phase))
+        def next:string (PresHeadingAttr.put(line key value))
         if (next == line) {
             return true
         }
         this.replaceLines(at at next)
         this.selectSlide(i)
         return true
+    }
+
+    ; Slide → Background image…: the selected slide's own picture (`bg=` in
+    ; its heading) picked from `pics`, the deck's pictures one a line (the
+    ; picture it has now pickable even when it is not among them). False
+    ; when the slide has no heading to write it in.
+    fn openSlideBg:boolean (pics:string) {
+        if (mode == "present") {
+            return false
+        }
+        def i:int selected
+        if ((this.slideHeadingLine(i)) < 0) {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        def list:[string]
+        def rows:[string] (strsplit pics "\n")
+        for rows pl:string pi {
+            def p:string (trim pl)
+            if ((strlen p) > 0) {
+                push list p
+            }
+        }
+        def s:PresSlide (deck.slideAt(i))
+        def bg:string (trim s.bg)
+        if ((strlen bg) > 0) {
+            def known:boolean false
+            for list lp:string li {
+                if (lp == bg) {
+                    known = true
+                }
+            }
+            if (known == false) {
+                push list bg
+            }
+        }
+        pick.clear()
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openSlideBg(i bg list px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; The slide background window's choice: `bg=` written into the slide's
+    ; heading, or the picture handed to the image editor or the vectorizer.
+    fn writeSlideBg:void () {
+        def act:string chart.sbAct
+        chart.sbAct = ""
+        if (startsWith act "set:") {
+            this.setSlideAttr(chart.sbSlide "bg" (substring act 4 (strlen act)))
+            focus = "chart"
+            return
+        }
+        if (act == "none") {
+            this.setSlideAttr(chart.sbSlide "bg" "")
+            focus = "chart"
+            return
+        }
+        if ((strlen chart.sbBg) == 0) {
+            return
+        }
+        if (act == "edit") {
+            push requests ("image-edit:" + chart.sbBg)
+        }
+        if (act == "trace") {
+            push requests ("image-trace:" + chart.sbBg)
+        }
     }
 
     ; The slide's Markdown (its whole section, as slideLines finds it) taken
@@ -13961,6 +14058,7 @@ class PresApp {
         }
         toolbar.ctxSlidePhase = (this.slidePhase(i))
         toolbar.ctxSlidePhaseOn = ((this.slideHeadingLine(i)) >= 0)
+        toolbar.ctxSlideBg = toolbar.ctxSlidePhaseOn
         toolbar.openContext(x y (i > 0) (i < (n - 1)) (n > 1))
         chromeRev = (chromeRev + 1)
     }
