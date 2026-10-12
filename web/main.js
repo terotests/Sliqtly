@@ -5005,6 +5005,30 @@ function aiButton() {
   });
   document.getElementById("bar").appendChild(b);
 }
+// A picture pasted into the AI assistant's drawer, made at most 1600 px on
+// its longer side (what a model sees anyway) and sent as PNG, or as JPEG
+// when the PNG would be large (a photo).
+const AI_PICTURE_SIDE = 1600;
+async function aiPicture(file) {
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    app.aiAttach(file.name || "", file.type, "");
+    return;
+  }
+  const k = Math.min(1, AI_PICTURE_SIDE / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k));
+  c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  let url = c.toDataURL("image/png");
+  if (url.length > 1500000) url = c.toDataURL("image/jpeg", 0.85);
+  const comma = url.indexOf(",");
+  app.aiAttach(file.name || "", url.slice(5, url.indexOf(";")), url.slice(comma + 1));
+}
+
 function askAi(body) {
   if (!body) return;
   // the share the deck is kept in, for the assistant's read tools (its files,
@@ -8673,6 +8697,23 @@ keys.addEventListener("paste", (ev) => {
       needsPaint = true;
       return;
     }
+  }
+  // while a conversation's composer has the keys, text goes into it as it
+  // is, and pictures with the AI assistant's next question
+  if (app.chatHasKeys()) {
+    const pics = app.aiTakesPictures()
+      ? items.filter((it) => it.kind === "file" && it.type.startsWith("image/")).map((it) => it.getAsFile()).filter(Boolean)
+      : [];
+    if (pics.length) {
+      (async () => { for (const f of pics) await aiPicture(f); })().catch(fail).finally(() => { needsPaint = true; });
+      return;
+    }
+    const text = ev.clipboardData?.getData("text/plain") || "";
+    if (text) {
+      app.pasteText(text);
+      afterInput();
+    }
+    return;
   }
   const text = ev.clipboardData?.getData("text/plain") || "";
   // Sliqtly's own copy carries a picture of itself for other apps: here the

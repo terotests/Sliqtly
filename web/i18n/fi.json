@@ -1718,5 +1718,9 @@
   "Slides (2-D)": "Diat (2D)",
   "The link works": "Linkki toimii",
   "Slide background": "Dian tausta",
-  "This slide only: bg= in its heading, over the theme's background. Document settings → Background sets it for every slide.": "Vain tämä dia: bg= sen otsikossa, teeman taustan päällä. Asiakirjan asetukset → Tausta asettaa sen kaikille dioille."
+  "This slide only: bg= in its heading, over the theme's background. Document settings → Background sets it for every slide.": "Vain tämä dia: bg= sen otsikossa, teeman taustan päällä. Asiakirjan asetukset → Tausta asettaa sen kaikille dioille.",
+  "What is in the picture?": "Mitä kuvassa on?",
+  "Three pictures at most with one question.": "Yhden kysymyksen mukana voi olla enintään kolme kuvaa.",
+  "The picture could not be read.": "Kuvaa ei voitu lukea.",
+  "The picture is too large to send.": "Kuva on liian suuri lähetettäväksi."
 }

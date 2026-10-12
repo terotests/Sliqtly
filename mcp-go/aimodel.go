@@ -73,7 +73,11 @@ func (m *claudeModel) Ask(ctx context.Context, system string, turns []aiTurn) (a
 		if t.Role == "assistant" {
 			msgs = append(msgs, anthropic.NewAssistantMessage(anthropic.NewTextBlock(t.Text)))
 		} else {
-			msgs = append(msgs, anthropic.NewUserMessage(anthropic.NewTextBlock(t.Text)))
+			blocks := []anthropic.ContentBlockParamUnion{}
+			for _, im := range t.Images {
+				blocks = append(blocks, anthropic.NewImageBlockBase64(im.MimeType, im.Data))
+			}
+			msgs = append(msgs, anthropic.NewUserMessage(append(blocks, anthropic.NewTextBlock(t.Text))...))
 		}
 	}
 	resp, err := m.client.Messages.New(ctx, anthropic.MessageNewParams{

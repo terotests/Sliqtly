@@ -36,6 +36,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,10 @@ const (
 	aiMaxDeck    = 120000
 	aiMaxTurn    = 8000
 	aiMaxTurns   = 12
+	// pictures with a question, and the bytes of each (the page makes them
+	// smaller first)
+	aiMaxImages    = 3
+	aiMaxImageSize = 4 << 20
 )
 
 // ------------------------------------------------------------------ model --
@@ -68,6 +73,15 @@ const (
 type aiTurn struct {
 	Role string `json:"role"` // "user" or "assistant"
 	Text string `json:"text"`
+	// pictures the person pasted with the question (the last turn only)
+	Images []aiImage `json:"-"`
+}
+
+// a picture pasted into the drawer: PNG, JPEG, WebP or GIF
+type aiImage struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"` // base64
+	bytes    []byte
 }
 
 type aiAnswer struct {
@@ -293,6 +307,7 @@ type aiQuestion struct {
 	Scope   string    `json:"scope"` // "slide" or "deck"
 	Context aiContext `json:"context"`
 	History []aiTurn  `json:"history"`
+	Images  []aiImage `json:"images"`
 }
 
 // at most n bytes of s, cut at a rune
@@ -339,7 +354,7 @@ func (q aiQuestion) turns() []aiTurn {
 			out[len(out)-1].Text += "\n\n" + text
 			continue
 		}
-		out = append(out, aiTurn{t.Role, text})
+		out = append(out, aiTurn{Role: t.Role, Text: text})
 	}
 	if len(out) > 0 && out[len(out)-1].Role == "user" {
 		out = out[:len(out)-1]
@@ -371,7 +386,28 @@ func (q aiQuestion) turns() []aiTurn {
 		fmt.Fprintf(&b, "<selection>\n%s\n</selection>\n", aiClip(s, aiMaxSlide))
 	}
 	b.WriteString(msg)
-	return append(out, aiTurn{"user", b.String()})
+	return append(out, aiTurn{Role: "user", Text: b.String(), Images: q.pictures()})
+}
+
+// The pasted pictures that are pictures, as their bytes say (not as the
+// page named them), at most aiMaxImages of at most aiMaxImageSize.
+func (q aiQuestion) pictures() []aiImage {
+	var out []aiImage
+	for _, im := range q.Images {
+		if len(out) == aiMaxImages || len(im.Data) > aiMaxImageSize*4/3+4 {
+			continue
+		}
+		raw, err := base64.StdEncoding.DecodeString(im.Data)
+		if err != nil || len(raw) == 0 || len(raw) > aiMaxImageSize {
+			continue
+		}
+		mime := http.DetectContentType(raw)
+		if !slices.Contains([]string{"image/png", "image/jpeg", "image/webp", "image/gif"}, mime) {
+			continue
+		}
+		out = append(out, aiImage{MimeType: mime, Data: im.Data, bytes: raw})
+	}
+	return out
 }
 
 // --------------------------------------------------------------- credits --
@@ -494,7 +530,7 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			return
 		}
 		var q aiQuestion
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&q); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 20<<20)).Decode(&q); err != nil {
 			editorJSON(w, 400, map[string]string{"error": "The question could not be read."})
 			return
 		}

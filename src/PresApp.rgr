@@ -6058,6 +6058,14 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        ; into the docked chat's composer (the room's or the AI assistant's)
+        if (this.chatHasKeys()) {
+            def tc:ChatCtl (panels.dockChat())
+            tc.typeChar("" s)
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (this.roomHasKeys()) {
             room.text(s)
             this.afterRoom()
@@ -9725,6 +9733,22 @@ class PresApp {
         return c
     }
 
+    ; Whether a pasted picture goes to the AI assistant: its drawer has the
+    ; keys.
+    fn aiTakesPictures:boolean () {
+        return ((this.chatHasKeys()) && panels.aiChat.open)
+    }
+
+    ; A picture pasted into the drawer (base64), sent with the next
+    ; question; a note says why when it is not taken.
+    fn aiAttach:void (name:string mime:string data:string) {
+        def why:string (ai.attach(name mime data))
+        if ((strlen why) > 0) {
+            ai.add("note" why)
+        }
+        this.aiFill()
+    }
+
     ; the drawer's requests (PresPanels.chatAsks)
     fn aiRequest:void (r:string) {
         if (r == "ai-send") {
@@ -9740,6 +9764,14 @@ class PresApp {
         }
         if ((indexOf r "ai-act") == 0) {
             def v:string (substring r 7 (strlen r))
+            if ((indexOf v "pic:") == 0) {
+                def pn@(optional):int (str2int (substring v 4 (strlen v)))
+                if (!null? pn) {
+                    ai.detach((unwrap pn))
+                }
+                this.aiFill()
+                return
+            }
             if ((v == "slide") || (v == "deck")) {
                 ai.setScope(v)
             } {
@@ -9821,6 +9853,10 @@ class PresApp {
         }
         c.subtitle = sub
         c.clearActions()
+        ; the pictures pasted for the next question; a press leaves one out
+        for ai.pictures p:PresAiPicture pi {
+            c.addAction(("pic:" + (to_string pi)) ("🖼 " + p.name + "  ✕") "primary")
+        }
         if ((strlen (ai.suggestion())) > 0) {
             c.addAction("use" ("✓ " + (PresI18n.t("Use on slide"))) "primary")
         }

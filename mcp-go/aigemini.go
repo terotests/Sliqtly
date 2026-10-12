@@ -36,6 +36,7 @@ type geminiPart struct {
 	Text             string          `json:"text,omitempty"`
 	FunctionCall     *geminiCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiResponse `json:"functionResponse,omitempty"`
+	InlineData       *geminiData     `json:"inlineData,omitempty"`
 	Thought          bool            `json:"thought,omitempty"`
 	Signature        json.RawMessage `json:"thoughtSignature,omitempty"`
 }
@@ -87,7 +88,11 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 		if t.Role == "assistant" {
 			role = "model"
 		}
-		contents = append(contents, geminiContent{Role: role, Parts: []geminiPart{{Text: t.Text}}})
+		parts := []geminiPart{{Text: t.Text}}
+		for _, im := range t.Images {
+			parts = append(parts, geminiPart{InlineData: &geminiData{MimeType: im.MimeType, Data: im.Data}})
+		}
+		contents = append(contents, geminiContent{Role: role, Parts: parts})
 	}
 	decls := make([]map[string]any, 0, len(m.tools))
 	reads := map[string]bool{}

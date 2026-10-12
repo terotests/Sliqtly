@@ -43,7 +43,7 @@ func TestAIGeminiReads(t *testing.T) {
 		},
 	}
 	m := &geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL, tools: aiEditTools}
-	a, err := m.AskReading(context.Background(), "sys", []aiTurn{{"user", "make it a cycle"}}, r)
+	a, err := m.AskReading(context.Background(), "sys", []aiTurn{{Role: "user", Text: "make it a cycle"}}, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestAIGeminiNoPictures(t *testing.T) {
 		return aiRead{Text: "3 slides", Images: [][]byte{[]byte("PNG")}}
 	}}
 	m := &geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL}
-	a, err := m.AskReading(context.Background(), "sys", []aiTurn{{"user", "ok?"}}, r)
+	a, err := m.AskReading(context.Background(), "sys", []aiTurn{{Role: "user", Text: "ok?"}}, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestAIGeminiRoundsEnd(t *testing.T) {
 		return aiRead{Text: "x"}
 	}}
 	m := &geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL}
-	a, _ := m.AskReading(context.Background(), "sys", []aiTurn{{"user", "?"}}, r)
+	a, _ := m.AskReading(context.Background(), "sys", []aiTurn{{Role: "user", Text: "?"}}, r)
 	eq(t, []any{calls, runs, a.Calls}, []any{geminiRounds, geminiRounds - 2, int64(geminiRounds)})
 }
 
