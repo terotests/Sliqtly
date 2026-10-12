@@ -52,12 +52,18 @@ class PresAiContext {
     ; the front matter block (--- … ---), and one line per slide ("3. Title")
     def frontMatter:string ""
     def outline:string ""
+    ; the theme the slides are drawn with (the page's Theme choice, not the
+    ; Markdown), and the themes there are, a line per group ("Dark: aurora,
+    ; carbon, midnight")
+    def theme:string ""
+    def themes:string ""
 
     Constructor () {
     }
 }
 
-; A change an answer asks for (the server's aiEditTools): set_front_matter
+; A change an answer asks for (the server's aiEditTools): set_theme (value:
+; the theme's name; the app changes the page's Theme choice), set_front_matter
 ; (key, value), replace_slide (slide, markdown), insert_slide (after,
 ; markdown), delete_slide (slide), replace_presentation (markdown). Slides
 ; count from 1, as the outline numbered them when the question was asked.
@@ -107,6 +113,56 @@ class PresAiDeck {
             return src
         }
         return (d.text())
+    }
+
+    ; The theme the edits ask for (the last set_theme), "" none. Not the
+    ; Markdown's: the app changes the page's Theme choice.
+    sfn themeOf:string (edits:[PresAiEdit]) {
+        def out:string ""
+        for edits e:PresAiEdit i {
+            if ((e.tool == "set_theme") && ((strlen (trim e.value)) > 0)) {
+                out = (trim e.value)
+            }
+        }
+        return out
+    }
+
+    ; The page's themes ("value<TAB>label<TAB>group" rows) as a line per
+    ; group: "Dark: aurora, carbon, midnight". A row with no value (the
+    ; document's own CSS) is left out.
+    sfn themeLines:string (rows:string) {
+        def groups:[string]
+        def names:[string]
+        def lines:[string] (strsplit rows (strfromcode 10))
+        for lines ln:string i {
+            def cols:[string] (strsplit ln (strfromcode 9))
+            def v:string (trim (itemAt cols 0))
+            if ((strlen v) > 0) {
+                def g:string "Other"
+                if ((array_length cols) >= 3) {
+                    if ((strlen (trim (itemAt cols 2))) > 0) {
+                        g = (trim (itemAt cols 2))
+                    }
+                }
+                def at:int -1
+                for groups gg:string gi {
+                    if (gg == g) {
+                        at = gi
+                    }
+                }
+                if (at < 0) {
+                    push groups g
+                    push names v
+                } {
+                    set names at ((itemAt names at) + ", " + v)
+                }
+            }
+        }
+        def out:[string]
+        for groups g2:string k {
+            push out (g2 + ": " + (itemAt names k))
+        }
+        return (join out (strfromcode 10))
     }
 
     sfn linesText:string (lines:[string] from:int to:int) {
@@ -559,6 +615,8 @@ class PresAi {
         c.setMember("deckName" (VlJson.stringValue(ctx.deckName)))
         c.setMember("frontMatter" (VlJson.stringValue(ctx.frontMatter)))
         c.setMember("outline" (VlJson.stringValue(ctx.outline)))
+        c.setMember("theme" (VlJson.stringValue(ctx.theme)))
+        c.setMember("themes" (VlJson.stringValue(ctx.themes)))
         if (scope == "deck") {
             c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
         }
@@ -639,6 +697,12 @@ class PresAi {
 
     ; an edit in words for the conversation ("" one the app does not make)
     sfn editText:string (e:PresAiEdit) {
+        if (e.tool == "set_theme") {
+            if ((strlen (trim e.value)) == 0) {
+                return ""
+            }
+            return (((PresI18n.t("Theme:")) + " ") + (trim e.value))
+        }
         if (e.tool == "set_front_matter") {
             if ((strlen (trim e.key)) == 0) {
                 return ""
