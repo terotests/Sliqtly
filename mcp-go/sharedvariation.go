@@ -43,6 +43,9 @@ func sharedVariationPath(id string) string { return sharedDir(id) + "/variation.
 // the original a file is, or is a variation of: (its card, the variation's
 // JSON or "" for the original itself)
 func (s *sharedFiles) origin(ctx context.Context, f sharedFile) (sharedFile, string, error) {
+	if f.Kind == "pptx" {
+		return f, "", sharedPptxNotFigma(f)
+	}
 	if f.Kind != variationKind {
 		return f, "", nil
 	}
@@ -65,11 +68,11 @@ func (s *sharedFiles) originBytes(ctx context.Context, base sharedFile) ([]byte,
 	return s.files.Read(ctx, sharedDir(base.ID)+"/source.fig", s.max+1)
 }
 
-// sourceOf is the .fig file f is: the file as it came, or the one its
+// sourceOf is the file f is: the file as it came, or the .fig its
 // variation makes
 func (s *sharedFiles) sourceOf(ctx context.Context, f sharedFile) ([]byte, error) {
 	if f.Kind != variationKind {
-		return s.files.Read(ctx, sharedDir(f.ID)+"/source.fig", s.max+1)
+		return s.files.Read(ctx, s.sourcePath(f), s.max+1)
 	}
 	base, delta, err := s.origin(ctx, f)
 	if err != nil {
@@ -89,6 +92,11 @@ func (s *sharedFiles) sourceOf(ctx context.Context, f sharedFile) ([]byte, error
 		out = figdv.FigGoEdit_static_bytes(v)
 	})
 	return out, err
+}
+
+// what the Figma tools say of a PowerPoint deck
+func sharedPptxNotFigma(f sharedFile) error {
+	return sharedErr{400, f.Name + " is a PowerPoint deck: read it with get_pptx_slide, change it with edit_pptx"}
 }
 
 // figdvCall runs generated code: a file it cannot handle fails the call,
@@ -292,6 +300,9 @@ func (s *sharedFiles) export(ctx context.Context, id string) (string, string, er
 	f, err := s.card(ctx, id)
 	if err != nil {
 		return "", "", err
+	}
+	if f.Kind == "pptx" {
+		return "", "", sharedPptxNotFigma(f)
 	}
 	if f.Kind == variationKind {
 		base, _, err := s.origin(ctx, f)

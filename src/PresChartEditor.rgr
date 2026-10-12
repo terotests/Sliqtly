@@ -2283,6 +2283,10 @@ class PresChartEditor {
         this.offButton("fg-add" (PresI18n.t("Add to slide")) "primary" (picked == false) bottom)
         this.offButton("fg-slide" (PresI18n.t("New slide")) "outline" (picked == false) bottom)
         this.offButton("fg-copy" (PresI18n.t("Copy Markdown")) "outline" (picked == false) bottom)
+        ; a PowerPoint deck an assistant may have changed in place
+        if ((fg.scheme()) == "pptx") {
+            this.button("fg-download" (PresI18n.t("Download")) "outline" bottom)
+        }
         bottom.addChild((UiKit.div("ce-grow")))
         this.button("fg-del" (? fgArmed (PresI18n.t("Delete file?")) (PresI18n.t("Delete file"))) (? fgArmed "primary" "outline") bottom)
         this.button("fg-close" (PresI18n.t("Close")) "outline" bottom)
@@ -2328,6 +2332,10 @@ class PresChartEditor {
             if ((strlen (fg.layer())) > 0) {
                 fgAct = (substring tid 3 (strlen tid))
             }
+            return true
+        }
+        if (tid == "fg-download") {
+            fgAct = "download"
             return true
         }
         if (tid == "fg-del") {

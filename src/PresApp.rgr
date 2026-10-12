@@ -11585,6 +11585,9 @@ class PresApp {
         if (act == "delete") {
             push requests ("shared:delete:" + b.fileId)
         }
+        if (act == "download") {
+            push requests ("shared:download:" + b.fileId)
+        }
     }
 
     ; Slide → Theme…: the themes as tiles, each a picture of a sample slide

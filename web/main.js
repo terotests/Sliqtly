@@ -33,7 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
+import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
@@ -526,7 +526,7 @@ async function sharedRequest(r) {
   if (r === "add") {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".fig";
+    input.accept = ".fig,.pptx";
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
@@ -551,6 +551,16 @@ async function sharedRequest(r) {
     let f = sharedFilesList.find((x) => x.id === id);
     if (!f) { await sharedRefresh(); f = sharedFilesList.find((x) => x.id === id); }
     if (f) await sharedShow(f, true);
+    return;
+  }
+  if (r.startsWith("download:")) {
+    // the file as it is now: a deck an assistant changed in place
+    const f = sharedFilesList.find((x) => x.id === r.slice(9));
+    try {
+      const res = await fetch(sharedSourceUrl(r.slice(9)));
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`);
+      deliver(await res.arrayBuffer(), f?.name || "deck.pptx", res.headers.get("Content-Type") || "application/octet-stream");
+    } catch (e) { toast(t("Could not download the file") + ": " + e.message); }
     return;
   }
   if (r.startsWith("delete:")) {
