@@ -400,13 +400,21 @@ class PresPanels {
     }
 
     ; What Ctrl+C copies from the panels: the chat field's selection while it
-    ; has the keyboard, else what was selected in a text or a link.
+    ; has the keyboard, else what was selected in the chat's messages, a text
+    ; or a link. (The host is made again by every rebuild, so the chat is
+    ; asked itself; a press elsewhere drops its selection.)
     fn copyText:string (chatFocused:boolean) {
+        def dc:ChatCtl (this.dockChat())
         if chatFocused {
-            def dc:ChatCtl (this.dockChat())
             def ct:string (dc.input.selectedText())
             if ((strlen ct) > 0) {
                 return ct
+            }
+        }
+        if (chat.open || aiChat.open) {
+            def mt:string (dc.selectedText())
+            if ((strlen mt) > 0) {
+                return mt
             }
         }
         return (host.copyText())
@@ -448,6 +456,7 @@ class PresPanels {
         if chatSelecting {
             def dc:ChatCtl (this.dockChat())
             dc.textPointerUp()
+            host.textRelease()
         }
         chatSelecting = false
     }
@@ -513,8 +522,10 @@ class PresPanels {
         }
     }
 
-    ; A press in the chat: its buttons, or the text field (the caret, a word
-    ; on a double click, all of it on a triple; a drag selects).
+    ; A press in the chat: its buttons, the text field (the caret, a word
+    ; on a double click, all of it on a triple; a drag selects), or a
+    ; message's words (selected the same way, copied with Ctrl+C; a link in
+    ; them opens).
     fn chatPress:void (px:double py:double clicks:int shift:boolean) {
         def dc:ChatCtl (this.dockChat())
         def tid:string (host.hitTest(px py))
@@ -523,9 +534,22 @@ class PresPanels {
             chatSelecting = (dc.textPointerDownAt(tid px py clicks shift))
             return
         }
+        if (dc.owns(tid) && ((indexOf tid (c + "-m-")) == 0)) {
+            chatSelecting = (host.textPressAt(tid px py clicks shift))
+            def lk:string (dc.takeLink())
+            if ((strlen lk) > 0) {
+                push requests ("openlink:" + lk)
+            }
+            this.rebuild()
+            return
+        }
         if (((tid == (c + "-close")) || (tid == (c + "-send")) || (tid == (c + "-jump"))) || ((indexOf tid (c + "-act-")) == 0)) {
             dc.activate(tid)
             this.chatAsks(dc)
+        } {
+            ; on the panel but not on its words or a button: as on a page,
+            ; what was selected is let go
+            dc.dropSelection()
         }
         this.rebuild()
     }
