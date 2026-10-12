@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,41 @@ var sharedTools = []roomTool{
 		desc:     "Put a Figma file (.fig, exported with File → Save local copy) from this computer's import folders into the shared files, where everyone on this server sees it; a file of the same name is replaced. It is read in the background: list_shared_files says when it is ready. → its card (file_id, status indexing)",
 		props:    map[string]any{"path": strProp("The .fig file's absolute path, inside the server's import folders"), "name": strProp("The name it is shown by (default the file's own name)")},
 		required: []string{"path"}},
+	{name: "create_figma_variation", title: "Make a variation of a Figma file",
+		desc:     "A new shared file that is a variation of a Figma file: the original stays exactly as it is, and the variation keeps only what you change in it (edit_figma). It is searched, looked at and put on slides like any shared file (figma:<file_id>/<node_id>), and export_figma builds its whole .fig to open in Figma. A variation of a variation starts from that one's changes, against the same original. → its card (file_id, base = the original's file_id, status indexing).",
+		props:    map[string]any{"file_id": strProp("The file to vary: an original's file_id, or a variation's"), "name": strProp("The variation's name (default \"<original> variation\")")},
+		required: []string{"file_id"}},
+	{name: "edit_figma", title: "Change a Figma variation",
+		desc: "Change layers in a variation (create_figma_variation; an original is never changed). Aim with get_figma_layers. Each edit is {op, node, …}: text {text} (a text layer's words), move {x, y} (in its parent), resize {w, h}, fill {color: #rrggbb or #rrggbbaa}, hide, show, opacity {value 0..1}, rename {name}, copy {dx, dy} (the layer and everything in it, beside the original; the answer's created has the copy's node_id), remove, revert (one node back as the original has it; with no node the whole variation), set {field, value} (any field of the file's own node, a path like \"cornerRadius\" or \"fillPaints.0.color.r\", for what the others do not cover; get_figma_layers with fields=true shows them). A value set back to the original's leaves the variation. Edits apply in order; one that cannot is listed in refused and the rest go on. The file is read again after: list_shared_files says when it is ready, and its pictures show the change. → changes (what the variation now changes), created, refused, the file's card.",
+		props: map[string]any{"file_id": strProp("The variation's file_id"), "edits": map[string]any{"type": "array", "minItems": 1, "maxItems": 200, "description": "The edits, in order",
+			"items": map[string]any{"type": "object", "properties": map[string]any{
+				"op":    map[string]any{"type": "string", "enum": []string{"text", "move", "resize", "fill", "hide", "show", "opacity", "rename", "copy", "remove", "revert", "set"}},
+				"node":  strProp("The layer's node_id (12:34)"),
+				"text":  strProp("text: the new words"),
+				"x":     map[string]any{"type": "number"},
+				"y":     map[string]any{"type": "number"},
+				"w":     map[string]any{"type": "number"},
+				"h":     map[string]any{"type": "number"},
+				"dx":    map[string]any{"type": "number", "description": "copy: offset right"},
+				"dy":    map[string]any{"type": "number", "description": "copy: offset down"},
+				"color": strProp("fill: #rrggbb or #rrggbbaa"),
+				"name":  strProp("rename: the layer's new name"),
+				"field": strProp("set: the field path"),
+				"value": map[string]any{"description": "set: the value (JSON); opacity: 0..1"},
+			}, "required": []string{"op"}}}},
+		required: []string{"file_id", "edits"}},
+	{name: "get_figma_layers", title: "Look at a Figma file's layers", readOnly: true,
+		desc:     "The layers of a shared Figma file or variation, as edit_figma aims at them: under node_id (default: the whole file, its pages first), each with node_id, type, name, x, y (in its parent), w, h, hidden, a text layer's text and the first solid fill, depth levels deep (default 3). fields=true gives one layer's own fields instead, for edit_figma's set. A variation shows its changes.",
+		props:    map[string]any{"file_id": strProp("file_id from list_shared_files"), "node_id": strProp("The layer to start from (default the whole file)"), "depth": map[string]any{"type": "integer", "minimum": 0, "maximum": 12, "description": "Levels of children (default 3)"}, "fields": map[string]any{"type": "boolean", "description": "That one layer's own fields instead of the tree"}},
+		required: []string{"file_id"}},
+	{name: "export_figma", title: "Export a Figma file", readOnly: true,
+		desc:     "A shared Figma file as a whole .fig to open in Figma (Figma: drag the file in, or File → Import): a variation is built from its original and its changes; an original comes back as it was put here. → a download link to give the user.",
+		props:    map[string]any{"file_id": strProp("The file's or variation's file_id")},
+		required: []string{"file_id"}},
+	{name: "extract_figma_view", title: "Take one view out as its own Figma file",
+		desc:     "One screen (or any layer) of a shared Figma file or variation as a new shared .fig of its own: the layer on its page, with the components and styles it uses, and only the pictures it paints. The new file is an original: vary it, export it, or put its screens on slides (figma:<file_id>/<node_id>, the node_ids stay the same). → its card (file_id, status indexing).",
+		props:    map[string]any{"file_id": strProp("The file or variation to take it from"), "node_id": strProp("The layer's node_id"), "name": strProp("The new file's name (default the file's name and the node)")},
+		required: []string{"file_id", "node_id"}},
 }
 
 func sharedToolOf(name string) (roomTool, bool) {
@@ -196,6 +232,61 @@ func (h *McpHost) callSharedTool(uid, name string, a map[string]any) (any, error
 			}
 		}
 		return out, nil
+	case "create_figma_variation":
+		f, err := sh.vary(ctx, argStr(a, "file_id"), argStr(a, "name"))
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		return f, nil
+	case "edit_figma":
+		ops, err := json.Marshal(a["edits"])
+		if err != nil || len(ops) < 2 || ops[0] != '[' {
+			return nil, roomErr{"edits must be a list of {op, node, …}"}
+		}
+		out, err := sh.edit(ctx, argStr(a, "file_id"), string(ops))
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		return out, nil
+	case "get_figma_layers":
+		depth := 3
+		if v, ok := a["depth"].(float64); ok && v >= 0 {
+			depth = min(int(v), 12)
+		}
+		raw, _ := a["fields"].(bool)
+		node := argStr(a, "node_id")
+		if raw && node == "" {
+			return nil, roomErr{"fields=true needs a node_id"}
+		}
+		text, err := sh.layers(ctx, argStr(a, "file_id"), node, depth, raw)
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		key := "layers"
+		if raw {
+			key = "fields"
+		}
+		return map[string]any{"file_id": argStr(a, "file_id"), key: json.RawMessage(text), "note": sharedDataNote}, nil
+	case "export_figma":
+		path, name, err := sh.export(ctx, argStr(a, "file_id"))
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		full := path
+		if h.env.shared == nil {
+			full = cloudSharedRoot(uid) + path
+		}
+		link := h.DownloadURL(full, h.UUID(), "application/octet-stream", name)
+		if link == "" {
+			return nil, roomErr{"the download link could not be made"}
+		}
+		return map[string]any{"file_id": argStr(a, "file_id"), "name": name, "url": link, "open": "Figma: drag the .fig into the file browser, or File → Import"}, nil
+	case "extract_figma_view":
+		f, err := sh.extract(ctx, argStr(a, "file_id"), argStr(a, "node_id"), argStr(a, "name"))
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		return f, nil
 	case "add_shared_file":
 		p := argStr(a, "path")
 		if !strings.EqualFold(filepath.Ext(p), ".fig") {
@@ -247,6 +338,8 @@ type sharedFileRow struct {
 	Bytes   int64           `json:"bytes"`
 	Status  string          `json:"status"`
 	Error   string          `json:"error,omitempty"`
+	Base    string          `json:"base,omitempty"`
+	Changes string          `json:"changes,omitempty"`
 	Screens int             `json:"screens"`
 	Pages   []sharedPageRow `json:"pages,omitempty"`
 }
@@ -260,6 +353,11 @@ func (s *sharedFiles) listForTool(ctx context.Context) (any, error) {
 	for _, r := range rows {
 		f := sharedFileRow{FileID: r["id"].(string), Name: r["name"].(string), Kind: "figma", Bytes: r["bytes"].(int64), Status: r["status"].(string)}
 		f.Error, _ = r["error"].(string)
+		if k, _ := r["kind"].(string); k != "" {
+			f.Kind = k
+		}
+		f.Base, _ = r["base"].(string)
+		f.Changes, _ = r["changes"].(string)
 		if ix, ok := r["index"].(string); ok {
 			ff := FigmaFile_static_fromIndex(f.FileID, ix)
 			f.Screens = len(ff.screens)
