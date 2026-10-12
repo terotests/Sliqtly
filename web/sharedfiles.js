@@ -4,11 +4,13 @@
 // files everyone on the server sees, kept apart from any room or deck. No
 // page in it: main.js hands it `fetch` and draws what it returns.
 //
-// A Figma file put here is indexed once on the server; a screen, or a part
-// of one, is then a picture the server draws from that index:
+// A Figma file (or a PowerPoint deck) put here is indexed once on the
+// server; a screen (a slide), or a part of one, is then a picture the
+// server draws from that index:
 //
 //   /files/shared/<file>/png/<layer>.png        (layer: an id or a screen's name)
 //   /files/shared/<file>/index.json             (pages, screens, parts, words)
+//   /files/shared/<file>/source                 (the file itself)
 //
 // On sliqtly.com/editor each account has its own files, under
 // /editor/api/shared (mcp-go/editorshared.go): a file goes to Storage first
@@ -32,6 +34,11 @@ export function sharedPngUrl(file, node, max = 2048, deck = "") {
   if (deck) q.set("deck", deck);
   const qs = q.toString();
   return `${roots.files}/${encodeURIComponent(file)}/png/${encodeURIComponent(node)}.png${qs ? "?" + qs : ""}`;
+}
+
+// the file itself, as it is now (a deck an assistant changed in place)
+export function sharedSourceUrl(file) {
+  return `${roots.files}/${encodeURIComponent(file)}/source`;
 }
 
 export function sharedIndexUrl(file) {
@@ -93,7 +100,8 @@ export function sharedNote(f, t = (s) => s) {
   if (f.status === "indexing") return t("Indexing…");
   if (f.status === "failed") return t("Could not read it") + (f.error ? ": " + f.error : "");
   const parts = [];
-  if (f.screens) parts.push(f.screens === 1 ? t("1 screen") : t("{n} screens").replace("{n}", String(f.screens)));
+  if (f.screens && f.kind === "pptx") parts.push(f.screens === 1 ? t("1 slide") : t("{n} slides").replace("{n}", String(f.screens)));
+  else if (f.screens) parts.push(f.screens === 1 ? t("1 screen") : t("{n} screens").replace("{n}", String(f.screens)));
   if (f.bytes) parts.push(sizeText(f.bytes));
   return parts.join(" · ");
 }

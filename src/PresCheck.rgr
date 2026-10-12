@@ -2226,6 +2226,7 @@ class PresCheck {
         this.themeArt()
         this.themeGallery()
         this.figmaFiles()
+        this.pptxFiles()
     }
 
     ; The theme picker's tiles from the page's select rows, their groups and
@@ -2240,6 +2241,44 @@ class PresCheck {
         j = (j + "{\"id\":\"3:1\",\"page\":\"0:1\",\"name\":\"Settings\",\"type\":\"FRAME\",\"x\":1000,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Log out Notifications Dark mode\",\"parts\":[]},")
         j = (j + "{\"id\":\"4:1\",\"page\":\"0:2\",\"name\":\"Login\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":1440,\"h\":900,\"text\":\"Sign in to the web app\",\"parts\":[],\"notes\":[\"Copy is final\"]}]}")
         return j
+    }
+
+    ; A shared PowerPoint deck's index (mcp-go/rgr/PptxGo.rgr): a slide is a
+    ; screen by its number, a shape a part "<slide>:<path>".
+    sfn pptxIndexJson:string () {
+        def j:string "{\"kind\":\"pptx\",\"meta\":{\"background\":\"\"},\"pages\":[{\"id\":\"slides\",\"name\":\"Slides\",\"screens\":2}],\"screens\":["
+        j = (j + "{\"id\":\"1\",\"page\":\"slides\",\"name\":\"Quarterly review\",\"type\":\"SLIDE\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"text\":\"# Quarterly review\\n\\nRevenue grew\",\"parts\":[{\"id\":\"1:2\",\"name\":\"Logo\",\"type\":\"picture\",\"x\":10,\"y\":10,\"w\":100,\"h\":50}],\"notes\":[]},")
+        j = (j + "{\"id\":\"2\",\"page\":\"slides\",\"name\":\"Slide 2\",\"type\":\"SLIDE\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"text\":\"Thanks\",\"parts\":[],\"notes\":[\"Say goodbye\"]}]}")
+        return j
+    }
+
+    fn pptxFiles:void () {
+        def r:FigmaRef (FigmaRef.parse("pptx:q3-review/3"))
+        this.ok((r.ok && (r.scheme == "pptx") && (r.file == "q3-review") && (r.node == "3")) "pptx: file and slide")
+        this.ok(((FigmaRef.parse("PPTX://q3/2:1")).node == "2:1") "pptx:// and a shape")
+        this.ok(((FigmaRef.parse("pptx:q3")).ok == false) "a deck with no slide is refused")
+        this.ok(((FigmaRef.pictureKey("pptx:q3/3")) == "/pptx:q3/3") ("the picture's path in the store: " + (FigmaRef.pictureKey("pptx:q3/3"))))
+        def used:[string] (FigmaRef.inText("![a](pptx:q3/2)\n![b](figma:app/1:2)\n![c](pptx:q3/1:2) notpptx:x/y"))
+        this.ok((((array_length used) == 3) && ((itemAt used 0) == "pptx:q3/2") && ((itemAt used 1) == "figma:app/1:2") && ((itemAt used 2) == "pptx:q3/1:2")) ("both kinds, in order: " + (join used " | ")))
+        this.ok(((FigmaRef.markdownIn("pptx" "q3" "2" "Thanks")) == "![Thanks](pptx:q3/2)") "markdown of a slide")
+        def f:FigmaFile (FigmaFile.fromIndex("q3" (PresCheck.pptxIndexJson())))
+        this.ok(((f.kind == "pptx") && ((f.scheme()) == "pptx") && ((array_length f.screens) == 2)) ("a deck's index reads as a file: " + f.err))
+        def lib (new FigmaLibrary())
+        lib.add(f)
+        def t:FigmaTarget (lib.resolve("pptx:q3/2"))
+        this.ok((t.ok && (t.node == "2") && (t.isPart == false)) ("a slide by its number: " + t.err))
+        def tp:FigmaTarget (lib.resolve("pptx:q3/1:2"))
+        this.ok((tp.ok && tp.isPart && (tp.screen == "1") && (tp.name == "Logo")) "a shape on a slide")
+        def tn:FigmaTarget (lib.resolve("pptx:q3/quarterly review"))
+        this.ok((tn.ok && (tn.node == "1")) "a slide by its title")
+        def hs:[FigmaHit] (lib.search("revenue" "" 5))
+        this.ok((((array_length hs) == 1) && (((itemAt hs 0).markdown()) == "![Quarterly review](pptx:q3/1)")) "a hit on a slide is a pptx: picture")
+        def hn:[FigmaHit] (lib.search("goodbye" "" 5))
+        this.ok((((array_length hn) == 1) && ((itemAt hn 0).screen.id == "2")) "speaker notes are searched")
+        def b (new FigmaBrowser())
+        b.open("q3" "Q3.pptx" "ready" "" (PresCheck.pptxIndexJson()))
+        b.pick("2" "")
+        this.ok(((b.address()) == "pptx:q3/2") ("the window's pick: " + (b.address())))
     }
 
     fn figmaFiles:void () {

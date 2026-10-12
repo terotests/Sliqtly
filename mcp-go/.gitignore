@@ -4,6 +4,8 @@
 /sliqtly_mcp.go
 /presdata/presdata.go
 /figdv/figdv.go
+/pptxgo/pptxgo.go
+/pptxgo/presets.txt
 /.rdiff-build/
 /fonts/
 /themes/

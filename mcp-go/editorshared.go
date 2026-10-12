@@ -13,6 +13,7 @@
 //	POST   /editor/api/shared/{id}/rename {name}
 //	DELETE /editor/api/shared/{id}
 //	GET    /editor/api/shared/{id}/index.json
+//	GET    /editor/api/shared/{id}/source      the file itself
 //	GET    /editor/api/shared/{id}/png/{node}.png[?scale=][&max=][&deck=]
 //
 // A picture asked for with ?deck= is drawn from the files of that deck's
@@ -107,6 +108,13 @@ func serveCloudShared(env *Env, g *editorGate, w http.ResponseWriter, r *http.Re
 	case op == "" && r.Method == http.MethodDelete:
 		err = sh.remove(ctx, id)
 		out = map[string]bool{"ok": true}
+	case op == "source" && r.Method == http.MethodGet:
+		var f sharedFile
+		var b []byte
+		if f, b, err = sh.source(ctx, id); err == nil {
+			sharedSendSource(w, f, b)
+			return
+		}
 	case op == "index.json" && r.Method == http.MethodGet:
 		var f sharedFile
 		if f, err = sh.card(ctx, id); err == nil {

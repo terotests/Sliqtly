@@ -296,6 +296,8 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.file(w, r, strings.TrimPrefix(p, "/files/"))
 	case sharedPngPath.MatchString(r.URL.EscapedPath()):
 		s.sharedPicture(w, r)
+	case sharedSourcePath.MatchString(p):
+		s.sharedSource(w, r)
 	case strings.HasPrefix(p, "/files/shared/") && strings.HasSuffix(p, "/index.json"):
 		s.file(w, r, strings.TrimPrefix(p, "/files/"))
 	case themePath.MatchString(p):

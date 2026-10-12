@@ -3,9 +3,11 @@
 package main
 
 // The shared files' MCP tools (sharedfiles.go), on a server of one's own:
-// list the files, search a Figma file's screens by words, look at one
-// screen (its index entry and its picture), and add a .fig from an import
-// folder. On sliqtly.com the same tools, but add_shared_file, see the
+// list the files, search a Figma file's screens (and a PowerPoint deck's
+// slides) by words, look at one screen (its index entry and its picture),
+// and add a .fig or .pptx from an import folder. A deck has three of its
+// own (pptxfiles.go): a slide's words and shapes, the deck's look as a
+// style guide, and changing its text in place. On sliqtly.com the same tools, but add_shared_file, see the
 // signed-in account's own files (cloudshared.go). Searching and naming a layer are src/PresFigma.rgr's
 // (FigmaLibrary), the same model the editor's Figma window uses; this file
 // only gives its answers the tools' shape.
@@ -14,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strconv"
@@ -30,18 +33,35 @@ const sharedSearchMax = 50
 
 var sharedTools = []roomTool{
 	{name: "list_shared_files", title: "List shared design files", readOnly: true,
-		desc: "The design files everyone on this Sliqtly server shares (File rail → Files): Figma files (.fig) read once into an index of their pages and screens. Each with file_id, name, size, status (indexing, ready or failed), and its pages with how many screens. Find screens with search_figma; put one on a slide as a picture ![name](figma:<file_id>/<node_id>)."},
+		desc: "The design files everyone on this Sliqtly server shares (File rail → Files): Figma files (.fig) and PowerPoint decks (.pptx), each read once into an index of its pages and screens (a deck: its slides). Each with file_id, name, kind (figma or pptx), size, status (indexing, ready or failed), and its pages with how many screens. Find screens and slides with search_figma; put one on a slide as a picture ![name](figma:<file_id>/<node_id>), a deck's slide as ![title](pptx:<file_id>/<slide>). A deck: get_pptx_slide, get_pptx_style, edit_pptx."},
 	{name: "search_figma", title: "Search Figma screens", readOnly: true,
-		desc:     "Find screens, or named parts of screens, in the shared Figma files by words: every word must be found in a screen's name, its section or page, a part's name, a component, its notes, or the text on it; a screen called so comes before one that only says it. A word in a part's name makes the hit that part. Each hit has file_id, node_id, its name, page and section, size, a snippet of where it was found, and markdown: the picture line to put in a presentation with create_presentation or update_presentation. get_figma_screen shows a hit before you use it.",
+		desc:     "Find screens, or named parts of screens, in the shared Figma files, and slides of the shared PowerPoint decks, by words: every word must be found in a screen's name, its section or page, a part's name, a component, its notes, or the text on it; a screen called so comes before one that only says it. A word in a part's name makes the hit that part. Each hit has file_id, node_id, its name, page and section, size, a snippet of where it was found, and markdown: the picture line to put in a presentation with create_presentation or update_presentation. get_figma_screen shows a hit before you use it.",
 		props:    map[string]any{"query": strProp("Words to find, e.g. \"login\" or \"checkout pay button\""), "file_id": strProp("Only this file (file_id from list_shared_files)"), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": sharedSearchMax, "description": "At most this many hits (default 10)"}},
 		required: []string{"query"}},
 	{name: "get_figma_screen", title: "Look at a Figma screen", readOnly: true,
 		desc:     "One screen of a shared Figma file, or a part of one: everything its index knows (page, section, size, the text on it, its named parts with their node_ids, components, prototype links, description, notes) and the picture itself, drawn as it will be on a slide. node_id is a node id (12:34) or a screen's name. → markdown: the picture line for the slide.",
 		props:    map[string]any{"file_id": strProp("file_id from list_shared_files or search_figma"), "node_id": strProp("The screen's or part's node_id, or a screen's name"), "picture": map[string]any{"type": "boolean", "description": "Send the picture too (default true)"}},
 		required: []string{"file_id", "node_id"}},
+	{name: "get_pptx_slide", title: "Read a PowerPoint slide", readOnly: true,
+		desc:     "One slide of a shared PowerPoint deck: its words as Markdown (title as # heading, bullets as list items at their levels, tables as tables), the speaker notes, the layout it uses, and its shapes, each with its \"shape\" (what edit_pptx names it by), name, kind, placeholder, place and size in points, text and how its first words look (font, size, bold, colour); and the slide drawn. → markdown: the picture line that shows the slide on a Sliqtly slide; its words can be used as they are instead.",
+		props:    map[string]any{"file_id": strProp("A deck's file_id from list_shared_files"), "slide": map[string]any{"type": "integer", "minimum": 1, "description": "The slide's number, from 1"}, "picture": map[string]any{"type": "boolean", "description": "Send the picture too (default true)"}},
+		required: []string{"file_id", "slide"}},
+	{name: "get_pptx_style", title: "PowerPoint deck as a style guide", readOnly: true,
+		desc:     "A shared PowerPoint deck's look, to follow as a style guide: slide size, the theme's colours (dk1, lt1, accent1–6…) and its heading and body faces, the masters' title and body text styles, and the text styles the slides use most, for titles and for the rest (font, size, bold, colour, how many times). Use them in a presentation's own CSS and front matter (sliqtly_guide topic=css) to make slides that look like the deck.",
+		props:    map[string]any{"file_id": strProp("A deck's file_id from list_shared_files")},
+		required: []string{"file_id"}},
+	{name: "edit_pptx", title: "Change a PowerPoint deck in place", destructive: true,
+		desc: "Change a shared PowerPoint deck itself, in place: put new words in shapes and take slides out. The deck is written over (everything not changed stays as it was: masters, pictures, animations) and read again; there is no undo or history, so read the slides first (get_pptx_slide). Each edit is {slide, shape, text}: the shape by its \"shape\" from get_pptx_slide, each line of text a paragraph keeping the look of the paragraph it replaces; or {slide, remove: true}. Slide numbers are as before this call. Shapes a layout puts on every slide, tables and charts are not changed. → the file's card and the changed slides as Markdown; the deck is downloaded from the editor's Files place.",
+		props: map[string]any{"file_id": strProp("A deck's file_id from list_shared_files"), "edits": map[string]any{"type": "array", "minItems": 1, "maxItems": 200, "description": "The changes, in order", "items": map[string]any{"type": "object", "properties": map[string]any{
+			"slide":  map[string]any{"type": "integer", "minimum": 1, "description": "The slide's number, from 1"},
+			"shape":  strProp("The shape's \"shape\" from get_pptx_slide, e.g. \"1\" or \"4.0\" inside a group"),
+			"text":   strProp("Its new words; a line each paragraph"),
+			"remove": map[string]any{"type": "boolean", "description": "Take the slide out of the deck"},
+		}, "required": []string{"slide"}}}},
+		required: []string{"file_id", "edits"}},
 	{name: "add_shared_file", title: "Add a shared design file",
-		desc:     "Put a Figma file (.fig, exported with File → Save local copy) from this computer's import folders into the shared files, where everyone on this server sees it; a file of the same name is replaced. It is read in the background: list_shared_files says when it is ready. → its card (file_id, status indexing)",
-		props:    map[string]any{"path": strProp("The .fig file's absolute path, inside the server's import folders"), "name": strProp("The name it is shown by (default the file's own name)")},
+		desc:     "Put a Figma file (.fig, exported with File → Save local copy) or a PowerPoint deck (.pptx) from this computer's import folders into the shared files, where everyone on this server sees it; a file of the same name is replaced. It is read in the background: list_shared_files says when it is ready. → its card (file_id, status indexing)",
+		props:    map[string]any{"path": strProp("The .fig or .pptx file's absolute path, inside the server's import folders"), "name": strProp("The name it is shown by (default the file's own name)")},
 		required: []string{"path"}},
 }
 
@@ -87,8 +107,12 @@ func (h *McpHost) sharedToolsOn() []roomTool {
 // the tools' words as sliqtly.com says them
 var sharedCloudWords = map[string]string{
 	"The design files everyone on this Sliqtly server shares (File rail → Files)": "Your own design files on sliqtly.com, seen by your account alone (the editor's Files place, where you add them)",
-	"in the shared Figma files":         "in your Figma files",
-	"One screen of a shared Figma file": "One screen of your Figma files",
+	"in the shared Figma files":              "in your Figma files",
+	"slides of the shared PowerPoint decks":  "slides of your PowerPoint decks",
+	"One slide of a shared PowerPoint deck":  "One slide of your PowerPoint decks",
+	"A shared PowerPoint deck's look":        "Your PowerPoint deck's look",
+	"Change a shared PowerPoint deck itself": "Change your PowerPoint deck itself",
+	"One screen of a shared Figma file":      "One screen of your Figma files",
 }
 
 // the shared files uid sees: the server's on a server of its own, the
@@ -191,7 +215,7 @@ func (h *McpHost) SetCaller(uid string) { h.caller = uid }
 func (h *McpHost) callSharedTool(uid, name string, a map[string]any) (any, error) {
 	sh := h.env.sharedFor(uid)
 	if sh == nil {
-		return nil, roomErr{"sign in to Sliqtly to use your Figma files: they are your account's own"}
+		return nil, roomErr{"sign in to Sliqtly to use your design files: they are your account's own"}
 	}
 	ctx := h.ctx
 	if ctx == nil {
@@ -220,10 +244,47 @@ func (h *McpHost) callSharedTool(uid, name string, a map[string]any) (any, error
 			}
 		}
 		return out, nil
+	case "get_pptx_slide":
+		n := 0
+		if v, ok := a["slide"].(float64); ok {
+			n = int(v)
+		}
+		out, err := sh.pptxSlide(ctx, argStr(a, "file_id"), n)
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		if pic, ok := a["picture"].(bool); !ok || pic {
+			b, err := sh.draw(ctx, out["file_id"].(string), strconv.Itoa(n), 2, 2048)
+			if err != nil {
+				out["picture_error"] = sharedToolErr(err).Error()
+			} else {
+				h.toolImage = b
+			}
+		}
+		return out, nil
+	case "get_pptx_style":
+		out, err := sh.pptxStyle(ctx, argStr(a, "file_id"))
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		return out, nil
+	case "edit_pptx":
+		var edits []pptxEdit
+		if raw, ok := a["edits"].([]any); ok {
+			b, _ := json.Marshal(raw)
+			if json.Unmarshal(b, &edits) != nil {
+				return nil, roomErr{"edits is a list of {slide, shape, text} or {slide, remove: true}"}
+			}
+		}
+		out, err := sh.pptxEditForTool(ctx, argStr(a, "file_id"), edits)
+		if err != nil {
+			return nil, sharedToolErr(err)
+		}
+		return out, nil
 	case "add_shared_file":
 		p := argStr(a, "path")
-		if !strings.EqualFold(filepath.Ext(p), ".fig") {
-			return nil, roomErr{"only Figma files (.fig) can be shared yet"}
+		if sharedKindOf(p) == "" {
+			return nil, roomErr{sharedKindsMsg}
 		}
 		b, err := h.env.ImportDirs.read(p, sh.max)
 		if err != nil {
@@ -232,8 +293,8 @@ func (h *McpHost) callSharedTool(uid, name string, a map[string]any) (any, error
 		fname := argStr(a, "name")
 		if fname == "" {
 			fname = filepath.Base(p)
-		} else if !strings.EqualFold(filepath.Ext(fname), ".fig") {
-			fname += ".fig"
+		} else if !strings.EqualFold(filepath.Ext(fname), filepath.Ext(p)) {
+			fname += strings.ToLower(filepath.Ext(p))
 		}
 		f, err := sh.put(ctx, fname, "", bytes.NewReader(b))
 		if err != nil {
@@ -282,7 +343,7 @@ func (s *sharedFiles) listForTool(ctx context.Context) (any, error) {
 	}
 	files := []sharedFileRow{}
 	for _, r := range rows {
-		f := sharedFileRow{FileID: r["id"].(string), Name: r["name"].(string), Kind: "figma", Bytes: r["bytes"].(int64), Status: r["status"].(string)}
+		f := sharedFileRow{FileID: r["id"].(string), Name: r["name"].(string), Kind: r["kind"].(string), Bytes: r["bytes"].(int64), Status: r["status"].(string)}
 		f.Error, _ = r["error"].(string)
 		if ix, ok := r["index"].(string); ok {
 			ff := FigmaFile_static_fromIndex(f.FileID, ix)
@@ -406,7 +467,7 @@ func (s *sharedFiles) screen(ctx context.Context, fileID, node string) (map[stri
 		"width": sc.w, "height": sc.h, "text": sc.text, "parts": parts,
 		"components": orEmpty(sc.components), "links_to": orEmpty(sc.linksTo), "description": sc.description,
 		"flow_start": sc.flowStart, "status": sc.status, "notes": orEmpty(sc.notes),
-		"markdown": FigmaRef_static_markdown(fileID, t.node, t.name), "note": sharedDataNote,
+		"kind": ff.kind, "markdown": FigmaRef_static_markdownIn(ff.scheme(), fileID, t.node, t.name), "note": sharedDataNote,
 	}
 	if t.isPart {
 		if p := sc.partById(t.node); p.has_value {

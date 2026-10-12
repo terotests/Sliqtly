@@ -31,6 +31,7 @@ COPY mcp-go/ ./
 COPY --from=gen /src/mcp-go/sliqtly_mcp.go ./
 COPY --from=gen /src/mcp-go/presdata/presdata.go ./presdata/
 COPY --from=gen /src/mcp-go/figdv/figdv.go ./figdv/
+COPY --from=gen /src/mcp-go/pptxgo/pptxgo.go /src/mcp-go/pptxgo/presets.txt ./pptxgo/
 COPY --from=gen /src/mcp-go/rdiff/rdsmart.go ./rdiff/
 COPY --from=gen /src/mcp-go/fonts/ ./fonts/
 COPY --from=gen /src/mcp-go/themes/ ./themes/
