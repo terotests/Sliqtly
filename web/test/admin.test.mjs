@@ -1,7 +1,7 @@
 // node --test: the owner's dashboard's bars (web/admin.js), without a page.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { niceMax, columns, money, parseQuota, quotaText, licenseRows, withLicense } from "../admin.js";
+import { niceMax, columns, money, parseQuota, quotaText, licenseRows, withLicense, aiCells } from "../admin.js";
 
 test("the axis tops out at a round number", () => {
   assert.deepEqual([0, 0.3, 1, 7, 12, 26, 140].map(niceMax), [1, 0.5, 1, 10, 20, 50, 200]);
@@ -43,4 +43,9 @@ test("the licenses list: used of quota, found by address or name, one row replac
   const next = withLicense(list, { ...list[0], maxDocs: 10 });
   assert.deepEqual(next.map((l) => l.maxDocs), [10, 2]);
   assert.equal(list[0].maxDocs, 2, "the old list is kept");
+});
+
+test("the AI card's cells: actions, calls, tokens in and out", () => {
+  assert.deepEqual(aiCells({ actions: 3, calls: 4, in: 39000, out: 2800 }), ["3", "4", "39,000", "2,800"]);
+  assert.deepEqual(aiCells({}), ["0", "0", "0", "0"]);
 });

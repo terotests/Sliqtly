@@ -94,9 +94,13 @@ func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme strin
 	fixed, err := a.model.Ask(ctx, a.system, again)
 	if err != nil || fixed.Declined || len(fixed.Edits) == 0 {
 		// the first answer, as the model gave it, rather than nothing
+		ans.In += fixed.In
+		ans.Out += fixed.Out
+		ans.Calls = 2
 		return ans, nil
 	}
 	fixed.In += ans.In
 	fixed.Out += ans.Out
+	fixed.Calls = 2
 	return fixed, nil
 }

@@ -73,6 +73,7 @@ type aiTurn struct {
 type aiAnswer struct {
 	Text     string
 	In, Out  int64 // tokens
+	Calls    int64 // calls to the model it took (aiAssist.ask); 0 is one
 	Declined bool  // the model declined to answer
 	// the changes it asked the editor to make, in order (aiEditTools)
 	Edits []aiEdit
@@ -451,7 +452,7 @@ func (a *aiAssist) spend(ctx context.Context, uid string, q aiQuestion, ans aiAn
 	if ans.Declined {
 		cost = 0
 	}
-	add := Doc{aiMonth(a.now()): Doc{"actions": cost, "calls": int64(1), "in": ans.In, "out": ans.Out}}
+	add := Doc{aiMonth(a.now()): Doc{"actions": cost, "calls": max(ans.Calls, 1), "in": ans.In, "out": ans.Out}}
 	if err := a.db.Increment(ctx, aiUsageCol, uid, add); err != nil {
 		log.Printf("ai: usage not counted: %v", err)
 	}

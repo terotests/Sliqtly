@@ -106,6 +106,22 @@ func (c *cloudAdmin) Licenses(ctx context.Context) ([]string, []Doc, error) {
 	}
 }
 
+func (c *cloudAdmin) AIUsage(ctx context.Context) ([]string, []Doc, error) {
+	it := c.fs.Collection(aiUsageCol).Documents(ctx)
+	defer it.Stop()
+	ids, docs := []string{}, []Doc{}
+	for {
+		s, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return ids, docs, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		ids, docs = append(ids, s.Ref.ID), append(docs, s.Data())
+	}
+}
+
 func (c *cloudAdmin) Users(ctx context.Context) ([]adminUser, error) {
 	it := c.auth.Users(ctx, "")
 	out := []adminUser{}

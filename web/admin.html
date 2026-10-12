@@ -155,6 +155,27 @@
 
     <section class="card licenses">
       <div class="head">
+        <h2>AI assistant</h2>
+        <span id="aCount" class="dim"></span>
+      </div>
+      <p class="sub">The editor's ✨ AI drawer, by calendar month (UTC). AI actions are what the monthly allowance counts; calls include the model's retries; tokens are as the model reported them. The cost is the Vertex AI line under Cloud cost.</p>
+      <p id="eAI" class="err"></p>
+      <div class="tablewrap" style="max-height:none">
+        <table id="aMonths">
+          <thead><tr><th>Month</th><th>AI actions</th><th>Calls</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+          <tbody id="aMonthsBody"></tbody>
+        </table>
+      </div>
+      <div class="tablewrap">
+        <table id="aPeople">
+          <thead><tr><th>Account, this month</th><th>AI actions</th><th>Calls</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+          <tbody id="aPeopleBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card licenses">
+      <div class="head">
         <h2>Licenses</h2>
         <span id="lCount" class="dim"></span>
         <input id="lFilter" type="search" placeholder="Find by address or name" aria-label="Find a license" />
