@@ -1,121 +1,85 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// The assistant's changes, read before the editor makes them. A model writes
-// what it has seen elsewhere: Chart.js JSON in a ```chart block, or
+// The assistant's changes, checked before the editor makes them. A model
+// writes what it has seen elsewhere: Chart.js JSON in a ```chart block, or
 // style="margin-top: -60px" to move a chart up. Sliqtly shows the first as
 // code and ignores the second, and the person sees the assistant say it did
-// something it did not. aiProblems names what is wrong in a model's own
-// terms, and aiAssist.ask gives the model one round to write it again.
+// something it did not. The changes go through the check update_presentation
+// gives an assistant over MCP (Tools.checkDeck: blocks not shown, charts that
+// draw nothing, slides that do not fit, HTML that is not drawn), and the
+// model gets one round to fix what it reports.
 
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
-// What is wrong with the Markdown the edits write, one line per problem;
-// none when Sliqtly reads all of it.
-func aiProblems(edits []aiEdit) []string {
+// what the check says about one piece of a presentation's Markdown
+type aiChecker func(md string) []string
+
+// The deck check MCP runs, on Markdown laid out with the theme (aurora, as
+// MCP's, when the editor named none Sliqtly has).
+func aiDeckCheck(env *Env, ctx context.Context, theme string) aiChecker {
+	if !slices.Contains(Deck_static_THEMES(), theme) {
+		theme = "aurora"
+	}
+	return func(md string) []string {
+		h := &McpHost{env: env, ctx: ctx, images: map[int64][]byte{}}
+		bgs := Tools_static_backgrounds(h, md, "", nil, "")
+		return Tools_static_checkDeck(h, md, theme, false, "", bgs, nil, "", nil).warnings
+	}
+}
+
+// What the check says about the Markdown the edits write, each line saying
+// which edit; none when Sliqtly draws all of it. A slide is checked under
+// the presentation's front matter, as it will be shown.
+func aiProblems(check aiChecker, frontMatter string, edits []aiEdit) []string {
 	var out []string
 	for _, e := range edits {
 		if e.Markdown == "" {
 			continue
 		}
-		where := "the presentation"
+		where, md := "replace_presentation", e.Markdown
 		switch e.Tool {
 		case "replace_slide":
-			where = fmt.Sprintf("slide %d", e.Slide)
+			where = fmt.Sprintf("replace_slide %d", e.Slide)
 		case "insert_slide":
-			where = fmt.Sprintf("the slide inserted after %d", e.After)
+			where = fmt.Sprintf("insert_slide after %d", e.After)
 		}
-		for _, p := range mdProblems(e.Markdown) {
-			out = append(out, where+": "+p)
+		if e.Tool != "replace_presentation" && strings.TrimSpace(frontMatter) != "" {
+			md = strings.TrimSpace(frontMatter) + "\n\n" + md
 		}
-	}
-	return out
-}
-
-// the problems in one piece of Markdown
-func mdProblems(md string) []string {
-	var out []string
-	styled := false
-	fence, lang := "", ""
-	var body []string
-	for _, line := range strings.Split(md, "\n") {
-		t := strings.TrimSpace(line)
-		if fence != "" {
-			if strings.HasPrefix(t, fence) && strings.Trim(t, fence[:1]) == "" {
-				if p := fenceProblem(lang, strings.Join(body, "\n")); p != "" {
-					out = append(out, p)
-				}
-				fence, body = "", nil
-				continue
-			}
-			body = append(body, line)
-			continue
-		}
-		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
-			ch := t[:1]
-			n := len(t) - len(strings.TrimLeft(t, ch))
-			fence = strings.Repeat(ch, n)
-			lang = strings.ToLower(strings.TrimSpace(t[n:]))
-			if i := strings.IndexAny(lang, " {"); i >= 0 {
-				lang = lang[:i]
-			}
-			continue
-		}
-		if !styled && strings.Contains(strings.ReplaceAll(t, " ", ""), "style=") {
-			styled = true
-			out = append(out, "style= is ignored: Sliqtly reads no CSS, HTML or pixel positions in the Markdown; place things with the heading's attributes ({layout=image-right}, valign=…) or the order of the blocks")
+		for _, w := range check(md) {
+			out = append(out, where+": "+w)
 		}
 	}
 	return out
 }
 
-// the problem with one fenced block, "" when there is none
-func fenceProblem(lang, body string) string {
-	switch lang {
-	case "chart", "chartjs", "chart.js":
-		return "```" + lang + " is not a chart in Sliqtly and shows as code; a chart is a ```vega-lite block with a Vega-Lite v5 spec"
-	case "vega-lite", "vegalite", "vega":
-	default:
-		return ""
-	}
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(body), &spec); err != nil {
-		return "the ```" + lang + " block is not one JSON object (" + err.Error() + "); it shows as code"
-	}
-	if _, ok := spec["datasets"]; ok {
-		return "the ```" + lang + " block is Chart.js (\"datasets\"), not Vega-Lite; write \"data\": {\"values\": [...]}, \"mark\" and \"encoding\""
-	}
-	if dat, ok := spec["data"].(map[string]any); ok {
-		if _, ok := dat["datasets"]; ok {
-			return "the ```" + lang + " block is Chart.js (\"datasets\"), not Vega-Lite; write \"data\": {\"values\": [...]}, \"mark\" and \"encoding\""
+// the theme the answer leaves the presentation in
+func aiThemeAfter(theme string, edits []aiEdit) string {
+	for _, e := range edits {
+		if e.Tool == "set_theme" {
+			theme = e.Value
 		}
 	}
-	if lang == "vega" {
-		return ""
-	}
-	for _, k := range []string{"mark", "layer", "concat", "hconcat", "vconcat", "repeat", "facet", "spec"} {
-		if _, ok := spec[k]; ok {
-			return ""
-		}
-	}
-	return "the ```" + lang + " block has no \"mark\" (or \"layer\"), so it draws nothing"
+	return theme
 }
 
-// Ask the model; when its changes have problems Sliqtly would not read, tell
-// it what they are and ask once more. The second answer stands either way;
-// the tokens of both are counted.
-func (a *aiAssist) ask(ctx context.Context, turns []aiTurn) (aiAnswer, error) {
+// Ask the model; when the check finds problems in its changes, tell it what
+// they are and ask once more. The second answer stands when it changes
+// something; the tokens of both are counted.
+func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme string) aiChecker) (aiAnswer, error) {
+	turns := q.turns()
 	ans, err := a.model.Ask(ctx, a.system, turns)
-	if err != nil || ans.Declined {
+	if err != nil || ans.Declined || check == nil {
 		return ans, err
 	}
-	problems := aiProblems(ans.Edits)
+	problems := aiProblems(check(aiThemeAfter(q.Context.Theme, ans.Edits)), q.Context.FrontMatter, ans.Edits)
 	if len(problems) == 0 {
 		return ans, nil
 	}
@@ -125,7 +89,7 @@ func (a *aiAssist) ask(ctx context.Context, turns []aiTurn) (aiAnswer, error) {
 	}
 	again := append(append([]aiTurn{}, turns...),
 		aiTurn{Role: "assistant", Text: said},
-		aiTurn{Role: "user", Text: "Your change was not made, because Sliqtly would not read it:\n- " + strings.Join(problems, "\n- ") +
+		aiTurn{Role: "user", Text: "Your change was not made: Sliqtly's check of it says\n- " + strings.Join(problems, "\n- ") +
 			"\nMake the whole change again with these fixed, with your functions, and say in a sentence what you changed."})
 	fixed, err := a.model.Ask(ctx, a.system, again)
 	if err != nil || fixed.Declined || len(fixed.Edits) == 0 {

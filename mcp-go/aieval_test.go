@@ -73,7 +73,8 @@ func TestAIEval(t *testing.T) {
 	// the model's first answer, before the repair round (aiAssist.ask).
 	for _, ask := range []string{"Tee näyttävä setti erilaisia chartteja tähän", "siirrä donitsikaaviota ylemmäs"} {
 		a := aiEvalAsk(t, m, ask)
-		if p := aiProblems(a.Edits); len(p) > 0 {
+		check := aiDeckCheck(&Env{}, context.Background(), "white")
+		if p := aiProblems(check, "---\ntitle: Q3 Review\n---", a.Edits); len(p) > 0 {
 			t.Errorf("%s: %s", ask, strings.Join(p, "; "))
 		}
 		for _, e := range a.Edits {

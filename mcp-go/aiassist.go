@@ -509,7 +509,7 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 		defer cancel()
-		ans, err := a.ask(ctx, turns)
+		ans, err := a.ask(ctx, q, func(theme string) aiChecker { return aiDeckCheck(env, ctx, theme) })
 		if err != nil {
 			log.Printf("ai: %v", err)
 			msg := "The assistant could not answer just now; try again in a moment."
