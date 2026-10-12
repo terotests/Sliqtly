@@ -176,7 +176,6 @@
 .theme-tb .ui-rail-item:hover { background-color: rgba(0, 0, 0, 0.05); }
 /* the frame's piece over the work's top left corner (PresToolbar.frameCorner) */
 .tb-corner { fill: #ffffff; }
-.tb-frameunder { background-color: #ffffff; }
 .tb-railpad { height: 1px; }
 .tb-logo { width: 36px; height: 36px; min-height: 36px; margin: 0 0 6px 0; }
 .tb-logo-part { width: 36px; height: 36px; }

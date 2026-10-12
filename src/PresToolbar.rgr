@@ -1278,17 +1278,6 @@ class PresToolbar {
         return t
     }
 
-    fn frameUnder:EVGElement (x:double y:double fw:double fh:double) {
-        def el:EVGElement (UiKit.div("tb-frameunder"))
-        el.a11yHidden = true
-        el.setAttribute("position" "absolute")
-        el.setAttribute("left" ((EVGDisplayList.num(x)) + "px"))
-        el.setAttribute("top" ((EVGDisplayList.num(y)) + "px"))
-        el.setAttribute("width" ((EVGDisplayList.num(fw)) + "px"))
-        el.setAttribute("height" ((EVGDisplayList.num(fh)) + "px"))
-        return el
-    }
-
     fn buildRail:void (root:EVGElement) {
         def col:EVGElement (UiKit.div("tb-railcol"))
         col.addChild((this.logoEl()))
@@ -2067,15 +2056,6 @@ class PresToolbar {
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root tb-page"
-        ; under the frame's bar and rail, one pixel past their edges: every
-        ; box's edge is smoothed, and over the light work below it would
-        ; show as a pale seam between the frame and the work
-        if (this.framed()) {
-            root.addChild((this.frameUnder(0.0 0.0 w (barH + 1.0))))
-            if ((this.compact()) == false) {
-                root.addChild((this.frameUnder(0.0 0.0 (railW + 1.0) h)))
-            }
-        }
         def bar:EVGElement (UiKit.div("tb-bar"))
         onFrame = (this.terracotta())
         def play:string (PresI18n.t("▶ Play"))
