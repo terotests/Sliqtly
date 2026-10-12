@@ -3658,6 +3658,16 @@ let thumbRev = -1;
 // the slide lists of thumbnails cut by the strip's edge, as JSON text
 let thumbDocs = new Map();
 let thumbDocsRev = -1;
+// A list in the slide's units, drawn at `at` = [x, y, scale] on the page. The
+// scale goes into the list as its view, so the frame is BUILT at it: the glyph
+// atlas is rasterised at dpr × scale and each run lands texel for pixel. Given
+// only to draw(), the frame was built at scale 1 and its text stretched by
+// the stage's scale (1.15 presenting on a 1470-wide window, 0.58 in the
+// editor), which the linear filter drew soft.
+function atScale(doc, at) {
+  return { ...doc, view: { x: at[0], y: at[1], scale: at[2] } };
+}
+
 function dropThumbs() {
   for (const f of thumbs.values()) f.dispose();
   thumbs = new Map();
@@ -3999,8 +4009,8 @@ function paintOnce() {
     }
     st.width = W;
     st.height = H;
-    const sf = prepareDisplayList(gl, st, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
-    const stageStats = sf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false });
+    const sf = prepareDisplayList(gl, atScale(st, layout.stage), { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+    const stageStats = sf.draw(null, null, { clear: false });
     grew = grewBy(stageStats) || grew;
     sf.dispose();
     // what is drawn on the slide and the pointer (presenting with the pen,
@@ -4010,8 +4020,8 @@ function paintOnce() {
       const ink = JSON.parse(ij);
       ink.width = W;
       ink.height = H;
-      const inf = prepareDisplayList(gl, ink, { dpr });
-      grew = grewBy(inf.draw(null, [layout.stage[0], layout.stage[1], layout.stage[2]], { clear: false })) || grew;
+      const inf = prepareDisplayList(gl, atScale(ink, layout.stage), { dpr });
+      grew = grewBy(inf.draw(null, null, { clear: false })) || grew;
       inf.dispose();
     }
     // Only while editing: not to an audience, and not mid-animation, where a
@@ -4060,18 +4070,23 @@ function paintOnce() {
       const none = [0, 0, 0, 0];
       doc.list.cmds.unshift({ k: 4, x: (cx - x) / s, y: (cy - y) / s, w: cw / s, h: ch / s, c: none });
       doc.list.cmds.push({ k: 5, x: 0, y: 0, w: 0, h: 0, c: none });
-      const cf = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
-      if (grewBy(cf.draw(null, [x, y, s], { clear: false }))) thumbsGrew = true;
+      const cf = prepareDisplayList(gl, atScale(doc, [x, y, s]), { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+      if (grewBy(cf.draw(null, null, { clear: false }))) thumbsGrew = true;
       cf.dispose();
       continue;
     }
     let f = thumbs.get(i);
+    // built at the scale it is drawn at; a scroll only moves it
+    if (f && f.view.scale !== s) {
+      f.dispose();
+      f = null;
+    }
     const fresh = !f;
     if (fresh) {
       const doc = atRest(JSON.parse(app.slideJson(i)));
       doc.width = W;
       doc.height = H;
-      f = prepareDisplayList(gl, doc, { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
+      f = prepareDisplayList(gl, atScale(doc, [x, y, s]), { dpr, images: pictures, contrastGuard: true, contrastRepair: autoContrast });
       thumbs.set(i, f);
     }
     const stats = f.draw(null, [x, y, s], { clear: false });
