@@ -16,19 +16,28 @@
 ; What it shows the page works out (web/stories.js groupStories) and hands
 ; over as JSON (`setData`): the words already in the reader's language. What
 ; the reader asked for goes back as requests (`take`):
-;   topic:open\t<deck>           a card pressed
+;   topic:drag\t<deck>\t<name>\t<x>\t<y>   a card pressed: the toolbar
+;                                drags it (onto a folder or a room of the
+;                                rail) and opens it when let go unmoved
+;   topic:open\t<deck>           a card opened another way
 ;   topic:by\t<type|phase|tag|none>, topic:sort\t<updated|title|created>
 ;   topic:new                    + New story
 ;   topic:menu\t<deck>\t<type|phase>\t<type>\t<phase>\t<x>\t<y>\t<name>
 ;   topic:ctx\t<deck>\t<1 when open>\t<x>\t<y>\t<name>   a card's context menu
+;   topic:bulkmenu\t<x>\t<y>    Actions pressed: the toolbar's menu of what
+;                                can be done to the ticked ones; its row
+;                                comes back as `choose`
+;   topic:bulk\t<action>\t<deck>…  Apply (PresStoryPick.request)
 ; ============================================================================
 
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/UiScroll.rgr"
 Import "../evgui/src/UiText.rgr"
+Import "../evgui/src/CheckboxCtl.rgr"
 Import "../vela/src/VlJson.rgr"
 Import "PresI18n.rgr"
 Import "UiKit.rgr"
+Import "PresStoryPick.rgr"
 
 class PresTopicView {
     def json:string ""
@@ -43,6 +52,8 @@ class PresTopicView {
     def phases:[string]
     def currents:[boolean]
     def room:string ""
+    ; the ticked cards and the action chosen for them
+    def picks:PresStoryPick (new PresStoryPick())
 
     ; the topic's stories, as the page says them (web/main.js topicJson)
     fn setData:void (text:string) {
@@ -52,6 +63,7 @@ class PresTopicView {
         def r:string (j.stringOr("room" ""))
         if (r != room) {
             scroll.reset()
+            picks.reset()
             room = r
         }
         by = (j.stringOr("by" "type"))
@@ -128,10 +140,15 @@ class PresTopicView {
         this.segment(host ctl "rm-sort-title" (PresI18n.t("Title")) (sort == "title"))
         this.segment(host ctl "rm-sort-created" (PresI18n.t("Created")) (sort == "created"))
         view.addChild(ctl)
+        def barH:double 0.0
+        if ((picks.pick.count()) > 0) {
+            view.addChild((this.bulkBar(host)))
+            barH = 40.0
+        }
 
         def body:EVGElement (UiTree.div("rm-tbody" "rm-tbody"))
         ; what is left under the head and the controls (.rm-thead, .rm-tctl)
-        def bh:double (h - 96.0)
+        def bh:double ((h - 96.0) - barH)
         if (bh < 80.0) {
             bh = 80.0
         }
@@ -177,8 +194,43 @@ class PresTopicView {
             body.addChild(grp)
             gi = (gi + 1)
         }
+        picks.setDecks(ids)
         view.addChild(body)
         frame.addChild(view)
+    }
+
+    ; With cards ticked: how many, Actions (the chosen one named on it),
+    ; Apply, and ticking all or none.
+    fn bulkBar:EVGElement (host:UiHost) {
+        def bar:EVGElement (UiKit.div("rm-tbulk"))
+        def all (new CheckboxCtl())
+        all.tid = "rm-bulk-all"
+        all.name = (PresI18n.t("Select all"))
+        all.checkState = (picks.pick.checkState())
+        all.labelShown = false
+        all.build()
+        UiTree.addClass((unwrap all.rootEl) "rm-check")
+        UiKit.put(host all bar)
+        bar.addChild((UiKit.words("rm-tbulk-count" ((to_string (picks.pick.count())) + (PresI18n.t(" selected"))))))
+        def what:string (PresI18n.t("Actions"))
+        if ((strlen picks.label) > 0) {
+            what = picks.label
+        }
+        def ab:ButtonCtl (UiKit.button("rm-bulk-pick" (what + " ▾") "secondary"))
+        UiTree.addClass((unwrap ab.rootEl) "rm-bulk-btn")
+        UiKit.put(host ab bar)
+        def go:ButtonCtl (UiKit.button("rm-bulk-go" (PresI18n.t("Apply")) "primary"))
+        if ((picks.ready()) == false) {
+            go.disabled = true
+            go.build()
+        }
+        UiKit.labelClass(go "pn-onprimary")
+        UiTree.addClass((unwrap go.rootEl) "rm-bulk-btn")
+        UiKit.put(host go bar)
+        def cl:ButtonCtl (UiKit.button("rm-bulk-none" (PresI18n.t("Clear")) "ghost"))
+        UiTree.addClass((unwrap cl.rootEl) "rm-bulk-btn")
+        UiKit.put(host cl bar)
+        return bar
     }
 
     ; One story's card: the Type and Phase pills, its name, when it was last
@@ -202,6 +254,10 @@ class PresTopicView {
         if cur {
             UiTree.addClass(el "rm-card-cur")
         }
+        def ticked:boolean (picks.pick.has(id))
+        if ticked {
+            UiTree.addClass(el "rm-card-sel")
+        }
         ; its 1px border outside the width
         UiTree.inline(el "width" ((EVGDisplayList.num((cw - 2.0))) + "px"))
         UiKit.put(host b parent)
@@ -214,6 +270,16 @@ class PresTopicView {
         el.addChild(inner)
 
         def top:EVGElement (UiKit.div("rm-ctop"))
+        def box (new CheckboxCtl())
+        box.tid = ("rm-chk-" + n)
+        box.name = ((PresI18n.t("Select ")) + name)
+        if ticked {
+            box.checkState = 1
+        }
+        box.labelShown = false
+        box.build()
+        UiTree.addClass((unwrap box.rootEl) "rm-check")
+        UiKit.put(host box top)
         def tp:ButtonCtl (UiKit.button(("rm-sty-" + n) (s.stringOr("typeLabel" "")) "ghost"))
         def tpe:EVGElement (unwrap tp.rootEl)
         UiTree.addClass(tpe "rm-pill")
@@ -235,7 +301,13 @@ class PresTopicView {
         inner.addChild(top)
 
         inner.addChild((UiKit.words("rm-ctitle" (UiText.fit(eng name "Open Sans" 14.0 (cw - 34.0))))))
-        inner.addChild((UiKit.words("rm-cmeta" (s.stringOr("when" "")))))
+        ; the folder of the room it is in, before when it was changed
+        def meta:string (s.stringOr("when" ""))
+        def fol:string (s.stringOr("folder" ""))
+        if ((strlen fol) > 0) {
+            meta = (fol + " · " + meta)
+        }
+        inner.addChild((UiKit.words("rm-cmeta" (UiText.fit(eng meta "Open Sans" 12.0 (cw - 34.0))))))
         def tags:VlJson (s.get("tags"))
         if ((tags.count()) > 0) {
             def tr:EVGElement (UiKit.div("rm-ctags"))
@@ -263,7 +335,7 @@ class PresTopicView {
 
     ; A press on `tid` at px, py (the page's), its rectangle `rect` (x,y,w,h
     ; from the host): → true when it was the view's.
-    fn press:boolean (tid:string rect:string) {
+    fn press:boolean (tid:string rect:string px:double py:double shift:boolean) {
         if ((indexOf tid "rm-by-") == 0) {
             by = (substring tid 6 (strlen tid))
             push requests ("topic:by\t" + by)
@@ -276,6 +348,31 @@ class PresTopicView {
         }
         if (tid == "rm-tnew") {
             push requests "topic:new"
+            return true
+        }
+        def bi:int (this.cardOf(tid "rm-chk-"))
+        if (bi >= 0) {
+            if shift {
+                picks.pick.extendTo((itemAt ids bi))
+            } {
+                picks.pick.toggle((itemAt ids bi))
+            }
+            return true
+        }
+        if (tid == "rm-bulk-all") {
+            picks.pick.toggleAll()
+            return true
+        }
+        if (tid == "rm-bulk-none") {
+            picks.pick.none()
+            return true
+        }
+        if (tid == "rm-bulk-go") {
+            def req:string (picks.request())
+            if ((strlen req) > 0) {
+                push requests req
+                picks.pick.none()
+            }
             return true
         }
         def r:[string] (strsplit rect ",")
@@ -295,16 +392,25 @@ class PresTopicView {
                 part = "phase"
             }
         }
+        if (tid == "rm-bulk-pick") {
+            push requests ("topic:bulkmenu\t" + x + "\t" + y)
+            return true
+        }
         if (i >= 0) {
             push requests ("topic:menu\t" + (itemAt ids i) + "\t" + part + "\t" + (itemAt types i) + "\t" + (itemAt phases i) + "\t" + x + "\t" + y + "\t" + (itemAt names i))
             return true
         }
         i = (this.cardOf(tid "rm-card-"))
         if (i >= 0) {
-            push requests ("topic:open\t" + (itemAt ids i))
+            push requests ("topic:drag\t" + (itemAt ids i) + "\t" + (itemAt names i) + "\t" + (EVGDisplayList.num(px)) + "\t" + (EVGDisplayList.num(py)))
             return true
         }
         return false
+    }
+
+    ; Actions' row chosen (the toolbar's menu): named on the button
+    fn choose:void (what:string words:string) {
+        picks.choose(what words)
     }
 
     ; A right click on a card: its context menu at px, py. → true when it

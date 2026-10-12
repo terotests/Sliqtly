@@ -37,7 +37,7 @@ import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyInde
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
-import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags } from "./stories.js";
+import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
@@ -1628,7 +1628,8 @@ try {
 } catch (_) { /* the defaults */ }
 // i18n: "Updated just now" "Updated {n} min ago" "Updated {n} h ago" "Updated {n} d ago" "Updated {n} wk ago" "Updated {n} mo ago" "Updated {n} y ago"
 const AGO = { now: "Updated just now", min: "Updated {n} min ago", h: "Updated {n} h ago", d: "Updated {n} d ago", w: "Updated {n} wk ago", mo: "Updated {n} mo ago", y: "Updated {n} y ago" };
-async function showTopic(room, rows) {
+// folders: the room's [{ id, name }], a card names the one it is in.
+async function showTopic(room, rows, folders = []) {
   const info = (await roomsList({ archived: true })).find((r) => r.room_id === room);
   const now = Date.now();
   const groups = groupStories(rows, { by: topicBy, sort: topicSort }).map((g) => ({
@@ -1639,6 +1640,7 @@ async function showTopic(room, rows) {
       return {
         id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current,
         typeLabel: t(TYPE_LABEL[r.type]), phaseLabel: t(PHASE_LABEL[r.phase]), color: storyColor(r),
+        folder: (r.folder && folders.find((x) => x.id === r.folder)?.name) || "",
         when: r.updated ? t(AGO[ago.unit]).replace("{n}", String(ago.n)) : "",
       };
     }),
@@ -1664,10 +1666,43 @@ async function topicRequest(r) {
       localStorage.setItem("sliqtly.topicGroup", topicBy);
       localStorage.setItem("sliqtly.topicSort", topicSort);
     } catch (_) { /* this page only */ }
-    if (room) await showTopic(room, await roomRows(room));
+    if (room) {
+      const { rows, folders } = await roomView(room);
+      await showTopic(room, rows, folders);
+    }
   } else if (what === "new" && room) {
     await roomsRequest("room:newin:" + room);
+  } else if (what === "bulk" && room) {
+    await bulkStories(room, f[0], f.slice(1));
   }
+}
+// Apply in a topic's Stories tab ("topic:bulk\t<action>\t<deck>…", web/
+// stories.js bulkAction): each ticked presentation into a folder of the
+// room or out of it, or its type or phase set. On a server of one's own its
+// share's, else this browser's; one that fails leaves the rest done.
+async function bulkStories(room, choice, decks) {
+  const act = bulkAction(choice);
+  const ids = [...new Set(decks)].filter((d) => d && !d.startsWith("sample:"));
+  if (!act || !ids.length) return;
+  let done = 0;
+  for (const deck of ids) {
+    try {
+      if ("folder" in act) {
+        if (ownServer()) await roomsCall("move_presentation", { deck_id: deck.replace(/^cloud:/, ""), room_id: room, folder_id: act.folder });
+        else keepRooms((s) => moveDeck(s, deck, room, act.folder));
+      } else if (ownServer()) await roomsCall("set_story", { deck_id: deck.replace(/^cloud:/, ""), [act.part]: act.value });
+      else keepRooms((s) => setStory(s, deck, { [act.part]: act.value }));
+      done++;
+    } catch (e) {
+      console.warn("bulk", choice, deck, e);
+    }
+  }
+  if (act.folder) {
+    foldersOpen.add(room + "/" + act.folder);
+    keepFoldersOpen();
+  }
+  toast(t("Changed {n} of {all} presentations").replace("{n}", String(done)).replace("{all}", String(ids.length)));
+  await roomsRequest("room:decks:" + room);
 }
 // The presentation `id`'s story (web/stories.js storyOf): on a server of
 // one's own its share's, else this browser's.
@@ -2051,7 +2086,7 @@ async function roomsRequest(r) {
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
     });
     app.setToolbarOptions("roomdecks", lines, roomShown);
-    await showTopic(roomShown, rows);
+    await showTopic(roomShown, rows, folders);
     if (action === "open") await roomChat().open(roomShown);
   } else if (action === "fold") {
     // a folder pressed: open or shut, in this browser

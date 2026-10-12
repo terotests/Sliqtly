@@ -3,6 +3,7 @@
 Import "PresTimeline.rgr"
 Import "PresVideo.rgr"
 Import "PresToolbar.rgr"
+Import "PresStoryPick.rgr"
 Import "PresChartEditor.rgr"
 Import "PresBeat.rgr"
 Import "PresChartModel.rgr"
@@ -2519,6 +2520,38 @@ class PresCheck {
         this.ok((((d.slideMetaValue(0 "phase")) == "review") && ((d.slideMetaValue(1 "phase")) == "")) "heading attr: the deck reads the slide's phase")
         def s0:PresSlide (d.slideAt(0))
         this.ok(((s0.title == "One") && (((array_length s0.meta.suspect) == 0) && ((array_length (d.headingAttrNotes())) == 0))) "heading attr: phase is data, no warning")
+    }
+
+    ; A topic's ticked stories (PresStoryPick) and the bar's side of them:
+    ; Actions' rows named for the button, a card pressed and let go unmoved
+    ; opens it.
+    fn storyPick:void () {
+        def p (new PresStoryPick())
+        p.setDecks(([] _:string ("d1" "d2" "d1" "d3")))
+        this.ok(((array_length p.pick.keys) == 3) "story pick: a deck under two tags is one key")
+        p.pick.toggle("d2")
+        p.pick.toggle("d3")
+        this.ok(((p.pick.count()) == 2) "story pick: two ticked")
+        this.ok(((p.ready()) == false) "story pick: no Apply before an action")
+        this.ok(((p.request()) == "") "story pick: no request either")
+        p.choose("mvf-f1" "Move to folder Tests")
+        def tab:string (strfromcode 9)
+        this.ok(((p.request()) == ("topic:bulk" + tab + "mvf-f1" + tab + "d2" + tab + "d3")) ("story pick: Apply's request, " + (p.request())))
+        p.setDecks(([] _:string ("d1" "d3")))
+        this.ok(((p.pick.count()) == 1) "story pick: a deck gone is no longer ticked")
+        p.reset()
+        this.ok((((p.pick.count()) == 0) && ((strlen p.action) == 0)) "story pick: another topic starts empty")
+
+        def tb (new PresToolbar())
+        tb.roomDecks = ("f:f1" + tab + "Tests" + tab + "" + tab + "f")
+        this.ok(((tb.bulkLabel("mvf-f1")) == "Move to folder Tests") ("story pick: a folder's row, " + (tb.bulkLabel("mvf-f1"))))
+        this.ok(((tb.bulkLabel("mvf-top")) == "Out of the folder") "story pick: out of the folder")
+        this.ok(((tb.bulkLabel("stp-done")) == "Phase: Done") ("story pick: a phase, " + (tb.bulkLabel("stp-done"))))
+        tb.deckDragBegin("d7" "Seven" 100.0 100.0)
+        this.ok((tb.roomDragging()) "story card: pressed, the bar holds it")
+        tb.roomDragEnd()
+        this.ok((((array_length tb.requests) == 1) && ((itemAt tb.requests 0) == "room:deck:d7")) "story card: let go unmoved, it opens")
+        this.ok(((tb.roomDragging()) == false) "story card: and is let go")
     }
 
     fn roomTerm:void () {
@@ -8147,6 +8180,7 @@ class PresCheck {
         c.smartArtSlides()
         c.docSettings()
         c.roomTerm()
+        c.storyPick()
         c.ranges()
         c.limits()
         c.chartLocale()
