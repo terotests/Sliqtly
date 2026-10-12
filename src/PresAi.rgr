@@ -74,6 +74,8 @@ class PresAiEdit {
     def key:string ""
     def value:string ""
     def markdown:string ""
+    ; add_file: where the page keeps the file (the page writes it)
+    def path:string ""
 
     Constructor () {
     }
@@ -740,6 +742,7 @@ class PresAi {
                 e.key = (o.stringOr("key" ""))
                 e.value = (o.stringOr("value" ""))
                 e.markdown = (o.stringOr("markdown" ""))
+                e.path = (o.stringOr("path" ""))
                 def said:string (PresAi.editText(e))
                 if ((strlen said) > 0) {
                     push edits e
@@ -800,6 +803,12 @@ class PresAi {
         }
         if (e.tool == "replace_presentation") {
             return (PresI18n.t("The whole presentation rewritten"))
+        }
+        if (e.tool == "add_file") {
+            if ((strlen (trim e.path)) == 0) {
+                return ""
+            }
+            return (((PresI18n.t("File added:")) + " ") + e.path)
         }
         return ""
     }

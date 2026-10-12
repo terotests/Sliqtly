@@ -102,6 +102,9 @@ type aiEdit struct {
 	Key      string `json:"key,omitempty"`
 	Value    string `json:"value,omitempty"`
 	Markdown string `json:"markdown,omitempty"`
+	// add_file: the file's place in the presentation and its text
+	Path string `json:"path,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // A function the model may call, with its parameters as JSON Schema.
@@ -132,6 +135,32 @@ var aiEditTools = []aiTool{
 		aiObj(map[string]any{"slide": aiInt("the slide's number in <slides>")}, "slide")},
 	{"replace_presentation", "Replace the whole presentation's Markdown, front matter included. Only for changes that touch most slides; prefer the other tools.",
 		aiObj(map[string]any{"markdown": aiStr("the whole new Markdown")}, "markdown")},
+	{"add_file", "Add a file to the presentation's Files, or replace one: an SVG picture under media/ (shown on a slide with ![alt](media/name.svg)), a data file under data/ (.csv, .json) that a chart or a table reads, a chart spec under charts/. Text files only. Use it with the slide change that shows the file.",
+		aiObj(map[string]any{"path": aiStr("where it goes, e.g. media/forest.svg or data/sales.csv: letters, digits, - _ . only"), "text": aiStr("the file's whole text")}, "path", "text")},
+}
+
+// the most text one add_file writes
+const aiMaxFile = 400000
+
+// The place add_file writes: media/ for an SVG, data/ for CSV, TSV or
+// JSON, charts/ for a spec (JSON), code/ for source; "" for any other.
+func aiFilePath(p string) string {
+	p = strings.TrimPrefix(strings.TrimSpace(p), "/")
+	dir, name, ok := strings.Cut(p, "/")
+	if !ok || name == "" || strings.HasPrefix(name, ".") || len(name) > 80 || strings.Trim(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != "" {
+		return ""
+	}
+	ext := strings.ToLower(name[strings.LastIndex(name, ".")+1:])
+	allowed := map[string][]string{
+		"media":  {"svg"},
+		"data":   {"csv", "tsv", "json", "txt"},
+		"charts": {"json"},
+		"code":   {"js", "ts", "tsx", "py", "go", "rs", "java", "c", "cpp", "h", "cs", "rb", "kt", "swift", "sql", "sh", "txt", "md"},
+	}
+	if !strings.Contains(name, ".") || !slices.Contains(allowed[dir], ext) {
+		return ""
+	}
+	return dir + "/" + name
 }
 
 // the call as an edit; false for a tool not in aiEditTools
@@ -155,6 +184,12 @@ func aiEditOf(name string, args map[string]any) (aiEdit, bool) {
 		return 0
 	}
 	e := aiEdit{Tool: name, Slide: num("slide"), After: num("after"), Key: str("key"), Value: str("value"), Markdown: str("markdown")}
+	if name == "add_file" {
+		e = aiEdit{Tool: name, Path: aiFilePath(str("path")), Text: str("text")}
+		if e.Path == "" || strings.TrimSpace(e.Text) == "" || len(e.Text) > aiMaxFile {
+			return aiEdit{}, false
+		}
+	}
 	// The theme is the presentation's setting (Deck.theme), never a front
 	// matter key: a `theme:` line there changes nothing on the slides.
 	if name == "set_front_matter" && strings.EqualFold(strings.TrimSpace(e.Key), "theme") {
@@ -192,7 +227,7 @@ const aiToolsRole = `You are the AI assistant inside Sliqtly's editor. Sliqtly t
 
 Answer in the language the person writes in. Be brief: a few sentences or a short list; this is a narrow panel beside the slides.
 
-When the person asks you to change the presentation, change it with your functions: set_theme for the theme (its look: colours, fonts, backgrounds; "darker" or "lighter" usually means another theme from <themes>), set_front_matter for other front-matter keys, replace_slide, insert_slide and delete_slide for slides (numbered as in <slides>), replace_presentation only when most of it changes. Do not paste the changed Markdown into your answer; the editor makes the change at once and the person can undo it. Say in a sentence what you changed. When they only ask a question, answer it without changing anything. Write in Sliqtly's Markdown as the guide below describes, and keep what the person wrote unless you were asked to change it.
+When the person asks you to change the presentation, change it with your functions: set_theme for the theme (its look: colours, fonts, backgrounds; "darker" or "lighter" usually means another theme from <themes>), set_front_matter for other front-matter keys, replace_slide, insert_slide and delete_slide for slides (numbered as in <slides>), replace_presentation only when most of it changes, add_file for a file the slides use: a picture you draw as SVG goes in media/ (add_file media/forest.svg, then ![Forest](media/forest.svg) on the slide; or the <svg>…</svg> itself on lines of its own in the slide), data a chart or a table reads in data/. Do not paste the changed Markdown into your answer; the editor makes the change at once and the person can undo it. Say in a sentence what you changed. When they only ask a question, answer it without changing anything. Write in Sliqtly's Markdown as the guide below describes, and keep what the person wrote unless you were asked to change it.
 
 Before you answer you may look, as many times as you need: look_at_slide and look_at_presentation draw the presentation as it is in the editor and report what does not fit; sliqtly_guide gives any topic of the guide the summary below leaves out (smartart, diagrams, charts, figures, tables, apps, 3d…), so read the topic before you write a block of that kind; list_files, read_file and get_display_list read the presentation's files and drawing; search_figma and get_figma_screen read the person's Figma; the other read functions do as they say. Look first, then make all your changes together in your last turn: changes in a later turn replace the earlier ones. You cannot read the web; say so when that is needed.
 

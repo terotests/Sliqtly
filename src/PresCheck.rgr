@@ -119,6 +119,13 @@ class PresCheck {
     }
 
     fn aiEdits:void () {
+        def fa (new PresAi())
+        fa.answer("{\"reply\":\"Drew a forest.\",\"edits\":[{\"tool\":\"add_file\",\"path\":\"media/forest.svg\",\"text\":\"<svg/>\"},{\"tool\":\"insert_slide\",\"after\":1,\"markdown\":\"## Forest\\n\\n![Forest](media/forest.svg)\"}]}")
+        def fm:PresAiMsg (itemAt fa.msgs 0)
+        this.ok(((indexOf fm.text "✓ File added: media/forest.svg") > 0) ("ai: a file the answer adds is named: " + fm.text))
+        def fout:string (PresAiDeck.apply("## One\n" ([] _:int ( 0 1 )) (fa.takeEdits())))
+        this.ok(((indexOf fout "](media/forest.svg)") > 0) ("ai: the slide showing the file is added, the file itself is the page's: " + fout))
+        this.ok(((indexOf fout "<svg") < 0) "ai: the file's text is not written into the Markdown")
         def th (new PresAiEdit())
         th.tool = "set_theme"
         th.value = "midnight"
