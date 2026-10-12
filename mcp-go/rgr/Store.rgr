@@ -49,6 +49,11 @@ class Limits {
     sfn ANON_DAYS:int () {
         return 7
     }
+    ; days a viewing link works at most (links/ in firestore.rules,
+    ; web/linkdays.js MAX_DAYS)
+    sfn LINK_DAYS:int () {
+        return 30
+    }
     sfn slides:int (signedIn:boolean) {
         if signedIn {
             return (Limits.USER_SLIDES())
@@ -94,6 +99,12 @@ class Shown {
     def id:string ""
     ; shown through a viewing link
     def link:boolean false
+    ; when that link stops working (ms), 0 for a share itself: what the CDN
+    ; keeps of the answer it keeps no longer than that
+    def until:int 0
+    ; the one recording a link of its own shows (Export ▸ Cloud HTML /
+    ; Cloud video: "recordings/web-<hash>.webm"); "" for a deck's link
+    def file:string ""
 }
 
 class Store {
@@ -399,7 +410,18 @@ class Store {
         return (J.parse((host_get_doc host "shares" id)))
     }
 
+    ; the deck itself; never through a recording's own link
     sfn shown:Shown (host:McpHost id:string) {
+        def sh:Shown (Store.shownAny(host id))
+        if ((strlen sh.file) > 0) {
+            return (new Shown)
+        }
+        return sh
+    }
+
+    ; as shown, a recording's own link too (its `file` says which): for
+    ; ViewPictures.recording only
+    sfn shownAny:Shown (host:McpHost id:string) {
         def out (new Shown)
         def d:MfJ (Store.get(host id))
         if ((strlen (host_error host)) > 0) {
@@ -420,6 +442,11 @@ class Store {
         if ((l.isObj()) == false) {
             return out
         }
+        ; past its term the link shows nothing
+        def until:int (Store.linkUntil(l))
+        if ((host_now_ms host) >= until) {
+            return out
+        }
         def of:string (l.str_("of"))
         def s:MfJ (Store.get(host of))
         if ((strlen (host_error host)) > 0) {
@@ -435,7 +462,45 @@ class Store {
         out.doc = s
         out.id = of
         out.link = true
+        out.until = until
+        out.file = (l.str_("file"))
         return out
+    }
+
+    ; When a viewing link stops working (ms): `days` (at most LINK_DAYS)
+    ; after `since`; a link made before links had a term, LINK_DAYS after
+    ; `created`; one with neither, 0 (already).
+    sfn linkUntil:int (l:MfJ) {
+        def day:int (((24 * 60) * 60) * 1000)
+        def since:int (to_int (l.num_("since" 0.0)))
+        def days:int (to_int (l.num_("days" 0.0)))
+        if (days > (Limits.LINK_DAYS())) {
+            days = (Limits.LINK_DAYS())
+        }
+        if ((since > 0) && (days > 0)) {
+            return (since + (days * day))
+        }
+        def created:int (to_int (l.num_("created" 0.0)))
+        if (created > 0) {
+            return (created + ((Limits.LINK_DAYS()) * day))
+        }
+        return 0
+    }
+
+    ; seconds the CDN and the browser may keep an answer shown through `sh`:
+    ; `most`, or less when its link stops working before that
+    sfn keepFor:int (host:McpHost sh:Shown most:int) {
+        if (sh.until <= 0) {
+            return most
+        }
+        def left:int (to_int ((sh.until - (host_now_ms host)) / 1000))
+        if (left < 0) {
+            return 0
+        }
+        if (left < most) {
+            return left
+        }
+        return most
     }
 
     ; the user's shares, newest first, at most 50

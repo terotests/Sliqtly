@@ -1,11 +1,14 @@
 // node --test: the published window's list (web/published.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publishedRows, removal, afterRemoval, sortPublished, nextSort, sizeText, shortUrl, publishedListJson } from "../published.js";
+import { publishedRows, removal, afterRemoval, sortPublished, nextSort, sizeText, shortUrl, publishedListJson, termText } from "../published.js";
+import { DAY_MS } from "../linkdays.js";
 
 const O = "https://example.test";
 const H1 = "0123456789abcdef01234567";
 const H2 = "fedcba9876543210fedcba98";
+// the links below were made before links had a term: 30 days from `created`
+const NOW = 1000;
 const shares = [
   {
     id: "Deck01", name: "Sales", visibility: "private",
@@ -26,7 +29,7 @@ const links = [
 ];
 
 test("viewing links, an open presentation and its recordings are rows; other files are not", () => {
-  const rows = publishedRows(shares, links, O);
+  const rows = publishedRows(shares, links, O, NOW);
   assert.deepEqual(rows.map((r) => r.id).sort(), [
     "file:Deck01:recordings/web-" + H1 + ".sliqrec",
     "file:Deck01:recordings/web-" + H2 + ".webm",
@@ -35,13 +38,13 @@ test("viewing links, an open presentation and its recordings are rows; other fil
     "link:Gone01", "link:LinkA", "link:LinkB", "open:Deck02",
   ]);
   const by = new Map(rows.map((r) => [r.id, r]));
-  assert.deepEqual(by.get("link:LinkB"), { id: "link:LinkB", kind: "link", deck: "Deck01", name: "Sales", path: "", created: 400, size: 0, url: O + "/s/LinkB" });
+  assert.deepEqual(by.get("link:LinkB"), { id: "link:LinkB", kind: "link", deck: "Deck01", name: "Sales", path: "", created: 400, size: 0, url: O + "/s/LinkB", via: "LinkB", ends: 400 + 30 * DAY_MS });
   assert.equal(by.get("open:Deck02").url, O + "/s/Deck02");
   assert.equal(by.get("link:Gone01").name, "");
 });
 
 test("a recording is shown through the first viewing link, the open address, or not at all", () => {
-  const by = new Map(publishedRows(shares, links, O).map((r) => [r.id, r]));
+  const by = new Map(publishedRows(shares, links, O, NOW).map((r) => [r.id, r]));
   const page = by.get("file:Deck01:recordings/web-" + H1 + ".sliqrec");
   assert.equal(page.kind, "page");
   assert.equal(page.url, O + "/r/LinkA/" + H1);
@@ -69,22 +72,22 @@ test("removal names what a delete removes, and nothing else", () => {
 });
 
 test("a viewing link removed moves its recordings to the next link, or leaves them unshown", () => {
-  const rows = publishedRows(shares, links, O);
+  const rows = publishedRows(shares, links, O, NOW);
   const page = "file:Deck01:recordings/web-" + H1 + ".sliqrec";
-  const one = afterRemoval(rows, "link:LinkA", O);
+  const one = afterRemoval(rows, "link:LinkA", O, NOW);
   assert.equal(one.find((r) => r.id === page).url, O + "/r/LinkB/" + H1);
-  const none = afterRemoval(one, "link:LinkB", O);
+  const none = afterRemoval(one, "link:LinkB", O, NOW);
   assert.equal(none.find((r) => r.id === page).url, "");
   assert.equal(none.length, rows.length - 2);
   // the open address made private: its recording is no longer shown
-  const closed = afterRemoval(rows, "open:Deck02", O);
+  const closed = afterRemoval(rows, "open:Deck02", O, NOW);
   assert.equal(closed.find((r) => r.id === "file:Deck02:recordings/web-" + H1 + ".sliqrec").url, "");
   // a file removed takes only its row
-  assert.equal(afterRemoval(rows, page, O).length, rows.length - 1);
+  assert.equal(afterRemoval(rows, page, O, NOW).length, rows.length - 1);
 });
 
 test("sorted newest first by default; by size or name, and turned round", () => {
-  const rows = publishedRows(shares, links, O);
+  const rows = publishedRows(shares, links, O, NOW);
   assert.equal(sortPublished(rows)[0].id, "file:Deck02:recordings/web-" + H1 + ".sliqrec");
   assert.equal(sortPublished(rows, "size")[0].kind, "video");
   assert.equal(sortPublished(rows, "name", "asc")[0].name, "");
@@ -105,7 +108,7 @@ test("sizes and short addresses", () => {
 
 test("the window's JSON: its own title, heads and request prefix", () => {
   const t = (s) => s;
-  const data = JSON.parse(publishedListJson(publishedRows(shares, links, O), "size", t, "note"));
+  const data = JSON.parse(publishedListJson(publishedRows(shares, links, O, NOW), "size", t, "note", undefined, NOW));
   assert.equal(data.list, "pub");
   assert.equal(data.head1, "created");
   assert.equal(data.head2, "size");
@@ -114,9 +117,41 @@ test("the window's JSON: its own title, heads and request prefix", () => {
   assert.equal(data.note, "note");
   const first = data.rows[0];
   assert.equal(first.modified, "12.0 MB");
-  assert.equal(first.where, "Cloud video (.webm) · example.test/r/LinkA/fedcba…");
+  assert.equal(first.where, "Cloud video (.webm) · example.test/r/LinkA/fedcba… · " + termText({ ends: 300 + 30 * DAY_MS }, t, NOW));
   assert.equal(first.canDelete, true);
   const unshown = data.rows.find((r) => r.id === "file:Deck03:recordings/web-" + H2 + ".webm");
   assert.equal(unshown.where, "Cloud video (.webm) · not shown: no viewing link");
   assert.equal(data.rows.find((r) => r.id === "link:Gone01").name, "presentation");
+});
+
+test("a link with a term: its recordings shown through their own link, past its term none", () => {
+  const day = DAY_MS;
+  const now = 100 * day;
+  const deck = [{ id: "Deck09", name: "Termed", visibility: "private", files: [
+    { path: "recordings/web-" + H1 + ".sliqrec", size: 5, at: now - 10 },
+    { path: "recordings/web-" + H2 + ".webm", size: 5, at: now - 10 },
+  ] }];
+  const termed = [
+    { id: "Share9", of: "Deck09", created: now - 2 * day, since: now - 2 * day, days: 7, file: "" },
+    { id: "OwnRec", of: "Deck09", created: now - day, since: now - day, days: 1, file: "recordings/web-" + H1 + ".sliqrec" },
+    { id: "OldVid", of: "Deck09", created: now - 9 * day, since: now - 9 * day, days: 1, file: "recordings/web-" + H2 + ".webm" },
+  ];
+  const rows = publishedRows(deck, termed, O, now - 1);
+  const by = new Map(rows.map((r) => [r.id, r]));
+  // a recording's own link is not a row of its own
+  assert.deepEqual(rows.filter((r) => r.kind === "link").map((r) => r.id), ["link:Share9"]);
+  const page = by.get("file:Deck09:recordings/web-" + H1 + ".sliqrec");
+  assert.equal(page.url, O + "/r/OwnRec/" + H1);
+  assert.equal(page.ends, now);
+  // its own link past its term: shown through the presentation's link
+  const video = by.get("file:Deck09:recordings/web-" + H2 + ".webm");
+  assert.equal(video.url, O + "/r/Share9/" + H2);
+  // the presentation's link removed: the recording with a link of its own keeps it
+  const left = afterRemoval(rows, "link:Share9", O, now - 1);
+  assert.equal(left.find((r) => r.id === page.id).url, page.url);
+  assert.equal(left.find((r) => r.id === video.id).url, "");
+  const t = (s) => s;
+  assert.equal(termText({ ends: now }, t, now + 1), "Expired");
+  assert.match(termText({ ends: now }, t, now - 1), /^Works until \d+\.\d+\.1970$/);
+  assert.equal(termText({ ends: 0 }, t, now), "");
 });

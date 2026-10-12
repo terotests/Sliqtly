@@ -4,12 +4,13 @@
 // deck they work in (the editor's Files place, beside Rooms). The first
 // kind is an exported Figma design (.fig), and it is why they are kept the
 // way they are: a design file can be hundreds of megabytes, and a slide
-// that shows its login screen must not have to open it.
+// that shows its login screen must not have to open it. The second is a
+// PowerPoint deck (.pptx), kept the same way (pptxfiles.go).
 //
 // So a .fig is read ONCE, when it is put here, with DesignViewer (the
 // package figdv, rgr/FigGo.rgr), and what is kept beside it is
 //
-//	shared/{id}/source.fig          the file as it came
+//	shared/{id}/source.fig          the file as it came (source.pptx)
 //	shared/{id}/index.json          pages, screens, their words, parts and
 //	                                metadata (DesignViewer's FigIndex)
 //	shared/{id}/cut/{node}.evg.json one screen as an EVG document
@@ -31,6 +32,7 @@
 //	POST   /api/shared/{id}/rename {name}
 //	DELETE /api/shared/{id}
 //	GET    /files/shared/{id}/index.json
+//	GET    /files/shared/{id}/source           the file itself
 //	GET    /files/shared/{id}/png/{node}.png[?scale=1|2|3][&max=px]
 //	GET    /files/shared/{id}/export/{name}.fig   as export_figma left it
 //
@@ -162,10 +164,35 @@ func sharedNodeFile(node string) string { return url.PathEscape(node) }
 
 var sharedIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 
+// the kinds of shared file, by the name's extension: "figma" (.fig) or
+// "pptx" (.pptx); "" for any other
+func sharedKindOf(name string) string {
+	switch strings.ToLower(pathExt(name)) {
+	case ".fig":
+		return "figma"
+	case ".pptx":
+		return "pptx"
+	}
+	return ""
+}
+
+// what a shared file of each kind is kept as beside its index
+func sharedSourceName(kind string) string {
+	if kind == "pptx" {
+		return "source.pptx"
+	}
+	return "source.fig"
+}
+
+// what the page and the tools say when a file is not one of the kinds
+const sharedKindsMsg = "only Figma files (.fig) and PowerPoint decks (.pptx) can be shared"
+
 // a file id from its name: lower-case letters and digits, the rest a dash,
 // without the extension; "file" when nothing is left
 func sharedSlug(name string) string {
-	name = strings.TrimSuffix(name, ".fig")
+	if sharedKindOf(name) != "" {
+		name = name[:len(name)-len(pathExt(name))]
+	}
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(name) {
@@ -273,11 +300,16 @@ func (s *sharedFiles) put(ctx context.Context, name, id string, body io.Reader) 
 // with them; the file is then queued to be read
 func (s *sharedFiles) place(ctx context.Context, name, id string, keep func(src string) (size int64, sum string, err error)) (sharedFile, error) {
 	name = sharedName(name)
-	if !strings.EqualFold(pathExt(name), ".fig") {
-		return sharedFile{}, sharedErr{400, "only Figma files (.fig) can be shared yet"}
+	kind := sharedKindOf(name)
+	if kind == "" {
+		return sharedFile{}, sharedErr{400, sharedKindsMsg}
 	}
 	if id == "" {
 		id = sharedSlug(name)
+		// deck.pptx beside deck.fig is a file of its own
+		if old, err := s.card(ctx, id); err == nil && old.Kind != kind && kind == "pptx" {
+			id = strings.TrimSuffix(id[:min(len(id), 43)], "-") + "-pptx"
+		}
 	}
 	if !sharedIDPattern.MatchString(id) {
 		return sharedFile{}, sharedErr{400, "bad file id"}
@@ -294,7 +326,8 @@ func (s *sharedFiles) place(ctx context.Context, name, id string, keep func(src 
 func (s *sharedFiles) keep(ctx context.Context, name, id string, keep func(src string) (int64, string, error)) (sharedFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	src := sharedDir(id) + "/source.fig"
+	kind := sharedKindOf(name)
+	src := sharedDir(id) + "/" + sharedSourceName(kind)
 	size, sum, err := keep(src)
 	if err != nil {
 		return sharedFile{}, err
@@ -308,9 +341,13 @@ func (s *sharedFiles) keep(ctx context.Context, name, id string, keep func(src s
 		return sharedFile{}, sharedErr{400, "the file is empty"}
 	}
 	old, oldErr := s.card(ctx, id)
-	f := sharedFile{ID: id, Name: name, Kind: "figma", Bytes: size, Sha: sum, Status: "indexing", Added: time.Now().UnixMilli()}
+	f := sharedFile{ID: id, Name: name, Kind: kind, Bytes: size, Sha: sum, Status: "indexing", Added: time.Now().UnixMilli()}
 	if oldErr == nil {
 		f.Added = old.Added
+		// a file put over one of the other kind leaves no old source behind
+		if old.Kind != kind {
+			s.files.Remove(sharedDir(id) + "/" + sharedSourceName(old.Kind))
+		}
 	}
 	if err := s.putCard(ctx, f); err != nil {
 		return sharedFile{}, err
@@ -392,7 +429,12 @@ func (s *sharedFiles) read(ctx context.Context, id string) {
 		}
 		return
 	}
-	n, err := s.cutFile(ctx, id, f.Name, data)
+	var n sharedCounts
+	if f.Kind == "pptx" {
+		n, err = s.cutPptx(ctx, id, data)
+	} else {
+		n, err = s.cutFile(ctx, id, f.Name, data)
+	}
 	data = nil
 	debug.FreeOSMemory()
 	if err != nil {
@@ -413,6 +455,11 @@ func (s *sharedFiles) read(ctx context.Context, id string) {
 }
 
 type sharedCounts struct{ pages, screens int }
+
+// where file f's own bytes are kept
+func (s *sharedFiles) sourcePath(f sharedFile) string {
+	return sharedDir(f.ID) + "/" + sharedSourceName(f.Kind)
+}
 
 // cutFile opens a design file and keeps its index, cuts and pictures in
 // place of the old ones
@@ -619,6 +666,14 @@ func (s *sharedFiles) draw(ctx context.Context, id, node string, scale float64, 
 	if b, err := s.files.Read(ctx, kept, 64<<20); err == nil {
 		return b, nil
 	}
+	if f.Kind == "pptx" {
+		b, err := s.drawPptx(ctx, f, node, scale, maxSide)
+		if err != nil {
+			return nil, err
+		}
+		s.files.Save(ctx, kept, "image/png", b, nil)
+		return b, nil
+	}
 	cut, err := s.cutOf(ctx, f, node)
 	if err != nil {
 		return nil, err
@@ -720,6 +775,47 @@ func sharedFail(err error) error {
 var sharedExportPath = regexp.MustCompile(`^/files/shared/[a-z0-9-]{1,48}/export/[^/]+$`)
 
 var sharedPngPath = regexp.MustCompile(`^/files/shared/([a-z0-9-]{1,48})/png/(.+)\.png$`)
+
+var sharedSourcePath = regexp.MustCompile(`^/files/shared/([a-z0-9-]{1,48})/source$`)
+
+// GET /files/shared/{id}/source: the file itself, as it is now (a deck
+// edited in place, its edits and all)
+func (s *localServer) sharedSource(w http.ResponseWriter, r *http.Request) {
+	sh := s.env.shared
+	m := sharedSourcePath.FindStringSubmatch(r.URL.Path)
+	if sh == nil || m == nil {
+		http.NotFound(w, r)
+		return
+	}
+	f, b, err := sh.source(r.Context(), m[1])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	sharedSendSource(w, f, b)
+}
+
+// a shared file's bytes as a download under its name
+func sharedSendSource(w http.ResponseWriter, f sharedFile, b []byte) {
+	t := "application/octet-stream"
+	if f.Kind == "pptx" {
+		t = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	}
+	w.Header().Set("Content-Type", t)
+	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(f.Name))
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(b)
+}
+
+// the card and the bytes of shared file id
+func (s *sharedFiles) source(ctx context.Context, id string) (sharedFile, []byte, error) {
+	f, err := s.card(ctx, id)
+	if err != nil {
+		return f, nil, err
+	}
+	b, err := s.sourceOf(ctx, f)
+	return f, b, err
+}
 
 // GET /files/shared/{id}/png/{node}.png: a screen or a part, drawn
 func (s *localServer) sharedPicture(w http.ResponseWriter, r *http.Request) {

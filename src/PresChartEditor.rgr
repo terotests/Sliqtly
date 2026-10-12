@@ -243,6 +243,13 @@ class PresChartEditor {
     def cfAlt:string ""
     ; a question that deletes nothing (a paste): its button is not red
     def cfSafe:boolean false
+    ; Choices to make before going on (PresApp.openPick: how long a link
+    ; works, which version): `cfPicks` one "key=label" line per chip, a row
+    ; of chips per group (groups apart by an empty line, a line without "="
+    ; their heading), `cfPick` the key chosen in each group, "," between,
+    ; which the page reads when it hears "confirm:<key>"
+    def cfPicks:string ""
+    def cfPick:string ""
     def wantsAlt:boolean false
     ; A long job's window (`mode` "progress": a video being made): `pgKey`
     ; names the job to the page, `pgText` says what it is, the bar shows
@@ -578,6 +585,8 @@ class PresChartEditor {
         cfOk = ok
         cfAlt = ""
         cfSafe = false
+        cfPicks = ""
+        cfPick = ""
         wantsConfirm = false
         wantsAlt = false
         this.openAt(px py pw ph)
@@ -2276,6 +2285,10 @@ class PresChartEditor {
         this.offButton("fg-add" (PresI18n.t("Add to slide")) "primary" (picked == false) bottom)
         this.offButton("fg-slide" (PresI18n.t("New slide")) "outline" (picked == false) bottom)
         this.offButton("fg-copy" (PresI18n.t("Copy Markdown")) "outline" (picked == false) bottom)
+        ; a PowerPoint deck an assistant may have changed in place
+        if ((fg.scheme()) == "pptx") {
+            this.button("fg-download" (PresI18n.t("Download")) "outline" bottom)
+        }
         bottom.addChild((UiKit.div("ce-grow")))
         this.button("fg-del" (? fgArmed (PresI18n.t("Delete file?")) (PresI18n.t("Delete file"))) (? fgArmed "primary" "outline") bottom)
         this.button("fg-close" (PresI18n.t("Close")) "outline" bottom)
@@ -2321,6 +2334,10 @@ class PresChartEditor {
             if ((strlen (fg.layer())) > 0) {
                 fgAct = (substring tid 3 (strlen tid))
             }
+            return true
+        }
+        if (tid == "fg-download") {
+            fgAct = "download"
             return true
         }
         if (tid == "fg-del") {
@@ -2845,6 +2862,31 @@ class PresChartEditor {
             return
         }
         pane.addChild((this.copyable("ce-t-confirm" "ce-doc" cfText)))
+        if ((strlen cfPicks) > 0) {
+            def nl:string (strfromcode 10)
+            def chosen:[string] (strsplit cfPick ",")
+            def g:int 0
+            for (strsplit cfPicks (nl + nl)) group:string gi {
+                def pick:string ""
+                if (g < (array_length chosen)) {
+                    pick = (itemAt chosen g)
+                }
+                def pc:EVGElement (UiKit.div("ce-chips"))
+                for (strsplit group nl) line:string li {
+                    def at:int (indexOf line "=")
+                    if (at > 0) {
+                        def k:string (substring line 0 at)
+                        this.chip(("cf-pick-" + (to_string g) + "-" + k) (substring line (at + 1) (strlen line)) (k == pick) pc)
+                    } {
+                        if ((strlen line) > 0) {
+                            pane.addChild((UiKit.words("ce-flabel" line)))
+                        }
+                    }
+                }
+                pane.addChild(pc)
+                g = (g + 1)
+            }
+        }
         root.addChild(pane)
         def bottom:EVGElement (UiKit.div("ce-foot"))
         this.button("cf-cancel" (PresI18n.t("Cancel")) "outline" bottom)
@@ -2873,6 +2915,31 @@ class PresChartEditor {
         if (tid == "cf-alt") {
             wantsAlt = true
             wantsClose = true
+            return true
+        }
+        if ((indexOf tid "cf-pick-") == 0) {
+            ; "cf-pick-<group>-<key>": that group's choice
+            def rest:string (substring tid 8 (strlen tid))
+            def dash:int (indexOf rest "-")
+            if (dash > 0) {
+                def g:int (?? (to_int (substring rest 0 dash)) 0)
+                def chosen:[string] (strsplit cfPick ",")
+                def out:[string]
+                def i:int 0
+                while ((i < (array_length chosen)) || (i <= g)) {
+                    def v:string ""
+                    if (i < (array_length chosen)) {
+                        v = (itemAt chosen i)
+                    }
+                    if (i == g) {
+                        v = (substring rest (dash + 1) (strlen rest))
+                    }
+                    push out v
+                    i = (i + 1)
+                }
+                cfPick = (join out ",")
+                this.rebuild()
+            }
             return true
         }
         return false

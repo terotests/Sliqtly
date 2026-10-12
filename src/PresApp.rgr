@@ -11631,6 +11631,9 @@ class PresApp {
         if (act == "delete") {
             push requests ("shared:delete:" + b.fileId)
         }
+        if (act == "download") {
+            push requests ("shared:download:" + b.fileId)
+        }
     }
 
     ; Slide → Theme…: the themes as tiles, each a picture of a sample slide
@@ -12100,6 +12103,27 @@ class PresApp {
         chart.cfAlt = alt
         chart.rebuild()
         return true
+    }
+
+    ; The same window with choices to make first: `picks` one "key=label"
+    ; line per chip, groups of them apart by an empty line (a line without
+    ; "=" heads its group), `chosen` the keys picked at the start, one per
+    ; group, "," between. `ok` goes on ("confirm:<key>"; picked() says
+    ; which, as `chosen`), Cancel only closes.
+    fn openPick:boolean (key:string title:string words:string ok:string picks:string chosen:string) {
+        if ((this.openConfirm(key title words ok)) == false) {
+            return false
+        }
+        chart.cfSafe = true
+        chart.cfPicks = picks
+        chart.cfPick = chosen
+        chart.rebuild()
+        return true
+    }
+
+    ; the keys of the chips picked in openPick's window, "," between
+    fn picked:string () {
+        return chart.cfPick
     }
 
     ; A long job's window (a video being made): `words` say what it is, the

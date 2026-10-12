@@ -13,34 +13,48 @@
 //          visibility(), as shares were before viewing links)
 //   page   its Cloud HTML, the light player at /r/{shown}/{hash}
 //   video  its Cloud video, at the same kind of address
-// A recording is shown through the presentation's viewing link (or its own
-// address when that is open, mcp-go/rgr/View.rgr recording); without either
-// nobody reaches it, yet it is still kept in the cloud.
+// A recording is shown through a link of its own (Export makes one, `file`
+// on links/, working the days asked: web/linkdays.js), else through the
+// presentation's viewing link (recordings published before links had a
+// term), or its own address when that is open (mcp-go/rgr/View.rgr
+// recording); without any nobody reaches it, yet it is still kept in the
+// cloud. A link past its term shows nothing: its row says so.
 
 import { playUrl } from "./playlink.js";
 import { whenText } from "./decklist.js";
+import { linkEnds } from "./linkdays.js";
 
 const REC = /^recordings\/web-([0-9a-f]{24})\.(sliqrec|webm)$/;
 
 // shares: [{ id, name, visibility, files: [{ path, size, at }] }] (at: when
 //   the file went up, ms, 0 when not known)
-// links: [{ id, of, created }] (created in ms)
-// → [{ id, kind, deck, name, path, created, size, url }]
+// links: [{ id, of, created, since, days, file }] (times in ms; file "" for
+//   a presentation's own link)
+// → [{ id, kind, deck, name, path, created, size, url, via, ends }]
 // id names what a delete removes: "link:<linkId>", "open:<shareId>" or
-// "file:<shareId>:<path>". url is "" for a recording nobody reaches.
-export function publishedRows(shares, links, origin) {
+// "file:<shareId>:<path>". url is "" for a recording nobody reaches; via
+// the link it is shown through ("" for none, or the open address); ends
+// when that link stops working (ms, 0: it does not).
+export function publishedRows(shares, links, origin, now = Date.now()) {
   const decks = new Map((shares || []).map((s) => [s.id, s]));
-  // the presentation's viewing link its recordings are shown through: the
-  // first one made (Share makes one and reuses it)
+  const works = (l) => linkEnds(l) > now;
+  const byAge = (links || []).slice().sort((a, b) => (a.created || 0) - (b.created || 0));
+  // the presentation's viewing link the older recordings are shown through:
+  // the first one made that still works (Share makes one and reuses it)
   const shownBy = new Map();
-  for (const l of (links || []).slice().sort((a, b) => (a.created || 0) - (b.created || 0))) {
-    if (!shownBy.has(l.of)) shownBy.set(l.of, l.id);
+  // a recording's own link: the newest that still works
+  const ownLink = new Map();
+  for (const l of byAge) {
+    if (!works(l)) continue;
+    if (l.file) ownLink.set(l.of + ":" + l.file, l);
+    else if (!shownBy.has(l.of)) shownBy.set(l.of, l);
   }
   const rows = [];
   for (const l of links || []) {
+    if (l.file) continue;
     rows.push({
       id: "link:" + l.id, kind: "link", deck: l.of, name: decks.get(l.of)?.name || "",
-      path: "", created: l.created || 0, size: 0, url: origin + "/s/" + l.id,
+      path: "", created: l.created || 0, size: 0, url: origin + "/s/" + l.id, via: l.id, ends: linkEnds(l),
     });
   }
   for (const s of shares || []) {
@@ -48,17 +62,18 @@ export function publishedRows(shares, links, origin) {
     if (open) {
       rows.push({
         id: "open:" + s.id, kind: "open", deck: s.id, name: s.name || "",
-        path: "", created: 0, size: 0, url: origin + "/s/" + s.id,
+        path: "", created: 0, size: 0, url: origin + "/s/" + s.id, via: "", ends: 0,
       });
     }
-    const shown = shownBy.get(s.id) || (open ? s.id : "");
     for (const f of s.files || []) {
       const m = REC.exec(f.path || "");
       if (!m) continue;
+      const own = ownLink.get(s.id + ":" + f.path) || shownBy.get(s.id) || null;
+      const shown = own ? own.id : open ? s.id : "";
       rows.push({
         id: "file:" + s.id + ":" + f.path, kind: m[2] === "webm" ? "video" : "page", deck: s.id,
         name: s.name || "", path: f.path, created: f.at || 0, size: f.size || 0,
-        url: shown ? playUrl(origin, shown, m[1]) : "",
+        url: shown ? playUrl(origin, shown, m[1]) : "", via: own ? own.id : "", ends: own ? linkEnds(own) : 0,
       });
     }
   }
@@ -80,23 +95,35 @@ export function removal(id) {
 }
 
 // The rows a removal leaves: a viewing link gone takes the address of the
-// recordings shown through it (another link of the presentation, or its
-// own address when open, still shows them).
-export function afterRemoval(rows, id, origin) {
+// recordings shown through it (another working link of the presentation,
+// or its own address when open, still shows them); a recording's own link
+// is not the presentation's, so those keep theirs.
+export function afterRemoval(rows, id, origin, now = Date.now()) {
   const r = removal(id);
   const left = rows.filter((x) => x.id !== id);
   if (!r || r.what === "file") return left;
   const gone = rows.find((x) => x.id === id);
   if (!gone) return left;
   const deck = gone.deck;
-  const other = left.filter((x) => x.deck === deck && x.kind === "link").sort((a, b) => a.created - b.created)[0];
+  const other = left.filter((x) => x.deck === deck && x.kind === "link" && !(x.ends > 0 && x.ends <= now)).sort((a, b) => a.created - b.created)[0];
   const open = left.some((x) => x.deck === deck && x.kind === "open");
-  const shown = other ? other.id.slice(5) : open ? deck : "";
   return left.map((x) => {
     if (x.deck !== deck || (x.kind !== "page" && x.kind !== "video")) return x;
+    // shown through a link that stays: as it was
+    if (x.via && x.via !== gone.via) return x;
     const hash = REC.exec(x.path)[1];
-    return { ...x, url: shown ? playUrl(origin, shown, hash) : "" };
+    if (other) return { ...x, url: playUrl(origin, other.via, hash), via: other.via, ends: other.ends };
+    return { ...x, url: open ? playUrl(origin, deck, hash) : "", via: "", ends: 0 };
   });
+}
+
+// "Works until 14.10.2026" or "Expired" for a row shown through a link with
+// a term; "" for one without. t translates.
+export function termText(row, t, now = Date.now()) {
+  if (!row.ends) return "";
+  if (row.ends <= now) return t("Expired");
+  const d = new Date(row.ends);
+  return t("Works until {date}").replace("{date}", `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`);
 }
 
 export const SORTS = ["created", "name", "size"];
@@ -146,7 +173,7 @@ const KIND = { link: "Viewing link", open: "Open to anyone with its address", pa
 // decksDialog): the deck list's fields, with the window's own title, column
 // heads, request prefix and empty text. A row's "where" is its kind and
 // address; "added" when it was published, "modified" its size. t translates.
-export function publishedListJson(rows, by, t, note = "", dir) {
+export function publishedListJson(rows, by, t, note = "", dir, now = Date.now()) {
   const key = SORTS.includes(by) ? by : "created";
   const way = dir === "asc" || dir === "desc" ? dir : firstDir(key);
   return JSON.stringify({
@@ -162,7 +189,7 @@ export function publishedListJson(rows, by, t, note = "", dir) {
     rows: sortPublished(rows, key, way).map((r) => ({
       id: r.id,
       name: r.name || t("presentation"),
-      where: t(KIND[r.kind]) + " · " + (r.url ? shortUrl(r.url) : t("not shown: no viewing link")),
+      where: [t(KIND[r.kind]), r.url ? shortUrl(r.url) : t("not shown: no viewing link"), r.url ? termText(r, t, now) : ""].filter(Boolean).join(" · "),
       added: whenText(r.created),
       modified: sizeText(r.size),
       canDelete: true,

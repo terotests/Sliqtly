@@ -2293,6 +2293,7 @@ class PresCheck {
         this.themeArt()
         this.themeGallery()
         this.figmaFiles()
+        this.pptxFiles()
     }
 
     ; The theme picker's tiles from the page's select rows, their groups and
@@ -2307,6 +2308,44 @@ class PresCheck {
         j = (j + "{\"id\":\"3:1\",\"page\":\"0:1\",\"name\":\"Settings\",\"type\":\"FRAME\",\"x\":1000,\"y\":0,\"w\":390,\"h\":844,\"text\":\"Log out Notifications Dark mode\",\"parts\":[]},")
         j = (j + "{\"id\":\"4:1\",\"page\":\"0:2\",\"name\":\"Login\",\"type\":\"FRAME\",\"x\":0,\"y\":0,\"w\":1440,\"h\":900,\"text\":\"Sign in to the web app\",\"parts\":[],\"notes\":[\"Copy is final\"]}]}")
         return j
+    }
+
+    ; A shared PowerPoint deck's index (mcp-go/rgr/PptxGo.rgr): a slide is a
+    ; screen by its number, a shape a part "<slide>:<path>".
+    sfn pptxIndexJson:string () {
+        def j:string "{\"kind\":\"pptx\",\"meta\":{\"background\":\"\"},\"pages\":[{\"id\":\"slides\",\"name\":\"Slides\",\"screens\":2}],\"screens\":["
+        j = (j + "{\"id\":\"1\",\"page\":\"slides\",\"name\":\"Quarterly review\",\"type\":\"SLIDE\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"text\":\"# Quarterly review\\n\\nRevenue grew\",\"parts\":[{\"id\":\"1:2\",\"name\":\"Logo\",\"type\":\"picture\",\"x\":10,\"y\":10,\"w\":100,\"h\":50}],\"notes\":[]},")
+        j = (j + "{\"id\":\"2\",\"page\":\"slides\",\"name\":\"Slide 2\",\"type\":\"SLIDE\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"text\":\"Thanks\",\"parts\":[],\"notes\":[\"Say goodbye\"]}]}")
+        return j
+    }
+
+    fn pptxFiles:void () {
+        def r:FigmaRef (FigmaRef.parse("pptx:q3-review/3"))
+        this.ok((r.ok && (r.scheme == "pptx") && (r.file == "q3-review") && (r.node == "3")) "pptx: file and slide")
+        this.ok(((FigmaRef.parse("PPTX://q3/2:1")).node == "2:1") "pptx:// and a shape")
+        this.ok(((FigmaRef.parse("pptx:q3")).ok == false) "a deck with no slide is refused")
+        this.ok(((FigmaRef.pictureKey("pptx:q3/3")) == "/pptx:q3/3") ("the picture's path in the store: " + (FigmaRef.pictureKey("pptx:q3/3"))))
+        def used:[string] (FigmaRef.inText("![a](pptx:q3/2)\n![b](figma:app/1:2)\n![c](pptx:q3/1:2) notpptx:x/y"))
+        this.ok((((array_length used) == 3) && ((itemAt used 0) == "pptx:q3/2") && ((itemAt used 1) == "figma:app/1:2") && ((itemAt used 2) == "pptx:q3/1:2")) ("both kinds, in order: " + (join used " | ")))
+        this.ok(((FigmaRef.markdownIn("pptx" "q3" "2" "Thanks")) == "![Thanks](pptx:q3/2)") "markdown of a slide")
+        def f:FigmaFile (FigmaFile.fromIndex("q3" (PresCheck.pptxIndexJson())))
+        this.ok(((f.kind == "pptx") && ((f.scheme()) == "pptx") && ((array_length f.screens) == 2)) ("a deck's index reads as a file: " + f.err))
+        def lib (new FigmaLibrary())
+        lib.add(f)
+        def t:FigmaTarget (lib.resolve("pptx:q3/2"))
+        this.ok((t.ok && (t.node == "2") && (t.isPart == false)) ("a slide by its number: " + t.err))
+        def tp:FigmaTarget (lib.resolve("pptx:q3/1:2"))
+        this.ok((tp.ok && tp.isPart && (tp.screen == "1") && (tp.name == "Logo")) "a shape on a slide")
+        def tn:FigmaTarget (lib.resolve("pptx:q3/quarterly review"))
+        this.ok((tn.ok && (tn.node == "1")) "a slide by its title")
+        def hs:[FigmaHit] (lib.search("revenue" "" 5))
+        this.ok((((array_length hs) == 1) && (((itemAt hs 0).markdown()) == "![Quarterly review](pptx:q3/1)")) "a hit on a slide is a pptx: picture")
+        def hn:[FigmaHit] (lib.search("goodbye" "" 5))
+        this.ok((((array_length hn) == 1) && ((itemAt hn 0).screen.id == "2")) "speaker notes are searched")
+        def b (new FigmaBrowser())
+        b.open("q3" "Q3.pptx" "ready" "" (PresCheck.pptxIndexJson()))
+        b.pick("2" "")
+        this.ok(((b.address()) == "pptx:q3/2") ("the window's pick: " + (b.address())))
     }
 
     fn figmaFiles:void () {
@@ -7406,6 +7445,50 @@ class PresCheck {
         this.ok(((((xi.get("nodes")).at(0)).strOr("kind" "x")) == "") "scenes: its own nodes have no kind")
     }
 
+    ; A point chart in the flight (Tero 2026-10-12): its points balls, not
+    ; bars a few pixels tall; its grid thin lines, not tubes as thick as the
+    ; data's; the y title on its side left of the y labels, where the slide
+    ; turns it; and on the slide points as large as the labels' type.
+    fn flightPoints:void () {
+        def text:string "## Hinta ja määrä\n\n```vega-lite\n{\"data\": {\"values\": [{\"x\": 10, \"y\": 120}, {\"x\": 15, \"y\": 100}, {\"x\": 20, \"y\": 90}, {\"x\": 25, \"y\": 60}, {\"x\": 30, \"y\": 52}, {\"x\": 35, \"y\": 40}]}, \"mark\": {\"type\": \"point\", \"filled\": true}, \"encoding\": {\"x\": {\"field\": \"x\", \"type\": \"quantitative\", \"title\": \"Hinta\", \"axis\": {\"grid\": false}}, \"y\": {\"field\": \"y\", \"type\": \"quantitative\", \"title\": \"Myyty\", \"axis\": {\"grid\": true}}}}\n```\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        def sc:PresFlightScene (PresFlightScene.of(deck))
+        def dots:int 0
+        def bars:int 0
+        def thick:int 0
+        def dotW:double 0.0
+        def titleX:double 0.0
+        def labelX:double 99.0
+        for sc.items it:FlightItem n {
+            if (it.kind == "dot") {
+                dots = (dots + 1)
+                dotW = it.w
+            }
+            if (it.kind == "bar") {
+                bars = (bars + 1)
+            }
+            if (((it.kind == "line") && (it.pulse == false)) && (it.rad > 0.02)) {
+                thick = (thick + 1)
+            }
+            if ((it.kind == "text") && (it.rot != 0.0)) {
+                titleX = it.x
+            }
+            if (((it.kind == "text") && (it.rot == 0.0)) && ((it.text == "40") || (it.text == "80"))) {
+                if (it.x < labelX) {
+                    labelX = it.x
+                }
+            }
+        }
+        this.ok(((dots == 6) && (bars == 0)) ("flight: a point chart's points are balls, got " + (to_string dots) + " balls and " + (to_string bars) + " bars"))
+        this.ok((dotW > 0.1) ("flight: …large enough to see, got " + (to_string dotW)))
+        this.ok((thick == 0) ("flight: a chart's grid and frame are thin lines, got " + (to_string thick) + " thick"))
+        this.ok((titleX < (labelX - 0.3)) ("flight: the y title stands left of the y labels, got " + (to_string titleX) + " and " + (to_string labelX)))
+        def cfg:string (deck.chartDefaults("chart" true))
+        this.ok(((indexOf cfg "\"point\": {\"size\": 113}") > 0) ("a slide's points are as large as its 15 pt labels: " + cfg))
+    }
+
     ; The 3-D flight (src/PresFlight.rgr, PresFlightCam.rgr): a station per
     ; slide, each drawn again as a hologram where the slide has its things
     ; (words of light, glass panes, bars, pink rings, glowing lines); the
@@ -7499,6 +7582,7 @@ class PresCheck {
             this.ok(((w0.r0 > (w0.r1 * 0.5)) && (w0.r0 < w0.r1)) "flight: a pie is a ring")
         }
         this.ok((turning == 2) "flight: two thin rings turn round the pie")
+        this.flightPoints()
         ; code with marked lines: a band of light behind them, the other
         ; lines dimmer
         def cdeck (new PresDeck())

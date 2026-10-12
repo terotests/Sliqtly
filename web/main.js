@@ -33,7 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { sharedPngUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
+import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
@@ -54,6 +54,7 @@ import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
 import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
 import { playUrl } from "./playlink.js";
+import { MAX_DAYS, DEFAULT_DAYS, CHOICES, linkDays, choiceLines, untilText } from "./linkdays.js";
 import { createApps } from "./apps.js";
 import { createThree3d } from "./three3d.js";
 import { createFlight3d } from "./flight3d.js";
@@ -525,7 +526,7 @@ async function sharedRequest(r) {
   if (r === "add") {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".fig";
+    input.accept = ".fig,.pptx";
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
@@ -550,6 +551,16 @@ async function sharedRequest(r) {
     let f = sharedFilesList.find((x) => x.id === id);
     if (!f) { await sharedRefresh(); f = sharedFilesList.find((x) => x.id === id); }
     if (f) await sharedShow(f, true);
+    return;
+  }
+  if (r.startsWith("download:")) {
+    // the file as it is now: a deck an assistant changed in place
+    const f = sharedFilesList.find((x) => x.id === r.slice(9));
+    try {
+      const res = await fetch(sharedSourceUrl(r.slice(9)));
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`);
+      deliver(await res.arrayBuffer(), f?.name || "deck.pptx", res.headers.get("Content-Type") || "application/octet-stream");
+    } catch (e) { toast(t("Could not download the file") + ": " + e.message); }
     return;
   }
   if (r.startsWith("delete:")) {
@@ -5135,6 +5146,8 @@ function handleRequests() {
       keepReview().catch(fail);
     } else if (r === "progress-cancel:" + VIDEO_KEY) {
       if (videoJob) videoJob.cancel();
+    } else if (r === "confirm:linkdays") {
+      answerLinkDays();
     } else if (r === "confirm:zip") {
       exportZip(true).catch(fail);
     } else if (r === "confirm:zip:alt") {
@@ -5854,6 +5867,7 @@ async function removePublished(id) {
       }
       await p.removeShareFile(r.deck, r.path);
     }
+    if (r.what === "file") await p.removeFileLinks?.(r.deck, r.path);
   } catch (e) {
     toast(t("Not removed: ") + (e?.code || e?.message || e));
     return;
@@ -5887,6 +5901,44 @@ async function recordForWeb(fps = 30) {
   }
   const cmds = enc.cmds;
   return enc.finish({ faces: recordedFaces(cmds), pictures: await recordedPictures(cmds), deckEffects: app.deckEffectsJson() });
+}
+// The 3-D flight through the slides for the light player (web/play.js):
+// the world as PresFlight makes it, the slides' 3-D worlds as their
+// programs last drew them, and the pictures its screens and presenters
+// show as WebP (long side at most FLIGHT_PIC px, as the flight asks).
+const FLIGHT_PIC = 768;
+async function recordFlight() {
+  const json = app.flightJson();
+  const srcs = new Set();
+  const sprites = new Map();
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") {
+      if (v.k === "picture" && v.src) srcs.add(v.src);
+      if (v.k === "sprite" && v.src && v.box) sprites.set(v.src, JSON.stringify({ src: v.src, box: v.box }));
+      Object.values(v).forEach(walk);
+    }
+  };
+  walk(JSON.parse(json));
+  const webp = async (img) => {
+    if (!img) return null;
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext("2d").putImageData(img, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, "image/webp", 0.85));
+    return blob ? { type: blob.type, b64: base64(new Uint8Array(await blob.arrayBuffer())) } : null;
+  };
+  const pics = [];
+  for (const src of srcs) {
+    const got = await webp(picturePixels(src, FLIGHT_PIC));
+    if (got) pics.push({ src, ...got });
+  }
+  for (const [src, spec] of sprites) {
+    const got = await webp(spritePixels(spec, FLIGHT_PIC));
+    if (got) pics.push({ src, ...got });
+  }
+  return { json, scenes: app.allPlayScenesJson(), pictures: pics };
 }
 // The faces the recorded text is set in: [[name, file]] (text in no named
 // face is set in the first, Open Sans).
@@ -5932,33 +5984,39 @@ function noCloudHere() {
   toast(t("This server does not publish to the cloud. Export a web page, a player or a video to a file instead."));
   return true;
 }
-async function exportRecWeb() {
+// `days`: how long its link works, `look` "3d" with the 3-D flight
+// through the slides (both asked first when not given)
+async function exportRecWeb(days, look = "2d") {
   if (noCloudHere()) return;
   const p = window.sliqtly;
   if (!p?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
+  if (!days) return askLinkDays(t("Export as Cloud HTML"), exportRecWeb, true);
   if (!(await cloudTakesDeck())) return;
-  const bytes = await packStream(await recordForWeb());
+  const stream = await recordForWeb();
+  if (look === "3d") stream.flight = await recordFlight();
+  const bytes = await packStream(stream);
   await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
-    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."));
+    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
 }
 // Export ▸ Cloud video: the presentation as a video (makeVideo) at the same
 // kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
 // browser's own player plays it.
-async function exportCloudVideo() {
+async function exportCloudVideo(days) {
   if (noCloudHere()) return;
   if (!window.sliqtly?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
+  if (!days) return askLinkDays(t("Export as Cloud video"), exportCloudVideo);
   if (!(await cloudTakesDeck())) return;
   const bytes = await makeVideo(true);
   if (!bytes) return;
   try {
     await publishForWeb(bytes, ".webm", "video/webm",
-      t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)");
+      t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)", days);
   } finally {
     app.closeProgress(VIDEO_KEY);
   }
@@ -5976,16 +6034,71 @@ async function cloudTakesDeck() {
     return false;
   }
 }
+// How long a link works (web/linkdays.js), asked in the app's window before
+// Share and the cloud exports make one: `go(days, look)` runs on the
+// answer, Cancel drops it. With `looks` (Cloud HTML) the window also asks
+// which version: "2d" the slides, "3d" the 3-D flight through them. The
+// last answers are picked first next time.
+const LINK_DAYS_KEY = "sliqtly.linkDays";
+const LOOK_KEY = "sliqtly.publishLook";
+let linkAsk = null;
+function lastLinkDays() {
+  let d = DEFAULT_DAYS;
+  try { d = linkDays(localStorage.getItem(LINK_DAYS_KEY) || DEFAULT_DAYS); } catch (_) { /* the default */ }
+  return CHOICES.includes(d) ? d : DEFAULT_DAYS;
+}
+function lastLook() {
+  try { return localStorage.getItem(LOOK_KEY) === "3d" ? "3d" : "2d"; } catch (_) { return "2d"; }
+}
+function askLinkDays(title, go, looks = false) {
+  const most = String(MAX_DAYS);
+  linkAsk = { go, looks };
+  const asked = looks
+    ? app.openPick("linkdays", title, t("Pick the version, and how long the link works. After that it shows nothing. At most {n} days.").replace("{n}", most), t("Create link"),
+      t("Version") + "\n2d=" + t("Slides (2-D)") + "\n3d=" + t("3-D flight") + "\n\n" + t("The link works") + "\n" + choiceLines(t),
+      lastLook() + "," + lastLinkDays())
+    : app.openPick("linkdays", title, t("How long should the link work? After that it shows nothing. At most {n} days.").replace("{n}", most), t("Create link"),
+      choiceLines(t), String(lastLinkDays()));
+  if (asked) {
+    needsPaint = true;
+    return;
+  }
+  // no window now (presenting): the last answers
+  linkAsk = null;
+  return go(lastLinkDays(), looks ? lastLook() : "2d");
+}
+function answerLinkDays() {
+  const ask = linkAsk;
+  linkAsk = null;
+  if (!ask) return;
+  const got = app.picked().split(",");
+  const look = ask.looks && got[0] === "3d" ? "3d" : "2d";
+  const days = linkDays(ask.looks ? got[1] : got[0]);
+  try {
+    localStorage.setItem(LINK_DAYS_KEY, String(days));
+    if (ask.looks) localStorage.setItem(LOOK_KEY, look);
+  } catch (_) { /* this time only */ }
+  Promise.resolve(ask.go(days, look)).catch(fail);
+}
+window.__answerLinkDays = (days, look = "2d") => {
+  app.closeChart?.();
+  const ask = linkAsk;
+  linkAsk = null;
+  return ask ? ask.go(linkDays(days), look) : null;
+};
 // The recording's or the video's bytes kept with the deck as
 // recordings/web-{hash}{ext} (the one before of the same kind removed), the
-// deck shared, and its /r/ link shown with `note`.
-async function publishForWeb(bytes, ext, type, note) {
+// deck shared, and its /r/ link, a link of the recording's own working
+// `days`, shown with `note`.
+async function publishForWeb(bytes, ext, type, note, days) {
   const p = window.sliqtly;
   const hash = await streamHash(bytes);
   const path = streamPath(hash, ext);
   const kind = new RegExp("^recordings/web-[0-9a-f]+\\" + ext + "$");
   const old = (await docFiles()).map((f) => f.path).filter((x) => kind.test(x) && x !== path);
   if (old.length) await deleteFiles(old, { quiet: true });
+  // their own links show nothing now: gone with them
+  if (old.length && doc.cloud) await Promise.all(old.map((x) => p.removeFileLinks?.(doc.cloud, x))).catch((e) => console.warn("old links", e));
   await keepFile({ path, type, size: bytes.length, data: new Blob([bytes], { type }) });
   toast(t("Sending the recording to the cloud…"));
   try {
@@ -5999,7 +6112,8 @@ async function publishForWeb(bytes, ext, type, note) {
         toast(t("Only the owner of this presentation shares it. You were invited to edit it."));
         return;
       }
-      shown = await p.viewLink(id);
+      shown = await p.viewLink(id, days, path);
+      note += " " + untilText(Date.now() + linkDays(days) * 864e5, t);
     }
     else await p.setVisibility(id, "link");
     const url = playUrl(location.origin, shown, hash);
@@ -6010,6 +6124,7 @@ async function publishForWeb(bytes, ext, type, note) {
   }
 }
 window.__recordForWeb = recordForWeb;
+window.__recordFlight = recordFlight;
 window.__exportRecWeb = exportRecWeb;
 window.__exportDocx = exportDocx;
 window.__exportHtml = exportHtml;
@@ -6788,7 +6903,11 @@ async function stopSharing() {
   toast(t("The presentation link no longer shows this presentation. Share makes a new one."));
 }
 
-async function shareLink() {
+// `days`: how long the cloud's viewing link works (asked first there)
+async function shareLink(days) {
+  if (!days && window.sliqtly?.user?.() && typeof window.sliqtly.viewLink === "function") {
+    return askLinkDays(t("Share"), shareLink);
+  }
   const text = app.source();
   const code = await packText(text);
   const q = new URLSearchParams();
@@ -6830,12 +6949,12 @@ async function shareLink() {
         toast(t("Only the owner of this presentation shares it. You were invited to edit it."));
         return;
       }
-      const link = await p.viewLink(id);
+      const link = await p.viewLink(id, days);
       const short = location.origin + "/s/" + link;
       const view = picked ? short + "?slides=" + encodeURIComponent(keys) : "";
       shareEditors = cur?.editors || [];
       app.setShareEditors(shareEditors.length);
-      showShare(short, "", t("A link of its own that shows the presentation, with its images and data, as you change it. Anyone with the link can view it; it never lets anyone edit."), view, true);
+      showShare(short, "", t("A link of its own that shows the presentation, with its images and data, as you change it. Anyone with the link can view it; it never lets anyone edit.") + " " + untilText(Date.now() + linkDays(days) * 864e5, t), view, true);
     } catch (e) {
       showShare("", "", cloudFailure(e), "");
     }

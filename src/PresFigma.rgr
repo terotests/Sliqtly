@@ -16,6 +16,12 @@
 ;
 ;     figma:<file id>/<layer>
 ;
+; A PowerPoint deck (.pptx) is a shared file too, read with RangerPPTX into
+; an index of the same shape (mcp-go/rgr/PptxGo.rgr): a slide is a screen
+; ("3", named by its title), a shape on it a part ("3:2"). Its slides are
+; pictures at `pptx:<file id>/<slide>`, the same address in all but the
+; word, and everything here reads both.
+;
 ; where the layer is the Figma id of a screen ("12:34") or of any layer inside
 ; one (a part: "12:40"), or the name of a screen ("Login") when the name is
 ; unique in the file. The drawn picture goes in the deck's store under the
@@ -27,6 +33,8 @@ Import "../vfs/src/Vfs.rgr"
 
 class FigmaRef {
     def ok:boolean false
+    ; "figma" or "pptx", as the address said
+    def scheme:string "figma"
     def file:string ""
     def node:string ""
     def err:string ""
@@ -35,11 +43,20 @@ class FigmaRef {
     }
 
     sfn isFigma:boolean (dest:string) {
-        def t:string (trim dest)
-        if ((strlen t) < 6) {
-            return false
+        return ((FigmaRef.schemeLen(dest)) > 0)
+    }
+
+    ; How long the address's scheme is with its colon: 6 for figma:, 5 for
+    ; pptx:, 0 for anything else.
+    sfn schemeLen:int (dest:string) {
+        def t:string (to_lowercase (trim dest))
+        if (((strlen t) >= 6) && ((substring t 0 6) == "figma:")) {
+            return 6
         }
-        return ((to_lowercase (substring t 0 6)) == "figma:")
+        if (((strlen t) >= 5) && ((substring t 0 5) == "pptx:")) {
+            return 5
+        }
+        return 0
     }
 
     ; `figma:app-design/12:34`, read. The file id is everything up to the
@@ -52,14 +69,16 @@ class FigmaRef {
             return r
         }
         def t:string (trim dest)
-        def rest:string (substring t 6 (strlen t))
+        def at:int (FigmaRef.schemeLen(t))
+        r.scheme = (to_lowercase (substring t 0 (at - 1)))
+        def rest:string (substring t at (strlen t))
         ; a leading // is tolerated: figma://app-design/12:34
         while (((strlen rest) > 0) && ((charAt rest 0) == 47)) {
             rest = (substring rest 1 (strlen rest))
         }
         def slash:int (indexOf rest "/")
         if (slash <= 0) {
-            r.err = "a figma: address is figma:<file>/<screen or layer>"
+            r.err = ("a " + r.scheme + ": address is " + r.scheme + ":<file>/<screen or layer>")
             return r
         }
         r.file = (trim (substring rest 0 slash))
@@ -99,7 +118,11 @@ class FigmaRef {
     }
 
     sfn address:string (file:string node:string) {
-        return ("figma:" + file + "/" + node)
+        return (FigmaRef.addressIn("figma" file node))
+    }
+
+    sfn addressIn:string (scheme:string file:string node:string) {
+        return (scheme + ":" + file + "/" + node)
     }
 
     ; The picture's name in the deck's store: where the layout looks for it
@@ -120,6 +143,10 @@ class FigmaRef {
         def from:int 0
         while (from < n) {
             def at:int (FigmaLibrary.findFrom(text "figma:" from))
+            def atP:int (FigmaLibrary.findFrom(text "pptx:" from))
+            if ((at < 0) || ((atP >= 0) && (atP < at))) {
+                at = atP
+            }
             if (at < 0) {
                 return out
             }
@@ -130,7 +157,7 @@ class FigmaRef {
                 angled = (c == 60)
                 lead = (((((c == 40) || (c == 60)) || ((c == 34) || (c == 39))) || ((c == 32) || (c == 10))) || (c == 61))
             }
-            def end:int (at + 6)
+            def end:int (at + (FigmaRef.schemeLen((substring text at (strlen text)))))
             while (end < n) {
                 def e:int (charAt text end)
                 if angled {
@@ -160,8 +187,12 @@ class FigmaRef {
     ; Markdown for a picture of a layer: alt text is its name, made safe for
     ; the brackets it goes in.
     sfn markdown:string (file:string node:string name:string) {
+        return (FigmaRef.markdownIn("figma" file node name))
+    }
+
+    sfn markdownIn:string (scheme:string file:string node:string name:string) {
         def alt:string (trim (join (strsplit (join (strsplit name "[") "") "]") ""))
-        def dest:string (FigmaRef.address(file node))
+        def dest:string (FigmaRef.addressIn(scheme file node))
         ; a name or a path with a space or brackets goes in <…>
         if ((((indexOf dest " ") >= 0) || ((indexOf dest "(") >= 0)) || ((indexOf dest ")") >= 0)) {
             dest = ("<" + dest + ">")
@@ -249,6 +280,14 @@ class FigmaFile {
 
     ; A file from its index JSON. `id`, `name` and the rest of what the host
     ; knows (size, status) are set by the caller; the index says the rest.
+    ; The address word of the file's pictures: pptx: for a PowerPoint deck.
+    fn scheme:string () {
+        if (kind == "pptx") {
+            return "pptx"
+        }
+        return "figma"
+    }
+
     sfn fromIndex:FigmaFile (id:string json:string) {
         def f (new FigmaFile())
         f.id = id
@@ -259,6 +298,7 @@ class FigmaFile {
             return f
         }
         f.name = (v.strOr("file" id))
+        f.kind = (v.strOr("kind" "figma"))
         f.bytes = (v.intOr("bytes" 0))
         def meta:JVal (v.get("meta"))
         f.background = (meta.strOr("background" ""))
@@ -433,6 +473,7 @@ class FigmaTarget {
 
 class FigmaHit {
     def fileId:string ""
+    def scheme:string "figma"
     def fileName:string ""
     def screen:FigmaScreen (new FigmaScreen())
     ; set when the query named a part of the screen
@@ -459,7 +500,7 @@ class FigmaHit {
     }
 
     fn markdown:string () {
-        return (FigmaRef.markdown(fileId (this.node()) (this.name())))
+        return (FigmaRef.markdownIn(scheme fileId (this.node()) (this.name())))
     }
 }
 
@@ -539,6 +580,16 @@ class FigmaLibrary {
                     t.name = part.name
                 }
             }
+            t.ok = true
+            return t
+        }
+        ; a screen's own id that is not a layer id: a slide's number
+        def byId@(optional):FigmaScreen (f.screenById(ref.node))
+        if (!null? byId) {
+            def own:FigmaScreen (unwrap byId)
+            t.node = own.id
+            t.screen = own.id
+            t.name = own.name
             t.ok = true
             return t
         }
@@ -774,6 +825,7 @@ class FigmaLibrary {
         }
         def h (new FigmaHit())
         h.fileId = f.id
+        h.scheme = (f.scheme())
         h.fileName = f.name
         h.screen = s
         h.score = total
@@ -960,6 +1012,7 @@ class FigmaBrowser {
         while (i < (array_length f.screens)) {
             def h (new FigmaHit())
             h.fileId = f.id
+            h.scheme = (f.scheme())
             h.fileName = f.name
             h.screen = (itemAt f.screens i)
             push out h
@@ -1029,11 +1082,20 @@ class FigmaBrowser {
         if ((strlen (this.layer())) == 0) {
             return ""
         }
-        return (FigmaRef.markdown(fileId (this.layer()) (this.layerName())))
+        return (FigmaRef.markdownIn((this.scheme()) fileId (this.layer()) (this.layerName())))
     }
 
     fn address:string () {
-        return (FigmaRef.address(fileId (this.layer())))
+        return (FigmaRef.addressIn((this.scheme()) fileId (this.layer())))
+    }
+
+    fn scheme:string () {
+        def fo@(optional):FigmaFile (this.file())
+        if (null? fo) {
+            return "figma"
+        }
+        def f:FigmaFile (unwrap fo)
+        return (f.scheme())
     }
 
     ; The name a thumbnail of layer `node` is kept under among the page's

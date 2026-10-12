@@ -4,7 +4,8 @@
      exported to the cloud as recorded (the editor's Export ▸ Cloud HTML).
      play.js reads the recording and paints its frames; no layout, no
      engine, only the faces the slides use (scripts/build-view.mjs). A
-     presentation exported as a video (Export ▸ Cloud video) plays in #v. -->
+     presentation exported as a video (Export ▸ Cloud video) plays in #v.
+     One exported with the 3-D flight offers it (#pFlight, #start3d). -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -29,6 +30,11 @@
   body.idle #bar { opacity: 0; pointer-events: none; }
   #bar > button { height: 44px; min-width: 44px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(24, 24, 27, 0.72); color: #fafafa; font-size: 18px; cursor: pointer; }
+  #bar > button[hidden] { display: none; }
+  #start3d { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); height: 48px; padding: 0 22px; border-radius: 24px;
+    border: 1px solid rgba(120, 220, 255, 0.6); background: rgba(6, 20, 32, 0.85); color: #bff3ff; font: 600 16px system-ui, sans-serif;
+    cursor: pointer; box-shadow: 0 0 18px rgba(90, 220, 255, 0.45); }
+  #start3d[hidden] { display: none; }
   #bar > #pCount { padding: 0 14px; font: 15px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default; }
 </style>
 </head>
@@ -43,7 +49,9 @@
   <button id="pAuto" title="Play it all (A)">⏵&#xFE0E;</button>
   <button id="pFull" title="Full screen">⛶</button>
   <button id="pShare" title="Share this slide (copies its link)">⤴&#xFE0E;</button>
+  <button id="pFlight" title="Fly through it in 3-D (G)" hidden>3D</button>
 </div>
+<button id="start3d" hidden>▶ Fly through it in 3-D</button>
 <script type="module" src="./play.js?v=__BUILD__"></script>
 </body>
 </html>
