@@ -41,6 +41,9 @@ import (
 // same as storage.rules' figma-upload
 const cloudSharedMaxDefault = 200 << 20
 
+// the largest original whose variations sliqtly.com changes and exports
+const cloudEditMax = 24 << 20
+
 // what the cloud's shared files need of Storage
 type sharedBucket interface {
 	sharedStore
@@ -120,6 +123,9 @@ func (c *cloudShared) of(uid string) *sharedFiles {
 		urls:  "/editor/api/shared/",
 		stale: 45 * time.Minute,
 		idx:   map[string]cachedIndex{},
+		// a variation is changed in the service's own memory, which a
+		// large file's reading would not fit in (that is the job's)
+		editMax: cloudEditMax,
 	}
 	s.queue = func(id string) {
 		if c.start == nil {

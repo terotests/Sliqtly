@@ -46,7 +46,7 @@ async function answer(res) {
   return body;
 }
 
-// { files: [{ id, name, kind, bytes, status, error, pages, screens, added, updated }], max }
+// { files: [{ id, name, kind, bytes, status, error, pages, screens, added, updated, base, changes }], max }
 // (sliqtly.com adds `upload`: the Storage folder the page puts a file in)
 export async function listShared(fetchFn = fetch) {
   return answer(await fetchFn(roots.api));
@@ -93,6 +93,8 @@ export function sharedNote(f, t = (s) => s) {
   if (f.status === "indexing") return t("Indexing…");
   if (f.status === "failed") return t("Could not read it") + (f.error ? ": " + f.error : "");
   const parts = [];
+  // a variation keeps only its change against the original (base)
+  if (f.kind === "figma-variation") parts.push(t("Variation of {name}").replace("{name}", f.base || "?"));
   if (f.screens) parts.push(f.screens === 1 ? t("1 screen") : t("{n} screens").replace("{n}", String(f.screens)));
   if (f.bytes) parts.push(sizeText(f.bytes));
   return parts.join(" · ");
