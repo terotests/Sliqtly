@@ -38,6 +38,24 @@ class FlightHolo {
         }
     }
 
+    ; A picture on the slide (a screen, a photo) as it is: its colours and
+    ; how opaque it is kept, every third row a little darker so it reads
+    ; as the hologram's screen.
+    sfn solid:void (px:buffer w:int h:int) {
+        def y:int 2
+        while (y < h) {
+            def x:int 0
+            while (x < w) {
+                def o:int (((y * w) + x) * 4)
+                buffer_set px o (FlightHolo.byte((((to_double (buffer_get px o)) / 255.0) * 0.85)))
+                buffer_set px (o + 1) (FlightHolo.byte((((to_double (buffer_get px (o + 1))) / 255.0) * 0.85)))
+                buffer_set px (o + 2) (FlightHolo.byte((((to_double (buffer_get px (o + 2))) / 255.0) * 0.85)))
+                x = (x + 1)
+            }
+            y = (y + 3)
+        }
+    }
+
     sfn byte:int (v:double) {
         def n:int (to_int ((v * 255.0) + 0.5))
         if (n < 0) {

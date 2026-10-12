@@ -16,7 +16,11 @@
 //	shared/{id}/img/{name}          the pictures the screens paint
 //	shared/{id}/png/{node}@{k}.png  a screen or a part drawn, made the first
 //	                                time it is asked for
+//	shared/{id}/export/{name}.fig   the file built for a download
 //	sharedmeta/{id}.json            the file's card: name, size, state
+//
+// A variation of a file keeps variation.json in place of source.fig: only
+// what it changes (sharedvariation.go).
 //
 // A screen is drawn from its cut alone, and a part of a screen from the
 // screen's cut, so after the reading nothing opens source.fig again.
@@ -28,6 +32,7 @@
 //	DELETE /api/shared/{id}
 //	GET    /files/shared/{id}/index.json
 //	GET    /files/shared/{id}/png/{node}.png[?scale=1|2|3][&max=px]
+//	GET    /files/shared/{id}/export/{name}.fig   as export_figma left it
 //
 // A server of its own keeps one set (a folder: SLIQTLY_DATA or -data);
 // everyone who reaches it is its one user, as with rooms. sliqtly.com keeps
@@ -93,7 +98,10 @@ type sharedFiles struct {
 	// a file still "indexing" this long after it was put was lost on the
 	// way (its job ran out of memory or time); 0: never
 	stale time.Duration
-	mu    sync.Mutex // the cards
+	// the largest original a variation is changed, listed or exported
+	// from in the server's own memory; 0: any
+	editMax int64
+	mu      sync.Mutex // the cards
 	// the indexes as read, by file id and the card's update time, so a
 	// search does not read every index from the store
 	idxMu sync.Mutex
@@ -121,6 +129,10 @@ type sharedFile struct {
 	Pages   int    `json:"pages"`
 	Screens int    `json:"screens"`
 	Index   string `json:"index,omitempty"`
+	// a variation (kind figma-variation): the original's id, and what it
+	// changes in words
+	Base    string `json:"base,omitempty"`
+	Changes string `json:"changes,omitempty"`
 }
 
 func newSharedFiles(files sharedStore, logf func(string)) *sharedFiles {
@@ -334,6 +346,9 @@ func (s *sharedFiles) remove(ctx context.Context, id string) error {
 	if _, err := s.card(ctx, id); err != nil {
 		return err
 	}
+	if vs := s.variationsOf(ctx, id); len(vs) > 0 {
+		return sharedErr{409, "its variations need it: remove " + strings.Join(vs, ", ") + " first"}
+	}
 	if err := s.files.RemoveAll(sharedDir(id)); err != nil {
 		return err
 	}
@@ -367,9 +382,14 @@ func (s *sharedFiles) read(ctx context.Context, id string) {
 		s.putCard(ctx, f)
 		s.log("shared " + id + ": " + msg)
 	}
-	data, err := s.files.Read(ctx, sharedDir(id)+"/source.fig", s.max+1)
+	data, err := s.sourceOf(ctx, f)
 	if err != nil {
-		fail("the file is gone")
+		var se sharedErr
+		if errors.As(err, &se) {
+			fail(se.msg)
+		} else {
+			fail("the file is gone")
+		}
 		return
 	}
 	n, err := s.cutFile(ctx, id, f.Name, data)
@@ -477,7 +497,7 @@ func (s *sharedFiles) indexes(ctx context.Context) ([]map[string]any, error) {
 	}
 	out := []map[string]any{}
 	for _, f := range files {
-		row := map[string]any{"id": f.ID, "name": f.Name, "status": f.Status, "bytes": f.Bytes, "error": f.Error}
+		row := map[string]any{"id": f.ID, "name": f.Name, "status": f.Status, "bytes": f.Bytes, "error": f.Error, "kind": f.Kind, "base": f.Base, "changes": f.Changes}
 		if f.Status == "ready" {
 			ix, err := s.index(ctx, f)
 			if err != nil {
@@ -695,6 +715,9 @@ func sharedFail(err error) error {
 	}
 	return err
 }
+
+// a file built for a download (export_figma)
+var sharedExportPath = regexp.MustCompile(`^/files/shared/[a-z0-9-]{1,48}/export/[^/]+$`)
 
 var sharedPngPath = regexp.MustCompile(`^/files/shared/([a-z0-9-]{1,48})/png/(.+)\.png$`)
 

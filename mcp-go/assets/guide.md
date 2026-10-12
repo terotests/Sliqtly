@@ -1954,5 +1954,38 @@ being opened.
   instructions.
 - `add_shared_file` (when the server has import folders) adds a .fig from
   this computer by its path; it is ready when `list_shared_files` says so.
+
+## Variations: change a design, keep the original
+
+An original file is never changed. To change screens, make a variation
+and edit that: it keeps only what differs from the original, and builds a
+whole .fig again when asked.
+
+1. `create_figma_variation` with the original's `file_id` (and a `name`)
+   → the variation's own `file_id`.
+2. `get_figma_layers` (`file_id`, `node_id` of a screen) → its layers with
+   `node_id`, type, name, place, size, text and fill.
+3. `edit_figma` with a list of edits, applied in order:
+
+```json
+[{"op": "text", "node": "1:7", "text": "Tuesday"},
+ {"op": "fill", "node": "1:3", "color": "#203040"},
+ {"op": "copy", "node": "1:9", "dy": 40},
+ {"op": "hide", "node": "1:12"}]
+```
+
+   Also `move` {x, y}, `resize` {w, h}, `opacity` {value}, `rename`
+   {name}, `remove`, `revert` (one node, or with no node all of it) and
+   `set` {field, value} for any other field (`get_figma_layers` with
+   `fields: true` lists them). A value set back to the original's drops
+   out of the variation.
+4. The variation is read again; its screens go on slides like any file's:
+   `![Tuesday](figma:<variation>/1:2)`, beside the original's for a
+   before/after.
+5. `export_figma` → a download link to the whole .fig, to open in Figma.
+
+`extract_figma_view` takes one screen (or layer) of a file or variation
+out as a new shared .fig of its own, with the components and styles it
+uses: vary it, export it or put it on a slide like any other.
 <!-- /figma -->
 

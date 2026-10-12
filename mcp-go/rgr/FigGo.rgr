@@ -13,6 +13,10 @@
 ;   view                  whenever a screen or a part is drawn: one screen's
 ;                         cut is laid out and walked into a display list for
 ;                         render.go to paint; the file is not opened
+;   vary*                 a variation of a file (sharedvariation.go): the
+;                         original's bytes and the variation's JSON in, the
+;                         file it makes, an edited variation, the layers to
+;                         aim an edit at, or one view as a file of its own out
 ;
 ; Everything is static so Go outside the package can call it
 ; (FigGo_static_open, …): Ranger's methods come out unexported.
@@ -25,6 +29,7 @@ Import "../designviewer/src/FigParser.rgr"
 Import "../designviewer/src/convert/FigToScene.rgr"
 Import "../designviewer/src/index/FigIndex.rgr"
 Import "../designviewer/src/index/FigCut.rgr"
+Import "../designviewer/src/edit/FigVariation.rgr"
 
 class FigGoDoc {
     def ok:boolean false
@@ -185,5 +190,164 @@ class FigGo {
             i = (i + 1)
         }
         return r
+    }
+}
+
+; What a vary* call gives back. One class for all of them, read through
+; FigGo's accessors as Go outside the package cannot read its fields.
+class FigGoVary {
+    def ok:boolean false
+    def err:string ""
+    def bytes:buffer (buffer_alloc 0)
+    def text:string ""
+    def summary:string ""
+    def errors:[string]
+    def created:[string]
+
+    Constructor () {
+    }
+}
+
+class FigGoEdit {
+    ; The original with variation `delta` applied, or the reason it could
+    ; not open. Nodes the variation names and the file lacks are noted.
+    sfn applied:FigEditDoc (bytes:buffer name:string delta:string out:FigGoVary) {
+        def d:FigEditDoc (FigEditDoc.open(bytes name))
+        if (d.ok == false) {
+            out.err = d.err
+            return d
+        }
+        def v:FigVariation (FigVariation.parse(delta))
+        v.applyTo(d)
+        def i:int 0
+        while (i < (array_length v.errors)) {
+            push out.errors (itemAt v.errors i)
+            i = (i + 1)
+        }
+        out.summary = (v.summary())
+        return d
+    }
+
+    ; The file the variation makes.
+    sfn file:FigGoVary (bytes:buffer name:string delta:string) {
+        def out (new FigGoVary())
+        def d:FigEditDoc (FigGoEdit.applied(bytes name delta out))
+        if (d.ok == false) {
+            return out
+        }
+        out.bytes = (d.toFig())
+        out.ok = true
+        return out
+    }
+
+    ; `ops` (a JSON list of edits) made to the variation → its new JSON in
+    ; text, what it changes in summary, refused ops in errors, the guids of
+    ; copies made in created.
+    sfn edit:FigGoVary (bytes:buffer name:string delta:string ops:string) {
+        def out (new FigGoVary())
+        def p (new KiwiJson())
+        def list:KiwiValue (p.read(ops))
+        if ((p.ok == false) || ((list.isArray()) == false)) {
+            out.err = ("edits must be a JSON list: " + p.err)
+            return out
+        }
+        def base:FigEditDoc (FigEditDoc.open(bytes name))
+        if (base.ok == false) {
+            out.err = base.err
+            return out
+        }
+        def work:FigEditDoc (FigEditDoc.open(bytes name))
+        def v:FigVariation (FigVariation.parse(delta))
+        v.applyTo(work)
+        def stale:int (array_length v.errors)
+        v.edit(base work list)
+        def i:int stale
+        while (i < (array_length v.errors)) {
+            push out.errors (itemAt v.errors i)
+            i = (i + 1)
+        }
+        out.created = v.created
+        out.text = (v.toJson())
+        out.summary = (v.summary())
+        out.ok = true
+        return out
+    }
+
+    ; The layers under `node` in the variation (the whole page list for
+    ; ""), or with `raw` that one node's own fields.
+    sfn layers:FigGoVary (bytes:buffer name:string delta:string node:string depth:int raw:boolean) {
+        def out (new FigGoVary())
+        def d:FigEditDoc (FigGoEdit.applied(bytes name delta out))
+        if (d.ok == false) {
+            return out
+        }
+        def id:string node
+        if ((strlen id) == 0) {
+            id = "0:0"
+            def all:[string] (d.allIds())
+            def i:int 0
+            while (i < (array_length all)) {
+                if ((d.typeOf((itemAt all i))) == "DOCUMENT") {
+                    id = (itemAt all i)
+                }
+                i = (i + 1)
+            }
+        }
+        if ((d.exists(id)) == false) {
+            out.err = ("no layer " + id + " in this file")
+            return out
+        }
+        if raw {
+            out.text = (d.nodeJson(id))
+        } {
+            out.text = (d.layersJson(id depth 400))
+        }
+        out.ok = true
+        return out
+    }
+
+    ; Layer `node` of the variation as a file of its own.
+    sfn extract:FigGoVary (bytes:buffer name:string delta:string node:string) {
+        def out (new FigGoVary())
+        def d:FigEditDoc (FigGoEdit.applied(bytes name delta out))
+        if (d.ok == false) {
+            return out
+        }
+        def why:string (d.extract(node))
+        if ((strlen why) > 0) {
+            out.err = why
+            return out
+        }
+        out.bytes = (d.toFigTrimmed())
+        out.ok = true
+        return out
+    }
+
+    sfn ok:boolean (v:FigGoVary) {
+        return v.ok
+    }
+
+    sfn err:string (v:FigGoVary) {
+        return v.err
+    }
+
+    sfn bytes:buffer (v:FigGoVary) {
+        return v.bytes
+    }
+
+    sfn text:string (v:FigGoVary) {
+        return v.text
+    }
+
+    sfn summary:string (v:FigGoVary) {
+        return v.summary
+    }
+
+    sfn errors:[string] (v:FigGoVary) {
+        return v.errors
+    }
+
+    sfn created:[string] (v:FigGoVary) {
+        return v.created
     }
 }
