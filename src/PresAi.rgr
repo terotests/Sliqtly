@@ -21,6 +21,9 @@
 ;             `fail` take what came back
 ;   using     the new version of the slide an answer gave (its ````markdown
 ;             block, `suggestion`), for "Use on slide"
+;   editing   the changes an answer asks for (its `edits`: front matter,
+;             slides replaced, added or taken out), made on the Markdown by
+;             PresAiDeck so the app writes them as one edit
 ; ============================================================================
 
 Import "../vela/src/VlJson.rgr"
@@ -46,8 +49,278 @@ class PresAiContext {
     def selection:string ""
     def deckMd:string ""
     def deckName:string ""
+    ; the front matter block (--- … ---), and one line per slide ("3. Title")
+    def frontMatter:string ""
+    def outline:string ""
 
     Constructor () {
+    }
+}
+
+; A change an answer asks for (the server's aiEditTools): set_front_matter
+; (key, value), replace_slide (slide, markdown), insert_slide (after,
+; markdown), delete_slide (slide), replace_presentation (markdown). Slides
+; count from 1, as the outline numbered them when the question was asked.
+class PresAiEdit {
+    def tool:string ""
+    def slide:int 0
+    def after:int 0
+    def key:string ""
+    def value:string ""
+    def markdown:string ""
+
+    Constructor () {
+    }
+}
+
+; One part of the Markdown: the slide it was (-1 a new one) and its lines,
+; each ending in a newline.
+class PresAiPart {
+    def orig:int -1
+    def text:string ""
+
+    Constructor () {
+    }
+}
+
+; The edits made on the Markdown, without an editor. `spans` are each
+; slide's lines as the app finds them (from, next slide's first line; a
+; slide the overflow went on to has its heading slide's span), so a slide
+; number is the part it is in.
+class PresAiDeck {
+    def front:string ""
+    def parts:[PresAiPart]
+    ; part of each slide (from 0)
+    def partOf:[int]
+    def changed:boolean false
+
+    Constructor () {
+    }
+
+    sfn apply:string (src:string spans:[int] edits:[PresAiEdit]) {
+        def d (new PresAiDeck())
+        d.split(src spans)
+        for edits e:PresAiEdit i {
+            d.edit(e)
+        }
+        if (d.changed == false) {
+            return src
+        }
+        return (d.text())
+    }
+
+    sfn linesText:string (lines:[string] from:int to:int) {
+        def out:string ""
+        def k:int from
+        while (k < to) {
+            out = (out + (itemAt lines k) + (strfromcode 10))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn split:void (src:string spans:[int]) {
+        def lines:[string] (strsplit src (strfromcode 10))
+        ; "a\n" is one line, not a line and an empty one
+        def n:int (array_length lines)
+        if ((n > 0) && ((strlen (itemAt lines (n - 1))) == 0)) {
+            n = (n - 1)
+        }
+        def firstFrom:int n
+        def lastFrom:int -1
+        def k:int 0
+        while ((k + 1) < (array_length spans)) {
+            def from:int (itemAt spans k)
+            def at:int (itemAt spans (k + 1))
+            if (at > n) {
+                at = n
+            }
+            if ((from < 0) || (from >= at)) {
+                push partOf -1
+            } {
+                if (from == lastFrom) {
+                    push partOf ((array_length parts) - 1)
+                } {
+                    if (from < firstFrom) {
+                        firstFrom = from
+                    }
+                    def pt (new PresAiPart())
+                    pt.orig = (array_length parts)
+                    pt.text = (PresAiDeck.linesText(lines from at))
+                    push parts pt
+                    push partOf pt.orig
+                    lastFrom = from
+                }
+            }
+            k = (k + 2)
+        }
+        front = (PresAiDeck.linesText(lines 0 firstFrom))
+    }
+
+    ; where slide n (from 1) is in `parts` now; -1 gone or never there
+    fn indexOf:int (n:int) {
+        if ((n < 1) || (n > (array_length partOf))) {
+            return -1
+        }
+        def o:int (itemAt partOf (n - 1))
+        if (o < 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            def pt:PresAiPart (itemAt parts i)
+            if (pt.orig == o) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn slideText:string (md:string) {
+        return ((trim md) + (strfromcode 10))
+    }
+
+    fn edit:void (e:PresAiEdit) {
+        if (e.tool == "set_front_matter") {
+            def k:string (trim e.key)
+            if ((strlen k) > 0) {
+                front = (PresAiDeck.setFront(front k (trim e.value)))
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "replace_presentation") {
+            if ((strlen (trim e.markdown)) > 0) {
+                front = (PresAiDeck.slideText(e.markdown))
+                def none:[PresAiPart]
+                parts = none
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "replace_slide") {
+            def i:int (this.indexOf(e.slide))
+            if ((i >= 0) && ((strlen (trim e.markdown)) > 0)) {
+                def pt:PresAiPart (itemAt parts i)
+                pt.text = (PresAiDeck.slideText(e.markdown))
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "delete_slide") {
+            def i:int (this.indexOf(e.slide))
+            if (i >= 0) {
+                remove_index parts i
+                changed = true
+            }
+            return
+        }
+        if (e.tool == "insert_slide") {
+            if ((strlen (trim e.markdown)) == 0) {
+                return
+            }
+            def at:int 0
+            if (e.after > 0) {
+                def i:int (this.indexOf(e.after))
+                if (i < 0) {
+                    at = (array_length parts)
+                } {
+                    at = (i + 1)
+                }
+            }
+            def pt (new PresAiPart())
+            pt.text = (PresAiDeck.slideText(e.markdown))
+            insert parts at pt
+            changed = true
+        }
+    }
+
+    ; the parts one after another, a blank line between each
+    fn text:string () {
+        def nl:string (strfromcode 10)
+        def out:string front
+        for parts pt:PresAiPart i {
+            if (((strlen out) > 0) && (PresAiDeck.endsBlank(out) == false)) {
+                out = (out + nl)
+            }
+            out = (out + pt.text)
+        }
+        return out
+    }
+
+    ; ends in an empty line ("…\n\n")
+    sfn endsBlank:boolean (t:string) {
+        def n:int (strlen t)
+        if (n < 2) {
+            return false
+        }
+        return (((charAt t (n - 1)) == 10) && ((charAt t (n - 2)) == 10))
+    }
+
+    ; the front matter block at the top of a deck (--- … ---), "" none
+    sfn frontOf:string (src:string) {
+        def nl:string (strfromcode 10)
+        def lines:[string] (strsplit src nl)
+        if (((array_length lines) == 0) || ((trim (itemAt lines 0)) != "---")) {
+            return ""
+        }
+        def k:int 1
+        while (k < (array_length lines)) {
+            def ln:string (trim (itemAt lines k))
+            if ((ln == "---") || (ln == "...")) {
+                return (trim (PresAiDeck.linesText(lines 0 (k + 1))))
+            }
+            k = (k + 1)
+        }
+        return ""
+    }
+
+    ; One key of the front matter at the top of `front`: set, or taken out
+    ; when `value` is "". A deck without front matter gets one.
+    sfn setFront:string (front:string key:string value:string) {
+        def nl:string (strfromcode 10)
+        def lines:[string] (strsplit front nl)
+        def n:int (array_length lines)
+        def close:int -1
+        def at:int -1
+        if ((n > 0) && ((trim (itemAt lines 0)) == "---")) {
+            def k:int 1
+            while ((k < n) && (close < 0)) {
+                def ln:string (trim (itemAt lines k))
+                if ((ln == "---") || (ln == "...")) {
+                    close = k
+                } {
+                    if ((indexOf ln (key + ":")) == 0) {
+                        at = k
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        def line:string (key + ": " + value)
+        if (close < 0) {
+            if ((strlen value) == 0) {
+                return front
+            }
+            return ("---" + nl + line + nl + "---" + nl + nl + front)
+        }
+        def out:[string]
+        def k2:int 0
+        while (k2 < n) {
+            if (k2 == at) {
+                if ((strlen value) > 0) {
+                    push out line
+                }
+            } {
+                if ((k2 == close) && (at < 0)) {
+                    push out line
+                }
+                push out (itemAt lines k2)
+            }
+            k2 = (k2 + 1)
+        }
+        return (join out nl)
     }
 }
 
@@ -71,6 +344,8 @@ class PresAi {
     def pending:string ""
     ; the answer whose slide was used already (its id): not offered again
     def usedId:string ""
+    ; the changes the last answer asks for, until the app takes them
+    def edits:[PresAiEdit]
     def rev:int 0
 
     Constructor () {
@@ -282,6 +557,8 @@ class PresAi {
         c.setMember("slideMarkdown" (VlJson.stringValue(ctx.slideMd)))
         c.setMember("selection" (VlJson.stringValue(ctx.selection)))
         c.setMember("deckName" (VlJson.stringValue(ctx.deckName)))
+        c.setMember("frontMatter" (VlJson.stringValue(ctx.frontMatter)))
+        c.setMember("outline" (VlJson.stringValue(ctx.outline)))
         if (scope == "deck") {
             c.setMember("deckMarkdown" (VlJson.stringValue(ctx.deckMd)))
         }
@@ -317,7 +594,38 @@ class PresAi {
             return
         }
         this.readCredits(root)
-        def reply:string (root.stringOr("reply" ""))
+        def reply:string (trim (root.stringOr("reply" "")))
+        def done:string ""
+        if (root.has("edits")) {
+            def arr:VlJson (root.get("edits"))
+            def k:int 0
+            while (k < (arr.count())) {
+                def o:VlJson (arr.at(k))
+                def e (new PresAiEdit())
+                e.tool = (o.stringOr("tool" ""))
+                e.slide = (o.intOr("slide" 0))
+                e.after = (o.intOr("after" 0))
+                e.key = (o.stringOr("key" ""))
+                e.value = (o.stringOr("value" ""))
+                e.markdown = (o.stringOr("markdown" ""))
+                def said:string (PresAi.editText(e))
+                if ((strlen said) > 0) {
+                    push edits e
+                    if ((strlen done) > 0) {
+                        done = (done + (strfromcode 10))
+                    }
+                    done = (done + "✓ " + said)
+                }
+                k = (k + 1)
+            }
+        }
+        if ((strlen done) > 0) {
+            if ((strlen reply) > 0) {
+                reply = (reply + (strfromcode 10) + (strfromcode 10) + done)
+            } {
+                reply = done
+            }
+        }
         if ((strlen reply) > 0) {
             this.add("assistant" reply)
             return
@@ -327,6 +635,48 @@ class PresAi {
             err = (PresI18n.t("No answer came."))
         }
         this.add("note" err)
+    }
+
+    ; an edit in words for the conversation ("" one the app does not make)
+    sfn editText:string (e:PresAiEdit) {
+        if (e.tool == "set_front_matter") {
+            if ((strlen (trim e.key)) == 0) {
+                return ""
+            }
+            if ((strlen (trim e.value)) == 0) {
+                return (((PresI18n.t("Removed from the front matter:")) + " ") + e.key)
+            }
+            return ((((PresI18n.t("Front matter:")) + " ") + e.key + ": ") + e.value)
+        }
+        if (e.tool == "replace_slide") {
+            return (PresAi.fill((PresI18n.t("Slide {n} rewritten")) e.slide))
+        }
+        if (e.tool == "insert_slide") {
+            if (e.after <= 0) {
+                return (PresI18n.t("New first slide"))
+            }
+            return (PresAi.fill((PresI18n.t("New slide after slide {n}")) e.after))
+        }
+        if (e.tool == "delete_slide") {
+            return (PresAi.fill((PresI18n.t("Slide {n} removed")) e.slide))
+        }
+        if (e.tool == "replace_presentation") {
+            return (PresI18n.t("The whole presentation rewritten"))
+        }
+        return ""
+    }
+
+    ; "{n}" in a phrase as the number
+    sfn fill:string (phrase:string n:int) {
+        return (join (strsplit phrase "{n}") (to_string n))
+    }
+
+    ; the changes the last answer asked for, once
+    fn takeEdits:[PresAiEdit] () {
+        def got:[PresAiEdit] edits
+        def none:[PresAiEdit]
+        edits = none
+        return got
     }
 
     ; the post failed before an answer (no connection, signed out)

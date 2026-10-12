@@ -96,6 +96,72 @@ class PresCheck {
 
     ; The AI drawer's model (PresAi): the request it leaves for the page, the
     ; credits in words, and the slide an answer suggests.
+    ; The changes an answer asks for, made on the Markdown (PresAiDeck).
+    fn aiEdits:void () {
+        def src:string "---\ntitle: T\ntheme: aurora\n---\n\n# One\n\nHello\n\n## Two\n\nB\n\n## Three\n\nC\n"
+        ; slides: One 5..9, Two 9..13, Three 13..17 (an overflow of Three on 13 too)
+        def spans:[int] ([] _:int ( 5 9 9 13 13 17 13 17 ))
+        def e1 (new PresAiEdit())
+        e1.tool = "set_front_matter"
+        e1.key = "theme"
+        e1.value = "mist"
+        def got:string (PresAiDeck.apply(src spans ([] _:PresAiEdit ( e1 ))))
+        this.ok((got == "---\ntitle: T\ntheme: mist\n---\n\n# One\n\nHello\n\n## Two\n\nB\n\n## Three\n\nC\n") ("ai edit: the theme set in place " + got))
+        def e2 (new PresAiEdit())
+        e2.tool = "set_front_matter"
+        e2.key = "transition"
+        e2.value = "fade"
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( e2 ))))
+        this.ok(((indexOf got "theme: aurora\ntransition: fade\n---") > 0) ("ai edit: a new key before the closing line " + got))
+        e2.value = ""
+        e2.key = "title"
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( e2 ))))
+        this.ok(((indexOf got "title:") < 0) "ai edit: an empty value takes the key out")
+        this.ok(((PresAiDeck.apply("# A\n" ([] _:int ( 0 1 )) ([] _:PresAiEdit ( e1 )))) == "---\ntheme: mist\n---\n\n# A\n") "ai edit: front matter added to a deck without")
+        ; slides by the outline's numbers, each edit against them
+        def r (new PresAiEdit())
+        r.tool = "replace_slide"
+        r.slide = 2
+        r.markdown = "## Two!\n\nNew"
+        def ins (new PresAiEdit())
+        ins.tool = "insert_slide"
+        ins.after = 2
+        ins.markdown = "## Two and a half"
+        def del (new PresAiEdit())
+        del.tool = "delete_slide"
+        del.slide = 1
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( r del ins ))))
+        this.ok((got == "---\ntitle: T\ntheme: aurora\n---\n\n## Two!\n\nNew\n\n## Two and a half\n\n## Three\n\nC\n") ("ai edit: replaced, removed and added by the old numbers " + got))
+        def del4 (new PresAiEdit())
+        del4.tool = "delete_slide"
+        del4.slide = 4
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( del4 ))))
+        this.ok((((indexOf got "## Three") < 0) && ((indexOf got "## Two") > 0)) "ai edit: an overflow slide is its heading's section")
+        def bad (new PresAiEdit())
+        bad.tool = "replace_slide"
+        bad.slide = 9
+        bad.markdown = "x"
+        this.ok(((PresAiDeck.apply(src spans ([] _:PresAiEdit ( bad )))) == src) "ai edit: a slide that is not there changes nothing")
+        def first (new PresAiEdit())
+        first.tool = "insert_slide"
+        first.after = 0
+        first.markdown = "# Zero"
+        got = (PresAiDeck.apply(src spans ([] _:PresAiEdit ( first ))))
+        this.ok(((indexOf got "---\n\n# Zero\n\n# One") > 0) ("ai edit: a new first slide after the front matter " + got))
+        this.ok(((PresAiDeck.frontOf(src)) == "---\ntitle: T\ntheme: aurora\n---") "ai edit: the front matter of a deck")
+        ; the answer: edits taken once, said in the conversation
+        def a (new PresAi())
+        a.answer("{\"reply\":\"Mist it is.\",\"edits\":[{\"tool\":\"set_front_matter\",\"key\":\"theme\",\"value\":\"mist\"},{\"tool\":\"replace_slide\",\"slide\":2,\"markdown\":\"## B\"},{\"tool\":\"nope\"}]}")
+        def es:[PresAiEdit] (a.takeEdits())
+        this.ok(((array_length es) == 2) "ai edit: the known edits taken")
+        this.ok(((array_length (a.takeEdits())) == 0) "ai edit: taken once")
+        def last:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok((last.text == "Mist it is.\n\n✓ Front matter: theme: mist\n✓ Slide 2 rewritten") ("ai edit: said in the answer " + last.text))
+        a.answer("{\"reply\":\"\",\"edits\":[{\"tool\":\"delete_slide\",\"slide\":3}]}")
+        def last2:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok(((last2.role == "assistant") && (last2.text == "✓ Slide 3 removed")) ("ai edit: no words, the changes are the answer " + last2.text))
+    }
+
     fn aiAssist:void () {
         def a (new PresAi())
         def ctx (new PresAiContext())
@@ -127,6 +193,7 @@ class PresCheck {
         this.ok(((a.suggestion()) == "") "ai: a slide used once is not offered again")
         this.ok(((PresAi.slideBlock("```markdown\n## A\n```")) == "## A") "ai: a three-tick fence works too")
         this.ok(((PresAi.slideBlock("```js\nx\n```")) == "") "ai: a code block is not a slide")
+        this.aiEdits()
         this.ok(((PresAi.slideBlock("```markdown\n## A")) == "") "ai: an unclosed block is not a whole slide")
         a.setScope("deck")
         this.ok(((a.cost()) == 2) "ai: the whole presentation costs two")

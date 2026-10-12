@@ -24,10 +24,22 @@ type geminiModel struct {
 	project, region string
 	// where the calls go ("" the real endpoints; the tests' server)
 	base string
+	// the functions it may call (aiEditTools)
+	tools []aiTool
 }
 
+func (m *geminiModel) usesTools() bool { return len(m.tools) > 0 }
+
 type geminiPart struct {
-	Text string `json:"text"`
+	Text         string          `json:"text,omitempty"`
+	FunctionCall *geminiCall     `json:"functionCall,omitempty"`
+	Thought      bool            `json:"thought,omitempty"`
+	Signature    json.RawMessage `json:"thoughtSignature,omitempty"`
+}
+
+type geminiCall struct {
+	Name string         `json:"name"`
+	Args map[string]any `json:"args"`
 }
 
 type geminiContent struct {
@@ -61,13 +73,21 @@ func (m *geminiModel) Ask(ctx context.Context, system string, turns []aiTurn) (a
 		if t.Role == "assistant" {
 			role = "model"
 		}
-		contents = append(contents, geminiContent{Role: role, Parts: []geminiPart{{t.Text}}})
+		contents = append(contents, geminiContent{Role: role, Parts: []geminiPart{{Text: t.Text}}})
 	}
-	body, _ := json.Marshal(map[string]any{
-		"systemInstruction": geminiContent{Parts: []geminiPart{{system}}},
+	ask := map[string]any{
+		"systemInstruction": geminiContent{Parts: []geminiPart{{Text: system}}},
 		"contents":          contents,
 		"generationConfig":  map[string]any{"maxOutputTokens": 8192},
-	})
+	}
+	if len(m.tools) > 0 {
+		decls := make([]map[string]any, 0, len(m.tools))
+		for _, t := range m.tools {
+			decls = append(decls, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Params})
+		}
+		ask["tools"] = []map[string]any{{"functionDeclarations": decls}}
+	}
+	body, _ := json.Marshal(ask)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.endpoint(), bytes.NewReader(body))
 	if err != nil {
 		return aiAnswer{}, err
@@ -119,7 +139,15 @@ func (m *geminiModel) Ask(ctx context.Context, system string, turns []aiTurn) (a
 	}
 	var b strings.Builder
 	for _, p := range c.Content.Parts {
-		b.WriteString(p.Text)
+		if p.FunctionCall != nil {
+			if e, ok := aiEditOf(p.FunctionCall.Name, p.FunctionCall.Args); ok {
+				a.Edits = append(a.Edits, e)
+			}
+			continue
+		}
+		if !p.Thought {
+			b.WriteString(p.Text)
+		}
 	}
 	a.Text = strings.TrimSpace(b.String())
 	return a, nil
