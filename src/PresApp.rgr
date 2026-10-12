@@ -337,6 +337,9 @@ class PresApp {
     ; the jumps while presenting and the slide number being typed
     def nav:PresNav (new PresNav())
     def reviewTitlesKey:string ""
+    ; every slide's elements as laid out last, for comments pinned on them
+    ; (PresReview.follow)
+    def reviewBlocks:[PresReviewBlock]
     ; Which surface over the chrome is on top: the order they are painted in
     ; (`layerOrder`, read by the page) and the order a press, a wheel or the
     ; cursor goes to them (`layerAt`). EVGUI's UiLayers; see `syncLayers`.
@@ -8027,7 +8030,9 @@ class PresApp {
                 }
             }
         }
-        def key:string ((to_string mdEditor.buf.version) + ":" + (to_string (deck.slideCount())))
+        ; a new text, other slides, another slide size (turned) or a layout
+        ; that finished later: the comments to their elements again
+        def key:string ((to_string mdEditor.buf.version) + ":" + (to_string deck.revision) + ":" + (to_string (deck.slideCount())) + ":" + (to_string deck.pageW) + "x" + (to_string deck.pageH))
         if (key != reviewTitlesKey) {
             reviewTitlesKey = key
             def ts:[string]
@@ -8037,7 +8042,8 @@ class PresApp {
                 push ts sl.title
                 i = (i + 1)
             }
-            review.setTitles(ts)
+            reviewBlocks = (this.reviewBlocksNow())
+            review.setPlaces(ts reviewBlocks)
         }
         review.measurer = measurer
         review.skin = skin
@@ -8049,6 +8055,103 @@ class PresApp {
             review.shift = (0.0 - ((sketch.barW + 8.0) * 0.5))
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
+    }
+
+    ; Every slide's elements, for PresReview.follow: a block's boxes on a
+    ; slide as one, keyed by its source (its first 160 characters), in
+    ; fractions of the slide; a diagram's carries its index on the slide.
+    fn reviewBlocksNow:[PresReviewBlock] () {
+        def out:[PresReviewBlock]
+        def pw:double deck.pageW
+        def ph:double deck.pageH
+        if ((pw <= 0.0) || (ph <= 0.0)) {
+            return out
+        }
+        ; the text the layout was made from (the editor's may be ahead)
+        def text:string deck.text
+        def n:int (strlen text)
+        def l:MdLayout (deck.layout())
+        def rd (new PresSelect())
+        ; one block per (slide, source start): where it is in `out`
+        def seen:[string:int]
+        for l.boxes b:MdBox i {
+            if ((((b.srcStart >= 0) && (b.srcStart < n)) && (b.furniture == 0)) && (b.retold == false)) {
+                def id:string ((to_string b.page) + ":" + (to_string b.srcStart))
+                if (has seen id) {
+                    def at:int (unwrap (get seen id))
+                    def pb:PresReviewBlock (itemAt out at)
+                    def x0:double (b.x / pw)
+                    def y0:double (b.y / ph)
+                    def x1:double ((b.x + b.w) / pw)
+                    def y1:double ((b.y + b.h) / ph)
+                    def r:double (pb.x + pb.w)
+                    def bt:double (pb.y + pb.h)
+                    if (x0 < pb.x) {
+                        pb.x = x0
+                    }
+                    if (y0 < pb.y) {
+                        pb.y = y0
+                    }
+                    if (x1 > r) {
+                        r = x1
+                    }
+                    if (y1 > bt) {
+                        bt = y1
+                    }
+                    pb.w = (r - pb.x)
+                    pb.h = (bt - pb.y)
+                } {
+                    rd.readBlock(text b.srcStart false (b.kind == 4))
+                    def end:int rd.srcB
+                    if (end > (b.srcStart + 160)) {
+                        end = (b.srcStart + 160)
+                    }
+                    if (end > n) {
+                        end = n
+                    }
+                    def k (new PresReviewBlock())
+                    k.page = b.page
+                    k.key = (trim (substring text b.srcStart end))
+                    k.x = (b.x / pw)
+                    k.y = (b.y / ph)
+                    k.w = (b.w / pw)
+                    k.h = (b.h / ph)
+                    if ((b.page >= 0) && (b.page < (deck.slideCount()))) {
+                        def ds:PresSlide (deck.slideAt(b.page))
+                        for ds.diagrams u:PresDiaUse di {
+                            if (u.srcStart == b.srcStart) {
+                                k.dia = di
+                            }
+                        }
+                    }
+                    if ((strlen k.key) > 0) {
+                        set seen id (array_length out)
+                        push out k
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; The element under a point of the selected slide (fractions): the
+    ; comment pinned there goes with it.
+    fn reviewPin:void (id:string x:double y:double) {
+        def k:int (PresReview.blockAt(reviewBlocks selected x y))
+        if (k < 0) {
+            return
+        }
+        def b:PresReviewBlock (itemAt reviewBlocks k)
+        if ((b.w <= 0.0) || (b.h <= 0.0)) {
+            return
+        }
+        if ((strlen id) == 0) {
+            review.draftEl = b.key
+            review.draftEX = ((x - b.x) / b.w)
+            review.draftEY = ((y - b.y) / b.h)
+            return
+        }
+        review.model.pinTo(id b.key ((x - b.x) / b.w) ((y - b.y) / b.h))
     }
 
     ; A comment pinned on a diagram is a point of the diagram: where the
@@ -8071,6 +8174,7 @@ class PresApp {
             if (!null? mh) {
                 def mt:PresReviewThread (unwrap mh)
                 if (mt.slide == selected) {
+                    this.reviewPin(mid mt.x mt.y)
                     def ma:[double] (this.reviewAnchorAt(t (mt.x * pw) (mt.y * ph)))
                     if ((array_length ma) == 4) {
                         def mdu@(optional):PresDiaUse (deck.diagramUse(selected (floor (itemAt ma 0))))
@@ -8086,6 +8190,7 @@ class PresApp {
         if review.draftAsk {
             review.draftAsk = false
             if (review.draftSlide == selected) {
+                this.reviewPin("" review.draftX review.draftY)
                 def a:[double] (this.reviewAnchorAt(t (review.draftX * pw) (review.draftY * ph)))
                 if ((array_length a) == 4) {
                     def k:int (floor (itemAt a 0))

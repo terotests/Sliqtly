@@ -24,6 +24,8 @@
 ;                 opened last, ms), "by" (who did that), "created",
 ;                 "severity" ("low", "medium", "high"; left out when not
 ;                 said) and "severityAt" (when it was set, ms),
+;                 "element": {"key", "x", "y"} (the slide element it is on,
+;                 see below), "lost" (that element was taken out),
 ;                 "messages": [{"id", "who", "name", "color", "text", "at"}]}],
 ;    "deleted": [thread ids]}
 ;
@@ -38,6 +40,16 @@
 ;            "node"} (the box it was opened from)}
 ;
 ; Its `slide` and `title` are the slide the file was opened from.
+;
+; A thread made on something on the slide (a picture, a heading, a line of
+; text) is pinned to that element, not only to the point: `element.key` is
+; the first line of the element's source and `element.x`/`y` the point in
+; the element's box (0..1). `follow(blocks titles)` finds the element again
+; after every edit: the same source nearest the slide it was on, else the
+; most alike one (an edit inside it), and the thread goes with it to
+; another slide, and to the element's new place when the slide turns or
+; the text above it grows. When the element is gone the thread is closed
+; and marked `lost`; it opens again if the element comes back (an undo).
 ;
 ; Two copies of the file (two people, an assistant through MCP, another tab)
 ; merge (`merge`): threads and messages are united by id, a thread's open or
@@ -101,6 +113,13 @@ class PresReviewThread {
     def codeCommit:string ""
     def viaDia:int -1
     def viaNode:string ""
+    ; On an element of the slide (see the top): its source's first line
+    ; ("" = on the slide itself), the point in its box, and whether it was
+    ; taken out (the thread was closed then).
+    def el:string ""
+    def ex:double 0.5
+    def ey:double 0.5
+    def lost:boolean false
 
     fn isCode:boolean () {
         return ((strlen codePath) > 0)
@@ -168,6 +187,20 @@ class PresReviewThread {
         }
         insert msgs i m
     }
+}
+
+; An element of a slide as the host laid it out: what `follow` finds a
+; thread's element by. `page` the slide (0 = first), `key` the first line
+; of its source, its box in fractions of the slide, and the diagram index
+; on that slide when it is a diagram (-1 not).
+class PresReviewBlock {
+    def page:int 0
+    def key:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def dia:int -1
 }
 
 class PresReview {
@@ -499,6 +532,8 @@ class PresReview {
         t.node = ""
         t.ax = 0.0
         t.ay = 0.0
+        t.el = ""
+        t.lost = false
         t.moved = at
         rev = (rev + 1)
         return true
@@ -518,6 +553,180 @@ class PresReview {
         push gone id
         rev = (rev + 1)
         return true
+    }
+
+    ; --- on an element ----------------------------------------------------------
+
+    ; The thread on the element whose source starts `key`, at (`ex`, `ey`)
+    ; of its box; false when there is no such thread.
+    fn pinTo:boolean (id:string key:string ex:double ey:double) {
+        def i:int (this.indexOf(id))
+        if ((i < 0) || ((strlen (trim key)) == 0)) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        t.el = (trim key)
+        t.ex = (PresReview.clamp01(ex))
+        t.ey = (PresReview.clamp01(ey))
+        t.lost = false
+        rev = (rev + 1)
+        return true
+    }
+
+    ; The smallest block on `page` with (`x`, `y`) in it, or -1.
+    sfn blockAt:int (blocks:[PresReviewBlock] page:int x:double y:double) {
+        def best:int -1
+        def bestA:double 0.0
+        for blocks b:PresReviewBlock i {
+            if ((b.page == page) && ((((x >= b.x) && (x <= (b.x + b.w))) && (y >= b.y)) && (y <= (b.y + b.h)))) {
+                def a:double (b.w * b.h)
+                if ((best < 0) || (a < bestA)) {
+                    best = i
+                    bestA = a
+                }
+            }
+        }
+        return best
+    }
+
+    ; How alike two sources are, 0..1: what they start and end with in
+    ; common against the longer one. An edit inside a line keeps the most
+    ; of both ends.
+    sfn alike:double (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb > n) {
+            n = nb
+        }
+        if (n == 0) {
+            return 1.0
+        }
+        def m:int na
+        if (nb < m) {
+            m = nb
+        }
+        def pre:int 0
+        while ((pre < m) && ((charAt a pre) == (charAt b pre))) {
+            pre = (pre + 1)
+        }
+        def suf:int 0
+        while (((suf < (m - pre))) && ((charAt a ((na - 1) - suf)) == (charAt b ((nb - 1) - suf)))) {
+            suf = (suf + 1)
+        }
+        return ((to_double (pre + suf)) / (to_double n))
+    }
+
+    ; Where the element of `t` is now: a block with its key nearest the slide
+    ; (and the point) it was on, else the most alike one, or -1.
+    sfn findBlock:int (t:PresReviewThread blocks:[PresReviewBlock]) {
+        def best:int -1
+        def bestD:double 0.0
+        for blocks b:PresReviewBlock i {
+            if (b.key == t.el) {
+                def ds:int (b.page - t.slide)
+                if (ds < 0) {
+                    ds = (0 - ds)
+                }
+                def cx:double ((b.x + (b.w * 0.5)) - t.x)
+                def cy:double ((b.y + (b.h * 0.5)) - t.y)
+                def d:double (((to_double ds) * 10.0) + ((cx * cx) + (cy * cy)))
+                if ((best < 0) || (d < bestD)) {
+                    best = i
+                    bestD = d
+                }
+            }
+        }
+        if (best >= 0) {
+            return best
+        }
+        def bestS:double 0.0
+        for blocks b2:PresReviewBlock j {
+            def a:double (PresReview.alike(b2.key t.el))
+            if (a >= 0.5) {
+                def ds2:int (b2.page - t.slide)
+                if (ds2 < 0) {
+                    ds2 = (0 - ds2)
+                }
+                ; the most alike; between equals the nearest slide
+                def sc:double (a - ((to_double ds2) * 0.001))
+                if ((best < 0) || (sc > bestS)) {
+                    best = j
+                    bestS = sc
+                }
+            }
+        }
+        return best
+    }
+
+    ; Each thread to its element again (`blocks`, every slide's), the others
+    ; to their slide by `titles` (`place`); `at` is now, for a thread closed
+    ; because its element was taken out. -> true when anything moved.
+    fn follow:boolean (blocks:[PresReviewBlock] titles:[string] at:double) {
+        def n:int (array_length titles)
+        def moved:boolean false
+        ; nothing laid out (a deck still opening): no element is gone
+        def laid:boolean ((array_length blocks) > 0)
+        for threads t:PresReviewThread i {
+            if ((((strlen t.el) > 0) && ((t.isCode()) == false)) && laid) {
+                def k:int (PresReview.findBlock(t blocks))
+                if (k >= 0) {
+                    def b:PresReviewBlock (itemAt blocks k)
+                    def nx:double (PresReview.clamp01((b.x + (t.ex * b.w))))
+                    def ny:double (PresReview.clamp01((b.y + (t.ey * b.h))))
+                    if ((((b.page != t.slide) || (b.key != t.el)) || ((PresReview.near(nx t.x)) == false)) || ((PresReview.near(ny t.y)) == false)) {
+                        moved = true
+                    }
+                    if ((t.dia >= 0) && (b.dia >= 0)) {
+                        if (t.dia != b.dia) {
+                            moved = true
+                        }
+                        t.dia = b.dia
+                    }
+                    t.slide = b.page
+                    t.el = b.key
+                    t.x = nx
+                    t.y = ny
+                    if ((t.slide >= 0) && (t.slide < n)) {
+                        t.title = (itemAt titles t.slide)
+                    }
+                    if t.lost {
+                        ; back (an undo): open again as it was
+                        t.lost = false
+                        t.closed = false
+                        t.state = at
+                        moved = true
+                    }
+                } {
+                    if (t.lost == false) {
+                        t.lost = true
+                        if (t.closed == false) {
+                            t.closed = true
+                            t.state = at
+                        }
+                        moved = true
+                    }
+                }
+            } {
+                def s:int (PresReview.slideFor(t.slide t.title titles))
+                if (s != t.slide) {
+                    t.slide = s
+                    moved = true
+                }
+                if ((s >= 0) && (s < n)) {
+                    t.title = (itemAt titles s)
+                }
+            }
+        }
+        if moved {
+            rev = (rev + 1)
+        }
+        return moved
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        return ((d < 0.0005) && (d > -0.0005))
     }
 
     ; --- the slides moved --------------------------------------------------------
@@ -617,6 +826,10 @@ class PresReview {
                         mine.node = ot.node
                         mine.ax = ot.ax
                         mine.ay = ot.ay
+                        mine.el = ot.el
+                        mine.ex = ot.ex
+                        mine.ey = ot.ey
+                        mine.lost = ot.lost
                         mine.moved = ot.moved
                         if (ot.isCode()) {
                             PresReview.takeCode(mine ot)
@@ -634,6 +847,13 @@ class PresReview {
                         mine.ay = ot.ay
                         changed = true
                     }
+                    if ((((strlen mine.el) == 0) && ((strlen ot.el) > 0)) && (ot.moved == mine.moved)) {
+                        mine.el = ot.el
+                        mine.ex = ot.ex
+                        mine.ey = ot.ey
+                        mine.lost = ot.lost
+                        changed = true
+                    }
                     if ((ot.sevAt > mine.sevAt) && (ot.severity != mine.severity)) {
                         mine.severity = ot.severity
                         mine.sevAt = ot.sevAt
@@ -643,6 +863,7 @@ class PresReview {
                         mine.closed = ot.closed
                         mine.state = ot.state
                         mine.by = ot.by
+                        mine.lost = ot.lost
                         changed = true
                     }
                 }
@@ -695,6 +916,10 @@ class PresReview {
         c.codeCommit = t.codeCommit
         c.viaDia = t.viaDia
         c.viaNode = t.viaNode
+        c.el = t.el
+        c.ex = t.ex
+        c.ey = t.ey
+        c.lost = t.lost
         for t.msgs m:PresReviewMsg i {
             push c.msgs (PresReview.msg(m.id m.who m.name m.color m.text m.at))
         }
@@ -1063,6 +1288,16 @@ class PresReview {
                 on.setMember("y" (PresReview.num((PresReview.round4(t.ay)))))
                 o.setMember("on" on)
             }
+            if ((strlen t.el) > 0) {
+                def eo:VlJson (VlJson.objectValue())
+                eo.setMember("key" (VlJson.stringValue(t.el)))
+                eo.setMember("x" (PresReview.num((PresReview.round4(t.ex)))))
+                eo.setMember("y" (PresReview.num((PresReview.round4(t.ey)))))
+                o.setMember("element" eo)
+                if t.lost {
+                    o.setMember("lost" (VlJson.boolValue(true)))
+                }
+            }
             if (t.isCode()) {
                 def co:VlJson (VlJson.objectValue())
                 co.setMember("path" (VlJson.stringValue(t.codePath)))
@@ -1173,6 +1408,13 @@ class PresReview {
                     t.node = (on.stringOr("node" ""))
                     t.ax = (PresReview.clamp01((on.doubleOr("x" 0.5))))
                     t.ay = (PresReview.clamp01((on.doubleOr("y" 0.5))))
+                }
+                def eo:VlJson (o.get("element"))
+                if ((eo.isObject()) && ((strlen (trim (eo.stringOr("key" "")))) > 0)) {
+                    t.el = (trim (eo.stringOr("key" "")))
+                    t.ex = (PresReview.clamp01((eo.doubleOr("x" 0.5))))
+                    t.ey = (PresReview.clamp01((eo.doubleOr("y" 0.5))))
+                    t.lost = (o.boolOr("lost" false))
                 }
                 def co:VlJson (o.get("code"))
                 if ((co.isObject()) && ((strlen (co.stringOr("path" ""))) > 0)) {

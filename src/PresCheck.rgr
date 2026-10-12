@@ -225,6 +225,7 @@ class PresCheck {
         this.orientation()
         this.chartModel()
         this.review()
+        this.reviewFollow()
         this.headingAttr()
         this.codeSource()
         this.codeRows()
@@ -828,6 +829,103 @@ class PresCheck {
         ; no change known
         def plain:PresCodeRows (PresCodeRows.make(f newT ""))
         this.ok((((plain.modeFor("diff")) == "now") && ((array_length (plain.rows("now"))) == 10)) "rows: no change, the file as it is")
+    }
+
+    sfn rvBlock:PresReviewBlock (page:int key:string x:double y:double w:double h:double) {
+        def b (new PresReviewBlock())
+        b.page = page
+        b.key = key
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        return b
+    }
+
+    ; A comment on an element goes where the element goes: to another slide,
+    ; to its new place on a turned slide; closed when the element is taken
+    ; out, open again when it comes back.
+    fn reviewFollow:void () {
+        def t0:double 1759658400000.0
+        def r (new PresReview())
+        r.start("p" 3 "Team" 0.6 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Too dark" t0)))
+        r.start("s" 3 "Team" 0.1 0.9 (PresReview.msg("m2" "u1" "Ada" "" "Add a footer" t0)))
+        def titles:[string]
+        push titles "Intro"
+        push titles "One"
+        push titles "Two"
+        push titles "Team"
+        def b0:[PresReviewBlock]
+        push b0 (PresCheck.rvBlock(3 "## Team" 0.1 0.1 0.8 0.1))
+        push b0 (PresCheck.rvBlock(3 "![Group](pictures/team.jpg)" 0.4 0.3 0.4 0.4))
+        def k:int (PresReview.blockAt(b0 3 0.6 0.5))
+        this.ok((k == 1) ("review follow: the picture under the pin: " + (to_string k)))
+        def pb:PresReviewBlock (itemAt b0 k)
+        r.pinTo("p" pb.key ((0.6 - pb.x) / pb.w) ((0.5 - pb.y) / pb.h))
+        this.ok(((r.follow(b0 titles (t0 + 1.0))) == false) "review follow: nothing moved, nothing to do")
+        ; four slides put in before it: the picture is on slide 8 now
+        def titles2:[string]
+        push titles2 "Intro"
+        push titles2 "One"
+        push titles2 "Two"
+        push titles2 "New A"
+        push titles2 "New B"
+        push titles2 "New C"
+        push titles2 "New D"
+        push titles2 "Team"
+        def b1:[PresReviewBlock]
+        push b1 (PresCheck.rvBlock(7 "## Team" 0.1 0.1 0.8 0.1))
+        push b1 (PresCheck.rvBlock(7 "![Group](pictures/team.jpg)" 0.4 0.3 0.4 0.4))
+        this.ok((r.follow(b1 titles2 (t0 + 2.0))) "review follow: slides came before it")
+        def p1:PresReviewThread (unwrap (r.find("p")))
+        this.ok(((p1.slide == 7) && (p1.title == "Team")) ("review follow: the comment went with the picture to slide 8: " + (to_string (p1.slide + 1))))
+        this.ok(((p1.x > 0.599) && (p1.x < 0.601)) "review follow: at the same point of it")
+        def s1:PresReviewThread (unwrap (r.find("s")))
+        this.ok((s1.slide == 7) "review follow: one on the slide itself goes by the title")
+        ; the picture moved to another slide whose title is not this one
+        def b2:[PresReviewBlock]
+        push b2 (PresCheck.rvBlock(7 "## Team" 0.1 0.1 0.8 0.1))
+        push b2 (PresCheck.rvBlock(2 "![Group](pictures/team.jpg)" 0.1 0.5 0.3 0.3))
+        r.follow(b2 titles2 (t0 + 3.0))
+        this.ok(((p1.slide == 2) && (p1.title == "Two")) ("review follow: moved to another slide, the comment too: " + (to_string (p1.slide + 1))))
+        ; the slide turned (portrait): the picture is elsewhere and narrower
+        def b3:[PresReviewBlock]
+        push b3 (PresCheck.rvBlock(2 "![Group](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        r.follow(b3 titles2 (t0 + 4.0))
+        this.ok((((p1.x > 0.499) && (p1.x < 0.501)) && ((p1.y > 0.6999) && (p1.y < 0.7001))) ("review follow: turned, the same point of the picture: " + (to_string p1.x) + "," + (to_string p1.y)))
+        ; edited inside: its alt text changed, still the same picture
+        def b4:[PresReviewBlock]
+        push b4 (PresCheck.rvBlock(2 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        r.follow(b4 titles2 (t0 + 5.0))
+        this.ok(((p1.lost == false) && (p1.el == "![Group photo](pictures/team.jpg)")) ("review follow: an edit inside keeps it: " + p1.el))
+        ; the same picture twice: the one nearest
+        def b5:[PresReviewBlock]
+        push b5 (PresCheck.rvBlock(0 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        push b5 (PresCheck.rvBlock(2 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        push b5 (PresCheck.rvBlock(5 "![Group photo](pictures/team.jpg)" 0.05 0.6 0.9 0.2))
+        r.follow(b5 titles2 (t0 + 6.0))
+        this.ok((p1.slide == 2) "review follow: of two the same, the nearest")
+        def none:[PresReviewBlock]
+        r.follow(none titles2 (t0 + 6.5))
+        this.ok(((p1.lost == false) && (p1.slide == 2)) "review follow: nothing laid out yet, nothing lost")
+        ; taken out: closed and marked, not counted open
+        def open0:int (r.openCount())
+        def b6:[PresReviewBlock]
+        push b6 (PresCheck.rvBlock(2 "Some other text" 0.05 0.6 0.9 0.2))
+        this.ok((r.follow(b6 titles2 (t0 + 7.0))) "review follow: the picture taken out")
+        this.ok((p1.lost && p1.closed) "review follow: its comment is closed, marked lost")
+        this.ok(((r.openCount()) == (open0 - 1)) "review follow: and no longer open")
+        def back:PresReview (PresReview.parse((r.toJson())))
+        def pb2:PresReviewThread (unwrap (back.find("p")))
+        this.ok(((pb2.lost && (pb2.el == p1.el)) && ((pb2.ex > 0.49) && (pb2.ex < 0.51))) ("review follow: the file keeps the element: " + pb2.el + " " + (to_string pb2.ex)))
+        ; an undo brings it back: open again
+        r.follow(b5 titles2 (t0 + 8.0))
+        this.ok((((p1.lost == false) && (p1.closed == false)) && (p1.slide == 2)) "review follow: back again, open again")
+        ; dragged off: on the slide itself
+        r.move("p" 0.2 0.2 (t0 + 9.0))
+        this.ok(((strlen p1.el) == 0) "review follow: a pin dragged off lets the element go")
+        this.ok(((PresReview.alike("abcdef" "abXcdef")) > 0.8) "review follow: alike keeps an edit inside")
+        this.ok(((PresReview.alike("abcdef" "zzzzzz")) < 0.1) "review follow: not alike")
     }
 
     fn review:void () {
