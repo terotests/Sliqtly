@@ -12056,6 +12056,25 @@ class PresApp {
         return true
     }
 
+    ; The same window with a choice to make first: `picks` one "key=label"
+    ; line per chip, `chosen` the key picked at the start. `ok` goes on
+    ; ("confirm:<key>"; picked() says which), Cancel only closes.
+    fn openPick:boolean (key:string title:string words:string ok:string picks:string chosen:string) {
+        if ((this.openConfirm(key title words ok)) == false) {
+            return false
+        }
+        chart.cfSafe = true
+        chart.cfPicks = picks
+        chart.cfPick = chosen
+        chart.rebuild()
+        return true
+    }
+
+    ; the key of the chip picked in openPick's window
+    fn picked:string () {
+        return chart.cfPick
+    }
+
     ; A long job's window (a video being made): `words` say what it is, the
     ; bar starts at 0. setProgress moves it, closeProgress closes it; Cancel
     ; asks the page "progress-cancel:<key>", × and Esc only hide it.

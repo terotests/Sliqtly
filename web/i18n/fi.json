@@ -1688,5 +1688,15 @@
   "The presentation is now private.": "Esitys on nyt yksityinen.",
   "Actions": "Toiminnot",
   "Apply": "Suorita",
-  "Changed {n} of {all} presentations": "Muutettu {n}/{all} esitystä"
+  "Changed {n} of {all} presentations": "Muutettu {n}/{all} esitystä",
+  "Export as Cloud HTML": "Vie pilveen HTML-sivuna",
+  "Export as Cloud video": "Vie pilveen videona",
+  "How long should the link work? After that it shows nothing. At most {n} days.": "Kuinka kauan linkki toimii? Sen jälkeen se ei näytä mitään. Enintään {n} päivää.",
+  "Create link": "Luo linkki",
+  "Expired": "Vanhentunut",
+  "Works until {date}": "Toimii {date} asti",
+  "Works until {date}.": "Linkki toimii {date} asti.",
+  "1 day": "1 päivä",
+  "7 days": "7 päivää",
+  "30 days": "30 päivää"
 }
