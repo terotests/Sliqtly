@@ -998,7 +998,7 @@ What each selector reads:
 - `gallery` (```gallery albums): gap, column-gap, columns, column-count, background-color
 - `cell` (a gallery's cells (cell:nth(n) for one)): padding, padding-top, padding-right, padding-bottom, padding-left, border-radius, border-width, border-color, background-color, font-size, color, font-family, text-align, font-weight
 - `caption` (a gallery cell's caption): padding, padding-top, padding-right, padding-bottom, padding-left, border-radius, border-width, border-color, background-color, font-size, color, font-family, text-align, font-weight
-- `chart` (charts (```vega-lite, ```chart)): color, accent-color, label-color, contrast, chart-style, chart-effects, font-size, title-font-size, title-gap, padding, justify-content, text-align
+- `chart` (charts (```vega-lite)): color, accent-color, label-color, contrast, chart-style, chart-effects, font-size, title-font-size, title-gap, padding, justify-content, text-align
 - `diagram` (diagrams (```mermaid, ```flow)): color, accent-color
 - `figure` (list figures (list-style: process, swot, timeline, cards, stats)): color, accent-color, colors, card-background, box-shadow, font-size
 - `.class` / `#id` on a block (`{.lead}` under a paragraph or heading): font-size, color, font-family, text-align, column-count, column-gap, list-style, font-weight, font-style, text-transform, letter-spacing, background-color, background, padding, padding-top, padding-right, padding-bottom, padding-left, border, border-color, border-width, border-style, border-radius, box-shadow

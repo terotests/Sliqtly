@@ -1477,6 +1477,9 @@ class Tools {
         for (Charts.typeWarnings(md)) tw:string ti {
             push c.warnings tw
         }
+        for (Charts.fenceWarnings(md)) fw:string fi {
+            push c.warnings fw
+        }
         if (c.laidOut == false) {
             c.slides = (array_length ((Deck.outline(md)).titles))
         }

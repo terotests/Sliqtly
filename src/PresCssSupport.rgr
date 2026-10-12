@@ -19,7 +19,7 @@ class PresCssSupport {
     sfn make:MdCssSupport () {
         def s (new MdCssSupport())
         ; PresDeck.chartDefaults, chartLook, chartColour, chart placement
-        s.addElement("chart" "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content,text-align" "charts (```vega-lite, ```chart)")
+        s.addElement("chart" "color,accent-color,label-color,contrast,chart-style,chart-effects,font-size,title-font-size,title-gap,padding,justify-content,text-align" "charts (```vega-lite)")
         ; PresDeck.diagram palette
         s.addElement("diagram" "color,accent-color" "diagrams (```mermaid, ```flow)")
         ; PresDeck.figureStyle

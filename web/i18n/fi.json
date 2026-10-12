@@ -1696,6 +1696,7 @@
   "Changed {n} of {all} presentations": "Muutettu {n}/{all} esitystä",
   "Removed from the front matter:": "Poistettu alkutiedoista:",
   "Front matter:": "Alkutiedot:",
+  "Theme:": "Teema:",
   "Slide {n} rewritten": "Dia {n} kirjoitettu uudelleen",
   "New first slide": "Uusi ensimmäinen dia",
   "New slide after slide {n}": "Uusi dia dian {n} jälkeen",

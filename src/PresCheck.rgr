@@ -98,6 +98,14 @@ class PresCheck {
     ; credits in words, and the slide an answer suggests.
     ; The changes an answer asks for, made on the Markdown (PresAiDeck).
     fn aiEdits:void () {
+        def th (new PresAiEdit())
+        th.tool = "set_theme"
+        th.value = "midnight"
+        def thSrc:string "---\ntitle: T\n---\n\n# One\n"
+        this.ok(((PresAiDeck.themeOf(([] _:PresAiEdit ( th )))) == "midnight") "ai edit: set_theme names the theme for the page's Theme choice")
+        this.ok(((PresAiDeck.apply(thSrc ([] _:int ( 5 6 )) ([] _:PresAiEdit ( th )))) == thSrc) "ai edit: set_theme leaves the Markdown as it is")
+        def rows:string ("white\twhite\tBasic\naurora\taurora\tDark\nmidnight\tmidnight\tDark\n\tDocument's own\t")
+        this.ok(((PresAiDeck.themeLines(rows)) == "Basic: white\nDark: aurora, midnight") ("ai context: the themes a line per group, got " + (PresAiDeck.themeLines(rows))))
         def src:string "---\ntitle: T\ntheme: aurora\n---\n\n# One\n\nHello\n\n## Two\n\nB\n\n## Three\n\nC\n"
         ; slides: One 5..9, Two 9..13, Three 13..17 (an overflow of Three on 13 too)
         def spans:[int] ([] _:int ( 5 9 9 13 13 17 13 17 ))

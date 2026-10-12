@@ -40,6 +40,14 @@ func TestAISystemHasTheGuide(t *testing.T) {
 	match(t, s, "AI assistant inside Sliqtly")
 	match(t, s, "````markdown")
 	match(t, aiSystem(true), "set_front_matter")
+	match(t, aiSystem(true), "set_theme")
+	// placing things is said with attributes, with a worked example, and the
+	// charts topic is there
+	for _, tools := range []bool{true, false} {
+		match(t, aiSystem(tools), "{layout=image-right}")
+		match(t, aiSystem(tools), "never write them")
+		match(t, aiSystem(tools), "# Topic: charts")
+	}
 	match(t, s, "# Topic: layout")
 	match(t, s, "# Topic: effects")
 	if strings.Contains(s, "# Topic: rooms") || strings.Contains(s, "# Topic: apps") {
@@ -217,7 +225,9 @@ func TestAIGemini(t *testing.T) {
 	}
 	match(t, fmt.Sprint(got["tools"]), "set_front_matter")
 	eq(t, a.Text, "Mist it is.")
-	eq(t, a.Edits, []aiEdit{{Tool: "set_front_matter", Key: "theme", Value: "mist"}, {Tool: "replace_slide", Slide: 2, Markdown: "## Two"}})
+	// a `theme:` front matter line changes nothing on the slides: it is the
+	// presentation's theme setting
+	eq(t, a.Edits, []aiEdit{{Tool: "set_theme", Value: "mist"}, {Tool: "replace_slide", Slide: 2, Markdown: "## Two"}})
 
 	reply = `{"candidates":[{"finishReason":"SAFETY"}]}`
 	a, _ = m.Ask(context.Background(), "sys", []aiTurn{{"user", "a"}})
@@ -227,4 +237,18 @@ func TestAIGemini(t *testing.T) {
 	if !errors.Is(err, errAINotSetUp) {
 		t.Fatalf("404 should read as not set up: %v", err)
 	}
+}
+
+func TestAIThemeEdit(t *testing.T) {
+	e, ok := aiEditOf("set_theme", map[string]any{"name": "Midnight"})
+	eq(t, ok, true)
+	eq(t, e, aiEdit{Tool: "set_theme", Value: "midnight"})
+	_, ok = aiEditOf("set_theme", map[string]any{"name": "no-such-theme"})
+	eq(t, ok, false)
+	e, _ = aiEditOf("set_front_matter", map[string]any{"key": "transition", "value": "fade"})
+	eq(t, e, aiEdit{Tool: "set_front_matter", Key: "transition", Value: "fade"})
+	q := aiQuestion{Message: "darker please", Context: aiContext{Theme: "aurora", Themes: "Dark: aurora, carbon, midnight"}}
+	turns := q.turns()
+	match(t, turns[len(turns)-1].Text, "<theme>aurora</theme>")
+	match(t, turns[len(turns)-1].Text, "Dark: aurora, carbon, midnight")
 }
