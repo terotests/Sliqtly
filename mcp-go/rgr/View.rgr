@@ -163,6 +163,28 @@ class View {
             o.putStr("url" url)
             files.add(o)
         }
+        ; a screen of a Figma file (figma:<file>/<node>) the slides draw:
+        ; drawn by this server from the deck owner's files
+        ; (ViewPictures.figma), at an address that changes with the file
+        if public {
+            for (FigmaRef.inText(md)) addr:string ai {
+                def key:string (FigmaRef.pictureKey(addr))
+                if ((indexOf all ("\"" + key + "\"")) < 0) {
+                    continue
+                }
+                def fref:FigmaRef (FigmaRef.parse(addr))
+                def fstamp:string (host_shared_stamp host fref.file sh.id)
+                if ((fref.ok == false) || ((strlen fstamp) == 0)) {
+                    continue
+                }
+                def fpath:string (substring key 1 (strlen key))
+                def fo:MfJ (MfJ.newObj())
+                fo.putStr("path" fpath)
+                fo.putStr("type" "image/png")
+                fo.putStr("url" (View.pictureUrl(host id fpath fstamp)))
+                files.add(fo)
+            }
+        }
         def deck:MfJ (MfJ.newObj())
         deck.putStr("name" (doc.str_("name")))
         deck.putNum("width" d.pageW)
@@ -395,6 +417,9 @@ class ViewPictures {
         if (((doc.isObj()) == false) || ((sh.link == false) && ((View.shows(doc "")) == false))) {
             return out
         }
+        if (FigmaRef.isFigma(path)) {
+            return (ViewPictures.figma(host id sh path v))
+        }
         def type:string ""
         def stamp:string ""
         def found:boolean false
@@ -432,6 +457,40 @@ class ViewPictures {
             out.bytes = made
         }
         out.type = (host_content_type host out.bytes)
+        return out
+    }
+
+    ; A screen of a Figma file the deck shows (figma:<file>/<node>, View.json),
+    ; drawn from its owner's files as a PNG; `v` is the file's stamp
+    sfn figma:ViewPic (host:McpHost id:string sh:Shown path:string v:string) {
+        def out (new ViewPic)
+        ; only an address the deck's text names
+        def named:string ""
+        for (FigmaRef.inText((sh.doc.str_("md")))) addr:string ai {
+            if ((FigmaRef.pictureKey(addr)) == ("/" + path)) {
+                named = addr
+            }
+        }
+        def ref:FigmaRef (FigmaRef.parse(named))
+        if (ref.ok == false) {
+            return out
+        }
+        def stamp:string (host_shared_stamp host ref.file sh.id)
+        if ((strlen stamp) == 0) {
+            return out
+        }
+        if (v != stamp) {
+            out.status = 302
+            out.url = (View.pictureUrl(host id path stamp))
+            return out
+        }
+        def handle:int (host_shared_png host ref.file ref.node sh.id)
+        if (handle == 0) {
+            return out
+        }
+        out.status = 200
+        out.bytes = (host_image_bytes host handle)
+        out.type = "image/png"
         return out
     }
 
