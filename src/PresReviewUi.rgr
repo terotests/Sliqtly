@@ -1419,7 +1419,7 @@ class PresReviewUi {
         if ((this.inPanel(px py)) == false) {
             return false
         }
-        chat.scrollBy((? (dy < 0.0) -1 1))
+        chat.wheel(dy)
         this.changed()
         return true
     }

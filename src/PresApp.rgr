@@ -5427,7 +5427,7 @@ class PresApp {
         }
         if (panels.chatHas(x y)) {
             def wc:ChatCtl (panels.dockChat())
-            wc.scrollBy((? (dy < 0.0) -1 1))
+            wc.wheel(dy)
             panels.rebuild()
             chromeRev = (chromeRev + 1)
             return true
