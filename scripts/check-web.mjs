@@ -710,6 +710,28 @@ try {
   await page.keyboard.press("Backspace");
   check("and the document is back as it was", (await page.evaluate(() => window.__app.source().length)) === len0);
 
+  // A dead key (` on a Nordic Mac) waits in a composition for the next key.
+  // Enter then belongs to the composition: the editor takes the line break
+  // and the ` as the browser delivers them, loses neither, and typing goes
+  // on after it (a composition that ended without compositionend used to
+  // leave the page deaf to the commit and to the keys after it).
+  {
+    const cdp = await page.context().newCDPSession(page);
+    const before = await page.evaluate(() => window.__app.source());
+    const ticks = (s) => s.split("`").length - 1;
+    await cdp.send("Input.imeSetComposition", { text: "`", selectionStart: 1, selectionEnd: 1 });
+    await page.keyboard.press("Enter");
+    await cdp.send("Input.insertText", { text: "`" });
+    const after = await page.evaluate(() => window.__app.source());
+    await page.keyboard.type("z");
+    const typed = await page.evaluate(() => window.__app.source());
+    check("a dead key's ` is kept when Enter ends its composition", ticks(after) === ticks(before) + 1, JSON.stringify(after.length - before.length));
+    check("…and typing goes on after it", typed.length === after.length + 1);
+    for (let i = 0; i < 10 && (await page.evaluate(() => window.__app.source())).length > before.length; i += 1) await page.keyboard.press("Backspace");
+    check("…and Backspace takes them out", (await page.evaluate(() => window.__app.source())) === before);
+    await cdp.detach();
+  }
+
   // Ctrl + plus / minus / 0 in the editor size its text, not the page, and
   // the size is kept; Ctrl + wheel over the editor does the same
   {

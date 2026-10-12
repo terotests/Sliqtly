@@ -8181,6 +8181,8 @@ let composing = false;
 // passing through beforeinput, and the input handler below carries it over.
 let mirrored = "";
 function mirrorLine() {
+  // the field holds the composition's marked text; rewriting it cancels it
+  if (composing) return;
   if (app.focusTarget() !== "editor" || (lastLayout && lastLayout.mode === "present")) {
     if (keys.value !== "") keys.value = "";
     mirrored = "";
@@ -8287,6 +8289,13 @@ keys.addEventListener("keydown", (ev) => {
   // A composition that ended without a compositionend (a dead key, an IME
   // cancelled by a click) must not leave typing switched off.
   if (!ev.isComposing && ev.keyCode !== 229) composing = false;
+  // A key pressed while a composition is open (a dead key's ` or ´ waiting
+  // for the next key, an IME's candidates) is the composition's: what it
+  // commits comes as compositionend, and Enter or Backspace after it as
+  // beforeinput. Taken here, Enter split the line before the pending ` was
+  // committed, and the mirror reset under the composition lost or misplaced
+  // it: ``` + Enter left a broken fence and a stray backtick.
+  if (ev.isComposing || ev.keyCode === 229) return;
   if (recCounting) {
     ev.preventDefault();
     if (ev.key === "Escape") recCounting();
@@ -8412,6 +8421,10 @@ keys.addEventListener("compositionend", (ev) => {
 });
 
 keys.addEventListener("beforeinput", (ev) => {
+  // an edit that is not the composition's says it is over, whether or not a
+  // compositionend came (Enter or a click can end one without it): left
+  // switched on, the flag swallowed the commit and every key after it
+  if (!ev.isComposing && ev.inputType !== "insertCompositionText") composing = false;
   if (composing || ev.isComposing) return;
   const type = ev.inputType;
   let handled = true;
