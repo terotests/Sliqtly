@@ -14,7 +14,9 @@
  *                picture.js and what it imports, brand.js
  *   play.html    /r/{id}/{hash}: a presentation exported as recorded (the
  *                editor's Export ▸ Cloud HTML), played by play.js with
- *                playlink.js, recstream.js, fxdeck.js and the painter only
+ *                playlink.js, recstream.js, fxdeck.js and the painter only;
+ *                one exported with the 3-D flight also playflight.js,
+ *                flight3d.js, three3d.js and pres_3d.js, loaded then only
  *   gl/          evg-webgl.js, the painter
  *   viewplay.js, apps.js, pres_play.js, cerxes.wasm …   programs on slides
  *                (```app), loaded only for a deck that has one
@@ -39,7 +41,7 @@ export const viewDir = path.join(webDir, "dist-view");
 
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
-const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["play.js", "play.js"], ["playlink.js", "playlink.js"], ["recstream.js", "recstream.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"]];
+const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["play.js", "play.js"], ["playlink.js", "playlink.js"], ["recstream.js", "recstream.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"], ["flight3d.js", "flight3d.js"], ["playflight.js", "playflight.js"]];
 const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"]];
 
 function files(dir) {

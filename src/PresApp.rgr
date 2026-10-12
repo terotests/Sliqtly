@@ -12059,9 +12059,11 @@ class PresApp {
         return true
     }
 
-    ; The same window with a choice to make first: `picks` one "key=label"
-    ; line per chip, `chosen` the key picked at the start. `ok` goes on
-    ; ("confirm:<key>"; picked() says which), Cancel only closes.
+    ; The same window with choices to make first: `picks` one "key=label"
+    ; line per chip, groups of them apart by an empty line (a line without
+    ; "=" heads its group), `chosen` the keys picked at the start, one per
+    ; group, "," between. `ok` goes on ("confirm:<key>"; picked() says
+    ; which, as `chosen`), Cancel only closes.
     fn openPick:boolean (key:string title:string words:string ok:string picks:string chosen:string) {
         if ((this.openConfirm(key title words ok)) == false) {
             return false
@@ -12073,7 +12075,7 @@ class PresApp {
         return true
     }
 
-    ; the key of the chip picked in openPick's window
+    ; the keys of the chips picked in openPick's window, "," between
     fn picked:string () {
         return chart.cfPick
     }

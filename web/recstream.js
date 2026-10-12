@@ -167,6 +167,8 @@ export class RecEncoder {
       pictures: withAssets.pictures || [],
       deckEffects: withAssets.deckEffects || "",
       scripts: [],
+      // the 3-D flight through the slides (web/play.js), when exported with it
+      flight: withAssets.flight || null,
     };
   }
 }

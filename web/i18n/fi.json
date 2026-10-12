@@ -1703,5 +1703,8 @@
   "Works until {date}.": "Linkki toimii {date} asti.",
   "1 day": "1 päivä",
   "7 days": "7 päivää",
-  "30 days": "30 päivää"
+  "30 days": "30 päivää",
+  "Pick the version, and how long the link works. After that it shows nothing. At most {n} days.": "Valitse versio ja kuinka kauan linkki toimii. Sen jälkeen se ei näytä mitään. Enintään {n} päivää.",
+  "Slides (2-D)": "Diat (2D)",
+  "The link works": "Linkki toimii"
 }

@@ -243,9 +243,11 @@ class PresChartEditor {
     def cfAlt:string ""
     ; a question that deletes nothing (a paste): its button is not red
     def cfSafe:boolean false
-    ; A choice to make before going on (PresApp.openPick: how long a link
-    ; works): `cfPicks` one "key=label" line per chip, `cfPick` the key
-    ; chosen, which the page reads when it hears "confirm:<key>"
+    ; Choices to make before going on (PresApp.openPick: how long a link
+    ; works, which version): `cfPicks` one "key=label" line per chip, a row
+    ; of chips per group (groups apart by an empty line, a line without "="
+    ; their heading), `cfPick` the key chosen in each group, "," between,
+    ; which the page reads when it hears "confirm:<key>"
     def cfPicks:string ""
     def cfPick:string ""
     def wantsAlt:boolean false
@@ -2861,15 +2863,29 @@ class PresChartEditor {
         }
         pane.addChild((this.copyable("ce-t-confirm" "ce-doc" cfText)))
         if ((strlen cfPicks) > 0) {
-            def pc:EVGElement (UiKit.div("ce-chips"))
-            for (strsplit cfPicks (strfromcode 10)) line:string li {
-                def at:int (indexOf line "=")
-                if (at > 0) {
-                    def k:string (substring line 0 at)
-                    this.chip(("cf-pick-" + k) (substring line (at + 1) (strlen line)) (k == cfPick) pc)
+            def nl:string (strfromcode 10)
+            def chosen:[string] (strsplit cfPick ",")
+            def g:int 0
+            for (strsplit cfPicks (nl + nl)) group:string gi {
+                def pick:string ""
+                if (g < (array_length chosen)) {
+                    pick = (itemAt chosen g)
                 }
+                def pc:EVGElement (UiKit.div("ce-chips"))
+                for (strsplit group nl) line:string li {
+                    def at:int (indexOf line "=")
+                    if (at > 0) {
+                        def k:string (substring line 0 at)
+                        this.chip(("cf-pick-" + (to_string g) + "-" + k) (substring line (at + 1) (strlen line)) (k == pick) pc)
+                    } {
+                        if ((strlen line) > 0) {
+                            pane.addChild((UiKit.words("ce-flabel" line)))
+                        }
+                    }
+                }
+                pane.addChild(pc)
+                g = (g + 1)
             }
-            pane.addChild(pc)
         }
         root.addChild(pane)
         def bottom:EVGElement (UiKit.div("ce-foot"))
@@ -2902,8 +2918,28 @@ class PresChartEditor {
             return true
         }
         if ((indexOf tid "cf-pick-") == 0) {
-            cfPick = (substring tid 8 (strlen tid))
-            this.rebuild()
+            ; "cf-pick-<group>-<key>": that group's choice
+            def rest:string (substring tid 8 (strlen tid))
+            def dash:int (indexOf rest "-")
+            if (dash > 0) {
+                def g:int (?? (to_int (substring rest 0 dash)) 0)
+                def chosen:[string] (strsplit cfPick ",")
+                def out:[string]
+                def i:int 0
+                while ((i < (array_length chosen)) || (i <= g)) {
+                    def v:string ""
+                    if (i < (array_length chosen)) {
+                        v = (itemAt chosen i)
+                    }
+                    if (i == g) {
+                        v = (substring rest (dash + 1) (strlen rest))
+                    }
+                    push out v
+                    i = (i + 1)
+                }
+                cfPick = (join out ",")
+                this.rebuild()
+            }
             return true
         }
         return false
