@@ -108,6 +108,8 @@ class View {
         }
         ; at rest: every build step shown, charts grown (render_slide's state)
         d.still = true
+        ; …so the presenter, who would only say the story's last line, is left out
+        d.presenterOff = true
         ; a program's box is left empty: the page runs it and paints its
         ; plate until it has a picture (web/viewplay.js)
         d.platesOff = true
