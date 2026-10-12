@@ -67,6 +67,9 @@ const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-t
 // gzipped as web/recstream.js packStream keeps it), under its hash
 const recFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec.sliqrec"));
 const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice(0, 24);
+// the same kind of recording exported with the 3-D flight (version 3-D)
+const rec3dFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec3d.sliqrec"));
+const REC3D_HASH = crypto.createHash("sha256").update(rec3dFile).digest("hex").slice(0, 24);
 // a presentation exported as a video (Export ▸ Cloud video): a 2 s WebM by
 // Sliqtly's own encoder, at the same kind of address
 const videoFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-video.webm"));
@@ -106,6 +109,11 @@ const server = http.createServer((req, res) => {
     videoReads.push(req.headers.range || "");
     res.writeHead(200, { "content-type": "video/webm" });
     res.end(videoFile);
+    return;
+  }
+  if (rel === "/api/view/" + ID + "/rec/" + REC3D_HASH) {
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    res.end(rec3dFile);
     return;
   }
   if (rel === "/api/view/" + ID + "/rec/" + REC_HASH) {
@@ -282,6 +290,14 @@ try {
     await rp.keyboard.press("a");
     await rp.waitForFunction((n) => document.getElementById("pCount").textContent === `4 / ${n}`, recN, { timeout: 15000 }).catch(() => fail("A (play it all) did not go on to slide 4"));
     await rp.close();
+    const rp0Flightless = async () => {
+      const p0 = await browser.newPage();
+      await p0.goto(base + "/r/" + ID + "/" + REC_HASH, { waitUntil: "load" });
+      await p0.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+      const none = await p0.evaluate(() => document.getElementById("pFlight").hidden && document.getElementById("start3d").hidden && !window.__play.flight);
+      await p0.close();
+      return none;
+    };
     // #slide=N opens that slide; Share copies its /r/ link
     const sp = await browser.newPage();
     await sp.goto(base + "/r/" + ID + "/" + REC_HASH + "#slide=3", { waitUntil: "load" });
@@ -300,6 +316,47 @@ try {
     await gone.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
     if (!(await gone.evaluate(() => document.getElementById("note").textContent)).length) fail("a missing recording says nothing");
     await gone.close();
+    // exported with the 3-D flight: offered on the page and on the bar; a
+    // press flies it in full screen (the editor's flight, web/flight3d.js),
+    // Esc lands back in the slides; a 2-D recording offers none
+    if (!(await rp0Flightless())) fail("a 2-D recording offers the 3-D flight");
+    const fp = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    fp.on("pageerror", (e) => fail(`/r/ 3-D: ${e.message}`));
+    fp.on("console", (m) => { if (m.type() === "error") fail(`/r/ 3-D: console: ${m.text()}`); });
+    await fp.goto(base + "/r/" + ID + "/" + REC3D_HASH, { waitUntil: "load" });
+    await fp.waitForFunction(() => window.__pageStarted && window.__play?.flight, null, { timeout: 15000 }).catch(() => fail("the 3-D recording offers no flight"));
+    const offered = await fp.evaluate(() => ({ bar: !document.getElementById("pFlight").hidden, start: !document.getElementById("start3d").hidden }));
+    if (!offered.bar || !offered.start) fail("the 3-D flight is not offered: " + JSON.stringify(offered));
+    await fp.click("#start3d");
+    const flew = await fp.waitForFunction(() => window.__play.flight.flying(), null, { timeout: 15000 }).then(() => true, () => false);
+    if (!flew) fail("the light player's 3-D flight did not take off: " + await fp.evaluate(() => document.getElementById("note").textContent));
+    else {
+      await fp.waitForTimeout(1500);
+      // what the screen shows (the GL canvas keeps no frame to read back)
+      const shot = await fp.screenshot({ path: process.env.SHOT_3D || undefined });
+      const lit = await fp.evaluate(async (b64) => {
+        const img = new Image();
+        img.src = "data:image/png;base64," + b64;
+        await img.decode();
+        const g = document.createElement("canvas");
+        g.width = 64;
+        g.height = 36;
+        const x = g.getContext("2d");
+        x.drawImage(img, 0, 0, 64, 36);
+        const d = x.getImageData(0, 0, 64, 36).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 120) n++;
+        return n;
+      }, shot.toString("base64"));
+      if (lit < 5) fail(`the 3-D flight drew nothing (${lit} bright cells)`);
+      await fp.keyboard.press("Space");
+      await fp.waitForTimeout(2500);
+      if (process.env.SHOT_3D) await fp.screenshot({ path: process.env.SHOT_3D.replace(/\.png$/, "-2.png") });
+      await fp.keyboard.press("Escape");
+      const landed = await fp.waitForFunction(() => !window.__play.flight.flying(), null, { timeout: 5000 }).then(() => true, () => false);
+      if (!landed) fail("Esc did not land the 3-D flight");
+    }
+    await fp.close();
     // a video at the same kind of address: the browser's player reads it from
     // where it is kept (a redirect), its whole length
     const vp = await browser.newPage();

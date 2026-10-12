@@ -10,6 +10,10 @@
 // ← → go from slide to slide (each from its master time, playing its way
 // in), Space through the build steps (the sub times) and on, A plays it all.
 //
+// Exported with the 3-D flight (version 3-D), the recording also carries
+// the world flown through (web/playflight.js): 3-D on the bar, or G,
+// flies it in full screen; Esc lands back on the slide it ended at.
+//
 // The same address can hold the presentation as a video (the editor's
 // Export ▸ Cloud video, a WebM): the browser's own player plays it. A video
 // kept in Storage comes as a redirect there, and the player streams it in
@@ -37,6 +41,7 @@ for (const [id, en, fiText] of [
   ["pAuto", "Play it all (A)", "Toista kaikki (A)"],
   ["pFull", "Full screen", "Koko näyttö"],
   ["pShare", "Share this slide (copies its link)", "Jaa tämä dia (kopioi sen linkin)"],
+  ["pFlight", "Fly through it in 3-D (G)", "Lennä sen läpi 3D:nä (G)"],
 ]) document.getElementById(id).title = say(en, fiText);
 
 let gl = null;
@@ -46,9 +51,12 @@ let navAt = 0;
 let raf = 0;
 const startedAt = performance.now();
 
+// the 3-D flight (web/playflight.js), when the recording carries one
+let flight = null;
+
 function paint() {
   raf = 0;
-  if (!gl || !nav) return;
+  if (!gl || !nav || flight?.flying()) return;
   const now = performance.now();
   if (nav.playing) {
     if (navAt) nav.tick(Math.min(0.25, (now - navAt) / 1000));
@@ -127,6 +135,11 @@ window.addEventListener("pointermove", wake);
 window.addEventListener("keydown", (ev) => {
   wake();
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (flight && !flight.flying() && (ev.key === "g" || ev.key === "G")) {
+    ev.preventDefault();
+    fly();
+    return;
+  }
   if (act(recActionForKey(ev.key))) ev.preventDefault();
 });
 // a click or a tap on the slide: the next step
@@ -156,6 +169,44 @@ pShare.addEventListener("click", async () => {
   window.__lastShare = url;
   setTimeout(() => { pShare.textContent = "⤴\uFE0E"; }, 1500);
 });
+
+// The 3-D flight from a press (it takes the full screen); a word for a
+// moment when it cannot fly.
+let toastTimer = 0;
+function toast(text) {
+  note.textContent = text;
+  note.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { note.hidden = true; }, 3500);
+}
+function fly() {
+  start3d.hidden = true;
+  flight?.start().catch((e) => toast(String((e && e.message) || e)));
+}
+const pFlight = document.getElementById("pFlight");
+const start3d = document.getElementById("start3d");
+pFlight.addEventListener("click", fly);
+start3d.addEventListener("click", fly);
+async function offerFlight(data) {
+  const { createPlayFlight } = await import("./playflight.js");
+  flight = createPlayFlight({
+    flight: data, fi, toast,
+    slide: () => nav.slide,
+    go: (i) => {
+      nav.go(i);
+      nav.finish();
+    },
+    onExit: () => {
+      navAt = 0;
+      showState();
+      repaint();
+    },
+  });
+  pFlight.hidden = false;
+  start3d.textContent = say("▶ Fly through it in 3-D", "▶ Lennä läpi 3D:nä");
+  start3d.hidden = false;
+  window.__play.flight = flight;
+}
 
 async function loadFace(name, file) {
   const res = await fetch("./fonts/" + file + (FONTS && !FONTS.startsWith("__") ? "?v=" + FONTS : ""));
@@ -234,6 +285,7 @@ async function start() {
   bar.hidden = false;
   wake();
   window.__play = { nav, act };
+  if (s.flight) await offerFlight(s.flight).catch((e) => console.warn("no 3-D flight", e));
   window.__pageStarted = true;
   repaint();
 }

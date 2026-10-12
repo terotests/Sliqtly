@@ -5892,6 +5892,44 @@ async function recordForWeb(fps = 30) {
   const cmds = enc.cmds;
   return enc.finish({ faces: recordedFaces(cmds), pictures: await recordedPictures(cmds), deckEffects: app.deckEffectsJson() });
 }
+// The 3-D flight through the slides for the light player (web/play.js):
+// the world as PresFlight makes it, the slides' 3-D worlds as their
+// programs last drew them, and the pictures its screens and presenters
+// show as WebP (long side at most FLIGHT_PIC px, as the flight asks).
+const FLIGHT_PIC = 768;
+async function recordFlight() {
+  const json = app.flightJson();
+  const srcs = new Set();
+  const sprites = new Map();
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") {
+      if (v.k === "picture" && v.src) srcs.add(v.src);
+      if (v.k === "sprite" && v.src && v.box) sprites.set(v.src, JSON.stringify({ src: v.src, box: v.box }));
+      Object.values(v).forEach(walk);
+    }
+  };
+  walk(JSON.parse(json));
+  const webp = async (img) => {
+    if (!img) return null;
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext("2d").putImageData(img, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, "image/webp", 0.85));
+    return blob ? { type: blob.type, b64: base64(new Uint8Array(await blob.arrayBuffer())) } : null;
+  };
+  const pics = [];
+  for (const src of srcs) {
+    const got = await webp(picturePixels(src, FLIGHT_PIC));
+    if (got) pics.push({ src, ...got });
+  }
+  for (const [src, spec] of sprites) {
+    const got = await webp(spritePixels(spec, FLIGHT_PIC));
+    if (got) pics.push({ src, ...got });
+  }
+  return { json, scenes: app.allPlayScenesJson(), pictures: pics };
+}
 // The faces the recorded text is set in: [[name, file]] (text in no named
 // face is set in the first, Open Sans).
 function recordedFaces(cmds) {
@@ -5936,17 +5974,20 @@ function noCloudHere() {
   toast(t("This server does not publish to the cloud. Export a web page, a player or a video to a file instead."));
   return true;
 }
-// `days`: how long its link works (asked first when not given)
-async function exportRecWeb(days) {
+// `days`: how long its link works, `look` "3d" with the 3-D flight
+// through the slides (both asked first when not given)
+async function exportRecWeb(days, look = "2d") {
   if (noCloudHere()) return;
   const p = window.sliqtly;
   if (!p?.user?.()) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
-  if (!days) return askLinkDays(t("Export as Cloud HTML"), exportRecWeb);
+  if (!days) return askLinkDays(t("Export as Cloud HTML"), exportRecWeb, true);
   if (!(await cloudTakesDeck())) return;
-  const bytes = await packStream(await recordForWeb());
+  const stream = await recordForWeb();
+  if (look === "3d") stream.flight = await recordFlight();
+  const bytes = await packStream(stream);
   await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
     t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
 }
@@ -5984,39 +6025,56 @@ async function cloudTakesDeck() {
   }
 }
 // How long a link works (web/linkdays.js), asked in the app's window before
-// Share and the cloud exports make one: `go(days)` runs on the answer,
-// Cancel drops it. The last answer is picked first next time.
+// Share and the cloud exports make one: `go(days, look)` runs on the
+// answer, Cancel drops it. With `looks` (Cloud HTML) the window also asks
+// which version: "2d" the slides, "3d" the 3-D flight through them. The
+// last answers are picked first next time.
 const LINK_DAYS_KEY = "sliqtly.linkDays";
+const LOOK_KEY = "sliqtly.publishLook";
 let linkAsk = null;
 function lastLinkDays() {
   let d = DEFAULT_DAYS;
   try { d = linkDays(localStorage.getItem(LINK_DAYS_KEY) || DEFAULT_DAYS); } catch (_) { /* the default */ }
   return CHOICES.includes(d) ? d : DEFAULT_DAYS;
 }
-function askLinkDays(title, go) {
-  const words = t("How long should the link work? After that it shows nothing. At most {n} days.").replace("{n}", String(MAX_DAYS));
-  linkAsk = go;
-  if (app.openPick("linkdays", title, words, t("Create link"), choiceLines(t), String(lastLinkDays()))) {
+function lastLook() {
+  try { return localStorage.getItem(LOOK_KEY) === "3d" ? "3d" : "2d"; } catch (_) { return "2d"; }
+}
+function askLinkDays(title, go, looks = false) {
+  const most = String(MAX_DAYS);
+  linkAsk = { go, looks };
+  const asked = looks
+    ? app.openPick("linkdays", title, t("Pick the version, and how long the link works. After that it shows nothing. At most {n} days.").replace("{n}", most), t("Create link"),
+      t("Version") + "\n2d=" + t("Slides (2-D)") + "\n3d=" + t("3-D flight") + "\n\n" + t("The link works") + "\n" + choiceLines(t),
+      lastLook() + "," + lastLinkDays())
+    : app.openPick("linkdays", title, t("How long should the link work? After that it shows nothing. At most {n} days.").replace("{n}", most), t("Create link"),
+      choiceLines(t), String(lastLinkDays()));
+  if (asked) {
     needsPaint = true;
     return;
   }
-  // no window now (presenting): the last answer
+  // no window now (presenting): the last answers
   linkAsk = null;
-  return go(lastLinkDays());
+  return go(lastLinkDays(), looks ? lastLook() : "2d");
 }
 function answerLinkDays() {
-  const go = linkAsk;
+  const ask = linkAsk;
   linkAsk = null;
-  if (!go) return;
-  const days = linkDays(app.picked());
-  try { localStorage.setItem(LINK_DAYS_KEY, String(days)); } catch (_) { /* this time only */ }
-  Promise.resolve(go(days)).catch(fail);
+  if (!ask) return;
+  const got = app.picked().split(",");
+  const look = ask.looks && got[0] === "3d" ? "3d" : "2d";
+  const days = linkDays(ask.looks ? got[1] : got[0]);
+  try {
+    localStorage.setItem(LINK_DAYS_KEY, String(days));
+    if (ask.looks) localStorage.setItem(LOOK_KEY, look);
+  } catch (_) { /* this time only */ }
+  Promise.resolve(ask.go(days, look)).catch(fail);
 }
-window.__answerLinkDays = (days) => {
+window.__answerLinkDays = (days, look = "2d") => {
   app.closeChart?.();
-  const go = linkAsk;
+  const ask = linkAsk;
   linkAsk = null;
-  return go ? go(linkDays(days)) : null;
+  return ask ? ask.go(linkDays(days), look) : null;
 };
 // The recording's or the video's bytes kept with the deck as
 // recordings/web-{hash}{ext} (the one before of the same kind removed), the
@@ -6056,6 +6114,7 @@ async function publishForWeb(bytes, ext, type, note, days) {
   }
 }
 window.__recordForWeb = recordForWeb;
+window.__recordFlight = recordFlight;
 window.__exportRecWeb = exportRecWeb;
 window.__exportDocx = exportDocx;
 window.__exportHtml = exportHtml;
