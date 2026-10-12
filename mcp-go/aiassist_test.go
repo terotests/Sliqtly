@@ -41,6 +41,13 @@ func TestAISystemHasTheGuide(t *testing.T) {
 	match(t, s, "````markdown")
 	match(t, aiSystem(true), "set_front_matter")
 	match(t, aiSystem(true), "set_theme")
+	// placing things is said with attributes, with a worked example, and the
+	// charts topic is there
+	for _, tools := range []bool{true, false} {
+		match(t, aiSystem(tools), "{layout=image-right}")
+		match(t, aiSystem(tools), "never write them")
+		match(t, aiSystem(tools), "# Topic: charts")
+	}
 	match(t, s, "# Topic: layout")
 	match(t, s, "# Topic: effects")
 	if strings.Contains(s, "# Topic: rooms") || strings.Contains(s, "# Topic: apps") {
