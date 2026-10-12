@@ -8703,6 +8703,7 @@ class PresApp {
                 after = "\n"
             }
         }
+        mdEditor.holdCaret()
         mdEditor.moveCaret(last (strlen (mdEditor.buf.lineAt(last))) false)
         mdEditor.insert(("\n\n![](" + path + ")" + after))
         if (cl > last) {
@@ -11496,6 +11497,7 @@ class PresApp {
                 if (c > 0) {
                     def cl:int editor.sel.caret.line
                     def cc:int editor.sel.caret.col
+                    editor.holdCaret()
                     editor.moveCaret(ln 0 false)
                     editor.moveCaret(ln (strlen lt) true)
                     editor.insert((PresTraceRefs.swapRef(lt from to)))
@@ -12037,6 +12039,7 @@ class PresApp {
         def keep:ScriptEditor editor
         editor = mdEditor
         def oldLines:int 0
+        mdEditor.holdCaret()
         mdEditor.moveCaret(0 0 false)
         ; the block always ends with its line break, so the writes of one
         ; window all replace the same stretch and merge into one undo step
@@ -12284,6 +12287,7 @@ class PresApp {
         def keep:ScriptEditor editor
         editor = mdEditor
         def n:int (mdEditor.buf.lineCount())
+        mdEditor.holdCaret()
         mdEditor.moveCaret(from 0 false)
         if ((to + 1) < n) {
             mdEditor.moveCaret((to + 1) 0 true)
@@ -12979,6 +12983,7 @@ class PresApp {
         }
         def cl:int editor.sel.caret.line
         def cc:int editor.sel.caret.col
+        editor.holdCaret()
         editor.moveCaret(line a false)
         editor.moveCaret(line b true)
         editor.insert(text)
@@ -13985,6 +13990,7 @@ class PresApp {
         }
         def moved:int 0
         if (at >= 0) {
+            mdEditor.holdCaret()
             mdEditor.moveCaret(at 0 false)
             if write {
                 mdEditor.moveCaret(at (strlen (mdEditor.buf.lineAt(at))) true)
@@ -13998,6 +14004,7 @@ class PresApp {
             if (write == false) {
                 return
             }
+            mdEditor.holdCaret()
             if (close > 0) {
                 mdEditor.moveCaret(close 0 false)
                 mdEditor.insert((line + "\n"))
