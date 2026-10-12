@@ -66,6 +66,19 @@ func (f *fakeAdmin) Licenses(context.Context) ([]string, []Doc, error) {
 	return ids, docs, nil
 }
 
+func (f *fakeAdmin) AIUsage(context.Context) ([]string, []Doc, error) {
+	if f.db == nil {
+		return nil, nil, errors.New("PERMISSION_DENIED")
+	}
+	ids, docs := []string{}, []Doc{}
+	for k, d := range f.db.data {
+		if id, ok := strings.CutPrefix(k, aiUsageCol+"/"); ok {
+			ids, docs = append(ids, id), append(docs, clone(d))
+		}
+	}
+	return ids, docs, nil
+}
+
 var adminNow = time.Date(2026, 10, 8, 15, 0, 0, 0, time.UTC)
 
 func at(day string, hour int) time.Time {
@@ -348,5 +361,54 @@ func TestAdminLicensesNeedDB(t *testing.T) {
 	base, stop := adminServer(t, &fakeAdmin{})
 	defer stop()
 	code, _ := adminGet(t, base+"/main/admin/api/licenses", "tero")
+	eq(t, code, 404)
+}
+
+func TestAdminAI(t *testing.T) {
+	use := func(a, c, in, out int64) Doc { return Doc{"actions": a, "calls": c, "in": in, "out": out} }
+	ids := []string{"u-anna", "u-ben", "u-old"}
+	usage := []Doc{
+		{"2026-10": use(3, 3, 9000, 800), "2026-09": use(5, 5, 20000, 1000)},
+		{"2026-10": use(7, 8, 30000, 2000)},
+		{"2025-01": use(9, 9, 1, 1)}, // older than the six months
+	}
+	r := buildAdminAI(adminNow, ids, usage, []string{"u-anna"}, []Doc{{"email": "anna@example.com", "name": "Anna"}})
+	eq(t, r.Month, "2026-10")
+	eq(t, len(r.Months), 6)
+	eq(t, []string{r.Months[0].Month, r.Months[1].Month, r.Months[5].Month}, []string{"2026-10", "2026-09", "2026-05"})
+	eq(t, r.Months[0].adminAIUse, adminAIUse{Actions: 10, Calls: 11, In: 39000, Out: 2800})
+	eq(t, r.Months[1].adminAIUse, adminAIUse{Actions: 5, Calls: 5, In: 20000, Out: 1000})
+	eq(t, len(r.People), 2)
+	eq(t, []string{r.People[0].UID, r.People[0].Email, r.People[1].Email}, []string{"u-ben", "", "anna@example.com"})
+	eq(t, r.People[1].adminAIUse, adminAIUse{Actions: 3, Calls: 3, In: 9000, Out: 800})
+	// January: the year before
+	jan := buildAdminAI(time.Date(2026, 1, 31, 23, 0, 0, 0, time.UTC), nil, nil, nil, nil)
+	eq(t, []string{jan.Months[0].Month, jan.Months[1].Month}, []string{"2026-01", "2025-12"})
+}
+
+func TestAdminAIRoute(t *testing.T) {
+	db := newFakeDB()
+	ctx := context.Background()
+	db.Set(ctx, licenseCol, "u-anna", Doc{"email": "anna@example.com"})
+	db.Set(ctx, aiUsageCol, "u-anna", Doc{"2026-10": Doc{"actions": int64(2), "calls": int64(2), "in": int64(500), "out": int64(60)}})
+	base, stop := adminServer(t, &fakeAdmin{db: db})
+	defer stop()
+	url := base + "/main/admin/api/ai"
+	code, body := adminGet(t, url, "other")
+	eq(t, code, 403)
+	if strings.Contains(fmt.Sprint(body), "anna") {
+		t.Fatal("an address went out")
+	}
+	code, body = adminGet(t, url, "tero")
+	eq(t, code, 200)
+	people := body["people"].([]any)
+	eq(t, len(people), 1)
+	p := people[0].(map[string]any)
+	eq(t, []any{p["email"], p["actions"], p["in"], p["out"]}, []any{"anna@example.com", 2.0, 500.0, 60.0})
+	code, _ = adminPost(t, url, "tero", `{}`)
+	eq(t, code, 405)
+	base2, stop2 := adminServer(t, &fakeAdmin{})
+	defer stop2()
+	code, _ = adminGet(t, base2+"/main/admin/api/ai", "tero")
 	eq(t, code, 404)
 }

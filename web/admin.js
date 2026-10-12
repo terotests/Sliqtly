@@ -5,7 +5,8 @@
 // account on the server's list; this page only signs in and draws. Sign-in
 // is the viewer's (viewauth.js). The Licenses card lists licenses/{uid} and
 // sets how many presentations an account may edit in the cloud
-// (GET licenses, POST license).
+// (GET licenses, POST license). The AI assistant card shows the editor
+// drawer's use by month and account (GET ai).
 
 import { currentUser, signIn, authHeaders } from "./viewauth.js";
 
@@ -92,6 +93,12 @@ export function licenseRows(list, filter = "") {
 /** The list with one license replaced by its new row (same uid). */
 export function withLicense(list, row) {
   return list.map((l) => (l.uid === row.uid ? row : l));
+}
+
+/** A use row of GET ai as table cells: actions, calls, tokens in, tokens out. */
+export function aiCells(u) {
+  const n = (v) => new Intl.NumberFormat("en").format(v || 0);
+  return [n(u.actions), n(u.calls), n(u.in), n(u.out)];
 }
 
 const num = (v) => new Intl.NumberFormat("en").format(v || 0);
@@ -241,6 +248,24 @@ async function loadLicenses() {
   }
 }
 
+async function loadAI() {
+  $("eAI").textContent = "";
+  try {
+    const res = await fetch(`${API}ai`, { headers: await authHeaders(user) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return ($("eAI").textContent = "Not available: " + (body.error || `the server answered ${res.status}`));
+    const tds = (u) => aiCells(u).map((c) => `<td>${esc(c)}</td>`).join("");
+    $("aMonthsBody").innerHTML = (body.months || []).map((m) => `<tr><td>${esc(m.month)}</td>${tds(m)}</tr>`).join("");
+    const people = body.people || [];
+    $("aCount").textContent = `${people.length} ${people.length === 1 ? "account" : "accounts"} in ${body.month || "this month"}`;
+    $("aPeopleBody").innerHTML = people.length
+      ? people.map((p) => `<tr><td><div>${esc(p.email || p.uid)}</div>${p.name ? `<div class="dim">${esc(p.name)}</div>` : ""}</td>${tds(p)}</tr>`).join("")
+      : `<tr><td class="dim" colspan="5">No one has used the assistant this month.</td></tr>`;
+  } catch (e) {
+    $("eAI").textContent = "Could not reach the server: " + e.message;
+  }
+}
+
 async function saveQuota(form) {
   const msg = form.querySelector(".msg");
   const q = parseQuota(form.max.value);
@@ -281,6 +306,7 @@ async function load(fresh = false) {
   show("board");
   $("me").textContent = user.email || "";
   render(body);
+  loadAI();
   loadLicenses();
 }
 

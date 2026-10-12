@@ -18,10 +18,12 @@
 // (SLIQTLY_BILLING_TABLE). Counts only: no email, name or id goes out.
 // adminReport is the model; the sources (firebase.go) only read.
 //
-// The licenses (editor.go) are the one list with people in it:
+// The licenses (editor.go) and the AI assistant's use are the lists with
+// people in them:
 //
 //	GET  /main/admin/api/licenses            every licenses/{uid}
 //	POST /main/admin/api/license {uid, maxDocs, plan?}
+//	GET  /main/admin/api/ai                  aiUsage/{uid} by month and account
 //
 // the second sets how many presentations an account may edit in the cloud
 // (-1: no limit). It changes only an existing license (made at the
@@ -82,6 +84,8 @@ type adminSource interface {
 	Costs(ctx context.Context, since time.Time) ([]adminCost, error)
 	// every licenses/{uid}: the ids and the documents, in the same order
 	Licenses(ctx context.Context) ([]string, []Doc, error)
+	// every aiUsage/{uid} (aiassist.go), the same way
+	AIUsage(ctx context.Context) ([]string, []Doc, error)
 }
 
 type adminConfig struct {
@@ -467,8 +471,8 @@ func serveAdmin(env *Env, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := strings.TrimPrefix(r.URL.Path, adminPath)
-	method, known := map[string]string{"stats": "GET", "me": "GET", "licenses": "GET", "license": "POST"}[p]
-	if !known || (strings.HasPrefix(p, "license") && env.DB == nil) {
+	method, known := map[string]string{"stats": "GET", "me": "GET", "licenses": "GET", "license": "POST", "ai": "GET"}[p]
+	if !known || ((strings.HasPrefix(p, "license") || p == "ai") && env.DB == nil) {
 		http.NotFound(w, r)
 		return
 	}
@@ -503,6 +507,10 @@ func serveAdmin(env *Env, w http.ResponseWriter, r *http.Request) {
 	}
 	if p == "licenses" || p == "license" {
 		serveAdminLicenses(env, w, r, p == "license")
+		return
+	}
+	if p == "ai" {
+		serveAdminAI(env, w, r)
 		return
 	}
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
@@ -716,4 +724,125 @@ func parseBillingRows(status int, b []byte) ([]adminCost, error) {
 		out = append(out, adminCost{Day: s(0), Service: s(1), Currency: s(2), Cost: cost})
 	}
 	return out, nil
+}
+
+// --------------------------------------------------------------------- ai --
+
+const adminAIMonths = 6
+
+// the assistant's use summed: AI actions (what the month's allowance
+// counts), calls to the model, and its tokens in and out
+type adminAIUse struct {
+	Actions int64 `json:"actions"`
+	Calls   int64 `json:"calls"`
+	In      int64 `json:"in"`
+	Out     int64 `json:"out"`
+}
+
+func (u *adminAIUse) add(d map[string]any) {
+	u.Actions += docInt(d["actions"])
+	u.Calls += docInt(d["calls"])
+	u.In += docInt(d["in"])
+	u.Out += docInt(d["out"])
+}
+
+type adminAIMonth struct {
+	Month string `json:"month"` // YYYY-MM, UTC
+	adminAIUse
+}
+
+type adminAIPerson struct {
+	UID   string `json:"uid"`
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name,omitempty"`
+	adminAIUse
+}
+
+type adminAI struct {
+	Month  string          `json:"month"`  // the month People is for
+	Months []adminAIMonth  `json:"months"` // newest first
+	People []adminAIPerson `json:"people"` // this month, the most used first
+}
+
+// The assistant's use from aiUsage/{uid} (one key per month), with each
+// account's address from its license.
+func buildAdminAI(now time.Time, ids []string, usage []Doc, licIDs []string, lics []Doc) adminAI {
+	out := adminAI{Month: aiMonth(now), Months: []adminAIMonth{}, People: []adminAIPerson{}}
+	t := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	at := map[string]int{}
+	for i := 0; i < adminAIMonths; i++ {
+		m := aiMonth(t.AddDate(0, -i, 0))
+		at[m] = i
+		out.Months = append(out.Months, adminAIMonth{Month: m})
+	}
+	who := map[string]Doc{}
+	for i, id := range licIDs {
+		if i < len(lics) {
+			who[id] = lics[i]
+		}
+	}
+	for i, d := range usage {
+		if i >= len(ids) || d == nil {
+			continue
+		}
+		for m, v := range d {
+			if k, ok := at[m]; ok {
+				out.Months[k].add(docMap(v))
+			}
+		}
+		this := docMap(d[out.Month])
+		if len(this) == 0 {
+			continue
+		}
+		p := adminAIPerson{UID: ids[i]}
+		p.add(this)
+		if l := who[ids[i]]; l != nil {
+			p.Email, _ = l["email"].(string)
+			p.Name, _ = l["name"].(string)
+		}
+		out.People = append(out.People, p)
+	}
+	sort.SliceStable(out.People, func(i, j int) bool {
+		a, b := out.People[i], out.People[j]
+		if a.Actions != b.Actions {
+			return a.Actions > b.Actions
+		}
+		if a.In+a.Out != b.In+b.Out {
+			return a.In+a.Out > b.In+b.Out
+		}
+		return a.UID < b.UID
+	})
+	return out
+}
+
+func serveAdminAI(env *Env, w http.ResponseWriter, r *http.Request) {
+	a := env.Admin
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	var (
+		wg                sync.WaitGroup
+		ids, licIDs       []string
+		usage, lics       []Doc
+		usageErr, licsErr error
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); ids, usage, usageErr = a.Source.AIUsage(ctx) }()
+	go func() { defer wg.Done(); licIDs, lics, licsErr = a.Source.Licenses(ctx) }()
+	wg.Wait()
+	if usageErr != nil {
+		log.Printf("admin ai: %v", usageErr)
+		adminError(w, 502, "The AI use could not be read: "+errText(usageErr))
+		return
+	}
+	if licsErr != nil {
+		// the counts without the addresses
+		log.Printf("admin ai licenses: %v", licsErr)
+	}
+	now := time.Now()
+	if env.Now != nil {
+		now = env.Now()
+	}
+	b, _ := json.Marshal(buildAdminAI(now, ids, usage, licIDs, lics))
+	w.Write(b)
 }

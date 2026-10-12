@@ -183,6 +183,11 @@ license from its first visit to /editor; admins always have no limit. The
 same field can be changed by hand in the Firebase console (Firestore →
 `licenses` → the account's uid → `maxDocs`).
 
+The AI assistant card (`GET /main/admin/api/ai`) sums `aiUsage/{uid}` for
+the last six calendar months (UTC): AI actions, calls to the model and its
+tokens in and out, and this month's use per account. The euros are the
+Vertex AI line of the Cloud cost card.
+
 What the service account needs for each part (a part it cannot read says so
 on the page, the rest still shows):
 

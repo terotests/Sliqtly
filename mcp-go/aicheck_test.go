@@ -64,7 +64,7 @@ func TestAIRepairRound(t *testing.T) {
 	eq(t, last[n-2].Text, "Added charts.")
 	match(t, last[n-1].Text, "insert_slide after 1: The ```chart block on slide \"Q3\" is shown as code")
 	eq(t, ans.Text, "Added a bar chart.")
-	eq(t, []int64{ans.In, ans.Out}, []int64{400, 110})
+	eq(t, []int64{ans.In, ans.Out, ans.Calls}, []int64{400, 110, 2})
 
 	// a clean answer is asked once
 	m = &scriptedAI{answers: []aiAnswer{good}}
@@ -78,4 +78,5 @@ func TestAIRepairRound(t *testing.T) {
 	a = &aiAssist{model: m}
 	ans, _ = a.ask(context.Background(), q, check)
 	eq(t, ans.Text, "Added charts.")
+	eq(t, ans.Calls, int64(2))
 }
