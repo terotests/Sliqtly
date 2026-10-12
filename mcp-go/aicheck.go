@@ -24,14 +24,21 @@ type aiChecker func(md string) []string
 // The deck check MCP runs, on Markdown laid out with the theme (aurora, as
 // MCP's, when the editor named none Sliqtly has).
 func aiDeckCheck(env *Env, ctx context.Context, theme string) aiChecker {
-	if !slices.Contains(Deck_static_THEMES(), theme) {
-		theme = "aurora"
-	}
+	theme = aiKnownTheme(theme)
 	return func(md string) []string {
 		h := &McpHost{env: env, ctx: ctx, images: map[int64][]byte{}}
 		bgs := Tools_static_backgrounds(h, md, "", nil, "")
 		return Tools_static_checkDeck(h, md, theme, false, "", bgs, nil, "", nil).warnings
 	}
+}
+
+// the theme a presentation is laid out with: aurora, as MCP's, when the
+// editor named none Sliqtly has
+func aiKnownTheme(theme string) string {
+	if !slices.Contains(Deck_static_THEMES(), theme) {
+		return "aurora"
+	}
+	return theme
 }
 
 // What the check says about the Markdown the edits write, each line saying
@@ -73,9 +80,9 @@ func aiThemeAfter(theme string, edits []aiEdit) string {
 // Ask the model; when the check finds problems in its changes, tell it what
 // they are and ask once more. The second answer stands when it changes
 // something; the tokens of both are counted.
-func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme string) aiChecker) (aiAnswer, error) {
+func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme string) aiChecker, r *aiReader) (aiAnswer, error) {
 	turns := q.turns()
-	ans, err := a.model.Ask(ctx, a.system, turns)
+	ans, err := a.askModel(ctx, turns, r)
 	if err != nil || ans.Declined || check == nil {
 		return ans, err
 	}
@@ -91,16 +98,24 @@ func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme strin
 		aiTurn{Role: "assistant", Text: said},
 		aiTurn{Role: "user", Text: "Your change was not made: Sliqtly's check of it says\n- " + strings.Join(problems, "\n- ") +
 			"\nMake the whole change again with these fixed, with your functions, and say in a sentence what you changed."})
-	fixed, err := a.model.Ask(ctx, a.system, again)
+	fixed, err := a.askModel(ctx, again, r)
 	if err != nil || fixed.Declined || len(fixed.Edits) == 0 {
 		// the first answer, as the model gave it, rather than nothing
 		ans.In += fixed.In
 		ans.Out += fixed.Out
-		ans.Calls = 2
+		ans.Calls = max(ans.Calls, 1) + max(fixed.Calls, 1)
 		return ans, nil
 	}
 	fixed.In += ans.In
 	fixed.Out += ans.Out
-	fixed.Calls = 2
+	fixed.Calls = max(fixed.Calls, 1) + max(ans.Calls, 1)
 	return fixed, nil
+}
+
+// One answer from the model, reading with r first when it can.
+func (a *aiAssist) askModel(ctx context.Context, turns []aiTurn, r *aiReader) (aiAnswer, error) {
+	if m, ok := a.model.(aiReading); ok && r != nil {
+		return m.AskReading(ctx, a.system, turns, r)
+	}
+	return a.model.Ask(ctx, a.system, turns)
 }

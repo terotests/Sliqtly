@@ -186,7 +186,7 @@ class PresCheck {
         def req:string (a.takePending())
         this.ok(((indexOf req "\"action\":\"improve\"") > 0) ("ai: the action goes along " + req))
         this.ok(((indexOf req "\"slide\":7") > 0) "ai: the slide counts from 1 for the server")
-        this.ok(((indexOf req "deckMarkdown") < 0) "ai: a slide question leaves the deck out")
+        this.ok(((indexOf req "\"deckMarkdown\":\"# Deck") > 0) "ai: a slide question sends the deck too, for drawing")
         this.ok(((indexOf req "\"history\":[]") > 0) "ai: the question itself is not history")
         this.ok(((a.takePending()) == "") "ai: the request is taken once")
         this.ok((a.ask("more?" "" ctx) == false) "ai: one question at a time")
