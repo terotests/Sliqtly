@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -171,4 +173,75 @@ func TestCloudSharedStale(t *testing.T) {
 	if c.of("") != nil || c.of("a/b") != nil {
 		t.Fatal("an account id that is not one")
 	}
+}
+
+// the viewer (a shared link, the assistant's preview) gets a deck's Figma
+// pictures from its owner's files, through /api/view/<id>/pic
+func TestViewFigmaPictures(t *testing.T) {
+	fig, err := os.ReadFile("testdata/health.fig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fakeFirebase()
+	env := withSignIn(testEnv(&f, nil))
+	_, bucket, err := newFSStore(t.TempDir(), "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.cloudShared = newCloudShared(bucket, nil)
+	done := make(chan string, 1)
+	env.cloudShared.of("u1").indexed = func(id string) { done <- id }
+	s := start(t, env, signIn(f))
+	defer s.close()
+	ctx := t.Context()
+	bucket.Save(ctx, "users/u1/figma-upload/abcdef1234.fig", "application/octet-stream", fig, nil)
+	if _, err := env.cloudShared.adopt(ctx, "u1", "Health App.fig", "", "users/u1/figma-upload/abcdef1234.fig"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the file was never read")
+	}
+
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Screens", "visibility": "link",
+		"markdown": "# Screens\n\n## Dashboard\n\n![Dashboard](figma:health-app/1:2)\n",
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	code, _, v, body := getView(t, s.root+"/api/view/"+id)
+	eq(t, code, 200)
+	url := ""
+	for _, file := range v.Deck.Files {
+		if file.Path == "figma:health-app/1:2" {
+			url = file.URL
+		}
+	}
+	if !strings.HasPrefix(url, "/api/view/"+id+"/pic?path=figma%3Ahealth-app%2F1%3A2&v=") {
+		t.Fatalf("figma file url %q in %.400s", url, body)
+	}
+	get := func(u string) *http.Response {
+		t.Helper()
+		no := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		res, err := no.Get(s.root + u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	res := get(url)
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	eq(t, []any{res.StatusCode, res.Header.Get("Content-Type"), strings.HasPrefix(string(b), "\x89PNG")}, []any{200, "image/png", true}, "the screen drawn")
+	// an old stamp (the file was added again since): to the current address
+	res = get("/api/view/" + id + "/pic?path=figma%3Ahealth-app%2F1%3A2&v=old")
+	res.Body.Close()
+	eq(t, []any{res.StatusCode, res.Header.Get("Location")}, []any{302, url}, "an old stamp")
+	// a screen the deck does not show: nothing of the owner's other files
+	res = get("/api/view/" + id + "/pic?path=figma%3Ahealth-app%2F1%3A3&v=x")
+	res.Body.Close()
+	eq(t, res.StatusCode, 404, "a screen not on the deck")
 }

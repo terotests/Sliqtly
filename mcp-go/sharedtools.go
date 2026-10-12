@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/terotests/sliqtly/mcp-go/store"
@@ -127,26 +128,34 @@ func (h *McpHost) ToolImage() string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
+// the shared files a deck's Figma pictures come from: the server's on a
+// server of its own; on sliqtly.com the deck's owner's (shares/{deck}), or
+// the caller's for a deck not kept yet; nil for none
+func (h *McpHost) sharedOfDeck(deck string) *sharedFiles {
+	if h.env == nil {
+		return nil
+	}
+	if h.env.shared != nil {
+		return h.env.shared
+	}
+	if h.env.cloudShared == nil {
+		return nil
+	}
+	owner := h.caller
+	if deck != "" && h.env.DB != nil {
+		if d, err := h.env.DB.Get(h.ctx, "shares", deck); err == nil && fieldText(d, "owner") != "" {
+			owner = fieldText(d, "owner")
+		}
+	}
+	return h.env.cloudShared.of(owner)
+}
+
 // SharedPng: layer `node` of shared file `file` drawn as a slide shows it
 // (the editor's size, sharedfiles.js), kept as a picture → its handle; 0
 // when there is no such file or layer (the slide then draws what is
-// missing, as for any picture)
-// On sliqtly.com the picture is drawn from the files of the deck's owner
-// (shares/{deck}), or of the caller for a deck not kept yet.
+// missing, as for any picture). From the files of deck's (sharedOfDeck).
 func (h *McpHost) SharedPng(file, node, deck string) int64 {
-	if h.env == nil {
-		return 0
-	}
-	sh := h.env.shared
-	if sh == nil && h.env.cloudShared != nil {
-		owner := h.caller
-		if deck != "" && h.env.DB != nil {
-			if d, err := h.env.DB.Get(h.ctx, "shares", deck); err == nil && fieldText(d, "owner") != "" {
-				owner = fieldText(d, "owner")
-			}
-		}
-		sh = h.env.cloudShared.of(owner)
-	}
+	sh := h.sharedOfDeck(deck)
 	if sh == nil {
 		return 0
 	}
@@ -158,6 +167,21 @@ func (h *McpHost) SharedPng(file, node, deck string) int64 {
 		return 0
 	}
 	return h.keep(b)
+}
+
+// SharedStamp: what changes when shared file `file` of deck's is put again
+// or read anew (its card's time), for the viewer's picture addresses; ""
+// when there is no such file
+func (h *McpHost) SharedStamp(file, deck string) string {
+	sh := h.sharedOfDeck(deck)
+	if sh == nil || !sharedIDPattern.MatchString(file) {
+		return ""
+	}
+	f, err := sh.card(h.ctx, file)
+	if err != nil {
+		return ""
+	}
+	return strconv.FormatInt(f.Updated, 36)
 }
 
 // SetCaller: the signed-in account the request is for ("" for none), whose
