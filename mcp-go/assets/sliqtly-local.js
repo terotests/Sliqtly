@@ -14,6 +14,9 @@
 //                                          share changed since (409)
 //   DELETE /api/shares/{id}                the share and its files
 //   POST   /api/shares/{id}/head           move the version head (pushHead)
+//   POST   /api/shares/{id}/links          a viewing link of one recording
+//                                          { days, file } → { id }
+//   DELETE /api/shares/{id}/links?file=…   that recording's links
 //   PUT    /api/files/shares/{id}/{path}   a file → { path, type, size, url }
 //   GET    /files/shares/{id}/{path}       read one
 //   DELETE /api/files/shares/{id}/{path}
@@ -166,6 +169,20 @@ async function getObject(shareId, objId) {
   return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
 }
 
+// A recording's own viewing link (Export ▸ Link: light player / video):
+// /r/{link}/{hash} plays that recording only, `days` from now (1 to 30),
+// and never opens the deck. The same recording again gets its link again,
+// with a new term. → the link's id
+async function viewLink(id, days, file = "") {
+  if (!user) throw new Error("not signed in");
+  return (await api("POST", "/api/shares/" + id + "/links", { days, file })).id;
+}
+
+// a recording's links go with it (main.js publishForWeb)
+async function removeFileLinks(id, path) {
+  await api("DELETE", "/api/shares/" + id + "/links?file=" + encodeURIComponent(path));
+}
+
 async function pushHead(shareId, expect, head, entries) {
   return api("POST", "/api/shares/" + shareId + "/head", { expect: expect || null, head, entries });
 }
@@ -215,9 +232,10 @@ async function serverVersion() {
 }
 
 // local: a server of one's own, not sliqtly.com: the editor offers no
-// publishing to the cloud (Export ▸ Cloud HTML, Cloud video) here
+// publishing to the cloud (Export ▸ Cloud HTML, Cloud video) here; links:
+// the same two as this server's own links (/r/{link}/{hash}, viewLink)
 window.sliqtly = {
-  local: true, auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
+  local: true, links: true, viewLink, removeFileLinks, auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
   putObject, getObject, pushHead, readHead, collab, serverVersion,
   sheetsToken: () => null, askSheets: async () => null, sheetName: () => null,
 };

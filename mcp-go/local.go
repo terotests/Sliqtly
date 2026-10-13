@@ -11,6 +11,7 @@
 //	/s/{id}/slides        a deck as its slides, drawn by render.go
 //	/s/{id}/{n}.jpg       slide n (1-based)
 //	/s/{id}/overview.jpg  every slide as a thumbnail
+//	/r/{link}/{hash}      a recording's light player or video (localplay.go)
 //	/files/shares/…       pictures and data files of a deck
 //	/themes/{name}.css    the built-in themes
 //
@@ -323,6 +324,8 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.picture(w, r, "render_overview", map[string]any{"deck_id": overviewPath.FindStringSubmatch(p)[1]})
 	case deckPath.MatchString(p) && s.web != nil:
 		s.page(w, r)
+	case playPath.MatchString(p) && s.web != nil:
+		s.playPage(w, r)
 	case deckPath.MatchString(p):
 		s.deck(w, r, deckPath.FindStringSubmatch(p)[1])
 	case slidesPath.MatchString(p):

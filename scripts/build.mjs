@@ -154,6 +154,14 @@ export function build({ ranger } = {}) {
     + "(function () {\n" + fs.readFileSync(traceJs, "utf8") + "\n;globalThis.PresTrace = PresTrace;\n})();\n");
   buildThree(ranger, distDir);
   buildScriptSel(ranger, distDir);
+  // The light player (web/play.html at /r/{link}/{hash}) a server of one's
+  // own hands out (mcp-go/localplay.go), as sliqtly.com's viewer build
+  // has it: the programs on a recording's slides run with PresPlayWeb,
+  // loaded only for a recording that has some (web/viewplay.js).
+  const playJs = path.join(distDir, "pres_play.js");
+  compile(ranger, "PresViewPlay.rgr", playJs);
+  fs.writeFileSync(playJs, "// loaded on demand by viewplay.js: the programs and scripts on a deck's slides.\n"
+    + "(function () {\n" + fs.readFileSync(playJs, "utf8") + "\n;globalThis.PresPlayWeb = PresPlayWeb;\nglobalThis.PresScriptWeb = PresScriptWeb;\n})();\n");
   // The deck's music heard (src/PresBeat.rgr): bars, beats and tempo for
   // the beat effects (web/music.js, web/beatfx.js). Small, loaded with the
   // page.
@@ -172,12 +180,13 @@ export function build({ ranger } = {}) {
   minify(vp8Js);
   minify(dataJs);
   minify(traceJs);
+  minify(playJs);
 
   const copy = (from, to) => {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
   };
-  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "published.js", "linkdays.js", "rooms.js", "stories.js", "roomchat.js", "cloudchat.js", "aiassist.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "videoexport.js", "videoplays.js", "video-worker.js", "recstream.js", "playlink.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "sound.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "flight3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "find.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
+  for (const f of ["index.html", "connect.html", "oauth.html", "main.js", "vfs.js", "i18n.js", "sheets-live.js", "image-adjust.js", "trace-worker.js", "picture.js", "versions.js", "versions-ui.js", "brand.js", "decklist.js", "published.js", "linkdays.js", "rooms.js", "stories.js", "roomchat.js", "cloudchat.js", "aiassist.js", "fileclip.js", "slideclip.js", "decktabs.js", "account.js", "version-view.js", "player-file.js", "collab.js", "sharefiles.js", "sharedfiles.js", "eventline.js", "recorder.js", "meet.js", "press.js", "stagelink.js", "viewlink.js", "slidetext.js", "trace-source.js", "book.js", "bookgl.js", "bookturn.js", "videoexport.js", "videoplays.js", "video-worker.js", "recstream.js", "playlink.js", "themepics.js", "sliqtly.js", "storedtype.js", "apps.js", "apps-runtime.js", "sound.js", "script-runtime.js", "sprite-runtime.js", "presenter-runtime.js", "three3d.js", "flight3d.js", "sitescript.js", "music.js", "beatfx.js", "cerxes-worker.js", "fxdeck.js", "pixels.js", "play.html", "play.js", "playflight.js", "viewplay.js", "pres.css", "chart-editor.css", "toolbar.css", "hint.css", "find.css", "panels.css"]) copy(path.join(webDir, f), path.join(distDir, f));
   // programs on slides (web/apps.js): CErXes as WebAssembly, the runtime the
   // frames go through, and the WASI the engine needs, from componentengine
   const cerxes = ensureCerxes();
@@ -255,7 +264,7 @@ export function build({ ranger } = {}) {
   fs.writeFileSync(path.join(distDir, "deps.json"), JSON.stringify(deps, null, 2) + "\n");
   for (const [name, d] of Object.entries(deps)) log(`deps   ${name} ${d.ref || "HEAD"} ${d.commit.slice(0, 12)}${d.changed ? " (with local changes)" : ""}`);
 
-  markParts(distDir, ["pres_3d.js"]);
+  markParts(distDir, ["pres_3d.js", "pres_play.js"]);
   // Every URL the page loads carries the hash of the build, so a reload
   // never mixes an old script with a new one.
   const h = crypto.createHash("sha1");
@@ -263,8 +272,10 @@ export function build({ ranger } = {}) {
   for (const f of distFiles().filter((f) => !f.startsWith("fonts/") && f !== "player.html")) h.update(f).update(fs.readFileSync(path.join(distDir, f)));
   const stamp = h.digest("hex").slice(0, 10);
   const fonts = facesStamp(distDir);
-  const html = path.join(distDir, "index.html");
-  fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
+  for (const page of ["index.html", "play.html"]) {
+    const html = path.join(distDir, page);
+    fs.writeFileSync(html, fs.readFileSync(html, "utf8").split("__BUILD__").join(stamp).split("__FONTS__").join(fonts));
+  }
   const main = path.join(distDir, "main.js");
   fs.writeFileSync(main, fs.readFileSync(main, "utf8")
     .split("__SHEETS_BASE__").join(sheetsBase)
@@ -278,7 +289,7 @@ export function build({ ranger } = {}) {
   // every relative import of every module we ship carries the stamp
   // (scripts/stamp.mjs); the two compiled bundles are classic scripts, and
   // EVGSheets' own build (sheets/) is left as it came
-  const classic = new Set(["pres_app.js", "pres_beat.js", "pres_data.js", "pres_trace.js", "trace-worker.js"]);
+  const classic = new Set(["pres_app.js", "pres_beat.js", "pres_data.js", "pres_play.js", "pres_trace.js", "trace-worker.js"]);
   const modules = distFiles().filter((f) => /\.m?js$/.test(f) && !classic.has(f) && !f.startsWith("sheets/"));
   for (const f of modules) {
     const file = path.join(distDir, f);

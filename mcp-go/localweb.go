@@ -70,7 +70,7 @@ func viewerOnly(web fs.FS) bool {
 // --- the page
 
 var (
-	shareAPIPath = regexp.MustCompile(`^/api/shares/([A-Za-z0-9]{6,32})(/head)?$`)
+	shareAPIPath = regexp.MustCompile(`^/api/shares/([A-Za-z0-9]{6,32})(/head|/links)?$`)
 	shareID      = regexp.MustCompile(`^[A-Za-z0-9]{6,32}$`)
 )
 
@@ -284,6 +284,8 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case m[2] == "/head" && r.Method == http.MethodPost:
 			out, err = s.pushHead(r, id)
+		case m[2] == "/links":
+			out, err = s.linksAPI(r, id)
 		case m[2] != "":
 			err = fail(405, "", "method not allowed")
 		case r.Method == http.MethodGet:
@@ -502,6 +504,9 @@ func (s *localServer) deleteShare(ctx context.Context, id string) error {
 	}
 	if err := s.env.DB.Delete(ctx, "shares", id); err != nil {
 		return err
+	}
+	if err := s.dropLinks(ctx, id); err != nil {
+		log.Printf("deck %s removed, its viewing links not yet: %v", id, err)
 	}
 	if s.env.Forms != nil {
 		if err := s.env.Forms.DropDeck(ctx, id); err != nil {

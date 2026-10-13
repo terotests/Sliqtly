@@ -324,6 +324,11 @@ func (m *gitMirror) snapshot(ctx context.Context, write bool) (*gitSnapshot, err
 				return nil, err
 			}
 		case "links":
+			// a recording's viewing link (localplay.go) is the server's
+			// state, not the decks': only the links between things go
+			if _, ok := r.doc["from"].(string); !ok {
+				continue
+			}
 			if err := text("links/"+r.id+".json", gitJSON(pick(r.doc, "from", "rel", "to", "created"), nil)); err != nil {
 				return nil, err
 			}

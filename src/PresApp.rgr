@@ -6971,6 +6971,20 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; A server of one's own that keeps the light player and the video at
+    ; its own address: Export offers them as its links (the Cloud rows'
+    ; place, where the page publishes nothing to sliqtly.com)
+    fn setOwnLinks:void (on:boolean) {
+        if (on == toolbar.ownLinks) {
+            return
+        }
+        toolbar.ownLinks = on
+        if ((strlen toolbar.css) > 0) {
+            toolbar.rebuild()
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
     fn setToolbarCss:void (css:string) {
         toolbar.css = css
         toolbar.rebuild()
