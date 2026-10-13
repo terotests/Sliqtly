@@ -16,6 +16,8 @@
 //   <SliqRod from to radius length />  a rod between two points in a <scene3d>    allow: 3d
 //   <SliqGltf src="data/x.gltf" />  a .gltf of the deck in a <scene3d>              allow: 3d
 //   import * as THREE from "ranger:three"  Ranger v2's 3-D façade (init, tick)     allow: 3d
+//   sound.play("shot") tone({wave, freq, to, dur, vol}) noise({dur, from, to})
+//     stop()   synthesized on the page, web/sound.js                       allow: sound
 //
 // Nothing here changes the deck: each call is a request the page reads after
 // the frame (PresApp.playAsks), and grants or refuses by the fence's allow:.
@@ -66,6 +68,17 @@ var machine = {
   state: "",
   send: function (event, data) { __asks.push({ k: "machine.send", event: String(event), data: data === undefined ? null : data }); }
 };
+// Sounds the page synthesizes (web/sound.js): a preset by name, or parts
+// of one's own; the page plays them with the frame (allow: sound).
+var sound = {
+  play: function (what) {
+    if (typeof what === "string") __asks.push({ k: "sound.play", name: what });
+    else if (Array.isArray(what)) __asks.push({ k: "sound.play", parts: what });
+  },
+  tone: function (p) { __asks.push({ k: "sound.tone", part: p || {} }); },
+  noise: function (p) { __asks.push({ k: "sound.noise", part: p || {} }); },
+  stop: function () { __asks.push({ k: "sound.stop" }); }
+};
 // The "Sliqtly" module: import { presentation } from "Sliqtly". The slide
 // shown is presentation.activeSlide; moving between slides asks as
 // slide.next() does (allow: slide.nav), presentation.set as deck.set
@@ -103,7 +116,7 @@ var __code = {
   prevChange: function () { __asks.push({ k: "code.change", n: -1 }); }
 };
 presentation.code = __code;
-var __sliqtly = { presentation: presentation, el: el, machine: machine };
+var __sliqtly = { presentation: presentation, el: el, machine: machine, sound: sound };
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
 // The deck's files a program imports (src/PresPlayFiles.rgr puts this call
 // on its first line): import rows from "data/sales.csv". Each is a module:

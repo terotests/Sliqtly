@@ -30,6 +30,7 @@ import { workerUrl } from "./sitescript.js";
 import { SCRIPT_RUNTIME } from "./script-runtime.js";
 import { SPRITE_RUNTIME } from "./sprite-runtime.js";
 import { PRESENTER_RUNTIME } from "./presenter-runtime.js";
+import { createSound, isSoundAsk } from "./sound.js";
 
 const LIMIT_MS = 3000;
 // the first load fetches and compiles the engine
@@ -124,6 +125,8 @@ export function sortAsks(asks, held) {
 // its picture (web/three3d.js), for a press past a program's box
 export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null }) {
   const runs = new Map(); // key -> run
+  // the programs' sounds (allow: sound), played here: a worker has no audio
+  const sound = createSound();
   let plays = [];
   let playsRev = -1;
   const keys = {};
@@ -232,6 +235,7 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
   // why: what went wrong, said in a toast and on the program's plate
   function stopRun(r, why) {
     if (r.worker) r.worker.terminate();
+    sound.stop(r.key);
     r.worker = null;
     r.running = false;
     r.waiting = false;
@@ -340,6 +344,13 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
     if (asks !== "[]") {
       let list = [];
       try { list = JSON.parse(asks); } catch (_) { /* nothing asked */ }
+      // sounds are played here, not asked of the deck
+      const sounds = list.filter(isSoundAsk);
+      if (sounds.length) {
+        list = list.filter((a) => !isSoundAsk(a));
+        if (r.allow && r.allow.includes("sound")) sound.play(r.key, sounds);
+        else say(name(r) + ": " + sounds[0].k + " " + t("needs \"allow: sound\" in its fence"));
+      }
       const now = sortAsks(list, r.held);
       if (now.length) app.playAsks(r.key, JSON.stringify(now));
     }
@@ -396,6 +407,7 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
         r = newRun(p.key, !!p.script);
         runs.set(p.key, r);
       }
+      r.allow = Array.isArray(p.allow) ? p.allow : [];
       if (r.script) {
         // where it ends, for the slide while it is not running
         const tree = app.scriptTree(p.key);
