@@ -32,6 +32,8 @@ type geminiModel struct {
 
 func (m *geminiModel) usesTools() bool { return len(m.tools) > 0 }
 
+func (m *geminiModel) modelName() string { return m.model }
+
 type geminiPart struct {
 	Text             string          `json:"text,omitempty"`
 	FunctionCall     *geminiCall     `json:"functionCall,omitempty"`

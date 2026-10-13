@@ -29,6 +29,8 @@ type claudeModel struct {
 	model  string
 }
 
+func (m *claudeModel) modelName() string { return m.model }
+
 // The model the environment names; nil when it names none (no assistant).
 //
 //	gemini     Gemini (gemini-3.5-flash-lite unless SLIQTLY_AI_MODEL): with

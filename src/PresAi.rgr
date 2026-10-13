@@ -440,6 +440,17 @@ class PresAi {
     def unlimited:boolean false
     def perChat:int 3
     def resets:string ""
+    ; the model that answers, and the tokens and US dollars of the last
+    ; answer and of all answers since the drawer opened (usd -1: no price)
+    def model:string ""
+    def lastIn:int 0
+    def lastOut:int 0
+    def lastUsd:double -1.0
+    def sumIn:int 0
+    def sumOut:int 0
+    def sumUsd:double 0.0
+    def priced:boolean true
+    def answers:int 0
     ; what questions are about: "slide" or "deck"
     def scope:string "slide"
     ; the request for the page to post ("" none)
@@ -544,6 +555,12 @@ class PresAi {
     }
 
     fn readCredits:void (root:VlJson) {
+        if (root.has("model")) {
+            model = (root.stringOr("model" model))
+        }
+        if (root.has("usage")) {
+            this.readUsage((root.get("usage")))
+        }
         if (root.has("available")) {
             available = (? (root.boolOr("available" false)) 1 0)
         }
@@ -562,6 +579,69 @@ class PresAi {
                 resets = (c.stringOr("resets" ""))
             }
         }
+    }
+
+    ; what one answer took ({"model", "in", "out", "usd"})
+    fn readUsage:void (u:VlJson) {
+        if ((u.isObject()) == false) {
+            return
+        }
+        model = (u.stringOr("model" model))
+        lastIn = (u.intOr("in" 0))
+        lastOut = (u.intOr("out" 0))
+        lastUsd = (u.doubleOr("usd" -1.0))
+        sumIn = (sumIn + lastIn)
+        sumOut = (sumOut + lastOut)
+        if (lastUsd < 0.0) {
+            priced = false
+        } {
+            sumUsd = (sumUsd + lastUsd)
+        }
+        answers = (answers + 1)
+    }
+
+    ; tokens as people read them: 950, 8.4k, 1.2M
+    sfn tokens:string (n:int) {
+        if (n < 1000) {
+            return (to_string n)
+        }
+        if (n < 1000000) {
+            return (PresAi.oneDecimal(((to_double n) / 1000.0)) + "k")
+        }
+        return (PresAi.oneDecimal(((to_double n) / 1000000.0)) + "M")
+    }
+
+    sfn oneDecimal:string (v:double) {
+        def tenths:int (to_int ((v * 10.0) + 0.5))
+        def whole:int (idiv tenths 10)
+        return ((to_string whole) + "." + (to_string (tenths - (whole * 10))))
+    }
+
+    ; US dollars to a hundredth of a cent: $0.0033
+    sfn usd:string (v:double) {
+        def n:int (to_int ((v * 10000.0) + 0.5))
+        def whole:int (idiv n 10000)
+        def frac:string (to_string (n - (whole * 10000)))
+        while ((strlen frac) < 4) {
+            frac = ("0" + frac)
+        }
+        return ("$" + (to_string whole) + "." + frac)
+    }
+
+    ; What the last answer took, and all answers since the drawer opened:
+    ; "8.4k in, 312 out · $0.0033 · total 20.1k in, 1.2k out, $0.0091"
+    fn usageNote:string () {
+        def s:string ((PresAi.tokens(lastIn)) + " " + (PresI18n.t("in")) + ", " + (PresAi.tokens(lastOut)) + " " + (PresI18n.t("out")))
+        if (lastUsd >= 0.0) {
+            s = (s + " · " + (PresAi.usd(lastUsd)))
+        }
+        if (answers > 1) {
+            s = (s + " · " + (PresI18n.t("total")) + " " + (PresAi.tokens(sumIn)) + " " + (PresI18n.t("in")) + ", " + (PresAi.tokens(sumOut)) + " " + (PresI18n.t("out")))
+            if priced {
+                s = (s + ", " + (PresAi.usd(sumUsd)))
+            }
+        }
+        return s
     }
 
     ; the pill in the drawer's title: "42 left"
@@ -799,6 +879,9 @@ class PresAi {
         }
         if ((strlen reply) > 0) {
             this.add("assistant" reply)
+            if (root.has("usage")) {
+                this.add("usage" (this.usageNote()))
+            }
             return
         }
         def err:string (root.stringOr("error" ""))

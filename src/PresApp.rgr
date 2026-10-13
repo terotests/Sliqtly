@@ -9897,6 +9897,9 @@ class PresApp {
         }
         c.title = title
         def sub:string (ai.contextLine(ctx))
+        if ((strlen ai.model) > 0) {
+            sub = (sub + " · " + ai.model)
+        }
         def more:string (ai.creditsText())
         if (((strlen more) > 0) && (ai.unlimited == false)) {
             sub = (sub + " · " + more)
@@ -9937,7 +9940,11 @@ class PresApp {
                 if (m.role == "assistant") {
                     c.add(m.id "ai" "AI" "#7c3aed" (PresAi.shown(m.text)) "" false)
                 } {
-                    c.add(m.id "note" "Sliqtly" "#b45309" m.text "" false)
+                    if (m.role == "usage") {
+                        c.add(m.id "note" ai.model "#6b7280" m.text "" false)
+                    } {
+                        c.add(m.id "note" "Sliqtly" "#b45309" m.text "" false)
+                    }
                 }
             }
         }
