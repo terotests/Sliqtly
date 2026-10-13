@@ -163,6 +163,7 @@ func TestAIAddFile(t *testing.T) {
 		"media/forest.svg": "media/forest.svg", "/data/sales.csv": "data/sales.csv", "charts/c.json": "charts/c.json",
 		"code/app.tsx": "code/app.tsx", "media/x.png": "", "media/../x.svg": "", "x.svg": "", "media/.svg": "",
 		"media/a b.svg": "", "other/x.svg": "", "data/x": "", "media/sub/x.svg": "",
+		"apps/timer.tsx": "apps/timer.tsx", "apps/timer.tsx.css": "apps/timer.tsx.css", "apps/x.svg": "",
 	} {
 		eq(t, aiFilePath(in), want)
 	}
@@ -198,3 +199,34 @@ func TestAIReadThemeCSS(t *testing.T) {
 
 // bytes that read as a PNG
 const fakePNG = "\x89PNG\r\n\x1a\n0000IHDR"
+
+// An edit call that is refused is said why and heard again; the edits
+// taken with it stand when the next round mends it.
+func TestAIGeminiMends(t *testing.T) {
+	calls := 0
+	var second string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			io.WriteString(w, `{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"replace_slide","args":{"slide":4,"markdown":"## Four"}}},{"functionCall":{"name":"add_file","args":{"path":"timer.tsx","text":"x"}}}]}}]}`)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		second = string(b)
+		io.WriteString(w, `{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"add_file","args":{"path":"apps/timer.tsx","text":"y"}}},{"text":"Centred the clock."}]}}]}`)
+	}))
+	defer srv.Close()
+	m := &geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL, tools: aiEditTools}
+	a, err := m.AskReading(context.Background(), "sys", []aiTurn{{Role: "user", Text: "?"}}, nil)
+	eq(t, err, nil)
+	eq(t, []any{calls, len(a.Edits), a.Edits[0].Tool, a.Edits[1].Path, a.Text}, []any{2, 2, "replace_slide", "apps/timer.tsx", "Centred the clock."})
+	match(t, second, `or apps/`)
+}
+
+// The open slide's program files go into the prompt, under their paths.
+func TestAIProgramFiles(t *testing.T) {
+	q := aiQuestion{Message: "centre the clock", Context: aiContext{Slides: 1, Slide: 1, SlideMD: "## Demo", Files: []aiDeckFile{{Path: "apps/timer.tsx", Text: "export default 1"}, {Path: "../x", Text: "no"}}}}
+	got := q.turns()[0].Text
+	match(t, got, "<file path=\"apps/timer.tsx\">\nexport default 1\n</file>")
+	eq(t, strings.Contains(got, "../x"), false)
+}

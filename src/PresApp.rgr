@@ -9833,6 +9833,10 @@ class PresApp {
                 }
                 c.slideMd = (trim md)
             }
+            for (deck.codeOfSlide(i)) cf:string cfi {
+                push c.codePaths cf
+                push c.codeTexts (deck.dataText(cf))
+            }
         }
         return c
     }
