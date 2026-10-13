@@ -232,7 +232,11 @@ func (s *SQLiteBlobStore) Put(ctx context.Context, r io.Reader, mime string) (Bl
 			break
 		}
 		if rerr != nil {
-			// the chunks committed so far are removed with the upload
+			// the chunks committed so far are removed with the upload,
+			// once this transaction has let go of the database (with it
+			// open, the removal waited out the busy timeout and failed)
+			tx.Rollback()
+			tx = nil
 			s.dropUpload(body)
 			return BlobInfo{}, rerr
 		}

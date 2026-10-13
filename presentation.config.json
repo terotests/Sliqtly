@@ -3,6 +3,10 @@
     "url": "https://github.com/terotests/Ranger",
     "ref": "claude/laughing-lamport-77aaec-nifty"
   },
+  "rangergit": {
+    "url": "https://github.com/terotests/Ranger",
+    "ref": "master"
+  },
   "rangerflow": {
     "url": "https://github.com/terotests/RangerFlow",
     "ref": "main"

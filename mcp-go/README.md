@@ -373,6 +373,50 @@ sudo systemctl start sliqtly
 `backup_test.go` takes backups beside a running server, restores them and
 reads the decks and pictures back through a server on the restored folder.
 
+**Decks in Git** (`gitstore.go`, `gitcmd.go`, `rgit/`). With `git.json`
+on, the server also keeps its decks in `repo.git`, a bare Git repository it
+writes itself with Ranger's Git client (`go generate` writes `rgit/rgit.go`
+from Ranger's `pkg/src`; no `git` program is needed). `sliqtly.db` stays the
+live store; each commit is a snapshot of what may be published with the
+decks:
+
+| | |
+| --- | --- |
+| `decks/<id>/deck.md`, `theme.css` | the deck's text and its own CSS |
+| `decks/<id>/deck.json` | name, theme, room, folder, created, source, the files' list |
+| `decks/<id>/media/…`, `data/…`, … | the deck's files |
+| `rooms/<id>.json`, `rooms/<id>/files/…` | a room's title, folders and files |
+| `links/<id>.json`, `README.md`, `sliqtly.json` | links between decks, an index by name, the format |
+
+Owners, edit keys, invitations, memberships, chat and form answers stay out:
+Git keeps every version for good. A commit is taken when the decks have
+been still for `idleSeconds` (60) after a change, at the latest
+`maxMinutes` (10) after the first change, every 5 minutes for a room's
+files, and when the server stops. Its author is the person who edited the
+deck in the editor (`Co-authored-by` for the others), else the server.
+Files over `maxFileMB` (20, at most 100, GitHub's limit) are refused in
+Git mode.
+
+```
+sliqtly-server git init   -data /var/lib/sliqtly [-max-file-mb 20] [-author editor|server]   # server stopped
+sliqtly-server git log    -data /var/lib/sliqtly
+sliqtly-server git verify -data /var/lib/sliqtly   # every object read back, the head compared with the folder
+sliqtly-server git commit -data /var/lib/sliqtly [-m "message"]   # server stopped
+sliqtly-server git off    -data /var/lib/sliqtly   # the repository stays
+```
+
+`git init` lists files too big for Git and refuses until they are gone or
+the limit is raised, makes the first commit ("Import from SQLite"), reads
+it back against the folder and writes `git.json`:
+
+```json
+{ "enabled": true, "branch": "main", "author": "editor", "name": "Sliqtly server",
+  "email": "server@sliqtly.invalid", "maxFileMB": 20, "idleSeconds": 60, "maxMinutes": 10 }
+```
+
+`git clone /var/lib/sliqtly/repo.git` gives the decks as files. Pushing to
+GitHub is not there yet.
+
 Formats 1–3 kept a JSON file per document (`db/<collection>/<sh>/<id>.json`)
 and the files under `files/shares/<sh>/{id}/…`; the migration to format 4
 copies them into the two databases, checks every document and file against

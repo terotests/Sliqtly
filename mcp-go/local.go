@@ -65,6 +65,8 @@ type localServer struct {
 	env    *Env
 	app    http.Handler
 	bucket *localBucket
+	// the decks' Git repository, when git.json turns it on (gitstore.go)
+	git    *gitMirror
 	token  string
 	web    fs.FS      // the built page; nil: none
 	viewer bool       // web is the viewer's build: plays, no editor

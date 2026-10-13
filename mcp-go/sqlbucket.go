@@ -29,6 +29,17 @@ type localBucket struct {
 	blobs store.BlobStore
 	docs  *sql.DB    // sliqtly.db, for backups (backup.go)
 	mu    sync.Mutex // Save and Remove of one path in order
+	// in Git mode (gitstore.go): the largest deck or room file kept, in
+	// bytes; 0: no limit
+	gitMax int64
+}
+
+// a deck's or a room's file over the Git repository's limit is refused
+func (b *localBucket) tooBigForGit(p string, size int64) error {
+	if b.gitMax <= 0 || size <= b.gitMax || !(strings.HasPrefix(p, "shares/") || strings.HasPrefix(p, "rooms/")) {
+		return nil
+	}
+	return fail(413, "too-large", fmt.Sprintf("files over %d MB are not kept: this server keeps its decks in Git (maxFileMB in git.json)", b.gitMax>>20))
 }
 
 // a kept file's path, refused when it would leave the files
@@ -45,6 +56,9 @@ func (b *localBucket) Name() string { return "local" }
 func (b *localBucket) Save(ctx context.Context, p, contentType string, data []byte, _ map[string]string) error {
 	c, err := cleanFilePath(p)
 	if err != nil {
+		return err
+	}
+	if err := b.tooBigForGit(c, int64(len(data))); err != nil {
 		return err
 	}
 	info, err := b.blobs.Put(ctx, bytes.NewReader(data), contentType)
@@ -75,6 +89,9 @@ func (b *localBucket) SaveFrom(ctx context.Context, p, contentType string, r io.
 	c, err := cleanFilePath(p)
 	if err != nil {
 		return store.BlobInfo{}, err
+	}
+	if b.gitMax > 0 && b.tooBigForGit(c, b.gitMax+1) != nil {
+		r = &gitLimitReader{r: r, left: b.gitMax, err: b.tooBigForGit(c, b.gitMax+1)}
 	}
 	info, err := b.blobs.Put(ctx, r, contentType)
 	if err != nil {
@@ -206,4 +223,20 @@ func (b *localBucket) collectBlobs(ctx context.Context, now time.Time) (int, err
 	return store.CollectBlobs(ctx, b.blobs, func(h store.Hash) (bool, error) {
 		return b.refs.Referenced(ctx, h)
 	}, now.Add(-blobGrace))
+}
+
+// reads r until it goes past left bytes, then fails with err
+type gitLimitReader struct {
+	r    io.Reader
+	left int64
+	err  error
+}
+
+func (l *gitLimitReader) Read(p []byte) (int, error) {
+	n, err := l.r.Read(p)
+	l.left -= int64(n)
+	if l.left < 0 {
+		return 0, l.err
+	}
+	return n, err
 }

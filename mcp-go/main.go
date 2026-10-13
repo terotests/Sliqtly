@@ -54,6 +54,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		os.Exit(backupCmd(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "git" {
+		os.Exit(gitCmd(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "figma-index" {
 		os.Exit(figmaIndexCmd(os.Args[2:]))
 	}
@@ -206,6 +209,22 @@ func main() {
 		if page == nil {
 			kind += ", no editor (npm run build, then go generate)"
 		}
+		// the decks' Git repository (gitstore.go), when git.json turns it on
+		if gc, on, err := readGitConfig(*data); err != nil {
+			log.Fatalf("data folder %s: %v", *data, err)
+		} else if on && gc.Enabled {
+			m, err := openGitMirror(*data, gc, bucket.docs, bucket.blobs)
+			if err == nil {
+				err = m.start(stop)
+			}
+			if err != nil {
+				log.Fatalf("git: %v", err)
+			}
+			ls.git = m
+			bucket.gitMax = gc.maxFile()
+			kind += ", decks in Git"
+			go m.run(stop, e.Store)
+		}
 		sw.set(ls)
 		go ls.sweepExpired(stop)
 		if backups.Repo != "" {
@@ -220,6 +239,9 @@ func main() {
 		// no edit can come in now: what the rooms took is written before
 		// the folder is let go
 		ls.flushRooms()
+		if ls.git != nil {
+			ls.git.stop()
+		}
 		return
 	}
 	var handler http.Handler
