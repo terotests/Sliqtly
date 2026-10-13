@@ -5,6 +5,7 @@ package store_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -161,6 +162,47 @@ func TestSQLiteBlobUploadStopped(t *testing.T) {
 	}
 	if _, err := b.Stat(ctx, kept.Hash); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// a reader that gives n bytes, then fails
+type failingReader struct{ n int }
+
+var errReaderBroke = errors.New("reader broke")
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.n <= 0 {
+		return 0, errReaderBroke
+	}
+	k := min(len(p), r.n)
+	clear(p[:k])
+	r.n -= k
+	return k, nil
+}
+
+// An upload whose reader fails is dropped at once with every chunk it
+// wrote, the batches committed before the failure too. (It used to wait
+// out the database's busy timeout behind its own open transaction.)
+func TestSQLiteBlobUploadReaderFails(t *testing.T) {
+	ctx := context.Background()
+	b, err := store.OpenSQLiteBlobStore(filepath.Join(t.TempDir(), "blobs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	for _, n := range []int{10, 70 * store.BlobChunk} {
+		start := time.Now()
+		if _, err := b.Put(ctx, &failingReader{n: n}, ""); !errors.Is(err, errReaderBroke) {
+			t.Fatalf("%d bytes: %v", n, err)
+		}
+		if took := time.Since(start); took > 5*time.Second {
+			t.Fatalf("%d bytes: failed after %s", n, took)
+		}
+		var chunks, uploads int
+		b.DB().QueryRow(`SELECT (SELECT count(*) FROM chunks), (SELECT count(*) FROM uploads)`).Scan(&chunks, &uploads)
+		if chunks != 0 || uploads != 0 {
+			t.Fatalf("%d bytes: %d chunks, %d uploads left", n, chunks, uploads)
+		}
 	}
 }
 

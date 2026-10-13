@@ -7,6 +7,7 @@
 /pptxgo/pptxgo.go
 /pptxgo/presets.txt
 /.rdiff-build/
+/.rgit-build/
 /fonts/
 /themes/
 /webdist/*

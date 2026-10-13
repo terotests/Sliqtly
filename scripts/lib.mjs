@@ -162,6 +162,7 @@ const CHECKOUT_HAS = {
   rangerpptx: "src/PptxModel.rgr",
   componentengine: "cerxes/Cargo.toml",
   designviewer: "src/index/FigIndex.rgr",
+  rangergit: "pkg/src/GitPush.rgr",
 };
 
 /**
@@ -247,6 +248,25 @@ export function ensureRangerDiff({ update = false } = {}) {
   if (!given) syncClone("RangerDiff", config.rangerdiff.url, ref, dir, path.join(depsDir, "rangerdiff-ref"), update);
   if (!fs.existsSync(path.join(dir, "dist", "rangerdiff.mjs"))) throw new Error(`${dir} is not a RangerDiff checkout (no dist/rangerdiff.mjs)`);
   used.set("RangerDiff", { dir, ref });
+  return dir;
+}
+
+/**
+ * Ranger's Git client (pkg/src: objects, packs, push) at config.rangergit.ref:
+ * RANGERGIT_DIR, or a clone of its own in .deps. The editor's Ranger ref is a
+ * branch of its own that need not carry pkg/; the server's Git storage
+ * (mcp-go/rgit) is compiled from this one.
+ */
+export function ensureRangerGit({ update = false } = {}) {
+  const given = process.env.RANGERGIT_DIR;
+  const dir = given ? path.resolve(given) : path.join(depsDir, "RangerGit");
+  const ref = process.env.RANGERGIT_REF || config.rangergit.ref;
+  if (given && !fs.existsSync(dir)) throw new Error(`RANGERGIT_DIR=${given} does not exist`);
+  if (!given) syncClone("RangerGit", config.rangergit.url, ref, dir, path.join(depsDir, "rangergit-ref"), update);
+  for (const must of ["dist/rgrc.js", CHECKOUT_HAS.rangergit]) {
+    if (!fs.existsSync(path.join(dir, must))) throw new Error(`${dir} is not a Ranger checkout with the Git writer (no ${must})`);
+  }
+  used.set("RangerGit", { dir, ref });
   return dir;
 }
 

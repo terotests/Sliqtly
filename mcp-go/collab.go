@@ -383,6 +383,10 @@ func (rm *collabRoom) take(d rdiff.Delta, client string) error {
 	}
 	rm.broadcast(opEvent(rm.rev, client, d), rm.rev)
 	rm.changed()
+	// the deck's next commit names who edited it (gitstore.go)
+	if p := rm.peers[client]; p != nil {
+		rm.s.git.noteEditor(rm.id, p.Name)
+	}
 	return nil
 }
 
