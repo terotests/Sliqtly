@@ -5758,6 +5758,29 @@ try {
     await ctx.close();
   }
 
+  // A tab pressed while the deck before was still loading its files: the
+  // deck pressed is the one shown, and the files of the one left (still on
+  // their way) never land in it (a Kikigo deck's pictures showed up in
+  // another deck's Files this way).
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    const pg = await ctx.newPage();
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.route("**/samples/pelit/apps/**", async (r) => { await new Promise((ok) => setTimeout(ok, 2500)); await r.continue(); });
+    const go = (k) => pg.evaluate((k) => { window.__app.request("deck:switch:" + k); window.__handleRequests(); }, k);
+    await go("sample:pelit");
+    await pg.waitForTimeout(400);
+    await go("sample:welcome");
+    await pg.waitForFunction(() => window.__app.deckTabFront() === "sample:welcome" && /Sliqtly - Demo/.test(window.__app.source()), null, { timeout: 60000 }).catch(() => {});
+    // the slow files of the deck left have come by now
+    await pg.waitForTimeout(4000);
+    const got = await pg.evaluate(async () => ({ front: window.__app.deckTabFront(), md: window.__app.source().slice(0, 40), files: await window.__docFiles() }));
+    check("Deck tabs: the deck pressed last is shown, not the one still loading", got.front === "sample:welcome" && /Sliqtly - Demo/.test(got.md), JSON.stringify(got.front));
+    check("Deck tabs: the files of a deck left while loading do not land in the next", !got.files.some((f) => f.startsWith("apps/")), got.files.join());
+    await ctx.close();
+  }
+
   // The presentations open in a tab of the browser, a tab each in the row
   // under the top bar (PresApp deck tabs, EVGUI DocTabsCtl, web/decktabs.js):
   // a sample's tab takes the deck's id when it is kept, a press opens a
