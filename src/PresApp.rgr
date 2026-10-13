@@ -1080,9 +1080,10 @@ class PresApp {
     ; `theme` (EVGUI's UiDark.overlay): the page appends it to each sheet.
     ; What is drawn over the slide (the picked element's frame, the review
     ; bar) and the presenting screen keep their colours: they are read
-    ; against the slide, which keeps its own theme.
+    ; against the slide, which keeps its own theme. The logo (tb-logo-*) is
+    ; the brand's mark: its cream play stays cream in the dark look too.
     sfn darkCss:string (css:string theme:string) {
-        return (UiDark.overlayKeep(css theme "sel- pick- rv- present"))
+        return (UiDark.overlayKeep(css theme "sel- pick- rv- present tb-logo"))
     }
 
     ; The editors in the retro skin: a dark display with phosphor text in the
