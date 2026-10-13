@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* privacy.html and terms.html: the look of local.html, for long text */
+:root {
+  --accent: #c8ff3c; --ink: #070708; --paper: #eeeee8; --dim: #9a9ca3;
+  --line: rgba(255, 255, 255, .10); --line-2: rgba(255, 255, 255, .20);
+  --grotesk: "Helvetica Neue", "Arial Nova", "Inter", Helvetica, Arial, sans-serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ink); color: var(--paper); }
+body { font: 400 16.5px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.nav { display: flex; align-items: center; gap: 10px; padding: 13px clamp(16px, 5vw, 60px); border-bottom: 1px solid var(--line); }
+.nav a { display: flex; align-items: center; gap: 10px; color: var(--paper); text-decoration: none; font: 700 16px/1 var(--grotesk); }
+.nav img { width: 22px; height: 22px; }
+main { max-width: 860px; margin: 0 auto; padding: clamp(40px, 6vw, 80px) 16px 80px; }
+.label { font: 400 11.5px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
+h1 { font: 800 clamp(38px, 6vw, 64px)/1 var(--grotesk); letter-spacing: -.04em; margin: 0 0 20px; }
+h2 { font: 800 clamp(22px, 3vw, 28px)/1.1 var(--grotesk); letter-spacing: -.02em; margin: 48px 0 14px; padding-top: 24px; border-top: 1px solid var(--line); }
+p, li { color: var(--dim); }
+strong { color: var(--paper); font-weight: 600; }
+code { font: .88em var(--mono); color: var(--paper); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); padding: .05em .35em; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 0; min-width: 560px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--dim); }
+th { font: 400 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.tablebox { overflow-x: auto; border: 1px solid var(--line-2); margin: 12px 0 18px; }
+.fine { margin-top: 56px; font-size: 14px; }

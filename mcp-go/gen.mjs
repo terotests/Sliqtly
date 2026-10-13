@@ -179,11 +179,18 @@ for (const [dir, face] of [
   ["Droid_Serif", "DroidSerif"], ["Droid_Serif", "DroidSerif-Bold"], ["Droid_Serif", "DroidSerif-Italic"],
 ]) {
   fs.copyFileSync(path.join(ranger, "gallery/pdf_writer/assets/fonts", dir, `${face}.ttf`), path.join(fontsDir, `${face}.ttf`));
+  // the face's license, for the packages' THIRD_PARTY_NOTICES
+  // (packaging/third-party-notices.sh); not a .ttf, so not embedded
+  for (const name of ["OFL.txt", "LICENSE.txt"]) {
+    const from = path.join(ranger, "gallery/pdf_writer/assets/fonts", dir, name);
+    if (fs.existsSync(from)) fs.copyFileSync(from, path.join(fontsDir, `${dir}.license.txt`));
+  }
 }
 // Lato is kept in this repository (fonts/Lato, OFL)
 for (const face of ["Lato-Regular", "Lato-Bold", "Lato-Italic", "Lato-BoldItalic"]) {
   fs.copyFileSync(path.join(here, "..", "fonts", "Lato", `${face}.ttf`), path.join(fontsDir, `${face}.ttf`));
 }
+fs.copyFileSync(path.join(here, "..", "fonts", "Lato", "OFL.txt"), path.join(fontsDir, "Lato.license.txt"));
 log("copied mcp-go/fonts/*.ttf");
 
 // The themes' sheets, built into every server (host.go Theme): the public

@@ -1,0 +1,25 @@
+Sliqtly is dual licensed.
+
+Copyright (c) 2026 Tero Tolonen
+
+1. Open source: the source code in this repository is licensed under the
+   GNU Affero General Public License, version 3 or (at your option) any
+   later version (AGPL-3.0-or-later), unless a file or directory states
+   otherwise. See LICENSE-AGPL-3.0.
+
+   Files and directories marked MIT (desktop/, and files whose header says
+   SPDX-License-Identifier: MIT) are licensed under the MIT License. See
+   LICENSE-MIT and desktop/LICENSE.
+
+2. Commercial: the copyright holder may grant a separate commercial
+   license for the same work, for use that does not follow the AGPL. The
+   Sliqtly Personal package (mcp-go/packaging/personal/LICENSE) is one such
+   license, for the binaries the copyright holder distributes.
+
+The two are alternatives: follow the AGPL, or follow a license you
+received from the copyright holder.
+
+Third-party components remain under their own licenses. The name Sliqtly
+and its logo are not licensed by either route.
+
+Details, SPDX identifiers and contribution rules: see LICENSING.md.

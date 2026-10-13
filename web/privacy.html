@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com/privacy.html: the privacy policy of the hosted service
+     (sliqtly.com, its editor and MCP endpoint). Linked from the front
+     page's footer, connect.html and the editor's sign-in page. Keep it in
+     step with what the server stores: firestore.rules, mcp-go/rgr/Store.rgr
+     Limits, docs/operations.md. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy policy · Sliqtly</title>
+<meta name="description" content="What personal data sliqtly.com processes, why, for how long, who processes it for us, and your rights." />
+<meta name="theme-color" content="#070708" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/legal.css" />
+</head>
+<body>
+<header class="nav"><a href="/"><img src="/favicon.svg" alt="" width="22" height="22" />Sliqtly</a></header>
+<main>
+  <p class="label">Privacy policy · version 1 · in force from [date of publication]</p>
+  <h1>Privacy policy</h1>
+  <p>This policy covers sliqtly.com: the presentation viewer, the editor at /editor, the MCP endpoint at /mcp that AI assistants use, and the owner's tools behind them. It does not cover Sliqtly Personal, which runs on your own computer and sends us nothing.</p>
+
+  <h2 id="controller">Controller</h2>
+  <p><strong>Tero Tolonen</strong>, sole trader (toiminimi), business ID [Y-tunnus], Finland. Contact: <a href="mailto:[contact email]">[contact email]</a>.</p>
+  <p>If Sliqtly is transferred to a company that takes over the business, that company becomes the controller; we will say so here and by email to account holders.</p>
+
+  <h2 id="data">What we process, why and for how long</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Data</th><th>Purpose and legal basis</th><th>Kept</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Account</strong>: Google account id, email address, name and picture from Google sign-in</td><td>Signing you in, keeping your presentations yours, your license and quota. Contract (GDPR 6(1)(b)).</td><td>While the account exists; deleted on request.</td></tr>
+      <tr><td><strong>License</strong>: plan, number of presentations allowed, the presentations counted against it, AI actions used per month</td><td>Providing the plan you have. Contract.</td><td>While the account exists.</td></tr>
+      <tr><td><strong>Content</strong>: presentations, pictures, data files, versions, comments, room and chat messages, recordings</td><td>Storing and showing what you make. Contract.</td><td>Until you delete it. Presentations made without signing in are deleted 7 days after their last change.</td></tr>
+      <tr><td><strong>Links</strong>: who made a viewing link and how long it works</td><td>Sharing what you choose to share. Contract.</td><td>A link works at most 30 days; the record is removed when it expires or you remove it.</td></tr>
+      <tr><td><strong>AI assistant</strong>: your question, the presentation's text and pictures it needs, the answer, and token counts</td><td>Answering when you use the ✨ AI drawer. Contract. The text is sent to the model provider listed below for that answer only.</td><td>We do not store questions or answers; only monthly usage counts are kept with the license.</td></tr>
+      <tr><td><strong>MCP sessions</strong>: hashed session and sign-in tokens, which presentations a session made</td><td>Letting an assistant change only what it may. Contract and security (legitimate interest, 6(1)(f)).</td><td>Session rights 24 hours after last use; sign-in tokens until they expire or you disconnect.</td></tr>
+      <tr><td><strong>Quotas</strong>: daily counters keyed by a hash of your account id or IP address</td><td>Preventing abuse and runaway costs. Legitimate interest.</td><td>Two days, then removed.</td></tr>
+      <tr><td><strong>Visitor counts</strong>: page views, a per-day visitor number made from a hash of IP address and browser with a salt that changes daily, device type, referring site</td><td>Knowing how much the site is used. Legitimate interest. No cookies; skipped when your browser sends Do Not Track or Global Privacy Control.</td><td>The salt and the per-visitor hashes are deleted after 2 days; only counts remain.</td></tr>
+      <tr><td><strong>Server logs</strong>: IP address, browser, address requested, time, errors</td><td>Running the service and investigating faults and attacks. Legitimate interest.</td><td>Up to 30 days.</td></tr>
+      <tr><td><strong>Payments</strong> (when paid plans open): plan, billing status; card details stay with the payment provider</td><td>Billing. Contract and legal obligation (accounting, 6(1)(c)).</td><td>As accounting law requires (in Finland 6–10 years).</td></tr>
+    </tbody>
+  </table></div>
+  <p>We do not sell personal data, show advertising or build profiles. We do not use your content to train AI models. Under Google Cloud's terms, Vertex AI does not use it for training either.</p>
+
+  <h2 id="cookies">Cookies and browser storage</h2>
+  <p>The editor uses one cookie, <code>__session</code>, which carries your sign-in for at most an hour at a time. The site keeps settings such as language, look and the length of a link in your browser's local storage; they never leave your browser. There are no analytics or advertising cookies.</p>
+
+  <h2 id="processors">Who processes data for us</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Processor</th><th>For</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Google</strong> (Google Cloud and Firebase)</td><td>Hosting, sign-in, database, file storage, the server (Cloud Run), logs, and the AI drawer's models on Vertex AI (Gemini, and Claude models made by Anthropic when selected, run inside Google Cloud)</td><td>EU (the server runs in Belgium); some services may store or process data in the United States</td></tr>
+      <tr><td><strong>Stripe</strong></td><td>Payments, when paid plans open</td><td>EU and United States</td></tr>
+      <tr><td><strong>Cloudflare</strong></td><td>The sliqtly.com name (DNS only; your traffic does not pass through Cloudflare)</td><td>Global</td></tr>
+    </tbody>
+  </table></div>
+  <p>Transfers outside the EU rely on the EU–US Data Privacy Framework where the recipient is certified, and otherwise on the European Commission's standard contractual clauses.</p>
+  <p>Presentations you share by link can be opened by anyone who has the link. When an AI assistant (such as Claude or ChatGPT) works with Sliqtly through MCP, what you write there is processed by that assistant's provider under your agreement with them, not by us.</p>
+
+  <h2 id="rights">Your rights</h2>
+  <p>You may ask for a copy of your data, have it corrected or deleted, restrict or object to processing based on legitimate interest, and receive the data you gave us in a machine-readable form. Most of this you can do yourself: presentations can be exported and deleted in the editor, and File → Published in the cloud lists what you have shared. For the rest, write to the contact address above; we answer within a month.</p>
+  <p>You may also complain to the Finnish data protection authority, the <a href="https://tietosuoja.fi/en">Office of the Data Protection Ombudsman</a>, or to the authority where you live.</p>
+
+  <h2 id="security">Security</h2>
+  <p>Traffic is encrypted (HTTPS). Presentations are private or shared by link as you choose; private ones can be read only by their owner. Sign-in tokens are stored as hashes. No system is perfectly secure: do not put data in Sliqtly that would cause serious harm if disclosed, such as health data or secrets.</p>
+
+  <h2 id="children">Children</h2>
+  <p>Sliqtly is not meant for children under 13, and they should not create an account.</p>
+
+  <h2 id="changes">Changes</h2>
+  <p>We will update this policy when what we process changes. Material changes are announced on this page and by email to account holders before they take effect.</p>
+
+  <p class="fine"><a href="/terms.html">Terms of service</a> · <a href="/">Sliqtly home</a></p>
+</main>
+</body>
+</html>
