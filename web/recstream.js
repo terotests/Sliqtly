@@ -189,6 +189,9 @@ export function slidesOf(timeline) {
     if (e.kind === "build" && slides[e.slide]) slides[e.slide].steps.push(e.start);
     // where its way in (the transition) ends: its programs run from there
     if (e.kind === "transition" && slides[e.slide]) slides[e.slide].enter = e.end;
+    // everything on it has arrived: presenting stops here, the rest is the
+    // autoplay hold
+    if (e.kind === "settled" && slides[e.slide]) slides[e.slide].settled = e.start;
   }
   const out = [];
   for (let i = 0; i < slides.length; i++) {
@@ -253,6 +256,12 @@ export class Recording {
   }
 }
 
+// where a slide is shown whole: its settled time when the stream has one (a
+// recording of a talk has none, its slides end at the next press), else its end
+function restOf(s) {
+  return s.settled > s.start && s.settled < s.end ? s.settled : s.end;
+}
+
 // the index of the last [n, …] entry at or before n, -1 for none
 function lastAtOrBefore(entries, n) {
   let lo = 0;
@@ -271,7 +280,8 @@ function lastAtOrBefore(entries, n) {
 /**
  * Where a recording is played, and the way round it. t is the recording's
  * time; `slide` the slide it is on. Presenting (auto false) the clock stops
- * at each build step and at the slide's end; autoplay plays to the end.
+ * at each build step and where the slide is shown whole; autoplay plays on
+ * through the slides' holds to the end.
  */
 export class RecNav {
   constructor(rec, { auto = false } = {}) {
@@ -286,12 +296,13 @@ export class RecNav {
     return this.rec.slides.length;
   }
 
-  // where the clock stops next on the shown slide: its next step, or its end
+  // where the clock stops next on the shown slide: its next step, then where
+  // everything on it has arrived (its autoplay hold is not waited through)
   stopAfter(t) {
     const s = this.rec.slides[this.slide];
     if (!s) return this.rec.duration;
     for (const step of s.steps) if (step > t + 1e-6) return step;
-    return s.end;
+    return Math.max(t, restOf(s));
   }
 
   /** dt seconds of playing; true when the frame changed hands (still moving). */
@@ -346,7 +357,7 @@ export class RecNav {
       return;
     }
     const s = this.rec.slides[this.slide];
-    if (s && this.t < s.end - 1e-6) {
+    if (s && this.t < restOf(s) - 1e-6) {
       this.auto = false;
       this.playing = true;
       return;
