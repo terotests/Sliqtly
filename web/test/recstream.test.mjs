@@ -112,6 +112,25 @@ test("presenting: one press past a shown slide, its autoplay hold is not waited 
   assert.deepEqual([auto.slide, auto.playing], [0, true]);
 });
 
+test("a jump or an address shows the slide as it has come in, not the one before it going", () => {
+  const tl = { ...timeline, events: [...timeline.events, { kind: "transition", start: 2, end: 2.4, slide: 1 }] };
+  const enc = new RecEncoder(tl);
+  for (let n = 0; n < 30; n++) enc.add({ cmds: [box(n < 20 ? 0 : 50)], effects: [] }, 960, 540);
+  const rec = new Recording(enc.finish());
+  const opened = new RecNav(rec);
+  opened.go(1, false);
+  assert.deepEqual([opened.slide, opened.t, opened.playing], [1, 2.4, true]);
+  // the next slide after the shown one plays its way in
+  const next = new RecNav(rec);
+  next.nextSlide();
+  assert.deepEqual([next.slide, next.t], [1, 2]);
+  // back is a jump too
+  next.prevSlide();
+  next.go(1, false);
+  next.prevSlide();
+  assert.deepEqual([next.slide, next.t], [0, 0]);
+});
+
 test("Space while it moves lands it where it stops", () => {
   const nav = new RecNav(new Recording(record()));
   nav.tick(0.2);

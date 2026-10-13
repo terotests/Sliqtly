@@ -313,9 +313,9 @@ async function start() {
   setFontFallback(got.filter(Boolean));
   await Promise.all((s.pictures || []).map(loadPicture));
   nav = new RecNav(rec);
-  // #slide=N: that slide, played its way in
+  // #slide=N: that slide as it has come in, not the one before it going
   const first = slideOfHash(location.hash);
-  if (first > 0) nav.go(first);
+  if (first > 0) nav.go(first, false);
   showState();
   note.hidden = true;
   bar.hidden = false;

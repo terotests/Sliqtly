@@ -328,12 +328,15 @@ export class RecNav {
     return this.rec.frameAt(this.t, this.slide);
   }
 
-  /** Slide i from its master time, playing its way in. */
-  go(i) {
+  /** Slide i. Its way in (the transition, which draws the slide before it
+   * going) plays only when it comes after the shown one; a jump or an
+   * address starts where it has come in. The first slide has none before it. */
+  go(i, wayIn = i === this.slide + 1) {
     const n = this.count;
     if (!n) return;
     this.slide = Math.max(0, Math.min(n - 1, i));
-    this.t = this.rec.slides[this.slide].start;
+    const s = this.rec.slides[this.slide];
+    this.t = wayIn || this.slide === 0 ? s.start : Math.max(s.start, Math.min(s.enter || s.start, s.end));
     this.playing = true;
   }
 
