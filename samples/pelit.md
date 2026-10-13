@@ -24,6 +24,17 @@ size: 640x480
 Klikkaa peliä pelataksesi (← → ↑ ↓, välilyönti). Esc antaa näppäimet takaisin kalvoille, ja kaksoisklikkaus muokkaa sen jälkeen lohkoa.
 {.kicker}
 
+## Hull Runner
+
+```app
+src: apps/hullrun.tsx
+size: 640x480
+allow: sound
+```
+
+Tuhoa emoaluksen reaktorit ja laskeudu kiitoradalle (← → työntö ja käännös, ↑ ↓, välilyönti ampuu, M musiikki). Äänet syntetisoidaan sivulla: `allow: sound`.
+{.kicker}
+
 ## Ohjelma, joka puhuu pakalleen
 
 ```app
