@@ -523,6 +523,15 @@ class PresChartEditor {
         this.focusInput("nd-name")
     }
 
+    ; File → New ▸ Questionnaire…: the new questionnaire story's name. Create
+    ; is "newdeck-create" with the plan's "ask" "survey".
+    fn openNewSurvey:void (name:string px:double py:double pw:double ph:double) {
+        this.openDupDeck(name px py pw ph)
+        ndAsk = "survey"
+        this.rebuild()
+        this.focusInput("nd-name")
+    }
+
     ; Editing together: the name the others see, all selected.
     fn openAskName:void (name:string px:double py:double pw:double ph:double) {
         this.openDupDeck(name px py pw ph)
@@ -1188,6 +1197,9 @@ class PresChartEditor {
             }
             if (ndAsk == "name") {
                 win.name = (PresI18n.t("Your name"))
+            }
+            if (ndAsk == "survey") {
+                win.name = (PresI18n.t("New questionnaire"))
             }
             if (ndAsk == "editors") {
                 win.name = (PresI18n.t("People who can edit"))
@@ -1896,6 +1908,10 @@ class PresChartEditor {
             this.folderBody(root)
             return
         }
+        if (ndAsk == "survey") {
+            this.surveyBody(root)
+            return
+        }
         def pane:EVGElement (UiKit.div("ce-pane"))
         def sec:EVGElement (this.section(pane (PresI18n.t("The copy"))))
         def nr:EVGElement (this.field((PresI18n.t("Name"))))
@@ -1908,6 +1924,23 @@ class PresChartEditor {
         this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
         bottom.addChild((UiKit.div("ce-grow")))
         this.button("nd-create" (PresI18n.t("Duplicate")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; A questionnaire is a story of its own: its name, and Create or Cancel.
+    fn surveyBody:void (root:EVGElement) {
+        def pane:EVGElement (UiKit.div("ce-pane"))
+        def sec:EVGElement (this.section(pane (PresI18n.t("Questionnaire"))))
+        def nr:EVGElement (this.field((PresI18n.t("Name"))))
+        this.inputWith("nd-name" (PresI18n.t("Name")) ndName (PresI18n.t("e.g. Customer feedback")) "ce-wide" nr)
+        sec.addChild(nr)
+        sec.addChild((UiKit.words("ce-doc" (PresI18n.t("A new presentation of type Survey: its questions in a questionnaire file, its slides a chart of each question's answers.")))))
+        root.addChild(pane)
+
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        this.button("nd-cancel" (PresI18n.t("Cancel")) "outline" bottom)
+        bottom.addChild((UiKit.div("ce-grow")))
+        this.button("nd-create" (PresI18n.t("Create")) "primary" bottom)
         root.addChild(bottom)
     }
 

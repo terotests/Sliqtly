@@ -11,12 +11,12 @@
 Import "PresI18n.rgr"
 
 class PresStoryNames {
-    ; i18n: "Review" "Problem" "Task" "Pitch" "Report" "Lesson" "Demo" "Decision" "Story"
+    ; i18n: "Review" "Problem" "Task" "Pitch" "Report" "Lesson" "Demo" "Decision" "Survey" "Story"
     ; i18n: "Draft" "Active" "In review" "Done" "Archived"
     ; the story types and phases (web/stories.js STORY_TYPES, STORY_PHASES)
     ; and their names
     sfn types:[string] () {
-        return (strsplit "review,problem,task,pitch,report,lesson,demo,decision,story" ",")
+        return (strsplit "review,problem,task,pitch,report,lesson,demo,decision,survey,story" ",")
     }
 
     sfn phases:[string] () {
@@ -24,7 +24,7 @@ class PresStoryNames {
     }
 
     sfn typeName:string (ty:string) {
-        def names:[string] (strsplit "Review,Problem,Task,Pitch,Report,Lesson,Demo,Decision,Story" ",")
+        def names:[string] (strsplit "Review,Problem,Task,Pitch,Report,Lesson,Demo,Decision,Survey,Story" ",")
         def all:[string] (PresStoryNames.types())
         def i:int 0
         while (i < (array_length all)) {

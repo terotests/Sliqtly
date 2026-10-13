@@ -1439,9 +1439,11 @@ let makingDeck = null;
 async function newDeck(plan) {
   await leaveDoc();
   const name = String(plan.name || "").replace(/\s+/g, " ").trim() || t("New presentation");
-  let text = "# " + name + "\n\n" + t("Write here.") + "\n";
+  let text = plan.text || "# " + name + "\n\n" + t("Write here.") + "\n";
   if (plan.data === "sample") text += "\n" + sampleChartSlide();
   beginDoc(text);
+  // files the new deck starts with (a questionnaire story's form)
+  for (const f of plan.files || []) await keepFile({ path: f.path, type: f.type, size: new TextEncoder().encode(f.data).length, data: f.data });
   docName = name;
   if (plan.theme != null && [...themeSel.options].some((o) => o.value === plan.theme)) themeSel.value = plan.theme;
   useTheme(themeSel.value);
@@ -1454,11 +1456,10 @@ async function newDeck(plan) {
   refreshFiles();
   needsPaint = true;
   // a new story is a draft (web/stories.js; a server of one's own makes
-  // its new shares drafts itself)
-  if (!ownServer()) {
-    const made = await currentRoomId();
-    if (made) keepRooms((s) => setStory(s, made, NEW_STORY));
-  }
+  // its new shares drafts itself), of the type the plan names
+  const made = await currentRoomId();
+  if (made && !ownServer()) keepRooms((s) => setStory(s, made, { ...NEW_STORY, ...(plan.story || {}) }));
+  else if (made && plan.story) await roomsCall("set_story", { deck_id: made.replace(/^cloud:/, ""), ...plan.story }).catch((e) => console.warn("no story type kept", e));
   // made from a room's "+" (Add new… → Presentation): it goes there
   const room = roomForNew;
   roomForNew = "";
@@ -2368,14 +2369,13 @@ async function newSheet() {
 // File → New → Questionnaire…: forms/questionnaire-<n>.form.md from the
 // model's starting text (PresForm.template), kept in the deck and opened as
 // text. On a server of one's own its Files row then gives an answer link.
-async function newQuestionnaire() {
-  const have = new Set((await docFiles()).map((f) => f.path));
-  let n = 1;
-  while (have.has(`forms/questionnaire-${n}.form.md`)) n++;
-  const path = `forms/questionnaire-${n}.form.md`;
-  const text = app.formTemplate();
-  await keepFile({ path, type: "text/markdown", size: new TextEncoder().encode(text).length, data: text });
-  app.openFile(path, text);
+// File → New ▸ Questionnaire…, named in the window: a story of its own
+// (src/PresForm.rgr PresForm.story), of type survey, its questions in a
+// questionnaire file opened at once, its slides the answers' charts.
+async function newSurvey(plan) {
+  const s = JSON.parse(app.surveyStory(String(plan.name || "")));
+  await newDeck({ name: s.name, theme: null, data: "none", text: s.markdown, story: { type: s.type }, files: [{ path: s.path, type: "text/markdown", data: s.form }] });
+  app.openFile(s.path, s.form);
   needsPaint = true;
 }
 
@@ -3271,7 +3271,9 @@ async function fileRequest(r) {
   } else if (action === "newsheet") {
     await newSheet();
   } else if (action === "newform") {
-    await newQuestionnaire();
+    roomForNew = "";
+    // the name asked first, as for a new presentation
+    app.openNewSurvey("");
   } else if (action === "formlink") {
     await questionnaireLink(what);
   } else if (action === "formcsv") {
@@ -5375,6 +5377,8 @@ function handleRequests() {
         saveRoomPeople(plan.invroom, plan.editors || "").catch((e) => toast(t("Could not save who is in the room: ") + (e?.message || e)));
       } else if (plan.ask === "editors") {
         saveEditors(plan.editors || "").catch((e) => toast(t("Could not save who can edit: ") + (e?.code || e?.message || e)));
+      } else if (plan.ask === "survey") {
+        makingDeck = newSurvey(plan).catch(fail).finally(() => { makingDeck = null; });
       } else if (plan.dup) {
         makingDeck = duplicateDeck(plan.name).catch((e) => toast(t("Duplicating failed: ") + (e.message || e))).finally(() => { makingDeck = null; });
       } else {

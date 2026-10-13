@@ -9,7 +9,7 @@
 // A story with nothing said is what every presentation was before stories:
 // type "story", phase "active". A new one starts as a draft (NEW_STORY).
 
-export const STORY_TYPES = ["review", "problem", "task", "pitch", "report", "lesson", "demo", "decision", "story"];
+export const STORY_TYPES = ["review", "problem", "task", "pitch", "report", "lesson", "demo", "decision", "survey", "story"];
 export const STORY_PHASES = ["draft", "active", "review", "done", "archived"];
 
 // The one place a type's colour comes from: the card's edge and dot, the
@@ -23,20 +23,21 @@ export const STORY_TYPE_STYLE = {
   lesson: { color: "#2f9e4f" },
   demo: { color: "#0ea5c6" },
   decision: { color: "#d4a514" },
+  survey: { color: "#db2777" },
   story: { color: "#8a8f98" },
 };
 
 // The words the interface shows (through t(), web/i18n). The phase
 // "review" is "In review", so it is not read as the type Review.
-// i18n: "Review" "Problem" "Task" "Pitch" "Report" "Lesson" "Demo" "Decision" "Story"
-// i18n: "Reviews" "Problems" "Tasks" "Pitches" "Reports" "Lessons" "Demos" "Decisions" "Stories"
+// i18n: "Review" "Problem" "Task" "Pitch" "Report" "Lesson" "Demo" "Decision" "Survey" "Story"
+// i18n: "Reviews" "Problems" "Tasks" "Pitches" "Reports" "Lessons" "Demos" "Decisions" "Surveys" "Stories"
 // i18n: "Draft" "Active" "In review" "Done" "Archived" "No tags"
-export const TYPE_LABEL = { review: "Review", problem: "Problem", task: "Task", pitch: "Pitch", report: "Report", lesson: "Lesson", demo: "Demo", decision: "Decision", story: "Story" };
-export const TYPE_GROUP_LABEL = { review: "Reviews", problem: "Problems", task: "Tasks", pitch: "Pitches", report: "Reports", lesson: "Lessons", demo: "Demos", decision: "Decisions", story: "Stories" };
+export const TYPE_LABEL = { review: "Review", problem: "Problem", task: "Task", pitch: "Pitch", report: "Report", lesson: "Lesson", demo: "Demo", decision: "Decision", survey: "Survey", story: "Story" };
+export const TYPE_GROUP_LABEL = { review: "Reviews", problem: "Problems", task: "Tasks", pitch: "Pitches", report: "Reports", lesson: "Lessons", demo: "Demos", decision: "Decisions", survey: "Surveys", story: "Stories" };
 export const PHASE_LABEL = { draft: "Draft", active: "Active", review: "In review", done: "Done", archived: "Archived" };
 
 // The groups' order when grouped by type: what needs work first.
-export const TYPE_GROUP_ORDER = ["problem", "task", "review", "decision", "report", "lesson", "demo", "pitch", "story"];
+export const TYPE_GROUP_ORDER = ["problem", "task", "review", "decision", "report", "lesson", "demo", "pitch", "survey", "story"];
 
 export const GROUP_BYS = ["type", "phase", "tag", "none"];
 export const STORY_SORTS = ["updated", "title", "created"];

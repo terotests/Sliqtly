@@ -797,6 +797,116 @@ class PresForm {
         }
     }
 
+    ; ---------------------------------------------------------------------------
+    ; A questionnaire as a story of its own
+    ; ---------------------------------------------------------------------------
+    ; File → New ▸ Questionnaire… asks a name and makes a new story (deck) of
+    ; type "survey": the questionnaire file (`storyFile`) holds the questions,
+    ; titled with the name (`named`), and the story's slides (`storyMarkdown`)
+    ; are the name, then a chart of each question's answers.
+
+    ; The name as one line: whitespace runs to one space, trimmed; none →
+    ; `fallback`.
+    sfn storyName:string (name:string fallback:string) {
+        def out:string ""
+        def gap:boolean false
+        def i:int 0
+        while (i < (strlen name)) {
+            def c:int (charAt name i)
+            if ((c == 32) || (c == 9) || (c == 10) || (c == 13)) {
+                gap = true
+            } {
+                if (gap && ((strlen out) > 0)) {
+                    out = (out + " ")
+                }
+                gap = false
+                out = (out + (substring name i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return fallback
+        }
+        return out
+    }
+
+    ; The questionnaire file of a story named `name`: forms/<slug>.form.md
+    ; (forms/questionnaire.form.md when the name has no letters or digits).
+    sfn storyFile:string (name:string) {
+        def s:string (PresForm.slug(name))
+        if ((strlen s) == 0) {
+            s = "questionnaire"
+        }
+        return (("forms/" + s) + ".form.md")
+    }
+
+    ; `src` with its title (the front matter's form: line) set to `name`. A
+    ; " #" in the name would start a comment there, so it loses its #. With
+    ; no front matter one is put first.
+    sfn named:string (src:string name:string) {
+        def title:string name
+        def hashAt:int (indexOf title " #")
+        while (hashAt >= 0) {
+            title = ((substring title 0 (hashAt + 1)) + (substring title (hashAt + 2) (strlen title)))
+            hashAt = (indexOf title " #")
+        }
+        def lines:[string] (strsplit src "\n")
+        if (((array_length lines) == 0) || ((trim (itemAt lines 0)) != "---")) {
+            return ((("---\nform: " + title) + "\n---\n\n") + src)
+        }
+        def out:string "---"
+        def done:boolean false
+        def inside:boolean true
+        def i:int 1
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if (inside && ((trim line) == "---")) {
+                if (done == false) {
+                    out = ((out + "\nform: ") + title)
+                    done = true
+                }
+                inside = false
+                out = ((out + "\n") + line)
+            } {
+                def k:string (trim line)
+                if ((inside && (done == false)) && (((indexOf k "form:") == 0) || ((indexOf k "title:") == 0))) {
+                    out = ((out + "\nform: ") + title)
+                    done = true
+                } {
+                    out = ((out + "\n") + line)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The story's Markdown: the name as its first slide, saying where the
+    ; questions are, then a results slide per question (`resultSlides`).
+    sfn storyMarkdown:string (name:string lang:string path:string src:string) {
+        def where:string ((("Questions: " + path) + " · the answers are on the next slides."))
+        if (lang == "fi") {
+            where = ((("Kysymykset: " + path) + " · vastaukset ovat seuraavilla dioilla."))
+        }
+        def out:string ((((("# " + name) + "\n\n") + where) + "\n\n"))
+        return (out + ((PresForm.parse(src)).resultSlides(path)))
+    }
+
+    ; All of a new questionnaire story as JSON for the page:
+    ; {"name", "path", "form" (the file's text), "markdown", "type": "survey"}.
+    sfn story:string (name:string lang:string fallback:string) {
+        def n:string (PresForm.storyName(name fallback))
+        def path:string (PresForm.storyFile(n))
+        def form:string (PresForm.named((PresForm.template(lang)) n))
+        def o:JVal (JVal.mkObj())
+        o.setStr("name" n)
+        o.setStr("path" path)
+        o.setStr("form" form)
+        o.setStr("markdown" (PresForm.storyMarkdown(n lang path form)))
+        o.setStr("type" "survey")
+        return (o.toJson())
+    }
+
     ; A new questionnaire's file (File → New ▸ Questionnaire…), in the
     ; editor's language: one of each common kind of question, to change.
     sfn template:string (lang:string) {
