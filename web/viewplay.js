@@ -71,6 +71,7 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
     web.add(p.key, p.src, p.w, p.h, x, y, w, h);
     web.setCss(p.key, p.cssText || "");
     web.setAllow3d(p.key, (p.allow || []).includes("3d"));
+    web.setInk(p.ink || "");
     byKey.set(p.key, p);
   }
   for (const s of scripts) {
@@ -223,6 +224,9 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
   let staged = false;
   const loop = () => {
     apps.tick(1);
+    // a program on the slide shown that has not drawn yet: its loading ring turns
+    web.setClock(performance.now() / 1000);
+    if (plays.some((p) => p.slide === current() && web.loading(p.key))) repaint();
     const now = stageTaken();
     if (now !== staged) {
       staged = now;

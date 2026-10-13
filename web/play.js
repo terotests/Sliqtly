@@ -4,8 +4,9 @@
 // recorded for the web (web/recstream.js), painted frame by frame by EVG's
 // WebGL painter. What it loads: this module, the painter, the recording
 // (its pictures inside it) and the faces the slides are set in. No layout,
-// no engine, no sign-in: slide scripts, programs and 3-D worlds show as
-// they were recorded.
+// no sign-in: slide scripts and 3-D worlds show as they were recorded.
+// Programs on slides (```app) run in their boxes as in the viewer
+// (web/viewplay.js), their engine loaded only for a recording that has one.
 //
 // ← → go from slide to slide (each from its master time, playing its way
 // in), Space through the build steps (the sub times) and on, A plays it all.
@@ -20,7 +21,7 @@
 // pieces (Range) as it plays; one the server answers with (no Storage)
 // plays from the bytes already read.
 
-import { prepareDisplayList, setFontFallback } from "./gl/evg-webgl.js";
+import { prepareDisplayList, setFontFallback, imageChanged } from "./gl/evg-webgl.js";
 import { registerDeckEffects, reducedMotion, holdStill } from "./fxdeck.js";
 import { RecNav, unpackStream } from "./recstream.js";
 import { playLinkOf, playUrl, recUrl, recActionForKey, slideOfHash } from "./playlink.js";
@@ -53,6 +54,8 @@ const startedAt = performance.now();
 
 // the 3-D flight (web/playflight.js), when the recording carries one
 let flight = null;
+// the recording's programs running (web/viewplay.js), when it has some
+let plays = null;
 
 function paint() {
   raf = 0;
@@ -84,6 +87,14 @@ function paint() {
   const f = prepareDisplayList(gl, { width: w, height: h, view, list }, { dpr, images: pictures });
   f.draw(null, null, { clear: false });
   f.dispose();
+  // the shown slide's programs in their boxes (the frames leave them
+  // empty), once the slide has come in
+  const sl = rec.slides[nav.slide];
+  if (plays && sl && nav.t >= (sl.enter || sl.start) - 1e-6) for (const pl of plays.listsFor(nav.slide, view)) {
+    const pf = prepareDisplayList(gl, { width: w, height: h, view, list: pl }, { dpr, images: pictures });
+    pf.draw(null, null, { clear: false });
+    pf.dispose();
+  }
   showState();
   const moving = !still && (list.effects || []).length > 0;
   if (moving || nav.playing) raf = requestAnimationFrame(paint);
@@ -142,9 +153,14 @@ window.addEventListener("keydown", (ev) => {
   }
   if (act(recActionForKey(ev.key))) ev.preventDefault();
 });
-// a click or a tap on the slide: the next step
+// a click or a tap on the slide: the next step (a press a program took,
+// web/viewplay.js, never reaches the canvas)
+let pressed = false;
+canvas.addEventListener("pointerdown", () => { pressed = true; });
 canvas.addEventListener("click", () => {
   wake();
+  if (!pressed) return;
+  pressed = false;
   act("next");
 });
 document.getElementById("pPrev").addEventListener("click", () => act("prevSlide"));
@@ -206,6 +222,26 @@ async function offerFlight(data) {
   start3d.textContent = say("▶ Fly through it in 3-D", "▶ Lennä läpi 3D:nä");
   start3d.hidden = false;
   window.__play.flight = flight;
+}
+
+// The recording's programs, run as the viewer runs them: each over its
+// box on its slide while that slide is shown.
+async function startRecPlays(s) {
+  const { startPlays } = await import("./viewplay.js");
+  plays = await startPlays({
+    plays: s.plays, scripts: [], lists: [], slideW: nav.rec.width, slideH: nav.rec.height, canvas,
+    current: () => nav.slide, count: () => nav.count, shownPages: () => [nav.slide],
+    go: (i) => {
+      nav.go(i);
+      navAt = 0;
+      showState();
+      repaint();
+    },
+    repaint, pictures, gl: () => gl, dpr: () => Math.min(window.devicePixelRatio || 1, 3), imageChanged, slidePicture: () => null,
+    onStage: (on) => document.body.classList.toggle("game-stage", on),
+    readFile: () => "",
+  });
+  window.__play.plays = plays;
 }
 
 async function loadFace(name, file) {
@@ -285,6 +321,7 @@ async function start() {
   bar.hidden = false;
   wake();
   window.__play = { nav, act };
+  if ((s.plays || []).length) await startRecPlays(s).catch((e) => console.warn("programs on slides", e));
   if (s.flight) await offerFlight(s.flight).catch((e) => console.warn("no 3-D flight", e));
   window.__pageStarted = true;
   repaint();

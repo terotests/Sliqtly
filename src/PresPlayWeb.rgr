@@ -24,8 +24,33 @@ class PresPlayWeb {
     def boxes:[double]
     def slideW:double 0.0
     def slideH:double 0.0
+    ; the page's clock (seconds) and the slides' text colour, for the
+    ; loading ring a program shows until its first picture
+    def now:double 0.0
+    def ink:string "#8a93a6"
 
     Constructor () {
+    }
+
+    fn setClock:void (t:double) {
+        now = t
+    }
+
+    fn setInk:void (colour:string) {
+        if ((strlen (trim colour)) > 0) {
+            ink = (trim colour)
+        }
+    }
+
+    ; Whether the program shows its loading ring (the page paints again
+    ; while it turns).
+    fn loading:boolean (key:string) {
+        def i:int (this.indexOf(key))
+        if (i < 0) {
+            return false
+        }
+        def v:PresPlayView (itemAt views i)
+        return (v.loading(now))
     }
 
     fn indexOf:int (key:string) {
@@ -147,8 +172,8 @@ class PresPlayWeb {
         return (itemAt boxes ((i * 4) + k))
     }
 
-    ; The program's box painted: its picture, else the plate (with why it
-    ; is not running), as an EVGDisplayList's JSON in the slide's units.
+    ; The program's box painted: its picture, else the loading ring while it
+    ; starts, else the plate (with why it is not running), as an EVGDisplayList's JSON in the slide's units.
     fn paintJson:string (key:string) {
         def out:EVGDisplayList (new EVGDisplayList())
         def i:int (this.indexOf(key))
@@ -161,7 +186,11 @@ class PresPlayWeb {
         def bw:double (this.boxAt(i 2))
         def bh:double (this.boxAt(i 3))
         if ((v.paint(out bx by bw bh)) == false) {
-            v.paintPlate(out (itemAt specs i) bx by bw bh)
+            if (v.loading(now)) {
+                v.paintLoading(out bx by bw bh now ink)
+            } {
+                v.paintPlate(out (itemAt specs i) bx by bw bh)
+            }
         }
         return (out.toJson())
     }

@@ -12,9 +12,10 @@
 //
 //   sliqrec   1, the format
 //   width, height, fps, frames, duration
-//   slides    [{ start, end, steps: [t] }]: each slide's master time, and
-//             the build steps on it (the sub times a presenter steps
-//             through); seconds of the recording
+//   slides    [{ start, end, steps: [t], enter? }]: each slide's master
+//             time, the build steps on it (the sub times a presenter steps
+//             through) and where its transition ends (none: at start);
+//             seconds of the recording
 //   cmds      every distinct shape once: a drawing command without its
 //             place (x, y), its points (pts) as whole twentieths of a unit
 //             from that place, each from the one before
@@ -32,9 +33,13 @@
 //   scripts   [] for now. A slide's script (TSX) is recorded as the poses
 //             the timeline draws; running it live over the recording comes
 //             later, and goes here.
+//   plays     the programs on slides (```app), as the viewer gets them
+//             (PresApp.recordPlaysJson): their boxes are left empty in the
+//             frames and the player runs them there (web/viewplay.js)
 //
 // The light player (web/play.js, /r/{id}/{hash}) needs nothing else: the
-// faces come from the site's fonts/, the pictures are in the stream.
+// faces come from the site's fonts/, the pictures are in the stream (and a
+// deck with programs loads their engine, as the viewer does).
 //
 // Played (RecNav): ← → go from slide to slide (each plays its way in up to
 // its first step), Space goes on to the next step and from a slide's end to
@@ -167,6 +172,7 @@ export class RecEncoder {
       pictures: withAssets.pictures || [],
       deckEffects: withAssets.deckEffects || "",
       scripts: [],
+      plays: withAssets.plays || [],
       // the 3-D flight through the slides (web/play.js), when exported with it
       flight: withAssets.flight || null,
     };
@@ -181,6 +187,8 @@ export function slidesOf(timeline) {
   }
   for (const e of timeline.events || []) {
     if (e.kind === "build" && slides[e.slide]) slides[e.slide].steps.push(e.start);
+    // where its way in (the transition) ends: its programs run from there
+    if (e.kind === "transition" && slides[e.slide]) slides[e.slide].enter = e.end;
   }
   const out = [];
   for (let i = 0; i < slides.length; i++) {

@@ -339,7 +339,7 @@ class View {
     ; (web/view.js with web/apps.js): where each one's box is on its slide,
     ; its size and grants, and its source and stylesheet as text.
     ;   [{ "key", "slide", "src", "css", "w", "h", "allow": […],
-    ;      "box": [x, y, w, h], "text", "cssText" }]
+    ;      "box": [x, y, w, h], "text", "cssText", "ink" }]
     sfn plays:MfJ (host:McpHost din:DeckIn d:PresDeck) {
         def out:MfJ (MfJ.newArr())
         def all:[PresPlayUse] (d.playUses())
@@ -370,6 +370,7 @@ class View {
             o.put("box" bx)
             o.putStr("text" (Check.programText(host din u.spec.src)))
             o.putStr("cssText" (Check.dataText(host din u.spec.css)))
+            o.putStr("ink" (d.loadingInk()))
             out.add(o)
         }
         return out
