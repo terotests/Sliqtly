@@ -5773,6 +5773,34 @@ class PresCheck {
         this.ok(((indexOf slides "\"url\":\"form:forms/p.form.md#kanavat\"") > 0) "the chart reads its question")
         this.ok(((indexOf slides "#muuta") < 0) "free text gets no chart")
         this.ok(((indexOf slides "#sana") > 0) "words get a chart")
+        this.surveyStory()
+    }
+
+    ; File → New ▸ Questionnaire…: a story of its own, named in the window.
+    fn surveyStory:void () {
+        this.ok(((PresForm.storyName("  Kevät \n kysely " "Uusi")) == "Kevät kysely") "story name on one line")
+        this.ok(((PresForm.storyName(" \t" "Uusi")) == "Uusi") "no name: the fallback")
+        this.ok(((PresForm.storyFile("Kevään kysely 2026")) == "forms/kevään-kysely-2026.form.md") "file from the name")
+        this.ok(((PresForm.storyFile("!!")) == "forms/questionnaire.form.md") "file for a name without letters")
+        def tpl:string (PresForm.template("fi"))
+        def named:string (PresForm.named(tpl "Asiakaskysely"))
+        def f:PresForm (PresForm.parse(named))
+        this.ok((f.title == "Asiakaskysely") ("the name titles the questionnaire, got " + f.title))
+        this.ok(((f.count()) == ((PresForm.parse(tpl)).count())) "the template's questions kept")
+        this.ok(((indexOf named "Palaute") < 0) "the template's title replaced")
+        this.ok(((PresForm.parse((PresForm.named(tpl "A #1 kysely")))).title == "A 1 kysely") "a # in the name starts no comment")
+        def bare:PresForm (PresForm.parse((PresForm.named("## Q {#q type=text}\n" "Ilman"))))
+        this.ok(((bare.title == "Ilman") && ((bare.count()) == 1)) "front matter added when there is none")
+        def j:JVal (JVal.parse((PresForm.story("Asiakaskysely" "fi" "Uusi kysely"))))
+        this.ok(((j.strOr("type" "")) == "survey") "a questionnaire story is of type survey")
+        this.ok(((j.strOr("path" "")) == "forms/asiakaskysely.form.md") "story's file")
+        def md:string (j.strOr("markdown" ""))
+        this.ok(((indexOf md "# Asiakaskysely\n") == 0) "the name is the first slide")
+        this.ok(((indexOf md "\"url\":\"form:forms/asiakaskysely.form.md#seuraavaksi\"") > 0) "result slides read the story's file")
+        this.ok(((PresForm.parse((j.strOr("form" "")))).title == "Asiakaskysely") "story's file titled")
+        def en:JVal (JVal.parse((PresForm.story("" "en" "New questionnaire"))))
+        this.ok(((en.strOr("name" "")) == "New questionnaire") "no name: the fallback names the story")
+        this.ok(((en.strOr("path" "")) == "forms/new-questionnaire.form.md") "fallback's file")
     }
 
     ; The size beside the editor's tabs: Markdown + theme + the deck's files.
