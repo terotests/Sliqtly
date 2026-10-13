@@ -3537,16 +3537,16 @@ let skinHue = 88;
 // (the device's setting, followed as it changes), per browser. The slides
 // keep their own theme in both.
 let mode = "light";
-// The frame around the work (the bar and the left rail): "" white (the
-// default) or "terracotta", the logo's colour, per browser.
-let frameLook = "";
+// The frame around the work (the bar and the left rail): "terracotta", the
+// logo's colour (the default), or "" white, per browser.
+let frameLook = "terracotta";
 try {
   skin = localStorage.getItem("sliqtly.skin") === "retro" ? "retro" : "";
   const h = parseInt(localStorage.getItem("sliqtly.skinHue") || "", 10);
   if (h >= 0 && h < 360) skinHue = h;
   const m = localStorage.getItem("sliqtly.mode");
   if (m === "dark" || m === "system") mode = m;
-  if (localStorage.getItem("sliqtly.frame") === "terracotta") frameLook = "terracotta";
+  if (localStorage.getItem("sliqtly.frame") === "white") frameLook = "";
 } catch (_) { /* standard */ }
 const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 function isDark() {
