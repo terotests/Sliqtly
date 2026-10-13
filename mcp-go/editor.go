@@ -453,7 +453,9 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 		if b, err := fontFiles.ReadFile(name); err == nil {
 			w.Header().Set("Content-Type", "font/ttf")
 			w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-			w.Write(b)
+			if !serveWebGzip(w, r, name, time.Time{}, func() ([]byte, error) { return b, nil }, int64(len(b))) {
+				w.Write(b)
+			}
 			return
 		}
 	}
@@ -472,6 +474,9 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 		w.Header().Set("Content-Type", ct)
 	}
 	w.Header().Set("Cache-Control", cache)
+	if serveWebGzip(w, r, name, st.ModTime(), readAllFile(f), st.Size()) {
+		return
+	}
 	if rs, ok := f.(io.ReadSeeker); ok {
 		http.ServeContent(w, r, name, st.ModTime(), rs)
 		return

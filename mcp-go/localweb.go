@@ -107,7 +107,9 @@ func (s *localServer) static(w http.ResponseWriter, r *http.Request) bool {
 			w.Header().Set("Content-Type", "font/ttf")
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Write(b)
+			if !serveWebGzip(w, r, name, time.Time{}, func() ([]byte, error) { return b, nil }, int64(len(b))) {
+				w.Write(b)
+			}
 			return true
 		}
 	}
@@ -139,6 +141,9 @@ func (s *localServer) static(w http.ResponseWriter, r *http.Request) bool {
 	// the assistant's preview fetches the page's files from its own origin
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Private-Network", "true")
+	if serveWebGzip(w, r, name, st.ModTime(), readAllFile(f), st.Size()) {
+		return true
+	}
 	if rs, ok := f.(io.ReadSeeker); ok {
 		http.ServeContent(w, r, name, st.ModTime(), rs)
 		return true

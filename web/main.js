@@ -2449,6 +2449,9 @@ async function questionnaireText(path) {
   return typeof f.data === "string" ? f.data : await f.data.text();
 }
 
+// a slide program (apps/x.tsx) or its stylesheet (apps/x.tsx.css)
+const isProgramFile = (url) => /\.(tsx|ts|jsx|mjs|js)(\.css)?$/i.test(url);
+
 // A chart's data from a questionnaire ("url": "form:forms/x.form.md#q"):
 // the counts the server keeps, for the deck saved there (the editor's own,
 // or the one a viewer shows); each option at 0 where no server keeps them.
@@ -4710,7 +4713,9 @@ function fetchChartFiles(rev) {
       });
       continue;
     }
-    const tries = ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    // a program and its stylesheet are the deck's own files: the site and the
+    // dataset CDN never have them, so a missing one is not looked for there
+    const tries = isProgramFile(url) ? [] : ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
     let fromWorkbook = false;
     const got = (async () => {
       // the document's own copy, when it has one
