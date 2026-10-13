@@ -836,6 +836,9 @@ class Check {
         for (d.headingAttrNotes()) han:string hai {
             push c.warnings (Guide.see(han "layout"))
         }
+        for (d.pictureNotes()) pn:string pni {
+            push c.warnings (Guide.see(pn "pictures"))
+        }
         if c.laidOut {
             Check.ownEffects(host c d pics)
             Check.contrast(c d l pics md)
