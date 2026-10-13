@@ -17,6 +17,8 @@
 ;                         original's bytes and the variation's JSON in, the
 ;                         file it makes, an edited variation, the layers to
 ;                         aim an edit at, or one view as a file of its own out
+;   blank                 a new file from nothing: one empty page, which a
+;                         variation then adds layers to (FigBuild)
 ;
 ; Everything is static so Go outside the package can call it
 ; (FigGo_static_open, …): Ranger's methods come out unexported.
@@ -226,6 +228,12 @@ class FigGoEdit {
         }
         out.summary = (v.summary())
         return d
+    }
+
+    ; A new, empty file: a document with one page called `page`. A file
+    ; made here is a variation of this one.
+    sfn blank:buffer (name:string page:string) {
+        return (FigBuild.blank(name page))
     }
 
     ; The file the variation makes.

@@ -1988,6 +1988,35 @@ whole .fig again when asked.
 `extract_figma_view` takes one screen (or layer) of a file or variation
 out as a new shared .fig of its own, with the components and styles it
 uses: vary it, export it or put it on a slide like any other.
+
+## A new file from nothing
+
+`create_figma_file` with a `name` makes an empty file: one page, `0:1`.
+`edit_figma`'s `add` puts layers on it (`edits` can be given to
+`create_figma_file` at once). Each add names its `type` and where it goes
+(`parent`, default the first page); a frame takes `children`, which are
+adds without `op`:
+
+```json
+[{"op": "add", "type": "frame", "name": "Login", "w": 375, "h": 812,
+  "fill": "#ffffff", "children": [
+    {"type": "text", "text": "Sign in", "x": 24, "y": 80, "fontSize": 28, "bold": true},
+    {"type": "rectangle", "name": "Button", "x": 24, "y": 400, "w": 327, "h": 48,
+     "fill": "#3366ff", "radius": 8},
+    {"type": "text", "text": "Continue", "x": 140, "y": 413, "fill": "#ffffff"}]},
+ {"op": "add", "type": "page", "name": "Settings"}]
+```
+
+- Types: `page`, `frame`, `rectangle`, `ellipse`, `text`, `line`,
+  `vector` (`path`: an SVG path in its own `w` x `h` box).
+- Each layer: `x`, `y` in its parent, `w`, `h`, `name`, `fill` and
+  `stroke` (#rrggbb, #rrggbbaa or `none`), `strokeWidth`, `radius`,
+  `opacity`, `hidden`; a frame `clip` (default true).
+- Text: `text`, `fontSize` (16), `fontFamily` (Inter), `bold`, `align`,
+  `lineHeight`. With no `w` it grows with its words; with `w` it wraps.
+- `created` in the answer has each add's node_id (`9000:1`); the layers
+  in it follow in order (`9000:2`, `9000:3`…). The other edits (move,
+  fill, copy, remove…) work on added layers too.
 <!-- /figma -->
 
 <!-- figma -->

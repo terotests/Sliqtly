@@ -101,7 +101,7 @@ export function sharedNote(f, t = (s) => s) {
   if (f.status === "failed") return t("Could not read it") + (f.error ? ": " + f.error : "");
   const parts = [];
   // a variation keeps only its change against the original (base)
-  if (f.kind === "figma-variation") parts.push(t("Variation of {name}").replace("{name}", f.base || "?"));
+  if (f.kind === "figma-variation") parts.push(f.base ? t("Variation of {name}").replace("{name}", f.base) : t("Made here"));
   if (f.screens && f.kind === "pptx") parts.push(f.screens === 1 ? t("1 slide") : t("{n} slides").replace("{n}", String(f.screens)));
   else if (f.screens) parts.push(f.screens === 1 ? t("1 screen") : t("{n} screens").replace("{n}", String(f.screens)));
   if (f.bytes) parts.push(sizeText(f.bytes));

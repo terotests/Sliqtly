@@ -23,6 +23,11 @@
 // A variation of a variation is another variation of the same original:
 // its change is copied, so every variation stays one step from the file it
 // was made from.
+//
+// A file made here from nothing (create) is a variation with no original
+// (base ""): its change is the layers added to a blank file, a document
+// with one empty page that DesignViewer writes the same every time
+// (FigBuild.blank), so nothing but the change is kept for it either.
 
 package main
 
@@ -49,6 +54,13 @@ func (s *sharedFiles) origin(ctx context.Context, f sharedFile) (sharedFile, str
 	if f.Kind != variationKind {
 		return f, "", nil
 	}
+	if f.Base == "" {
+		b, err := s.files.Read(ctx, sharedVariationPath(f.ID), 64<<20)
+		if err != nil {
+			return f, "", err
+		}
+		return blankOrigin(f), string(b), nil
+	}
 	base, err := s.card(ctx, f.Base)
 	if err != nil {
 		return f, "", sharedErr{409, "the original of " + f.Name + " (" + f.Base + ") is gone"}
@@ -60,12 +72,34 @@ func (s *sharedFiles) origin(ctx context.Context, f sharedFile) (sharedFile, str
 	return base, string(b), nil
 }
 
+// the original of a file made here from nothing: the blank file, named
+// as the file is
+func blankOrigin(f sharedFile) sharedFile {
+	return sharedFile{Name: f.Name, Kind: "figma", Sha: "blank", Status: "ready"}
+}
+
+// the blank file a new file is made on
+func blankFig(name string) ([]byte, error) {
+	var out []byte
+	err := figdvCall(func() { out = figdv.FigGoEdit_static_blank(name, "Page 1") })
+	return out, err
+}
+
+// an original's bytes: its source.fig, or for a file made here the blank
+// file
+func (s *sharedFiles) baseBytes(ctx context.Context, base sharedFile) ([]byte, error) {
+	if base.ID == "" {
+		return blankFig(base.Name)
+	}
+	return s.files.Read(ctx, sharedDir(base.ID)+"/source.fig", s.max+1)
+}
+
 // the original's bytes, refused past the size this server edits in memory
 func (s *sharedFiles) originBytes(ctx context.Context, base sharedFile) ([]byte, error) {
 	if s.editMax > 0 && base.Bytes > s.editMax {
 		return nil, sharedErr{413, fmt.Sprintf("%s is too large to change here (at most %d MB)", base.Name, s.editMax>>20)}
 	}
-	return s.files.Read(ctx, sharedDir(base.ID)+"/source.fig", s.max+1)
+	return s.baseBytes(ctx, base)
 }
 
 // sourceOf is the file f is: the file as it came, or the .fig its
@@ -78,7 +112,7 @@ func (s *sharedFiles) sourceOf(ctx context.Context, f sharedFile) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	data, err := s.files.Read(ctx, sharedDir(base.ID)+"/source.fig", s.max+1)
+	data, err := s.baseBytes(ctx, base)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +192,7 @@ func (s *sharedFiles) vary(ctx context.Context, of, name string) (sharedFile, er
 	}
 	f := sharedFile{ID: id, Name: name, Kind: variationKind, Base: base.ID, Bytes: int64(len(delta)), Sha: variationSum(base, delta), Status: "indexing", Changes: src.Changes}
 	if f.Changes == "" {
-		f.Changes = "same as the original"
+		f.Changes = changesOf(f, "same as the original")
 	}
 	f.Added = time.Now().UnixMilli()
 	err = s.putCard(ctx, f)
@@ -168,6 +202,47 @@ func (s *sharedFiles) vary(ctx context.Context, of, name string) (sharedFile, er
 	}
 	s.queue(id)
 	return f, nil
+}
+
+// create makes a new Figma file called `name` from nothing: one empty
+// page, to which edit adds layers
+func (s *sharedFiles) create(ctx context.Context, name string) (sharedFile, error) {
+	name = strings.TrimSpace(roomFileName(name))
+	if name == "" {
+		name = "Untitled"
+	}
+	if !strings.EqualFold(pathExt(name), ".fig") {
+		name += ".fig"
+	}
+	delta := `{"format":"fig-delta/1"}`
+	s.mu.Lock()
+	id := s.freeID(ctx, name)
+	if err := s.files.Save(ctx, sharedVariationPath(id), "application/json", []byte(delta), nil); err != nil {
+		s.mu.Unlock()
+		return sharedFile{}, err
+	}
+	f := sharedFile{ID: id, Name: name, Kind: variationKind, Bytes: int64(len(delta)), Status: "indexing", Changes: newFileEmpty}
+	f.Sha = variationSum(blankOrigin(f), delta)
+	f.Added = time.Now().UnixMilli()
+	err := s.putCard(ctx, f)
+	s.mu.Unlock()
+	if err != nil {
+		return sharedFile{}, err
+	}
+	s.queue(id)
+	return f, nil
+}
+
+// what a file made here with nothing on it says it changes
+const newFileEmpty = "a new file, empty"
+
+// the summary of a variation's change as its card says it: a file made
+// here has no original to be the same as
+func changesOf(f sharedFile, summary string) string {
+	if f.Base == "" && summary == "same as the original" {
+		return newFileEmpty
+	}
+	return summary
 }
 
 // a variation's sum: its change and the original it changes
@@ -214,7 +289,7 @@ func (s *sharedFiles) edit(ctx context.Context, id, ops string) (variationEdit, 
 	}
 	out.Refused = figdv.FigGoEdit_static_errors(v)
 	out.Created = figdv.FigGoEdit_static_created(v)
-	out.Changes = figdv.FigGoEdit_static_summary(v)
+	out.Changes = changesOf(f, figdv.FigGoEdit_static_summary(v))
 	next := figdv.FigGoEdit_static_text(v)
 	if next != delta {
 		s.mu.Lock()
