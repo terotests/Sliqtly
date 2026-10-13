@@ -4148,6 +4148,13 @@ class PresApp {
 
     ; Frame n of it: the slide's list as listJson gives it, with the slide
     ; and its effects' clock ("fx").
+    ; Where frame n of the video is, without drawing it: {"slide", "local",
+    ; "fx"} (web/videoplays.js steps the slide's programs to it first).
+    fn videoAtJson:string (n:int) {
+        def a:PresVideoAt (video.at(deck n))
+        return ("{\"slide\":" + (to_string a.slide) + ",\"local\":" + (EVGDisplayList.num(a.local)) + ",\"fx\":" + (EVGDisplayList.num(a.fxTime)) + "}")
+    }
+
     fn videoFrameJson:string (n:int) {
         this.settleAll()
         def a:PresVideoAt (video.at(deck n))

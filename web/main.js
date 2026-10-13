@@ -52,6 +52,7 @@ import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
+import { createVideoPlays } from "./videoplays.js";
 import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
 import { playUrl } from "./playlink.js";
 import { MAX_DAYS, DEFAULT_DAYS, CHOICES, linkDays, choiceLines, untilText } from "./linkdays.js";
@@ -5723,13 +5724,20 @@ async function makeVideo(keepOpen = false) {
   });
   const check = () => { if (failed) throw failed; };
   let closed = false;
+  let plays = null;
   videoWindow();
   try {
     await loadEmojiFace();
     const tl = window.__video.begin({ codec: "vp8" });
+    // the programs on slides, stepped to each frame's time (web/videoplays.js)
+    plays = createVideoPlays({ app });
     let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
     const since = Date.now();
     for (let n = 0; n < tl.frames && !cancelled; n++) {
+      if (plays.has()) {
+        const at = JSON.parse(app.videoAtJson(n));
+        await plays.step(at.slide, at.fx, 1 / tl.fps);
+      }
       const f = window.__video.frame(n);
       pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
       if (pending.length > 2) await pending.shift();
@@ -5756,6 +5764,7 @@ async function makeVideo(keepOpen = false) {
     return done.bytes;
   } finally {
     if (!closed) app.closeProgress(VIDEO_KEY);
+    if (plays) plays.end();
     window.__video.close();
     worker.terminate();
     videoJob = null;
