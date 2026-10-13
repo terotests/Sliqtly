@@ -7,7 +7,7 @@
 ; A single click reads the slide: a link under it is followed, a click
 ; elsewhere lets the pick go (a click on the pick keeps it, so a picked
 ; picture can still be dragged). A double click picks the block under it
-; and brings up its Edit content / Settings / Style tabs (PresSelect). A
+; and brings up its quick toolbar (PresSelect, PresQuickBar). A
 ; finger has no double click to spare (a double tap zooms the slide), so a
 ; tap picks as before, a link aside.
 ;

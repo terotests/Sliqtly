@@ -69,6 +69,7 @@ Import "PresSketchUi.rgr"
 Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
 Import "PresSelect.rgr"
+Import "PresQuickBar.rgr"
 Import "../evgui/src/TabsCtl.rgr"
 Import "../evgui/src/UiLayers.rgr"
 Import "../evgui/src/DocTabsCtl.rgr"
@@ -4790,7 +4791,7 @@ class PresApp {
         if (stageArea.has(x y)) {
             def part:string (pick.partAt(x y))
             ; a picked picture's edges resize it, the picture itself moves it
-            if (((part != "content") && (part != "style")) && (this.imageGrab(x y clicks))) {
+            if (((PresSelect.isButton(part)) == false) && (this.imageGrab(x y clicks))) {
                 focus = "stage"
                 chromeRev = (chromeRev + 1)
                 return "select"
@@ -5635,7 +5636,10 @@ class PresApp {
         }
         if ((stageArea.has(x y)) && ((strlen (pick.partAt(x y))) > 0)) {
             def cpart:string (pick.partAt(x y))
-            if ((cpart == "content") || (cpart == "style")) {
+            if (PresSelect.isButton(cpart)) {
+                if (cpart == "qb:") {
+                    return "default"
+                }
                 return "pointer"
             }
         }
@@ -7229,6 +7233,7 @@ class PresApp {
         this.pickDiagramBox()
         pick.markSet((this.themeCss()))
         pick.hoverOn = false
+        pick.qbMenu = ""
         chromeRev = (chromeRev + 1)
     }
 
@@ -7369,6 +7374,11 @@ class PresApp {
         if ((this.pickValid()) == false) {
             return
         }
+        if (((indexOf part "qb:") == 0) || ((indexOf part "qbm:") == 0)) {
+            this.quickPress(part)
+            return
+        }
+        pick.qbMenu = ""
         if (part == "content") {
             this.pickContent()
             return
@@ -7381,6 +7391,216 @@ class PresApp {
         if ((bi >= 0) && (bi < (array_length pick.bands))) {
             this.pickBand(bi)
         }
+    }
+
+    ; --- the quick toolbar (PresQuickBar) ------------------------------------------
+    ; What the bar shows of the pick, worked out again when the Markdown, the
+    ; theme, the pick or the editor's selection changed.
+    fn quickState:void () {
+        if (pick.on == false) {
+            return
+        }
+        def key:string ((to_string mdEditor.buf.version) + ":" + (to_string cssEditor.buf.version) + ":" + (to_string pick.srcA) + ":" + pick.sel + ":" + (to_string (this.offsetOf(mdEditor.sel.anchor.line mdEditor.sel.anchor.col))) + ":" + (to_string (this.offsetOf(mdEditor.sel.caret.line mdEditor.sel.caret.col))))
+        if (key == pick.qbKey) {
+            return
+        }
+        def css:string (this.themeCss())
+        def ons:[string]
+        if (PresQuickBar.isText(pick.sel)) {
+            def text:string (mdEditor.text())
+            def r:[int] (this.quickRange(text))
+            def doc:MdNode (MdBlock.parseText(text))
+            def what:[string] (strsplit "bold,italic,underline,link" ",")
+            def i:int 0
+            while (i < (array_length what)) {
+                if (PresQuickBar.isOn(text doc (itemAt what i) (itemAt r 0) (itemAt r 1))) {
+                    push ons (itemAt what i)
+                }
+                i = (i + 1)
+            }
+            if ((pick.sel == "li") || (pick.sel == "list")) {
+                push ons "list"
+            }
+        }
+        def color:string ""
+        def cf@(optional):PresCssFacet (PresQuickBar.colorFacet((pick.cascade(css))))
+        if (!null? cf) {
+            def f:PresCssFacet (unwrap cf)
+            color = f.value
+        }
+        def word:string ""
+        if (PresQuickBar.contentIsWord(pick.sel)) {
+            word = (PresSelect.contentLabel(pick.sel))
+        }
+        pick.setQuick(key (PresQuickBar.levelName(pick.sel)) color (PresQuickBar.alignOf(css pick.sel)) word ons)
+    }
+
+    ; The range the text buttons work on: the editor's selection when it is
+    ; inside the picked block, else the block's words.
+    fn quickRange:[int] (text:string) {
+        def span:[int] (PresQuickBar.textSpan(text pick.sel pick.srcA pick.srcB pick.boxA))
+        def sa:int (this.offsetOf(mdEditor.sel.anchor.line mdEditor.sel.anchor.col))
+        def sb:int (this.offsetOf(mdEditor.sel.caret.line mdEditor.sel.caret.col))
+        return (PresQuickBar.rangeFor(span sa sb))
+    }
+
+    ; A press on the bar ("qb:<id>") or on a row of its menu ("qbm:<value>").
+    fn quickPress:void (part:string) {
+        chromeRev = (chromeRev + 1)
+        if ((indexOf part "qbm:") == 0) {
+            def v:string (substring part 4 (strlen part))
+            def menu:string pick.qbMenu
+            pick.qbMenu = ""
+            if (menu == "level") {
+                def text:string (mdEditor.text())
+                def lv:int 0
+                if (v != "p") {
+                    lv = (?? (str2int (substring v 1 2)) 0)
+                }
+                this.quickEdit((PresQuickBar.levelOp(text (MdBlock.parseText(text)) pick.srcA pick.sel lv)) false)
+            }
+            if (menu == "align") {
+                this.closeHint()
+                if (pick.sel == "img") {
+                    def jc:string "center"
+                    if (v == "left") {
+                        jc = "flex-start"
+                    }
+                    if (v == "right") {
+                        jc = "flex-end"
+                    }
+                    this.setThemeProp("img" "justify-content" jc)
+                } {
+                    this.setThemeProp((PresQuickBar.alignRule(pick.sel)) "text-align" v)
+                }
+            }
+            return
+        }
+        def id:string (substring part 3 (strlen part))
+        if ((id == "level") || (id == "align")) {
+            this.closeHint()
+            if (pick.qbMenu == id) {
+                pick.qbMenu = ""
+            } {
+                pick.qbMenu = id
+            }
+            return
+        }
+        pick.qbMenu = ""
+        if (id == "color") {
+            this.quickColor()
+            return
+        }
+        if (id == "comment") {
+            this.closeHint()
+            if ((deck.pageW > 0.0) && (deck.pageH > 0.0)) {
+                def at:[double] (PresQuickBar.commentSpot(pick.x pick.y pick.w pick.h deck.pageW deck.pageH))
+                review.startDraft(selected (itemAt at 0) (itemAt at 1))
+            }
+            return
+        }
+        def text2:string (mdEditor.text())
+        def r:[int] (this.quickRange(text2))
+        def own:boolean ((itemAt r 0) != (itemAt (PresQuickBar.textSpan(text2 pick.sel pick.srcA pick.srcB pick.boxA)) 0))
+        if (((id == "bold") || (id == "italic")) || (id == "underline")) {
+            this.quickEdit((PresQuickBar.wrapOp(text2 (MdBlock.parseText(text2)) id (itemAt r 0) (itemAt r 1))) own)
+            return
+        }
+        if (id == "link") {
+            def op:MdEditOp (PresQuickBar.linkOp(text2 (MdBlock.parseText(text2)) (itemAt r 0) (itemAt r 1)))
+            def adding:boolean ((indexOf op.inserted "](https://)") >= 0)
+            this.quickEdit(op adding)
+            if adding {
+                ; the address is selected in the editor, to be typed
+                this.showTab("md")
+                focus = "editor"
+            }
+            return
+        }
+        if (id == "list") {
+            this.quickEdit((PresQuickBar.listOp(text2 pick.srcA pick.srcB)) false)
+        }
+    }
+
+    ; The colour of the pick's text: the rule the Style list would edit,
+    ; its colour card next to the button.
+    fn quickColor:void () {
+        def cf@(optional):PresCssFacet (PresQuickBar.colorFacet((pick.cascade((this.themeCss())))))
+        if (null? cf) {
+            return
+        }
+        def f:PresCssFacet (unwrap cf)
+        def k:int 0
+        while (k < (array_length pick.qbIds)) {
+            if ((itemAt pick.qbIds k) == "color") {
+                stageHintX = (pick.qbX + (itemAt pick.qbXs k))
+            }
+            k = (k + 1)
+        }
+        stageHintY = pick.qbY
+        stageHintH = pick.qbH
+        this.closeHint()
+        this.helpEdit(f.own "color" f.value)
+        this.openHintAtCaret()
+        this.anchorHintAtStage(f.own false)
+        hint.keepX = -1.0
+        hint.rebuild()
+    }
+
+    ; One toolbar edit of the Markdown, one undo step; the pick stays on the
+    ; block. `select`: the edit's own selection is kept in the editor (the
+    ; words the writer had selected, a link's address).
+    fn quickEdit:void (op:MdEditOp select:boolean) {
+        if (op.isEmpty()) {
+            return
+        }
+        def text:string (mdEditor.text())
+        def keepSrc:int pick.srcA
+        def keepPage:int selected
+        def wasList:boolean (pick.sel == "list")
+        this.posOf(text op.start)
+        def l0:int posLine
+        def c0:int posCol
+        this.posOf(text op.end)
+        def l1:int posLine
+        def c1:int posCol
+        mdEditor.holdCaret()
+        mdEditor.moveCaret(l0 c0 false)
+        mdEditor.moveCaret(l1 c1 true)
+        mdEditor.insert(op.inserted)
+        if (select && (op.selAfterA >= 0)) {
+            def t2:string (mdEditor.text())
+            this.posOf(t2 op.selAfterA)
+            def la:int posLine
+            def ca:int posCol
+            this.posOf(t2 op.selAfterB)
+            mdEditor.moveCaret(la ca false)
+            mdEditor.moveCaret(posLine posCol true)
+        } {
+            ; the caret off the edited words, so the next press acts on the
+            ; whole block again
+            this.posOf((mdEditor.text()) keepSrc)
+            mdEditor.moveCaret(posLine posCol false)
+        }
+        if (mdEditor.buf.version != bufSynced) {
+            bufSynced = mdEditor.buf.version
+            this.rebuildDeck()
+        }
+        ; a heading's level can join or split slides: the block's slide now
+        keepPage = (deck.pageOfOffset(keepSrc))
+        if ((keepPage >= 0) && (keepPage < (deck.slideCount()))) {
+            selected = keepPage
+            pick.pickSource((deck.layout()) keepPage keepSrc (mdEditor.text()) mdEditor.buf.version)
+            if (wasList && (pick.sel == "li")) {
+                ; the whole list stays picked, not its first item
+                pick.readBlock((mdEditor.text()) keepSrc true false)
+                pick.readClasses((mdEditor.text()))
+                pick.measure((deck.layout()))
+            }
+            this.pickDiagramBox()
+            pick.markSet((this.themeCss()))
+        }
+        chromeRev = (chromeRev + 1)
     }
 
     ; "Settings" / "Edit text": a picture's, a chart's, a diagram's or a table's own
@@ -7549,6 +7769,7 @@ class PresApp {
         root.className = "pick-layer"
         root.setAttribute("width" ((EVGDisplayList.num(W)) + "px"))
         root.setAttribute("height" ((EVGDisplayList.num(H)) + "px"))
+        this.quickState()
         pick.draw(root slideRect.x slideRect.y (this.slideScale()) stageArea.y stageArea.x (stageArea.x + stageArea.w))
         sheet.setViewport(W H coarse)
         sheet.applyTree(root skin)

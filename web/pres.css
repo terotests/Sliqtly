@@ -149,8 +149,8 @@
 .ui-tabpanel { display: none; }
 
 /* --- the element picked on the slide (src/PresSelect.rgr) -------------------
-   The outline, its corner handles and badge in a dark blue; "Edit content"
-   and "Style" as dark blue tabs standing on the outline. The theme's spacing
+   The outline, its corner handles and badge in a dark blue; the quick
+   toolbar (src/PresQuickBar.rgr) floats over it as a white card. The theme's spacing
    as bands in grey: hatched where the theme sets it, plain where it is the
    default. Kept muted so it reads on light and dark slides alike. */
 .pick-layer { background-color: rgba(0, 0, 0, 0); }
@@ -160,10 +160,25 @@
 .sel-handle { background-color: #ffffff; border: 1.5px solid #1e3a8a; }
 .sel-badge { background-color: #1e3a8a; color: #ffffff; font-size: 11px; font-weight: 600; text-align: center; border-radius: 3px; }
 .sel-ghost { border: 2px dashed #1e3a8a; background-color: rgba(30, 58, 138, 0.10); }
-.sel-btn { cursor: pointer; }
-.sel-tab { fill: #1e3a8a; }
-.sel-btn-hot.sel-tab { fill: #1d4ed8; }
-.sel-btn-text { color: #ffffff; font-size: 12px; font-weight: 600; text-align: center; background-color: rgba(0, 0, 0, 0); cursor: pointer; }
+.qb-bar {
+  background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 12px;
+  shadow-color: rgba(0, 0, 0, 0.18); shadow-radius: 16px; shadow-offset-y: 4px;
+}
+.qb-btn { border-radius: 7px; cursor: pointer; }
+.qb-chip { border: 1px solid #e4e4e7; }
+.qb-btn.qb-hot { background-color: #f4f4f5; }
+.qb-btn.qb-on { background-color: #dbeafe; }
+.qb-sep { background-color: #e4e4e7; }
+.qb-icon { fill: none; stroke: #27272a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.qb-text { color: #18181b; font-size: 13px; background-color: rgba(0, 0, 0, 0); }
+.qb-text-mid { text-align: center; font-weight: 600; font-size: 12.5px; }
+.qb-swatch { border: 1px solid #a1a1aa; border-radius: 4px; background-color: #ffffff; }
+.qb-menu {
+  background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 10px;
+  shadow-color: rgba(0, 0, 0, 0.18); shadow-radius: 16px; shadow-offset-y: 4px;
+}
+.qb-row { border-radius: 6px; cursor: pointer; }
+.qb-row-hot { background-color: #f4f4f5; }
 .sel-band { cursor: pointer; }
 .sel-band-set { background-color: rgba(113, 113, 122, 0.12); border: 1px solid rgba(63, 63, 70, 0.55); }
 .sel-band-unset { background-color: rgba(113, 113, 122, 0.16); }

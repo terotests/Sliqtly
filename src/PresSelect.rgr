@@ -10,9 +10,11 @@
 ; block. The pick is drawn over the stage the way a design tool draws one:
 ;
 ;   - an outline with corner handles and a badge with what it is and its size
-;   - two buttons over it: "Settings" / "Edit text" (its Markdown, or the picture's
-;     or the chart's own editor) and "Style" (the theme rule for it: what it
-;     can have, set ones blue and the rest grey)
+;   - a quick toolbar over it (PresQuickBar): level, colour, bold, italic,
+;     underline, link, list, alignment, comment, "Settings" / ✎ (its
+;     Markdown, or the picture's or the chart's own editor) and ⋯ "Style"
+;     (the theme rules for it: what it can have, set ones blue and the rest
+;     grey)
 ;   - the spacing the theme gives it, on the side it is on: margins outside
 ;     the outline, padding inside it. A band the theme sets is blue, one it
 ;     leaves at the default grey. A click on a band opens its value.
@@ -33,6 +35,7 @@ Import "PresHelp.rgr"
 Import "PresCascade.rgr"
 Import "PresImageDrag.rgr"
 Import "PresI18n.rgr"
+Import "PresQuickBar.rgr"
 Import "../evgui/src/UiShapes.rgr"
 Import "../markdown/web/markdown_web.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -111,6 +114,29 @@ class PresSelect {
     def sw2:double 0.0
     def by:double 0.0
     def bh:double 22.0
+    ; the quick toolbar (PresQuickBar): what the host says of the pick
+    ; (`setQuick`) and where its buttons were drawn
+    def qbKey:string ""
+    def qbLevel:string ""
+    def qbColor:string ""
+    def qbAlign:string "left"
+    def qbWord:string ""
+    def qbOn:[string]
+    ; the open menu: "level", "align" or ""
+    def qbMenu:string ""
+    def qbX:double 0.0
+    def qbY:double 0.0
+    def qbW:double 0.0
+    def qbH:double 38.0
+    def qbIds:[string]
+    def qbXs:[double]
+    def qbWs:[double]
+    ; the menu's rows on the screen, as last drawn
+    def qmX:double 0.0
+    def qmY:double 0.0
+    def qmW:double 0.0
+    def qmRow:double 30.0
+    def qmIds:[string]
     ; the outline on the screen, as last drawn
     def ox:double 0.0
     def oy:double 0.0
@@ -140,8 +166,42 @@ class PresSelect {
         boxA = -1
         hot = ""
         hoverOn = false
+        qbMenu = ""
+        qbKey = ""
         def none:[PresSelBand]
         bands = none
+    }
+
+    ; What the toolbar shows of the pick: its level's name, its text colour,
+    ; its alignment, the word of its first button ("" for ✎) and the ids
+    ; that are on (bold italic underline link list).
+    fn setQuick:void (key:string level:string color:string align:string word:string ons:[string]) {
+        qbKey = key
+        qbLevel = level
+        qbColor = color
+        qbAlign = align
+        qbWord = word
+        qbOn = ons
+    }
+
+    fn quickOn:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length qbOn)) {
+            if ((itemAt qbOn i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A part of the toolbar or its menu (or its old names): pressed, not
+    ; passed to the slide under it.
+    sfn isButton:boolean (part:string) {
+        if ((part == "content") || (part == "style")) {
+            return true
+        }
+        return (((indexOf part "qb:") == 0) || ((indexOf part "qbm:") == 0))
     }
 
     ; --- the source -------------------------------------------------------------
@@ -884,12 +944,6 @@ class PresSelect {
         return el
     }
 
-    ; A button drawn as a tab on the outline: its shape, then its words over it.
-    sfn tabButton:void (root:EVGElement id:string cls:string words:string x0:double y0:double w0:double h0:double down:boolean) {
-        root.addChild((PresSelect.shape((id + "-tab") (cls + " sel-tab") (UiShapes.tab(w0 h0 7.0 down)) x0 y0 w0 h0)))
-        root.addChild((PresSelect.pill(id "sel-btn-text" words x0 y0 (w0 - 4.0) h0)))
-    }
-
     sfn textW:double (t:string size:double) {
         return (((to_double (strlen t)) * size) * 0.56)
     }
@@ -1018,53 +1072,201 @@ class PresSelect {
         if ((lby + 18.0) > reachBottom) {
             reachBottom = (lby + 18.0)
         }
-        ; the two buttons: tabs standing on the outline's top left (over the
-        ; top margin band's left end when there is one), or hanging inside
-        ; it from its top edge when there is no room above (and for the page)
-        def ct:string (PresSelect.contentLabel(sel))
-        def stt:string (PresI18n.t("Style"))
-        cw = 0.0
-        if (this.hasContent()) {
-            cw = ((PresSelect.textW(ct 12.0)) + 26.0)
-        }
-        sw2 = ((PresSelect.textW(stt 12.0)) + 26.0)
-        def down:boolean false
-        by = (oy - bh)
-        if ((sel == "page") || (by < (loY + 2.0))) {
-            down = true
-            by = (oy + 2.0)
-        }
-        cx = (ox + 2.0)
-        if (sel == "page") {
-            cx = (ox + 8.0)
-        }
-        if (((cx + cw) + sw2) > (hiX - 4.0)) {
-            cx = (((hiX - 4.0) - cw) - sw2)
-        }
-        if (cx < (loX + 4.0)) {
-            cx = (loX + 4.0)
-        }
-        cy = by
-        reachTop = oy
-        if (by < reachTop) {
-            reachTop = by
-        }
-        if (cw > 0.0) {
-            def cc:string "sel-btn"
-            if (hot == "content") {
-                cc = "sel-btn sel-btn-hot"
+        ; the quick toolbar over it (under its badge when there is no room)
+        this.drawQuick(root (lby + 18.0) loY loX hiX)
+    }
+
+    ; One button of the toolbar: its frame (on / hot), then its icon.
+    sfn iconEl:EVGElement (id:string icon:string x0:double y0:double s:double) {
+        def el (EVGElement.createPath())
+        el.id = id
+        el.className = "qb-icon"
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((EVGDisplayList.num(x0)) + "px"))
+        el.setAttribute("top" ((EVGDisplayList.num(y0)) + "px"))
+        el.setAttribute("width" ((EVGDisplayList.num(s)) + "px"))
+        el.setAttribute("height" ((EVGDisplayList.num(s)) + "px"))
+        el.setAttribute("viewBox" "0 0 24 24")
+        el.setAttribute("d" (PresQuickBar.iconPath(icon)))
+        return el
+    }
+
+    fn drawQuick:void (root:EVGElement below:double loY:double loX:double hiX:double) {
+        def ids:[string] (PresQuickBar.itemsFor(sel))
+        def noX:[double]
+        def noW:[double]
+        qbIds = ids
+        qbXs = noX
+        qbWs = noW
+        def pad:double 4.0
+        def total:double pad
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            def words:string ""
+            if (id == "level") {
+                words = qbLevel
             }
-            PresSelect.tabButton(root "sel-content" cc ct cx by cw bh down)
+            if (id == "content") {
+                words = qbWord
+            }
+            def bw:double (PresQuickBar.widthOf(id words))
+            push qbXs total
+            push qbWs bw
+            total = (total + bw)
+            if ((i + 1) < (array_length ids)) {
+                if ((id != "sep") && ((itemAt ids (i + 1)) != "sep")) {
+                    total = (total + 2.0)
+                }
+            }
+            i = (i + 1)
         }
-        sx2 = cx
-        if (cw > 0.0) {
-            sx2 = ((cx + cw) + 2.0)
+        total = (total + pad)
+        qbW = total
+        def at:[double] (PresQuickBar.place(qbW qbH ox oy ow below loY loX hiX))
+        qbX = (itemAt at 0)
+        qbY = (itemAt at 1)
+        root.addChild((PresSelect.box("qb-bar" "qb-bar" qbX qbY qbW qbH)))
+        def bs:double 30.0
+        def by0:double (qbY + ((qbH - bs) / 2.0))
+        cw = 0.0
+        sw2 = 0.0
+        i = 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            def x0:double (qbX + (itemAt qbXs i))
+            def w0:double (itemAt qbWs i)
+            def part:string ("qb:" + id)
+            if (id == "content") {
+                part = "content"
+                cx = x0
+                cy = by0
+                cw = w0
+            }
+            if (id == "style") {
+                part = "style"
+                sx2 = x0
+                sw2 = w0
+            }
+            if (id == "sep") {
+                root.addChild((PresSelect.box(("qb-sep-" + (to_string i)) "qb-sep" (x0 + 4.0) (qbY + 9.0) 1.0 (qbH - 18.0))))
+            } {
+                def cls:string "qb-btn"
+                if (this.quickOn(id)) {
+                    cls = (cls + " qb-on")
+                }
+                if ((qbMenu == id) || (hot == part)) {
+                    cls = (cls + " qb-hot")
+                }
+                if (id == "level") {
+                    cls = (cls + " qb-chip")
+                }
+                root.addChild((PresSelect.box(("qb-" + id) cls x0 by0 w0 bs)))
+                if (id == "level") {
+                    root.addChild((PresSelect.pill("qb-level-text" "qb-text" qbLevel (x0 + 10.0) by0 (w0 - 30.0) bs)))
+                    root.addChild((PresSelect.iconEl("qb-level-chev" "chevron" ((x0 + w0) - 22.0) (by0 + 7.0) 16.0)))
+                } {
+                    if (id == "color") {
+                        def sw:EVGElement (PresSelect.box("qb-swatch" "qb-swatch" (x0 + 6.0) (by0 + 6.0) 18.0 18.0))
+                        if ((strlen qbColor) > 0) {
+                            sw.setAttribute("background-color" qbColor)
+                        }
+                        root.addChild(sw)
+                    } {
+                        if ((id == "content") && ((strlen qbWord) > 0)) {
+                            root.addChild((PresSelect.pill("qb-content-text" "qb-text qb-text-mid" qbWord x0 by0 w0 bs)))
+                        } {
+                            def icon:string id
+                            if (id == "align") {
+                                icon = ("align-" + qbAlign)
+                            }
+                            root.addChild((PresSelect.iconEl(("qb-icon-" + id) icon (x0 + 6.0) (by0 + 6.0) 18.0)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
         }
-        def sc2:string "sel-btn sel-btn-style"
-        if (hot == "style") {
-            sc2 = "sel-btn sel-btn-style sel-btn-hot"
+        by = qbY
+        bh = qbH
+        if (qbY < reachTop) {
+            reachTop = qbY
         }
-        PresSelect.tabButton(root "sel-style" sc2 stt sx2 by sw2 bh down)
+        if ((qbY + qbH) > reachBottom) {
+            reachBottom = (qbY + qbH)
+        }
+        this.drawMenu(root)
+    }
+
+    ; The level or alignment menu, hanging from its button.
+    fn drawMenu:void (root:EVGElement) {
+        def none:[string]
+        qmIds = none
+        if ((strlen qbMenu) == 0) {
+            return
+        }
+        def k:int -1
+        def i:int 0
+        while (i < (array_length qbIds)) {
+            if ((itemAt qbIds i) == qbMenu) {
+                k = i
+            }
+            i = (i + 1)
+        }
+        if (k < 0) {
+            return
+        }
+        def rows:[string] (PresQuickBar.levels())
+        def cur:string sel
+        if (qbMenu == "align") {
+            rows = (PresQuickBar.aligns())
+            cur = qbAlign
+        }
+        qmIds = rows
+        def wMax:double 0.0
+        i = 0
+        while (i < (array_length rows)) {
+            def nm:string (this.menuName((itemAt rows i)))
+            def tw:double (PresQuickBar.textW(nm 13.0))
+            if (tw > wMax) {
+                wMax = tw
+            }
+            i = (i + 1)
+        }
+        qmW = (wMax + 52.0)
+        if (qmW < 140.0) {
+            qmW = 140.0
+        }
+        qmX = (qbX + (itemAt qbXs k))
+        def mh:double (((to_double (array_length rows)) * qmRow) + 8.0)
+        qmY = ((qbY + qbH) + 4.0)
+        if ((qbY > oy) && ((qbY - mh) > 4.0)) {
+            ; the bar is under the element: the menu goes up from it
+            qmY = ((qbY - mh) - 4.0)
+        }
+        root.addChild((PresSelect.box("qb-menu" "qb-menu" qmX qmY qmW mh)))
+        i = 0
+        while (i < (array_length rows)) {
+            def r:string (itemAt rows i)
+            def ry:double ((qmY + 4.0) + ((to_double i) * qmRow))
+            def rc:string "qb-row"
+            if (hot == ("qbm:" + r)) {
+                rc = "qb-row qb-row-hot"
+            }
+            root.addChild((PresSelect.box(("qb-row-" + r) rc (qmX + 4.0) ry (qmW - 8.0) qmRow)))
+            if (r == cur) {
+                root.addChild((PresSelect.iconEl(("qb-check-" + r) "check" (qmX + 10.0) (ry + 7.0) 16.0)))
+            }
+            root.addChild((PresSelect.pill(("qb-rowtext-" + r) "qb-text" (this.menuName(r)) (qmX + 32.0) ry (qmW - 40.0) qmRow)))
+            i = (i + 1)
+        }
+    }
+
+    fn menuName:string (r:string) {
+        if (qbMenu == "align") {
+            return (PresQuickBar.alignName(r))
+        }
+        return (PresQuickBar.levelName(r))
     }
 
     ; --- the pointer ------------------------------------------------------------------
@@ -1074,13 +1276,30 @@ class PresSelect {
         if (on == false) {
             return ""
         }
-        if ((py >= by) && (py <= (by + bh))) {
-            if (((cw > 0.0) && (px >= cx)) && (px <= (cx + cw))) {
-                return "content"
+        ; the open menu's rows, then the toolbar's buttons (a gap in the bar
+        ; is the bar's too: "qb:")
+        if ((array_length qmIds) > 0) {
+            if (((px >= qmX) && (px <= (qmX + qmW))) && (py >= (qmY + 4.0))) {
+                def r:int (to_int ((py - (qmY + 4.0)) / qmRow))
+                if ((r >= 0) && (r < (array_length qmIds))) {
+                    return ("qbm:" + (itemAt qmIds r))
+                }
             }
-            if ((px >= sx2) && (px <= (sx2 + sw2))) {
-                return "style"
+        }
+        if (((px >= qbX) && (px <= (qbX + qbW))) && ((py >= qbY) && (py <= (qbY + qbH)))) {
+            def k:int 0
+            while (k < (array_length qbIds)) {
+                def id:string (itemAt qbIds k)
+                def x0:double (qbX + (itemAt qbXs k))
+                if (((id != "sep") && (px >= x0)) && (px <= (x0 + (itemAt qbWs k)))) {
+                    if ((id == "content") || (id == "style")) {
+                        return id
+                    }
+                    return ("qb:" + id)
+                }
+                k = (k + 1)
             }
+            return "qb:"
         }
         def i:int 0
         while (i < (array_length bands)) {
