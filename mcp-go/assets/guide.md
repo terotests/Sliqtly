@@ -1249,7 +1249,24 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
   a program that loops for ever is cut there, and the most is 120 s
   (asking more is held to 120 and said). `presentation.video(0)` gives
   the slide its own length back. Slide scripts (topic `scripts`) do not
-  take it.
+  take it. In a video the program gets no keys or pointer: what it shows
+  there is what it does on its own. The result of create/update warns
+  about a program with `tick` that does not call it. Example, a demo of
+  timed steps:
+
+  ```tsx
+  import { presentation } from "Sliqtly";
+  const STEPS = [2, 3, 2.5, 4, 3];  // seconds each step is shown
+  presentation.video({ seconds: STEPS.reduce((a, b) => a + b, 0) });
+  let t = 0;
+  function tick(dt) { t += dt; }
+  function step() {
+    let left = t % STEPS.reduce((a, b) => a + b, 0), i = 0;
+    while (left >= STEPS[i]) { left -= STEPS[i]; i++; }
+    return i;
+  }
+  function view() { return <div className="screen">{"Step " + (step() + 1)}</div>; }
+  ```
 - `render_slide` and `render_overview` show the program after its first
   frames, its `<scene3d>` worlds drawn by the server as the browser draws
   them. PDF, PPTX and Word show a plate with the program's name in the box
