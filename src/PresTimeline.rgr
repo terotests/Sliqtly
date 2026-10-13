@@ -159,6 +159,11 @@ class PresTimeline {
                 d = last
             }
         }
+        ; a program on it that runs on its own clock (a demo) asked to be
+        ; seen for so long (presentation.video, capped by PresPlayAsks)
+        if (s.playSeconds > d) {
+            d = s.playSeconds
+        }
         s.duration = d
     }
 

@@ -166,32 +166,59 @@ func (r *cerxesRun) eval(en uint64, src string) (string, error) {
 // syntax error, what it threw in its first frames, a view() that is no
 // element tree), "" when it runs, "-" when there is no engine to try it in.
 func (h *McpHost) AppCheck(src string, w, hgt float64) string {
-	why, _ := h.appRun(src, w, hgt)
-	return why
+	return h.appRun(src, w, hgt).why
 }
 
-// AppRun is host_app_run: AppCheck's answer and the element tree of the
-// program's last frame tried (PresPlayView.setTree), as
-// {"why": "…", "tree": "…"}; the tree is "" when it did not run.
+// AppRun is host_app_run: AppCheck's answer, the element tree of the
+// program's last frame tried (PresPlayView.setTree), how long it asked its
+// slide to stay (presentation.video, 0 none) and whether it runs on its own
+// clock (it defines tick), as {"why", "tree", "video", "tick"}; the tree is
+// "" when it did not run.
 func (h *McpHost) AppRun(src string, w, hgt float64) string {
-	why, tree := h.appRun(src, w, hgt)
-	b, _ := json.Marshal(map[string]string{"why": why, "tree": tree})
+	a := h.appRun(src, w, hgt)
+	b, _ := json.Marshal(map[string]any{"why": a.why, "tree": a.tree, "video": a.video, "tick": a.tick})
 	return string(b)
 }
 
-func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
+type appRan struct {
+	why, tree string
+	video     float64
+	tick      bool
+}
+
+// videoAsked: the seconds a frame's asks give with presentation.video, -1 for none
+func videoAsked(asks string) float64 {
+	var list []struct {
+		K       string  `json:"k"`
+		Seconds float64 `json:"seconds"`
+	}
+	if json.Unmarshal([]byte(asks), &list) != nil {
+		return -1
+	}
+	got := -1.0
+	for _, a := range list {
+		if a.K == "video" {
+			got = a.Seconds
+		}
+	}
+	return got
+}
+
+func (h *McpHost) appRun(src string, w, hgt float64) appRan {
 	if err := cerxes.start(); err != nil {
-		return "-", ""
+		return appRan{why: "-"}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cerxesCheckTime)
 	defer cancel()
 	mod, err := cerxes.rt.InstantiateModule(ctx, cerxes.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions("_initialize"))
 	if err != nil {
-		return "-", ""
+		return appRan{why: "-"}
 	}
 	defer mod.Close(context.Background())
 	r := &cerxesRun{ctx: ctx, mod: mod}
 	last := ""
+	video := 0.0
+	tick := false
 	why, err := func() (string, error) {
 		en, err := r.call("cx_new")
 		if err != nil {
@@ -205,6 +232,9 @@ func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
 		}
 		if why, err := r.eval(en, src); err != nil || why != "" {
 			return why, err
+		}
+		if why, err := r.eval(en, "typeof tick"); err == nil && why == "" {
+			tick = r.result() == "function"
 		}
 		name, nn, err := r.put("__deckFrame")
 		if err != nil {
@@ -233,6 +263,9 @@ func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
 			tree := out
 			if at := strings.LastIndex(out, "\n"); at >= 0 {
 				tree = out[:at]
+				if v := videoAsked(out[at+1:]); v >= 0 {
+					video = v
+				}
 			}
 			if !strings.HasPrefix(strings.TrimSpace(tree), "{") {
 				return "view() did not give an element tree", nil
@@ -243,15 +276,15 @@ func (h *McpHost) appRun(src string, w, hgt float64) (string, string) {
 	}()
 	if err != nil {
 		if ctx.Err() != nil {
-			return "its first frames took longer than 3 s (an endless loop?)", ""
+			return appRan{why: "its first frames took longer than 3 s (an endless loop?)"}
 		}
 		// the engine itself failed, not the program: nothing to say of it
-		return "-", ""
+		return appRan{why: "-"}
 	}
 	if why != "" {
-		return why, ""
+		return appRan{why: why}
 	}
-	return "", last
+	return appRan{tree: last, video: video, tick: tick}
 }
 
 // ScriptRun is host_script_run: a slide's script (`{script=…}`) loaded and

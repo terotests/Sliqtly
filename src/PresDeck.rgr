@@ -212,6 +212,9 @@ class PresSlide {
     ; the presenter's lines (`::: story`), each a build step after the slide's own
     def story:[PresStoryBeat]
     def plays:[PresPlayUse]
+    ; the longest its programs asked to be shown when the deck plays on its
+    ; own (presentation.video), 0 for none: the slide lasts at least that
+    def playSeconds:double 0.0
     ; A program that drives this slide's own display list (`{script=
     ; apps/fx.tsx}` on its heading, PresScript): its file, what it may ask
     ; (`allow="slide.nav deck.data"`), the moment an export shows
@@ -350,6 +353,10 @@ class PresDeck {
     def liveVals:[string]
     def playFocus:string ""
     def playRefused:[string]
+    ; how long each program asked its slide to stay (presentation.video),
+    ; by key, kept across rebuilds like the pictures
+    def videoKeys:[string]
+    def videoSecs:[double]
     ; the blocks that carry an id or a class, by source range, for the looks
     def tagStart:[int]
     def tagEnd:[int]
@@ -1108,6 +1115,10 @@ class PresDeck {
             }
             u.key = (u.spec.src + "#" + (to_string same))
             push s.plays u
+            def vs:double (this.playVideoOf(u.key))
+            if (vs > s.playSeconds) {
+                s.playSeconds = vs
+            }
             return
         }
         def i:int 0
@@ -1149,6 +1160,64 @@ class PresDeck {
         }
         def none@(optional):PresPlayUse
         return none
+    }
+
+    ; How long program `key` asked its slide to stay, 0 when it did not.
+    fn playVideoOf:double (key:string) {
+        def i:int (indexOf videoKeys key)
+        if (i < 0) {
+            return 0.0
+        }
+        return (itemAt videoSecs i)
+    }
+
+    ; Program `key` asks its slide to stay `seconds` (0: as the slide is)
+    ; when the deck plays on its own. True when a slide's length changed:
+    ; the caller times the deck again (PresTimeline.planAll).
+    fn setPlayVideo:boolean (key:string seconds:double) {
+        def secs:double seconds
+        if (secs < 0.0) {
+            secs = 0.0
+        }
+        if (secs > (PresPlayAsks.videoMax())) {
+            secs = (PresPlayAsks.videoMax())
+        }
+        if ((this.playVideoOf(key)) == secs) {
+            return false
+        }
+        def i:int (indexOf videoKeys key)
+        if (i < 0) {
+            push videoKeys key
+            push videoSecs secs
+        } {
+            set videoSecs i secs
+        }
+        ; the slide it is on: the longest of its programs
+        def changed:boolean false
+        def si:int 0
+        while (si < (array_length slides)) {
+            def s:PresSlide (itemAt slides si)
+            def has:boolean false
+            def most:double 0.0
+            def k:int 0
+            while (k < (array_length s.plays)) {
+                def u:PresPlayUse (itemAt s.plays k)
+                if (u.key == key) {
+                    has = true
+                }
+                def v:double (this.playVideoOf(u.key))
+                if (v > most) {
+                    most = v
+                }
+                k = (k + 1)
+            }
+            if (has && (s.playSeconds != most)) {
+                s.playSeconds = most
+                changed = true
+            }
+            si = (si + 1)
+        }
+        return changed
     }
 
     fn playView@(optional):PresPlayView (key:string) {
@@ -1544,6 +1613,12 @@ class PresDeck {
         def i:int 0
         while (i < (array_length asks.granted)) {
             def a:PresPlayAsk (itemAt asks.granted i)
+            if (a.kind == "video") {
+                ; a slide's length changed: timed again as after a rebuild
+                if (this.setPlayVideo(key a.seconds)) {
+                    playRebuilt = true
+                }
+            }
             if (a.kind == "deck.set") {
                 if (this.setLive(a.key a.value)) {
                     playRebuilt = true
@@ -1561,7 +1636,9 @@ class PresDeck {
                             push playRefused note
                         }
                     } {
-                        push moves a
+                        if (a.kind != "video") {
+                            push moves a
+                        }
                     }
                 }
             }
@@ -1580,6 +1657,10 @@ class PresDeck {
         playFocus = ""
         def r:[string]
         playRefused = r
+        def vk:[string]
+        videoKeys = vk
+        def vsec:[double]
+        videoSecs = vsec
         def pv:[PresPlayView]
         playViews = pv
         def sr:[PresScriptRun]

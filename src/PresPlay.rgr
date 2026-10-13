@@ -724,7 +724,9 @@ class PresPlayAsk {
     ; "el.style", "el.show", "el.hide", "el.reset", "machine.send", and the
     ; code viewer's "code.open" (value: path#anchor, key: mode),
     ; "code.node" (value: box), "code.close", "code.mode" (value),
-    ; "code.line", "code.scroll", "code.zoom", "code.tab", "code.change" (n)
+    ; "code.line", "code.scroll", "code.zoom", "code.tab", "code.change" (n),
+    ; and "video" (seconds: how long its slide stays when the deck plays on
+    ; its own, presentation.video)
     def kind:string ""
     def key:string ""
     def value:string ""
@@ -733,6 +735,8 @@ class PresPlayAsk {
     ; slide.go: 1-based
     def n:int 0
     def event:string ""
+    ; video: seconds, at most PresPlayAsks.videoMax
+    def seconds:double 0.0
     def styleKeys:[string]
     def styleVals:[string]
 
@@ -770,6 +774,12 @@ class PresPlayAsks {
         return ""
     }
 
+    ; The longest a program's slide stays for it (presentation.video): a
+    ; program that loops for ever still ends on a video.
+    sfn videoMax:double () {
+        return 120.0
+    }
+
     ; What a program may ask of the source code viewer (allow: code).
     sfn codeKinds:[string] () {
         return ([] _:string ("code.open" "code.node" "code.close" "code.mode" "code.line" "code.scroll" "code.zoom" "code.tab" "code.change"))
@@ -792,6 +802,7 @@ class PresPlayAsks {
             a.sel = (trim (e.strOr("sel" "")))
             a.n = (e.intOr("n" 0))
             a.event = (e.strOr("event" ""))
+            a.seconds = (e.numOr("seconds" 0.0))
             def st:JVal (e.get("style"))
             if (st.isObj()) {
                 def si:int 0
@@ -800,6 +811,19 @@ class PresPlayAsks {
                     push a.styleVals ((itemAt st.vals si).asStr(""))
                     si = (si + 1)
                 }
+            }
+            ; how long its slide stays changes no slide: no allow: needed
+            if (a.kind == "video") {
+                if (a.seconds > (PresPlayAsks.videoMax())) {
+                    a.seconds = (PresPlayAsks.videoMax())
+                    push out.refused (name + ": presentation.video: at most " + (to_string (to_int (PresPlayAsks.videoMax()))) + " s, held to that")
+                }
+                ; 0: as the slide is
+                if (a.seconds < 0.0) {
+                    a.seconds = 0.0
+                }
+                push out.granted a
+                continue
             }
             def grant:string (PresPlayAsks.grantOf(a.kind))
             if ((strlen grant) == 0) {

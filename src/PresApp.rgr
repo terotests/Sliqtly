@@ -823,6 +823,19 @@ class PresApp {
         return (view.setTree(tree))
     }
 
+    ; Program `key` asks its slide to stay `seconds` when the deck plays on
+    ; its own (presentation.video; 0: as the slide is). The page asks each
+    ; program before a video or a recording is made (web/videoplays.js
+    ; probeVideo). True when the deck's timing changed.
+    fn setPlayVideo:boolean (key:string seconds:double) {
+        if (deck.setPlayVideo(key seconds)) {
+            PresTimeline.planAll(deck)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
+        return false
+    }
+
     ; Why the page stopped program `key` or could not start it, "" when it
     ; runs: said on its plate while it has no picture.
     fn setPlayStopped:void (key:string why:string) {

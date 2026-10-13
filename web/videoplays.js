@@ -35,6 +35,58 @@ export function playsOn(plays, slide) {
   return plays.filter((p) => !p.script && p.slide === slide);
 }
 
+/** The seconds a frame's asks (the JSON list after its tree) give with presentation.video, 0 for none. */
+export function videoSecondsOf(asksText) {
+  let asks = [];
+  try {
+    asks = JSON.parse(asksText || "[]");
+  } catch {
+    return 0;
+  }
+  const v = Array.isArray(asks) ? asks.filter((a) => a && a.k === "video").pop() : null;
+  const s = v ? Number(v.seconds) : 0;
+  return isFinite(s) && s > 0 ? s : 0;
+}
+
+/**
+ * Before a video or a recording is timed: each program on a slide is
+ * started and handed one frame, and how long it asked its slide to stay
+ * (presentation.video, said from that frame on) goes to app.setPlayVideo;
+ * one that asks nothing, or does not start, is as its slide is. Returns
+ * whether the deck's timing changed.
+ */
+export async function probeVideo({ app, makeWorker = () => new Worker(workerUrl("cerxes-worker.js"), { type: "module" }) }) {
+  let changed = false;
+  for (const p of JSON.parse(app.playsJson()).filter((q) => !q.script)) {
+    let seconds = 0;
+    const source = app.playSource(p.key);
+    if (source) {
+      let worker = null;
+      try {
+        worker = makeWorker();
+        const ask = (msg, limit) => new Promise((resolve) => {
+          const timer = setTimeout(() => resolve({ ok: false }), limit);
+          worker.onmessage = (ev) => { clearTimeout(timer); resolve(ev.data); };
+          worker.onerror = () => { clearTimeout(timer); resolve({ ok: false }); };
+          worker.postMessage(msg);
+        });
+        const m = await ask({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME, source }, FIRST_LIMIT_MS);
+        if (m.ok) {
+          const arg = JSON.stringify(videoFrameArg(p, JSON.parse(app.playState(p.key)), 0, 0));
+          const f = await ask({ type: "frame", arg }, LIMIT_MS);
+          if (f.ok) seconds = videoSecondsOf(splitFrame(f.out).asks);
+        }
+      } catch {
+        seconds = 0;
+      } finally {
+        if (worker) worker.terminate();
+      }
+    }
+    if (app.setPlayVideo(p.key, seconds)) changed = true;
+  }
+  return changed;
+}
+
 /**
  * app: the PresApp (playsJson, playSource, playState, setPlayFrame,
  * setPlayStopped). `step(slide, time, dt)` before each frame; `end()` after

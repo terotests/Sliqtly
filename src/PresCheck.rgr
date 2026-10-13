@@ -6970,9 +6970,38 @@ class PresCheck {
         }
         def nasks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"code.close\"}]" spec "a.tsx"))
         this.ok(((array_length nasks.granted) == 0) "plays: no code ask without allow: code")
+        ; presentation.video: the slide stays as long as its program asked,
+        ; with no allow:, capped, kept through an edit, 0 gives it back
+        PresTimeline.planAll(deck)
+        def s0:PresSlide (deck.slideAt(0))
+        def was0:double s0.duration
+        def settled0:double s0.settled
+        def vasks:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"video\",\"seconds\":25}]" spec "a.tsx"))
+        this.ok((((array_length vasks.granted) == 1) && ((itemAt vasks.granted 0).seconds == 25.0)) "plays: video needs no allow:")
+        def capped:PresPlayAsks (PresPlayAsks.read("[{\"k\":\"video\",\"seconds\":9000}]" spec "a.tsx"))
+        this.ok((((array_length capped.refused) == 1) && ((itemAt capped.granted 0).seconds == (PresPlayAsks.videoMax()))) "plays: video held to its cap and said")
+        def vmoves:[PresPlayAsk] (deck.takeAsks(u.key "[{\"k\":\"video\",\"seconds\":25}]"))
+        this.ok((((array_length vmoves) == 0) && deck.playRebuilt) "plays: video is no move, the deck is timed again")
+        deck.playRebuilt = false
+        PresTimeline.planAll(deck)
+        s0 = (deck.slideAt(0))
+        this.ok((s0.duration == 25.0) ("plays: the slide lasts what its program asked, got " + (to_string s0.duration) + " was " + (to_string was0)))
+        this.ok((s0.settled == settled0) "plays: video leaves the settled time as it was")
+        this.ok(((deck.slideAt(1)).playSeconds == 0.0) "plays: video is its own slide's")
+        def vtl:PresVideoTimeline (PresVideoTimeline.ofDeck(deck (new PresVideoOptions())))
+        this.ok((vtl.duration == (PresTimeline.total(deck))) "plays: the video timeline takes the longer slide")
+        deck.setText((text + "\nMuokattu\n"))
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideAt(0)).duration == 25.0) "plays: video kept through an edit")
+        this.ok(((deck.setPlayVideo(u.key 25.0)) == false) "plays: the same video length changes nothing")
+        this.ok((deck.setPlayVideo(u.key 0.0)) "plays: video 0 gives the slide back")
+        PresTimeline.planAll(deck)
+        this.ok(((deck.slideAt(0)).duration < 25.0) "plays: back to its own length")
+        deck.setPlayVideo(u.key 12.0)
         ; another deck: nothing of this one's programs stays
         deck.clearPlays()
         this.ok((((array_length deck.liveKeys) == 0) && ((deck.playStyle.count()) == 0)) "plays: cleared with the deck")
+        this.ok(((deck.playVideoOf(u.key)) == 0.0) "plays: video lengths cleared with the deck")
     }
 
     ; 3-D worlds on slides: a <scene3d> in a program's frame (allow: 3d), the

@@ -161,6 +161,20 @@ func TestAppProgramRuns(t *testing.T) {
 	bad := withFiles("import cfg from \"../data/w.json\";\nfunction view() { return <div>{cfg.title}</div>; }\n",
 		map[string]any{"name": "data/w.json", "text": "{nope"})
 	match(t, bad, `apps/game\.tsx does not run: .*data/w\.json is not JSON`)
+	// a demo on its own clock is told how its slide is seen through on a
+	// video (presentation.video); one that says it, or has no tick, is not
+	demo := try("let t = 0;\nfunction tick(dt) { t += dt; }\nfunction view() { return <div className=\"b\" />; }\n")
+	match(t, demo, `Slide 2: apps/game\.tsx runs on its own clock \(tick\).*presentation\.video\(\{ seconds \}\).*→ topic=apps`)
+	said := try("import { presentation } from \"Sliqtly\";\npresentation.video({ seconds: 25 });\nlet t = 0;\nfunction tick(dt) { t += dt; }\nfunction view() { return <div className=\"b\" />; }\n")
+	if strings.Contains(said, "own clock") || strings.Contains(said, "does not run") {
+		t.Fatal(said)
+	}
+	if strings.Contains(ok, "own clock") {
+		t.Fatal("a program without tick was told:", ok)
+	}
+	if got := videoAsked(`[{"k":"deck.set"},{"k":"video","seconds":12.5}]`); got != 12.5 {
+		t.Fatal(got)
+	}
 	match(t, try("function view() { return <div> }\n"), `Slide 2: apps/game\.tsx does not run: .+→ topic=apps`)
 	match(t, try("function view() { return nothing.here; }\n"), `apps/game\.tsx does not run: .*nothing`)
 
