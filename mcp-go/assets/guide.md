@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-11c.** If a result names a newer version, read Core
+**Guide version 2026-10-13a.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1159,6 +1159,15 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     `slide.build()`; `slide.number` and `slide.count` are read without it.
   - `code`: `presentation.code` drives the source code viewer while
     presenting (see topic `script-api`).
+  - `sound`: the viewer's browser synthesizes sounds the program asks for
+    (no sound files): `sound.play("shot")` plays a preset (`shot`, `laser`,
+    `hit`, `boom`, `bigboom`, `pickup`, `warn`, `land`, `flip`, `start`) or
+    a list of parts; `sound.tone({ wave, freq, to, dur, vol })` a pitch
+    swept from `freq` to `to` (`wave`: sine, square, sawtooth, triangle);
+    `sound.noise({ dur, vol, from, to })` noise through a swept filter;
+    `sound.stop()`. Sounds start after the viewer has clicked or pressed a
+    key, as browsers require; a program on a page without sound support can
+    check `typeof sound !== "undefined"`.
   - `slide.style`: `el("#id")` or `el(".class")` with
     `.style({ color, background, opacity, translate: "10px 0", display })`,
     `.show()`, `.hide()`, `.reset()` changes the look of the slide's blocks

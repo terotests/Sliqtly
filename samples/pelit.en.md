@@ -23,17 +23,6 @@ size: 640x480
 Click the game to play it (← → ↑ ↓, Space). Esc gives the keys back to the slides, and a double click then edits the block.
 {.kicker}
 
-## Hull Runner
-
-```app
-src: apps/hullrun.tsx
-size: 640x480
-allow: sound
-```
-
-Knock out the carrier's reactor cores, then land on the strip (← → thrust and turn, ↑ ↓, Space fires, M music). The sounds are synthesized on the page: `allow: sound`.
-{.kicker}
-
 ## A program that talks to its deck
 
 ```app
