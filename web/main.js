@@ -197,7 +197,7 @@ const SAMPLES = {
   uutta: [...sample("uutta", "What's new: themes, effects, layouts", "Uutta: teemat, efektit, asettelut"), "nebula"],
   // programs on slides (```app), with their files (samples/pelit/apps/…)
   pelit: [...sample("pelit", "Games: programs on slides", "Pelit: ohjelmat kalvoilla"), "",
-    ["apps/scaffold.tsx", "apps/scaffold.tsx.css", "apps/target.tsx", "apps/target.tsx.css", "apps/hullrun.tsx", "apps/hullrun.tsx.css"]],
+    ["apps/scaffold.tsx", "apps/scaffold.tsx.css", "apps/target.tsx", "apps/target.tsx.css"]],
   // 3-D worlds in programs (```app with allow: 3d), on Aurora
   maailmat: [...sample("maailmat", "3D worlds on slides", "3D-maailmat kalvoilla"), "aurora",
     ["apps/chrome.tsx", "apps/chrome.tsx.css", "apps/shapes.tsx", "apps/shapes.tsx.css", "apps/excavator.tsx", "apps/excavator.tsx.css"]],
