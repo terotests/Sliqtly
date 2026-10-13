@@ -2,10 +2,12 @@
 # The Personal server for macOS (Homebrew) and the Docker image:
 #   packaging/build-personal-bin.sh <version> darwin arm64
 #     → dist/sliqtly-personal_<version>_darwin_arm64.tar.gz
-#       (sliqtly-server, LICENSE, sliqtly.env), what the Homebrew formula in
+#       (sliqtly-server, LICENSE, THIRD_PARTY_NOTICES, sliqtly.env), what
+#       the Homebrew formula in
 #       terotests/homebrew-sliqtly installs
 #   packaging/build-personal-bin.sh <version> linux amd64
-#     → dist/bin/linux_amd64/sliqtly-server, for packaging/personal/Dockerfile
+#     → dist/bin/linux_amd64/sliqtly-server and THIRD_PARTY_NOTICES, for
+#       packaging/personal/Dockerfile
 # Like the Personal .deb, only the viewer may be built in: run
 # SLIQTLY_BUILD_WEB=viewer go generate first.
 set -eu
@@ -22,10 +24,11 @@ fi
 bin=$out/bin/${os}_$arch
 mkdir -p "$bin"
 (cd "$mcp" && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags nocloud -trimpath -ldflags="-s -w -X main.version=$version" -o "$bin/sliqtly-server" .)
+"$here/third-party-notices.sh" "$os" "$bin/THIRD_PARTY_NOTICES" > /dev/null
 if [ "$os" = darwin ]; then
   cp "$here/personal/LICENSE" "$bin/LICENSE"
   cp "$here/personal/sliqtly-mac.env" "$bin/sliqtly.env"
-  tar -C "$bin" -czf "$out/sliqtly-personal_${version}_${os}_$arch.tar.gz" sliqtly-server LICENSE sliqtly.env
+  tar -C "$bin" -czf "$out/sliqtly-personal_${version}_${os}_$arch.tar.gz" sliqtly-server LICENSE THIRD_PARTY_NOTICES sliqtly.env
   echo "$out/sliqtly-personal_${version}_${os}_$arch.tar.gz"
 else
   echo "$bin/sliqtly-server"

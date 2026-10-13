@@ -4,7 +4,7 @@ This license covers the Sliqtly Personal package (sliqtly-personal) and the
 software in it. It is not an open source license: Sliqtly is source-available
 proprietary software whose commercial use is limited as set out below.
 
-Copyright (c) 2026 the copyright holder of Sliqtly. All rights not expressly
+Copyright (c) 2026 Tero Tolonen ("the copyright holder"). All rights not expressly
 granted in this license are reserved.
 
 Grant
@@ -60,6 +60,39 @@ A qualifying individual or Solo Business may not use its license to provide
 Sliqtly as an internal tool, hosted service, or shared installation for
 another organization that would otherwise require a commercial license.
 
+Restrictions
+
+Unless this license or applicable law expressly allows it, you may not:
+
+* sell, rent, lease, sublicense or redistribute the software, or offer it
+  to others as a hosted service;
+* reverse engineer, decompile or disassemble the software, except to the
+  extent applicable law permits this despite this restriction (for
+  example, for interoperability under Article 6 of Directive 2009/24/EC);
+* remove or change copyright, license or third-party notices; or
+* use the name Sliqtly or its logo for a changed version.
+
+Source Code
+
+The source code of Sliqtly is separately available under the GNU Affero
+General Public License, version 3 or later, at
+https://github.com/terotests/Sliqtly. This license covers the software in
+the form the copyright holder distributes it. It does not limit rights you
+have under the AGPL for source code you obtained under the AGPL.
+
+Third-Party Components
+
+The software includes third-party components (libraries and fonts) under
+their own licenses, listed in the THIRD_PARTY_NOTICES file that comes with
+it. Those licenses apply to those components, and nothing in this license
+limits rights they grant.
+
+Transfer
+
+The copyright holder may transfer this license and the rights in the
+software to a successor, such as a company that takes over Sliqtly. This
+license stays in force for you after such a transfer.
+
 No Warranty
 
 The software is provided on an "AS IS" and "AS AVAILABLE" basis, without
@@ -74,3 +107,12 @@ To the maximum extent permitted by applicable law, the copyright holder
 shall not be liable for loss of data, loss of business, loss of profits,
 service interruptions, indirect or consequential damages, or other losses
 resulting from the use of or inability to use the software.
+
+Nothing in this license limits liability that cannot be limited under
+applicable law, such as liability for damage caused intentionally or by
+gross negligence, or a consumer's mandatory rights.
+
+Governing Law
+
+This license is governed by the laws of Finland, without regard to its
+conflict of laws rules.

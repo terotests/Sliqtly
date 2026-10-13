@@ -39,6 +39,7 @@ class Sliqtly < Formula
     bin.install "sliqtly-server"
     pkgshare.install "sliqtly.env"
     prefix.install "LICENSE"
+    prefix.install "THIRD_PARTY_NOTICES" if File.exist?("THIRD_PARTY_NOTICES")
     # the service reads its settings from etc/sliqtly/sliqtly.env
     (bin/"sliqtly-service").write <<~SH
       #!/bin/sh

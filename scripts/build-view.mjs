@@ -29,6 +29,8 @@
  *                to the first; sign-in for the MCP server is the second)
  *   main/admin.html, admin.js  the owner's dashboard at /main/admin
  *                (numbers only for the accounts mcp-go/admin.go lets in)
+ *   privacy.html, terms.html   the privacy policy and terms of service
+ *   legal.css                  (with their stylesheet)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -42,7 +44,7 @@ export const viewDir = path.join(webDir, "dist-view");
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
 const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["sound.js", "sound.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["play.js", "play.js"], ["playlink.js", "playlink.js"], ["recstream.js", "recstream.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"], ["flight3d.js", "flight3d.js"], ["playflight.js", "playflight.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"]];
+const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"], ["privacy.html", "privacy.html"], ["terms.html", "terms.html"], ["legal.css", "legal.css"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })

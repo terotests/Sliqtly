@@ -553,3 +553,12 @@ owner, after signing in); only the owner can change or delete it, and
 
 How sliqtly.com is deployed and configured (hosting, sign-in,
 storage rules, the domain) is in [docs/operations.md](docs/operations.md).
+
+## License
+
+Sliqtly is dual licensed: the source here is AGPL-3.0-or-later (some
+files MIT), and the copyright holder grants separate licenses, such as the
+Sliqtly Personal License for the Personal packages. See
+[LICENSE](LICENSE) and [LICENSING.md](LICENSING.md); contributions follow
+[CONTRIBUTING.md](CONTRIBUTING.md). The hosted service's terms and privacy
+policy are `web/terms.html` and `web/privacy.html`.

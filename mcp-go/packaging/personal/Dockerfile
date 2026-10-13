@@ -2,6 +2,7 @@
 # the public viewer built in and no editor, as in the Personal .deb. Built by
 # .github/workflows/personal-package.yml from binaries it compiled already:
 #   dist/bin/linux_<arch>/sliqtly-server   (SLIQTLY_BUILD_WEB=viewer)
+#   dist/bin/linux_<arch>/THIRD_PARTY_NOTICES
 #   dist/empty/                            an empty folder, for /data
 # with the context mcp-go/:
 #   docker buildx build -f packaging/personal/Dockerfile --platform linux/amd64,linux/arm64 .
@@ -9,6 +10,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 ARG TARGETARCH
 COPY dist/bin/linux_${TARGETARCH}/sliqtly-server /sliqtly-server
 COPY packaging/personal/LICENSE /LICENSE
+COPY dist/bin/linux_${TARGETARCH}/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES
 COPY --chown=65532:65532 dist/empty/ /data/
 COPY --chown=65532:65532 dist/empty/ /backup/
 ENV SLIQTLY_DATA=/data \

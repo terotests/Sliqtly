@@ -57,6 +57,8 @@ if [ "$edition" = personal ]; then
   sed -i 's/^Environment=SLIQTLY_LISTEN=network$/Environment=SLIQTLY_LISTEN=local/; s/^# a server: other computers connect.*/# this computer only (sliqtly.env can say otherwise)/; s/MCP, editor and player/MCP and viewer/' "$root/lib/systemd/system/sliqtly.service"
   # its own license (Personal Use and Solo Business Use) as the copyright
   install -m 0644 "$here/personal/LICENSE" "$root/usr/share/doc/sliqtly-server/copyright"
+  "$here/third-party-notices.sh" linux "$root/usr/share/doc/sliqtly-server/THIRD_PARTY_NOTICES" > /dev/null
+  chmod 0644 "$root/usr/share/doc/sliqtly-server/THIRD_PARTY_NOTICES"
   sed -i 's#^Documentation=.*#Documentation=https://sliqtly.com#' "$root/lib/systemd/system/sliqtly.service"
   sed -i '/^# Who can connect:/,/^#SLIQTLY_LISTEN=network$/c\
 # Who can connect: local (this computer only, the package'"'"'s default),\

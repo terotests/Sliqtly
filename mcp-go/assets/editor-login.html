@@ -41,6 +41,7 @@
   <button class="primary" id="go" disabled>Continue with Google</button>
   <button class="secondary" id="other" hidden>Use another Google account</button>
   <p class="error" id="err" hidden></p>
+  <p class="small" id="accept">By signing in you accept the <a href="/terms.html">terms of service</a> and the <a href="/privacy.html">privacy policy</a>.</p>
   <p class="small"><a href="/" id="home">Sliqtly home</a></p>
 </main>
 <script>
@@ -56,6 +57,7 @@
     $("go").textContent = "Jatka Googlella";
     $("other").textContent = "Käytä toista Google-tiliä";
     $("home").textContent = "Sliqtlyn etusivu";
+    $("accept").innerHTML = 'Kirjautumalla hyväksyt <a href="/terms.html">käyttöehdot</a> ja <a href="/privacy.html">tietosuojaselosteen</a>.';
   }
   const say = (en, fiText) => (fi ? fiText : en);
   // a sign-in that came back but did not let the editor in: no reload loop
