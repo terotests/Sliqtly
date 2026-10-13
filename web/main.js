@@ -52,7 +52,7 @@ import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
-import { createVideoPlays } from "./videoplays.js";
+import { createVideoPlays, probeVideo } from "./videoplays.js";
 import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
 import { playUrl } from "./playlink.js";
 import { MAX_DAYS, DEFAULT_DAYS, CHOICES, linkDays, choiceLines, untilText } from "./linkdays.js";
@@ -5732,6 +5732,9 @@ async function makeVideo(keepOpen = false) {
   videoWindow();
   try {
     await loadEmojiFace();
+    // how long the programs on slides ask to be seen (presentation.video)
+    await probeVideo({ app });
+    if (cancelled) return null;
     const tl = window.__video.begin({ codec: "vp8" });
     // the programs on slides, stepped to each frame's time (web/videoplays.js)
     plays = createVideoPlays({ app });
@@ -5982,6 +5985,8 @@ async function removePublished(id) {
 // the server's immutable copy, so a new recording is a new address. A
 // slide's script, program or 3-D world is drawn as the timeline poses it.
 async function recordForWeb(fps = 30) {
+  // how long the programs on slides ask to be seen (presentation.video)
+  await probeVideo({ app });
   const tl = JSON.parse(app.videoBegin(JSON.stringify({ fps }), false));
   const enc = new RecEncoder(tl);
   // the programs on slides run in the player: their boxes are left empty

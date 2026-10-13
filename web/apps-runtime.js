@@ -18,6 +18,9 @@
 //   import * as THREE from "ranger:three"  Ranger v2's 3-D façade (init, tick)     allow: 3d
 //   sound.play("shot") tone({wave, freq, to, dur, vol}) noise({dur, from, to})
 //     stop()   synthesized on the page, web/sound.js                       allow: sound
+//   presentation.video({ seconds })  how long the slide stays when the deck
+//     plays on its own (video, light player, autoplay): a demo that runs on
+//     its own clock is seen through; said with the next frame
 //
 // Nothing here changes the deck: each call is a request the page reads after
 // the frame (PresApp.playAsks), and grants or refuses by the fence's allow:.
@@ -116,6 +119,19 @@ var __code = {
   prevChange: function () { __asks.push({ k: "code.change", n: -1 }); }
 };
 presentation.code = __code;
+// How long the program wants its slide when the deck plays on its own: a
+// number or { seconds }. Said once, with the frame after the call (no
+// allow: needed; it changes no slide); a program calls it at its top, so
+// the page learns it from the first frame (PresPlayAsks.read caps it).
+var __video = null;
+presentation.video = function (o) {
+  var s = Number(o !== null && typeof o === "object" ? o.seconds : o);
+  __video = { k: "video", seconds: isFinite(s) && s > 0 ? s : 0 };
+};
+function __sayVideo() {
+  if (__video) __asks.push(__video);
+  __video = null;
+}
 var __sliqtly = { presentation: presentation, el: el, machine: machine, sound: sound };
 if (typeof defineModule === "function") defineModule("Sliqtly", __sliqtly);
 // The deck's files a program imports (src/PresPlayFiles.rgr puts this call
@@ -462,9 +478,11 @@ function __deckFrame(arg) {
     __frame(JSON.stringify(a));
     var out = [];
     __ser(__three.element(), out);
+    __sayVideo();
     return JSON.stringify(out[0]) + "\n" + JSON.stringify(__asks);
   }
   var tree = __frame(arg);
+  __sayVideo();
   // JSON holds no raw line break: the page splits at the last one
   return tree + "\n" + JSON.stringify(__asks);
 }

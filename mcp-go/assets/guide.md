@@ -1237,6 +1237,19 @@ allow: deck.data, slide.nav # what it may ask of the deck (optional)
     font-size: 64px; color: #ffffff; text-align: center }
   ```
 
+- How long its slide stays when the deck plays on its own (File → Export
+  → Video, Cloud video, the light player's autoplay, presenting with
+  autoplay): by default the slide's own length, so a demo that runs on its
+  own clock (a pointer that clicks through steps, a loop) is cut after its
+  first seconds. The program says how long it should be seen, once, at its
+  top: `import { presentation } from "Sliqtly"` and
+  `presentation.video({ seconds: 25 })` (or `presentation.video(25)`). The
+  slide then lasts at least that long; no `allow:` is needed. Give the
+  length of one round of the demo (the sum of its steps' times), not more:
+  a program that loops for ever is cut there, and the most is 120 s
+  (asking more is held to 120 and said). `presentation.video(0)` gives
+  the slide its own length back. Slide scripts (topic `scripts`) do not
+  take it.
 - `render_slide` and `render_overview` show the program after its first
   frames, its `<scene3d>` worlds drawn by the server as the browser draws
   them. PDF, PPTX and Word show a plate with the program's name in the box
