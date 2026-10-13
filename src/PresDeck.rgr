@@ -925,7 +925,7 @@ class PresDeck {
             }
             k = (k + 1)
         }
-        return false
+        return (this.playsLoading(i))
     }
 
     ; The diagram on slide i that is asking a question at slide time t, or -1.
@@ -1163,6 +1163,43 @@ class PresDeck {
         }
         def none@(optional):PresPlayView
         return none
+    }
+
+    ; Whether the stage shows program v's loading ring rather than its
+    ; plate: a live list (not a thumbnail or a still page) and v starting.
+    fn playLoading:boolean (v:PresPlayView) {
+        if ((showControls == false) || still) {
+            return false
+        }
+        return (v.loading(uiNow))
+    }
+
+    ; The loading ring's colour: the slide's text colour, else a grey.
+    fn loadingInk:string () {
+        def ink:string (trim (this.themeRule("document" "color")))
+        if ((strlen ink) == 0) {
+            return "#8a93a6"
+        }
+        return ink
+    }
+
+    ; Whether a program on slide i shows its loading ring (the stage is
+    ; painted again each frame while it turns).
+    fn playsLoading:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length slides))) {
+            return false
+        }
+        def s:PresSlide (itemAt slides i)
+        for s.plays u:PresPlayUse ui {
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if (!null? v) {
+                def lv:PresPlayView (unwrap v)
+                if (lv.loading(uiNow)) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     ; Whether a program on slide i has not drawn yet (its fence's plate is
@@ -1705,6 +1742,14 @@ class PresDeck {
                     said = (pv.note())
                     if ((shown == false) && ((strlen said) > 0)) {
                         pv.paintPlate(out u.spec b.x b.y b.w b.h)
+                        shown = true
+                    }
+                }
+                ; on the stage, while the program starts: the loading ring
+                if ((shown == false) && (!null? v)) {
+                    def lv:PresPlayView (unwrap v)
+                    if (this.playLoading(lv)) {
+                        lv.paintLoading(out b.x b.y b.w b.h uiNow (this.loadingInk()))
                         shown = true
                     }
                 }

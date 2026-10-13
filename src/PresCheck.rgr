@@ -6674,6 +6674,49 @@ class PresCheck {
         this.ok(wst.waits "flight: a station whose program has not drawn waits for it")
     }
 
+    ; A program starting on the stage shows a turning ring of dashes, not
+    ; its plate; a thumbnail and a still page keep the plate, and so does
+    ; the stage after `waitMax` (a host that does not run the program).
+    fn playLoading:void () {
+        def deck (new PresDeck())
+        deck.setText("# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\n```\n")
+        PresTimeline.planAll(deck)
+        deck.uiNow = 100.0
+        deck.showControls = true
+        def g:[int]
+        def a:EVGDisplayList (deck.slideList(0 g 0.0))
+        this.ok(((PresCheck.texts(a "▶ g.tsx")) == 0) "playLoading: no plate on the stage while the program starts")
+        this.ok(((PresCheck.rings(a 12)) == 1) "playLoading: a ring of twelve dashes instead")
+        this.ok((deck.uiBusy(0)) "playLoading: the stage is painted again while it turns")
+        deck.showControls = false
+        def g2:[int]
+        def th:EVGDisplayList (deck.slideList(0 g2 0.0))
+        this.ok(((PresCheck.texts(th "▶ g.tsx")) == 1) "playLoading: a thumbnail keeps the plate")
+        deck.showControls = true
+        deck.uiNow = (100.0 + (PresPlayView.waitMax()) + 1.0)
+        def g3:[int]
+        def late:EVGDisplayList (deck.slideList(0 g3 0.0))
+        this.ok((((PresCheck.texts(late "▶ g.tsx")) == 1) && ((PresCheck.rings(late 12)) == 0)) "playLoading: the plate after waiting too long")
+        this.ok(((deck.uiBusy(0)) == false) "playLoading: and the stage rests")
+        deck.showControls = false
+        def s0:EVGDrawCmd (PresPlayView.spinner(0.0 0.0 10.0 0.0 "#ffffff"))
+        def s1:EVGDrawCmd (PresPlayView.spinner(0.0 0.0 10.0 0.4 "#ffffff"))
+        this.ok(((itemAt s0.pts 0) != (itemAt s1.pts 0)) "playLoading: the ring turns with time")
+        def s2:EVGDrawCmd (PresPlayView.spinner(0.0 0.0 10.0 1.6 "#ffffff"))
+        this.ok(((fabs ((itemAt s0.pts 1) - (itemAt s2.pts 1))) < 0.001) "playLoading: a full turn in 1.6 s")
+    }
+
+    ; Strokes in l made of n rings (the loading ring).
+    sfn rings:int (l:EVGDisplayList n:int) {
+        def k:int 0
+        for l.cmds c:EVGDrawCmd ci {
+            if ((c.kind == 7) && ((array_length c.ringEnds) == n)) {
+                k = (k + 1)
+            }
+        }
+        return k
+    }
+
     fn plays:void () {
         def text:string ("---\nscore: 0\nfooter-left: \"Pisteet: {score}\"\n---\n\n"
             + "# Peli\n\n```app\nsrc: apps/g.tsx\nsize: 200x100\nallow: deck.data, slide.style\n```\n\n"
@@ -8553,6 +8596,7 @@ class PresCheck {
         c.serverRooms()
         c.clips()
         c.plays()
+        c.playLoading()
         c.playFiles()
         c.scripts()
         c.roundedBars()
