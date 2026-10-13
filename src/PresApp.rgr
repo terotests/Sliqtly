@@ -580,6 +580,51 @@ class PresApp {
         return (out.toJson())
     }
 
+    ; The programs for a recording the light player runs them over (web/play.js,
+    ; the same shape as the viewer's, mcp-go/rgr/View.rgr plays):
+    ;   [{ "key", "slide", "src", "css", "w", "h", "allow": [...],
+    ;      "box": [x, y, w, h], "text", "cssText", "ink" }]
+    fn recordPlaysJson:string () {
+        def out:JVal (JVal.mkArr())
+        def l:MdLayout (deck.layout())
+        for (deck.playUses()) u:PresPlayUse ui {
+            def bi:int (deck.embedBox(u.page u.source))
+            if (bi < 0) {
+                continue
+            }
+            def b:MdBox (itemAt l.boxes bi)
+            def o:JVal (JVal.mkObj())
+            o.setStr("key" u.key)
+            o.setInt("slide" u.page)
+            o.setStr("src" u.spec.src)
+            o.setStr("css" u.spec.css)
+            o.setNum("w" u.spec.width)
+            o.setNum("h" u.spec.height)
+            def al:JVal (JVal.mkArr())
+            for u.spec.allow a:string ai {
+                al.add((JVal.mkStr(a)))
+            }
+            o.set("allow" al)
+            def bx:JVal (JVal.mkArr())
+            bx.add((JVal.mkNum(b.x)))
+            bx.add((JVal.mkNum(b.y)))
+            bx.add((JVal.mkNum(b.w)))
+            bx.add((JVal.mkNum(b.h)))
+            o.set("box" bx)
+            o.setStr("text" (deck.linkedSource(u.spec.src)))
+            o.setStr("cssText" (deck.dataText(u.spec.css)))
+            o.setStr("ink" (deck.loadingInk()))
+            out.add(o)
+        }
+        return (out.toJson())
+    }
+
+    ; While recording for the light player: the programs' boxes left empty
+    ; (it runs them there itself), not their last pictures or plates.
+    fn setPlaysLive:void (on:boolean) {
+        deck.playsLive = on
+    }
+
     ; A program's source as the page handed it over, "" before.
     fn playSource:string (key:string) {
         def u@(optional):PresPlayUse (deck.playUse(key))

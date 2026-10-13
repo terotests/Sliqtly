@@ -26,7 +26,18 @@ function record() {
 }
 
 test("the slides' master times and their steps come from the timeline", () => {
-  assert.deepEqual(slidesOf(timeline), [{ start: 0, end: 2, steps: [1] }, { start: 2, end: 3, steps: [] }]);
+  assert.deepEqual(slidesOf(timeline), [{ start: 0, end: 2, steps: [1], enter: 0.5 }, { start: 2, end: 3, steps: [] }]);
+});
+
+test("a slide's way in ends where its transition does (its programs run from there)", () => {
+  const tl = { events: [{ kind: "slide", start: 0, end: 2, slide: 0 }, { kind: "slide", start: 2, end: 4, slide: 1 }, { kind: "transition", start: 2, end: 2.6, slide: 1 }] };
+  assert.deepEqual(slidesOf(tl), [{ start: 0, end: 2, steps: [] }, { start: 2, end: 4, steps: [], enter: 2.6 }]);
+});
+
+test("the recording carries its programs for the player", () => {
+  const plays = [{ key: "apps/g.tsx#1", slide: 0, src: "apps/g.tsx", box: [0, 0, 10, 10], text: "x" }];
+  assert.deepEqual(new RecEncoder(timeline).finish({ plays }).plays, plays);
+  assert.deepEqual(record().plays, []);
 });
 
 test("a shape is kept once, wherever it is drawn; a frame like the one before is no key", () => {

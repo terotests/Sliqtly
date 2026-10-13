@@ -1726,11 +1726,18 @@ class PresDeck {
     ; the program over it)
     def platesOff:boolean false
 
+    ; true: every program's box left empty (a recording the light player runs
+    ; the programs over, PresApp.setPlaysLive)
+    def playsLive:boolean false
+
     fn paintPlay:boolean (out:EVGDisplayList s:PresSlide b:MdBox painter:MdToEvg l:MdLayout) {
         def k:int 0
         while (k < (array_length s.plays)) {
             def u:PresPlayUse (itemAt s.plays k)
             if (u.source == b.embedSource) {
+                if playsLive {
+                    return true
+                }
                 def v@(optional):PresPlayView (this.playView(u.key))
                 def shown:boolean false
                 def said:string ""

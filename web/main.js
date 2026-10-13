@@ -5971,19 +5971,26 @@ async function removePublished(id) {
 async function recordForWeb(fps = 30) {
   const tl = JSON.parse(app.videoBegin(JSON.stringify({ fps }), false));
   const enc = new RecEncoder(tl);
+  // the programs on slides run in the player: their boxes are left empty
+  const plays = JSON.parse(app.recordPlaysJson());
+  app.setPlaysLive(plays.length > 0);
   let said = 0;
-  for (let n = 0; n < tl.frames; n++) {
-    const f = JSON.parse(app.videoFrameJson(n));
-    enc.add(f.list, f.width, f.height);
-    // the page stays alive, and says how far it is
-    if (performance.now() - said > 500) {
-      said = performance.now();
-      toast(t("Recording the presentation… ") + Math.round((100 * n) / tl.frames) + " %");
-      await new Promise((r) => setTimeout(r, 0));
+  try {
+    for (let n = 0; n < tl.frames; n++) {
+      const f = JSON.parse(app.videoFrameJson(n));
+      enc.add(f.list, f.width, f.height);
+      // the page stays alive, and says how far it is
+      if (performance.now() - said > 500) {
+        said = performance.now();
+        toast(t("Recording the presentation… ") + Math.round((100 * n) / tl.frames) + " %");
+        await new Promise((r) => setTimeout(r, 0));
+      }
     }
+  } finally {
+    app.setPlaysLive(false);
   }
   const cmds = enc.cmds;
-  return enc.finish({ faces: recordedFaces(cmds), pictures: await recordedPictures(cmds), deckEffects: app.deckEffectsJson() });
+  return enc.finish({ faces: recordedFaces(cmds), pictures: await recordedPictures(cmds), deckEffects: app.deckEffectsJson(), plays });
 }
 // The 3-D flight through the slides for the light player (web/play.js):
 // the world as PresFlight makes it, the slides' 3-D worlds as their
@@ -6082,7 +6089,7 @@ async function exportRecWeb(days, look = "2d") {
   if (look === "3d") stream.flight = await recordFlight();
   const bytes = await packStream(stream);
   await publishForWeb(bytes, ".sliqrec", STREAM_TYPE,
-    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs, scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
+    t("A light page that plays the presentation as recorded: ← → move between slides, Space through the steps, A plays it all. Programs run on their slides; scripts and 3-D worlds show as recorded. A new export gets a new link."), days);
 }
 // Export ▸ Cloud video: the presentation as a video (makeVideo) at the same
 // kind of address as Cloud HTML, /r/{viewing link}/{hash}, where the
