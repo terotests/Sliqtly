@@ -223,7 +223,7 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
   const stageTaken = () => !!focus && byKey.has(focus) && !byKey.get(focus).script && web.takesStage(focus);
   let staged = false;
   const loop = () => {
-    apps.tick(1);
+    apps.tick(1, true);
     // a program on the slide shown that has not drawn yet: its loading ring turns
     web.setClock(performance.now() / 1000);
     if (plays.some((p) => p.slide === current() && web.loading(p.key))) repaint();

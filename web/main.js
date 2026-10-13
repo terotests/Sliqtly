@@ -4801,7 +4801,7 @@ function frame() {
     if ((doc.cloud || "") !== collabWant) collabFollow();
     collab?.tick();
     meet.tick();
-    apps.tick(app.revision());
+    apps.tick(app.revision(), !!(lastLayout && lastLayout.mode === "present"));
     // a game that has the keyboard while presenting takes the stage: the
     // controls at the foot give way until Esc (PresApp.gameTakesStage)
     const staged = app.gameTakesStage();
