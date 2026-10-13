@@ -205,7 +205,7 @@ export function build({ ranger } = {}) {
   // the dark look's hand-set colours (the rest is derived, see main.js)
   copy(path.join(ranger, "gallery/evgui/theme/skins/dark.css"), path.join(distDir, "skins/ui-dark.css"));
   copy(path.join(webDir, "skins/dark.css"), path.join(distDir, "skins/dark.css"));
-  // the optional terracotta frame (Settings → Look)
+  // the terracotta frame, the default (Settings → Look offers white)
   copy(path.join(webDir, "skins/terracotta.css"), path.join(distDir, "skins/terracotta.css"));
   copy(path.join(root, "brand/sliqtly-icon.svg"), path.join(distDir, "favicon.svg"));
   copy(path.join(ranger, "lib/evg/gl/evg-webgl.js"), path.join(distDir, "gl/evg-webgl.js"));
