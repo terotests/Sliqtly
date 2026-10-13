@@ -6082,8 +6082,10 @@ async function recordedPictures(cmds) {
 }
 // A server of one's own publishes nothing to sliqtly.com: its Export has no
 // Cloud rows (PresApp.setCloud), and a click from elsewhere is said no to.
+// One that keeps the light player and the video itself (its sliqtly.js has
+// `links`) hands out the same two links at its own address instead.
 function noCloudHere() {
-  if (!window.sliqtly?.local) return false;
+  if (!window.sliqtly?.local || window.sliqtly.links) return false;
   toast(t("This server does not publish to the cloud. Export a web page, a player or a video to a file instead."));
   return true;
 }
@@ -6096,7 +6098,7 @@ async function exportRecWeb(days, look = "2d") {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
-  if (!days) return askLinkDays(t("Export as Cloud HTML"), exportRecWeb, true);
+  if (!days) return askLinkDays(ownLinks() ? t("Link to a light player") : t("Export as Cloud HTML"), exportRecWeb, true);
   if (!(await cloudTakesDeck())) return;
   const stream = await recordForWeb();
   if (look === "3d") stream.flight = await recordFlight();
@@ -6113,7 +6115,7 @@ async function exportCloudVideo(days) {
     toast(t("Sign in to export the presentation to the cloud."));
     return;
   }
-  if (!days) return askLinkDays(t("Export as Cloud video"), exportCloudVideo);
+  if (!days) return askLinkDays(ownLinks() ? t("Link to a video") : t("Export as Cloud video"), exportCloudVideo);
   if (!(await cloudTakesDeck())) return;
   const bytes = await makeVideo(true);
   if (!bytes) return;
@@ -6189,6 +6191,9 @@ window.__answerLinkDays = (days, look = "2d") => {
   linkAsk = null;
   return ask ? ask.go(linkDays(days), look) : null;
 };
+// The links are this server's own (a server of one's own that keeps them,
+// web/sliqtly.js's stand-in mcp-go/assets/sliqtly-local.js), not sliqtly.com's
+const ownLinks = () => !!(window.sliqtly?.local && window.sliqtly.links);
 // The recording's or the video's bytes kept with the deck as
 // recordings/web-{hash}{ext} (the one before of the same kind removed), the
 // deck shared, and its /r/ link, a link of the recording's own working
@@ -6203,7 +6208,7 @@ async function publishForWeb(bytes, ext, type, note, days) {
   // their own links show nothing now: gone with them
   if (old.length && doc.cloud) await Promise.all(old.map((x) => p.removeFileLinks?.(doc.cloud, x))).catch((e) => console.warn("old links", e));
   await keepFile({ path, type, size: bytes.length, data: new Blob([bytes], { type }) });
-  toast(t("Sending the recording to the cloud…"));
+  toast(ownLinks() ? t("Saving the recording on this server…") : t("Sending the recording to the cloud…"));
   try {
     const id = await shareCloud();
     let shown = id;
@@ -6219,7 +6224,9 @@ async function publishForWeb(bytes, ext, type, note, days) {
       note += " " + untilText(Date.now() + linkDays(days) * 864e5, t);
     }
     else await p.setVisibility(id, "link");
-    const url = playUrl(location.origin, shown, hash);
+    // a server of one's own: at the address it is reached at from
+    // elsewhere (SLIQTLY_URL, its <meta name="sliqtly-site">)
+    const url = playUrl(ownLinks() ? SITE : location.origin, shown, hash);
     window.__lastRecLink = url;
     showShare(url, "", note, "", true);
   } catch (e) {
@@ -9884,7 +9891,13 @@ async function start() {
   applyReviewMode();
   // a server of one's own is known once its window.sliqtly is there; it
   // publishes nothing to sliqtly.com (Export ▸ Cloud HTML, Cloud video)
-  const cloudOrNot = () => { if (window.sliqtly) app.setCloud(!window.sliqtly.local); needsPaint = true; };
+  const cloudOrNot = () => {
+    if (window.sliqtly) {
+      app.setCloud(!window.sliqtly.local);
+      app.setOwnLinks(ownLinks());
+    }
+    needsPaint = true;
+  };
   cloudOrNot();
   window.addEventListener("sliqtly:ready", () => { applyReviewMode(); reviewMe(); cloudOrNot(); });
   window.addEventListener("sliqtly:user", () => reviewMe());

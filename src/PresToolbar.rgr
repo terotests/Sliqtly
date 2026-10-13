@@ -91,6 +91,9 @@ class PresToolbar {
     ; the page can publish to sliqtly.com (Export ▸ Cloud HTML, Cloud
     ; video); not on a server of one's own, nor in the desktop editor
     def cloud:boolean true
+    ; a server of one's own that hands out the same two links itself, at
+    ; its own address (/r/{link}/{hash}): Export offers them as links there
+    def ownLinks:boolean false
     ; the strip menu's slide: its phase (`{phase=review}`), and whether it
     ; has a heading to keep one in
     def ctxSlidePhase:string ""
@@ -546,7 +549,7 @@ class PresToolbar {
 
     ; Export's file formats, as "value<TAB>label" rows ("" a separator): the
     ; Markdown, PowerPoint, Word, a web page, a player that plays the deck
-    ; from one file, a light page in the cloud that plays the deck as recorded, the deck as a video there (only where the page publishes to sliqtly.com), PDF, a video, a zip of every file, and with slides picked the
+    ; from one file, a light page in the cloud that plays the deck as recorded, the deck as a video there (only where the page publishes to sliqtly.com, or as links of a server of one's own that hands them out), PDF, a video, a zip of every file, and with slides picked the
     ; picked slides' formats.
     fn exportFormats:[string] () {
         def t:string (strfromcode 9)
@@ -559,6 +562,11 @@ class PresToolbar {
         if cloud {
             push out ("x-recweb" + t + (PresI18n.t("Cloud HTML (light player)")))
             push out ("x-vidweb" + t + (PresI18n.t("Cloud video (.webm)")))
+        } {
+            if ownLinks {
+                push out ("x-recweb" + t + (PresI18n.t("Link: light player (HTML)")))
+                push out ("x-vidweb" + t + (PresI18n.t("Link: video (.webm)")))
+            }
         }
         push out ("x-pdf" + t + (PresI18n.t("PDF (.pdf)")))
         push out ("x-video" + t + (PresI18n.t("Video (.webm)")))
@@ -2406,6 +2414,11 @@ class PresToolbar {
             if cloud {
                 this.button("dr-recweb" (PresI18n.t("Cloud HTML (light player)")) "ghost" body)
                 this.button("dr-vidweb" (PresI18n.t("Cloud video (.webm)")) "ghost" body)
+            } {
+                if ownLinks {
+                    this.button("dr-recweb" (PresI18n.t("Link: light player (HTML)")) "ghost" body)
+                    this.button("dr-vidweb" (PresI18n.t("Link: video (.webm)")) "ghost" body)
+                }
             }
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
             this.button("dr-video" (PresI18n.t("Video (.webm)")) "ghost" body)

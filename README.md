@@ -444,6 +444,14 @@ with the deck as `recordings/web-<hash>.webm` and links
 `/r/{viewing link}/{hash}`, where the page (`web/play.js`) hands it to the
 browser's own video player instead of painting a recording.
 
+On a server of one's own (`npm run serve`, the PRO package) the same two
+rows are Export → Link: light player (HTML) and Link: video (.webm): the
+recording stays with the deck in the server's folder, and the server hands
+out `/r/{link}/{hash}` at its own address (`SLIQTLY_URL`, `-url`). The link
+is 32 random hex digits, works 1, 7 or 30 days and plays that one recording
+only, never the deck (`mcp-go/localplay.go`). Whoever gets it must be able
+to reach the server.
+
 `--size=1920x1080`, `--fps=30`, `--codec=vp9|av1|vp8`, `--quality=0..63` (crf; vp8: quantizer index),
 `--pix=yuv420p|yuv444p`, `--frames=N` (the first N), `--raw=FILE` (the RGBA
 stream), `--timeline=FILE` (the compiled timeline: events, the sound's kept

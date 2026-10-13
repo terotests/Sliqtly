@@ -4068,6 +4068,11 @@ class PresCheck {
         def local:string (join (tb.exportFormats()) "\n")
         def noCloud:boolean (((indexOf local "x-vidweb") < 0) && ((indexOf local "x-recweb") < 0))
         this.ok((((indexOf local "x-video") >= 0) && noCloud) "export: no Cloud rows on a server of one's own")
+        ; one that hands the links out itself: the same rows, named as its links
+        tb.ownLinks = true
+        def own:string (join (tb.exportFormats()) "\n")
+        def ownRows:boolean (((indexOf own "x-vidweb") >= 0) && ((indexOf own "x-recweb") >= 0))
+        this.ok((ownRows && ((indexOf own "Cloud") < 0)) "export: a server's own links, not Cloud rows")
         def d:PresVideoOptions (PresVideoOptions.parse(""))
         this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
         ; the video's window: how far, Cancel asks the page, another job's
