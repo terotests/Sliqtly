@@ -1,0 +1,441 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresQuickBar.rgr — the quick toolbar over a picked element
+; ============================================================================
+;
+; A picked block (PresSelect) gets a floating bar over it, the way a design
+; tool shows one: what the block is (heading level or paragraph), its text
+; colour, bold / italic / underline / link, a bulleted list, its alignment,
+; a comment on it, its own editor (✎ or "Settings") and ⋯ for every style
+; rule of it (the Style list).
+;
+;   [Heading 1 ▾] ■ | B I U 🔗 | ☰ ≡ | 💬 ✎ ⋯
+;
+; This file is the bar without a screen: which buttons a kind of block has,
+; which of them are on, and the edit each one writes.
+;
+;   - Text edits are edits of the Markdown, made by RangerMarkdown's
+;     MdSemanticEdit (bold `**`, italic `*`, underline `++`, a link, `#`
+;     levels, `- ` items), over the block's own text — or over the
+;     editor's selection when it lies inside the block.
+;   - Colour and alignment are the theme's, the rule the Style list would
+;     edit (PresCascade's `own` for the colour; `text-align` of the
+;     element's rule).
+;
+; Buttons are ids: level color bold italic underline link list align
+; comment content style, and "sep" between groups. "content" and "style"
+; are PresSelect's old Edit text / Style tabs.
+; ============================================================================
+
+Import "PresCascade.rgr"
+Import "PresI18n.rgr"
+Import "../markdown/web/markdown_web.rgr"
+
+class PresQuickBar {
+
+    sfn isHeading:boolean (sel:string) {
+        return (((strlen sel) == 2) && ((charAt sel 0) == 104))
+    }
+
+    ; Blocks whose words the text buttons work on.
+    sfn isText:boolean (sel:string) {
+        if (PresQuickBar.isHeading(sel)) {
+            return true
+        }
+        return ((((sel == "p") || (sel == "li")) || (sel == "list")) || (sel == "blockquote"))
+    }
+
+    ; The buttons of a pick of `sel`, in order.
+    sfn itemsFor:[string] (sel:string) {
+        def ids:[string]
+        if ((PresQuickBar.isHeading(sel)) || (sel == "p")) {
+            ids = (strsplit "level,color,sep,bold,italic,underline,link,sep,list,align,sep,comment,content,style" ",")
+            return ids
+        }
+        if ((sel == "li") || (sel == "list")) {
+            ids = (strsplit "color,sep,bold,italic,underline,link,sep,list,sep,comment,content,style" ",")
+            return ids
+        }
+        if (sel == "blockquote") {
+            ids = (strsplit "color,sep,bold,italic,underline,link,sep,comment,content,style" ",")
+            return ids
+        }
+        if (sel == "code") {
+            ids = (strsplit "color,sep,comment,content,style" ",")
+            return ids
+        }
+        if (sel == "img") {
+            ids = (strsplit "content,sep,align,comment,style" ",")
+            return ids
+        }
+        if (sel == "page") {
+            ids = (strsplit "content,style" ",")
+            return ids
+        }
+        ; chart, diagram, table
+        ids = (strsplit "content,sep,comment,style" ",")
+        return ids
+    }
+
+    ; "content" is a word ("Settings") for a block with a window of its own,
+    ; an icon (✎, its Markdown in the editor) for text.
+    sfn contentIsWord:boolean (sel:string) {
+        return ((((((sel == "img") || (sel == "chart")) || (sel == "diagram")) || (sel == "table")) || (sel == "page")))
+    }
+
+    ; --- the level menu ---------------------------------------------------------
+    ; i18n: "Paragraph" "Heading 1" "Heading 2" "Heading 3" "Heading 4" "Heading 5" "Heading 6"
+    sfn levels:[string] () {
+        def out:[string] (strsplit "p,h1,h2,h3,h4,h5,h6" ",")
+        return out
+    }
+
+    sfn levelName:string (sel:string) {
+        if (PresQuickBar.isHeading(sel)) {
+            return (PresI18n.t(("Heading " + (substring sel 1 2))))
+        }
+        return (PresI18n.t("Paragraph"))
+    }
+
+    sfn levelNumber:int (sel:string) {
+        if (PresQuickBar.isHeading(sel)) {
+            return (?? (str2int (substring sel 1 2)) 0)
+        }
+        return 0
+    }
+
+    ; --- the alignment menu -----------------------------------------------------
+    ; i18n: "Left" "Center" "Right"
+    sfn aligns:[string] () {
+        def out:[string] (strsplit "left,center,right" ",")
+        return out
+    }
+
+    sfn alignName:string (v:string) {
+        if (v == "center") {
+            return (PresI18n.t("Center"))
+        }
+        if (v == "right") {
+            return (PresI18n.t("Right"))
+        }
+        return (PresI18n.t("Left"))
+    }
+
+    ; The rule an alignment of `sel` is written to.
+    sfn alignRule:string (sel:string) {
+        if (sel == "list") {
+            return "li"
+        }
+        return sel
+    }
+
+    ; The alignment the theme gives `sel`: its own rule's, then `heading` for
+    ; a heading, else "left".
+    sfn alignOf:string (css:string sel:string) {
+        def v:string (trim (MdCssEdit.getProperty(css (PresQuickBar.alignRule(sel)) "text-align")))
+        if (((strlen v) == 0) && (PresQuickBar.isHeading(sel))) {
+            v = (trim (MdCssEdit.getProperty(css "heading" "text-align")))
+        }
+        if (((strlen v) == 0) && (sel == "img")) {
+            v = (trim (MdCssEdit.getProperty(css "img" "justify-content")))
+            if (v == "flex-start") {
+                v = "left"
+            }
+            if (v == "flex-end") {
+                v = "right"
+            }
+        }
+        if ((v == "center") || (v == "right")) {
+            return v
+        }
+        return "left"
+    }
+
+    ; --- the colour -----------------------------------------------------------------
+    ; The facet the colour button edits: the element's text colour (the
+    ; rule it goes to is `own`), or none.
+    sfn colorFacet@(optional):PresCssFacet (e:PresCssElement) {
+        def none@(optional):PresCssFacet
+        def i:int 0
+        while (i < (array_length e.facets)) {
+            def f:PresCssFacet (itemAt e.facets i)
+            if (((f.key == "color") && (f.unread == false)) && (null? none)) {
+                none = f
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
+    ; --- the block's words ----------------------------------------------------------
+    ; The source range the text buttons act on: a heading's title (after its
+    ; `#`s, before its `{…}`), an item's text after its marker, the whole of
+    ; a paragraph, list or quote. [-1, -1] for other blocks.
+    sfn textSpan:[int] (text:string sel:string srcA:int srcB:int boxA:int) {
+        def out:[int]
+        def a:int -1
+        def b:int -1
+        if ((PresQuickBar.isText(sel)) && ((srcA >= 0) && (srcB > srcA))) {
+            a = srcA
+            b = srcB
+            if (sel == "li") {
+                a = boxA
+            }
+            if (PresQuickBar.isHeading(sel)) {
+                def le:int (indexOfFrom text "\n" srcA)
+                if (le < 0) {
+                    le = (strlen text)
+                }
+                def line:string (substring text srcA le)
+                def i:int 0
+                while ((i < (strlen line)) && (((charAt line i) == 32) || ((charAt line i) == 9))) {
+                    i = (i + 1)
+                }
+                while ((i < (strlen line)) && ((charAt line i) == 35)) {
+                    i = (i + 1)
+                }
+                while ((i < (strlen line)) && ((charAt line i) == 32)) {
+                    i = (i + 1)
+                }
+                def notes:[string]
+                def cut:int (MdAttrs.headingAttrs((new MdNode()) line notes))
+                def e:int (strlen line)
+                if (cut >= 0) {
+                    e = cut
+                }
+                while ((e > i) && (((charAt line (e - 1)) == 32) || ((charAt line (e - 1)) == 9))) {
+                    e = (e - 1)
+                }
+                a = (srcA + i)
+                b = (srcA + e)
+            }
+            if (b <= a) {
+                a = -1
+                b = -1
+            }
+        }
+        push out a
+        push out b
+        return out
+    }
+
+    ; The range a text button acts on: the editor's selection [sa, sb) when
+    ; it is not empty and lies in the block's words, else all of them.
+    sfn rangeFor:[int] (span:[int] sa:int sb:int) {
+        def out:[int]
+        def a:int (itemAt span 0)
+        def b:int (itemAt span 1)
+        def lo:int sa
+        def hi:int sb
+        if (hi < lo) {
+            lo = sb
+            hi = sa
+        }
+        if (((hi > lo) && (a >= 0)) && ((lo >= a) && (hi <= b))) {
+            a = lo
+            b = hi
+        }
+        push out a
+        push out b
+        return out
+    }
+
+    ; --- on or off ------------------------------------------------------------------
+    sfn kindOf:string (what:string) {
+        if (what == "bold") {
+            return "strong"
+        }
+        if (what == "italic") {
+            return "emph"
+        }
+        if (what == "underline") {
+            return "ins"
+        }
+        if (what == "link") {
+            return "link"
+        }
+        return ""
+    }
+
+    ; Whether `what` (bold italic underline link) covers all of [a, b): every
+    ; block of it (a list's items) inside such a node.
+    sfn isOn:boolean (text:string doc:MdNode what:string a:int b:int) {
+        def kind:string (PresQuickBar.kindOf(what))
+        if (((strlen kind) == 0) || ((a < 0) || (b <= a))) {
+            return false
+        }
+        def clips:[int] (MdSemanticEdit.clipsOf(text doc a b))
+        def nc:int (to_int ((array_length clips) / 2))
+        if (nc == 0) {
+            return false
+        }
+        def k:int 0
+        while (k < nc) {
+            def found:[MdNode]
+            if ((MdSemanticEdit.enclosing(found doc kind (itemAt clips (k * 2)) (itemAt clips ((k * 2) + 1)))) == 0) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; --- the edits ------------------------------------------------------------------
+    ; Each is one MdEditOp (empty when it cannot be done: MdEditOp.isEmpty).
+
+    ; Bold, italic or underline on [a, b), on or off.
+    sfn wrapOp:MdEditOp (text:string doc:MdNode what:string a:int b:int) {
+        if ((a < 0) || (b <= a)) {
+            return (new MdEditOp())
+        }
+        return (MdSemanticEdit.toggleWrap(text doc what a b))
+    }
+
+    ; A link on [a, b) — its address `https://` to be typed over — or the
+    ; link taken off.
+    sfn linkOp:MdEditOp (text:string doc:MdNode a:int b:int) {
+        if ((a < 0) || (b <= a)) {
+            return (new MdEditOp())
+        }
+        def op:MdEditOp (MdSemanticEdit.toggleLink(text doc a b "https://"))
+        if ((op.isEmpty()) == false) {
+            if ((indexOf op.inserted "](https://)") >= 0) {
+                ; the address selected, to be typed
+                def at:int (op.start + (indexOf op.inserted "](https://)") + 2)
+                op.selAfterA = at
+                op.selAfterB = (at + 8)
+            }
+        }
+        return op
+    }
+
+    ; The block at `srcA` as level `level`: 0 a paragraph, 1…6 a heading.
+    sfn levelOp:MdEditOp (text:string doc:MdNode srcA:int sel:string level:int) {
+        if (level == (PresQuickBar.levelNumber(sel))) {
+            return (new MdEditOp())
+        }
+        return (MdSemanticEdit.setHeading(text doc srcA level))
+    }
+
+    ; Bullets on every line of [srcA, srcB), or off all of them.
+    sfn listOp:MdEditOp (text:string srcA:int srcB:int) {
+        if ((srcA < 0) || (srcB < srcA)) {
+            return (new MdEditOp())
+        }
+        return (MdSemanticEdit.toggleLinePrefix(text "bullet" srcA srcB))
+    }
+
+    ; --- where it stands --------------------------------------------------------
+    ; The width of a button on the screen: an icon, a gap between groups, the
+    ; level chip, the word of "content".
+    sfn widthOf:double (id:string words:string) {
+        if (id == "sep") {
+            return 9.0
+        }
+        if (id == "level") {
+            return ((PresQuickBar.textW(words 13.0)) + 36.0)
+        }
+        if (id == "color") {
+            return 30.0
+        }
+        if ((id == "content") && ((strlen words) > 0)) {
+            return ((PresQuickBar.textW(words 12.5)) + 22.0)
+        }
+        return 30.0
+    }
+
+    sfn textW:double (t:string size:double) {
+        return (((to_double (strlen t)) * size) * 0.56)
+    }
+
+    ; The bar's place on the screen for an element at (ox, oy, ow, oh): over
+    ; it with a gap, under it (past `below`, its badge) when there is no room
+    ; above `loY`; across from the element's left edge, kept in loX..hiX.
+    ; [x, y, 1 when under it].
+    sfn place:[double] (bw:double bh:double ox:double oy:double ow:double below:double loY:double loX:double hiX:double) {
+        def out:[double]
+        def gap:double 8.0
+        def x:double ox
+        def y:double ((oy - gap) - bh)
+        def under:double 0.0
+        if (y < (loY + 4.0)) {
+            y = (below + gap)
+            under = 1.0
+        }
+        if ((x + bw) > (hiX - 6.0)) {
+            x = ((hiX - 6.0) - bw)
+        }
+        if (x < (loX + 6.0)) {
+            x = (loX + 6.0)
+        }
+        push out x
+        push out y
+        push out under
+        return out
+    }
+
+    ; Where a comment from the bar is pinned: the element's top right corner,
+    ; a little inside, as fractions of the slide.
+    sfn commentSpot:[double] (x:double y:double w:double h:double pageW:double pageH:double) {
+        def out:[double]
+        def fx:double 0.5
+        def fy:double 0.5
+        if ((pageW > 0.0) && (pageH > 0.0)) {
+            def inset:double 12.0
+            if ((w * 0.1) < inset) {
+                inset = (w * 0.1)
+            }
+            fx = (((x + w) - inset) / pageW)
+            fy = ((y + (h * 0.15)) / pageH)
+        }
+        push out fx
+        push out fy
+        return out
+    }
+
+    ; --- icons --------------------------------------------------------------------
+    ; On a 24×24 grid, stroked by the sheet (`.qb-icon`).
+    sfn iconPath:string (id:string) {
+        if (id == "bold") {
+            return "M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"
+        }
+        if (id == "italic") {
+            return "M10 5h8M6 19h8M14 5l-4 14"
+        }
+        if (id == "underline") {
+            return "M7 4v7a5 5 0 0 0 10 0V4M5 20h14"
+        }
+        if (id == "link") {
+            return "M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"
+        }
+        if (id == "list") {
+            return "M9 6h11M9 12h11M9 18h11M4 6a1 1 0 1 0 2 0a1 1 0 1 0-2 0M4 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0M4 18a1 1 0 1 0 2 0a1 1 0 1 0-2 0"
+        }
+        if (id == "align-left") {
+            return "M4 6h16M4 12h10M4 18h14"
+        }
+        if (id == "align-center") {
+            return "M4 6h16M7 12h10M5 18h14"
+        }
+        if (id == "align-right") {
+            return "M4 6h16M10 12h10M6 18h14"
+        }
+        if (id == "comment") {
+            return "M20.5 12a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.1-4.2A8.5 8.5 0 1 1 20.5 12zM12 8.5v7M8.5 12h7"
+        }
+        if (id == "content") {
+            return "M4 20h4L18.5 9.5l-4-4L4 16zM12.5 7.5l4 4"
+        }
+        if (id == "style") {
+            return "M11 5a1 1 0 1 0 2 0a1 1 0 1 0-2 0M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0M11 19a1 1 0 1 0 2 0a1 1 0 1 0-2 0"
+        }
+        if (id == "chevron") {
+            return "M7 10l5 5 5-5"
+        }
+        if (id == "check") {
+            return "M5 12.5l4.5 4.5L19 7.5"
+        }
+        return ""
+    }
+}

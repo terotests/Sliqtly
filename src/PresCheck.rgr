@@ -37,6 +37,7 @@ Import "PresNav.rgr"
 Import "PresStory.rgr"
 Import "PresPuppet.rgr"
 Import "PresStageClick.rgr"
+Import "PresQuickBar.rgr"
 Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
 Import "PresRecord.rgr"
@@ -4359,6 +4360,111 @@ class PresCheck {
 
     ; A click on the slide in the editor: a double click picks, a single one
     ; follows a link (PresStageClick).
+    ; One toolbar edit applied to `text` (the same patch the editor makes).
+    sfn qbApply:string (text:string op:MdEditOp) {
+        if (op.isEmpty()) {
+            return text
+        }
+        return (MdEdit.applyTo(text op))
+    }
+
+    fn quickBar:void () {
+        def hIds:[string] (PresQuickBar.itemsFor("h1"))
+        this.ok(((indexOf (join hIds ",") "level,color") == 0) "quickbar: a heading starts with its level and colour")
+        this.ok(((indexOf (join hIds ",") "bold,italic,underline,link") > 0) "quickbar: a heading has B I U and link")
+        this.ok(((indexOf (join hIds ",") "comment,content,style") > 0) "quickbar: comment, edit and ⋯ last")
+        def imgIds:string (join (PresQuickBar.itemsFor("img")) ",")
+        this.ok((((indexOf imgIds "bold") < 0) && ((indexOf imgIds "content") == 0)) "quickbar: a picture has no text buttons, its settings first")
+        this.ok(((join (PresQuickBar.itemsFor("page")) ",") == "content,style") "quickbar: the page has its settings and ⋯")
+        this.ok(((PresQuickBar.contentIsWord("chart")) && ((PresQuickBar.contentIsWord("p")) == false)) "quickbar: Settings is a word, ✎ an icon")
+        ; the words of a heading: after the #s, before its {…}
+        def t1:string "## Mitä muuttuu {.wide}\n\nTeksti tässä.\n"
+        def sp:[int] (PresQuickBar.textSpan(t1 "h2" 0 23 0))
+        this.ok(((substring t1 (itemAt sp 0) (itemAt sp 1)) == "Mitä muuttuu") "quickbar: a heading's words leave out # and {…}")
+        def sp2:[int] (PresQuickBar.textSpan(t1 "img" 0 23 0))
+        this.ok(((itemAt sp2 0) == -1) "quickbar: a picture has no words to bold")
+        ; bold on and off over the whole heading
+        def t2:string "# Slyde\n\nAI-puolen putkimies\n"
+        def s2:[int] (PresQuickBar.textSpan(t2 "h1" 0 7 0))
+        def d2:MdNode (MdBlock.parseText(t2))
+        this.ok(((PresQuickBar.isOn(t2 d2 "bold" (itemAt s2 0) (itemAt s2 1))) == false) "quickbar: not bold yet")
+        def t3:string (PresCheck.qbApply(t2 (PresQuickBar.wrapOp(t2 d2 "bold" (itemAt s2 0) (itemAt s2 1)))))
+        this.ok((t3 == "# **Slyde**\n\nAI-puolen putkimies\n") "quickbar: bold wraps the heading's words")
+        def s3:[int] (PresQuickBar.textSpan(t3 "h1" 0 11 0))
+        def d3:MdNode (MdBlock.parseText(t3))
+        this.ok((PresQuickBar.isOn(t3 d3 "bold" (itemAt s3 0) (itemAt s3 1))) "quickbar: bold shows on")
+        this.ok(((PresQuickBar.isOn(t3 d3 "italic" (itemAt s3 0) (itemAt s3 1))) == false) "quickbar: italic does not")
+        def t4:string (PresCheck.qbApply(t3 (PresQuickBar.wrapOp(t3 d3 "bold" (itemAt s3 0) (itemAt s3 1)))))
+        this.ok((t4 == t2) "quickbar: bold again gives back every byte")
+        ; underline and italic on a paragraph
+        def t5:string "Moi, Slyde.\n"
+        def d5:MdNode (MdBlock.parseText(t5))
+        def u5:string (PresCheck.qbApply(t5 (PresQuickBar.wrapOp(t5 d5 "underline" 0 11))))
+        this.ok((u5 == "++Moi, Slyde.++\n") "quickbar: underline is ++…++")
+        this.ok((PresQuickBar.isOn(u5 (MdBlock.parseText(u5)) "underline" 0 15)) "quickbar: underline shows on")
+        def i5:string (PresCheck.qbApply(t5 (PresQuickBar.wrapOp(t5 d5 "italic" 0 11))))
+        this.ok((i5 == "*Moi, Slyde.*\n") "quickbar: italic is *…*")
+        ; the editor's selection inside the block wins, outside it does not
+        def rg:[int] (PresQuickBar.rangeFor(s2 2 4))
+        this.ok((((itemAt rg 0) == 2) && ((itemAt rg 1) == 4)) "quickbar: a selection in the block is used")
+        def rg2:[int] (PresQuickBar.rangeFor(s2 9 12))
+        this.ok((((itemAt rg2 0) == 2) && ((itemAt rg2 1) == 7)) "quickbar: one outside it is not")
+        def rg3:[int] (PresQuickBar.rangeFor(s2 5 5))
+        this.ok(((itemAt rg3 0) == 2) "quickbar: a caret is no selection")
+        ; a whole list: every item
+        def t6:string "- yksi\n- kaksi\n"
+        def d6:MdNode (MdBlock.parseText(t6))
+        def b6:string (PresCheck.qbApply(t6 (PresQuickBar.wrapOp(t6 d6 "bold" 0 15))))
+        this.ok((b6 == "- **yksi**\n- **kaksi**\n") "quickbar: a list's bold goes in each item")
+        this.ok((PresQuickBar.isOn(b6 (MdBlock.parseText(b6)) "bold" 0 23)) "quickbar: and shows on for the list")
+        ; levels
+        def lv:string (PresCheck.qbApply(t2 (PresQuickBar.levelOp(t2 d2 0 "h1" 2))))
+        this.ok((lv == "## Slyde\n\nAI-puolen putkimies\n") "quickbar: Heading 1 → Heading 2")
+        def lp:string (PresCheck.qbApply(t2 (PresQuickBar.levelOp(t2 d2 0 "h1" 0))))
+        this.ok((lp == "Slyde\n\nAI-puolen putkimies\n") "quickbar: a heading → a paragraph")
+        def lh:string (PresCheck.qbApply(t2 (PresQuickBar.levelOp(t2 d2 9 "p" 3))))
+        this.ok((lh == "# Slyde\n\n### AI-puolen putkimies\n") "quickbar: a paragraph → Heading 3")
+        this.ok(((PresQuickBar.levelOp(t2 d2 0 "h1" 1)).isEmpty()) "quickbar: the same level is no edit")
+        this.ok((((PresQuickBar.levelName("h3")) == "Heading 3") && ((PresQuickBar.levelName("p")) == "Paragraph")) "quickbar: level names")
+        ; bullets on and off
+        def t7:string "eka\ntoka\n"
+        def l7:string (PresCheck.qbApply(t7 (PresQuickBar.listOp(t7 0 8))))
+        this.ok((l7 == "- eka\n- toka\n") "quickbar: list puts - on each line")
+        this.ok(((PresCheck.qbApply(l7 (PresQuickBar.listOp(l7 0 12)))) == t7) "quickbar: and takes them off")
+        ; a link: the address selected to be typed
+        def t8:string "Katso tämä\n"
+        def k8:MdEditOp (PresQuickBar.linkOp(t8 (MdBlock.parseText(t8)) 6 10))
+        def l8:string (PresCheck.qbApply(t8 k8))
+        this.ok((l8 == "Katso [tämä](https://)\n") "quickbar: link wraps the words")
+        this.ok(((substring l8 k8.selAfterA k8.selAfterB) == "https://") "quickbar: its address is selected")
+        this.ok((PresQuickBar.isOn(l8 (MdBlock.parseText(l8)) "link" 7 11)) "quickbar: link shows on")
+        ; alignment from the theme
+        this.ok(((PresQuickBar.alignOf("h2 { text-align: center; }" "h2")) == "center") "quickbar: a heading's own alignment")
+        this.ok(((PresQuickBar.alignOf("heading { text-align: right; }" "h3")) == "right") "quickbar: from heading")
+        this.ok(((PresQuickBar.alignOf("" "p")) == "left") "quickbar: left by default")
+        this.ok(((PresQuickBar.alignRule("list")) == "li") "quickbar: a list aligns its items")
+        ; the colour button edits the rule the Style list would
+        def pc:PresCascade (PresCascade.of("h1 { color: #ff0000; }"))
+        def cf@(optional):PresCssFacet (PresQuickBar.colorFacet((pc.element("h1" ([] _:string ()) ""))))
+        this.ok((!null? cf) "quickbar: a heading has a text colour")
+        if (!null? cf) {
+            def cff:PresCssFacet (unwrap cf)
+            this.ok(((cff.own == "h1") && ((MdChar.lower(cff.value)) == "#ff0000")) "quickbar: its own rule and value")
+        }
+        def nf@(optional):PresCssFacet (PresQuickBar.colorFacet((pc.element("img" ([] _:string ()) ""))))
+        this.ok((null? nf) "quickbar: a picture has none")
+        ; where it stands
+        def pl:[double] (PresQuickBar.place(300.0 40.0 100.0 200.0 80.0 260.0 60.0 0.0 1000.0))
+        this.ok((((itemAt pl 1) == 152.0) && ((itemAt pl 2) == 0.0)) "quickbar: over the element")
+        def pl2:[double] (PresQuickBar.place(300.0 40.0 100.0 70.0 80.0 140.0 60.0 0.0 1000.0))
+        this.ok((((itemAt pl2 1) == 148.0) && ((itemAt pl2 2) == 1.0)) "quickbar: under it when there is no room above")
+        def pl3:[double] (PresQuickBar.place(300.0 40.0 900.0 200.0 80.0 260.0 60.0 0.0 1000.0))
+        this.ok(((itemAt pl3 0) == 694.0) "quickbar: kept in the stage")
+        def cs:[double] (PresQuickBar.commentSpot(100.0 50.0 200.0 40.0 1000.0 500.0))
+        this.ok((((itemAt cs 0) > 0.28) && ((itemAt cs 0) < 0.3)) "quickbar: a comment at the element's right edge")
+        this.ok((((strlen (PresQuickBar.iconPath("bold"))) > 0) && ((strlen (PresQuickBar.iconPath("align-center"))) > 0)) "quickbar: icons")
+    }
+
     fn stageClicks:void () {
         this.ok(((PresStageClick.action(1 false "" false)) == "drop") "click: a single click lets the pick go")
         this.ok(((PresStageClick.action(1 false "" true)) == "keep") "click: on the pick it stays")
@@ -8636,6 +8742,7 @@ class PresCheck {
         c.picks()
         c.navJumps()
         c.stageClicks()
+        c.quickBar()
         c.recording()
         c.video()
         c.docx()

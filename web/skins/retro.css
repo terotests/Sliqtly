@@ -214,6 +214,21 @@
   border-radius: 18px;
   shadow-color: var(--retro-glow); shadow-radius: 24px; shadow-offset-y: 0px;
 }
+/* the quick toolbar over a picked element (pres.css .qb-*) */
+.theme-retro .qb-bar,
+.theme-retro .qb-menu {
+  background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
+  border: 2px solid var(--retro-shell-b);
+  shadow-color: var(--retro-glow); shadow-radius: 16px; shadow-offset-y: 0px;
+}
+.theme-retro .qb-icon { stroke: var(--retro-ink); }
+.theme-retro .qb-text { color: var(--retro-ink); }
+.theme-retro .qb-sep,
+.theme-retro .qb-chip { border-color: var(--retro-ink-dim); background-color: var(--retro-ink-dim); }
+.theme-retro .qb-chip { background-color: rgba(0, 0, 0, 0); }
+.theme-retro .qb-btn.qb-hot,
+.theme-retro .qb-row-hot { background-color: hsla(var(--retro-hue), 68%, 50%, 0.18); }
+.theme-retro .qb-btn.qb-on { background-color: hsla(var(--retro-hue), 68%, 50%, 0.32); }
 .theme-retro .ui-window-titlebar {
   background: linear-gradient(180deg, var(--retro-crest-a), var(--retro-shell-a), var(--retro-shell-b));
   border-bottom: 2px solid var(--retro-edge);

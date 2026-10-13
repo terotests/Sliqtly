@@ -20,7 +20,9 @@
 .theme-dark .pn-dialog,
 .theme-dark .pd-dialog,
 .theme-dark .hp-card,
-.theme-dark .ce-pickcard {
+.theme-dark .ce-pickcard,
+.theme-dark .qb-bar,
+.theme-dark .qb-menu {
   border-color: #71717a;
   shadow-color: rgba(255, 255, 255, 0.16); shadow-radius: 24px; shadow-offset-y: 0px;
 }
