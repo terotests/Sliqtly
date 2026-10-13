@@ -281,3 +281,14 @@ func TestAIPictures(t *testing.T) {
 	raw, _ := json.Marshal(sent["contents"])
 	match(t, string(raw), `"inlineData":{"data":"`+png+`","mimeType":"image/png"}`)
 }
+
+// An answer's tokens priced from the model's price list.
+func TestAIUsage(t *testing.T) {
+	u := aiUsageOf("gemini-3.5-flash-lite", aiAnswer{In: 10000, Out: 2000, Calls: 3})
+	eq(t, []any{u["model"], u["in"], u["out"], u["calls"]}, []any{"gemini-3.5-flash-lite", int64(10000), int64(2000), int64(3)})
+	if usd := u["usd"].(float64); usd < 0.007999 || usd > 0.008001 { // 0.003 + 0.005
+		t.Fatalf("usd %v", usd)
+	}
+	eq(t, aiUsageOf("some-model", aiAnswer{In: 1})["usd"], -1.0)
+	eq(t, (&aiAssist{model: &geminiModel{model: "gemini-3.6-flash"}}).modelName(), "gemini-3.6-flash")
+}

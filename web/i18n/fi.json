@@ -1726,5 +1726,8 @@
   "File added:": "Tiedosto lisätty:",
   "Theme: rules of its own added": "Teema: omat säännöt lisätty",
   "Theme: a stylesheet of its own": "Teema: oma tyylitiedosto",
-  "The theme changed. Ctrl+Z in the CSS tab takes it back.": "Teema muuttui. Ctrl+Z CSS-välilehdellä peruu sen."
+  "The theme changed. Ctrl+Z in the CSS tab takes it back.": "Teema muuttui. Ctrl+Z CSS-välilehdellä peruu sen.",
+  "in": "sisään",
+  "out": "ulos",
+  "total": "yhteensä"
 }

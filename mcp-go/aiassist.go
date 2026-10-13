@@ -518,6 +518,38 @@ type aiAssist struct {
 	limit  func(who string) string
 }
 
+// a model that says which it is ("gemini-3.5-flash-lite")
+type aiNamed interface {
+	modelName() string
+}
+
+// What a model costs, US dollars per million tokens in and out (thinking
+// counts as out; a picture is input), from Google's and Anthropic's price
+// lists (blog.google, 2026-09: 3.5 Flash-Lite $0.30 / $2.50, 3.6 Flash
+// $1.50 / $7.50). A model not here has no price shown.
+var aiPrices = map[string][2]float64{
+	"gemini-3.5-flash-lite": {0.30, 2.50},
+	"gemini-3.6-flash":      {1.50, 7.50},
+}
+
+// the model's name, "" when it does not say
+func (a *aiAssist) modelName() string {
+	if n, ok := a.model.(aiNamed); ok {
+		return n.modelName()
+	}
+	return ""
+}
+
+// What one answer took: the model, its tokens and calls, and what they
+// cost in US dollars (-1 when the model has no price here).
+func aiUsageOf(model string, ans aiAnswer) map[string]any {
+	usd := -1.0
+	if p, ok := aiPrices[model]; ok {
+		usd = (float64(ans.In)*p[0] + float64(ans.Out)*p[1]) / 1e6
+	}
+	return map[string]any{"model": model, "in": ans.In, "out": ans.Out, "calls": max(ans.Calls, 1), "usd": usd}
+}
+
 func newAIAssist(model aiModel, db DB) *aiAssist {
 	if model == nil || db == nil {
 		return nil
@@ -579,7 +611,7 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			editorJSON(w, 503, map[string]string{"error": "The AI actions left could not be read; try again in a moment."})
 			return
 		}
-		editorJSON(w, 200, map[string]any{"available": true, "credits": c.json()})
+		editorJSON(w, 200, map[string]any{"available": true, "credits": c.json(), "model": a.modelName()})
 	case "ask":
 		if r.Method != http.MethodPost || !sameSite(env, r) {
 			editorJSON(w, 403, map[string]string{"error": "Not allowed."})
@@ -629,7 +661,7 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 		if ans.Declined || (reply == "" && len(ans.Edits) == 0) {
 			reply = "I can't help with that one. Try asking another way."
 		}
-		out := map[string]any{"reply": reply, "credits": c.json()}
+		out := map[string]any{"reply": reply, "credits": c.json(), "usage": aiUsageOf(a.modelName(), ans)}
 		if !ans.Declined && len(ans.Edits) > 0 {
 			out["edits"] = ans.Edits
 		}
