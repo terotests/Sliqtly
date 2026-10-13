@@ -120,6 +120,8 @@ class PresApp {
     ; always reads `mdEditor`.
     def mdEditor:ScriptEditor (new ScriptEditor())
     def cssEditor:ScriptEditor (new ScriptEditor())
+    ; the AI answer's CSS changes, until the page asks for them (aiCss)
+    def aiCssEdits:[PresAiEdit]
     ; a picture the slides name came after they were laid out (addImage)
     def picturesArrived:boolean false
     ; the files tab: a file of the document's opened from it (data, a chart
@@ -9680,6 +9682,12 @@ class PresApp {
             toolbar.themeValue = theme
             chromeRev = (chromeRev + 1)
         }
+        ; the theme's CSS changes once the page has the theme the answer
+        ; chose (its "select:theme" goes first): the page asks `aiCss`
+        if (PresAiDeck.changesCss(edits)) {
+            aiCssEdits = edits
+            push requests "ai-css"
+        }
         def src:string (mdEditor.text())
         def out:string (PresAiDeck.apply(src spans edits))
         if (out == src) {
@@ -9698,6 +9706,28 @@ class PresApp {
         }
         ai.add("note" (PresI18n.t("Changed in the presentation. Ctrl+Z takes it back.")))
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The answer's CSS on the CSS tab as one edit there (Ctrl+Z in the tab
+    ; takes it back); the slides follow.
+    fn aiCss:void () {
+        def edits:[PresAiEdit] aiCssEdits
+        def none:[PresAiEdit]
+        aiCssEdits = none
+        def css:string (cssEditor.text())
+        def out:string (PresAiDeck.cssOf(css edits))
+        if (out == css) {
+            return
+        }
+        def b:[int] (PresApp.lineColOf(css (strlen css)))
+        cssEditor.buf.replaceRange(0 0 (itemAt b 0) (itemAt b 1) out true)
+        cssEditor.dirty = true
+        cssSynced = cssEditor.buf.version
+        themeText = (cssEditor.text())
+        this.applyTheme(themeText)
+        push requests "theme-edited"
+        ai.add("note" (PresI18n.t("The theme changed. Ctrl+Z in the CSS tab takes it back.")))
+        this.aiFill()
     }
 
     fn aiFail:void (why:string) {
@@ -9730,6 +9760,7 @@ class PresApp {
         c.outline = ol
         c.theme = toolbar.themeValue
         c.themes = (PresAiDeck.themeLines(toolbar.themeRows))
+        c.css = (cssEditor.text())
         if (n > 0) {
             def i:int selected
             if (i >= n) {

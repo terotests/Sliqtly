@@ -119,6 +119,18 @@ class PresCheck {
     }
 
     fn aiEdits:void () {
+        def ce (new PresAiEdit())
+        ce.tool = "add_theme_css"
+        ce.css = " h1 { color: #ff5a1f; } "
+        def ces:[PresAiEdit] ([] _:PresAiEdit ( ce ))
+        this.ok(((PresAiDeck.cssOf("page { }\n" ces)) == "page { }\n\nh1 { color: #ff5a1f; }\n") ("ai css: rules go after the theme's: " + (PresAiDeck.cssOf("page { }\n" ces))))
+        this.ok((PresAiDeck.changesCss(ces)) "ai css: an answer that changes the CSS")
+        this.ok(((PresAi.editText(ce)) == "Theme: rules of its own added") "ai css: said in the conversation")
+        def cr (new PresAiEdit())
+        cr.tool = "replace_theme_css"
+        cr.css = "page { }"
+        this.ok(((PresAiDeck.cssOf("old { }" ([] _:PresAiEdit ( ce cr )))) == "page { }\n") "ai css: a whole stylesheet replaces")
+        this.ok(((PresAiDeck.changesCss(([] _:PresAiEdit ( cr )))) && ((PresAiDeck.apply("## One\n" ([] _:int ( 0 1 )) ([] _:PresAiEdit ( cr )))) == "## One\n")) "ai css: the Markdown stays as it is")
         def fa (new PresAi())
         fa.answer("{\"reply\":\"Drew a forest.\",\"edits\":[{\"tool\":\"add_file\",\"path\":\"media/forest.svg\",\"text\":\"<svg/>\"},{\"tool\":\"insert_slide\",\"after\":1,\"markdown\":\"## Forest\\n\\n![Forest](media/forest.svg)\"}]}")
         def fm:PresAiMsg (itemAt fa.msgs 0)
@@ -238,6 +250,7 @@ class PresCheck {
         this.ok(((indexOf req2 "\"deckMarkdown\":\"# Deck") > 0) "ai: a deck question sends the deck")
         this.ok(((indexOf req2 "\"role\":\"assistant\"") > 0) "ai: the turns so far go along")
         this.ok(((indexOf req2 "\"images\":[]") > 0) "ai: no pictures, an empty list")
+        this.ok(((indexOf req2 "\"css\":") > 0) "ai: the CSS tab goes along")
         this.aiPictures(ctx)
         this.ok(((a.suggestion()) == "") "ai: a new question leaves the old suggestion behind")
         a.answer("{\"error\":\"This month's AI actions are used up.\",\"code\":\"no-credits\",\"credits\":{\"left\":1,\"monthly\":50}}")

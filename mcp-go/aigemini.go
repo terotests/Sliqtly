@@ -146,7 +146,8 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 						if !pictures {
 							break
 						}
-						fr.Parts = append(fr.Parts, geminiInline{InlineData: &geminiData{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString(png)}})
+						// the slides come as JPEG; say what the bytes are
+						fr.Parts = append(fr.Parts, geminiInline{InlineData: &geminiData{MimeType: http.DetectContentType(png), Data: base64.StdEncoding.EncodeToString(png)}})
 					}
 					answers = append(answers, geminiPart{FunctionResponse: fr})
 					continue

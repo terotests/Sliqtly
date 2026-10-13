@@ -4049,14 +4049,16 @@ class Tools {
     ; deck. deckId, when the open presentation is kept in the cloud and the
     ; caller may read it, gives its pictures and CSS; "" draws the Markdown
     ; alone with the theme.
-    sfn renderOpen:MfJ (host:McpHost caller:Caller a:MfJ all:boolean md:string theme:string deckId:string) {
+    sfn renderOpen:MfJ (host:McpHost caller:Caller a:MfJ all:boolean md:string theme:string css:string deckId:string) {
         def tool:string "render_slide"
         if all {
             tool = "render_overview"
         }
+        ; the editor's CSS tab, when it has one, is the whole stylesheet
+        def own:boolean ((strlen (trim css)) > 0)
         def stored:[string]
         if ((strlen deckId) == 0) {
-            return (Tools.renderDeck(host a all tool "" md theme false "" "This presentation" stored))
+            return (Tools.renderDeck(host a all tool "" md theme own css "This presentation" stored))
         }
         if ((((strlen deckId) < 6) || ((strlen deckId) > 32)) || ((Deck.allAlnum(deckId)) == false)) {
             return (Tools.fail("No such presentation."))
@@ -4066,7 +4068,7 @@ class Tools {
             return (Tools.failed(host tool (host_error host)))
         }
         if ((d.isObj()) == false) {
-            return (Tools.renderDeck(host a all tool "" md theme false "" "This presentation" stored))
+            return (Tools.renderDeck(host a all tool "" md theme own css "This presentation" stored))
         }
         def hid:string (Tools.hiddenFrom(caller d deckId))
         if ((strlen (host_error host)) > 0) {
@@ -4078,8 +4080,11 @@ class Tools {
         for (d.list("files")) f:MfJ fi {
             push stored (f.str_("path"))
         }
-        def css:MfJ (d.field("css"))
-        return (Tools.renderDeck(host a all tool deckId md theme (css.kind == 3) (d.str_("css")) (d.str_("name")) stored))
+        if own {
+            return (Tools.renderDeck(host a all tool deckId md theme true css (d.str_("name")) stored))
+        }
+        def kept:MfJ (d.field("css"))
+        return (Tools.renderDeck(host a all tool deckId md theme (kept.kind == 3) (d.str_("css")) (d.str_("name")) stored))
     }
 
     ; render_slide / render_overview of a deck's Markdown: the picture and
