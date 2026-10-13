@@ -88,6 +88,30 @@ test("presenting: the clock stops at the step and at the slide's end", () => {
   assert.equal(nav.playing, true);
 });
 
+test("presenting: one press past a shown slide, its autoplay hold is not waited through", () => {
+  // slide 1 is shown whole at 1.5 s (settled); 1.5..2 is its hold
+  const tl = { ...timeline, events: [...timeline.events, { kind: "settled", start: 1.5, end: 1.5, slide: 0 }, { kind: "settled", start: 3, end: 3, slide: 1 }] };
+  assert.equal(slidesOf(tl)[0].settled, 1.5);
+  const enc = new RecEncoder(tl);
+  for (let n = 0; n < 30; n++) enc.add({ cmds: [box(n < 20 ? 0 : 50)], effects: [] }, 960, 540);
+  const nav = new RecNav(new Recording(enc.finish()));
+  nav.tick(5);
+  assert.equal(nav.t, 1);
+  nav.next();
+  nav.tick(5);
+  assert.deepEqual([nav.slide, nav.t, nav.playing], [0, 1.5, false]);
+  nav.next();
+  assert.deepEqual([nav.slide, nav.t], [1, 2]);
+  // still moving: the first press lands it, the next one moves on
+  nav.next();
+  assert.deepEqual([nav.slide, nav.t, nav.playing], [1, 3, false]);
+  // autoplay still plays the hold
+  const auto = new RecNav(new Recording(enc.finish()));
+  auto.setAuto(true);
+  auto.tick(1.8);
+  assert.deepEqual([auto.slide, auto.playing], [0, true]);
+});
+
 test("Space while it moves lands it where it stops", () => {
   const nav = new RecNav(new Recording(record()));
   nav.tick(0.2);

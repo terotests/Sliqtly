@@ -145,6 +145,9 @@ class PresVideoTimeline {
                 tl.add("build" (start + (PresTimeline.stepTime(s k))) (start + (PresTimeline.stepDone(s k))) i k)
                 k = (k + 1)
             }
+            ; everything on it has arrived: presenting, the clock stops here
+            ; (PresNav), the rest of the slide is the autoplay hold
+            tl.add("settled" (start + s.settled) (start + s.settled) i 0)
             i = (i + 1)
         }
         return tl

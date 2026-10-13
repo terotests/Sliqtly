@@ -4091,6 +4091,7 @@ class PresCheck {
         this.ok(((tl.frameTime(9000)) == 300.0) "video: frame 9000 is exactly 300 s")
         def builds:int 0
         def trans:int 0
+        def settles:int 0
         for tl.events e:PresVideoEvent ei {
             if (e.kind == "build") {
                 builds = (builds + 1)
@@ -4098,7 +4099,13 @@ class PresCheck {
             if (e.kind == "transition") {
                 trans = (trans + 1)
             }
+            if (e.kind == "settled") {
+                def ss:PresSlide (deck.slideAt(e.slide))
+                settles = (settles + 1)
+                this.ok(((fabs (e.start - ((PresTimeline.slideStart(deck e.slide)) + ss.settled))) < 0.000001) "video: settled at the slide's settled time")
+            }
         }
+        this.ok((settles == (deck.slideCount())) ("video: each slide has its settled event, " + (to_string settles)))
         this.ok((builds == 2) ("video: the build steps are events, " + (to_string builds)))
         this.ok((trans == 2) ("video: the transitions too, " + (to_string trans)))
         def s1start:double (PresTimeline.slideStart(deck 1))
