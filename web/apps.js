@@ -10,6 +10,10 @@
 //   frame out: the tree (app.setPlayFrame) and what the program asked of the
 //              deck (app.playAsks, granted by the fence's allow:)
 //
+// While presenting, a program starts afresh when the presentation begins and
+// each time its slide comes back on the stage (a game shows its title, not
+// how the last round ended while editing); while editing it keeps running.
+//
 // One frame of a program is in flight at a time. A program that does not
 // answer in LIMIT_MS (an endless loop) has its worker ended; the box keeps
 // its last picture and the page says why.
@@ -121,6 +125,16 @@ export function sortAsks(asks, held) {
   return now;
 }
 
+/**
+ * Whether program run `r` starts again from the beginning this frame: while
+ * presenting, a program (not a slide's script, which has its own start)
+ * already running comes on the stage when the presentation has just begun
+ * or its slide has just come back. A changed file reloads it anyway.
+ */
+export function startsAfresh(r, onStage, presenting, source) {
+  return !r.script && presenting && onStage && (r.away || !r.presenting) && !!r.worker && source === r.source;
+}
+
 // opaqueAt(src, u, v): whether 3-D world `src` drew anything at (u, v) of
 // its picture (web/three3d.js), for a press past a program's box
 export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null }) {
@@ -136,7 +150,7 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
   let skipKey = "";
 
   function newRun(key, script = false) {
-    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false, budget: BUDGET_MS, take: [], framed: false, opened: false };
+    return { key, script, worker: null, source: "", running: false, waiting: false, deadline: 0, last: 0, events: [], pointer: { x: 0, y: 0, down: false, inside: false }, held: new Map(), setAt: 0, stopped: "", tree: "", over: 0, leaves: false, leaving: false, budget: BUDGET_MS, take: [], framed: false, opened: false, away: true, presenting: false };
   }
 
   // Where each script ends (__scriptFinal), and how it opens
@@ -380,8 +394,9 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
   }
 
   // Once a frame, from the page's frame(): the programs the deck has now,
-  // and a frame for each one on the stage.
-  function tick(rev) {
+  // and a frame for each one on the stage. presenting: whether the page is
+  // presenting now (the viewer always is).
+  function tick(rev, presenting = false) {
     if (rev !== playsRev) {
       playsRev = rev;
       try { plays = JSON.parse(app.playsJson()); } catch (_) { plays = []; }
@@ -408,6 +423,15 @@ export function createApps({ app, repaint, toast, t = (s) => s, opaqueAt = null 
         runs.set(p.key, r);
       }
       r.allow = Array.isArray(p.allow) ? p.allow : [];
+      // presenting: a program comes on the stage from its start (see above)
+      const onStage = shown.has(p.key);
+      const fresh = startsAfresh(r, onStage, presenting, source);
+      r.away = !onStage;
+      r.presenting = presenting;
+      if (fresh) {
+        load(r, source);
+        continue;
+      }
       if (r.script) {
         // where it ends, for the slide while it is not running
         const tree = app.scriptTree(p.key);
