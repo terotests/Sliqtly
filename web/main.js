@@ -389,13 +389,15 @@ async function registerPicture(path, bytes, type) {
 
 // A picture of the deck handed to the slides: drawn for the screen, and its
 // bytes (an SVG's PNG, web/picture.js) for the PDF and PPTX writers.
-async function addPicture(path, bytes, type) {
+async function addPicture(path, bytes, type, turn = openTurn) {
   if (isSmartArt(type, path)) {
     // the Ranger side reads it, gives it its size and draws it
     app.addImage(path, asRangerBuffer(bytes.slice(0)), type || "", 0, 0);
     return { img: null, w: 0, h: 0, bytes, type: type || "" };
   }
   const p = await decodeKept(bytes, type || "image/png", path);
+  // decoded for a deck that was left for another meanwhile
+  if (overtaken(turn)) return p;
   app.addImage(path, asRangerBuffer(p.bytes.slice(0)), p.type || "image/png", p.w, p.h);
   // an SVG's own text too: the PDF and the PPTX keep it a vector
   if (p.svg) app.addSvgPicture(path, p.svg, asRangerBuffer(p.svgBytes.slice(0)), asRangerBuffer(p.fallback ? p.fallback.slice(0) : new ArrayBuffer(0)));
@@ -1063,6 +1065,14 @@ let openingKey = null;
 // editor, the editor still shows the deck before it, so nothing is saved or
 // sent (the old text would be written under the new deck's id: a deck
 // overwritten by the one opened before it).
+// Each opening of a deck takes a turn. One overtaken by a later opening (a
+// tab pressed while the deck before was still loading its files) stops at
+// its next wait and changes nothing more: its files never land in the deck
+// shown after it.
+let openTurn = 0;
+const OVERTAKEN = "overtaken";
+const overtaken = (turn) => turn !== openTurn;
+
 function beginDoc(text) {
   // the deck left: its tab goes when nothing could open it again
   if (shownKey && !canReturn(doc)) app.deckTabClose(shownKey);
@@ -2449,6 +2459,9 @@ async function questionnaireText(path) {
   return typeof f.data === "string" ? f.data : await f.data.text();
 }
 
+// a slide program (apps/x.tsx) or its stylesheet (apps/x.tsx.css)
+const isProgramFile = (url) => /\.(tsx|ts|jsx|mjs|js)(\.css)?$/i.test(url);
+
 // A chart's data from a questionnaire ("url": "form:forms/x.form.md#q"):
 // the counts the server keeps, for the deck saved there (the editor's own,
 // or the one a viewer shows); each option at 0 where no server keeps them.
@@ -2737,10 +2750,12 @@ function plainAddress() {
 // the files the slides were given (useFile), path → stamp
 const usedStamps = new Map();
 async function useFile(f) {
+  const turn = openTurn;
   usedStamps.set(f.path, stampOf(f));
   if (kindOf(f.path, f.type) === "image" && f.data instanceof Blob) {
     const bytes = await f.data.arrayBuffer();
-    await addPicture("/" + f.path, bytes, f.type);
+    if (overtaken(turn)) return;
+    await addPicture("/" + f.path, bytes, f.type, turn);
   } else if (typeof f.data === "string") {
     if (f.path === REC_JSON) app.loadRecording(f.data);
     if (f.path.startsWith("data/live/")) liveCopies.set(f.path, f.data);
@@ -2760,8 +2775,10 @@ async function openDoc(id) {
 }
 async function openDocNow(id) {
   if (!vfs) return false;
+  const turn = ++openTurn;
   await leaveDoc();
   const d = await vfs.getDoc(id);
+  if (overtaken(turn)) return OVERTAKEN;
   if (!d) return false;
   beginDoc(d.md);
   doc.id = d.id;
@@ -2776,7 +2793,11 @@ async function openDocNow(id) {
   if (d.css != null) editedCss[d.theme || ""] = d.css;
   useTheme(themeSel.value);
   const files = await vfs.listFiles(doc.id);
-  for (const f of files) await useFile(f);
+  for (const f of files) {
+    if (overtaken(turn)) return OVERTAKEN;
+    await useFile(f);
+  }
+  if (overtaken(turn)) return OVERTAKEN;
   // files the share has not got yet (the page was left while they went):
   // sent now, not on the next change
   const there = new Set(doc.cloudFiles || []);
@@ -4710,7 +4731,9 @@ function fetchChartFiles(rev) {
       });
       continue;
     }
-    const tries = ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
+    // a program and its stylesheet are the deck's own files: the site and the
+    // dataset CDN never have them, so a missing one is not looked for there
+    const tries = isProgramFile(url) ? [] : ["./" + url.replace(/^\.?\//, ""), "https://cdn.jsdelivr.net/npm/vega-datasets@2/" + url.replace(/^\.?\//, "")];
     let fromWorkbook = false;
     const got = (async () => {
       // the document's own copy, when it has one
@@ -5142,6 +5165,8 @@ async function followLink(href) {
       return;
     }
     const opened = await loadingScreen(() => openOwnCloud(to.deck).catch((e) => { console.warn(e); return false; }));
+    // overtaken: another deck was opened meanwhile, and it is the one shown
+    if (opened === OVERTAKEN) return;
     if (opened) {
       if (to.slide > 0) app.selectSlide(to.slide);
       refreshFiles();
@@ -6511,6 +6536,7 @@ async function openOwnCloud(id) {
   }
 }
 async function openOwnCloudNow(id) {
+  const turn = ++openTurn;
   const p = await pro();
   const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
   if (!who || !vfs) return false;
@@ -6523,6 +6549,7 @@ async function openOwnCloudNow(id) {
   // it since: this browser's copy is the newer, and goes up on the next save
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
   await leaveDoc();
+  if (overtaken(turn)) return OVERTAKEN;
   beginDoc(shared.md || "");
   doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
@@ -6536,6 +6563,7 @@ async function openOwnCloudNow(id) {
     const there = new Set((shared.files || []).map((f) => f.path));
     const had = new Set(local.cloudFiles || []);
     for (const f of await vfs.listFiles(local.id)) if (!there.has(f.path) && !had.has(f.path)) unsent.push(f);
+    if (overtaken(turn)) return OVERTAKEN;
     await vfs.deleteDoc(local.id, true);
   }
   doc.created = local?.created || Date.now();
@@ -6549,6 +6577,7 @@ async function openOwnCloudNow(id) {
   }
   const missing = [];
   for (const { f, data, error } of await shareFiles(shared.files)) {
+    if (overtaken(turn)) return OVERTAKEN;
     try {
       if (error) throw error;
       const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
@@ -6559,6 +6588,7 @@ async function openOwnCloudNow(id) {
       missing.push(f.path);
     }
   }
+  if (overtaken(turn)) return OVERTAKEN;
   if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
   // the files that did come are what the share has; one that did not is
   // not sent back, so the share keeps it
@@ -6566,10 +6596,12 @@ async function openOwnCloudNow(id) {
   doc.cloudSeen = seenAfterSave((shared.files || []).filter((f) => pending.has(f.path)));
   // this browser's own, not in the share: kept, and sent on the next save
   for (const f of unsent) {
+    if (overtaken(turn)) return OVERTAKEN;
     const rec = { ...f, doc: doc.id };
     pending.set(rec.path, rec);
     await useFile(rec);
   }
+  if (overtaken(turn)) return OVERTAKEN;
   docName = shared.name || "presentation";
   shownDoc(shared.md || "");
   doc.cloud = id;
@@ -8108,6 +8140,7 @@ async function openFromShare() {
   const own = m || hashShare() ? null : ownDeck();
   const id = m ? m[1] : hashShare() || own?.from;
   if (!id) return false;
+  const turn = ++openTurn;
   try {
     const shared = await (await pro()).loadShare(id);
     if (!shared) {
@@ -8122,6 +8155,7 @@ async function openFromShare() {
     // ?slides=…: a view of only some of its slides (PresPick), shown, never
     // edited
     const slides = m && !editing ? new URLSearchParams(location.search).get("slides") : null;
+    if (overtaken(turn)) return OVERTAKEN;
     if (editing) originShare = { id, owner: shared.owner || "", md: shared.md || "" };
     beginDoc(shared.md || "");
     liveFromShare = !editing;
@@ -8142,6 +8176,7 @@ async function openFromShare() {
     // said, not left out in silence
     const missing = [];
     for (const { f, data, error } of await shareFiles(shared.files)) {
+      if (overtaken(turn)) return OVERTAKEN;
       try {
         if (error) throw error;
         const rec = { doc: doc.id, path: f.path, type: f.type, size: f.size, data, updated: Date.now() };
@@ -8156,6 +8191,7 @@ async function openFromShare() {
         missing.push(f.path);
       }
     }
+    if (overtaken(turn)) return OVERTAKEN;
     if (missing.length) toast(t("Some pictures or data files of this presentation could not be loaded: ") + missing.join(", "));
     docName = shared.name || "shared";
     shownDoc(shared.md || "");
@@ -8311,16 +8347,19 @@ async function openSample(key) {
   const s = SAMPLES[key] || HIDDEN_SAMPLES[key];
   if (!s) return;
   try {
-    docName = key;
+    const turn = ++openTurn;
     await leaveDoc();
     const text = await textOf(s[1]);
+    if (overtaken(turn)) return;
+    docName = key;
     beginDoc(text);
     if (s[2]) {
       themeSel.value = s[2];
       useTheme(s[2]);
     }
     doc.src = "sample:" + key;
-    await useSampleFiles(key, s[3] || []);
+    await useSampleFiles(key, s[3] || [], turn);
+    if (overtaken(turn)) return;
     shownDoc(text);
     dropThumbs();
     needsPaint = true;
@@ -8334,7 +8373,7 @@ async function openSample(key) {
 // A sample's own files (samples/<key>/<path>), the deck's files as a shared
 // one's are: shown at once, kept with the deck on its first change.
 const SAMPLE_TYPES = { tsx: "text/plain", css: "text/css", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", xml: SMARTART_TYPE, mp3: "audio/mpeg" };
-async function useSampleFiles(key, paths) {
+async function useSampleFiles(key, paths, turn = openTurn) {
   const got = await Promise.all(paths.map(async (path) => {
     const res = await fetch(fresh(`./samples/${key}/${path}`));
     if (!res.ok) throw new Error(path + " → " + res.status);
@@ -8342,6 +8381,7 @@ async function useSampleFiles(key, paths) {
     return { path, data: isText(path, "") ? await res.text() : await res.blob() };
   }));
   for (const { path, data } of got) {
+    if (overtaken(turn)) return;
     const type = SAMPLE_TYPES[path.split(".").pop().toLowerCase()] || data.type || "text/plain";
     const rec = typeof data === "string"
       ? { doc: doc.id, path, type, size: data.length, data, updated: Date.now() }
