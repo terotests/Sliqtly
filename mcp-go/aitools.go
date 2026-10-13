@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-// what one read gave: its words, and the pictures it drew (PNG)
+// what one read gave: its words, and the pictures it drew (JPEG or PNG)
 type aiRead struct {
 	Text   string
 	Images [][]byte
@@ -53,6 +53,8 @@ var aiLookTools = []aiTool{
 	{"look_at_slide", "Draw one slide of the presentation as it is in the editor now, unsaved changes included, and say what its layout reports (boxes, overflow, warnings). Use it to check how a slide looks before and after changing it.",
 		aiObj(map[string]any{"slide": aiInt("the slide's number in <slides>")}, "slide")},
 	{"look_at_presentation", "Draw every slide of the presentation as it is in the editor now, small, numbered, with each slide's layout warnings.",
+		aiObj(map[string]any{})},
+	{"read_theme_css", "Read the presentation's stylesheet as it is in the editor's CSS tab: the theme's rules and the presentation's own. Read it before add_theme_css or replace_theme_css.",
 		aiObj(map[string]any{})},
 }
 
@@ -89,8 +91,13 @@ func aiDeckReader(env *Env, uid string, q aiQuestion) *aiReader {
 		a := J_static_parse(string(raw))
 		var r *MfJ
 		switch name {
+		case "read_theme_css":
+			if strings.TrimSpace(q.Context.CSS) == "" {
+				return aiRead{Text: "The CSS tab is empty: the presentation uses its theme (" + aiKnownTheme(q.Context.Theme) + ") as it is."}
+			}
+			return aiRead{Text: aiClip(q.Context.CSS, aiReadText)}
 		case "look_at_slide", "look_at_presentation":
-			r = Tools_static_renderOpen(h, c, a, name == "look_at_presentation", q.Context.DeckMD, aiKnownTheme(q.Context.Theme), deckID)
+			r = Tools_static_renderOpen(h, c, a, name == "look_at_presentation", q.Context.DeckMD, aiKnownTheme(q.Context.Theme), q.Context.CSS, deckID)
 		default:
 			if !slices.ContainsFunc(tools, func(t aiTool) bool { return t.Name == name }) {
 				return aiRead{Text: "There is no tool " + name + ".", Failed: true}

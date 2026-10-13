@@ -57,6 +57,8 @@ class PresAiContext {
     ; carbon, midnight")
     def theme:string ""
     def themes:string ""
+    ; the stylesheet in the CSS tab (the theme's, with the deck's own changes)
+    def css:string ""
 
     Constructor () {
     }
@@ -75,6 +77,8 @@ class PresAiEdit {
     def value:string ""
     def markdown:string ""
     ; add_file: where the page keeps the file (the page writes it)
+    ; add_theme_css / replace_theme_css: the rules, or the whole stylesheet
+    def css:string ""
     def path:string ""
 
     Constructor () {
@@ -119,6 +123,36 @@ class PresAiDeck {
 
     ; The theme the edits ask for (the last set_theme), "" none. Not the
     ; Markdown's: the app changes the page's Theme choice.
+    ; The stylesheet the edits leave: css with their rules added after its
+    ; own (add_theme_css) or in its place (replace_theme_css); css itself
+    ; when they change no CSS.
+    sfn cssOf:string (css:string edits:[PresAiEdit]) {
+        def nl:string (strfromcode 10)
+        def out:string css
+        for edits e:PresAiEdit i {
+            if (((strlen (trim e.css)) > 0) && (e.tool == "replace_theme_css")) {
+                out = ((trim e.css) + nl)
+            }
+            if (((strlen (trim e.css)) > 0) && (e.tool == "add_theme_css")) {
+                def base:string (trim out)
+                if ((strlen base) > 0) {
+                    base = (base + nl + nl)
+                }
+                out = (base + (trim e.css) + nl)
+            }
+        }
+        return out
+    }
+
+    sfn changesCss:boolean (edits:[PresAiEdit]) {
+        for edits e:PresAiEdit i {
+            if (((e.tool == "add_theme_css") || (e.tool == "replace_theme_css")) && ((strlen (trim e.css)) > 0)) {
+                return true
+            }
+        }
+        return false
+    }
+
     sfn themeOf:string (edits:[PresAiEdit]) {
         def out:string ""
         for edits e:PresAiEdit i {
@@ -684,6 +718,7 @@ class PresAi {
         c.setMember("outline" (VlJson.stringValue(ctx.outline)))
         c.setMember("theme" (VlJson.stringValue(ctx.theme)))
         c.setMember("themes" (VlJson.stringValue(ctx.themes)))
+        c.setMember("css" (VlJson.stringValue(ctx.css)))
         ; the whole deck goes along on every question: the server puts it in
         ; the prompt only for a deck question, and draws it when the model
         ; looks at a slide
@@ -743,6 +778,7 @@ class PresAi {
                 e.value = (o.stringOr("value" ""))
                 e.markdown = (o.stringOr("markdown" ""))
                 e.path = (o.stringOr("path" ""))
+                e.css = (o.stringOr("css" ""))
                 def said:string (PresAi.editText(e))
                 if ((strlen said) > 0) {
                     push edits e
@@ -803,6 +839,12 @@ class PresAi {
         }
         if (e.tool == "replace_presentation") {
             return (PresI18n.t("The whole presentation rewritten"))
+        }
+        if ((e.tool == "add_theme_css") && ((strlen (trim e.css)) > 0)) {
+            return (PresI18n.t("Theme: rules of its own added"))
+        }
+        if ((e.tool == "replace_theme_css") && ((strlen (trim e.css)) > 0)) {
+            return (PresI18n.t("Theme: a stylesheet of its own"))
         }
         if (e.tool == "add_file") {
             if ((strlen (trim e.path)) == 0) {

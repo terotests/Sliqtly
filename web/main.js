@@ -5318,6 +5318,8 @@ function handleRequests() {
       if (flightOn) drawLookPictures(rows);
     } else if (r === "theme-pictures") {
       queueThemePictures();
+    } else if (r === "ai-css") {
+      app.aiCss();
     } else if (r === "theme-edited") {
       editedCss[themeSel.value || ""] = app.themeCss();
       dropThumbs();

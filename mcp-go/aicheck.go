@@ -18,17 +18,19 @@ import (
 	"strings"
 )
 
-// what the check says about one piece of a presentation's Markdown
-type aiChecker func(md string) []string
+// what the check says about one piece of a presentation's Markdown, laid
+// out with css (the whole stylesheet, as the editor's CSS tab holds it; ""
+// the theme's own)
+type aiChecker func(md, css string) []string
 
 // The deck check MCP runs, on Markdown laid out with the theme (aurora, as
 // MCP's, when the editor named none Sliqtly has).
 func aiDeckCheck(env *Env, ctx context.Context, theme string) aiChecker {
 	theme = aiKnownTheme(theme)
-	return func(md string) []string {
+	return func(md, css string) []string {
 		h := &McpHost{env: env, ctx: ctx, images: map[int64][]byte{}}
-		bgs := Tools_static_backgrounds(h, md, "", nil, "")
-		return Tools_static_checkDeck(h, md, theme, false, "", bgs, nil, "", nil).warnings
+		bgs := Tools_static_backgrounds(h, md, css, nil, "")
+		return Tools_static_checkDeck(h, md, theme, css != "", css, bgs, nil, "", nil).warnings
 	}
 }
 
@@ -41,11 +43,27 @@ func aiKnownTheme(theme string) string {
 	return theme
 }
 
+// the stylesheet the edits leave: css with rules added or replaced
+func aiCSSAfter(css string, edits []aiEdit) string {
+	for _, e := range edits {
+		switch e.Tool {
+		case "replace_theme_css":
+			css = e.CSS
+		case "add_theme_css":
+			css = strings.TrimRight(css, "\n") + "\n\n" + e.CSS + "\n"
+		}
+	}
+	return css
+}
+
 // What the check says about the Markdown the edits write, each line saying
 // which edit; none when Sliqtly draws all of it. A slide is checked under
-// the presentation's front matter, as it will be shown.
-func aiProblems(check aiChecker, frontMatter string, edits []aiEdit) []string {
+// the presentation's front matter and the stylesheet the edits leave, as it
+// will be shown. A changed stylesheet is checked on the whole presentation,
+// and only what it adds to the warnings is said.
+func aiProblems(check aiChecker, c aiContext, edits []aiEdit) []string {
 	var out []string
+	css := aiCSSAfter(c.CSS, edits)
 	for _, e := range edits {
 		if e.Markdown == "" {
 			continue
@@ -57,11 +75,23 @@ func aiProblems(check aiChecker, frontMatter string, edits []aiEdit) []string {
 		case "insert_slide":
 			where = fmt.Sprintf("insert_slide after %d", e.After)
 		}
-		if e.Tool != "replace_presentation" && strings.TrimSpace(frontMatter) != "" {
-			md = strings.TrimSpace(frontMatter) + "\n\n" + md
+		if e.Tool != "replace_presentation" && strings.TrimSpace(c.FrontMatter) != "" {
+			md = strings.TrimSpace(c.FrontMatter) + "\n\n" + md
 		}
-		for _, w := range check(md) {
+		for _, w := range check(md, css) {
 			out = append(out, where+": "+w)
+		}
+	}
+	if css != c.CSS {
+		deck := c.DeckMD
+		if strings.TrimSpace(deck) == "" {
+			deck = strings.TrimSpace(c.FrontMatter + "\n\n# Title\n\nText\n\n## Slide\n\n- a point\n")
+		}
+		before := check(deck, c.CSS)
+		for _, w := range check(deck, css) {
+			if !slices.Contains(before, w) {
+				out = append(out, "theme css: "+w)
+			}
 		}
 	}
 	return out
@@ -86,7 +116,7 @@ func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme strin
 	if err != nil || ans.Declined || check == nil {
 		return ans, err
 	}
-	problems := aiProblems(check(aiThemeAfter(q.Context.Theme, ans.Edits)), q.Context.FrontMatter, ans.Edits)
+	problems := aiProblems(check(aiThemeAfter(q.Context.Theme, ans.Edits)), q.Context, ans.Edits)
 	if len(problems) == 0 {
 		return ans, nil
 	}

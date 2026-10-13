@@ -3,10 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +40,7 @@ func TestAIGeminiReads(t *testing.T) {
 		Run: func(_ context.Context, name string, args map[string]any) aiRead {
 			ran = append(ran, fmt.Sprintf("%s %v", name, args))
 			if name == "look_at_slide" {
-				return aiRead{Text: "slide 2 drawn", Images: [][]byte{[]byte("PNG")}}
+				return aiRead{Text: "slide 2 drawn", Images: [][]byte{[]byte(fakePNG)}}
 			}
 			return aiRead{Text: "```smartart cycle"}
 		},
@@ -57,7 +60,7 @@ func TestAIGeminiReads(t *testing.T) {
 	raw, _ := json.Marshal(asks[1]["contents"])
 	match(t, string(raw), `"thoughtSignature":"s1"`)
 	match(t, string(raw), `"content":"`+"```smartart cycle")
-	match(t, string(raw), `"inlineData":{"data":"`+base64.StdEncoding.EncodeToString([]byte("PNG"))+`","mimeType":"image/png"}`)
+	match(t, string(raw), `"inlineData":{"data":"`+base64.StdEncoding.EncodeToString([]byte(fakePNG))+`","mimeType":"image/png"}`)
 }
 
 // A model that will not take pictures in a function's answer gets the words.
@@ -81,7 +84,7 @@ func TestAIGeminiNoPictures(t *testing.T) {
 	}))
 	defer srv.Close()
 	r := &aiReader{Tools: aiLookTools, Run: func(context.Context, string, map[string]any) aiRead {
-		return aiRead{Text: "3 slides", Images: [][]byte{[]byte("PNG")}}
+		return aiRead{Text: "3 slides", Images: [][]byte{[]byte(fakePNG)}}
 	}}
 	m := &geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL}
 	a, err := m.AskReading(context.Background(), "sys", []aiTurn{{Role: "user", Text: "ok?"}}, r)
@@ -170,3 +173,28 @@ func TestAIAddFile(t *testing.T) {
 	_, ok = aiEditOf("add_file", map[string]any{"path": "data/a.csv", "text": " "})
 	eq(t, ok, false)
 }
+
+// The model reads the CSS tab and sees the slides drawn with it.
+func TestAIReadThemeCSS(t *testing.T) {
+	f := fakeFirebase()
+	css := "page { background-color: #ff0000; }\ndocument { color: #ffffff; font-family: Open Sans; }\n"
+	r := aiDeckReader(testEnv(&f, nil), "u1", aiQuestion{Context: aiContext{DeckMD: "# A\n\nText\n", CSS: css}})
+	eq(t, r.Run(context.Background(), "read_theme_css", nil).Text, css)
+	got := r.Run(context.Background(), "look_at_slide", map[string]any{"slide": 1})
+	if len(got.Images) != 1 {
+		t.Fatalf("not drawn: %s", got.Text)
+	}
+	img, _, err := image.Decode(bytes.NewReader(got.Images[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, cg, cb, _ := img.At(5, 5).RGBA()
+	if cr>>8 < 230 || cg>>8 > 30 || cb>>8 > 30 {
+		t.Fatalf("the page is not the CSS tab's red: %d %d %d", cr>>8, cg>>8, cb>>8)
+	}
+	empty := aiDeckReader(testEnv(&f, nil), "u1", aiQuestion{Context: aiContext{Theme: "forge"}})
+	match(t, empty.Run(context.Background(), "read_theme_css", nil).Text, `forge\) as it is`)
+}
+
+// bytes that read as a PNG
+const fakePNG = "\x89PNG\r\n\x1a\n0000IHDR"

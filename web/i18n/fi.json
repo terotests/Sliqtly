@@ -1723,5 +1723,8 @@
   "Three pictures at most with one question.": "Yhden kysymyksen mukana voi olla enintään kolme kuvaa.",
   "The picture could not be read.": "Kuvaa ei voitu lukea.",
   "The picture is too large to send.": "Kuva on liian suuri lähetettäväksi.",
-  "File added:": "Tiedosto lisätty:"
+  "File added:": "Tiedosto lisätty:",
+  "Theme: rules of its own added": "Teema: omat säännöt lisätty",
+  "Theme: a stylesheet of its own": "Teema: oma tyylitiedosto",
+  "The theme changed. Ctrl+Z in the CSS tab takes it back.": "Teema muuttui. Ctrl+Z CSS-välilehdellä peruu sen."
 }
