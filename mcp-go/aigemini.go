@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -109,6 +110,7 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 	}
 	var a aiAnswer
 	pictures := true
+	mending := false
 	for round := 0; ; round++ {
 		res, err := m.generate(ctx, system, contents, decls)
 		a.Calls++
@@ -132,7 +134,8 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 		}
 		var b strings.Builder
 		var answers []geminiPart
-		edited := false
+		edited, refused := false, false
+		before := len(a.Edits)
 		for _, p := range res.content.Parts {
 			if c := p.FunctionCall; c != nil {
 				var reply map[string]any
@@ -159,14 +162,24 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 					if e, ok := aiEditOf(c.Name, c.Args); ok {
 						// a round that changes the presentation again, after
 						// looking, makes the change over: its edits stand
-						if !edited {
+						// (after a refused call the round mends that call: the
+						// edits taken with it stand)
+						if !edited && !mending {
 							a.Edits = nil
-							edited = true
+						}
+						edited = true
+						// (a mended change made again replaces the earlier one)
+						if mending {
+							kept := slices.DeleteFunc(a.Edits[:before], e.sameAs)
+							a.Edits = append(kept, a.Edits[before:]...)
+							before = len(kept)
 						}
 						a.Edits = append(a.Edits, e)
 						reply = map[string]any{"content": "Made in the editor when you finish."}
 					} else {
-						reply = map[string]any{"content": "There is no such function.", "error": true}
+						// said why, and heard again: the model can mend it
+						reply = map[string]any{"content": aiRefusal(c.Name), "error": true}
+						refused = refused || aiIsEdit(c.Name)
 					}
 				}
 				answers = append(answers, geminiPart{FunctionResponse: &geminiResponse{Name: c.Name, Response: reply}})
@@ -183,9 +196,10 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 		for _, p := range answers {
 			read = read || reads[p.FunctionResponse.Name]
 		}
-		if !read || round >= geminiRounds-1 {
+		if (!read && !refused) || round >= geminiRounds-1 {
 			return a, nil
 		}
+		mending = refused
 		contents = append(contents, res.content, geminiContent{Role: "user", Parts: answers})
 	}
 }

@@ -7900,8 +7900,10 @@ class PresApp {
 
     ; File → New ▸ Questionnaire…: the new file's text, in the editor's
     ; language (web/main.js keeps it as forms/<name>.form.md)
-    fn formTemplate:string () {
-        return (PresForm.template((PresI18n.lang())))
+    ; File → New ▸ Questionnaire…, named: the new story as JSON
+    ; (PresForm.story: name, path, form, markdown, type).
+    fn surveyStory:string (name:string) {
+        return (PresForm.story(name (PresI18n.lang()) (PresI18n.t("New questionnaire"))))
     }
 
     ; Files → a questionnaire's Results slides: a bar chart slide per
@@ -9830,6 +9832,10 @@ class PresApp {
                     k = (k + 1)
                 }
                 c.slideMd = (trim md)
+            }
+            for (deck.codeOfSlide(i)) cf:string cfi {
+                push c.codePaths cf
+                push c.codeTexts (deck.dataText(cf))
             }
         }
         return c
@@ -11899,6 +11905,31 @@ class PresApp {
             return false
         }
         chart.openFolder(id name chart.x chart.y W H)
+        return true
+    }
+
+    ; File → New ▸ Questionnaire…: the window asking the new questionnaire
+    ; story's name (PresChartEditor.openNewSurvey).
+    fn openNewSurvey:boolean (name:string) {
+        if (mode == "present") {
+            return false
+        }
+        this.closeHint()
+        if chart.isOpen {
+            this.closeChart()
+        }
+        this.place()
+        def px:double ((W - 560.0) * 0.5)
+        if (px < 8.0) {
+            px = 8.0
+        }
+        def py:double (barH + 24.0)
+        chartStart = -1
+        chartFile = ""
+        chart.measurer = measurer
+        chart.openNewSurvey(name px py W H)
+        focus = "chart"
+        chromeRev = (chromeRev + 1)
         return true
     }
 

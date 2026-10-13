@@ -141,15 +141,43 @@ var aiEditTools = []aiTool{
 		aiObj(map[string]any{"css": aiStr("the rules, e.g. :root { --brand: #e4003a; } page { background-color: #0b1d13; } heading { color: var(--brand); font-family: Lato; }")}, "css")},
 	{"replace_theme_css", "Replace the presentation's whole stylesheet with a theme of your own. It must then say everything: page, document, the headings, lists, tables, code, charts. Prefer add_theme_css, which keeps the rest of the theme.",
 		aiObj(map[string]any{"css": aiStr("the whole stylesheet")}, "css")},
-	{"add_file", "Add a file to the presentation's Files, or replace one: an SVG picture under media/ (shown on a slide with ![alt](media/name.svg)), a data file under data/ (.csv, .json) that a chart or a table reads, a chart spec under charts/. Text files only. Use it with the slide change that shows the file.",
+	{"add_file", "Add a file to the presentation's Files, or replace one: an SVG picture under media/ (shown on a slide with ![alt](media/name.svg)), a data file under data/ (.csv, .json) that a chart or a table reads, a chart spec under charts/, a program on a slide under apps/ (its .tsx and its .tsx.css, as <file> shows them). Text files only, written whole: to change a program, send its whole new text. Use it with the slide change that shows the file.",
 		aiObj(map[string]any{"path": aiStr("where it goes, e.g. media/forest.svg or data/sales.csv: letters, digits, - _ . only"), "text": aiStr("the file's whole text")}, "path", "text")},
 }
 
 // the most text one add_file writes
 const aiMaxFile = 400000
 
+// the most of one program file the prompt carries
+const aiMaxCode = 40000
+
+// one of aiEditTools
+func aiIsEdit(name string) bool {
+	return slices.ContainsFunc(aiEditTools, func(t aiTool) bool { return t.Name == name })
+}
+
+// The same change as e, made again: the same tool on the same slide, key
+// or file (one theme, one stylesheet change).
+func (e aiEdit) sameAs(o aiEdit) bool {
+	return e.Tool == o.Tool && e.Slide == o.Slide && e.After == o.After && e.Key == o.Key && e.Path == o.Path
+}
+
+// Why an edit call was not taken, for the model to try again.
+func aiRefusal(name string) string {
+	switch name {
+	case "add_file":
+		return "Not written: the path must be media/<name>.svg, data/<name>.csv|tsv|json|txt, charts/<name>.json, code/<name>.<ext> or apps/<name>.tsx|.tsx.css (letters, digits, - _ . only), with the file's whole text."
+	case "set_theme":
+		return "No such theme: use one of <themes>, or add_theme_css for a look of its own."
+	case "add_theme_css", "replace_theme_css":
+		return "Not changed: the CSS was empty or too long."
+	}
+	return "There is no such function."
+}
+
 // The place add_file writes: media/ for an SVG, data/ for CSV, TSV or
-// JSON, charts/ for a spec (JSON), code/ for source; "" for any other.
+// JSON, charts/ for a spec (JSON), code/ for source, apps/ for a slide's
+// program and its stylesheet; "" for any other.
 func aiFilePath(p string) string {
 	p = strings.TrimPrefix(strings.TrimSpace(p), "/")
 	dir, name, ok := strings.Cut(p, "/")
@@ -162,6 +190,7 @@ func aiFilePath(p string) string {
 		"data":   {"csv", "tsv", "json", "txt"},
 		"charts": {"json"},
 		"code":   {"js", "ts", "tsx", "py", "go", "rs", "java", "c", "cpp", "h", "cs", "rb", "kt", "swift", "sql", "sh", "txt", "md"},
+		"apps":   {"tsx", "ts", "js", "css"},
 	}
 	if !strings.Contains(name, ".") || !slices.Contains(allowed[dir], ext) {
 		return ""
@@ -239,7 +268,7 @@ const aiToolsRole = `You are the AI assistant inside Sliqtly's editor. Sliqtly t
 
 Answer in the language the person writes in. Be brief: a few sentences or a short list; this is a narrow panel beside the slides.
 
-When the person asks you to change the presentation, change it with your functions: set_theme for one of the ready themes (its look: colours, fonts, backgrounds; "darker" or "lighter" usually means another theme from <themes>), add_theme_css for a look of its own ("make a theme of our own", "sporty", "in our brand colours": start from the theme closest to it with set_theme if it helps, then add_theme_css with its colours, fonts and backgrounds; read sliqtly_guide topic css and read_theme_css first, and look_at_slide after), set_front_matter for other front-matter keys, replace_slide, insert_slide and delete_slide for slides (numbered as in <slides>), replace_presentation only when most of it changes, add_file for a file the slides use: a picture you draw as SVG goes in media/ (add_file media/forest.svg, then ![Forest](media/forest.svg) on the slide; or the <svg>…</svg> itself on lines of its own in the slide), data a chart or a table reads in data/. Do not paste the changed Markdown into your answer; the editor makes the change at once and the person can undo it. Say in a sentence what you changed. When they only ask a question, answer it without changing anything. Write in Sliqtly's Markdown as the guide below describes, and keep what the person wrote unless you were asked to change it.
+When the person asks you to change the presentation, change it with your functions: set_theme for one of the ready themes (its look: colours, fonts, backgrounds; "darker" or "lighter" usually means another theme from <themes>), add_theme_css for a look of its own ("make a theme of our own", "sporty", "in our brand colours": start from the theme closest to it with set_theme if it helps, then add_theme_css with its colours, fonts and backgrounds; read sliqtly_guide topic css and read_theme_css first, and look_at_slide after), set_front_matter for other front-matter keys, replace_slide, insert_slide and delete_slide for slides (numbered as in <slides>), replace_presentation only when most of it changes, add_file for a file the slides use: a picture you draw as SVG goes in media/ (add_file media/forest.svg, then ![Forest](media/forest.svg) on the slide; or the <svg>…</svg> itself on lines of its own in the slide), data a chart or a table reads in data/, a program running on the slide (an ` + "```app" + ` block or {script=…}) by writing its file in apps/ whole again: its text is in <file>. Do not paste the changed Markdown into your answer; the editor makes the change at once and the person can undo it. Say in a sentence what you changed. When they only ask a question, answer it without changing anything. Write in Sliqtly's Markdown as the guide below describes, and keep what the person wrote unless you were asked to change it.
 
 Before you answer you may look, as many times as you need: look_at_slide and look_at_presentation draw the presentation as it is in the editor and report what does not fit; sliqtly_guide gives any topic of the guide the summary below leaves out (smartart, diagrams, charts, figures, tables, apps, 3d…), so read the topic before you write a block of that kind; list_files, read_file and get_display_list read the presentation's files and drawing; search_figma and get_figma_screen read the person's Figma; the other read functions do as they say. Look first, then make all your changes together in your last turn: changes in a later turn replace the earlier ones. You cannot read the web; say so when that is needed.
 
@@ -352,6 +381,13 @@ type aiContext struct {
 	// the stylesheet in the editor's CSS tab: the theme's, with the
 	// presentation's own changes
 	CSS string `json:"css"`
+	// the open slide's program files (apps/x.tsx, apps/x.tsx.css)
+	Files []aiDeckFile `json:"files"`
+}
+
+type aiDeckFile struct {
+	Path string `json:"path"`
+	Text string `json:"text"`
 }
 
 type aiQuestion struct {
@@ -434,6 +470,11 @@ func (q aiQuestion) turns() []aiTurn {
 	}
 	if c.Slides > 0 {
 		fmt.Fprintf(&b, "<open_slide number=\"%d\" of=\"%d\">\n%s\n</open_slide>\n", c.Slide, c.Slides, aiClip(c.SlideMD, aiMaxSlide))
+	}
+	for _, f := range c.Files {
+		if p := aiFilePath(f.Path); p != "" {
+			fmt.Fprintf(&b, "<file path=\"%s\">\n%s\n</file>\n", p, aiClip(f.Text, aiMaxCode))
+		}
 	}
 	if s := strings.TrimSpace(c.Selection); s != "" {
 		fmt.Fprintf(&b, "<selection>\n%s\n</selection>\n", aiClip(s, aiMaxSlide))
@@ -658,8 +699,10 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			c.Used += q.cost()
 		}
 		reply := ans.Text
-		if ans.Declined || (reply == "" && len(ans.Edits) == 0) {
+		if ans.Declined {
 			reply = "I can't help with that one. Try asking another way."
+		} else if reply == "" && len(ans.Edits) == 0 {
+			reply = "I did not get to an answer this time. Ask again, or in smaller steps."
 		}
 		out := map[string]any{"reply": reply, "credits": c.json(), "usage": aiUsageOf(a.modelName(), ans)}
 		if !ans.Declined && len(ans.Edits) > 0 {

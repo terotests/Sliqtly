@@ -4811,6 +4811,20 @@ class PresCheck {
         this.ok(((array_length (deck.fenceNotes())) == 0) "fence notes: none for :::: columns")
     }
 
+    ; Pictures written into one paragraph (two lines with no empty line
+    ; between, or `{width=…}` on the picture's line) are a sentence and
+    ; show as alt text; the deck says so (PresDeck.pictureNotes)
+    fn picturesAsText:void () {
+        def deck (new PresDeck())
+        deck.setText("---\nslide-split-level: 2\n---\n\n# Kansi\n\n## Kuvat\n\n![A](media/a.png){width=40%}\n\n## Rivit\n\n![A](media/a.png)\n![B](media/b.png)\n\n## Oikein\n\n![A](media/a.png)\n{width=40%}\n\n![B](media/b.png)\n\nKuva ![A](media/a.png) lauseessa.\n")
+        def notes:[string] (deck.pictureNotes())
+        this.ok(((array_length notes) == 2) ("picture notes: two slides noted, got " + (join notes " / ")))
+        if ((array_length notes) == 2) {
+            this.ok(((indexOf (itemAt notes 0) "slide \"Kuvat\"") >= 0) ("picture notes: {width} on the line, got " + (itemAt notes 0)))
+            this.ok(((indexOf (itemAt notes 1) "slide \"Rivit\"") >= 0) ("picture notes: two lines, got " + (itemAt notes 1)))
+        }
+    }
+
     fn imageDrag:void () {
         ; the handles of a 200 × 100 box at (100, 50), a grip of 6
         this.ok(((PresImageDrag.zoneAt(100.0 50.0 200.0 100.0 99.0 100.0 6.0)) == "l") "image drag: the left edge")
@@ -5759,6 +5773,34 @@ class PresCheck {
         this.ok(((indexOf slides "\"url\":\"form:forms/p.form.md#kanavat\"") > 0) "the chart reads its question")
         this.ok(((indexOf slides "#muuta") < 0) "free text gets no chart")
         this.ok(((indexOf slides "#sana") > 0) "words get a chart")
+        this.surveyStory()
+    }
+
+    ; File → New ▸ Questionnaire…: a story of its own, named in the window.
+    fn surveyStory:void () {
+        this.ok(((PresForm.storyName("  Kevät \n kysely " "Uusi")) == "Kevät kysely") "story name on one line")
+        this.ok(((PresForm.storyName(" \t" "Uusi")) == "Uusi") "no name: the fallback")
+        this.ok(((PresForm.storyFile("Kevään kysely 2026")) == "forms/kevään-kysely-2026.form.md") "file from the name")
+        this.ok(((PresForm.storyFile("!!")) == "forms/questionnaire.form.md") "file for a name without letters")
+        def tpl:string (PresForm.template("fi"))
+        def named:string (PresForm.named(tpl "Asiakaskysely"))
+        def f:PresForm (PresForm.parse(named))
+        this.ok((f.title == "Asiakaskysely") ("the name titles the questionnaire, got " + f.title))
+        this.ok(((f.count()) == ((PresForm.parse(tpl)).count())) "the template's questions kept")
+        this.ok(((indexOf named "Palaute") < 0) "the template's title replaced")
+        this.ok(((PresForm.parse((PresForm.named(tpl "A #1 kysely")))).title == "A 1 kysely") "a # in the name starts no comment")
+        def bare:PresForm (PresForm.parse((PresForm.named("## Q {#q type=text}\n" "Ilman"))))
+        this.ok(((bare.title == "Ilman") && ((bare.count()) == 1)) "front matter added when there is none")
+        def j:JVal (JVal.parse((PresForm.story("Asiakaskysely" "fi" "Uusi kysely"))))
+        this.ok(((j.strOr("type" "")) == "survey") "a questionnaire story is of type survey")
+        this.ok(((j.strOr("path" "")) == "forms/asiakaskysely.form.md") "story's file")
+        def md:string (j.strOr("markdown" ""))
+        this.ok(((indexOf md "# Asiakaskysely\n") == 0) "the name is the first slide")
+        this.ok(((indexOf md "\"url\":\"form:forms/asiakaskysely.form.md#seuraavaksi\"") > 0) "result slides read the story's file")
+        this.ok(((PresForm.parse((j.strOr("form" "")))).title == "Asiakaskysely") "story's file titled")
+        def en:JVal (JVal.parse((PresForm.story("" "en" "New questionnaire"))))
+        this.ok(((en.strOr("name" "")) == "New questionnaire") "no name: the fallback names the story")
+        this.ok(((en.strOr("path" "")) == "forms/new-questionnaire.form.md") "fallback's file")
     }
 
     ; The size beside the editor's tabs: Markdown + theme + the deck's files.
@@ -6740,6 +6782,14 @@ class PresCheck {
         deck.setChartData("apps/g.tsx.css" ".x { background-color: #ff0000 }")
         PresTimeline.planAll(deck)
         this.ok(((deck.dataText("apps/g.tsx")) == "function view() { return null }") "plays: the source as the page gave it")
+        def code0:[string] (deck.codeOfSlide(0))
+        this.ok((((array_length code0) == 2) && ((itemAt code0 0) == "apps/g.tsx")) ("plays: the slide's program files for the assistant: " + (to_string (array_length code0))))
+        this.ok(((array_length (deck.codeOfSlide(1))) == 0) "plays: none on a slide without a program")
+        def actx (new PresAiContext())
+        push actx.codePaths "apps/g.tsx"
+        push actx.codeTexts "function view() { return null }"
+        def areq:string ((new PresAi()).requestJson("x" "" actx))
+        this.ok(((indexOf areq "\"files\":[{\"path\":\"apps/g.tsx\",\"text\":\"function view() { return null }\"}]") > 0) ("plays: the files go with the question: " + areq))
         def v@(optional):PresPlayView (deck.playView("apps/g.tsx#1"))
         this.ok((!null? v) "plays: a view for the program")
         if (null? v) {
@@ -8588,6 +8638,7 @@ class PresCheck {
         c.imagesCleared()
         c.pageBackgroundImage()
         c.strayFences()
+        c.picturesAsText()
         c.headingAttrs()
         c.sketches()
         c.meeting()

@@ -1321,6 +1321,39 @@ class PresDeck {
         return out
     }
 
+    ; The program files of one slide (its ```app sources and stylesheets, its
+    ; script), for the assistant: the ones the page has handed over.
+    fn codeOfSlide:[string] (page:int) {
+        def out:[string]
+        def all:[PresPlayUse] (this.playUses())
+        def i:int 0
+        while (i < (array_length all)) {
+            def u:PresPlayUse (itemAt all i)
+            if (u.page == page) {
+                if (((strlen u.spec.src) > 0) && ((indexOf out u.spec.src) < 0)) {
+                    push out u.spec.src
+                }
+                if (((strlen u.spec.css) > 0) && ((indexOf out u.spec.css) < 0)) {
+                    push out u.spec.css
+                }
+            }
+            i = (i + 1)
+        }
+        if ((page >= 0) && (page < (array_length slides))) {
+            def ss:PresSlide (itemAt slides page)
+            if (((strlen ss.script) > 0) && ((indexOf out ss.script) < 0)) {
+                push out ss.script
+            }
+        }
+        def had:[string]
+        for out f:string fi {
+            if ((strlen (this.dataText(f))) > 0) {
+                push had f
+            }
+        }
+        return had
+    }
+
     ; The page looked for `path` and the document does not have it.
     fn fileMissing:boolean (path:string) {
         return (((indexOf dataMissing path) >= 0) || ((indexOf dataMissing (MdVegaRender.resolveUrl(path))) >= 0))
@@ -3214,6 +3247,94 @@ class PresDeck {
             }
         }
         return out
+    }
+
+    ; A paragraph of pictures that is not one picture (`MdLayout.loneImage`):
+    ; two `![…](…)` lines with no empty line between, or a `{width=…}` on the
+    ; picture's own line. The engine lays it out as a sentence, so the
+    ; pictures show as their alt text. A sentence per slide it is on.
+    fn pictureNotes:[string] () {
+        def out:[string]
+        def seen:[int]
+        def found:[MdNode]
+        PresDeck.picturesAsText(md.edit.doc found)
+        for found p:MdNode pi {
+            def page:int (this.pageOfOffset(p.srcStart))
+            if ((indexOf seen page) >= 0) {
+                continue
+            }
+            push seen page
+            def where:string ("slide " + (to_string (page + 1)))
+            if ((page >= 0) && (page < (array_length slides))) {
+                def t:string ((itemAt slides page).title)
+                if ((strlen t) > 0) {
+                    where = ("slide \"" + t + "\"")
+                }
+            }
+            push out ("The pictures on " + where + " are shown as their alt text: a picture is drawn only when it is a paragraph of its own. Put an empty line between two pictures, and a picture's `{width=…}` on the line under it, not after it on the same line.")
+        }
+        return out
+    }
+
+    sfn picturesAsText:void (node:MdNode out:[MdNode]) {
+        if (node.kind == "paragraph") {
+            if ((MdLayout.loneImage(node)).kind != "image") {
+                def images:int 0
+                def words:int 0
+                def i:int 0
+                while (i < (node.childCount())) {
+                    def c:MdNode (node.childAt(i))
+                    if (c.kind == "image") {
+                        images = (images + 1)
+                    } {
+                        if (c.kind == "text") {
+                            def s:string (trim c.literal)
+                            if ((strlen s) > 0) {
+                                if ((PresDeck.attrGroupsOnly(s)) == false) {
+                                    words = (words + 1)
+                                }
+                            }
+                        } {
+                            if (c.kind != "softbreak") {
+                                words = (words + 1)
+                            }
+                        }
+                    }
+                    i = (i + 1)
+                }
+                if ((images > 0) && (words == 0)) {
+                    push out node
+                }
+            }
+            return
+        }
+        def k:int 0
+        while (k < (node.childCount())) {
+            PresDeck.picturesAsText((node.childAt(k)) out)
+            k = (k + 1)
+        }
+    }
+
+    ; "{width=40%}" or "{width=40%} {.c2}": only `{…}` groups and spaces
+    sfn attrGroupsOnly:boolean (s:string) {
+        def depth:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:string (substring s i (i + 1))
+            if (ch == "{") {
+                depth = (depth + 1)
+            } {
+                if (ch == "}") {
+                    depth = (depth - 1)
+                    if (depth < 0) { return false }
+                } {
+                    if ((depth == 0) && ((trim ch) != "")) { return false }
+                }
+            }
+            i = (i + 1)
+        }
+        return (depth == 0)
     }
 
     ; What the HTML in the Markdown does not show as written (a tag nobody

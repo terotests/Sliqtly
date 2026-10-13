@@ -3289,7 +3289,7 @@ try {
       take();
       const newReqs = [];
       let newKids = [];
-      for (const id of ["newPres", "newSheet"]) {
+      for (const id of ["newPres", "newSheet", "newForm"]) {
         press(find("tb-m-file-trigger"));
         press(find("tb-m-file-item-new"));
         let r = null;
@@ -3323,7 +3323,7 @@ try {
       const after = take();
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
-    check("…File → New offers Presentation… (the window) and Datasheet… (the spreadsheet editor)", fx.newKids.join() === "newPres,newSheet" && fx.newReqs.join() === "files:new,files:newsheet", JSON.stringify(fx));
+    check("…File → New offers Presentation… (the window), Datasheet… (the spreadsheet editor) and Questionnaire… (a story of its own)", fx.newKids.join() === "newPres,newSheet,newForm" && fx.newReqs.join() === "files:new,files:newsheet,files:newform", JSON.stringify(fx));
     check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep")).join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 

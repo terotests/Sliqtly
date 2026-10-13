@@ -18,6 +18,11 @@ test("every type has its colour in the one mapping, and its place in the group o
   assert.equal(storyColor({ type: "task", color: "#112233" }), "#112233");
 });
 
+test("a questionnaire is a story of type survey (File → New ▸ Questionnaire…)", () => {
+  assert.ok(STORY_TYPES.includes("survey"));
+  assert.deepEqual(changeStory({ ...NEW_STORY }, { type: "survey" }), { type: "survey", phase: "draft", tags: [], color: "" });
+});
+
 test("a change keeps what is not said, and ignores what is not a type, phase or colour", () => {
   let s = changeStory(undefined, { type: "review" });
   assert.deepEqual(s, { type: "review", phase: "active", tags: [], color: "" });

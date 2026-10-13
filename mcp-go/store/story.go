@@ -23,7 +23,7 @@ const StoryField = "story"
 
 // StoryTypes and StoryPhases as the page and the assistant name them.
 var (
-	StoryTypes  = []string{"review", "problem", "task", "pitch", "report", "lesson", "demo", "decision", "story"}
+	StoryTypes  = []string{"review", "problem", "task", "pitch", "report", "lesson", "demo", "decision", "survey", "story"}
 	StoryPhases = []string{"draft", "active", "review", "done", "archived"}
 )
 

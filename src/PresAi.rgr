@@ -59,6 +59,9 @@ class PresAiContext {
     def themes:string ""
     ; the stylesheet in the CSS tab (the theme's, with the deck's own changes)
     def css:string ""
+    ; the open slide's program files (```app, script=) and their text
+    def codePaths:[string]
+    def codeTexts:[string]
 
     Constructor () {
     }
@@ -799,6 +802,14 @@ class PresAi {
         c.setMember("theme" (VlJson.stringValue(ctx.theme)))
         c.setMember("themes" (VlJson.stringValue(ctx.themes)))
         c.setMember("css" (VlJson.stringValue(ctx.css)))
+        def files:VlJson (VlJson.arrayValue())
+        for ctx.codePaths cp:string ci {
+            def fo:VlJson (VlJson.objectValue())
+            fo.setMember("path" (VlJson.stringValue(cp)))
+            fo.setMember("text" (VlJson.stringValue((itemAt ctx.codeTexts ci))))
+            push files.arr fo
+        }
+        c.setMember("files" files)
         ; the whole deck goes along on every question: the server puts it in
         ; the prompt only for a deck question, and draws it when the model
         ; looks at a slide
