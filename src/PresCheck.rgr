@@ -8030,6 +8030,7 @@ class PresCheck {
         this.ok(((gp.strafe == 0.0) && (gp.move == 1.0)) "flight: stick up flies forward, a twitch is nothing")
         this.ok((gp.lift == 1.0) "flight: the right trigger lifts")
         this.ok(((PresFlightPad.commandOfKey("Escape")) == "exit") "flight: Esc leaves")
+        this.ok(((PresFlightPad.commandOfKey("KeyG")) == "exit") "flight: G leaves as it came in")
         this.ok(((PresFlightPad.commandOfKey("Space")) == "next") "flight: Space goes on")
         def cmds:[string] (PresFlightPad.commandsOfButtons(([] _:double (1.0 0.0)) ([] _:double (1.0 1.0))))
         this.ok((((array_length cmds) == 1) && ((itemAt cmds 0) == "prev")) "flight: only a button that went down counts")

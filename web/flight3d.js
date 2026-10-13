@@ -328,12 +328,14 @@ export function createFlight3d({ three3d, app, picturePixels, spritePixels, toas
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
-    if (ev.code === "Escape") {
+    if (FLIGHT_KEYS.has(ev.code)) held.add(ev.code);
+    if (ev.repeat) return;
+    const said = world.key(ev.code);
+    if (said === "exit") {
       stop();
       return;
     }
-    if (FLIGHT_KEYS.has(ev.code)) held.add(ev.code);
-    if (!ev.repeat && world.key(ev.code) === "layout") showLayout();
+    if (said === "layout") showLayout();
   }
 
   function onKeyUp(ev) {
