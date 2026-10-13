@@ -5031,7 +5031,7 @@ async function aiPicture(file) {
 
 // The files an answer adds (add_file): kept in the deck before its slides,
 // which show them, are changed. The server checked each path (media/ SVG,
-// data/, charts/, code/).
+// data/, charts/, code/, apps/ programs, which run again with the new text).
 async function aiFiles(text) {
   let edits = [];
   try {

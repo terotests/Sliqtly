@@ -1284,6 +1284,39 @@ class PresDeck {
         return out
     }
 
+    ; The program files of one slide (its ```app sources and stylesheets, its
+    ; script), for the assistant: the ones the page has handed over.
+    fn codeOfSlide:[string] (page:int) {
+        def out:[string]
+        def all:[PresPlayUse] (this.playUses())
+        def i:int 0
+        while (i < (array_length all)) {
+            def u:PresPlayUse (itemAt all i)
+            if (u.page == page) {
+                if (((strlen u.spec.src) > 0) && ((indexOf out u.spec.src) < 0)) {
+                    push out u.spec.src
+                }
+                if (((strlen u.spec.css) > 0) && ((indexOf out u.spec.css) < 0)) {
+                    push out u.spec.css
+                }
+            }
+            i = (i + 1)
+        }
+        if ((page >= 0) && (page < (array_length slides))) {
+            def ss:PresSlide (itemAt slides page)
+            if (((strlen ss.script) > 0) && ((indexOf out ss.script) < 0)) {
+                push out ss.script
+            }
+        }
+        def had:[string]
+        for out f:string fi {
+            if ((strlen (this.dataText(f))) > 0) {
+                push had f
+            }
+        }
+        return had
+    }
+
     ; The page looked for `path` and the document does not have it.
     fn fileMissing:boolean (path:string) {
         return (((indexOf dataMissing path) >= 0) || ((indexOf dataMissing (MdVegaRender.resolveUrl(path))) >= 0))

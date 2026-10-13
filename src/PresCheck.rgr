@@ -6697,6 +6697,14 @@ class PresCheck {
         deck.setChartData("apps/g.tsx.css" ".x { background-color: #ff0000 }")
         PresTimeline.planAll(deck)
         this.ok(((deck.dataText("apps/g.tsx")) == "function view() { return null }") "plays: the source as the page gave it")
+        def code0:[string] (deck.codeOfSlide(0))
+        this.ok((((array_length code0) == 2) && ((itemAt code0 0) == "apps/g.tsx")) ("plays: the slide's program files for the assistant: " + (to_string (array_length code0))))
+        this.ok(((array_length (deck.codeOfSlide(1))) == 0) "plays: none on a slide without a program")
+        def actx (new PresAiContext())
+        push actx.codePaths "apps/g.tsx"
+        push actx.codeTexts "function view() { return null }"
+        def areq:string ((new PresAi()).requestJson("x" "" actx))
+        this.ok(((indexOf areq "\"files\":[{\"path\":\"apps/g.tsx\",\"text\":\"function view() { return null }\"}]") > 0) ("plays: the files go with the question: " + areq))
         def v@(optional):PresPlayView (deck.playView("apps/g.tsx#1"))
         this.ok((!null? v) "plays: a view for the program")
         if (null? v) {
