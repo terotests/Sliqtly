@@ -280,6 +280,42 @@ class Check {
     ; drew nothing), laid out as run lays it out, without the checks: what
     ; Work.rgr numbers merged edits and claims by
     sfn slideStarts:[int] (host:McpHost md:string css:string) {
+        ; a whole layout: kept by the text and sheet it was made of
+        def key:string ((to_string (strlen md)) + ":" + md + css)
+        def kept:string (host_memo_get host "starts" key)
+        if ((strlen kept) > 0) {
+            return (Check.intsOf(kept))
+        }
+        def out:[int] (Check.slideStartsOf(host md css))
+        host_memo_put host "starts" key (Check.intsText(out))
+        return out
+    }
+
+    ; numbers as kept text, "=" first so that none is not ""
+    sfn intsText:string (ns:[int]) {
+        def parts:[string]
+        for ns v:int i {
+            push parts (to_string v)
+        }
+        return ("=" + (join parts ","))
+    }
+
+    sfn intsOf:[int] (text:string) {
+        def out:[int]
+        def body:string (substring text 1 (strlen text))
+        if ((strlen body) == 0) {
+            return out
+        }
+        for (strsplit body ",") p:string i {
+            def v@(optional):int (str2int p)
+            if (!null? v) {
+                push out (unwrap v)
+            }
+        }
+        return out
+    }
+
+    sfn slideStartsOf:[int] (host:McpHost md:string css:string) {
         def d (new PresDeck)
         d.artAllowed = ((host_store_kind host) == "cloud")
         for (Check.FACES()) face:string fi {

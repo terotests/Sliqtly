@@ -121,7 +121,8 @@ class PresPanels {
     ; File → Published… shows its list in the same window (web/published.js
     ; publishedListJson): "list": "pub" (its requests' prefix), its own
     ; "title", column heads ("head1"/"head1Label", "head2"/"head2Label"),
-    ; "empty" text, a row's "canDelete" and "acts" ([{"id", "label"}]:
+    ; "empty" text, a row's "light" (a dot before its name, "color" its
+    ; colour), "canDelete" and "acts" ([{"id", "label"}]:
     ; buttons beside its ✕, `pd-a-<n>-<id>`, each asking "<list>:<id>:<row
     ; id>"; "deck" also closes the window). Without "rows" it is loading.
     def decksJson:string ""
@@ -2071,6 +2072,18 @@ class PresPanels {
         if (narrow == false) {
             nameW = (nameW - 280.0)
         }
+        ; a light before the name (who is working: web/presence.js
+        ; whoListJson): "working", "idle", or "person" in the person's colour
+        def light:string (r.stringOr("light" ""))
+        if ((strlen light) > 0) {
+            def dot:EVGElement (UiKit.div(("pd-light pd-light-" + light)))
+            def dc:string (r.stringOr("color" ""))
+            if ((strlen dc) > 0) {
+                UiTree.inline(dot "background-color" dc)
+            }
+            el.addChild(dot)
+            nameW = (nameW - 16.0)
+        }
         def nm:EVGElement (UiKit.div("pf-name pd-name"))
         def title:string (PresPanels.clip((r.stringOr("name" "")) (to_int (nameW / 7.0))))
         nm.addChild((UiKit.words("pf-fname" title)))
@@ -2159,6 +2172,10 @@ class PresPanels {
                     this.closeShare()
                 } {
                     push requests ((decksList + ":open:") + id)
+                    ; who is working (web/presence.js): the row's Story opens
+                    if (decksList == "who") {
+                        this.closeShare()
+                    }
                 }
             }
             return

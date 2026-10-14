@@ -269,6 +269,9 @@
 .theme-retro .rm-tempty { color: var(--retro-ink-dim); }
 .theme-retro .rm-ghead { border-bottom: 1px solid var(--retro-screen-3); }
 .theme-retro .rm-card { background-color: var(--retro-screen-2); border-color: var(--retro-screen-3); }
+.theme-retro .rm-who,
+.theme-retro .rm-who-working { background-color: var(--retro-screen-2); border-color: var(--retro-screen-3); }
+.theme-retro .rm-wtext { color: var(--retro-ink-dim); }
 .theme-retro .rm-card:hover,
 .theme-retro .rm-card-cur { background-color: var(--retro-screen-3); }
 .theme-retro .rm-card-sel { background-color: var(--retro-screen-3); border-color: var(--retro-shell-b); }

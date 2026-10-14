@@ -36,6 +36,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
+import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence } from "./presence.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -1654,8 +1655,10 @@ try {
 const AGO = { now: "Updated just now", min: "Updated {n} min ago", h: "Updated {n} h ago", d: "Updated {n} d ago", w: "Updated {n} wk ago", mo: "Updated {n} mo ago", y: "Updated {n} y ago" };
 // folders: the room's [{ id, name }], a card names the one it is in.
 async function showTopic(room, rows, folders = []) {
+  topicLast = { room, rows, folders };
   const info = (await roomsList({ archived: true })).find((r) => r.room_id === room);
   const now = Date.now();
+  if (presenceIds().join("\n") !== presenceAsked) askPresence().catch(() => {});
   const groups = groupStories(rows, { by: topicBy, sort: topicSort }).map((g) => ({
     label: g.label ? (topicBy === "tag" && g.key !== "notag" ? g.label : t(g.label)) : "",
     color: g.color,
@@ -1666,16 +1669,95 @@ async function showTopic(room, rows, folders = []) {
         typeLabel: t(TYPE_LABEL[r.type]), phaseLabel: t(PHASE_LABEL[r.phase]), color: storyColor(r),
         folder: (r.folder && folders.find((x) => x.id === r.folder)?.name) || "",
         when: r.updated ? t(AGO[ago.unit]).replace("{n}", String(ago.n)) : "",
+        who: cardPresence(presence.get(presenceId(r.id)), t),
       };
     }),
   }));
+  const here = presenceSummary(...rows.map((r) => presence.get(presenceId(r.id))));
   app.roomStories(JSON.stringify({
     room, title: info?.title || "", by: topicBy, sort: topicSort, groups,
+    // on a server of one's own, which knows who works where: always said
+    who: ownServer() && !viewer ? headPresence(here, t) : null,
     count: rows.length === 1 ? t("1 presentation") : t("{n} presentations").replace("{n}", String(rows.length)),
     empty: t("No presentations in this room yet. + New presentation makes one."),
     canNew: room !== ONBOARDING && !info?.archived,
   }));
   needsPaint = true;
+}
+// Who is working on the open room's Stories (web/presence.js): the
+// assistants calling the server's MCP tools on them and the people who have
+// them open, asked of a server of one's own (POST /api/rooms/presence) every
+// few seconds while the page is in sight. The cards are drawn again only when
+// a light or a count changes; the window that names who is there (a card's
+// or the room's counts pressed) follows every answer.
+let topicLast = null;
+let presence = new Map();
+let presenceAsked = "";
+let presenceBusy = false;
+// the window: { deck } (null: the whole room), or null while it is shut
+let whoShown = null;
+let whoSort = { by: "name", dir: "asc" };
+const presenceId = (id) => String(id || "").replace(/^cloud:/, "");
+function presenceIds() {
+  if (!topicLast || topicLast.room !== roomShown) return [];
+  return topicLast.rows.map((r) => presenceId(r.id)).filter((id) => id && !id.startsWith("sample:")).slice(0, 200);
+}
+async function askPresence() {
+  if (viewer || !ownServer() || presenceBusy || document.visibilityState !== "visible") return;
+  const ids = presenceIds();
+  presenceAsked = ids.join("\n");
+  if (!ids.length) {
+    presence = new Map();
+    return;
+  }
+  presenceBusy = true;
+  let next;
+  try {
+    next = presenceByDeck(await roomsCall("presence", { deck_ids: ids }));
+  } finally {
+    presenceBusy = false;
+  }
+  const changed = !samePresence(presence, next);
+  presence = next;
+  if (changed && topicLast && topicLast.room === roomShown) await showTopic(topicLast.room, topicLast.rows, topicLast.folders);
+  showWho();
+}
+setInterval(() => { askPresence().catch(() => {}); }, 5000);
+function whoJson() {
+  const names = new Map((topicLast?.rows || []).map((r) => [presenceId(r.id), r.name || ""]));
+  const only = whoShown?.deck || null;
+  return whoListJson(whoRows(presence, names, only), {
+    by: whoSort.by, dir: whoSort.dir, t, story: only ? names.get(only) || "" : "", room: !only, note: whoNote(presence, t, only),
+  });
+}
+function showWho() {
+  if (!whoShown) return;
+  if (listShown !== "who" || !app.decksShowing()) {
+    whoShown = null;
+    return;
+  }
+  app.setDecks(whoJson());
+  needsPaint = true;
+}
+function openWho(deck) {
+  whoShown = { deck };
+  listShown = "who";
+  app.openDecks(whoJson());
+  needsPaint = true;
+}
+// the window's requests: a head pressed sorts, a row opens its Story
+async function whoRequest(r) {
+  const [, action, ...rest] = r.split(":");
+  const id = rest.join(":");
+  if (action === "sort") {
+    whoSort = nextWhoSort(whoSort, id);
+    showWho();
+  } else if (action === "open") {
+    whoShown = null;
+    const deck = id.split(":").slice(2).join(":");
+    const row = topicLast?.rows.find((x) => presenceId(x.id) === deck);
+    if (row) await roomsRequest("room:deck:" + row.id);
+  }
 }
 // What the Stories tab asked for ("topic:<what>\t…").
 async function topicRequest(r) {
@@ -1694,6 +1776,8 @@ async function topicRequest(r) {
       const { rows, folders } = await roomView(room);
       await showTopic(room, rows, folders);
     }
+  } else if (what === "who") {
+    openWho(f[0] ? presenceId(f[0]) : null);
   } else if (what === "new" && room) {
     await roomsRequest("room:newin:" + room);
   } else if (what === "bulk" && room) {
@@ -5321,6 +5405,8 @@ function handleRequests() {
       openPublished().catch(fail);
     } else if (r.startsWith("pub:")) {
       publishedRequest(r).catch(fail);
+    } else if (r.startsWith("who:")) {
+      whoRequest(r).catch(fail);
     } else if (r === "openbox") {
       // Open: a file from the computer, or a sample deck
       app.openOpen([...sampleSel.options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));

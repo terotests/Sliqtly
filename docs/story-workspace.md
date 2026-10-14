@@ -102,6 +102,28 @@ entry's kind, author and refs, inherited entries marked with the Story they
 came from, the forks listed at the top, and the actions **Fork with
 context** and **Note**. Opened from the Presentation menu.
 
+## Who is working now (presence)
+
+Plugging an assistant in asks nothing more of it: the server watches the
+MCP calls it gets (`mcp-go/presence.go`). An assistant is known by its MCP
+session; its name is the `agent` it gives in a tool call, else its client's
+name from `initialize`, else "Assistant". A call that names a `deck_id`
+puts it on that Story: working while a call runs, for 45 s after one, or
+while it holds slides (`begin_work` until `end_work`), idle after that, and
+gone 5 minutes after its last call or when its session ends. People are the
+ones with the Story open in the editor (its collab room).
+
+The page asks `POST /api/rooms/presence` (`deck_ids`) every 5 s while the
+room's Stories tab is open (`web/presence.js`). Each card shows a light
+(green: an assistant works, amber: only idle assistants or people) and the
+counts, and the room's head the same for all its Stories, each assistant
+and person counted once. Pressing one opens the window that names who is
+there: what each assistant is doing, its slides and note, how long it has
+been on the Story and when it last called; a row opens its Story.
+
+Kept in memory, per process: a server of one's own. The cloud does not
+watch or show it yet.
+
 ## Later milestones (proposed order)
 
 **M2 Review → merge.** A fork's findings, decisions and proposed changes

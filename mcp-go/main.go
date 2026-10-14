@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -46,6 +47,14 @@ func envBool(name string) bool {
 		return true
 	}
 	return false
+}
+
+// a whole number from the environment, def when unset or not a number
+func envInt(name string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil {
+		return n
+	}
+	return def
 }
 
 func main() {
@@ -78,6 +87,7 @@ func main() {
 	oidcScopes := flag.String("oidc-scopes", env("SLIQTLY_OIDC_SCOPES", "openid email profile"), "the scopes asked of the provider (SLIQTLY_OIDC_SCOPES)")
 	importDirsFlag := flag.String("import-dirs", env("SLIQTLY_IMPORT_DIRS", ""), "folders of this computer MCP tools may read pictures and data files from by path, comma separated, e.g. /Users/me/photoalbum; with -data only (SLIQTLY_IMPORT_DIRS)")
 	connectorsOn := flag.Bool("connectors", envBool("SLIQTLY_CONNECTORS"), "let scripts and workflows in decks use the services set in <data>/connectors/*.json, with the grants the admin approves (SLIQTLY_CONNECTORS=1)")
+	writeLimit := flag.Int("write-limit", envInt("SLIQTLY_WRITE_LIMIT", localWriteLimit), "with -data: MCP writes the whole server takes in 10 minutes, 0 for no limit; many agents working at once need more (SLIQTLY_WRITE_LIMIT)")
 	adminsFlag := flag.String("admin", env("SLIQTLY_ADMINS", ""), "signed-in accounts (emails, comma separated) that may approve connector grants; the server's own user on its own computer always may (SLIQTLY_ADMINS)")
 	flag.Parse()
 	applyMemoryLimit()
@@ -155,6 +165,7 @@ func main() {
 			log.Fatalf("data folder %s: %v", *data, err)
 		}
 		e.ImportDirs = imports
+		e.Limiter = localLimiter(*writeLimit)
 		if len(imports) > 0 {
 			log.Printf("MCP tools may read files by path from %s", strings.Join(imports.list(), ", "))
 		}
