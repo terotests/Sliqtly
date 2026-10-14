@@ -10,6 +10,8 @@
 //	DELETE /api/shares/{id}/links?file=…  that file's links
 //	GET    /r/{link}/{hash}               the player's page (web/play.html)
 //	GET    /api/view/{link}/rec/{hash}    the recording (rgr/View.rgr)
+//	GET    /api/published                 the recordings and their links
+//	                                      (File → Shared links…)
 //
 // A link is a document of links/ as on sliqtly.com ({of, owner, since,
 // days, file}, Store.shownAny): it works `days` (1 to 30) from when it was
@@ -201,4 +203,75 @@ func (s *localServer) dropLinks(ctx context.Context, id string) error {
 		}
 	}
 	return nil
+}
+
+// GET /api/published: what this server hands out, for the editor's File →
+// Shared links… (web/published.js publishedRows, the same shape as
+// web/sliqtly.js listPublished): the user's decks that keep a recording,
+// each with its recordings, and the viewing links made of them. A deck
+// here is never open at its own address (its id would open it for
+// editing), so each is "private". A recording's `at` is when its first
+// link was made (its name is its content's hash: the same recording
+// again keeps its name and its link), 0 for none.
+func (s *localServer) published(ctx context.Context) (any, error) {
+	type file struct {
+		Path string `json:"path"`
+		Size int64  `json:"size"`
+		At   int64  `json:"at"`
+	}
+	type share struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Visibility string `json:"visibility"`
+		Files      []file `json:"files"`
+	}
+	type link struct {
+		ID      string `json:"id"`
+		Of      string `json:"of"`
+		Created int64  `json:"created"`
+		Since   int64  `json:"since"`
+		Days    int64  `json:"days"`
+		File    string `json:"file"`
+	}
+	ldocs, lids, err := s.env.DB.WhereEq(ctx, "links", "owner", s.env.LocalUser)
+	if err != nil {
+		return nil, err
+	}
+	links := []link{}
+	first := map[string]int64{}
+	for i, d := range ldocs {
+		of, _ := d["of"].(string)
+		if of == "" {
+			continue
+		}
+		f, _ := d["file"].(string)
+		l := link{lids[i], of, millis(d["created"]), millis(d["since"]), linkDaysOf(d["days"]), f}
+		links = append(links, l)
+		if k := of + ":" + f; first[k] == 0 || (l.Created > 0 && l.Created < first[k]) {
+			first[k] = l.Created
+		}
+	}
+	sdocs, sids, err := s.env.DB.WhereEq(ctx, "shares", "owner", s.env.LocalUser)
+	if err != nil {
+		return nil, err
+	}
+	shares := []share{}
+	for i, d := range sdocs {
+		kept := []file{}
+		files, _ := d["files"].([]any)
+		for _, f := range files {
+			m, _ := f.(map[string]any)
+			p, _ := m["path"].(string)
+			if !recFilePath.MatchString(p) {
+				continue
+			}
+			kept = append(kept, file{p, millis(m["size"]), first[sids[i]+":"+p]})
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		name, _ := d["name"].(string)
+		shares = append(shares, share{sids[i], name, "private", kept})
+	}
+	return map[string]any{"shares": shares, "links": links}, nil
 }

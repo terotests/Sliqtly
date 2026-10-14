@@ -117,7 +117,9 @@ class PresPanels {
     ; File → Published… shows its list in the same window (web/published.js
     ; publishedListJson): "list": "pub" (its requests' prefix), its own
     ; "title", column heads ("head1"/"head1Label", "head2"/"head2Label"),
-    ; "empty" text and a row's "canDelete". Without "rows" it is loading.
+    ; "empty" text, a row's "canDelete" and "acts" ([{"id", "label"}]:
+    ; buttons beside its ✕, `pd-a-<n>-<id>`, each asking "<list>:<id>:<row
+    ; id>"; "deck" also closes the window). Without "rows" it is loading.
     def decksJson:string ""
     ; which list the window shows: "decks" or "pub", from decksJson
     def decksList:string "decks"
@@ -1953,7 +1955,8 @@ class PresPanels {
     }
 
     ; A deck's row: the row itself opens it (it lights up under the pointer);
-    ; the ✕ beside it, in a column of its own, deletes a deck kept here.
+    ; the ✕ beside it, in a column of its own, deletes a deck kept here; a
+    ; row's own buttons ("acts") stand before the ✕.
     fn deckRow:EVGElement (r:VlJson narrow:boolean rowW:double) {
         def id:string (r.stringOr("id" ""))
         def k:int (array_length decksKeys)
@@ -1962,6 +1965,13 @@ class PresPanels {
         def delW:double 36.0
         if armed {
             delW = 84.0
+        }
+        def acts:VlJson (r.get("acts"))
+        def ai:int 0
+        while (ai < (acts.count())) {
+            ; about 7 px a character, and the button's padding
+            delW = (delW + ((to_double (strlen ((acts.at(ai)).stringOr("label" "")))) * 7.0) + 26.0)
+            ai = (ai + 1)
         }
         def line:EVGElement (UiKit.div("pd-line"))
         line.width = (EVGUnit.px(rowW))
@@ -2000,6 +2010,13 @@ class PresPanels {
         def canDel:boolean (((r.boolOr("cloudOnly" false)) == false) && ((r.boolOr("current" false)) == false))
         if (r.has("canDelete")) {
             canDel = (r.boolOr("canDelete" false))
+        }
+        def aj:int 0
+        while (aj < (acts.count())) {
+            def act:VlJson (acts.at(aj))
+            def ab:ButtonCtl (this.button(((("pd-a-" + (to_string k)) + "-") + (act.stringOr("id" ""))) (act.stringOr("label" "")) "ghost" del))
+            UiTree.addClass((unwrap ab.rootEl) "pf-act")
+            aj = (aj + 1)
         }
         if canDel {
             def x:ButtonCtl (this.button(("pd-x-" + (to_string k)) (? armed (PresI18n.t("Delete?")) "✕") (? armed "primary" "ghost") del))
@@ -2058,6 +2075,22 @@ class PresPanels {
                     this.closeShare()
                 } {
                     push requests ((decksList + ":open:") + id)
+                }
+            }
+            return
+        }
+        if ((indexOf c "pd-a-") == 0) {
+            ; "pd-a-<n>-<act>": the row's own button
+            def rest:string (substring c 5 (strlen c))
+            def dash:int (indexOf rest "-")
+            if (dash > 0) {
+                def ida:string (this.deckOf(("pd-a-" + (substring rest 0 dash))))
+                def act:string (substring rest (dash + 1) (strlen rest))
+                if ((strlen ida) > 0) {
+                    push requests ((((decksList + ":") + act) + ":") + ida)
+                    if (act == "deck") {
+                        this.closeShare()
+                    }
                 }
             }
             return

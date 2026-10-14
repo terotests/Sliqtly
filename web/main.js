@@ -35,7 +35,7 @@ import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
-import { publishedRows, publishedListJson, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
+import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -5925,11 +5925,15 @@ window.__exportPlayer = exportPlayer;
 // File → Published…: what the signed-in user has out on sliqtly.com (viewing
 // links, presentations open at their own address, Cloud HTML, Cloud video),
 // in the presentations window (web/published.js). A row opens its address
-// in a new tab; its ✕ takes it out of the cloud.
+// in a new tab; its ✕ takes it out of the cloud. A server of one's own that
+// keeps its links (ownLinks) lists them here as File → Shared links…, at
+// its own address.
 let pubRows = [];
 let pubSort = { by: "created", dir: "desc" };
 let pubNote = "";
-const pubJson = () => publishedListJson(pubRows, pubSort.by, t, pubNote, pubSort.dir);
+const pubJson = () => publishedListJson(pubRows, pubSort.by, t, pubNote, pubSort.dir, Date.now(), ownLinks());
+// where the rows' addresses are reached from
+const pubOrigin = () => (ownLinks() ? SITE : location.origin);
 function showPub() {
   if (listShown === "pub" && app.decksShowing()) app.setDecks(pubJson());
   needsPaint = true;
@@ -5944,11 +5948,11 @@ async function openPublished() {
   listShown = "pub";
   pubNote = "";
   // its title at once, its rows once the cloud is read
-  app.openDecks(JSON.stringify({ list: "pub", title: t("Published in the cloud") }));
+  app.openDecks(JSON.stringify({ list: "pub", title: publishedTitle(t, ownLinks()) }));
   needsPaint = true;
   try {
     const { shares, links } = await p.listPublished();
-    pubRows = publishedRows(shares, links, location.origin);
+    pubRows = publishedRows(shares, links, pubOrigin());
   } catch (e) {
     pubRows = [];
     pubNote = t("What you have published could not be read: ") + (e?.code || e?.message || e);
@@ -5964,6 +5968,15 @@ async function publishedRequest(r) {
     const row = pubRows.find((x) => x.id === id);
     if (row?.url) window.open(row.url, "_blank", "noopener");
     else if (row) toast(t("Nobody sees this recording: the presentation has no viewing link. Share it to show it, or remove the recording."));
+    return;
+  } else if (action === "copy") {
+    const row = pubRows.find((x) => x.id === id);
+    if (row?.url) toast((await writeClip(row.url)) ? t("Link copied: ") + row.url : t("Not copied: ") + row.url);
+    return;
+  } else if (action === "deck") {
+    // the presentation the link is of, in the editor (the window closes)
+    const row = pubRows.find((x) => x.id === id);
+    if (row?.hasDeck) await fileRequest("doc:cloud:" + row.deck);
     return;
   } else if (action === "del") {
     await removePublished(id);
@@ -5996,8 +6009,8 @@ async function removePublished(id) {
     toast(t("Not removed: ") + (e?.code || e?.message || e));
     return;
   }
-  pubRows = afterRemoval(pubRows, id, location.origin);
-  toast(r.what === "file" ? t("The recording was removed from the cloud.") : r.what === "link" ? t("The viewing link was removed.") : t("The presentation is now private."));
+  pubRows = afterRemoval(pubRows, id, pubOrigin());
+  toast(r.what === "file" ? (ownLinks() ? t("The recording and its link were removed.") : t("The recording was removed from the cloud.")) : r.what === "link" ? t("The viewing link was removed.") : t("The presentation is now private."));
 }
 
 // The presentation exported to the cloud as a light HTML page (Export ▸

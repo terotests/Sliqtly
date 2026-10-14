@@ -3,7 +3,9 @@
 // The published window's list (File → Published…): what the signed-in user
 // has put out on sliqtly.com, one row each. No DOM: main.js reads the cloud
 // (web/sliqtly.js listPublished), this makes the rows, PresPanels draws them
-// in the presentations window.
+// in the presentations window. A server of one's own lists its own links
+// the same way (File → Shared links…, mcp-go/localplay.go published):
+// recordings and their links only, at its own address.
 //
 // What there is to list:
 //   link   a presentation's viewing link, /s/{linkId} (Share; links/ in
@@ -30,11 +32,12 @@ const REC = /^recordings\/web-([0-9a-f]{24})\.(sliqrec|webm)$/;
 //   the file went up, ms, 0 when not known)
 // links: [{ id, of, created, since, days, file }] (times in ms; file "" for
 //   a presentation's own link)
-// → [{ id, kind, deck, name, path, created, size, url, via, ends }]
+// → [{ id, kind, deck, name, path, created, size, url, via, ends, hasDeck }]
 // id names what a delete removes: "link:<linkId>", "open:<shareId>" or
 // "file:<shareId>:<path>". url is "" for a recording nobody reaches; via
 // the link it is shown through ("" for none, or the open address); ends
-// when that link stops working (ms, 0: it does not).
+// when that link stops working (ms, 0: it does not); hasDeck whether the
+// presentation is still there to open.
 export function publishedRows(shares, links, origin, now = Date.now()) {
   const decks = new Map((shares || []).map((s) => [s.id, s]));
   const works = (l) => linkEnds(l) > now;
@@ -54,7 +57,7 @@ export function publishedRows(shares, links, origin, now = Date.now()) {
     if (l.file) continue;
     rows.push({
       id: "link:" + l.id, kind: "link", deck: l.of, name: decks.get(l.of)?.name || "",
-      path: "", created: l.created || 0, size: 0, url: origin + "/s/" + l.id, via: l.id, ends: linkEnds(l),
+      path: "", created: l.created || 0, size: 0, url: origin + "/s/" + l.id, via: l.id, ends: linkEnds(l), hasDeck: decks.has(l.of),
     });
   }
   for (const s of shares || []) {
@@ -62,7 +65,7 @@ export function publishedRows(shares, links, origin, now = Date.now()) {
     if (open) {
       rows.push({
         id: "open:" + s.id, kind: "open", deck: s.id, name: s.name || "",
-        path: "", created: 0, size: 0, url: origin + "/s/" + s.id, via: "", ends: 0,
+        path: "", created: 0, size: 0, url: origin + "/s/" + s.id, via: "", ends: 0, hasDeck: true,
       });
     }
     for (const f of s.files || []) {
@@ -73,7 +76,7 @@ export function publishedRows(shares, links, origin, now = Date.now()) {
       rows.push({
         id: "file:" + s.id + ":" + f.path, kind: m[2] === "webm" ? "video" : "page", deck: s.id,
         name: s.name || "", path: f.path, created: f.at || 0, size: f.size || 0,
-        url: shown ? playUrl(origin, shown, m[1]) : "", via: own ? own.id : "", ends: own ? linkEnds(own) : 0,
+        url: shown ? playUrl(origin, shown, m[1]) : "", via: own ? own.id : "", ends: own ? linkEnds(own) : 0, hasDeck: true,
       });
     }
   }
@@ -126,11 +129,20 @@ export function termText(row, t, now = Date.now()) {
   return t("Works until {date}").replace("{date}", `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`);
 }
 
-export const SORTS = ["created", "name", "size"];
+// "14.10.2026" when the row's link stops working, "Expired" past it, ""
+// for a link without a term. t translates.
+export function endsText(row, t, now = Date.now()) {
+  if (!row.ends) return "";
+  if (row.ends <= now) return t("Expired");
+  const d = new Date(row.ends);
+  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+}
 
-// times and sizes largest first, names A–Z
+export const SORTS = ["created", "name", "size", "ends"];
+
+// times and sizes largest first, names A–Z, the soonest to expire first
 export function firstDir(by) {
-  return by === "name" ? "asc" : "desc";
+  return by === "name" || by === "ends" ? "asc" : "desc";
 }
 
 // As the presentations window's heads: the same column again turns the
@@ -150,7 +162,10 @@ export function sortPublished(rows, by = "created", dir = firstDir(by)) {
     ? (a, b) => -sign * name(a).localeCompare(name(b)) || tie(a, b)
     : by === "size"
       ? (a, b) => sign * (b.size - a.size) || tie(a, b)
-      : (a, b) => sign * (b.created - a.created) || tie(a, b);
+      : by === "ends"
+        // a link without a term ends last
+        ? (a, b) => sign * ((b.ends || Infinity) - (a.ends || Infinity) || 0) || tie(a, b)
+        : (a, b) => sign * (b.created - a.created) || tie(a, b);
   return rows.slice().sort(cmp);
 }
 
@@ -166,32 +181,48 @@ export function shortUrl(url) {
   return String(url || "").replace(/^https?:\/\//, "").replace(/\/([0-9a-f]{6})[0-9a-f]{18}$/, "/$1…");
 }
 
-// i18n: "Viewing link" "Open to anyone with its address" "Cloud HTML (light player)" "Cloud video (.webm)"
+// i18n: "Viewing link" "Open to anyone with its address" "Cloud HTML (light player)" "Cloud video (.webm)" "Light player (HTML)" "Video (.webm)"
 const KIND = { link: "Viewing link", open: "Open to anyone with its address", page: "Cloud HTML (light player)", video: "Cloud video (.webm)" };
+// a server of one's own (mcp-go/localplay.go): its links at its own
+// address, nothing in the cloud
+const OWN_KIND = { ...KIND, page: "Light player (HTML)", video: "Video (.webm)" };
+
+// The window's title: what is out on sliqtly.com, or a server of one's
+// own's links. t translates.
+export function publishedTitle(t, own = false) {
+  return own ? t("Shared links") : t("Published in the cloud");
+}
 
 // What the presentations window is sent for this list (PresPanels
 // decksDialog): the deck list's fields, with the window's own title, column
-// heads, request prefix and empty text. A row's "where" is its kind and
-// address; "added" when it was published, "modified" its size. t translates.
-export function publishedListJson(rows, by, t, note = "", dir, now = Date.now()) {
+// heads, request prefix and empty text. A row's "where" is its kind,
+// address and size; "added" when it was published, "modified" when its link
+// expires; "acts" its buttons: copy the link, open the presentation in the
+// editor (requests "pub:copy:<id>", "pub:deck:<id>"). t translates.
+// own: a server of one's own's links (File → Shared links…).
+export function publishedListJson(rows, by, t, note = "", dir, now = Date.now(), own = false) {
   const key = SORTS.includes(by) ? by : "created";
   const way = dir === "asc" || dir === "desc" ? dir : firstDir(key);
+  const kinds = own ? OWN_KIND : KIND;
   return JSON.stringify({
     list: "pub",
-    title: t("Published in the cloud"),
+    title: publishedTitle(t, own),
     head1: "created",
     head1Label: t("Published"),
-    head2: "size",
-    head2Label: t("Size"),
-    empty: t("Nothing published. Share, Export ▸ Cloud HTML and Export ▸ Cloud video publish a presentation on sliqtly.com."),
+    head2: "ends",
+    head2Label: t("Expires"),
+    empty: own
+      ? t("No links yet. Export ▸ Link: light player (HTML) and Export ▸ Link: video (.webm) make one.")
+      : t("Nothing published. Share, Export ▸ Cloud HTML and Export ▸ Cloud video publish a presentation on sliqtly.com."),
     sort: key,
     dir: way,
     rows: sortPublished(rows, key, way).map((r) => ({
       id: r.id,
       name: r.name || t("presentation"),
-      where: [t(KIND[r.kind]), r.url ? shortUrl(r.url) : t("not shown: no viewing link"), r.url ? termText(r, t, now) : ""].filter(Boolean).join(" · "),
+      where: [t(kinds[r.kind]), r.url ? shortUrl(r.url) : t("not shown: no viewing link"), sizeText(r.size)].filter(Boolean).join(" · "),
       added: whenText(r.created),
-      modified: sizeText(r.size),
+      modified: r.url ? endsText(r, t, now) : "",
+      acts: [r.url ? { id: "copy", label: t("Copy link") } : null, r.hasDeck ? { id: "deck", label: t("Presentation") } : null].filter(Boolean),
       canDelete: true,
       current: false,
     })),

@@ -1,7 +1,7 @@
 // node --test: the published window's list (web/published.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publishedRows, removal, afterRemoval, sortPublished, nextSort, sizeText, shortUrl, publishedListJson, termText } from "../published.js";
+import { publishedRows, removal, afterRemoval, sortPublished, nextSort, sizeText, shortUrl, publishedListJson, publishedTitle, termText, endsText } from "../published.js";
 import { DAY_MS } from "../linkdays.js";
 
 const O = "https://example.test";
@@ -38,9 +38,10 @@ test("viewing links, an open presentation and its recordings are rows; other fil
     "link:Gone01", "link:LinkA", "link:LinkB", "open:Deck02",
   ]);
   const by = new Map(rows.map((r) => [r.id, r]));
-  assert.deepEqual(by.get("link:LinkB"), { id: "link:LinkB", kind: "link", deck: "Deck01", name: "Sales", path: "", created: 400, size: 0, url: O + "/s/LinkB", via: "LinkB", ends: 400 + 30 * DAY_MS });
+  assert.deepEqual(by.get("link:LinkB"), { id: "link:LinkB", kind: "link", deck: "Deck01", name: "Sales", path: "", created: 400, size: 0, url: O + "/s/LinkB", via: "LinkB", ends: 400 + 30 * DAY_MS, hasDeck: true });
   assert.equal(by.get("open:Deck02").url, O + "/s/Deck02");
   assert.equal(by.get("link:Gone01").name, "");
+  assert.equal(by.get("link:Gone01").hasDeck, false);
 });
 
 test("a recording is shown through the first viewing link, the open address, or not at all", () => {
@@ -95,6 +96,10 @@ test("sorted newest first by default; by size or name, and turned round", () => 
   assert.deepEqual(nextSort({ by: "created", dir: "desc" }, "created"), { by: "created", dir: "asc" });
   assert.deepEqual(nextSort({ by: "created", dir: "desc" }, "name"), { by: "name", dir: "asc" });
   assert.deepEqual(nextSort({ by: "created", dir: "desc" }, "updated"), { by: "created", dir: "desc" });
+  // by when the link expires: the soonest first, one without a term last
+  const ends = sortPublished([{ id: "a", ends: 0, created: 1 }, { id: "b", ends: 50, created: 1 }, { id: "c", ends: 20, created: 1 }], "ends");
+  assert.deepEqual(ends.map((r) => r.id), ["c", "b", "a"]);
+  assert.deepEqual(nextSort({ by: "created", dir: "desc" }, "ends"), { by: "ends", dir: "asc" });
 });
 
 test("sizes and short addresses", () => {
@@ -111,17 +116,24 @@ test("the window's JSON: its own title, heads and request prefix", () => {
   const data = JSON.parse(publishedListJson(publishedRows(shares, links, O, NOW), "size", t, "note", undefined, NOW));
   assert.equal(data.list, "pub");
   assert.equal(data.head1, "created");
-  assert.equal(data.head2, "size");
+  assert.equal(data.head2, "ends");
+  assert.equal(data.head2Label, "Expires");
   assert.equal(data.sort, "size");
   assert.equal(data.dir, "desc");
   assert.equal(data.note, "note");
   const first = data.rows[0];
-  assert.equal(first.modified, "12.0 MB");
-  assert.equal(first.where, "Cloud video (.webm) · example.test/r/LinkA/fedcba… · " + termText({ ends: 300 + 30 * DAY_MS }, t, NOW));
+  assert.equal(first.where, "Cloud video (.webm) · example.test/r/LinkA/fedcba… · 12.0 MB");
+  assert.equal(first.modified, endsText({ ends: 300 + 30 * DAY_MS }, t, NOW));
+  assert.match(first.modified, /^\d+\.\d+\.\d{4}$/);
+  assert.deepEqual(first.acts, [{ id: "copy", label: "Copy link" }, { id: "deck", label: "Presentation" }]);
   assert.equal(first.canDelete, true);
   const unshown = data.rows.find((r) => r.id === "file:Deck03:recordings/web-" + H2 + ".webm");
-  assert.equal(unshown.where, "Cloud video (.webm) · not shown: no viewing link");
-  assert.equal(data.rows.find((r) => r.id === "link:Gone01").name, "presentation");
+  assert.equal(unshown.where, "Cloud video (.webm) · not shown: no viewing link · 1 kB");
+  assert.equal(unshown.modified, "");
+  assert.deepEqual(unshown.acts, [{ id: "deck", label: "Presentation" }]);
+  const gone = data.rows.find((r) => r.id === "link:Gone01");
+  assert.equal(gone.name, "presentation");
+  assert.deepEqual(gone.acts, [{ id: "copy", label: "Copy link" }]);
 });
 
 test("a link with a term: its recordings shown through their own link, past its term none", () => {
@@ -154,4 +166,20 @@ test("a link with a term: its recordings shown through their own link, past its 
   assert.equal(termText({ ends: now }, t, now + 1), "Expired");
   assert.match(termText({ ends: now }, t, now - 1), /^Works until \d+\.\d+\.1970$/);
   assert.equal(termText({ ends: 0 }, t, now), "");
+});
+
+test("a server of one's own: its links under their own title, kinds and empty text", () => {
+  const t = (s) => s;
+  const day = DAY_MS;
+  const now = 100 * day;
+  const own = [{ id: "Deck07", name: "Own", visibility: "private", files: [{ path: "recordings/web-" + H2 + ".webm", size: 2048, at: now - day }] }];
+  const made = [{ id: "a".repeat(32), of: "Deck07", created: now - day, since: now - day, days: 7, file: "recordings/web-" + H2 + ".webm" }];
+  const rows = publishedRows(own, made, "https://own.test", now);
+  assert.deepEqual(rows.map((r) => [r.kind, r.url]), [["video", "https://own.test/r/" + "a".repeat(32) + "/" + H2]]);
+  const data = JSON.parse(publishedListJson(rows, "created", t, "", undefined, now, true));
+  assert.equal(data.title, "Shared links");
+  assert.equal(data.rows[0].where.split(" · ")[0], "Video (.webm)");
+  assert.match(JSON.parse(publishedListJson([], "created", t, "", undefined, now, true)).empty, /^No links yet\./);
+  assert.equal(JSON.parse(publishedListJson([], "created", t, "", undefined, now)).title, "Published in the cloud");
+  assert.equal(publishedTitle(t, true), "Shared links");
 });
