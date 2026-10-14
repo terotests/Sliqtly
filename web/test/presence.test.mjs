@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  presenceByDeck, presenceSummary, countsText, cardPresence, slidesText, doingText, spanText,
+  presenceByDeck, presenceSummary, countsText, cardPresence, headPresence, slidesText, doingText, spanText,
   whoRows, sortWho, nextWhoSort, whoListJson, whoNote, whoTitle, samePresence,
 } from "../presence.js";
 
@@ -100,4 +100,10 @@ test("the cards change only when a light or a count does", () => {
   const gone = presenceByDeck({ decks: answer.decks.slice(0, 1) });
   assert.ok(!samePresence(a, gone));
   assert.ok(samePresence(new Map(), null));
+});
+
+test("the room's head always says whether an assistant works", () => {
+  assert.deepEqual(headPresence({ agents: 0, working: 0, people: 0, light: "" }, t), { light: "none", text: "No agents working" });
+  assert.deepEqual(headPresence({ agents: 0, working: 0, people: 1, light: "here" }, t), { light: "here", text: "No agents working · 1 person" });
+  assert.deepEqual(headPresence({ agents: 2, working: 2, people: 0, light: "working" }, t), { light: "working", text: "2 agents working" });
 });

@@ -60,6 +60,14 @@ export function cardPresence(entry, t) {
   return s.light ? { light: s.light, text: countsText(s, t) } : null;
 }
 
+// What the room's head is handed: always something, so it shows whether an
+// assistant is working; "none" (a grey light) when nobody is.
+// i18n: "No agents working"
+export function headPresence(s, t) {
+  if (s.agents > 0) return { light: s.light, text: countsText(s, t) };
+  return { light: s.people > 0 ? "here" : "none", text: [t("No agents working"), countsText(s, t)].filter(Boolean).join(" · ") };
+}
+
 // "2–4, 7"
 export function slidesText(slides) {
   const ns = [...new Set((slides || []).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);

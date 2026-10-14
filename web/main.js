@@ -36,7 +36,7 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
-import { presenceByDeck, presenceSummary, countsText, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence } from "./presence.js";
+import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence } from "./presence.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
@@ -1676,7 +1676,8 @@ async function showTopic(room, rows, folders = []) {
   const here = presenceSummary(...rows.map((r) => presence.get(presenceId(r.id))));
   app.roomStories(JSON.stringify({
     room, title: info?.title || "", by: topicBy, sort: topicSort, groups,
-    who: here.light ? { light: here.light, text: countsText(here, t) } : null,
+    // on a server of one's own, which knows who works where: always said
+    who: ownServer() && !viewer ? headPresence(here, t) : null,
     count: rows.length === 1 ? t("1 presentation") : t("{n} presentations").replace("{n}", String(rows.length)),
     empty: t("No presentations in this room yet. + New presentation makes one."),
     canNew: room !== ONBOARDING && !info?.archived,

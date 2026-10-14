@@ -1818,5 +1818,6 @@
   "making a presentation": "tekee esityksen",
   "exporting": "vie ulos",
   "working": "työssä",
-  "idle": "odottaa"
+  "idle": "odottaa",
+  "No agents working": "Ei agentteja työssä"
 }
