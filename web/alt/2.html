@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- sliqtly.com/web/2: a second trial front page, unlisted (linked from
      nowhere, noindex here and in firebase.json). A light page in the copper
-     colours of the "tekoälyn putkimies" deck: the problem/solution deck next
+     colours of the "plumber for your AI" deck: the problem/solution deck next
      to the pitch, then the four pipes with the prototype deck. Both decks
      are played by the site's own viewer (/s/{id} in an iframe). -->
 <html lang="en">
@@ -74,6 +74,12 @@
   .pipes p { color: var(--dim); font-size: 15.5px; margin: 0; }
   .wide { max-width: 1040px; }
 
+  .cases { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); margin-top: 32px; }
+  .cases > div { background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 22px 22px 18px; }
+  .cases .n { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 16px; background: var(--copper); color: #fff; font-weight: 900; font-size: 14px; margin-bottom: 12px; }
+  .cases h3 { font-size: 19px; }
+  .cases p { color: var(--dim); font-size: 15.5px; margin: 0; }
+
   .cta { background: var(--copper); color: #fff; text-align: center; }
   .cta h2 { color: #fff; }
   .cta .lead { color: #f6e7dc; margin-inline: auto; }
@@ -96,6 +102,7 @@
   <nav class="nav__links" aria-label="Sections">
     <a href="#why">Why</a>
     <a href="#pipes">The four pipes</a>
+    <a href="#use-cases">Use cases</a>
     <a href="/connect.html">Docs</a>
   </nav>
   <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect your AI</a></div>
@@ -114,9 +121,9 @@
       </div>
       <div>
         <div class="stage">
-          <iframe src="/s/8wS0x96FOz" title="Slyde esittelee Sliqtlyn: the problem and the solution" allow="fullscreen" loading="eager"></iframe>
+          <iframe src="/s/8wS0x96FOz" title="Slyde presents Sliqtly: the problem and the solution" allow="fullscreen" loading="eager"></iframe>
         </div>
-        <p class="stage__note">Slyde shows the pipes, in Finnish. Click the slide or press → to go on. <a href="/s/8wS0x96FOz" target="_blank" rel="noopener">Full size</a></p>
+        <p class="stage__note">Slyde shows the pipes. Click the slide or press → to go on. <a href="/s/8wS0x96FOz" target="_blank" rel="noopener">Full size</a></p>
       </div>
     </div>
   </section>
@@ -159,9 +166,27 @@
         <div><h3>Assistants</h3><p>Claude, Claude Code or any MCP assistant in the same notebook at once. They claim slides so they never write over each other.</p></div>
       </div>
       <div class="stage wide">
-        <iframe src="/s/weXPoghlul#slide=2" title="Sliqtly – tekoälyn putkimies: the prototypes" allow="fullscreen" loading="lazy"></iframe>
+        <iframe src="/s/weXPoghlul#slide=2" title="Sliqtly – the plumber for your AI: the prototypes" allow="fullscreen" loading="lazy"></iframe>
       </div>
-      <p class="stage__note">The pipes as prototypes, in Finnish. <a href="/s/weXPoghlul" target="_blank" rel="noopener">Full size</a></p>
+      <p class="stage__note">The pipes as prototypes. <a href="/s/weXPoghlul" target="_blank" rel="noopener">Full size</a></p>
+    </div>
+  </section>
+
+  <section class="section" id="use-cases">
+    <div class="wrap">
+      <p class="label">Use cases</p>
+      <h2>One notebook, many jobs.</h2>
+      <div class="cases">
+        <div><span class="n">1</span><h3>Themable markdown slides for product presentations</h3><p>Write the deck as Markdown and pick one of 20 themes; the theme lays out every slide, so changing the look is one line.</p></div>
+        <div><span class="n">2</span><h3>Multi-agent product development documentation storage</h3><p>Claude, Claude Code and other MCP assistants write into the same notebook at once, claim the slides they work on and never overwrite each other.</p></div>
+        <div><span class="n">3</span><h3>User interface prototyping and development environment</h3><p>Clickable prototypes run as small apps right on the slide, next to the Figma screens they come from.</p></div>
+        <div><span class="n">4</span><h3>Planning and implementation notebook</h3><p>Plans live as topics in folders; comments steer the next round and every version is kept, so you can see how the plan changed.</p></div>
+        <div><span class="n">5</span><h3>Quality assurance documentation</h3><p>Review decks of pull requests, test results and findings, with slide comments that go back to the assistant as tasks.</p></div>
+        <div><span class="n">6</span><h3>Process workflow presentations</h3><p>Flowcharts, process steps, timelines and SWOTs drawn from a few lines of text, with a guided tour through the diagram.</p></div>
+        <div><span class="n">7</span><h3>Charts and visual themes</h3><p>Bar, line, point and pie charts from a table or a sheet, coloured by the deck's theme, with animated reveals.</p></div>
+        <div><span class="n">8</span><h3>Visualising financial documents and Excel sheets</h3><p>Bring in .xlsx and CSV files; their sheets become charts and tables that stay linked to the data.</p></div>
+        <div><span class="n">9</span><h3>3D objects in product presentations</h3><p>Place 3D models and scenes on the slide beside the text, so the product can be turned around while you present.</p></div>
+      </div>
     </div>
   </section>
 
