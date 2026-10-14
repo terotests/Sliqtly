@@ -269,6 +269,8 @@ func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		out, err = s.listShares(r.Context())
+	case p == "/api/published" && r.Method == http.MethodGet:
+		out, err = s.published(r.Context())
 	case p == "/api/shares" && r.Method == http.MethodPost:
 		out, err = s.createShare(r)
 		status = 201

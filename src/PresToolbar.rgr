@@ -518,6 +518,18 @@ class PresToolbar {
         return ("Control+" + key)
     }
 
+    ; File's row for the links handed out: what is out on sliqtly.com, a
+    ; server of one's own's own links, or "" where there are none
+    fn publishedLabel:string () {
+        if cloud {
+            return (PresI18n.t("Published in the cloud…"))
+        }
+        if ownLinks {
+            return (PresI18n.t("Shared links…"))
+        }
+        return ""
+    }
+
     ; Record's Voice rows: the host's filters (web/recorder.js), the one in
     ; use ticked.
     fn voiceKids:void (parent:UiItem) {
@@ -2198,9 +2210,10 @@ class PresToolbar {
             this.recentKids(rc)
             ; what is out on sliqtly.com (viewing links, Cloud HTML, Cloud
             ; video), to look through and remove: only where the page
-            ; publishes there
-            if cloud {
-                file.addItem("published" (PresI18n.t("Published in the cloud…")) false)
+            ; publishes there; a server of one's own that hands out its own
+            ; links (Export ▸ Link: …) lists those
+            if ((strlen (this.publishedLabel())) > 0) {
+                file.addItem("published" (this.publishedLabel()) false)
             }
             file.addSeparator()
             this.deckRows(file true)
@@ -2372,8 +2385,8 @@ class PresToolbar {
             this.button("dr-duplicate" (PresI18n.t("Duplicate")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-openbox" (PresI18n.t("Open…")) "ghost" body)
-            if cloud {
-                this.button("dr-published" (PresI18n.t("Published in the cloud…")) "ghost" body)
+            if ((strlen (this.publishedLabel())) > 0) {
+                this.button("dr-published" (this.publishedLabel()) "ghost" body)
             }
             body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)

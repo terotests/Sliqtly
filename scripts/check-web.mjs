@@ -3434,7 +3434,7 @@ try {
       const loading = texts(lp()).includes("Loading…") && texts(lp()).includes("Published in the cloud");
       a.setDecks(JSON.stringify({ list: "pub", title: "Published in the cloud", head1: "created", head1Label: "Published", head2: "size", head2Label: "Size", empty: "Nothing published.", sort: "created", dir: "desc", note: "", rows: [
         { id: "file:S1:recordings/web-0123456789abcdef01234567.webm", name: "Sales", where: "Cloud video (.webm) · example.test/r/L1/012345…", added: "4.10.2026 10:00", modified: "12.0 MB", canDelete: true, current: false },
-        { id: "link:L1", name: "Sales", where: "Viewing link · example.test/s/L1", added: "3.10.2026 09:00", modified: "", canDelete: true, current: false },
+        { id: "link:L1", name: "Sales", where: "Viewing link · example.test/s/L1", added: "3.10.2026 09:00", modified: "", canDelete: true, current: false, acts: [{ id: "copy", label: "Copy link" }, { id: "deck", label: "Presentation" }] },
       ] }));
       const shown = texts(lp());
       const heads = shown.includes("Published ↓") && shown.includes("Size") && !shown.includes("Modified");
@@ -3445,6 +3445,10 @@ try {
       press("pd-r-1");
       const opened = drain();
       const stays = a.decksShowing();
+      // a row's own buttons: copy its link, open its presentation
+      const acts = !!walk(lp(), "pd-a-1-deck") && !walk(lp(), "pd-a-0-copy");
+      press("pd-a-1-copy");
+      const copied = drain();
       press("pd-x-1");
       const armed = drain();
       press("pd-x-1");
@@ -3470,12 +3474,19 @@ try {
       pressT(findT("tb-m-file-trigger"));
       const hidden = !fileRows().includes("tb-m-file-item-published");
       shut();
+      // a server of one's own that hands out its own links lists them
+      a.setOwnLinks(true);
+      pressT(findT("tb-m-file-trigger"));
+      const ownRow = findT("tb-m-file-item-published");
+      const own = !!ownRow && texts(ownRow).includes("Shared links…");
+      shut();
+      a.setOwnLinks(false);
       a.setCloud(true);
-      return { loading, heads, noNew, dels, sort, opened, stays, armed, del, empty, closed, inFile, asked, hidden };
+      return { loading, heads, noNew, dels, sort, opened, stays, acts, copied, armed, del, empty, closed, inFile, asked, hidden, own };
     });
-    check("…File → Published in the cloud… lists what is out with its kind and address; a row opens it, ✕ removes after asking; not on a server of one's own",
-      pub.loading && pub.heads && pub.noNew && pub.dels && pub.sort.join() === "pub:sort:size" && pub.opened.join() === "pub:open:link:L1" && pub.stays &&
-      pub.armed.length === 0 && pub.del.join() === "pub:del:link:L1" && pub.empty && pub.closed && pub.inFile && pub.asked.includes("published") && pub.hidden, JSON.stringify(pub));
+    check("…File → Published in the cloud… lists what is out with its kind and address; a row opens it, ✕ removes after asking; a server of one's own has Shared links… instead",
+      pub.loading && pub.heads && pub.noNew && pub.dels && pub.sort.join() === "pub:sort:size" && pub.opened.join() === "pub:open:link:L1" && pub.stays && pub.acts && pub.copied.join() === "pub:copy:link:L1" &&
+      pub.armed.length === 0 && pub.del.join() === "pub:del:link:L1" && pub.empty && pub.closed && pub.inFile && pub.asked.includes("published") && pub.hidden && pub.own, JSON.stringify(pub));
 
     // A long deck name widens the menu up to a limit and is cut with "…"
     // there; every row stays inside the card and they are all one width

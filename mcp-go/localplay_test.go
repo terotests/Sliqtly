@@ -87,13 +87,40 @@ func TestLocalPlayLinks(t *testing.T) {
 	res.Body.Close()
 	eq(t, res.StatusCode, 403)
 
+	// File → Shared links… lists both recordings, each with its link
+	code, body = req(t, "GET", srv.URL+"/api/published", "", "")
+	eq(t, code, 200, body)
+	var pub struct {
+		Shares []struct {
+			ID, Name, Visibility string
+			Files                []struct {
+				Path     string
+				Size, At int64
+			}
+		}
+		Links []struct {
+			ID, Of, File string
+			Days         int64
+		}
+	}
+	json.Unmarshal([]byte(body), &pub)
+	eq(t, len(pub.Shares), 1)
+	eq(t, []any{pub.Shares[0].ID, pub.Shares[0].Name, pub.Shares[0].Visibility, len(pub.Shares[0].Files)}, []any{id, "Rec deck", "private", 2})
+	eq(t, []any{pub.Shares[0].Files[0].Path, pub.Shares[0].Files[0].Size, pub.Shares[0].Files[0].At > 0}, []any{path, int64(len(data)), true})
+	got := map[string]string{}
+	for _, l := range pub.Links {
+		eq(t, l.Of, id)
+		got[l.File] = l.ID
+	}
+	eq(t, got, map[string]string{path: rl, vpath: vl})
+
 	// the player's page and its recording
 	code, ct, page := get(t, srv.URL+"/r/"+rl+"/"+hash)
 	eq(t, []any{code, ct, page}, []any{200, "text/html; charset=utf-8", "<html><head><title>player</title></head><body>play</body></html>"})
-	code, ct, got := get(t, srv.URL+"/api/view/"+rl+"/rec/"+hash)
-	eq(t, []any{code, ct, got == data}, []any{200, "application/octet-stream", true})
-	code, ct, got = get(t, srv.URL+"/api/view/"+vl+"/rec/"+vhash)
-	eq(t, []any{code, ct, got == vdata}, []any{200, "video/webm", true})
+	code, ct, gotRec := get(t, srv.URL+"/api/view/"+rl+"/rec/"+hash)
+	eq(t, []any{code, ct, gotRec == data}, []any{200, "application/octet-stream", true})
+	code, ct, gotRec = get(t, srv.URL+"/api/view/"+vl+"/rec/"+vhash)
+	eq(t, []any{code, ct, gotRec == vdata}, []any{200, "video/webm", true})
 	// a link shows its own recording, never the other, nor the deck
 	code, _, _ = get(t, srv.URL+"/api/view/"+rl+"/rec/"+vhash)
 	eq(t, code, 404)
@@ -128,5 +155,5 @@ func TestLocalPlayLinks(t *testing.T) {
 
 	// the page's sliqtly.js makes the links here
 	_, _, js := get(t, srv.URL+"/sliqtly.js?v=1")
-	match(t, js, regexp.QuoteMeta("local: true, links: true, viewLink, removeFileLinks"))
+	match(t, js, regexp.QuoteMeta("local: true, links: true, viewLink, removeFileLinks, listPublished, removeShareFile"))
 }
