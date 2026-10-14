@@ -44,6 +44,12 @@ class PresA11y {
                     def n:EVGA11yNode (t.node(row.tid p row.role))
                     if (row.role != (EVGA11yRole.none())) {
                         n.name = row.name
+                        ; a row that says nothing of itself (a select's
+                        ; options) is named by the words it shows, as a
+                        ; browser names an option by its text
+                        if (((strlen n.name) == 0) && (row.role == (EVGA11yRole.option()))) {
+                            n.name = (PresA11y.wordsIn(el))
+                        }
                     }
                     n.roleDescription = row.roleDescription
                     n.description = row.description
@@ -57,6 +63,12 @@ class PresA11y {
                     n.modal = row.modal
                     n.checked = row.checked
                     n.expanded = row.expanded
+                    ; what a trigger opens (a menu, a list) and which way a
+                    ; menu's arrows go: without them a reader hears a plain
+                    ; button that happens to expand
+                    n.hasPopup = row.hasPopup
+                    n.orientation = row.orientation
+                    n.current = row.current
                     n.level = row.level
                     n.setSize = row.setSize
                     n.posInSet = row.setPos
@@ -71,6 +83,23 @@ class PresA11y {
             }
             i = (i + 1)
         }
+    }
+
+    ; The text an element and its children draw, one space between.
+    sfn wordsIn:string (el:EVGElement) {
+        def out:string (trim el.textContent)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def w:string (PresA11y.wordsIn((itemAt el.children i)))
+            if ((strlen w) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + w)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn placeAt:void (n:EVGA11yNode el:EVGElement) {

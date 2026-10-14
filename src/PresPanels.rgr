@@ -794,6 +794,26 @@ class PresPanels {
         this.rebuild()
     }
 
+    ; The open dialog's title, for a reader (the same words it shows).
+    fn dialogTitle:string () {
+        if (dialogKind == "open") {
+            return (PresI18n.t("Open"))
+        }
+        if (dialogKind == "decks") {
+            return (PresI18n.t("Presentations"))
+        }
+        if (dialogKind == "settings") {
+            return (PresI18n.t("Settings"))
+        }
+        if (dialogKind == "data") {
+            if imp.live {
+                return (PresI18n.t("Link live data"))
+            }
+            return (PresI18n.t("Import data"))
+        }
+        return (PresI18n.t("Share presentation"))
+    }
+
     fn closeShare:void () {
         if shareOpen {
             shareOpen = false

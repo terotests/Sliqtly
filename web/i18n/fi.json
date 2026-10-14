@@ -1778,5 +1778,7 @@
   "Save the presentation first: its session is kept with it on the server.": "Tallenna esitys ensin: sen istunto säilytetään sen kanssa palvelimella.",
   "The note was not kept: ": "Muistiinpanoa ei tallennettu: ",
   "Forked with its context: ": "Haarautettu kontekstin kanssa: ",
-  "Could not fork: ": "Haarautus ei onnistunut: "
+  "Could not fork: ": "Haarautus ei onnistunut: ",
+  "Arrows and Space go on, Tab goes to the controls.": "Nuolet ja välilyönti vievät eteenpäin, Tab siirtyy ohjaimiin.",
+  "Tab indents. Esc and then Tab leaves the editor, F6 moves between areas.": "Tab sisentää. Esc ja sitten Tab poistuu editorista, F6 siirtyy alueelta toiselle."
 }

@@ -3731,7 +3731,7 @@ try {
     await page.waitForTimeout(300);
     const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
     const seen = [];
-    for (let i = 0; i < 4; i += 1) { await page.keyboard.press("F6"); seen.push(await act()); }
+    for (let i = 0; i < 8; i += 1) { await page.keyboard.press("F6"); seen.push(await act()); }
     await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.editor.moveCaret(2, 10, false); document.getElementById("keys").focus(); });
     await page.keyboard.press("Control+Space");
     await page.waitForTimeout(200);
@@ -3763,9 +3763,44 @@ try {
     const chartBack = await act();
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath: tabPath.slice(0, 3) }));
-    check("F6 goes from region to region (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
+    check("F6 goes from area to area (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
     check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Slide \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
+  }
+
+  // The keyboard through the whole editor: Tab runs on from one area into the
+  // next, Esc and Tab leave the editor, the bar's menus answer their keys
+  // (→ into a submenu, Esc back to the trigger), a dialog takes the keyboard
+  // and gives it back when it closes
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
+    await page.evaluate(() => window.__kb.focusRegion("bar"));
+    const walk = [await act()];
+    for (let i = 0; i < 40 && !/^tb-rail-/.test(walk[walk.length - 1]); i += 1) { await page.keyboard.press("Tab"); walk.push(await act()); }
+    await page.evaluate(() => window.__kb.focusRegion("editor"));
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Tab");
+    const leftEditor = await act();
+    const srcSame = (await page.evaluate(() => window.__app.source())) === src0;
+    await page.evaluate(() => window.__kb.focusRegion("bar"));
+    for (let i = 0; i < 12 && !/^tb-m-file-trigger$/.test(await act()); i += 1) await page.keyboard.press("Tab");
+    const menu = [];
+    for (const k of ["Enter", "ArrowRight", "ArrowLeft", "End", "Escape"]) { await page.keyboard.press(k); await page.waitForTimeout(150); menu.push(await act()); }
+    await page.evaluate(() => window.__kb.focusRegion("rail"));
+    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) await page.keyboard.press("Tab");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+    const inSettings = await act();
+    const dialog = await page.evaluate(() => { const d = document.querySelector('.evg-a11y [data-a11y-id="pn-dlg"]'); return d ? d.getAttribute("role") + ":" + d.getAttribute("aria-modal") + ":" + d.getAttribute("aria-label") : ""; });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    const afterSettings = await act();
+    check("Tab runs on from the bar into the next area instead of round the bar", walk.some((x) => /^tb-rail-/.test(x)), walk.join(","));
+    check("Esc and then Tab leaves the editor, the text untouched", leftEditor !== "keys" && srcSame, leftEditor);
+    check("a menu of the bar from the keyboard: Enter opens on its first row, → opens a submenu, ← back, End, Esc to the trigger", menu[0] === "tb-m-file-item-new" && /^tb-m-file-item-new-item-/.test(menu[1]) && menu[2] === "tb-m-file-item-new" && menu[3] !== menu[2] && menu[4] === "tb-m-file-trigger", menu.join(","));
+    check("Settings takes the keyboard as a named modal dialog and gives it back on Esc", /^pn-set-/.test(inSettings) && dialog === "dialog:true:Settings" && afterSettings === "tb-rail-settings", JSON.stringify({ inSettings, dialog, afterSettings }));
+    await page.evaluate((s) => window.__app.setSource(s), src0);
   }
 
   // A chart slider shows on the slide while it moves, and one undo takes the whole drag back
