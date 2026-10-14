@@ -812,6 +812,32 @@ class PresApp {
         return (o.toJson())
     }
 
+    ; The programs an export (`picked`: only the picked slides') would show
+    ; as their plate (PresDeck.playsToStill): [{key, slide, w, h}], for the
+    ; page to run their first frames before it exports.
+    fn playsStill:string (picked:boolean) {
+        def only:[int]
+        if (picked && (picks.active())) {
+            def i:int 0
+            while (i < (deck.slideCount())) {
+                if (picks.has(i)) {
+                    push only i
+                }
+                i = (i + 1)
+            }
+        }
+        def out:JVal (JVal.mkArr())
+        for (deck.playsToStill(only)) u:PresPlayUse ui {
+            def o:JVal (JVal.mkObj())
+            o.setStr("key" u.key)
+            o.setInt("slide" u.page)
+            o.setNum("w" u.spec.width)
+            o.setNum("h" u.spec.height)
+            out.add(o)
+        }
+        return (out.toJson())
+    }
+
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {

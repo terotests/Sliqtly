@@ -6914,12 +6914,21 @@ class PresCheck {
             return
         }
         def view:PresPlayView (unwrap v)
+        ; an export runs the first frames of a program with no picture yet
+        def none:[int]
+        def other:[int] ([] _:int (1))
+        this.ok(((array_length (deck.playsToStill(none))) == 1) "plays: a program with no picture is run for an export")
+        this.ok(((array_length (deck.playsToStill(other))) == 0) "plays: not for an export of other slides")
+        view.stopped = "SyntaxError"
+        this.ok(((array_length (deck.playsToStill(none))) == 0) "plays: not one that stopped (its plate says why)")
+        view.stopped = ""
         this.ok(((view.setTree("not json")) == false) "plays: a frame that is no tree is said")
         def tree:string "{\"t\":\"div\",\"cls\":\"x\",\"s\":{\"width\":\"200px\",\"height\":\"100px\"},\"c\":[{\"t\":\"div\",\"id\":\"b\",\"s\":{\"position\":\"absolute\",\"left\":\"10px\",\"top\":\"10px\",\"width\":\"20px\",\"height\":\"20px\",\"background-color\":\"#0000ff\"}}]}"
         this.ok((view.setTree(tree)) "plays: a frame laid out")
         def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
         this.ok(((PresCheck.texts(f1 "▶ g.tsx")) == 0) "plays: the frame replaces the plate")
         this.ok(((PresCheck.redRects(f1)) >= 1) "plays: the program's stylesheet paints it")
+        this.ok(((array_length (deck.playsToStill(none))) == 0) "plays: one with a picture keeps it in an export")
         ; a point of the box in the program's own units, with the id there
         def bi:int (deck.embedBox(0 u.source))
         this.ok((bi >= 0) "plays: the fence has a box")
