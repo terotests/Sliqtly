@@ -3,7 +3,7 @@
 // its picture, a new start on its slide's arrival and an end when it goes.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createVideoPlays, playsOn, videoFrameArg } from "../dist/videoplays.js";
+import { createVideoPlays, playsOn, videoFrameArg, stillPlays, STILL_FRAMES } from "../dist/videoplays.js";
 
 test("a program on the slide, not a slide's script nor another slide's", () => {
   const plays = [{ key: "a#1", slide: 1 }, { key: "s", slide: 1, script: true }, { key: "b#1", slide: 2 }];
@@ -134,4 +134,47 @@ test("probeVideo: each program's first frame, what it asked to the app, the work
   assert.equal(await probeVideo({ app, makeWorker }), true);
   assert.deepEqual(told, [["a#1", 25], ["b#1", 0], ["c#1", 0]]);
   assert.ok(made.length === 2 && made.every((w) => w.ended));
+});
+
+// Before an export: a program whose slide was never shown gets its first
+// frames' picture, not the fence's plate.
+test("an export runs each program with no picture for its first frames", async () => {
+  const set = [];
+  const asked = [];
+  const app = {
+    playsStill: (picked) => { asked.push(picked); return JSON.stringify([{ key: "a#1", slide: 2, w: 100, h: 50 }, { key: "gone#1", slide: 3, w: 1, h: 1 }]); },
+    playSource: (key) => (key === "a#1" ? "function view() { return null }" : ""),
+    playState: () => JSON.stringify({ home: 3, slide: 1 }),
+    setPlayFrame: (key, tree) => { set.push([key, JSON.parse(tree).id]); return true; },
+    setPlayStopped: () => assert.fail("not stopped"),
+  };
+  const made = [];
+  const n = await stillPlays({ app, picked: true, makeWorker: () => fakeWorker(made) });
+  assert.equal(n, 1);
+  assert.deepEqual(asked, [true]);
+  assert.equal(made.length, 1);
+  assert.equal(made[0].frames.length, STILL_FRAMES);
+  assert.equal(made[0].frames[0].deck.slide, 3);
+  assert.ok(made[0].ended);
+  // only the last frame is its picture
+  assert.deepEqual(set, [["a#1", "t" + made[0].frames[STILL_FRAMES - 1].time]]);
+});
+
+test("a program that throws in its first frames says why on its plate", async () => {
+  const stopped = [];
+  const app = {
+    playsStill: () => JSON.stringify([{ key: "a#1", slide: 0, w: 1, h: 1 }]),
+    playSource: () => "x",
+    playState: () => "{}",
+    setPlayFrame: () => assert.fail("no picture"),
+    setPlayStopped: (k, why) => stopped.push([k, why]),
+  };
+  let ended = false;
+  const w = {
+    postMessage(m) { queueMicrotask(() => w.onmessage({ data: m.type === "load" ? { ok: true } : { ok: false, error: "TypeError: boom" } })); },
+    terminate() { ended = true; },
+  };
+  assert.equal(await stillPlays({ app, makeWorker: () => w }), 0);
+  assert.deepEqual(stopped, [["a#1", "TypeError: boom"]]);
+  assert.ok(ended);
 });

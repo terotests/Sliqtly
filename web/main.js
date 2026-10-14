@@ -54,7 +54,7 @@ import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
-import { createVideoPlays, probeVideo } from "./videoplays.js";
+import { createVideoPlays, probeVideo, stillPlays } from "./videoplays.js";
 import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
 import { playUrl } from "./playlink.js";
 import { MAX_DAYS, DEFAULT_DAYS, CHOICES, linkDays, choiceLines, untilText } from "./linkdays.js";
@@ -4159,7 +4159,7 @@ function paintOnce() {
     }
     // Only while editing: not to an audience, and not mid-animation, where a
     // fading line is briefly faint by design.
-    if (layout.mode !== "present" && !viewer && !app.isPlaying()) {
+    if (layout.mode !== "present" && layout.view !== "doc" && !viewer && !app.isPlaying()) {
       // Runs too faint on their slide: marked in the editors' gutters, not
       // laid over the slide. A change shows on the next paint.
       try {
@@ -5801,7 +5801,14 @@ async function renderWorldStills() {
   if (!scenes.length) return;
   for (const p of await three3d.stills(scenes, FX_STILL_W / pw)) app.addImage(p.src, asRangerBuffer(p.bytes), "image/png", p.w, p.h);
 }
+// The programs on slides the stage never showed, run for their first frames
+// so an export shows each one's picture, not its fence's plate
+// (web/videoplays.js stillPlays); before the 3-D worlds, which they draw.
+async function renderPlayStills(picked) {
+  if (await stillPlays({ app, picked: picked && app.pickCount() > 0 })) needsPaint = true;
+}
 async function exportPdf(picked = false) {
+  await renderPlayStills(picked);
   await Promise.all([renderFxStills(), loadEmojiFace(), renderWorldStills()]);
   window.__lastDownload = picked && app.pickCount() > 0
     ? deliver(app.pdfPicked(), pickedName() + ".pdf", "application/pdf")
@@ -5956,6 +5963,7 @@ async function judgeExportContrast() {
 window.__judgeExportContrast = judgeExportContrast;
 
 async function exportPptx(picked = false) {
+  await renderPlayStills(picked);
   await Promise.all([renderFxStills(), renderWorldStills()]);
   await judgeExportContrast();
   const some = picked && app.pickCount() > 0;
@@ -6008,6 +6016,7 @@ async function renderDocxShots(shots) {
 }
 async function exportDocx(picked = false) {
   const some = picked && app.pickCount() > 0;
+  await renderPlayStills(picked);
   await renderDocxShots(JSON.parse(app.docxBegin(some)));
   window.__lastDownload = deliver(app.docxEnd(), (some ? pickedName() : exportName()) + ".docx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
@@ -6015,6 +6024,7 @@ async function exportDocx(picked = false) {
 // A web page: the same reading as Word, the same pictures, one .html file.
 async function exportHtml(picked = false) {
   const some = picked && app.pickCount() > 0;
+  await renderPlayStills(picked);
   await renderDocxShots(JSON.parse(app.docxBegin(some)));
   window.__lastDownload = deliver(app.htmlEnd(), (some ? pickedName() : exportName()) + ".html", "text/html;charset=utf-8");
 }

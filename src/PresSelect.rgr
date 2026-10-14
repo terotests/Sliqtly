@@ -286,7 +286,8 @@ class PresSelect {
         if ((lang == "vega-lite") || (lang == "vegalite")) {
             return "chart"
         }
-        if (PresHints.isDiagramLang(lang)) {
+        ; a program (```app) is boxed like a diagram on the slide
+        if ((PresHints.isDiagramLang(lang)) || ((PresHints.fenceGroup(lang)) == "app")) {
             return "diagram"
         }
         return "code"

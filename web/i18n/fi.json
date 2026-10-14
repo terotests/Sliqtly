@@ -1779,6 +1779,8 @@
   "The note was not kept: ": "Muistiinpanoa ei tallennettu: ",
   "Forked with its context: ": "Haarautettu kontekstin kanssa: ",
   "Could not fork: ": "Haarautus ei onnistunut: ",
+  "View": "Näkymä",
+  "Document": "Dokumentti",
   "1 agent working": "1 agentti työssä",
   "{n} agents working": "{n} agenttia työssä",
   "{n} agents, {w} working": "{n} agenttia, {w} työssä",

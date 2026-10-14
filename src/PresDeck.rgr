@@ -1234,6 +1234,33 @@ class PresDeck {
         return none
     }
 
+    ; The programs an export would show as their fence's plate: on the
+    ; slides `only` names (all when it is empty), their source at hand, no
+    ; picture yet and not stopped. The page runs each one's first frames
+    ; (web/videoplays.js stillPlays) so the PDF, PPTX, Word and web page
+    ; show the program, as a slide the stage never showed would not.
+    fn playsToStill:[PresPlayUse] (only:[int]) {
+        def out:[PresPlayUse]
+        for (this.playUses()) u:PresPlayUse i {
+            if (((array_length only) > 0) && ((indexOf only u.page) < 0)) {
+                continue
+            }
+            if ((this.hasDataText(u.spec.src)) == false) {
+                continue
+            }
+            def v@(optional):PresPlayView (this.playView(u.key))
+            if (null? v) {
+                continue
+            }
+            def view:PresPlayView (unwrap v)
+            if (view.drawn || ((strlen view.stopped) > 0)) {
+                continue
+            }
+            push out u
+        }
+        return out
+    }
+
     ; Whether the stage shows program v's loading ring rather than its
     ; plate: a live list (not a thumbnail or a still page) and v starting.
     fn playLoading:boolean (v:PresPlayView) {

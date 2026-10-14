@@ -76,6 +76,12 @@
   .pipeline .tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .pipeline .tags span { font: 12px/1 var(--mono); color: var(--paper); border: 1px solid var(--line-2); padding: 6px 8px; }
 
+  .cases { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); margin-top: 36px; }
+  .cases > div { background: var(--ink); padding: 24px 22px; }
+  .cases .n { font: 12px/1 var(--mono); color: var(--accent); display: block; margin-bottom: 12px; }
+  .cases h3 { font: 600 18px/1.3 var(--grotesk); margin: 0 0 8px; }
+  .cases p { color: var(--dim); font-size: 14.5px; line-height: 1.55; margin: 0; }
+
   .stats { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); margin-top: 36px; }
   .stats b { display: block; font: 800 clamp(36px, 4.4vw, 60px)/1 var(--grotesk); letter-spacing: -.04em; color: var(--accent); margin-bottom: 10px; }
   .stats span { color: var(--dim); font-size: 15px; line-height: 1.5; }
@@ -96,6 +102,7 @@
   <nav class="nav__links" aria-label="Sections">
     <a href="#problem">Problem</a>
     <a href="#pipes">How it works</a>
+    <a href="#use-cases">Use cases</a>
     <a href="#numbers">Numbers</a>
     <a href="/connect.html">Connect</a>
   </nav>
@@ -108,9 +115,9 @@
       <h1 class="display display--lg">Your AI writes in seconds. <span class="accent">Half of it leaks</span> on the way to slides.</h1>
       <p class="lead">Sliqtly is the plumbing between the assistant and the finished deck. Slyde, our plumber, shows how it is put together. The deck below is Sliqtly itself, played by its own viewer.</p>
       <div class="stage">
-        <iframe src="/s/8wS0x96FOz" title="Slyde esittelee Sliqtlyn: the problem and the solution" allow="fullscreen" loading="eager"></iframe>
+        <iframe src="/s/8wS0x96FOz" title="Slyde presents Sliqtly: the problem and the solution" allow="fullscreen" loading="eager"></iframe>
       </div>
-      <p class="stage__note">Click the slide or press → to go on. The deck is in Finnish. <a href="/s/8wS0x96FOz" target="_blank" rel="noopener">Open it full size</a></p>
+      <p class="stage__note">Click the slide or press → to go on. <a href="/s/8wS0x96FOz" target="_blank" rel="noopener">Open it full size</a></p>
     </div>
   </section>
 
@@ -139,6 +146,24 @@
         <li><h3>Theme and layout</h3><p>One theme turns the text into slides. Charts, diagrams, tables and figures are drawn by Sliqtly, and the assistant checks each slide as a picture before it shares the link.</p><div class="tags"><span>20 themes</span><span>Vega-Lite</span><span>Mermaid</span><span>PlantUML</span></div></li>
         <li><h3>Out in any shape</h3><p>The same deck comes out as whatever you need, without another conversion.</p><div class="tags"><span>Link</span><span>PDF</span><span>PPTX</span><span>DOCX</span><span>HTML</span><span>Video</span><span>Apps on slides</span></div></li>
       </ol>
+    </div>
+  </section>
+
+  <section class="section" id="use-cases">
+    <div class="wrap">
+      <p class="label">Use cases</p>
+      <h2 class="display display--md">One notebook, <span class="accent">many jobs.</span></h2>
+      <div class="cases">
+        <div><span class="n">01</span><h3>Themable markdown slides for product presentations</h3><p>Write the deck as Markdown and pick one of 20 themes; the theme lays out every slide, so changing the look is one line.</p></div>
+        <div><span class="n">02</span><h3>Multi-agent product development documentation storage</h3><p>Claude, Claude Code and other MCP assistants write into the same notebook at once, claim the slides they work on and never overwrite each other.</p></div>
+        <div><span class="n">03</span><h3>User interface prototyping and development environment</h3><p>Clickable prototypes run as small apps right on the slide, next to the Figma screens they come from.</p></div>
+        <div><span class="n">04</span><h3>Planning and implementation notebook</h3><p>Plans live as topics in folders; comments steer the next round and every version is kept, so you can see how the plan changed.</p></div>
+        <div><span class="n">05</span><h3>Quality assurance documentation</h3><p>Review decks of pull requests, test results and findings, with slide comments that go back to the assistant as tasks.</p></div>
+        <div><span class="n">06</span><h3>Process workflow presentations</h3><p>Flowcharts, process steps, timelines and SWOTs drawn from a few lines of text, with a guided tour through the diagram.</p></div>
+        <div><span class="n">07</span><h3>Charts and visual themes</h3><p>Bar, line, point and pie charts from a table or a sheet, coloured by the deck's theme, with animated reveals.</p></div>
+        <div><span class="n">08</span><h3>Visualising financial documents and Excel sheets</h3><p>Bring in .xlsx and CSV files; their sheets become charts and tables that stay linked to the data.</p></div>
+        <div><span class="n">09</span><h3>3D objects in product presentations</h3><p>Place 3D models and scenes on the slide beside the text, so the product can be turned around while you present.</p></div>
+      </div>
     </div>
   </section>
 

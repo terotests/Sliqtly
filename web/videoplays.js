@@ -168,3 +168,62 @@ export function createVideoPlays({ app, makeWorker = () => new Worker(workerUrl(
 
   return { step, end, has: () => plays.some((p) => !p.script) };
 }
+
+// The frames a program is run for its picture in an export: as many as the
+// server runs (mcp-go/cerxescheck.go cerxesCheckFrames), so the editor's
+// export and the MCP's show the same picture.
+export const STILL_FRAMES = 3;
+export const STILL_DT = 0.016;
+
+/**
+ * Before an export: each program that would show as its fence's plate
+ * (app.playsStill(picked): its slide was never on the stage) is started and
+ * run for its first frames, as on its slide, and its last tree is set as
+ * its picture (app.setPlayFrame). One that does not run says why on its
+ * plate (app.setPlayStopped). Returns how many got a picture.
+ */
+export async function stillPlays({ app, picked = false, makeWorker = () => new Worker(workerUrl("cerxes-worker.js"), { type: "module" }) }) {
+  let list = [];
+  try { list = JSON.parse(app.playsStill(picked)); } catch { list = []; }
+  let drawn = 0;
+  for (const p of list) {
+    const source = app.playSource(p.key);
+    if (!source) continue;
+    let worker = null;
+    try {
+      worker = makeWorker();
+    } catch (e) {
+      app.setPlayStopped(p.key, (e && e.message) || "worker");
+      continue;
+    }
+    const ask = (msg, limit) => new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, error: "did not answer within " + Math.round(limit / 1000) + " s" }), limit);
+      worker.onmessage = (ev) => { clearTimeout(timer); resolve(ev.data); };
+      worker.onerror = (e) => { clearTimeout(timer); resolve({ ok: false, error: (e && e.message) || "the program's engine did not start" }); };
+      worker.postMessage(msg);
+    });
+    try {
+      const m = await ask({ type: "load", runtime: RUNTIME + "\n" + DECK_RUNTIME, source }, FIRST_LIMIT_MS);
+      if (!m.ok) {
+        app.setPlayStopped(p.key, m.error || "");
+        continue;
+      }
+      let tree = "";
+      let why = "";
+      for (let i = 0; i < STILL_FRAMES; i++) {
+        const arg = JSON.stringify(videoFrameArg(p, JSON.parse(app.playState(p.key)), i * STILL_DT, STILL_DT));
+        const f = await ask({ type: "frame", arg }, LIMIT_MS);
+        if (!f.ok) {
+          why = f.error || "";
+          break;
+        }
+        tree = splitFrame(f.out).tree;
+      }
+      if (why) app.setPlayStopped(p.key, why);
+      else if (tree && app.setPlayFrame(p.key, tree)) drawn++;
+    } finally {
+      worker.terminate();
+    }
+  }
+  return drawn;
+}
