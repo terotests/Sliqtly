@@ -41,6 +41,19 @@
         ]
       },
       {
+        "source": "/web/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          },
+          {
+            "key": "X-Robots-Tag",
+            "value": "noindex"
+          }
+        ]
+      },
+      {
         "source": "/play.html",
         "headers": [
           {
@@ -253,6 +266,14 @@
       {
         "source": "/r/**",
         "destination": "/play.html"
+      },
+      {
+        "source": "/web/1",
+        "destination": "/web/1.html"
+      },
+      {
+        "source": "/web/2",
+        "destination": "/web/2.html"
       }
     ],
     "redirects": [

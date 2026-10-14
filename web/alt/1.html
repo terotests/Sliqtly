@@ -1,0 +1,171 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com/web/1: a trial front page, unlisted (linked from nowhere,
+     noindex here and in firebase.json). It opens with the problem/solution
+     deck played by the site's own viewer (/s/{id} in an iframe), then the
+     front page's story retold around it. Same look as web/view.html. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Sliqtly: the plumber for your AI</title>
+<meta name="theme-color" content="#070708" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<style>
+  :root {
+    --accent: #c8ff3c; --accent-hi: #d8ff74;
+    --ink: #070708; --paper: #eeeee8; --dim: #9a9ca3; --dimmer: #6c6e75;
+    --line: rgba(255, 255, 255, .10); --line-2: rgba(255, 255, 255, .20);
+    --grotesk: "Helvetica Neue", "Arial Nova", "Inter", Helvetica, Arial, sans-serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --wrap: 1240px; --pad: clamp(16px, 5vw, 60px);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ink); color: var(--paper); }
+  body { font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
+  .label { font: 400 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 18px; }
+  .display { font-family: var(--grotesk); font-weight: 800; letter-spacing: -.04em; line-height: .98; margin: 0 0 24px; text-wrap: balance; }
+  .display--lg { font-size: clamp(34px, 5.6vw, 76px); }
+  .display--md { font-size: clamp(28px, 3.6vw, 48px); }
+  .accent { color: var(--accent); }
+  p { margin: 0 0 16px; }
+  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 19px); max-width: 64ch; }
+
+  .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 26px;
+    padding: 13px var(--pad); background: rgba(7, 7, 8, .92); border-bottom: 1px solid var(--line); }
+  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 700 16px/1 var(--grotesk); }
+  .nav__brand img { width: 22px; height: 22px; }
+  .nav__links { display: flex; gap: 20px; margin-left: 8px; }
+  .nav__links a { color: var(--dim); text-decoration: none; font: 13px/1 var(--mono); }
+  .nav__links a:hover { color: var(--paper); }
+  .nav__cta { margin-left: auto; }
+  @media (max-width: 760px) { .nav__links { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 18px;
+    font: 500 13.5px/1 var(--mono); text-decoration: none; white-space: nowrap; border: 1px solid var(--line-2); color: var(--paper); }
+  .btn:hover { border-color: var(--paper); }
+  .btn--solid { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .btn--solid:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+  .btn--lg { height: 50px; padding: 0 24px; font-size: 14.5px; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: clamp(28px, 4vw, 44px); }
+  .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line-2); padding: 14px; white-space: nowrap; overflow-x: auto; max-width: 100%; }
+
+  .section { padding: clamp(56px, 8vw, 104px) 0; border-bottom: 1px solid var(--line); }
+  .hero { padding-top: clamp(36px, 5vw, 64px); }
+  .stage { position: relative; aspect-ratio: 16 / 9; width: 100%; border: 1px solid var(--line-2); background: #0b0f1f; }
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .stage__note { font: 12.5px/1.5 var(--mono); color: var(--dimmer); margin-top: 12px; }
+  .stage__note a { color: var(--accent); }
+
+  .problems { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); margin-top: 36px; }
+  .problems > div { background: var(--ink); padding: 26px 24px; }
+  .problems h3 { font: 600 19px/1.3 var(--grotesk); margin: 0 0 10px; }
+  .problems p { color: var(--dim); font-size: 15px; line-height: 1.55; margin: 0; }
+  .problems .n { font: 12px/1 var(--mono); color: var(--accent); display: block; margin-bottom: 14px; }
+
+  .pipeline { list-style: none; margin: 40px 0 0; padding: 0; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); counter-reset: pipe; }
+  .pipeline li { position: relative; padding: 24px 22px 22px; border: 1px solid var(--line-2); counter-increment: pipe; }
+  .pipeline li::before { content: "0" counter(pipe); font: 12px/1 var(--mono); color: var(--accent); display: block; margin-bottom: 14px; }
+  .pipeline h3 { font: 700 20px/1.25 var(--grotesk); margin: 0 0 10px; }
+  .pipeline p { color: var(--dim); font-size: 15px; line-height: 1.55; margin: 0 0 10px; }
+  .pipeline .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pipeline .tags span { font: 12px/1 var(--mono); color: var(--paper); border: 1px solid var(--line-2); padding: 6px 8px; }
+
+  .stats { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); margin-top: 36px; }
+  .stats b { display: block; font: 800 clamp(36px, 4.4vw, 60px)/1 var(--grotesk); letter-spacing: -.04em; color: var(--accent); margin-bottom: 10px; }
+  .stats span { color: var(--dim); font-size: 15px; line-height: 1.5; }
+  .fine { font: 13px/1.6 var(--mono); color: var(--dim); margin-top: 24px; max-width: 78ch; }
+  .fine a { color: var(--accent); }
+
+  .foot { padding: 44px 0 56px; }
+  .foot__in { display: flex; flex-wrap: wrap; gap: 18px 32px; justify-content: space-between; font: 13px/1.6 var(--mono); color: var(--dimmer); }
+  .foot__in strong { color: var(--paper); font: 700 16px/1.4 var(--grotesk); display: block; }
+  .foot__in nav { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+  .foot__in a { color: var(--dim); text-decoration: none; }
+  .foot__in a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="nav">
+  <a class="nav__brand" href="/web/1"><img src="/favicon.svg" alt="" width="22" height="22" />Sliqtly</a>
+  <nav class="nav__links" aria-label="Sections">
+    <a href="#problem">Problem</a>
+    <a href="#pipes">How it works</a>
+    <a href="#numbers">Numbers</a>
+    <a href="/connect.html">Connect</a>
+  </nav>
+  <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect via MCP</a></div>
+</header>
+<main>
+  <section class="section hero">
+    <div class="wrap">
+      <p class="label">Sliqtly · the plumber for your AI</p>
+      <h1 class="display display--lg">Your AI writes in seconds. <span class="accent">Half of it leaks</span> on the way to slides.</h1>
+      <p class="lead">Sliqtly is the plumbing between the assistant and the finished deck. Slyde, our plumber, shows how it is put together. The deck below is Sliqtly itself, played by its own viewer.</p>
+      <div class="stage">
+        <iframe src="/s/8wS0x96FOz" title="Slyde esittelee Sliqtlyn: the problem and the solution" allow="fullscreen" loading="eager"></iframe>
+      </div>
+      <p class="stage__note">Click the slide or press → to go on. The deck is in Finnish. <a href="/s/8wS0x96FOz" target="_blank" rel="noopener">Open it full size</a></p>
+    </div>
+  </section>
+
+  <section class="section" id="problem">
+    <div class="wrap">
+      <p class="label">The problem</p>
+      <h2 class="display display--md">Text is cheap. Getting it onto slides is not.</h2>
+      <p class="lead">People keep asking their assistant to turn Markdown into a PDF, a PowerPoint or a Word file. Each round trip goes through the chat again, and each one loses something.</p>
+      <div class="problems">
+        <div><span class="n">Leak 1</span><h3>Every edit costs the whole deck</h3><p>The document passes through the same chat on every change. That gets expensive and slow, and a 15-slide .pptx is 91 KB of XML to rewrite.</p></div>
+        <div><span class="n">Leak 2</span><h3>Markdown has no looks</h3><p>No themes, charts, flowcharts or pagination. Somebody still has to make it look like a presentation.</p></div>
+        <div><span class="n">Leak 3</span><h3>The sources stay behind</h3><p>The numbers live in Excel, the designs in Figma, the old deck in PowerPoint, the code in GitHub. Copying them by hand breaks the link.</p></div>
+        <div><span class="n">Leak 4</span><h3>Every format is its own job</h3><p>PDF for the board, PPTX for the client, a link for the team. Each one is another tool and another conversion.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="pipes">
+    <div class="wrap">
+      <p class="label">The solution</p>
+      <h2 class="display display--md">Four pipes, <span class="accent">one source.</span></h2>
+      <p class="lead">The assistant writes Markdown through MCP. Sliqtly keeps it, lays it out and pours it into whatever shape the moment needs.</p>
+      <ol class="pipeline">
+        <li><h3>Sources in</h3><p>Anything the assistant can read comes in over MCP.</p><div class="tags"><span>Excel</span><span>CSV</span><span>Google Sheets</span><span>Figma</span><span>PowerPoint</span><span>GitHub PRs</span></div></li>
+        <li><h3>One shared notebook</h3><p>Every assistant writes into the same deck and reads it back as about 1,400 tokens of Markdown. You edit the same text; comments drive the next round; every version is kept.</p><div class="tags"><span>Claude</span><span>ChatGPT</span><span>Cursor</span><span>VS Code</span></div></li>
+        <li><h3>Theme and layout</h3><p>One theme turns the text into slides. Charts, diagrams, tables and figures are drawn by Sliqtly, and the assistant checks each slide as a picture before it shares the link.</p><div class="tags"><span>20 themes</span><span>Vega-Lite</span><span>Mermaid</span><span>PlantUML</span></div></li>
+        <li><h3>Out in any shape</h3><p>The same deck comes out as whatever you need, without another conversion.</p><div class="tags"><span>Link</span><span>PDF</span><span>PPTX</span><span>DOCX</span><span>HTML</span><span>Video</span><span>Apps on slides</span></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="numbers">
+    <div class="wrap">
+      <p class="label">Measured</p>
+      <h2 class="display display--md">Smaller decks, smaller edits.</h2>
+      <div class="stats">
+        <div><b>4 KB</b><span>of Markdown for a 15-slide deck that is 91 KB as .pptx.</span></div>
+        <div><b>~70</b><span>tokens for an edit, instead of rewriting the script or the slide XML.</span></div>
+        <div><b>4.75 min</b><span>for a deck and four rounds of changes, against 5.4 with Claude's PowerPoint skill.</span></div>
+        <div><b>Any</b><span>MCP client: Claude, ChatGPT, Cursor, VS Code.</span></div>
+      </div>
+      <p class="fine">Measured 2026-10-07 on the same 15-slide deck made both ways; token counts with Anthropic's public tokenizer. The full comparison is on the <a href="/">front page</a>.</p>
+      <div class="actions">
+        <a class="btn btn--solid btn--lg" href="/connect.html">Connect via MCP</a>
+        <span class="cmd">https://sliqtly.com/mcp</span>
+        <a class="btn btn--lg" href="/local.html">Run it locally →</a>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div><strong>Sliqtly: you write, it does the plumbing.</strong>A trial page, not linked from the site.</div>
+    <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="/local.html">Download</a><a href="/personal-license.txt">License</a><a href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a coffee ☕</a></nav>
+  </div>
+</footer>
+</body>
+</html>
