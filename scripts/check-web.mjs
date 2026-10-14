@@ -3731,7 +3731,7 @@ try {
     await page.waitForTimeout(300);
     const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
     const seen = [];
-    for (let i = 0; i < 8; i += 1) { await page.keyboard.press("F6"); seen.push(await act()); }
+    for (let i = 0; i < 8; i += 1) { await page.keyboard.press("F6"); seen.push(await act() + "/" + await page.evaluate(() => ["bar", "rail", "rooms"].map((r) => window.__kb.focusables(r).length).join(""))); }
     await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.editor.moveCaret(2, 10, false); document.getElementById("keys").focus(); });
     await page.keyboard.press("Control+Space");
     await page.waitForTimeout(200);
@@ -3763,7 +3763,7 @@ try {
     const chartBack = await act();
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath: tabPath.slice(0, 3) }));
-    check("F6 goes from area to area (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.includes("keys"), seen.join(","));
+    check("F6 goes from area to area (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.some((x) => /^keys\//.test(x)), seen.join(","));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
     check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Slide \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
   }
