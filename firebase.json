@@ -274,6 +274,10 @@
       {
         "source": "/web/2",
         "destination": "/web/2.html"
+      },
+      {
+        "source": "/web/use-cases",
+        "destination": "/web/use-cases.html"
       }
     ],
     "redirects": [

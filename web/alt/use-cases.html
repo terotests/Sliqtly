@@ -1,0 +1,399 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com/web/use-cases: nine ways to use Sliqtly, each a short story
+     with pictures of an example deck and a link to it. Unlisted like
+     /web/1 and /web/2 (noindex here and in firebase.json), linked from
+     their Use cases sections. The pictures are render_slide shots of the
+     example decks, kept in web/alt/use-cases/. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Sliqtly: use cases</title>
+<meta name="theme-color" content="#9c4a27" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<style>
+  :root {
+    --copper: #9c4a27; --copper-2: #b5562e; --rust: #6e3219; --cream: #fff4dc; --paper: #fffaf0;
+    --ink: #2a2420; --dim: #5c5048; --line: rgba(42, 36, 32, .14); --teal: #2f7476;
+    --sans: Lato, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --wrap: 1180px; --pad: clamp(16px, 5vw, 60px);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+  body { font: 400 17px/1.65 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+  .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
+  .label { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--copper-2); margin: 0 0 14px; }
+  h1, h2, h3 { font-weight: 900; letter-spacing: -.02em; text-wrap: balance; }
+  h1 { font-size: clamp(36px, 5vw, 62px); line-height: 1.04; margin: 0 0 18px; }
+  h2 { font-size: clamp(26px, 3.2vw, 40px); line-height: 1.1; color: var(--rust); margin: 0 0 28px; }
+  h3 { font-size: 15px; letter-spacing: .02em; text-transform: uppercase; color: var(--copper-2); margin: 0 0 8px; }
+  p { margin: 0 0 14px; }
+  code { font: 14px/1 var(--mono); background: #f3e8da; padding: 2px 5px; border-radius: 4px; }
+  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 20px); max-width: 64ch; }
+
+  .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 24px; padding: 12px var(--pad);
+    background: rgba(255, 250, 240, .95); border-bottom: 1px solid var(--line); }
+  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 900; font-size: 18px; color: var(--copper); }
+  .nav__brand img { width: 24px; height: 24px; }
+  .nav__links { display: flex; gap: 20px; }
+  .nav__links a { color: var(--dim); text-decoration: none; font-size: 15px; }
+  .nav__links a:hover { color: var(--copper); }
+  .nav__cta { margin-left: auto; }
+  @media (max-width: 760px) { .nav__links { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 20px; border-radius: 999px;
+    font: 700 15px/1.2 var(--sans); text-decoration: none; text-align: center; border: 2px solid var(--copper); color: var(--copper); background: transparent; }
+  .btn:hover { background: rgba(156, 74, 39, .08); }
+  .btn--solid { background: var(--copper); color: #fff; }
+  .btn--solid:hover { background: var(--rust); border-color: var(--rust); }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 26px; }
+
+  .hero { background: var(--cream); border-bottom: 1px solid var(--line); padding: clamp(40px, 6vw, 80px) 0; }
+  .toc { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); }
+  .toc a { display: flex; gap: 14px; align-items: baseline; padding: 14px 16px; background: #fff; border: 2px solid var(--ink); border-radius: 12px; text-decoration: none; font-weight: 700; line-height: 1.3; }
+  .toc a:hover { border-color: var(--copper); color: var(--copper); }
+  .toc span { font: 700 13px/1 var(--mono); color: var(--copper-2); }
+
+  .case { padding: clamp(56px, 8vw, 96px) 0; border-bottom: 1px solid var(--line); }
+  .case:nth-of-type(odd) { background: var(--cream); }
+  .case { scroll-margin-top: 60px; }
+  .story { display: grid; gap: 22px 40px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+  .story p { color: var(--dim); }
+  .result { border-left: 6px solid var(--copper-2); padding-left: 18px; align-self: start; }
+  .result p { color: var(--ink); font-weight: 700; font-size: 18px; }
+  .shots { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); margin-top: 30px; }
+  .shots figure { margin: 0; }
+  .shots img { display: block; width: 100%; height: auto; border-radius: 10px; border: 2px solid var(--ink); box-shadow: 6px 8px 0 var(--ink); background: #fff; }
+  .shots a:hover img { border-color: var(--copper); }
+  .shots figcaption { font-size: 14px; color: var(--dim); margin-top: 14px; }
+  .live { margin-top: 36px; max-width: 900px; }
+  .stage { position: relative; aspect-ratio: 16 / 9; width: 100%; border-radius: 12px; overflow: hidden; background: #0b0f1f;
+    box-shadow: 0 0 0 3px var(--ink), 6px 8px 0 3px var(--ink); }
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+  .cta { background: var(--copper); color: #fff; text-align: center; padding: clamp(56px, 8vw, 96px) 0; }
+  .cta h2 { color: #fff; }
+  .cta .lead { color: #f6e7dc; margin-inline: auto; }
+  .cta .actions { justify-content: center; }
+  .cta .btn { border-color: #fff; color: #fff; }
+  .cta .btn--solid { background: #fff; color: var(--copper); }
+  .foot { padding: 36px 0 48px; font-size: 14px; color: var(--dim); }
+  .foot__in { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+  .foot__in nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  .foot__in a { text-decoration: none; }
+</style>
+</head>
+<body>
+<header class="nav">
+  <a class="nav__brand" href="/web/2"><img src="/favicon.svg" alt="" width="24" height="24" />Sliqtly</a>
+  <nav class="nav__links" aria-label="Pages">
+    <a href="/web/2">Overview</a>
+    <a href="#cases">Use cases</a>
+    <a href="/connect.html">Docs</a>
+  </nav>
+  <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect your AI</a></div>
+</header>
+<main>
+  <section class="hero" id="cases">
+    <div class="wrap">
+      <p class="label">Use cases</p>
+      <h1>One notebook, many jobs.</h1>
+      <p class="lead">Nine ways teams use Sliqtly with their AI assistants. Each one is a short story with pictures of a real example deck, made through Sliqtly's MCP tools, and a link to open it.</p>
+      <ol class="toc">
+      <li><a href="#product-slides"><span>01</span>Themable Markdown slides for product presentations</a></li>
+      <li><a href="#multi-agent-docs"><span>02</span>Multi-agent product development documentation storage</a></li>
+      <li><a href="#ui-prototyping"><span>03</span>User interface prototyping and development environment</a></li>
+      <li><a href="#planning"><span>04</span>Planning and implementation notebook</a></li>
+      <li><a href="#qa"><span>05</span>Quality assurance documentation</a></li>
+      <li><a href="#process"><span>06</span>Process workflow presentations</a></li>
+      <li><a href="#charts"><span>07</span>Charts and visual themes</a></li>
+      <li><a href="#finance"><span>08</span>Visualising financial documents and Excel sheets</a></li>
+      <li><a href="#3d"><span>09</span>3D objects in product presentations</a></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="case" id="product-slides">
+    <div class="wrap">
+      <p class="label">Use case 01</p>
+      <h2>Themable Markdown slides for product presentations</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>A product team has to pitch Kokkaa, a cooking app, to investors next week and to customers at launch. The story is the same; the look is not. Last time the deck was rebuilt twice by hand: once in the investor template, once in the brand colours.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>The assistant writes the deck as plain Markdown: a heading per slide, a <code>```stats</code> block for the numbers, <code>```process</code> for how it works, <code>```cards</code> for the plans and <code>```timeline</code> for the launch.</p>
+        <p>The theme lays every slide out. Pearl gives the soft light look; changing one word to <code>midnight</code> turns the whole deck dark with no slide touched. The figures are drawn as shapes, so they stay editable in the PowerPoint export.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>Two decks from one text: same words, same slides, a different look in one line.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc1-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc1-a.jpg" alt="How Kokkaa works, as a process figure in the pearl theme" width="960" height="540" loading="lazy" /></a><figcaption>How Kokkaa works, as a process figure in the pearl theme</figcaption></figure>
+          <figure><a href="/web/use-cases/uc1-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc1-b.jpg" alt="The same slide after switching the theme to midnight" width="960" height="540" loading="lazy" /></a><figcaption>The same slide after switching the theme to midnight</figcaption></figure>
+          <figure><a href="/web/use-cases/uc1-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc1-c.jpg" alt="Launch timeline drawn from four lines of Markdown" width="960" height="540" loading="lazy" /></a><figcaption>Launch timeline drawn from four lines of Markdown</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/jvvef3r1Su" target="_blank" rel="noopener">Open the example deck</a> <a class="btn" href="/s/LEh9FJvJ57" target="_blank" rel="noopener">See the same deck in the midnight theme</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="multi-agent-docs">
+    <div class="wrap">
+      <p class="label">Use case 02</p>
+      <h2>Multi-agent product development documentation storage</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>The Hull Runner team has Claude in a chat writing the product brief, Claude Code keeping the architecture and API pages in step with the code, a Cursor agent writing the test plan, and two people editing release notes. Before, each agent wrote its own file and nobody knew which copy was current.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>Everything lives in one Sliqtly notebook. Each assistant connects over MCP, says which slides it is about to change (<code>begin_work</code>) and gets told when someone else already holds them, so two agents never write over each other.</p>
+        <p>Every save is a version. When a person edits by hand, the next assistant is told exactly what changed, and a comment on a slide comes back to the assistant as its next task.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>One current copy of the product docs, written by several agents at once, with the history of who changed what.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc2-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc2-a.jpg" alt="Who writes which section, and the version of each" width="960" height="540" loading="lazy" /></a><figcaption>Who writes which section, and the version of each</figcaption></figure>
+          <figure><a href="/web/use-cases/uc2-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc2-b.jpg" alt="How two agents claim slides in the same notebook" width="960" height="540" loading="lazy" /></a><figcaption>How two agents claim slides in the same notebook</figcaption></figure>
+          <figure><a href="/web/use-cases/uc2-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc2-c.jpg" alt="What the notebook keeps: versions, claims, comments, hand edits" width="960" height="540" loading="lazy" /></a><figcaption>What the notebook keeps: versions, claims, comments, hand edits</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/Iwz572j5T1" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="ui-prototyping">
+    <div class="wrap">
+      <p class="label">Use case 03</p>
+      <h2>User interface prototyping and development environment</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>The Kokkaa designers want feedback on the recipe flow before anyone builds it. Static screenshots in a deck don&#x27;t show what happens on a tap, and a separate prototype tool means another link, another login and a copy of the screens that drifts.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>The flow is a Mermaid diagram on one slide. On the next, a small program written in TSX runs inside the slide as a clickable phone: tap a recipe, start cooking, watch the timer. It runs in the share link too, so reviewers try it where they read the notes.</p>
+        <p>When feedback comes in, the assistant changes the one <code>.tsx</code> file and the prototype in the deck updates. Findings go on the slide after it.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>The flow, a working prototype and what testers said, in one deck everyone already has open.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc3-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc3-a.jpg" alt="The flow being tested, as a diagram" width="960" height="540" loading="lazy" /></a><figcaption>The flow being tested, as a diagram</figcaption></figure>
+          <figure><a href="/web/use-cases/uc3-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc3-b.jpg" alt="The clickable prototype running inside the slide" width="960" height="540" loading="lazy" /></a><figcaption>The clickable prototype running inside the slide</figcaption></figure>
+          <figure><a href="/web/use-cases/uc3-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc3-c.jpg" alt="What the test taught the team" width="960" height="540" loading="lazy" /></a><figcaption>What the test taught the team</figcaption></figure>
+      </div>
+        <div class="live">
+          <p class="label">Try it live</p>
+          <div class="stage"><iframe src="/s/guPLK4yyya#slide=3" title="User interface prototyping and development environment: live example" allow="fullscreen" loading="lazy"></iframe></div>
+        </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/guPLK4yyya" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="planning">
+    <div class="wrap">
+      <p class="label">Use case 04</p>
+      <h2>Planning and implementation notebook</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>Search in the Kokkaa app is the big item for Q4. The plan was in a doc, the milestones in a roadmap tool, the status in chat threads, and the weekly meeting started with ten minutes of finding the latest version.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>One notebook topic holds the goal and scope, the milestones as a timeline, the implementation steps and a status table. Claude Code can update the status row when its PR merges; people comment on a row to hand the next step to an assistant.</p>
+        <p>Because every version is kept, the team can see how the plan changed between weeks, and the same topic is presented in the weekly meeting as it is.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>Plan, progress and history in one place that both people and assistants keep up to date.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc4-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc4-a.jpg" alt="Milestones for the quarter" width="960" height="540" loading="lazy" /></a><figcaption>Milestones for the quarter</figcaption></figure>
+          <figure><a href="/web/use-cases/uc4-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc4-b.jpg" alt="The implementation steps" width="960" height="540" loading="lazy" /></a><figcaption>The implementation steps</figcaption></figure>
+          <figure><a href="/web/use-cases/uc4-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc4-c.jpg" alt="Status this week, updated by the people and agents doing the work" width="960" height="540" loading="lazy" /></a><figcaption>Status this week, updated by the people and agents doing the work</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/aw8vdfEhBu" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="qa">
+    <div class="wrap">
+      <p class="label">Use case 05</p>
+      <h2>Quality assurance documentation</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>Release 2.4 needs a sign-off. The test results are in CI logs, the defects in a tracker, and the fix for the blocking bug in a pull request. The release manager wants one page that says whether it is safe to ship.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>After the test run, a QA assistant writes the report: the numbers as a stats figure, pass and fail by suite as a chart, the open defects as a table and the fix for the blocker as a diff with the changed characters marked.</p>
+        <p>Sliqtly can also read a GitHub pull request directly and build a review deck from it, so the fix and its explanation stay together.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>A test report the release manager reads in two minutes, rebuilt after every run.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc5-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc5-a.jpg" alt="Pass and fail by test suite" width="960" height="540" loading="lazy" /></a><figcaption>Pass and fail by test suite</figcaption></figure>
+          <figure><a href="/web/use-cases/uc5-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc5-b.jpg" alt="Open defects and their owners" width="960" height="540" loading="lazy" /></a><figcaption>Open defects and their owners</figcaption></figure>
+          <figure><a href="/web/use-cases/uc5-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc5-c.jpg" alt="The fix for the blocking defect, as a diff" width="960" height="540" loading="lazy" /></a><figcaption>The fix for the blocking defect, as a diff</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/lL9Qmq4mkm" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="process">
+    <div class="wrap">
+      <p class="label">Use case 06</p>
+      <h2>Process workflow presentations</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>A warehouse is about to change how it handles orders. Before anything changes, everyone needs to agree on how it works today: the steps, where the decisions are made, and what is good and bad about it.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>The steps are a <code>```process</code> figure, the decisions a Mermaid flowchart written in a few lines of text, and the current state a SWOT. While presenting, the diagram can be toured node by node.</p>
+        <p>Because it is text, the assistant redraws the whole flow after a workshop from the notes, instead of someone moving boxes by hand.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>A shared picture of the process that is quick to change when the process changes.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc6-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc6-a.jpg" alt="The process at a glance" width="960" height="540" loading="lazy" /></a><figcaption>The process at a glance</figcaption></figure>
+          <figure><a href="/web/use-cases/uc6-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc6-b.jpg" alt="Where the decisions are, as a flowchart" width="960" height="540" loading="lazy" /></a><figcaption>Where the decisions are, as a flowchart</figcaption></figure>
+          <figure><a href="/web/use-cases/uc6-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc6-c.jpg" alt="Strengths and weaknesses before the change" width="960" height="540" loading="lazy" /></a><figcaption>Strengths and weaknesses before the change</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/3unGZjbPDz" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="charts">
+    <div class="wrap">
+      <p class="label">Use case 07</p>
+      <h2>Charts and visual themes</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>The monthly growth review has the same five charts every time. Someone exports them from the analytics tool, pastes them into slides and fixes the colours by hand so they match.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>Each chart is a small Vega-Lite spec in the deck: an area chart of users, a donut of channels with the numbers beside it, bars with value labels. The theme colours them, so the charts always match the slides.</p>
+        <p>A chart can read a CSV, an Excel sheet or a Google Sheet, so next month the assistant changes the data and the charts follow.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>Charts that match the deck and update from the data instead of being pasted again.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc7-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc7-a.jpg" alt="Monthly active users as an area chart" width="960" height="540" loading="lazy" /></a><figcaption>Monthly active users as an area chart</figcaption></figure>
+          <figure><a href="/web/use-cases/uc7-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc7-b.jpg" alt="A donut chart with the findings beside it" width="960" height="540" loading="lazy" /></a><figcaption>A donut chart with the findings beside it</figcaption></figure>
+          <figure><a href="/web/use-cases/uc7-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc7-c.jpg" alt="Horizontal bars with value labels and own colours" width="960" height="540" loading="lazy" /></a><figcaption>Horizontal bars with value labels and own colours</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/WxlcrDw4Dk" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="finance">
+    <div class="wrap">
+      <p class="label">Use case 08</p>
+      <h2>Visualising financial documents and Excel sheets</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>Finance keeps the 2027 budget in an Excel workbook. The board wants slides, but every copy-paste from the workbook is a chance for a number to go stale or wrong.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>The workbook goes into the deck as it is. Each sheet can be read by name: a <code>```sheet</code> block shows the quarters table (and can be opened and edited while presenting), and the charts read the same sheets.</p>
+        <p>When finance sends a new version of the workbook, the table and charts redraw from it; nothing is retyped.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>Board slides that show the numbers in the workbook, not a copy of them.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc8-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc8-a.jpg" alt="The workbook sheet on the slide" width="960" height="540" loading="lazy" /></a><figcaption>The workbook sheet on the slide</figcaption></figure>
+          <figure><a href="/web/use-cases/uc8-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc8-b.jpg" alt="Revenue against costs, read from the sheet" width="960" height="540" loading="lazy" /></a><figcaption>Revenue against costs, read from the sheet</figcaption></figure>
+          <figure><a href="/web/use-cases/uc8-c.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc8-c.jpg" alt="Costs by item, read from the second sheet" width="960" height="540" loading="lazy" /></a><figcaption>Costs by item, read from the second sheet</figcaption></figure>
+      </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/zwf2cVALXi" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="case" id="3d">
+    <div class="wrap">
+      <p class="label">Use case 09</p>
+      <h2>3D objects in product presentations</h2>
+      <div class="story">
+        <div>
+          <h3>The situation</h3>
+          <p>Kide is a kitchen speaker that hasn&#x27;t been manufactured yet. Photos don&#x27;t exist, renders take a designer a week, and a flat drawing doesn&#x27;t show the light ring on top.</p>
+        </div>
+        <div>
+          <h3>How Sliqtly does it</h3>
+        <p>A slide program places a 3D model beside the slide's text: cylinders, a metal top and a glowing ring, written as a few lines of React Three Fiber style JSX. It turns slowly while the presenter talks, and the ring pulses like the timer would.</p>
+        <p>A glTF model from a CAD tool can be placed the same way, and the world can be exported back out as glTF.</p>
+        </div>
+        <div class="result">
+          <h3>What you get</h3>
+          <p>A product people can see from every side, in the same deck as its specs.</p>
+        </div>
+      </div>
+      <div class="shots">
+          <figure><a href="/web/use-cases/uc9-a.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc9-a.jpg" alt="The speaker as a 3D model next to the text" width="960" height="540" loading="lazy" /></a><figcaption>The speaker as a 3D model next to the text</figcaption></figure>
+          <figure><a href="/web/use-cases/uc9-b.jpg" target="_blank" rel="noopener"><img src="/web/use-cases/uc9-b.jpg" alt="The specs on the following slide" width="960" height="540" loading="lazy" /></a><figcaption>The specs on the following slide</figcaption></figure>
+      </div>
+        <div class="live">
+          <p class="label">Try it live</p>
+          <div class="stage"><iframe src="/s/gWQZrRBSPG#slide=2" title="3D objects in product presentations: live example" allow="fullscreen" loading="lazy"></iframe></div>
+        </div>
+      <div class="actions"><a class="btn btn--solid" href="/s/gWQZrRBSPG" target="_blank" rel="noopener">Open the example deck</a></div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2>Make your own.</h2>
+      <p class="lead">Connect your assistant to Sliqtly over MCP and ask for any of these in your own words.</p>
+      <div class="actions">
+        <a class="btn btn--solid" href="/connect.html">Connect via MCP</a>
+        <a class="btn" href="/local.html">Run it locally</a>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div><strong>Sliqtly</strong> · a trial page, not linked from the site.</div>
+    <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="/local.html">Download</a><a href="/personal-license.txt">License</a></nav>
+  </div>
+</footer>
+</body>
+</html>

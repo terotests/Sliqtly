@@ -136,15 +136,18 @@ test("a presentation exported to the cloud (/r/{id}/{hash}) is the light player'
   }
 });
 
-test("trial front pages at /web/1 and /web/2: built, not indexed, linked from nowhere", () => {
+test("trial front pages at /web/1, /web/2 and /web/use-cases: built, not indexed, linked from nowhere", () => {
   const rw = hosting().rewrites;
   const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
-  for (const n of ["1", "2"]) {
+  for (const n of ["1", "2", "use-cases"]) {
     assert.equal(rw.find((r) => r.source === "/web/" + n)?.destination, `/web/${n}.html`, n);
     assert.ok(src.includes(`["alt/${n}.html", "web/${n}.html"]`), n);
     const page = fs.readFileSync(path.join(web, "alt", n + ".html"), "utf8");
     assert.match(page, /<meta name="robots" content="noindex/, n);
   }
+  // every picture the use cases page shows is in the folder the build copies
+  const uc = fs.readFileSync(path.join(web, "alt", "use-cases.html"), "utf8");
+  for (const [, f] of uc.matchAll(/src="\/web\/use-cases\/([^"]+)"/g)) assert.ok(fs.existsSync(path.join(web, "alt", "use-cases", f)), f);
   const h = hosting().headers.find((x) => x.source === "/web/**");
   assert.equal(h.headers.find((k) => k.key === "X-Robots-Tag").value, "noindex");
   for (const page of ["view.html", "connect.html", "oauth.html", "local.html", "play.html"]) {
