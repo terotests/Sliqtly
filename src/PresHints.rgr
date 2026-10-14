@@ -339,19 +339,23 @@ class PresHints {
     }
 
     ; The fence languages drawn as a diagram: the markdown module's own
-    ; table (MdEmbedKinds), less the charts and the list figures.
+    ; table (MdEmbedKinds), less the charts, the list figures and the
+    ; programs (```app).
     sfn isDiagramLang:boolean (lang:string) {
         def n:string (MdEmbedKinds.notationOf((to_lowercase (trim lang))))
-        if (((strlen n) == 0) || ((n == "vega") || (n == "figure"))) {
+        if (((strlen n) == 0) || ((n == "vega") || ((n == "figure") || (n == "app")))) {
             return false
         }
         return true
     }
 
     ; What kind of block a fence's language makes: "diagram", "figure",
-    ; "chart", "math" or "code".
+    ; "chart", "math", "app" or "code".
     sfn fenceGroup:string (lang:string) {
         def l:string (to_lowercase (trim lang))
+        if ((MdEmbedKinds.notationOf(l)) == "app") {
+            return "app"
+        }
         if (PresHints.isDiagramLang(l)) {
             return "diagram"
         }
@@ -397,6 +401,10 @@ class PresHints {
         ; what the block can turn into without its body meaning something
         ; else: a list layout another layout, code another language
         def group:string (PresHints.fenceGroup(lang))
+        if (group == "app") {
+            ; a program: nothing to switch to, a click only places the caret
+            return ""
+        }
         if (group == "diagram") {
             ; its looks; the notation is not switched from here
             h.name = (PresI18n.t("Diagram"))
