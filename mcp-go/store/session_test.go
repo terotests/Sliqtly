@@ -213,7 +213,7 @@ func TestPlanForkTakesOnlyTheDeck(t *testing.T) {
 	if d["owner"] != "tero" {
 		t.Errorf("owner %v", d["owner"])
 	}
-	if s := StoryOf(d); s.Type != "problem" || s.Phase != NewStoryPhase || !reflect.DeepEqual(s.Tags, []string{"auth"}) {
+	if s := StoryOf(d); s.Type != "problem" || s.Phase != NewStoryPhase || !reflect.DeepEqual(s.Tags, []string{"auth", "security-review"}) {
 		t.Errorf("story %+v", s)
 	}
 	if f := ForkOf(d); f != (Fork{From: "main1", At: 4, Name: "security-review", By: "tero", Made: now.UnixMilli()}) {

@@ -74,7 +74,8 @@ there.
   `*.env`) and `review/comments.json` (a fork reviews afresh; findings come
   back by merge in M2). Owner keys, edit keys, connectors, links and chat
   are never copied. The fork is a draft owned by whoever forked, in the
-  parent's room and folder, as private as the parent.
+  parent's room and folder, as private as the parent. Its name is
+  "<parent> · <fork name>" and the fork name is added to its story tags.
 
 **Storage**: the session is the ChatLog room `story-<deck_id>` (SQLite
 `chat_msgs` on the folder server), entries as messages with an `act`
@@ -141,3 +142,8 @@ the session as a Firestore ChatLog (`fsChat` exists) and rules for it.
   entries and loses the inherited ones. Removing a log with its deck
   belongs with M2's merge work.
 - The folder server only.
+- The editor names a deck by its first heading when it saves, so a fork
+  opened in the editor shows the parent's title; the fork name stays in
+  its tags, in `list_forks` and in the Session panel's buttons.
+- Fork from an earlier entry (`at`) is MCP only; the panel forks at the
+  newest entry.

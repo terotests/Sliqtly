@@ -41,9 +41,10 @@ import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHA
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { StorySession } from "./storysession.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
-import { RoomChat, unreadRooms } from "./roomchat.js";
+import { RoomChat, unreadRooms, chatMe } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
@@ -2813,6 +2814,7 @@ async function openDocNow(id) {
   dropThumbs();
   needsPaint = true;
   refreshFiles();
+  storySessionOne?.deckChanged().catch((e) => console.warn("session", e));
   return true;
 }
 
@@ -3504,6 +3506,29 @@ function applyReviewMode() {
     document.body.classList.toggle("reviewing", on);
     needsPaint = true;
   }
+  // the Story's session is kept by a server of one's own
+  app.setToolbarOptions("session", "", on && ownServer() ? "1" : "");
+}
+// The Story's session (web/storysession.js, docs/story-workspace.md): the
+// rail's Session, made the first time it is pressed.
+let storySessionOne = null;
+function storySession() {
+  if (storySessionOne) return storySessionOne;
+  let store = null;
+  try { store = mine; } catch (_) { store = { getItem: () => null, setItem: () => {} }; }
+  storySessionOne = new StorySession({
+    app, t, lang, toast,
+    call: roomsCall,
+    deck: () => (ownServer() && doc.cloud ? doc.cloud : ""),
+    me: () => chatMe(store, shownName()),
+    deckName: async (id) => {
+      const res = await fetch("/api/shares/" + encodeURIComponent(id));
+      return res.ok ? (await res.json()).name || "" : "";
+    },
+    openDeck: (id) => fileRequest("doc:cloud:" + id),
+  });
+  window.addEventListener("sliqtly:chat", (ev) => { storySessionOne.event(ev.detail).then(() => { needsPaint = true; }, () => {}); });
+  return storySessionOne;
 }
 function reviewMe() {
   const u = window.sliqtly?.user?.();
@@ -5422,6 +5447,10 @@ function handleRequests() {
     } else if (r === "chat-send") {
       const text = app.chatTakeSent();
       collab?.say(text).catch((e) => toast(t("The message was not sent: ") + (e?.message || e)));
+    } else if (r === "session:toggle") {
+      storySession().toggle().then(() => { needsPaint = true; }, fail);
+    } else if (r.startsWith("session-")) {
+      storySession().request(r).then(() => { needsPaint = true; }, fail);
     } else if (r === "chat-closed") {
       refreshCollabBar();
     } else if (r === "ai-ask") {

@@ -372,7 +372,8 @@ func ForkCopiesFile(p string) bool {
 // PlanFork plans the fork of parent (its share document, id parentID) at
 // place at of its timeline, named name, made by owner (a principal's user
 // id) at now. The fork is a draft of the parent's type and tags in the
-// parent's room and folder, as private as the parent, named after it.
+// parent's room and folder, as private as the parent, named after it and
+// tagged with its name.
 func PlanFork(parent Doc, parentID string, at int64, name, owner string, now time.Time) ForkPlan {
 	d := Doc{}
 	for _, k := range forkFields {
@@ -390,6 +391,9 @@ func PlanFork(parent Doc, parentID string, at int64, name, owner string, now tim
 	}
 	s := StoryOf(parent)
 	s.Phase = NewStoryPhase
+	// the editor names a deck by its first heading, so the fork's name
+	// travels as a tag too: its card and search tell the forks apart
+	s.Tags = CleanTags(append(s.Tags, name))
 	d[StoryField] = StoryDoc(s)
 	d[ForkField] = ForkDoc(Fork{From: parentID, At: at, Name: name, By: owner, Made: now.UnixMilli()})
 	d["owner"] = owner
