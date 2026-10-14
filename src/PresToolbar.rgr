@@ -746,6 +746,54 @@ class PresToolbar {
         ctxOpen = false
     }
 
+    ; A key on an open menu's row or surface from the keyboard (the page's
+    ; accessibility mirror): the menu's own model takes it (MenuCtl.keyDown:
+    ; up and down, Home and End, a letter, → opens a submenu and ← closes it).
+    ; The test id the keyboard goes to, or "" when the key was not the menu's.
+    fn menuKey:string (target:string key:string) {
+        def open:boolean (langSel.open && (langSel.owns(target)))
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if (m.open && (m.owns(target))) {
+                open = true
+            }
+            i = (i + 1)
+        }
+        if (open == false) {
+            return ""
+        }
+        host.focus(target)
+        def before:string host.focusId
+        host.keyWith(key false false)
+        rev = (rev + 1)
+        if (host.focusId == before) {
+            return ""
+        }
+        return host.focusId
+    }
+
+    ; The first row of the menu `trigger` opened, for the keyboard that opened
+    ; it: the surface takes the first Down, as the menu's model says.
+    fn menuFirstRow:string (trigger:string) {
+        ; the language list: on the language chosen now
+        if (langSel.open && ((langSel.triggerTid()) == trigger)) {
+            def chosen:string (langSel.itemTid(langSel.value))
+            host.focus(chosen)
+            rev = (rev + 1)
+            return chosen
+        }
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:MenuCtl (itemAt menus i)
+            if (m.open && ((m.triggerTid()) == trigger)) {
+                return (this.menuKey((m.contentTid()) "ArrowDown"))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     ; The filmstrip's context menu at x, y (another open menu or list closes).
     fn openContext:void (x:double y:double canLeft:boolean canRight:boolean canDelete:boolean) {
         this.closeSelects()

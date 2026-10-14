@@ -4323,6 +4323,10 @@ function rebaseClock() {
 //     Enter                its heading in the editor
 //   Ctrl+Space       the value popover at the caret, with the keyboard in it
 let lastA11yRev = "";
+// The area whose drawn field the hidden field types into ("" the editor's).
+let keysRegion = "";
+// Esc was the editor's last key: a Tab now leaves the editor.
+let escArmed = false;
 let a11yTree = null;
 const mirror = createA11yMirror(stageEl, {
   canvas,
@@ -4338,6 +4342,23 @@ const mirror = createA11yMirror(stageEl, {
     needsPaint = true;
     paintOnce();
     mirrorA11y();
+    const menu = menuOf(node.id);
+    if (menu && node.id.endsWith("-trigger")) {
+      // a menu opened from the keyboard: on its first row, at once (a key
+      // pressed before the next frame goes to that row, not the trigger)
+      const first = app.a11yMenuFirst(node.id);
+      if (first) {
+        paintOnce();
+        mirrorA11y();
+        const n = a11yTree && a11yTree.byId.get(first);
+        if (n && mirror.elementOf(first)) focusNode(n);
+      }
+      return;
+    }
+    // a dialog it opened takes the keyboard now, not a frame later
+    const before = document.activeElement;
+    followDialogs();
+    if (document.activeElement !== before) return;
     // what was pressed may be gone (a popover that closed): the keyboard goes
     // back to the editor rather than to nowhere
     const pressedEl = mirror.elementOf(node.id);
@@ -4347,9 +4368,13 @@ const mirror = createA11yMirror(stageEl, {
       // only when the keyboard is really lost: focus moved on since (another
       // shortcut, a click) is left alone
       const lost = !act || act === document.body || act === pressedEl;
+      followDialogs();
+      if (document.activeElement !== act && document.activeElement !== document.body) return;
       if (lost && (!el || !el.isConnected)) {
+        const back = menu && a11yTree && a11yTree.byId.get(menu + "-trigger");
         const reg = regionOf(node.id);
-        if (reg === "ctx" || !focusRegion(reg)) focusApp();
+        if (back && mirror.elementOf(back.id) && app.focusTarget() !== "editor") focusNode(back);
+        else if (reg === "ctx" || menu || !focusRegion(reg)) focusApp();
       }
     });
   },
@@ -4367,12 +4392,26 @@ function mirrorA11y() {
 function regionOf(id) {
   if (!id) return "";
   if (id.startsWith("tb-m-ctx")) return "ctx";
+  // the left rail and the Rooms panel beside it are areas of their own: as
+  // part of the bar, Tab walked the bar and the rooms round and round
+  if (id.startsWith("tb-rail-")) return "rail";
+  if (id.startsWith("tb-room")) return "rooms";
   if (id.startsWith("tb-")) return "bar";
+  if (id.startsWith("decktabs")) return "decks";
   if (id.startsWith("edtabs")) return "tabs";
   if (id.startsWith("thumb-")) return "slides";
   if (id.startsWith("pn-")) return "panels";
   if (id.startsWith("hp-")) return "hint";
   if (id.startsWith("ce-")) return "chart";
+  // a control with a name of its own (a confirm window's cf-ok, a chip): the
+  // area of the window or panel it is in
+  let n = a11yTree && a11yTree.byId.get(id);
+  for (let depth = 0; n && depth < 32; depth += 1) {
+    if (n.id === "chart") return "chart";
+    if (n.id === "hint") return "hint";
+    if (n.id === "pn-dlg") return "panels";
+    n = n.p ? a11yTree.byId.get(n.p) : null;
+  }
   return "";
 }
 function focusables(region) {
@@ -4380,6 +4419,20 @@ function focusables(region) {
   return a11yTree.nodes.filter((n) => n.focusable && !n.disabled && regionOf(n.id) === region && mirror.elementOf(n.id));
 }
 function focusNode(node) {
+  // A drawn text field takes its keys through the hidden field, as a click on
+  // it does: the mirror's <input> would swallow the typing.
+  if (node.role === "textbox") {
+    const reg = regionOf(node.id);
+    pressAtCentre(node, (x, y) => {
+      app.pointerDown(x, y, false, 1);
+      app.pointerUp();
+    });
+    afterInput();
+    paintOnce();
+    focusKeys(app.focusTarget());
+    if (reg) keysRegion = reg;
+    return;
+  }
   app.setA11yFocus(node.id);
   const el = mirror.elementOf(node.id);
   if (el) el.focus({ preventScroll: true });
@@ -4446,7 +4499,7 @@ function stripKey(ev) {
 }
 function currentRegion() {
   const el = document.activeElement;
-  if (el === keys) return "editor";
+  if (el === keys) return keysRegion || "editor";
   const id = el && el.dataset ? el.dataset.a11yId : "";
   return regionOf(id);
 }
@@ -4455,7 +4508,42 @@ function regionOrder() {
   if (app.chartIsOpen()) return ["chart"];
   if (app.shareIsOpen()) return ["panels"];
   if (app.hintIsOpen() && currentRegion() === "hint") return ["hint", "editor"];
-  return ["bar", "tabs", "editor", "slides", "panels"];
+  return ["bar", "rail", "rooms", "decks", "tabs", "editor", "slides", "panels"];
+}
+// Tab and Shift+Tab: on to the next control, and at the end of an area on
+// into the next area, the way a page's Tab order runs. An open dialog,
+// popover or menu keeps the keyboard inside it (round and round).
+function tabFrom(id, back) {
+  const order = regionOrder();
+  const reg = id ? regionOf(id) : currentRegion();
+  if (reg !== "editor") {
+    const list = focusables(reg);
+    const at = list.findIndex((n) => n.id === id);
+    const held = order.length === 1 || reg === "hint" || reg === "ctx";
+    if (held || at < 0) {
+      if (list.length) focusNode(list[(at + (back ? -1 : 1) + list.length) % list.length]);
+      return;
+    }
+    const next = at + (back ? -1 : 1);
+    if (next >= 0 && next < list.length) {
+      focusNode(list[next]);
+      return;
+    }
+  }
+  const k = order.indexOf(reg);
+  for (let step = 1; step <= order.length; step += 1) {
+    const r = order[(k + (back ? -step : step) + order.length * 2) % order.length];
+    if (r === "editor") {
+      if (focusRegion("editor")) return;
+      continue;
+    }
+    mirrorA11y();
+    const there = focusables(r);
+    if (there.length) {
+      focusNode(back ? there[there.length - 1] : there[0]);
+      return;
+    }
+  }
 }
 function cycleRegion(back) {
   const order = regionOrder();
@@ -4473,7 +4561,52 @@ function moveInRegion(step) {
   const at = list.findIndex((n) => n.id === id);
   focusNode(list[(at + step + list.length) % list.length]);
 }
-window.__kb = { focusables, focusRegion, currentRegion };
+window.__kb = { focusables, focusRegion, currentRegion, tabFrom };
+// The menus of the bar (File, Edit…): which menu a node is in, and its trigger.
+const menuOf = (id) => {
+  const m = /^(tb-m-(?!ctx)[a-z0-9]+|tb-lang)-(trigger|content|item-.*)$/i.exec(id || "");
+  return m ? m[1] : "";
+};
+// What had the keyboard when a dialog opened: it goes back there when the
+// dialog closes (a drawn dialog cannot do what <dialog> does by itself).
+let dialogOpen = "";
+let dialogOpener = "";
+function dialogNow() {
+  if (app.chartIsOpen()) return "chart";
+  if (app.shareIsOpen()) return "panels";
+  return "";
+}
+function followDialogs() {
+  const now = dialogNow();
+  if (now === dialogOpen) return;
+  const was = dialogOpen;
+  dialogOpen = now;
+  if (now) {
+    const act = document.activeElement;
+    const actId = (act && act.dataset && act.dataset.a11yId) || "";
+    // (a shortcut that opened it may already have put the keyboard inside)
+    if (!was) dialogOpener = act === keys || regionOf(actId) === now ? "" : actId;
+    // Into the dialog, unless the keys already went to one of its fields (a
+    // name to type) through the hidden field.
+    if (act === keys && (app.chartHasKeys() || keysRegion === now)) return;
+    const list = focusables(now);
+    // the first thing in it to press, not its title bar or ×
+    const first = list.find((n) => n.role !== "textbox" && !/-(titlebar|close)$/.test(n.id)) || list.find((n) => n.role !== "textbox") || list[0];
+    if (first) focusNode(first);
+    return;
+  }
+  // closed: back where the keyboard was, if it is now nowhere or still inside
+  // what closed
+  const act = document.activeElement;
+  const lost = !act || act === document.body || !act.isConnected || (act.dataset && act.dataset.a11yId && !mirror.elementOf(act.dataset.a11yId)) || (act === keys && keysRegion === was);
+  const opener = dialogOpener;
+  dialogOpener = "";
+  keysRegion = "";
+  if (!lost) return;
+  const node = opener && a11yTree && a11yTree.byId.get(opener);
+  if (node && mirror.elementOf(opener)) focusNode(node);
+  else focusApp();
+}
 mirror.root.addEventListener("keydown", (ev) => {
   const el = ev.target;
   const id = el && el.dataset ? el.dataset.a11yId : "";
@@ -4484,9 +4617,10 @@ mirror.root.addEventListener("keydown", (ev) => {
     cycleRegion(ev.shiftKey);
     return;
   }
+  if (menuOf(id) && node && menuKey(ev, id, node)) return;
   if (ev.key === "Tab") {
     ev.preventDefault();
-    moveInRegion(ev.shiftKey ? -1 : 1);
+    tabFrom(id, ev.shiftKey);
     return;
   }
   if (/^thumb-\d+$/.test(id) && stripKey(ev)) return;
@@ -4523,7 +4657,9 @@ mirror.root.addEventListener("keydown", (ev) => {
     moveInRegion(-1);
     return;
   }
-  if (ev.key === " " && el.tagName !== "BUTTON") {
+  // Enter and Space press what is not a native button too (a tab, an
+  // option, a combobox): only Space did, so Enter on a tab did nothing
+  if ((ev.key === " " || ev.key === "Enter") && el.tagName !== "BUTTON" && el.tagName !== "INPUT") {
     ev.preventDefault();
     el.click();
     return;
@@ -4531,17 +4667,96 @@ mirror.root.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     ev.preventDefault();
     const reg = regionOf(id);
+    const inDialog = reg === dialogOpen && reg !== "";
     if (reg === "hint") app.closeHint();
     else if (reg === "chart") app.key("escape", false, false);
     else if (reg === "panels" && app.shareIsOpen()) app.closeShare();
-    else if (reg === "bar" || reg === "ctx") app.key("escape", false, false);
+    else if (reg === "bar" || reg === "rail" || reg === "rooms" || reg === "decks" || reg === "ctx") app.key("escape", false, false);
     afterInput();
     app.setA11yFocus("");
+    // a dialog closed: the keyboard goes back to what opened it
+    if (inDialog) {
+      paintOnce();
+      mirrorA11y();
+      followDialogs();
+      if (mirror.root.contains(document.activeElement) || document.activeElement === keys) {
+        needsPaint = true;
+        return;
+      }
+    }
     if (reg === "ctx") focusApp();
     else focusKeys(app.focusTarget() === "stage" ? "stage" : "editor");
     needsPaint = true;
   }
 });
+// A key on a menu of the bar or on its trigger: the menu's own model
+// (MenuCtl: arrows, Home/End, a letter, → into a submenu, ← out of it,
+// Escape back to the trigger); ← and → past the ends go to the next menu of
+// the bar, as a menu bar's do. True when the key was taken.
+function menuKey(ev, id, node) {
+  const menu = menuOf(id);
+  const trigger = menu + "-trigger";
+  const inMenu = id !== trigger;
+  const k = ev.key;
+  const settle = (to) => {
+    afterInput();
+    paintOnce();
+    mirrorA11y();
+    const n = to && a11yTree && a11yTree.byId.get(to);
+    if (n && mirror.elementOf(to)) focusNode(n);
+  };
+  if (!inMenu) {
+    if (k === "ArrowDown" && node.expanded !== 2) {
+      ev.preventDefault();
+      mirror.elementOf(id)?.click();
+      return true;
+    }
+    return false;
+  }
+  if (k === "Tab") {
+    ev.preventDefault();
+    app.key("escape", false, false);
+    settle(trigger);
+    tabFrom(trigger, ev.shiftKey);
+    return true;
+  }
+  if (k === "Escape") {
+    ev.preventDefault();
+    app.key("escape", false, false);
+    settle(trigger);
+    return true;
+  }
+  // Enter or Space on a row with a submenu opens it, as → does
+  const opensSub = (k === "Enter" || k === " ") && node.expanded;
+  if (opensSub || /^(Arrow(Up|Down|Left|Right)|Home|End|PageUp|PageDown)$/.test(k) || (k.length === 1 && k !== " " && !ev.ctrlKey && !ev.metaKey && !ev.altKey)) {
+    ev.preventDefault();
+    const to = app.a11yMenuKey(id, opensSub ? "ArrowRight" : k);
+    if (to) {
+      settle(to);
+      return true;
+    }
+    if (k === "ArrowLeft" || k === "ArrowRight") {
+      // past the ends of a menu: the menu beside it in the bar, open
+      const triggers = focusables("bar").filter((n) => /^tb-m-/.test(n.id) && menuOf(n.id) && n.id.endsWith("-trigger"));
+      const at = triggers.findIndex((n) => n.id === trigger);
+      const next = triggers[(at + (k === "ArrowRight" ? 1 : -1) + triggers.length) % triggers.length];
+      if (next && next.id !== trigger) {
+        app.key("escape", false, false);
+        settle("");
+        mirror.elementOf(next.id)?.click();
+      }
+    }
+    return true;
+  }
+  if (k === "Enter" || k === " ") {
+    // a row chosen: the menu closes and runs it; the keyboard goes back to the
+    // trigger, unless what it ran took the keyboard (a dialog, the editor)
+    ev.preventDefault();
+    mirror.elementOf(id)?.click();
+    return true;
+  }
+  return false;
+}
 
 // --- files the charts read -------------------------------------------------------
 // A chart may take its rows from a file (`"data": {"url": "data/movies.json"}`,
@@ -4947,6 +5162,7 @@ function frame() {
       lastRev = rev;
       syncEndPanel();
       syncCounter();
+      syncKeysLabel();
       syncRecBar();
       loadLookFaces();
       if (rev !== inlineSvgRev) loadInlineSvgs(rev);
@@ -4959,6 +5175,7 @@ function frame() {
       if (rev !== lastA11yRev) {
         lastA11yRev = rev;
         mirrorA11y();
+        followDialogs();
       }
     }
   } catch (e) {
@@ -7521,6 +7738,26 @@ const vGo = document.getElementById("vGo");
 function presentingNow() {
   return !!(lastLayout && lastLayout.mode === "present");
 }
+// What the hidden field is, for a reader: the editor's Markdown, or while
+// presenting the keys that run the presentation.
+let keysLabelFor = "";
+function syncKeysLabel() {
+  const mode = presentingNow() ? "present" : "edit";
+  if (mode === keysLabelFor) return;
+  keysLabelFor = mode;
+  // the controls along the bottom show a symbol (◀ ▶ ✎ ⛶): their name is
+  // their title's words, which a reader otherwise heard as the symbol
+  for (const b of document.querySelectorAll("#viewBar button")) {
+    if (b.title && !/[\p{L}\d]/u.test(b.textContent)) b.setAttribute("aria-label", b.title.replace(/\s*\(.*\)\s*$/, ""));
+  }
+  if (mode === "present") {
+    keys.setAttribute("aria-label", t("Presenting"));
+    keys.setAttribute("aria-description", t("Arrows and Space go on, Tab goes to the controls."));
+  } else {
+    keys.setAttribute("aria-label", t("Markdown — type here"));
+    keys.setAttribute("aria-description", t("Tab indents. Esc and then Tab leaves the editor, F6 moves between areas."));
+  }
+}
 function syncCounter() {
   if (!presentingNow()) return;
   const label = app.slideLabel();
@@ -8663,6 +8900,7 @@ function restartBlink() {
 }
 
 function focusKeys(where) {
+  keysRegion = "";
   app.setA11yFocus("");
   app.setFocus(where);
   keys.focus({ preventScroll: true });
@@ -8684,6 +8922,27 @@ keys.addEventListener("keydown", (ev) => {
   if (canvasPicking && ev.key === "Escape") {
     ev.preventDefault();
     endCanvasPick("");
+    return;
+  }
+  const plainTab = ev.key === "Tab" && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+  // Presenting: Tab goes to the controls along the bottom (the field keeps
+  // the keys that turn the slides, and Tab used to go nowhere from it).
+  if (plainTab && presentingNow()) {
+    const buttons = [...document.querySelectorAll("#viewBar > button")].filter((b) => !b.hidden && b.offsetParent !== null);
+    if (buttons.length) {
+      ev.preventDefault();
+      wakeViewer();
+      (ev.shiftKey ? buttons[buttons.length - 1] : buttons[0]).focus();
+      return;
+    }
+  }
+  // Tab indents in the editor, so Esc and then Tab (or Shift+Tab) leaves it,
+  // as in other code editors on the web; F6 does too.
+  const leaving = escArmed;
+  if (!/^(Shift|Control|Alt|Meta)$/.test(ev.key)) escArmed = ev.key === "Escape";
+  if (plainTab && leaving && keysRegion === "" && app.focusTarget() === "editor") {
+    ev.preventDefault();
+    tabFrom("", ev.shiftKey);
     return;
   }
   if (ev.key === "F6") {

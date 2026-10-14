@@ -11505,6 +11505,25 @@ class PresApp {
         return selected
     }
 
+    ; A key on an open menu of the bar from the keyboard (main.js): where the
+    ; keyboard goes, "" when the menu did nothing with it.
+    fn a11yMenuKey:string (id:string key:string) {
+        def to:string (toolbar.menuKey(id key))
+        if ((strlen to) > 0) {
+            chromeRev = (chromeRev + 1)
+        }
+        return to
+    }
+
+    ; The first row of the menu the keyboard just opened with `trigger`.
+    fn a11yMenuFirst:string (trigger:string) {
+        def to:string (toolbar.menuFirstRow(trigger))
+        if ((strlen to) > 0) {
+            chromeRev = (chromeRev + 1)
+        }
+        return to
+    }
+
     fn a11yJson:string () {
         def t (new EVGA11yTree())
         a11yGen = (a11yGen + 1)
@@ -11603,7 +11622,18 @@ class PresApp {
                 PresA11y.addHost(t room.host "app")
             }
             if (panels.any()) {
-                PresA11y.addHost(t panels.host "app")
+                ; an open dialog (Settings, Open…, Share…) is a modal dialog
+                ; with its title for a name, the rest of the page hidden from
+                ; a reader while it is up
+                def pnParent:string "app"
+                if panels.shareOpen {
+                    def dn:EVGA11yNode (t.node("pn-dlg" "app" (EVGA11yRole.dialog())))
+                    dn.name = (panels.dialogTitle())
+                    dn.modal = true
+                    t.place(dn 0 0 (to_int W) (to_int H))
+                    pnParent = "pn-dlg"
+                }
+                PresA11y.addHost(t panels.host pnParent)
                 if (panels.helpOpen && (!null? panels.host.lastPage)) {
                     def pp:EVGElement (unwrap panels.host.lastPage)
                     def h:int 0
@@ -11632,8 +11662,11 @@ class PresApp {
                 }
             }
             if chart.isOpen {
-                def cn:EVGA11yNode (t.node("chart" "app" (EVGA11yRole.dialog())))
-                cn.name = (PresI18n.t("Chart settings"))
+                ; the window inside says what it is (its own dialog row with
+                ; its title: Share, Your name, Document settings…); this one
+                ; only holds it, and a second dialog named "Chart settings"
+                ; around every window misnamed all but one of them
+                def cn:EVGA11yNode (t.node("chart" "app" (EVGA11yRole.none())))
                 t.place(cn 0 0 (to_int W) (to_int H))
                 PresA11y.addHost(t chart.host "chart")
             }
