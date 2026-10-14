@@ -1712,6 +1712,12 @@ class PresCheck {
         this.ok(((indexOf code "\"js\"") >= 0) ("…such as js: " + code))
         def m:string (PresHints.forLine("md" "```math" 5 false))
         this.ok(((indexOf m "\"options\":[]") >= 0) ("a formula: nothing to switch to: " + m))
+        ; a program's fence and its lines: no card, a click places the caret
+        def ap:string (PresHints.forLine("md" "```app" 5 false))
+        this.ok(((strlen ap) == 0) ("a program: no card: " + ap))
+        this.ok(((PresHints.isDiagramLang("app")) == false) "a program is not a diagram")
+        this.ok(((strlen (PresHints.forLine("md" "src: apps/avustajat.tsx" 3 false))) == 0) "a program's src: line: no card")
+        this.ok(((strlen (PresHints.forLine("md" "size: 1690x610" 8 false))) == 0) "a program's size: line: no card")
     }
 
     fn diagramLooks:void () {
