@@ -135,3 +135,19 @@ test("a presentation exported to the cloud (/r/{id}/{hash}) is the light player'
     assert.ok(["gl/evg-webgl.js", "fxdeck.js", "recstream.js", "playlink.js", "viewlink.js"].includes(m[1]), m[1]);
   }
 });
+
+test("trial front pages at /web/1 and /web/2: built, not indexed, linked from nowhere", () => {
+  const rw = hosting().rewrites;
+  const src = fs.readFileSync(path.join(root, "scripts", "build-view.mjs"), "utf8");
+  for (const n of ["1", "2"]) {
+    assert.equal(rw.find((r) => r.source === "/web/" + n)?.destination, `/web/${n}.html`, n);
+    assert.ok(src.includes(`["alt/${n}.html", "web/${n}.html"]`), n);
+    const page = fs.readFileSync(path.join(web, "alt", n + ".html"), "utf8");
+    assert.match(page, /<meta name="robots" content="noindex/, n);
+  }
+  const h = hosting().headers.find((x) => x.source === "/web/**");
+  assert.equal(h.headers.find((k) => k.key === "X-Robots-Tag").value, "noindex");
+  for (const page of ["view.html", "connect.html", "oauth.html", "local.html", "play.html"]) {
+    assert.ok(!/["'(]\/web\/\d/.test(fs.readFileSync(path.join(web, page), "utf8")), page);
+  }
+});

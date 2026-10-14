@@ -1,0 +1,187 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- sliqtly.com/web/2: a second trial front page, unlisted (linked from
+     nowhere, noindex here and in firebase.json). A light page in the copper
+     colours of the "tekoälyn putkimies" deck: the problem/solution deck next
+     to the pitch, then the four pipes with the prototype deck. Both decks
+     are played by the site's own viewer (/s/{id} in an iframe). -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Sliqtly: you write, we do the plumbing</title>
+<meta name="theme-color" content="#9c4a27" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<style>
+  :root {
+    --copper: #9c4a27; --copper-2: #b5562e; --rust: #6e3219; --cream: #fff4dc; --paper: #fffaf0;
+    --ink: #2a2420; --dim: #5c5048; --line: rgba(42, 36, 32, .14); --teal: #2f7476;
+    --sans: Lato, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --wrap: 1240px; --pad: clamp(16px, 5vw, 60px);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }
+  body { font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+  .wrap { max-width: var(--wrap); margin-inline: auto; padding-inline: var(--pad); }
+  .label { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--copper-2); margin: 0 0 16px; }
+  h1, h2, h3 { font-weight: 900; letter-spacing: -.02em; margin: 0 0 18px; text-wrap: balance; }
+  h1 { font-size: clamp(36px, 5vw, 66px); line-height: 1.02; }
+  h2 { font-size: clamp(28px, 3.4vw, 44px); line-height: 1.08; color: var(--rust); }
+  h3 { font-size: 21px; line-height: 1.25; color: var(--copper-2); margin-bottom: 10px; }
+  p { margin: 0 0 16px; }
+  .lead { color: var(--dim); font-size: clamp(16px, 1.5vw, 20px); max-width: 60ch; }
+
+  .nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 24px; padding: 12px var(--pad);
+    background: rgba(255, 250, 240, .94); border-bottom: 1px solid var(--line); }
+  .nav__brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 900; font-size: 18px; color: var(--copper); }
+  .nav__brand img { width: 24px; height: 24px; }
+  .nav__links { display: flex; gap: 20px; }
+  .nav__links a { color: var(--dim); text-decoration: none; font-size: 15px; }
+  .nav__links a:hover { color: var(--copper); }
+  .nav__cta { margin-left: auto; }
+  @media (max-width: 760px) { .nav__links { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 20px; border-radius: 999px;
+    font: 700 15px/1 var(--sans); text-decoration: none; white-space: nowrap; border: 2px solid var(--copper); color: var(--copper); background: transparent; }
+  .btn:hover { background: rgba(156, 74, 39, .08); }
+  .btn--solid { background: var(--copper); color: #fff; }
+  .btn--solid:hover { background: var(--rust); border-color: var(--rust); }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 28px; }
+  .cmd { font: 13px/1 var(--mono); color: var(--dim); border: 1px dashed var(--line); padding: 13px; white-space: nowrap; overflow-x: auto; max-width: 100%; background: #fff; }
+
+  .section { padding: clamp(56px, 8vw, 100px) 0; }
+  .hero { background: var(--cream); border-bottom: 1px solid var(--line); padding-top: clamp(36px, 5vw, 72px); }
+  .hero__grid { display: grid; gap: clamp(28px, 4vw, 56px); grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: center; }
+  @media (max-width: 960px) { .hero__grid { grid-template-columns: 1fr; } }
+  .stage { position: relative; aspect-ratio: 16 / 9; width: 100%; border-radius: 14px; overflow: hidden; background: #0b0f1f;
+    box-shadow: 0 0 0 4px var(--ink), 8px 12px 0 4px var(--ink); }
+  .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .stage__note { font-size: 13.5px; color: var(--dim); margin-top: 22px; }
+  .stage__note a { color: var(--teal); font-weight: 700; }
+
+  .vs { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); margin-top: 32px; }
+  .vs > div { border-radius: 14px; padding: 26px 26px 18px; border: 2px solid var(--ink); background: #fff; }
+  .vs .before { background: #fdeee6; }
+  .vs ul { margin: 0; padding-left: 20px; color: var(--dim); }
+  .vs li { margin-bottom: 8px; }
+
+  .pipes { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); margin: 32px 0 44px; }
+  .pipes > div { border-left: 6px solid var(--copper-2); padding: 6px 0 6px 18px; }
+  .pipes p { color: var(--dim); font-size: 15.5px; margin: 0; }
+  .wide { max-width: 1040px; }
+
+  .cta { background: var(--copper); color: #fff; text-align: center; }
+  .cta h2 { color: #fff; }
+  .cta .lead { color: #f6e7dc; margin-inline: auto; }
+  .cta .actions { justify-content: center; }
+  .cta .btn { border-color: #fff; color: #fff; }
+  .cta .btn--solid { background: #fff; color: var(--copper); }
+  .cta .btn--solid:hover { background: var(--cream); }
+  .cta .cmd { color: var(--ink); }
+
+  .foot { padding: 36px 0 48px; font-size: 14px; color: var(--dim); }
+  .foot__in { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+  .foot__in nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  .foot__in a { text-decoration: none; }
+  .foot__in a:hover { color: var(--copper); }
+</style>
+</head>
+<body>
+<header class="nav">
+  <a class="nav__brand" href="/web/2"><img src="/favicon.svg" alt="" width="24" height="24" />Sliqtly</a>
+  <nav class="nav__links" aria-label="Sections">
+    <a href="#why">Why</a>
+    <a href="#pipes">The four pipes</a>
+    <a href="/connect.html">Docs</a>
+  </nav>
+  <div class="nav__cta"><a class="btn btn--solid" href="/connect.html">Connect your AI</a></div>
+</header>
+<main>
+  <section class="section hero">
+    <div class="wrap hero__grid">
+      <div>
+        <p class="label">The plumber for your AI</p>
+        <h1>You write.<br />Sliqtly does the plumbing.</h1>
+        <p class="lead">Your assistant writes the text in seconds; turning it into slides, PDFs and PowerPoints is where it leaks. Sliqtly connects your sources, keeps one shared notebook and pours it into any format.</p>
+        <div class="actions">
+          <a class="btn btn--solid" href="/connect.html">Connect via MCP</a>
+          <a class="btn" href="#pipes">How it works</a>
+        </div>
+      </div>
+      <div>
+        <div class="stage">
+          <iframe src="/s/8wS0x96FOz" title="Slyde esittelee Sliqtlyn: the problem and the solution" allow="fullscreen" loading="eager"></iframe>
+        </div>
+        <p class="stage__note">Slyde shows the pipes, in Finnish. Click the slide or press → to go on. <a href="/s/8wS0x96FOz" target="_blank" rel="noopener">Full size</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="why">
+    <div class="wrap">
+      <p class="label">Why</p>
+      <h2>Same deck, without the leaks.</h2>
+      <div class="vs">
+        <div class="before">
+          <h3>Through the chat</h3>
+          <ul>
+            <li>The whole document goes through the chat on every change.</li>
+            <li>Markdown has no themes, charts or pagination.</li>
+            <li>Excel, Figma and the old PowerPoint are copied by hand.</li>
+            <li>Each output format is another tool and another conversion.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Through Sliqtly</h3>
+          <ul>
+            <li>An edit is about 70 tokens; the deck reads back as Markdown.</li>
+            <li>One theme lays it out; charts and diagrams are drawn for you.</li>
+            <li>Sources come in over MCP and stay linked to the deck.</li>
+            <li>One deck comes out as a link, PDF, PPTX, DOCX, HTML or video.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="pipes" style="background: var(--cream); border-block: 1px solid var(--line);">
+    <div class="wrap">
+      <p class="label">The four pipes</p>
+      <h2>Sources in, one notebook, any shape out.</h2>
+      <div class="pipes">
+        <div><h3>Sources</h3><p>Excel and CSV into charts and tables; Figma views and PowerPoint slides as they are; Markdown, code and GitHub pull requests.</p></div>
+        <div><h3>Shared notebook</h3><p>Topics in folders, content as Markdown. The assistant writes, you edit the same text, comments steer the next round, every version is kept.</p></div>
+        <div><h3>Outputs</h3><p>Presentations, PDF documents and PowerPoints, videos told by a presenter character, light HTML pages and small apps right on the slide.</p></div>
+        <div><h3>Assistants</h3><p>Claude, Claude Code or any MCP assistant in the same notebook at once. They claim slides so they never write over each other.</p></div>
+      </div>
+      <div class="stage wide">
+        <iframe src="/s/weXPoghlul#slide=2" title="Sliqtly – tekoälyn putkimies: the prototypes" allow="fullscreen" loading="lazy"></iframe>
+      </div>
+      <p class="stage__note">The pipes as prototypes, in Finnish. <a href="/s/weXPoghlul" target="_blank" rel="noopener">Full size</a></p>
+    </div>
+  </section>
+
+  <section class="section cta">
+    <div class="wrap">
+      <h2>Open the pipes.</h2>
+      <p class="lead">Connect your own assistant to Sliqtly over MCP, or run the server on your own machine.</p>
+      <div class="actions">
+        <a class="btn btn--solid" href="/connect.html">Connect via MCP</a>
+        <span class="cmd">https://sliqtly.com/mcp</span>
+        <a class="btn" href="/local.html">Run it locally</a>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div><strong>Sliqtly</strong> · a trial page, not linked from the site.</div>
+    <nav aria-label="Links"><a href="/connect.html">Docs</a><a href="/local.html">Download</a><a href="/personal-license.txt">License</a><a href="https://buymeacoffee.com/sliqtly" target="_blank" rel="noopener">Buy me a coffee ☕</a></nav>
+  </div>
+</footer>
+</body>
+</html>
