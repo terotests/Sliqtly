@@ -319,6 +319,14 @@ class Store {
     ; (read and write in one transaction): changed when it was not, and
     ; nothing written
     sfn save:Saved (host:McpHost id:string p:DeckPatch imgs:[Img] guard:boolean want:string) {
+        ; the files list is read and written back whole: one writer at a time
+        host_deck_lock host id
+        def s:Saved (Store.saveHeld(host id p imgs guard want))
+        host_deck_unlock host id
+        return s
+    }
+
+    sfn saveHeld:Saved (host:McpHost id:string p:DeckPatch imgs:[Img] guard:boolean want:string) {
         def out (new Saved)
         if ((Store.validId(id)) == false) {
             return out

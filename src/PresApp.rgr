@@ -84,6 +84,7 @@ Import "pkg:evg/EVGImageDecode.rgr"
 Import "PresForm.rgr"
 Import "PresAi.rgr"
 Import "PresDeckSize.rgr"
+Import "PresDocView.rgr"
 
 class PresRect {
     def x:double 0.0
@@ -148,6 +149,18 @@ class PresApp {
     def deckSize:PresDeckSize (new PresDeckSize())
     def sizeShown:string ""
     def tabH:double 34.0
+    ; Over the stage: the slides one at a time ("slides") or the deck read
+    ; as one page that scrolls ("doc", PresDocView), and the tabs that switch
+    ; between them
+    def stageView:string "slides"
+    def viewTabs:TabsCtl (new TabsCtl())
+    def laidViewTabs:TabsCtl (new TabsCtl())
+    def viewTabRect:PresRect (new PresRect())
+    def docView:PresDocView (new PresDocView())
+    ; how far down the page the view is, in page units, and the slide the
+    ; scroll last followed (a slide selected elsewhere scrolls to it)
+    def docScroll:double 0.0
+    def docSel:int -1
     ; The presentations open in this tab of the browser, a tab each, in a row
     ; of their own under the top bar (EVGUI's DocTabsCtl). The page says
     ; which are open (deckTabOpen…) and opens the one a press, a swipe or a
@@ -1260,6 +1273,217 @@ class PresApp {
 
     fn editorTab:string () {
         return edTab
+    }
+
+    ; --- the Document view (PresDocView) ------------------------------------
+    fn makeViewTabs:void () {
+        viewTabs = (new TabsCtl())
+        viewTabs.tid = "viewtabs"
+        viewTabs.name = (PresI18n.t("View"))
+        viewTabs.addItem("slides" (PresI18n.t("Slides")) "" false)
+        viewTabs.addItem("doc" (PresI18n.t("Document")) "" false)
+        viewTabs.value = stageView
+        viewTabs.build()
+    }
+
+    fn viewTabAt:string (x:double) {
+        def i:int 0
+        while (i < (array_length laidViewTabs.items)) {
+            def it:UiItem (itemAt laidViewTabs.items i)
+            def el:EVGElement (unwrap it.el)
+            if ((x >= el.calculatedX) && (x <= (el.calculatedX + el.calculatedWidth))) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; "slides" or "doc"
+    fn setStageView:void (v:string) {
+        if ((v != "slides") && (v != "doc")) {
+            return
+        }
+        if (v == stageView) {
+            return
+        }
+        stageView = v
+        pick.clear()
+        this.viewReset()
+        ; the page opens at the selected slide
+        docSel = -1
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn stageViewName:string () {
+        return stageView
+    }
+
+    ; The page is on the stage: editing, Document chosen, a deck to read.
+    fn docShown:boolean () {
+        return (((mode == "edit") && (stageView == "doc")) && ((deck.slideCount()) > 0))
+    }
+
+    ; The page as the deck stands now, scrolled to the selected slide when
+    ; that changed since the scroll last followed it.
+    fn docEnsure:void () {
+        if (docView.rev != deck.revision) {
+            this.settleAll()
+            docView.build(deck)
+        }
+        if (docSel != selected) {
+            docSel = selected
+            def top:double (docView.flow.topOf(selected))
+            if (top >= 0.0) {
+                docScroll = (top - 12.0)
+            }
+        }
+        docScroll = (PresApp.clampD(docScroll 0.0 (this.docMaxScroll())))
+    }
+
+    sfn clampD:double (v:double lo:double hi:double) {
+        if (v > hi) {
+            return hi
+        }
+        if (v < lo) {
+            return lo
+        }
+        return v
+    }
+
+    ; screen pixels per page unit: the column fills the stage, within reason
+    fn docScale:double () {
+        def w:double (docView.width())
+        if (w <= 0.0) {
+            return 1.0
+        }
+        return (PresApp.clampD(((stageArea.w - 48.0) / w) 0.4 1.6))
+    }
+
+    fn docX:double () {
+        return (stageArea.x + ((stageArea.w - ((docView.width()) * (this.docScale()))) * 0.5))
+    }
+
+    fn docY:double () {
+        return ((stageArea.y + 16.0) - (docScroll * (this.docScale())))
+    }
+
+    fn docMaxScroll:double () {
+        def m:double ((docView.height()) - ((stageArea.h - 32.0) / (this.docScale())))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    ; Scroll by dy screen pixels; the selected slide follows the top of
+    ; the view (the strip and the editor with it).
+    fn docScrollBy:void (dy:double) {
+        this.docEnsure()
+        docScroll = (PresApp.clampD((docScroll + (dy / (this.docScale()))) 0.0 (this.docMaxScroll())))
+        def p:int (docView.flow.pageAt((docScroll + 24.0)))
+        if (docScroll >= ((this.docMaxScroll()) - 1.0)) {
+            ; at the end the last slide that starts in view is the one read
+            p = (docView.flow.pageAt((docScroll + ((stageArea.h - 48.0) / (this.docScale())))))
+        }
+        if ((p != selected) && ((p >= 0) && (p < (deck.slideCount())))) {
+            this.selectSlide(p)
+        }
+        docSel = selected
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A press on the page: the caret goes to the block pressed, its slide
+    ; is selected; a double click shows that slide in the Presentation view.
+    fn docPress:void (x:double y:double clicks:int) {
+        this.docEnsure()
+        def py:double ((y - (this.docY())) / (this.docScale()))
+        def hit:[int] (docView.hitAt(py))
+        if ((array_length hit) < 2) {
+            return
+        }
+        def page:int (itemAt hit 0)
+        def key:int (itemAt hit 1)
+        this.selectSlide(page)
+        if ((key >= 0) && (edTab == "md")) {
+            this.posOf((mdEditor.text()) key)
+            mdEditor.sel.setCaret(posLine 0)
+            mdEditor.sel.collapseToCaret()
+            this.headingInView(posLine)
+        }
+        docSel = selected
+        if (clicks >= 2) {
+            this.setStageView("slides")
+            this.selectSlide(page)
+        }
+        focus = "stage"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The page's keys while the stage has them: the arrows and PageUp /
+    ; PageDown scroll, Home and End go to its ends, ← → the slides.
+    fn docKey:boolean (name:string) {
+        def view:double (stageArea.h - 48.0)
+        if (name == "down") {
+            this.docScrollBy(48.0)
+            return true
+        }
+        if (name == "up") {
+            this.docScrollBy(-48.0)
+            return true
+        }
+        if (name == "pageDown") {
+            this.docScrollBy(view)
+            return true
+        }
+        if (name == "pageUp") {
+            this.docScrollBy((0.0 - view))
+            return true
+        }
+        if (name == "home") {
+            this.docScrollBy(-100000000.0)
+            return true
+        }
+        if (name == "end") {
+            this.docScrollBy(100000000.0)
+            return true
+        }
+        if (name == "right") {
+            this.selectSlide((selected + 1))
+            return true
+        }
+        if (name == "left") {
+            this.selectSlide((selected - 1))
+            return true
+        }
+        return false
+    }
+
+    ; The part of the page in view, in page units, clipped to the stage.
+    fn docStage:EVGDisplayList () {
+        this.docEnsure()
+        def sc:double (this.docScale())
+        def top:double docScroll
+        def bottom:double (docScroll + (stageArea.h / sc))
+        def l:EVGDisplayList (docView.visible((top - 40.0) (bottom + 40.0)))
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = ((stageArea.x - (this.docX())) / sc)
+        c.y = ((stageArea.y - (this.docY())) / sc)
+        c.w = (stageArea.w / sc)
+        c.h = (stageArea.h / sc)
+        def all:[EVGDrawCmd]
+        push all c
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            push all (itemAt l.cmds i)
+            i = (i + 1)
+        }
+        def e:EVGDrawCmd (new EVGDrawCmd)
+        e.kind = 5
+        push all e
+        l.cmds = all
+        return l
     }
 
     ; A Markdown file of the deck (a questionnaire) open in the file editor:
@@ -3503,8 +3727,14 @@ class PresApp {
         trackRect.set(rx ((H - stripH) - trackH) rw trackH)
         laneX = (rx + 92.0)
         laneW = (rw - 108.0)
-        stageArea.set(rx barH rw (((H - stripH) - trackH) - barH))
+        viewTabRect.set(rx barH rw tabH)
+        stageArea.set(rx (barH + tabH) rw ((((H - stripH) - trackH) - barH) - tabH))
         this.fitSlide(stageArea 20.0)
+        if (this.docShown()) {
+            ; no slide on the stage: what presses and hovers find on one
+            ; is not there
+            slideRect.set(stageArea.x stageArea.y 0.0 0.0)
+        }
     }
 
     ; What is docked on the right takes: a comment's thread, else the help
@@ -3545,6 +3775,7 @@ class PresApp {
     }
 
     fn placePresent:void () {
+        viewTabRect.set(0.0 0.0 0.0 0.0)
         edRect.set(0.0 0.0 0.0 0.0)
         tabRect.set(0.0 0.0 0.0 0.0)
         sepRect.set(0.0 0.0 0.0 0.0)
@@ -3790,7 +4021,14 @@ class PresApp {
         out = (out + ",\"time\":" + (EVGDisplayList.num((this.currentTime()))))
         out = (out + ",\"fxTime\":" + (EVGDisplayList.num((this.effectTime()))))
         out = (out + ",\"playing\":" + (? (this.isPlaying()) "true" "false"))
-        out = (out + ",\"stage\":[" + (PresApp.placeAt(slideRect.x slideRect.y sc)) + "]")
+        if (this.docShown()) {
+            this.docEnsure()
+            out = (out + ",\"stage\":[" + (PresApp.placeAt((this.docX()) (this.docY()) (this.docScale()))) + "]")
+            out = (out + ",\"view\":\"doc\"")
+        } {
+            out = (out + ",\"stage\":[" + (PresApp.placeAt(slideRect.x slideRect.y sc)) + "]")
+            out = (out + ",\"view\":\"slides\"")
+        }
         out = (out + ",\"clip\":[" + (PresApp.nums4(stageArea.x stageArea.y stageArea.w stageArea.h)) + "]")
         if (this.bookTurns()) {
             out = (out + ",\"book\":" + (PresBook.turnJson((deck.book()) selected (deck.slideCount()) deck.pageW deck.pageH)))
@@ -3906,6 +4144,9 @@ class PresApp {
         deck.fullBottom = -1.0
         if ((barTop > 0.0) && (mode == "present")) {
             deck.fullBottom = ((barTop - slideRect.y) / (this.slideScale()))
+        }
+        if (this.docShown()) {
+            return (this.listJson((this.docStage())))
         }
         deck.live = (this.isPlaying())
         deck.showControls = true
@@ -4276,10 +4517,33 @@ class PresApp {
             root.addChild(tabBar)
             root.addChild((PresApp.div("sep" "sep" sepRect.x sepRect.y sepRect.w sepRect.h)))
         }
+        ; Presentation | Document, over the stage
+        if (viewTabRect.h > 0.0) {
+            def vBar:EVGElement (PresApp.div("view-tabs" "ed-tabs" viewTabRect.x viewTabRect.y viewTabRect.w viewTabRect.h))
+            this.makeViewTabs()
+            laidViewTabs = viewTabs
+            vBar.addChild((unwrap viewTabs.rootEl))
+            root.addChild(vBar)
+        }
         root.addChild((PresApp.div("stage-area" "stage-area" stageArea.x stageArea.y stageArea.w stageArea.h)))
+        if (this.docShown()) {
+            ; the page's edge and shadow, where the page is in view
+            this.docEnsure()
+            def pt:double (this.docY())
+            def pb:double (pt + ((docView.height()) * (this.docScale())))
+            if (pt < stageArea.y) {
+                pt = stageArea.y
+            }
+            if (pb > (stageArea.y + stageArea.h)) {
+                pb = (stageArea.y + stageArea.h)
+            }
+            if (pb > pt) {
+                root.addChild((PresApp.div("doc-shadow" "slide-shadow" ((this.docX()) - 1.0) (pt - 1.0) (((docView.width()) * (this.docScale())) + 2.0) ((pb - pt) + 2.0))))
+            }
+        }
         ; zoomed in, the slide runs under the stage's edges: its grey rim and
         ; shadow would show there as a light line, so they are left out
-        if (viewZoom <= 1.0) {
+        if ((viewZoom <= 1.0) && ((this.docShown()) == false)) {
             root.addChild((PresApp.div("slide-shadow" "slide-shadow" (slideRect.x - 1.0) (slideRect.y - 1.0) (slideRect.w + 2.0) (slideRect.h + 2.0))))
         }
         if ((deck.slideCount()) == 0) {
@@ -4742,6 +5006,13 @@ class PresApp {
             splitDrag = true
             return "sep"
         }
+        if (viewTabRect.has(x y)) {
+            def hitView:string (this.viewTabAt(x))
+            if ((strlen hitView) > 0) {
+                this.setStageView(hitView)
+            }
+            return "stage"
+        }
         if (tabRect.has(x y)) {
             def hitTab:string (this.tabAt(x))
             if ((hitTab == "md") && (this.mdFileOpen())) {
@@ -4826,6 +5097,10 @@ class PresApp {
                 chromeRev = (chromeRev + 1)
             }
             return "thumb"
+        }
+        if ((this.docShown()) && (stageArea.has(x y))) {
+            this.docPress(x y clicks)
+            return "stage"
         }
         ; the pick's buttons and spacing bands, over the slide and around it
         if (stageArea.has(x y)) {
@@ -5566,6 +5841,10 @@ class PresApp {
             this.scrollStrip(dy)
             return true
         }
+        if ((this.docShown()) && (stageArea.has(x y))) {
+            this.docScrollBy(dy)
+            return true
+        }
         return false
     }
 
@@ -5662,6 +5941,11 @@ class PresApp {
         }
         if (tabRect.has(x y)) {
             if ((strlen (this.tabAt(x))) > 0) {
+                return "pointer"
+            }
+        }
+        if (viewTabRect.has(x y)) {
+            if ((strlen (this.viewTabAt(x))) > 0) {
                 return "pointer"
             }
         }
@@ -5903,6 +6187,9 @@ class PresApp {
         }
         if (focus == "strip") {
             return (this.stripKey(name shift ctrl))
+        }
+        if (((focus == "stage") && (ctrl == false)) && (this.docShown())) {
+            return (this.docKey(name))
         }
         if (focus == "stage") {
             ; the picked picture: Delete or Backspace takes it out (Ctrl+Z
@@ -7070,7 +7357,9 @@ class PresApp {
             }
         }
         layers.setOpen("panels" ((((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.aiChat.open) || panels.session.open) || panels.callOpen) && edit))
-        layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
+        ; the page of the Document view has no slide to draw or comment on
+        def onSlide:boolean ((this.docShown()) == false)
+        layers.setOpen("sketch" ((edit && ((deck.slideCount()) > 0)) && onSlide))
         ; the source viewer and the badges under the comments' pins
         def codeWas:boolean (layers.isOpen("code"))
         layers.setOpen("code" ((mode == "present") && ((deck.slideCount()) > 0)))
@@ -7079,7 +7368,7 @@ class PresApp {
         }
         ; a game that has the keyboard while presenting takes the stage: the
         ; comments' bar and pins give way until Esc
-        layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
+        layers.setOpen("review" (((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)) && onSlide))
         layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -7808,7 +8097,7 @@ class PresApp {
     ; The pick and its handles over the stage, as a display list ("" when
     ; there is nothing to draw).
     fn pickJson:string () {
-        if (((mode == "present") || playing) || ((deck.slideCount()) == 0)) {
+        if ((((mode == "present") || playing) || ((deck.slideCount()) == 0)) || (this.docShown())) {
             return ""
         }
         this.pickValid()
@@ -11268,6 +11557,14 @@ class PresApp {
                 this.a11yTab(t page "css" (PresI18n.t("Theme (CSS)")))
                 this.a11yTab(t page "files" (PresI18n.t("Files")))
             }
+            if ((viewTabRect.h > 0.0) && (!null? chromeRoot)) {
+                def vpage:EVGElement (unwrap chromeRoot)
+                def vl:EVGA11yNode (t.node("viewtabs" "app" (EVGA11yRole.tabList())))
+                vl.name = (PresI18n.t("View"))
+                t.place(vl (to_int viewTabRect.x) (to_int viewTabRect.y) (to_int viewTabRect.w) (to_int viewTabRect.h))
+                this.a11yViewTab(t vpage "slides" (PresI18n.t("Slides")))
+                this.a11yViewTab(t vpage "doc" (PresI18n.t("Document")))
+            }
             if (!null? chromeRoot) {
                 def page2:EVGElement (unwrap chromeRoot)
                 def list:EVGA11yNode (t.node("slides" "app" (EVGA11yRole.listBox())))
@@ -11422,6 +11719,20 @@ class PresApp {
         n.focusable = true
         n.actActivate = true
         n.selected = (v == edTab)
+        PresA11y.placeAt(n (unwrap el))
+    }
+
+    fn a11yViewTab:void (t:EVGA11yTree page:EVGElement v:string name:string) {
+        def id:string (viewTabs.tabTid(v))
+        def el@(optional):EVGElement (PresA11y.find(page id))
+        if (null? el) {
+            return
+        }
+        def n:EVGA11yNode (t.node(id "viewtabs" (EVGA11yRole.tab())))
+        n.name = name
+        n.focusable = true
+        n.actActivate = true
+        n.selected = (v == stageView)
         PresA11y.placeAt(n (unwrap el))
     }
 

@@ -919,6 +919,40 @@ try {
     check("…and the document is back as it was", (await page.evaluate(() => window.__app.source())) === src0);
   }
 
+  // Slides | Document over the stage: the deck as one page that scrolls
+  // (src/PresDocView.rgr), its press on a block selecting that slide, a
+  // double click back on the slides
+  {
+    const cv = await page.evaluate(() => document.getElementById("c").getBoundingClientRect().toJSON());
+    const tab = await page.evaluate(() => {
+      const t = window.__app.laidViewTabs.items.find((it) => it.value === "doc");
+      return t ? [t.el.calculatedX + t.el.calculatedWidth / 2, t.el.calculatedY + t.el.calculatedHeight / 2] : null;
+    });
+    if (tab) await page.mouse.click(cv.x + tab[0], cv.y + tab[1]);
+    await page.waitForTimeout(200);
+    const doc = await page.evaluate(() => {
+      const a = window.__app;
+      const L = JSON.parse(a.layoutJson());
+      const words = JSON.parse(a.stageJson()).list.cmds.filter((c) => c.k === 3).map((c) => c.text);
+      return { view: L.view, words: words.length, slides: a.deck.slideCount(), shown: a.docView.flow.slideTops.filter((t) => t >= 0).length };
+    });
+    check("the Document tab shows the deck as one page", !!tab && doc.view === "doc" && doc.words > 10, JSON.stringify(doc));
+    check("…every slide on it", doc.shown === doc.slides, JSON.stringify(doc));
+    await shot("document-view.png");
+    const area = await page.evaluate(() => { const s = window.__app.stageArea; return [s.x + s.w / 2, s.y + s.h / 2]; });
+    const before = await page.evaluate(() => window.__app.docScroll);
+    await page.mouse.move(cv.x + area[0], cv.y + area[1]);
+    await page.mouse.wheel(0, 900);
+    await page.waitForTimeout(200);
+    const scrolled = await page.evaluate(() => [window.__app.docScroll, JSON.parse(window.__app.layoutJson()).slide]);
+    check("…the wheel scrolls it and the selected slide follows", scrolled[0] > before && scrolled[1] > 0, JSON.stringify(scrolled));
+    await page.mouse.dblclick(cv.x + area[0], cv.y + area[1]);
+    await page.waitForTimeout(200);
+    const back = await page.evaluate(() => [window.__app.stageViewName(), JSON.parse(window.__app.layoutJson()).view]);
+    check("…a double click on it shows that slide", back[0] === "slides" && back[1] === "slides", back.join(" "));
+    await page.evaluate(() => window.__app.selectSlide(0));
+  }
+
   const r = await page.evaluate(() => {
     const a = window.__app;
     const out = {};

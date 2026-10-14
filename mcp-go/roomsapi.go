@@ -53,6 +53,10 @@ type roomService struct {
 	imports importDirs
 	// runs a message's previews; tests wait for it
 	later func(fn func())
+	// who is working on a deck now (presence.go): the assistants, and the
+	// people with it open in the editor; nil: nobody is told
+	agents   *agentBoard
+	peopleOn func(deck string) []personRow
 }
 
 // nil where decks are not kept in a store of rooms (the cloud for now)
@@ -220,10 +224,10 @@ var roomTools = []roomTool{
 		required: []string{"ref"}},
 }
 
-// every operation: the rooms', their chat's (roomchat.go) and the
-// Stories' sessions (storysession.go)
+// every operation: the rooms', their chat's (roomchat.go), the
+// Stories' sessions (storysession.go) and who is on them (presence.go)
 func allRoomTools() []roomTool {
-	return append(append(append([]roomTool{}, roomTools...), chatTools...), sessionTools...)
+	return append(append(append(append([]roomTool{}, roomTools...), chatTools...), sessionTools...), presenceTools...)
 }
 
 func findRoomTool(name string) bool {
@@ -339,6 +343,8 @@ func (s *roomService) callFor(ctx context.Context, p store.Principal, via, op st
 		out, err = s.runChat(ctx, p, via, op, a)
 	case isSessionTool(op):
 		out, err = s.runSession(ctx, p, via, op, a)
+	case isPresenceTool(op):
+		out, err = s.runPresence(ctx, p, a)
 	default:
 		out, err = s.run(ctx, p, op, a)
 	}

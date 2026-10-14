@@ -28,6 +28,9 @@
 ;                                can be done to the ticked ones; its row
 ;                                comes back as `choose`
 ;   topic:bulk\t<action>\t<deck>…  Apply (PresStoryPick.request)
+;   topic:who[\t<deck>]         the light and counts of who is working
+;                                (web/presence.js): on the room's head all
+;                                of its stories, on a card that story
 ; ============================================================================
 
 Import "../evgui/src/UiHost.rgr"
@@ -120,6 +123,7 @@ class PresTopicView {
         }
         head.addChild((UiKit.words("rm-ttitle" (UiText.fit(eng (j.stringOr("title" "")) "Open Sans" 20.0 tw)))))
         head.addChild((UiKit.words("rm-tcount" (j.stringOr("count" "")))))
+        this.who(host head "rm-twho" (j.get("who")) (w - 260.0) eng)
         head.addChild((UiKit.div("rm-grow")))
         if (j.boolOr("canNew" true)) {
             def nb:ButtonCtl (UiKit.button("rm-tnew" (PresI18n.t("+ New presentation")) "primary"))
@@ -308,6 +312,12 @@ class PresTopicView {
             meta = (fol + " · " + meta)
         }
         inner.addChild((UiKit.words("rm-cmeta" (UiText.fit(eng meta "Open Sans" 12.0 (cw - 34.0))))))
+        ; in a row of its own, so it is as wide as its words
+        if ((strlen ((s.get("who")).stringOr("text" ""))) > 0) {
+            def wr:EVGElement (UiKit.div("rm-cwho"))
+            this.who(host wr ("rm-cwho-" + n) (s.get("who")) (cw - 34.0) eng)
+            inner.addChild(wr)
+        }
         def tags:VlJson (s.get("tags"))
         if ((tags.count()) > 0) {
             def tr:EVGElement (UiKit.div("rm-ctags"))
@@ -319,6 +329,29 @@ class PresTopicView {
             }
             inner.addChild(tr)
         }
+    }
+
+    ; Who is working (web/presence.js cardPresence: {"light", "text"}): a
+    ; light and the counts, pressed to see them; nothing for nobody. The
+    ; light: "working" while an assistant works, "here" otherwise.
+    fn who:void (host:UiHost parent:EVGElement tid:string p:VlJson maxW:double eng:EVGTextEngine) {
+        def text:string (p.stringOr("text" ""))
+        if ((strlen text) == 0) {
+            return
+        }
+        def light:string (p.stringOr("light" "here"))
+        def b:ButtonCtl (UiKit.button(tid "" "ghost"))
+        def el:EVGElement (unwrap b.rootEl)
+        UiTree.clearChildren(el)
+        UiTree.addClass(el "rm-who")
+        UiTree.addClass(el ("rm-who-" + light))
+        UiKit.put(host b parent)
+        el.addChild((UiKit.div(("rm-wdot rm-wdot-" + light))))
+        def tw:double (maxW - 30.0)
+        if (tw < 40.0) {
+            tw = 40.0
+        }
+        el.addChild((UiKit.words("rm-wtext" (UiText.fit(eng text "Open Sans" 12.0 tw)))))
     }
 
     ; the card a test id belongs to (its own, or one of its pills), -1 none
@@ -348,6 +381,15 @@ class PresTopicView {
         }
         if (tid == "rm-tnew") {
             push requests "topic:new"
+            return true
+        }
+        if (tid == "rm-twho") {
+            push requests "topic:who"
+            return true
+        }
+        def wi:int (this.cardOf(tid "rm-cwho-"))
+        if (wi >= 0) {
+            push requests ("topic:who\t" + (itemAt ids wi))
             return true
         }
         def bi:int (this.cardOf(tid "rm-chk-"))
