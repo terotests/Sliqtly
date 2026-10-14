@@ -11,9 +11,10 @@
 #
 # The same run also makes
 #   - sliqtly-personal_<version>_darwin_<arm64|amd64>.tar.gz for macOS, which
-#     the Homebrew tap terotests/homebrew-sliqtly installs: the tap's own
-#     workflow reads downloads/personal/latest.json (versions and SHA-256s)
-#     and updates its formula;
+#     the Homebrew tap terotests/homebrew-sliqtly installs: the full install,
+#     the editor and player built in (built last, after the viewer's
+#     packages); the tap's own workflow reads downloads/personal/latest.json
+#     (versions and SHA-256s) and updates its formula;
 #   - the Docker image ghcr.io/terotests/sliqtly-personal:<version> and
 #     :latest (linux/amd64, linux/arm64; packaging/personal/Dockerfile).
 #
@@ -118,9 +119,18 @@ jobs:
         run: |
           packaging/build-deb.sh "$VERSION" amd64
           packaging/build-deb.sh "$VERSION" arm64
-          for arch in arm64 amd64; do packaging/build-personal-bin.sh "$VERSION" darwin "$arch"; done
           for arch in amd64 arm64; do packaging/build-personal-bin.sh "$VERSION" linux "$arch"; done
           mkdir -p dist/empty
+      # Homebrew gets the full install: the editor and player built in
+      - name: Build the editor and player
+        run: node scripts/build.mjs
+      - name: Generate the server, the editor built in, and build for macOS
+        working-directory: mcp-go
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          go generate ./...
+          for arch in arm64 amd64; do packaging/build-personal-bin.sh "$VERSION" darwin "$arch"; done
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -181,7 +191,7 @@ jobs:
           JSON
           gcloud storage cp dist/latest.json "gs://$BUCKET/downloads/personal/latest.json" \
             --content-type=application/json --cache-control="public, max-age=60" --quiet
-          echo "- macOS: brew install terotests/sliqtly/sliqtly (the tap picks $VERSION up from latest.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- macOS, with the editor: brew install terotests/sliqtly/sliqtly (the tap picks $VERSION up from latest.json)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Docker: ghcr.io/terotests/sliqtly-personal:$VERSION" >> "$GITHUB_STEP_SUMMARY"
       - name: Tag the commit
         env:
