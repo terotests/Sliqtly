@@ -149,6 +149,32 @@ operators {
             go ( (e 1) ".SessionTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; one writer at a time per deck in this server (decklock.go): taken
+    ; again by the same request it is only counted; the request's end lets
+    ; go of what it still holds
+    host_deck_lock _:void (h:McpHost id:string) {
+        templates {
+            go ( (e 1) ".DeckLock(" (e 2) ")" )
+        }
+    }
+    ; an answer kept in this server by what was asked (memo.go): "" when
+    ; none; put keeps nothing when the request read something that may read
+    ; otherwise next time
+    host_memo_get _:string (h:McpHost kind:string key:string) {
+        templates {
+            go ( (e 1) ".MemoGet(" (e 2) ", " (e 3) ")" )
+        }
+    }
+    host_memo_put _:void (h:McpHost kind:string key:string val:string) {
+        templates {
+            go ( (e 1) ".MemoPut(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    host_deck_unlock _:void (h:McpHost id:string) {
+        templates {
+            go ( (e 1) ".DeckUnlock(" (e 2) ")" )
+        }
+    }
     ; the picture the last host tool answered with (get_figma_screen) as
     ; base64 PNG, once; "" when none
     host_tool_image _:string (h:McpHost) {

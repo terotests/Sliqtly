@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -69,16 +70,18 @@ func TestWorkBoardClaimsExpireAndRoundTrip(t *testing.T) {
 func TestWorkBoardKeepsTheNewestVersions(t *testing.T) {
 	b := CreateNew_WorkBoard()
 	gone := []string{}
-	for i := 0; i < 14; i++ {
-		gone = append(gone, b.keepBase(string(rune('a'+i)))...)
+	keep := int(WorkBoard_static_KEEP())
+	name := func(i int) string { return fmt.Sprintf("v%03d", i) }
+	for i := 0; i < keep+2; i++ {
+		gone = append(gone, b.keepBase(name(i))...)
 	}
-	eq(t, gone, []string{"a", "b"})
-	eq(t, len(b.bases), 12)
+	eq(t, gone, []string{name(0), name(1)})
+	eq(t, len(b.bases), keep)
 	// kept again: it becomes the newest, nothing goes
-	eq(t, len(b.keepBase("c")), 0)
-	eq(t, b.bases[11], "c")
-	eq(t, b.hasBase("n"), true)
-	eq(t, b.hasBase("a"), false)
+	eq(t, len(b.keepBase(name(2))), 0)
+	eq(t, b.bases[keep-1], name(2))
+	eq(t, b.hasBase(name(keep+1)), true)
+	eq(t, b.hasBase(name(0)), false)
 }
 
 func TestWorkSpansNumberLinesBySlide(t *testing.T) {

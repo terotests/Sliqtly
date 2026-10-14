@@ -82,6 +82,15 @@ class WorkStore {
     ; the step on the board as it is in the store, tried again when another
     ; write came between the read and the write
     sfn run:void (host:McpHost id:string step:WorkStep) {
+        ; one at a time in this server, so that many agents claiming at once
+        ; do not use up the tries below; across servers the compare-and-set
+        ; does it
+        host_deck_lock host ("work:" + id)
+        WorkStore.runHeld(host id step)
+        host_deck_unlock host ("work:" + id)
+    }
+
+    sfn runHeld:void (host:McpHost id:string step:WorkStep) {
         def tries:int 0
         while (tries < 5) {
             def raw:MfJ (J.parse((host_get_doc host "mcp_work" id)))

@@ -95,6 +95,18 @@ type localServer struct {
 	admins []string
 }
 
+// MCP writes a server of one's own takes in 10 minutes (-write-limit): a
+// loop that will not stop is stopped, people's own assistants are not
+const localWriteLimit = 2000
+
+// the write limit of -write-limit; 0 or less: none
+func localLimiter(n int) func(string) string {
+	if n <= 0 {
+		return func(string) string { return "" }
+	}
+	return rateLimiter(n, 10*time.Minute)
+}
+
 // the env of a server whose decks are in dir, reached at baseURL
 func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 	db, bucket, err := newFSStore(dir, user)
@@ -112,7 +124,7 @@ func localEnv(dir, baseURL, user string) (*Env, *localBucket, error) {
 		LocalUser: user,
 		Themes:    builtinTheme,
 		// everyone is one user here, so the limit is for the whole server
-		Limiter: rateLimiter(2000, 10*time.Minute),
+		Limiter: localLimiter(localWriteLimit),
 	}
 	e.FilesURL = e.BaseURL + "/files"
 	e.rooms = newRoomService(e)

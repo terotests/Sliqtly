@@ -198,9 +198,12 @@ class WorkBoard {
     def seen:string ""
     def seenCss:string ""
 
-    ; how many versions are kept for merging
+    ; how many versions are kept for merging. Every version an assistant
+    ; reads or writes is one: with ten agents on a deck twelve went in a few
+    ; seconds, and an agent that read, thought and wrote was told its version
+    ; was too old to merge with (cmd/agentsim)
     sfn KEEP:int () {
-        return 12
+        return 64
     }
 
     sfn fromJson:WorkBoard (v:MfJ) {

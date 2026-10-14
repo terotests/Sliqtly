@@ -76,11 +76,12 @@ func fontBytes(name string) []byte {
 
 // Font is host_font: a fresh copy, since the deck model keeps the buffer.
 func (h *McpHost) Font(name string) []byte {
+	// fontBytes reads the embedded file, which is a copy of its own
 	b := fontBytes(name)
 	if b == nil {
 		return []byte{}
 	}
-	return append([]byte(nil), b...)
+	return b
 }
 
 var (

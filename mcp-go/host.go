@@ -115,7 +115,11 @@ type Env struct {
 	// drawing now (renderSlots).
 	Renders func(ctx context.Context, who, ip string) string
 	renders *renderSlots
-	Now     func() time.Time // nil: time.Now
+	// decks: one writer at a time per deck in this process (decklock.go)
+	decks deckLocks
+	// layouts' answers kept by what they were asked (memo.go)
+	memo memo
+	Now  func() time.Time // nil: time.Now
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
@@ -228,6 +232,7 @@ func NewApp(env *Env) http.Handler {
 		}
 		h := &McpHost{env: env, r: r, ctx: r.Context(), images: map[int64][]byte{}}
 		defer func() {
+			h.unlockDecks()
 			if p := recover(); p != nil {
 				log.Printf("request failed: %v", p)
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -248,12 +253,14 @@ func rateLimiter(max int, window time.Duration) func(who string) string {
 		mu.Lock()
 		defer mu.Unlock()
 		now := time.Now()
-		keep := []time.Time{}
-		for _, t := range hits[who] {
-			if now.Sub(t) < window {
-				keep = append(keep, t)
-			}
+		// oldest first: what ran out is at the front (a copy of every
+		// time on each call was slow under a large limit)
+		keep := hits[who]
+		cut := 0
+		for cut < len(keep) && now.Sub(keep[cut]) >= window {
+			cut++
 		}
+		keep = keep[cut:]
 		if len(keep) >= max {
 			hits[who] = keep
 			return "Too many presentations from here in a short time; try again in a few minutes."
@@ -370,6 +377,8 @@ type McpHost struct {
 	// a picture or file that did not come (a layout made so is not kept,
 	// viewcache.go)
 	unsure bool
+	// the decks this request holds (decklock.go)
+	held map[string]int
 }
 
 func (h *McpHost) fail(err error) {
