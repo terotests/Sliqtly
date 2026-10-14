@@ -1,0 +1,557 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocView.rgr — the deck as one page that scrolls.
+; ============================================================================
+;
+; The editor's Document view: the slides read as a document, one column
+; from the first slide to the last, the way a wiki page reads, without
+; pages. It is the reading the Word and HTML exports make (PresDocx,
+; PresHtml), drawn on the stage instead of written to a file:
+;
+;   deck text ──► MdLayout.layoutContinuous ──► text boxes ─┐
+;   PresDocx.findShots / shotList (slide pictures) ─────────┼─► PresDocFlow
+;   each slide's notes ──► MdLayout.layoutContinuous ───────┘        │
+;                                                                    ▼
+;                                     one EVGDisplayList, in segments by y
+;
+; Text, lists, tables, code and pictures go through the Markdown engine's
+; own continuous layout, in a document's look (dark text on white, the
+; engine's document sizes), not the slide theme's. What only the stage can
+; draw — a diagram, a chart, a list figure, a SmartArt, a block a slide's
+; script changes — is the same picture the exports take: the slide at rest,
+; cut to the block's rectangle (PresDocx.shotList), here as vectors rather
+; than a PNG. A slide's notes follow it, set apart.
+;
+; The page is kept in segments, each with its top and bottom, so the stage
+; asks for the part in view (`visible`) and a long deck costs a screenful.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "PresDocx.rgr"
+Import "PresDocFlow.rgr"
+
+class PresDocView {
+    def flow:PresDocFlow (new PresDocFlow())
+    def list:EVGDisplayList (new EVGDisplayList())
+    ; the commands before the first segment (the paper), always drawn
+    def headCmds:int 0
+    def segFrom:[int]
+    def segTo:[int]
+    def segTop:[double]
+    def segBottom:[double]
+    ; the deck revision this was built from (-1: never)
+    def rev:int -1
+    ; what went in, for a caller to say
+    def shots:int 0
+    def notes:int 0
+    ; the look
+    def paper:string "#ffffff"
+    def ink:string "#1f2328"
+    def muted:string "#6e7781"
+    def rule:string "#d0d7de"
+    def noteBar:string "#d0d7de"
+
+    Constructor () {
+    }
+
+    fn height:double () {
+        return flow.height
+    }
+
+    fn width:double () {
+        return flow.width
+    }
+
+    ; A layout in the document's look, measured as the deck is.
+    fn docLayout:MdLayout (deck:PresDeck) {
+        def l (new MdLayout())
+        if (!null? deck.md.measurer) {
+            l.setMeasurer((unwrap deck.md.measurer))
+        }
+        def st (new MdStyle())
+        ; code in the face the slides set it in: one the page has loaded
+        st.monoFamily = deck.md.edit.layout.style.monoFamily
+        st.textColor = ink
+        st.pageWidth = flow.width
+        st.margin = flow.margin
+        st.tableCellTones = deck.md.edit.layout.style.tableCellTones
+        l.style = st
+        def e:MarkdownEdit deck.md.edit
+        if e.haveImages {
+            l.setImages(e.imageStore "/")
+        }
+        return l
+    }
+
+    ; The slide each top-level block of the deck is on (-1: it drew
+    ; nothing), from one pass over the slides' boxes.
+    sfn pagesOf:[int] (deck:PresDeck doc:MdNode) {
+        def out:[int]
+        def n:int (doc.childCount())
+        def c:int 0
+        while (c < n) {
+            push out -1
+            c = (c + 1)
+        }
+        def l:MdLayout (deck.layout())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.furniture == 0) {
+                def at:int (PresDocView.childOf(doc (PresDeck.boxSrc(b))))
+                if ((at >= 0) && ((itemAt out at) < 0)) {
+                    set out at b.page
+                }
+            }
+            i = (i + 1)
+        }
+        ; a `{heading=hidden}` title draws nothing but still names its slide
+        c = 0
+        while (c < n) {
+            if ((itemAt out c) < 0) {
+                def ch:MdNode (doc.childAt(c))
+                if (ch.kind == "heading") {
+                    set out c (l.pageOfHidden(ch.srcStart))
+                }
+            }
+            c = (c + 1)
+        }
+        return out
+    }
+
+    ; The top-level block holding source offset `src`, -1 for none.
+    sfn childOf:int (doc:MdNode src:int) {
+        if (src < 0) {
+            return -1
+        }
+        def lo:int 0
+        def hi:int ((doc.childCount()) - 1)
+        while (lo <= hi) {
+            def mid:int (idiv (lo + hi) 2)
+            def ch:MdNode (doc.childAt(mid))
+            if (src < ch.srcStart) {
+                hi = (mid - 1)
+            } {
+                if (src >= ch.srcEnd) {
+                    lo = (mid + 1)
+                } {
+                    return mid
+                }
+            }
+        }
+        return -1
+    }
+
+    fn build:void (deck:PresDeck) {
+        rev = deck.revision
+        shots = 0
+        notes = 0
+        flow = (new PresDocFlow())
+        flow.pageW = deck.pageW
+        list = (new EVGDisplayList())
+        clear segFrom
+        clear segTo
+        clear segTop
+        clear segBottom
+        def e:MarkdownEdit deck.md.edit
+        def doc:MdNode e.doc
+        ; the shots, as the exports find them
+        def word (new PresDocx())
+        word.findShots(deck)
+        ; the text, as one column
+        def l:MdLayout (this.docLayout(deck))
+        l.layoutContinuous(doc flow.width)
+        def pages:[int] (PresDocView.pagesOf(deck doc))
+        ; each block's room in that column, from its boxes
+        def n:int (doc.childCount())
+        def tops:[double]
+        def bottoms:[double]
+        def c:int 0
+        while (c < n) {
+            push tops -1.0
+            push bottoms -1.0
+            c = (c + 1)
+        }
+        def boxChild:[int]
+        def last:int -1
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes bi)
+            def at:int (PresDocView.childOf(doc (PresDeck.boxSrc(b))))
+            if (at < 0) {
+                at = last
+            }
+            push boxChild at
+            if ((at >= 0) && (b.kind != 6)) {
+                last = at
+                if (((itemAt tops at) < 0.0) || (b.y < (itemAt tops at))) {
+                    set tops at b.y
+                }
+                if ((b.y + b.h) > (itemAt bottoms at)) {
+                    set bottoms at (b.y + b.h)
+                }
+            }
+            bi = (bi + 1)
+        }
+        ; the items, in reading order, with each slide's notes after it
+        def itemChild:[int]
+        def noteLayouts:[MdLayout]
+        def noteItems:[PresDocItem]
+        def cur:int -1
+        c = 0
+        while (c < n) {
+            def ch:MdNode (doc.childAt(c))
+            def page:int (itemAt pages c)
+            if (page < 0) {
+                page = cur
+            }
+            if (page >= 0) {
+                if (page != cur) {
+                    if (cur >= 0) {
+                        this.addNotes(deck cur itemChild noteLayouts noteItems)
+                    }
+                    cur = page
+                }
+                def shot@(optional):PresDocxShot (PresDocView.shotOf(word ch.srcStart))
+                if (!null? shot) {
+                    def s:PresDocxShot (unwrap shot)
+                    def it:PresDocItem (flow.add(1 page ch.srcStart ch.srcEnd))
+                    it.top = (itemAt tops c)
+                    it.bottom = (itemAt bottoms c)
+                    it.sw = s.w
+                    it.sh = s.h
+                    push itemChild c
+                } {
+                    def hidden:boolean ((deck.scriptLeaves(page ch.srcStart ch.srcEnd)) == 2)
+                    if ((((itemAt tops c) >= 0.0) && (ch.kind != "front_matter")) && (hidden == false)) {
+                        def it2:PresDocItem (flow.add(0 page ch.srcStart ch.srcEnd))
+                        it2.top = (itemAt tops c)
+                        it2.bottom = (itemAt bottoms c)
+                        push itemChild c
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+        if (cur >= 0) {
+            this.addNotes(deck cur itemChild noteLayouts noteItems)
+        }
+        flow.place((deck.slideCount()))
+        this.paint(deck l word boxChild itemChild noteLayouts noteItems)
+    }
+
+    sfn shotOf@(optional):PresDocxShot (word:PresDocx key:int) {
+        def i:int 0
+        while (i < (array_length word.shots)) {
+            def s:PresDocxShot (itemAt word.shots i)
+            if (s.key == key) {
+                def hit@(optional):PresDocxShot s
+                return hit
+            }
+            i = (i + 1)
+        }
+        def none@(optional):PresDocxShot
+        return none
+    }
+
+    ; Slide `page`'s notes as an item: laid out as Markdown in the column,
+    ; a little in from its edge.
+    fn addNotes:void (deck:PresDeck page:int itemChild:[int] noteLayouts:[MdLayout] noteItems:[PresDocItem]) {
+        if (page >= (deck.slideCount())) {
+            return
+        }
+        def s:PresSlide (deck.slideAt(page))
+        def text:string (trim (PresDocx.notesText(s.notes)))
+        if ((strlen text) == 0) {
+            return
+        }
+        def nl:MdLayout (this.docLayout(deck))
+        nl.style.textColor = muted
+        nl.style.margin = 0.0
+        def nd:MdNode (MdBlock.parseText(text))
+        nl.layoutContinuous(nd ((flow.colW()) - 16.0))
+        def it:PresDocItem (flow.add(2 page -1 -1))
+        it.sh = nl.documentHeight
+        it.note = (array_length noteLayouts)
+        push itemChild -1
+        push noteLayouts nl
+        push noteItems it
+        notes = (notes + 1)
+    }
+
+    fn paint:void (deck:PresDeck l:MdLayout word:PresDocx boxChild:[int] itemChild:[int] noteLayouts:[MdLayout] noteItems:[PresDocItem]) {
+        list.addRect(0.0 0.0 flow.width flow.height (EVGColor.parse(paper)))
+        headCmds = (array_length list.cmds)
+        ; the item of each block, and the boxes of each item, in order
+        def doc:MdNode deck.md.edit.doc
+        def n:int (doc.childCount())
+        def childItem:[int]
+        def c:int 0
+        while (c < n) {
+            push childItem -1
+            c = (c + 1)
+        }
+        def i:int 0
+        while (i < (array_length flow.items)) {
+            def ch:int (itemAt itemChild i)
+            if (ch >= 0) {
+                set childItem ch i
+            }
+            i = (i + 1)
+        }
+        def counts:[int]
+        i = 0
+        while (i <= (array_length flow.items)) {
+            push counts 0
+            i = (i + 1)
+        }
+        def bi:int 0
+        while (bi < (array_length l.boxes)) {
+            def ch2:int (itemAt boxChild bi)
+            if (ch2 >= 0) {
+                def item:int (itemAt childItem ch2)
+                if (item >= 0) {
+                    set counts (item + 1) ((itemAt counts (item + 1)) + 1)
+                }
+            }
+            bi = (bi + 1)
+        }
+        i = 1
+        while (i < (array_length counts)) {
+            set counts i ((itemAt counts i) + (itemAt counts (i - 1)))
+            i = (i + 1)
+        }
+        def starts:[int]
+        def order:[int]
+        i = 0
+        while (i < (array_length counts)) {
+            push starts (itemAt counts i)
+            i = (i + 1)
+        }
+        bi = 0
+        while (bi < (array_length l.boxes)) {
+            push order -1
+            bi = (bi + 1)
+        }
+        bi = 0
+        while (bi < (array_length l.boxes)) {
+            def ch3:int (itemAt boxChild bi)
+            if (ch3 >= 0) {
+                def item3:int (itemAt childItem ch3)
+                if (item3 >= 0) {
+                    def at:int (itemAt counts item3)
+                    set order at bi
+                    set counts item3 (at + 1)
+                }
+            }
+            bi = (bi + 1)
+        }
+        def painter (new MdToEvg())
+        def r:int 0
+        i = 0
+        while (i < (array_length flow.items)) {
+            def it:PresDocItem (itemAt flow.items i)
+            ; the rule before a new slide, with its number at the left
+            while ((r < (array_length flow.ruleY)) && ((itemAt flow.ruleY r) <= it.y)) {
+                this.paintRule((itemAt flow.ruleY r) (itemAt flow.rulePage r))
+                r = (r + 1)
+            }
+            def from:int (array_length list.cmds)
+            if (it.kind == 0) {
+                def k:int (itemAt starts i)
+                def stop:int (itemAt starts (i + 1))
+                while (k < stop) {
+                    def b:MdBox (itemAt l.boxes (itemAt order k))
+                    if (b.kind != 6) {
+                        painter.paintBox(list l b it.dy)
+                    }
+                    k = (k + 1)
+                }
+            }
+            if (it.kind == 1) {
+                this.paintShot(deck word it)
+            }
+            if (it.kind == 2) {
+                def nk:int it.note
+                if ((nk >= 0) && (nk < (array_length noteLayouts))) {
+                    this.paintNotes((itemAt noteLayouts nk) it)
+                }
+            }
+            this.segment(from it.y (it.bottomEdge()))
+            i = (i + 1)
+        }
+    }
+
+    fn segment:void (from:int top:double bottom:double) {
+        def to:int (array_length list.cmds)
+        if (to > from) {
+            push segFrom from
+            push segTo to
+            push segTop top
+            push segBottom bottom
+        }
+    }
+
+    fn paintRule:void (y:double page:int) {
+        def from:int (array_length list.cmds)
+        list.addRect((flow.colX()) y (flow.colW()) 1.0 (EVGColor.parse(rule)))
+        list.addText((to_string (page + 1)) 8.0 (y - 6.0) 10.0 (EVGColor.parse(muted)) "Open Sans" false false 24.0 10.0)
+        this.segment(from (y - 8.0) (y + 8.0))
+    }
+
+    ; A block as its slide shows it at rest, cut to its rectangle and set
+    ; into the column at the item's scale.
+    fn paintShot:void (deck:PresDeck word:PresDocx it:PresDocItem) {
+        def s@(optional):PresDocxShot (PresDocView.shotOf(word it.key))
+        if (null? s) {
+            return
+        }
+        def shot:PresDocxShot (unwrap s)
+        def one:EVGDisplayList (word.shotList(deck it.key))
+        one.offsetBy((0.0 - shot.x) (0.0 - shot.y))
+        one.scaleBy(it.scale)
+        one.offsetBy(it.x it.y)
+        list.addClip(it.x it.y it.w it.h)
+        list.appendFrom((PresDocView.confine(one it.x it.y it.w it.h)))
+        list.addClipEnd()
+        shots = (shots + 1)
+    }
+
+    ; Only what is inside the rectangle, as geometry and not only as a clip:
+    ; a slide's panel behind a figure runs past the block's rectangle, and
+    ; the text above it on the page would be judged against that panel by
+    ; the contrast guard (and drawn recoloured) though the clip hides it.
+    ; Rectangles are cut to the rectangle, a nested clip is narrowed to it,
+    ; and a mark wholly outside it is left out.
+    sfn confine:EVGDisplayList (one:EVGDisplayList x:double y:double w:double h:double) {
+        def out (new EVGDisplayList())
+        def x1:double (x + w)
+        def y1:double (y + h)
+        def i:int 0
+        while (i < (array_length one.cmds)) {
+            def c:EVGDrawCmd (itemAt one.cmds i)
+            if (c.kind == 5) {
+                out.addCmd(c)
+            } {
+                def bx:double c.x
+                def by:double c.y
+                def bx1:double (c.x + c.w)
+                def by1:double (c.y + c.h)
+                def np:int (array_length c.pts)
+                if (np >= 2) {
+                    bx = (itemAt c.pts 0)
+                    by = (itemAt c.pts 1)
+                    bx1 = bx
+                    by1 = by
+                    def p:int 0
+                    while ((p + 1) < np) {
+                        def px:double (itemAt c.pts p)
+                        def py:double (itemAt c.pts (p + 1))
+                        if (px < bx) {
+                            bx = px
+                        }
+                        if (px > bx1) {
+                            bx1 = px
+                        }
+                        if (py < by) {
+                            by = py
+                        }
+                        if (py > by1) {
+                            by1 = py
+                        }
+                        p = (p + 2)
+                    }
+                }
+                if (c.kind == 3) {
+                    ; a run's box is its type size tall; the line may reach
+                    ; a little past it
+                    by = (by - (c.fontSize * 0.5))
+                    by1 = (by1 + (c.fontSize * 0.5))
+                }
+                def inside:boolean ((((bx1 >= x) && (bx <= x1)) && (by1 >= y)) && (by <= y1))
+                if (c.kind == 4) {
+                    ; a clip keeps its pair; narrowed to the rectangle
+                    def cx0:double (? (c.x < x) x c.x)
+                    def cy0:double (? (c.y < y) y c.y)
+                    def cx1:double (? ((c.x + c.w) > x1) x1 (c.x + c.w))
+                    def cy1:double (? ((c.y + c.h) > y1) y1 (c.y + c.h))
+                    c.x = cx0
+                    c.y = cy0
+                    c.w = (? (cx1 > cx0) (cx1 - cx0) 0.0)
+                    c.h = (? (cy1 > cy0) (cy1 - cy0) 0.0)
+                    out.addCmd(c)
+                } {
+                    if inside {
+                        if (((c.kind == 0) && (np == 0)) && ((c.radius <= 0.0) && (c.perCorner == false))) {
+                            def rx0:double (? (c.x < x) x c.x)
+                            def ry0:double (? (c.y < y) y c.y)
+                            def rx1:double (? ((c.x + c.w) > x1) x1 (c.x + c.w))
+                            def ry1:double (? ((c.y + c.h) > y1) y1 (c.y + c.h))
+                            c.x = rx0
+                            c.y = ry0
+                            c.w = (rx1 - rx0)
+                            c.h = (ry1 - ry0)
+                        }
+                        out.addCmd(c)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn paintNotes:void (nl:MdLayout it:PresDocItem) {
+        list.addRect(it.x it.y 3.0 it.h (EVGColor.parse(noteBar)))
+        def painter (new MdToEvg())
+        def k:int 0
+        while (k < (array_length nl.boxes)) {
+            def b:MdBox (itemAt nl.boxes k)
+            if (b.kind != 6) {
+                def m:MdBox (b.copy())
+                m.x = ((m.x + it.x) + 16.0)
+                painter.paintBox(list nl m it.y)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; The page between top and bottom (page units): the paper and every
+    ; segment that reaches into it.
+    fn visible:EVGDisplayList (top:double bottom:double) {
+        def out (new EVGDisplayList())
+        def k:int 0
+        while (k < headCmds) {
+            out.addCmd((itemAt list.cmds k))
+            k = (k + 1)
+        }
+        def i:int 0
+        while (i < (array_length segFrom)) {
+            if (((itemAt segBottom i) >= top) && ((itemAt segTop i) <= bottom)) {
+                def c:int (itemAt segFrom i)
+                def stop:int (itemAt segTo i)
+                while (c < stop) {
+                    out.addCmd((itemAt list.cmds c))
+                    c = (c + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; What a press at page y names: [slide, source offset] (offset -1 for
+    ; notes), [] when the page is empty.
+    fn hitAt:[int] (y:double) {
+        def out:[int]
+        def i:int (flow.itemAt(y))
+        if (i < 0) {
+            return out
+        }
+        def it:PresDocItem (itemAt flow.items i)
+        push out it.page
+        push out it.key
+        return out
+    }
+}

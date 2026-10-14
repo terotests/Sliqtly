@@ -382,6 +382,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 | | |
 | --- | --- |
 | Click a thumbnail | select the slide (the editor caret moves to it) |
+| Slides / Document over the stage | the slides one at a time, or the whole deck read as one page that scrolls: text, lists, tables and code in a document's look, charts, diagrams and figures as their slide shows them, each slide's notes under it. The wheel, the arrows and PageUp / PageDown scroll it and the selected slide follows; a click puts the caret on that block, a double click shows its slide |
 | Click / drag a track | move the playhead within the slide |
 | ▶ Play, Ctrl+Enter | play from the selected slide |
 | In the editor: ⌃⌘Space (Mac), Ctrl+Shift+Space | the emoji picker at the caret (EVGUI's EmojiPickerCtl): the emojis the slides and their PDF can draw, Recent first; type to search (English or Finnish names), arrows + Enter or a click writes it, Tab changes the group, Esc closes |
@@ -473,6 +474,7 @@ voice filter, the deck's music, a realistic book's page turns. Needs
 | `src/PresInk.rgr`, `src/PresRecord.rgr` | Drawing on the slide while presenting and the pointer; a recording's operations, its file and its replay |
 | `web/recorder.js` | The microphone into a file, and the voices it plays through (Web Audio) |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
+| `src/PresDocView.rgr`, `src/PresDocFlow.rgr` | The Document view: the deck through the Markdown engine's continuous layout, with the Word/HTML exports' slide pictures (PresDocx shots) as vectors; PresDocFlow is its geometry alone |
 | `src/PresVideo.rgr`, `web/videoexport.js`, `web/video-worker.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
 | `src/PresVp8.rs`, `src/PresVp8Check.rs`, `scripts/check-vp8.mjs` | Sliqtly's own VP8/WebM video encoder (Rust that Ranger builds to JavaScript) and its check |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |

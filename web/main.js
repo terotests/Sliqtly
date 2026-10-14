@@ -4075,7 +4075,7 @@ function paintOnce() {
     }
     // Only while editing: not to an audience, and not mid-animation, where a
     // fading line is briefly faint by design.
-    if (layout.mode !== "present" && !viewer && !app.isPlaying()) {
+    if (layout.mode !== "present" && layout.view !== "doc" && !viewer && !app.isPlaying()) {
       // Runs too faint on their slide: marked in the editors' gutters, not
       // laid over the slide. A change shows on the next paint.
       try {

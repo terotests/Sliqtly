@@ -1,0 +1,228 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocFlow.rgr — where each piece of the document view goes.
+; ============================================================================
+;
+; The document view (PresDocView) reads a deck as one page that scrolls:
+; the text laid out once as a continuous column, and the blocks only the
+; stage can draw (a diagram, a chart, a list figure, a SmartArt) as they
+; look on their slide. This file is the geometry of that page and nothing
+; else, so it is checked without a layout or a painter:
+;
+;   items, in reading order ──► place() ──► y, height, scale of each
+;
+; A TEXT item keeps the room the continuous layout gave it and the gap it
+; had to the item before it, so paragraphs and headings are spaced as the
+; Markdown engine spaces them. A SHOT is as wide a share of the column as
+; its block was of its slide (as in the Word and HTML exports) and as tall
+; as that width makes it. NOTES are the speaker's notes under their slide.
+; A new slide starts after a fixed gap, where the page draws a rule.
+; ============================================================================
+
+class PresDocItem {
+    ; 0 text, 1 shot, 2 notes
+    def kind:int 0
+    ; the slide it is on
+    def page:int 0
+    ; the block's source range (its first character names it)
+    def key:int 0
+    def keyEnd:int 0
+    ; TEXT: where the continuous layout put it; a SHOT: its slot there
+    ; (both -1 when it had none)
+    def top:double -1.0
+    def bottom:double -1.0
+    ; a SHOT: its rectangle's size on the slide. NOTES: their height
+    def sw:double 0.0
+    def sh:double 0.0
+    ; --- placed ---
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    ; a SHOT's scale from slide units; TEXT: how far its boxes move down
+    def scale:double 1.0
+    def dy:double 0.0
+    ; NOTES: which slide's notes, among the page's (PresDocView)
+    def note:int -1
+
+    Constructor () {
+    }
+
+    fn bottomEdge:double () {
+        return (y + h)
+    }
+}
+
+class PresDocFlow {
+    def items:[PresDocItem]
+    ; the page: its width, its margin, the text column inside it
+    def width:double 720.0
+    def margin:double 36.0
+    ; the slides' width, which a shot's share of the column is taken from
+    def pageW:double 960.0
+    ; the room between two slides; the rule is drawn in its middle
+    def slideGap:double 40.0
+    ; the least room above a shot or notes
+    def shotGap:double 10.0
+    ; the page's height once placed
+    def height:double 0.0
+    ; where each slide starts (the first item's y), by slide; -1 for a slide
+    ; with nothing on it
+    def slideTops:[double]
+    ; the rules between slides: their y, and the slide they open
+    def ruleY:[double]
+    def rulePage:[int]
+
+    Constructor () {
+    }
+
+    fn add:PresDocItem (kind:int page:int key:int keyEnd:int) {
+        def it (new PresDocItem())
+        it.kind = kind
+        it.page = page
+        it.key = key
+        it.keyEnd = keyEnd
+        push items it
+        return it
+    }
+
+    fn colX:double () {
+        return margin
+    }
+
+    fn colW:double () {
+        return (width - (margin * 2.0))
+    }
+
+    fn place:void (slides:int) {
+        clear slideTops
+        clear ruleY
+        clear rulePage
+        def s:int 0
+        while (s < slides) {
+            push slideTops -1.0
+            s = (s + 1)
+        }
+        def cw:double (this.colW())
+        def cursor:double margin
+        def prevBottom:double -1.0
+        def prevPage:int -1
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:PresDocItem (itemAt items i)
+            def newSlide:boolean (it.page != prevPage)
+            def gap:double 0.0
+            if (newSlide && (prevPage >= 0)) {
+                push ruleY (cursor + (slideGap * 0.5))
+                push rulePage it.page
+                cursor = (cursor + slideGap)
+            } {
+                if (((prevBottom >= 0.0) && (it.top >= 0.0)) && (it.top > prevBottom)) {
+                    gap = (it.top - prevBottom)
+                }
+            }
+            if (it.kind == 0) {
+                it.x = (this.colX())
+                it.w = cw
+                it.y = (cursor + gap)
+                it.h = (it.bottom - it.top)
+                if (it.h < 0.0) {
+                    it.h = 0.0
+                }
+                it.dy = (it.y - it.top)
+                it.scale = 1.0
+            }
+            if (it.kind == 1) {
+                def share:double 1.0
+                if (pageW > 0.0) {
+                    share = (it.sw / pageW)
+                }
+                if (share > 1.0) {
+                    share = 1.0
+                }
+                if (share < 0.25) {
+                    share = 0.25
+                }
+                it.w = (cw * share)
+                it.scale = 1.0
+                if (it.sw > 0.0) {
+                    it.scale = (it.w / it.sw)
+                }
+                it.h = (it.sh * it.scale)
+                it.x = ((this.colX()) + ((cw - it.w) * 0.5))
+                if ((gap < shotGap) && (newSlide == false)) {
+                    gap = shotGap
+                }
+                it.y = (cursor + gap)
+            }
+            if (it.kind == 2) {
+                it.x = (this.colX())
+                it.w = cw
+                it.h = it.sh
+                it.y = (cursor + shotGap)
+            }
+            if (newSlide && ((it.page >= 0) && (it.page < slides))) {
+                if ((itemAt slideTops it.page) < 0.0) {
+                    set slideTops it.page it.y
+                }
+            }
+            cursor = (it.bottomEdge())
+            if (it.kind != 2) {
+                prevBottom = it.bottom
+            }
+            prevPage = it.page
+            i = (i + 1)
+        }
+        height = (cursor + margin)
+    }
+
+    ; The item at y on the page: the one it is in, else the nearest one
+    ; above it (the gap under an item belongs to it), else the first.
+    fn itemAt:int (y:double) {
+        def best:int -1
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:PresDocItem (itemAt items i)
+            if (it.y <= y) {
+                best = i
+            } {
+                break
+            }
+            i = (i + 1)
+        }
+        if ((best < 0) && ((array_length items) > 0)) {
+            best = 0
+        }
+        return best
+    }
+
+    ; The slide shown at y: the last one starting at or above it.
+    fn pageAt:int (y:double) {
+        def best:int 0
+        def found:boolean false
+        def s:int 0
+        while (s < (array_length slideTops)) {
+            def t:double (itemAt slideTops s)
+            if (t >= 0.0) {
+                if ((t <= y) || (found == false)) {
+                    best = s
+                    found = true
+                }
+                if (t > y) {
+                    break
+                }
+            }
+            s = (s + 1)
+        }
+        return best
+    }
+
+    ; Where slide p starts, or -1 when it has nothing on the page.
+    fn topOf:double (p:int) {
+        if ((p < 0) || (p >= (array_length slideTops))) {
+            return -1.0
+        }
+        return (itemAt slideTops p)
+    }
+}

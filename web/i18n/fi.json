@@ -1778,5 +1778,7 @@
   "Save the presentation first: its session is kept with it on the server.": "Tallenna esitys ensin: sen istunto säilytetään sen kanssa palvelimella.",
   "The note was not kept: ": "Muistiinpanoa ei tallennettu: ",
   "Forked with its context: ": "Haarautettu kontekstin kanssa: ",
-  "Could not fork: ": "Haarautus ei onnistunut: "
+  "Could not fork: ": "Haarautus ei onnistunut: ",
+  "View": "Näkymä",
+  "Document": "Dokumentti"
 }
