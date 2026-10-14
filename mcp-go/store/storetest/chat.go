@@ -26,6 +26,7 @@ func RunChat(t *testing.T, open func(t *testing.T) store.ChatLog) {
 		{"RoomsApart", chatRoomsApart},
 		{"Concurrent", chatConcurrent},
 		{"FilesAndLinks", chatFilesAndLinks},
+		{"SessionEntries", chatSessionEntries},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) { tc.fn(t, open(t)) })
@@ -283,5 +284,38 @@ func chatFilesAndLinks(t *testing.T, c store.ChatLog) {
 	page, err := c.Page(ctx, "t1", "r", store.ChatPage{})
 	if err != nil || len(page) != 1 || page[0].Links[0].Title != "Example Domain" || page[0].Files[0].W != 640 {
 		t.Fatalf("page: %+v %v", page, err)
+	}
+}
+
+// a Story's session (store.Sessions) on this log: entries keep their act,
+// and a fork reads its parent's first entries through
+func chatSessionEntries(t *testing.T, c store.ChatLog) {
+	ctx := context.Background()
+	s := store.Sessions{Log: c}
+	by := store.ChatFrom{ID: "bot-claude", Name: "Claude", Kind: "bot"}
+	for _, e := range []store.SessionEntry{
+		{Kind: store.KindPrompt, Text: "We need passkeys", By: store.ChatFrom{ID: "p-ann", Name: "Ann", Kind: "person"}},
+		{Kind: store.KindTool, Tool: "read_file", Refs: []string{"file:data/req.md"}, By: by},
+		{Kind: store.KindReply, Text: "Here is a spec", By: by},
+	} {
+		if _, err := s.Append(ctx, "t1", "main", e, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Append(ctx, "t1", "sec", store.SessionEntry{Kind: store.KindFinding, Text: "No fallback", By: by}, false); err != nil {
+		t.Fatal(err)
+	}
+	forkOf := func(_ context.Context, deck string) (store.Fork, error) {
+		if deck == "sec" {
+			return store.Fork{From: "main", At: 2}, nil
+		}
+		return store.Fork{}, nil
+	}
+	tl, err := s.Timeline(ctx, "t1", "sec", forkOf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl) != 3 || tl[1].Tool != "read_file" || tl[1].Refs[0] != "file:data/req.md" || tl[1].Origin != "main" || tl[2].Kind != store.KindFinding || tl[2].N != 3 {
+		t.Fatalf("timeline: %+v", tl)
 	}
 }

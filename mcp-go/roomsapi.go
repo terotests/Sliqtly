@@ -42,6 +42,10 @@ type roomService struct {
 	// the rooms' own files (roomfiles.go) and their address; nil: none
 	files    roomFileStore
 	filesURL func(path string) string
+	// the decks' files (a fork copies its parent's) and where the page
+	// reads one: nil where none are kept
+	bucket   Bucket
+	shareURL func(name, token string) string
 	// reads the pages a message links to (linkpreview.go); nil: no previews
 	client *http.Client
 	ownURL string
@@ -67,6 +71,11 @@ func newRoomService(env *Env) *roomService {
 		client:  env.Client,
 		ownURL:  env.BaseURL,
 		imports: env.ImportDirs,
+	}
+	if env.Bucket != nil {
+		rs.bucket = env.Bucket
+		h := &McpHost{env: env}
+		rs.shareURL = h.FileURL
 	}
 	if f, ok := env.Bucket.(roomFileStore); ok {
 		rs.files = f
@@ -170,7 +179,7 @@ var roomTools = []roomTool{
 		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "room_id": strProp("The room to move it to"), "folder_id": strProp("A folder of that room (get_room lists them, create_folder makes one); leave out for the room's top")},
 		required: []string{"deck_id", "room_id"}},
 	{name: "set_story", title: "Set a presentation's type, phase or tags",
-		desc:     "A presentation is a story of its room (people see rooms called topics): its type says what kind of story it is (" + strings.Join(store.StoryTypes, ", ") + "; story when nothing fits), its phase where it is in its life (" + strings.Join(store.StoryPhases, ", ") + "), tags are free words for search and grouping, and color (#rrggbb) goes over the type's colour (\"\" back to the type's). Give only what changes. A new presentation is a draft; one from before stories is active. Suggest a type from what the presentation is (a code review is review, a pitch deck pitch), and set phase only when the user says so. → the story as it is now",
+		desc: "A presentation is a story of its room (people see rooms called topics): its type says what kind of story it is (" + strings.Join(store.StoryTypes, ", ") + "; story when nothing fits), its phase where it is in its life (" + strings.Join(store.StoryPhases, ", ") + "), tags are free words for search and grouping, and color (#rrggbb) goes over the type's colour (\"\" back to the type's). Give only what changes. A new presentation is a draft; one from before stories is active. Suggest a type from what the presentation is (a code review is review, a pitch deck pitch), and set phase only when the user says so. → the story as it is now",
 		props: map[string]any{"deck_id": strProp("The presentation's deck_id"), "type": strProp("One of " + strings.Join(store.StoryTypes, ", ")), "phase": strProp("One of " + strings.Join(store.StoryPhases, ", ")),
 			"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "All of its tags (replaces them), at most 20"},
 			"color": strProp("#rrggbb over the type's colour, \"\" for the type's")},
@@ -211,8 +220,11 @@ var roomTools = []roomTool{
 		required: []string{"ref"}},
 }
 
-// every operation: the rooms' and their chat's (roomchat.go)
-func allRoomTools() []roomTool { return append(append([]roomTool{}, roomTools...), chatTools...) }
+// every operation: the rooms', their chat's (roomchat.go) and the
+// Stories' sessions (storysession.go)
+func allRoomTools() []roomTool {
+	return append(append(append([]roomTool{}, roomTools...), chatTools...), sessionTools...)
+}
 
 func findRoomTool(name string) bool {
 	_, ok := roomToolOf(name)
@@ -322,9 +334,12 @@ func (s *roomService) callFor(ctx context.Context, p store.Principal, via, op st
 		}
 	}
 	var out any
-	if isChatTool(op) {
+	switch {
+	case isChatTool(op):
 		out, err = s.runChat(ctx, p, via, op, a)
-	} else {
+	case isSessionTool(op):
+		out, err = s.runSession(ctx, p, via, op, a)
+	default:
 		out, err = s.run(ctx, p, op, a)
 	}
 	switch {
@@ -354,6 +369,7 @@ var roomListChanges = map[string]bool{
 	"create_room": true, "update_room": true, "delete_room": true,
 	"archive_room": true, "move_presentation": true, "set_story": true,
 	"create_folder": true, "rename_folder": true, "delete_folder": true,
+	"fork_story": true,
 }
 
 type roomRow struct {

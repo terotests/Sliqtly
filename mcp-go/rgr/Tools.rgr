@@ -1640,6 +1640,12 @@ class Tools {
             host_log host (name + " failed: " + err)
             return (Tools.fail(("Sliqtly could not " + (Tools.verb(name)) + ": " + err)))
         }
+        ; what an assistant did to a deck shows in its Story's session
+        if ((r.bool_("isError" false)) == false) {
+            if (Deck.inList(([] _:string ("create_presentation" "update_presentation" "bind_chart_data" "export_presentation" "add_comment" "resolve_comment" "write_workbook" "vectorize_image")) name)) {
+                host_session_tool host caller.uid name (JOut.text(args)) (JOut.text(r))
+            }
+        }
         return r
     }
 
