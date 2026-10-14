@@ -142,6 +142,13 @@ operators {
             go ( (e 1) ".CallTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; a deck tool an assistant ran (its arguments and answer as JSON), into
+    ; the deck's Story session (storysession.go); never fails the call
+    host_session_tool _:void (h:McpHost uid:string name:string args:string answer:string) {
+        templates {
+            go ( (e 1) ".SessionTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
     ; the picture the last host tool answered with (get_figma_screen) as
     ; base64 PNG, once; "" when none
     host_tool_image _:string (h:McpHost) {

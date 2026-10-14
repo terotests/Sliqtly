@@ -20,6 +20,10 @@
 ;           like the chat and in its place: a ChatCtl whose buttons are the
 ;           quick actions; PresApp fills it from PresAi and asks the page
 ;           to post the question
+;   session the Story's session (docs/story-workspace.md): the visible
+;           history of the work on the deck and its forks, docked on the
+;           right like the AI; the page fills it, a note is "session-send",
+;           an action (Fork with context, a fork to open) "session-act"
 ;   call    the people in the deck's call (EVGUI ParticipantsCtl, PresMeet
 ;           holds it), docked on the right above the chat; a press on its
 ;           buttons is "call-press\t<target>" for PresMeet
@@ -179,6 +183,9 @@ class PresPanels {
     ; the AI assistant (its `open` says whether it shows, in the chat's place)
     def aiChat:ChatCtl (new ChatCtl())
     def aiW:double 380.0
+    ; the Story's session (its `open` says whether it shows, in the chat's place)
+    def session:ChatCtl (new ChatCtl())
+    def sessionW:double 380.0
     ; the call's people (PresMeet's control) and whether they show
     def call:ParticipantsCtl (new ParticipantsCtl())
     def callOpen:boolean false
@@ -210,11 +217,17 @@ class PresPanels {
         aiChat.closeText = (PresI18n.t("Close"))
         aiChat.newText = (PresI18n.t("new"))
         aiChat.keep = 200
+        session.setup("pn-ses" (PresI18n.t("Session")))
+        session.placeholder = (PresI18n.t("A note, or a fork's name…"))
+        session.emptyText = (PresI18n.t("Nothing in this story's session yet. People and AI assistants write here as they work on it."))
+        session.sendText = (PresI18n.t("Note"))
+        session.closeText = (PresI18n.t("Close"))
+        session.newText = (PresI18n.t("new"))
     }
 
     ; --- what is showing ---------------------------------------------------------
     fn any:boolean () {
-        return ((((((helpOpen || shareOpen) || filesOpen) || chat.open) || aiChat.open) || callOpen) || ((strlen toastText) > 0))
+        return (((((((helpOpen || shareOpen) || filesOpen) || chat.open) || aiChat.open) || session.open) || callOpen) || ((strlen toastText) > 0))
     }
 
     ; the width a docked panel takes off the right edge (0: none open)
@@ -224,6 +237,9 @@ class PresPanels {
         }
         if aiChat.open {
             return aiW
+        }
+        if session.open {
+            return sessionW
         }
         if (chat.open || callOpen) {
             return chatW
@@ -244,7 +260,7 @@ class PresPanels {
     }
 
     fn callShows:boolean () {
-        return (((callOpen && (helpOpen == false)) && (aiChat.open == false)) && (quiet == false))
+        return ((((callOpen && (helpOpen == false)) && (aiChat.open == false)) && (session.open == false)) && (quiet == false))
     }
 
     ; the height the call takes off the top of the right edge
@@ -308,6 +324,7 @@ class PresPanels {
                     aiChat.setOpen(false)
                     push requests "ai-closed"
                 }
+                this.closeSession()
             }
             this.rebuild()
         }
@@ -328,8 +345,42 @@ class PresPanels {
                     callOpen = false
                     push requests "call-closed"
                 }
+                this.closeSession()
             }
             this.rebuild()
+        }
+    }
+
+    ; The Story's session in the right edge's place, as the AI drawer: help,
+    ; the chat, the AI and the call make room for it (the page hears they
+    ; closed).
+    fn setSession:void (on:boolean) {
+        if (on != session.open) {
+            session.setOpen(on)
+            if on {
+                helpOpen = false
+                if chat.open {
+                    chat.setOpen(false)
+                    push requests "chat-closed"
+                }
+                if aiChat.open {
+                    aiChat.setOpen(false)
+                    push requests "ai-closed"
+                }
+                if callOpen {
+                    callOpen = false
+                    push requests "call-closed"
+                }
+            }
+            this.rebuild()
+        }
+    }
+
+    ; the session steps aside for another panel of the right edge
+    fn closeSession:void () {
+        if session.open {
+            session.setOpen(false)
+            push requests "session-closed"
         }
     }
 
@@ -339,6 +390,9 @@ class PresPanels {
         if aiChat.open {
             return aiChat
         }
+        if session.open {
+            return session
+        }
         return chat
     }
 
@@ -346,7 +400,16 @@ class PresPanels {
         if aiChat.open {
             return aiW
         }
+        if session.open {
+            return sessionW
+        }
         return chatW
+    }
+
+    ; a panel of the whole right edge (the AI or the session): the call
+    ; does not sit above it
+    fn dockFull:boolean () {
+        return (aiChat.open || session.open)
     }
 
     ; A selectable text (TextCtl `selectable`), in the host.
@@ -413,7 +476,7 @@ class PresPanels {
                 return ct
             }
         }
-        if (chat.open || aiChat.open) {
+        if ((chat.open || aiChat.open) || session.open) {
             def mt:string (dc.selectedText())
             if ((strlen mt) > 0) {
                 return mt
@@ -466,7 +529,7 @@ class PresPanels {
     fn chatHas:boolean (px:double py:double) {
         def dc:ChatCtl (this.dockChat())
         def top:double barH
-        if (aiChat.open == false) {
+        if ((this.dockFull()) == false) {
             top = (barH + (this.callH()))
         }
         return (((dc.open && (quiet == false)) && (px >= (w - (this.dockChatW())))) && (py >= top))
@@ -480,7 +543,11 @@ class PresPanels {
         if aiChat.open {
             id = "pn-ai-dock"
         } {
-            top = (barH + (this.callH()))
+            if session.open {
+                id = "pn-ses-dock"
+            } {
+                top = (barH + (this.callH()))
+            }
         }
         def p:EVGElement (UiKit.div(id))
         p.id = id
@@ -501,8 +568,22 @@ class PresPanels {
 
     ; What the docked conversation asks after a key or a press: the deck's
     ; chat "chat-send" / "chat-closed", the AI "ai-send", "ai-act<TAB>value"
-    ; (a quick action's button) and "ai-closed".
+    ; (a quick action's button) and "ai-closed", the session "session-send",
+    ; "session-act<TAB>value" and "session-closed".
     fn chatAsks:void (dc:ChatCtl) {
+        if (dc.tid == session.tid) {
+            if ((strlen session.sent) > 0) {
+                push requests "session-send"
+            }
+            def sact:string (session.takeAction())
+            if ((strlen sact) > 0) {
+                push requests ("session-act" + (strfromcode 9) + sact)
+            }
+            if (session.open == false) {
+                push requests "session-closed"
+            }
+            return
+        }
         if (dc.tid == aiChat.tid) {
             if ((strlen aiChat.sent) > 0) {
                 push requests "ai-send"
@@ -599,6 +680,9 @@ class PresPanels {
             if (on && aiChat.open) {
                 aiChat.setOpen(false)
                 push requests "ai-closed"
+            }
+            if on {
+                this.closeSession()
             }
             if (on && callOpen) {
                 callOpen = false

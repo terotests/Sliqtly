@@ -61,6 +61,17 @@ type ChatMsg struct {
 	Files []ChatFile `json:"files,omitempty"`
 	// what its links lead to, as the server read them after it was posted
 	Links []ChatLink `json:"links,omitempty"`
+	// a Story session's entry (session.go): what kind of thing was done
+	// and what it used; nil in a room's chat
+	Act *ChatAct `json:"act,omitempty"`
+}
+
+// ChatAct is what a session entry is beside its words: its kind (prompt,
+// reply, tool …), the tool called and the things it used or made.
+type ChatAct struct {
+	Kind string   `json:"kind"`
+	Tool string   `json:"tool,omitempty"`
+	Refs []string `json:"refs,omitempty"`
 }
 
 // ChatFile is a file of the room a message shows: its name in the room's
@@ -210,6 +221,14 @@ func copyMsg(m ChatMsg) ChatMsg {
 	}
 	if m.Links != nil {
 		m.Links = append([]ChatLink(nil), m.Links...)
+	}
+	if m.Act != nil {
+		a := *m.Act
+		a.Refs = append([]string(nil), a.Refs...)
+		if len(a.Refs) == 0 {
+			a.Refs = nil
+		}
+		m.Act = &a
 	}
 	return m
 }

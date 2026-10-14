@@ -144,6 +144,9 @@ class PresToolbar {
     ; the shared Files (a server of one's own keeps them): the place on the
     ; rail when `filesOn`, its panel where Rooms' is, one of the two at a time
     def filesOn:boolean false
+    ; the Story's session (its history and forks: the page's Session panel)
+    ; is a place of the rail where the server keeps sessions
+    def sessionOn:boolean false
     def filesOpen:boolean false
     ; a file a row: "id \t name \t note \t status" (web/sharedfiles.js)
     def fileRows:string ""
@@ -234,6 +237,9 @@ class PresToolbar {
         if (id == "roomdecks") {
             roomDecks = rows
             roomOpen = current
+        }
+        if (id == "session") {
+            sessionOn = (current == "1")
         }
         if (id == "files") {
             fileRows = rows
@@ -1287,6 +1293,10 @@ class PresToolbar {
         if (id == "history") {
             return "M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4M12 8v4l3 2"
         }
+        ; a branch: the session and its forks
+        if (id == "session") {
+            return "M6 3v12M6 15a3 3 0 1 0 0 6a3 3 0 1 0 0-6zM18 9a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM18 9c0 5-6 4-12 7"
+        }
         if (id == "gear") {
             return "M12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3a1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5a1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"
         }
@@ -1336,6 +1346,9 @@ class PresToolbar {
         }
         r.addItem("review" (PresI18n.t("Review")) (PresToolbar.railIcon("review")))
         r.addItem("history" (PresI18n.t("Versions")) (PresToolbar.railIcon("history")))
+        if sessionOn {
+            r.addItem("session" (PresI18n.t("Session")) (PresToolbar.railIcon("session")))
+        }
         ; the editor's dark or light look, switched in one press
         if darkOn {
             r.addBottom("dark" (PresI18n.t("Light")) (PresToolbar.railIcon("light")))

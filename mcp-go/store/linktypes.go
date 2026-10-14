@@ -29,7 +29,7 @@ type LinkTypes struct {
 }
 
 // DefaultLinkTypes: relates_to, parent/child, references and
-// inherits_files (ADR 0001).
+// inherits_files (ADR 0001), forked_from/forks (docs/story-workspace.md).
 func DefaultLinkTypes() *LinkTypes {
 	lt := &LinkTypes{byName: map[string]LinkType{}, primary: map[string]string{}}
 	for _, t := range []LinkType{
@@ -37,6 +37,8 @@ func DefaultLinkTypes() *LinkTypes {
 		{Name: "parent", Inverse: "child", Label: "yläpuolella"},
 		{Name: "references", Inverse: "referenced_by", Label: "viittaa"},
 		{Name: "inherits_files", Inverse: "files_used_by", Label: "käyttää tiedostoja"},
+		// a Story forked from another (session.go)
+		{Name: "forked_from", Inverse: "forks", Label: "haarautettu"},
 	} {
 		if err := lt.Add(t); err != nil {
 			panic(err)

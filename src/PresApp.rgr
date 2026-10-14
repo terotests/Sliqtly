@@ -7043,7 +7043,7 @@ class PresApp {
                 layers.setBand("bar" "docked")
             }
         }
-        layers.setOpen("panels" (((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.aiChat.open) || panels.callOpen) && edit))
+        layers.setOpen("panels" ((((((panels.helpOpen || panels.filesOpen) || panels.chat.open) || panels.aiChat.open) || panels.session.open) || panels.callOpen) && edit))
         layers.setOpen("sketch" (edit && ((deck.slideCount()) > 0)))
         ; the source viewer and the badges under the comments' pins
         def codeWas:boolean (layers.isOpen("code"))
@@ -9792,6 +9792,10 @@ class PresApp {
                 panels.setAi(false)
                 push requests "ai-closed"
             }
+            if panels.session.open {
+                panels.setSession(false)
+                push requests "session-closed"
+            }
             if panels.callOpen {
                 meet.panelOpen = false
                 panels.setCall(false)
@@ -9924,6 +9928,84 @@ class PresApp {
         }
         panelsKey = ""
         chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the Story's session (docs/story-workspace.md, PresPanels.session) -------
+    ; The page reads the session from the server (web/storysession.js) and
+    ; fills the panel: the entries as messages, a line under the title
+    ; (where it was forked from, how many forks) and the actions (Fork with
+    ; context, each fork to open). What is sent is a note ("session-send",
+    ; the page takes `sessionTakeSent`); an action is "session-act<TAB>value";
+    ; "session-closed" when it closed here.
+    fn sessionOpen:void (on:boolean) {
+        panels.setSession(on)
+        if on {
+            review.closePanel()
+            focus = "chat"
+            panels.session.toEnd()
+        } {
+            if (focus == "chat") {
+                focus = "editor"
+            }
+        }
+        this.takePanels()
+        panelsKey = ""
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn sessionIsOpen:boolean () {
+        return panels.session.open
+    }
+
+    ; a new session to show: its messages and actions go
+    fn sessionClear:void (subtitle:string) {
+        def c:ChatCtl panels.session
+        def none:[UiChatMessage]
+        c.messages = none
+        c.subtitle = subtitle
+        c.clearActions()
+        c.unread = 0
+        c.top = 0
+        c.follow = true
+        this.sessionChanged()
+    }
+
+    ; -> false when the entry was there already
+    fn sessionAdd:boolean (id:string who:string name:string color:string text:string time:string) {
+        def added:boolean (panels.session.add(id who name color text time false))
+        if added {
+            this.sessionChanged()
+        }
+        return added
+    }
+
+    fn sessionAction:void (value:string label:string variant:string) {
+        panels.session.addAction(value label variant)
+        this.sessionChanged()
+    }
+
+    fn sessionSubtitle:void (subtitle:string) {
+        panels.session.subtitle = subtitle
+        this.sessionChanged()
+    }
+
+    fn sessionTakeSent:string () {
+        return (panels.session.takeSent())
+    }
+
+    ; what is typed in the field (a fork's name), taken away
+    fn sessionTakeDraft:string () {
+        def d:string (panels.session.draft())
+        panels.session.input.setValue("")
+        this.sessionChanged()
+        return d
+    }
+
+    fn sessionChanged:void () {
+        if panels.session.open {
+            panels.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     ; --- the AI assistant (the ✨ AI drawer: PresAi, PresPanels.aiChat) -----------
@@ -11064,6 +11146,7 @@ class PresApp {
         ; the chat's field shows its caret while it has the keys
         panels.chat.input.setFocused(((this.chatHasKeys()) && (panels.aiChat.open == false)))
         panels.aiChat.input.setFocused(((this.chatHasKeys()) && panels.aiChat.open))
+        panels.session.input.setFocused(((this.chatHasKeys()) && panels.session.open))
         ; the drawer's "Context: Slide 3 / 12" follows the slide shown
         if (panels.aiChat.open && ((aiSlideAt != selected) || (aiCountAt != (deck.slideCount())))) {
             this.aiFill()
@@ -14617,8 +14700,12 @@ class PresApp {
             if (p == "review") {
                 this.toggleReviewList()
             }
+            ; the Story's session: the page reads it and opens the panel
+            if (p == "session") {
+                push requests "session:toggle"
+            }
             ; the slides' places close a room's chat over them
-            if (((p == "review") || (p == "history")) && room.open) {
+            if ((((p == "review") || (p == "history")) || (p == "session")) && room.open) {
                 push requests "roomchat:close"
             }
             chromeRev = (chromeRev + 1)
