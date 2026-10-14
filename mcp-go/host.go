@@ -119,7 +119,9 @@ type Env struct {
 	decks deckLocks
 	// layouts' answers kept by what they were asked (memo.go)
 	memo memo
-	Now  func() time.Time // nil: time.Now
+	// the assistants working on each deck now (presence.go)
+	agents agentBoard
+	Now    func() time.Time // nil: time.Now
 	// A server of one's own (decks in a folder, local.go): every caller is
 	// LocalUser, files are read from FilesURL, themes are the built-in ones.
 	LocalUser string
@@ -240,6 +242,11 @@ func NewApp(env *Env) http.Handler {
 				io.WriteString(w, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null}`)
 			}
 		}()
+		// who is working where (presence.go): only where a page reads it
+		if r.URL.Path == "/mcp" && env.rooms != nil {
+			env.agents.watchMcp(w, r, func(w http.ResponseWriter) { App_static_serve(h, r, w) })
+			return
+		}
 		App_static_serve(h, r, w)
 	})
 }

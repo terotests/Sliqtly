@@ -471,3 +471,18 @@
 .rm-cmeta { font-size: 12px; color: #71717a; white-space: nowrap; }
 .rm-ctags { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; }
 .rm-tag { font-size: 11px; color: #52525b; background-color: #f4f4f5; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+/* who is working (web/presence.js): a light and the counts, on the room's
+   head and on a card; green while an assistant works, amber otherwise */
+.theme-pn .rm-who { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; align-self: flex-start; height: 22px; padding: 0 8px 0 6px; border-radius: 11px; border: 1px solid #e4e4e7; background-color: #ffffff; }
+.theme-pn .rm-who:hover { background-color: #f4f4f5; }
+.theme-pn .rm-who-working { border-color: #bbf7d0; background-color: #f0fdf4; }
+.rm-cwho { display: flex; flex-direction: row; flex-wrap: nowrap; }
+.rm-wdot { width: 8px; height: 8px; border-radius: 4px; flex-shrink: 0; }
+.rm-wdot-working { background-color: #16a34a; }
+.rm-wdot-here { background-color: #f59e0b; }
+.rm-wtext { font-size: 12px; color: #52525b; white-space: nowrap; }
+.theme-pn .rm-who-working .rm-wtext { color: #15803d; font-weight: 600; }
+.pd-light { width: 8px; height: 8px; border-radius: 4px; flex-shrink: 0; margin-right: 8px; align-self: center; }
+.pd-light-working { background-color: #22c55e; }
+.pd-light-idle { background-color: #f59e0b; }
+.pd-light-person { background-color: #3b82f6; }

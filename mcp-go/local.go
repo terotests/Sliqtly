@@ -153,6 +153,8 @@ func newLocalServer(env *Env, bucket *localBucket, token string, web fs.FS) http
 		s.hub = newChangeHub()
 		s.collab = newCollabRooms()
 		if env.rooms != nil {
+			env.rooms.agents = &env.agents
+			env.rooms.peopleOn = s.peopleOn
 			hub := s.hub
 			env.rooms.notify = func(_ string, v map[string]any) {
 				if b, err := json.Marshal(v); err == nil {
