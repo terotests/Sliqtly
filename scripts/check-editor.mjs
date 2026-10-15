@@ -53,6 +53,7 @@ function check(name, ok, note = "") {
 const gate = { signedIn: true, license: { plan: "trial", maxDocs: 2, docs: [], canEdit: true }, claims: [], signouts: 0, uid: "u1", email: "t@example.com" };
 // the cloud as the page and the gate see it (the fake Firebase below)
 const fakeDb = new Map();
+const layout = { seq: 0, facts: new Map() };
 const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".csv": "text/csv", ".md": "text/markdown", ".svg": "image/svg+xml", ".png": "image/png", ".ttf": "font/ttf" };
 const outside = []; // requests for the editor's files outside /editor/
 
@@ -70,6 +71,20 @@ const server = http.createServer(async (req, res) => {
     if (op === "license") return json(200, { license: gate.license });
     // the account's own Figma files (mcp-go/editorshared.go): none here
     if (op === "shared") return json(200, { files: [], max: 200 << 20, upload: `users/${gate.uid}/figma-upload/` });
+    // the account's topics, folders and stories (mcp-go/layout.go): numbered
+    // facts, a fill only where there is none
+    if (op === "layout") {
+      const a = JSON.parse(body || "{}");
+      for (const f of a.put || []) {
+        const cur = layout.facts.get(f.k);
+        if ((a.fill || f.fill) && cur) continue;
+        if (cur ? cur.v === (f.v ?? null) : f.v == null) continue;
+        layout.facts.set(f.k, { v: f.v ?? null, s: ++layout.seq });
+      }
+      const full = !a.since || a.since > layout.seq;
+      const facts = [...layout.facts].filter(([, f]) => (full ? f.v !== null : f.s > a.since)).map(([k, f]) => ({ k, v: f.v }));
+      return json(200, { seq: layout.seq, full, facts });
+    }
     if (op === "claim") {
       const { id } = JSON.parse(body || "{}");
       gate.claims.push(id);
