@@ -4986,7 +4986,7 @@ class PresCheck {
     fn docCaret:void () {
         def text:string ("---\ntitle: Raportti\n---\n\n"
             + "## Eka otsikko\n\nTeksti **lihava** ja tavallinen loppu.\n\n- yksi\n- kaksi\n\n"
-            + "::: notes\nPuhe.\n:::\n\n---\n\n## Toinen\n\n1. a\n2. b\n")
+            + "::: notes\nPuhe.\n:::\n\n---\n\n## Toinen\n\n1. a\n2. b\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n")
         def deck (new PresDeck())
         deck.setText(text)
         def v (new PresDocView())
@@ -5017,6 +5017,7 @@ class PresCheck {
         this.ok(((cm.stepLeft(text (lih + 1))) == lih) "doccaret: ← one letter back")
         this.ok(((cm.stepLeft(text lih)) == (lih - 3)) ("doccaret: ← over the markers and the space, got " + (to_string (cm.stepLeft(text lih)))))
         this.ok(((cm.has((indexOf text "Puhe"))) == false) "doccaret: the notes are not on the caret's page")
+        this.ok((cm.has(((indexOf text "omena") + 2))) "doccaret: a table cell's words are on the caret's page")
         ; Backspace joins and Enter's text
         this.ok((PresDocCaret.gapJoins("\n\n- ")) "doccaret: a gap of a bullet joins")
         this.ok(((PresDocCaret.gapJoins("\n\n---\n\n## ")) == false) "doccaret: a slide break does not")
@@ -5028,6 +5029,17 @@ class PresCheck {
         this.ok(((PresDocCaret.enterText("- yksi" 6 false)) == "\n- ") "doccaret: Enter in a list")
         this.ok(((PresDocCaret.enterText("Teksti" 3 false)) == "\n\n") "doccaret: Enter in a paragraph")
         this.ok(((PresDocCaret.enterText("a = 1" 5 true)) == "\n") "doccaret: Enter in code")
+        ; Tab in a table
+        def tb:string "| a | bb |\n| --- | --- |\n| c |  |\n\nx"
+        def ca:int (indexOf tb "a")
+        this.ok(((PresDocCaret.cellAfter(tb ca)) == (indexOf tb "bb")) "doccaret: Tab, the next cell")
+        this.ok(((PresDocCaret.cellAfter(tb (indexOf tb "bb"))) == (indexOf tb "c")) "doccaret: Tab, over the delimiter row to the next row")
+        def empty:int (PresDocCaret.cellAfter(tb (indexOf tb "c")))
+        this.ok((((charAt tb (empty - 1)) == 32) && ((charAt tb (empty - 2)) == 124)) "doccaret: Tab, into an empty cell")
+        this.ok(((PresDocCaret.cellAfter(tb empty)) == -1) "doccaret: Tab, not past the table")
+        this.ok(((PresDocCaret.cellBefore(tb (indexOf tb "c"))) == (indexOf tb "bb")) "doccaret: Shift+Tab, back over the delimiter row")
+        this.ok(((PresDocCaret.cellBefore(tb ca)) == -1) "doccaret: Shift+Tab, not before the table")
+        this.ok((PresDocCaret.isRule("| :--- | ---: |") && ((PresDocCaret.isRule("| a | b |")) == false)) "doccaret: a delimiter row")
     }
 
     fn docx:void () {

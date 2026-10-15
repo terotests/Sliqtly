@@ -23,8 +23,11 @@
 ; two paragraphs. A gap with anything else in it (a `---`, `{.class}`, a
 ; fence) is not taken.
 ;
-; Shots (charts, diagrams, tables drawn as the slide draws them) and notes
-; are not words on this page: no caret goes into them.
+; Shots (charts and diagrams drawn as the slide draws them) and notes are
+; not words on this page: no caret goes into them. A table's cells are
+; words (Tab goes from cell to cell: `cellAfter` / `cellBefore`). A picture
+; is not a run of words either: `picAt` names the one under a point, for
+; its handles (PresImageDrag) and its settings.
 ; ============================================================================
 
 class PresDocCaret {
@@ -40,6 +43,9 @@ class PresDocCaret {
     def lineH:[double]
     def lineFrom:[int]
     def lineTo:[int]
+    ; the pictures, each one's top on the page
+    def pics:[MdBox]
+    def picTops:[double]
 
     Constructor () {
     }
@@ -53,10 +59,17 @@ class PresDocCaret {
         clear lineH
         clear lineFrom
         clear lineTo
+        clear pics
+        clear picTops
     }
 
     ; A box the page drew at `dy` below where its layout put it.
     fn add:void (b:MdBox dy:double) {
+        if (((b.kind == 4) && ((PresDocCaret.srcOf(b)) >= 0)) && (b.furniture == 0)) {
+            push pics b
+            push picTops (b.y + dy)
+            return
+        }
         if (((b.kind != 0) || (b.segSrc < 0)) || ((b.furniture != 0) || b.retold)) {
             return
         }
@@ -560,5 +573,167 @@ class PresDocCaret {
             return ("\n" + m)
         }
         return "\n\n"
+    }
+
+    ; --- pictures -------------------------------------------------------------
+    sfn srcOf:int (b:MdBox) {
+        if (b.segSrc >= 0) {
+            return b.segSrc
+        }
+        return b.srcStart
+    }
+
+    ; The picture under (x, y), within `grip` of its outline; -1 for none.
+    fn picAt:int (x:double y:double grip:double) {
+        def i:int 0
+        while (i < (array_length pics)) {
+            def b:MdBox (itemAt pics i)
+            def t:double (itemAt picTops i)
+            if ((((x >= (b.x - grip)) && (x <= ((b.x + b.w) + grip))) && (y >= (t - grip))) && (y <= ((t + b.h) + grip))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The picture that starts at `src` in the file; -1 for none.
+    fn picOf:int (src:int) {
+        def i:int 0
+        while (i < (array_length pics)) {
+            if ((PresDocCaret.srcOf((itemAt pics i))) == src) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; [x, y, w, h] of picture `i` on the page.
+    fn picRect:[double] (i:int) {
+        def out:[double]
+        def b:MdBox (itemAt pics i)
+        push out b.x
+        push out (itemAt picTops i)
+        push out b.w
+        push out b.h
+        return out
+    }
+
+    fn picSrc:int (i:int) {
+        return (PresDocCaret.srcOf((itemAt pics i)))
+    }
+
+    ; --- table cells ----------------------------------------------------------
+    ; Whether the line at `off` is a row of a pipe table.
+    sfn inTable:boolean (text:string off:int) {
+        def s:int (PresDocCaret.lineStartOf(text off))
+        def e:int (PresDocCaret.lineEndOf(text s))
+        def t:string (trim (substring text s e))
+        return (((strlen t) > 1) && ((charAt t 0) == 124))
+    }
+
+    ; A delimiter row (`| --- | :-: |`): only pipes, dashes, colons, spaces.
+    sfn isRule:boolean (line:string) {
+        def t:string (trim line)
+        if ((strlen t) == 0) {
+            return false
+        }
+        def k:int 0
+        def dash:boolean false
+        while (k < (strlen t)) {
+            def c:int (charAt t k)
+            if (c == 45) {
+                dash = true
+            }
+            if ((((c != 124) && (c != 45)) && (c != 58)) && ((c != 32) && (c != 9))) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return dash
+    }
+
+    ; Where a cell's words start: past the pipe at `pipe` and its spaces
+    ; (not past the next pipe).
+    sfn cellStart:int (text:string pipe:int) {
+        def n:int (strlen text)
+        def i:int (pipe + 1)
+        while ((i < n) && (((charAt text i) == 32) || ((charAt text i) == 9))) {
+            i = (i + 1)
+        }
+        if ((i < n) && ((charAt text i) == 124)) {
+            ; an empty cell: after the first space, or right after the pipe
+            return (? ((pipe + 1) < i) (pipe + 2) (pipe + 1))
+        }
+        return i
+    }
+
+    ; Whether a pipe at `p` closes its row (only spaces after it).
+    sfn lastPipe:boolean (text:string p:int) {
+        def e:int (PresDocCaret.lineEndOf(text p))
+        return ((strlen (trim (substring text (p + 1) e))) == 0)
+    }
+
+    ; The start of the next cell after the one at `off` (the next row's
+    ; first after a row's last, over the delimiter row); -1 past the table.
+    sfn cellAfter:int (text:string off:int) {
+        def n:int (strlen text)
+        def i:int off
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                ; the next row
+                def ls:int (i + 1)
+                if ((PresDocCaret.inTable(text ls)) == false) {
+                    return -1
+                }
+                def le:int (PresDocCaret.lineEndOf(text ls))
+                if (PresDocCaret.isRule((substring text ls le))) {
+                    i = le
+                } {
+                    def first:int ((indexOf (substring text ls le) "|") + ls)
+                    return (PresDocCaret.cellStart(text first))
+                }
+            } {
+                if ((c == 124) && ((i == 0) || ((charAt text (i - 1)) != 92))) {
+                    if ((PresDocCaret.lastPipe(text i)) == false) {
+                        return (PresDocCaret.cellStart(text i))
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        return -1
+    }
+
+    ; The start of the cell before the one at `off`; -1 before the table.
+    sfn cellBefore:int (text:string off:int) {
+        ; the pipes before `off` in the table's rows, nearest first, but the
+        ; one that opens the cell `off` is in
+        def i:int (off - 1)
+        def seen:int 0
+        while (i >= 0) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                def ls:int (PresDocCaret.lineStartOf(text i))
+                if ((PresDocCaret.inTable(text ls)) == false) {
+                    return -1
+                }
+                if (PresDocCaret.isRule((substring text ls i))) {
+                    i = ls
+                }
+            }
+            if ((c == 124) && ((PresDocCaret.lastPipe(text i)) == false)) {
+                if ((i == 0) || ((charAt text (i - 1)) != 92)) {
+                    seen = (seen + 1)
+                    if (seen == 2) {
+                        return (PresDocCaret.cellStart(text i))
+                    }
+                }
+            }
+            i = (i - 1)
+        }
+        return -1
     }
 }
