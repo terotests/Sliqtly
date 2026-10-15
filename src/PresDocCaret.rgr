@@ -81,29 +81,40 @@ class PresDocCaret {
         def n:int (array_length boxes)
         def i:int 0
         def open:boolean false
-        def top:double 0.0
         while (i < n) {
             def b:MdBox (itemAt boxes i)
             def t:double (itemAt tops i)
             def same:boolean false
             if open {
-                def d:double (t - top)
-                if ((d < 0.5) && (d > -0.5)) {
+                ; one line: the boxes overlap in height (a code span or a
+                ; smaller run sits a little lower than the words around it)
+                def li0:int ((array_length lineTop) - 1)
+                def lt:double (itemAt lineTop li0)
+                def lh:double (itemAt lineH li0)
+                def mid:double (t + (b.h * 0.5))
+                def lmid:double (lt + (lh * 0.5))
+                if (((mid >= lt) && (mid <= (lt + lh))) || ((lmid >= t) && (lmid <= (t + b.h)))) {
                     same = true
                 }
             }
             if same {
                 def li:int ((array_length lineTop) - 1)
                 set lineTo li (i + 1)
-                if (b.h > (itemAt lineH li)) {
-                    set lineH li b.h
+                def top0:double (itemAt lineTop li)
+                def bottom:double (top0 + (itemAt lineH li))
+                if ((t + b.h) > bottom) {
+                    bottom = (t + b.h)
                 }
+                if (t < top0) {
+                    set lineTop li t
+                    top0 = t
+                }
+                set lineH li (bottom - top0)
             } {
                 push lineTop t
                 push lineH b.h
                 push lineFrom i
                 push lineTo (i + 1)
-                top = t
                 open = true
             }
             push boxLine ((array_length lineTop) - 1)
