@@ -1,0 +1,248 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresEditMode.rgr — View or Edit: a deck is changed only after Edit.
+; ============================================================================
+;
+; A deck opens to be read. Edit opens the editor and lets the deck be
+; changed; Save keeps what was done (a version of its own) and goes back to
+; reading. Several people may be in Edit on one deck at once (the room
+; merges their edits), and an assistant claims slides through MCP the same
+; way (begin_work / end_work): this is the human side of that.
+;
+;   View ──Edit──► Edit ──Save──► View
+;    │                │
+;    └ a change asked └ every change counted (edited)
+;      for: refused,
+;      "press Edit" told (not more often than `askEvery`)
+;
+; The editor's tabs follow: View (the deck read as a document) leads while
+; reading; Edit goes to the Markdown from it, Save back to it. A tab the
+; person chose on their own (the theme, the files) is kept either way.
+;
+; Nothing here draws or knows the page: PresApp asks and the host shows.
+; ============================================================================
+
+class PresEditMode {
+    ; Edit until a host opens a deck for reading (`reset`): a host that never
+    ; asks (the checks, the desktop editor) edits as it always did
+    def editing:boolean true
+    ; when Edit was pressed, and the last change made since (ms)
+    def since:double 0.0
+    def lastEdit:double -1.0
+    ; the changes made since Edit
+    def edits:int 0
+    ; a change asked for while reading: when it was last told to press Edit
+    def askedAt:double -1000000.0
+    def askEvery:double 4000.0
+    ; changes each time the mode does
+    def rev:int 0
+    ; Edit not offered, and why ("" it is): the deck is for reading only
+    ; here (a share whose people may not edit it); the reason is what the
+    ; person is told when they try
+    def lockedWhy:string ""
+
+    Constructor () {
+    }
+
+    ; Edit pressed: false when already editing.
+    fn begin:boolean (now:double) {
+        if (editing || ((strlen lockedWhy) > 0)) {
+            return false
+        }
+        editing = true
+        since = now
+        lastEdit = -1.0
+        edits = 0
+        rev = (rev + 1)
+        return true
+    }
+
+    ; Save pressed: false when not editing.
+    fn save:boolean (now:double) {
+        if (editing == false) {
+            return false
+        }
+        editing = false
+        rev = (rev + 1)
+        return true
+    }
+
+    ; A deck opened: reading, unless it was just made to be written.
+    fn reset:void (edit:boolean now:double) {
+        def was:boolean editing
+        ; a deck opened is not locked until its page says so
+        lockedWhy = ""
+        editing = edit
+        since = now
+        lastEdit = -1.0
+        edits = 0
+        if (was != edit) {
+            rev = (rev + 1)
+        }
+    }
+
+    ; Edit taken away (`why` said when tried) or given back (""): taken
+    ; away while editing, the deck goes back to reading. True when that
+    ; ended an Edit.
+    fn lock:boolean (why:string now:double) {
+        lockedWhy = why
+        if (((strlen why) > 0) && editing) {
+            editing = false
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    fn locked:boolean () {
+        return ((strlen lockedWhy) > 0)
+    }
+
+    fn edited:void (now:double) {
+        if editing {
+            edits = (edits + 1)
+            lastEdit = now
+        }
+    }
+
+    ; A change asked for while reading: true when the person is to be told
+    ; to press Edit now (not again within `askEvery`).
+    fn refuse:boolean (now:double) {
+        if editing {
+            return false
+        }
+        if ((now - askedAt) < askEvery) {
+            return false
+        }
+        askedAt = now
+        return true
+    }
+
+    ; the tab Edit goes to
+    sfn tabOnBegin:string (tab:string) {
+        if (tab == "view") {
+            return "md"
+        }
+        return tab
+    }
+
+    ; the tab Save goes back to
+    sfn tabOnSave:string (tab:string) {
+        if (tab == "md") {
+            return "view"
+        }
+        return tab
+    }
+
+    ; the tab a deck opens on
+    sfn tabOnOpen:string (editing:boolean) {
+        return (? editing "md" "view")
+    }
+}
+
+; ============================================================================
+; PresDocPane — a window onto the document view (PresDocView).
+; ============================================================================
+;
+; The same page is shown on the stage (Slides | Document) and in the editor's
+; View tab: each has its own rectangle and its own scroll. Page units go to
+; the screen as  screen = left + page × scale  (y: top − scroll × scale); the
+; column fills the rectangle, within `minScale`..`maxScale`.
+; ============================================================================
+
+class PresDocPane {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    ; how far down the page the top of the window is (page units)
+    def scroll:double 0.0
+    ; the slide the scroll last followed (-1: none yet)
+    def seen:int -1
+    def side:double 24.0
+    def pad:double 16.0
+    def minScale:double 0.4
+    def maxScale:double 1.6
+
+    Constructor () {
+    }
+
+    fn setArea:void (ax:double ay:double aw:double ah:double) {
+        x = ax
+        y = ay
+        w = aw
+        h = ah
+    }
+
+    fn has:boolean (px:double py:double) {
+        return ((((px >= x) && (px < (x + w))) && (py >= y)) && (py < (y + h)))
+    }
+
+    sfn clampD:double (v:double lo:double hi:double) {
+        if (v > hi) {
+            return hi
+        }
+        if (v < lo) {
+            return lo
+        }
+        return v
+    }
+
+    ; screen pixels per page unit
+    fn scale:double (docW:double) {
+        if (docW <= 0.0) {
+            return 1.0
+        }
+        return (PresDocPane.clampD(((w - (side * 2.0)) / docW) minScale maxScale))
+    }
+
+    fn left:double (docW:double) {
+        return (x + ((w - (docW * (this.scale(docW)))) * 0.5))
+    }
+
+    fn top:double (docW:double) {
+        return ((y + pad) - (scroll * (this.scale(docW))))
+    }
+
+    fn maxScroll:double (docW:double docH:double) {
+        def m:double (docH - ((h - (pad * 2.0)) / (this.scale(docW))))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    fn clamp:void (docW:double docH:double) {
+        scroll = (PresDocPane.clampD(scroll 0.0 (this.maxScroll(docW docH))))
+    }
+
+    ; scrolled by dy screen pixels
+    fn scrollBy:void (dy:double docW:double docH:double) {
+        scroll = (scroll + (dy / (this.scale(docW))))
+        this.clamp(docW docH)
+    }
+
+    ; the page y under a screen y
+    fn pageY:double (sy:double docW:double) {
+        return ((sy - (this.top(docW))) / (this.scale(docW)))
+    }
+
+    ; the page y the window reads from: near its top, or near its bottom
+    ; once the end is reached (the last slide that starts in view)
+    fn readY:double (docW:double docH:double) {
+        if (scroll >= ((this.maxScroll(docW docH)) - 1.0)) {
+            return (scroll + ((h - (pad * 3.0)) / (this.scale(docW))))
+        }
+        return (scroll + 24.0)
+    }
+
+    ; the part of the page in view, in page units: [top, bottom]
+    fn viewTop:double () {
+        return scroll
+    }
+
+    fn viewBottom:double (docW:double) {
+        return (scroll + (h / (this.scale(docW))))
+    }
+}

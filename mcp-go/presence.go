@@ -469,6 +469,10 @@ type personRow struct {
 	Color string `json:"color,omitempty"`
 	// the pages they have it open in
 	Pages int `json:"pages"`
+	// in Edit on one of them (the page's Edit … Save), and how long since
+	// their last change there (-1: none)
+	Editing bool `json:"editing"`
+	EditedS int  `json:"edited_s"`
 }
 
 type presenceRow struct {
@@ -529,6 +533,7 @@ func (s *localServer) peopleOn(id string) []personRow {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	by := map[string]*personRow{}
+	now := time.Now()
 	for _, q := range rm.peers {
 		if q.open <= 0 {
 			continue
@@ -536,16 +541,26 @@ func (s *localServer) peopleOn(id string) []personRow {
 		r := by[q.Who]
 		if r == nil {
 			sum := sha256.Sum256([]byte("person " + q.Who))
-			r = &personRow{ID: hex.EncodeToString(sum[:6]), Name: q.Name, Color: q.Color}
+			r = &personRow{ID: hex.EncodeToString(sum[:6]), Name: q.Name, Color: q.Color, EditedS: -1}
 			by[q.Who] = r
 		}
 		r.Pages++
+		r.Editing = r.Editing || q.Editing
+		if !q.edited.IsZero() {
+			if s := int(now.Sub(q.edited).Seconds()); r.EditedS < 0 || s < r.EditedS {
+				r.EditedS = s
+			}
+		}
 	}
 	out := make([]personRow, 0, len(by))
 	for _, r := range by {
 		out = append(out, *r)
 	}
+	// the ones editing first
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Editing != out[j].Editing {
+			return out[i].Editing
+		}
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name
 		}

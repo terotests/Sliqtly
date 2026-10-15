@@ -14,7 +14,7 @@
 //
 //	GET  /api/collab/{id}          {rev, md, peers, chat}
 //	POST /api/collab/{id}/op       {client, rev, ops, seq}  -> {rev}
-//	POST /api/collab/{id}/presence {client, rev, caret, anchor, who, name, color}
+//	POST /api/collab/{id}/presence {client, rev, caret, anchor, who, name, color, editing}
 //	POST /api/collab/{id}/chat     {client, text}           -> the message
 //	POST /api/collab/{id}/call     {client, op, …}          (meet.go)
 //	GET  /api/socket?room={id}&client=…&who=…&name=…&color=…&rev=…
@@ -106,7 +106,11 @@ type collabPeer struct {
 	Color  string `json:"color"`
 	Caret  int    `json:"caret"`
 	Anchor int    `json:"anchor"`
-	open   int    // its open streams
+	// after Edit and until Save in the page (src/PresEditMode.rgr)
+	Editing bool `json:"editing"`
+	open    int  // its open streams
+	// its last edit taken (zero: none)
+	edited time.Time
 }
 
 type collabChat struct {
@@ -619,6 +623,9 @@ func (rm *collabRoom) submit(body map[string]any, client string) (any, error) {
 	if hasSeq {
 		rm.seqs[client] = seq
 	}
+	if p := rm.peers[client]; p != nil {
+		p.edited = time.Now()
+	}
 	return map[string]any{"rev": rm.rev}, nil
 }
 
@@ -651,6 +658,11 @@ func (rm *collabRoom) presence(body map[string]any, client string) (any, error) 
 	if c, _ := body["color"].(string); colorHex.MatchString(c) && c != p.Color {
 		p.Color, named = rm.freeColor(p.Who, c), true
 	}
+	// Edit or Save pressed: everyone's list says it
+	changed := false
+	if e, ok := body["editing"].(bool); ok && e != p.Editing {
+		p.Editing, changed = e, true
+	}
 	at, ok := count(body["rev"])
 	caret, okc := count(body["caret"])
 	anchor, oka := count(body["anchor"])
@@ -675,6 +687,8 @@ func (rm *collabRoom) presence(body map[string]any, client string) (any, error) 
 		}
 		rm.sendPeers()
 		rm.callRename(p.Who, p.Name, p.Color)
+	} else if changed {
+		rm.sendPeers()
 	}
 	return map[string]int{"rev": rm.rev}, nil
 }

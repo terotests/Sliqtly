@@ -79,6 +79,32 @@ export function chatTime(at, now = Date.now(), lang = "en") {
   return d.toLocaleString("en", { month: "short" }) + " " + d.getDate() + " " + hm;
 }
 
+// Who is in the room, one row a person (however many pages they have open),
+// the ones editing first (src/PresEditMode.rgr: Edit … Save), the one who
+// changed something last first among them, then the others by name.
+// `people` the room's peers ({ who, name, color, editing }), `editedAt` who →
+// when an edit of theirs last came (ms), `me` this person's who (left out).
+// → [{ who, name, color, editing, active, ago }]: `active` an edit within
+// `activeMs`, `ago` seconds since their last edit (-1: none seen).
+export function deckPeople(people, editedAt, me = "", now = Date.now(), activeMs = 10000) {
+  const by = new Map();
+  for (const p of people || []) {
+    if (!p || !p.who || p.who === me) continue;
+    const r = by.get(p.who) || { who: p.who, name: p.name || "", color: p.color || "", editing: false };
+    r.editing = r.editing || !!p.editing;
+    by.set(p.who, r);
+  }
+  const rows = [...by.values()].map((r) => {
+    const at = editedAt?.get?.(r.who);
+    const ago = at == null ? -1 : Math.max(0, Math.round((now - at) / 1000));
+    return { ...r, active: at != null && now - at < activeMs, ago };
+  });
+  const last = (r) => (r.ago < 0 ? Infinity : r.ago);
+  return rows.sort((a, b) => (b.editing - a.editing)
+    || (a.editing ? last(a) - last(b) : 0)
+    || a.name.localeCompare(b.name) || (a.who < b.who ? -1 : a.who > b.who ? 1 : 0));
+}
+
 // A delta as editor replaces, each at an offset of the text as the ones
 // before it left it: [{ offset, removed, text }]
 export function editsOf(delta) {
@@ -190,7 +216,7 @@ export class CollabDoc {
 //   editor:    { version(), text(), caret(), anchor(), apply(offset, removed, text), synced(), setPeers(rows) }
 //   transport: { snapshot(id), send(id, body), presence(id, body), chat(id, body),
 //                call(id, body), stream(id, query, onEvent, onOpen) → close }
-//   on:        { peers(list), chat(msg), state(text), me(name, color),
+//   on:        { peers(list), chat(msg), state(text), me(name, color), edited(who),
 //                call(event): the room's call told, or an offer to this page (web/meet.js) }
 export class CollabSession {
   constructor(ot, transport, editor, me, on = {}) {
@@ -212,6 +238,8 @@ export class CollabSession {
     this.resetting = null;
     this.joined = false;
     this.epoch = "";
+    // who → when an edit of theirs last came (deckPeople)
+    this.editedAt = new Map();
   }
 
   active() { return !!(this.doc && !this.stopped); }
@@ -259,7 +287,8 @@ export class CollabSession {
       this.joined = false;
       this.close = this.t.stream(this.id, q, (m) => this.event(m), () => {
         this.caretSent = "";
-        if (this.joined) this.t.presence(this.id, { client: this.me.client, name: this.me.name, color: this.me.color }).catch(() => {});
+        if (this.joined) this.t.presence(this.id, { client: this.me.client, name: this.me.name, color: this.me.color, editing: !!this.me.editing }).catch(() => {});
+        else if (this.me.editing) this.t.presence(this.id, { client: this.me.client, editing: true }).catch(() => {});
         this.joined = true;
       });
       this.on.state?.(s.md);
@@ -318,6 +347,13 @@ export class CollabSession {
   event(m) {
     if (!this.doc || this.stopped) return;
     if (m.t === "op") {
+      if (m.client !== this.me.client) {
+        const who = this.people.find((p) => p.client === m.client)?.who;
+        if (who) {
+          this.editedAt.set(who, Date.now());
+          this.on.edited?.(who);
+        }
+      }
       // typed before this arrived: an edit made on the text before it
       if (!this.resetting) this.takeLocal();
       const edits = this.doc.op(m);
@@ -359,6 +395,12 @@ export class CollabSession {
 
   paintPeers() {
     this.ed.setPeers(this.doc ? this.doc.peerRows() : "");
+  }
+
+  // Edit or Save pressed here: the others see this page editing or not
+  async setEditing(on) {
+    this.me.editing = !!on;
+    if (this.active() && this.joined) await this.t.presence(this.id, { client: this.me.client, editing: this.me.editing });
   }
 
   async rename(name, color) {

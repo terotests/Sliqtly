@@ -107,3 +107,26 @@ test("the room's head always says whether an assistant works", () => {
   assert.deepEqual(headPresence({ agents: 0, working: 0, people: 1, light: "here" }, t), { light: "here", text: "No agents working · 1 person" });
   assert.deepEqual(headPresence({ agents: 2, working: 2, people: 0, light: "working" }, t), { light: "working", text: "2 agents working" });
 });
+
+test("people editing come first, people only reading after the working assistants", () => {
+  const m = presenceByDeck({
+    decks: [{
+      deck_id: "d1",
+      agents: [agent("w", "working"), agent("i", "idle")],
+      people: [
+        { id: "r", name: "Aino", pages: 1, editing: false, edited_s: -1 },
+        { id: "e", name: "Ville", pages: 1, editing: true, edited_s: 4 },
+        { id: "o", name: "Old server", pages: 1 },
+      ],
+    }],
+  });
+  const rows = whoRows(m, new Map([["d1", "Budget"]]));
+  assert.deepEqual(sortWho(rows).map((r) => r.id), ["person:o:d1", "person:e:d1", "agent:w:d1", "person:r:d1", "agent:i:d1"]);
+  const j = JSON.parse(whoListJson(rows, { t }));
+  const by = (id) => j.rows.find((r) => r.id === id);
+  assert.equal(by("person:e:d1").where, "Person · editing in the editor");
+  assert.equal(by("person:e:d1").modified, "now", "a change within seconds");
+  assert.equal(by("person:r:d1").where, "Person · reading, not editing");
+  assert.equal(by("person:r:d1").modified, "");
+  assert.equal(by("person:o:d1").where, "Person · editing in the editor", "a server that does not say: as before");
+});

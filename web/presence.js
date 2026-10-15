@@ -10,8 +10,11 @@
 //
 // The server's answer: { decks: [{ deck_id, agents: [{ id, name, client,
 // state: "working" | "idle", busy, tool, calls, since_s, seen_s, slides,
-// whole, note }], people: [{ id, name, color, pages }] }] }; a Story nobody
-// is on is left out.
+// whole, note }], people: [{ id, name, color, pages, editing, edited_s }] }]
+// }; a Story nobody is on is left out. A person is `editing` after Edit and
+// until Save (src/PresEditMode.rgr), else only reading it; `edited_s` is how
+// long since their last change (-1: none). A server that does not say counts
+// everyone with it open as editing, as before.
 
 // deck id → { agents, people }
 export function presenceByDeck(answer) {
@@ -120,9 +123,11 @@ export function whoRows(byDeck, names, only = null) {
       });
     }
     for (const p of e.people || []) {
+      const editing = p.editing !== false;
+      const ago = Number.isFinite(p.edited_s) ? p.edited_s : -1;
       rows.push({
-        id: "person:" + p.id + ":" + deck, kind: "person", deck, story, name: p.name || "", client: "", state: "editing", busy: false, tool: "",
-        slides: [], whole: false, note: "", since: -1, seen: 0, pages: p.pages || 1, color: p.color || "",
+        id: "person:" + p.id + ":" + deck, kind: "person", deck, story, name: p.name || "", client: "", state: editing ? "editing" : "viewing", busy: false, tool: "",
+        slides: [], whole: false, note: "", since: -1, seen: ago >= 0 ? ago : 0, edited: ago, pages: p.pages || 1, color: p.color || "",
       });
     }
   }
@@ -139,10 +144,11 @@ export function nextWhoSort(cur, by) {
   return { by, dir: firstWhoDir(by) };
 }
 
-// People first, then the working assistants, then the idle ones; within
-// that as asked (name, how long here, how long since the last call).
+// The people editing first, then the working assistants, the people only
+// reading, the idle assistants; within that as asked (name, how long here,
+// how long since the last call or change).
 export function sortWho(rows, by = "name", dir = firstWhoDir(by)) {
-  const rank = (r) => (r.kind === "person" ? 0 : r.state === "working" ? 1 : 2);
+  const rank = (r) => (r.kind === "person" ? (r.state === "viewing" ? 2 : 0) : r.state === "working" ? 1 : 3);
   const name = (r) => String(r.name || "").toLocaleLowerCase();
   const sign = dir === "desc" ? -1 : 1;
   const key = by === "since" ? (a, b) => a.since - b.since : by === "seen" ? (a, b) => a.seen - b.seen : (a, b) => name(a).localeCompare(name(b));
@@ -160,7 +166,7 @@ export function whoTitle(t, story = "") {
 // "where" what it is doing and on which slides and Story; "added" how long
 // it has been on the Story, "modified" how long since its last call. A row
 // opens its Story ("who:open:<id>"). t translates.
-// i18n: "Agent" "Person" "working" "idle" "editing in the editor" "{n} pages" "slides {s}" "the whole presentation" "now" "{t} ago" "Here for" "Last call" "Name"
+// i18n: "Agent" "Person" "working" "idle" "editing in the editor" "reading, not editing" "{n} pages" "slides {s}" "the whole presentation" "now" "{t} ago" "Here for" "Last call" "Name"
 export function whoListJson(rows, { by = "name", dir, t, story = "", room = false, note = "" } = {}) {
   const key = WHO_SORTS.includes(by) ? by : "name";
   const way = dir === "asc" || dir === "desc" ? dir : firstWhoDir(key);
@@ -176,7 +182,7 @@ export function whoListJson(rows, { by = "name", dir, t, story = "", room = fals
     dir: way,
     rows: sortWho(rows, key, way).map((r) => {
       const what = r.kind === "person"
-        ? [t("Person"), t("editing in the editor"), r.pages > 1 ? t("{n} pages").replace("{n}", String(r.pages)) : ""]
+        ? [t("Person"), r.state === "viewing" ? t("reading, not editing") : t("editing in the editor"), r.pages > 1 ? t("{n} pages").replace("{n}", String(r.pages)) : ""]
         : [
           t("Agent") + " " + t(r.state),
           r.busy || r.state === "working" ? doingText(r.tool, t) : "",
@@ -189,7 +195,9 @@ export function whoListJson(rows, { by = "name", dir, t, story = "", room = fals
         name: r.client ? `${r.name} (${r.client})` : r.name,
         where: what.filter(Boolean).join(" · "),
         added: r.since >= 0 ? spanText(r.since) : "",
-        modified: r.kind === "person" ? "" : r.busy ? t("now") : t("{t} ago").replace("{t}", spanText(r.seen)),
+        modified: r.kind === "person"
+          ? (r.edited >= 0 ? (r.edited < 10 ? t("now") : t("{t} ago").replace("{t}", spanText(r.edited))) : "")
+          : r.busy ? t("now") : t("{t} ago").replace("{t}", spanText(r.seen)),
         light: r.kind === "person" ? "person" : r.state,
         color: r.color,
         canDelete: false,

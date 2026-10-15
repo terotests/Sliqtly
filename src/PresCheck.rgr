@@ -2,6 +2,7 @@
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
+Import "PresEditMode.rgr"
 Import "PresVideo.rgr"
 Import "PresToolbar.rgr"
 Import "PresStoryPick.rgr"
@@ -4709,6 +4710,64 @@ class PresCheck {
         this.ok((t.w == ((g.colW()) * 0.25)) "docflow: …at least a quarter of it")
     }
 
+    ; View or Edit (PresEditMode): changes only after Edit, Save back to
+    ; reading, the tabs following; a window onto the page (PresDocPane).
+    fn editMode:void () {
+        def m (new PresEditMode())
+        this.ok(m.editing "editmode: a host that never asks edits as before")
+        m.reset(false 0.0)
+        this.ok((m.editing == false) "editmode: a deck opened is read")
+        this.ok((m.refuse(1000.0)) "editmode: a change while reading: told to press Edit")
+        this.ok(((m.refuse(2000.0)) == false) "editmode: …not again at once")
+        this.ok((m.refuse(5001.0)) "editmode: …again after a while")
+        def r0:int m.rev
+        this.ok((m.begin(6000.0)) "editmode: Edit")
+        this.ok(((m.begin(6100.0)) == false) "editmode: Edit twice is once")
+        this.ok((m.rev == (r0 + 1)) "editmode: the mode's revision moves once")
+        this.ok(((m.refuse(6200.0)) == false) "editmode: nothing refused in Edit")
+        m.edited(6300.0)
+        m.edited(6400.0)
+        this.ok(((m.edits == 2) && (m.lastEdit == 6400.0)) "editmode: the changes since Edit counted")
+        this.ok((m.save(7000.0)) "editmode: Save")
+        this.ok(((m.save(7100.0)) == false) "editmode: Save when reading does nothing")
+        m.edited(7200.0)
+        this.ok((m.edits == 2) "editmode: nothing counted while reading")
+        m.reset(true 8000.0)
+        this.ok((m.editing && (m.edits == 0)) "editmode: a deck made to be written opens in Edit")
+        this.ok(((m.lock("Only agents edit this story." 9000.0)) && (m.editing == false)) "editmode: locked while editing: back to reading")
+        this.ok((((m.begin(9100.0)) == false) && (m.locked())) "editmode: …and Edit refused")
+        this.ok(((m.lock("" 9200.0)) == false) "editmode: unlocked: nothing ends")
+        this.ok((m.begin(9300.0)) "editmode: …Edit again")
+        m.lock("x" 9400.0)
+        m.reset(false 9500.0)
+        this.ok(((m.locked()) == false) "editmode: another deck opened is not locked")
+        this.ok(((PresEditMode.tabOnBegin("view")) == "md") "editmode: Edit from View opens the Markdown")
+        this.ok(((PresEditMode.tabOnBegin("css")) == "css") "editmode: …a tab chosen is kept")
+        this.ok(((PresEditMode.tabOnSave("md")) == "view") "editmode: Save from the Markdown goes to View")
+        this.ok(((PresEditMode.tabOnSave("files")) == "files") "editmode: …the files stay")
+        this.ok(((PresEditMode.tabOnOpen(false)) == "view") "editmode: reading opens on View")
+        this.ok(((PresEditMode.tabOnOpen(true)) == "md") "editmode: writing on the Markdown")
+        ; the pane: the column fills the window within its scales
+        def p (new PresDocPane())
+        p.setArea(100.0 50.0 768.0 400.0)
+        this.ok(((p.scale(720.0)) == 1.0) ("docpane: the column fills the window, got " + (to_string (p.scale(720.0)))))
+        this.ok(((p.left(720.0)) == 124.0) ("docpane: …centred, got " + (to_string (p.left(720.0)))))
+        p.minScale = 0.3
+        p.maxScale = 1.0
+        p.setArea(0.0 0.0 2000.0 400.0)
+        this.ok(((p.scale(720.0)) == 1.0) "docpane: …no larger than its largest")
+        p.setArea(0.0 0.0 120.0 400.0)
+        this.ok(((p.scale(720.0)) == 0.3) "docpane: …no smaller than its smallest")
+        p.setArea(0.0 0.0 768.0 400.0)
+        p.scrollBy(-50.0 720.0 2000.0)
+        this.ok((p.scroll == 0.0) "docpane: not above the page")
+        p.scrollBy(100000.0 720.0 2000.0)
+        this.ok((p.scroll == (2000.0 - 368.0)) ("docpane: not past its end, got " + (to_string p.scroll)))
+        this.ok(((p.pageY(16.0 720.0)) == p.scroll) "docpane: the window's top is the scroll")
+        this.ok(((p.readY(720.0 2000.0)) > (p.scroll + 300.0)) "docpane: at the end the window reads from its bottom")
+        this.ok((p.has(10.0 10.0) && ((p.has(800.0 10.0)) == false)) "docpane: what is inside it")
+    }
+
     ; The document view of a deck (PresDocView): every slide's text in one
     ; column, the diagram as its slide shows it, the notes under their slide.
     fn docView:void () {
@@ -8935,6 +8994,7 @@ class PresCheck {
         c.htmlPage()
         c.docFlow()
         c.docView()
+        c.editMode()
         c.traceChecks()
         c.imageDrag()
         c.imagesCleared()

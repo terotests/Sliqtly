@@ -258,6 +258,33 @@ class PresToolbar {
         }
     }
 
+    ; View or Edit (PresEditMode): the bar's Edit / Save, once the page
+    ; opens decks for reading (`shown`)
+    def editShown:boolean false
+    def editing:boolean true
+
+    fn setEditing:void (shown:boolean on:boolean) {
+        if ((shown != editShown) || (on != editing)) {
+            editShown = shown
+            editing = on
+            this.rebuild()
+        }
+    }
+
+    ; Edit while reading, Save while editing
+    fn editButton:void (bar:EVGElement) {
+        if (editShown == false) {
+            return
+        }
+        ; short labels when the bar is short of room, as the page's own buttons
+        def small:boolean (this.shortNow())
+        if editing {
+            this.button("editmode" (? small "✓" (PresI18n.t("✓ Save"))) "accent" bar)
+        } {
+            this.button("editmode" (? small "✎" (PresI18n.t("✎ Edit"))) "outline" bar)
+        }
+    }
+
     fn setState:void (isPlaying:boolean words:string) {
         if ((isPlaying != playing) || (words != status)) {
             playing = isPlaying
@@ -358,7 +385,7 @@ class PresToolbar {
 
     ; what the bar's fit depends on
     fn fitNow:string () {
-        return (((to_string w) + "|") + extras)
+        return (((((to_string w) + "|") + extras) + "|") + (? editShown (? editing "save" "edit") ""))
     }
 
     ; the page's buttons in their short form
@@ -2239,11 +2266,16 @@ class PresToolbar {
         if playing {
             play = (PresI18n.t("⏸ Pause"))
         }
+        ; the short form: the sign alone, as Edit and Save have
+        if (this.shortNow()) {
+            play = (? playing "⏸" "▶")
+        }
         def small:boolean (this.compact())
         if small {
             this.button("menu" "☰" "ghost" bar)
             this.titlePart(bar)
             bar.addChild((UiKit.div("tb-grow")))
+            this.editButton(bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.extraButtons(bar)
         } {
@@ -2351,6 +2383,7 @@ class PresToolbar {
                 k = (k + 1)
             }
             bar.addChild((UiKit.div("tb-sep")))
+            this.editButton(bar)
             this.button("play" play "outline" bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.button("share" (PresI18n.t("Share")) "secondary" bar)

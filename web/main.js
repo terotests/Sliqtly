@@ -36,12 +36,12 @@ import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, b
 import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
-import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence } from "./presence.js";
+import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
-import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf } from "./collab.js";
+import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf, deckPeople } from "./collab.js";
 import { StorySession } from "./storysession.js";
 import { planFiles, seenAfterSave } from "./sharefiles.js";
 import { Meet } from "./meet.js";
@@ -364,6 +364,10 @@ const three3d = createThree3d({
 // Experimental: off until File → Settings turns it on, per browser.
 let flightOn = false;
 try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) { /* off */ }
+// File → Settings → Presentations open in: View (Edit to change one) or Edit
+// at once (src/PresEditMode.rgr)
+let openInEdit = false;
+try { openInEdit = localStorage.getItem("sliqtly.openIn") === "edit"; } catch (_) { /* View */ }
 const flight3d = createFlight3d({
   three3d,
   app,
@@ -1083,6 +1087,10 @@ function beginDoc(text) {
   // its theme and files are not laid out on the deck before (shownDoc lays
   // out this one)
   app.beginOpen();
+  // a deck opens to be read: Edit opens the editor, Save keeps the work
+  // (src/PresEditMode.rgr), unless Settings say Edit; a deck just made here
+  // opens in Edit
+  app.setEditing(openInEdit, true);
   // the deck before's pictures go with it: one this deck names and does not
   // have is not drawn from that one's as if it were here (a copy whose
   // files did not come looked whole that way)
@@ -1461,6 +1469,7 @@ async function newDeck(plan) {
   if (plan.theme != null && [...themeSel.options].some((o) => o.value === plan.theme)) themeSel.value = plan.theme;
   useTheme(themeSel.value);
   shownDoc(text);
+  app.setEditing(true, true);
   app.showTab("md");
   dropThumbs();
   await saveDoc(true);
@@ -1897,6 +1906,7 @@ function setDeckOrder(by) {
   needsPaint = true;
 }
 app.setFlight3d(flightOn);
+app.setOpenInEdit(openInEdit);
 async function roomRows(room) {
   return (await roomView(room)).rows;
 }
@@ -5286,8 +5296,9 @@ function collabFollow() {
   if (!want) return;
   // a copy: the room may give this page another name or colour than the
   // one kept in this browser (someone here has it), for this deck only
-  const s = new CollabSession({ RdOtDelta, RdOtClient }, tr, collabEditor, { ...collabMe }, {
+  const s = new CollabSession({ RdOtDelta, RdOtClient }, tr, collabEditor, { ...collabMe, editing: app.isEditing() }, {
     peers: (list) => collabPeers(list),
+    edited: () => refreshCollabBar(),
     me: (name, color) => {
       app.chatRename(collabMe.who, name, color);
       refreshCollabBar();
@@ -5310,14 +5321,28 @@ function collabFollow() {
 // who is here: the others, once each (a person may have the deck open twice)
 function collabPeers(list) {
   const next = new Map();
-  for (const p of list) if (p.who !== collabMe.who && !next.has(p.who)) next.set(p.who, p);
+  for (const p of deckPeople(list, null, collabMe.who)) next.set(p.who, p);
   for (const [who, p] of next) {
-    if (!collabPeople.has(who)) toast(t("%s is editing this presentation too").replace("%s", p.name));
+    const was = collabPeople.get(who);
+    if (!was) toast((p.editing ? t("%s is editing this presentation too") : t("%s opened this presentation too")).replace("%s", p.name));
+    else if (p.editing && !was.editing) toast(t("%s started editing").replace("%s", p.name));
     app.chatRename(who, p.name, p.color);
   }
   collabPeople = next;
   refreshCollabBar();
 }
+// the others as the bar names them: the ones editing first, how lately
+// i18n: "editing" "typing now" "last change {t} ago" "viewing"
+function collabRows() {
+  return collabOn() ? deckPeople(collab.people, collab.editedAt, collabMe.who) : [];
+}
+function personText(r) {
+  if (!r.editing) return r.name + " (" + t("viewing") + ")";
+  const how = r.active ? t("typing now") : r.ago >= 0 ? t("last change {t} ago").replace("{t}", spanText(r.ago)) : t("editing");
+  return r.name + " (" + how + ")";
+}
+// the bar's activity shows "typing now" fade with time, not only with events
+setInterval(() => { if (collabOn() && collabPeople.size) refreshCollabBar(); }, 5000);
 // the name this page goes by in the room now
 function shownName() {
   return collabOn() ? collab.me.name : collabMe.name;
@@ -5365,9 +5390,24 @@ function refreshCollabBar() {
   const n = app.meetCount();
   const callShort = "📞" + (n > 0 ? " " + n : "");
   if (call.dataset.short !== callShort) call.dataset.short = callShort;
-  const others = [...collabPeople.values()];
+  const others = collabRows();
+  const editors = others.filter((r) => r.editing);
   const meText = shownName() + (others.length ? " +" + others.length : "");
-  const meTitle = t("Your name for the others: press to change it") + (others.length ? "\n" + t("Here now: ") + others.map((p) => p.name).join(", ") : "");
+  const meTitle = t("Your name for the others: press to change it") + (others.length ? "\n" + t("Here now: ") + others.map(personText).join(", ") : "");
+  // who else is editing, the latest first; a dot while someone types
+  const ed = collabButton("collabEditors", () => {
+    app.chatOpen(true);
+    refreshCollabBar();
+    needsPaint = true;
+  });
+  const typing = editors.some((r) => r.active);
+  const edText = editors.length ? "✎ " + editors[0].name + (editors.length > 1 ? " +" + (editors.length - 1) : "") + (typing ? " •" : "") : "";
+  const edTitle = editors.length ? t("Editing now: ") + editors.map(personText).join(", ") : "";
+  if (ed.hidden !== !(on && editors.length)) ed.hidden = !(on && editors.length);
+  if (ed.textContent !== edText) ed.textContent = edText;
+  const edShort = editors.length ? "✎ " + editors.length + (typing ? "•" : "") : "";
+  if (ed.dataset.short !== edShort) ed.dataset.short = edShort;
+  if (ed.title !== edTitle) ed.title = edTitle;
   const chatText = t("Chat") + (app.chatIsOpen() ? "" : (app.chatBadge() ? " " + app.chatBadge() : ""));
   if (me.hidden === on) me.hidden = !on;
   if (chat.hidden === on) chat.hidden = !on;
@@ -5378,6 +5418,20 @@ function refreshCollabBar() {
   if (chat.textContent !== chatText) chat.textContent = chatText;
   const chatShort = "💬" + (app.chatIsOpen() ? "" : (app.chatBadge() ? " " + app.chatBadge() : ""));
   if (chat.dataset.short !== chatShort) chat.dataset.short = chatShort;
+}
+
+// --- View or Edit (src/PresEditMode.rgr) --------------------------------------
+// The others in the room see who is editing (CollabSession.setEditing). Save
+// keeps the deck now and a version of it ("Saved" in the history) when it
+// changed since the last one; the edits were kept as they were made.
+async function editModeChanged(why) {
+  collab?.setEditing(app.isEditing()).catch(() => {});
+  refreshCollabBar();
+  needsPaint = true;
+  if (why !== "save") return;
+  await saveDoc(true);
+  const id = await commitVersion("@saved").catch((e) => { console.warn("no version kept", e); return null; });
+  toast(id ? t("Saved. The version is in the history.") : t("Saved."));
 }
 
 // --- the AI assistant (the ✨ AI drawer: src/PresAi.rgr, web/aiassist.js) ----------
@@ -5582,6 +5636,16 @@ function handleRequests() {
       const href = r.slice(5);
       const presenting = lastLayout && lastLayout.mode === "present";
       linkTimer = setTimeout(() => followLink(href).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
+    } else if (r === "click:editmode") {
+      // the bar's ✎ Edit / ✓ Save
+      app.setEditing(!app.isEditing(), false);
+    } else if (r.startsWith("edit-mode:")) {
+      editModeChanged(r.slice(10)).catch((e) => console.warn("edit mode", e));
+    } else if (r.startsWith("edit-locked:")) {
+      // Edit is not offered for this deck here (app.setEditLock)
+      toast(r.slice(12));
+    } else if (r === "edit-needed") {
+      toast(t("Press ✎ Edit to change the presentation."));
     } else if (r.startsWith("click:")) {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
@@ -5619,6 +5683,9 @@ function handleRequests() {
       app.setDeckOrder(deckOrder);
       app.openSettings(autoContrast);
       needsPaint = true;
+    } else if (r.startsWith("setting:openin:")) {
+      openInEdit = r.endsWith(":edit");
+      try { localStorage.setItem("sliqtly.openIn", openInEdit ? "edit" : "view"); } catch (_) { /* this session only */ }
     } else if (r.startsWith("setting:flight:")) {
       flightOn = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.flight3d", flightOn ? "on" : "off"); } catch (_) { /* this session only */ }
@@ -9563,6 +9630,7 @@ async function pasteWhole(info) {
     await useFile(rec);
   }
   shownDoc(text);
+  app.setEditing(true, true);
   app.showTab("md");
   dropThumbs();
   await saveDoc(true);

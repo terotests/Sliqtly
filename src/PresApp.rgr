@@ -33,6 +33,7 @@ Import "PresSlideSpans.rgr"
 Import "PresHeadingAttr.rgr"
 Import "PresStoryNames.rgr"
 Import "PresFollow.rgr"
+Import "PresEditMode.rgr"
 Import "PresPick.rgr"
 Import "PresClip.rgr"
 Import "PresNav.rgr"
@@ -159,8 +160,11 @@ class PresApp {
     def docView:PresDocView (new PresDocView())
     ; how far down the page the view is, in page units, and the slide the
     ; scroll last followed (a slide selected elsewhere scrolls to it)
-    def docScroll:double 0.0
-    def docSel:int -1
+    ; the page's window on the stage, and the one in the editor's View tab
+    def docPane:PresDocPane (new PresDocPane())
+    def edDocPane:PresDocPane (new PresDocPane())
+    ; View or Edit (PresEditMode)
+    def editMode:PresEditMode (new PresEditMode())
     ; The presentations open in this tab of the browser, a tab each, in a row
     ; of their own under the top bar (EVGUI's DocTabsCtl). The page says
     ; which are open (deckTabOpen…) and opens the one a press, a swipe or a
@@ -1214,6 +1218,9 @@ class PresApp {
     ; One property of the theme set from a card over the Markdown, as one
     ; edit of the CSS tab (Ctrl+Z there undoes it); the slides follow.
     fn setThemeProp:void (sel:string prop:string value:string) {
+        if ((this.mayEdit()) == false) {
+            return
+        }
         def css:string (cssEditor.text())
         def e:PresThemeEdit (PresThemeEdit.change(css sel prop value))
         def a:[int] (PresApp.lineColOf(css e.at))
@@ -1256,6 +1263,9 @@ class PresApp {
         tabs = (new TabsCtl())
         tabs.tid = "edtabs"
         tabs.name = (PresI18n.t("Editor"))
+        ; View: the deck read as a document (PresEditMode); the editor itself
+        ; opens with Edit
+        tabs.addItem("view" (PresI18n.t("View")) "" false)
         tabs.addItem("md" "Markdown" "" false)
         def cssLabel:string (PresI18n.t("Theme (CSS)"))
         if (cssContrastCount > 0) {
@@ -1273,6 +1283,98 @@ class PresApp {
 
     fn editorTab:string () {
         return edTab
+    }
+
+    ; --- View or Edit (PresEditMode) -------------------------------------------
+    fn isEditing:boolean () {
+        return editMode.editing
+    }
+
+    ; Edit (true) or Save (false) pressed, or a deck opened (`opened`): the
+    ; editors take keys only in Edit, and the tabs follow (View while
+    ; reading). The host keeps the deck and its version on Save.
+    fn setEditing:void (on:boolean opened:boolean) {
+        def now:double (deck.uiNow * 1000.0)
+        def was:boolean editMode.editing
+        if opened {
+            editMode.reset(on now)
+            this.closeHint()
+            this.showTab((PresEditMode.tabOnOpen(on)))
+        } {
+            if on {
+                if (editMode.locked()) {
+                    ; not here: said why
+                    push requests ("edit-locked:" + editMode.lockedWhy)
+                    chromeRev = (chromeRev + 1)
+                    return
+                }
+                editMode.begin(now)
+                this.showTab((PresEditMode.tabOnBegin(edTab)))
+            } {
+                editMode.save(now)
+                this.closeHint()
+                this.showTab((PresEditMode.tabOnSave(edTab)))
+            }
+        }
+        toolbar.setEditing(((editMode.locked()) == false) on)
+        mdEditor.setReadOnly((on == false))
+        cssEditor.setReadOnly((on == false))
+        fileEditor.setReadOnly((on == false))
+        ; the host: "edit-mode:edit" | "edit-mode:save" pressed, or
+        ; "edit-mode:open" (a deck opened in the other mode)
+        if (was != on) {
+            if opened {
+                push requests "edit-mode:open"
+            } {
+                push requests (? on "edit-mode:edit" "edit-mode:save")
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The deck's Markdown to show (a slide's source, a block's lines): the
+    ; Markdown tab, except while reading on View, which stays (the caret
+    ; still moves, the Markdown tab shows it there).
+    fn showSource:void () {
+        if ((edTab == "view") && (editMode.editing == false)) {
+            return
+        }
+        this.showTab("md")
+    }
+
+    ; Edit taken away from this page, `why` told when it is tried (a deck
+    ; only agents may change), or given back with "". Taken while editing,
+    ; it goes back to reading.
+    fn setEditLock:void (why:string) {
+        def now:double (deck.uiNow * 1000.0)
+        if (editMode.lock(why now)) {
+            this.closeHint()
+            this.showTab((PresEditMode.tabOnSave(edTab)))
+            mdEditor.setReadOnly(true)
+            cssEditor.setReadOnly(true)
+            fileEditor.setReadOnly(true)
+            push requests "edit-mode:open"
+        }
+        toolbar.setEditing(((editMode.locked()) == false) editMode.editing)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A change about to be made: made only in Edit. While reading the
+    ; person is told to press Edit (not on every key).
+    fn mayEdit:boolean () {
+        if editMode.editing {
+            editMode.edited((deck.uiNow * 1000.0))
+            return true
+        }
+        if (editMode.refuse((deck.uiNow * 1000.0))) {
+            if (editMode.locked()) {
+                push requests ("edit-locked:" + editMode.lockedWhy)
+            } {
+                push requests "edit-needed"
+            }
+        }
+        chromeRev = (chromeRev + 1)
+        return false
     }
 
     ; --- the Document view (PresDocView) ------------------------------------
@@ -1311,7 +1413,7 @@ class PresApp {
         pick.clear()
         this.viewReset()
         ; the page opens at the selected slide
-        docSel = -1
+        docPane.seen = -1
         chromeRev = (chromeRev + 1)
     }
 
@@ -1327,69 +1429,63 @@ class PresApp {
     ; The page as the deck stands now, scrolled to the selected slide when
     ; that changed since the scroll last followed it.
     fn docEnsure:void () {
+        docPane.setArea(stageArea.x stageArea.y stageArea.w stageArea.h)
+        this.docFollow(docPane)
+    }
+
+    ; The page built for the deck as it is now; `pane` scrolled to the
+    ; selected slide when that changed since it last followed it.
+    fn docFollow:void (pane:PresDocPane) {
         if (docView.rev != deck.revision) {
             this.settleAll()
             docView.build(deck)
         }
-        if (docSel != selected) {
-            docSel = selected
+        if (pane.seen != selected) {
+            pane.seen = selected
             def top:double (docView.flow.topOf(selected))
             if (top >= 0.0) {
-                docScroll = (top - 12.0)
+                pane.scroll = (top - 12.0)
             }
         }
-        docScroll = (PresApp.clampD(docScroll 0.0 (this.docMaxScroll())))
+        pane.clamp((docView.width()) (docView.height()))
     }
 
     sfn clampD:double (v:double lo:double hi:double) {
-        if (v > hi) {
-            return hi
-        }
-        if (v < lo) {
-            return lo
-        }
-        return v
+        return (PresDocPane.clampD(v lo hi))
     }
 
     ; screen pixels per page unit: the column fills the stage, within reason
     fn docScale:double () {
-        def w:double (docView.width())
-        if (w <= 0.0) {
-            return 1.0
-        }
-        return (PresApp.clampD(((stageArea.w - 48.0) / w) 0.4 1.6))
+        docPane.setArea(stageArea.x stageArea.y stageArea.w stageArea.h)
+        return (docPane.scale((docView.width())))
     }
 
     fn docX:double () {
-        return (stageArea.x + ((stageArea.w - ((docView.width()) * (this.docScale()))) * 0.5))
+        docPane.setArea(stageArea.x stageArea.y stageArea.w stageArea.h)
+        return (docPane.left((docView.width())))
     }
 
     fn docY:double () {
-        return ((stageArea.y + 16.0) - (docScroll * (this.docScale())))
-    }
-
-    fn docMaxScroll:double () {
-        def m:double ((docView.height()) - ((stageArea.h - 32.0) / (this.docScale())))
-        if (m < 0.0) {
-            return 0.0
-        }
-        return m
+        docPane.setArea(stageArea.x stageArea.y stageArea.w stageArea.h)
+        return (docPane.top((docView.width())))
     }
 
     ; Scroll by dy screen pixels; the selected slide follows the top of
     ; the view (the strip and the editor with it).
     fn docScrollBy:void (dy:double) {
         this.docEnsure()
-        docScroll = (PresApp.clampD((docScroll + (dy / (this.docScale()))) 0.0 (this.docMaxScroll())))
-        def p:int (docView.flow.pageAt((docScroll + 24.0)))
-        if (docScroll >= ((this.docMaxScroll()) - 1.0)) {
-            ; at the end the last slide that starts in view is the one read
-            p = (docView.flow.pageAt((docScroll + ((stageArea.h - 48.0) / (this.docScale())))))
-        }
+        this.docPaneScroll(docPane dy)
+    }
+
+    fn docPaneScroll:void (pane:PresDocPane dy:double) {
+        def dw:double (docView.width())
+        def dh:double (docView.height())
+        pane.scrollBy(dy dw dh)
+        def p:int (docView.flow.pageAt((pane.readY(dw dh))))
         if ((p != selected) && ((p >= 0) && (p < (deck.slideCount())))) {
             this.selectSlide(p)
         }
-        docSel = selected
+        pane.seen = selected
         chromeRev = (chromeRev + 1)
     }
 
@@ -1397,55 +1493,67 @@ class PresApp {
     ; is selected; a double click shows that slide in the Presentation view.
     fn docPress:void (x:double y:double clicks:int) {
         this.docEnsure()
-        def py:double ((y - (this.docY())) / (this.docScale()))
-        def hit:[int] (docView.hitAt(py))
-        if ((array_length hit) < 2) {
+        if ((this.docPanePress(docPane x y)) == false) {
             return
         }
-        def page:int (itemAt hit 0)
-        def key:int (itemAt hit 1)
-        this.selectSlide(page)
-        if ((key >= 0) && (edTab == "md")) {
-            this.posOf((mdEditor.text()) key)
-            mdEditor.sel.setCaret(posLine 0)
-            mdEditor.sel.collapseToCaret()
-            this.headingInView(posLine)
-        }
-        docSel = selected
         if (clicks >= 2) {
             this.setStageView("slides")
-            this.selectSlide(page)
         }
         focus = "stage"
         chromeRev = (chromeRev + 1)
     }
 
+    ; A press on a pane of the page: its slide selected, the Markdown's
+    ; caret at the block pressed. False on an empty page.
+    fn docPanePress:boolean (pane:PresDocPane x:double y:double) {
+        def py:double (pane.pageY(y (docView.width())))
+        def hit:[int] (docView.hitAt(py))
+        if ((array_length hit) < 2) {
+            return false
+        }
+        def page:int (itemAt hit 0)
+        def key:int (itemAt hit 1)
+        this.selectSlide(page)
+        if ((key >= 0) && ((edTab == "md") || (edTab == "view"))) {
+            this.posOf((mdEditor.text()) key)
+            mdEditor.sel.setCaret(posLine 0)
+            mdEditor.sel.collapseToCaret()
+            this.headingInView(posLine)
+        }
+        pane.seen = selected
+        return true
+    }
+
     ; The page's keys while the stage has them: the arrows and PageUp /
     ; PageDown scroll, Home and End go to its ends, ← → the slides.
     fn docKey:boolean (name:string) {
-        def view:double (stageArea.h - 48.0)
+        this.docEnsure()
+        return (this.docPaneKey(docPane name))
+    }
+
+    fn docPaneKey:boolean (pane:PresDocPane name:string) {
+        def view:double (pane.h - 48.0)
+        def dy:double 0.0
         if (name == "down") {
-            this.docScrollBy(48.0)
-            return true
+            dy = 48.0
         }
         if (name == "up") {
-            this.docScrollBy(-48.0)
-            return true
+            dy = -48.0
         }
         if (name == "pageDown") {
-            this.docScrollBy(view)
-            return true
+            dy = view
         }
         if (name == "pageUp") {
-            this.docScrollBy((0.0 - view))
-            return true
+            dy = (0.0 - view)
         }
         if (name == "home") {
-            this.docScrollBy(-100000000.0)
-            return true
+            dy = -100000000.0
         }
         if (name == "end") {
-            this.docScrollBy(100000000.0)
+            dy = 100000000.0
+        }
+        if (dy != 0.0) {
+            this.docPaneScroll(pane dy)
             return true
         }
         if (name == "right") {
@@ -1463,8 +1571,8 @@ class PresApp {
     fn docStage:EVGDisplayList () {
         this.docEnsure()
         def sc:double (this.docScale())
-        def top:double docScroll
-        def bottom:double (docScroll + (stageArea.h / sc))
+        def top:double docPane.scroll
+        def bottom:double (docPane.viewBottom((docView.width())))
         def l:EVGDisplayList (docView.visible((top - 40.0) (bottom + 40.0)))
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 4
@@ -1486,6 +1594,48 @@ class PresApp {
         return l
     }
 
+    ; --- the editor's View tab: the page in place of the Markdown ------------
+    ; Reading (PresEditMode): the deck as one page where the editor would be.
+    fn edDocShown:boolean () {
+        return ((((mode == "edit") && (edTab == "view")) && (edRect.w > 0.0)) && ((deck.slideCount()) > 0))
+    }
+
+    fn edDocEnsure:void () {
+        edDocPane.minScale = 0.3
+        edDocPane.maxScale = 1.0
+        edDocPane.side = 12.0
+        edDocPane.setArea(edRect.x edRect.y edRect.w edRect.h)
+        this.docFollow(edDocPane)
+    }
+
+    ; The part of the page in view, placed in the editor's rectangle (the
+    ; chrome is in screen units): its own copies, the page is kept as built.
+    fn edDocPaint:void (dl:EVGDisplayList) {
+        this.edDocEnsure()
+        def dw:double (docView.width())
+        def sc:double (edDocPane.scale(dw))
+        def l:EVGDisplayList (docView.visible(((edDocPane.viewTop()) - 40.0) ((edDocPane.viewBottom(dw)) + 40.0)))
+        def placed (new EVGDisplayList())
+        def i:int 0
+        while (i < (array_length l.cmds)) {
+            placed.addCmd((PresScriptApply.copyCmd((itemAt l.cmds i))))
+            i = (i + 1)
+        }
+        placed.scaleBy(sc)
+        placed.offsetBy((edDocPane.left(dw)) (edDocPane.top(dw)))
+        dl.addClip(edRect.x edRect.y edRect.w edRect.h)
+        dl.addRect(edRect.x edRect.y edRect.w edRect.h (EVGColor.parse("#e8eaee")))
+        dl.appendFrom(placed)
+        dl.addClipEnd()
+    }
+
+    fn edDocPress:void (x:double y:double) {
+        this.edDocEnsure()
+        this.docPanePress(edDocPane x y)
+        focus = "editor"
+        chromeRev = (chromeRev + 1)
+    }
+
     ; A Markdown file of the deck (a questionnaire) open in the file editor:
     ; it is shown under the Markdown tab, and the Markdown tab or its back
     ; button returns to the deck's own text.
@@ -1494,7 +1644,7 @@ class PresApp {
     }
 
     fn showTab:void (v:string) {
-        if (((v != "md") && (v != "css")) && (v != "files")) {
+        if ((((v != "md") && (v != "css")) && (v != "files")) && (v != "view")) {
             return
         }
         if (v != edTab) {
@@ -1531,7 +1681,7 @@ class PresApp {
         if chart.isOpen {
             this.closeChart()
         }
-        this.showTab("md")
+        this.showTab((PresEditMode.tabOnOpen(editMode.editing)))
         ; the slides of the deck before say nothing about this one's
         sourceNew = true
         this.dropPicks()
@@ -1782,7 +1932,7 @@ class PresApp {
         this.dropPicks()
         addOpen = false
         if (edTab != "md") {
-            this.showTab("md")
+            this.showSource()
         }
         def text:string (mdEditor.text())
         def lc:int (mdEditor.buf.lineCount())
@@ -4824,7 +4974,10 @@ class PresApp {
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.build(root)
-        if (((mode == "edit") && (edRect.w > 0.0)) && ((this.filesListShowing()) == false)) {
+        if (this.edDocShown()) {
+            this.edDocPaint(dl)
+        }
+        if ((((mode == "edit") && (edRect.w > 0.0)) && ((this.filesListShowing()) == false)) && (edTab != "view")) {
             def top:double 0.0
             if (edTab == "files") {
                 ; under the bar of the file that is open
@@ -5030,6 +5183,10 @@ class PresApp {
             if ((strlen hitTab) > 0) {
                 this.showTab(hitTab)
             }
+            return "editor"
+        }
+        if ((this.edDocShown()) && (edRect.has(x y))) {
+            this.edDocPress(x y)
             return "editor"
         }
         if (edRect.has(x y)) {
@@ -5828,6 +5985,11 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return true
         }
+        if ((this.edDocShown()) && (edRect.has(x y))) {
+            this.edDocEnsure()
+            this.docPaneScroll(edDocPane dy)
+            return true
+        }
         if (edRect.has(x y)) {
             def lines:int (to_int (dy / 20.0))
             if (lines == 0) {
@@ -6005,6 +6167,11 @@ class PresApp {
     ; =========================================================================
     ; The keyboard
     ; =========================================================================
+    ; a key that changes the text it is typed in
+    sfn editsText:boolean (name:string) {
+        return ((((name == "backspace") || (name == "delete")) || (name == "enter")) || (name == "tab"))
+    }
+
     sfn keyByName:int (name:string) {
         if (name == "backspace") { return (UIKey.backspace()) }
         if (name == "enter")     { return (UIKey.enter()) }
@@ -6216,9 +6383,22 @@ class PresApp {
         if (this.filesListShowing()) {
             return false
         }
+        if (this.edDocShown()) {
+            this.edDocEnsure()
+            if (ctrl == false) {
+                if (this.docPaneKey(edDocPane name)) {
+                    return true
+                }
+            }
+        }
         def code:int (PresApp.keyByName(name))
         if (code == 0) {
             return false
+        }
+        if ((PresApp.editsText(name)) && (ctrl == false)) {
+            if ((this.mayEdit()) == false) {
+                return true
+            }
         }
         editor.handleKey(code shift ctrl)
         this.syncEditor()
@@ -6232,7 +6412,7 @@ class PresApp {
     fn stripUndo:boolean (back:boolean) {
         def was:string focus
         if (edTab != "md") {
-            this.showTab("md")
+            this.showSource()
         }
         focus = was
         def line:int -1
@@ -6313,7 +6493,7 @@ class PresApp {
                                         if ((name == "enter") || (name == "escape")) {
                                             ; Enter: the slide's heading in the editor
                                             if (name == "enter") {
-                                                this.showTab("md")
+                                                this.showSource()
                                             }
                                             focus = "editor"
                                             a11yFocus = ""
@@ -6447,6 +6627,9 @@ class PresApp {
         if (this.filesListShowing()) {
             return
         }
+        if ((this.mayEdit()) == false) {
+            return
+        }
         editor.handleText(s)
         this.syncEditor()
         chromeRev = (chromeRev + 1)
@@ -6495,6 +6678,9 @@ class PresApp {
             return
         }
         if (this.filesListShowing()) {
+            return
+        }
+        if ((this.mayEdit()) == false) {
             return
         }
         def whole:boolean false
@@ -7855,7 +8041,7 @@ class PresApp {
             this.quickEdit(op adding)
             if adding {
                 ; the address is selected in the editor, to be typed
-                this.showTab("md")
+                this.showSource()
                 focus = "editor"
             }
             return
@@ -7951,6 +8137,9 @@ class PresApp {
     ; Markdown, selected in the editor. For the page, the document settings
     ; (the page lists the pictures for the logo first).
     fn pickContent:void () {
+        if ((this.mayEdit()) == false) {
+            return
+        }
         this.closeHint()
         if (pick.sel == "page") {
             push requests "docset"
@@ -7975,7 +8164,7 @@ class PresApp {
         if (this.openTableEditor(pick.line)) {
             return
         }
-        this.showTab("md")
+        this.showSource()
         def text:string (mdEditor.text())
         this.posOf(text pick.srcA)
         def l0:int posLine
@@ -8478,7 +8667,7 @@ class PresApp {
         if ((strlen text) == 0) {
             return
         }
-        this.showTab("md")
+        this.showSource()
         def lastLine:int ((editor.buf.lineCount()) - 1)
         editor.moveCaret(lastLine (strlen (editor.buf.lineAt(lastLine))) false)
         this.insertBlock(text)
@@ -8517,7 +8706,7 @@ class PresApp {
         if (r == "back") {
             if (this.mdFileOpen()) {
                 this.closeFile()
-                this.showTab("md")
+                this.showSource()
                 return
             }
             this.closeFile()
@@ -8530,7 +8719,7 @@ class PresApp {
         }
         if ((indexOf r "insert:") == 0) {
             def path:string (substring r 7 (strlen r))
-            this.showTab("md")
+            this.showSource()
             def lower:string (to_lowercase path)
             if ((indexOf lower ".json") > 0) {
                 this.insertChartFile(path)
@@ -10411,6 +10600,9 @@ class PresApp {
     ; The answer's CSS on the CSS tab as one edit there (Ctrl+Z in the tab
     ; takes it back); the slides follow.
     fn aiCss:void () {
+        if ((this.mayEdit()) == false) {
+            return
+        }
         def edits:[PresAiEdit] aiCssEdits
         def none:[PresAiEdit]
         aiCssEdits = none
@@ -10951,14 +11143,14 @@ class PresApp {
         if (what == "file") {
             ; a pasted link, only as text after all
             if imp.live {
-                this.showTab("md")
+                this.showSource()
                 editor.handleText(path)
                 this.syncEditor()
                 chromeRev = (chromeRev + 1)
             }
             return
         }
-        this.showTab("md")
+        this.showSource()
         if (what == "table") {
             this.insertBlock((((("```table\n" + path) + "\nrows: ") + (to_string (PresImport.pageRows()))) + "\n```\n"))
             return
@@ -11020,6 +11212,12 @@ class PresApp {
     fn openSettings:void (contrast:boolean) {
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Settings → Presentations open in View or Edit, as the page
+    ; keeps it.
+    fn setOpenInEdit:void (on:boolean) {
+        panels.openInEdit = on
     }
 
     ; File → Settings → Experimental: 3-D flight, as the page keeps it.
@@ -11553,6 +11751,7 @@ class PresApp {
                 def tl:EVGA11yNode (t.node("edtabs" "app" (EVGA11yRole.tabList())))
                 tl.name = (PresI18n.t("Editor"))
                 t.place(tl (to_int tabRect.x) (to_int tabRect.y) (to_int tabRect.w) (to_int tabRect.h))
+                this.a11yTab(t page "view" (PresI18n.t("View")))
                 this.a11yTab(t page "md" "Markdown")
                 this.a11yTab(t page "css" (PresI18n.t("Theme (CSS)")))
                 this.a11yTab(t page "files" (PresI18n.t("Files")))
@@ -11879,10 +12078,13 @@ class PresApp {
     ; Open the editor on the ```vega-lite fence at or around `line`. False
     ; when there is none there.
     fn openChartEditor:boolean (line:int) {
+        if ((this.mayEdit()) == false) {
+            return false
+        }
         if (mode == "present") {
             return false
         }
-        this.showTab("md")
+        this.showSource()
         def n:int (mdEditor.buf.lineCount())
         def start:int -1
         def i:int line
@@ -12480,7 +12682,7 @@ class PresApp {
             return
         }
         if (act == "add") {
-            this.showTab("md")
+            this.showSource()
             this.insertBlock(((b.markdown()) + "\n"))
             return
         }
@@ -13118,7 +13320,7 @@ class PresApp {
                 return
             }
         }
-        this.showTab("md")
+        this.showSource()
         this.insertPicture(path alt)
     }
 
@@ -13178,6 +13380,9 @@ class PresApp {
     ; Lines `from`..`to` of the Markdown replaced with `text` ("" takes them
     ; out), as one edit.
     fn replaceLines:void (from:int to:int text:string) {
+        if ((this.mayEdit()) == false) {
+            return
+        }
         def keep:ScriptEditor editor
         editor = mdEditor
         def n:int (mdEditor.buf.lineCount())
@@ -13203,6 +13408,9 @@ class PresApp {
     ; A block's lines (`from`…`to`) replaced with `text`: the block's last
     ; line now.
     fn writeBlock:int (from:int to:int text:string) {
+        if ((this.mayEdit()) == false) {
+            return to
+        }
         if ((from < 0) || (to < from)) {
             return to
         }
@@ -13215,7 +13423,7 @@ class PresApp {
         if ((from < 0) || (to < from)) {
             return
         }
-        this.showTab("md")
+        this.showSource()
         mdEditor.moveCaret(from 0 false)
         mdEditor.moveCaret(to (strlen (mdEditor.buf.lineAt(to))) true)
         mdEditor.layout.ensureCaretVisible(mdEditor.buf mdEditor.sel)
@@ -13876,6 +14084,9 @@ class PresApp {
     ; from — moved only by the change in length when it sits after the edit
     ; on the same line.
     fn replaceRange:void (line:int a:int b:int text:string) {
+        if ((this.mayEdit()) == false) {
+            return
+        }
         if ((line < 0) || (line >= (editor.buf.lineCount()))) {
             return
         }
@@ -13904,6 +14115,9 @@ class PresApp {
     ; or from their keys. Each is one edit of the Markdown, so it undoes as
     ; one. False when nothing was done (presenting, the chart editor open).
     fn slideCommand:boolean (what:string) {
+        if ((this.mayEdit()) == false) {
+            return false
+        }
         if (mode == "present") {
             return false
         }
@@ -13913,7 +14127,7 @@ class PresApp {
         ; from the strip (its keys, its menu) the keyboard stays there, but
         ; a new slide's heading is selected in the editor to be typed over
         def was:string focus
-        this.showTab("md")
+        this.showSource()
         if ((was == "strip") && (what != "new")) {
             focus = "strip"
             a11yFocus = ""
@@ -14216,6 +14430,9 @@ class PresApp {
     ; lines between are rewritten as one edit, so Ctrl+Z undoes it as one,
     ; with a blank line between the sections. The moved slide is selected.
     fn moveSlideTo:boolean (i:int slot:int) {
+        if ((this.mayEdit()) == false) {
+            return false
+        }
         if ((mode == "present") || chart.isOpen) {
             return false
         }
@@ -14225,7 +14442,7 @@ class PresApp {
         }
         if (edTab != "md") {
             def was:string focus
-            this.showTab("md")
+            this.showSource()
             focus = was
         }
         this.slideLines(i)
@@ -14619,7 +14836,7 @@ class PresApp {
             cssDone = true
         }
         if ((p.target == "md") && ((strlen p.md) > 0)) {
-            this.showTab("md")
+            this.showSource()
             focus = "editor"
             PresApp.putAtCaret(mdEditor p.md "\n\n")
             mdDone = true
@@ -14627,7 +14844,7 @@ class PresApp {
         def firstLine:int -1
         if ((p.target == "deck") && ((strlen p.md) > 0)) {
             ; the keys back where the paste came (the question had them)
-            this.showTab("md")
+            this.showSource()
             focus = clipFocus
             firstLine = (this.clipIntoDeck(p))
             mdDone = true
@@ -14687,6 +14904,9 @@ class PresApp {
     ; its last line). The line the first new slide starts on (-1: onto
     ; the slide).
     fn clipIntoDeck:int (p:PresClipPlan) {
+        if ((this.mayEdit()) == false) {
+            return -1
+        }
         def lc:int (mdEditor.buf.lineCount())
         this.slideLines(selected)
         if (p.place == "after") {
@@ -14749,6 +14969,9 @@ class PresApp {
     ; The pasted rules at the end of the theme, under a note of where they
     ; came from.
     fn clipAppendCss:void (css:string from:string) {
+        if ((this.mayEdit()) == false) {
+            return
+        }
         def lc:int (cssEditor.buf.lineCount())
         def end:int (lc - 1)
         def endText:string (cssEditor.buf.lineAt(end))

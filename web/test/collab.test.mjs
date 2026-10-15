@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { editsOf, loadMe, saveMe, cleanName, rgbOf, chatTime, CollabDoc, CollabSession, ANIMALS } from "../collab.js";
+import { editsOf, loadMe, saveMe, cleanName, rgbOf, chatTime, CollabDoc, CollabSession, ANIMALS, deckPeople } from "../collab.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist", "rangerdiff.mjs");
@@ -206,4 +206,27 @@ t2("a page goes by the name and colour the room gives it", async () => {
   assert.equal(s.me.name, "AnonymousOtter", "sent again as this on a reconnect");
   s.event({ t: "peers", rev: 0, peers: [{ client: "c1", who: "w1", name: "AnonymousOtter", color: "#0d9488" }] });
   assert.equal(told.length, 1, "told once");
+});
+
+test("who is in the room: the ones editing first, the latest change first among them", () => {
+  const now = 100000;
+  const people = [
+    { client: "c0", who: "me", name: "Me", editing: true },
+    { client: "c1", who: "a", name: "Aino", editing: false },
+    { client: "c2", who: "b", name: "Ville", editing: true },
+    { client: "c3", who: "c", name: "Bea", editing: true },
+    // a second page of Aino's, editing: Aino edits
+    { client: "c4", who: "a", name: "Aino", editing: true },
+    { client: "c5", who: "d", name: "Cecilia" },
+  ];
+  const at = new Map([["b", now - 60000], ["c", now - 2000]]);
+  const rows = deckPeople(people, at, "me", now);
+  assert.deepEqual(rows.map((r) => r.who), ["c", "b", "a", "d"]);
+  assert.equal(rows[0].active, true, "a change two seconds ago: typing");
+  assert.equal(rows[1].active, false);
+  assert.equal(rows[1].ago, 60);
+  assert.equal(rows[2].ago, -1, "no change seen from Aino");
+  assert.equal(rows[2].editing, true, "one of the pages is editing");
+  assert.equal(rows[3].editing, false);
+  assert.deepEqual(deckPeople([], null, "me", now), []);
 });
