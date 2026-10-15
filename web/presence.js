@@ -165,9 +165,11 @@ export function whoTitle(t, story = "") {
 // "who"): a row's name is who it is (an assistant's client beside its name),
 // "where" what it is doing and on which slides and Story; "added" how long
 // it has been on the Story, "modified" how long since its last call. A row
-// opens its Story ("who:open:<id>"). t translates.
+// opens its Story ("who:open:<id>"). t translates. people: false where
+// nobody's open pages are told (sliqtly.com, web/cloudpresence.js).
 // i18n: "Agent" "Person" "working" "idle" "editing in the editor" "reading, not editing" "{n} pages" "slides {s}" "the whole presentation" "now" "{t} ago" "Here for" "Last call" "Name"
-export function whoListJson(rows, { by = "name", dir, t, story = "", room = false, note = "" } = {}) {
+// i18n: "Nobody is working here now. An assistant connected to Sliqtly's MCP shows up here as soon as it works on a presentation."
+export function whoListJson(rows, { by = "name", dir, t, story = "", room = false, note = "", people = true } = {}) {
   const key = WHO_SORTS.includes(by) ? by : "name";
   const way = dir === "asc" || dir === "desc" ? dir : firstWhoDir(key);
   return JSON.stringify({
@@ -177,7 +179,9 @@ export function whoListJson(rows, { by = "name", dir, t, story = "", room = fals
     head1Label: t("Here for"),
     head2: "seen",
     head2Label: t("Last call"),
-    empty: t("Nobody is working here now. An assistant connected to this server's MCP shows up here as soon as it works on a presentation, and so does a person who opens it."),
+    empty: people
+      ? t("Nobody is working here now. An assistant connected to this server's MCP shows up here as soon as it works on a presentation, and so does a person who opens it.")
+      : t("Nobody is working here now. An assistant connected to Sliqtly's MCP shows up here as soon as it works on a presentation."),
     sort: key,
     dir: way,
     rows: sortWho(rows, key, way).map((r) => {

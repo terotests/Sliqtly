@@ -121,8 +121,20 @@ and person counted once. Pressing one opens the window that names who is
 there: what each assistant is doing, its slides and note, how long it has
 been on the Story and when it last called; a row opens its Story.
 
-Kept in memory, per process: a server of one's own. The cloud does not
-watch or show it yet.
+On a server of one's own it is kept in memory, per process.
+
+On sliqtly.com the server's instances tell Firestore instead
+(`mcp-go/presencecloud.go`): one document an assistant on a Story,
+`presence/{deck}/agents/{agent}`, written when it shows up, names itself or
+takes or lets go of slides, and again every 30 s while it keeps calling. A
+call that failed is not told, so an assistant shows up only on a Story its
+call could work on. A document goes when its session ends, else by
+Firestore's TTL policy on `expires`. The editor, signed in, listens to the
+documents of the open room's cloud Stories while the page is in sight
+(`web/cloudpresence.js`, onSnapshot) and tells working, idle or gone from
+each one's last call, with the same times. Only the Story's owner and the
+editors it invited read them (`firestore.rules`). People are not shown
+there.
 
 ## Who works on it: people, assistants or both
 

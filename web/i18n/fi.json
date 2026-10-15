@@ -1795,6 +1795,7 @@
   "Here for": "Mukana",
   "Last call": "Viimeksi",
   "Nobody is working here now. An assistant connected to this server's MCP shows up here as soon as it works on a presentation, and so does a person who opens it.": "Kukaan ei ole nyt työssä täällä. Tämän palvelimen MCP:hen yhdistetty avustaja näkyy tässä heti kun se työstää esitystä, samoin ihminen joka avaa sen.",
+  "Nobody is working here now. An assistant connected to Sliqtly's MCP shows up here as soon as it works on a presentation.": "Kukaan ei ole nyt työssä täällä. Sliqtlyn MCP:hen yhdistetty avustaja näkyy tässä heti kun se työstää esitystä.",
   "Person": "Ihminen",
   "editing in the editor": "muokkaa editorissa",
   "{n} pages": "{n} sivua",

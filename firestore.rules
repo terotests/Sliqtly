@@ -24,6 +24,9 @@ rules_version = '2';
 // listens to the new ones, web/cloudchat.js): someone whose membership
 // room_members/{room}~user-{uid} is there, or ~email-{address} for the
 // address they signed in with, verified.
+// presence/{deck}/agents/{agent}: the assistants working on a Story now,
+// written by the MCP server only (mcp-go/presencecloud.go). The Story's
+// owner and the editors it invited read them (web/cloudpresence.js).
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
 // rule either.
 // licenses/{uid}: what the editor at /editor lets a signed-in user change
@@ -157,6 +160,15 @@ service cloud.firestore {
     function chatMember(key) {
       let parts = key.split('~');
       return parts.size() == 2 && parts[0] == 'cloud' && roomMember(parts[1]);
+    }
+
+    // who works on the share `deckId` now
+    function presenceReader(deckId) {
+      let share = get(/databases/$(database)/documents/shares/$(deckId)).data;
+      return signedIn() && (share.owner == request.auth.uid || invited(share));
+    }
+    match /presence/{deckId}/agents/{agent} {
+      allow read: if presenceReader(deckId);
     }
 
     match /room_chat/{key} {
