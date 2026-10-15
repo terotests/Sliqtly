@@ -2266,6 +2266,10 @@ class PresToolbar {
         if playing {
             play = (PresI18n.t("⏸ Pause"))
         }
+        ; the short form: the sign alone, as Edit and Save have
+        if (this.shortNow()) {
+            play = (? playing "⏸" "▶")
+        }
         def small:boolean (this.compact())
         if small {
             this.button("menu" "☰" "ghost" bar)
