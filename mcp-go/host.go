@@ -170,6 +170,10 @@ type Env struct {
 	// signed-in people (POST /editor/api/rooms/<op>, editorrooms.go); nil
 	// elsewhere
 	cloudRooms *roomService
+	// layouts: each signed-in account's topics, folders and stories on
+	// sliqtly.com, for the editor and the assistant's room tools
+	// (layout.go); nil elsewhere
+	layouts *layoutService
 	// Clients: the OAuth clients a server of one's own knows without
 	// registration (oidc.go builtinClient), as their client document; nil,
 	// or nil for an id: none
@@ -472,10 +476,13 @@ func (h *McpHost) Asset(name string) string {
 	switch name {
 	case "guide.md":
 		md := guideMD
-		if h.env.rooms == nil {
-			md = withoutRooms(md)
-		} else {
+		switch {
+		case h.env.rooms != nil:
 			md = withRooms(md)
+		case h.env.layouts != nil:
+			md = withMyRooms(md)
+		default:
+			md = withoutRooms(md)
 		}
 		if h.env.shared == nil && h.env.cloudShared == nil {
 			return withoutPart(md, "figma")
@@ -500,13 +507,17 @@ func themeUnavailable(theme string) error {
 	return fmt.Errorf("The theme %q could not be loaded. Try again in a moment, or choose another theme.", theme)
 }
 
-// the guide without its Rooms parts, on a server that has no rooms
-// (sliqtly.com): each <!-- rooms --> … <!-- /rooms --> in assets/guide.md
-// (the rooms topic, its row in Core's list of topics)
-func withoutRooms(md string) string { return withoutPart(md, "rooms") }
+// the guide without its Rooms parts, on a server that has no rooms: each
+// <!-- rooms --> … <!-- /rooms --> in assets/guide.md (a server of one's
+// own's rooms topic, its row in Core's list of topics) and each
+// <!-- myrooms --> (sliqtly.com's: an account's own rooms, layout.go)
+func withoutRooms(md string) string { return withoutPart(withoutPart(md, "rooms"), "myrooms") }
 
-// the guide with its Rooms parts, the marker lines taken out
-func withRooms(md string) string { return withPart(md, "rooms") }
+// the guide with a server of one's own's Rooms parts, the marker lines taken out
+func withRooms(md string) string { return withoutPart(withPart(md, "rooms"), "myrooms") }
+
+// the guide with sliqtly.com's: the account's own rooms, folders and stories
+func withMyRooms(md string) string { return withPart(withoutPart(md, "rooms"), "myrooms") }
 
 // the guide without each <!-- part --> … <!-- /part -->: what only some
 // servers have (rooms; figma: the shared files of a server of one's own)
@@ -879,6 +890,8 @@ func (h *McpHost) HostTools() string {
 	out := []any{}
 	if h.env.rooms != nil {
 		out = append(out, h.env.rooms.toolsJSON()...)
+	} else if h.env.layouts != nil {
+		out = append(out, h.env.layouts.toolsJSON()...)
 	}
 	out = append(out, sharedToolsJSON(h.sharedToolsOn())...)
 	return roomJSON(out)
@@ -886,7 +899,12 @@ func (h *McpHost) HostTools() string {
 
 // HasTool: name is one of HostTools
 func (h *McpHost) HasTool(name string) bool {
-	return (h.env.rooms != nil && findMcpRoomTool(name)) || h.hasSharedTool(name)
+	return (h.env.rooms != nil && findMcpRoomTool(name)) || h.layoutTool(name) || h.hasSharedTool(name)
+}
+
+// layoutTool: name is one of the account layout's (sliqtly.com, layout.go)
+func (h *McpHost) layoutTool(name string) bool {
+	return h.env.rooms == nil && h.env.layouts != nil && layoutOps[name]
 }
 
 // CallTool runs one of HostTools for uid with args (JSON) → the answer as
@@ -916,6 +934,8 @@ func (h *McpHost) CallTool(uid, who, name, args string) string {
 	var err error
 	if h.hasSharedTool(name) {
 		out, err = h.callSharedTool(uid, name, a)
+	} else if h.layoutTool(name) {
+		out, err = h.env.layouts.call(h.ctx, uid, name, a)
 	} else {
 		out, err = h.env.rooms.call(h.ctx, uid, name, a)
 	}

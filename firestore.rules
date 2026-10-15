@@ -15,6 +15,10 @@ rules_version = '2';
 // mcp_sessions, mcp_keys (older), mcp_oauth_*, mcp_work, mcp_bases: the MCP server's sessions and what they may change,
 // sign-in state, assistants' claims on a deck and the versions it merges
 // edits with (mcp-go/). No rule matches them, so only the Admin SDK reads or writes them.
+// layouts/{uid}: an account's own topics (rooms), folders and stories, synced
+// by the editor (POST /editor/api/layout, mcp-go/layout.go) and read by the
+// assistant's room tools. No rule matches them: only the server reads or
+// writes them.
 // rooms, room_members, chat_people: the shared rooms of the editor at /editor,
 // their members and the people of their chat (mcp-go/roomsapi.go, written
 // through POST /editor/api/rooms/<op>). No rule matches them: only the

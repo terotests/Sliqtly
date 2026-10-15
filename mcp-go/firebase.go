@@ -320,6 +320,8 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 	env.cloudRooms = newCloudRoomService(env, newFSEngine(fs, ""), newFSChat(fs, ""))
 	// who is working on the editor's Stories (presencecloud.go)
 	env.agents.pub = newPresencePub(fsPresence{fs})
+	// each account's topics, folders and stories (layout.go)
+	env.layouts = newLayoutService(env.DB)
 	// the owner's dashboard (admin.go), for the accounts listed
 	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
 	return nil

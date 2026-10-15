@@ -525,7 +525,16 @@ class Tools {
         ewp.put("work_id" (Tools.prop("string" "Your work_id from begin_work")))
         tools.add((Tools.tool("end_work" "Finish work on a presentation" "Release the slides claimed with begin_work, once your changes are saved (or given up), so other assistants may work on them." (Tools.schema(ewp ([] _:string ("deck_id" "work_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
-        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
+        def lsp:MfJ (MfJ.newObj())
+        lsp.put("query" (Tools.prop("string" "Only the presentations whose name holds this (any case)")))
+        def lsOff:MfJ (Tools.prop("integer" "Skip this many (next_offset of the page before)"))
+        lsOff.putInt("minimum" 0)
+        lsp.put("offset" lsOff)
+        def lsLim:MfJ (Tools.prop("integer" "How many on the page (default 50, at most 200)"))
+        lsLim.putInt("minimum" 1)
+        lsLim.putInt("maximum" 200)
+        lsp.put("limit" lsLim)
+        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations, last changed first, with their links and deck_ids, and where rooms are kept each one's room (shown to people as a topic or project: room_id, room), folder (folder_id, folder) and story (type, phase, tags). Pages of at most limit (default 50): total says how many there are, next_offset where the next page starts; query finds one by name. list_rooms lists the rooms, move_presentation moves one. Needs sign-in." (Tools.schema(lsp none)) (Tools.annotations(true -1 false false)) listMeta)))
         ; decks made without sign-in are changed by the conversation that
         ; made them, which says so with the session_key create_presentation
         ; gave it
@@ -1623,7 +1632,7 @@ class Tools {
             r = (Tools.vectorize(host caller args))
         }
         if (name == "list_presentations") {
-            r = (Tools.listMine(host caller))
+            r = (Tools.listMine(host caller args))
         }
         if (name == "list_comments") {
             r = (Tools.listComments(host caller args))
@@ -1957,6 +1966,8 @@ class Tools {
         }
         Tools.links(host out base made.id)
         out.putStr("deck_id" made.id)
+        ; into its room (topic) where the server keeps those apart from decks
+        host_deck_made host caller.uid made.id room
         if (owner == "mcp") {
             ; changed later only by this conversation: the session_key it
             ; carries (a new one when it carries none), and this connection
@@ -5138,7 +5149,7 @@ class Tools {
         return (Tools.reviewAnswer(host id (unwrap (rv.find(tid))) said))
     }
 
-    sfn listMine:MfJ (host:McpHost caller:Caller) {
+    sfn listMine:MfJ (host:McpHost caller:Caller args:MfJ) {
         if (caller.signedIn == false) {
             def r:MfJ (Tools.fail("Listing presentations needs sign-in. Connect Sliqtly with sign-in (Google) to keep presentations in your own account."))
             if ((strlen caller.signIn) > 0) {
@@ -5151,18 +5162,50 @@ class Tools {
         if ((host_store_kind host) == "link") {
             return (Tools.fail("This server keeps no decks (no cloud storage configured)."))
         }
-        def docs:[MfJ] (Store.list(host caller.uid))
+        def all:[MfJ] (Store.list(host caller.uid))
         if ((strlen (host_error host)) > 0) {
             return (Tools.failed(host "list_presentations" (host_error host)))
+        }
+        ; one page of them: those an assistant may see whose name holds
+        ; query, from offset, at most limit (an account keeps more than one
+        ; page: the newest were cut off when only the first 50 were listed)
+        def want:string (trim (to_lowercase (args.str_("query"))))
+        def offset:int (to_int (args.num_("offset" 0.0)))
+        if (offset < 0) {
+            offset = 0
+        }
+        def limit:int (to_int (args.num_("limit" 50.0)))
+        if (limit < 1) {
+            limit = 50
+        }
+        if (limit > 200) {
+            limit = 200
+        }
+        def seen:[MfJ]
+        for all d0:MfJ k {
+            if ((host_agents_see host (JOut.text(d0))) == false) {
+                continue
+            }
+            if ((strlen want) > 0) {
+                if ((indexOf (to_lowercase (d0.str_("name"))) want) < 0) {
+                    continue
+                }
+            }
+            push seen d0
+        }
+        def total:int (array_length seen)
+        def docs:[MfJ]
+        for seen d1:MfJ m {
+            if ((m >= offset) && (m < (offset + limit))) {
+                push docs d1
+            }
         }
         def base:string (host_base_url host)
         def decks:MfJ (MfJ.newArr())
         def lines:[string]
+        ; each one's topic (room), folder and story, where the server keeps them
+        def places:MfJ (J.parse((host_places host caller.uid)))
         for docs d:MfJ i {
-            ; one its owner hid from assistants is not there for them
-            if ((host_agents_see host (JOut.text(d))) == false) {
-                continue
-            }
             def id:string (d.str_("id"))
             def deck:MfJ (MfJ.newObj())
             deck.putStr("deck_id" id)
@@ -5187,6 +5230,27 @@ class Tools {
             } {
                 deck.put("created" (new MfJ))
             }
+            def where:string ""
+            def pl:MfJ (places.field(id))
+            if (pl.isObj()) {
+                deck.putStr("room_id" (pl.str_("room_id")))
+                deck.putStr("room" (pl.str_("room")))
+                deck.putStr("folder_id" (pl.str_("folder_id")))
+                if ((strlen (pl.str_("folder"))) > 0) {
+                    deck.putStr("folder" (pl.str_("folder")))
+                }
+                deck.putStr("type" (pl.str_("type")))
+                deck.putStr("phase" (pl.str_("phase")))
+                deck.put("tags" (pl.field("tags")))
+                if ((strlen (pl.str_("color"))) > 0) {
+                    deck.putStr("color" (pl.str_("color")))
+                }
+                where = (", in " + (pl.str_("room")))
+                if ((strlen (pl.str_("folder"))) > 0) {
+                    where = (where + " / " + (pl.str_("folder")))
+                }
+                where = (where + ", " + (pl.str_("type")) + " " + (pl.str_("phase")))
+            }
             Tools.links(host deck base id)
             decks.add(deck)
             def title:string (d.str_("name"))
@@ -5197,14 +5261,28 @@ class Tools {
             if (made > 0.0) {
                 madeOn = (", created " + (substring (deck.str_("created")) 0 10))
             }
-            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + madeOn + "): " + (deck.str_("share_url")))
+            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + madeOn + where + "): " + (deck.str_("share_url")))
         }
         def txt:string (join lines "\n")
         if ((array_length lines) == 0) {
             txt = "No presentations yet."
+            if ((total > 0) || ((strlen want) > 0)) {
+                txt = "No presentations on this page."
+            }
+        }
+        def next:int (offset + (array_length lines))
+        if ((array_length lines) > 0) {
+            txt = (txt + "\n\n" + (to_string (offset + 1)) + "–" + (to_string next) + " of " + (to_string total) + ".")
+            if (next < total) {
+                txt = (txt + " More: offset " + (to_string next) + ".")
+            }
         }
         def sc:MfJ (MfJ.newObj())
         sc.put("presentations" decks)
+        sc.putInt("total" total)
+        if (next < total) {
+            sc.putInt("next_offset" next)
+        }
         def r2:MfJ (MfJ.newObj())
         r2.put("content" (Tools.text(txt)))
         r2.put("structuredContent" sc)

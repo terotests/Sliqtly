@@ -77,6 +77,11 @@ A warning that ends with `→ topic=x` names the topic that explains it.
 On this server presentations are kept in rooms: read `topic=rooms` before
 the first `create_presentation`.
 <!-- /rooms -->
+<!-- myrooms -->
+
+The user keeps their presentations in topics (rooms) and folders of their
+own: read `topic=rooms` before the first `create_presentation`.
+<!-- /myrooms -->
 
 ## Themes
 
@@ -131,6 +136,9 @@ by default. Readability comes first.
 <!-- rooms -->
 | `rooms` | rooms for presentations, a room's chat |
 <!-- /rooms -->
+<!-- myrooms -->
+| `rooms` | the user's topics (rooms), folders and stories |
+<!-- /myrooms -->
 <!-- figma -->
 | `figma` | screens of Figma files kept on the server on slides |
 | `powerpoint` | PowerPoint decks kept on the server: their slides, words and look; changing them in place |
@@ -1956,6 +1964,36 @@ assistants working for them talk.
   on `post_room_message`. A name the room has already gets "(2)" unless
   `replace` is true.
 <!-- /rooms -->
+
+<!-- myrooms -->
+<!-- topic: rooms -->
+# Topic: rooms
+
+The signed-in user orders their own presentations in rooms, which the
+editor shows as topics (or projects), with one level of folders in each.
+Every presentation is in one room; one made without `room_id` lands in
+General, and there is a Playground for trying things. These are the user's
+own: moving a presentation shares it with nobody. Without sign-in there are
+none.
+
+- `list_presentations` tells each presentation's room (`room_id`, `room`),
+  folder (`folder_id`, `folder`) and story (`type`, `phase`, `tags`).
+- Before `create_presentation`, find the room it belongs to: `list_rooms`
+  with `query` (words of the room's name or description, e.g. a ticket
+  code) or `order: "active"` for the rooms worked in lately. Suggest the
+  one that fits and ask the user; if none fits, ask what to call a new one
+  and make it with `create_room`. Then give `room_id` to
+  `create_presentation`.
+- `get_room` lists a room's folders and presentations; `update_room`
+  renames or describes one of the user's own rooms.
+- `move_presentation` moves a presentation to a room, at its top or into a
+  folder (`folder_id`); `create_folder`, `rename_folder`, `delete_folder`
+  (its presentations go to the room's top, none is deleted).
+- `set_story` sets a presentation's type, phase, tags or colour; set the
+  phase only when the user says so.
+- The editor shows a change within moments; one the user makes there
+  reaches you the same way.
+<!-- /myrooms -->
 
 <!-- figma -->
 <!-- topic: figma -->

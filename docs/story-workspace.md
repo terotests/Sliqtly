@@ -47,9 +47,11 @@ Topic (room)
 ## Milestone 1: shared session + fork with context
 
 Built on the folder server (Sliqtly Personal, own servers), where rooms,
-folders and links already live. sliqtly.com's cloud rooms keep decks in
-browsers for now (`cloudRoomOps`); the session follows when decks move
-there.
+folders and links already live. On sliqtly.com an account's own topics,
+folders and stories are kept per account (`layouts/{uid}`,
+`mcp-go/layout.go`, synced by `web/layoutsync.js`) and its assistant has
+the room tools on them; shared rooms hold no decks yet (`cloudRoomOps`), so
+the session follows when they do.
 
 **Model** (`mcp-go/store/session.go`, tests `session_test.go`, no UI):
 
