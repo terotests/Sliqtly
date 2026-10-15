@@ -491,12 +491,19 @@ func (s *localServer) saveShare(ctx context.Context, id string, patch Doc, check
 				return nil, err
 			}
 		}
+		next := store.Clone(cur)
 		for k, v := range patch {
-			cur[k] = v
+			next[k] = v
 		}
-		return cur, nil
+		if !store.HumanMayWrite(cur, next) {
+			return nil, errAgentsOnly
+		}
+		return next, nil
 	})
 }
+
+// a person's change of an agents only Story's content (store/agents.go)
+var errAgentsOnly = fail(403, "agents-only", "this presentation is for assistants only: people view it; its owner changes that in Document settings")
 
 func (s *localServer) deleteShare(ctx context.Context, id string) error {
 	defer shareLocks.lock(id)()
@@ -593,8 +600,14 @@ func (s *localServer) fileAPI(r *http.Request, name string) (any, error) {
 	}
 	id, rel := parts[1], parts[2]
 	defer shareLocks.lock(id)()
-	if _, err := s.own(r.Context(), id); err != nil {
+	cur, err := s.own(r.Context(), id)
+	if err != nil {
 		return nil, err
+	}
+	// an agents only Story's files are the assistants' to change; people
+	// still comment on it (review/)
+	if r.Method != http.MethodGet && !store.HumansWrite(cur) && !strings.HasPrefix(rel, "review/") {
+		return nil, errAgentsOnly
 	}
 	switch r.Method {
 	case http.MethodPut:

@@ -142,6 +142,20 @@ operators {
             go ( (e 1) ".CallTool(" (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
         }
     }
+    ; why an assistant may not run tool name (readOnly: it only reads) with
+    ; the arguments (JSON) on the presentations they name, by each one's
+    ; agent access (agentgate.go); "" when it may
+    host_agent_gate _:string (h:McpHost name:string args:string readOnly:boolean) {
+        templates {
+            go ( (e 1) ".AgentGate(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
+    ; whether an assistant sees the share document (JSON) at all
+    host_agents_see _:boolean (h:McpHost doc:string) {
+        templates {
+            go ( (e 1) ".AgentsSee(" (e 2) ")" )
+        }
+    }
     ; a deck tool an assistant ran (its arguments and answer as JSON), into
     ; the deck's Story session (storysession.go); never fails the call
     host_session_tool _:void (h:McpHost uid:string name:string args:string answer:string) {

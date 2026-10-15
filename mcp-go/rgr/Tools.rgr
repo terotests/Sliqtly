@@ -1489,6 +1489,16 @@ class Tools {
     ; --- the calls; a null value for an unknown tool
 
     sfn call:MfJ (host:McpHost caller:Caller name:string args:MfJ) {
+        ; a Story's agent access: hidden from assistants, or theirs to read only
+        def gate:string (Tools.agentGate(host name args))
+        if ((strlen gate) > 0) {
+            return (Tools.fail(gate))
+        }
+        def gerr:string (host_error host)
+        if ((strlen gerr) > 0) {
+            host_clear_error host
+            return (Tools.failed(host name gerr))
+        }
         if (name == "sliqtly_guide") {
             def g:MfJ (MfJ.newObj())
             def whole:string (host_asset host "guide.md")
@@ -1654,6 +1664,38 @@ class Tools {
             }
         }
         return r
+    }
+
+    ; why the presentations args names keep an assistant from tool name
+    ; (agentgate.go), "" when nothing does; only a call that names one is
+    ; looked at
+    sfn agentGate:string (host:McpHost name:string args:MfJ) {
+        if ((args.isObj()) == false) {
+            return ""
+        }
+        def named:boolean false
+        for ([] _:string ("deck_id" "from" "to" "ref")) k:string ki {
+            def v:MfJ (args.field(k))
+            if (v.kind == 3) {
+                named = true
+            }
+        }
+        if (named == false) {
+            return ""
+        }
+        return (host_agent_gate host name (JOut.text(args)) (Tools.readOnly(host name)))
+    }
+
+    ; whether tool name only reads (its readOnlyHint), any of the tools
+    sfn readOnly:boolean (host:McpHost name:string) {
+        def all:MfJ (Tools.list(host))
+        for all.arr t:MfJ i {
+            if ((t.str_("name")) == name) {
+                def ann:MfJ (t.field("annotations"))
+                return (ann.bool_("readOnlyHint" false))
+            }
+        }
+        return false
     }
 
     sfn verb:string (name:string) {
@@ -5117,6 +5159,10 @@ class Tools {
         def decks:MfJ (MfJ.newArr())
         def lines:[string]
         for docs d:MfJ i {
+            ; one its owner hid from assistants is not there for them
+            if ((host_agents_see host (JOut.text(d))) == false) {
+                continue
+            }
             def id:string (d.str_("id"))
             def deck:MfJ (MfJ.newObj())
             deck.putStr("deck_id" id)
