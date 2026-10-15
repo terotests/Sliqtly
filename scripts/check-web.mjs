@@ -3553,8 +3553,10 @@ try {
       JSON.stringify(long));
   }
 
-  // Edit in Claude: a File menu row (ChatGPT's was taken out); signed out,
-  // the assistant opens in a new tab with the deck's Markdown in its prompt
+  // Connect to AI: a File menu row (ChatGPT's was taken out) opens a window
+  // with the MCP server's setup for Claude, Claude Code and Cursor; signed
+  // out, its prompt carries the deck's Markdown and Open in Claude opens the
+  // assistant with it in a new tab
   {
     const rows = await page.evaluate(() => {
       const a = window.__app;
@@ -3565,25 +3567,47 @@ try {
       press(find("tb-m-file-trigger"));
       const noChatgpt = !find("tb-m-file-item-aiChatgpt");
       const row = find("tb-m-file-item-aiClaude");
+      const label = a.toolbarJson().includes("Connect to AI");
       if (row) press(row);
       for (;;) { const r = a.takeRequest(); if (!r) break; reqs.push(r); }
-      return { reqs, noChatgpt };
+      return { reqs, noChatgpt, label };
     });
-    await page.context().route(/^https:\/\/claude\.ai\//, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ai</title>" }));
-    const popup = page.waitForEvent("popup", { timeout: 5000 });
     await page.evaluate(() => document.getElementById("aiClaude").click());
+    await page.waitForFunction(() => window.__app.panels.aiPrompt !== "", null, { timeout: 5000 }).catch(() => {});
+    const dlg = await page.evaluate(() => {
+      const a = window.__app;
+      const pn = a.panels;
+      const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
+      const pg = pn.page();
+      const b = walk(pg, "pn-ai-claude");
+      return { kind: pn.dialogKind, open: a.shareIsOpen(), mcp: pn.aiMcp, code: pn.aiCode, cursor: pn.aiCursor, prompt: pn.aiPrompt,
+        copies: ["mcp", "code", "cursor", "prompt"].every((w) => !!walk(pg, "pn-copy-" + w)),
+        btn: b ? [b.calculatedX + b.calculatedWidth / 2, b.calculatedY + b.calculatedHeight / 2] : null };
+    });
+    check("File → Connect to AI opens a window with the MCP server's address, Claude Code's command and Cursor's mcp.json, each to copy",
+      rows.reqs.includes("click:aiClaude") && rows.label && dlg.kind === "ai" && dlg.open && /\/mcp$/.test(dlg.mcp)
+      && dlg.code === "claude mcp add --transport http sliqtly " + dlg.mcp && JSON.parse(dlg.cursor).mcpServers.sliqtly.url === dlg.mcp && dlg.copies,
+      JSON.stringify({ rows, dlg }));
+    await page.context().route(/^https:\/\/claude\.ai\//, (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>ai</title>" }));
+    const cv = await page.evaluate(() => document.getElementById("c").getBoundingClientRect().toJSON());
+    const popup = page.waitForEvent("popup", { timeout: 5000 }).catch(() => null);
+    if (dlg.btn) await page.mouse.click(cv.x + dlg.btn[0], cv.y + dlg.btn[1]);
     const p = await popup;
-    await p.waitForURL(/^https:/, { timeout: 5000 }).catch(() => {});
-    const url = p.url();
-    await p.close();
+    let url = "";
+    if (p) {
+      await p.waitForURL(/^https:/, { timeout: 5000 }).catch(() => {});
+      url = p.url();
+      await p.close();
+    }
     const src = await page.evaluate(() => window.__app.source());
     const q = (u) => { try { return new URL(u).searchParams.get("q") || ""; } catch (_) { return ""; } };
-    check("File → Edit in Claude opens the assistant with the deck's Markdown and the connector's tools in the prompt",
-      rows.reqs.includes("click:aiClaude") && url.startsWith("https://claude.ai/new?q=")
-      && q(url).includes("create_presentation") && q(url).includes(src.split("\n").find((l) => l.trim()) || ""),
-      JSON.stringify({ rows, url: url.slice(0, 80) }));
+    check("…its Open in Claude opens the assistant with the deck's Markdown and the connector's tools in the prompt",
+      url.startsWith("https://claude.ai/new?q=") && q(url).includes("create_presentation") && q(url).includes(src.split("\n").find((l) => l.trim()) || ""),
+      JSON.stringify({ url: url.slice(0, 80), btn: dlg.btn }));
     check("…and the File menu has no Edit in ChatGPT", rows.noChatgpt && !(await page.evaluate(() => !!document.getElementById("aiChatgpt"))));
+    await page.evaluate(() => { window.__app.closeShare(); });
   }
+
 
   // The value popover is on the canvas: a chip, the colour picker and a slider write the text
   {

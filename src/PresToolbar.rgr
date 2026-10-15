@@ -1045,7 +1045,7 @@ class PresToolbar {
         def xs:UiItem (m.addSub("export" (PresI18n.t("Export")) false))
         this.exportGroups(xs)
         m.addSeparator()
-        m.addItem("aiClaude" (PresI18n.t("Edit in Claude…")) false)
+        m.addItem("aiClaude" (PresI18n.t("Connect to AI…")) false)
         m.addSeparator()
         m.addItem("docset" (PresI18n.t("Document settings…")) false)
         if canDelete {
@@ -2485,7 +2485,7 @@ class PresToolbar {
             body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))
-            this.button("dr-aiClaude" (PresI18n.t("Edit in Claude…")) "ghost" body)
+            this.button("dr-aiClaude" (PresI18n.t("Connect to AI…")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))
             def del:ButtonCtl (this.button("dr-deleteDeck" (PresI18n.t("Delete presentation…")) "ghost" body))
             def delEl:EVGElement (unwrap del.rootEl)
@@ -2561,7 +2561,7 @@ class PresToolbar {
     }
 
     ; --- the assistants' marks ------------------------------------------------------
-    ; Claude's mark before "Edit in Claude…", in the File menu and in the
+    ; Claude's mark before "Connect to AI…", in the File menu and in the
     ; drawer. MenuCtl draws a row as
     ; its text alone and builds its rows again whenever the menu changes, so
     ; the marks are put in on each drawing: the row's text becomes a mark and
