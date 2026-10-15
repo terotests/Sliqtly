@@ -602,7 +602,7 @@ class PresToolbar {
         push out ("x-save" + t + (PresI18n.t("Markdown (.md)")))
         push out ("x-pptx" + t + (PresI18n.t("PowerPoint (.pptx)")))
         push out ("x-docx" + t + (PresI18n.t("Word (.docx)")))
-        push out ("x-html" + t + (PresI18n.t("Web page (.html)")))
+        push out ("x-html" + t + (PresI18n.t("Web page as View (.html)")))
         push out ("x-player" + t + (PresI18n.t("Presentation player (.html)")))
         if cloud {
             push out ("x-recweb" + t + (PresI18n.t("Cloud HTML (light player)")))
@@ -620,7 +620,7 @@ class PresToolbar {
             push out ""
             push out ("x-pptxPicked" + t + (this.pickedLabel("PowerPoint (.pptx)")))
             push out ("x-docxPicked" + t + (this.pickedLabel("Word (.docx)")))
-            push out ("x-htmlPicked" + t + (this.pickedLabel("Web page (.html)")))
+            push out ("x-htmlPicked" + t + (this.pickedLabel("Web page as View (.html)")))
             push out ("x-pdfPicked" + t + (this.pickedLabel("PDF (.pdf)")))
         }
         return out
@@ -1253,7 +1253,7 @@ class PresToolbar {
             cm.addSeparator()
             cm.addItem("x-pptxPicked" (this.pickedLabel("PowerPoint (.pptx)")) false)
             cm.addItem("x-docxPicked" (this.pickedLabel("Word (.docx)")) false)
-            cm.addItem("x-htmlPicked" (this.pickedLabel("Web page (.html)")) false)
+            cm.addItem("x-htmlPicked" (this.pickedLabel("Web page as View (.html)")) false)
             cm.addItem("x-pdfPicked" (this.pickedLabel("PDF (.pdf)")) false)
             cm.addItem("x-share" (PresI18n.t("Share selected slides…")) false)
         }
@@ -2516,7 +2516,7 @@ class PresToolbar {
             this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
             this.button("dr-pptx" (PresI18n.t("PowerPoint (.pptx)")) "ghost" body)
             this.button("dr-docx" (PresI18n.t("Word (.docx)")) "ghost" body)
-            this.button("dr-html" (PresI18n.t("Web page (.html)")) "ghost" body)
+            this.button("dr-html" (PresI18n.t("Web page as View (.html)")) "ghost" body)
             this.button("dr-player" (PresI18n.t("Presentation player (.html)")) "ghost" body)
             if cloud {
                 this.button("dr-recweb" (PresI18n.t("Cloud HTML (light player)")) "ghost" body)

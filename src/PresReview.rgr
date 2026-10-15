@@ -196,6 +196,8 @@ class PresReviewThread {
 class PresReviewBlock {
     def page:int 0
     def key:string ""
+    ; where its source starts in the deck's text (-1: not known)
+    def src:int -1
     def x:double 0.0
     def y:double 0.0
     def w:double 0.0

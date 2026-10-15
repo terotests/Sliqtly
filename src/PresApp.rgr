@@ -7565,7 +7565,8 @@ class PresApp {
         }
         ; a game that has the keyboard while presenting takes the stage: the
         ; comments' bar and pins give way until Esc
-        layers.setOpen("review" (((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)) && onSlide))
+        ; on the Document tab the comments are pinned on the page
+        layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -8895,6 +8896,7 @@ class PresApp {
         }
         review.measurer = measurer
         review.skin = skin
+        this.reviewDoc()
         this.reviewSpots()
         def pres:boolean (mode == "present")
         if pres {
@@ -8960,6 +8962,7 @@ class PresApp {
                     def k (new PresReviewBlock())
                     k.page = b.page
                     k.key = (trim (substring text b.srcStart end))
+                    k.src = b.srcStart
                     k.x = (b.x / pw)
                     k.y = (b.y / ph)
                     k.w = (b.w / pw)
@@ -8982,10 +8985,88 @@ class PresApp {
         return out
     }
 
+    ; The comments on the page (the Document tab, the editor's View): a
+    ; press there while placing becomes a new comment on the slide and the
+    ; point the page shows there; every comment's pin where the page shows
+    ; its point, on each pane of the page in view.
+    fn reviewDoc:void () {
+        review.clearDoc()
+        review.slideShown = ((this.docShown()) == false)
+        def panes:[PresDocPane]
+        if (this.docShown()) {
+            this.docEnsure()
+            push panes docPane
+        }
+        if (this.edDocShown()) {
+            this.edDocEnsure()
+            push panes edDocPane
+        }
+        if review.docAsk {
+            review.docAsk = false
+            for panes pa:PresDocPane pai {
+                if (pa.has(review.docPX review.docPY)) {
+                    this.reviewDocDraft(pa review.docPX review.docPY)
+                }
+            }
+        }
+        for panes pane:PresDocPane i {
+            review.addDocRect(pane.x pane.y pane.w pane.h)
+            for review.model.threads t:PresReviewThread k {
+                if ((t.isCode()) == false) {
+                    this.reviewDocSpot(pane t.id t.slide t.x t.y)
+                }
+            }
+            if (review.drafting && ((strlen review.draftCodePath) == 0)) {
+                this.reviewDocSpot(pane "rv-draft" review.draftSlide review.draftX review.draftY)
+            }
+        }
+    }
+
+    ; a point of a slide (fractions) as a pin on `pane`, when it is in view
+    fn reviewDocSpot:void (pane:PresDocPane id:string page:int x:double y:double) {
+        def p:[double] (docView.flow.toPage(page (x * deck.pageW) (y * deck.pageH)))
+        if ((array_length p) < 2) {
+            return
+        }
+        def dw:double (docView.width())
+        def sc:double (pane.scale(dw))
+        def px:double ((pane.left(dw)) + ((itemAt p 0) * sc))
+        def py:double ((pane.top(dw)) + ((itemAt p 1) * sc))
+        def inset:double 6.0
+        if ((((px >= (pane.x + inset)) && (px <= ((pane.x + pane.w) - inset))) && (py >= (pane.y + inset))) && (py <= ((pane.y + pane.h) - inset))) {
+            review.setDocSpot(id px py)
+        }
+    }
+
+    ; A press on `pane` while placing: a new comment on the slide and the
+    ; point there, pinned to the element under it.
+    fn reviewDocDraft:void (pane:PresDocPane sx:double sy:double) {
+        def dw:double (docView.width())
+        def sc:double (pane.scale(dw))
+        if ((sc <= 0.0) || ((deck.pageW <= 0.0) || (deck.pageH <= 0.0))) {
+            return
+        }
+        def at:[double] (docView.flow.toSlide(((sx - (pane.left(dw))) / sc) (pane.pageY(sy dw))))
+        if ((array_length at) < 3) {
+            return
+        }
+        def page:int (to_int (itemAt at 0))
+        def x:double ((itemAt at 1) / deck.pageW)
+        def y:double ((itemAt at 2) / deck.pageH)
+        review.startDraft(page x y)
+        review.draftAsk = false
+        review.draftInDoc = true
+        this.reviewPinOn(page "" x y)
+    }
+
     ; The element under a point of the selected slide (fractions): the
     ; comment pinned there goes with it.
     fn reviewPin:void (id:string x:double y:double) {
-        def k:int (PresReview.blockAt(reviewBlocks selected x y))
+        this.reviewPinOn(selected id x y)
+    }
+
+    fn reviewPinOn:void (page:int id:string x:double y:double) {
+        def k:int (PresReview.blockAt(reviewBlocks page x y))
         if (k < 0) {
             return
         }
@@ -10288,6 +10369,11 @@ class PresApp {
     ; after a press or a key in review mode: the keys, a slide to go to, the
     ; file to write
     fn afterReview:void () {
+        ; a press on the page while placing: the new comment there now, so
+        ; it has the keys
+        if review.docAsk {
+            this.reviewDoc()
+        }
         if (review.hasKeys()) {
             focus = "review"
         } {
@@ -15782,7 +15868,53 @@ class PresApp {
             }
         }
         exporter.only = only
+        exporter.comments = (new PresCommentNotes())
+        exporter.commentsTitle = (PresI18n.t("Comments"))
+        exporter.someone = (PresI18n.t("Someone"))
+        if exportComments {
+            exportComments = false
+            exporter.comments = (this.commentNotes(only))
+        }
         return exporter
+    }
+
+    ; "Export review comments too": the next export (PDF, web page) has the
+    ; open comments as footnotes.
+    def exportComments:boolean false
+
+    fn setExportComments:void (on:boolean) {
+        exportComments = on
+    }
+
+    ; how many open comments an export of all slides (picked false) or of
+    ; the picked ones would have
+    fn exportCommentCount:int (picked:boolean) {
+        def only:[int]
+        if (picked && (picks.active())) {
+            def i:int 0
+            while (i < (deck.slideCount())) {
+                if (picks.has(i)) {
+                    push only i
+                }
+                i = (i + 1)
+            }
+        }
+        return ((this.commentNotes(only)).count())
+    }
+
+    ; the open comments on the slides `only` names (all: empty), each tied
+    ; to the block of the text it is on
+    fn commentNotes:PresCommentNotes (only:[int]) {
+        this.reviewReady()
+        def starts:[int]
+        def doc:MdNode deck.md.edit.doc
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            push starts ch.srcStart
+            c = (c + 1)
+        }
+        return (PresCommentNotes.make(review.model reviewBlocks starts only))
     }
 
     fn pdf:buffer () {

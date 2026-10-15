@@ -7,6 +7,7 @@
 Import "PresDeck.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
+Import "PresCommentNotes.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 
 class PresExport {
@@ -30,6 +31,13 @@ class PresExport {
     ; host made of them (none from the MCP server: those blocks are written
     ; as their names)
     def word:PresDocx (new PresDocx())
+    ; "Export review comments too": the open comments as footnotes (none:
+    ; the export has no comments), and the words they need
+    def comments:PresCommentNotes (new PresCommentNotes())
+    def commentsTitle:string "Comments"
+    def someone:string "Someone"
+    ; what the last PDF had: footnotes written, pages grown for them
+    def footnotes:int 0
 
     Constructor () {
     }
@@ -180,6 +188,9 @@ class PresExport {
         def ph:double deck.pageH
         def root:EVGElement (EVGListToElements.printRoot(pw ph))
         def section:EVGElement (EVGListToElements.sectionOf(root))
+        ; a page grown for its footnotes is a section of its own size
+        def secH:double ph
+        footnotes = 0
         def renderer (new EVGPDFRenderer())
         renderer.init(renderer)
         renderer.setPageSize(pw ph)
@@ -248,7 +259,23 @@ class PresExport {
                 c = (c + 1)
             }
             dl.cmds = kept
-            def pageEl:EVGElement (EVGListToElements.pageFrom(dl pw ph bg true))
+            def pageH:double ph
+            def ns:[PresCommentNote] (comments.onPage(i))
+            if ((array_length ns) > 0) {
+                PresExport.commentMarks(dl ns pw ph (PresExport.notesFamily(l)))
+                def band:EVGDisplayList (this.footnoteBand(ns pw (PresExport.notesFamily(l))))
+                def bh:double (PresExport.listBottom(band))
+                band.offsetBy(0.0 ph)
+                dl.addRect(0.0 ph pw bh (EVGColor.parse("#ffffff")))
+                dl.appendFrom(band)
+                pageH = (ph + bh)
+                footnotes = (footnotes + (array_length ns))
+            }
+            if (pageH != secH) {
+                section = (PresExport.newSection(root pw pageH))
+                secH = pageH
+            }
+            def pageEl:EVGElement (EVGListToElements.pageFrom(dl pw pageH bg true))
             this.vectorize(pageEl)
             if (bleed > 0.0) {
                 PresExport.bleedEdges(pageEl)
@@ -258,6 +285,143 @@ class PresExport {
         }
         deck.still = false
         return (renderer.render(root))
+    }
+
+    ; --- review comments as footnotes ---------------------------------------------
+    ; One more section of pages `w` × `h`, after the others.
+    sfn newSection:EVGElement (root:EVGElement w:double h:double) {
+        def sec (EVGElement.createDiv())
+        sec.tagName = "section"
+        sec.width = (EVGUnit.px(w))
+        sec.height = (EVGUnit.px(h))
+        sec.box.marginTop = (EVGUnit.px(0.0))
+        sec.box.marginRight = (EVGUnit.px(0.0))
+        sec.box.marginBottom = (EVGUnit.px(0.0))
+        sec.box.marginLeft = (EVGUnit.px(0.0))
+        root.addChild(sec)
+        return sec
+    }
+
+    ; the face the slides' text is set in (the PDF has it)
+    sfn notesFamily:string (l:MdLayout) {
+        if ((strlen l.style.bodyFamily) > 0) {
+            return l.style.bodyFamily
+        }
+        return "Open Sans"
+    }
+
+    ; the colour of a comment's mark: its severity's, else the pins' own
+    sfn markColor:string (sev:string) {
+        if (sev == "low") {
+            return "#6f9a76"
+        }
+        if (sev == "medium") {
+            return "#c9a54e"
+        }
+        if (sev == "high") {
+            return "#b8625b"
+        }
+        return "#e08a3c"
+    }
+
+    ; Each comment's number in a disc at its point on the slide, as the
+    ; pins sit there in the editor.
+    sfn commentMarks:void (dl:EVGDisplayList ns:[PresCommentNote] pw:double ph:double family:string) {
+        def r:double (pw * 0.0125)
+        if (r < 8.0) {
+            r = 8.0
+        }
+        for ns n:PresCommentNote i {
+            def cx:double (PresExport.clampD((n.x * pw) r (pw - r)))
+            def cy:double (PresExport.clampD((n.y * ph) r (ph - r)))
+            def ring:double (r * 0.15)
+            dl.addRect(((cx - r) - ring) ((cy - r) - ring) ((r + ring) * 2.0) ((r + ring) * 2.0) (EVGColor.parse("#ffffff")))
+            PresExport.roundLast(dl)
+            dl.addRect((cx - r) (cy - r) (r * 2.0) (r * 2.0) (EVGColor.parse((PresExport.markColor(n.severity)))))
+            PresExport.roundLast(dl)
+            def k:string (to_string n.num)
+            def size:double (r * 1.1)
+            def tw:double ((size * 0.6) * (to_double (strlen k)))
+            dl.addText(k (cx - (tw * 0.5)) (cy - (size * 0.62)) size (EVGColor.parse("#ffffff")) family true false (tw + 2.0) (size * 1.3))
+        }
+    }
+
+    sfn roundLast:void (dl:EVGDisplayList) {
+        def n:int (array_length dl.cmds)
+        if (n > 0) {
+            def c:EVGDrawCmd (itemAt dl.cmds (n - 1))
+            c.radius = (c.w * 0.5)
+        }
+    }
+
+    sfn clampD:double (v:double lo:double hi:double) {
+        if (v > hi) {
+            return hi
+        }
+        if (v < lo) {
+            return lo
+        }
+        return v
+    }
+
+    ; The footnotes under a slide: a rule, then each comment numbered as
+    ; its mark, its messages as Markdown, in a document's look (dark on
+    ; white), starting at y 0.
+    fn footnoteBand:EVGDisplayList (ns:[PresCommentNote] pw:double family:string) {
+        def d:PresDeck (unwrap deck)
+        def nl:string (strfromcode 10)
+        def md:string ""
+        for ns n:PresCommentNote i {
+            if (i > 0) {
+                md = (md + nl + nl)
+            }
+            md = (md + "**[" + (to_string n.num) + "]** " + (PresCommentNotes.markdown(n someone)))
+        }
+        def unit:double (pw / 960.0)
+        def m:double (40.0 * unit)
+        def lay (new MdLayout())
+        if (!null? d.md.measurer) {
+            lay.setMeasurer((unwrap d.md.measurer))
+        }
+        def st (new MdStyle())
+        st.bodyFamily = family
+        st.headingFamily = family
+        st.monoFamily = d.md.edit.layout.style.monoFamily
+        st.bodySize = (15.0 * unit)
+        st.textColor = "#1f2328"
+        st.pageWidth = pw
+        st.margin = 0.0
+        lay.style = st
+        lay.layoutContinuous((MdBlock.parseText(md)) (pw - (m * 2.0)))
+        def out (new EVGDisplayList())
+        out.addRect(m (m * 0.5) (pw - (m * 2.0)) 1.0 (EVGColor.parse("#d0d7de")))
+        out.addText(commentsTitle m ((m * 0.5) + (8.0 * unit)) (12.0 * unit) (EVGColor.parse("#6e7781")) family true false (pw - (m * 2.0)) (16.0 * unit))
+        def top:double ((m * 0.5) + (32.0 * unit))
+        def painter (new MdToEvg())
+        def k:int 0
+        while (k < (array_length lay.boxes)) {
+            def b:MdBox (itemAt lay.boxes k)
+            if (b.kind != 6) {
+                def bx:MdBox (b.copy())
+                bx.x = (bx.x + m)
+                painter.paintBox(out lay bx top)
+            }
+            k = (k + 1)
+        }
+        ; the room under the last line
+        out.addRect(0.0 (top + lay.documentHeight + (m * 0.5)) 1.0 0.01 (EVGColor.parse("#ffffff")))
+        return out
+    }
+
+    ; how far down a list reaches
+    sfn listBottom:double (dl:EVGDisplayList) {
+        def b:double 0.0
+        for dl.cmds c:EVGDrawCmd i {
+            if ((c.y + c.h) > b) {
+                b = (c.y + c.h)
+            }
+        }
+        return b
     }
 
     ; With bleed, the page's ground and whatever reaches a trim edge (a
@@ -834,6 +998,9 @@ class PresExport {
         def d:PresDeck (unwrap deck)
         def page (new PresHtml())
         page.onlyPages = only
+        page.comments = comments
+        page.commentsTitle = commentsTitle
+        page.someone = someone
         def s:string (page.html(d (PresDocx.titleOf(d.md.edit.doc)) word))
         word = (new PresDocx())
         return s

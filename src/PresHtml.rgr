@@ -22,13 +22,20 @@
 ; are the PNGs the host made for the Word export; a block without one is
 ; written as its source.
 ;
-; The look is a document's, as in Word: the theme's slide colours are not
-; used, and the page follows the reader's light or dark setting.
+; The look is a document's, as in Word and as the editor's View shows the
+; deck: the theme's slide colours are not used, each slide opens with its
+; number on a rule, and the page follows the reader's light or dark setting.
+;
+; With review comments (`comments`, PresCommentNotes) each open comment is a
+; footnote: its number raised after the block it is on (a comment on no
+; element after the slide's first block), the comments listed at the end of
+; their slide, each linking back to its mark.
 ; ============================================================================
 
 Import "PresDeck.rgr"
 Import "PresDocx.rgr"
 Import "../markdown/src/MdToHtml.rgr"
+Import "PresCommentNotes.rgr"
 
 class PresHtml {
     ; only these pages, when any are given (picked slides)
@@ -39,6 +46,14 @@ class PresHtml {
     def shotsPlaced:int 0
     def pictures:int 0
     def maker:MdToHtml (new MdToHtml())
+    ; the open review comments, as footnotes (none: no footnotes)
+    def comments:PresCommentNotes (new PresCommentNotes())
+    ; the words a footnote list needs, in the editor's language
+    def commentsTitle:string "Comments"
+    def someone:string "Someone"
+    ; the footnote marks written so far
+    def marked:[int]
+    def footnotes:int 0
 
     Constructor () {
     }
@@ -56,6 +71,8 @@ class PresHtml {
         slides = 0
         notes = 0
         shotsPlaced = 0
+        footnotes = 0
+        clear marked
         def e:MarkdownEdit deck.md.edit
         maker = (new MdToHtml())
         maker.standalone = true
@@ -84,6 +101,8 @@ class PresHtml {
         def pageW:double deck.pageW
         def doc:MdNode e.doc
         def cur:int -1
+        ; the slide's first block written (its slide-wide comments go there)
+        def first:boolean false
         def c:int 0
         while (c < (doc.childCount())) {
             def ch:MdNode (doc.childAt(c))
@@ -97,25 +116,38 @@ class PresHtml {
                 if (page != cur) {
                     if (cur >= 0) {
                         push parts (this.notesHtml(deck cur))
+                        push parts (this.commentsHtml(cur))
                         push parts "</section>\n"
                     }
                     slides = (slides + 1)
                     cur = page
+                    first = true
                     push parts ("<section class=\"slide\" id=\"slide-" + (to_string (page + 1)) + "\">\n")
+                    push parts ("<p class=\"slide-no\" aria-hidden=\"true\">" + (to_string (page + 1)) + "</p>\n")
                 }
+                def block:string ""
                 def shot@(optional):PresDocxShot (shots.shotFor(ch.srcStart))
                 if (!null? shot) {
-                    push parts (this.shotHtml((unwrap shot) pageW))
+                    block = (this.shotHtml((unwrap shot) pageW))
                 } {
                     if ((ch.kind != "front_matter") && ((deck.scriptLeaves(page ch.srcStart ch.srcEnd)) != 2)) {
-                        push parts (maker.node(ch))
+                        block = (maker.node(ch))
                     }
+                }
+                if ((strlen block) > 0) {
+                    def refs:string (this.refsHtml((comments.atBlock(page ch.srcStart))))
+                    if first {
+                        refs = ((this.refsHtml((comments.atBlock(page -1)))) + refs)
+                        first = false
+                    }
+                    push parts (PresHtml.withRefs(block refs))
                 }
             }
             c = (c + 1)
         }
         if (cur >= 0) {
             push parts (this.notesHtml(deck cur))
+            push parts (this.commentsHtml(cur))
             push parts "</section>\n"
         }
         push parts "</main>\n</body>\n</html>\n"
@@ -168,6 +200,78 @@ class PresHtml {
         return (out + "</aside>\n")
     }
 
+    ; The raised numbers of `ns` that link to their footnotes ("" none).
+    fn refsHtml:string (ns:[PresCommentNote]) {
+        def out:string ""
+        for ns n:PresCommentNote i {
+            if ((indexOf marked n.num) < 0) {
+                push marked n.num
+                def k:string (to_string n.num)
+                out = (out + "<sup class=\"cref\"><a href=\"#comment-" + k + "\" id=\"cref-" + k + "\">" + k + "</a></sup>")
+            }
+        }
+        return out
+    }
+
+    ; A block's HTML with the marks at the end of its text: inside its last
+    ; paragraph or heading, else in a line of their own after it.
+    sfn withRefs:string (block:string refs:string) {
+        if ((strlen refs) == 0) {
+            return block
+        }
+        def body:string block
+        def tail:string ""
+        def nl:string (strfromcode 10)
+        if (((strlen body) > 0) && ((substring body ((strlen body) - 1) (strlen body)) == nl)) {
+            body = (substring body 0 ((strlen body) - 1))
+            tail = nl
+        }
+        def ends:[string] ([] _:string ("</p>" "</h1>" "</h2>" "</h3>" "</h4>" "</h5>" "</h6>" "</li></ul>" "</li></ol>" "</li>\n</ul>" "</li>\n</ol>"))
+        for ends e:string i {
+            def n:int (strlen e)
+            if (((strlen body) >= n) && ((substring body ((strlen body) - n) (strlen body)) == e)) {
+                return ((substring body 0 ((strlen body) - n)) + refs + e + tail)
+            }
+        }
+        return (block + "<p class=\"crefs\">" + refs + "</p>\n")
+    }
+
+    ; Slide `page`'s comments as footnotes: numbered as their marks, each
+    ; with a link back; a comment whose block was not written gets its mark
+    ; here.
+    fn commentsHtml:string (page:int) {
+        def ns:[PresCommentNote] (comments.onPage(page))
+        if ((array_length ns) == 0) {
+            return ""
+        }
+        def nl:string (strfromcode 10)
+        def out:string ""
+        def late:string (this.refsHtml(ns))
+        if ((strlen late) > 0) {
+            out = (out + "<p class=\"crefs\">" + late + "</p>" + nl)
+        }
+        out = (out + "<aside class=\"comments\" aria-label=\"" + (MdToHtml.escape(commentsTitle)) + "\">" + nl + "<ol>" + nl)
+        for ns n:PresCommentNote i {
+            def k:string (to_string n.num)
+            out = (out + "<li value=\"" + k + "\" id=\"comment-" + k + "\"")
+            if ((strlen n.severity) > 0) {
+                out = (out + " class=\"sev-" + (MdToHtml.escape(n.severity)) + "\"")
+            }
+            out = (out + ">")
+            def md:MdNode (MdBlock.parseText((PresCommentNotes.markdown(n someone))))
+            def body:string ""
+            def c:int 0
+            while (c < (md.childCount())) {
+                body = (body + (maker.node((md.childAt(c)))))
+                c = (c + 1)
+            }
+            ; the way back at the end of the last paragraph
+            out = (out + (PresHtml.withRefs(body ("<a class=\"cback\" href=\"#cref-" + k + "\" aria-label=\"↩ " + k + "\">↩</a>"))) + "</li>" + nl)
+            footnotes = (footnotes + 1)
+        }
+        return (out + "</ol>" + nl + "</aside>" + nl)
+    }
+
     ; A document's look: a readable column, the reader's light or dark
     ; setting, tables ruled, notes set apart as a speaker's.
     sfn css:string () {
@@ -176,7 +280,9 @@ class PresHtml {
         c = (c + "body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 system-ui,-apple-system,\"Segoe UI\",Arial,sans-serif}\n")
         c = (c + "main{max-width:46rem;margin:0 auto;padding:2.5rem 1rem 4rem}\n")
         c = (c + ".title{font-size:2.2rem;font-weight:700;line-height:1.2;margin:0 0 1.5rem}\n")
-        c = (c + "section.slide{padding:0.5rem 0 1rem;border-bottom:1px solid var(--rule)}\nsection.slide:last-child{border-bottom:0}\n")
+        ; each slide opens with its number on a rule, as the View shows it
+        c = (c + "section.slide{padding:0 0 1rem}\n")
+        c = (c + ".slide-no{display:flex;align-items:center;gap:0.6rem;margin:1.5rem 0 0;color:var(--muted);font-size:0.75rem;line-height:1}\n.slide-no::after{content:\"\";flex:1;border-top:1px solid var(--rule)}\nsection.slide:first-of-type .slide-no{display:none}\n")
         c = (c + "h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.4em 0 0.5em}\nh1{font-size:2rem}h2{font-size:1.6rem}h3{font-size:1.3rem}\n")
         c = (c + "a{color:var(--link)}\nimg{max-width:100%;height:auto}\n")
         c = (c + "figure.shot{margin:1rem 0;text-align:center}\n")
@@ -192,7 +298,11 @@ class PresHtml {
         c = (c + "figure.gallery figure.cell{margin:0}\nfigure.gallery img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block}\nfigure.gallery.fit-contain img{object-fit:contain}\n")
         c = (c + "figure.gallery figcaption{font-size:0.9em;color:var(--muted);margin-top:0.25rem}\nfigure.gallery .cell.text{margin:0;padding:0.6rem}\n")
         c = (c + "aside.notes{margin:1rem 0;padding:0.6rem 1rem;border-left:3px solid var(--rule);color:var(--muted);font-size:0.9em}\naside.notes p{margin:0.25rem 0}\n")
-        c = (c + "@media print{aside.notes{break-inside:avoid}}\n")
+        ; review comments as footnotes
+        c = (c + "sup.cref{font-size:0.7em;line-height:0;margin-left:0.15em}\nsup.cref a{text-decoration:none;font-weight:600;padding:0 0.15em}\np.crefs{margin:0.25rem 0}\n")
+        c = (c + "aside.comments{margin:1rem 0 0;padding-top:0.5rem;border-top:1px solid var(--rule);font-size:0.85em;color:var(--muted)}\naside.comments ol{margin:0;padding-left:1.6rem}\naside.comments li{margin:0.35rem 0}\naside.comments li p{margin:0.15rem 0;color:var(--fg)}\n")
+        c = (c + "aside.comments li.sev-low::marker{color:#6f9a76}\naside.comments li.sev-medium::marker{color:#c9a54e}\naside.comments li.sev-high::marker{color:#b8625b}\na.cback{text-decoration:none;margin-left:0.3em}\n")
+        c = (c + "@media print{aside.notes,aside.comments li{break-inside:avoid}}\n")
         return c
     }
 }

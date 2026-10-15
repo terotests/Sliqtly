@@ -5949,6 +5949,65 @@ try {
     await ctx.close();
   }
 
+  // Comments on the View (Tero 2026-10-15): the page shows every slide's
+  // comments as pins where it shows their points; "+ Add comment" and a
+  // press on the page start one on the slide there, a pin opens its thread.
+  // "Export review comments too": the PDF and the web page carry them as
+  // numbered footnotes (pages grown for them, marks linking to the notes).
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const cerr = [];
+    pg.on("pageerror", (e) => cerr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const cv = await pg.evaluate(() => document.getElementById("c").getBoundingClientRect().toJSON());
+    const pins = await pg.evaluate(() => {
+      const a = window.__app, rv = a.review;
+      a.takeRequest();
+      rv.startDraft(1, 0.2, 0.3);
+      a.text("Otsikko isommaksi");
+      a.key("enter", false, false);
+      a.reviewJson();
+      return { tab: a.editorTab(), pins: rv.pins.filter((p) => p.tid.startsWith("rv-doc-")).length, rect: rv.docRects.slice(0, 4) };
+    });
+    check("View: a comment shows as a pin on the page", pins.tab === "view" && pins.pins === 1, JSON.stringify(pins));
+    const add = await pg.evaluate(() => {
+      const a = window.__app;
+      a.reviewJson();
+      const walk = (e) => { if (e.id === "rv-add") return e; for (const c of e.children || []) { const f = walk(c); if (f) return f; } return null; };
+      const e = walk(a.review.host.lastPage);
+      return e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2] : null;
+    });
+    await pg.mouse.click(cv.x + add[0], cv.y + add[1]);
+    await pg.mouse.click(cv.x + pins.rect[0] + pins.rect[2] * 0.4, cv.y + pins.rect[1] + 60);
+    await pg.keyboard.type("Sivulta");
+    await pg.keyboard.press("Enter");
+    await pg.waitForTimeout(200);
+    const made = await pg.evaluate(() => { const t = window.__app.review.model.threads.at(-1); return { n: window.__app.review.model.threads.length, slide: t.slide, text: t.msgs[0]?.text }; });
+    check("…+ Add comment and a press on the page start one on that slide", made.n === 2 && made.slide === 0 && made.text === "Sivulta", JSON.stringify(made));
+    const pin = await pg.evaluate(() => { const a = window.__app; a.reviewJson(); const p = a.review.pins.find((p) => p.tid.startsWith("rv-doc-")); return p ? [p.midX(), p.midY(), p.tid.slice(7)] : null; });
+    await pg.mouse.click(cv.x + pin[0], cv.y + pin[1]);
+    await pg.waitForTimeout(200);
+    check("…a pin on the page opens its thread", (await pg.evaluate(() => window.__app.review.openId)) === pin[2]);
+    await pg.keyboard.press("Escape");
+    const got = {};
+    for (const kind of ["html", "pdf"]) {
+      const dl = pg.waitForEvent("download", { timeout: 120000 });
+      await pg.evaluate((k) => window.__exportWithComments(k, false, true), kind);
+      const file = await (await dl).path();
+      got[kind] = fs.readFileSync(file);
+    }
+    const html = got.html.toString("utf8");
+    check("…the web page has the comments as footnotes linked from their marks", /id="cref-1"/.test(html) && /id="comment-2"/.test(html) && html.includes("Otsikko isommaksi"), String(html.length));
+    const pdf = got.pdf.toString("latin1");
+    const boxes = [...pdf.matchAll(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g)].map((m) => Number(m[2]));
+    check("…the PDF's commented pages grow for the footnotes", boxes.length >= 2 && Math.max(...boxes) > Math.min(...boxes), JSON.stringify(boxes));
+    check("…without errors", cerr.length === 0, cerr.join(" | "));
+    await ctx.close();
+  }
+
   // The presentations open in a tab of the browser, a tab each in the row
   // under the top bar (PresApp deck tabs, EVGUI DocTabsCtl, web/decktabs.js):
   // a sample's tab takes the deck's id when it is kept, a press opens a

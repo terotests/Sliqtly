@@ -1858,5 +1858,9 @@
   "empty": "tyhjä",
   "Menu": "Valikko",
   "Enter sends it, Esc cancels.": "Enter lähettää, Esc peruu.",
-  "Enter finds the next one, Esc closes.": "Enter etsii seuraavan, Esc sulkee."
+  "Enter finds the next one, Esc closes.": "Enter etsii seuraavan, Esc sulkee.",
+  "Web page as View (.html)": "Verkkosivu View-näkymänä (.html)",
+  "Export review comments too?": "Viedäänkö myös arviointikommentit?",
+  "This presentation has {n} open review comments. Put them in the file as numbered footnotes?": "Esityksessä on {n} avointa arviointikommenttia. Tuodaanko ne tiedostoon numeroituina alaviitteinä?",
+  "With comments": "Kommenttien kanssa"
 }

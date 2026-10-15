@@ -120,6 +120,63 @@ class PresDocView {
         return out
     }
 
+    ; Each top-level block's rectangle on its slide (x, y, w, h in slide
+    ; units, four per block; w 0 when it drew nothing there): its boxes on
+    ; the slide `pages` names, as one.
+    sfn rectsOf:[double] (deck:PresDeck doc:MdNode pages:[int]) {
+        def out:[double]
+        def n:int (doc.childCount())
+        def c:int 0
+        while (c < n) {
+            push out 0.0
+            push out 0.0
+            push out 0.0
+            push out 0.0
+            c = (c + 1)
+        }
+        def l:MdLayout (deck.layout())
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.furniture == 0) && (b.w > 0.0)) && (b.h > 0.0)) {
+                def at:int (PresDocView.childOf(doc (PresDeck.boxSrc(b))))
+                if ((at >= 0) && ((itemAt pages at) == b.page)) {
+                    def k:int (at * 4)
+                    def w0:double (itemAt out (k + 2))
+                    if (w0 <= 0.0) {
+                        set out k b.x
+                        set out (k + 1) b.y
+                        set out (k + 2) b.w
+                        set out (k + 3) b.h
+                    } {
+                        def x0:double (itemAt out k)
+                        def y0:double (itemAt out (k + 1))
+                        def x1:double (x0 + w0)
+                        def y1:double (y0 + (itemAt out (k + 3)))
+                        if (b.x < x0) {
+                            x0 = b.x
+                        }
+                        if (b.y < y0) {
+                            y0 = b.y
+                        }
+                        if ((b.x + b.w) > x1) {
+                            x1 = (b.x + b.w)
+                        }
+                        if ((b.y + b.h) > y1) {
+                            y1 = (b.y + b.h)
+                        }
+                        set out k x0
+                        set out (k + 1) y0
+                        set out (k + 2) (x1 - x0)
+                        set out (k + 3) (y1 - y0)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; The top-level block holding source offset `src`, -1 for none.
     sfn childOf:int (doc:MdNode src:int) {
         if (src < 0) {
@@ -163,6 +220,7 @@ class PresDocView {
         def l:MdLayout (this.docLayout(deck))
         l.layoutContinuous(doc flow.width)
         def pages:[int] (PresDocView.pagesOf(deck doc))
+        def rects:[double] (PresDocView.rectsOf(deck doc pages))
         ; each block's room in that column, from its boxes
         def n:int (doc.childCount())
         def tops:[double]
@@ -221,6 +279,10 @@ class PresDocView {
                     it.bottom = (itemAt bottoms c)
                     it.sw = s.w
                     it.sh = s.h
+                    it.fx = s.x
+                    it.fy = s.y
+                    it.fw = s.w
+                    it.fh = s.h
                     push itemChild c
                 } {
                     def hidden:boolean ((deck.scriptLeaves(page ch.srcStart ch.srcEnd)) == 2)
@@ -228,6 +290,12 @@ class PresDocView {
                         def it2:PresDocItem (flow.add(0 page ch.srcStart ch.srcEnd))
                         it2.top = (itemAt tops c)
                         it2.bottom = (itemAt bottoms c)
+                        if ((itemAt pages c) == page) {
+                            it2.fx = (itemAt rects (c * 4))
+                            it2.fy = (itemAt rects ((c * 4) + 1))
+                            it2.fw = (itemAt rects ((c * 4) + 2))
+                            it2.fh = (itemAt rects ((c * 4) + 3))
+                        }
                         push itemChild c
                     }
                 }

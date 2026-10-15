@@ -5731,6 +5731,9 @@ function handleRequests() {
       exportZip(true).catch(fail);
     } else if (r === "confirm:zip:alt") {
       exportZip(false).catch(fail);
+    } else if (r.startsWith("confirm:xc:")) {
+      const [, , kind, which, alt] = r.split(":");
+      exportWithComments(kind, which === "picked", alt !== "alt").catch(fail);
     } else if (r.startsWith("setting:skin:")) {
       setSkinName(r.endsWith(":retro") ? "retro" : "");
     } else if (r.startsWith("setting:frame:")) {
@@ -6382,7 +6385,30 @@ async function exportDocx(picked = false) {
   window.__lastDownload = deliver(app.docxEnd(), (some ? pickedName() : exportName()) + ".docx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 }
-// A web page: the same reading as Word, the same pictures, one .html file.
+// File → Export → PDF / Web page with open review comments on the slides
+// exported asks "Export review comments too?": with them, each is a
+// footnote (PresCommentNotes), a numbered mark where it is pinned.
+async function askComments(kind, picked) {
+  const n = app.exportCommentCount(picked);
+  if (n > 0 && app.openChoice("xc:" + kind + ":" + (picked ? "picked" : "all"), t("Export review comments too?"),
+    t("This presentation has {n} open review comments. Put them in the file as numbered footnotes?").replace("{n}", String(n)),
+    t("With comments"), t("Without comments"))) {
+    needsPaint = true;
+    return;
+  }
+  await exportWithComments(kind, picked, false);
+}
+async function exportWithComments(kind, picked, comments) {
+  app.setExportComments(comments);
+  try {
+    await (kind === "pdf" ? exportPdf(picked) : exportHtml(picked));
+  } finally {
+    app.setExportComments(false);
+  }
+}
+window.__exportWithComments = exportWithComments;
+// A web page: the deck as the View reads it, the same pictures as Word,
+// one .html file.
 async function exportHtml(picked = false) {
   const some = picked && app.pickCount() > 0;
   await renderPlayStills(picked);
@@ -6770,16 +6796,16 @@ window.__exportHtml = exportHtml;
 window.__renderDocxShots = renderDocxShots;
 document.getElementById("docx").addEventListener("click", () => { exportDocx().catch(fail); });
 document.getElementById("docxPicked").addEventListener("click", () => { exportDocx(true).catch(fail); });
-document.getElementById("html").addEventListener("click", () => { exportHtml().catch(fail); });
+document.getElementById("html").addEventListener("click", () => { askComments("html", false).catch(fail); });
 document.getElementById("player").addEventListener("click", () => { exportPlayer().catch(fail); });
 document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
-document.getElementById("htmlPicked").addEventListener("click", () => { exportHtml(true).catch(fail); });
-document.getElementById("pdf").addEventListener("click", () => { exportPdf().catch(fail); });
+document.getElementById("htmlPicked").addEventListener("click", () => { askComments("html", true).catch(fail); });
+document.getElementById("pdf").addEventListener("click", () => { askComments("pdf", false).catch(fail); });
 document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
 document.getElementById("vidweb").addEventListener("click", () => { exportCloudVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
-document.getElementById("pdfPicked").addEventListener("click", () => { exportPdf(true).catch(fail); });
+document.getElementById("pdfPicked").addEventListener("click", () => { askComments("pdf", true).catch(fail); });
 document.getElementById("pptxPicked").addEventListener("click", () => { exportPptx(true).catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
 // pictures go to the Files tab as if dropped there. One data file opens the
