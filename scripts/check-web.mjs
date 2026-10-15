@@ -6387,7 +6387,8 @@ try {
     l = await lay();
     await page.mouse.click(l.thumbs.find((t) => t[0] === 1)[1] + 30, l.thumbs.find((t) => t[0] === 1)[2] + 20);
     await page.waitForTimeout(300);
-    await page.mouse.click(880, 500);
+    // a double click picks the element (a single click is the slide's)
+    await page.mouse.dblclick(880, 500);
     await page.waitForTimeout(500);
     const before2 = await clip();
     await page.keyboard.press(`${mod}+c`);
