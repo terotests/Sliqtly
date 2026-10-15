@@ -77,7 +77,7 @@ export function parseRooms(text) {
 // tab writes that room's use, and a deck moved in another tab stays moved.
 // The one value of before (`key` itself) is read, split up on the first
 // change, and removed.
-function factsOf(state) {
+export function factsOf(state) {
   const out = new Map();
   for (const r of state.rooms) out.set("room/" + r.id, JSON.stringify(r));
   for (const [deck, room] of Object.entries(state.placed)) out.set("deck/" + deck, String(room));
@@ -130,15 +130,24 @@ export function readKept(store, key) {
 
 // A change to the rooms `store` keeps: fn gets them as kept now, and only
 // the facts it changed are written (a room deleted takes its facts with it).
-// → the state now
-export function changeKept(store, key, fn) {
+// onFact(k, v) hears of each one written (v null: removed), for the server
+// that keeps them too (web/layoutsync.js). → the state now
+export function changeKept(store, key, fn, onFact = null) {
   const before = readKept(store, key);
   const next = fn(before);
   const legacy = store.getItem(key) !== null;
   const had = legacy ? new Map() : factsOf(before);
   const now = factsOf(next);
-  for (const [k, v] of now) if (had.get(k) !== v) store.setItem(key + "/" + k, v);
-  for (const k of factsOf(before).keys()) if (!now.has(k)) store.removeItem(key + "/" + k);
+  for (const [k, v] of now) {
+    if (had.get(k) === v) continue;
+    store.setItem(key + "/" + k, v);
+    onFact?.(k, v);
+  }
+  for (const k of factsOf(before).keys()) {
+    if (now.has(k)) continue;
+    store.removeItem(key + "/" + k);
+    onFact?.(k, null);
+  }
   if (legacy) store.removeItem(key);
   return next;
 }

@@ -525,7 +525,7 @@ class Tools {
         ewp.put("work_id" (Tools.prop("string" "Your work_id from begin_work")))
         tools.add((Tools.tool("end_work" "Finish work on a presentation" "Release the slides claimed with begin_work, once your changes are saved (or given up), so other assistants may work on them." (Tools.schema(ewp ([] _:string ("deck_id" "work_id")))) (Tools.annotations(false 0 true false)) eitherMeta)))
 
-        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
+        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations (newest first) with their links and deck_ids, and where rooms are kept each one's room (shown to people as a topic or project: room_id, room), folder (folder_id, folder) and story (type, phase, tags). list_rooms lists the rooms, move_presentation moves one. Needs sign-in." (Tools.schema((MfJ.newObj()) none)) (Tools.annotations(true -1 false false)) listMeta)))
         ; decks made without sign-in are changed by the conversation that
         ; made them, which says so with the session_key create_presentation
         ; gave it
@@ -1957,6 +1957,8 @@ class Tools {
         }
         Tools.links(host out base made.id)
         out.putStr("deck_id" made.id)
+        ; into its room (topic) where the server keeps those apart from decks
+        host_deck_made host caller.uid made.id room
         if (owner == "mcp") {
             ; changed later only by this conversation: the session_key it
             ; carries (a new one when it carries none), and this connection
@@ -5158,6 +5160,8 @@ class Tools {
         def base:string (host_base_url host)
         def decks:MfJ (MfJ.newArr())
         def lines:[string]
+        ; each one's topic (room), folder and story, where the server keeps them
+        def places:MfJ (J.parse((host_places host caller.uid)))
         for docs d:MfJ i {
             ; one its owner hid from assistants is not there for them
             if ((host_agents_see host (JOut.text(d))) == false) {
@@ -5187,6 +5191,27 @@ class Tools {
             } {
                 deck.put("created" (new MfJ))
             }
+            def where:string ""
+            def pl:MfJ (places.field(id))
+            if (pl.isObj()) {
+                deck.putStr("room_id" (pl.str_("room_id")))
+                deck.putStr("room" (pl.str_("room")))
+                deck.putStr("folder_id" (pl.str_("folder_id")))
+                if ((strlen (pl.str_("folder"))) > 0) {
+                    deck.putStr("folder" (pl.str_("folder")))
+                }
+                deck.putStr("type" (pl.str_("type")))
+                deck.putStr("phase" (pl.str_("phase")))
+                deck.put("tags" (pl.field("tags")))
+                if ((strlen (pl.str_("color"))) > 0) {
+                    deck.putStr("color" (pl.str_("color")))
+                }
+                where = (", in " + (pl.str_("room")))
+                if ((strlen (pl.str_("folder"))) > 0) {
+                    where = (where + " / " + (pl.str_("folder")))
+                }
+                where = (where + ", " + (pl.str_("type")) + " " + (pl.str_("phase")))
+            }
             Tools.links(host deck base id)
             decks.add(deck)
             def title:string (d.str_("name"))
@@ -5197,7 +5222,7 @@ class Tools {
             if (made > 0.0) {
                 madeOn = (", created " + (substring (deck.str_("created")) 0 10))
             }
-            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + madeOn + "): " + (deck.str_("share_url")))
+            push lines ("- " + title + " (" + id + ", " + (deck.str_("visibility")) + madeOn + where + "): " + (deck.str_("share_url")))
         }
         def txt:string (join lines "\n")
         if ((array_length lines) == 0) {

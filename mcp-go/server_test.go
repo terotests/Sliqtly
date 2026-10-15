@@ -488,7 +488,7 @@ func TestToolsUIMetadataAndPreview(t *testing.T) {
 
 // every topic Core lists is there, and every topic is listed in Core
 func TestGuideTopics(t *testing.T) {
-	for _, md := range []string{withoutRooms(guideMD), withRooms(guideMD)} {
+	for _, md := range []string{withoutRooms(guideMD), withRooms(guideMD), withMyRooms(guideMD)} {
 		core := md[:strings.Index(md, "<!-- topic: ")]
 		names := regexp.MustCompile(`<!-- topic: ([a-z]+) -->`).FindAllStringSubmatch(md, -1)
 		listed := regexp.MustCompile("(?m)^\\| `([a-z]+)` \\|").FindAllStringSubmatch(core, -1)

@@ -340,7 +340,7 @@ The guide to Sliqtly's Markdown follows.
 // The system prompt: the role, the recipes for placing things and the parts
 // of the MCP guide a slide needs (Core, layout, text, effects, charts).
 func aiSystem(tools bool) string {
-	md := withoutPart(withoutPart(guideMD, "rooms"), "figma")
+	md := withoutPart(withoutRooms(guideMD), "figma")
 	topics := strings.Split(md, "\n# Topic: ")
 	var b strings.Builder
 	if tools {

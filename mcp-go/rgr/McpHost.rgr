@@ -130,6 +130,22 @@ operators {
             go ( (e 1) ".HostTools()" )
         }
     }
+    ; each of uid's presentations' room (topic), folder and story as JSON
+    ; {deck_id: {room_id, room, folder_id, folder, type, phase, tags}},
+    ; "{}" where the server keeps none
+    host_places _:string (h:McpHost uid:string) {
+        templates {
+            go ( (e 1) ".Places(" (e 2) ")" )
+        }
+    }
+    ; the assistant made deck id for uid into room ("" General): where the
+    ; server keeps an account's topics apart from its decks (sliqtly.com),
+    ; it goes there, as a draft
+    host_deck_made _:void (h:McpHost uid:string id:string room:string) {
+        templates {
+            go ( (e 1) ".DeckMade(" (e 2) ", " (e 3) ", " (e 4) ")" )
+        }
+    }
     host_has_tool _:boolean (h:McpHost name:string) {
         templates {
             go ( (e 1) ".HasTool(" (e 2) ")" )

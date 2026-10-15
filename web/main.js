@@ -41,6 +41,7 @@ import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, mov
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
+import { layoutSync, LAYOUT_EVERY } from "./layoutsync.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf, deckPeople } from "./collab.js";
 import { StorySession } from "./storysession.js";
@@ -120,6 +121,7 @@ function useAccount(scope) {
   mineTab = accountStorage(pageStorage("session"), scope);
   try { foldersOpen = new Set(JSON.parse(mine.getItem(FOLDERS_OPEN_KEY) || "[]")); } catch (_) { /* none kept */ }
   try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { /* none kept */ }
+  startLayoutSync(scope);
   Object.assign(collabMe, loadMe(mine));
   // another account signed in on this page (or one where nobody was): its
   // own keys, from the start
@@ -1510,15 +1512,34 @@ async function newDeck(plan) {
 // A change to the rooms: only what it changes is written, over what
 // localStorage holds now (web/rooms.js changeKept: other tabs write too)
 function keepRooms(fn) {
-  try { roomsHere = changeKept(mine, ROOMS_KEY, fn); } catch (_) { roomsHere = fn(roomsHere); /* this page only */ }
+  try { roomsHere = changeKept(mine, ROOMS_KEY, fn, layout?.mark); } catch (_) { roomsHere = fn(roomsHere); /* this page only */ }
+  layout?.soon();
 }
-// another tab changed the rooms: this one shows the same
+// the rooms as kept now, drawn again: another tab or the server changed them
+function roomsChanged() {
+  try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { return; }
+  if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
+}
 window.addEventListener("storage", (e) => {
   const k = e.key === null ? null : mine.own(e.key);
   if (e.key !== null && (k === null || (k !== ROOMS_KEY && !k.startsWith(ROOMS_KEY + "/")))) return;
-  try { roomsHere = readKept(mine, ROOMS_KEY); } catch (_) { return; }
-  if (!viewer && roomShown) roomsRequest("room:list").catch(() => {});
+  roomsChanged();
 });
+// sliqtly.com/editor: the signed-in account's rooms, folders and stories are
+// kept on the server too (web/layoutsync.js, mcp-go/layout.go), where an
+// assistant sees and moves them and the account's other browsers get them:
+// synced after each change, every 20 seconds and when the page is back in
+// sight
+let layout = null;
+function startLayoutSync(scope) {
+  if (!CLOUD_ONLY || viewer || !scope || scope === "signed-out" || layout) return;
+  const call = cloudRoomsCall(fetch, "/editor/api/");
+  layout = layoutSync({ store: mine, key: ROOMS_KEY, call: (args) => call("layout", args), onChange: roomsChanged });
+  const sync = () => layout.sync().catch((e) => console.warn("topics not synced", e));
+  sync();
+  setInterval(() => { if (document.visibilityState === "visible") sync(); }, LAYOUT_EVERY);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sync(); });
+}
 async function roomsCall(op, args) {
   const res = await fetch("/api/rooms/" + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args || {}) });
   const out = await res.json().catch(() => ({}));

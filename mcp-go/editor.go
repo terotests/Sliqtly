@@ -23,6 +23,7 @@
 //	POST /editor/api/claim    {id}       a presentation taken under the license
 //	GET  /editor/api/search?q=words      the user's own presentations holding them (searchapi.go)
 //	POST /editor/api/rooms/<op>          shared rooms and their chat (editorrooms.go)
+//	POST /editor/api/layout              the account's topics, folders and stories (layout.go)
 //	     /editor/api/shared…             the account's own Figma files (editorshared.go)
 //	     /editor/api/ai/…                the AI assistant (aiassist.go)
 //
@@ -487,6 +488,10 @@ func serveEditorFile(g *editorGate, w http.ResponseWriter, r *http.Request, name
 func serveEditorAPI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
 	if room, ok := strings.CutPrefix(op, "rooms/"); ok {
 		serveCloudRooms(env, g, w, r, room)
+		return
+	}
+	if op == "layout" {
+		serveLayout(env, g, w, r)
 		return
 	}
 	if what, ok := strings.CutPrefix(op, "ai/"); ok {
