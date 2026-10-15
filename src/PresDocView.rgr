@@ -30,10 +30,13 @@
 Import "PresDeck.rgr"
 Import "PresDocx.rgr"
 Import "PresDocFlow.rgr"
+Import "PresDocCaret.rgr"
 
 class PresDocView {
     def flow:PresDocFlow (new PresDocFlow())
     def list:EVGDisplayList (new EVGDisplayList())
+    ; where the page drew each run of words, for a caret (PresDocCaret)
+    def caret:PresDocCaret (new PresDocCaret())
     ; the commands before the first segment (the paper), always drawn
     def headCmds:int 0
     def segFrom:[int]
@@ -219,6 +222,7 @@ class PresDocView {
         ; the text, as one column
         def l:MdLayout (this.docLayout(deck))
         l.layoutContinuous(doc flow.width)
+        caret.reset(l)
         def pages:[int] (PresDocView.pagesOf(deck doc))
         def rects:[double] (PresDocView.rectsOf(deck doc pages))
         ; each block's room in that column, from its boxes
@@ -307,6 +311,7 @@ class PresDocView {
         }
         flow.place((deck.slideCount()))
         this.paint(deck l word boxChild itemChild noteLayouts noteItems)
+        caret.finish()
     }
 
     sfn shotOf@(optional):PresDocxShot (word:PresDocx key:int) {
@@ -433,6 +438,7 @@ class PresDocView {
                     def b:MdBox (itemAt l.boxes (itemAt order k))
                     if (b.kind != 6) {
                         painter.paintBox(list l b it.dy)
+                        caret.add(b it.dy)
                     }
                     k = (k + 1)
                 }

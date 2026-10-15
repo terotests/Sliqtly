@@ -4981,6 +4981,55 @@ class PresCheck {
         this.ok(((cl.kind == 4) && ((cl.w == 50.0) && (cl.h == 40.0))) "docview: a clip inside narrowed to it")
     }
 
+    ; The caret on the View page (PresDocCaret): a page point and a source
+    ; offset map onto each other, and what Backspace/Enter may write.
+    fn docCaret:void () {
+        def text:string ("---\ntitle: Raportti\n---\n\n"
+            + "## Eka otsikko\n\nTeksti **lihava** ja tavallinen loppu.\n\n- yksi\n- kaksi\n\n"
+            + "::: notes\nPuhe.\n:::\n\n---\n\n## Toinen\n\n1. a\n2. b\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def v (new PresDocView())
+        v.build(deck)
+        def cm:PresDocCaret v.caret
+        this.ok(((cm.count()) > 4) ("doccaret: the page's text boxes, got " + (to_string (cm.count()))))
+        ; every shown offset: offset → point → offset comes back
+        def bad:string ""
+        def seen:int 0
+        def off:int 0
+        while (off <= (strlen text)) {
+            def c:[double] (cm.caret(off))
+            if ((array_length c) == 3) {
+                seen = (seen + 1)
+                def back:int (cm.offsetAt(((itemAt c 0) + 0.01) ((itemAt c 1) + ((itemAt c 2) * 0.5))))
+                ; either side of markers the page hides is one spot
+                if (((back != off) && ((cm.samePlace(off back)) == false)) && ((strlen bad) < 80)) {
+                    bad = (bad + (to_string off) + "→" + (to_string back) + " ")
+                }
+            }
+            off = (off + 1)
+        }
+        this.ok((seen > 40) ("doccaret: offsets shown on the page, got " + (to_string seen)))
+        this.ok(((strlen bad) == 0) ("doccaret: offset → point → offset, wrong at " + bad))
+        def lih:int (indexOf text "lihava")
+        this.ok((cm.has(lih) && ((cm.has((lih - 1))) == false)) "doccaret: the ** markers are not shown")
+        this.ok(((cm.stepRight(text (lih - 2))) == (lih + 1)) ("doccaret: → steps over the markers and a letter, got " + (to_string (cm.stepRight(text (lih - 2))))))
+        this.ok(((cm.stepLeft(text (lih + 1))) == lih) "doccaret: ← one letter back")
+        this.ok(((cm.stepLeft(text lih)) == (lih - 3)) ("doccaret: ← over the markers and the space, got " + (to_string (cm.stepLeft(text lih)))))
+        this.ok(((cm.has((indexOf text "Puhe"))) == false) "doccaret: the notes are not on the caret's page")
+        ; Backspace joins and Enter's text
+        this.ok((PresDocCaret.gapJoins("\n\n- ")) "doccaret: a gap of a bullet joins")
+        this.ok(((PresDocCaret.gapJoins("\n\n---\n\n## ")) == false) "doccaret: a slide break does not")
+        this.ok(((PresDocCaret.gapJoins("\n\n::: notes\nx\n:::\n\n")) == false) "doccaret: nor notes")
+        this.ok(((PresDocCaret.markerOf("1. a\n2. b" 6)) == "3. ") "doccaret: the next number")
+        this.ok(((PresDocCaret.markerOf("- [x] done" 4)) == "- [ ] ") "doccaret: a task goes on unticked")
+        this.ok(((PresDocCaret.markerOf("> quote" 3)) == "> ") "doccaret: a quote goes on")
+        this.ok((PresDocCaret.onlyMarker("2. ") && ((PresDocCaret.onlyMarker("2. b")) == false)) "doccaret: an empty item")
+        this.ok(((PresDocCaret.enterText("- yksi" 6 false)) == "\n- ") "doccaret: Enter in a list")
+        this.ok(((PresDocCaret.enterText("Teksti" 3 false)) == "\n\n") "doccaret: Enter in a paragraph")
+        this.ok(((PresDocCaret.enterText("a = 1" 5 true)) == "\n") "doccaret: Enter in code")
+    }
+
     fn docx:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
@@ -9206,6 +9255,7 @@ class PresCheck {
         c.docFlow()
         c.docPoints()
         c.docView()
+        c.docCaret()
         c.editMode()
         c.traceChecks()
         c.imageDrag()

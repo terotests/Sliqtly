@@ -1631,6 +1631,7 @@ class PresApp {
             placed.addCmd((PresScriptApply.copyCmd((itemAt l.cmds i))))
             i = (i + 1)
         }
+        this.docCaretInto(placed sc)
         placed.scaleBy(sc)
         placed.offsetBy((edDocPane.left(dw)) (edDocPane.top(dw)))
         dl.addClip(edRect.x edRect.y edRect.w edRect.h)
@@ -1667,6 +1668,18 @@ class PresApp {
 
     ; the selection's band, on the paper and under the words (page units)
     fn edDocBandInto:void (placed:EVGDisplayList) {
+        if (this.docEditing()) {
+            ; editing: the Markdown editor's own selection, as the page shows it
+            def a:int (mdEditor.anchorOffset())
+            def c:int (mdEditor.caretOffset())
+            def rs:[double] (docView.caret.bands((? (a < c) a c) (? (a < c) c a)))
+            def k:int 0
+            while ((k + 3) < (array_length rs)) {
+                placed.addRect((itemAt rs k) (itemAt rs (k + 1)) (itemAt rs (k + 2)) (itemAt rs (k + 3)) (EVGColor.rgba(56 132 255 0.32)))
+                k = (k + 4)
+            }
+            return
+        }
         def b:int 0
         while ((b + 3) < (array_length edDocBand)) {
             placed.addRect((itemAt edDocBand b) (itemAt edDocBand (b + 1)) (itemAt edDocBand (b + 2)) (itemAt edDocBand (b + 3)) (EVGColor.rgba(56 132 255 0.32)))
@@ -1692,19 +1705,595 @@ class PresApp {
     ; A press on the View tab's page puts the caret at the block pressed; a
     ; double click starts editing there: Edit (as the bar's ✎ Edit) and the
     ; Markdown tab, the caret on that block.
-    fn edDocPress:void (x:double y:double clicks:int) {
+    fn edDocPress:void (x:double y:double shift:boolean clicks:int) {
         this.edDocEnsure()
+        if editMode.editing {
+            this.docEditPress(x y shift clicks)
+            return
+        }
         def hit:boolean (this.docPanePress(edDocPane x y))
         focus = "editor"
         chromeRev = (chromeRev + 1)
         if ((hit == false) || (clicks < 2)) {
             return
         }
+        ; reading: a double click starts editing here, on the page
+        this.setEditing(true false)
         if editMode.editing {
-            this.showTab("md")
-        } {
-            this.setEditing(true false)
+            this.showTab("view")
+            this.docEditPress(x y false 1)
         }
+    }
+
+    ; --- editing on the View page --------------------------------------------
+    ; The page is a picture of the Markdown, and the Markdown is the only
+    ; document: the caret and the selection here ARE the Markdown editor's
+    ; (offsets in its text), and every change made here is written by it
+    ; (docReplace, `mdEditor.insert`), so undo, versions, the other
+    ; editors' copies and the Markdown tab all follow as they do for typing
+    ; there. The page is drawn again from the text (docView.rev), never the
+    ; other way round. Where the page shows each character: PresDocCaret.
+    def docDrag:boolean false
+    ; the x Up and Down aim at (page units), kept across a run of them
+    def docWantX:double -1.0
+
+    fn docEditing:boolean () {
+        return ((this.edDocShown()) && editMode.editing)
+    }
+
+    ; A screen point → the page's units.
+    fn docPageX:double (x:double) {
+        def dw:double (docView.width())
+        return ((x - (edDocPane.left(dw))) / (edDocPane.scale(dw)))
+    }
+
+    fn docPageY:double (y:double) {
+        return (edDocPane.pageY(y (docView.width())))
+    }
+
+    ; The caret to `off` (the selection's other end stays with `extend`).
+    fn docSetCaret:void (off:int extend:boolean) {
+        this.posOf((mdEditor.text()) off)
+        mdEditor.moveCaret(posLine posCol extend)
+        this.docReveal()
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn docSelect:void (a:int b:int) {
+        this.docSetCaret(a false)
+        this.docSetCaret(b true)
+    }
+
+    ; [x, top, height] of the caret on the page: where the page shows it, or
+    ; under the last word before it (a new empty paragraph shows no word).
+    fn docCaretAt:[double] (off:int) {
+        def cm:PresDocCaret docView.caret
+        def c:[double] (cm.caret(off))
+        if ((array_length c) == 3) {
+            return c
+        }
+        def out:[double]
+        def before:int (cm.shownBefore(off))
+        def p:[double] (cm.caret(before))
+        if ((array_length p) == 3) {
+            def gaps:int 1
+            def k:int before
+            def text:string (mdEditor.text())
+            while ((k < off) && (k < (strlen text))) {
+                if ((charAt text k) == 10) {
+                    gaps = (gaps + 1)
+                }
+                k = (k + 1)
+            }
+            def h:double (itemAt p 2)
+            def down:double (? (gaps > 2) (h * 1.6) h)
+            push out (docView.flow.colX())
+            push out ((itemAt p 1) + down)
+            push out h
+        }
+        return out
+    }
+
+    ; Where the page shows an offset on the screen, "x,y" (the middle of
+    ; its line), "" when it does not: for checks that press on a word.
+    fn docScreenAt:string (off:int) {
+        if ((this.edDocShown()) == false) {
+            return ""
+        }
+        this.edDocEnsure()
+        def c:[double] (docView.caret.caret(off))
+        if ((array_length c) < 3) {
+            return ""
+        }
+        def dw:double (docView.width())
+        def sc:double (edDocPane.scale(dw))
+        def sx:double ((edDocPane.left(dw)) + ((itemAt c 0) * sc))
+        def sy:double ((edDocPane.top(dw)) + (((itemAt c 1) + ((itemAt c 2) * 0.5)) * sc))
+        return ((EVGDisplayList.num(sx)) + "," + (EVGDisplayList.num(sy)))
+    }
+
+    ; The caret on the page in view, its slide the selected one.
+    fn docReveal:void () {
+        this.edDocEnsure()
+        def off:int (mdEditor.caretOffset())
+        def c:[double] (this.docCaretAt(off))
+        if ((array_length c) < 3) {
+            return
+        }
+        def dw:double (docView.width())
+        def sc:double (edDocPane.scale(dw))
+        def viewH:double ((edDocPane.h - (edDocPane.pad * 2.0)) / sc)
+        def top:double (itemAt c 1)
+        def bottom:double (top + (itemAt c 2))
+        if (top < edDocPane.scroll) {
+            edDocPane.scroll = (top - 24.0)
+        }
+        if (bottom > (edDocPane.scroll + viewH)) {
+            edDocPane.scroll = ((bottom - viewH) + 24.0)
+        }
+        edDocPane.clamp(dw (docView.height()))
+        def p:int (deck.pageOfOffset(off))
+        if (((p >= 0) && (p < (deck.slideCount()))) && (p != selected)) {
+            ; selectSlide puts the Markdown's caret on the slide's heading:
+            ; the caret (and selection) pressed here stays where it was put
+            def a:int (mdEditor.anchorOffset())
+            this.selectSlide(p)
+            def text:string (mdEditor.text())
+            this.posOf(text a)
+            mdEditor.moveCaret(posLine posCol false)
+            if (a != off) {
+                this.posOf(text off)
+                mdEditor.moveCaret(posLine posCol true)
+            }
+        }
+        edDocPane.seen = selected
+    }
+
+    ; The caret, drawn over the page (page units; `sc` keeps it 1.5 px wide).
+    fn docCaretInto:void (placed:EVGDisplayList sc:double) {
+        if ((this.docEditing()) == false) {
+            return
+        }
+        if ((focus != "editor") || ((mdEditor.anchorOffset()) != (mdEditor.caretOffset()))) {
+            return
+        }
+        def c:[double] (this.docCaretAt((mdEditor.caretOffset())))
+        if ((array_length c) < 3) {
+            return
+        }
+        placed.addRect(((itemAt c 0) - (0.75 / sc)) (itemAt c 1) (1.5 / sc) (itemAt c 2) (EVGColor.parse("#1f6feb")))
+    }
+
+    ; A press on the page while editing: the caret to the character pressed
+    ; (Shift: the selection to it), a double click a word, a triple click the
+    ; line; a drag selects. On a chart, diagram or table drawn as its slide
+    ; draws it: its block, and a double click opens its editor.
+    fn docEditPress:void (x:double y:double shift:boolean clicks:int) {
+        focus = "editor"
+        docWantX = -1.0
+        def px:double (this.docPageX(x))
+        def py:double (this.docPageY(y))
+        def it:int (docView.flow.itemAt(py))
+        if (it >= 0) {
+            def item:PresDocItem (itemAt docView.flow.items it)
+            if (item.kind == 1) {
+                this.docPanePress(edDocPane x y)
+                if (clicks >= 2) {
+                    this.docOpenBlock(item.key)
+                }
+                chromeRev = (chromeRev + 1)
+                return
+            }
+        }
+        def off:int (docView.caret.offsetAt(px py))
+        if (off < 0) {
+            this.docPanePress(edDocPane x y)
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (clicks == 2) {
+            def text:string (mdEditor.text())
+            def w:[int]
+            OfficeCaretMotion.wordAt(text off w)
+            if (((array_length w) == 2) && (PresDocCaret.hasWordChar((substring text (itemAt w 0) (itemAt w 1))))) {
+                this.docSelect((itemAt w 0) (itemAt w 1))
+                return
+            }
+        }
+        if (clicks >= 3) {
+            def li:int (docView.caret.lineOf(off))
+            if (li >= 0) {
+                this.docSelect((docView.caret.lineStart(li)) (docView.caret.lineEnd(li)))
+                return
+            }
+        }
+        this.docSetCaret(off shift)
+        docDrag = true
+    }
+
+    fn docDragTo:void (x:double y:double) {
+        def off:int (docView.caret.offsetAt((this.docPageX(x)) (this.docPageY(y))))
+        if (off >= 0) {
+            this.docSetCaret(off true)
+        }
+    }
+
+    ; The editor of a block the page draws as its slide does.
+    fn docOpenBlock:void (src:int) {
+        this.posOf((mdEditor.text()) src)
+        def line:int posLine
+        if (this.openChartEditor(line)) {
+            return
+        }
+        if (this.openDiagramEditor(line)) {
+            return
+        }
+        if (this.openImageEditor(line)) {
+            return
+        }
+        this.openTableEditor(line)
+    }
+
+    ; [a, b) of the text replaced by `s`, through the Markdown editor; the
+    ; caret after what was written.
+    fn docReplace:void (a:int b:int s:string) {
+        if ((this.mayEdit()) == false) {
+            return
+        }
+        def text:string (mdEditor.text())
+        this.posOf(text a)
+        mdEditor.moveCaret(posLine posCol false)
+        this.posOf(text b)
+        mdEditor.moveCaret(posLine posCol true)
+        if ((strlen s) == 0) {
+            if (a != b) {
+                mdEditor.deleteSelection()
+            }
+        } {
+            mdEditor.insert(s)
+        }
+        this.syncEditor()
+        this.docReveal()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Typed text, over the selection.
+    fn docType:void (s:string) {
+        def a:int (mdEditor.anchorOffset())
+        def c:int (mdEditor.caretOffset())
+        this.docReplace((? (a < c) a c) (? (a < c) c a) s)
+        docWantX = -1.0
+    }
+
+    ; One MdEditOp (a toolbar or Ctrl+B edit), its own selection after it.
+    fn docApply:void (op:MdEditOp) {
+        if (op.isEmpty()) {
+            return
+        }
+        this.docReplace(op.start op.end op.inserted)
+        if (op.selAfterA >= 0) {
+            this.docSelect(op.selAfterA op.selAfterB)
+        }
+    }
+
+    ; Bold, italic or underline on the selection (the word at the caret when
+    ; there is none), on or off: MdSemanticEdit decides the patch.
+    fn wrapSelection:void (what:string) {
+        def text:string (mdEditor.text())
+        def a:int (mdEditor.anchorOffset())
+        def c:int (mdEditor.caretOffset())
+        def lo:int (? (a < c) a c)
+        def hi:int (? (a < c) c a)
+        if (lo == hi) {
+            def w:[int]
+            OfficeCaretMotion.wordAt(text lo w)
+            if (((array_length w) == 2) && (PresDocCaret.hasWordChar((substring text (itemAt w 0) (itemAt w 1))))) {
+                lo = (itemAt w 0)
+                hi = (itemAt w 1)
+            }
+        }
+        def op:MdEditOp (PresQuickBar.wrapOp(text (MdBlock.parseText(text)) what lo hi))
+        if (op.isEmpty()) {
+            this.toast((PresI18n.t("That cannot be formatted here: select whole words inside one style.")))
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if (edTab == "md") {
+            this.quickEditText(op)
+            return
+        }
+        this.docApply(op)
+    }
+
+    ; The same patch in the Markdown tab: written by the editor, its
+    ; selection after it.
+    fn quickEditText:void (op:MdEditOp) {
+        def text:string (mdEditor.text())
+        this.posOf(text op.start)
+        mdEditor.moveCaret(posLine posCol false)
+        this.posOf(text op.end)
+        mdEditor.moveCaret(posLine posCol true)
+        mdEditor.insert(op.inserted)
+        if (op.selAfterA >= 0) {
+            def t2:string (mdEditor.text())
+            this.posOf(t2 op.selAfterA)
+            mdEditor.moveCaret(posLine posCol false)
+            this.posOf(t2 op.selAfterB)
+            mdEditor.moveCaret(posLine posCol true)
+        }
+        this.syncEditor()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The page's keys while editing: motion over what the page shows,
+    ; Backspace / Delete / Enter as a word processor's. False: not the
+    ; page's (the Markdown editor takes it).
+    fn docEditKey:boolean (name:string shift:boolean ctrl:boolean) {
+        def cm:PresDocCaret docView.caret
+        def text:string (mdEditor.text())
+        def off:int (mdEditor.caretOffset())
+        def anc:int (mdEditor.anchorOffset())
+        def lo:int (? (anc < off) anc off)
+        def hi:int (? (anc < off) off anc)
+        def vert:boolean (((name == "up") || (name == "down")) || ((name == "pageUp") || (name == "pageDown")))
+        if (vert == false) {
+            docWantX = -1.0
+        }
+        if ((name == "left") || (name == "right")) {
+            def left:boolean (name == "left")
+            if ((shift == false) && (lo != hi)) {
+                this.docSetCaret((? left lo hi) false)
+                return true
+            }
+            def to:int off
+            if ctrl {
+                to = (? left (OfficeCaretMotion.wordLeft(text off)) (OfficeCaretMotion.wordRight(text off)))
+                if ((cm.has(to)) == false) {
+                    to = (? left (cm.shownBefore((to + 1))) (cm.shownAfter((to - 1))))
+                }
+            } {
+                to = (? left (cm.stepLeft(text off)) (cm.stepRight(text off)))
+            }
+            this.docSetCaret(to shift)
+            return true
+        }
+        if vert {
+            def c:[double] (this.docCaretAt(off))
+            if ((array_length c) < 3) {
+                return true
+            }
+            if (docWantX < 0.0) {
+                docWantX = (itemAt c 0)
+            }
+            def steps:int 1
+            if ((name == "pageUp") || (name == "pageDown")) {
+                def dw:double (docView.width())
+                steps = (to_int (((edDocPane.h / (edDocPane.scale(dw))) / (itemAt c 2)) * 0.8))
+                if (steps < 1) {
+                    steps = 1
+                }
+            }
+            def dir:int (? ((name == "up") || (name == "pageUp")) -1 1)
+            def to2:int off
+            if ((cm.has(off)) == false) {
+                to2 = (? (dir < 0) (cm.shownBefore(off)) (cm.shownAfter(off)))
+                steps = (steps - 1)
+            }
+            def k:int 0
+            while (k < steps) {
+                to2 = (cm.vertical(to2 dir docWantX))
+                k = (k + 1)
+            }
+            def keep:double docWantX
+            this.docSetCaret(to2 shift)
+            docWantX = keep
+            return true
+        }
+        if ((name == "home") || (name == "end")) {
+            def n:int (cm.lineCount())
+            if (n == 0) {
+                return true
+            }
+            def li:int (cm.lineOf(off))
+            if (li < 0) {
+                li = (cm.lineOf((cm.shownBefore(off))))
+            }
+            if ctrl {
+                li = (? (name == "home") 0 (n - 1))
+            }
+            if (li < 0) {
+                return true
+            }
+            this.docSetCaret((? (name == "home") (cm.lineStart(li)) (cm.lineEnd(li))) shift)
+            return true
+        }
+        if (name == "backspace") {
+            if (lo != hi) {
+                this.docReplace(lo hi "")
+                return true
+            }
+            this.docBackspace(text off)
+            return true
+        }
+        if (name == "delete") {
+            if (lo != hi) {
+                this.docReplace(lo hi "")
+                return true
+            }
+            this.docDeleteForward(text off)
+            return true
+        }
+        if (name == "enter") {
+            this.docEnter(text lo hi shift)
+            return true
+        }
+        if (name == "tab") {
+            return true
+        }
+        return false
+    }
+
+    ; The character shown before `off`: [start, end) in the text, or [] at
+    ; the start of the page. An atom (© for `(c)`) is one.
+    fn docUnitBefore:[int] (text:string off:int) {
+        def out:[int]
+        def cm:PresDocCaret docView.caret
+        def at:int (cm.shownBefore(off))
+        if (at >= off) {
+            return out
+        }
+        ; `at` is the end of what is shown before the caret, or inside it
+        def bi:int (cm.boxOf((at - 1)))
+        if ((at == off) || (bi < 0)) {
+            def bi2:int (cm.boxOf(at))
+            if (bi2 < 0) {
+                return out
+            }
+            bi = bi2
+        }
+        def b:MdBox (itemAt cm.boxes bi)
+        if b.segAtom {
+            push out b.segSrc
+            push out (b.segSrc + b.segLen)
+            return out
+        }
+        def e:int (? (at > (b.segSrc + b.segLen)) (b.segSrc + b.segLen) at)
+        if (e <= b.segSrc) {
+            return out
+        }
+        push out (OfficeCaretMotion.stepBack(text e))
+        push out e
+        return out
+    }
+
+    fn docUnitAfter:[int] (text:string off:int) {
+        def out:[int]
+        def cm:PresDocCaret docView.caret
+        def at:int off
+        def bi:int -1
+        if (cm.has(off)) {
+            def b0:int (cm.boxOf(off))
+            def bb:MdBox (itemAt cm.boxes b0)
+            if (off < (bb.segSrc + bb.segLen)) {
+                bi = b0
+            }
+        }
+        if (bi < 0) {
+            ; the next box that starts at or after the caret
+            def i:int 0
+            def best:int -1
+            while (i < (cm.count())) {
+                def b1:MdBox (itemAt cm.boxes i)
+                if (((b1.segSrc >= off) && (b1.segLen > 0)) && ((best < 0) || (b1.segSrc < at))) {
+                    best = i
+                    at = b1.segSrc
+                }
+                i = (i + 1)
+            }
+            if (best < 0) {
+                return out
+            }
+            bi = best
+        }
+        def b:MdBox (itemAt cm.boxes bi)
+        if b.segAtom {
+            push out b.segSrc
+            push out (b.segSrc + b.segLen)
+            return out
+        }
+        push out at
+        push out (OfficeCaretMotion.stepForward(text at))
+        return out
+    }
+
+    ; Backspace: the character before the caret; at the start of a block the
+    ; blank lines and markers before it, joining it to the block above.
+    fn docBackspace:void (text:string off:int) {
+        def u:[int] (this.docUnitBefore(text off))
+        if ((array_length u) < 2) {
+            return
+        }
+        def qs:int (itemAt u 0)
+        def qe:int (itemAt u 1)
+        if (qe >= off) {
+            this.docReplace(qs off "")
+            return
+        }
+        def between:string (substring text qe off)
+        def nl:int (indexOf between "\n")
+        if (nl < 0) {
+            ; only inline markers between: the character, not the markers
+            this.docReplace(qs qe "")
+            return
+        }
+        def head:string (substring between 0 nl)
+        def gap:string (substring between nl (strlen between))
+        if (((indexOf head "{") < 0) && (PresDocCaret.gapJoins(gap))) {
+            this.docReplace((qe + nl) off "")
+            return
+        }
+        this.docSetCaret(qe false)
+    }
+
+    fn docDeleteForward:void (text:string off:int) {
+        def u:[int] (this.docUnitAfter(text off))
+        if ((array_length u) < 2) {
+            return
+        }
+        def qs:int (itemAt u 0)
+        def qe:int (itemAt u 1)
+        if (qs <= off) {
+            this.docReplace(off qe "")
+            return
+        }
+        def between:string (substring text off qs)
+        def nl:int (indexOf between "\n")
+        if (nl < 0) {
+            this.docReplace(qs qe "")
+            return
+        }
+        def head:string (substring between 0 nl)
+        def gap:string (substring between nl (strlen between))
+        if (((indexOf head "{") < 0) && (PresDocCaret.gapJoins(gap))) {
+            this.docReplace((off + nl) qs "")
+            return
+        }
+        this.docSetCaret(qs false)
+    }
+
+    ; Enter: a new paragraph; in a list the next item, in code a new line;
+    ; on an empty item the list ends. Shift+Enter: a line break.
+    fn docEnter:void (text:string lo:int hi:int shift:boolean) {
+        if shift {
+            this.docReplace(lo hi "  \n")
+            return
+        }
+        def doc:MdNode deck.md.edit.doc
+        def ci:int (PresDocView.childOf(doc lo))
+        def kind:string ""
+        if (ci >= 0) {
+            def ch:MdNode (doc.childAt(ci))
+            kind = ch.kind
+        }
+        if (kind == "table") {
+            return
+        }
+        def code:boolean ((kind == "code_block") || (kind == "math_block"))
+        def ls:int (PresDocCaret.lineStartOf(text lo))
+        def le:int (PresDocCaret.lineEndOf(text lo))
+        def m:string (PresDocCaret.markerOf(text lo))
+        if ((code == false) && ((strlen (trim m)) > 0)) {
+            ; an item with nothing in it: the list ends here
+            if (PresDocCaret.onlyMarker((substring text ls le))) {
+                ; a paragraph of its own: a blank line before it, and one
+                ; after it when more of the list follows
+                def more:boolean ((le < (strlen text)) && (((PresDocCaret.lineEndOf(text (le + 1))) > (le + 1)) && ((strlen (trim (substring text (le + 1) (PresDocCaret.lineEndOf(text (le + 1)))))) > 0)))
+                this.docReplace(ls le (? more "\n\n" "\n"))
+                this.docSetCaret((ls + 1) false)
+                return
+            }
+        }
+        this.docReplace(lo hi (PresDocCaret.enterText(text lo code)))
     }
 
     ; A Markdown file of the deck (a questionnaire) open in the file editor:
@@ -5264,7 +5853,7 @@ class PresApp {
             return "editor"
         }
         if ((this.edDocShown()) && (edRect.has(x y))) {
-            this.edDocPress(x y clicks)
+            this.edDocPress(x y shift clicks)
             return "editor"
         }
         if (edRect.has(x y)) {
@@ -5596,6 +6185,10 @@ class PresApp {
     }
 
     fn pointerMove:void (x:double y:double) {
+        if docDrag {
+            this.docDragTo(x y)
+            return
+        }
         if codePress {
             codeView.drag(tr x y)
             chromeRev = (chromeRev + 1)
@@ -5813,6 +6406,7 @@ class PresApp {
     }
 
     fn pointerUp:void () {
+        docDrag = false
         if codePress {
             codePress = false
             codeView.release()
@@ -6463,9 +7057,15 @@ class PresApp {
         }
         if (this.edDocShown()) {
             this.edDocEnsure()
-            if (ctrl == false) {
-                if (this.docPaneKey(edDocPane name)) {
+            if editMode.editing {
+                if (this.docEditKey(name shift ctrl)) {
                     return true
+                }
+            } {
+                if (ctrl == false) {
+                    if (this.docPaneKey(edDocPane name)) {
+                        return true
+                    }
                 }
             }
         }
@@ -6708,6 +7308,12 @@ class PresApp {
         if ((this.mayEdit()) == false) {
             return
         }
+        if (this.docEditing()) {
+            ; typed on the page: into the Markdown at the page's caret
+            this.edDocEnsure()
+            this.docType(s)
+            return
+        }
         editor.handleText(s)
         this.syncEditor()
         chromeRev = (chromeRev + 1)
@@ -6778,6 +7384,12 @@ class PresApp {
                 }
             }
         }
+        if (this.docEditing()) {
+            ; typed on the page: into the Markdown at the page's caret
+            this.edDocEnsure()
+            this.docType(s)
+            return
+        }
         editor.handleText(s)
         this.syncEditor()
         if whole {
@@ -6816,6 +7428,17 @@ class PresApp {
             return true
         }
         if (mode == "present") {
+            return false
+        }
+        ; Ctrl+B / I / U: bold, italic, underline on the Markdown's selection,
+        ; in the Markdown tab or on the View page while editing
+        if ((((ch == "b") || (ch == "i")) || (ch == "u")) && (focus == "editor")) {
+            if ((edTab == "md") || (this.docEditing())) {
+                if (this.mayEdit()) {
+                    this.wrapSelection((? (ch == "b") "bold" (? (ch == "i") "italic" "underline")))
+                }
+                return true
+            }
             return false
         }
         ; drawing: Ctrl+Z takes back the last change to a drawing
@@ -6869,6 +7492,9 @@ class PresApp {
         }
         def took:boolean (editor.handleCtrlChar((charAt ch 0)))
         this.syncEditor()
+        if (this.docEditing()) {
+            this.docReveal()
+        }
         chromeRev = (chromeRev + 1)
         return took
     }

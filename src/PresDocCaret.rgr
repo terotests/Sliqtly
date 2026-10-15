@@ -1,0 +1,564 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocCaret — a caret on the document page (PresDocView), in the deck's
+; Markdown.
+; ============================================================================
+;
+; The page is a picture of the deck's Markdown and the Markdown is the only
+; document: a caret here is an offset in that text, and every edit made on
+; the page is an edit of that text (PresApp writes it through the Markdown
+; editor, the one writer). This model holds no text of its own. It knows
+; where the page drew each run of words and which characters of the file
+; each run stands for (MdBox.segSrc / segLen, RangerMarkdown's source map),
+; and answers the two questions a caret needs:
+;
+;   offsetAt(x y)   a point on the page → the character of the file there
+;   caret(off)      a character of the file → where the page shows it
+;
+; An offset the page does not show (a `**`, the `## ` before a heading, the
+; blank line between two blocks) has no caret: the motions step over them,
+; and a Backspace at the start of a block takes the whole gap at once when it
+; is only markers and blank lines (`gapJoins`), as a word processor joins
+; two paragraphs. A gap with anything else in it (a `---`, `{.class}`, a
+; fence) is not taken.
+;
+; Shots (charts, diagrams, tables drawn as the slide draws them) and notes
+; are not words on this page: no caret goes into them.
+; ============================================================================
+
+class PresDocCaret {
+    ; what measures a run (the page's own layout, so the caret sits where
+    ; the glyphs are)
+    def lay@(optional):MdLayout
+    ; the runs of words, in reading order, and each one's top on the page
+    def boxes:[MdBox]
+    def tops:[double]
+    def boxLine:[int]
+    ; the lines: a run of boxes at one top
+    def lineTop:[double]
+    def lineH:[double]
+    def lineFrom:[int]
+    def lineTo:[int]
+
+    Constructor () {
+    }
+
+    fn reset:void (l:MdLayout) {
+        lay = l
+        clear boxes
+        clear tops
+        clear boxLine
+        clear lineTop
+        clear lineH
+        clear lineFrom
+        clear lineTo
+    }
+
+    ; A box the page drew at `dy` below where its layout put it.
+    fn add:void (b:MdBox dy:double) {
+        if (((b.kind != 0) || (b.segSrc < 0)) || ((b.furniture != 0) || b.retold)) {
+            return
+        }
+        push boxes b
+        push tops (b.y + dy)
+    }
+
+    fn finish:void () {
+        def n:int (array_length boxes)
+        def i:int 0
+        def open:boolean false
+        def top:double 0.0
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            def t:double (itemAt tops i)
+            def same:boolean false
+            if open {
+                def d:double (t - top)
+                if ((d < 0.5) && (d > -0.5)) {
+                    same = true
+                }
+            }
+            if same {
+                def li:int ((array_length lineTop) - 1)
+                set lineTo li (i + 1)
+                if (b.h > (itemAt lineH li)) {
+                    set lineH li b.h
+                }
+            } {
+                push lineTop t
+                push lineH b.h
+                push lineFrom i
+                push lineTo (i + 1)
+                top = t
+                open = true
+            }
+            push boxLine ((array_length lineTop) - 1)
+            i = (i + 1)
+        }
+    }
+
+    fn count:int () {
+        return (array_length boxes)
+    }
+
+    fn lineCount:int () {
+        return (array_length lineTop)
+    }
+
+    fn endOf:int (bi:int) {
+        def b:MdBox (itemAt boxes bi)
+        return (b.segSrc + b.segLen)
+    }
+
+    fn measure:double (text:string b:MdBox) {
+        if ((strlen text) == 0) {
+            return 0.0
+        }
+        if (null? lay) {
+            return ((to_double (strlen text)) * (b.size * 0.5))
+        }
+        def l:MdLayout (unwrap lay)
+        return (l.measureStyled(text b.family b.size b.bold b.italic))
+    }
+
+    ; --- a point → an offset ------------------------------------------------
+    ; The line under y, or the nearest one (a press between two blocks
+    ; belongs to the nearer); -1 on a page with no words.
+    fn lineAtY:int (y:double) {
+        def best:int -1
+        def bestD:double 0.0
+        def i:int 0
+        while (i < (array_length lineTop)) {
+            def t:double (itemAt lineTop i)
+            def h:double (itemAt lineH i)
+            def d:double 0.0
+            if (y < t) {
+                d = (t - y)
+            }
+            if (y > (t + h)) {
+                d = (y - (t + h))
+            }
+            if ((best < 0) || (d < bestD)) {
+                best = i
+                bestD = d
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; Which character of a box x is over: glyph midpoints split it, as
+    ; MdLayout.offsetInBox does; an atom (© for `(c)`) is passed whole.
+    fn offsetInBox:int (bi:int x:double) {
+        def b:MdBox (itemAt boxes bi)
+        def len:int (strlen b.text)
+        def want:double (x - b.x)
+        if ((len == 0) || (want <= 0.0)) {
+            return b.segSrc
+        }
+        def hit:int len
+        def k:int 0
+        def w0:double 0.0
+        while (k < len) {
+            def w1:double (this.measure((substring b.text 0 (k + 1)) b))
+            if (want < ((w0 + w1) * 0.5)) {
+                hit = k
+                k = len
+            } {
+                w0 = w1
+                k = (k + 1)
+            }
+        }
+        if b.segAtom {
+            return (? ((hit * 2) < len) b.segSrc (this.endOf(bi)))
+        }
+        def at:int (b.segSrc + hit)
+        if (at > (this.endOf(bi))) {
+            at = (this.endOf(bi))
+        }
+        return at
+    }
+
+    ; The offset on line `li` nearest to x.
+    fn offsetOnLine:int (li:int x:double) {
+        if ((li < 0) || (li >= (array_length lineTop))) {
+            return -1
+        }
+        def a:int (itemAt lineFrom li)
+        def z:int (itemAt lineTo li)
+        def best:int a
+        def bestD:double -1.0
+        def i:int a
+        while (i < z) {
+            def b:MdBox (itemAt boxes i)
+            def d:double 0.0
+            if (x < b.x) {
+                d = (b.x - x)
+            }
+            if (x > (b.x + b.w)) {
+                d = (x - (b.x + b.w))
+            }
+            if ((bestD < 0.0) || (d < bestD)) {
+                best = i
+                bestD = d
+            }
+            i = (i + 1)
+        }
+        return (this.offsetInBox(best x))
+    }
+
+    fn offsetAt:int (x:double y:double) {
+        return (this.offsetOnLine((this.lineAtY(y)) x))
+    }
+
+    ; --- an offset → where it is drawn ----------------------------------------
+    ; The box an offset is drawn in: the one it is inside, else the one it
+    ; ends (the end of a line); -1 when the page does not show it.
+    fn boxOf:int (off:int) {
+        def ends:int -1
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if ((off >= b.segSrc) && (off < (b.segSrc + b.segLen))) {
+                return i
+            }
+            if ((off == (b.segSrc + b.segLen)) && (ends < 0)) {
+                ends = i
+            }
+            i = (i + 1)
+        }
+        return ends
+    }
+
+    fn has:boolean (off:int) {
+        return ((this.boxOf(off)) >= 0)
+    }
+
+    fn xIn:double (bi:int off:int) {
+        def b:MdBox (itemAt boxes bi)
+        def within:int (off - b.segSrc)
+        if (within <= 0) {
+            return b.x
+        }
+        def tl:int (strlen b.text)
+        def take:int within
+        if (take > tl) {
+            take = tl
+        }
+        if b.segAtom {
+            take = (? (within >= b.segLen) tl 0)
+        }
+        return (b.x + (this.measure((substring b.text 0 take) b)))
+    }
+
+    ; [x, top, height] of the caret at `off`, [] when it is not shown.
+    fn caret:[double] (off:int) {
+        def out:[double]
+        def bi:int (this.boxOf(off))
+        if (bi < 0) {
+            return out
+        }
+        def li:int (itemAt boxLine bi)
+        push out (this.xIn(bi off))
+        push out (itemAt lineTop li)
+        push out (itemAt lineH li)
+        return out
+    }
+
+    fn lineOf:int (off:int) {
+        def bi:int (this.boxOf(off))
+        if (bi < 0) {
+            return -1
+        }
+        return (itemAt boxLine bi)
+    }
+
+    fn lineStart:int (li:int) {
+        def b:MdBox (itemAt boxes (itemAt lineFrom li))
+        return b.segSrc
+    }
+
+    fn lineEnd:int (li:int) {
+        return (this.endOf(((itemAt lineTo li) - 1)))
+    }
+
+    ; The band over [a, b): x y w h per box it covers.
+    fn bands:[double] (a:int b:int) {
+        def out:[double]
+        if (b <= a) {
+            return out
+        }
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def bx:MdBox (itemAt boxes i)
+            def s:int bx.segSrc
+            def e:int (s + bx.segLen)
+            if ((e > a) && (s < b)) {
+                def from:int (? (a > s) a s)
+                def to:int (? (b < e) b e)
+                def x0:double (this.xIn(i from))
+                def x1:double (this.xIn(i to))
+                if (x1 > x0) {
+                    def li:int (itemAt boxLine i)
+                    push out x0
+                    push out (itemAt lineTop li)
+                    push out (x1 - x0)
+                    push out (itemAt lineH li)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- motion ------------------------------------------------------------------
+    ; The nearest shown offset before `off` (or after it), stepping over what
+    ; the page does not show; `off` itself when there is none.
+    fn shownBefore:int (off:int) {
+        def best:int -1
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            def e:int (b.segSrc + b.segLen)
+            def c:int (? (e < off) e (off - 1))
+            if ((c >= b.segSrc) && (c > best)) {
+                best = c
+            }
+            i = (i + 1)
+        }
+        return (? (best < 0) off best)
+    }
+
+    fn shownAfter:int (off:int) {
+        def best:int -1
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            def e:int (b.segSrc + b.segLen)
+            def c:int (? (b.segSrc > off) b.segSrc (off + 1))
+            if ((c <= e) && ((best < 0) || (c < best))) {
+                best = c
+            }
+            i = (i + 1)
+        }
+        return (? (best < 0) off best)
+    }
+
+    ; One character left or right in `text` (a cluster, an atom whole), onto
+    ; the next offset the page shows.
+    fn stepLeft:int (text:string off:int) {
+        def bi:int (this.boxOf((off - 1)))
+        if (bi >= 0) {
+            def b:MdBox (itemAt boxes bi)
+            if (b.segAtom && (off == (this.endOf(bi)))) {
+                return b.segSrc
+            }
+        }
+        def o:int (OfficeCaretMotion.stepBack(text off))
+        def r:int (? ((o < off) && (this.has(o))) o (this.shownBefore(off)))
+        ; over hidden markers onto the same spot: one more, so the key moves
+        if (((r < off) && (r > 0)) && (this.samePlace(off r))) {
+            def o2:int (OfficeCaretMotion.stepBack(text r))
+            return (? ((o2 < r) && (this.has(o2))) o2 (this.shownBefore(r)))
+        }
+        return r
+    }
+
+    fn stepRight:int (text:string off:int) {
+        def bi:int (this.boxOf(off))
+        if (bi >= 0) {
+            def b:MdBox (itemAt boxes bi)
+            if (b.segAtom && (off == b.segSrc)) {
+                return (this.endOf(bi))
+            }
+        }
+        def o:int (OfficeCaretMotion.stepForward(text off))
+        def r:int (? ((o > off) && (this.has(o))) o (this.shownAfter(off)))
+        if ((r > off) && (this.samePlace(off r))) {
+            def o2:int (OfficeCaretMotion.stepForward(text r))
+            return (? ((o2 > r) && (this.has(o2))) o2 (this.shownAfter(r)))
+        }
+        return r
+    }
+
+    ; Whether two offsets put the caret on one spot (either side of
+    ; markers the page does not show).
+    fn samePlace:boolean (a:int b:int) {
+        def ca:[double] (this.caret(a))
+        def cb:[double] (this.caret(b))
+        if (((array_length ca) < 3) || ((array_length cb) < 3)) {
+            return false
+        }
+        def dx:double ((itemAt ca 0) - (itemAt cb 0))
+        def dy:double ((itemAt ca 1) - (itemAt cb 1))
+        return (((dx * dx) < 0.25) && ((dy * dy) < 0.25))
+    }
+
+    ; Up (-1) or down (+1) a line, aiming at x; `off` when there is no line
+    ; that way.
+    fn vertical:int (off:int delta:int x:double) {
+        def li:int (this.lineOf(off))
+        if (li < 0) {
+            return off
+        }
+        def to:int (li + delta)
+        if ((to < 0) || (to >= (array_length lineTop))) {
+            return (? (delta < 0) (this.lineStart(li)) (this.lineEnd(li)))
+        }
+        return (this.offsetOnLine(to x))
+    }
+
+    ; --- joining blocks -------------------------------------------------------------
+    ; Whether a Backspace at the start of a block may take the text between
+    ; the end of the block before and it: only blank lines and block markers
+    ; (`#`, `>`, a bullet, `1.`), and no line that is a thematic break or a
+    ; slide break (`---`, `***`, `___`).
+    sfn gapJoins:boolean (gap:string) {
+        def lines:[string] (strsplit gap "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def t:string (trim (itemAt lines i))
+            def n:int (strlen t)
+            if (n >= 3) {
+                def k:int 0
+                def rule:boolean true
+                while (k < n) {
+                    def c:int (charAt t k)
+                    if ((((c != 45) && (c != 42)) && (c != 95)) && (c != 32)) {
+                        rule = false
+                    }
+                    k = (k + 1)
+                }
+                if rule {
+                    return false
+                }
+            }
+            def j:int 0
+            while (j < n) {
+                def c2:int (charAt t j)
+                def ok:boolean false
+                if ((((c2 == 35) || (c2 == 62)) || ((c2 == 45) || (c2 == 42))) || ((c2 == 43) || ((c2 == 32) || (c2 == 9)))) {
+                    ok = true
+                }
+                if ((((c2 >= 48) && (c2 <= 57)) || (c2 == 46)) || (c2 == 41)) {
+                    ok = true
+                }
+                if (ok == false) {
+                    return false
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; --- Enter ----------------------------------------------------------------------
+    ; What Enter at `off` writes: a list item's marker again on a new line
+    ; (the next number for an ordered one), "\n" in code, else a new
+    ; paragraph, "\n\n". An empty item's Enter is "" (the caller ends the
+    ; list: `listEnds`).
+    sfn lineStartOf:int (text:string off:int) {
+        def i:int off
+        while (i > 0) {
+            if ((charAt text (i - 1)) == 10) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    sfn lineEndOf:int (text:string off:int) {
+        def n:int (strlen text)
+        def i:int off
+        while (i < n) {
+            if ((charAt text i) == 10) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The marker that opens the line at `off` ("  - ", "3. ", "> ") or "".
+    sfn markerOf:string (text:string off:int) {
+        def s:int (PresDocCaret.lineStartOf(text off))
+        def n:int (strlen text)
+        def i:int s
+        while ((i < n) && (((charAt text i) == 32) || ((charAt text i) == 62))) {
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return (substring text s i)
+        }
+        def c:int (charAt text i)
+        if ((((c == 45) || (c == 42)) || (c == 43)) && ((i + 1) < n)) {
+            if ((charAt text (i + 1)) == 32) {
+                def m:string (substring text s (i + 2))
+                ; a task item's box goes on unticked
+                if ((i + 5) <= n) {
+                    def box:string (substring text (i + 2) (i + 5))
+                    if ((box == "[ ]") || ((box == "[x]") || (box == "[X]"))) {
+                        return (m + "[ ] ")
+                    }
+                }
+                return m
+            }
+        }
+        def j:int i
+        while ((j < n) && (((charAt text j) >= 48) && ((charAt text j) <= 57))) {
+            j = (j + 1)
+        }
+        if (((j > i) && ((j + 1) < n)) && ((((charAt text j) == 46) || ((charAt text j) == 41)) && ((charAt text (j + 1)) == 32))) {
+            def num:int (?? (str2int (substring text i j)) 0)
+            return ((substring text s i) + (to_string (num + 1)) + (substring text j (j + 2)))
+        }
+        return (substring text s i)
+    }
+
+    ; Whether a line is a list item's (or a quote's) marker and nothing else.
+    sfn onlyMarker:boolean (line:string) {
+        def t:string (trim line)
+        def n:int (strlen t)
+        if (n == 0) {
+            return false
+        }
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt t k)
+            def ok:boolean ((((c == 45) || (c == 42)) || ((c == 43) || (c == 62))) || (((c == 46) || (c == 41)) || ((c == 32) || (c == 9))))
+            if (((c >= 48) && (c <= 57)) || (((c == 91) || (c == 93)) || ((c == 120) || (c == 88)))) {
+                ok = true
+            }
+            if (ok == false) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    sfn hasWordChar:boolean (s:string) {
+        def k:int 0
+        while (k < (strlen s)) {
+            if (OfficeCaretMotion.isWordChar((charAt s k))) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    sfn enterText:string (text:string off:int code:boolean) {
+        if code {
+            return "\n"
+        }
+        def m:string (PresDocCaret.markerOf(text off))
+        if ((strlen (trim m)) > 0) {
+            return ("\n" + m)
+        }
+        return "\n\n"
+    }
+}
