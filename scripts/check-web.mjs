@@ -5945,6 +5945,23 @@ try {
     const saved = await st();
     const log = await pg.evaluate(async () => (await window.__versions()?.log())?.map((e) => e.message) || []);
     check("✓ Save: back to View, a \"Saved\" version kept", !saved.editing && saved.tab === "view" && log.includes("@saved"), JSON.stringify({ saved, log }));
+    // the View page's words are selected with a drag, as on a web page
+    await pg.mouse.move(128, 274);
+    await pg.mouse.down();
+    await pg.mouse.move(250, 290, { steps: 5 });
+    await pg.mouse.move(350, 302, { steps: 5 });
+    await pg.mouse.up();
+    await pg.waitForTimeout(200);
+    const sel = await pg.evaluate(() => ({ text: window.__docSelected(), editing: window.__app.isEditing() }));
+    check("View: a drag over the page selects its words, still reading", sel.text.length > 3 && !sel.editing, JSON.stringify(sel));
+    await pg.mouse.click(300, 155);
+    await pg.waitForTimeout(500);
+    // a double click on the View page starts editing there (Tero 2026-10-15)
+    const before = await pg.evaluate(() => window.__app.caretLine());
+    await pg.mouse.dblclick(200, 432);
+    await pg.waitForTimeout(300);
+    const dbl = await pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), line: window.__app.caretLine() }));
+    check("View: a double click on the page starts editing at the block pressed", dbl.editing && dbl.tab === "md" && dbl.line !== before, JSON.stringify({ dbl, before }));
     check("…without errors", verr.length === 0, verr.join(" | "));
     await ctx.close();
   }

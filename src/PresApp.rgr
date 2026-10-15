@@ -164,6 +164,9 @@ class PresApp {
     ; the page's window on the stage, and the one in the editor's View tab
     def docPane:PresDocPane (new PresDocPane())
     def edDocPane:PresDocPane (new PresDocPane())
+    ; the View page's text selected with the mouse (the page's
+    ; web/slidetext.js): its band, x y w h per run in page units
+    def edDocBand:[double]
     ; View or Edit (PresEditMode)
     def editMode:PresEditMode (new PresEditMode())
     ; The presentations open in this tab of the browser, a tab each, in a row
@@ -1622,6 +1625,9 @@ class PresApp {
         def placed (new EVGDisplayList())
         def i:int 0
         while (i < (array_length l.cmds)) {
+            if (i == docView.headCmds) {
+                this.edDocBandInto(placed)
+            }
             placed.addCmd((PresScriptApply.copyCmd((itemAt l.cmds i))))
             i = (i + 1)
         }
@@ -1633,11 +1639,72 @@ class PresApp {
         dl.addClipEnd()
     }
 
-    fn edDocPress:void (x:double y:double) {
+    ; --- the View page's text for the page to select (web/slidetext.js) -----
+    ; The whole page in page units, read again when its revision changes.
+    fn edDocRev:int () {
+        if ((this.edDocShown()) == false) {
+            return -1
+        }
         this.edDocEnsure()
-        this.docPanePress(edDocPane x y)
+        return docView.rev
+    }
+
+    fn edDocPageJson:string () {
+        this.edDocEnsure()
+        return (docView.list.toJson())
+    }
+
+    ; Where the page is on the screen: "left,top,scale" (screen = left +
+    ; page × scale), "" when the screen point is not on the View page.
+    fn edDocAt:string (x:double y:double) {
+        if (((this.edDocShown()) == false) || ((edRect.has(x y)) == false)) {
+            return ""
+        }
+        this.edDocEnsure()
+        def dw:double (docView.width())
+        return ((EVGDisplayList.num((edDocPane.left(dw)))) + "," + (EVGDisplayList.num((edDocPane.top(dw)))) + "," + (EVGDisplayList.num((edDocPane.scale(dw)))))
+    }
+
+    ; the selection's band, on the paper and under the words (page units)
+    fn edDocBandInto:void (placed:EVGDisplayList) {
+        def b:int 0
+        while ((b + 3) < (array_length edDocBand)) {
+            placed.addRect((itemAt edDocBand b) (itemAt edDocBand (b + 1)) (itemAt edDocBand (b + 2)) (itemAt edDocBand (b + 3)) (EVGColor.rgba(56 132 255 0.32)))
+            b = (b + 4)
+        }
+    }
+
+    ; The band: "x,y,w,h" per run, page units, comma separated ("" none).
+    fn setDocBand:void (rects:string) {
+        def out:[double]
+        if ((strlen rects) > 0) {
+            def parts:[string] (strsplit rects ",")
+            def i:int 0
+            while (i < (array_length parts)) {
+                push out (?? (str2double (trim (itemAt parts i))) 0.0)
+                i = (i + 1)
+            }
+        }
+        edDocBand = out
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A press on the View tab's page puts the caret at the block pressed; a
+    ; double click starts editing there: Edit (as the bar's ✎ Edit) and the
+    ; Markdown tab, the caret on that block.
+    fn edDocPress:void (x:double y:double clicks:int) {
+        this.edDocEnsure()
+        def hit:boolean (this.docPanePress(edDocPane x y))
         focus = "editor"
         chromeRev = (chromeRev + 1)
+        if ((hit == false) || (clicks < 2)) {
+            return
+        }
+        if editMode.editing {
+            this.showTab("md")
+        } {
+            this.setEditing(true false)
+        }
     }
 
     ; A Markdown file of the deck (a questionnaire) open in the file editor:
@@ -5197,7 +5264,7 @@ class PresApp {
             return "editor"
         }
         if ((this.edDocShown()) && (edRect.has(x y))) {
-            this.edDocPress(x y)
+            this.edDocPress(x y clicks)
             return "editor"
         }
         if (edRect.has(x y)) {

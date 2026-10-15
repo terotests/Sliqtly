@@ -50,7 +50,7 @@ import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
 import { linkTarget, FOLLOW_MS } from "./stagelink.js";
-import { slideText, runAt, indexAt, withBand, TextSelection } from "./slidetext.js";
+import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
@@ -9895,6 +9895,104 @@ window.addEventListener("keydown", (ev) => {
   needsPaint = true;
 }, true);
 
+// --- selecting the View page's text with the mouse -------------------------------------
+// The editor's View tab (PresApp.edDocPaint) shows the deck as one page; a
+// drag over its words selects them as on a web page, Ctrl/Cmd+C copies,
+// Ctrl/Cmd+A takes the whole page, Esc lets go. A press that does not move
+// is the page's own click, given to the app on release: one puts the
+// Markdown's caret on the block, a double click starts editing there. The
+// page's text is read in page units, so the band stays on its words while
+// the page scrolls (the app draws it under them, setDocBand).
+const docSel = new TextSelection();
+let docRead = null;
+let docPress = null;
+function docText() {
+  const rev = app.edDocRev();
+  if (rev < 0) return null;
+  if (!docRead || docRead.rev !== rev) {
+    docRead = { rev, st: slideText(JSON.parse(app.edDocPageJson()).cmds, measureRun) };
+    docSel.setText(docRead.st.text);
+    docBandSync();
+  }
+  return docRead.st;
+}
+// where the page is: [left, top, scale] (screen = left + page × scale), or
+// null off the View page
+function docPlace(x, y) {
+  const at = app.edDocAt(x, y);
+  return at ? at.split(",").map(Number) : null;
+}
+const docPoint = (pl, x, y) => [(x - pl[0]) / pl[2], (y - pl[1]) / pl[2]];
+function docBandSync() {
+  const st = docRead && docRead.st;
+  const rs = st && docSel.has() ? bandRects(st, docSel.start(), docSel.end()) : [];
+  app.setDocBand(rs.map((r) => `${r.x},${r.y},${r.w},${r.h}`).join(","));
+  needsPaint = true;
+}
+function docPressAt(ev, x, y, clicks) {
+  if (ev.pointerType !== "mouse" || ev.button !== 0 || app.layerAt(x, y) !== "") return false;
+  const pl = docPlace(x, y);
+  if (!pl) return false;
+  const read = docText();
+  if (!read || !read.text) return false;
+  const [px, py] = docPoint(pl, x, y);
+  const what = docSel.press(indexAt(read, px, py), ev.shiftKey, runAt(read, px, py, 2) >= 0);
+  if (!what) return false;
+  if (what === "select") docPress = { id: ev.pointerId, x, y, shift: ev.shiftKey, clicks, pl };
+  docBandSync();
+  return true;
+}
+function docDragTo(ev, x, y) {
+  if (!docPress || docPress.id !== ev.pointerId) return false;
+  const [px, py] = docPoint(docPress.pl, x, y);
+  if (docSel.drag(indexAt(docText(), px, py))) docBandSync();
+  return true;
+}
+function docRelease(ev) {
+  if (!docPress || docPress.id !== ev.pointerId) return false;
+  const p = docPress;
+  docPress = null;
+  const [x, y] = at(ev);
+  if (docSel.release() === "click" && ev.type === "pointerup" && Math.hypot(x - p.x, y - p.y) < 6) {
+    app.pointerDown(p.x, p.y, p.shift, Math.min(p.clicks, 3));
+    app.pointerUp();
+    afterInput();
+  }
+  docBandSync();
+  return true;
+}
+function docCursorAt(x, y) {
+  const pl = docPlace(x, y);
+  if (!pl || app.layerAt(x, y) !== "") return false;
+  const read = docText();
+  if (!read) return false;
+  const [px, py] = docPoint(pl, x, y);
+  return runAt(read, px, py, 2) >= 0;
+}
+window.addEventListener("keydown", (ev) => {
+  if (presentingNow() || app.edDocRev() < 0 || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
+  const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
+  let done = false;
+  if (mod && (ev.key === "a" || ev.key === "A") && app.focusTarget() === "editor") {
+    const read = docText();
+    if (read && read.text) {
+      docSel.selectAll();
+      done = true;
+    }
+  } else if (mod && (ev.key === "c" || ev.key === "C") && docSel.has()) {
+    navigator.clipboard?.writeText(docSel.selected()).catch(fail);
+    done = true;
+  } else if (ev.key === "Escape" && docSel.has()) {
+    docSel.clear();
+    done = true;
+  }
+  if (!done) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  docBandSync();
+}, true);
+window.__docSelected = () => docSel.selected();
+
 // A realistic book's page taken by its corner while presenting: the
 // presses before the stage's own (capture), which do not see them.
 const onBookPage = (ev) => {
@@ -10052,6 +10150,13 @@ canvas.addEventListener("pointerdown", (ev) => {
     focusKeys(app.focusTarget());
     return;
   }
+  // the View page's text: a drag selects it
+  if (docPressAt(ev, x, y, clicks)) {
+    ev.preventDefault();
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
+    focusKeys(app.focusTarget());
+    return;
+  }
   // a finger wobbles: it has to travel further than a mouse before a tap
   // on the stage becomes a drag
   app.setDragSlop(finger ? 16 : 6);
@@ -10127,9 +10232,9 @@ canvas.addEventListener("pointermove", (ev) => {
     }
     return;
   }
-  if (textDragTo(ev, x, y)) return;
+  if (textDragTo(ev, x, y) || docDragTo(ev, x, y)) return;
   app.pointerMove(x, y);
-  canvas.style.cursor = !ev.buttons && textCursorAt(x, y) ? "text" : app.cursorAt(x, y);
+  canvas.style.cursor = !ev.buttons && (textCursorAt(x, y) || docCursorAt(x, y)) ? "text" : app.cursorAt(x, y);
   if (ev.buttons) { needsPaint = true; if (tipFor === canvas) hideTip(); }
   else if (ev.pointerType === "mouse") {
     hintHover(x, y);
@@ -10249,7 +10354,7 @@ document.getElementById("modeBtn").addEventListener("click", () => toggleMode())
 
 function endPointer(ev) {
   touches.delete(ev.pointerId);
-  if (textRelease(ev)) return;
+  if (textRelease(ev) || docRelease(ev)) return;
   if (pickRelease) {
     pickRelease = false;
     return;
