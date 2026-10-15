@@ -47,8 +47,16 @@ service cloud.firestore {
     // only who reads it: allowed without a license, so a deck can still be
     // made private
     function visibilityOnly() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility', 'editors']);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility', 'editors', 'agents']);
     }
+    // who works on the Story (mcp-go/store/agents.go): "mixed" (or no
+    // field) people and assistants, "read" assistants only read it,
+    // "hidden" assistants do not see it, "only" assistants change it and
+    // people view it, its settings (visibilityOnly) still its owner's to
+    // change. The MCP server holds it for assistants.
+    function agents(data) { return data.get('agents', 'mixed'); }
+    function agentsOk(data) { return agents(data) in ['mixed', 'read', 'hidden', 'only']; }
+    function peopleWrite() { return agents(resource.data) != 'only'; }
     function editorsOk(data) {
       return !('editors' in data) || (data.editors is list && data.editors.size() <= 50);
     }
@@ -88,14 +96,16 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid
                     && visibility(request.resource.data) in ['private', 'link']
                     && editorsOk(request.resource.data)
+                    && agentsOk(request.resource.data)
                     && !exists(/databases/$(database)/documents/links/$(shareId))
                     && licensed(shareId);
       allow update: if (signedIn() && resource.data.owner == request.auth.uid
                     && request.resource.data.owner == request.auth.uid
                     && visibility(request.resource.data) in ['private', 'link']
                     && editorsOk(request.resource.data)
-                    && (visibilityOnly() || licensed(shareId)))
-                 || (invited(resource.data) && contentOnly() && stillLicensed());
+                    && agentsOk(request.resource.data)
+                    && (visibilityOnly() || (peopleWrite() && licensed(shareId))))
+                 || (invited(resource.data) && contentOnly() && peopleWrite() && stillLicensed());
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
 

@@ -365,6 +365,16 @@ async function setVisibility(id, visibility) {
   await db.collection("shares").doc(id).update({ visibility });
 }
 
+// Who works on the owner's share (mcp-go/store/agents.go, firestore.rules
+// agents()): "mixed" people and assistants, "read" assistants only read
+// it, "hidden" assistants do not see it, "only" assistants change it and
+// people view it.
+async function setAgents(id, agents) {
+  if (!user) throw new Error("not signed in");
+  const { db } = await store();
+  await db.collection("shares").doc(id).update({ agents });
+}
+
 // The signed-in user's address as the rules compare it ("" when it is not
 // verified): an invitation names it
 function myAddress() {
@@ -791,7 +801,7 @@ async function uploadFigma(file, folder) {
   return path;
 }
 
-window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, listPublished, removeLink, removeFileLinks, removeShareFile, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
+window.sliqtly = { auth, user: () => user, uploadFigma, license: () => license, signedIn, switchAccount, share, saveShare, deleteShare, loadShare, setVisibility, setAgents, listMine, listInvited, setEditors, roomChatDb: async () => (await store()).db, viewLink, stopSharing, listPublished, removeLink, removeFileLinks, removeShareFile, mayChange: (cur) => !!user && mayChange(cur), readSheet, putObject, getObject, pushHead, readHead, sheetsToken: () => tokenValid(), askSheets: () => sheetsToken(true), sheetName: (gviz) => sheetNames.get(gviz) || null };
 // sliqtly.com/editor's Rooms search: the signed-in user's own presentations
 // and those they were invited to edit, whose words hold q, searched by
 // the server (mcp-go/searchapi.go)

@@ -301,6 +301,11 @@ class PresChartEditor {
     def dsTags:string ""
     def dsTagsSent:string ""
     def dsStoryActs:[string]
+    ; who works on it, people or assistants (mcp-go/store/agents.go):
+    ; mixed, read, hidden or only; `dsAgentsOn` false for one that is not
+    ; kept where assistants reach it
+    def dsAgentsOn:boolean false
+    def dsAgents:string "mixed"
     ; a field (or a text) whose text is being selected by a drag, by its tid
     def selecting:string ""
     ; Text that can be selected and copied (EVGUI TextCtl): the About lines,
@@ -551,6 +556,7 @@ class PresChartEditor {
         dsRoomNote = ""
         dsRoomAct = ""
         dsStoryOn = false
+        dsAgentsOn = false
         this.openAt(px py pw ph)
     }
 
@@ -564,6 +570,16 @@ class PresChartEditor {
             dsTags = tags
             dsTagsSent = tags
         }
+        if (isOpen && (mode == "docset")) {
+            this.rebuild()
+        }
+    }
+
+    ; Who works on the open presentation: mode one of mixed, read, hidden,
+    ; only; `on` false where assistants do not reach it.
+    fn setDocAgents:void (on:boolean access:string) {
+        dsAgentsOn = on
+        dsAgents = access
         if (isOpen && (mode == "docset")) {
             this.rebuild()
         }
@@ -2549,8 +2565,39 @@ class PresChartEditor {
                     sec4.addChild((UiKit.words("ce-doc" (PresI18n.t("The presentation's home room. Choosing another moves it there, as dragging it onto a room in the left rail does.")))))
                 }
             }
-            if dsStoryOn {
+            if (dsStoryOn || dsAgentsOn) {
                 def sec5:EVGElement (this.section(pane (PresI18n.t("Presentation"))))
+                if dsStoryOn {
+                    this.storyFields(sec5)
+                }
+                if dsAgentsOn {
+                    def agr:EVGElement (this.field((PresI18n.t("Who works on it"))))
+                    def ags:[string] (PresStoryNames.agentModes())
+                    def agn:[string]
+                    for ags ag:string ai {
+                        push agn (PresStoryNames.agentName(ag))
+                    }
+                    this.dropdown("ds-sag" (PresI18n.t("Who works on it")) dsAgents ags agn agr)
+                    sec5.addChild(agr)
+                    sec5.addChild((UiKit.words("ce-doc" (PresStoryNames.agentAbout(dsAgents)))))
+                }
+            }
+        } {
+            if ((dsTab == "header") || (dsTab == "footer")) {
+                this.edgePane(pane (this.dsEdge()))
+            }
+        }
+        root.addChild(pane)
+
+        def bottom:EVGElement (UiKit.div("ce-foot"))
+        bottom.addChild((UiKit.words("ce-doc" (PresI18n.t("Changes show on the slides right away, and Ctrl+Z undoes them.")))))
+        bottom.addChild((UiKit.div("ce-grow")))
+        this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
+        root.addChild(bottom)
+    }
+
+    ; the Presentation section's story: its type, phase and tags
+    fn storyFields:void (sec5:EVGElement) {
                 def tyr:EVGElement (this.field((PresI18n.t("Type"))))
                 def tys:[string] (PresStoryNames.types())
                 def tyn:[string]
@@ -2571,19 +2618,6 @@ class PresChartEditor {
                 this.inputWith("ds-tags" (PresI18n.t("Tags")) dsTags (PresI18n.t("e.g. PDF, Renderer")) "ce-wide" tgr)
                 sec5.addChild(tgr)
                 sec5.addChild((UiKit.words("ce-doc" (PresI18n.t("What kind of presentation this is and where it is in its life. Its room lists its presentations by them; the colour comes from the type.")))))
-            }
-        } {
-            if ((dsTab == "header") || (dsTab == "footer")) {
-                this.edgePane(pane (this.dsEdge()))
-            }
-        }
-        root.addChild(pane)
-
-        def bottom:EVGElement (UiKit.div("ce-foot"))
-        bottom.addChild((UiKit.words("ce-doc" (PresI18n.t("Changes show on the slides right away, and Ctrl+Z undoes them.")))))
-        bottom.addChild((UiKit.div("ce-grow")))
-        this.button("ds-done" (PresI18n.t("Done")) "primary" bottom)
-        root.addChild(bottom)
     }
 
     ; The presentation's own data: front matter keys of the user's own, such
@@ -2824,6 +2858,15 @@ class PresChartEditor {
             if (to != dsType) {
                 dsType = to
                 push dsStoryActs ("type\t" + to)
+            }
+            return true
+        }
+        if ((indexOf tid "ds-sag-") == 0) {
+            def to:string (substring tid 7 (strlen tid))
+            if (to != dsAgents) {
+                dsAgents = to
+                push dsStoryActs ("agents\t" + to)
+                this.rebuild()
             }
             return true
         }

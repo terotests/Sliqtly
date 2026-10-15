@@ -188,6 +188,10 @@ var roomTools = []roomTool{
 			"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "All of its tags (replaces them), at most 20"},
 			"color": strProp("#rrggbb over the type's colour, \"\" for the type's")},
 		required: []string{"deck_id"}},
+	{name: "set_agents", title: "Set who works on a presentation", pageOnly: true,
+		desc:     "The presentation's agent access (store/agents.go): " + strings.Join(store.AgentModes, ", ") + ". Its owner's, from Document settings; never an assistant's.",
+		props:    map[string]any{"deck_id": strProp("The presentation's deck_id"), "agents": map[string]any{"type": "string", "enum": store.AgentModes}},
+		required: []string{"deck_id", "agents"}},
 	{name: "create_folder", title: "Create a folder in a room",
 		desc:     "Make a folder in a room (one level, no folders in folders), e.g. \"Testing\" for a room's test presentations, then move them there with move_presentation folder_id. Editors of the room, General and Playground too. A name the room has already (any case) is that folder. → folder_id, made false when it was there",
 		props:    map[string]any{"room_id": strProp("The room"), "name": strProp("The folder's name, at most 100 characters")},
@@ -328,6 +332,8 @@ func (s *roomService) callFor(ctx context.Context, p store.Principal, via, op st
 	if s.cloud && !cloudRoomOps[op] {
 		return nil, roomErr{op + " is not on sliqtly.com yet"}
 	}
+	// an assistant: each Story's agent access holds (store/agents.go)
+	p.Agent = via == viaMcp
 	p, err := s.rooms.For(ctx, p)
 	if err != nil {
 		return nil, err
@@ -373,7 +379,7 @@ var cloudRoomOps = map[string]bool{
 // ({"t":"rooms"}) and reads its list again
 var roomListChanges = map[string]bool{
 	"create_room": true, "update_room": true, "delete_room": true,
-	"archive_room": true, "move_presentation": true, "set_story": true,
+	"archive_room": true, "move_presentation": true, "set_story": true, "set_agents": true,
 	"create_folder": true, "rename_folder": true, "delete_folder": true,
 	"fork_story": true,
 }
@@ -503,6 +509,8 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			Created int64  `json:"created"`
 			Inherit bool   `json:"inherit_room_files"`
 			Folder  string `json:"folder_id"`
+			// who works on it: mixed, read, hidden or only (store/agents.go)
+			Agents string `json:"agents"`
 			store.Story
 		}
 		type folderRow struct {
@@ -530,7 +538,7 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 				folder = ""
 			}
 			inFolder[folder]++
-			decks = append(decks, deckRow{it.ID, name, owner, at, made, it.Doc[store.InheritField] == true, folder, store.StoryOf(it.Doc)})
+			decks = append(decks, deckRow{it.ID, name, owner, at, made, it.Doc[store.InheritField] == true, folder, store.AgentsOf(it.Doc), store.StoryOf(it.Doc)})
 		}
 		folders := []folderRow{}
 		for _, f := range fs {
@@ -716,6 +724,23 @@ func (s *roomService) run(ctx context.Context, p store.Principal, op string, a m
 			return nil, err
 		}
 		return map[string]any{"deck_id": argStr(a, "deck_id"), "type": now.Type, "phase": now.Phase, "tags": now.Tags, "color": now.Color}, nil
+
+	case "set_agents":
+		mode := argStr(a, "agents")
+		if !store.ValidAgents(mode) {
+			return nil, roomErr{"agents is one of " + strings.Join(store.AgentModes, ", ")}
+		}
+		_, _, err := s.st.Update(ctx, p, "shares", argStr(a, "deck_id"), func(cur store.Doc, _ store.Rev) (store.Doc, error) {
+			if cur == nil {
+				return nil, store.ErrNotFound
+			}
+			cur[store.AgentsField] = mode
+			return cur, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"deck_id": argStr(a, "deck_id"), "agents": mode}, nil
 
 	case "create_folder":
 		room := argStr(a, "room_id")

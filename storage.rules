@@ -37,8 +37,13 @@ service firebase.storage {
       // through its expiring sliqtly.com/d/… links (mcp-go/download.go)
       allow get: if !resource.name.matches('shares/[^/]+/exports/.*') && readable();
       allow list: if readable();
-      allow create, update: if (owner() || invited()) && request.resource.size < 20 * 1024 * 1024 && storedType();
-      allow delete: if owner() || invited();
+      // an agents only Story's files are the assistants' (firestore.rules
+      // agents()); people still comment on it (review/)
+      function peopleWrite(name) {
+        return share().get('agents', 'mixed') != 'only' || name.matches('shares/[^/]+/review/.*');
+      }
+      allow create, update: if (owner() || invited()) && peopleWrite(request.resource.name) && request.resource.size < 20 * 1024 * 1024 && storedType();
+      allow delete: if (owner() || invited()) && peopleWrite(resource.name);
     }
 
     // The Personal package (.github/workflows/personal-package.yml): anyone

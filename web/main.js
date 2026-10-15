@@ -1076,6 +1076,7 @@ const OVERTAKEN = "overtaken";
 const overtaken = (turn) => turn !== openTurn;
 
 function beginDoc(text) {
+  agentsAsked = null;
   // the deck left: its tab goes when nothing could open it again
   if (shownKey && !canReturn(doc)) app.deckTabClose(shownKey);
   shownKey = null;
@@ -1819,10 +1820,54 @@ async function deckStory(id) {
   const g = await roomsCall("get_room", { room_id: await deckRoom(id) });
   return storyOf((g.presentations || []).find((p) => "cloud:" + p.deck_id === id));
 }
+// Who works on the open presentation, people or assistants
+// (mcp-go/store/agents.go): its share's "agents", "mixed" when it says
+// none; "" when it is not a share of this user's, where assistants do not
+// reach it.
+async function deckAgents() {
+  const p = window.sliqtly;
+  if (!doc.cloud || !p?.loadShare || !p.user?.()) return "";
+  const cur = await p.loadShare(doc.cloud);
+  if (!cur || (cur.owner && cur.owner !== p.user().uid)) return "";
+  return AGENT_MODES.includes(cur.agents) ? cur.agents : "mixed";
+}
+const AGENT_MODES = ["mixed", "read", "hidden", "only"];
+// An agents only Story is the assistants' to change; people view it. Its
+// share is asked once per opened deck (beginDoc forgets the answer) and
+// told again when Document settings change it; while it is, the editor's
+// Edit is taken away (PresApp setEditLock, src/PresEditMode.rgr) and the
+// server refuses a person's save of it all the same.
+let agentsAsked = null;
+function agentsCheck() {
+  if (viewer || doc.loading || agentsAsked === (doc.cloud || "")) return;
+  agentsAsked = doc.cloud || "";
+  if (!agentsAsked) return agentsLock("");
+  deckAgents().then(agentsLock).catch(() => {});
+}
+function agentsLock(mode) {
+  const why = mode === "only" ? t("Assistants only: people view this presentation. Its owner changes that in Document settings.") : "";
+  if (typeof app.setEditLock === "function") app.setEditLock(why);
+  if (why) toast(why);
+  needsPaint = true;
+}
 // Document settings changed the open presentation's story
-// ("docstory:<type|phase|tags>\t<value>"; tags with commas between).
+// ("docstory:<type|phase|tags|agents>\t<value>"; tags with commas between).
 async function docStoryRequest(r) {
   const [part, value] = r.slice("docstory:".length).split("\t");
+  if (part === "agents") {
+    if (!doc.cloud || !AGENT_MODES.includes(value)) return;
+    try {
+      await window.sliqtly.setAgents(doc.cloud, value);
+    } catch (e) {
+      console.warn("agents", e);
+      toast(t("Not changed: only the presentation's owner sets who works on it."));
+      deckAgents().then((mode) => { app.setDocAgents(!!mode, mode || "mixed"); needsPaint = true; }).catch(() => {});
+      return;
+    }
+    agentsLock(value);
+    roomDecksAgain();
+    return;
+  }
   const id = await currentRoomId();
   if (!id || !["type", "phase", "tags"].includes(part)) return;
   const v = part === "tags" ? cleanTags(value) : value;
@@ -1909,6 +1954,10 @@ async function docRooms() {
   }
   deckStory(id).then((st) => {
     app.setDocStory(true, st.type, st.phase, st.tags.join(", "));
+    needsPaint = true;
+  }).catch(() => {});
+  deckAgents().then((mode) => {
+    app.setDocAgents(!!mode, mode || "mixed");
     needsPaint = true;
   }).catch(() => {});
   const [rooms, all, cur] = await Promise.all([roomsList(), roomsList({ archived: true }), deckRoom(id)]);
@@ -5129,6 +5178,7 @@ function frame() {
     // charts whose theme changed are drawn again a few a frame (PresApp.settle)
     if (app.settle()) needsPaint = true;
     if (themePicQueue.length) drawThemePicture();
+    agentsCheck();
     if (app.isReplaying()) {
       // a recording played: its time drives the presentation (recFrame)
       needsPaint = true;

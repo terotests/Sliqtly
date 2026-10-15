@@ -124,6 +124,37 @@ been on the Story and when it last called; a row opens its Story.
 Kept in memory, per process: a server of one's own. The cloud does not
 watch or show it yet.
 
+## Who works on it: people, assistants or both
+
+Each Story says who works on it (Document settings → Presentation → Who
+works on it; the share's `agents`, `mcp-go/store/agents.go`):
+
+| | people | assistants (MCP) |
+| --- | --- | --- |
+| `mixed` (default, also no field) | read and change | read and change |
+| `read` Humans only: assistants read | read and change | read only |
+| `hidden` Humans only: hidden from assistants | read and change | do not see it, in no list |
+| `only` Assistants only: people view | view and comment; its settings stay theirs | read and change |
+
+Only a person sets it (page op `set_agents`, sliqtly.com: the owner's
+Firestore update); an assistant has no tool for it and a change of it by
+one is refused. Held where the change is made, not in the page:
+
+- assistants: every MCP tool passes `Tools.call` (`rgr/Tools.rgr`), which
+  asks `host_agent_gate` (`mcp-go/agentgate.go`) of each presentation its
+  arguments name (`deck_id`, a link's `deck:` end) before it runs; a tool
+  that does more than read (its `readOnlyHint`, an export and `end_work`
+  aside) is refused on `read`, any tool on `hidden` answers "No
+  presentation". The rooms' store holds it once more (`RoomPolicy` with
+  `Principal.Agent`), so lists, search, forks and links leave a hidden Story
+  out; `list_presentations` too.
+- people: a server of one's own refuses a save of an `only` Story's content
+  and files (`saveShare`, the files API, review comments excepted);
+  sliqtly.com's `firestore.rules` and `storage.rules` the same. The editor
+  takes Edit away while it is `only` (`setEditLock`).
+
+A fork starts `mixed`.
+
 ## Later milestones (proposed order)
 
 **M2 Review → merge.** A fork's findings, decisions and proposed changes
