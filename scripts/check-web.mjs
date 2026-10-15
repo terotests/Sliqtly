@@ -5985,8 +5985,128 @@ try {
     await pg.mouse.dblclick(200, 432);
     await pg.waitForTimeout(300);
     const dbl = await pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), line: window.__app.caretLine() }));
-    check("View: a double click on the page starts editing at the block pressed", dbl.editing && dbl.tab === "md" && dbl.line !== before, JSON.stringify({ dbl, before }));
+    check("View: a double click on the page starts editing there, on the View tab", dbl.editing && dbl.tab === "view" && dbl.line !== before, JSON.stringify({ dbl, before }));
     check("…without errors", verr.length === 0, verr.join(" | "));
+    await ctx.close();
+  }
+
+  // Editing on the View page (src/PresDocCaret.rgr, PresApp "editing on the
+  // View page"): the page is a picture of the Markdown and the Markdown the
+  // only document; a press puts the Markdown's caret on the character
+  // pressed, keys write into the Markdown there, and Ctrl+Z is its undo.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const verr = [];
+    pg.on("pageerror", (e) => verr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const src = () => pg.evaluate(() => window.__app.source());
+    const st = () => pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), caret: window.__app.mdEditor.caretOffset(), anchor: window.__app.mdEditor.anchorOffset() }));
+    const key = async (k, n = 1) => { for (let i = 0; i < n; i++) await pg.keyboard.press(k); await pg.waitForTimeout(120); };
+    const at = async (word, k = 0) => {
+      const o = (await src()).indexOf(word) + k;
+      const [x, y] = (await pg.evaluate((o) => window.__app.docScreenAt(o), o)).split(",").map(Number);
+      return { o, x, y };
+    };
+    const s0 = await src();
+    let p = await at("Kuulee", 0);
+    await pg.mouse.dblclick(p.x + 1, p.y);
+    await pg.waitForTimeout(300);
+    const a = await st();
+    check("View editing: a double click while reading starts editing on the page", a.editing && a.tab === "view" && a.caret === p.o, JSON.stringify({ a, o: p.o }));
+    await pg.keyboard.type("XY");
+    await pg.waitForTimeout(300);
+    const s1 = await src();
+    check("View editing: typing writes into the Markdown at the caret", s1.length === s0.length + 2 && s1.includes("XYKuulee"), JSON.stringify(s1.slice(p.o - 10, p.o + 12)));
+    await key("Home");
+    await key("Backspace");
+    let s2 = await src();
+    check("View editing: Backspace at an item's start joins it to the item above", !s2.includes("\n2. XYKuulee") && s2.includes("saanutXYKuulee"), JSON.stringify(s2.slice(p.o - 20, p.o + 10)));
+    await pg.keyboard.press("Control+z");
+    await pg.waitForTimeout(200);
+    check("View editing: Ctrl+Z gives it back, byte for byte", (await src()) === s1, "");
+    await key("End");
+    await key("Enter");
+    let s3 = await src();
+    check("View editing: Enter in a list item makes the next item", s3.includes("Geminille\n3. \n3. Vastaus"), JSON.stringify(s3.slice(560, 640)));
+    await pg.keyboard.type("Uusi");
+    await key("Enter");
+    await key("Enter");
+    await pg.keyboard.type("Kappale");
+    s3 = await src();
+    check("View editing: Enter on an empty item ends the list in a paragraph", s3.includes("3. Uusi\n\nKappale\n\n3. Vastaus"), JSON.stringify(s3.slice(590, 640)));
+    p = await at("Vastaus", 2);
+    await pg.mouse.dblclick(p.x, p.y);
+    await pg.waitForTimeout(200);
+    let c = await st();
+    const t5 = await src();
+    check("View editing: a double click selects the word", t5.slice(Math.min(c.caret, c.anchor), Math.max(c.caret, c.anchor)) === "Vastaus", JSON.stringify(c));
+    await pg.keyboard.press("Control+b");
+    await pg.waitForTimeout(300);
+    check("View editing: Ctrl+B makes it bold in the Markdown", (await src()).includes("3. **Vastaus** soitetaan"), "");
+    await pg.keyboard.press("Control+b");
+    await pg.waitForTimeout(300);
+    check("View editing: Ctrl+B again takes it off, byte for byte", (await src()) === t5, "");
+    await pg.keyboard.press("Control+i");
+    await pg.waitForTimeout(300);
+    check("View editing: Ctrl+I", (await src()).includes("3. *Vastaus* soitetaan"), "");
+    p = await at("*Vastaus*", 1);
+    await pg.mouse.click(p.x, p.y);
+    await pg.waitForTimeout(150);
+    const s7 = await src();
+    await key("ArrowLeft");
+    c = await st();
+    check("View editing: ← steps over the hidden marker", c.caret < p.o - 1, JSON.stringify({ c, o: p.o }));
+    await key("Backspace");
+    const s8 = await src();
+    check("View editing: Backspace there deletes a letter, not the marker", s8.includes("3. *Vastaus*") && s8.length === s7.length - 1, "");
+    await pg.keyboard.press("Control+z");
+    await pg.waitForTimeout(200);
+    p = await at("linkin saanut", 13);
+    await pg.mouse.click(p.x + 1, p.y);
+    await pg.waitForTimeout(150);
+    await key("Delete");
+    check("View editing: Delete at an item's end joins the next item", (await src()).includes("saanutXYKuulee"), "");
+    await pg.keyboard.press("Control+z");
+    await pg.waitForTimeout(200);
+    p = await at("Kolme osaa", 0);
+    await pg.mouse.click(p.x + 1, p.y);
+    await pg.waitForTimeout(150);
+    const before9 = await src();
+    await key("Backspace");
+    check("View editing: Backspace at a heading does not swallow the slide's notes", (await src()) === before9, "");
+    // a press on another slide: the caret stays where it was pressed
+    p = await at("teksti, puhe", 0);
+    await pg.mouse.click(p.x, p.y);
+    await pg.waitForTimeout(150);
+    c = await st();
+    check("View editing: a press on another slide puts the caret there", c.caret === p.o, JSON.stringify({ c, o: p.o }));
+    await key("Enter");
+    check("View editing: Enter splits a paragraph into two", (await src()).includes("esitys: \n\nteksti, puhe"), "");
+    // the time a key takes: written, the deck and the page built again
+    const ms = await pg.evaluate(() => { const A = window.__app; const t0 = performance.now(); for (let i = 0; i < 20; i++) { A.docType("a"); A.docReveal(); } return (performance.now() - t0) / 20; });
+    check("View editing: a key under 50 ms, deck and page built again", ms < 50, ms.toFixed(1) + " ms");
+    // a diagram drawn as its slide draws it: a double click opens its window
+    const shotAt = () => pg.evaluate(() => {
+      const A = window.__app;
+      const it = A.docView.flow.items.find((i) => i.kind === 1);
+      const dw = A.docView.width();
+      const sc = A.edDocPane.scale(dw);
+      return { x: A.edDocPane.left(dw) + (it.x + it.w / 2) * sc, y: A.edDocPane.top(dw) + (it.y + Math.min(it.h / 2, 60)) * sc };
+    });
+    let shot = await shotAt();
+    for (let i = 0; i < 30 && (shot.y < 200 || shot.y > 600); i++) {
+      await pg.mouse.move(337, 400);
+      await pg.mouse.wheel(0, shot.y > 600 ? 120 : -120);
+      await pg.waitForTimeout(80);
+      shot = await shotAt();
+    }
+    await pg.mouse.dblclick(shot.x, shot.y);
+    await pg.waitForTimeout(400);
+    check("View editing: a double click on a diagram opens its window", (await pg.evaluate(() => window.__app.focusTarget())) === "chart", JSON.stringify(shot));
+    check("View editing: …without errors", verr.length === 0, verr.join(" | "));
     await ctx.close();
   }
 
@@ -6267,7 +6387,8 @@ try {
     l = await lay();
     await page.mouse.click(l.thumbs.find((t) => t[0] === 1)[1] + 30, l.thumbs.find((t) => t[0] === 1)[2] + 20);
     await page.waitForTimeout(300);
-    await page.mouse.click(880, 500);
+    // a double click picks the element (a single click is the slide's)
+    await page.mouse.dblclick(880, 500);
     await page.waitForTimeout(500);
     const before2 = await clip();
     await page.keyboard.press(`${mod}+c`);

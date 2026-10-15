@@ -9388,7 +9388,7 @@ keys.addEventListener("keydown", (ev) => {
   }
   if (mod && ev.key.length === 1) {
     if (CLIPBOARD_CHORD.test(ev.key)) return; // copy / cut / paste fire on the field
-    if (/^[azyAZY]$/.test(ev.key)) {
+    if (/^[azyAZYbiuBIU]$/.test(ev.key)) {
       ev.preventDefault();
       app.chord(ev.key.toLowerCase());
       afterInput();
@@ -10013,6 +10013,11 @@ function docBandSync() {
   needsPaint = true;
 }
 function docPressAt(ev, x, y, clicks) {
+  // editing: the app's own caret and selection (PresApp.docEditPress)
+  if (app.isEditing()) {
+    if (docSel.has()) { docSel.clear(); docBandSync(); }
+    return false;
+  }
   if (ev.pointerType !== "mouse" || ev.button !== 0 || app.layerAt(x, y) !== "") return false;
   const pl = docPlace(x, y);
   if (!pl) return false;
@@ -10053,7 +10058,7 @@ function docCursorAt(x, y) {
   return runAt(read, px, py, 2) >= 0;
 }
 window.addEventListener("keydown", (ev) => {
-  if (presentingNow() || app.edDocRev() < 0 || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
+  if (presentingNow() || app.isEditing() || app.edDocRev() < 0 || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
   const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
   let done = false;
   if (mod && (ev.key === "a" || ev.key === "A") && app.focusTarget() === "editor") {
@@ -10206,8 +10211,10 @@ canvas.addEventListener("pointerdown", (ev) => {
   // the second click of a double click on a link: the block is picked, the
   // link stays where it is
   clearTimeout(linkTimer);
-  const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < 40;
-  clicks = now - lastDown < 400 && (!finger || near) ? clicks + 1 : 1;
+  // a double click is two presses on one spot, as the browser counts them:
+  // a finger gets a wider spot than a mouse
+  const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < (finger ? 40 : 8);
+  clicks = now - lastDown < 400 && near ? clicks + 1 : 1;
   lastDown = now;
   lastDownAt = [x, y];
   // a double tap on the slide while editing: in to read it, or back out
@@ -10251,7 +10258,9 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (where === "editor" || where === "sep" || where === "scrub" || where === "stage" || where === "chart" || where === "hint" || where === "thumb" || where === "select" || where === "panel" || where === "decktabs") {
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* no capture */ }
   }
-  if (where === "editor" && clicks === 1) {
+  // the Markdown's hints are for its own tab: on the View page a press is
+  // the page's (PresApp.edDocPress)
+  if (where === "editor" && clicks === 1 && !app.edDocShown()) {
     const emojiAtPress = app.emojiIsOpen();
     setTimeout(() => {
       // the emoji picker opened from the keyboard since the press: it stays
