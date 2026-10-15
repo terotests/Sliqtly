@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import zlib from "node:zlib";
-import { distDir, log, ensureRanger } from "./lib.mjs";
+import { distDir, log, ensureRanger, root } from "./lib.mjs";
 import { build } from "./build.mjs";
 
 const shotsArg = process.argv.find((a) => a.startsWith("--shots="));
@@ -6109,6 +6109,56 @@ try {
     await pg.waitForTimeout(400);
     check("View editing: a double click on a diagram opens its window", (await pg.evaluate(() => window.__app.focusTarget())) === "chart", JSON.stringify(shot));
     check("View editing: …without errors", verr.length === 0, verr.join(" | "));
+    await ctx.close();
+  }
+
+  // The caret is exact on every sample deck: each character the View page
+  // shows comes back from its own point (offset → point → offset), and each
+  // run of words stands for the same characters in the Markdown (a typographic
+  // quote or dash may stand in for its plain one).
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const verr = [];
+    pg.on("pageerror", (e) => verr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.evaluate(() => window.__app.setEditing(true, false));
+    const decks = fs.readdirSync(path.join(root, "samples")).filter((f) => f.endsWith(".md")).sort();
+    const misses = [];
+    let shownAll = 0;
+    for (const f of decks) {
+      const md = fs.readFileSync(path.join(root, "samples", f), "utf8");
+      const r = await pg.evaluate((md) => {
+        const A = window.__app;
+        A.setSource(md);
+        A.showTab("view");
+        A.edDocEnsure();
+        const cm = A.docView.caret;
+        const t = A.source();
+        const same = (a, b) => a === b || ("'’‘".includes(a) && "'’‘".includes(b)) || ("\"“”".includes(a) && "\"“”".includes(b));
+        let shown = 0;
+        const bad = [];
+        for (let o = 0; o <= t.length; o++) {
+          const c = cm.caret(o);
+          if (c.length !== 3) continue;
+          shown++;
+          const back = cm.offsetAt(c[0] + 0.01, c[1] + c[2] * 0.5);
+          if (back !== o && !cm.samePlace(o, back)) bad.push(`${o}→${back}`);
+        }
+        for (const b of cm.boxes) {
+          if (b.segAtom) continue;
+          const sl = t.slice(b.segSrc, b.segSrc + b.segLen);
+          if (sl.length !== b.text.length || Array.from({ length: sl.length }, (_, k) => k).some((k) => !same(sl[k], b.text[k]))) bad.push(`box@${b.segSrc} ${JSON.stringify(b.text.slice(0, 16))}≠${JSON.stringify(sl.slice(0, 16))}`);
+        }
+        return { shown, bad: bad.slice(0, 3) };
+      }, md);
+      shownAll += r.shown;
+      if (r.bad.length) misses.push(`${f}: ${r.bad.join(", ")}`);
+    }
+    check(`View caret: every shown character of the ${decks.length} sample decks maps to its own offset and back`, misses.length === 0 && shownAll > 10000, misses.slice(0, 4).join(" | ") || `${shownAll} characters`);
+    check("View caret: …without errors", verr.length === 0, verr.join(" | "));
     await ctx.close();
   }
 
