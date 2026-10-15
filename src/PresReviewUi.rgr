@@ -18,6 +18,11 @@
 ;   thread   the conversation docked on the right (EVGUI ChatCtl as a
 ;            thread): its messages, a line to answer on, Resolve; a resolved
 ;            one Reopen and Delete (pressed twice), and no line to answer on
+;   page     the deck read as one page (the View, the Document tab): every
+;            slide's comments as pins where the page shows their point
+;            (`setDocSpot`, the host maps them), and "+ Add comment" then a
+;            press there starts one (`docAsk`: the host finds the slide and
+;            the point the press names)
 ;
 ; The comments themselves are PresReview (the model, and the deck's file
 ; review/comments.json). This draws them and takes presses and keys; what
@@ -75,6 +80,23 @@ class PresReviewUi {
     def draftSev:string ""
     ; "Comment" was pressed: the next press on the slide says where
     def placing:boolean false
+    ; whether the stage shows a slide to pin on (the Document tab: no)
+    def slideShown:boolean true
+    ; the page's pins: thread ids ("rv-draft" a new one) and where on the
+    ; screen; the rectangles of the page (a press there while placing is
+    ; a new comment), x, y, w, h each
+    def docIds:[string]
+    def docXs:[double]
+    def docYs:[double]
+    def docRects:[double]
+    def docKey:string ""
+    ; a press on the page while placing, for the host to turn into a slide
+    ; and a point (it then calls `startDraft`)
+    def docAsk:boolean false
+    def docPX:double 0.0
+    def docPY:double 0.0
+    ; the new comment was placed on the page: its callout goes by that pin
+    def draftInDoc:boolean false
     ; Delete pressed once, waiting for the second
     def armed:boolean false
     ; the composer has the keys
@@ -250,7 +272,83 @@ class PresReviewUi {
     }
 
     fn inSlide:boolean (px:double py:double) {
+        if (slideShown == false) {
+            return false
+        }
         return ((((px >= sx) && (px <= (sx + sw))) && (py >= sy)) && (py <= (sy + sh)))
+    }
+
+    ; a point on one of the page's rectangles
+    fn inDoc:boolean (px:double py:double) {
+        def i:int 0
+        while ((i + 3) < (array_length docRects)) {
+            def x:double (itemAt docRects i)
+            def y:double (itemAt docRects (i + 1))
+            if ((((px >= x) && (px <= (x + (itemAt docRects (i + 2))))) && (py >= y)) && (py <= (y + (itemAt docRects (i + 3))))) {
+                return true
+            }
+            i = (i + 4)
+        }
+        return false
+    }
+
+    ; --- the page (the View, the Document tab) ------------------------------------
+    fn clearDoc:void () {
+        clear docIds
+        clear docXs
+        clear docYs
+        clear docRects
+    }
+
+    fn addDocRect:void (x:double y:double w:double h:double) {
+        push docRects x
+        push docRects y
+        push docRects w
+        push docRects h
+    }
+
+    ; thread `id` ("rv-draft": the new one) shown at (x, y) on the screen
+    fn setDocSpot:void (id:string x:double y:double) {
+        push docIds id
+        push docXs x
+        push docYs y
+    }
+
+    ; what the page's pins and rectangles are now, to build again only
+    ; when they moved
+    fn docNow:string () {
+        def k:string (? slideShown "s" "d")
+        def i:int 0
+        while (i < (array_length docIds)) {
+            k = (k + (itemAt docIds i) + "@" + (to_string (floor (itemAt docXs i))) + "," + (to_string (floor (itemAt docYs i))) + ";")
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length docRects)) {
+            k = (k + (to_string (floor (itemAt docRects i))) + ",")
+            i = (i + 1)
+        }
+        return k
+    }
+
+    ; the pin of a thread on the page
+    fn docPin:PresReviewDot (t:PresReviewThread x:double y:double k:int) {
+        def p:PresReviewDot (PresReviewDot.make(("rv-doc-" + t.id) x y (PresReviewUi.severityColor(t.severity color))))
+        if ((t.id == openId) && ((this.floating()) == false)) {
+            coPX = (p.midX())
+            coPY = (p.midY())
+        }
+        p.show = 1.0
+        p.closed = t.closed
+        p.active = (t.id == openId)
+        def what:string ((PresI18n.t("Comment")) + " " + (to_string k) + ": " + (t.firstText()))
+        if t.closed {
+            what = (what + " (" + (PresI18n.t("resolved")) + ")")
+        }
+        p.info = what
+        p.build()
+        p.pose(pulseNow 1.0)
+        return p
     }
 
     ; The pins at the wall-clock time `now`, faded by `show`; -> true while
@@ -301,7 +399,7 @@ class PresReviewUi {
         if (((this.inPanel(px py)) || (this.inBar(px py))) || ((strlen (this.pinAt(px py))) > 0)) {
             return true
         }
-        return (placing && (this.inSlide(px py)))
+        return (placing && ((this.inSlide(px py)) || (this.inDoc(px py))))
     }
 
     ; --- the page's part -----------------------------------------------------------
@@ -423,7 +521,7 @@ class PresReviewUi {
     }
 
     fn place:void (pw:double ph:double topBand:double presenting:boolean shown:int x:double y:double sW:double sH:double aX:double aW:double aB:double) {
-        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey)
+        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey + ":" + (this.docNow()))
         if (key == builtKey) {
             return
         }
@@ -487,7 +585,7 @@ class PresReviewUi {
                 at = -1
             }
             ; the slide's pins, or with the source viewer open its file's
-            def here:boolean ((t.slide == slide) && ((t.isCode()) == false))
+            def here:boolean (((t.slide == slide) && slideShown) && ((t.isCode()) == false))
             if codeOpen {
                 here = ((t.codePath == codePath) && (at >= 0))
             }
@@ -536,7 +634,7 @@ class PresReviewUi {
             da = -1
         }
         def draftHere:boolean (codeOpen == ((strlen draftCodePath) > 0))
-        if (((drafting && draftHere) && (draftSlide == slide)) && ((da < 0) || (itemAt spotOn da))) {
+        if ((((drafting && draftHere) && (draftSlide == slide)) && slideShown) && ((da < 0) || (itemAt spotOn da))) {
             def dfx:double draftX
             def dfy:double draftY
             if (da >= 0) {
@@ -548,8 +646,10 @@ class PresReviewUi {
                 dfy = dragY
             }
             def dp:PresReviewDot (PresReviewDot.make("rv-draft" (sx + (dfx * sw)) (sy + (dfy * sh)) (PresReviewUi.severityColor(draftSev color))))
-            coPX = (dp.midX())
-            coPY = (dp.midY())
+            if (draftInDoc == false) {
+                coPX = (dp.midX())
+                coPY = (dp.midY())
+            }
             dp.show = 1.0
             dp.active = true
             dp.info = (PresI18n.t("New comment"))
@@ -558,6 +658,39 @@ class PresReviewUi {
             push pins dp
             push host.ctls dp
             push pinEls (unwrap dp.rootEl)
+        }
+        ; the page's pins: every slide's comments where the page shows them
+        def dk:int 0
+        def di:int 0
+        while (di < (array_length docIds)) {
+            def did:string (itemAt docIds di)
+            if (did == "rv-draft") {
+                if (drafting && ((strlen draftCodePath) == 0)) {
+                    def ddp:PresReviewDot (PresReviewDot.make("rv-ddraft" (itemAt docXs di) (itemAt docYs di) (PresReviewUi.severityColor(draftSev color))))
+                    if (draftInDoc || (slideShown == false)) {
+                        coPX = (ddp.midX())
+                        coPY = (ddp.midY())
+                    }
+                    ddp.show = 1.0
+                    ddp.active = true
+                    ddp.info = (PresI18n.t("New comment"))
+                    ddp.build()
+                    ddp.pose(pulseNow 1.0)
+                    push pins ddp
+                    push host.ctls ddp
+                    push pinEls (unwrap ddp.rootEl)
+                }
+            } {
+                def dt@(optional):PresReviewThread (model.find(did))
+                if (!null? dt) {
+                    dk = (dk + 1)
+                    def dpin:PresReviewDot (this.docPin((unwrap dt) (itemAt docXs di) (itemAt docYs di) dk))
+                    push pins dpin
+                    push host.ctls dpin
+                    push pinEls (unwrap dpin.rootEl)
+                }
+            }
+            di = (di + 1)
         }
         ; the callout over the pins: its wedge ends at its own pin, beside
         ; it, and a pin it lies over (dragged there, or another one) does not
@@ -1050,6 +1183,13 @@ class PresReviewUi {
             this.startDraft(slide ((px - sx) / sw) ((py - sy) / sh))
             return true
         }
+        if (placing && (this.inDoc(px py))) {
+            placing = false
+            docAsk = true
+            docPX = px
+            docPY = py
+            return true
+        }
         return false
     }
 
@@ -1079,6 +1219,7 @@ class PresReviewUi {
         drafting = true
         draftSev = ""
         draftSlide = s
+        draftInDoc = false
         draftX = (PresReview.clamp01(x))
         draftY = (PresReview.clamp01(y))
         draftAsk = true
@@ -1346,6 +1487,10 @@ class PresReviewUi {
         if (this.pinIsCode(pinDown)) {
             return
         }
+        ; a pin on the page stays where the page shows its point
+        if (((indexOf pinDown "rv-doc-") == 0) || (pinDown == "rv-ddraft")) {
+            return
+        }
         if (dragging == false) {
             def dx:double (px - downX)
             def dy:double (py - downY)
@@ -1386,6 +1531,11 @@ class PresReviewUi {
         def moved:boolean dragging
         pinDown = ""
         dragging = false
+        if (pin == "rv-ddraft") {
+            typing = true
+            this.changed()
+            return true
+        }
         if (pin == "rv-draft") {
             if moved {
                 draftX = dragX

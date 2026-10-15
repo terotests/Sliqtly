@@ -45,6 +45,12 @@ class PresDocItem {
     def dy:double 0.0
     ; NOTES: which slide's notes, among the page's (PresDocView)
     def note:int -1
+    ; the rectangle of its slide it shows (slide units; fw 0: none, as
+    ; notes): a point on the slide and a point here map to each other
+    def fx:double 0.0
+    def fy:double 0.0
+    def fw:double 0.0
+    def fh:double 0.0
 
     Constructor () {
     }
@@ -216,6 +222,103 @@ class PresDocFlow {
             s = (s + 1)
         }
         return best
+    }
+
+    ; A point of slide `page` (slide units) on the page: in the item that
+    ; shows it (the smallest when several do), else in the nearest one of
+    ; that slide; [] when nothing of the slide is on the page.
+    fn toPage:[double] (page:int x:double y:double) {
+        def out:[double]
+        def best:int -1
+        def bestD:double 0.0
+        def bestA:double 0.0
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:PresDocItem (itemAt items i)
+            if ((it.page == page) && ((it.fw > 0.0) && (it.fh > 0.0))) {
+                def cx:double (PresDocFlow.clampD(x it.fx (it.fx + it.fw)))
+                def cy:double (PresDocFlow.clampD(y it.fy (it.fy + it.fh)))
+                def d:double (((cx - x) * (cx - x)) + ((cy - y) * (cy - y)))
+                def a:double (it.fw * it.fh)
+                if (((best < 0) || (d < bestD)) || ((d == bestD) && (a < bestA))) {
+                    best = i
+                    bestD = d
+                    bestA = a
+                }
+            }
+            i = (i + 1)
+        }
+        if (best < 0) {
+            return out
+        }
+        def b:PresDocItem (itemAt items best)
+        def u:double (((PresDocFlow.clampD(x b.fx (b.fx + b.fw))) - b.fx) / b.fw)
+        def v:double (((PresDocFlow.clampD(y b.fy (b.fy + b.fh))) - b.fy) / b.fh)
+        push out (b.x + (u * b.w))
+        push out (b.y + (v * b.h))
+        return out
+    }
+
+    ; A point of the page on its slide: [slide, x, y] (slide units), from
+    ; the item there (notes, which show nothing of the slide, take the
+    ; nearest item of their slide that does); [] when there is none.
+    fn toSlide:[double] (x:double y:double) {
+        def out:[double]
+        def at:int (this.itemAt(y))
+        if (at < 0) {
+            return out
+        }
+        def hit:PresDocItem (itemAt items at)
+        def page:int hit.page
+        def best:int -1
+        def bestD:double 0.0
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:PresDocItem (itemAt items i)
+            if ((it.page == page) && ((it.fw > 0.0) && (it.fh > 0.0))) {
+                def d:double 0.0
+                if (y < it.y) {
+                    d = (it.y - y)
+                }
+                if (y > (it.bottomEdge())) {
+                    d = (y - (it.bottomEdge()))
+                }
+                if (i == at) {
+                    d = -1.0
+                }
+                if ((best < 0) || (d < bestD)) {
+                    best = i
+                    bestD = d
+                }
+            }
+            i = (i + 1)
+        }
+        if (best < 0) {
+            return out
+        }
+        def b:PresDocItem (itemAt items best)
+        def u:double 0.5
+        def v:double 0.5
+        if (b.w > 0.0) {
+            u = (PresDocFlow.clampD(((x - b.x) / b.w) 0.0 1.0))
+        }
+        if (b.h > 0.0) {
+            v = (PresDocFlow.clampD(((y - b.y) / b.h) 0.0 1.0))
+        }
+        push out (to_double page)
+        push out (b.fx + (u * b.fw))
+        push out (b.fy + (v * b.fh))
+        return out
+    }
+
+    sfn clampD:double (v:double lo:double hi:double) {
+        if (v > hi) {
+            return hi
+        }
+        if (v < lo) {
+            return lo
+        }
+        return v
     }
 
     ; Where slide p starts, or -1 when it has nothing on the page.

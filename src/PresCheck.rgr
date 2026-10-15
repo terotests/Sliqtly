@@ -45,6 +45,7 @@ Import "PresServer.rgr"
 Import "PresRecord.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
+Import "PresCommentNotes.rgr"
 Import "PresTrace.rgr"
 Import "PresExport.rgr"
 Import "PresScriptWeb.rgr"
@@ -4650,6 +4651,140 @@ class PresCheck {
         def one:string (picked.html(deck "Raportti" none))
         this.ok((picked.slides == 1) "html: only the picked slide")
         this.ok((((indexOf one "slide-2") > 0) && ((indexOf one "Eka") < 0)) "html: …and nothing else")
+        this.ok(((indexOf h "<p class=\"slide-no\" aria-hidden=\"true\">2</p>") > 0) "html: each slide opens with its number, as the View shows it")
+        this.ok(((indexOf h "class=\"cref\"") < 0) "html: no comments asked for, no marks")
+
+        ; review comments as footnotes: one on the table, one on the slide
+        def r (new PresReview())
+        def t0:double 1759658400000.0
+        r.start("a" 1 "Taulu" 0.5 0.5 (PresReview.msg("m1" "u1" "Ada" "" "Isompi *fontti*" t0)))
+        r.start("b" 0 "Eka" 0.9 0.9 (PresReview.msg("m2" "u2" "" "" "Kirjoitusvirhe" t0)))
+        def ta:PresReviewThread (unwrap (r.find("a")))
+        ta.el = "| Nimi | Määrä |"
+        def blocks:[PresReviewBlock]
+        def tb (new PresReviewBlock())
+        tb.page = 1
+        tb.key = "| Nimi | Määrä |"
+        tb.src = (indexOf text "| Nimi")
+        push blocks tb
+        def starts:[int]
+        def dc:int 0
+        while (dc < (deck.md.edit.doc.childCount())) {
+            def dch:MdNode (deck.md.edit.doc.childAt(dc))
+            push starts dch.srcStart
+            dc = (dc + 1)
+        }
+        def notes:PresCommentNotes (PresCommentNotes.make(r blocks starts ([] _:int ())))
+        def withC (new PresHtml())
+        withC.comments = notes
+        withC.commentsTitle = "Kommentit"
+        withC.someone = "Joku"
+        def hc:string (withC.html(deck "Raportti" none))
+        this.ok((withC.footnotes == 2) ("html: two comments as footnotes, got " + (to_string withC.footnotes)))
+        this.ok(((indexOf hc "Eka &amp; toka<sup class=\"cref\"><a href=\"#comment-1\" id=\"cref-1\">1</a></sup></h2>") > 0) "html: the slide's own comment marked on its first block (its heading)")
+        this.ok(((indexOf hc "<a href=\"#comment-2\" id=\"cref-2\">2</a>") > (indexOf hc "<table")) "html: the table's comment marked after the table")
+        this.ok(((indexOf hc "<li value=\"2\" id=\"comment-2\">") > (indexOf hc "cref-2")) "html: …its footnote after it, in its slide")
+        this.ok(((indexOf hc "<strong>Ada:</strong> Isompi <em>fontti</em>") > 0) "html: the comment's words, as Markdown")
+        this.ok(((indexOf hc "<strong>Joku:</strong> Kirjoitusvirhe") > 0) "html: no name, the word for someone")
+        this.ok(((indexOf hc "href=\"#cref-1\"") > 0) "html: a footnote links back to its mark")
+        this.ok(((indexOf hc "aria-label=\"Kommentit\"") > 0) "html: the list named in the editor's language")
+    }
+
+    ; The open comments as footnotes (PresCommentNotes): numbered as
+    ; "Markdown with comments" numbers them, each on the top-level block
+    ; its element is in.
+    fn commentNotes:void () {
+        def r (new PresReview())
+        def t0:double 1759658400000.0
+        r.start("a" 2 "C" 0.5 0.5 (PresReview.msg("m1" "u1" "Ada" "" "x" t0)))
+        r.start("b" 0 "A" 0.2 0.2 (PresReview.msg("m2" "u1" "Ada" "" "y" t0)))
+        r.start("c" 0 "A" 0.9 0.9 (PresReview.msg("m3" "u1" "Ada" "" "z" t0)))
+        r.start("d" 1 "B" 0.5 0.5 (PresReview.msg("m4" "u1" "Ada" "" "closed" t0)))
+        r.setClosed("d" true "u1" t0)
+        def blocks:[PresReviewBlock]
+        def b1 (new PresReviewBlock())
+        b1.page = 0
+        b1.key = "## A"
+        b1.src = 5
+        b1.x = 0.1
+        b1.y = 0.1
+        b1.w = 0.5
+        b1.h = 0.2
+        push blocks b1
+        def b2 (new PresReviewBlock())
+        b2.page = 2
+        b2.key = "- item"
+        b2.src = 52
+        b2.x = 0.0
+        b2.y = 0.0
+        b2.w = 0.1
+        b2.h = 0.1
+        push blocks b2
+        def ta:PresReviewThread (unwrap (r.find("a")))
+        ta.el = "- item"
+        def starts:[int] ([] _:int (0 5 20 40 50))
+        def all:PresCommentNotes (PresCommentNotes.make(r blocks starts ([] _:int ())))
+        this.ok(((all.count()) == 3) "comment notes: the open ones only")
+        def n1:PresCommentNote (itemAt all.notes 0)
+        def n2:PresCommentNote (itemAt all.notes 1)
+        def n3:PresCommentNote (itemAt all.notes 2)
+        this.ok((((n1.num == 1) && (n1.page == 0)) && (n3.page == 2)) "comment notes: by slide, numbered from 1")
+        this.ok((n1.at == 5) ("comment notes: a point on an element, that block; got " + (to_string n1.at)))
+        this.ok((n2.at == -1) "comment notes: a point on no element, the slide")
+        this.ok((n3.at == 50) ("comment notes: pinned to an element, the top-level block holding it; got " + (to_string n3.at)))
+        def some:PresCommentNotes (PresCommentNotes.make(r blocks starts ([] _:int (2))))
+        this.ok((((some.count()) == 1) && ((itemAt some.notes 0).num == 1)) "comment notes: picked slides only, numbered among them")
+        this.ok(((array_length (all.onPage(0))) == 2) "comment notes: a slide's notes")
+        this.ok(((array_length (all.atBlock(0 -1))) == 1) "comment notes: …the slide's own")
+        def two (new PresCommentNote())
+        push two.msgs (PresReview.msg("m" "u" "*Bo*" "" " hi " t0))
+        push two.msgs (PresReview.msg("n" "u" "" "" "ok" t0))
+        this.ok(((PresCommentNotes.markdown(two "Joku")) == "**Bo:** hi\n\n**Joku:** ok") "comment notes: the messages as Markdown, names plain")
+    }
+
+    ; The View's page and its slides map onto each other (PresDocFlow
+    ; toPage / toSlide): where a comment's pin goes on the page, and where
+    ; on its slide a press on the page puts a new one.
+    fn docPoints:void () {
+        def f (new PresDocFlow())
+        f.width = 720.0
+        f.margin = 36.0
+        f.pageW = 960.0
+        def a:PresDocItem (f.add(0 0 0 10))
+        a.top = 36.0
+        a.bottom = 76.0
+        a.fx = 100.0
+        a.fy = 50.0
+        a.fw = 400.0
+        a.fh = 40.0
+        def s:PresDocItem (f.add(1 0 20 30))
+        s.top = 90.0
+        s.bottom = 140.0
+        s.sw = 480.0
+        s.sh = 200.0
+        s.fx = 200.0
+        s.fy = 200.0
+        s.fw = 480.0
+        s.fh = 200.0
+        def n:PresDocItem (f.add(2 0 -1 -1))
+        n.sh = 30.0
+        def b:PresDocItem (f.add(0 1 30 40))
+        b.top = 150.0
+        b.bottom = 170.0
+        f.place(2)
+        def p:[double] (f.toPage(0 440.0 300.0))
+        this.ok((((array_length p) == 2) && ((itemAt p 0) == (s.x + (s.w * 0.5)))) "docpoints: a point in a shot, the same point of its picture (x)")
+        this.ok(((itemAt p 1) == (s.y + (s.h * 0.5))) "docpoints: …(y)")
+        def q:[double] (f.toPage(0 300.0 70.0))
+        this.ok(((itemAt q 0) == (a.x + (a.w * 0.5))) "docpoints: a point in a text block, as far across its text")
+        def far:[double] (f.toPage(0 0.0 0.0))
+        this.ok((((itemAt far 0) == a.x) && ((itemAt far 1) == a.y)) "docpoints: a point on no element, the nearest one's corner")
+        this.ok(((array_length (f.toPage(1 10.0 10.0))) == 0) "docpoints: a slide with nothing that shows it, nowhere")
+        def back:[double] (f.toSlide((s.x + (s.w * 0.5)) (s.y + (s.h * 0.5))))
+        this.ok(((((array_length back) == 3) && ((itemAt back 0) == 0.0)) && (((itemAt back 1) == 440.0) && ((itemAt back 2) == 300.0))) "docpoints: back from the picture to the slide")
+        def onNotes:[double] (f.toSlide((n.x + 5.0) (n.y + 5.0)))
+        this.ok((((array_length onNotes) == 3) && ((itemAt onNotes 2) == (s.fy + s.fh))) "docpoints: a press on the notes, the foot of the item above")
+        this.ok(((array_length (f.toSlide(b.x (b.y + 2.0)))) == 0) "docpoints: an item without its slide's rectangle, nothing")
     }
 
     ; The document view's geometry (PresDocFlow): text keeps its layout's
@@ -9067,7 +9202,9 @@ class PresCheck {
         c.a11ySlide()
         c.calmMotion()
         c.htmlPage()
+        c.commentNotes()
         c.docFlow()
+        c.docPoints()
         c.docView()
         c.editMode()
         c.traceChecks()
