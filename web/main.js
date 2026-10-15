@@ -286,6 +286,14 @@ for (const g of document.querySelectorAll("optgroup[label]")) g.label = t(g.labe
 const app = new globalThis.PresApp();
 window.__app = app;
 app.setAppName(APP_NAME);
+// less motion when the viewer's system asks for it, followed when it changes
+{
+  const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
+  if (calm) {
+    app.setCalm(calm.matches);
+    calm.addEventListener?.("change", (e) => app.setCalm(e.matches));
+  }
+}
 
 // A page built on this one can add buttons of its own to the bar: an element
 // in #bar with data-canvas="<variant>" is drawn on the canvas bar after Ohje
@@ -4392,6 +4400,16 @@ const mirror = createA11yMirror(stageEl, {
   label: APP_NAME + t(". F6 moves between areas, Esc returns to the editor."),
   tabbable: "all",
   onActivate: (node) => {
+    // "+ Add comment" from the keyboard: no click to say where it goes, so on
+    // the picked element or the slide's title, and the keys in the comment
+    if (node.id === "rv-add") {
+      app.a11yAddComment();
+      afterInput();
+      needsPaint = true;
+      paintOnce();
+      focusKeys("editor");
+      return;
+    }
     pressAtCentre(node, (x, y) => {
       app.setCtrl(false);
       app.pointerDown(x, y, false, 1);
@@ -4459,6 +4477,10 @@ function regionOf(id) {
   if (id.startsWith("decktabs")) return "decks";
   if (id.startsWith("edtabs")) return "tabs";
   if (id.startsWith("thumb-")) return "slides";
+  if (id.startsWith("rv")) return "review";
+  if (id === "fb" || id.startsWith("fb-")) return "find";
+  if (id === "sk" || id.startsWith("sk-")) return "sketch";
+  if (id.startsWith("tracks")) return "timeline";
   if (id.startsWith("pn-")) return "panels";
   if (id.startsWith("hp-")) return "hint";
   if (id.startsWith("ce-")) return "chart";
@@ -4468,6 +4490,10 @@ function regionOf(id) {
   for (let depth = 0; n && depth < 32; depth += 1) {
     if (n.id === "chart") return "chart";
     if (n.id === "hint") return "hint";
+    if (n.id === "rv") return "review";
+    if (n.id === "fb") return "find";
+    if (n.id === "sk") return "sketch";
+    if (n.id === "tracks") return "timeline";
     if (n.id === "pn-dlg") return "panels";
     n = n.p ? a11yTree.byId.get(n.p) : null;
   }
@@ -4567,7 +4593,7 @@ function regionOrder() {
   if (app.chartIsOpen()) return ["chart"];
   if (app.shareIsOpen()) return ["panels"];
   if (app.hintIsOpen() && currentRegion() === "hint") return ["hint", "editor"];
-  return ["bar", "rail", "rooms", "decks", "tabs", "editor", "slides", "panels"];
+  return ["bar", "rail", "rooms", "decks", "tabs", "find", "editor", "slides", "sketch", "review", "timeline", "panels"];
 }
 // Tab and Shift+Tab: on to the next control, and at the end of an area on
 // into the next area, the way a page's Tab order runs. An open dialog,
@@ -5223,6 +5249,7 @@ function frame() {
       syncEndPanel();
       syncCounter();
       syncKeysLabel();
+      placeKeys();
       syncRecBar();
       loadLookFaces();
       if (rev !== inlineSvgRev) loadInlineSvgs(rev);
@@ -7859,7 +7886,9 @@ function presentingNow() {
 // presenting the keys that run the presentation.
 let keysLabelFor = "";
 function syncKeysLabel() {
-  const mode = presentingNow() ? "present" : "edit";
+  // where the typing goes: the presentation's keys, a comment being
+  // written, the find bar's field, or the Markdown
+  const mode = presentingNow() ? "present" : app.reviewHasKeys() ? "comment" : app.findHasKeys() ? "find" : "edit";
   if (mode === keysLabelFor) return;
   keysLabelFor = mode;
   // the controls along the bottom show a symbol (◀ ▶ ✎ ⛶): their name is
@@ -7870,6 +7899,12 @@ function syncKeysLabel() {
   if (mode === "present") {
     keys.setAttribute("aria-label", t("Presenting"));
     keys.setAttribute("aria-description", t("Arrows and Space go on, Tab goes to the controls."));
+  } else if (mode === "comment") {
+    keys.setAttribute("aria-label", t("Comment"));
+    keys.setAttribute("aria-description", t("Enter sends it, Esc cancels."));
+  } else if (mode === "find") {
+    keys.setAttribute("aria-label", t("Find"));
+    keys.setAttribute("aria-description", t("Enter finds the next one, Esc closes."));
   } else {
     keys.setAttribute("aria-label", t("Markdown — type here"));
     keys.setAttribute("aria-description", t("Tab indents. Esc and then Tab leaves the editor, F6 moves between areas."));
@@ -8981,6 +9016,32 @@ let composing = false;
 // What the field was last set to. Anything else in it got there without
 // passing through beforeinput, and the input handler below carries it over.
 let mirrored = "";
+// The hidden field holds one line, so a reader moving up and down the text
+// heard nothing new: the line it arrives on is said ("Line 12: …") by a
+// polite live region of its own.
+const lineSay = document.createElement("div");
+lineSay.setAttribute("aria-live", "polite");
+lineSay.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;";
+stageEl.appendChild(lineSay);
+let saidLine = -1;
+function sayLine(line, text) {
+  if (line === saidLine) return;
+  saidLine = line;
+  lineSay.textContent = t("Line ") + (line + 1) + ": " + (text.trim() ? text : t("empty"));
+}
+// The hidden field where the caret is drawn: a screen magnifier follows the
+// typing there and an input method's candidates open beside it.
+let keysAt = "";
+function placeKeys() {
+  const box = app.caretBox();
+  if (box === keysAt) return;
+  keysAt = box;
+  if (!box) return;
+  const [x, y, h] = box.split(",").map(Number);
+  keys.style.left = Math.max(0, x) + "px";
+  keys.style.top = Math.max(0, y) + "px";
+  keys.style.height = Math.max(1, h) + "px";
+}
 function mirrorLine() {
   // the field holds the composition's marked text; rewriting it cancels it
   if (composing) return;
@@ -8992,6 +9053,7 @@ function mirrorLine() {
   const line = app.currentLine();
   if (keys.value !== line) keys.value = line;
   mirrored = line;
+  if (document.activeElement === keys) sayLine(app.caretLine(), line);
   const col = Math.max(0, Math.min(line.length, app.caretCol()));
   let from = col;
   let to = col;

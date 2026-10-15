@@ -167,6 +167,9 @@ class PresSlide {
     def index:int 0
     def id:string ""
     def title:string ""
+    ; drawn for a viewer who asked for less motion (PresDeck.calm), set by
+    ; PresTimeline.frame for the slides it draws
+    def calm:boolean false
     def transition:string "fade"
     def seconds:double 0.6
     def fx:string ""
@@ -283,6 +286,11 @@ class PresDeck {
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
+    ; The viewer asked for less motion (prefers-reduced-motion): what moves
+    ; on a slide (a build rising or flying in, a slide sliding or zooming in,
+    ; a chart growing, a diagram drawing itself and touring) fades in where
+    ; it ends instead. The timing stays: it still comes when it comes.
+    def calm:boolean false
     ; The page shows each slide at rest and cannot play a story's steps (the
     ; share viewer): the presenter, who would only ever say the last line,
     ; is left out. Its strip stays free, so the slide is laid out as edited.
@@ -6207,7 +6215,7 @@ class PresDeck {
                 }
                 def dBefore:int (array_length out.cmds)
                 dia.diagram.partFrom = -1
-                if still {
+                if (still || (calm && (t >= dia.start))) {
                     dia.diagram.paintStill(out (itemAt span 0) kb.y (itemAt span 1) room l.style.textColor paper l)
                 } {
                     ; over the whole slide it is painted last, over everything
@@ -6260,7 +6268,12 @@ class PresDeck {
                             ci = (ci + 1)
                         }
                     }
-                    this.dressChart(out before (t - (this.chartStart(s kb.embedSource))) still kb.embedSource i)
+                    def chartT:double (t - (this.chartStart(s kb.embedSource)))
+                    if (calm && (chartT >= 0.0)) {
+                        ; grown already: no rise, no scan beam
+                        chartT = 100000.0
+                    }
+                    this.dressChart(out before chartT still kb.embedSource i)
                     if still {
                         PresChart.flatten(out before paper)
                     }

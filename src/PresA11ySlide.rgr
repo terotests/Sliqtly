@@ -1,0 +1,460 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresA11ySlide.rgr — a slide's content as a reader's structure
+; ============================================================================
+;
+; The stage is pixels. A reader was given the slide's source lines instead:
+; "- Tuotannossa…", a table with its pipes, every chart and diagram the same
+; "[chart or code]". This reads the slide's blocks from the parsed Markdown
+; (the same tree the Word and HTML exports write) and puts them in the
+; accessibility tree as what they are:
+;
+;   heading            heading, with its level
+;   paragraph          paragraph; a picture alone on its line an image
+;                      named by its alt text
+;   list / item        list and list items, nested lists inside their item
+;   table              table, rows, header and data cells
+;   ```vega-lite       the chart's kind and title, and its data as a table
+;                      (PresChartModel reads it as the chart editor does)
+;   ```mermaid …       the diagram's arrows, "A → B", as a list
+;   ```process …       the figure's lines as a list
+;   other fences       code, a formula or a program, named as such
+;
+; The speaker's notes (`::: notes`) are not on the slide and are left out.
+; Every node is placed over the stage; where on it a block is drawn is the
+; layout's business and a reader moves through it in this order.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "PresChartModel.rgr"
+Import "PresHints.rgr"
+
+class PresA11ySlide {
+    def t:EVGA11yTree
+    def deck:PresDeck
+    def slide:PresSlide
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def count:int 0
+
+    Constructor (into:EVGA11yTree dk:PresDeck s:PresSlide) {
+        t = into
+        deck = dk
+        slide = s
+    }
+
+    ; The blocks of the slide under `parent`, placed over the stage box.
+    fn addAll:void (parent:string bx:int by:int bw:int) {
+        x = bx
+        y = by
+        w = bw
+        ; up to where the next slide starts: a slide's own end is where its
+        ; last text box ends, and a chart or picture after it is still its
+        def end:int (strlen deck.text)
+        if ((slide.index + 1) < (deck.slideCount())) {
+            def next:PresSlide (deck.slideAt((slide.index + 1)))
+            if (next.srcStart > slide.srcStart) {
+                end = next.srcStart
+            }
+        }
+        def doc:MdNode deck.md.edit.doc
+        def c:int 0
+        while (c < (doc.childCount())) {
+            def ch:MdNode (doc.childAt(c))
+            if ((ch.srcStart >= slide.srcStart) && (ch.srcStart < end)) {
+                this.block(ch parent)
+            }
+            c = (c + 1)
+        }
+    }
+
+    ; The deck's language from its front matter (`lang: fi`), "" for none.
+    sfn langOf:string (dk:PresDeck) {
+        def meta:MdMeta (MdFrontMatter.of(dk.md.edit.doc))
+        return (trim (meta.get("lang" "")))
+    }
+
+    fn add:EVGA11yNode (parent:string role:int name:string) {
+        count = (count + 1)
+        def n:EVGA11yNode (t.node(("stage-" + (to_string count)) parent role))
+        n.name = name
+        t.place(n x y w 1)
+        return n
+    }
+
+    fn block:void (n:MdNode parent:string) {
+        def k:string n.kind
+        if (k == "heading") {
+            def words:string (trim (n.plainText()))
+            if ((strlen words) > 0) {
+                def h:EVGA11yNode (this.add(parent (EVGA11yRole.heading()) words))
+                ; under the page's own heading (the deck's name, level 1)
+                h.level = (n.level + 1)
+                if (h.level > 6) {
+                    h.level = 6
+                }
+            }
+            return
+        }
+        if (k == "paragraph") {
+            this.paragraph(n parent)
+            return
+        }
+        if ((k == "list") || (k == "dl")) {
+            this.list(n parent)
+            return
+        }
+        if (k == "table") {
+            this.table(n parent)
+            return
+        }
+        ; a drawing's fence (a chart, a diagram, a figure) is an "embed"
+        if ((k == "code_block") || (k == "embed")) {
+            this.fence(n parent)
+            return
+        }
+        if (k == "math_block") {
+            this.add(parent (EVGA11yRole.image()) ((PresI18n.t("Formula")) + ": " + (trim n.literal)))
+            return
+        }
+        if (k == "container") {
+            ; the speaker's notes are not on the slide
+            if ((indexOf (trim n.info) "notes") == 0) {
+                return
+            }
+            this.children(n parent)
+            return
+        }
+        if (k == "block_quote") {
+            def q:EVGA11yNode (this.add(parent (EVGA11yRole.group()) ""))
+            q.roleDescription = (PresI18n.t("quote"))
+            this.children(n q.id)
+            return
+        }
+        if ((k == "footnote_def") || (k == "item")) {
+            this.children(n parent)
+        }
+    }
+
+    fn children:void (n:MdNode parent:string) {
+        def i:int 0
+        while (i < (n.childCount())) {
+            this.block((n.childAt(i)) parent)
+            i = (i + 1)
+        }
+    }
+
+    ; A paragraph; a picture on its own line is an image a reader is told
+    ; is one, named by its alt text.
+    fn paragraph:void (n:MdNode parent:string) {
+        def pictures:int 0
+        def other:boolean false
+        def i:int 0
+        while (i < (n.childCount())) {
+            def c:MdNode (n.childAt(i))
+            if (c.kind == "image") {
+                pictures = (pictures + 1)
+            } {
+                if (((c.kind != "softbreak") && (c.kind != "linebreak")) && ((strlen (trim (c.plainText()))) > 0)) {
+                    other = true
+                }
+            }
+            i = (i + 1)
+        }
+        if ((pictures > 0) && (other == false)) {
+            def j:int 0
+            while (j < (n.childCount())) {
+                def p:MdNode (n.childAt(j))
+                if (p.kind == "image") {
+                    def alt:string (trim (p.plainText()))
+                    if ((strlen alt) == 0) {
+                        alt = (PresI18n.t("Picture"))
+                    }
+                    this.add(parent (EVGA11yRole.image()) alt)
+                }
+                j = (j + 1)
+            }
+            return
+        }
+        def words:string (trim (n.plainText()))
+        if ((strlen words) > 0) {
+            this.add(parent (EVGA11yRole.paragraph()) words)
+        }
+    }
+
+    ; A list, each item with its own words and any list nested in it.
+    fn list:void (n:MdNode parent:string) {
+        def l:EVGA11yNode (this.add(parent (EVGA11yRole.list()) ""))
+        def size:int (n.childCount())
+        def i:int 0
+        while (i < size) {
+            def item:MdNode (n.childAt(i))
+            def own:[string]
+            def j:int 0
+            while (j < (item.childCount())) {
+                def c:MdNode (item.childAt(j))
+                if (((c.kind != "list") && (c.kind != "code_block")) && ((c.kind != "table") && (c.kind != "embed"))) {
+                    def wds:string (trim (c.plainText()))
+                    if ((strlen wds) > 0) {
+                        push own wds
+                    }
+                }
+                j = (j + 1)
+            }
+            def li:EVGA11yNode (this.add(l.id (EVGA11yRole.listItem()) (join own " ")))
+            li.posInSet = (i + 1)
+            li.setSize = size
+            if (item.taskState >= 0) {
+                li.checked = (EVGA11yTri.no())
+                if (item.taskState > 0) {
+                    li.checked = (EVGA11yTri.yes())
+                }
+            }
+            def m:int 0
+            while (m < (item.childCount())) {
+                def d:MdNode (item.childAt(m))
+                if (((d.kind == "list") || (d.kind == "code_block")) || ((d.kind == "table") || (d.kind == "embed"))) {
+                    this.block(d li.id)
+                }
+                m = (m + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn table:void (n:MdNode parent:string) {
+        def tb:EVGA11yNode (this.add(parent (EVGA11yRole.table()) ""))
+        def rows:int 0
+        def cols:int 0
+        def r:int 0
+        while (r < (n.childCount())) {
+            def row:MdNode (n.childAt(r))
+            if (row.kind == "table_row") {
+                rows = (rows + 1)
+                def rn:EVGA11yNode (this.add(tb.id (EVGA11yRole.row()) ""))
+                rn.rowIndex = rows
+                def c:int 0
+                while (c < (row.childCount())) {
+                    def cell:MdNode (row.childAt(c))
+                    def role:int (EVGA11yRole.tableCell())
+                    if cell.isHeader {
+                        role = (EVGA11yRole.columnHeader())
+                    }
+                    def cn:EVGA11yNode (this.add(rn.id role (trim (cell.plainText()))))
+                    cn.colIndex = (c + 1)
+                    c = (c + 1)
+                }
+                if (c > cols) {
+                    cols = c
+                }
+            } {
+                ; a head or body group: its rows
+                def g:int 0
+                while (g < (row.childCount())) {
+                    def sub:MdNode (row.childAt(g))
+                    if (sub.kind == "table_row") {
+                        rows = (rows + 1)
+                        def rn2:EVGA11yNode (this.add(tb.id (EVGA11yRole.row()) ""))
+                        rn2.rowIndex = rows
+                        def c2:int 0
+                        while (c2 < (sub.childCount())) {
+                            def cell2:MdNode (sub.childAt(c2))
+                            def role2:int (EVGA11yRole.tableCell())
+                            if (cell2.isHeader || (row.kind == "table_head")) {
+                                role2 = (EVGA11yRole.columnHeader())
+                            }
+                            def cn2:EVGA11yNode (this.add(rn2.id role2 (trim (cell2.plainText()))))
+                            cn2.colIndex = (c2 + 1)
+                            c2 = (c2 + 1)
+                        }
+                        if (c2 > cols) {
+                            cols = c2
+                        }
+                    }
+                    g = (g + 1)
+                }
+            }
+            r = (r + 1)
+        }
+        tb.rowCount = rows
+        tb.colCount = cols
+    }
+
+    fn fence:void (n:MdNode parent:string) {
+        def lang:string (to_lowercase (trim (MdBlock.firstWord(n.info))))
+        def group:string (PresHints.fenceGroup(lang))
+        if (group == "chart") {
+            this.chart(n parent)
+            return
+        }
+        if (group == "diagram") {
+            this.diagram(n parent)
+            return
+        }
+        if (group == "figure") {
+            def f:EVGA11yNode (this.add(parent (EVGA11yRole.list()) ""))
+            def lines:[string] (strsplit n.literal (strfromcode 10))
+            def i:int 0
+            while (i < (array_length lines)) {
+                def l:string (trim (itemAt lines i))
+                while (((indexOf l "-") == 0) || ((indexOf l "*") == 0)) {
+                    l = (trim (substring l 1 (strlen l)))
+                }
+                def brace:int (indexOf l "{")
+                if (brace == 0) {
+                    l = ""
+                }
+                if ((strlen l) > 0) {
+                    this.add(f.id (EVGA11yRole.listItem()) l)
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if (group == "math") {
+            this.add(parent (EVGA11yRole.image()) ((PresI18n.t("Formula")) + ": " + (trim n.literal)))
+            return
+        }
+        if (group == "app") {
+            this.add(parent (EVGA11yRole.image()) (PresI18n.t("A program")))
+            return
+        }
+        def code:EVGA11yNode (this.add(parent (EVGA11yRole.group()) ""))
+        code.roleDescription = (PresI18n.t("code"))
+        def body:[string] (strsplit (PresA11ySlide.trimEnd(n.literal)) (strfromcode 10))
+        def k:int 0
+        while (k < (array_length body)) {
+            this.add(code.id (EVGA11yRole.text()) (itemAt body k))
+            k = (k + 1)
+        }
+    }
+
+    sfn trimEnd:string (s:string) {
+        def e:int (strlen s)
+        while ((e > 0) && (((charAt s (e - 1)) == 10) || ((charAt s (e - 1)) == 32))) {
+            e = (e - 1)
+        }
+        return (substring s 0 e)
+    }
+
+    ; A chart: what kind, its title, and the numbers it draws as a table.
+    fn chart:void (n:MdNode parent:string) {
+        def m:PresChartModel (PresChartModel.fromSpec(n.literal))
+        def name:string ((PresI18n.t("Chart")) + " (" + (PresChartModel.kindLabel(m.kind)) + ")")
+        if ((strlen m.title) > 0) {
+            name = (name + ": " + m.title)
+        }
+        if ((m.ok == false) || ((array_length m.header) == 0)) {
+            def lone:EVGA11yNode (this.add(parent (EVGA11yRole.image()) (PresI18n.t("Chart"))))
+            if ((strlen m.title) > 0) {
+                lone.name = ((PresI18n.t("Chart")) + ": " + m.title)
+            }
+            return
+        }
+        def g:EVGA11yNode (this.add(parent (EVGA11yRole.table()) name))
+        g.roleDescription = (PresI18n.t("chart"))
+        g.rowCount = ((m.rows()) + 1)
+        g.colCount = (m.cols())
+        def head:EVGA11yNode (this.add(g.id (EVGA11yRole.row()) ""))
+        head.rowIndex = 1
+        def c:int 0
+        while (c < (m.cols())) {
+            def hc:EVGA11yNode (this.add(head.id (EVGA11yRole.columnHeader()) (itemAt m.header c)))
+            hc.colIndex = (c + 1)
+            c = (c + 1)
+        }
+        def r:int 0
+        while (r < (m.rows())) {
+            def rn:EVGA11yNode (this.add(g.id (EVGA11yRole.row()) ""))
+            rn.rowIndex = (r + 2)
+            def k:int 0
+            while (k < (m.cols())) {
+                def role:int (EVGA11yRole.tableCell())
+                if (k == 0) {
+                    role = (EVGA11yRole.rowHeader())
+                }
+                def cn:EVGA11yNode (this.add(rn.id role (m.cell(r k))))
+                cn.colIndex = (k + 1)
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; A diagram: its arrows ("A → B: label") and the boxes no arrow reaches.
+    fn diagram:void (n:MdNode parent:string) {
+        def found@(optional):PresDiagram (this.diagramAt(n))
+        def l:EVGA11yNode (this.add(parent (EVGA11yRole.list()) (PresI18n.t("Diagram"))))
+        if (null? found) {
+            return
+        }
+        def dia:PresDiagram (unwrap found)
+        def used:[int]
+        def e:int 0
+        while (e < (array_length dia.edges)) {
+            def edge:PresDEdge (itemAt dia.edges e)
+            def a:string (PresA11ySlide.nodeWords(dia edge.from))
+            def b:string (PresA11ySlide.nodeWords(dia edge.to))
+            if (((strlen a) > 0) || ((strlen b) > 0)) {
+                def line:string (a + " → " + b)
+                def lab:string (PresA11ySlide.itemWords(edge.labels))
+                if ((strlen lab) > 0) {
+                    line = (line + ": " + lab)
+                }
+                this.add(l.id (EVGA11yRole.listItem()) line)
+                push used edge.from
+                push used edge.to
+            }
+            e = (e + 1)
+        }
+        def i:int 0
+        while (i < (array_length dia.nodes)) {
+            def nd:PresDNode (itemAt dia.nodes i)
+            if ((indexOf used i) < 0) {
+                def wds:string (PresA11ySlide.nodeWords(dia i))
+                if ((strlen wds) > 0) {
+                    this.add(l.id (EVGA11yRole.listItem()) wds)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn diagramAt@(optional):PresDiagram (n:MdNode) {
+        def i:int 0
+        while (i < (array_length slide.diagrams)) {
+            def u:PresDiaUse (itemAt slide.diagrams i)
+            if ((u.srcStart >= n.srcStart) && (u.srcStart < n.srcEnd)) {
+                def hit@(optional):PresDiagram u.diagram
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):PresDiagram
+        return miss
+    }
+
+    sfn nodeWords:string (dia:PresDiagram i:int) {
+        if ((i < 0) || (i >= (array_length dia.nodes))) {
+            return ""
+        }
+        def nd:PresDNode (itemAt dia.nodes i)
+        return (PresA11ySlide.itemWords(nd.items))
+    }
+
+    sfn itemWords:string (items:[SceneItem]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SceneItem (itemAt items i)
+            def s:string (trim it.text)
+            if ((strlen s) > 0) {
+                push out s
+            }
+            i = (i + 1)
+        }
+        return (join out " ")
+    }
+}

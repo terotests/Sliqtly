@@ -69,6 +69,7 @@ Import "PresCodeViewUi.rgr"
 Import "PresSketchUi.rgr"
 Import "PresRoomView.rgr"
 Import "PresA11y.rgr"
+Import "PresA11ySlide.rgr"
 Import "PresSelect.rgr"
 Import "PresQuickBar.rgr"
 Import "../evgui/src/TabsCtl.rgr"
@@ -206,6 +207,8 @@ class PresApp {
     ; reorder and delete slides) | "chart" | ""
     def focus:string "editor"
     def blink:int 0
+    ; the caret's place, from the last paint (caretBox)
+    def caretAt:string ""
     def chromeRev:int 0
     def requests:[string]
 
@@ -1046,7 +1049,8 @@ class PresApp {
         def t:ScriptEditorTheme ed.theme
         t.bg = (EVGColor.rgb(255 255 255))
         t.gutterBg = (EVGColor.rgb(250 250 250))
-        t.gutterText = (EVGColor.rgb(161 161 170))
+        ; zinc-500: 4.6:1 on the gutter (zinc-400 was 2.4:1)
+        t.gutterText = (EVGColor.rgb(113 113 122))
         t.gutterActive = (EVGColor.rgb(63 63 70))
         t.currentLine = (EVGColor.rgb(244 244 245))
         t.selection = (EVGColor.rgba(59 130 246 0.22))
@@ -4983,10 +4987,17 @@ class PresApp {
                 ; under the bar of the file that is open
                 top = (PresPanels.filesBarH())
             }
-            editor.focused = (focus == "editor")
+            ; a control of the page has the keyboard (the bar, a slide): no
+            ; caret blinking in the text as if typing went there
+            editor.focused = ((focus == "editor") && ((strlen a11yFocus) == 0))
             editor.layout.showLineNumbers = (edRect.w >= 360.0)
             editor.setBounds((to_int edRect.x) (to_int (edRect.y + top)) (to_int edRect.w) (to_int (edRect.h - top)))
             editor.paint(dl tr blink)
+            ; where the caret is on the page: the hidden text field goes there,
+            ; so a screen magnifier follows the typing and an input method's
+            ; candidates open beside it, not in the page's corner
+            def cl:int editor.sel.caret.line
+            caretAt = ((to_string (editor.caretViewX(tr cl editor.sel.caret.col))) + "," + (to_string (editor.layout.caretPixelY(cl))) + "," + (to_string editor.layout.lineHeight))
         }
         return ("{\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -11689,6 +11700,10 @@ class PresApp {
 
     ; --- accessibility: the canvas as a tree the page mirrors into DOM ------------
     fn setA11yFocus:void (id:string) {
+        if (((strlen id) == 0) != ((strlen a11yFocus) == 0)) {
+            ; the editor's caret shows only while the keys are in it
+            chromeRev = (chromeRev + 1)
+        }
         a11yFocus = id
         ; a slide of the strip focused (a click, Tab, F6): its keys go there
         if (((indexOf id "thumb-") == 0) && (mode != "present")) {
@@ -11728,6 +11743,15 @@ class PresApp {
         t.generation = a11yGen
         def root:EVGA11yNode (t.group("app" "" appName))
         t.place(root 0 0 (to_int W) (to_int H))
+        ; the page's one top heading: the deck's name
+        def h1Name:string (trim (this.docTitle()))
+        if ((strlen h1Name) == 0) {
+            h1Name = appName
+        }
+        def h1:EVGA11yNode (t.node("app-title" "app" (EVGA11yRole.heading())))
+        h1.name = h1Name
+        h1.level = 1
+        t.place(h1 0 0 1 1)
         def n:int (deck.slideCount())
         def shown:int (this.slideShown())
         def title:string ""
@@ -11803,12 +11827,12 @@ class PresApp {
         def stage:EVGA11yNode (t.node("stage" "app" (EVGA11yRole.region())))
         stage.name = where
         t.place(stage (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) (to_int slideRect.h))
-        def lines:[string] (this.slideWords(shown))
-        def k:int 0
-        while (k < (array_length lines)) {
-            def ln:EVGA11yNode (t.label(("stage-" + (to_string k)) "stage" (itemAt lines k)))
-            t.place(ln (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) 1)
-            k = (k + 1)
+        ; the slide's headings, paragraphs, lists, tables and charts as
+        ; what they are, in the deck's language
+        stage.lang = (PresA11ySlide.langOf(deck))
+        if ((shown >= 0) && (shown < n)) {
+            def words (new PresA11ySlide(t deck (deck.slideAt(shown))))
+            words.addAll("stage" (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w))
         }
         ; A live sheet says what it is and how to get into it; the page puts
         ; the workbook (with a tree of its own) over the box once it is opened.
@@ -11870,12 +11894,154 @@ class PresApp {
                 PresA11y.addHost(t chart.host "chart")
             }
         }
+        this.a11yWorkAreas(t)
         def st:EVGA11yNode (t.statusRegion("announce" "app" where))
         t.place(st 0 0 1 1)
         if (t.has(a11yFocus)) {
             t.setFocus(a11yFocus)
         }
         return (t.toJson())
+    }
+
+    ; The comments, the find bar, the drawing tools and the timeline: each an
+    ; area of its own a reader can find and the keyboard reach (F6).
+    fn a11yWorkAreas:void (t:EVGA11yTree) {
+        if (review.on && (!null? review.host.lastPage)) {
+            def rv:EVGA11yNode (t.node("rv" "app" (EVGA11yRole.region())))
+            rv.name = (PresI18n.t("Comments"))
+            t.place(rv (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) (to_int slideRect.h))
+            def rp:EVGElement (unwrap review.host.lastPage)
+            if review.placing {
+                def hn:EVGA11yNode (t.label("rv-hint" "rv" (PresI18n.t("Click where the comment goes"))))
+                t.place(hn (to_int slideRect.x) (to_int slideRect.y) 1 1)
+                PresA11y.buttonAt(t rp "rv-cancel" "rv" (PresI18n.t("Cancel")))
+            } {
+                PresA11y.buttonAt(t rp "rv-add" "rv" (PresI18n.t("Add comment")))
+                def cnt:string ((to_string (review.model.openCount())) + " " + (PresI18n.t("open")))
+                PresA11y.buttonAt(t rp "rv-count" "rv" cnt)
+                PresA11y.buttonAt(t rp "rv-next" "rv" (PresI18n.t("Next")))
+            }
+            PresA11y.addHost(t review.host "rv")
+        }
+        if (mode == "present") {
+            return
+        }
+        if (find.isOpen && (!null? find.host.lastPage)) {
+            def fb:EVGA11yNode (t.node("fb" "app" (EVGA11yRole.region())))
+            fb.name = (PresI18n.t("Find"))
+            t.place(fb (to_int edRect.x) (to_int edRect.y) (to_int edRect.w) 1)
+            PresA11y.addHost(t find.host "fb")
+        }
+        if ((sketch.on || (sketch.menuOpen())) && (!null? sketch.host.lastPage)) {
+            def sk:EVGA11yNode (t.node("sk" "app" (EVGA11yRole.toolbar())))
+            sk.name = (PresI18n.t("Drawing tools"))
+            t.place(sk (to_int slideRect.x) (to_int slideRect.y) (to_int slideRect.w) 1)
+            PresA11y.addHost(t sketch.host "sk")
+        }
+        if ((trackRect.h > 0.0) && ((!null? chromeRoot) && ((deck.slideCount()) > 0))) {
+            this.a11yTimeline(t (unwrap chromeRoot))
+        }
+    }
+
+    ; The timeline under the stage: the slide's text, speech and animation,
+    ; each piece with when it comes and for how long.
+    fn a11yTimeline:void (t:EVGA11yTree page:EVGElement) {
+        if ((selected < 0) || (selected >= (deck.slideCount()))) {
+            return
+        }
+        def s:PresSlide (deck.slideAt(selected))
+        def tr:EVGA11yNode (t.node("tracks" "app" (EVGA11yRole.region())))
+        tr.name = (PresI18n.t("Timeline"))
+        tr.description = ((PresApp.secs((this.stageTime()))) + " / " + (PresApp.secs(s.duration)))
+        t.place(tr (to_int trackRect.x) (to_int trackRect.y) (to_int trackRect.w) (to_int trackRect.h))
+        def lanes:[string] ([] _:string ("Text" "Speech" "Animation"))
+        def k:int 0
+        while (k < 3) {
+            def ln:EVGA11yNode (t.node(("tracks-lane" + (to_string k)) "tracks" (EVGA11yRole.list())))
+            ln.name = (PresI18n.t((itemAt lanes k)))
+            def lel@(optional):EVGElement (PresA11y.find(page ("lane" + (to_string k))))
+            if (!null? lel) {
+                PresA11y.placeAt(ln (unwrap lel))
+            }
+            k = (k + 1)
+        }
+        def g:int 0
+        while (g < (array_length s.groups)) {
+            def gr:PresGroup (itemAt s.groups g)
+            def name:string gr.label
+            if (gr.step > 0) {
+                name = ((to_string gr.step) + ". " + name)
+            }
+            this.a11yClip(t page ("grp" + (to_string g)) "tracks-lane0" ((PresA11ySlide.trimEnd(name)) + ", " + (PresApp.secs(gr.at)) + " – " + (PresApp.secs((gr.at + gr.seconds)))))
+            g = (g + 1)
+        }
+        def audl@(optional):EVGElement (PresA11y.find(page "audl"))
+        if (!null? audl) {
+            def al:EVGElement (unwrap audl)
+            def aud@(optional):EVGElement (PresA11y.find(page "aud"))
+            if (!null? aud) {
+                PresA11y.buttonAt(t page "aud" "tracks-lane1" (PresA11y.wordsIn(al)))
+            } {
+                def an:EVGA11yNode (t.node("tracks-audl" "tracks-lane1" (EVGA11yRole.listItem())))
+                an.name = (PresA11y.wordsIn(al))
+                PresA11y.placeAt(an al)
+            }
+        }
+        def ts:double (PresTimeline.transitionSeconds(s))
+        if (ts > 0.0) {
+            this.a11yClip(t page "trn" "tracks-lane2" ((PresI18n.t("Transition")) + ": " + s.transition + ", " + (PresApp.secs(ts))))
+        }
+        def dg:int 0
+        while (dg < (array_length s.diagrams)) {
+            def du:PresDiaUse (itemAt s.diagrams dg)
+            def dl:string (PresI18n.t("diagram: draw"))
+            if du.diagram.tour {
+                dl = (PresI18n.t("diagram: draw + tour"))
+            }
+            this.a11yClip(t page ("dia" + (to_string dg)) "tracks-lane2" (dl + ", " + (PresApp.secs(du.start)) + " – " + (PresApp.secs((du.start + du.diagram.total)))))
+            dg = (dg + 1)
+        }
+        if ((strlen s.fx) > 0) {
+            this.a11yClip(t page "fxc" "tracks-lane2" ("fx: " + s.fx))
+        }
+    }
+
+    fn a11yClip:void (t:EVGA11yTree page:EVGElement id:string lane:string name:string) {
+        def el@(optional):EVGElement (PresA11y.find(page id))
+        if (null? el) {
+            return
+        }
+        def n:EVGA11yNode (t.node(("tracks-" + id) lane (EVGA11yRole.listItem())))
+        n.name = name
+        PresA11y.placeAt(n (unwrap el))
+    }
+
+    ; "+ Add comment" from the keyboard: with no pointer to say where it
+    ; goes, it goes on the element picked on the slide, or else on the
+    ; slide's first element (its title), and the keyboard is in the comment.
+    fn a11yAddComment:void () {
+        if (((selected < 0) || (selected >= (deck.slideCount()))) || ((deck.pageW <= 0.0) || (deck.pageH <= 0.0))) {
+            return
+        }
+        def fx:double 0.5
+        def fy:double 0.5
+        if ((pick.on && (pick.page == selected)) && ((pick.w > 0.0) && (pick.h > 0.0))) {
+            def at:[double] (PresQuickBar.commentSpot(pick.x pick.y pick.w pick.h deck.pageW deck.pageH))
+            fx = (itemAt at 0)
+            fy = (itemAt at 1)
+        } {
+            def found:boolean false
+            for reviewBlocks b:PresReviewBlock bi {
+                if ((found == false) && ((b.page == selected) && ((b.w > 0.0) && (b.h > 0.0)))) {
+                    fx = (b.x + (b.w * 0.5))
+                    fy = (b.y + (b.h * 0.5))
+                    found = true
+                }
+            }
+        }
+        review.placing = false
+        review.startDraft(selected fx fy)
+        chromeRev = (chromeRev + 1)
     }
 
     ; The open presentations' row: a tab list, each tab with its close button.
@@ -11933,54 +12099,6 @@ class PresApp {
         n.actActivate = true
         n.selected = (v == stageView)
         PresA11y.placeAt(n (unwrap el))
-    }
-
-    ; The slide's words for a reader: its source without the notes, the
-    ; attribute blocks and the insides of fenced blocks.
-    fn slideWords:[string] (i:int) {
-        def out:[string]
-        if ((i < 0) || (i >= (deck.slideCount()))) {
-            return out
-        }
-        def s:PresSlide (deck.slideAt(i))
-        def src:string deck.text
-        if (((s.srcStart < 0) || (s.srcEnd <= s.srcStart)) || (s.srcEnd > (strlen src))) {
-            push out s.title
-            return out
-        }
-        def lines:[string] (strsplit (substring src s.srcStart s.srcEnd) (strfromcode 10))
-        def inNotes:boolean false
-        def inFence:boolean false
-        def k:int 0
-        while (k < (array_length lines)) {
-            def l:string (trim (itemAt lines k))
-            if ((indexOf l "```") == 0) {
-                if (inFence == false) {
-                    push out (PresI18n.t("[chart or code]"))
-                }
-                inFence = (inFence == false)
-            } {
-                if ((indexOf l ":::") == 0) {
-                    inNotes = ((indexOf l "notes") > 0)
-                } {
-                    if (((inNotes == false) && (inFence == false)) && ((strlen l) > 0)) {
-                        def w:string l
-                        while ((indexOf w "#") == 0) {
-                            w = (trim (substring w 1 (strlen w)))
-                        }
-                        def brace:int (indexOf w "{")
-                        if (brace >= 0) {
-                            w = (trim (substring w 0 brace))
-                        }
-                        if ((strlen w) > 0) {
-                            push out w
-                        }
-                    }
-                }
-            }
-            k = (k + 1)
-        }
-        return out
     }
 
     ; A slider moved from the keyboard: `delta` steps.
@@ -15427,6 +15545,14 @@ class PresApp {
         return (editor.buf.lineAt(editor.sel.caret.line))
     }
 
+    ; "x,y,h" of the editor's caret in app pixels, "" while no editor shows
+    fn caretBox:string () {
+        if ((mode != "edit") || ((edRect.w <= 0.0) || (edTab == "view"))) {
+            return ""
+        }
+        return caretAt
+    }
+
     fn caretCol:int () {
         return editor.sel.caret.col
     }
@@ -15458,6 +15584,16 @@ class PresApp {
             return
         }
         focus = where
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The viewer asked for less motion (prefers-reduced-motion): builds,
+    ; transitions, charts and diagrams fade in where they end (PresDeck.calm).
+    fn setCalm:void (on:boolean) {
+        if (deck.calm == on) {
+            return
+        }
+        deck.calm = on
         chromeRev = (chromeRev + 1)
     }
 

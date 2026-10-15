@@ -1848,5 +1848,15 @@
   "Assistants (MCP) do not see it at all: it is in none of their lists, and to them it is not there.": "Avustajat (MCP) eivät näe sitä lainkaan: se ei ole niiden listoilla, eikä sitä niille ole olemassa.",
   "Assistants (MCP) change it; people view it and comment. Its settings stay yours to change.": "Avustajat (MCP) muuttavat sitä; ihmiset katsovat ja kommentoivat. Asetukset pysyvät sinun muutettavinasi.",
   "Not changed: only the presentation's owner sets who works on it.": "Ei muutettu: vain esityksen omistaja päättää, kuka sitä työstää.",
-  "Assistants only: people view this presentation. Its owner changes that in Document settings.": "Vain avustajat: ihmiset katsovat tätä esitystä. Omistaja muuttaa sen Asiakirjan asetuksista."
+  "Assistants only: people view this presentation. Its owner changes that in Document settings.": "Vain avustajat: ihmiset katsovat tätä esitystä. Omistaja muuttaa sen Asiakirjan asetuksista.",
+  "Formula": "Kaava",
+  "Picture": "Kuva",
+  "A program": "Ohjelma",
+  "Drawing tools": "Piirtotyökalut",
+  "Timeline": "Aikajana",
+  "Line ": "Rivi ",
+  "empty": "tyhjä",
+  "Menu": "Valikko",
+  "Enter sends it, Esc cancels.": "Enter lähettää, Esc peruu.",
+  "Enter finds the next one, Esc closes.": "Enter etsii seuraavan, Esc sulkee."
 }

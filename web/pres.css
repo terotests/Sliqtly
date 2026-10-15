@@ -37,7 +37,7 @@
 .track-time { color: var(--ink-dim); font-size: 12px; height: 16px; }
 .track-name { color: var(--ink-dim); font-size: 11px; height: 14px; }
 .lane { background-color: var(--panel-2); border-radius: 4px; }
-.lane-hint { color: var(--ink-mute); font-size: 11px; height: 14px; }
+.lane-hint { color: var(--ink-dim); font-size: 11px; height: 14px; }
 .clip { border-radius: 4px; }
 .clip-text { background-color: var(--text-clip); }
 .clip-audio { background-color: var(--audio-clip); }

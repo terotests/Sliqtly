@@ -74,6 +74,7 @@ Import "PresForm.rgr"
 Import "PresDeckSize.rgr"
 Import "PresFormHtml.rgr"
 Import "PresAi.rgr"
+Import "PresA11ySlide.rgr"
 Import "../docx_viewer/src/WordMlParser.rgr"
 
 class PresCheck {
@@ -8950,6 +8951,78 @@ class PresCheck {
         this.ok(((indexOf rep "cases=2") > 0) "flight bench: the report's summary line")
     }
 
+    ; A slide's words for a reader: headings, lists, tables and charts as
+    ; what they are, not the source lines.
+    fn a11ySlide:void () {
+        def text:string ("---\nlang: fi\n---\n\n# Myynti {fx=none}\n\nKasvu jatkui.\n\n- yksi\n- kaksi\n  - sisempi\n\n"
+            + "| Nimi | Määrä |\n| --- | ---: |\n| omena | 3 |\n\n# Kaavio\n\n"
+            + "```vega-lite\n{\"title\": \"Kvartaalit\", \"data\": {\"values\": [{\"q\": \"Q1\", \"v\": 4}, {\"q\": \"Q2\", \"v\": 7}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"q\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n\n"
+            + "# Kuva\n\n```mermaid\nflowchart LR\n  A[Idea] -->|testi| B[Tuote]\n```\n\n"
+            + "![Logo](logo.png)\n\n::: notes\nPuhujan muistiinpano\n:::\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        ; whichever slides the blocks fell on, all of them
+        def js:string ""
+        def si:int 0
+        while (si < (deck.slideCount())) {
+            def t (new EVGA11yTree())
+            t.group("app" "" "app")
+            t.node("stage" "app" (EVGA11yRole.region()))
+            def w (new PresA11ySlide(t deck (deck.slideAt(si))))
+            w.addAll("stage" 0 0 100)
+            js = (js + (t.toJson()))
+            si = (si + 1)
+        }
+        this.ok(((PresA11ySlide.langOf(deck)) == "fi") "a11y slide: the deck's language")
+        this.ok(((indexOf js "\"name\":\"Myynti\"") >= 0) ("a11y slide: the title, without its attributes: " + js))
+        this.ok(((indexOf js "\"level\":2") >= 0) "a11y slide: the heading a level under the page's")
+        this.ok(((indexOf js "\"role\":\"paragraph\"") >= 0) "a11y slide: a paragraph")
+        this.ok(((indexOf js "\"name\":\"sisempi\"") >= 0) "a11y slide: the nested item")
+        this.ok(((indexOf js "\"name\":\"kaksi\"") >= 0) "a11y slide: an item by its own words")
+        this.ok(((indexOf js "\"name\":\"Nimi\"") >= 0) "a11y slide: the table's header")
+        this.ok(((indexOf js "Kvartaalit") >= 0) "a11y slide: the chart's title")
+        this.ok((((indexOf js "\"name\":\"Q2\"") >= 0) && ((indexOf js "\"name\":\"7\"") >= 0)) ("a11y slide: the chart's data as a table: " + js))
+        this.ok(((indexOf js "Idea → Tuote: testi") >= 0) ("a11y slide: the diagram's arrow: " + js))
+        this.ok(((indexOf js "\"name\":\"Logo\"") >= 0) "a11y slide: the picture by its alt text")
+        this.ok(((indexOf js "Puhujan") < 0) "a11y slide: the notes are not on the slide")
+        this.ok((((indexOf js "```") < 0) && ((indexOf js "| ---") < 0)) "a11y slide: no source")
+    }
+
+    ; Less motion asked for: a slide that would slide in fades in where it
+    ; ends, and a build that would rise comes in place.
+    fn calmMotion:void () {
+        def deck (new PresDeck())
+        deck.setText("# Eka\n\nJohdanto\n\n# Toka {transition=slide seconds=1}\n\n- yksi {anim=rise}\n- kaksi\n")
+        def secs:double (PresTimeline.transitionSeconds((deck.slideAt(1))))
+        this.ok((secs > 0.0) "calm: the second slide has a transition")
+        def moving:EVGDisplayList (PresTimeline.frame(deck 1 (secs * 0.5)))
+        deck.calm = true
+        def calm:EVGDisplayList (PresTimeline.frame(deck 1 (secs * 0.5)))
+        def farM:double 0.0
+        def farC:double 0.0
+        for moving.cmds c:EVGDrawCmd i {
+            if (c.x < farM) {
+                farM = c.x
+            }
+        }
+        for calm.cmds c2:EVGDrawCmd j {
+            if (c2.x < farC) {
+                farC = c2.x
+            }
+        }
+        this.ok((farM < (0.0 - (deck.pageW * 0.3))) ("calm: without it the slide before slides off to the side, x " + (to_string farM)))
+        this.ok((farC > -1.0) ("calm: with it nothing moves to the side, x " + (to_string farC)))
+        def g:PresGroup (new PresGroup())
+        g.at = 0.0
+        g.seconds = 1.0
+        g.anim = "rise"
+        def p (new PresPose())
+        PresTimeline.groupPose(g 0.5 p)
+        this.ok((p.dy > 0.0) "calm: a rise moves without it")
+        PresTimeline.calmPose(p p.alpha)
+        this.ok(((p.dy == 0.0) && ((p.alpha > 0.0) && (p.alpha < 1.0))) "calm: in place, still fading in")
+    }
+
     sfn main:void () {
         def c (new PresCheck())
         c.run()
@@ -8991,6 +9064,8 @@ class PresCheck {
         c.recording()
         c.video()
         c.docx()
+        c.a11ySlide()
+        c.calmMotion()
         c.htmlPage()
         c.docFlow()
         c.docView()
