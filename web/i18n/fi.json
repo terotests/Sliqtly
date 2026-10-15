@@ -1823,5 +1823,16 @@
   "exporting": "vie ulos",
   "working": "työssä",
   "idle": "odottaa",
-  "No agents working": "Ei agentteja työssä"
+  "No agents working": "Ei agentteja työssä",
+  "Who works on it": "Kuka työstää",
+  "Mixed: people and assistants": "Yhteinen: ihmiset ja avustajat",
+  "Humans only: assistants read": "Vain ihmiset: avustajat lukevat",
+  "Humans only: hidden from assistants": "Vain ihmiset: piilossa avustajilta",
+  "Assistants only: people view": "Vain avustajat: ihmiset katsovat",
+  "People and assistants (MCP) read and change it.": "Ihmiset ja avustajat (MCP) lukevat ja muuttavat sitä.",
+  "Assistants (MCP) read it and change nothing: no edits, comments or session entries.": "Avustajat (MCP) lukevat sitä eivätkä muuta mitään: ei muokkauksia, kommentteja eikä istuntomerkintöjä.",
+  "Assistants (MCP) do not see it at all: it is in none of their lists, and to them it is not there.": "Avustajat (MCP) eivät näe sitä lainkaan: se ei ole niiden listoilla, eikä sitä niille ole olemassa.",
+  "Assistants (MCP) change it; people view it and comment. Its settings stay yours to change.": "Avustajat (MCP) muuttavat sitä; ihmiset katsovat ja kommentoivat. Asetukset pysyvät sinun muutettavinasi.",
+  "Not changed: only the presentation's owner sets who works on it.": "Ei muutettu: vain esityksen omistaja päättää, kuka sitä työstää.",
+  "Assistants only: people view this presentation. Its owner changes that in Document settings.": "Vain avustajat: ihmiset katsovat tätä esitystä. Omistaja muuttaa sen Asiakirjan asetuksista."
 }

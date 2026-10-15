@@ -22,6 +22,9 @@ type Principal struct {
 	// Rooms is what p may do in each room, read at the start of the
 	// request (Rooms.Access): RoomPolicy decides from it
 	Rooms map[string]Role
+	// Agent: an assistant (MCP) works for the user; a Story's agent
+	// access (agents.go) holds for it, RoomPolicy decides from it
+	Agent bool
 }
 
 func (p Principal) HasRole(r string) bool {

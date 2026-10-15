@@ -6,6 +6,7 @@
 ; The same lists as web/stories.js (STORY_TYPES, STORY_PHASES) and
 ; mcp-go/store/story.go: a story menu (PresToolbar) and Document settings
 ; (PresChartEditor) offer them by these names, in the reader's language.
+; Also who works on a presentation (mcp-go/store/agents.go).
 ; ============================================================================
 
 Import "PresI18n.rgr"
@@ -47,6 +48,38 @@ class PresStoryNames {
             i = (i + 1)
         }
         return phase
+    }
+
+    ; who works on a presentation (mcp-go/store/agents.go AgentModes)
+    sfn agentModes:[string] () {
+        return (strsplit "mixed,read,hidden,only" ",")
+    }
+
+    sfn agentName:string (access:string) {
+        if (access == "read") {
+            return (PresI18n.t("Humans only: assistants read"))
+        }
+        if (access == "hidden") {
+            return (PresI18n.t("Humans only: hidden from assistants"))
+        }
+        if (access == "only") {
+            return (PresI18n.t("Assistants only: people view"))
+        }
+        return (PresI18n.t("Mixed: people and assistants"))
+    }
+
+    ; what the mode means, under its menu
+    sfn agentAbout:string (access:string) {
+        if (access == "read") {
+            return (PresI18n.t("Assistants (MCP) read it and change nothing: no edits, comments or session entries."))
+        }
+        if (access == "hidden") {
+            return (PresI18n.t("Assistants (MCP) do not see it at all: it is in none of their lists, and to them it is not there."))
+        }
+        if (access == "only") {
+            return (PresI18n.t("Assistants (MCP) change it; people view it and comment. Its settings stay yours to change."))
+        }
+        return (PresI18n.t("People and assistants (MCP) read and change it."))
     }
 
 }

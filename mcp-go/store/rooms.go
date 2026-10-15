@@ -371,6 +371,9 @@ func (rs Rooms) Remove(ctx context.Context, p Principal, room string, cols ...st
 // tenant only. A document moved between rooms needs Editor in both. The
 // rooms themselves are read by whoever has a role in them, and changed
 // only through Rooms. A collection not in Cols is not readable at all.
+// A Story's agent access (agents.go) holds on top: an assistant
+// (Principal.Agent) neither reads a hidden one nor changes a humans only
+// one, a person does not change an agents only one's content.
 type RoomPolicy struct {
 	Cols map[string]bool
 }
@@ -406,7 +409,7 @@ func (pol RoomPolicy) CanRead(p Principal, col, id string, d Doc) bool {
 	if col == RoomsCol {
 		return d != nil && d["tenant"] == p.TenantID && p.Rooms[id].AtLeast(Viewer)
 	}
-	return pol.Cols[col] && pol.role(p, d).AtLeast(Viewer)
+	return pol.Cols[col] && pol.role(p, d).AtLeast(Viewer) && (!p.Agent || AgentsSee(d))
 }
 
 func (pol RoomPolicy) CanWrite(p Principal, col, _ string, old, next Doc) bool {
@@ -416,7 +419,14 @@ func (pol RoomPolicy) CanWrite(p Principal, col, _ string, old, next Doc) bool {
 	if old != nil && !pol.role(p, old).AtLeast(Editor) {
 		return false
 	}
-	return next == nil || pol.role(p, next).AtLeast(Editor)
+	if next != nil && !pol.role(p, next).AtLeast(Editor) {
+		return false
+	}
+	// a Story's agent access: who of people and assistants changes it
+	if p.Agent {
+		return AgentMayWrite(old, next)
+	}
+	return HumanMayWrite(old, next)
 }
 
 // RoomItem is a room as List gives it: with p's role in it.

@@ -118,6 +118,12 @@ async function loadShare(id) {
   return api("GET", "/api/shares/" + id);
 }
 
+// Who works on share `id` (mcp-go/store/agents.go): "mixed", "read",
+// "hidden" or "only"
+async function setAgents(id, agents) {
+  return api("POST", "/api/rooms/set_agents", { deck_id: id, agents });
+}
+
 async function listMine() {
   return (await api("GET", "/api/shares")) || [];
 }
@@ -256,7 +262,7 @@ async function serverVersion() {
 // publishing to the cloud (Export ▸ Cloud HTML, Cloud video) here; links:
 // the same two as this server's own links (/r/{link}/{hash}, viewLink)
 window.sliqtly = {
-  local: true, links: true, viewLink, removeFileLinks, listPublished, removeShareFile, auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, listMine, readSheet,
+  local: true, links: true, viewLink, removeFileLinks, listPublished, removeShareFile, auth, user: () => user, signedIn, share, saveShare, deleteShare, loadShare, setAgents, listMine, readSheet,
   putObject, getObject, pushHead, readHead, collab, serverVersion,
   sheetsToken: () => null, askSheets: async () => null, sheetName: () => null,
 };

@@ -41,6 +41,19 @@ await ok(updateDoc(doc(FS(u1), "shares/priv"), { visibility: "link" }));
 await ok(g(u2, "priv"));
 await no(updateDoc(doc(FS(u2), "shares/priv"), { visibility: "private" }));
 await ok(updateDoc(doc(FS(u1), "shares/old"), { md: "# changed" }));
+// who works on the Story (agents): its owner sets it without a license;
+// on an agents only one people change its settings, not its content
+await ok(updateDoc(doc(FS(u1), "shares/open"), { agents: "only" }));
+await no(updateDoc(doc(FS(u1), "shares/open"), { md: "# by a person" }));
+await no(uploadBytes(ref(ST(u1), "shares/open/media/b.png"), new Uint8Array([1]), { contentType: "image/png" }));
+await ok(uploadBytes(ref(ST(u1), "shares/open/review/comments.json"), new Uint8Array([123, 125]), { contentType: "application/json" }));
+await no(updateDoc(doc(FS(u2), "shares/open"), { agents: "mixed" }));
+await no(updateDoc(doc(FS(u1), "shares/open"), { agents: "everyone" }));
+await ok(updateDoc(doc(FS(u1), "shares/open"), { agents: "mixed" }));
+await ok(updateDoc(doc(FS(u1), "shares/open"), { md: "# by a person" }));
+await ok(uploadBytes(ref(ST(u1), "shares/open/media/b.png"), new Uint8Array([1]), { contentType: "image/png" }));
+await ok(setDoc(doc(FS(u1), "shares/new3"), { owner: "u1", md: "", visibility: "link", agents: "hidden" }));
+await no(setDoc(doc(FS(u1), "shares/new4"), { owner: "u1", md: "", visibility: "link", agents: "x" }));
 // viewing links (links/): a term of 1 to 30 days from the server's time
 const link = (c, id, v) => setDoc(doc(FS(c), "links/" + id), { of: "priv", owner: "u1", created: serverTimestamp(), since: serverTimestamp(), ...v });
 await ok(link(u1, "lnk7", { days: 7 }));

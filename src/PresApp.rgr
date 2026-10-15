@@ -12670,6 +12670,13 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; Who works on the open presentation, people or assistants, for
+    ; Document settings (PresChartEditor setDocAgents)
+    fn setDocAgents:void (on:boolean access:string) {
+        chart.setDocAgents(on access)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; The rooms for the open Document settings window (PresChartEditor
     ; setDocRooms); nothing when it is not open.
     fn setDocRooms:void (rows:string current:string note:string) {
