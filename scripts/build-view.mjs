@@ -29,7 +29,7 @@
  *                to the first; sign-in for the MCP server is the second)
  *   main/admin.html, admin.js  the owner's dashboard at /main/admin
  *                (numbers only for the accounts mcp-go/admin.go lets in)
- *   web/1.html, web/2.html   trial front pages at /web/1 and /web/2 (web/alt/),
+ *   web/1.html, web/2.html, web/3.html  trial front pages at /web/1../web/3 (web/alt/),
  *                linked from nowhere and not indexed
  *   web/use-cases.html, web/use-cases/   the use cases page they link to, with
  *                pictures of its example decks (web/alt/use-cases/)
@@ -46,7 +46,7 @@ export const viewDir = path.join(webDir, "dist-view");
 // everything the viewer's modules may import, and nothing more: a module
 // that imports anything else fails the build (below)
 const MODULES = [["view.js", "view.js"], ["viewlink.js", "viewlink.js"], ["viewload.js", "viewload.js"], ["slidetext.js", "slidetext.js"], ["viewauth.js", "viewauth.js"], ["picture.js", "picture.js"], ["image-adjust.js", "image-adjust.js"], ["brand.js", "brand.js"], ["book.js", "book.js"], ["bookgl.js", "bookgl.js"], ["bookturn.js", "bookturn.js"], ["admin.js", "admin.js"], ["viewplay.js", "viewplay.js"], ["apps.js", "apps.js"], ["apps-runtime.js", "apps-runtime.js"], ["sound.js", "sound.js"], ["script-runtime.js", "script-runtime.js"], ["sprite-runtime.js", "sprite-runtime.js"], ["presenter-runtime.js", "presenter-runtime.js"], ["cerxes-worker.js", "cerxes-worker.js"], ["fxdeck.js", "fxdeck.js"], ["play.js", "play.js"], ["playlink.js", "playlink.js"], ["recstream.js", "recstream.js"], ["three3d.js", "three3d.js"], ["sitescript.js", "sitescript.js"], ["flight3d.js", "flight3d.js"], ["playflight.js", "playflight.js"]];
-const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"], ["alt/1.html", "web/1.html"], ["alt/2.html", "web/2.html"], ["alt/use-cases.html", "web/use-cases.html"]];
+const PAGES = [["view.html", "index.html"], ["connect.html", "connect.html"], ["oauth.html", "oauth.html"], ["local.html", "local.html"], ["admin.html", "main/admin.html"], ["play.html", "play.html"], ["alt/1.html", "web/1.html"], ["alt/2.html", "web/2.html"], ["alt/3.html", "web/3.html"], ["alt/use-cases.html", "web/use-cases.html"]];
 
 function files(dir) {
   return fs.readdirSync(dir, { recursive: true })
