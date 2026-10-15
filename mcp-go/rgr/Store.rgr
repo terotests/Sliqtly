@@ -512,6 +512,7 @@ class Store {
     }
 
     ; the user's shares, newest first, at most 50
+    ; all of uid's decks, newest first (list_presentations pages them)
     sfn list:[MfJ] (host:McpHost uid:string) {
         def all:MfJ (J.parse((host_query_eq host "shares" "owner" uid)))
         def docs:[MfJ]
@@ -538,13 +539,7 @@ class Store {
             set docs (b + 1) cur
             a = (a + 1)
         }
-        def out:[MfJ]
-        for docs d2:MfJ j {
-            if (j < 50) {
-                push out d2
-            }
-        }
-        return out
+        return docs
     }
 
     ; when the deck was made, in ms: "created", or for a deck from before
