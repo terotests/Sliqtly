@@ -1,14 +1,14 @@
 # Homebrew tap for Sliqtly
 
-Sliqtly Personal for macOS: the MCP server your AI agent writes
-presentations through, and a viewer that plays them in your browser.
+Sliqtly Personal for macOS, the full install: the MCP server your AI agent
+writes presentations through, and the editor and player in your browser.
 
 ```sh
 brew install terotests/sliqtly/sliqtly
 brew services start sliqtly
 ```
 
-Then open http://localhost:8080/ and connect your agent to
+Then open http://localhost:8080/ (the editor) and connect your agent to
 `http://localhost:8080/mcp`. Settings, networks, ports and firewalls:
 https://sliqtly.com/local.html
 

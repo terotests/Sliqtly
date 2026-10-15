@@ -16,7 +16,7 @@ print(f'''# Written by .github/workflows/update.yml from
 # https://firebasestorage.googleapis.com/v0/b/sliqtly.firebasestorage.app/o/downloads%2Fpersonal%2Flatest.json?alt=media
 # Do not edit by hand.
 class Sliqtly < Formula
-  desc "MCP server and presentation viewer: your AI agent makes slides"
+  desc "MCP server, editor and player: your AI agent makes slides"
   homepage "https://sliqtly.com/local.html"
   version "{v}"
   # Sliqtly Personal License: free for personal use and qualifying solo
@@ -74,7 +74,8 @@ class Sliqtly < Formula
     <<~EOS
       Start it, now and at every login:
         brew services start sliqtly
-      Then open http://localhost:8080/ and connect your agent to
+      Then open http://localhost:8080/ (the editor; the presentations are
+      at http://localhost:8080/decks) and connect your agent to
       http://localhost:8080/mcp (https://sliqtly.com/local.html).
       Settings (port, who can connect): #{{etc}}/sliqtly/sliqtly.env
       License: #{{opt_prefix}}/LICENSE
