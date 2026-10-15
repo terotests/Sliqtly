@@ -1631,6 +1631,8 @@ class PresApp {
             placed.addCmd((PresScriptApply.copyCmd((itemAt l.cmds i))))
             i = (i + 1)
         }
+        this.docPeersInto(placed sc)
+        this.docPicInto(placed sc)
         this.docCaretInto(placed sc)
         placed.scaleBy(sc)
         placed.offsetBy((edDocPane.left(dw)) (edDocPane.top(dw)))
@@ -1734,6 +1736,10 @@ class PresApp {
     ; there. The page is drawn again from the text (docView.rev), never the
     ; other way round. Where the page shows each character: PresDocCaret.
     def docDrag:boolean false
+    ; the picture picked on the page (its offset in the text, -1 none), and
+    ; whether its handles are being dragged (imgDrag, in page units)
+    def docPic:int -1
+    def docPicDrag:boolean false
     ; the x Up and Down aim at (page units), kept across a run of them
     def docWantX:double -1.0
 
@@ -1854,7 +1860,7 @@ class PresApp {
         if ((this.docEditing()) == false) {
             return
         }
-        if ((focus != "editor") || ((mdEditor.anchorOffset()) != (mdEditor.caretOffset()))) {
+        if (((focus != "editor") || ((mdEditor.anchorOffset()) != (mdEditor.caretOffset()))) || (docPic >= 0)) {
             return
         }
         def c:[double] (this.docCaretAt((mdEditor.caretOffset())))
@@ -1873,6 +1879,11 @@ class PresApp {
         docWantX = -1.0
         def px:double (this.docPageX(x))
         def py:double (this.docPageY(y))
+        if (this.docPicPress(px py clicks)) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        docPic = -1
         def it:int (docView.flow.itemAt(py))
         if (it >= 0) {
             def item:PresDocItem (itemAt docView.flow.items it)
@@ -1919,6 +1930,221 @@ class PresApp {
     }
 
     ; The editor of a block the page draws as its slide does.
+    ; --- a picture on the page ------------------------------------------------
+    ; A press on a picture picks it; on its outline it starts a resize (a
+    ; side or a corner: `width=N%` of the column), inside it a move (where
+    ; it sits: `align=`), written when let go (PresImageDrag, as on the
+    ; slide). A double click opens its settings.
+    fn docPicPress:boolean (px:double py:double clicks:int) {
+        def cm:PresDocCaret docView.caret
+        def sc:double (edDocPane.scale((docView.width())))
+        def grip:double (6.0 / sc)
+        def pi:int (cm.picAt(px py (? (docPic >= 0) grip 0.0)))
+        if (pi < 0) {
+            return false
+        }
+        def src:int (cm.picSrc(pi))
+        if (clicks >= 2) {
+            docPic = src
+            this.docOpenBlock(src)
+            return true
+        }
+        docPic = src
+        def z:string (this.docPicZone(px py))
+        if ((strlen z) == 0) {
+            z = "move"
+        }
+        this.posOf((mdEditor.text()) src)
+        def m:PresImageModel (this.imageModelAt(posLine))
+        if ((m.ok()) == false) {
+            return true
+        }
+        def r:[double] (cm.picRect(pi))
+        ; where the page shows it (the page's column is not the slide's, nor
+        ; always its alignment): the edge pressed follows the pointer
+        def cX:double (docView.flow.colX())
+        def cW:double (docView.flow.colW())
+        def place:string (PresImageDrag.alignAt(((itemAt r 0) + ((itemAt r 2) * 0.5)) cX cW))
+        imgDrag.slop = (4.0 / sc)
+        imgDrag.begin(z (itemAt r 0) (itemAt r 1) (itemAt r 2) (itemAt r 3) cX cW 100000.0 place px py)
+        docPicDrag = true
+        return true
+    }
+
+    ; The handle of the picked picture under a page point: a side or a
+    ; corner (the top and the bottom move it: the page has no height to
+    ; give a share of), "move" inside it, "" off it.
+    fn docPicZone:string (px:double py:double) {
+        def cm:PresDocCaret docView.caret
+        def pi:int (cm.picOf(docPic))
+        if (pi < 0) {
+            return ""
+        }
+        def r:[double] (cm.picRect(pi))
+        def sc:double (edDocPane.scale((docView.width())))
+        def z:string (PresImageDrag.zoneAt((itemAt r 0) (itemAt r 1) (itemAt r 2) (itemAt r 3) px py (6.0 / sc)))
+        if ((z == "t") || (z == "b")) {
+            return "move"
+        }
+        return z
+    }
+
+    fn docPicDrop:void () {
+        if ((imgDrag.active()) == false) {
+            return
+        }
+        if (imgDrag.moved == false) {
+            imgDrag.cancel()
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        if ((this.mayEdit()) == false) {
+            imgDrag.cancel()
+            return
+        }
+        this.posOf((mdEditor.text()) docPic)
+        def line:int posLine
+        def m:PresImageModel (this.imageModelAt(line))
+        def changed:boolean ((m.ok()) && (imgDrag.apply(m)))
+        imgDrag.cancel()
+        if (changed == false) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        this.replaceLines(m.line last (m.markdown()))
+        this.edDocEnsure()
+        ; the same picture picked again (its line starts where it did)
+        def at:int (this.offsetOf(line 0))
+        def again:int (docView.caret.picOf(at))
+        docPic = (? (again >= 0) at -1)
+        if (docPic < 0) {
+            ; the picture's box starts inside its line: the one there
+            def lineEnd:int (at + (strlen (mdEditor.buf.lineAt(line))))
+            def k:int 0
+            while (k < (array_length docView.caret.pics)) {
+                def ps:int (docView.caret.picSrc(k))
+                if ((ps >= at) && (ps <= lineEnd)) {
+                    docPic = ps
+                }
+                k = (k + 1)
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn docPicRemove:void () {
+        if ((this.mayEdit()) == false) {
+            return
+        }
+        this.posOf((mdEditor.text()) docPic)
+        def m:PresImageModel (this.imageModelAt(posLine))
+        docPic = -1
+        if ((m.ok()) == false) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        def last:int m.line
+        if (m.attrLine >= 0) {
+            last = m.attrLine
+        }
+        def n:int (mdEditor.buf.lineCount())
+        def blankBefore:boolean ((m.line == 0) || ((strlen (trim (mdEditor.buf.lineAt((m.line - 1))))) == 0))
+        if ((blankBefore && ((last + 1) < n)) && ((strlen (trim (mdEditor.buf.lineAt((last + 1))))) == 0)) {
+            last = (last + 1)
+        }
+        this.replaceLines(m.line last "")
+        this.docReveal()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The picked picture's outline and handles, and while a handle is
+    ; dragged the box it would get (page units; `sc` keeps lines 1.5 px).
+    fn docPicInto:void (placed:EVGDisplayList sc:double) {
+        if (((this.docEditing()) == false) || (docPic < 0)) {
+            return
+        }
+        def pi:int (docView.caret.picOf(docPic))
+        if (pi < 0) {
+            return
+        }
+        def r:[double] (docView.caret.picRect(pi))
+        def blue:EVGColor (EVGColor.parse("#1f6feb"))
+        PresApp.outline(placed (itemAt r 0) (itemAt r 1) (itemAt r 2) (itemAt r 3) (1.5 / sc) blue)
+        def hs:double (8.0 / sc)
+        def xs:[double] ([] _:double ((itemAt r 0) ((itemAt r 0) + ((itemAt r 2) * 0.5)) ((itemAt r 0) + (itemAt r 2))))
+        def ys:[double] ([] _:double ((itemAt r 1) ((itemAt r 1) + ((itemAt r 3) * 0.5)) ((itemAt r 1) + (itemAt r 3))))
+        def white:EVGColor (EVGColor.parse("#ffffff"))
+        def inset:double (1.5 / sc)
+        def i:int 0
+        while (i < 3) {
+            ; the corners and the two sides: the handles that resize
+            if (i != 1) {
+                def j:int 0
+                while (j < 3) {
+                    def hx:double ((itemAt xs i) - (hs * 0.5))
+                    def hy:double ((itemAt ys j) - (hs * 0.5))
+                    placed.addRect(hx hy hs hs blue)
+                    placed.addRect((hx + inset) (hy + inset) (hs - (inset * 2.0)) (hs - (inset * 2.0)) white)
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((imgDrag.active()) && imgDrag.moved) {
+            PresApp.outline(placed imgDrag.x imgDrag.y imgDrag.w imgDrag.h (1.5 / sc) (EVGColor.rgba(31 111 235 0.8)))
+            placed.addRect(imgDrag.x imgDrag.y imgDrag.w imgDrag.h (EVGColor.rgba(31 111 235 0.12)))
+        }
+    }
+
+    sfn outline:void (dl:EVGDisplayList x:double y:double w:double h:double t:double c:EVGColor) {
+        dl.addRect(x y w t c)
+        dl.addRect(x ((y + h) - t) w t c)
+        dl.addRect(x y t h c)
+        dl.addRect(((x + w) - t) y t h c)
+    }
+
+    ; --- the others' carets on the page ------------------------------------------
+    ; Each one editing with us (mdEditor.peers, the same carets the
+    ; Markdown tab shows) where the page shows its offset: its selection
+    ; tinted in its colour, its caret and its name.
+    fn docPeersInto:void (placed:EVGDisplayList sc:double) {
+        def i:int 0
+        while (i < (array_length mdEditor.peers)) {
+            def p:EditorPeer (itemAt mdEditor.peers i)
+            def off:int (this.offsetOf(p.line p.col))
+            def anc:int (this.offsetOf(p.anchorLine p.anchorCol))
+            def col:EVGColor p.color
+            def ri:int (to_int col.r)
+            def gi:int (to_int col.g)
+            def bi:int (to_int col.b)
+            if (anc != off) {
+                def lo:int (? (anc < off) anc off)
+                def hi:int (? (anc < off) off anc)
+                def bands:[double] (docView.caret.bands(lo hi))
+                def k:int 0
+                while ((k + 3) < (array_length bands)) {
+                    placed.addRect((itemAt bands k) (itemAt bands (k + 1)) (itemAt bands (k + 2)) (itemAt bands (k + 3)) (EVGColor.rgba(ri gi bi 0.22)))
+                    k = (k + 4)
+                }
+            }
+            def c:[double] (this.docCaretAt(off))
+            if ((array_length c) == 3) {
+                def cx:double (itemAt c 0)
+                def cy:double (itemAt c 1)
+                placed.addRect((cx - (1.0 / sc)) cy (2.0 / sc) (itemAt c 2) col)
+                def fs:double (10.0 / sc)
+                def tw:double (((to_double (strlen p.name)) * (fs * 0.6)) + (6.0 / sc))
+                placed.addRect((cx - (1.0 / sc)) (cy - (fs + (4.0 / sc))) tw (fs + (4.0 / sc)) col)
+                placed.addText(p.name ((cx - (1.0 / sc)) + (3.0 / sc)) (cy - (fs + (2.0 / sc))) fs (EVGColor.parse("#ffffff")) "Open Sans" true false tw fs)
+            }
+            i = (i + 1)
+        }
+    }
+
     fn docOpenBlock:void (src:int) {
         this.posOf((mdEditor.text()) src)
         def line:int posLine
@@ -1940,6 +2166,7 @@ class PresApp {
         if ((this.mayEdit()) == false) {
             return
         }
+        docPic = -1
         def text:string (mdEditor.text())
         this.posOf(text a)
         mdEditor.moveCaret(posLine posCol false)
@@ -2029,6 +2256,23 @@ class PresApp {
     ; Backspace / Delete / Enter as a word processor's. False: not the
     ; page's (the Markdown editor takes it).
     fn docEditKey:boolean (name:string shift:boolean ctrl:boolean) {
+        if (docPic >= 0) {
+            if ((name == "backspace") || (name == "delete")) {
+                this.docPicRemove()
+                return true
+            }
+            if (name == "escape") {
+                docPic = -1
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            if (name == "enter") {
+                this.docOpenBlock(docPic)
+                return true
+            }
+            docPic = -1
+            chromeRev = (chromeRev + 1)
+        }
         def cm:PresDocCaret docView.caret
         def text:string (mdEditor.text())
         def off:int (mdEditor.caretOffset())
@@ -2128,6 +2372,23 @@ class PresApp {
             return true
         }
         if (name == "tab") {
+            ; in a table: the next cell (Shift: the one before)
+            if (PresDocCaret.inTable(text off)) {
+                def cell:int (? shift (PresDocCaret.cellBefore(text off)) (PresDocCaret.cellAfter(text off)))
+                if (cell >= 0) {
+                    def ce:int cell
+                    def n:int (strlen text)
+                    while (((ce < n) && ((charAt text ce) != 124)) && ((charAt text ce) != 10)) {
+                        ce = (ce + 1)
+                    }
+                    ; the cell's words selected, as a word processor does
+                    def te:int ce
+                    while ((te > cell) && ((charAt text (te - 1)) == 32)) {
+                        te = (te - 1)
+                    }
+                    this.docSelect(cell te)
+                }
+            }
             return true
         }
         return false
@@ -6189,6 +6450,13 @@ class PresApp {
             this.docDragTo(x y)
             return
         }
+        if docPicDrag {
+            if (imgDrag.active()) {
+                imgDrag.moveTo((this.docPageX(x)) (this.docPageY(y)))
+                chromeRev = (chromeRev + 1)
+            }
+            return
+        }
         if codePress {
             codeView.drag(tr x y)
             chromeRev = (chromeRev + 1)
@@ -6407,6 +6675,11 @@ class PresApp {
 
     fn pointerUp:void () {
         docDrag = false
+        if docPicDrag {
+            docPicDrag = false
+            this.docPicDrop()
+            return
+        }
         if codePress {
             codePress = false
             codeView.release()
@@ -6799,6 +7072,12 @@ class PresApp {
                     return "default"
                 }
                 return "pointer"
+            }
+        }
+        if (((this.docEditing()) && (edRect.has(x y))) && (docPic >= 0)) {
+            def dz:string (this.docPicZone((this.docPageX(x)) (this.docPageY(y))))
+            if ((strlen dz) > 0) {
+                return (PresImageDrag.cursorOf(dz))
             }
         }
         if (stageArea.has(x y)) {

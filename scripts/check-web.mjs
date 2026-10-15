@@ -6002,6 +6002,8 @@ try {
     pg.on("pageerror", (e) => verr.push(e.message));
     await pg.goto(url + "?sample=esittely");
     await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    // the sample in, drawn as the View page
+    await pg.waitForFunction(() => { const a = window.__app; const t = a.source(); return t.includes("Kuulee") && a.docScreenAt(t.indexOf("Kuulee")) !== ""; }, null, { timeout: 60000 });
     const src = () => pg.evaluate(() => window.__app.source());
     const st = () => pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), caret: window.__app.mdEditor.caretOffset(), anchor: window.__app.mdEditor.anchorOffset() }));
     const key = async (k, n = 1) => { for (let i = 0; i < n; i++) await pg.keyboard.press(k); await pg.waitForTimeout(120); };
@@ -6107,6 +6109,86 @@ try {
     await pg.waitForTimeout(400);
     check("View editing: a double click on a diagram opens its window", (await pg.evaluate(() => window.__app.focusTarget())) === "chart", JSON.stringify(shot));
     check("View editing: …without errors", verr.length === 0, verr.join(" | "));
+    await ctx.close();
+  }
+
+  // On the View page a picture is picked with a press: its side dragged
+  // writes width=N%, Delete takes it out; a table's cells are words and Tab
+  // goes from one to the next; the others editing with us show their carets.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const verr = [];
+    pg.on("pageerror", (e) => verr.push(e.message));
+    await pg.goto(url + "?sample=welcome");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.waitForFunction(() => { const a = window.__app; if (!a.source().includes("logo.svg") || a.edDocRev() < 0) return false; return a.docView.caret.pics.length > 0; }, null, { timeout: 60000 });
+    const src = () => pg.evaluate(() => window.__app.source());
+    const st = () => pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), caret: window.__app.mdEditor.caretOffset(), anchor: window.__app.mdEditor.anchorOffset(), pic: window.__app.docPic }));
+    const sel = async () => { const c = await st(); return (await src()).slice(Math.min(c.caret, c.anchor), Math.max(c.caret, c.anchor)); };
+    const scr = (px, py) => pg.evaluate(([px, py]) => { const A = window.__app; const dw = A.docView.width(); const sc = A.edDocPane.scale(dw); return [A.edDocPane.left(dw) + px * sc, A.edDocPane.top(dw) + py * sc]; }, [px, py]);
+    await pg.evaluate(() => { window.__app.setEditing(true, false); window.__app.showTab("view"); });
+    await pg.waitForTimeout(300);
+    const s0 = await src();
+    const pr = await pg.evaluate(() => { const A = window.__app; A.edDocEnsure(); const cm = A.docView.caret; return cm.pics.length ? { r: cm.picRect(0), src: cm.picSrc(0) } : null; });
+    check("View pictures: the page knows its picture", !!pr && s0.slice(pr.src).startsWith("![Sliqtly](media/logo.svg)"), JSON.stringify(pr));
+    const [x, y] = await scr(pr.r[0] + pr.r[2] / 2, pr.r[1] + pr.r[3] / 2);
+    await pg.mouse.click(x, y);
+    await pg.waitForTimeout(200);
+    check("View pictures: a press picks it", (await st()).pic === pr.src, JSON.stringify(await st()));
+    const [rx, ry] = await scr(pr.r[0] + pr.r[2], pr.r[1] + pr.r[3] / 2);
+    check("View pictures: its side shows the resize cursor", (await pg.evaluate(([x, y]) => window.__app.cursorAt(x, y), [rx - 1, ry])) === "ew-resize");
+    await pg.mouse.move(rx - 1, ry);
+    await pg.mouse.down();
+    await pg.mouse.move(rx - 60, ry, { steps: 6 });
+    await pg.mouse.up();
+    await pg.waitForTimeout(300);
+    const s1 = await src();
+    const w = /!\[Sliqtly\]\(media\/logo\.svg\)\n\{width=(\d+)%\}\n/.exec(s1);
+    check("View pictures: its side dragged in writes a smaller width", !!w && +w[1] > 5 && +w[1] < 35, JSON.stringify(s1.slice(80, 140)));
+    check("…and it stays picked", (await st()).pic === pr.src, JSON.stringify(await st()));
+    await pg.keyboard.press("Control+z");
+    await pg.waitForTimeout(300);
+    check("View pictures: Ctrl+Z gives the size back", (await src()) === s0);
+    await pg.mouse.click(x, y);
+    await pg.waitForTimeout(200);
+    await pg.keyboard.press("Delete");
+    await pg.waitForTimeout(300);
+    check("View pictures: Delete takes the picked picture out", !(await src()).includes("logo.svg"));
+    await pg.keyboard.press("Control+z");
+    await pg.waitForTimeout(300);
+    check("View pictures: …and Ctrl+Z puts it back", (await src()) === s0);
+    // a table: the cells are words, Tab goes from one to the next
+    await pg.evaluate(() => { const A = window.__app; A.setSource(A.source() + "\n\n## Taulu\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n| päärynä | 5 |\n"); A.showTab("view"); });
+    await pg.waitForTimeout(400);
+    const o = (await src()).indexOf("omena") + 2;
+    await pg.evaluate((o) => window.__app.docSetCaret(o, false), o);
+    await pg.waitForTimeout(200);
+    const [cx, cy] = (await pg.evaluate((o) => window.__app.docScreenAt(o), o)).split(",").map(Number);
+    await pg.mouse.click(cx, cy);
+    await pg.waitForTimeout(200);
+    await pg.keyboard.type("X");
+    await pg.waitForTimeout(200);
+    check("View tables: a press in a cell and typing writes into it", (await src()).includes("| omXena | 3 |"), JSON.stringify((await src()).slice(-50)));
+    await pg.keyboard.press("Tab");
+    await pg.waitForTimeout(150);
+    check("View tables: Tab selects the next cell", (await sel()) === "3", await sel());
+    await pg.keyboard.press("Tab");
+    await pg.waitForTimeout(150);
+    check("View tables: …the next row's first after a row's last", (await sel()) === "päärynä", await sel());
+    await pg.keyboard.press("Shift+Tab");
+    await pg.waitForTimeout(150);
+    check("View tables: Shift+Tab the cell before", (await sel()) === "3", await sel());
+    await pg.keyboard.type("9");
+    await pg.waitForTimeout(200);
+    check("View tables: typing over the selected cell", (await src()).includes("| omXena | 9 |\n| päärynä | 5 |"), JSON.stringify((await src()).slice(-50)));
+    // someone else editing: their caret and name on the page
+    await pg.evaluate(() => { const A = window.__app; const t = A.source(); A.docSetCaret(t.indexOf("omXena"), false); A.setPeers("Kettu\t234\t88\t12\t" + (t.indexOf("päärynä") + 3) + "\t" + (t.indexOf("päärynä") + 3)); });
+    await pg.waitForTimeout(300);
+    const shown = await pg.evaluate(() => JSON.stringify(JSON.parse(window.__app.chromeJson()).list).includes("Kettu"));
+    check("View: the others editing show their caret and name on the page", shown);
+    check("View pictures and tables: …without errors", verr.length === 0, verr.join(" | "));
     await ctx.close();
   }
 
