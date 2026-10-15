@@ -258,6 +258,31 @@ class PresToolbar {
         }
     }
 
+    ; View or Edit (PresEditMode): the bar's Edit / Save, once the page
+    ; opens decks for reading (`shown`)
+    def editShown:boolean false
+    def editing:boolean true
+
+    fn setEditing:void (shown:boolean on:boolean) {
+        if ((shown != editShown) || (on != editing)) {
+            editShown = shown
+            editing = on
+            this.rebuild()
+        }
+    }
+
+    ; Edit while reading, Save while editing
+    fn editButton:void (bar:EVGElement) {
+        if (editShown == false) {
+            return
+        }
+        if editing {
+            this.button("editmode" (PresI18n.t("✓ Save")) "accent" bar)
+        } {
+            this.button("editmode" (PresI18n.t("✎ Edit")) "outline" bar)
+        }
+    }
+
     fn setState:void (isPlaying:boolean words:string) {
         if ((isPlaying != playing) || (words != status)) {
             playing = isPlaying
@@ -2244,6 +2269,7 @@ class PresToolbar {
             this.button("menu" "☰" "ghost" bar)
             this.titlePart(bar)
             bar.addChild((UiKit.div("tb-grow")))
+            this.editButton(bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.extraButtons(bar)
         } {
@@ -2351,6 +2377,7 @@ class PresToolbar {
                 k = (k + 1)
             }
             bar.addChild((UiKit.div("tb-sep")))
+            this.editButton(bar)
             this.button("play" play "outline" bar)
             this.button("present" (PresI18n.t("⛶ Present")) "primary" bar)
             this.button("share" (PresI18n.t("Share")) "secondary" bar)

@@ -26,6 +26,7 @@ export function messageText(m) {
   const s = String(m || "");
   if (!s || s === "@auto") return t("Edited");
   if (s === "@created") return t("Created");
+  if (s === "@saved") return t("Saved");
   if (s === "@merge") return t("Merged with the other copy");
   if (s === "@before-merge") return t("Before merging");
   if (s.startsWith("@restore ")) return t("Restored the version of ") + whenText(s.slice(9));

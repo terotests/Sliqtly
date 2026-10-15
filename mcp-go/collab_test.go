@@ -580,3 +580,47 @@ func mustApply(t *testing.T, d rdiff.Delta, s []uint16) []uint16 {
 	}
 	return out
 }
+
+// Edit … Save in a page (src/PresEditMode.rgr): the room's list says who is
+// editing, and the Story's presence puts them first with their last change.
+func TestCollabEditing(t *testing.T) {
+	dir := t.TempDir()
+	srv, session := startLocal(t, dir, "")
+	defer srv.Close()
+	defer session.Close()
+	id := newDeck(t, srv.URL, "# Title\n")
+	a := joinTest(t, srv.URL, id, "pageA2", "Aino", 0)
+	defer a.close()
+	a.next("peers")
+	b := joinTest(t, srv.URL, id, "pageB2", "Ville", 0)
+	defer b.close()
+	b.next("peers")
+	a.next("peers")
+	editing := func(peers []any) map[string]any {
+		out := map[string]any{}
+		for _, p := range peers {
+			m := p.(map[string]any)
+			out[m["client"].(string)] = m["editing"]
+		}
+		return out
+	}
+
+	code, _ := b.post("/presence", map[string]any{"editing": true})
+	eq(t, code, 200)
+	eq(t, editing(a.next("peers")["peers"].([]any)), map[string]any{"pageA2": false, "pageB2": true}, "Edit: everyone told")
+	// told again: nothing new to say, so no list is sent
+	code, _ = b.post("/presence", map[string]any{"editing": true, "rev": 0, "caret": 1})
+	eq(t, code, 200)
+	eq(t, a.next("cursor")["client"], "pageB2", "a caret only")
+	code, _ = b.post("/op", map[string]any{"rev": 0, "ops": rdiff.Delta{}.Retain(7).Insert(toU16(" two")).JSON()})
+	eq(t, code, 200)
+
+	people := srv.Config.Handler.(*localServer).peopleOn(id)
+	eq(t, len(people), 2)
+	eq(t, []any{people[0].Name, people[0].Editing, people[0].EditedS}, []any{"Ville", true, 0}, "the one editing first, a change just now")
+	eq(t, []any{people[1].Name, people[1].Editing, people[1].EditedS}, []any{"Aino", false, -1}, "the one reading, no change")
+
+	code, _ = b.post("/presence", map[string]any{"editing": false})
+	eq(t, code, 200)
+	eq(t, editing(a.next("peers")["peers"].([]any)), map[string]any{"pageA2": false, "pageB2": false}, "Save: everyone told")
+}

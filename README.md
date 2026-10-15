@@ -381,6 +381,7 @@ The speaker's words. [[1]] marks where step 1 lands (used later by speech).
 
 | | |
 | --- | --- |
+| ✎ Edit / ✓ Save in the bar | a presentation opens to be read: the editor's View tab shows it as one page where the Markdown would be (the Markdown tab still shows the source, read-only). ✎ Edit opens the editor and lets it be changed; ✓ Save keeps it, adds a "Saved" version to the history and goes back to View. A presentation made here (File ▸ New, a pasted one) opens in Edit. Several people can be in Edit at once; in a room the bar shows who is editing (✎ name, • while they type) and the presentations window lists them first |
 | Click a thumbnail | select the slide (the editor caret moves to it) |
 | Slides / Document over the stage | the slides one at a time, or the whole deck read as one page that scrolls: text, lists, tables and code in a document's look, charts, diagrams and figures as their slide shows them, each slide's notes under it. The wheel, the arrows and PageUp / PageDown scroll it and the selected slide follows; a click puts the caret on that block, a double click shows its slide |
 | Click / drag a track | move the playhead within the slide |
@@ -474,6 +475,7 @@ voice filter, the deck's music, a realistic book's page turns. Needs
 | `src/PresInk.rgr`, `src/PresRecord.rgr` | Drawing on the slide while presenting and the pointer; a recording's operations, its file and its replay |
 | `web/recorder.js` | The microphone into a file, and the voices it plays through (Web Audio) |
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
+| `src/PresEditMode.rgr` | View or Edit: a change only after Edit, Save back to reading, the tabs following (PresEditMode); a window onto the Document view's page, on the stage or in the View tab (PresDocPane) |
 | `src/PresDocView.rgr`, `src/PresDocFlow.rgr` | The Document view: the deck through the Markdown engine's continuous layout, with the Word/HTML exports' slide pictures (PresDocx shots) as vectors; PresDocFlow is its geometry alone |
 | `src/PresVideo.rgr`, `web/videoexport.js`, `web/video-worker.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
 | `src/PresVp8.rs`, `src/PresVp8Check.rs`, `scripts/check-vp8.mjs` | Sliqtly's own VP8/WebM video encoder (Rust that Ranger builds to JavaScript) and its check |
