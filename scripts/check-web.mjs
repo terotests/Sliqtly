@@ -6002,6 +6002,8 @@ try {
     pg.on("pageerror", (e) => verr.push(e.message));
     await pg.goto(url + "?sample=esittely");
     await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    // the sample in, drawn as the View page
+    await pg.waitForFunction(() => { const a = window.__app; const t = a.source(); return t.includes("Kuulee") && a.docScreenAt(t.indexOf("Kuulee")) !== ""; }, null, { timeout: 60000 });
     const src = () => pg.evaluate(() => window.__app.source());
     const st = () => pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), caret: window.__app.mdEditor.caretOffset(), anchor: window.__app.mdEditor.anchorOffset() }));
     const key = async (k, n = 1) => { for (let i = 0; i < n; i++) await pg.keyboard.press(k); await pg.waitForTimeout(120); };
@@ -6121,6 +6123,7 @@ try {
     pg.on("pageerror", (e) => verr.push(e.message));
     await pg.goto(url + "?sample=welcome");
     await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.waitForFunction(() => { const a = window.__app; if (!a.source().includes("logo.svg") || a.edDocRev() < 0) return false; return a.docView.caret.pics.length > 0; }, null, { timeout: 60000 });
     const src = () => pg.evaluate(() => window.__app.source());
     const st = () => pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), caret: window.__app.mdEditor.caretOffset(), anchor: window.__app.mdEditor.anchorOffset(), pic: window.__app.docPic }));
     const sel = async () => { const c = await st(); return (await src()).slice(Math.min(c.caret, c.anchor), Math.max(c.caret, c.anchor)); };
