@@ -1835,5 +1835,7 @@
   "Saved. The version is in the history.": "Tallennettu. Versio on historiassa.",
   "Saved.": "Tallennettu.",
   "Press ✎ Edit to change the presentation.": "Paina ✎ Muokkaa, niin voit muuttaa esitystä.",
-  "reading, not editing": "lukee, ei muokkaa"
+  "reading, not editing": "lukee, ei muokkaa",
+  "Presentations open in": "Esitykset avautuvat tilaan",
+  "View: a presentation opens to be read and ✎ Edit opens the editor. Edit: the editor is open at once, as before.": "Näkymä: esitys avautuu luettavaksi ja ✎ Muokkaa avaa editorin. Muokkaa: editori on auki heti, kuten ennen."
 }

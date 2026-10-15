@@ -777,6 +777,9 @@ class PresPanels {
     ; experimental: the 3-D flight while presenting (web/flight3d.js), off
     ; until turned on here
     def flight3d:boolean false
+    ; File → Settings → Presentations open in: View (false) or Edit
+    ; (src/PresEditMode.rgr)
+    def openInEdit:boolean false
 
     fn openSettings:void (contrast:boolean) {
         autoContrast = contrast
@@ -2343,6 +2346,15 @@ class PresPanels {
         this.button("pn-set-term-project" (PresI18n.plain("Project")) (? (word == "project") "primary" "secondary") tr)
         tw.addChild(tr)
         d.addChild(tw)
+        ; a presentation opened: read first (Edit to change it), or edited at once
+        def ow:EVGElement (UiKit.div("pn-opt"))
+        ow.addChild((UiKit.words("pn-otitle" (PresI18n.t("Presentations open in")))))
+        ow.addChild((UiKit.words("pn-odesc" (PresI18n.t("View: a presentation opens to be read and ✎ Edit opens the editor. Edit: the editor is open at once, as before.")))))
+        def orw:EVGElement (UiKit.div("pn-orow"))
+        this.button("pn-set-open-view" (PresI18n.t("View")) (? openInEdit "secondary" "primary") orw)
+        this.button("pn-set-open-edit" (PresI18n.t("Edit")) (? openInEdit "primary" "secondary") orw)
+        ow.addChild(orw)
+        d.addChild(ow)
         ; features still being tried out, off unless turned on
         def xw:EVGElement (UiKit.div("pn-opt"))
         xw.addChild((UiKit.words("pn-otitle" (PresI18n.t("Experimental: 3-D flight")))))
@@ -2955,6 +2967,12 @@ class PresPanels {
         }
         if ((shareOpen && (quiet == false)) && (dialogKind == "settings")) {
             def sc:string (this.ownerAt(px py))
+            if ((sc == "pn-set-open-view") || (sc == "pn-set-open-edit")) {
+                openInEdit = (sc == "pn-set-open-edit")
+                push requests ("setting:openin:" + (? openInEdit "edit" "view"))
+                this.rebuild()
+                return
+            }
             if ((sc == "pn-set-flight-on") || (sc == "pn-set-flight-off")) {
                 flight3d = (sc == "pn-set-flight-on")
                 push requests ("setting:flight:" + (? flight3d "on" "off"))

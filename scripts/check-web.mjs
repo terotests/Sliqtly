@@ -87,10 +87,14 @@ const browser = await chromium.launch({
 // "presentation"): every page starts with that term unless a check sets
 // another. The "topic" words have checks of their own (PresCheck).
 const roomWords = () => { try { if (!localStorage.getItem("sliqtly.roomWord")) localStorage.setItem("sliqtly.roomWord", "room"); } catch (_) {} };
+// …and opens presentations in Edit (Settings → Presentations open in), as
+// the editor did before View; "a deck opens in View" checks it on its own
+const openInEdit = () => { try { if (!localStorage.getItem("sliqtly.openIn")) localStorage.setItem("sliqtly.openIn", "edit"); } catch (_) {} };
 const plainContext = browser.newContext.bind(browser);
 browser.newContext = async (opts) => {
   const c = await plainContext(opts);
   await c.addInitScript(roomWords);
+  await c.addInitScript(openInEdit);
   return c;
 };
 browser.newPage = async (opts) => {
@@ -940,11 +944,11 @@ try {
     check("…every slide on it", doc.shown === doc.slides, JSON.stringify(doc));
     await shot("document-view.png");
     const area = await page.evaluate(() => { const s = window.__app.stageArea; return [s.x + s.w / 2, s.y + s.h / 2]; });
-    const before = await page.evaluate(() => window.__app.docScroll);
+    const before = await page.evaluate(() => window.__app.docPane.scroll);
     await page.mouse.move(cv.x + area[0], cv.y + area[1]);
     await page.mouse.wheel(0, 900);
     await page.waitForTimeout(200);
-    const scrolled = await page.evaluate(() => [window.__app.docScroll, JSON.parse(window.__app.layoutJson()).slide]);
+    const scrolled = await page.evaluate(() => [window.__app.docPane.scroll, JSON.parse(window.__app.layoutJson()).slide]);
     check("…the wheel scrolls it and the selected slide follows", scrolled[0] > before && scrolled[1] > 0, JSON.stringify(scrolled));
     await page.mouse.dblclick(cv.x + area[0], cv.y + area[1]);
     await page.waitForTimeout(200);
@@ -5858,6 +5862,47 @@ try {
     const got = await pg.evaluate(async () => ({ front: window.__app.deckTabFront(), md: window.__app.source().slice(0, 40), files: await window.__docFiles() }));
     check("Deck tabs: the deck pressed last is shown, not the one still loading", got.front === "sample:welcome" && /Sliqtly - Demo/.test(got.md), JSON.stringify(got.front));
     check("Deck tabs: the files of a deck left while loading do not land in the next", !got.files.some((f) => f.startsWith("apps/")), got.files.join());
+    await ctx.close();
+  }
+
+  // View or Edit (src/PresEditMode.rgr): with Settings at View a deck opens
+  // to be read on the View tab, a key typed changes nothing and says to press
+  // Edit; ✎ Edit opens the Markdown and takes keys, ✓ Save keeps a "Saved"
+  // version and goes back to View.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const verr = [];
+    pg.on("pageerror", (e) => verr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const st = () => pg.evaluate(() => ({ editing: window.__app.isEditing(), tab: window.__app.editorTab(), len: window.__app.source().length }));
+    const opened = await st();
+    check("View: a deck opens to be read, on the View tab", !opened.editing && opened.tab === "view", JSON.stringify(opened));
+    const chrome = await pg.evaluate(() => JSON.stringify(JSON.parse(window.__app.chromeJson()).list).includes("Gemini-botti palaverissa"));
+    check("…the View tab shows the deck as a page", chrome);
+    await pg.evaluate(() => window.__app.showTab("md"));
+    await pg.mouse.click(300, 300);
+    await pg.keyboard.type("XYZ");
+    await pg.keyboard.press("Backspace");
+    await pg.waitForTimeout(300);
+    const typed = await st();
+    const said = await pg.evaluate(() => window.__app.panels.toastText.includes("Edit to change"));
+    check("…the Markdown is read-only: keys change nothing, and Edit is asked for", typed.len === opened.len && said, JSON.stringify({ typed, said }));
+    await pg.evaluate(() => { window.__app.request("click:editmode"); window.__handleRequests(); });
+    await pg.waitForTimeout(300);
+    await pg.mouse.click(300, 300);
+    await pg.keyboard.type("XYZ");
+    await pg.waitForTimeout(300);
+    const edited = await st();
+    check("✎ Edit: the Markdown takes keys", edited.editing && edited.tab === "md" && edited.len === opened.len + 3, JSON.stringify(edited));
+    await pg.evaluate(() => { window.__app.setEditing(false, false); window.__handleRequests(); });
+    await pg.waitForFunction(() => window.__app.panels.toastText.startsWith("Saved"), null, { timeout: 15000 }).catch(() => {});
+    const saved = await st();
+    const log = await pg.evaluate(async () => (await window.__versions()?.log())?.map((e) => e.message) || []);
+    check("✓ Save: back to View, a \"Saved\" version kept", !saved.editing && saved.tab === "view" && log.includes("@saved"), JSON.stringify({ saved, log }));
+    check("…without errors", verr.length === 0, verr.join(" | "));
     await ctx.close();
   }
 

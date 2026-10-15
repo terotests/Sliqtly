@@ -1302,6 +1302,12 @@ class PresApp {
             this.showTab((PresEditMode.tabOnOpen(on)))
         } {
             if on {
+                if (editMode.locked()) {
+                    ; not here: said why
+                    push requests ("edit-locked:" + editMode.lockedWhy)
+                    chromeRev = (chromeRev + 1)
+                    return
+                }
                 editMode.begin(now)
                 this.showTab((PresEditMode.tabOnBegin(edTab)))
             } {
@@ -1310,7 +1316,7 @@ class PresApp {
                 this.showTab((PresEditMode.tabOnSave(edTab)))
             }
         }
-        toolbar.setEditing(true on)
+        toolbar.setEditing(((editMode.locked()) == false) on)
         mdEditor.setReadOnly((on == false))
         cssEditor.setReadOnly((on == false))
         fileEditor.setReadOnly((on == false))
@@ -1336,6 +1342,23 @@ class PresApp {
         this.showTab("md")
     }
 
+    ; Edit taken away from this page, `why` told when it is tried (a deck
+    ; only agents may change), or given back with "". Taken while editing,
+    ; it goes back to reading.
+    fn setEditLock:void (why:string) {
+        def now:double (deck.uiNow * 1000.0)
+        if (editMode.lock(why now)) {
+            this.closeHint()
+            this.showTab((PresEditMode.tabOnSave(edTab)))
+            mdEditor.setReadOnly(true)
+            cssEditor.setReadOnly(true)
+            fileEditor.setReadOnly(true)
+            push requests "edit-mode:open"
+        }
+        toolbar.setEditing(((editMode.locked()) == false) editMode.editing)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; A change about to be made: made only in Edit. While reading the
     ; person is told to press Edit (not on every key).
     fn mayEdit:boolean () {
@@ -1344,7 +1367,11 @@ class PresApp {
             return true
         }
         if (editMode.refuse((deck.uiNow * 1000.0))) {
-            push requests "edit-needed"
+            if (editMode.locked()) {
+                push requests ("edit-locked:" + editMode.lockedWhy)
+            } {
+                push requests "edit-needed"
+            }
         }
         chromeRev = (chromeRev + 1)
         return false
@@ -11185,6 +11212,12 @@ class PresApp {
     fn openSettings:void (contrast:boolean) {
         panels.openSettings(contrast)
         chromeRev = (chromeRev + 1)
+    }
+
+    ; File → Settings → Presentations open in View or Edit, as the page
+    ; keeps it.
+    fn setOpenInEdit:void (on:boolean) {
+        panels.openInEdit = on
     }
 
     ; File → Settings → Experimental: 3-D flight, as the page keeps it.

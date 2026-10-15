@@ -276,10 +276,12 @@ class PresToolbar {
         if (editShown == false) {
             return
         }
+        ; short labels when the bar is short of room, as the page's own buttons
+        def small:boolean (this.shortNow())
         if editing {
-            this.button("editmode" (PresI18n.t("✓ Save")) "accent" bar)
+            this.button("editmode" (? small "✓" (PresI18n.t("✓ Save"))) "accent" bar)
         } {
-            this.button("editmode" (PresI18n.t("✎ Edit")) "outline" bar)
+            this.button("editmode" (? small "✎" (PresI18n.t("✎ Edit"))) "outline" bar)
         }
     }
 
@@ -383,7 +385,7 @@ class PresToolbar {
 
     ; what the bar's fit depends on
     fn fitNow:string () {
-        return (((to_string w) + "|") + extras)
+        return (((((to_string w) + "|") + extras) + "|") + (? editShown (? editing "save" "edit") ""))
     }
 
     ; the page's buttons in their short form

@@ -364,6 +364,10 @@ const three3d = createThree3d({
 // Experimental: off until File → Settings turns it on, per browser.
 let flightOn = false;
 try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) { /* off */ }
+// File → Settings → Presentations open in: View (Edit to change one) or Edit
+// at once (src/PresEditMode.rgr)
+let openInEdit = false;
+try { openInEdit = localStorage.getItem("sliqtly.openIn") === "edit"; } catch (_) { /* View */ }
 const flight3d = createFlight3d({
   three3d,
   app,
@@ -1083,8 +1087,9 @@ function beginDoc(text) {
   // out this one)
   app.beginOpen();
   // a deck opens to be read: Edit opens the editor, Save keeps the work
-  // (src/PresEditMode.rgr); a deck just made here opens in Edit
-  app.setEditing(false, true);
+  // (src/PresEditMode.rgr), unless Settings say Edit; a deck just made here
+  // opens in Edit
+  app.setEditing(openInEdit, true);
   // the deck before's pictures go with it: one this deck names and does not
   // have is not drawn from that one's as if it were here (a copy whose
   // files did not come looked whole that way)
@@ -1856,6 +1861,7 @@ function setDeckOrder(by) {
   needsPaint = true;
 }
 app.setFlight3d(flightOn);
+app.setOpenInEdit(openInEdit);
 async function roomRows(room) {
   return (await roomView(room)).rows;
 }
@@ -5585,6 +5591,9 @@ function handleRequests() {
       app.setEditing(!app.isEditing(), false);
     } else if (r.startsWith("edit-mode:")) {
       editModeChanged(r.slice(10)).catch((e) => console.warn("edit mode", e));
+    } else if (r.startsWith("edit-locked:")) {
+      // Edit is not offered for this deck here (app.setEditLock)
+      toast(r.slice(12));
     } else if (r === "edit-needed") {
       toast(t("Press ✎ Edit to change the presentation."));
     } else if (r.startsWith("click:")) {
@@ -5624,6 +5633,9 @@ function handleRequests() {
       app.setDeckOrder(deckOrder);
       app.openSettings(autoContrast);
       needsPaint = true;
+    } else if (r.startsWith("setting:openin:")) {
+      openInEdit = r.endsWith(":edit");
+      try { localStorage.setItem("sliqtly.openIn", openInEdit ? "edit" : "view"); } catch (_) { /* this session only */ }
     } else if (r.startsWith("setting:flight:")) {
       flightOn = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.flight3d", flightOn ? "on" : "off"); } catch (_) { /* this session only */ }

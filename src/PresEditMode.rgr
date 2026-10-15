@@ -37,13 +37,17 @@ class PresEditMode {
     def askEvery:double 4000.0
     ; changes each time the mode does
     def rev:int 0
+    ; Edit not offered, and why ("" it is): the deck is for reading only
+    ; here (a share whose people may not edit it); the reason is what the
+    ; person is told when they try
+    def lockedWhy:string ""
 
     Constructor () {
     }
 
     ; Edit pressed: false when already editing.
     fn begin:boolean (now:double) {
-        if editing {
+        if (editing || ((strlen lockedWhy) > 0)) {
             return false
         }
         editing = true
@@ -67,6 +71,8 @@ class PresEditMode {
     ; A deck opened: reading, unless it was just made to be written.
     fn reset:void (edit:boolean now:double) {
         def was:boolean editing
+        ; a deck opened is not locked until its page says so
+        lockedWhy = ""
         editing = edit
         since = now
         lastEdit = -1.0
@@ -74,6 +80,23 @@ class PresEditMode {
         if (was != edit) {
             rev = (rev + 1)
         }
+    }
+
+    ; Edit taken away (`why` said when tried) or given back (""): taken
+    ; away while editing, the deck goes back to reading. True when that
+    ; ended an Edit.
+    fn lock:boolean (why:string now:double) {
+        lockedWhy = why
+        if (((strlen why) > 0) && editing) {
+            editing = false
+            rev = (rev + 1)
+            return true
+        }
+        return false
+    }
+
+    fn locked:boolean () {
+        return ((strlen lockedWhy) > 0)
     }
 
     fn edited:void (now:double) {
