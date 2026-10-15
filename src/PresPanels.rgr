@@ -101,6 +101,15 @@ class PresPanels {
     ; sharing ("share-stop"). How many are invited; -1: not the owner's,
     ; so neither is offered
     def shareEditors:int -1
+    ; File → Connect to AI ("ai"): the MCP server's address, the command
+    ; that adds it to Claude Code and Cursor's mcp.json, from the page; then
+    ; the prompt that hands this presentation over (its first words; "" while
+    ; the page makes it) and a note under it
+    def aiMcp:string ""
+    def aiCode:string ""
+    def aiCursor:string ""
+    def aiPrompt:string ""
+    def aiNote:string ""
     ; which modal dialog `shareOpen` shows: "share", or "open" (a file from
     ; the computer or a sample deck, `openRows` "value<TAB>label" lines)
     def dialogKind:string "share"
@@ -737,6 +746,28 @@ class PresPanels {
         this.rebuild()
     }
 
+    fn openAi:void (mcp:string code:string cursor:string) {
+        aiMcp = mcp
+        aiCode = code
+        aiCursor = cursor
+        aiPrompt = ""
+        aiNote = (PresI18n.t("Preparing the presentation for the assistant…"))
+        dialogKind = "ai"
+        dlgScroll.reset()
+        shareOpen = true
+        copied = ""
+        this.rebuild()
+    }
+
+    ; the prompt once the page has made it (`prompt` "": none, `note` says why)
+    fn setAiPrompt:void (prompt:string note:string) {
+        aiPrompt = prompt
+        aiNote = note
+        if (shareOpen && (dialogKind == "ai")) {
+            this.rebuild()
+        }
+    }
+
     fn openOpen:void (rows:string) {
         openRows = rows
         dialogKind = "open"
@@ -808,6 +839,9 @@ class PresPanels {
         }
         if (dialogKind == "settings") {
             return (PresI18n.t("Settings"))
+        }
+        if (dialogKind == "ai") {
+            return (PresI18n.t("Connect to AI"))
         }
         if (dialogKind == "data") {
             if imp.live {
@@ -935,7 +969,11 @@ class PresPanels {
               if (dialogKind == "data") {
                 root.addChild((this.dataDialog()))
               } {
+              if (dialogKind == "ai") {
+                root.addChild((this.aiDialog()))
+              } {
                 root.addChild((this.shareDialog()))
+              }
               }
               }
               }
@@ -1799,6 +1837,55 @@ class PresPanels {
         foot.addChild((this.copyable("pn-share-note" "pn-note" shareNote)))
         foot.addChild((UiKit.div("pn-grow")))
         this.button("pn-share-close" (PresI18n.t("Close")) "secondary" foot)
+        d.addChild(foot)
+        return d
+    }
+
+    ; --- Connect to AI ----------------------------------------------------------------
+    ; How Claude or Cursor is connected to Sliqtly's MCP server, each with its
+    ; text to copy, and the prompt that hands this presentation to it.
+    fn aiDialog:EVGElement () {
+        def d:EVGElement (UiKit.div("pn-dialog"))
+        d.id = "pn-dialog"
+        UiTree.surface(d "free" "start")
+        d.overlayX = ((w - 520.0) * 0.5)
+        d.overlayY = ((h - 640.0) * 0.5)
+        d.addChild((UiKit.words("pn-dtitle" (PresI18n.t("Connect to AI")))))
+        d.addChild((UiKit.words("pn-odesc" (PresI18n.t("Claude and Cursor read and edit your presentations through Sliqtly's MCP server. Add the server to the assistant once, then hand it this presentation.")))))
+        d.addChild((this.shareOption("mcp" (PresI18n.t("Claude (claude.ai and the desktop app)")) (PresI18n.t("Customize → Connectors → Add custom connector. Name it Sliqtly and give this address, then sign in when Claude asks.")) aiMcp "secondary")))
+        d.addChild((this.shareOption("code" (PresI18n.t("Claude Code")) (PresI18n.t("Run this in the terminal.")) aiCode "secondary")))
+        d.addChild((this.shareOption("cursor" (PresI18n.t("Cursor")) (PresI18n.t("Settings → Tools & MCP → New MCP server, or add this to ~/.cursor/mcp.json.")) aiCursor "secondary")))
+        def o:EVGElement (UiKit.div("pn-opt"))
+        o.addChild((UiKit.words("pn-otitle" (PresI18n.t("This presentation")))))
+        o.addChild((UiKit.words("pn-odesc" (PresI18n.t("Paste this in the assistant's chat: it names the presentation and the tools that load and save it. Open in Claude starts a chat with it.")))))
+        if ((strlen aiPrompt) > 0) {
+            def row:EVGElement (UiKit.div("pn-orow"))
+            def f (new InputCtl())
+            f.tid = "pn-url-prompt"
+            f.name = (PresI18n.t("This presentation"))
+            f.readOnly = true
+            f.boxClass = "pn-url"
+            f.setValue(aiPrompt)
+            f.build()
+            UiKit.put(host f row)
+            def label:string (PresI18n.t("Copy"))
+            if (copied == "prompt") {
+                label = (? copyOk (PresI18n.t("Copied ✓")) (PresI18n.t("Select and copy")))
+            }
+            this.button("pn-copy-prompt" label "secondary" row)
+            o.addChild(row)
+            def row2:EVGElement (UiKit.div("pn-orow"))
+            this.button("pn-ai-claude" (PresI18n.t("Open in Claude")) "primary" row2)
+            o.addChild(row2)
+        }
+        if ((strlen aiNote) > 0) {
+            o.addChild((this.copyable("pn-ai-note" "pn-odesc" aiNote)))
+        }
+        d.addChild(o)
+        def foot:EVGElement (UiKit.div("pn-dfoot"))
+        this.button("pn-ai-guide" (PresI18n.t("All instructions")) "secondary" foot)
+        foot.addChild((UiKit.div("pn-grow")))
+        this.button("pn-ai-close" (PresI18n.t("Close")) "secondary" foot)
         d.addChild(foot)
         return d
     }
@@ -3015,6 +3102,21 @@ class PresPanels {
                 return
             }
             if ((sc == "pn-set-close") || ((this.inEl("pn-dialog" px py)) == false)) {
+                this.closeShare()
+            }
+            return
+        }
+        if ((shareOpen && (quiet == false)) && (dialogKind == "ai")) {
+            def ac:string (this.ownerAt(px py))
+            if ((indexOf ac "pn-copy-") == 0) {
+                push requests ("copy:" + (substring ac 8 (strlen ac)))
+                return
+            }
+            if ((ac == "pn-ai-claude") || (ac == "pn-ai-guide")) {
+                push requests ("ai:" + (substring ac 6 (strlen ac)))
+                return
+            }
+            if ((ac == "pn-ai-close") || ((this.inEl("pn-dialog" px py)) == false)) {
                 this.closeShare()
             }
             return

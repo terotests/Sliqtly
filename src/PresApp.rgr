@@ -11257,6 +11257,20 @@ class PresApp {
         chromeRev = (chromeRev + 1)
     }
 
+    ; File → Connect to AI…: how Claude or Cursor reaches the MCP server
+    ; (`mcp`, Claude Code's `code`, Cursor's `cursor`); the page then sets the
+    ; prompt for this presentation (setAiPrompt)
+    fn openAi:void (mcp:string code:string cursor:string) {
+        this.closeHint()
+        panels.openAi(mcp code cursor)
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn setAiPrompt:void (prompt:string note:string) {
+        panels.setAiPrompt(prompt note)
+        chromeRev = (chromeRev + 1)
+    }
+
     ; File → Presentations…: the decks here and in the cloud (web/decklist.js)
     fn openDecks:void (json:string) {
         this.closeHint()

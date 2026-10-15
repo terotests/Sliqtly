@@ -5826,6 +5826,8 @@ function handleRequests() {
       needsPaint = true;
     } else if (r.startsWith("copy:")) {
       copyShare(r.slice(5)).catch(fail);
+    } else if (r.startsWith("ai:")) {
+      aiRequest(r.slice(3));
     } else if (r.startsWith("edit:")) {
       editRequest(r.slice(5)).catch(fail);
     } else if (r === "confirm:clip" || r === "confirm:clip:alt") {
@@ -7692,78 +7694,92 @@ async function shareLink(days) {
   }
 }
 
-// Edit in Claude: the assistant opens with a prompt that names the
-// deck, and edits it through the Sliqtly connector (mcp-go/): get_presentation
-// reads a share, update_presentation saves it when the assistant is signed
-// in as the share's owner. So the deck handed over
-// is a share: the one this page was opened from when it is the reader's own
-// and unchanged, else a fresh share of the deck (signed in). Signed out, the
-// Markdown goes in the prompt for create_presentation. The changes land in
-// the share, not in this page's deck: /s/{id}?edit opens them here again.
+// Connect to AI: a window that says how Claude, Claude Code or Cursor is
+// connected to Sliqtly's MCP server (mcp-go/), and a prompt that names the
+// deck, to copy or to open Claude with. get_presentation reads a share,
+// update_presentation saves it when the assistant is signed in as the share's
+// owner. So the deck handed over is a share: the one this page was opened
+// from when it is the reader's own and unchanged, else a fresh share of the
+// deck (signed in). Signed out, the Markdown goes in the prompt for
+// create_presentation. The changes land in the share, not in this page's
+// deck: /s/{id}?edit opens them here again.
 let originShare = null;
 // the links in the prompt: always the site's own address, also when the
 // page was opened at sliqtly.web.app or on a local server
 // (a server of one's own names its address in <meta name="sliqtly-site">)
 const SITE = document.querySelector('meta[name="sliqtly-site"]')?.content || "https://sliqtly.com";
-const AI = {
-  claude: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q),
-};
 // what fits in an address with room to spare
 const AI_MAX_PROMPT = 6000;
+// the window's texts to copy: "mcp", "code", "cursor", "prompt"
+const aiTexts = {};
 
-async function editInAI(which) {
-  // opened now, while the press still counts as one; pointed at the
-  // assistant once the prompt is ready
-  const win = window.open("", "_blank");
-  const go = (url) => {
-    if (win && !win.closed) {
-      win.opener = null;
-      win.location.href = url;
-    } else {
-      window.open(url, "_blank", "noopener");
-    }
-  };
-  try {
-    const text = app.source();
-    const user = window.sliqtly?.user?.();
-    let id = null;
-    if (user) {
-      if (!doc.cloud) toast(t("Saving a copy in the cloud for the assistant…"));
-      id = await shareCloud();
-    } else if (originShare && originShare.md === text) {
-      id = originShare.id;
-    }
-    const connect = t("If you have no Sliqtly tools, tell me to add the Sliqtly connector: ") + SITE + "/connect.html";
-    let prompt;
-    if (id) {
-      prompt = t("Edit my Sliqtly presentation {id} ({link}) with the Sliqtly connector. Load it with get_presentation (deck_id {id}), summarize it briefly and ask what to change. Save each change with update_presentation (deck_id {id}). If saving is refused, tell me why and ask before making a copy: a copy made with create_presentation is a separate presentation with its own link, and {link} stays as it was. After saving, give me the link {edit} to open it in the editor.")
-        .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + (SITE === "https://sliqtly.com" || EDITOR_ROOT ? "/editor/d/" + id : "/s/" + id + "?edit"));
-    } else {
-      prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
-        .replaceAll("{theme}", themeSel.value || "-");
-      // data files stay in this browser: name them, so the assistant asks
-      // for them as attachments and keeps them with files / write_workbook
-      const data = (await docFiles()).map((f) => f.path).filter((p) => p.startsWith("data/"));
-      if (data.length) {
-        prompt += " " + t("The deck also reads these data files, which this message does not carry: {files}. Ask me to attach them here, then keep them with the presentation (files in create_presentation, or write_workbook for a tidied workbook).")
-          .replaceAll("{files}", data.join(", "));
-      }
-      prompt += "\n\n```markdown\n" + text + "\n```";
-      if (prompt.length > AI_MAX_PROMPT) {
-        if (win) win.close();
-        toast(t("This presentation is too long to hand over in a link. Sign in with PRO first."));
-        return;
-      }
-      if (/\]\(media\//.test(text)) toast(t("Pictures are not handed over without PRO sign-in."));
-    }
-    go(AI[which](prompt + "\n\n" + connect));
-  } catch (e) {
-    if (win) win.close();
-    console.warn("handing over to the assistant failed", e);
-    toast(t("Could not save a copy for the assistant: ") + (e?.code || e?.message || String(e)));
+// The prompt that hands this deck to an assistant, and a note on what it
+// leaves out ({prompt: "" when none could be made, note}).
+async function aiPrompt() {
+  const text = app.source();
+  const user = window.sliqtly?.user?.();
+  let id = null;
+  if (user) {
+    id = await shareCloud();
+  } else if (originShare && originShare.md === text) {
+    id = originShare.id;
   }
+  const connect = t("If you have no Sliqtly tools, tell me to add the Sliqtly connector: ") + SITE + "/connect.html";
+  let prompt;
+  let note = "";
+  if (id) {
+    prompt = t("Edit my Sliqtly presentation {id} ({link}) with the Sliqtly connector. Load it with get_presentation (deck_id {id}), summarize it briefly and ask what to change. Save each change with update_presentation (deck_id {id}). If saving is refused, tell me why and ask before making a copy: a copy made with create_presentation is a separate presentation with its own link, and {link} stays as it was. After saving, give me the link {edit} to open it in the editor.")
+      .replaceAll("{id}", id).replaceAll("{link}", SITE + "/s/" + id).replaceAll("{edit}", SITE + (SITE === "https://sliqtly.com" || EDITOR_ROOT ? "/editor/d/" + id : "/s/" + id + "?edit"));
+  } else {
+    prompt = t("Make this Markdown a Sliqtly presentation with create_presentation from the Sliqtly connector (theme {theme}), give me its link and ask what to change. Save later changes with update_presentation.")
+      .replaceAll("{theme}", themeSel.value || "-");
+    // data files stay in this browser: name them, so the assistant asks
+    // for them as attachments and keeps them with files / write_workbook
+    const data = (await docFiles()).map((f) => f.path).filter((p) => p.startsWith("data/"));
+    if (data.length) {
+      prompt += " " + t("The deck also reads these data files, which this message does not carry: {files}. Ask me to attach them here, then keep them with the presentation (files in create_presentation, or write_workbook for a tidied workbook).")
+        .replaceAll("{files}", data.join(", "));
+    }
+    prompt += "\n\n```markdown\n" + text + "\n```";
+    if (/\]\(media\//.test(text)) note = t("Pictures are not handed over without PRO sign-in.");
+  }
+  return { prompt: prompt + "\n\n" + connect, note };
 }
-document.getElementById("aiClaude").addEventListener("click", () => { editInAI("claude"); });
+
+async function openConnectAI() {
+  const mcp = SITE + "/mcp";
+  aiTexts.mcp = mcp;
+  aiTexts.code = "claude mcp add --transport http sliqtly " + mcp;
+  aiTexts.cursor = JSON.stringify({ mcpServers: { sliqtly: { url: mcp } } });
+  aiTexts.prompt = "";
+  app.openAi(aiTexts.mcp, aiTexts.code, aiTexts.cursor);
+  needsPaint = true;
+  try {
+    const { prompt, note } = await aiPrompt();
+    aiTexts.prompt = prompt;
+    app.setAiPrompt(prompt.replace(/\s+/g, " ").slice(0, 300), note);
+  } catch (e) {
+    console.warn("handing over to the assistant failed", e);
+    app.setAiPrompt("", t("Could not save a copy for the assistant: ") + (e?.code || e?.message || String(e)));
+  }
+  needsPaint = true;
+}
+
+// the window's buttons: Open in Claude with the prompt, or the instructions
+// page for every assistant
+function aiRequest(what) {
+  if (what === "guide") {
+    window.open(SITE + "/connect.html", "_blank", "noopener");
+    return;
+  }
+  if (!aiTexts.prompt) return;
+  if (aiTexts.prompt.length > AI_MAX_PROMPT) {
+    toast(t("This presentation is too long to hand over in a link. Copy the prompt, or sign in with PRO first."));
+    return;
+  }
+  window.open("https://claude.ai/new?q=" + encodeURIComponent(aiTexts.prompt), "_blank", "noopener");
+}
+document.getElementById("aiClaude").addEventListener("click", () => { openConnectAI().catch(fail); });
 
 // Text to the clipboard: the async API, else a selected textarea; -> copied.
 async function writeClip(text) {
@@ -7785,7 +7801,7 @@ async function writeClip(text) {
 // A copy button in the share dialog (drawn on the canvas): the browser copies.
 let copiedTimer = 0;
 async function copyShare(which) {
-  const text = which === "show" ? window.__lastShareShow : which === "view" ? window.__lastShareView : window.__lastShare;
+  const text = which in aiTexts ? aiTexts[which] : which === "show" ? window.__lastShareShow : which === "view" ? window.__lastShareView : window.__lastShare;
   const copied = await writeClip(text);
   app.shareCopied(which, copied);
   needsPaint = true;
