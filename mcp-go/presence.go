@@ -47,6 +47,9 @@ type agentBoard struct {
 	mu        sync.Mutex
 	agents    map[string]*agentSeen
 	lastPrune time.Time
+	// pub: on sliqtly.com, where the board is told to Firestore for the
+	// page (presencecloud.go); nil on a server of one's own
+	pub *presencePub
 }
 
 type agentSeen struct {
@@ -187,11 +190,19 @@ func (b *agentBoard) claim(key string, c agentCall) {
 	d.slides, d.whole, d.note = append([]int(nil), c.Slides...), len(c.Slides) == 0, clipRunes(strings.TrimSpace(c.Note), 140)
 }
 
-// bye: the session ended (its DELETE)
-func (b *agentBoard) bye(key string) {
+// bye: the session ended (its DELETE). → the decks it was on
+func (b *agentBoard) bye(key string) []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	var decks []string
+	if a := b.agents[key]; a != nil {
+		for id := range a.decks {
+			decks = append(decks, id)
+		}
+		sort.Strings(decks)
+	}
 	delete(b.agents, key)
+	return decks
 }
 
 // (locked) what has been quiet for agentGone goes, at most every 30 s
@@ -228,26 +239,9 @@ func (b *agentBoard) deck(id string, now time.Time) []agentRow {
 	defer b.mu.Unlock()
 	var out []agentRow
 	for _, a := range b.agents {
-		d := a.decks[id]
-		if d == nil || (d.busy == 0 && now.Sub(d.last) >= agentGone) {
-			continue
+		if o, ok := onLocked(a, id, now); ok {
+			out = append(out, o.row)
 		}
-		r := agentRow{ID: a.id, Name: a.name, Client: a.client, Busy: d.busy > 0, Tool: d.tool, Calls: d.calls,
-			Since: secs(now.Sub(d.first)), Slides: d.slides, Whole: d.whole, Note: d.note}
-		if !r.Busy {
-			r.Seen = secs(now.Sub(d.last))
-		}
-		if r.Name == "" {
-			r.Name = a.client
-		}
-		if r.Name == "" {
-			r.Name = "Assistant"
-		}
-		r.State = "idle"
-		if r.Busy || now.Sub(d.last) < agentWorking || len(d.slides) > 0 || d.whole {
-			r.State = "working"
-		}
-		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if (out[i].State == "working") != (out[j].State == "working") {
@@ -259,6 +253,52 @@ func (b *agentBoard) deck(id string, now time.Time) []agentRow {
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+// an assistant on a Story: its row, the name it gave itself ("": none)
+// and its first and last call there
+type agentOn struct {
+	row         agentRow
+	name        string
+	first, last time.Time
+}
+
+// on: the assistant `key` on the Story `id`, if it is there
+func (b *agentBoard) on(key, id string, now time.Time) (agentOn, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	a := b.agents[key]
+	if a == nil {
+		return agentOn{}, false
+	}
+	return onLocked(a, id, now)
+}
+
+func onLocked(a *agentSeen, id string, now time.Time) (agentOn, bool) {
+	d := a.decks[id]
+	if d == nil || (d.busy == 0 && now.Sub(d.last) >= agentGone) {
+		return agentOn{}, false
+	}
+	r := agentRow{ID: a.id, Name: a.name, Client: a.client, Busy: d.busy > 0, Tool: d.tool, Calls: d.calls,
+		Since: secs(now.Sub(d.first)), Slides: d.slides, Whole: d.whole, Note: d.note}
+	if !r.Busy {
+		r.Seen = secs(now.Sub(d.last))
+	}
+	if r.Name == "" {
+		r.Name = a.client
+	}
+	if r.Name == "" {
+		r.Name = "Assistant"
+	}
+	r.State = "idle"
+	if r.Busy || now.Sub(d.last) < agentWorking || len(d.slides) > 0 || d.whole {
+		r.State = "working"
+	}
+	last := d.last
+	if r.Busy {
+		last = now
+	}
+	return agentOn{row: r, name: a.name, first: d.first, last: last}, true
 }
 
 func secs(d time.Duration) int64 {
@@ -366,7 +406,7 @@ func (b *agentBoard) watchMcp(w http.ResponseWriter, r *http.Request, serve func
 		key := sessionAgent(r.Header.Get("Mcp-Session-Id"))
 		serve(w)
 		if key != "" {
-			b.bye(key)
+			b.pub.gone(r.Context(), key, b.bye(key))
 		}
 		return
 	case http.MethodPost:
@@ -383,6 +423,7 @@ func (b *agentBoard) watchMcp(w http.ResponseWriter, r *http.Request, serve func
 	key := sessionAgent(r.Header.Get("Mcp-Session-Id"))
 	var dones []func(time.Time)
 	var claims []agentCall
+	var decks []string
 	var hello string
 	asked := false
 	for _, m := range peekRPC(body) {
@@ -397,16 +438,26 @@ func (b *agentBoard) watchMcp(w http.ResponseWriter, r *http.Request, serve func
 			a := m.Params.Arguments
 			c := agentCall{Tool: m.Params.Name, Deck: a.DeckID, Agent: a.Agent, Note: a.Note, Slides: peekSlides(a.Slides)}
 			dones = append(dones, b.begin(key, c, time.Now()))
+			if c.Deck != "" {
+				decks = append(decks, c.Deck)
+			}
 			if c.Tool == "begin_work" && c.Deck != "" {
 				claims = append(claims, c)
 			}
 		}
 	}
-	// begin_work's answer says whether the slides were taken
+	// begin_work's answer says whether the slides were taken; in the cloud
+	// an answer's ends say whether the calls failed
 	var answer *bytes.Buffer
-	if len(claims) > 0 {
+	var ends *answerEnds
+	if len(claims) > 0 || (b.pub != nil && len(decks) > 0) {
 		answer = &bytes.Buffer{}
-		w = teeWriter{w, answer}
+		ends = &answerEnds{}
+		limit := 1 << 20
+		if len(claims) == 0 {
+			limit = answerEnd
+		}
+		w = teeWriter{w, answer, limit, ends}
 	}
 	serve(w)
 	now := time.Now()
@@ -415,8 +466,15 @@ func (b *agentBoard) watchMcp(w http.ResponseWriter, r *http.Request, serve func
 	}
 	// one claim a request is what assistants send; a batch of several is
 	// told by the first answer
-	if answer != nil && bytes.Contains(answer.Bytes(), []byte(`"claimed":true`)) {
+	if len(claims) > 0 && bytes.Contains(answer.Bytes(), []byte(`"claimed":true`)) {
 		b.claim(key, claims[0])
+	}
+	if b.pub != nil && len(decks) > 0 && !failedAnswer(answer.Bytes(), ends.tail) {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
+		for _, d := range decks {
+			b.pub.tell(ctx, b, key, d, now)
+		}
+		cancel()
 	}
 	if asked {
 		// a new session's id is in the answer
@@ -427,17 +485,39 @@ func (b *agentBoard) watchMcp(w http.ResponseWriter, r *http.Request, serve func
 	}
 }
 
-// a response writer whose body is also kept
+// a response writer whose body's start (up to limit) and end are also kept
 type teeWriter struct {
 	http.ResponseWriter
-	buf *bytes.Buffer
+	buf   *bytes.Buffer
+	limit int
+	ends  *answerEnds
 }
 
+// how much of an answer's end is kept
+const answerEnd = 512
+
+type answerEnds struct{ tail []byte }
+
 func (t teeWriter) Write(p []byte) (int, error) {
-	if t.buf.Len() < 1<<20 {
-		t.buf.Write(p)
+	if room := t.limit - t.buf.Len(); room > 0 {
+		t.buf.Write(p[:min(room, len(p))])
+	}
+	t.ends.tail = append(t.ends.tail, p...)
+	if n := len(t.ends.tail); n > answerEnd {
+		t.ends.tail = append(t.ends.tail[:0], t.ends.tail[n-answerEnd:]...)
 	}
 	return t.ResponseWriter.Write(p)
+}
+
+// failedAnswer: an MCP answer that is an error, or whose tool said it
+// failed (Tools.fail: "isError" after the content, so at the end)
+func failedAnswer(head, tail []byte) bool {
+	for _, b := range [][]byte{head, tail} {
+		if bytes.Contains(b, []byte(`"isError":true`)) || bytes.Contains(b, []byte(`"error":{`)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t teeWriter) Flush() {

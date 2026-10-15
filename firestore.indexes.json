@@ -115,6 +115,12 @@
       "fieldPath": "expires",
       "ttl": true,
       "indexes": []
+    },
+    {
+      "collectionGroup": "agents",
+      "fieldPath": "expires",
+      "ttl": true,
+      "indexes": []
     }
   ]
 }

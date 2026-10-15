@@ -40,6 +40,7 @@ import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, w
 import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
+import { listenPresence, presenceAnswer } from "./cloudpresence.js";
 import { aiCall, aiOnPage } from "./aiassist.js";
 import { CollabSession, loadMe, saveMe, cleanName, chatTime, editsOf, deckPeople } from "./collab.js";
 import { StorySession } from "./storysession.js";
@@ -1694,8 +1695,9 @@ async function showTopic(room, rows, folders = []) {
   const here = presenceSummary(...rows.map((r) => presence.get(presenceId(r.id))));
   app.roomStories(JSON.stringify({
     room, title: info?.title || "", by: topicBy, sort: topicSort, groups,
-    // on a server of one's own, which knows who works where: always said
-    who: ownServer() && !viewer ? headPresence(here, t) : null,
+    // where it is known who works where (a server of one's own, or
+    // sliqtly.com signed in): always said
+    who: presenceShown() ? headPresence(here, t) : null,
     count: rows.length === 1 ? t("1 presentation") : t("{n} presentations").replace("{n}", String(rows.length)),
     empty: t("No presentations in this room yet. + New presentation makes one."),
     canNew: room !== ONBOARDING && !info?.archived,
@@ -1705,23 +1707,35 @@ async function showTopic(room, rows, folders = []) {
 // Who is working on the open room's Stories (web/presence.js): the
 // assistants calling the server's MCP tools on them and the people who have
 // them open, asked of a server of one's own (POST /api/rooms/presence) every
-// few seconds while the page is in sight. The cards are drawn again only when
-// a light or a count changes; the window that names who is there (a card's
-// or the room's counts pressed) follows every answer.
+// few seconds while the page is in sight; on sliqtly.com, signed in, the
+// assistants on the Stories kept in the cloud, read from Firestore as they
+// change (web/cloudpresence.js) and told again every few seconds from what
+// was read (an assistant goes idle with time, not with a change). The cards
+// are drawn again only when a light or a count changes; the window that
+// names who is there (a card's or the room's counts pressed) follows every
+// answer.
 let topicLast = null;
 let presence = new Map();
 let presenceAsked = "";
 let presenceBusy = false;
+// sliqtly.com: what is listened to ({ key, stop, gone }) and what was read
+let presenceListen = null;
+let presenceDocs = new Map();
 // the window: { deck } (null: the whole room), or null while it is shut
 let whoShown = null;
 let whoSort = { by: "name", dir: "asc" };
 const presenceId = (id) => String(id || "").replace(/^cloud:/, "");
+const cloudPresence = () => !ownServer() && !!cloudCall && !!window.sliqtly?.user?.();
+const presenceShown = () => !viewer && (ownServer() || cloudPresence());
 function presenceIds() {
   if (!topicLast || topicLast.room !== roomShown) return [];
-  return topicLast.rows.map((r) => presenceId(r.id)).filter((id) => id && !id.startsWith("sample:")).slice(0, 200);
+  // in the cloud only a Story kept there has assistants
+  const rows = ownServer() ? topicLast.rows : topicLast.rows.filter((r) => String(r.id).startsWith("cloud:"));
+  return rows.map((r) => presenceId(r.id)).filter((id) => id && !id.startsWith("sample:")).slice(0, 200);
 }
 async function askPresence() {
-  if (viewer || !ownServer() || presenceBusy || document.visibilityState !== "visible") return;
+  if (!ownServer()) return askCloudPresence();
+  if (viewer || presenceBusy || document.visibilityState !== "visible") return;
   const ids = presenceIds();
   presenceAsked = ids.join("\n");
   if (!ids.length) {
@@ -1735,6 +1749,38 @@ async function askPresence() {
   } finally {
     presenceBusy = false;
   }
+  await takePresence(next);
+}
+// sliqtly.com: listens while the room's Stories are in sight, to those
+// Stories; the page out of sight stops it
+async function askCloudPresence() {
+  const ids = presenceShown() && document.visibilityState === "visible" ? presenceIds() : [];
+  const key = ids.join("\n");
+  presenceAsked = key;
+  if ((presenceListen?.key ?? "") !== key) {
+    if (presenceListen) {
+      presenceListen.gone = true;
+      presenceListen.stop?.();
+    }
+    presenceListen = null;
+    presenceDocs = new Map();
+    if (ids.length) {
+      const l = { key, stop: null, gone: false };
+      presenceListen = l;
+      window.sliqtly.roomChatDb().then((db) => {
+        if (l.gone) return;
+        l.stop = listenPresence(db, ids, (docs) => {
+          if (l.gone) return;
+          presenceDocs = docs;
+          takePresence(presenceByDeck(presenceAnswer(docs, Date.now()))).catch(() => {});
+        });
+      }).catch(() => {});
+    }
+  }
+  if (!ids.length && !presence.size) return;
+  await takePresence(presenceByDeck(presenceAnswer(presenceDocs, Date.now())));
+}
+async function takePresence(next) {
   const changed = !samePresence(presence, next);
   presence = next;
   if (changed && topicLast && topicLast.room === roomShown) await showTopic(topicLast.room, topicLast.rows, topicLast.folders);
@@ -1745,7 +1791,7 @@ function whoJson() {
   const names = new Map((topicLast?.rows || []).map((r) => [presenceId(r.id), r.name || ""]));
   const only = whoShown?.deck || null;
   return whoListJson(whoRows(presence, names, only), {
-    by: whoSort.by, dir: whoSort.dir, t, story: only ? names.get(only) || "" : "", room: !only, note: whoNote(presence, t, only),
+    by: whoSort.by, dir: whoSort.dir, t, story: only ? names.get(only) || "" : "", room: !only, note: whoNote(presence, t, only), people: ownServer(),
   });
 }
 function showWho() {

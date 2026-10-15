@@ -130,3 +130,9 @@ test("people editing come first, people only reading after the working assistant
   assert.equal(by("person:r:d1").modified, "");
   assert.equal(by("person:o:d1").where, "Person · editing in the editor", "a server that does not say: as before");
 });
+
+test("where nobody's open pages are told, the empty window says assistants only", () => {
+  const j = JSON.parse(whoListJson([], { t, people: false }));
+  assert.equal(j.empty, "Nobody is working here now. An assistant connected to Sliqtly's MCP shows up here as soon as it works on a presentation.");
+  assert.match(JSON.parse(whoListJson([], { t })).empty, /and so does a person/);
+});

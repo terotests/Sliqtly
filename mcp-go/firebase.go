@@ -27,6 +27,19 @@ import (
 
 type firestoreDB struct{ c *firestore.Client }
 
+// presence/{deck}/agents/{agent} (presencecloud.go)
+type fsPresence struct{ c *firestore.Client }
+
+func (p fsPresence) put(ctx context.Context, deck, agent string, d Doc) error {
+	_, err := p.c.Collection("presence").Doc(deck).Collection("agents").Doc(agent).Set(ctx, d, firestore.MergeAll)
+	return err
+}
+
+func (p fsPresence) drop(ctx context.Context, deck, agent string) error {
+	_, err := p.c.Collection("presence").Doc(deck).Collection("agents").Doc(agent).Delete(ctx)
+	return err
+}
+
 func (d firestoreDB) Get(ctx context.Context, col, id string) (Doc, error) {
 	snap, err := d.c.Collection(col).Doc(id).Get(ctx)
 	if status.Code(err) == codes.NotFound {
@@ -305,6 +318,8 @@ func connectFirebase(ctx context.Context, env *Env, projectID, bucket string) er
 	env.cloudShared = newCloudShared(gcsBucket{b}, cloudJobStarter(os.Getenv("SLIQTLY_FIGMA_JOB")))
 	// shared rooms and their chat for the editor (editorrooms.go)
 	env.cloudRooms = newCloudRoomService(env, newFSEngine(fs, ""), newFSChat(fs, ""))
+	// who is working on the editor's Stories (presencecloud.go)
+	env.agents.pub = newPresencePub(fsPresence{fs})
 	// the owner's dashboard (admin.go), for the accounts listed
 	env.Admin = newAdminConfig(splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")), &cloudAdmin{fs: fs, auth: auth, project: projectID, table: os.Getenv("SLIQTLY_BILLING_TABLE")})
 	return nil
