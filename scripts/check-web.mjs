@@ -3841,6 +3841,49 @@ try {
     await page.evaluate((s) => window.__app.setSource(s), src0);
   }
 
+  // A slide for a screen reader: its headings, list, table and chart as what
+  // they are, in the deck's language; and a comment added from the keyboard
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
+    await page.evaluate(() => {
+      const a = window.__app;
+      a.showTab("md");
+      a.setSource("---\nlang: fi\n---\n\n# Myynti\n\nKasvu jatkui.\n\n- yksi\n- kaksi\n\n| Nimi | Määrä |\n| --- | ---: |\n| omena | 3 |\n\n# Kaavio\n\n```vega-lite\n{\"title\": \"Kvartaalit\", \"data\": {\"values\": [{\"q\": \"Q1\", \"v\": 4}, {\"q\": \"Q2\", \"v\": 7}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"q\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}}}\n```\n");
+      a.selectSlide(0);
+    });
+    await page.waitForTimeout(400);
+    const slide = await page.evaluate(() => {
+      const st = document.querySelector('.evg-a11y [data-a11y-id="stage"]');
+      const q = (sel) => [...st.querySelectorAll(sel)].map((e) => e.textContent.trim());
+      return { lang: st.getAttribute("lang"), h: q("[role=heading]"), items: q("[role=listitem]"), heads: q("[role=columnheader]"), cells: q("[role=cell]"), h1: [...document.querySelectorAll('.evg-a11y [aria-level="1"]')].map((e) => e.textContent) };
+    });
+    await page.evaluate(() => window.__app.selectSlide(1));
+    await page.waitForTimeout(400);
+    const chart = await page.evaluate(() => {
+      const t = document.querySelector('.evg-a11y [data-a11y-id="stage"] [role=table]');
+      return t ? [t.getAttribute("aria-label"), [...t.querySelectorAll("[role=rowheader],[role=cell]")].map((e) => e.textContent).join(" ")] : null;
+    });
+    check("a slide for a screen reader: heading, list items, table cells, in the deck's language", slide.lang === "fi" && slide.h[0] === "Myynti" && slide.items.join("|") === "yksi|kaksi" && slide.heads.join("|") === "Nimi|Määrä" && slide.cells.join("|") === "omena|3" && slide.h1.length === 1, JSON.stringify(slide));
+    check("a chart for a screen reader: its kind and title, its numbers as a table", !!chart && /Kvartaalit/.test(chart[0]) && chart[1] === "Q1 4 Q2 7", JSON.stringify(chart));
+    // a comment from the keyboard: on the slide's first element, the keys in it
+    await page.evaluate(() => { window.__app.selectSlide(0); window.__app.setReviewMode(true); });
+    await page.waitForTimeout(400);
+    const before = await page.evaluate(() => window.__app.reviewCount());
+    await page.evaluate(() => document.querySelector('.evg-a11y [data-a11y-id="rv-add"]').focus());
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+    const typing = [await act(), await page.evaluate(() => document.getElementById("keys").getAttribute("aria-label"))];
+    await page.keyboard.type("Näppäimistöltä");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => window.__app.reviewCount());
+    const pins = await page.evaluate(() => [...document.querySelectorAll('.evg-a11y [data-a11y-id^="rv-pin-"]')].map((e) => e.getAttribute("aria-label") || e.textContent).join("|"));
+    await page.evaluate(() => window.__app.setReviewMode(false));
+    check("a comment from the keyboard: Add comment puts it on the slide and the keys in it", typing[0] === "keys" && typing[1] === "Comment" && after === before + 1 && /Näppäimistöltä/.test(pins), JSON.stringify({ typing, before, after, pins }));
+    await page.evaluate((s) => window.__app.setSource(s), src0);
+  }
+
   // A chart slider shows on the slide while it moves, and one undo takes the whole drag back
   {
     const lv = await page.evaluate(() => {

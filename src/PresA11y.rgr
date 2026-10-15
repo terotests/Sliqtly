@@ -18,6 +18,7 @@
 ; ============================================================================
 
 Import "../evgui/src/UiHost.rgr"
+Import "PresI18n.rgr"
 
 class PresA11y {
 
@@ -43,7 +44,7 @@ class PresA11y {
                     }
                     def n:EVGA11yNode (t.node(row.tid p row.role))
                     if (row.role != (EVGA11yRole.none())) {
-                        n.name = row.name
+                        n.name = (PresA11y.spokenName(row.name))
                         ; a row that says nothing of itself (a select's
                         ; options) is named by the words it shows, as a
                         ; browser names an option by its text
@@ -83,6 +84,46 @@ class PresA11y {
             }
             i = (i + 1)
         }
+    }
+
+    ; A name as a reader says it: the symbol a button wears in front of its
+    ; words ("▶ Play", "⛶ Present", "📞 Call") is read out as "black
+    ; right-pointing triangle", so the words are its name. Symbols and emoji
+    ; are U+2000 and up (an emoji is a surrogate pair, U+D800 and up); the
+    ; letters of the interface's languages (ä, ö, å) are below.
+    sfn spokenName:string (name:string) {
+        ; a narrow bar's buttons wear the sign alone
+        def bare:string (trim name)
+        if (bare == "▶") {
+            return (PresA11y.spokenName((PresI18n.t("▶ Play"))))
+        }
+        if (bare == "⏸") {
+            return (PresA11y.spokenName((PresI18n.t("⏸ Pause"))))
+        }
+        if (bare == "⛶") {
+            return (PresA11y.spokenName((PresI18n.t("⛶ Present"))))
+        }
+        if (bare == "✓") {
+            return (PresI18n.t("Save"))
+        }
+        if (bare == "✎") {
+            return (PresI18n.t("Edit"))
+        }
+        if (bare == "☰") {
+            return (PresI18n.t("Menu"))
+        }
+        def sp:int (indexOf name " ")
+        if (((sp <= 0) || (sp > 4)) || (sp >= ((strlen name) - 1))) {
+            return name
+        }
+        def i:int 0
+        while (i < sp) {
+            if ((charAt name i) < 8192) {
+                return name
+            }
+            i = (i + 1)
+        }
+        return (trim (substring name sp (strlen name)))
     }
 
     ; The text an element and its children draw, one space between.

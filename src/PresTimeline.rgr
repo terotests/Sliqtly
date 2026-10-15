@@ -429,6 +429,14 @@ class PresTimeline {
         }
     }
 
+    ; A pose without its motion: `alpha` how far it has faded in.
+    sfn calmPose:void (p:PresPose alpha:double) {
+        p.dx = 0.0
+        p.dy = 0.0
+        p.scale = 1.0
+        p.alpha = alpha
+    }
+
     ; ------------------------------------------------------------------
     ; Applying a pose to commands
     ; ------------------------------------------------------------------
@@ -497,6 +505,12 @@ class PresTimeline {
         while (g < n) {
             def p (new PresPose())
             PresTimeline.groupPose((itemAt s.groups g) t p)
+            if s.calm {
+                ; it fades in where it ends, without rising, flying or zooming
+                p.dx = 0.0
+                p.dy = 0.0
+                p.scale = 1.0
+            }
             if (p.scale != 1.0) {
                 PresTimeline.centreOf(list groupOfCmd g p)
             }
@@ -573,8 +587,9 @@ class PresTimeline {
             return out
         }
         def s:PresSlide (deck.slideAt(i))
+        s.calm = deck.calm
         def secs:double (PresTimeline.transitionSeconds(s))
-        if (((s.transition == "morph") && (i > 0)) && (t < secs)) {
+        if ((((s.transition == "morph") && (i > 0)) && (t < secs)) && (deck.calm == false)) {
             PresTimeline.morphInto(deck i t out)
             def mpop (new EVGDrawCmd())
             mpop.kind = 5
@@ -583,11 +598,16 @@ class PresTimeline {
         }
         if ((i > 0) && (t < secs)) {
             def prev:PresSlide (deck.slideAt((i - 1)))
+            prev.calm = deck.calm
             def pg:[int]
             def pl:EVGDisplayList (deck.slideList((i - 1) pg prev.duration))
             def pa:EVGDisplayList (PresTimeline.animate(prev pl pg prev.duration))
             def pp (new PresPose())
             PresTimeline.slidePose(s t false w h pp)
+            if deck.calm {
+                ; the slide before stays where it is under the new one
+                PresTimeline.calmPose(pp 1.0)
+            }
             PresTimeline.poseAll(pa pp)
             PresDeck.appendAll(out pa)
         }
@@ -596,6 +616,14 @@ class PresTimeline {
         def ca:EVGDisplayList (PresTimeline.animate(s cl cg t))
         def cp (new PresPose())
         PresTimeline.slidePose(s t true w h cp)
+        if (deck.calm && (secs > 0.0)) {
+            ; it fades in over the slide before, whatever its transition
+            def q:double (PresTimeline.progress(t 0.0 secs))
+            if (q < 0.0) {
+                q = 0.0
+            }
+            PresTimeline.calmPose(cp q)
+        }
         PresTimeline.poseAll(ca cp)
         PresDeck.appendAll(out ca)
         def pop (new EVGDrawCmd())
