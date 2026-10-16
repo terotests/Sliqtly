@@ -7547,18 +7547,18 @@ class PresCheck {
         deck.showControls = true
         def g:[int]
         def a:EVGDisplayList (deck.slideList(0 g 0.0))
-        this.ok(((PresCheck.texts(a "▶ g.tsx")) == 0) "playLoading: no plate on the stage while the program starts")
+        this.ok(((PresCheck.texts(a "g.tsx")) == 0) "playLoading: no plate on the stage while the program starts")
         this.ok(((PresCheck.rings(a 12)) == 1) "playLoading: a ring of twelve dashes instead")
         this.ok((deck.uiBusy(0)) "playLoading: the stage is painted again while it turns")
         deck.showControls = false
         def g2:[int]
         def th:EVGDisplayList (deck.slideList(0 g2 0.0))
-        this.ok(((PresCheck.texts(th "▶ g.tsx")) == 1) "playLoading: a thumbnail keeps the plate")
+        this.ok(((PresCheck.texts(th "g.tsx")) == 1) "playLoading: a thumbnail keeps the plate")
         deck.showControls = true
         deck.uiNow = (100.0 + (PresPlayView.waitMax()) + 1.0)
         def g3:[int]
         def late:EVGDisplayList (deck.slideList(0 g3 0.0))
-        this.ok((((PresCheck.texts(late "▶ g.tsx")) == 1) && ((PresCheck.rings(late 12)) == 0)) "playLoading: the plate after waiting too long")
+        this.ok((((PresCheck.texts(late "g.tsx")) == 1) && ((PresCheck.rings(late 12)) == 0)) "playLoading: the plate after waiting too long")
         this.ok(((deck.uiBusy(0)) == false) "playLoading: and the stage rests")
         deck.showControls = false
         def s0:EVGDrawCmd (PresPlayView.spinner(0.0 0.0 10.0 0.0 "#ffffff"))
@@ -7597,7 +7597,7 @@ class PresCheck {
         def files:[string] (deck.playFiles())
         this.ok((((indexOf files "apps/g.tsx") >= 0) && ((indexOf files "apps/g.tsx.css") >= 0)) "plays: the program and its stylesheet are asked for")
         def f0:EVGDisplayList (PresTimeline.finalFrame(deck 0))
-        this.ok(((PresCheck.texts(f0 "▶ g.tsx")) == 1) "plays: a plate with the name before a frame")
+        this.ok(((PresCheck.texts(f0 "g.tsx")) == 1) "plays: a plate with the name before a frame")
         deck.setChartData("apps/g.tsx" "function view() { return null }")
         deck.setChartData("apps/g.tsx.css" ".x { background-color: #ff0000 }")
         PresTimeline.planAll(deck)
@@ -7628,7 +7628,7 @@ class PresCheck {
         def tree:string "{\"t\":\"div\",\"cls\":\"x\",\"s\":{\"width\":\"200px\",\"height\":\"100px\"},\"c\":[{\"t\":\"div\",\"id\":\"b\",\"s\":{\"position\":\"absolute\",\"left\":\"10px\",\"top\":\"10px\",\"width\":\"20px\",\"height\":\"20px\",\"background-color\":\"#0000ff\"}}]}"
         this.ok((view.setTree(tree)) "plays: a frame laid out")
         def f1:EVGDisplayList (PresTimeline.finalFrame(deck 0))
-        this.ok(((PresCheck.texts(f1 "▶ g.tsx")) == 0) "plays: the frame replaces the plate")
+        this.ok(((PresCheck.texts(f1 "g.tsx")) == 0) "plays: the frame replaces the plate")
         this.ok(((PresCheck.redRects(f1)) >= 1) "plays: the program's stylesheet paints it")
         this.ok(((array_length (deck.playsToStill(none))) == 0) "plays: one with a picture keeps it in an export")
         ; a point of the box in the program's own units, with the id there
