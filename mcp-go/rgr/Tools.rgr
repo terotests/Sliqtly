@@ -530,11 +530,11 @@ class Tools {
         def lsOff:MfJ (Tools.prop("integer" "Skip this many (next_offset of the page before)"))
         lsOff.putInt("minimum" 0)
         lsp.put("offset" lsOff)
-        def lsLim:MfJ (Tools.prop("integer" "How many on the page (default 50, at most 200)"))
+        def lsLim:MfJ (Tools.prop("integer" "How many on the page (default 200, at most 1000)"))
         lsLim.putInt("minimum" 1)
-        lsLim.putInt("maximum" 200)
+        lsLim.putInt("maximum" 1000)
         lsp.put("limit" lsLim)
-        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations, last changed first, with their links and deck_ids, and where rooms are kept each one's room (shown to people as a topic or project: room_id, room), folder (folder_id, folder) and story (type, phase, tags). Pages of at most limit (default 50): total says how many there are, next_offset where the next page starts; query finds one by name. list_rooms lists the rooms, move_presentation moves one. Needs sign-in." (Tools.schema(lsp none)) (Tools.annotations(true -1 false false)) listMeta)))
+        tools.add((Tools.tool("list_presentations" "List my presentations" "List the signed-in user's own Sliqtly presentations, last changed first, with their links and deck_ids, and where rooms are kept each one's room (shown to people as a topic or project: room_id, room), folder (folder_id, folder) and story (type, phase, tags). Pages of at most limit (default 200): total, in every answer, says how many there are, next_offset where the next page starts; query finds one by name. list_rooms lists the rooms, move_presentation moves one. Needs sign-in." (Tools.schema(lsp none)) (Tools.annotations(true -1 false false)) listMeta)))
         ; decks made without sign-in are changed by the conversation that
         ; made them, which says so with the session_key create_presentation
         ; gave it
@@ -5174,12 +5174,12 @@ class Tools {
         if (offset < 0) {
             offset = 0
         }
-        def limit:int (to_int (args.num_("limit" 50.0)))
+        def limit:int (to_int (args.num_("limit" 200.0)))
         if (limit < 1) {
-            limit = 50
-        }
-        if (limit > 200) {
             limit = 200
+        }
+        if (limit > 1000) {
+            limit = 1000
         }
         def seen:[MfJ]
         for all d0:MfJ k {
@@ -5267,7 +5267,7 @@ class Tools {
         if ((array_length lines) == 0) {
             txt = "No presentations yet."
             if ((total > 0) || ((strlen want) > 0)) {
-                txt = "No presentations on this page."
+                txt = ("No presentations on this page; " + (to_string total) + " in all.")
             }
         }
         def next:int (offset + (array_length lines))
