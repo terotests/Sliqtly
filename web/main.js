@@ -33,7 +33,7 @@ import { showHistory, askMerge } from "./versions-ui.js";
 import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
-import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sharedIndex, anyIndexing, sharedNote, useEditorRoots } from "./sharedfiles.js";
+import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, moveShared, makeSharedFolder, removeSharedFolder, sharedPanelJson, sharedIndex, anyIndexing, useEditorRoots } from "./sharedfiles.js";
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
@@ -519,8 +519,7 @@ async function sharedRefresh() {
   sharedFilesList = res?.files || [];
   sharedUpload = res?.upload || "";
   sharedMax = Number(res?.max) || 0;
-  const rows = sharedFilesList.map((f) => [f.id, f.name, sharedNote(f, t), f.status].map((c) => String(c || "").replace(/[\t\n]/g, " ")).join("\t"));
-  app.setToolbarOptions("files", rows.join("\n"), "1");
+  app.setToolbarOptions("files", sharedPanelJson(res, t), "1");
   const open = app.figmaFileOpen();
   const card = open && sharedFilesList.find((f) => f.id === open);
   if (card) await sharedShow(card, false);
@@ -547,7 +546,8 @@ async function sharedShow(f, open) {
 }
 async function sharedRequest(r) {
   if (r === "list") return sharedRefresh();
-  if (r === "add") {
+  if (r === "add" || r.startsWith("add:")) {
+    const folder = r.slice(4);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".fig,.pptx";
@@ -562,7 +562,7 @@ async function sharedRequest(r) {
       toast(t("Adding {name}…").replace("{name}", file.name));
       try {
         const upload = CLOUD_ONLY ? (f) => window.sliqtly.uploadFigma(f, sharedUpload) : null;
-        const card = await putShared(file, fetch, upload);
+        const card = await putShared(file, fetch, upload, folder);
         await sharedRefresh();
         if (card?.id) await sharedShow(sharedFilesList.find((f) => f.id === card.id) || card, true);
       } catch (e) { toast(t("Could not add the file") + ": " + e.message); }
@@ -586,6 +586,36 @@ async function sharedRequest(r) {
       deliver(await res.arrayBuffer(), f?.name || "deck.pptx", res.headers.get("Content-Type") || "application/octet-stream");
     } catch (e) { toast(t("Could not download the file") + ": " + e.message); }
     return;
+  }
+  if (r.startsWith("delmany:")) {
+    // ticked in the Files panel (or one row's ✕): each removed, what could
+    // not be (a file its variations need) said
+    const ids = r.slice(8).split("\t").filter(Boolean);
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await removeShared(id);
+        sharedIndexes.delete(id);
+      } catch (e) { failed.push(e.message); }
+    }
+    if (failed.length) toast(t("Could not delete the file") + ": " + failed[0]);
+    else toast(ids.length === 1 ? t("File deleted") : t("{n} files deleted").replace("{n}", String(ids.length)));
+    return sharedRefresh();
+  }
+  if (r.startsWith("move:")) {
+    const [folder, ...ids] = r.slice(5).split("\t");
+    try {
+      for (const id of ids) if (id) await moveShared(id, folder);
+    } catch (e) { toast(t("Could not move the file") + ": " + e.message); }
+    return sharedRefresh();
+  }
+  if (r.startsWith("mkdir:")) {
+    try { await makeSharedFolder(r.slice(6)); } catch (e) { toast(t("Could not make the folder") + ": " + e.message); }
+    return sharedRefresh();
+  }
+  if (r.startsWith("rmdir:")) {
+    try { await removeSharedFolder(r.slice(6)); } catch (e) { toast(t("Could not delete the folder") + ": " + e.message); }
+    return sharedRefresh();
   }
   if (r.startsWith("delete:")) {
     const id = r.slice(7);

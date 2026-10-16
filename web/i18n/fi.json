@@ -1936,5 +1936,12 @@
   "Not a number": "Ei luku",
   "Held to the range": "Pidetty alueella",
   "Range": "Alue",
-  "Outside the safe range; drawn as": "Turvarajan ulkopuolella; piirretään arvolla"
+  "Outside the safe range; drawn as": "Turvarajan ulkopuolella; piirretään arvolla",
+  "Move here": "Siirrä tänne",
+  "Folder name": "Kansion nimi",
+  "This folder is empty. Add a file with +, or tick files in another folder and move them here.": "Kansio on tyhjä. Lisää tiedosto +:lla tai valitse tiedostoja toisesta kansiosta ja siirrä ne tänne.",
+  "{n} files deleted": "{n} tiedostoa poistettu",
+  "Could not move the file": "Tiedostoa ei voitu siirtää",
+  "Could not make the folder": "Kansiota ei voitu tehdä",
+  "Could not delete the folder": "Kansiota ei voitu poistaa"
 }

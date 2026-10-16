@@ -1,0 +1,453 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresSharedList.rgr — the left rail's Files as a folder browser
+; ============================================================================
+;
+; The shared files (mcp-go/sharedfiles.go) are listed by the page as
+;
+;   {"files": [{"id", "name", "kind", "note", "status", "folder"}],
+;    "folders": ["Designs", "Designs/Mobile"]}
+;
+; where a file's `folder` is a path of names ("" the top) and `folders` the
+; folders kept even with nothing in them. This model is what the panel
+; (PresToolbar.buildFiles) draws from, without pixels:
+;
+;   open(path) / up()      the folder shown; crumbs() its path's names
+;   subfolders()           the folders right under it, by name
+;   here()                 its files, in the page's order
+;   tagOf(i), tagKind(i)   a file's type tag (FIG, PPTX, …) and its colour
+;   pick                   the ticked files (UiPick over every file's id),
+;                          kept while another folder is opened, so files
+;                          ticked in one can be moved into another
+;   toggleHere()           the header's box: this folder's files
+;   movePlan()             the ticked files not in this folder yet
+;   canRemoveFolder(p)     a folder with nothing in it, under it either
+;
+; Paths are cleaned the same way the server cleans them (sharedFolder in
+; sharedfiles.go): names trimmed, "." / ".." / empty names dropped, no
+; control characters or backslashes.
+; ============================================================================
+
+Import "../evgui/src/UiPick.rgr"
+Import "../vela/src/VlJson.rgr"
+Import "PresFileLanguage.rgr"
+
+class PresSharedEntry {
+    def id:string ""
+    def name:string ""
+    def kind:string ""
+    def note:string ""
+    def status:string ""
+    def folder:string ""
+}
+
+class PresSharedList {
+    def files:[PresSharedEntry]
+    def kept:[string]
+    def cwd:string ""
+    def pick:UiPick (new UiPick())
+    def json:string ""
+    ; a folder just asked for (made): opened once the page lists it
+    def wanted:string ""
+
+    Constructor () {
+        def f:[PresSharedEntry]
+        files = f
+        def k:[string]
+        kept = k
+    }
+
+    ; the page's list; the folder shown stays when it is still there
+    fn setData:void (text:string) {
+        json = text
+        def p (new VlJsonParser())
+        def data:VlJson (p.parse(text))
+        def fs:[PresSharedEntry]
+        def ks:[string]
+        def ids:[string]
+        if ((p.ok == true) && (data.isObject())) {
+            def list:VlJson (data.get("files"))
+            def i:int 0
+            while (i < (list.count())) {
+                def o:VlJson (list.at(i))
+                def e (new PresSharedEntry())
+                e.id = (o.stringOr("id" ""))
+                e.name = (o.stringOr("name" ""))
+                e.kind = (o.stringOr("kind" ""))
+                e.note = (o.stringOr("note" ""))
+                e.status = (o.stringOr("status" ""))
+                e.folder = (PresSharedList.clean((o.stringOr("folder" ""))))
+                if ((strlen e.id) > 0) {
+                    push fs e
+                    push ids e.id
+                }
+                i = (i + 1)
+            }
+            def dl:VlJson (data.get("folders"))
+            def j:int 0
+            while (j < (dl.count())) {
+                def d:string (PresSharedList.clean(((dl.at(j)).asString())))
+                if ((strlen d) > 0) {
+                    push ks d
+                }
+                j = (j + 1)
+            }
+        }
+        files = fs
+        kept = ks
+        pick.setKeys(ids)
+        if ((this.exists(cwd)) == false) {
+            cwd = ""
+        }
+        if (((strlen wanted) > 0) && (this.exists(wanted))) {
+            cwd = wanted
+            wanted = ""
+        }
+    }
+
+    ; --- paths
+
+    ; a folder path as kept: names trimmed, empty / "." / ".." names
+    ; dropped, at most 8 deep and 60 characters a name
+    sfn clean:string (path:string) {
+        def out:string ""
+        def depth:int 0
+        def parts:[string] (strsplit path "/")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def nm:string (PresSharedList.cleanName((itemAt parts i)))
+            if (((strlen nm) > 0) && (depth < 8)) {
+                if ((strlen out) > 0) {
+                    out = (out + "/")
+                }
+                out = (out + nm)
+                depth = (depth + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn cleanName:string (name:string) {
+        def s:string ""
+        def i:int 0
+        while (i < (strlen name)) {
+            def c:int (charAt name i)
+            if ((c >= 32) && ((c != 92) && (c != 127))) {
+                s = (s + (substring name i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        s = (trim s)
+        if ((s == ".") || (s == "..")) {
+            return ""
+        }
+        if ((strlen s) > 60) {
+            s = (trim (substring s 0 60))
+        }
+        return s
+    }
+
+    sfn join:string (parent:string name:string) {
+        if ((strlen parent) == 0) {
+            return (PresSharedList.clean(name))
+        }
+        return (PresSharedList.clean((parent + "/" + name)))
+    }
+
+    sfn parentOf:string (path:string) {
+        def at:int (lastIndexOf path "/")
+        if (at < 0) {
+            return ""
+        }
+        return (substring path 0 at)
+    }
+
+    sfn baseOf:string (path:string) {
+        def at:int (lastIndexOf path "/")
+        return (substring path (at + 1) (strlen path))
+    }
+
+    ; `path` is `dir` or a folder under it
+    sfn within:boolean (path:string dir:string) {
+        if ((strlen dir) == 0) {
+            return true
+        }
+        if (path == dir) {
+            return true
+        }
+        return (startsWith path (dir + "/"))
+    }
+
+    ; --- the folders
+
+    fn exists:boolean (path:string) {
+        if ((strlen path) == 0) {
+            return true
+        }
+        for kept k:string i {
+            if (PresSharedList.within(k path)) {
+                return true
+            }
+        }
+        for files f:PresSharedEntry j {
+            if (PresSharedList.within(f.folder path)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn open:void (path:string) {
+        def p:string (PresSharedList.clean(path))
+        if (this.exists(p)) {
+            cwd = p
+        }
+    }
+
+    fn up:void () {
+        cwd = (PresSharedList.parentOf(cwd))
+    }
+
+    fn crumbs:[string] () {
+        if ((strlen cwd) == 0) {
+            def none:[string]
+            return none
+        }
+        return (strsplit cwd "/")
+    }
+
+    ; the folders right under the one shown, full paths, by name
+    fn subfolders:[string] () {
+        def out:[string]
+        def all:[string]
+        for kept k:string i {
+            push all k
+        }
+        for files f:PresSharedEntry j {
+            push all f.folder
+        }
+        for all p:string n {
+            if ((p != cwd) && (PresSharedList.within(p cwd))) {
+                def rest:string p
+                if ((strlen cwd) > 0) {
+                    rest = (substring p ((strlen cwd) + 1) (strlen p))
+                }
+                def slash:int (indexOf rest "/")
+                if (slash >= 0) {
+                    rest = (substring rest 0 slash)
+                }
+                def full:string (PresSharedList.join(cwd rest))
+                if ((PresSharedList.inList(out full)) == false) {
+                    push out full
+                }
+            }
+        }
+        return (PresSharedList.sorted(out))
+    }
+
+    sfn inList:boolean (list:[string] s:string) {
+        for list x:string i {
+            if (x == s) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn sorted:[string] (list:[string]) {
+        def out:[string]
+        for list s:string i {
+            def low:string (to_lowercase s)
+            def at:int (array_length out)
+            def k:int 0
+            def placed:boolean false
+            while ((k < (array_length out)) && (placed == false)) {
+                if (PresSharedList.after((to_lowercase (itemAt out k)) low)) {
+                    at = k
+                    placed = true
+                }
+                k = (k + 1)
+            }
+            def next:[string]
+            def m:int 0
+            while (m < (array_length out)) {
+                if (m == at) {
+                    push next s
+                }
+                push next (itemAt out m)
+                m = (m + 1)
+            }
+            if (at == (array_length out)) {
+                push next s
+            }
+            out = next
+        }
+        return out
+    }
+
+    ; `a` sorts after `b`, character by character
+    sfn after:boolean (a:string b:string) {
+        def i:int 0
+        while ((i < (strlen a)) && (i < (strlen b))) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca != cb) {
+                return (ca > cb)
+            }
+            i = (i + 1)
+        }
+        return ((strlen a) > (strlen b))
+    }
+
+    ; the files in the folder and every folder under it
+    fn countIn:int (path:string) {
+        def n:int 0
+        for files f:PresSharedEntry i {
+            if (PresSharedList.within(f.folder path)) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; a folder is removed only with nothing in it
+    fn canRemoveFolder:boolean (path:string) {
+        if ((strlen path) == 0) {
+            return false
+        }
+        if ((this.countIn(path)) > 0) {
+            return false
+        }
+        for kept k:string i {
+            if ((k != path) && (PresSharedList.within(k path))) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; --- the files
+
+    ; the indexes of the files in the folder shown
+    fn here:[int] () {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length files)) {
+            def e:PresSharedEntry (itemAt files i)
+            if (e.folder == cwd) {
+                push out i
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn entry:PresSharedEntry (i:int) {
+        return (itemAt files i)
+    }
+
+    fn indexOfId:int (id:string) {
+        def i:int 0
+        while (i < (array_length files)) {
+            def e:PresSharedEntry (itemAt files i)
+            if (e.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; the tag a row shows: the kinds the server reads by their own name,
+    ; any other file by its extension (as the deck's Files tab does)
+    fn tagOf:string (i:int) {
+        def e:PresSharedEntry (itemAt files i)
+        if ((e.kind == "figma") || (e.kind == "figma-variation")) {
+            return "FIG"
+        }
+        if (e.kind == "pptx") {
+            return "PPTX"
+        }
+        return (PresFileLanguage.extTag(e.name))
+    }
+
+    ; the tag's colour class suffix (toolbar.css .pf-tag-…)
+    fn tagKind:string (i:int) {
+        def e:PresSharedEntry (itemAt files i)
+        if ((e.kind == "figma") || (e.kind == "figma-variation")) {
+            return "fig"
+        }
+        if (e.kind == "pptx") {
+            return "pptx"
+        }
+        return "file"
+    }
+
+    ; --- ticking
+
+    fn toggle:void (id:string) {
+        pick.toggle(id)
+    }
+
+    ; the header's box: all of this folder's files, or none when all are
+    fn toggleHere:void () {
+        def hs:[int] (this.here())
+        def all:boolean ((array_length hs) > 0)
+        for hs i:int k {
+            def e:PresSharedEntry (itemAt files i)
+            if ((pick.has(e.id)) == false) {
+                all = false
+            }
+        }
+        for hs i2:int k2 {
+            def e2:PresSharedEntry (itemAt files i2)
+            pick.set(e2.id (all == false))
+        }
+    }
+
+    ; CheckboxCtl's 0 none, 1 all, 2 some, for this folder's files
+    fn hereState:int () {
+        def hs:[int] (this.here())
+        def n:int 0
+        for hs i:int k {
+            def e:PresSharedEntry (itemAt files i)
+            if (pick.has(e.id)) {
+                n = (n + 1)
+            }
+        }
+        if (n == 0) {
+            return 0
+        }
+        if (n == (array_length hs)) {
+            return 1
+        }
+        return 2
+    }
+
+    fn picked:[string] () {
+        return (pick.selected())
+    }
+
+    ; ticked files in other folders: they can be moved here
+    fn movePlan:[string] () {
+        def out:[string]
+        for (pick.selected()) id:string i {
+            def at:int (this.indexOfId(id))
+            if (at >= 0) {
+                def e:PresSharedEntry (itemAt files at)
+                if (e.folder != cwd) {
+                    push out id
+                }
+            }
+        }
+        return out
+    }
+
+    fn clearPicks:void () {
+        for (pick.selected()) id:string i {
+            pick.set(id false)
+        }
+    }
+}

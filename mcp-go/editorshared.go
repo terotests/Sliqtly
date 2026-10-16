@@ -11,6 +11,9 @@
 //	                                             a file the page uploaded to
 //	                                             Storage, moved in and read
 //	POST   /editor/api/shared/{id}/rename {name}
+//	POST   /editor/api/shared/{id}/move {folder}  shown in another folder
+//	POST   /editor/api/shared/~folders {path}     a folder kept, empty too
+//	DELETE /editor/api/shared/~folders?path=      an empty folder forgotten
 //	DELETE /editor/api/shared/{id}
 //	GET    /editor/api/shared/{id}/index.json
 //	GET    /editor/api/shared/{id}/source      the file itself
@@ -83,18 +86,48 @@ func serveCloudShared(env *Env, g *editorGate, w http.ResponseWriter, r *http.Re
 	case rest == "" && r.Method == http.MethodGet:
 		var files []sharedFile
 		files, err = sh.list(ctx)
-		out = map[string]any{"files": files, "max": sh.max, "upload": cloudUploadDir(t.UID)}
+		out = map[string]any{"files": files, "max": sh.max, "upload": cloudUploadDir(t.UID), "folders": sh.folders(ctx)}
+	case rest == "~folders" && r.Method == http.MethodPost:
+		var in struct {
+			Path string `json:"path"`
+		}
+		if json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in) != nil {
+			editorJSON(w, 400, map[string]string{"error": "Send {path}."})
+			return
+		}
+		var p string
+		p, err = sh.addFolder(ctx, in.Path)
+		out = map[string]string{"path": p}
+		status = 201
+	case rest == "~folders" && r.Method == http.MethodDelete:
+		err = sh.removeFolder(ctx, r.URL.Query().Get("path"))
+		out = map[string]bool{"ok": true}
+	case op == "move" && r.Method == http.MethodPost:
+		var in struct {
+			Folder string `json:"folder"`
+		}
+		if json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in) != nil {
+			editorJSON(w, 400, map[string]string{"error": "Send {folder}."})
+			return
+		}
+		out, err = sh.move(ctx, id, in.Folder)
 	case rest == "add" && r.Method == http.MethodPost:
 		var in struct {
 			Name   string `json:"name"`
 			Upload string `json:"upload"`
 			ID     string `json:"id"`
+			Folder string `json:"folder"`
 		}
 		if json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in) != nil {
 			editorJSON(w, 400, map[string]string{"error": "Send {name, upload}."})
 			return
 		}
-		out, err = cs.adopt(ctx, t.UID, in.Name, in.ID, in.Upload)
+		var f sharedFile
+		f, err = cs.adopt(ctx, t.UID, in.Name, in.ID, in.Upload)
+		if err == nil && in.Folder != "" {
+			f, err = sh.move(ctx, f.ID, in.Folder)
+		}
+		out = f
 		status = 201
 	case op == "rename" && r.Method == http.MethodPost:
 		var in struct {
