@@ -15,10 +15,12 @@
 //	/files/shares/…       pictures and data files of a deck
 //	/themes/{name}.css    the built-in themes
 //
-// With a token (SLIQTLY_TOKEN), /mcp and /api/v1 answer only requests that
-// carry it as "Authorization: Bearer <token>"; with sign-in (-oidc-issuer,
-// oidc.go) also an access token the server's OAuth server issued. /api/v1
-// is apiv1.go.
+// With a token (SLIQTLY_TOKEN), sign-in (-oidc-issuer, oidc.go), or others
+// able to connect (SLIQTLY_LISTEN wired or network), every request but a
+// few needs the server's credential (localaccess.go): /mcp and /api/v1
+// "Authorization: Bearer <token>" (or an access token the server's OAuth
+// server issued), the server's pages a cookie the browser gets with the
+// token. /api/v1 is apiv1.go.
 
 package main
 
@@ -67,15 +69,20 @@ type localServer struct {
 	app    http.Handler
 	bucket *localBucket
 	// the decks' Git repository, when git.json turns it on (gitstore.go)
-	git    *gitMirror
-	token  string
-	web    fs.FS      // the built page; nil: none
-	viewer bool       // web is the viewer's build: plays, no editor
-	hub    *changeHub // the decks' changes, for /api/events
-	collab *collabRooms
-	board  *statusBoard // the server's state, for /api/status and /api/events
-	expo   *exposure    // who can connect (netaccess.go); nil: not managed here
-	hosts  *hostGuard   // which names and pages it answers (localguard.go)
+	git   *gitMirror
+	token string
+	// the server's own token when it needs one and token is "" (secret,
+	// localaccess.go), kept in tokenFile ("": in memory only)
+	autoMu    sync.Mutex
+	autoToken string
+	tokenFile string
+	web       fs.FS      // the built page; nil: none
+	viewer    bool       // web is the viewer's build: plays, no editor
+	hub       *changeHub // the decks' changes, for /api/events
+	collab    *collabRooms
+	board     *statusBoard // the server's state, for /api/status and /api/events
+	expo      *exposure    // who can connect (netaccess.go); nil: not managed here
+	hosts     *hostGuard   // which names and pages it answers (localguard.go)
 	// calls' network (meet.go), made when the first call starts
 	callMu sync.Mutex
 	cnet   *callNet
@@ -190,7 +197,7 @@ var (
 
 func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
-	if !s.guard(w, r) {
+	if !s.guard(w, r) || !s.gate(w, r) {
 		return
 	}
 	if p == "/mcp" && s.authRequired() {
@@ -252,7 +259,6 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p == "/api/status" {
 		st, _ := s.board.get()
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		writeStatus(w, st, 200)
 		return
 	}
@@ -299,7 +305,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		s.app.ServeHTTP(w, r)
+		s.serveApp(w, r)
 		return
 	}
 	switch {
@@ -327,8 +333,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		s.allowPages(w, r)
 		io.WriteString(w, css)
 	case slidePath.MatchString(p):
 		m := slidePath.FindStringSubmatch(p)
@@ -348,7 +353,7 @@ func (s *localServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.web != nil && !strings.HasPrefix(p, "/.well-known/") && !strings.HasPrefix(p, "/oauth/") && p != "/mcp" && s.static(w, r) {
 			return
 		}
-		s.app.ServeHTTP(w, r)
+		s.serveApp(w, r)
 	}
 }
 
@@ -367,7 +372,7 @@ func (s *localServer) file(w http.ResponseWriter, r *http.Request, path string) 
 	// opened by itself (an SVG, an .html), it runs as a page of no origin,
 	// never as one of this server's, so its scripts cannot use the API
 	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-popups allow-downloads")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	s.allowPages(w, r)
 	http.ServeContent(w, r, "", f.ModTime, f)
 }
 
@@ -437,7 +442,7 @@ func (s *localServer) picture(w http.ResponseWriter, r *http.Request, tool strin
 			}
 			w.Header().Set("Content-Type", c.MimeType)
 			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			s.allowPages(w, r)
 			w.Write(b)
 			return
 		}

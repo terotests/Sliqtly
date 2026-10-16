@@ -85,8 +85,7 @@ func (s *localServer) page(w http.ResponseWriter, r *http.Request) {
 	html := strings.Replace(string(b), "</head>", meta+"\n</head>", 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Private-Network", "true")
+	s.allowPages(w, r)
 	io.WriteString(w, html)
 }
 
@@ -106,7 +105,7 @@ func (s *localServer) static(w http.ResponseWriter, r *http.Request) bool {
 		if b, err := fontFiles.ReadFile(name); err == nil {
 			w.Header().Set("Content-Type", "font/ttf")
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			s.allowPages(w, r)
 			if !serveWebGzip(w, r, name, time.Time{}, func() ([]byte, error) { return b, nil }, int64(len(b))) {
 				w.Write(b)
 			}
@@ -116,7 +115,7 @@ func (s *localServer) static(w http.ResponseWriter, r *http.Request) bool {
 	if name == "sliqtly.js" {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		s.allowPages(w, r)
 		io.WriteString(w, sliqtlyLocalJS)
 		return true
 	}
@@ -139,8 +138,7 @@ func (s *localServer) static(w http.ResponseWriter, r *http.Request) bool {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	// the assistant's preview fetches the page's files from its own origin
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Private-Network", "true")
+	s.allowPages(w, r)
 	if serveWebGzip(w, r, name, st.ModTime(), readAllFile(f), st.Size()) {
 		return true
 	}
@@ -222,21 +220,20 @@ const logMax = 300
 
 func (s *localServer) api(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
-	// the reads are open to the assistant's preview, which runs on another
-	// origin (and may ask first, as a page on the internet asking a private
-	// address does)
+	// one deck by its id is open to the assistant's preview, which runs on
+	// another origin (and may ask first, as a page on the internet asking
+	// a private address does); the rest is this server's pages' only
+	// (localaccess.go openToPages)
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		if s.openToPages(r) {
+			s.allowPages(w, r)
+			w.Header().Set("Access-Control-Allow-Methods", "GET")
+		}
 		w.WriteHeader(204)
 		return
 	}
-	// not a questionnaire's answers and links: a page elsewhere, open in
-	// the same browser, would read people's answers
-	if r.Method == http.MethodGet && !strings.HasPrefix(p, "/api/forms/") {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Private-Network", "true")
+	if r.Method == http.MethodGet {
+		s.allowPages(w, r)
 	}
 	// a write is JSON or a file, never a form: a page elsewhere cannot send
 	// one without asking first, and is not answered

@@ -224,9 +224,9 @@ Another platform: `GOOS=windows GOARCH=amd64` (or `darwin`/`linux`,
 
 ```
 docker build -f mcp-go/Dockerfile --target local -t sliqtly-server .     # from the repository root
-docker run -p 8080:8080 -v sliqtly-data:/data sliqtly-server
+docker run -p 127.0.0.1:8080:8080 -v sliqtly-data:/data sliqtly-server   # the log shows the access token (below)
 # with backups on another disk
-docker run -p 8080:8080 -v sliqtly-data:/data -v /mnt/disk2/sliqtly:/backup -e SLIQTLY_BACKUP=/backup sliqtly-server
+docker run -p 127.0.0.1:8080:8080 -v sliqtly-data:/data -v /mnt/disk2/sliqtly:/backup -e SLIQTLY_BACKUP=/backup sliqtly-server
 ```
 
 | Flag | Environment | Default | |
@@ -235,7 +235,7 @@ docker run -p 8080:8080 -v sliqtly-data:/data -v /mnt/disk2/sliqtly:/backup -e S
 | `-port` | `PORT` | 8080 | |
 | `-url` | `SLIQTLY_URL` | `http://localhost:<port>` | the address in the links the tools return; set it to the name people reach the server by |
 | `-user` | `SLIQTLY_USER` | `local` | owner of the decks |
-| `-token` | `SLIQTLY_TOKEN` | | `/mcp` and `/api/v1` then need `Authorization: Bearer <token>` |
+| `-token` | `SLIQTLY_TOKEN` | the server's own when others can connect | the whole server then needs it: `Authorization: Bearer <token>`, or a browser's cookie (below) |
 | `-write-limit` | `SLIQTLY_WRITE_LIMIT` | 2000 | MCP writes the whole server takes in 10 minutes; many agents working at once need more, `0` is no limit |
 | `-cors-origins` | `SLIQTLY_CORS_ORIGINS` | | pages of other origins that may call `/api/v1` and `/oauth/token` (below) |
 | `-oidc-issuer`, `-oidc-client-id`, `-oidc-client-secret`, `-oidc-allow`, `-oidc-scopes` | `SLIQTLY_OIDC_ISSUER`, `…_CLIENT_ID`, `…_CLIENT_SECRET`, `…_ALLOW`, `…_SCOPES` | scopes `openid email profile` | sign-in through an OpenID Connect provider (below) |
@@ -272,6 +272,21 @@ the café's Wi-Fi. `/settings` (in a browser on the same computer) or
   the setting on the page. When `SLIQTLY_LISTEN` or `SLIQTLY_ALLOW` sets it,
   the page cannot change it.
 
+**The access token** (`localaccess.go`). When others can connect (`wired`,
+`network`, so the `.deb` and Docker), with `-token`, or with sign-in, every
+request needs the server's credential, the one `/mcp` takes: `/mcp`,
+`/api/v1`, the pages, `/api`, `/files`, the WebSocket and the event stream.
+Programs send `Authorization: Bearer <token>`. A browser opens any page
+once with `?token=<token>` (or types the token into the page a refused
+request gets) and keeps an `HttpOnly`, `SameSite=Strict` cookie, a MAC of
+the token rather than the token, which `/mcp` and `/api/v1` do not take.
+Without `-token` the server makes its own token, keeps it in
+`<data>/access-token` and logs it at start; `/settings` on the server's own
+computer shows it. Open without it: `/healthz`, `/api/status`, the OAuth
+and sign-in endpoints, `/ca`, questionnaires, recordings' viewing links
+and the built page's own scripts, styles, fonts and themes. A server on
+`local` with no token asks for nothing, as before.
+
 **Which pages may use it** (`localguard.go`). The server answers only
 names that are its own: `localhost` (and `*.localhost`), any IP address,
 the machine's name (and `name.local`), the host of `SLIQTLY_URL`, and the
@@ -281,8 +296,10 @@ nothing. Behind a reverse proxy, or reached by a DNS name, set
 `SLIQTLY_URL` or `SLIQTLY_HOSTS` to that name. A page of another origin
 (and the assistant's preview, whose origin is `null`) may only read what a
 link to one deck opens: the page and its files, the themes, one deck by its
-id (`GET /api/shares/{id}`), its files and pictures, and `/api/status`.
-The deck list, rooms, editing together, the event streams, settings, every
+id (`GET /api/shares/{id}`), its files and pictures, and `/api/status`;
+only these answers say `Access-Control-Allow-Origin: *`, and only on a
+server that asks for no token (`openToPages`). The deck list, rooms and
+their files, the shared files, editing together, the event streams, settings, every
 write and `/mcp` answer only the server's own pages and programs that send
 no `Origin` (MCP clients, curl). A deck's file opened by itself
 (`/files/…`) is sent with `Content-Security-Policy: sandbox`, so an
@@ -476,9 +493,9 @@ do not follow it.
 The page is sliqtly.com's own; only `/sliqtly.js` differs. The editor is
 signed in as the folder's user, so a deck opened with `?edit` is saved back
 to the folder as you type, and an assistant's change shows up in it. Google
-Sheets and Drive are not available. `/api/` has no sign-in: whoever
-reaches the server can change its decks there (`-token` and the `-oidc-*`
-flags guard `/mcp` and `/api/v1`, below).
+Sheets and Drive are not available. `/api/` has no sign-in of its own:
+whoever reaches the server, with the access token when it asks for one
+(above), can change its decks there.
 
 ### Sign-in, the REST API and https://
 
@@ -487,8 +504,8 @@ is the API for the desktop and web editors and other programs: decks
 listed, read, created, saved (with `ifVersion`: 409 when someone saved
 meanwhile) and deleted, and a deck's slides laid out as `/api/view` has
 them. A save goes the editor's own way (`saveShare`), so a deck open in a
-room hears it. The old `/api` is the built-in page's and stays as it is:
-no sign-in, guarded by `localguard.go`.
+room hears it. The old `/api` is the built-in page's: guarded by
+`localguard.go`, and by the access token or its cookie (`localaccess.go`).
 
 **Who may call it.** With `-token`, `/mcp` and `/api/v1` need
 `Authorization: Bearer <token>`. With the `-oidc-*` flags the server is also

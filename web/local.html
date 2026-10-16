@@ -111,6 +111,7 @@ brew services start sliqtly         <span class="c"># now and at every login</sp
   -v sliqtly-data:/data -v sliqtly-backup:/backup \
   ghcr.io/terotests/sliqtly-personal:latest</code></pre>
   <p>The image runs on <code>linux/amd64</code> and <code>linux/arm64</code>, so Docker Desktop on a Mac or Windows works too. The presentations are in the <code>sliqtly-data</code> volume and survive updates. <code>127.0.0.1</code> in <code>-p</code> keeps it to this computer; see <a href="#networks">Networks</a> before you change it.</p>
+  <p>Inside the container the server cannot tell this computer from others, so it always asks for its <a href="#token">access token</a>. Without <code>-e SLIQTLY_TOKEN=…</code> it makes its own: <code>docker logs sliqtly</code> shows it and the link to open once in your browser (<code>http://localhost:8080/?token=…</code>). Your agent sends it as <code>Authorization: Bearer …</code>.</p>
 
   <p>Then open <a href="http://localhost:8080/">http://localhost:8080/</a>: the page lists your presentations, and each one plays in the viewer.</p>
 
@@ -169,7 +170,7 @@ const guide = await sliqtly("tools/call", { name: "sliqtly_guide", arguments: {}
   <pre><code>cloudflared tunnel --url http://localhost:8080   <span class="c"># prints https://&lt;random&gt;.trycloudflare.com</span>
 tailscale funnel 8080                           <span class="c"># https://&lt;computer&gt;.&lt;tailnet&gt;.ts.net</span></code></pre>
   <p>Then set <code>SLIQTLY_URL</code> to that address (e.g. <code>SLIQTLY_URL=https://abc-def.trycloudflare.com</code>, Docker: <code>-e SLIQTLY_URL=…</code>) and restart Sliqtly; without it the server refuses requests that come in under the tunnel's name. Add <code>https://…/mcp</code> as the connector. A quick Cloudflare tunnel gets a new address every time it starts, so both have to be changed each time.</p>
-  <p class="note warn">A tunnel puts your server on the internet. claude.ai can send <code>SLIQTLY_TOKEN</code> only if your organization has connector request headers (a beta for a few organizations); otherwise leave the token unset, and anyone who learns the tunnel address can change and delete every presentation through <code>/mcp</code>. Even with the token, it covers <code>/mcp</code> only: the presentation list, <code>/api</code> (including deleting) and <code>/files</code> stay open to anyone with the address. Run a tunnel only while you use it, keep nothing private on the server meanwhile, and prefer Claude Code, Desktop's config file or the hosted <code>https://sliqtly.com/mcp</code>.</p>
+  <p class="note warn">A tunnel puts your server on the internet. claude.ai can send <code>SLIQTLY_TOKEN</code> only if your organization has connector request headers (a beta for a few organizations); otherwise leave the token unset, and anyone who learns the tunnel address can change and delete every presentation through <code>/mcp</code>. With the token set, the whole server needs it (<code>/mcp</code>, the pages, <code>/api</code> and <code>/files</code>); without it, all of them are open to anyone with the address. Run a tunnel only while you use it, keep nothing private on the server meanwhile, and prefer Claude Code, Desktop's config file or the hosted <code>https://sliqtly.com/mcp</code>.</p>
 
   <h2>3. Use the service</h2>
   <h3>Ubuntu and Debian (systemd)</h3>
@@ -213,7 +214,7 @@ docker logs -f sliqtly</code></pre>
       <tr><td><code>PORT</code></td><td>8080</td><td>The port the server listens on.</td></tr>
       <tr><td><code>SLIQTLY_LISTEN</code></td><td><code>local</code></td><td>Who can connect: <code>local</code>, <code>wired</code> or <code>network</code>; see <a href="#networks">Networks</a>. Docker sets <code>network</code> inside the container and leaves the choice to <code>-p</code>.</td></tr>
       <tr><td><code>SLIQTLY_ALLOW</code></td><td>empty</td><td>With <code>wired</code> or <code>network</code>: only these address ranges, e.g. <code>192.168.1.0/24</code>. This computer is always let in.</td></tr>
-      <tr><td><code>SLIQTLY_TOKEN</code></td><td>empty</td><td>When set, <code>/mcp</code> needs <code>Authorization: Bearer &lt;token&gt;</code>.</td></tr>
+      <tr><td><code>SLIQTLY_TOKEN</code></td><td>empty</td><td>When set, the whole server needs it: agents send <code>Authorization: Bearer &lt;token&gt;</code>, a browser opens a page once with <code>?token=&lt;token&gt;</code>. With <code>wired</code> or <code>network</code> and no token, the server makes its own; see <a href="#token">Access token</a>.</td></tr>
       <tr><td><code>SLIQTLY_URL</code></td><td>the address a request came in on</td><td>The address in the links the server gives, e.g. <code>http://my-pc.local:8080</code> or <code>https://slides.example.com</code>.</td></tr>
       <tr><td><code>SLIQTLY_DATA</code></td><td>.deb <code>/var/lib/sliqtly</code><br />Homebrew <code>$(brew --prefix)/var/sliqtly</code><br />Docker <code>/data</code></td><td>Where the presentations are kept.</td></tr>
       <tr><td><code>SLIQTLY_BACKUP</code></td><td>the same with <code>-backup</code> (Docker <code>/backup</code>)</td><td>A daily backup of the presentations; empty turns it off.</td></tr>
@@ -243,10 +244,16 @@ docker logs -f sliqtly</code></pre>
       <tr><td>The public internet</td><td colspan="2">Do not open the port directly. Put a reverse proxy with a real HTTPS certificate in front (below), keep Sliqtly on <code>local</code>, and set <code>SLIQTLY_TOKEN</code>.</td></tr>
     </tbody>
   </table></div>
-  <p>Whenever other computers connect, also set a token, so only your own agents can write:</p>
+  <h3 id="token">Access token</h3>
+  <p>Whenever other computers can connect (<code>wired</code>, <code>network</code>, Docker), or a token is set, every request needs the server's access token: the MCP endpoint, the pages, the presentations, their files and the live updates. Set your own:</p>
   <pre><code>SLIQTLY_TOKEN=a-long-random-secret      <span class="c"># e.g. from: openssl rand -hex 24</span></code></pre>
-  <p>Their agents then add the header <code>Authorization: Bearer a-long-random-secret</code> (Claude Code: <code>--header "Authorization: Bearer …"</code>), and use this computer's name or address instead of <code>localhost</code>, e.g. <code>http://my-pc.local:8080/mcp</code>.</p>
-  <p class="note warn">The token protects the MCP endpoint only. Anyone who can reach the server can open the presentations on it, so open it only on a network you trust, and never on a public Wi-Fi.</p>
+  <p>Without one, the server makes its own and keeps it in <code>access-token</code> in its data folder; the log shows it at every start, and the settings page on the server's own computer shows it too.</p>
+  <ul>
+    <li><strong>Agents</strong> add the header <code>Authorization: Bearer a-long-random-secret</code> (Claude Code: <code>--header "Authorization: Bearer …"</code>), and use this computer's name or address instead of <code>localhost</code>, e.g. <code>http://my-pc.local:8080/mcp</code>.</li>
+    <li><strong>Browsers</strong> open the server once with the token in the address, <code>http://my-pc.local:8080/?token=a-long-random-secret</code>, or type it into the page that asks for it. The browser then keeps a cookie for this server only, which no other website can use.</li>
+  </ul>
+  <p>Links that work without the token: questionnaires and the viewing links of recordings, which carry their own unguessable key. On this computer only (<code>local</code>) and without a token nothing is asked.</p>
+  <p class="note warn">Anyone with the token can read and change every presentation, so give it only to people you trust, and open the server only on a network you trust, never on a public Wi-Fi.</p>
   <p class="note">In Docker, the server sees connections through Docker's own network, so choose who reaches it with the <code>-p</code> address and the firewall rather than <code>SLIQTLY_ALLOW</code>.</p>
 
   <h3>On the internet, behind a proxy</h3>

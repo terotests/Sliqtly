@@ -112,11 +112,13 @@ func TestConnectorsAPI(t *testing.T) {
 	call["deck"] = "NoSuchDeck1"
 	v1Do(t, "POST", srv.URL+"/api/v1/connectors/call", call, auth...).want(t, 404)
 
-	// the settings page's way in, from this computer
-	if s := v1Do(t, "GET", srv.URL+"/api/settings/connectors", nil).want(t, 200); s.body["admin"] != true {
+	// the settings page's way in, from this computer: with the token set,
+	// a page has it as its cookie (localaccess.go), a program as here
+	v1Do(t, "GET", srv.URL+"/api/settings/connectors", nil).want(t, 401)
+	if s := v1Do(t, "GET", srv.URL+"/api/settings/connectors", nil, auth...).want(t, 200); s.body["admin"] != true {
 		t.Fatalf("settings: %s", s.raw)
 	}
-	test := v1Do(t, "POST", srv.URL+"/api/settings/connectors/call", map[string]any{"test": true, "connector": "github", "op": "getWorkflowRuns", "args": map[string]any{"owner": "terotests", "repo": "sliqtly"}}).want(t, 200)
+	test := v1Do(t, "POST", srv.URL+"/api/settings/connectors/call", map[string]any{"test": true, "connector": "github", "op": "getWorkflowRuns", "args": map[string]any{"owner": "terotests", "repo": "sliqtly"}}, auth...).want(t, 200)
 	if !strings.Contains(test.raw, `"CI"`) {
 		t.Fatalf("admin test: %s", test.raw)
 	}

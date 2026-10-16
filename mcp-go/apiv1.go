@@ -44,8 +44,10 @@ type principal struct {
 	ID, Name, Email string
 }
 
-// whether /mcp and /api/v1 need a bearer token
-func (s *localServer) authRequired() bool { return s.token != "" || s.oidc != nil }
+// whether /mcp and /api/v1 need a bearer token, and the rest the
+// server's credential (localaccess.go): with a token, with sign-in, or
+// when others can connect
+func (s *localServer) authRequired() bool { return s.token != "" || s.oidc != nil || s.exposed() }
 
 var errNoToken = errors.New("no token")
 
@@ -60,7 +62,7 @@ func (s *localServer) authenticate(r *http.Request) (*principal, error) {
 		return nil, errNoToken
 	}
 	tok := strings.TrimSpace(h[7:])
-	if s.token != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(s.token)) == 1 {
+	if t := s.secret(); subtle.ConstantTimeCompare([]byte(tok), []byte(t)) == 1 {
 		return &principal{ID: s.env.LocalUser, Name: s.env.LocalUser}, nil
 	}
 	if s.oidc != nil {
@@ -233,7 +235,7 @@ func (s *localServer) apiV1(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/info: what a client needs before it signs in
 func (s *localServer) info(r *http.Request) map[string]any {
-	auth := map[string]any{"required": s.authRequired(), "token": s.token != "", "oauth": s.oidc != nil}
+	auth := map[string]any{"required": s.authRequired(), "token": s.authRequired(), "oauth": s.oidc != nil}
 	if s.oidc != nil {
 		auth["issuer"] = s.origin(r)
 		auth["provider"] = s.oidc.p.displayName()

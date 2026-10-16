@@ -6,9 +6,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -236,34 +238,57 @@ func TestNetworkSettingsAPI(t *testing.T) {
 	match(t, body, `"access":"local"`)
 	match(t, body, `"editable":true`)
 
-	code, body = req(t, "PUT", srv.URL+"/api/settings/network", "application/json", `{"access":"wired","allow":["10.20.0.0/16"]}`)
+	// the browser that opens the server to others is handed its cookie
+	jar, _ := cookiejar.New(nil)
+	browser := &http.Client{Jar: jar}
+	send := func(method, path, body string) (int, string) {
+		t.Helper()
+		r, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		res, err := browser.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	code, body = send("PUT", "/api/settings/network", `{"access":"wired","allow":["10.20.0.0/16"]}`)
 	eq(t, code, 200)
 	match(t, body, `"access":"wired"`)
+	match(t, body, `"accessToken":\{"token":"`+regexp.QuoteMeta(ls.secret())+`","where":"`)
 	eq(t, ls.expo.policy.Load().Access, "wired")
 	got, _ := loadNetPolicy(t.Context(), ls.env.DB)
 	eq(t, []any{got.Access, got.Allow}, []any{"wired", []string{"10.20.0.0/16"}})
+	// now everyone needs the token, this computer too
+	code, _ = req(t, "GET", srv.URL+"/api/settings/network", "", "")
+	eq(t, code, 401)
 
-	code, body = req(t, "PUT", srv.URL+"/api/settings/network", "application/json", `{"access":"anywhere"}`)
+	code, body = send("PUT", "/api/settings/network", `{"access":"anywhere"}`)
 	eq(t, code, 400)
 
 	// from another computer: seen, not changed
 	r := httptest.NewRequest("PUT", "http://localhost/api/settings/network", strings.NewReader(`{"access":"network"}`))
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+ls.secret())
 	r.RemoteAddr = "10.20.3.9:51000"
 	w := httptest.NewRecorder()
 	ls.ServeHTTP(w, r)
 	eq(t, w.Code, 403)
 	eq(t, ls.expo.policy.Load().Access, "wired")
 	r = httptest.NewRequest("GET", "http://localhost/api/settings/network", nil)
+	r.Header.Set("Authorization", "Bearer "+ls.secret())
 	r.RemoteAddr = "10.20.3.9:51000"
 	w = httptest.NewRecorder()
 	ls.ServeHTTP(w, r)
 	match(t, w.Body.String(), `"editable":false`)
+	// where the token is, not the token
+	match(t, w.Body.String(), `"accessToken":\{"where":`)
 
 	// set where the server was started: not from the page
 	p, _ = newNetPolicy("network", nil, true)
 	ls.expo.setPolicy(p)
-	code, body = req(t, "PUT", srv.URL+"/api/settings/network", "application/json", `{"access":"local"}`)
+	code, body = send("PUT", "/api/settings/network", `{"access":"local"}`)
 	eq(t, code, 409)
 	match(t, body, `SLIQTLY_LISTEN`)
 }
