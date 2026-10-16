@@ -473,6 +473,19 @@ class Tools {
         wp.put("sheets" sheetsP)
         tools.add((Tools.tool("write_workbook" "Write a presentation's workbook" "Write a whole .xlsx workbook into a presentation made with create_presentation (or the signed-in owner's own), replacing the file of the same name: tidy or reorganize a workbook read with read_file, or add a new one. Give every sheet in full, as rows (the first row is the header) or as CSV text; a cell may be a formula { f: \"=SUM(C2:C13)\", v: 1234.5 }. Use this rather than sending an .xlsx as base64, which gets corrupted when long. Formatting, colours, filters and column widths are not kept. Needs sign-in." (Tools.schema(wp ([] _:string ("deck_id" "path" "sheets")))) (Tools.annotations(false 1 true false)) eitherMeta)))
 
+        def nrp:MfJ (MfJ.newObj())
+        nrp.put("deck_id" (Tools.prop("string" "The id in the share link /s/<id>: the presentation whose files the program reads and writes")))
+        nrp.put("code" (Tools.prop("string" "The program: JavaScript or TypeScript, JSX allowed. Give code or path.")))
+        nrp.put("path" (Tools.prop("string" "Instead of code: a program the presentation keeps, run as it is, e.g. code/scripts/bars.js")))
+        def nargs:MfJ (Tools.prop("array" "Words for process.argv after the program's own path"))
+        def nargItem:MfJ (MfJ.newObj())
+        nargItem.putStr("type" "string")
+        nargs.put("items" nargItem)
+        nargs.putInt("maxItems" 50)
+        nrp.put("args" nargs)
+        nrp.put("save" (Tools.prop("boolean" "false: run it and say what it would write, keeping nothing; default true")))
+        tools.add((Tools.tool("run_script" "Run a program on a presentation's files" (Tools.runScriptText()) (Tools.schema(nrp ([] _:string ("deck_id")))) (Tools.annotations(false 1 false false)) eitherMeta)))
+
         def dirs:string (host_import_dirs host)
         def vp:MfJ (MfJ.newObj())
         vp.put("deck_id" (Tools.prop("string" "A presentation's id (the id in https://sliqtly.com/s/<id>): vectorize one of its pictures and keep the SVG in it. Leave out to vectorize image_base64 or image_url and get the SVG back")))
@@ -540,7 +553,7 @@ class Tools {
         ; gave it
         if (Tools.limited(host)) {
             for tools.arr st:MfJ sti {
-                if (Deck.inList(([] _:string ("create_presentation" "update_presentation" "bind_chart_data" "delete_presentation" "export_presentation" "add_comment" "resolve_comment" "write_workbook" "vectorize_image" "begin_work" "end_work")) (st.str_("name")))) {
+                if (Deck.inList(([] _:string ("create_presentation" "update_presentation" "bind_chart_data" "delete_presentation" "export_presentation" "add_comment" "resolve_comment" "write_workbook" "vectorize_image" "run_script" "begin_work" "end_work")) (st.str_("name")))) {
                     def sprops:MfJ ((st.field("inputSchema")).field("properties"))
                     sprops.put("session_key" (Tools.prop("string" "Without sign-in only: the session_key create_presentation gave this conversation. Send it with every call on a presentation this conversation made without sign-in, and with a further create_presentation.")))
                 }
@@ -1583,7 +1596,7 @@ class Tools {
             hr.put("structuredContent" (J.parse(answer)))
             return hr
         }
-        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || ((name == "write_workbook") || (name == "vectorize_image")))
+        def writes:boolean ((((name == "create_presentation") || (name == "update_presentation")) || (name == "bind_chart_data")) || (((name == "write_workbook") || (name == "vectorize_image")) || (name == "run_script")))
         ; end_work is not counted: a claim must always be let go of, or the
         ; slides stay taken from the others until it runs out
         if (writes || (((name == "add_comment") || (name == "resolve_comment")) || (name == "begin_work"))) {
@@ -1656,6 +1669,9 @@ class Tools {
         if (name == "vectorize_image") {
             r = (Tools.vectorize(host caller args))
         }
+        if (name == "run_script") {
+            r = (Tools.runScript(host caller args))
+        }
         if (name == "list_presentations") {
             r = (Tools.listMine(host caller args))
         }
@@ -1693,7 +1709,7 @@ class Tools {
         }
         ; what an assistant did to a deck shows in its Story's session
         if ((r.bool_("isError" false)) == false) {
-            if (Deck.inList(([] _:string ("create_presentation" "update_presentation" "bind_chart_data" "export_presentation" "add_comment" "resolve_comment" "write_workbook" "vectorize_image")) name)) {
+            if (Deck.inList(([] _:string ("create_presentation" "update_presentation" "bind_chart_data" "export_presentation" "add_comment" "resolve_comment" "write_workbook" "vectorize_image" "run_script")) name)) {
                 host_session_tool host caller.uid name (JOut.text(args)) (JOut.text(r))
             }
         }
@@ -3019,6 +3035,370 @@ class Tools {
         }
         def note:string "Formatting is not kept. Renamed or removed sheets change the CSV names the deck reads; check the deck's charts and tables still name them."
         return (Tools.withData(host (Tools.updated(host caller id saved note)) kept))
+    }
+
+    ; --- run_script: a program run on the deck's files (noderun.go,
+    ; web/node-runtime.js)
+
+    sfn runScriptText:string () {
+        return "Run a JavaScript or TypeScript program on a Sliqtly presentation's own files, the way Node.js runs one: require(\"fs\") or import fs from \"node:fs\", path, process and Buffer work, over a file system that holds this presentation and nothing else. /data has its data files (a workbook's sheets as /data/<book>-<Sheet>.csv, read only), /media its pictures (SVG as text; other pictures by name and size only), /apps and /code its programs and sources, /presentation.md the deck's Markdown; /tmp is scratch. When the program ends without an error, what it wrote under media/ (.svg, or .png .jpg .gif .webp as bytes), data/ (.csv .tsv .json .txt, .xlsx as bytes), apps/, code/ and presentation.md is saved into the presentation, and what it printed (console.log) comes back. JSX works: renderToString(<svg>…</svg>) gives SVG markup. Use it for what is slow and error-prone by hand: an SVG computed from data, a CSV derived from another, slides written from a table. Example: const fs = require(\"fs\"); const rows = JSON.parse(fs.readFileSync(\"data/sales.json\", \"utf8\")); const svg = renderToString(<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 400 200\">{rows.map((r, i) => <rect x={20 + i * 50} y={200 - r.value} width={40} height={r.value} fill=\"#3b82f6\" />)}</svg>); fs.writeFileSync(\"media/bars.svg\", svg); and a slide shows it with ![Sales](media/bars.svg). Synchronous calls (readFileSync, writeFileSync) are simplest; callbacks and fs.promises work too. No network, no npm packages, 10 seconds at most. sliqtly_guide topic=run-script has more. Saving needs sign-in."
+    }
+
+    ; at most this much of the deck's text is put in for a program
+    sfn SCRIPT_MOUNT:int () {
+        return 33554432
+    }
+
+    ; the deck's files as a program sees them (web/node-runtime.js
+    ; __nodeMount): text files with their text, pictures and workbooks by
+    ; name and size, a workbook's sheets as read-only CSVs, the Markdown as
+    ; presentation.md
+    sfn scriptFiles:MfJ (host:McpHost id:string d:MfJ notes:[string]) {
+        def mounted:MfJ (MfJ.newArr())
+        def mdFile:MfJ (MfJ.newObj())
+        mdFile.putStr("path" "presentation.md")
+        mdFile.putStr("text" (d.str_("md")))
+        mounted.add(mdFile)
+        def total:int 0
+        for (d.list("files")) f:MfJ i {
+            def path:string (f.str_("path"))
+            def size:int (f.int_("size" 0))
+            def low:string (to_lowercase path)
+            def e:MfJ (MfJ.newObj())
+            e.putStr("path" path)
+            e.putInt("size" size)
+            def textual:boolean true
+            if ((Files.isPicture(path)) && ((endsWith low ".svg") == false)) {
+                textual = false
+            }
+            if (Files.isXlsx(path)) {
+                textual = false
+            }
+            if (textual && ((size > (Files.MAX_READ())) || ((total + size) > (Tools.SCRIPT_MOUNT())))) {
+                textual = false
+                push notes (path + " was too large to hand to the program: it is there by name and size only.")
+            }
+            if textual {
+                def gotBytes:MfJ (J.parse((host_file_bytes host id path)))
+                if ((strlen (host_error host)) > 0) {
+                    return mounted
+                }
+                e.putStr("text" (host_text host (gotBytes.int_("handle" 0))))
+                total = (total + size)
+            } {
+                e.putBool("binary" true)
+            }
+            mounted.add(e)
+            if (Files.isXlsx(path)) {
+                def ts:Tables (Tools.bookTables(host id f))
+                if ((strlen (host_error host)) > 0) {
+                    return mounted
+                }
+                for ts.list t:DataTable k {
+                    def rows:[SheetRow]
+                    def head (new SheetRow)
+                    head.cells = t.columns
+                    push rows head
+                    for t.rows r:SheetRow m {
+                        push rows r
+                    }
+                    def csv:string (Files.toCsv(rows))
+                    def names:[string]
+                    push names t.named
+                    if (t.csv != t.named) {
+                        push names t.csv
+                    }
+                    for names nm:string q {
+                        def se:MfJ (MfJ.newObj())
+                        se.putStr("path" nm)
+                        se.putStr("text" csv)
+                        se.putBool("readonly" true)
+                        se.putStr("why" ("a sheet of " + path + ": write_workbook changes the workbook"))
+                        mounted.add(se)
+                    }
+                }
+            }
+        }
+        return mounted
+    }
+
+    ; why a file the program wrote is not kept, "" when it is
+    sfn scriptKeeps:string (p:string isText:boolean) {
+        def low:string (to_lowercase p)
+        if (p == "presentation.md") {
+            if isText {
+                return ""
+            }
+            return "write the Markdown as text"
+        }
+        if (startsWith p "media/") {
+            def name:string (substring p 6 (strlen p))
+            if ((indexOf name "/") >= 0) {
+                return "pictures are kept directly in media/, not in a folder under it"
+            }
+            if ((strlen (Deck.typeOf(name ""))) == 0) {
+                return "media/ keeps .svg, .png, .jpg, .gif and .webp pictures"
+            }
+            if ((isText == false) || (endsWith low ".svg")) {
+                return ""
+            }
+            return "a .png, .jpg, .gif or .webp picture is written as bytes (a Buffer or a Uint8Array)"
+        }
+        if ((startsWith p "data/") || (startsWith p "apps/")) {
+            def bare:string (substring p 5 (strlen p))
+            if ((indexOf bare "/") >= 0) {
+                return "data/ and apps/ keep files directly in them, not in a folder under them"
+            }
+            if ((strlen (Files.dataType(bare))) == 0) {
+                return "data/ keeps .csv, .tsv, .json, .txt, .gltf and .xlsx files; apps/ programs (.tsx, .jsx) and their .tsx.css"
+            }
+            if ((startsWith p "apps/") && ((Files.isProgram(bare)) == false)) {
+                return "apps/ keeps programs (.tsx, .jsx) and their .tsx.css"
+            }
+            if (Files.isXlsx(bare)) {
+                if isText {
+                    return "a workbook is written as bytes (a Buffer or a Uint8Array)"
+                }
+                return ""
+            }
+            if isText {
+                return ""
+            }
+            return "write it as text"
+        }
+        if (startsWith p "code/") {
+            if isText {
+                return ""
+            }
+            return "write it as text"
+        }
+        return "only media/, data/, apps/, code/ and presentation.md are kept in the presentation"
+    }
+
+    sfn runScript:MfJ (host:McpHost caller:Caller a:MfJ) {
+        def got:MfJ (Tools.readable(host caller a ([] _:string ("deck_id"))))
+        if ((got.field("fail")).isObj()) {
+            return (got.field("fail"))
+        }
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "run_script" (host_error host)))
+        }
+        def id:string (a.str_("deck_id"))
+        def d:MfJ (got.field("deck"))
+        def code:string (a.str_("code"))
+        def scriptPath:string (trim (a.str_("path")))
+        while (startsWith scriptPath "/") {
+            scriptPath = (substring scriptPath 1 (strlen scriptPath))
+        }
+        if (((strlen code) > 0) && ((strlen scriptPath) > 0)) {
+            return (Tools.fail("Give the program as code or as path, not both."))
+        }
+        if (((strlen code) == 0) && ((strlen scriptPath) == 0)) {
+            return (Tools.fail("Give the program as code, or the path of a program the presentation keeps (e.g. code/scripts/bars.js)."))
+        }
+        if ((strlen code) > (Deck.MAX_MD())) {
+            return (Tools.fail("The program is larger than 300 KB."))
+        }
+        def notes:[string]
+        def mounted:MfJ (Tools.scriptFiles(host id d notes))
+        if ((strlen (host_error host)) > 0) {
+            return (Tools.failed(host "run_script" (host_error host)))
+        }
+        if ((strlen scriptPath) > 0) {
+            def found:boolean false
+            for mounted.arr mf:MfJ mi {
+                if (((mf.str_("path")) == scriptPath) && ((mf.field("text")).kind == 3)) {
+                    code = (mf.str_("text"))
+                    found = true
+                }
+            }
+            if (found == false) {
+                return (Tools.fail(("No program " + scriptPath + " in presentation " + id + ": give the path of one of its text files (list_files), or the program as code.")))
+            }
+        }
+        def mount:MfJ (MfJ.newObj())
+        mount.put("files" mounted)
+        def argv:MfJ (MfJ.newArr())
+        for (a.list("args")) av:MfJ ai {
+            if (av.kind == 3) {
+                argv.add((J.s(av.str)))
+            }
+        }
+        mount.put("argv" argv)
+        if ((strlen scriptPath) > 0) {
+            mount.putStr("script" scriptPath)
+        }
+        def ran:MfJ (J.parse((host_node_run host (JOut.text(mount)) code)))
+        if ((ran.bool_("ran" false)) == false) {
+            return (Tools.fail("This server has no engine to run programs in (CErXes, which comes with the built editor)."))
+        }
+        def err:string (ran.str_("error"))
+        def output:string (ran.str_("output"))
+        def ch:MfJ (ran.field("changes"))
+        if (startsWith err "Uncaught ProcessExit: ") {
+            def codeText:string (substring err 22 (strlen err))
+            err = ""
+            if (codeText != "0") {
+                err = ("process.exit(" + codeText + ")")
+            }
+        }
+        if (((strlen err) == 0) && ((ch.int_("exitCode" 0)) != 0)) {
+            err = ("process.exitCode = " + (to_string (ch.int_("exitCode" 0))))
+        }
+        def name:string "The program"
+        if ((strlen scriptPath) > 0) {
+            name = scriptPath
+        }
+        def lines:[string]
+        if ((strlen err) > 0) {
+            push lines (name + " stopped: " + err)
+        } {
+            push lines (name + " ran to the end.")
+        }
+        if ((strlen output) > 0) {
+            push lines ("It printed:\n" + output)
+        }
+        def images:MfJ (MfJ.newArr())
+        def files:MfJ (MfJ.newArr())
+        def newMd:string ""
+        def hasMd:boolean false
+        def kept:[string]
+        def notKept:[string]
+        def scratch:[string]
+        for (ch.list("written")) w:MfJ wi {
+            def p:string (w.str_("path"))
+            def isText:boolean ((w.field("text")).kind == 3)
+            if (startsWith p "tmp/") {
+                push scratch p
+            } {
+                def why:string (Tools.scriptKeeps(p isText))
+                if ((strlen why) > 0) {
+                    push notKept (p + ": " + why)
+                } {
+                    push kept (p + " (" + (to_string (w.int_("size" 0))) + " bytes)")
+                    if (p == "presentation.md") {
+                        hasMd = true
+                        newMd = (w.str_("text"))
+                    } {
+                        def o:MfJ (MfJ.newObj())
+                        if (startsWith p "media/") {
+                            o.putStr("name" (substring p 6 (strlen p)))
+                        } {
+                            o.putStr("name" p)
+                        }
+                        if isText {
+                            o.putStr("text" (w.str_("text")))
+                        } {
+                            o.putStr("data_base64" (w.str_("base64")))
+                        }
+                        if (startsWith p "media/") {
+                            images.add(o)
+                        } {
+                            files.add(o)
+                        }
+                    }
+                }
+            }
+        }
+        for (ch.list("removed")) rv:MfJ ri {
+            if (rv.kind == 3) {
+                push notKept (rv.str + ": not removed (run_script does not delete a presentation's files)")
+            }
+        }
+        def save:boolean (a.bool_("save" true))
+        if ((array_length kept) > 0) {
+            if ((strlen err) > 0) {
+                push lines ("Nothing is kept, as it stopped with an error. It wrote: " + (join kept ", ") + ".")
+            } {
+                if save {
+                    push lines ("Kept in the presentation: " + (join kept ", ") + ".")
+                } {
+                    push lines ("It would keep (save: false, so nothing is kept): " + (join kept ", ") + ".")
+                }
+            }
+        }
+        if ((array_length notKept) > 0) {
+            push lines ("Not kept:\n- " + (join notKept "\n- "))
+        }
+        if ((array_length scratch) > 0) {
+            push lines ("Scratch, gone after the run: " + (join scratch ", ") + ".")
+        }
+        for notes nt:string ni {
+            push lines nt
+        }
+        def sc:MfJ (MfJ.newObj())
+        sc.putBool("ok" ((strlen err) == 0))
+        sc.putStr("error" err)
+        sc.putStr("output" output)
+        sc.put("written" (J.strs(kept)))
+        sc.put("not_kept" (J.strs(notKept)))
+        def report:string (join lines "\n")
+        if ((strlen err) > 0) {
+            def rf:MfJ (Tools.fail(report))
+            rf.put("structuredContent" sc)
+            return rf
+        }
+        if ((save == false) || ((array_length kept) == 0)) {
+            def r:MfJ (MfJ.newObj())
+            r.put("content" (Tools.text(report)))
+            r.put("structuredContent" sc)
+            return r
+        }
+        def a2:MfJ (MfJ.newObj())
+        a2.putStr("deck_id" id)
+        if ((images.count()) > 0) {
+            a2.put("images" images)
+        }
+        if ((files.count()) > 0) {
+            a2.put("files" files)
+        }
+        if hasMd {
+            a2.putStr("markdown" newMd)
+            a2.putStr("base_version" (WorkStore.version(host (d.str_("md")))))
+        }
+        for ([] _:string ("session_key" "work_id")) k:string ki {
+            if (Tools.has(a k)) {
+                a2.putStr(k (a.str_(k)))
+            }
+        }
+        def up:MfJ (Tools.update(host caller a2))
+        def upText:string ""
+        for ((up.field("content")).arr) uc:MfJ uci {
+            if ((uc.str_("type")) == "text") {
+                if ((strlen upText) > 0) {
+                    upText = (upText + "\n")
+                }
+                upText = (upText + (uc.str_("text")))
+            }
+        }
+        if (up.bool_("isError" false)) {
+            def lines2:[string]
+            push lines2 (name + " ran to the end, but what it wrote was not saved: " + upText)
+            if ((strlen output) > 0) {
+                push lines2 ("It printed:\n" + output)
+            }
+            def rf2:MfJ (Tools.fail((join lines2 "\n")))
+            sc.putBool("saved" false)
+            rf2.put("structuredContent" sc)
+            return rf2
+        }
+        def content:MfJ (MfJ.newArr())
+        def first:MfJ (MfJ.newObj())
+        first.putStr("type" "text")
+        first.putStr("text" report)
+        content.add(first)
+        for ((up.field("content")).arr) uc2:MfJ uc2i {
+            content.add(uc2)
+        }
+        up.put("content" content)
+        def usc:MfJ (up.field("structuredContent"))
+        if (usc.isObj()) {
+            sc.putBool("saved" true)
+            usc.put("script" sc)
+        } {
+            up.put("structuredContent" sc)
+        }
+        return up
     }
 
     ; vectorize_image's settings: the preset, then each option as text
