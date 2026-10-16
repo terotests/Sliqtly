@@ -6761,12 +6761,15 @@ try {
     const [ex0, ey0] = (await pg.evaluate((o) => window.__app.docScreenAt(o), e0)).split(",").map(Number);
     const [ex1] = (await pg.evaluate((o) => window.__app.docScreenAt(o), e0 + 4)).split(",").map(Number);
     const hits = [];
+    const moved = [];
     for (const f of [0.2, 0.4, 0.6, 0.8]) {
       await pg.mouse.click(ex0 + (ex1 - ex0) * f, ey0);
       await frames();
       hits.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
+      moved.push(await pg.evaluate((e0) => [window.__app.docScreenAt(e0), window.scrollX, window.scrollY, document.getElementById("stage").scrollLeft, document.getElementById("stage").scrollTop].join(" "), e0));
     }
-    check("View keys: a click on an emoji puts the caret beside it", hits.every((h) => h === e0 || h === e0 + 4) && ex1 > ex0, JSON.stringify({ e0, hits, ex0, ex1 }));
+    const eboxes = await pg.evaluate((e0) => window.__app.docView.caret.boxes.filter((b) => b.segSrc <= e0 + 8 && b.segSrc + b.segLen >= e0 - 8).map((b) => [b.segSrc, b.segLen, b.text, Math.round(b.x * 10) / 10, Math.round(b.w * 10) / 10]), e0);
+    check("View keys: a click on an emoji puts the caret beside it", hits.every((h) => h === e0 || h === e0 + 4) && ex1 > ex0, JSON.stringify({ e0, hits, ex0, ex1, eboxes, moved }));
     // an input method's marked text shows at the caret on the page, its
     // commit is typed there
     const ime = body + "Sana\n";
