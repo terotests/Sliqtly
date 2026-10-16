@@ -132,6 +132,43 @@ class PresCheck {
         this.ok(((indexOf m.text "🖼 logo.png") > 0) ("ai: the question names its pictures: " + m.text))
     }
 
+    ; The review comments the assistant is given (PresReview.aiText) and its
+    ; answers to them (PresAiDeck.review): made in the comments, not the
+    ; Markdown.
+    fn aiComments:void () {
+        def r (new PresReview())
+        def t0:double 1759658400000.0
+        def titles:[string] ([] _:string ("Intro" "Tailscale" "End"))
+        r.start("a" 1 "Tailscale" 0.3 0.2 (PresReview.msg("m1" "u1" "Tero" "" "Add --ssh" t0)))
+        r.pinTo("a" "curl -fsSL https://tailscale.com/install.sh | sh\ntailscale up" 0.5 0.5)
+        r.start("b" 1 "Tailscale" 0.5 0.6 (PresReview.msg("m2" "u1" "Tero" "" "Typo" t0)))
+        r.setClosed("b" true "u1" t0)
+        r.start("c" 2 "End" 0.5 0.5 (PresReview.msg("m3" "u1" "Tero" "" "Thanks slide?" t0)))
+        r.start("d" 0 "Intro" 0.5 0.5 (PresReview.msg("m4" "u1" "Tero" "" "Done" t0)))
+        r.setClosed("d" true "u1" t0)
+        def txt:string (r.aiText(1 titles))
+        this.ok(((indexOf txt "Thread a (open) on Slide 2 · Tailscale, at 30 % across, 20 % down, on the block \"curl -fsSL https://tailscale.com/install.sh | sh\":\n  Tero: Add --ssh") == 0) ("ai comments: the slide's thread, its block and message first: " + txt))
+        this.ok(((indexOf txt "Thread b (resolved)") > 0) "ai comments: the slide's resolved ones too")
+        this.ok(((indexOf txt "Thread c (open) on Slide 3") > (indexOf txt "Thread b")) "ai comments: then the open ones elsewhere")
+        this.ok(((indexOf txt "Thread d") < 0) "ai comments: not the resolved ones elsewhere")
+        def none (new PresReview())
+        this.ok(((none.aiText(0 titles)) == "") "ai comments: none, nothing")
+        def a (new PresAi())
+        a.answer("{\"reply\":\"Done.\",\"edits\":[{\"tool\":\"reply_comment\",\"key\":\"a\",\"text\":\"Added --ssh.\"},{\"tool\":\"resolve_comment\",\"key\":\"a\"},{\"tool\":\"reply_comment\",\"key\":\"b\",\"text\":\"Fixed.\"},{\"tool\":\"reply_comment\",\"key\":\"zz\",\"text\":\"?\"}]}")
+        def last:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok((last.text == "Done.\n\n✓ Answered a comment\n✓ Comment resolved\n✓ Answered a comment\n✓ Answered a comment") ("ai comments: said in the answer " + last.text))
+        def es:[PresAiEdit] (a.takeEdits())
+        this.ok(((PresAiDeck.apply("## One\n" ([] _:int ( 0 1 )) es)) == "## One\n") "ai comments: the Markdown stays as it is")
+        this.ok(((PresAiDeck.review(r es "ai7" "AI assistant" "#c4b5fd" (t0 + 9000.0))) == 3) "ai comments: two answers and a resolve made, the unknown thread left")
+        def ta:PresReviewThread (unwrap (r.find("a")))
+        def am:PresReviewMsg (itemAt ta.msgs 1)
+        this.ok((((am.text == "Added --ssh.") && (am.who == "ai")) && ((am.name == "AI assistant") && (am.id == "ai7-1"))) ("ai comments: the answer in the thread as the assistant " + am.id))
+        this.ok(ta.closed "ai comments: resolved")
+        def tb:PresReviewThread (unwrap (r.find("b")))
+        this.ok((((tb.count()) == 2) && (tb.closed == false)) "ai comments: an answer opens a resolved thread again")
+        this.ok(((PresAiDeck.review(r es "ai7" "AI assistant" "#c4b5fd" (t0 + 9000.0))) == 0) "ai comments: the same answers once")
+    }
+
     fn aiEdits:void () {
         def ce (new PresAiEdit())
         ce.tool = "add_theme_css"
@@ -269,6 +306,7 @@ class PresCheck {
         this.ok(((PresAi.slideBlock("```markdown\n## A\n```")) == "## A") "ai: a three-tick fence works too")
         this.ok(((PresAi.slideBlock("```js\nx\n```")) == "") "ai: a code block is not a slide")
         this.aiEdits()
+        this.aiComments()
         this.ok(((PresAi.slideBlock("```markdown\n## A")) == "") "ai: an unclosed block is not a whole slide")
         a.setScope("deck")
         this.ok(((a.cost()) == 2) "ai: the whole presentation costs two")

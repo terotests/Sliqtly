@@ -255,6 +255,33 @@ func TestAIThemeEdit(t *testing.T) {
 	match(t, turns[len(turns)-1].Text, "Dark: aurora, carbon, midnight")
 }
 
+// The editor's review comments go with the question, and the model answers
+// and resolves them with edits the editor makes in its comments.
+func TestAIComments(t *testing.T) {
+	c := aiContext{Slide: 9, Slides: 21, SlideMD: "## 5. Tailscale", Comments: "Thread rv-1 (open) on Slide 9 · 5. Tailscale, at 30 % across, 20 % down:\n  Tero: Add the --ssh flag"}
+	got := aiQuestion{Message: "Saatko vastattua tän kalvon kommentteihin?", Context: c}.turns()
+	match(t, got[0].Text, "<review_comments>\nThread rv-1 \\(open\\)")
+	c.Comments = ""
+	got = aiQuestion{Message: "any comments?", Context: c}.turns()
+	match(t, got[0].Text, "<review_comments>none</review_comments>")
+	match(t, aiSystem(true), "reply_comment")
+
+	e, ok := aiEditOf("reply_comment", map[string]any{"thread_id": " rv-1 ", "text": " Added. "})
+	eq(t, ok, true)
+	eq(t, e, aiEdit{Tool: "reply_comment", Key: "rv-1", Text: "Added."})
+	_, ok = aiEditOf("reply_comment", map[string]any{"thread_id": "rv-1", "text": "  "})
+	eq(t, ok, false)
+	_, ok = aiEditOf("reply_comment", map[string]any{"text": "no thread"})
+	eq(t, ok, false)
+	_, ok = aiEditOf("reply_comment", map[string]any{"thread_id": "rv-1", "text": strings.Repeat("a", aiMaxCommentText+1)})
+	eq(t, ok, false)
+	e, ok = aiEditOf("resolve_comment", map[string]any{"thread_id": "rv-1"})
+	eq(t, ok, true)
+	eq(t, e, aiEdit{Tool: "resolve_comment", Key: "rv-1"})
+	// an answer has no Markdown to check
+	eq(t, len(aiProblems(func(string, string) []string { return []string{"bad"} }, c, []aiEdit{e})), 0)
+}
+
 // Pictures pasted with a question go with its turn when their bytes are a
 // picture's, at most aiMaxImages of them, and reach Gemini as inline data.
 func TestAIPictures(t *testing.T) {

@@ -12568,6 +12568,12 @@ class PresApp {
         if ((array_length edits) == 0) {
             return
         }
+        ; answers to review comments go in the comments, not the Markdown
+        if ((PresAiDeck.review(review.model edits (review.newId()) (PresI18n.t("AI assistant")) "#c4b5fd" review.nowMs)) > 0) {
+            review.changed()
+            review.save()
+            chromeRev = (chromeRev + 1)
+        }
         def spans:[int]
         def n:int (deck.slideCount())
         def k:int 0
@@ -12699,6 +12705,7 @@ class PresApp {
                 push c.codePaths cf
                 push c.codeTexts (deck.dataText(cf))
             }
+            c.comments = (review.model.aiText(i review.titles))
         }
         return c
     }

@@ -66,6 +66,9 @@ class PresAiContext {
     ; the open slide's program files (```app, script=) and their text
     def codePaths:[string]
     def codeTexts:[string]
+    ; the review comments (PresReview.aiText): the open slide's, then the
+    ; open ones elsewhere
+    def comments:string ""
 
     Constructor () {
     }
@@ -87,6 +90,8 @@ class PresAiEdit {
     ; add_theme_css / replace_theme_css: the rules, or the whole stylesheet
     def css:string ""
     def path:string ""
+    ; reply_comment / resolve_comment: the thread (`key`) and the answer
+    def text:string ""
 
     Constructor () {
     }
@@ -149,6 +154,28 @@ class PresAiDeck {
             }
         }
         return out
+    }
+
+    ; The comment edits (reply_comment, resolve_comment) made in the review
+    ; model as `name` (who "ai"); answers get ids idBase-1, idBase-2…. How
+    ; many changed a thread.
+    sfn review:int (model:PresReview edits:[PresAiEdit] idBase:string name:string color:string at:double) {
+        def n:int 0
+        for edits e:PresAiEdit i {
+            def id:string (trim e.key)
+            if ((e.tool == "reply_comment") && ((strlen id) > 0)) {
+                def m:PresReviewMsg (PresReview.msg((idBase + "-" + (to_string (i + 1))) "ai" name color e.text at))
+                if (model.answer(id m)) {
+                    n = (n + 1)
+                }
+            }
+            if ((e.tool == "resolve_comment") && ((strlen id) > 0)) {
+                if (model.setClosed(id true "ai" at)) {
+                    n = (n + 1)
+                }
+            }
+        }
+        return n
     }
 
     sfn changesCss:boolean (edits:[PresAiEdit]) {
@@ -833,6 +860,7 @@ class PresAi {
         c.setMember("theme" (VlJson.stringValue(ctx.theme)))
         c.setMember("themes" (VlJson.stringValue(ctx.themes)))
         c.setMember("css" (VlJson.stringValue(ctx.css)))
+        c.setMember("comments" (VlJson.stringValue(ctx.comments)))
         def files:VlJson (VlJson.arrayValue())
         for ctx.codePaths cp:string ci {
             def fo:VlJson (VlJson.objectValue())
@@ -901,6 +929,7 @@ class PresAi {
                 e.markdown = (o.stringOr("markdown" ""))
                 e.path = (o.stringOr("path" ""))
                 e.css = (o.stringOr("css" ""))
+                e.text = (o.stringOr("text" ""))
                 def said:string (PresAi.editText(e))
                 if ((strlen said) > 0) {
                     push edits e
@@ -993,6 +1022,15 @@ class PresAi {
                 return ""
             }
             return (((PresI18n.t("File added:")) + " ") + e.path)
+        }
+        if ((e.tool == "reply_comment") && ((strlen (trim e.key)) > 0)) {
+            if ((strlen (trim e.text)) == 0) {
+                return ""
+            }
+            return (PresI18n.t("Answered a comment"))
+        }
+        if ((e.tool == "resolve_comment") && ((strlen (trim e.key)) > 0)) {
+            return (PresI18n.t("Comment resolved"))
         }
         return ""
     }
