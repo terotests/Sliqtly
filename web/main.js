@@ -2584,6 +2584,8 @@ async function duplicateDeck(asked) {
     await useFile(rec);
   }
   shownDoc(text);
+  // a copy is made to be changed: it opens in Edit, as a new deck does
+  app.setEditing(true, true);
   dropThumbs();
   await saveDoc(true);
   await commitVersion("@created").catch((e) => console.warn("no version kept", e));
