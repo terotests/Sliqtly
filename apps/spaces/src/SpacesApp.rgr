@@ -1,0 +1,1482 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SpacesApp — the Spaces page: the summary first, then the calendar, sheets,
+; documents and the assistant
+; =============================================================================
+; One EVG tree, built again on every change, as Sliqtly's editor and the EVGUI
+; demos are: `page()` builds it, the host paints `displayListJson()`, asks
+; `hitId(x y)` what is under the pointer and mirrors `a11yJson()` into the DOM.
+;
+; The data is a SpSpace (SpacesModel.rgr). The calendar is EVGUI's event
+; calendar card (EcBoard), filled from the space's occurrences; a move or a
+; new event made on the card is written back to the space (`syncBack`) and
+; the card filled again, so the summary and the calendar never disagree.
+;
+; What the host does that the tree cannot: read a file or the clipboard for
+; an import, and save a download. A press that needs one leaves `action` set
+; ("import", "export:<sheet id>") for the host to take.
+; =============================================================================
+
+Import "SpacesModel.rgr"
+Import "SpacesVocab.rgr"
+Import "SpacesAssist.rgr"
+Import "../evgui/src/EventCalBoard.rgr"
+Import "../evgui/src/EventCalCtl.rgr"
+Import "../evgui/src/EventCalI18n.rgr"
+Import "../evgui/src/UiTree.rgr"
+Import "../evgui/src/UiDate.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGTransition.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yFromTree.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
+
+class SpacesApp {
+    def space:SpSpace (new SpSpace())
+    def pack:string "demo"
+    def lang:string "fi"
+    def tab:string "home"
+    def today:int 0
+    def nowMin:int 600
+    def browserOff:int 0
+
+    def board:EcBoard (new EcBoard())
+    ; the card's event ids ("o0", "o1" …) and what each one is in the space
+    def boardIds:[string]
+    def occIds:[string]
+    def occDay:[int]
+    def occStart:[int]
+    def occEnd:[int]
+
+    ; the days the summary's rows open in the calendar, by row
+    def itemDays:[int]
+    def sheetSel:string ""
+    def docSel:string ""
+    ; the assistant's conversation: question keys and answers
+    def asked:[string]
+    def answers:[string]
+    ; what the host has to do after a press ("import", "export:<id>")
+    def action:string ""
+    def status:string ""
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 1200.0
+    def pageH:double 900.0
+    def builtW:double 0.0
+    def lastX:double 0.0
+    def lastY:double 0.0
+    ; the page is as tall as what is on it, and at least the window
+    def minH:double 600.0
+
+    Constructor () {
+    }
+
+    ; =========================================================================
+    ; set-up
+    ; =========================================================================
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        if (today == 0) {
+            this.useClock(2026 10 21 600 0)
+        }
+    }
+
+    ; Today and now, from the host's clock. The checks keep Wednesday
+    ; 21 October 2026 at 10:00.
+    fn useClock:void (y:int m:int d:int minute:int offset:int) {
+        today = (UiDate.toDays(y m d))
+        nowMin = minute
+        browserOff = offset
+        this.load()
+    }
+
+    ; A fresh space of the pack's demo data, in the page's language.
+    fn load:void () {
+        space = (SpSeed.build(pack lang today))
+        sheetSel = ""
+        docSel = ""
+        def none:[string]
+        asked = none
+        def none2:[string]
+        answers = none2
+        this.newBoard()
+        this.rebuild()
+    }
+
+    fn newBoard:void () {
+        def keepView:string "week"
+        def keepCursor:int today
+        if (board.today > 0) {
+            keepView = board.view
+            keepCursor = board.cursor
+        }
+        board = (new EcBoard())
+        board.browserOff = browserOff
+        board.begin("spc" false today nowMin)
+        board.lang = lang
+        board.weekStart = 1
+        board.view = keepView
+        board.startH = 7
+        board.endH = 22
+        board.newTitle = (SpWords.noun(lang pack "event"))
+        board.hasSettings = false
+        def i:int 0
+        while (i < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources i)
+            push board.lanes (EcBoard.col(today r.id r.name r.color))
+            i = (i + 1)
+        }
+        this.fillBoard()
+        board.settle()
+        board.cursor = keepCursor
+    }
+
+    ; =========================================================================
+    ; the calendar card and the space
+    ; =========================================================================
+
+    ; The card's events: every occurrence from three months back to six ahead.
+    fn fillBoard:void () {
+        def keep:[CalEvent]
+        board.model.events = keep
+        def b:[string]
+        boardIds = b
+        def o:[string]
+        occIds = o
+        def d:[int]
+        occDay = d
+        def s:[int]
+        occStart = s
+        def e:[int]
+        occEnd = e
+        def occ:[SpOccur] (space.occurrences((today - 92) (today + 184)))
+        def i:int 0
+        while (i < (array_length occ)) {
+            def oc:SpOccur (itemAt occ i)
+            def id:string ("o" + (to_string i))
+            if (oc.allDay()) {
+                def ad:CalEvent (board.model.addAllDay(id oc.title oc.day oc.endDay))
+                ad.color = oc.color
+                ad.resource = oc.resource
+            } {
+                board.model.addEvent(id oc.title oc.day oc.startMin oc.endMin oc.resource oc.color)
+            }
+            push boardIds id
+            push occIds oc.id
+            push occDay oc.day
+            push occStart oc.startMin
+            push occEnd oc.endMin
+            i = (i + 1)
+        }
+    }
+
+    ; What the card changed, written to the space: a moved or resized event,
+    ; and a new one. True when anything was.
+    fn syncBack:boolean () {
+        def changed:boolean false
+        def i:int 0
+        while (i < (array_length board.model.events)) {
+            def ce:CalEvent (itemAt board.model.events i)
+            def k:int (this.boardIndex(ce.id))
+            if (k >= 0) {
+                def moved:boolean ((ce.startDay != (itemAt occDay k)) || ((ce.allDay == false) && ((ce.startMin != (itemAt occStart k)) || (ce.endMin != (itemAt occEnd k)))))
+                if moved {
+                    if (space.moveOccurrence((itemAt occIds k) ce.startDay ce.startMin ce.endMin)) {
+                        status = (SpWords.pick(lang "Moved " "Siirretty ") + ce.title)
+                    } {
+                        status = (SpWords.pick(lang "Rows from a sheet are changed in the sheet" "Taulukon rivit muutetaan taulukossa"))
+                    }
+                    changed = true
+                }
+            } {
+                ; made on the card
+                if ce.allDay {
+                    space.addAllDay(ce.title ce.startDay ce.endDay ce.resource)
+                } {
+                    space.addEvent(ce.title ce.startDay ce.startMin ce.endMin ce.resource)
+                }
+                status = (SpWords.pick(lang "Added " "Lisätty ") + ce.title)
+                changed = true
+            }
+            i = (i + 1)
+        }
+        if changed {
+            this.fillBoard()
+        }
+        return changed
+    }
+
+    fn boardIndex:int (id:string) {
+        def i:int 0
+        while (i < (array_length boardIds)) {
+            if ((itemAt boardIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; =========================================================================
+    ; the tree
+    ; =========================================================================
+
+    sfn tri:int (on:boolean) {
+        if on {
+            return (EVGA11yTri.yes())
+        }
+        return (EVGA11yTri.no())
+    }
+
+    sfn px:string (v:double) {
+        return ((to_string (to_int v)) + "px")
+    }
+
+    sfn box:EVGElement (cls:string) {
+        return (UiTree.div("" cls))
+    }
+
+    sfn tx:EVGElement (cls:string text:string) {
+        return (UiTree.label("" cls text))
+    }
+
+    sfn btn:EVGElement (id:string cls:string label:string) {
+        def el:EVGElement (UiTree.div(id cls))
+        el.role = "button"
+        el.a11yFocusable = true
+        el.a11yLabel = label
+        def t:EVGElement (UiTree.label("" (SpacesApp.txClasses(cls)) label))
+        t.a11yHidden = true
+        el.addChild(t)
+        return el
+    }
+
+    ; a button's label takes each of the button's classes with "-tx":
+    ; "sp-pill sp-pill-on" labels with "sp-pill-tx sp-pill-on-tx"
+    sfn txClasses:string (cls:string) {
+        def parts:[string] (UiTree.splitWs(cls))
+        def out:[string]
+        def i:int 0
+        while (i < (array_length parts)) {
+            push out ((itemAt parts i) + "-tx")
+            i = (i + 1)
+        }
+        return (join out " ")
+    }
+
+    sfn dot:EVGElement (color:string) {
+        def d:EVGElement (UiTree.div("" ("sp-dot sp-c-" + color)))
+        d.a11yHidden = true
+        return d
+    }
+
+    fn narrow:boolean () {
+        return (pageW < 760.0)
+    }
+
+    fn mainW:double () {
+        if (this.narrow()) {
+            return (pageW - 24.0)
+        }
+        return ((pageW - 220.0) - 48.0)
+    }
+
+    fn page:EVGElement () {
+        builtW = pageW
+        def shell:EVGElement (UiTree.div("sp-shell" "sp-shell"))
+        shell.addChild((this.topBar()))
+        def body:EVGElement (SpacesApp.box("sp-body"))
+        if (this.narrow()) {
+            body = (SpacesApp.box("sp-body sp-body-narrow"))
+        }
+        body.addChild((this.nav()))
+        def main:EVGElement (UiTree.div("sp-main" "sp-main"))
+        main.role = "main"
+        UiTree.inline(main "width" (SpacesApp.px((this.mainW()))))
+        if (tab == "calendar") {
+            main.addChild((this.calendarView()))
+        } {
+            if (tab == "sheets") {
+                main.addChild((this.sheetsView()))
+            } {
+                if (tab == "docs") {
+                    main.addChild((this.docsView()))
+                } {
+                    if (tab == "assistant") {
+                        main.addChild((this.assistantView()))
+                    } {
+                        main.addChild((this.homeView()))
+                    }
+                }
+            }
+        }
+        body.addChild(main)
+        shell.addChild(body)
+        if ((strlen status) > 0) {
+            def st:EVGElement (UiTree.label("sp-status" "sp-status" status))
+            st.role = "status"
+            shell.addChild(st)
+        }
+        return shell
+    }
+
+    fn topBar:EVGElement () {
+        def bar:EVGElement (SpacesApp.box("sp-top"))
+        if (this.narrow()) {
+            bar = (SpacesApp.box("sp-top sp-top-narrow"))
+        }
+        bar.role = "banner"
+        def brand:EVGElement (SpacesApp.box("sp-brand"))
+        def mark:EVGElement (SpacesApp.box("sp-mark"))
+        mark.addChild((SpacesApp.tx("sp-mark-tx" "S")))
+        brand.addChild(mark)
+        brand.addChild((SpacesApp.tx("sp-brand-tx" "Spaces")))
+        bar.addChild(brand)
+        if ((this.narrow()) == false) {
+            def name:EVGElement (SpacesApp.tx("sp-spacename" space.name))
+            bar.addChild(name)
+        }
+        bar.addChild((SpacesApp.box("sp-grow")))
+        if ((this.narrow()) == false) {
+            bar.addChild((SpacesApp.tx("sp-pills-label" (SpWords.ui(lang "words")))))
+        }
+        def packs:[string] (SpWords.packs())
+        def pills:EVGElement (SpacesApp.box("sp-pills"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.ui(lang "words"))
+        def i:int 0
+        while (i < (array_length packs)) {
+            def pk:string (itemAt packs i)
+            def cls:string "sp-pill"
+            if (pk == pack) {
+                cls = "sp-pill sp-pill-on"
+            }
+            def b:EVGElement (SpacesApp.btn(("sp-pack-" + pk) cls (SpWords.packName(lang pk))))
+            b.a11yPressed = (SpacesApp.tri((pk == pack)))
+            pills.addChild(b)
+            i = (i + 1)
+        }
+        bar.addChild(pills)
+        def lg:EVGElement (SpacesApp.box("sp-pills"))
+        lg.role = "group"
+        lg.a11yLabel = (SpWords.ui(lang "lang"))
+        def langs:[string] (SpWords.langs())
+        def k:int 0
+        while (k < (array_length langs)) {
+            def l:string (itemAt langs k)
+            def lc:string "sp-pill"
+            if (l == lang) {
+                lc = "sp-pill sp-pill-on"
+            }
+            def lb:EVGElement (SpacesApp.btn(("sp-lang-" + l) lc (to_uppercase l)))
+            lb.a11yPressed = (SpacesApp.tri((l == lang)))
+            lg.addChild(lb)
+            k = (k + 1)
+        }
+        bar.addChild(lg)
+        return bar
+    }
+
+    fn nav:EVGElement () {
+        def nav:EVGElement (SpacesApp.box("sp-nav"))
+        if (this.narrow()) {
+            nav = (SpacesApp.box("sp-nav sp-nav-row"))
+        }
+        nav.role = "navigation"
+        def tabs:[string] ([] _:string ( "home" "calendar" "sheets" "docs" "assistant" ))
+        def glyphs:[string] ([] _:string ( "◎" "▦" "▤" "▧" "✦" ))
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:string (itemAt tabs i)
+            def cls:string "sp-navbtn"
+            if (t == tab) {
+                cls = "sp-navbtn sp-navbtn-on"
+            }
+            def label:string (SpWords.ui(lang t))
+            def b:EVGElement (UiTree.div(("sp-nav-" + t) cls))
+            b.role = "button"
+            b.a11yFocusable = true
+            b.a11yLabel = label
+            b.a11yPressed = (SpacesApp.tri((t == tab)))
+            def g:EVGElement (SpacesApp.tx("sp-navglyph" (itemAt glyphs i)))
+            g.a11yHidden = true
+            b.addChild(g)
+            def tl:EVGElement (SpacesApp.tx("sp-navbtn-tx" label))
+            tl.a11yHidden = true
+            b.addChild(tl)
+            nav.addChild(b)
+            i = (i + 1)
+        }
+        return nav
+    }
+
+    fn heading:EVGElement (title:string sub:string) {
+        def h:EVGElement (UiTree.div("sp-head" "sp-head"))
+        def t:EVGElement (SpacesApp.tx("sp-h1" title))
+        t.role = "heading"
+        h.addChild(t)
+        if ((strlen sub) > 0) {
+            h.addChild((SpacesApp.tx("sp-sub" sub)))
+        }
+        return h
+    }
+
+    ; --- the summary --------------------------------------------------------------
+
+    fn homeView:EVGElement () {
+        def none:[int]
+        itemDays = none
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        def todayLong:string (EcI18n.dayTitle(lang today))
+        v.addChild((this.heading((SpWords.ui(lang "home")) (todayLong + " · " + space.name))))
+        def ranges:[SpRange] (space.summary(today))
+        def cols:EVGElement (SpacesApp.box("sp-cols"))
+        if (this.narrow()) {
+            cols = (SpacesApp.box("sp-cols sp-cols-narrow"))
+        }
+        def w:double (((this.mainW()) - 32.0) / 3.0)
+        if (this.narrow()) {
+            w = (this.mainW())
+        }
+        def i:int 0
+        while (i < 3) {
+            def r:SpRange (itemAt ranges i)
+            def card:EVGElement (this.rangeCard(r (i > 0)))
+            UiTree.inline(card "width" (SpacesApp.px(w)))
+            cols.addChild(card)
+            i = (i + 1)
+        }
+        v.addChild(cols)
+
+        def row:EVGElement (SpacesApp.box("sp-cols"))
+        if (this.narrow()) {
+            row = (SpacesApp.box("sp-cols sp-cols-narrow"))
+        }
+        def c1:EVGElement (this.lateCard())
+        def c2:EVGElement (this.sheetsCard())
+        def c3:EVGElement (this.loadCard())
+        UiTree.inline(c1 "width" (SpacesApp.px(w)))
+        UiTree.inline(c2 "width" (SpacesApp.px(w)))
+        UiTree.inline(c3 "width" (SpacesApp.px(w)))
+        row.addChild(c1)
+        row.addChild(c2)
+        row.addChild(c3)
+        v.addChild(row)
+        v.addChild((this.writeCard()))
+        return v
+    }
+
+    fn card:EVGElement (id:string title:string) {
+        def c:EVGElement (UiTree.div(("sp-card-" + id) "sp-card"))
+        c.role = "region"
+        c.a11yLabel = title
+        def t:EVGElement (SpacesApp.tx("sp-cardtitle" title))
+        t.role = "heading"
+        c.addChild(t)
+        return c
+    }
+
+    fn rangeCard:EVGElement (r:SpRange withDay:boolean) {
+        def c:EVGElement (this.card(r.key (SpWords.ui(lang r.key))))
+        if ((r.key != "today") && (r.to >= r.from)) {
+            c.addChild((SpacesApp.tx("sp-cardsub" ((SpWords.dayLabel(lang r.from)) + " – " + (SpWords.dayLabel(lang r.to))))))
+        }
+        if (r.to < r.from) {
+            c.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "weekEnds")))))
+            return c
+        }
+        if (r.isEmpty()) {
+            c.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "nothing")))))
+            return c
+        }
+        def lastDay:int -1
+        def i:int 0
+        while (i < (array_length r.items)) {
+            def o:SpOccur (itemAt r.items i)
+            if (withDay && (o.day != lastDay)) {
+                c.addChild((SpacesApp.tx("sp-daylabel" (SpWords.dayLabel(lang o.day)))))
+                lastDay = o.day
+            }
+            c.addChild((this.itemRow(o)))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length r.deadlines)) {
+            c.addChild((this.deadlineRow((itemAt r.deadlines k) false)))
+            k = (k + 1)
+        }
+        return c
+    }
+
+    fn itemRow:EVGElement (o:SpOccur) {
+        def n:int (array_length itemDays)
+        push itemDays o.day
+        def who:string (space.resourceName(o.resource))
+        def label:string ((SpWords.timeOf(lang o)) + " " + o.title)
+        if ((strlen who) > 0) {
+            label = (label + ", " + who)
+        }
+        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) "sp-item"))
+        row.role = "button"
+        row.a11yFocusable = true
+        row.a11yLabel = label
+        row.addChild((SpacesApp.dot(o.color)))
+        def tm:EVGElement (SpacesApp.tx("sp-time" (SpWords.timeOf(lang o))))
+        tm.a11yHidden = true
+        row.addChild(tm)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        def tt:EVGElement (SpacesApp.tx("sp-title" o.title))
+        tt.a11yHidden = true
+        col.addChild(tt)
+        def meta:string who
+        if ((strlen o.source) > 0) {
+            def sh:string (this.sheetName(o.source))
+            if ((strlen meta) > 0) {
+                meta = (meta + " · ")
+            }
+            meta = (meta + "▤ " + sh)
+        }
+        if (o.repeats) {
+            if ((strlen meta) > 0) {
+                meta = (meta + " · ")
+            }
+            meta = (meta + "↻")
+        }
+        if ((strlen meta) > 0) {
+            def mt:EVGElement (SpacesApp.tx("sp-meta" meta))
+            mt.a11yHidden = true
+            col.addChild(mt)
+        }
+        row.addChild(col)
+        return row
+    }
+
+    fn sheetName:string (id:string) {
+        def i:int 0
+        while (i < (array_length space.sheets)) {
+            def sh:SpSheet (itemAt space.sheets i)
+            if (sh.id == id) {
+                return sh.name
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn deadlineRow:EVGElement (d:SpDeadline late:boolean) {
+        def row:EVGElement (SpacesApp.box("sp-deadline"))
+        if late {
+            row = (SpacesApp.box("sp-deadline sp-late"))
+        }
+        row.role = "listitem"
+        def who:string (space.resourceName(d.resource))
+        def txt:string (d.title + " · " + (SpWords.ui(lang "due")) + " " + (SpWords.dayLabel(lang d.day)))
+        if ((strlen who) > 0) {
+            txt = (txt + " · " + who)
+        }
+        row.addChild((SpacesApp.tx("sp-flag" "⚑")))
+        row.addChild((SpacesApp.tx("sp-deadline-tx" txt)))
+        return row
+    }
+
+    fn lateCard:EVGElement () {
+        def c:EVGElement (this.card("late" ((SpWords.ui(lang "overdue")) + " · " + (SpWords.noun(lang pack "deadlines")))))
+        def late:[SpDeadline] (space.overdue(today))
+        if ((array_length late) == 0) {
+            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Nothing is overdue" "Mikään ei ole myöhässä")))))
+        }
+        def i:int 0
+        while (i < (array_length late)) {
+            c.addChild((this.deadlineRow((itemAt late i) true)))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn sheetsCard:EVGElement () {
+        def c:EVGElement (this.card("sheets" (SpWords.ui(lang "fromSheets"))))
+        def i:int 0
+        while (i < (array_length space.sheets)) {
+            def sh:SpSheet (itemAt space.sheets i)
+            def dated:int (array_length (space.sheetEvents(sh)))
+            def b:EVGElement (UiTree.div(("sp-opensheet-" + sh.id) "sp-sheetrow"))
+            b.role = "button"
+            b.a11yFocusable = true
+            b.a11yLabel = sh.name
+            b.addChild((SpacesApp.tx("sp-sheeticon" "▤")))
+            def col:EVGElement (SpacesApp.box("sp-itemtext"))
+            col.addChild((SpacesApp.tx("sp-title" sh.name)))
+            def meta:string ((to_string (sh.rowCount())) + " " + (SpWords.ui(lang "rows")))
+            if (dated > 0) {
+                meta = (meta + " · " + (to_string dated) + " " + (SpWords.ui(lang "dated")))
+            }
+            col.addChild((SpacesApp.tx("sp-meta" meta)))
+            b.addChild(col)
+            c.addChild(b)
+            i = (i + 1)
+        }
+        c.addChild((SpacesApp.btn("sp-import" "sp-link" (SpWords.ui(lang "import")))))
+        return c
+    }
+
+    fn loadCard:EVGElement () {
+        def c:EVGElement (this.card("load" ((SpWords.noun(lang pack "resources")) + " · " + (SpWords.ui(lang "load")))))
+        def mon:int (SpSpace.mondayOf(today))
+        def load:[int] (space.loadOf(mon (mon + 13)))
+        def most:int 1
+        def i:int 0
+        while (i < (array_length load)) {
+            if ((itemAt load i) > most) {
+                most = (itemAt load i)
+            }
+            i = (i + 1)
+        }
+        def barMax:double (((((this.mainW()) - 32.0) / 3.0) - 36.0) - 130.0)
+        if (this.narrow()) {
+            barMax = ((this.mainW()) - 170.0)
+        }
+        def k:int 0
+        while (k < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources k)
+            def n:int (itemAt load k)
+            def row:EVGElement (SpacesApp.box("sp-loadrow"))
+            row.role = "listitem"
+            row.a11yLabel = (r.name + ": " + (to_string n))
+            def nm:EVGElement (SpacesApp.tx("sp-loadname" r.name))
+            nm.a11yHidden = true
+            row.addChild(nm)
+            def bar:EVGElement (SpacesApp.box(("sp-bar sp-c-" + r.color)))
+            def bw:double ((barMax * (to_double n)) / (to_double most))
+            if (bw < 4.0) {
+                bw = 4.0
+            }
+            UiTree.inline(bar "width" (SpacesApp.px(bw)))
+            row.addChild(bar)
+            def num:EVGElement (SpacesApp.tx("sp-loadnum" (to_string n)))
+            num.a11yHidden = true
+            row.addChild(num)
+            c.addChild(row)
+            k = (k + 1)
+        }
+        return c
+    }
+
+    fn writeCard:EVGElement () {
+        def c:EVGElement (UiTree.div("sp-writecard" "sp-writecard"))
+        if (this.narrow()) {
+            c = (UiTree.div("sp-writecard" "sp-writecard sp-writecard-narrow"))
+        }
+        c.role = "region"
+        c.a11yLabel = (SpWords.ui(lang "assistant"))
+        c.addChild((SpacesApp.tx("sp-spark" "✦")))
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        col.addChild((SpacesApp.tx("sp-title" (SpWords.ui(lang "assistant")))))
+        col.addChild((SpacesApp.tx("sp-meta" (SpWords.ui(lang "local")))))
+        if (this.narrow()) {
+            UiTree.inline(col "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+        }
+        c.addChild(col)
+        c.addChild((SpacesApp.box("sp-grow")))
+        c.addChild((SpacesApp.btn("sp-write-summary" "sp-action" (SpWords.ui(lang "newSummary")))))
+        c.addChild((SpacesApp.btn("sp-write-plan" "sp-action sp-action-primary" (SpWords.ui(lang "newPlan")))))
+        return c
+    }
+
+    ; --- the calendar ---------------------------------------------------------------
+
+    fn calendarView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "calendar")) (SpWords.pick(lang "Drag to move, drag an empty slot to add. Sheet rows are changed in their sheet." "Siirrä vetämällä, lisää vetämällä tyhjään kohtaan. Taulukon rivit muutetaan taulukossa.")))))
+        board.cardW = (this.mainW())
+        board.narrow = (this.narrow())
+        board.focused = focused
+        board.hovered = hovered
+        v.addChild((board.card()))
+        return v
+    }
+
+    ; --- the sheets -----------------------------------------------------------------
+
+    fn sheetsView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "sheets")) (SpWords.pick(lang "Rows with a date (and a time, a title, who) show in the summary and the calendar." "Rivit, joilla on päivä (ja aika, otsikko, kuka), näkyvät koonnissa ja kalenterissa.")))))
+        def bar:EVGElement (SpacesApp.box("sp-tabs"))
+        if (this.narrow()) {
+            bar = (SpacesApp.box("sp-tabs sp-wrap"))
+        }
+        bar.role = "tablist"
+        def cur@(optional):SpSheet
+        def i:int 0
+        while (i < (array_length space.sheets)) {
+            def sh:SpSheet (itemAt space.sheets i)
+            if (((strlen sheetSel) == 0) && (i == 0)) {
+                cur = sh
+            }
+            if (sh.id == sheetSel) {
+                cur = sh
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length space.sheets)) {
+            def sh2:SpSheet (itemAt space.sheets k)
+            def on:boolean false
+            if (!null? cur) {
+                on = ((unwrap cur).id == sh2.id)
+            }
+            def cls:string "sp-tab"
+            if on {
+                cls = "sp-tab sp-tab-on"
+            }
+            def tb:EVGElement (SpacesApp.btn(("sp-sheet-" + sh2.id) cls sh2.name))
+            tb.role = "tab"
+            tb.a11ySelected = (SpacesApp.tri(on))
+            bar.addChild(tb)
+            k = (k + 1)
+        }
+        if ((this.narrow()) == false) {
+            bar.addChild((SpacesApp.box("sp-grow")))
+        }
+        bar.addChild((SpacesApp.btn("sp-import" "sp-action" (SpWords.ui(lang "import")))))
+        if (!null? cur) {
+            bar.addChild((SpacesApp.btn(("sp-export-" + (unwrap cur).id) "sp-action" (SpWords.ui(lang "exportCsv")))))
+        }
+        v.addChild(bar)
+        if (null? cur) {
+            v.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "No sheets yet" "Ei vielä taulukoita")))))
+            return v
+        }
+        v.addChild((this.table((unwrap cur))))
+        return v
+    }
+
+    fn table:EVGElement (sh:SpSheet) {
+        def t:EVGElement (SpacesApp.box("sp-table"))
+        t.role = "table"
+        t.a11yLabel = sh.name
+        def nc:int (array_length sh.cols)
+        if (nc == 0) {
+            return t
+        }
+        def w:double ((((this.mainW()) - 2.0) - 40.0) / (to_double nc))
+        def events:[SpEvent] (space.sheetEvents(sh))
+        def head:EVGElement (SpacesApp.box("sp-tr sp-thead"))
+        head.role = "row"
+        head.addChild((SpacesApp.box("sp-tdmark")))
+        def c:int 0
+        while (c < nc) {
+            def cell:EVGElement (SpacesApp.tx("sp-th" (itemAt sh.cols c)))
+            cell.role = "columnheader"
+            UiTree.inline(cell "width" (SpacesApp.px(w)))
+            head.addChild(cell)
+            c = (c + 1)
+        }
+        t.addChild(head)
+        def r:int 0
+        while (r < (sh.rowCount())) {
+            def row:EVGElement (SpacesApp.box("sp-tr"))
+            if ((r % 2) == 1) {
+                row = (SpacesApp.box("sp-tr sp-tr-alt"))
+            }
+            row.role = "row"
+            def mark:string ""
+            def rid:string (sh.id + "-r" + (to_string (r + 1)))
+            def e:int 0
+            while (e < (array_length events)) {
+                def ev:SpEvent (itemAt events e)
+                if (ev.id == rid) {
+                    mark = "▦"
+                }
+                e = (e + 1)
+            }
+            def mk:EVGElement (SpacesApp.tx("sp-tdmark" mark))
+            mk.a11yHidden = true
+            row.addChild(mk)
+            def c2:int 0
+            while (c2 < nc) {
+                def td:EVGElement (SpacesApp.tx("sp-td" (sh.cell(r c2))))
+                td.role = "cell"
+                UiTree.inline(td "width" (SpacesApp.px(w)))
+                row.addChild(td)
+                c2 = (c2 + 1)
+            }
+            t.addChild(row)
+            r = (r + 1)
+        }
+        return t
+    }
+
+    ; --- documents --------------------------------------------------------------------
+
+    fn docsView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "docs")) (SpWords.pick(lang "Summaries and plans the assistant wrote, and the space's own notes." "Avustajan kirjoittamat koosteet ja suunnitelmat sekä tilan omat muistiinpanot.")))))
+        def bar:EVGElement (SpacesApp.box("sp-tabs"))
+        bar.addChild((SpacesApp.btn("sp-write-summary" "sp-action" (SpWords.ui(lang "newSummary")))))
+        bar.addChild((SpacesApp.btn("sp-write-plan" "sp-action sp-action-primary" (SpWords.ui(lang "newPlan")))))
+        v.addChild(bar)
+        def split:EVGElement (SpacesApp.box("sp-split"))
+        if (this.narrow()) {
+            split = (SpacesApp.box("sp-split sp-cols-narrow"))
+        }
+        def list:EVGElement (SpacesApp.box("sp-doclist"))
+        list.role = "list"
+        def cur@(optional):SpDoc
+        def n:int (array_length space.docs)
+        def i:int (n - 1)
+        while (i >= 0) {
+            def d:SpDoc (itemAt space.docs i)
+            if (((strlen docSel) == 0) && (i == (n - 1))) {
+                cur = d
+            }
+            if (d.id == docSel) {
+                cur = d
+            }
+            i = (i - 1)
+        }
+        def k:int (n - 1)
+        while (k >= 0) {
+            def d2:SpDoc (itemAt space.docs k)
+            def on:boolean false
+            if (!null? cur) {
+                on = ((unwrap cur).id == d2.id)
+            }
+            def cls:string "sp-docitem"
+            if on {
+                cls = "sp-docitem sp-docitem-on"
+            }
+            def b:EVGElement (UiTree.div(("sp-doc-" + d2.id) cls))
+            b.role = "button"
+            b.a11yFocusable = true
+            b.a11yLabel = d2.title
+            b.a11yPressed = (SpacesApp.tri(on))
+            b.addChild((SpacesApp.tx("sp-title" d2.title)))
+            b.addChild((SpacesApp.tx("sp-meta" (SpWords.dayLabel(lang d2.day)))))
+            list.addChild(b)
+            k = (k - 1)
+        }
+        if (this.narrow()) {
+            UiTree.inline(list "width" (SpacesApp.px((this.mainW()))))
+        }
+        split.addChild(list)
+        if (null? cur) {
+            split.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noDocs")))))
+        } {
+            def docW:double (((this.mainW()) - 240.0) - 16.0)
+            if (this.narrow()) {
+                docW = (this.mainW())
+            }
+            def cd:SpDoc (unwrap cur)
+            def body:EVGElement (this.markdown("sp-docbody" cd.body docW))
+            split.addChild(body)
+        }
+        v.addChild(split)
+        return v
+    }
+
+    ; Markdown drawn as the documents use it: headings, bullets, task boxes
+    ; and paragraphs.
+    fn markdown:EVGElement (id:string md:string w:double) {
+        def doc:EVGElement (UiTree.div(id "sp-doc"))
+        doc.role = "region"
+        doc.a11yLabel = (SpWords.ui(lang "docs"))
+        UiTree.inline(doc "width" (SpacesApp.px(w)))
+        def lines:[string] (strsplit md "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def l:string (itemAt lines i)
+            def n:int (strlen l)
+            if (n > 0) {
+                if (UiTree.beginsWith(l "## ")) {
+                    def h2:EVGElement (SpacesApp.tx("sp-md-h2" (substring l 3 n)))
+                    h2.role = "heading"
+                    doc.addChild(h2)
+                } {
+                    if (UiTree.beginsWith(l "# ")) {
+                        def h1:EVGElement (SpacesApp.tx("sp-md-h1" (substring l 2 n)))
+                        h1.role = "heading"
+                        doc.addChild(h1)
+                    } {
+                        if (UiTree.beginsWith(l "- [ ] ")) {
+                            doc.addChild((SpacesApp.tx("sp-md-li" ("☐ " + (substring l 6 n)))))
+                        } {
+                            if (UiTree.beginsWith(l "- ")) {
+                                doc.addChild((SpacesApp.tx("sp-md-li" ("• " + (substring l 2 n)))))
+                            } {
+                                doc.addChild((SpacesApp.tx("sp-md-p" l)))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return doc
+    }
+
+    fn writeDoc:void (kind:string) {
+        def body:string ""
+        if (kind == "plan") {
+            body = (SpAssist.plan(space lang today))
+        } {
+            body = (SpAssist.weekSummary(space lang today))
+        }
+        def lines:[string] (strsplit body "\n")
+        def title:string (itemAt lines 0)
+        if (UiTree.beginsWith(title "# ")) {
+            title = (substring title 2 (strlen title))
+        }
+        def d:SpDoc (space.addDoc(title body today))
+        docSel = d.id
+        tab = "docs"
+        status = (SpWords.pick(lang "Written: " "Kirjoitettu: ") + title)
+    }
+
+    ; --- the assistant ----------------------------------------------------------------
+
+    fn assistantView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "assistant")) (SpWords.ui(lang "local")))))
+        def qs:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        qs.role = "group"
+        qs.a11yLabel = (SpWords.ui(lang "ask"))
+        def keys:[string] ([] _:string ( "qToday" "qWeek" "qNext" "qLate" "qPlan" ))
+        def i:int 0
+        while (i < (array_length keys)) {
+            def k:string (itemAt keys i)
+            qs.addChild((SpacesApp.btn(("sp-q-" + k) "sp-chip" (SpWords.ui(lang k)))))
+            i = (i + 1)
+        }
+        v.addChild(qs)
+        def feed:EVGElement (SpacesApp.box("sp-feed"))
+        feed.role = "log"
+        def w:double ((this.mainW()) - 120.0)
+        if (this.narrow()) {
+            w = ((this.mainW()) - 24.0)
+        }
+        def n:int (array_length asked)
+        def j:int (n - 1)
+        while (j >= 0) {
+            def qrow:EVGElement (SpacesApp.box("sp-row"))
+            qrow.addChild((SpacesApp.box("sp-grow")))
+            def q:EVGElement (SpacesApp.box("sp-bubble-q"))
+            q.addChild((SpacesApp.tx("sp-bubble-q-tx" (SpWords.ui(lang (itemAt asked j))))))
+            qrow.addChild(q)
+            feed.addChild(qrow)
+            def a:EVGElement (this.markdown(("sp-answer-" + (to_string j)) (itemAt answers j) w))
+            UiTree.addClass(a "sp-bubble-a")
+            feed.addChild(a)
+            def latest:boolean (j == (n - 1))
+            def saveAs:string ""
+            if (latest && ((itemAt asked j) == "qPlan")) {
+                saveAs = "sp-write-plan"
+            }
+            if (latest && ((itemAt asked j) == "qWeek")) {
+                saveAs = "sp-write-summary"
+            }
+            if ((strlen saveAs) > 0) {
+                def srow:EVGElement (SpacesApp.box("sp-row"))
+                srow.addChild((SpacesApp.btn(saveAs "sp-action" (SpWords.pick(lang "Save as a document" "Tallenna dokumentiksi")))))
+                srow.addChild((SpacesApp.box("sp-grow")))
+                feed.addChild(srow)
+            }
+            j = (j - 1)
+        }
+        v.addChild(feed)
+        return v
+    }
+
+    fn ask:void (q:string) {
+        push asked q
+        push answers (SpAssist.answer(space lang today q))
+    }
+
+    ; =========================================================================
+    ; input
+    ; =========================================================================
+
+    fn onBoard:boolean (id:string) {
+        return (board.owns(id))
+    }
+
+    fn press:boolean (target:string) {
+        status = ""
+        if (target == "") {
+            if (board.closeOverlays()) {
+                this.rebuild()
+            }
+            return false
+        }
+        if (this.onBoard(target)) {
+            board.focused = focused
+            board.hovered = hovered
+            def r:boolean (board.press(target))
+            focused = board.focused
+            this.syncBack()
+            this.rebuild()
+            return r
+        }
+        board.closeOverlays()
+        focused = target
+        if (UiTree.beginsWith(target "sp-nav-")) {
+            tab = (substring target 7 (strlen target))
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-pack-")) {
+            pack = (substring target 8 (strlen target))
+            this.load()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-lang-")) {
+            lang = (substring target 8 (strlen target))
+            this.load()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-item-")) {
+            def n@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length itemDays))) {
+                    board.cursor = (itemAt itemDays k)
+                    board.view = "day"
+                    board.applySettings()
+                    tab = "calendar"
+                    focused = ""
+                }
+            }
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-opensheet-")) {
+            sheetSel = (substring target 13 (strlen target))
+            tab = "sheets"
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-sheet-")) {
+            sheetSel = (substring target 9 (strlen target))
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-import") {
+            action = "import"
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-export-")) {
+            action = ("export:" + (substring target 10 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-doc-")) {
+            docSel = (substring target 7 (strlen target))
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-write-summary") {
+            this.writeDoc("summary")
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-write-plan") {
+            this.writeDoc("plan")
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-q-")) {
+            this.ask((substring target 5 (strlen target)))
+            this.rebuild()
+            return true
+        }
+        this.rebuild()
+        return false
+    }
+
+    ; The host's answer to "import": a sheet from CSV or pasted cells.
+    fn importSheet:boolean (name:string text:string) {
+        def sh:SpSheet (SpSheet.parse("" name text))
+        if ((array_length sh.cols) == 0) {
+            status = (SpWords.pick(lang "Nothing to import" "Ei tuotavaa"))
+            this.rebuild()
+            return false
+        }
+        space.addSheet(sh)
+        sheetSel = sh.id
+        tab = "sheets"
+        this.fillBoard()
+        def dated:int (array_length (space.sheetEvents(sh)))
+        status = (name + ": " + (to_string (sh.rowCount())) + " " + (SpWords.ui(lang "rows")) + ", " + (to_string dated) + " " + (SpWords.ui(lang "dated")))
+        this.rebuild()
+        return true
+    }
+
+    fn sheetCsv:string (id:string) {
+        def i:int 0
+        while (i < (array_length space.sheets)) {
+            def sh:SpSheet (itemAt space.sheets i)
+            if (sh.id == id) {
+                return (sh.toCsv())
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn sheetFileName:string (id:string) {
+        return ((this.sheetName(id)) + ".csv")
+    }
+
+    fn takeAction:string () {
+        def a:string action
+        action = ""
+        return a
+    }
+
+    fn pointerDown:boolean (id:string x:double y:double) {
+        this.laidOut()
+        lastX = x
+        lastY = y
+        if (this.onBoard(id)) {
+            board.focused = focused
+            board.hovered = hovered
+            board.pointerDown(id x y)
+            focused = board.focused
+            this.rebuild()
+            return true
+        }
+        this.press(id)
+        return true
+    }
+
+    fn pointerMove:boolean (x:double y:double) {
+        lastX = x
+        lastY = y
+        if ((strlen board.armed) == 0) {
+            return false
+        }
+        this.laidOut()
+        if (board.pointerMove(x y)) {
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn pointerUp:boolean () {
+        if ((strlen board.armed) == 0) {
+            return false
+        }
+        board.focused = focused
+        def r:boolean (board.pointerUp())
+        focused = board.focused
+        this.syncBack()
+        this.rebuild()
+        return r
+    }
+
+    fn scrollBy:boolean (dy:double) {
+        if (tab != "calendar") {
+            return false
+        }
+        def id:string (this.hitId(lastX lastY))
+        if ((this.onBoard(id)) == false) {
+            return false
+        }
+        if (board.scrollBy(dy)) {
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn cursorAt:string (x:double y:double) {
+        lastX = x
+        lastY = y
+        def id:string (this.hitId(x y))
+        if (this.onBoard(id)) {
+            return (board.cursorFor((board.refine(id x y))))
+        }
+        if ((strlen id) > 0) {
+            return "pointer"
+        }
+        return ""
+    }
+
+    fn collectFocusable:void (el:EVGElement out:[string]) {
+        if (el.a11yFocusable && ((strlen el.id) > 0)) {
+            push out el.id
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.collectFocusable((el.getChild(i)) out)
+            i = (i + 1)
+        }
+    }
+
+    fn tab1:boolean (back:boolean) {
+        def ring:[string]
+        this.collectFocusable((unwrap root) ring)
+        def n:int (array_length ring)
+        if (n == 0) {
+            return false
+        }
+        def at:int -1
+        def i:int 0
+        while (i < n) {
+            if ((itemAt ring i) == focused) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            if back {
+                focused = (itemAt ring (n - 1))
+            } {
+                focused = (itemAt ring 0)
+            }
+        } {
+            if back {
+                at = (at - 1)
+            } {
+                at = (at + 1)
+            }
+            if ((at < 0) || (at >= n)) {
+                return false
+            }
+            focused = (itemAt ring at)
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        if (k == "Tab") {
+            if (this.onBoard(focused)) {
+                def back:string (board.closeLists())
+                if ((strlen back) > 0) {
+                    focused = back
+                }
+            }
+            return (this.tab1(shift))
+        }
+        if ((this.onBoard(focused)) || ((strlen board.armed) > 0)) {
+            board.focused = focused
+            board.hovered = hovered
+            def r:boolean (board.keyWith(k shift))
+            focused = board.focused
+            this.syncBack()
+            this.rebuild()
+            return r
+        }
+        if ((k == "Enter") || (k == " ")) {
+            if ((strlen focused) > 0) {
+                return (this.press(focused))
+            }
+        }
+        return false
+    }
+
+    fn key:boolean (k:string) {
+        return (this.keyWith(k false false))
+    }
+
+    fn setHover:void (id:string) {
+        def was:string hovered
+        hovered = id
+        if (was != id) {
+            this.rebuild()
+        }
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    ; =========================================================================
+    ; layout and output
+    ; =========================================================================
+
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        if ((pageW != builtW) || (null? root)) {
+            this.rebuild()
+        }
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        UiTree.inline(r "width" (SpacesApp.px(pageW)))
+        UiTree.inline(r "height" (SpacesApp.px(pageH)))
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.setPageSize(pageW pageH)
+                lay.layout(r)
+                this.fitHeight(lay)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        this.fitHeight(fresh)
+        return fresh
+    }
+
+    fn fitHeight:void (lay:EVGLayout) {
+        def r:EVGElement (unwrap root)
+        def bottom:double 0.0
+        def i:int 0
+        while (i < (r.getChildCount())) {
+            def c:EVGElement (r.getChild(i))
+            def b:double (SpacesApp.deepest(c))
+            if (b > bottom) {
+                bottom = b
+            }
+            i = (i + 1)
+        }
+        def want:double (to_double (to_int ((bottom + 24.0) + 0.999)))
+        if (want < minH) {
+            want = minH
+        }
+        def diff:double (want - pageH)
+        if ((diff > 0.5) || (diff < -0.5)) {
+            pageH = want
+            def s:EVGStyleSheet (unwrap sheet)
+            UiTree.inline(r "height" (SpacesApp.px(pageH)))
+            s.setViewport(pageW pageH false)
+            s.applyTree(r "")
+            lay.setPageSize(pageW pageH)
+            lay.layout(r)
+        }
+    }
+
+    ; the lowest edge of an element or anything in it
+    sfn deepest:double (el:EVGElement) {
+        def b:double (el.calculatedY + el.calculatedHeight)
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def c:double (SpacesApp.deepest((el.getChild(i))))
+            if (c > b) {
+                b = c
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Spaces" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Spaces" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn setWidth:void (w:double minHeight:double) {
+        pageW = w
+        minH = minHeight
+    }
+
+    fn widthPx:double () {
+        return pageW
+    }
+
+    fn heightPx:double () {
+        this.laidOut()
+        return pageH
+    }
+}

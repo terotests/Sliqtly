@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="fi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="build" content="__BUILD__" />
+<title>Spaces</title>
+<link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f6f3ef; }
+  /* One canvas drawn by EVG; the a11y mirror lies over it. */
+  #stage { position: relative; width: 100%; }
+  #stage canvas { display: block; outline: none; }
+  #file { display: none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="canvas" tabindex="0"></canvas></div>
+<input id="file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" />
+<script src="./spaces_app.js?v=__BUILD__"></script>
+<script type="module" src="./main.js?v=__BUILD__"></script>
+</body>
+</html>

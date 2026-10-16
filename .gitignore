@@ -5,3 +5,4 @@ bin/
 *.log
 web/dist-view/
 __pycache__/
+apps/spaces/web/dist/

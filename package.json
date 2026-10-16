@@ -24,7 +24,11 @@
     "check:editor": "node scripts/check-editor.mjs",
     "check:links": "node scripts/check-share-links.mjs",
     "bench:flight": "node scripts/flight-bench.mjs",
-    "video": "node scripts/video.mjs"
+    "video": "node scripts/video.mjs",
+    "spaces:build": "node apps/spaces/scripts/build.mjs",
+    "spaces:check": "node apps/spaces/scripts/check.mjs",
+    "spaces:serve": "node apps/spaces/scripts/serve.mjs",
+    "spaces:check:page": "node apps/spaces/scripts/check-page.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.55.0",

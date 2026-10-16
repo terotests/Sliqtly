@@ -1,0 +1,181 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SpacesAssist — summaries and plans written from the space's own data
+; =============================================================================
+; The assistant's answers and the documents it writes (a week's summary, a
+; plan for next week) are made here from the calendar, the sheets and the
+; deadlines, as Markdown. They need no service and say only what the data
+; says; a language model can later be given the same Markdown as context.
+; =============================================================================
+
+Import "SpacesModel.rgr"
+Import "SpacesVocab.rgr"
+
+class SpAssist {
+
+    ; One line for an occurrence: "ma 19.10. 9.00–9.30 Team stand-up (Operations)"
+    sfn line:string (s:SpSpace lang:string o:SpOccur withDay:boolean) {
+        def t:string ""
+        if withDay {
+            t = ((SpWords.dayLabel(lang o.day)) + " ")
+        }
+        t = (t + (SpWords.timeOf(lang o)) + " " + o.title)
+        def who:string (s.resourceName(o.resource))
+        if ((strlen who) > 0) {
+            t = (t + " (" + who + ")")
+        }
+        return t
+    }
+
+    sfn deadlineLine:string (s:SpSpace lang:string d:SpDeadline) {
+        def t:string (d.title + ", " + (SpWords.ui(lang "due")) + " " + (SpWords.dayLabel(lang d.day)))
+        def who:string (s.resourceName(d.resource))
+        if ((strlen who) > 0) {
+            t = (t + " (" + who + ")")
+        }
+        return t
+    }
+
+    ; A range as Markdown bullets, or the "nothing planned" line.
+    sfn rangeMd:string (s:SpSpace lang:string r:SpRange withDay:boolean) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length r.items)) {
+            push out ("- " + (SpAssist.line(s lang (itemAt r.items i) withDay)))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length r.deadlines)) {
+            push out ("- ⚑ " + (SpAssist.deadlineLine(s lang (itemAt r.deadlines k))))
+            k = (k + 1)
+        }
+        if ((array_length out) == 0) {
+            return (SpWords.ui(lang "nothing"))
+        }
+        return (join out "\n")
+    }
+
+    ; The answer to one of the assistant's questions: qToday, qWeek, qNext,
+    ; qLate or qPlan.
+    sfn answer:string (s:SpSpace lang:string today:int q:string) {
+        def ranges:[SpRange] (s.summary(today))
+        if (q == "qToday") {
+            return (SpAssist.rangeMd(s lang (itemAt ranges 0) false))
+        }
+        if (q == "qWeek") {
+            return (SpAssist.weekSummary(s lang today))
+        }
+        if (q == "qNext") {
+            return (SpAssist.rangeMd(s lang (itemAt ranges 2) true))
+        }
+        if (q == "qLate") {
+            def late:[SpDeadline] (s.overdue(today))
+            if ((array_length late) == 0) {
+                return (SpWords.pick(lang "Nothing is overdue." "Mikään ei ole myöhässä."))
+            }
+            def out:[string]
+            def i:int 0
+            while (i < (array_length late)) {
+                push out ("- " + (SpAssist.deadlineLine(s lang (itemAt late i))))
+                i = (i + 1)
+            }
+            return (join out "\n")
+        }
+        if (q == "qPlan") {
+            return (SpAssist.plan(s lang today))
+        }
+        return ""
+    }
+
+    ; This week, Monday to Sunday, as a document.
+    sfn weekSummary:string (s:SpSpace lang:string today:int) {
+        def mon:int (SpSpace.mondayOf(today))
+        def r:SpRange (s.range("all" mon (mon + 6)))
+        def out:[string]
+        push out ("# " + (SpWords.pick(lang "Week summary" "Viikkokooste")) + " " + (SpWords.dayLabel(lang mon)) + "–" + (SpWords.dayLabel(lang (mon + 6))))
+        push out ""
+        def n:int (array_length r.items)
+        push out ((SpWords.pick(lang "Events this week: " "Tapahtumia tällä viikolla: ")) + (to_string n) + ", " + (SpWords.pick(lang "deadlines: " "määräaikoja: ")) + (to_string (array_length r.deadlines)) + ".")
+        push out ""
+        ; by resource
+        def load:[int] (s.loadOf(mon (mon + 6)))
+        def i:int 0
+        while (i < (array_length s.resources)) {
+            def res:SpResource (itemAt s.resources i)
+            push out ("- " + res.name + ": " + (to_string (itemAt load i)))
+            i = (i + 1)
+        }
+        push out ""
+        push out ("## " + (SpWords.pick(lang "Days" "Päivät")))
+        push out ""
+        push out (SpAssist.rangeMd(s lang r true))
+        def late:[SpDeadline] (s.overdue(today))
+        if ((array_length late) > 0) {
+            push out ""
+            push out ("## " + (SpWords.ui(lang "overdue")))
+            push out ""
+            def k:int 0
+            while (k < (array_length late)) {
+                push out ("- " + (SpAssist.deadlineLine(s lang (itemAt late k))))
+                k = (k + 1)
+            }
+        }
+        return (join out "\n")
+    }
+
+    ; Next week as a plan to fill in: what is fixed, what is due, and the
+    ; evenings and days that are still free.
+    sfn plan:string (s:SpSpace lang:string today:int) {
+        def mon:int ((SpSpace.mondayOf(today)) + 7)
+        def r:SpRange (s.range("next" mon (mon + 6)))
+        def out:[string]
+        push out ("# " + (SpWords.pick(lang "Plan for next week" "Ensi viikon suunnitelma")) + " " + (SpWords.dayLabel(lang mon)) + "–" + (SpWords.dayLabel(lang (mon + 6))))
+        push out ""
+        push out ("## " + (SpWords.pick(lang "Already in the calendar" "Jo kalenterissa")))
+        push out ""
+        def fixed:SpRange (new SpRange())
+        fixed.items = r.items
+        push out (SpAssist.rangeMd(s lang fixed true))
+        push out ""
+        push out ("## " + (SpWords.noun(lang s.vocab "deadlines")))
+        push out ""
+        if ((array_length r.deadlines) == 0) {
+            push out (SpWords.ui(lang "nothing"))
+        }
+        def k:int 0
+        while (k < (array_length r.deadlines)) {
+            push out ("- [ ] " + (SpAssist.deadlineLine(s lang (itemAt r.deadlines k))))
+            k = (k + 1)
+        }
+        push out ""
+        push out ("## " + (SpWords.pick(lang "Free days" "Vapaat päivät")))
+        push out ""
+        def free:[string]
+        def d:int mon
+        while (d <= (mon + 6)) {
+            def busy:boolean false
+            def i:int 0
+            while (i < (array_length r.items)) {
+                if ((itemAt r.items i).day == d) {
+                    busy = true
+                }
+                i = (i + 1)
+            }
+            if (busy == false) {
+                push free (SpWords.dayLabel(lang d))
+            }
+            d = (d + 1)
+        }
+        if ((array_length free) == 0) {
+            push out (SpWords.pick(lang "Every day has something." "Joka päivälle on jotain."))
+        } {
+            push out (join free ", ")
+        }
+        push out ""
+        push out ("## " + (SpWords.pick(lang "To decide" "Päätettävää")))
+        push out ""
+        push out "- "
+        return (join out "\n")
+    }
+}
