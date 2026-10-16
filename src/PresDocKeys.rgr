@@ -463,6 +463,105 @@ class PresDocKeys {
         return (PresDocKeys.indentOp(text off off -1))
     }
 
+    ; --- paste -----------------------------------------------------------------------
+    ; Plain text pasted at `off` as it fits there: lines into a table cell
+    ; joined with `<br>` (a `|` escaped), lines into a list item indented to
+    ; its words (they stay in the item); elsewhere as it is.
+    sfn pasteFit:string (text:string off:int s:string) {
+        def t:string (PresDocKeys.plainLines(s))
+        if ((indexOf t "\n") < 0) {
+            if (PresDocCaret.inTable(text off)) {
+                return (PresDocKeys.cellSafe(t))
+            }
+            return t
+        }
+        if (PresDocCaret.inTable(text off)) {
+            def body:string (PresDocKeys.cellSafe(t))
+            def out:string ""
+            def i:int 0
+            def n:int (strlen body)
+            while (i < n) {
+                def c:int (charAt body i)
+                if (c == 10) {
+                    out = (out + "<br>")
+                } {
+                    out = (out + (substring body i (i + 1)))
+                }
+                i = (i + 1)
+            }
+            return out
+        }
+        def it:PresListItem (PresDocKeys.itemAt(text off))
+        if (it.ls < 0) {
+            return t
+        }
+        def pad:string ""
+        def k:int 0
+        while (k < (it.indent + it.width)) {
+            pad = (pad + " ")
+            k = (k + 1)
+        }
+        def out2:string ""
+        def ls:int 0
+        def n2:int (strlen t)
+        def first:boolean true
+        while (ls <= n2) {
+            def le:int ls
+            while ((le < n2) && ((charAt t le) != 10)) {
+                le = (le + 1)
+            }
+            def line:string (substring t ls le)
+            if first {
+                out2 = line
+                first = false
+            } {
+                out2 = (out2 + "\n")
+                if ((strlen (trim line)) > 0) {
+                    out2 = (out2 + pad + line)
+                }
+            }
+            ls = (le + 1)
+        }
+        return out2
+    }
+
+    ; "\r\n" and "\r" as "\n".
+    sfn plainLines:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 13) {
+                out = (out + "\n")
+                if (((i + 1) < n) && ((charAt s (i + 1)) == 10)) {
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A `|` in a cell's text escaped, so it does not end the cell.
+    sfn cellSafe:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 124) && ((i == 0) || ((charAt s (i - 1)) != 92))) {
+                out = (out + "\\|")
+            } {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; --- numbering -----------------------------------------------------------------
     ; The next item at `it`'s level and of its kind (numbered or not) after
     ; what belongs to it; none past one blank line or another block.

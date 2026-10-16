@@ -5537,6 +5537,14 @@ class PresCheck {
         this.ok((((array_length bs4) == 2) && ((itemAt bs4 1) == 8)) "dockeys: two Enters, two empty lines")
         def bs5:[int] (PresDocCaret.blankStops("\n\nNext"))
         this.ok((((array_length bs5) == 1) && ((itemAt bs5 0) == 0)) "dockeys: an empty line before the first block")
+        ; plain text pasted into a list item stays in it, into a cell stays a cell
+        def pl:string "- aa\n- bb"
+        def pf1:string (PresDocKeys.pasteFit(pl 4 "x\r\ny\n\nz"))
+        this.ok((pf1 == "x\n  y\n\n  z") ("dockeys: lines pasted in an item go to its words' column, got " + pf1))
+        def pt:string "| a | b |\n| --- | --- |\n| c | d |\n"
+        def pf2:string (PresDocKeys.pasteFit(pt (indexOf pt "c |") "x\ny|z"))
+        this.ok((pf2 == "x<br>y\\|z") ("dockeys: lines pasted in a cell are <br>, a | escaped, got " + pf2))
+        this.ok(((PresDocKeys.pasteFit("Para" 2 "x\ny")) == "x\ny") "dockeys: in a paragraph the lines are kept")
         ; Enter on an empty nested item
         def e:string "- aa\n  - \n- cc"
         def eo:MdEditOp (PresDocKeys.emptyItemEnterOp(e 9))

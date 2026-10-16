@@ -8246,9 +8246,18 @@ class PresApp {
             }
         }
         if (this.docEditing()) {
-            ; typed on the page: into the Markdown at the page's caret
+            ; pasted on the page: into the Markdown at the page's caret, as
+            ; it fits there (lines in a list item or a table cell)
             this.edDocEnsure()
-            this.docType(s)
+            def at:int (mdEditor.caretOffset())
+            def a0:int (mdEditor.anchorOffset())
+            def lo:int (? (a0 < at) a0 at)
+            if ((indexOf s "\n") < 0) {
+                this.docType(s)
+                return
+            }
+            this.docReplace(lo (? (a0 < at) at a0) (PresDocKeys.pasteFit((mdEditor.text()) lo s)))
+            docWantX = -1.0
             return
         }
         editor.handleText(s)

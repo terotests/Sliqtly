@@ -6731,6 +6731,17 @@ try {
     await pg.waitForFunction(() => window.__opened.length > 0, null, { timeout: 3000 }).catch(() => {});
     const opened = await pg.evaluate(() => window.__opened);
     check("View keys: Ctrl+click opens a link, a plain click edits it", plain === 0 && opened.length === 1 && opened[0].startsWith("https://example.com/k") && (await src()) === lnk, JSON.stringify({ plain, opened }));
+    // plain lines pasted into a list item stay in it
+    const pli = body + "- aa\n- bb\n";
+    await put(pli, "aa");
+    await pg.keyboard.press("End");
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", " x\ny");
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await frames();
+    check("View keys: lines pasted into a list item stay in it", (await src()).endsWith("- aa x\n  y\n- bb\n"), JSON.stringify((await src()).slice(-24)));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();
