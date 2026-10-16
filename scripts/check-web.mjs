@@ -4763,7 +4763,11 @@ try {
     await page.evaluate(() => window.__app.setSource("# Soitin\n\n## Toinen\n\nteksti\n"));
     const got = page.waitForEvent("download");
     await page.evaluate(() => window.__exportPlayer());
-    const file = await (await got).path();
+    // saved under its own .html name: a download's temporary path has no
+    // extension, and Chromium shows such a file:// page as plain text
+    const dl = await got;
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "player-")), dl.suggestedFilename());
+    await dl.saveAs(file);
     const off = await browser.newContext({ viewport: { width: 900, height: 560 }, offline: true });
     const pl = await off.newPage();
     const errs = [];
