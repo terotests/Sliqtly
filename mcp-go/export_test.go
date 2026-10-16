@@ -376,3 +376,65 @@ func TestExportUnicodeAndSvgBackground(t *testing.T) {
 		t.Fatal("the web page's text is not the deck's")
 	}
 }
+
+// The server's PPTX is the editor's (PresExport): its links click through
+// (an address as an external hyperlink, a slide's name as a jump to it) and
+// its text is set in the theme's faces.
+func TestExportPptxLinksAndFaces(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "---\nslide-split-level: 2\n---\n\n## Start\n\nSee [the site](https://example.com/docs?a=1&b=2) or [the end](#the-end).\n\n## Middle\n\nText.\n\n## The end\n\nBye.\n"
+	c := call(t, s, "create_presentation", map[string]any{
+		"title": "Links", "markdown": md, "css": "heading { font-family: Fjalla One } document { font-family: Lato }",
+	})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	x := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pptx"})
+	if x.IsError {
+		t.Fatal(textOf(x))
+	}
+	pp := f.bucket.saved["shares/"+id+"/exports/Links.pptx"]
+	z, err := zip.NewReader(bytes.NewReader(pp.data), int64(len(pp.data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := func(name string) string {
+		for _, zf := range z.File {
+			if zf.Name == name {
+				r, _ := zf.Open()
+				b, _ := io.ReadAll(r)
+				r.Close()
+				return string(b)
+			}
+		}
+		t.Fatalf("no %s in the file", name)
+		return ""
+	}
+	slide := part("ppt/slides/slide1.xml")
+	rels := part("ppt/slides/_rels/slide1.xml.rels")
+	theme := part("ppt/theme/theme1.xml")
+	for _, want := range []string{
+		`<a:hlinkClick r:id="rIdLink1"/></a:rPr><a:t xml:space="preserve">the site</a:t>`,
+		`<a:hlinkClick r:id="rIdJump1" action="ppaction://hlinksldjump"/>`,
+		`<a:latin typeface="Lato"/>`,
+		`<a:latin typeface="Fjalla One"/>`,
+	} {
+		if !strings.Contains(slide, want) {
+			t.Fatalf("%q is not on the slide: %s", want, slide)
+		}
+	}
+	for _, want := range []string{
+		`<Relationship Id="rIdLink1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/docs?a=1&amp;b=2" TargetMode="External"/>`,
+		`<Relationship Id="rIdJump1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/slide3.xml"/>`,
+	} {
+		if !strings.Contains(rels, want) {
+			t.Fatalf("%q is not in the slide's relationships: %s", want, rels)
+		}
+	}
+	if !strings.Contains(theme, `<a:majorFont><a:latin typeface="Fjalla One"/>`) || !strings.Contains(theme, `<a:minorFont><a:latin typeface="Lato"/>`) {
+		t.Fatalf("the theme does not name the deck's faces: %s", theme)
+	}
+}
