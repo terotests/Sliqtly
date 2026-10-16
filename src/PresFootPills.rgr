@@ -1,0 +1,138 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresFootPills.rgr — the pills at the stage's foot, fitted to its width
+; ============================================================================
+;
+; Under the slide sit up to three pills side by side, in the middle of the
+; stage: review's "+ Add comment" bar, the drawing pill and the zoom pill.
+; A narrow stage (the editor's pane made small) has no room for all of them
+; at their full size, so:
+;
+;   1. all in one row at full size, when that fits
+;   2. else the short forms (the comment bar as "+", its count as a number),
+;      still one row when that fits
+;   3. else the short forms on more rows, from the bottom up: as many as fit
+;      on a row, the next ones on the row above it
+;
+; Each row is in the middle of the stage; a pill wider than the stage by
+; itself starts at its left edge. A pill of width 0 is not there (row -1).
+; Nothing here draws: the host gives the widths and places the pills at
+; `xs` and `rows`.
+; ============================================================================
+
+class PresFootPills {
+    ; the short forms are used
+    def compact:boolean false
+    ; per pill: its left edge, and its row (0 the bottom one, -1 not there)
+    def xs:[double]
+    def rows:[int]
+    def rowCount:int 0
+
+    ; room kept free at the stage's sides
+    sfn edge:double () {
+        return 12.0
+    }
+
+    ; between two pills, side by side or one above the other
+    sfn gap:double () {
+        return 8.0
+    }
+
+    ; The pills' widths side by side, gaps between them (width 0: not there).
+    sfn rowWidth:double (ws:[double]) {
+        def sum:double 0.0
+        def n:int 0
+        for ws v:double i {
+            if (v > 0.0) {
+                if (n > 0) {
+                    sum = (sum + (PresFootPills.gap()))
+                }
+                sum = (sum + v)
+                n = (n + 1)
+            }
+        }
+        return sum
+    }
+
+    ; Fits the pills (full widths `full`, short ones `small`, in the same
+    ; order) into the stage from `left`, `width` wide.
+    sfn fit:PresFootPills (left:double width:double full:[double] small:[double]) {
+        def r:PresFootPills (new PresFootPills())
+        def room:double (width - ((PresFootPills.edge()) * 2.0))
+        def ws:[double] full
+        if ((PresFootPills.rowWidth(full)) > room) {
+            r.compact = true
+            ws = small
+        }
+        ; into rows, in order: a pill goes on the row while it fits there
+        def rowOf:[int]
+        def rowWs:[double]
+        def row:int 0
+        def used:double 0.0
+        def onRow:int 0
+        for ws v:double i {
+            if (v <= 0.0) {
+                push rowOf -1
+            } {
+                def need:double v
+                if (onRow > 0) {
+                    need = (v + (PresFootPills.gap()))
+                }
+                if ((onRow > 0) && ((used + need) > room)) {
+                    push rowWs used
+                    row = (row + 1)
+                    used = 0.0
+                    onRow = 0
+                    need = v
+                }
+                push rowOf row
+                used = (used + need)
+                onRow = (onRow + 1)
+            }
+        }
+        if (onRow > 0) {
+            push rowWs used
+            row = (row + 1)
+        }
+        r.rowCount = row
+        ; each row in the middle; along it, left to right
+        def next:[double]
+        for rowWs rw:double k {
+            def x:double (left + ((width - rw) * 0.5))
+            if (x < left) {
+                x = left
+            }
+            push next x
+        }
+        for ws v:double j {
+            def ro:int (itemAt rowOf j)
+            if (ro < 0) {
+                push r.xs 0.0
+                push r.rows -1
+            } {
+                def at:double (itemAt next ro)
+                push r.xs at
+                push r.rows ro
+                set next ro (at + v + (PresFootPills.gap()))
+            }
+        }
+        return r
+    }
+
+    ; the pill's left edge (0 when there is no such pill)
+    fn xOf:double (i:int) {
+        if ((i < 0) || (i >= (array_length xs))) {
+            return 0.0
+        }
+        return (itemAt xs i)
+    }
+
+    ; the pill's row, 0 the bottom one (-1 when there is no such pill)
+    fn rowOf:int (i:int) {
+        if ((i < 0) || (i >= (array_length rows))) {
+            return -1
+        }
+        return (itemAt rows i)
+    }
+}

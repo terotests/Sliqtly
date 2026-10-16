@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresViewZoom.rgr"
+Import "PresFootPills.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
 Import "PresDocPages.rgr"
@@ -3678,6 +3679,39 @@ class PresCheck {
         ; off again: the camera goes back to the walk
         deck.setDiagramZoom(false)
         this.ok((d.exReturn && (d.steer == false)) "steer: turned off, the diagram goes back to its own camera")
+    }
+
+    ; The pills under the slide (comment bar, drawing, zoom) fit the stage:
+    ; full size in one row, else the short forms, else more rows.
+    fn footPills:void () {
+        def full:[double] ([] _:double (230.0 160.0 150.0))
+        def small:[double] ([] _:double (80.0 160.0 150.0))
+        ; wide: one row, full size, in the middle (556 wide, 1000 stage)
+        def a:PresFootPills (PresFootPills.fit(100.0 1000.0 full small))
+        this.ok((((a.compact == false) && (a.rowCount == 1)) && ((a.xOf(0)) == 322.0)) ("foot pills: wide stage, one row of full pills from 322: " + (to_string (a.xOf(0)))))
+        this.ok((((a.xOf(1)) == 560.0) && ((a.xOf(2)) == 728.0)) "foot pills: drawing and zoom pills follow, 8 apart")
+        ; 500 wide: full (556) does not fit in 476, short (406) does
+        def b:PresFootPills (PresFootPills.fit(0.0 500.0 full small))
+        this.ok(((b.compact && (b.rowCount == 1)) && ((b.xOf(0)) == 47.0)) ("foot pills: narrower, short forms in one row from 47: " + (to_string (b.xOf(0)))))
+        ; 300 wide: short comment + drawing on the bottom row, zoom above
+        def c:PresFootPills (PresFootPills.fit(0.0 300.0 full small))
+        this.ok(((c.compact && (c.rowCount == 2)) && (((c.rowOf(0)) == 0) && ((c.rowOf(1)) == 0))) "foot pills: narrow, comment and drawing on the bottom row")
+        this.ok((((c.rowOf(2)) == 1) && ((c.xOf(2)) == 75.0)) ("foot pills: narrow, zoom on the row above, in the middle: " + (to_string (c.xOf(2)))))
+        ; every pill inside the stage
+        def inside:boolean true
+        def ws:[double] small
+        for ws v:double i {
+            if (((c.xOf(i)) < 12.0) || (((c.xOf(i)) + v) > 288.0)) {
+                inside = false
+            }
+        }
+        this.ok(inside "foot pills: narrow, nothing past the stage's edges")
+        ; a pill wider than the stage starts at its left edge
+        def d:PresFootPills (PresFootPills.fit(40.0 120.0 full small))
+        this.ok((((d.rowCount == 3) && ((d.xOf(1)) == 40.0)) && ((d.rowOf(2)) == 2)) ("foot pills: tiny stage, one pill per row, a too wide one from the left edge: " + (to_string (d.xOf(1)))))
+        ; no zoom pill (width 0): not placed, the other two in the middle
+        def e:PresFootPills (PresFootPills.fit(0.0 1000.0 ([] _:double (230.0 160.0 0.0)) small))
+        this.ok((((e.rowOf(2)) == -1) && ((e.xOf(0)) == 301.0)) ("foot pills: a missing pill takes no room: " + (to_string (e.xOf(0)))))
     }
 
     ; The pill at the stage's foot: − 100 % + steps through the levels.
@@ -9742,6 +9776,7 @@ class PresCheck {
         c.zoomMenu()
         c.diagramSteer()
         c.viewZoomSteps()
+        c.footPills()
         c.diaFull()
         c.flowchartFindings()
         c.roundNodes()
