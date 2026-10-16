@@ -13,12 +13,16 @@
 //	                              list render.go paints
 //	shared/{id}/img/{part}        the pictures the slides paint, by their
 //	                              part in the package
+//	shared/{id}/prev/{t}.pptx     the deck as it was before an edit, the
+//	                              last pptxKeep of them (t: when, in
+//	                              nanoseconds, so they sort by name)
 //
 // so a slide, or a shape on one, is drawn from its list alone, as a Figma
 // screen is from its cut. A deck is changed in place (edit_pptx): the
 // package is written over with RangerPPTX's own writer, which keeps every
-// part it does not model, and read again. There is no history: the deck is
-// what it is.
+// part it does not model, and read again. The bytes it had are kept first
+// (prev/), and edit_pptx with undo puts the last of them back: an edit can
+// be taken back, an undo cannot.
 
 package main
 
@@ -43,6 +47,47 @@ import (
 // one edit of a deck at a time, on any server (an edit reads, writes and
 // reads again)
 var pptxEditMu sync.Mutex
+
+// how many of a deck's earlier versions are kept for undo
+const pptxKeep = 5
+
+func pptxPrevDir(id string) string { return sharedDir(id) + "/prev" }
+
+// the deck's kept earlier versions, the oldest first
+func (s *sharedFiles) pptxPrevs(ctx context.Context, id string) ([]string, error) {
+	refs, err := s.files.List(ctx, pptxPrevDir(id))
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, r := range refs {
+		if strings.HasSuffix(r.Path, ".pptx") {
+			out = append(out, r.Path)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// keep data as the deck's newest earlier version, and only the last
+// pptxKeep of them
+func (s *sharedFiles) keepPrevPptx(ctx context.Context, id string, data []byte) error {
+	name := fmt.Sprintf("%s/%019d.pptx", pptxPrevDir(id), time.Now().UnixNano())
+	if err := s.files.Save(ctx, name, "application/octet-stream", data, nil); err != nil {
+		return err
+	}
+	prevs, err := s.pptxPrevs(ctx, id)
+	if err != nil {
+		return err
+	}
+	for len(prevs) > pptxKeep {
+		if err := s.files.Remove(prevs[0]); err != nil {
+			return err
+		}
+		prevs = prevs[1:]
+	}
+	return nil
+}
 
 // cutPptx opens a deck and keeps its index, slide lists and pictures in
 // place of the old ones
@@ -291,6 +336,57 @@ func (s *sharedFiles) editPptx(ctx context.Context, id string, edits []pptxEdit)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// the deck as it was, to take the edit back (edit_pptx undo)
+	if err := s.keepPrevPptx(ctx, id, data); err != nil {
+		return f, err
+	}
+	data = nil
+	return s.installPptx(ctx, f, out, fmt.Sprintf("%d edits", len(edits)))
+}
+
+// undoPptx puts deck id back as it was before its last edit (the newest
+// kept version, which is then no longer kept) → its card
+func (s *sharedFiles) undoPptx(ctx context.Context, id string) (sharedFile, error) {
+	pptxEditMu.Lock()
+	defer pptxEditMu.Unlock()
+	f, err := s.card(ctx, id)
+	if err != nil {
+		return f, err
+	}
+	if f.Kind != "pptx" {
+		return f, sharedErr{400, f.Name + " is not a PowerPoint deck"}
+	}
+	if f = s.seen(f); f.Status != "ready" && f.Status != "failed" {
+		return f, sharedErr{409, f.Name + " is " + f.Status}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prevs, err := s.pptxPrevs(ctx, id)
+	if err != nil {
+		return f, err
+	}
+	if len(prevs) == 0 {
+		return f, sharedErr{409, "no earlier version of " + f.Name + " is kept: edit_pptx keeps the last " + strconv.Itoa(pptxKeep) + " edits' decks"}
+	}
+	last := prevs[len(prevs)-1]
+	data, err := s.files.Read(ctx, last, s.max+1)
+	if err != nil {
+		return f, err
+	}
+	got, err := s.installPptx(ctx, f, data, "undo")
+	if err != nil {
+		return got, err
+	}
+	if err := s.files.Remove(last); err != nil {
+		return got, err
+	}
+	return got, nil
+}
+
+// installPptx writes out over deck f's package and reads it again; under
+// the cards' lock
+func (s *sharedFiles) installPptx(ctx context.Context, f sharedFile, out []byte, what string) (sharedFile, error) {
+	id := f.ID
 	info, err := s.files.SaveFrom(ctx, s.sourcePath(f), "application/octet-stream", bytes.NewReader(out))
 	if err != nil {
 		return f, err
@@ -311,7 +407,7 @@ func (s *sharedFiles) editPptx(ctx context.Context, id string, edits []pptxEdit)
 		return f, err
 	}
 	s.forget(id)
-	s.log(fmt.Sprintf("shared %s: %d edits, %d slides in %s", id, len(edits), n.screens, time.Since(start).Round(time.Millisecond)))
+	s.log(fmt.Sprintf("shared %s: %s, %d slides in %s", id, what, n.screens, time.Since(start).Round(time.Millisecond)))
 	return s.card(ctx, id)
 }
 
@@ -485,5 +581,19 @@ func (s *sharedFiles) pptxEditForTool(ctx context.Context, id string, edits []pp
 		}
 	}
 	return map[string]any{"file": f, "slides": len(ix.Screens), "changed": changed,
-		"note": "Saved over the deck itself; there is no undo. Download it from the editor's Files place."}, nil
+		"note": fmt.Sprintf("Saved over the deck itself; edit_pptx with undo: true puts it back as it was before this edit (the last %d edits can be taken back). Download it from the editor's Files place.", pptxKeep)}, nil
+}
+
+// edit_pptx undo: the deck as it was before its last edit
+func (s *sharedFiles) pptxUndoForTool(ctx context.Context, id string) (map[string]any, error) {
+	if id == "" {
+		return nil, roomErr{"give file_id (list_shared_files)"}
+	}
+	f, err := s.undoPptx(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	prevs, _ := s.pptxPrevs(ctx, id)
+	return map[string]any{"file": f, "slides": f.Screens, "undone": true, "undo_left": len(prevs),
+		"note": "The deck is back as it was before its last edit_pptx."}, nil
 }

@@ -51,14 +51,15 @@ var sharedTools = []roomTool{
 		props:    map[string]any{"file_id": strProp("A deck's file_id from list_shared_files")},
 		required: []string{"file_id"}},
 	{name: "edit_pptx", title: "Change a PowerPoint deck in place", destructive: true,
-		desc: "Change a shared PowerPoint deck itself, in place: put new words in shapes and take slides out. The deck is written over (everything not changed stays as it was: masters, pictures, animations) and read again; there is no undo or history, so read the slides first (get_pptx_slide). Each edit is {slide, shape, text}: the shape by its \"shape\" from get_pptx_slide, each line of text a paragraph keeping the look of the paragraph it replaces; or {slide, remove: true}. Slide numbers are as before this call. Shapes a layout puts on every slide, tables and charts are not changed. → the file's card and the changed slides as Markdown; the deck is downloaded from the editor's Files place.",
+		desc: "Change a shared PowerPoint deck itself, in place: put new words in shapes and take slides out. The deck is written over (everything not changed stays as it was: masters, pictures, animations) and read again; read the slides first (get_pptx_slide). The deck as it was is kept: {file_id, undo: true} (no edits) puts it back as it was before the last edit_pptx, up to the last 5 edits. Each edit is {slide, shape, text}: the shape by its \"shape\" from get_pptx_slide, each line of text a paragraph keeping the look of the paragraph it replaces; or {slide, remove: true}. Slide numbers are as before this call. Shapes a layout puts on every slide, tables and charts are not changed. → the file's card and the changed slides as Markdown; the deck is downloaded from the editor's Files place.",
 		props: map[string]any{"file_id": strProp("A deck's file_id from list_shared_files"), "edits": map[string]any{"type": "array", "minItems": 1, "maxItems": 200, "description": "The changes, in order", "items": map[string]any{"type": "object", "properties": map[string]any{
 			"slide":  map[string]any{"type": "integer", "minimum": 1, "description": "The slide's number, from 1"},
 			"shape":  strProp("The shape's \"shape\" from get_pptx_slide, e.g. \"1\" or \"4.0\" inside a group"),
 			"text":   strProp("Its new words; a line each paragraph"),
 			"remove": map[string]any{"type": "boolean", "description": "Take the slide out of the deck"},
-		}, "required": []string{"slide"}}}},
-		required: []string{"file_id", "edits"}},
+		}, "required": []string{"slide"}}},
+			"undo": map[string]any{"type": "boolean", "description": "Instead of edits: put the deck back as it was before its last edit_pptx"}},
+		required: []string{"file_id"}},
 	{name: "add_shared_file", title: "Add a shared design file",
 		desc:     "Put a Figma file (.fig, exported with File → Save local copy) or a PowerPoint deck (.pptx) from this computer's import folders into the shared files, where everyone on this server sees it; a file of the same name is replaced. It is read in the background: list_shared_files says when it is ready. → its card (file_id, status indexing)",
 		props:    map[string]any{"path": strProp("The .fig or .pptx file's absolute path, inside the server's import folders"), "name": strProp("The name it is shown by (default the file's own name)")},
@@ -362,6 +363,16 @@ func (h *McpHost) callSharedTool(uid, name string, a map[string]any) (any, error
 		}
 		return out, nil
 	case "edit_pptx":
+		if undo, _ := a["undo"].(bool); undo {
+			if _, has := a["edits"]; has {
+				return nil, roomErr{"give either edits or undo: true, not both"}
+			}
+			out, err := sh.pptxUndoForTool(ctx, argStr(a, "file_id"))
+			if err != nil {
+				return nil, sharedToolErr(err)
+			}
+			return out, nil
+		}
 		var edits []pptxEdit
 		if raw, ok := a["edits"].([]any); ok {
 			b, _ := json.Marshal(raw)

@@ -358,6 +358,9 @@ func (s *sharedFiles) keep(ctx context.Context, name, id string, keep func(src s
 		if old.Kind != kind {
 			s.files.Remove(sharedDir(id) + "/" + sharedSourceName(old.Kind))
 		}
+		// nor the earlier versions of the deck it replaces: an undo after
+		// it would bring back what was put over (pptxfiles.go)
+		s.files.RemoveAll(pptxPrevDir(id))
 	}
 	if err := s.putCard(ctx, f); err != nil {
 		return sharedFile{}, err
