@@ -27,20 +27,6 @@ it, and how ("Takes: Juho", "Picks up: Mia").
 - **Documents**: notes, and the summaries and plans the assistant writes.
 - **Assistant**: answers about today, this week, next week, overdue items, and
   drafts a plan for next week, from the space's own data.
-- **Entries and their types**: an **Add…** menu offers the entry types of the
-  space's words (a party invitation, a hobby, a care shift, a thing, a
-  supply, a renewal, a contact …). One form edits any entry: its date and
-  times, ward, who looks after it, place, notes, the type's own fields and
-  its cost (amount, payer, personal or shared, instalments). An event opens
-  in the form from the summary (a click), the calendar (a double-click, or
-  Enter on the selected event) and the lists. **Backspace** or **Delete** on
-  a selected event deletes it (one day only of a repeating event); Undo in
-  the status line, or Ctrl+Z, brings it back.
-- **Lists**: the record and deadline types (things, supplies, ideas, things
-  to sell, renewals, contacts); renewals whose reminder has come are marked.
-- **Budget**: what the costs come to, six months at a time: the total, the
-  shared part and each payer's sum, month by month with every instalment;
-  one payer's own budget with a click.
 
 Repeating events take a subset of iCalendar RRULE: DAILY, WEEKLY (with
 BYDAY), MONTHLY, INTERVAL, UNTIL, COUNT and EXDATE.
@@ -66,8 +52,7 @@ With the meta tag the page
 
 - calls the server with `POST /apps/warden/api/<op>` and a JSON body
   (`list_spaces`, `get_space`, `create_space`, `set_space`, `save_event`,
-  `delete_event`, `budget`, `add_ward`, `invite_member`, `remove_member`,
-  `import_events`), sending the
+  `add_ward`, `invite_member`, `remove_member`, `import_events`), sending the
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
@@ -88,12 +73,6 @@ Sheets and documents still live in the page only.
   repeating events (RRULE in and out), sheets (CSV and tab-separated
   parsing), the summary ranges, calendar write-back and what is left to save.
   No UI.
-- `src/SpacesTypes.rgr`: the entry types, read from
-  `mcp-go/assets/warden-types.json` (the schema the server checks entries
-  against), which the build writes into `src/SpacesTypesData.rgr`; what is
-  typed into a field, read as its value.
-- `src/SpacesBudget.rgr`: costs in instalments, month by month (worked out
-  here, or read from the server's `budget` answer).
 - `src/SpacesRemote.rgr`: a space on a server, as the JSON the server speaks.
 - `src/SpacesVocab.rgr`: the vocabulary packs, the page's words in Finnish and
   English, and the demo data of each pack.
@@ -111,5 +90,6 @@ checkout and EVGUI, with `src/` linked in as `gallery/spaces`.
 ## Not yet
 
 Without a server the data lives in the page and resets on reload; on one,
-sheets and documents still do. `.xlsx` files, editing documents in place and a
+sheets and documents still do. Editing an event's details (title, ward, who)
+in a form, deleting events, `.xlsx` files, editing documents in place and a
 language model behind the assistant come next.
