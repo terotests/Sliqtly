@@ -322,7 +322,7 @@ function syncClone(name, url, ref, dir, marker, update) {
   fs.writeFileSync(marker, ref + "\n");
 }
 
-function link(target, at) {
+export function link(target, at) {
   let st = null;
   try {
     st = fs.lstatSync(at);
@@ -349,8 +349,12 @@ function link(target, at) {
  */
 const COMPILER_HEAP_MB = 8192;
 
-/** Compile one Ranger file of src/ to `out` (absolute). */
-export function compile(ranger, file, out, flag = "") {
+/**
+ * Compile one Ranger file of src/ to `out` (absolute). `link` is where the
+ * file's folder is linked into the checkout: src/ by default, another app's
+ * sources (apps/spaces) at their own.
+ */
+export function compile(ranger, file, out, flag = "", link = LINK) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const stage = path.join(ranger, "gallery", "presentation-build");
   fs.mkdirSync(stage, { recursive: true });
@@ -358,7 +362,7 @@ export function compile(ranger, file, out, flag = "") {
   const staged = path.join(stage, name);
   fs.rmSync(staged, { force: true });
   const heap = /--max-old-space-size/.test(process.env.NODE_OPTIONS || "") ? [] : [`--max-old-space-size=${COMPILER_HEAP_MB}`];
-  const args = [...heap, "dist/rgrc.js", "-es6", ...(flag ? [flag] : []), `./${LINK}/${file}`, `-d=./gallery/presentation-build`, `-o=${name}`];
+  const args = [...heap, "dist/rgrc.js", "-es6", ...(flag ? [flag] : []), `./${link}/${file}`, `-d=./gallery/presentation-build`, `-o=${name}`];
   const t0 = Date.now();
   const r = spawnSync(process.execPath, args, {
     cwd: ranger,

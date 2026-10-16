@@ -1,0 +1,292 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; Node checks for the Spaces model: `npm run check` in apps/spaces.
+
+Import "SpacesModel.rgr"
+Import "SpacesVocab.rgr"
+Import "SpacesAssist.rgr"
+Import "../evgui/src/UiDate.rgr"
+
+class SpacesCheck {
+    def passes:int 0
+    def fails:int 0
+
+    fn ok:void (cond:boolean what:string) {
+        if cond {
+            passes = (passes + 1)
+        } {
+            fails = (fails + 1)
+            print ("FAIL " + what)
+        }
+    }
+
+    fn eq:void (got:string want:string what:string) {
+        if (got == want) {
+            passes = (passes + 1)
+        } {
+            fails = (fails + 1)
+            print ("FAIL " + what + ": got [" + got + "] want [" + want + "]")
+        }
+    }
+
+    fn eqi:void (got:int want:int what:string) {
+        this.eq((to_string got) (to_string want) what)
+    }
+
+    sfn days:string (list:[int]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length list)) {
+            push parts (UiDate.isoOfDays((itemAt list i)))
+            i = (i + 1)
+        }
+        return (join parts " ")
+    }
+
+    sfn titles:string (list:[SpOccur]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length list)) {
+            def o:SpOccur (itemAt list i)
+            push parts o.title
+            i = (i + 1)
+        }
+        return (join parts ",")
+    }
+
+    fn rules:void () {
+        def s (new SpSpace())
+        ; Monday 19 October 2026
+        def mon:int (UiDate.toDays(2026 10 19))
+        this.eqi((UiDate.weekday(mon)) 1 "19.10.2026 is a Monday")
+        this.eqi((SpSpace.mondayOf((mon + 6))) mon "Sunday's Monday")
+        this.eqi((SpSpace.mondayOf(mon)) mon "Monday's Monday")
+
+        def once:SpEvent (s.addEvent("Once" (mon + 2) 600 660 ""))
+        this.eq((SpacesCheck.days((s.daysOf(once mon (mon + 6))))) "2026-10-21" "a single event")
+        this.eq((SpacesCheck.days((s.daysOf(once (mon + 3) (mon + 6))))) "" "outside the range")
+
+        def span:SpEvent (s.addAllDay("Trip" (mon - 1) (mon + 1) ""))
+        this.eq((SpacesCheck.days((s.daysOf(span mon (mon + 6))))) "2026-10-18" "an all-day span that started before the range")
+
+        def daily:SpEvent (s.addEvent("Daily" mon 480 490 ""))
+        daily.rule.freq = "daily"
+        daily.rule.interval = 2
+        daily.rule.count = 3
+        this.eq((SpacesCheck.days((s.daysOf(daily mon (mon + 13))))) "2026-10-19 2026-10-21 2026-10-23" "daily, every other day, three times")
+
+        def wk:SpEvent (s.addEvent("Practice" (mon + 1) 1050 1140 ""))
+        wk.rule.freq = "weekly"
+        wk.rule.byDay = ([] _:int ( 2 4 ))
+        push wk.exdates (mon + 8)
+        this.eq((SpacesCheck.days((s.daysOf(wk mon (mon + 13))))) "2026-10-20 2026-10-22 2026-10-29" "weekly Tue+Thu, one skipped")
+
+        def fort:SpEvent (s.addEvent("Fortnight" (mon - 7) 600 630 ""))
+        fort.rule.freq = "weekly"
+        fort.rule.interval = 2
+        this.eq((SpacesCheck.days((s.daysOf(fort mon (mon + 21))))) "2026-10-26 2026-11-09" "every other Monday from the week before")
+
+        def until:SpEvent (s.addEvent("Until" mon 600 630 ""))
+        until.rule.freq = "weekly"
+        until.rule.until = (mon + 7)
+        this.eq((SpacesCheck.days((s.daysOf(until mon (mon + 30))))) "2026-10-19 2026-10-26" "weekly until a day, inclusive")
+
+        def m31:SpEvent (s.addEvent("Month end" (UiDate.toDays(2026 8 31)) 600 630 ""))
+        m31.rule.freq = "monthly"
+        this.eq((SpacesCheck.days((s.daysOf(m31 (UiDate.toDays(2026 9 1)) (UiDate.toDays(2027 1 31)))))) "2026-10-31 2026-12-31 2027-01-31" "monthly on the 31st skips short months")
+
+        def cnt:SpEvent (s.addEvent("Counted" (mon - 14) 600 630 ""))
+        cnt.rule.freq = "weekly"
+        cnt.rule.count = 3
+        this.eq((SpacesCheck.days((s.daysOf(cnt mon (mon + 30))))) "2026-10-19" "COUNT counts from the first, not the range")
+    }
+
+    fn order:void () {
+        def s (new SpSpace())
+        def mon:int (UiDate.toDays(2026 10 19))
+        s.addEvent("Late" mon 900 960 "")
+        s.addEvent("early" mon 480 500 "")
+        s.addAllDay("All day" mon mon "")
+        s.addEvent("Tomorrow" (mon + 1) 400 420 "")
+        s.addEvent("Also early" mon 480 500 "")
+        this.eq((SpacesCheck.titles((s.occurrences(mon (mon + 1))))) "All day,Also early,early,Late,Tomorrow" "sorted: day, all-day, start, title")
+        def wk:SpEvent (s.addEvent("Rep" mon 600 630 ""))
+        wk.rule.freq = "daily"
+        def occ:[SpOccur] (s.occurrences((mon + 1) (mon + 1)))
+        def found:string ""
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            if (o.title == "Rep") {
+                found = o.id
+            }
+            i = (i + 1)
+        }
+        this.eq(found (wk.id + "@" + (to_string (mon + 1))) "an occurrence of a repeating event is id@day")
+    }
+
+    fn summary:void () {
+        def s (new SpSpace())
+        ; Wednesday 21 October 2026
+        def wed:int (UiDate.toDays(2026 10 21))
+        s.addEvent("Today" wed 600 660 "")
+        s.addEvent("Friday" (wed + 2) 600 660 "")
+        s.addEvent("Next Monday" (wed + 5) 600 660 "")
+        s.addEvent("Next Sunday" (wed + 11) 600 660 "")
+        s.addEvent("Too far" (wed + 12) 600 660 "")
+        s.addEvent("Yesterday" (wed - 1) 600 660 "")
+        s.addDeadline("Due Thursday" (wed + 1) "")
+        def late:SpDeadline (s.addDeadline("Was due" (wed - 2) ""))
+        def done:SpDeadline (s.addDeadline("Done" (wed + 1) ""))
+        done.done = true
+        def r:[SpRange] (s.summary(wed))
+        this.eqi((array_length r) 3 "three sections")
+        def r0:SpRange (itemAt r 0)
+        def r1:SpRange (itemAt r 1)
+        def r2:SpRange (itemAt r 2)
+        this.eq((SpacesCheck.titles(r0.items)) "Today" "today")
+        this.eq((SpacesCheck.titles(r1.items)) "Friday" "rest of this week")
+        this.eqi((array_length r1.deadlines) 1 "a deadline this week, the done one left out")
+        this.eq((SpacesCheck.titles(r2.items)) "Next Monday,Next Sunday" "next week, Monday to Sunday")
+        this.eqi((array_length (s.overdue(wed))) 1 "one overdue")
+        def od:SpDeadline (itemAt (s.overdue(wed)) 0)
+        this.eq(od.title late.title "the overdue one")
+        def sun:SpRange (itemAt (s.summary((wed + 4))) 1)
+        this.ok(((sun.isEmpty()) && (sun.to < sun.from)) "on a Sunday the rest of the week is empty")
+    }
+
+    fn sheets:void () {
+        def tsv:string "Päivä\tAika\tMitä\tKuka\n20.10.2026\t17.15\tKyyti\tMia\n21.10.\t9.00-10.30\tPalaveri\tleo\nei päivää\t\tOhitetaan\t\n"
+        def sh:SpSheet (SpSheet.parse("" "Vuorot" tsv))
+        this.eqi((array_length sh.cols) 4 "tab-separated: four columns")
+        this.eqi((sh.rowCount()) 3 "three rows")
+        this.eq((sh.cell(1 2)) "Palaveri" "a cell")
+        def s (new SpSpace())
+        s.today = (UiDate.toDays(2026 10 19))
+        s.addResource("mia" "Mia" "rose")
+        s.addResource("leo" "Leo" "blue")
+        s.addSheet(sh)
+        def ev:[SpEvent] (s.sheetEvents(sh))
+        this.eqi((array_length ev) 2 "rows with a date become events")
+        def a:SpEvent (itemAt ev 0)
+        this.eq((UiDate.isoOfDays(a.day)) "2026-10-20" "d.m.yyyy")
+        this.eqi(a.startMin 1035 "17.15")
+        this.eqi(a.endMin 1095 "an hour when no end is given")
+        this.eq(a.resource "mia" "who, by name")
+        def b:SpEvent (itemAt ev 1)
+        this.eq((UiDate.isoOfDays(b.day)) "2026-10-21" "d.m. in the space's year")
+        this.eqi(b.endMin 630 "a range of times")
+        this.eq(b.resource "leo" "who, any case")
+        this.eq(b.source sh.id "the sheet it came from")
+        this.eqi((array_length (s.occurrences(s.today (s.today + 6)))) 2 "sheet rows in the occurrences")
+
+        def csv:string "Date;Title;Who\n2026-10-22;\"Kick-off; part 1\";Mia\r\n"
+        def c:SpSheet (SpSheet.parse("c" "Fi CSV" csv))
+        this.eqi((array_length c.cols) 3 "semicolons when the first line has more of them")
+        this.eq((c.cell(0 1)) "Kick-off; part 1" "a quoted cell keeps its separator")
+        this.eq((c.cell(0 2)) "Mia" "CRLF dropped")
+        def q:SpSheet (SpSheet.parse("q" "Quoted" "a,b\n\"x, \"\"y\"\"\",\"two\nlines\"\n"))
+        this.eq((q.cell(0 0)) "x, \"y\"" "doubled quotes")
+        this.eq((q.cell(0 1)) "two\nlines" "a line break inside quotes")
+        this.eq((q.toCsv()) "a,b\n\"x, \"\"y\"\"\",\"two\nlines\"\n" "CSV out round-trips")
+        def nodate:SpSheet (SpSheet.parse("n" "Items" "Name,Count\nTent,1\n"))
+        this.eqi((array_length (s.sheetEvents(nodate))) 0 "a sheet without a date column gives no events")
+        this.eqi((SpText.minuteOf("24")) 1440 "24 is midnight")
+        this.eqi((SpText.minuteOf("9:75")) -1 "a bad minute")
+        this.eqi((SpText.dayOf("31.2.2026" 2026)) -1 "a day the month has not")
+        this.eq((UiDate.isoOfDays((SpText.dayOf("10/22/2026" 2026)))) "2026-10-22" "m/d/yyyy")
+    }
+
+    fn moves:void () {
+        def s (new SpSpace())
+        def mon:int (UiDate.toDays(2026 10 19))
+        def one:SpEvent (s.addEvent("One" mon 600 660 ""))
+        this.ok((s.moveOccurrence(one.id (mon + 1) 720 750)) "a single event moves")
+        this.ok((((one.day == (mon + 1)) && (one.startMin == 720)) && (one.endMin == 750)) "to the new day and time")
+        def rep:SpEvent (s.addEvent("Rep" mon 540 600 "x"))
+        rep.rule.freq = "weekly"
+        def before:int (array_length s.events)
+        this.ok((s.moveOccurrence((rep.id + "@" + (to_string (mon + 7))) (mon + 8) 600 660)) "one day of a repeating event moves")
+        this.eq((SpacesCheck.days((s.daysOf(rep mon (mon + 14))))) "2026-10-19 2026-11-02" "that day is skipped")
+        this.eqi((array_length s.events) (before + 1) "and is an event of its own")
+        def made:SpEvent (itemAt s.events before)
+        this.ok(((made.day == (mon + 8)) && ((made.title == "Rep") && (made.resource == "x"))) "with the same title and resource")
+        this.ok(((s.moveOccurrence("s1-r1" mon 600 660)) == false) "a sheet row is the sheet's")
+    }
+
+    fn seeds:void () {
+        def today:int (UiDate.toDays(2026 10 21))
+        def packs:[string] (SpWords.packs())
+        def i:int 0
+        while (i < (array_length packs)) {
+            def pack:string (itemAt packs i)
+            def langs:[string] (SpWords.langs())
+            def k:int 0
+            while (k < (array_length langs)) {
+                def lang:string (itemAt langs k)
+                def s:SpSpace (SpSeed.build(pack lang today))
+                def r:[SpRange] (s.summary(today))
+                def tag:string (pack + "/" + lang)
+                def r0:SpRange (itemAt r 0)
+                def r1:SpRange (itemAt r 1)
+                def r2:SpRange (itemAt r 2)
+                this.ok(((array_length r0.items) > 0) (tag + ": something today"))
+                this.ok(((array_length r1.items) > 0) (tag + ": something later this week"))
+                this.ok(((array_length r2.items) > 0) (tag + ": something next week"))
+                this.ok(((array_length (s.overdue(today))) > 0) (tag + ": something overdue"))
+                this.ok(((array_length (s.sheetEvents((itemAt s.sheets 0)))) == 3) (tag + ": every sheet row has a date"))
+                def withWho:int 0
+                def ev:[SpEvent] (s.sheetEvents((itemAt s.sheets 0)))
+                def j:int 0
+                while (j < (array_length ev)) {
+                    def e:SpEvent (itemAt ev j)
+                    if ((strlen e.resource) > 0) {
+                        withWho = (withWho + 1)
+                    }
+                    j = (j + 1)
+                }
+                this.eqi(withWho 3 (tag + ": every sheet row names a resource of the space"))
+                this.ok(((strlen (SpWords.noun(lang pack "resources"))) > 0) (tag + ": the pack names its resources"))
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        ; on a Sunday the rest of the week is empty, and that is fine
+        def sun:SpSpace (SpSeed.build("demo" "fi" (today + 4)))
+        def sunToday:SpRange (itemAt (sun.summary((today + 4))) 0)
+        this.ok(((array_length sunToday.items) > 0) "Sunday: still something today")
+    }
+
+    fn assist:void () {
+        def wed:int (UiDate.toDays(2026 10 21))
+        def s:SpSpace (SpSeed.build("family" "fi" wed))
+        this.eq((SpAssist.answer(s "fi" wed "qToday")) "- 14.00–14.30 Hammaslääkäri (Aino)\n- 16.00–16.45 Pianotunti (Aino)" "today, in Finnish")
+        def late:string (SpAssist.answer(s "fi" wed "qLate"))
+        this.ok(((indexOf late "Palauta kirjaston kirjat") >= 0) "overdue")
+        def week:string (SpAssist.weekSummary(s "fi" wed))
+        this.ok(((indexOf week "# Viikkokooste ma 19.10.–su 25.10.") == 0) "the week summary's title")
+        this.ok(((indexOf week "- Eero: 2") >= 0) "load per resource")
+        this.ok(((indexOf week "Kuskausvuorot") < 0) "a sheet's name is not an event title")
+        this.ok(((indexOf week "Treenikyyti") >= 0) "sheet rows are in the summary")
+        def plan:string (SpAssist.plan(s "en" wed))
+        this.ok(((indexOf plan "# Plan for next week Mon Oct 26–Sun Nov 1") == 0) "the plan's title")
+        def planFi:string (SpAssist.plan(s "fi" wed))
+        this.ok(((indexOf planFi "- [ ] Allekirjoita lupalappu") >= 0) "next week's deadline is a task")
+        this.ok(((indexOf planFi "## Muistettavaa") >= 0) "the pack's word for deadlines")
+        this.eq((SpWords.clock("en" 545)) "9:05" "an English clock")
+    }
+
+    sfn main:void () {
+        def c (new SpacesCheck())
+        c.rules()
+        c.order()
+        c.summary()
+        c.sheets()
+        c.moves()
+        c.seeds()
+        c.assist()
+        print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
+        if (c.fails > 0) {
+            print "CHECK FAILED"
+        }
+    }
+}

@@ -1,0 +1,1010 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SpacesModel — a shared space: its people or things, events, deadlines,
+; sheets and documents, and what happens today, this week and next week
+; =============================================================================
+; Nothing here draws. The page (SpacesApp.rgr) and the checks
+; (SpacesCheck.rgr) read the same answers.
+;
+; Days are whole days from 1970-01-01 (EVGUI UiDate), times minutes from
+; midnight. A week starts on Monday.
+;
+; Repeating events carry a small RRULE: FREQ DAILY, WEEKLY or MONTHLY,
+; INTERVAL, BYDAY (weekly), UNTIL (a day, inclusive) and COUNT, and skip the
+; days in `exdates`. `occurrences(from to)` expands them into one SpOccur per
+; day an event happens on, sorted by day, all-day first, then start time.
+;
+; Sheets are tables of text. A sheet whose columns name a date (and maybe a
+; time, a title and a resource) is a source of events: `sheetEvents` reads
+; those rows, so a schedule kept as a spreadsheet shows up in the summary and
+; the calendar beside the events made here. CSV and tab-separated text (what
+; a spreadsheet puts on the clipboard) are read by `SpSheet.parse`.
+; =============================================================================
+
+Import "../evgui/src/UiDate.rgr"
+
+class SpResource {
+    def id:string ""
+    def name:string ""
+    def color:string "blue"
+    Constructor () {
+    }
+}
+
+class SpRule {
+    ; "" (once), "daily", "weekly" or "monthly"
+    def freq:string ""
+    def interval:int 1
+    ; weekdays for a weekly rule, 0 = Sunday … 6 = Saturday; empty = the
+    ; event's own weekday
+    def byDay:[int]
+    ; the last day it may happen on (0 = no end)
+    def until:int 0
+    ; how many times it happens (0 = no limit)
+    def count:int 0
+    Constructor () {
+    }
+}
+
+class SpEvent {
+    def id:string ""
+    def title:string ""
+    def day:int 0
+    ; -1 for an all-day event
+    def startMin:int -1
+    def endMin:int -1
+    ; the last day of an all-day event that spans days (inclusive)
+    def endDay:int 0
+    def resource:string ""
+    def place:string ""
+    def color:string ""
+    def rule:SpRule (new SpRule())
+    def exdates:[int]
+    ; the sheet an event was read from, "" for one made here
+    def source:string ""
+    Constructor () {
+    }
+
+    fn allDay:boolean () {
+        return (startMin < 0)
+    }
+
+    fn repeats:boolean () {
+        return ((strlen rule.freq) > 0)
+    }
+
+    fn skips:boolean (d:int) {
+        def i:int 0
+        while (i < (array_length exdates)) {
+            if ((itemAt exdates i) == d) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+; One day an event happens on.
+class SpOccur {
+    def id:string ""
+    def eventId:string ""
+    def title:string ""
+    def day:int 0
+    def endDay:int 0
+    def startMin:int -1
+    def endMin:int -1
+    def resource:string ""
+    def place:string ""
+    def color:string ""
+    def source:string ""
+    def repeats:boolean false
+    Constructor () {
+    }
+
+    fn allDay:boolean () {
+        return (startMin < 0)
+    }
+
+    ; before another in a day's list: all-day first, then by start, then title
+    fn before:boolean (o:SpOccur) {
+        if (day != o.day) {
+            return (day < o.day)
+        }
+        if ((this.allDay()) != (o.allDay())) {
+            return (this.allDay())
+        }
+        if (startMin != o.startMin) {
+            return (startMin < o.startMin)
+        }
+        return ((SpText.compare(title o.title)) < 0)
+    }
+}
+
+class SpDeadline {
+    def id:string ""
+    def title:string ""
+    def day:int 0
+    def resource:string ""
+    def done:boolean false
+    Constructor () {
+    }
+}
+
+class SpDoc {
+    def id:string ""
+    def title:string ""
+    ; Markdown
+    def body:string ""
+    def day:int 0
+    Constructor () {
+    }
+}
+
+class SpSheet {
+    def id:string ""
+    def name:string ""
+    def cols:[string]
+    ; row by row, `cols` cells each
+    def cells:[string]
+    Constructor () {
+    }
+
+    fn rowCount:int () {
+        def n:int (array_length cols)
+        if (n == 0) {
+            return 0
+        }
+        return (idiv (array_length cells) n)
+    }
+
+    fn cell:string (r:int c:int) {
+        def n:int (array_length cols)
+        def i:int ((r * n) + c)
+        if ((c < 0) || ((c >= n) || ((i < 0) || (i >= (array_length cells))))) {
+            return ""
+        }
+        return (itemAt cells i)
+    }
+
+    fn addRow:void (row:[string]) {
+        def c:int 0
+        while (c < (array_length cols)) {
+            if (c < (array_length row)) {
+                push cells (itemAt row c)
+            } {
+                push cells ""
+            }
+            c = (c + 1)
+        }
+    }
+
+    ; The first column whose heading is one of `names` (any case), or -1.
+    fn colOf:int (names:[string]) {
+        def c:int 0
+        while (c < (array_length cols)) {
+            def h:string (to_lowercase (trim (itemAt cols c)))
+            def k:int 0
+            while (k < (array_length names)) {
+                if (h == (itemAt names k)) {
+                    return c
+                }
+                k = (k + 1)
+            }
+            c = (c + 1)
+        }
+        return -1
+    }
+
+    ; CSV or tab-separated text into a sheet: the first row is the headings.
+    ; A tab anywhere in the first line means tabs (a spreadsheet's clipboard);
+    ; otherwise commas, or semicolons when the first line has more of those
+    ; (a Finnish spreadsheet's CSV). Quotes as RFC 4180 has them.
+    sfn parse:SpSheet (id:string name:string text:string) {
+        def sh (new SpSheet())
+        sh.id = id
+        sh.name = name
+        def rows:[string] (SpSheet.records(text))
+        if ((array_length rows) == 0) {
+            return sh
+        }
+        def first:string (itemAt rows 0)
+        def sep:int 44
+        if ((indexOf first "\t") >= 0) {
+            sep = 9
+        } {
+            if ((SpText.countOf(first 59)) > (SpText.countOf(first 44))) {
+                sep = 59
+            }
+        }
+        def heads:[string] (SpSheet.fields(first sep))
+        def i:int 0
+        while (i < (array_length heads)) {
+            push sh.cols (trim (itemAt heads i))
+            i = (i + 1)
+        }
+        def r:int 1
+        while (r < (array_length rows)) {
+            def line:string (itemAt rows r)
+            if ((strlen (trim line)) > 0) {
+                sh.addRow((SpSheet.fields(line sep)))
+            }
+            r = (r + 1)
+        }
+        return sh
+    }
+
+    ; The records of the text: lines, except a line break inside quotes.
+    sfn records:[string] (text:string) {
+        def out:[string]
+        def cur:string ""
+        def quoted:boolean false
+        def start:int 0
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                quoted = (quoted == false)
+            }
+            if ((c == 10) && (quoted == false)) {
+                cur = (substring text start i)
+                if ((strlen cur) > 0) {
+                    if ((charAt cur ((strlen cur) - 1)) == 13) {
+                        cur = (substring cur 0 ((strlen cur) - 1))
+                    }
+                }
+                push out cur
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        if (start < n) {
+            cur = (substring text start n)
+            if ((charAt cur ((strlen cur) - 1)) == 13) {
+                cur = (substring cur 0 ((strlen cur) - 1))
+            }
+            push out cur
+        }
+        return out
+    }
+
+    sfn fields:[string] (line:string sep:int) {
+        def out:[string]
+        def cur:string ""
+        def quoted:boolean false
+        def i:int 0
+        def n:int (strlen line)
+        while (i < n) {
+            def c:int (charAt line i)
+            if quoted {
+                if (c == 34) {
+                    if (((i + 1) < n) && ((charAt line (i + 1)) == 34)) {
+                        cur = (cur + "\"")
+                        i = (i + 1)
+                    } {
+                        quoted = false
+                    }
+                } {
+                    cur = (cur + (substring line i (i + 1)))
+                }
+            } {
+                if (c == 34) {
+                    quoted = true
+                } {
+                    if (c == sep) {
+                        push out cur
+                        cur = ""
+                    } {
+                        cur = (cur + (substring line i (i + 1)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+
+    ; The sheet as CSV (commas, quotes where a cell needs them).
+    fn toCsv:string () {
+        def lines:[string]
+        push lines (SpSheet.csvLine(cols))
+        def r:int 0
+        while (r < (this.rowCount())) {
+            def row:[string]
+            def c:int 0
+            while (c < (array_length cols)) {
+                push row (this.cell(r c))
+                c = (c + 1)
+            }
+            push lines (SpSheet.csvLine(row))
+            r = (r + 1)
+        }
+        return ((join lines "\n") + "\n")
+    }
+
+    sfn csvLine:string (row:[string]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length row)) {
+            def v:string (itemAt row i)
+            if (((indexOf v ",") >= 0) || (((indexOf v "\"") >= 0) || ((indexOf v "\n") >= 0))) {
+                push parts ("\"" + (SpText.doubleQuotes(v)) + "\"")
+            } {
+                push parts v
+            }
+            i = (i + 1)
+        }
+        return (join parts ",")
+    }
+}
+
+; Small text helpers the model needs and the page shares.
+class SpText {
+    sfn countOf:int (s:string code:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == code) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn doubleQuotes:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == 34) {
+                out = (out + "\"\"")
+            } {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn compare:int (a:string b:string) {
+        def la:string (to_lowercase a)
+        def lb:string (to_lowercase b)
+        if (la == lb) {
+            return 0
+        }
+        def i:int 0
+        while ((i < (strlen la)) && (i < (strlen lb))) {
+            def ca:int (charAt la i)
+            def cb:int (charAt lb i)
+            if (ca != cb) {
+                return (ca - cb)
+            }
+            i = (i + 1)
+        }
+        return ((strlen la) - (strlen lb))
+    }
+
+    ; digits only, or -1
+    sfn number:int (s:string) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return -1
+        }
+        def v:int 0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    ; "2026-10-19", "19.10.2026", "19.10." (this year) or "10/19/2026" into a
+    ; day, or -1.
+    sfn dayOf:int (s:string year:int) {
+        def t:string (trim s)
+        if ((indexOf t "-") > 0) {
+            def p:[string] (strsplit t "-")
+            if ((array_length p) == 3) {
+                return (SpText.ymd((SpText.number((itemAt p 0))) (SpText.number((itemAt p 1))) (SpText.number((itemAt p 2)))))
+            }
+            return -1
+        }
+        if ((indexOf t ".") > 0) {
+            def q:[string] (strsplit t ".")
+            if ((array_length q) >= 2) {
+                def y:int year
+                if ((array_length q) >= 3) {
+                    if ((strlen (trim (itemAt q 2))) > 0) {
+                        y = (SpText.number((itemAt q 2)))
+                    }
+                }
+                return (SpText.ymd(y (SpText.number((itemAt q 1))) (SpText.number((itemAt q 0)))))
+            }
+            return -1
+        }
+        if ((indexOf t "/") > 0) {
+            def r:[string] (strsplit t "/")
+            if ((array_length r) == 3) {
+                return (SpText.ymd((SpText.number((itemAt r 2))) (SpText.number((itemAt r 0))) (SpText.number((itemAt r 1)))))
+            }
+        }
+        return -1
+    }
+
+    sfn ymd:int (y:int m:int d:int) {
+        if ((y < 1970) || ((m < 1) || ((m > 12) || (d < 1)))) {
+            return -1
+        }
+        if (d > (UiDate.daysInMonth(y m))) {
+            return -1
+        }
+        return (UiDate.toDays(y m d))
+    }
+
+    ; "9", "9:30", "9.30", "09:30" into minutes, or -1.
+    sfn minuteOf:int (s:string) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return -1
+        }
+        def at:int (indexOf t ":")
+        if (at < 0) {
+            at = (indexOf t ".")
+        }
+        if (at < 0) {
+            def h0:int (SpText.number(t))
+            if ((h0 < 0) || (h0 > 24)) {
+                return -1
+            }
+            return (h0 * 60)
+        }
+        def h:int (SpText.number((substring t 0 at)))
+        def m:int (SpText.number((substring t (at + 1) (strlen t))))
+        if ((h < 0) || ((h > 24) || ((m < 0) || (m > 59)))) {
+            return -1
+        }
+        return ((h * 60) + m)
+    }
+}
+
+; What a stretch of days holds: the summary's sections.
+class SpRange {
+    def key:string ""
+    def from:int 0
+    ; inclusive
+    def to:int 0
+    def items:[SpOccur]
+    def deadlines:[SpDeadline]
+    Constructor () {
+    }
+
+    fn isEmpty:boolean () {
+        return (((array_length items) == 0) && ((array_length deadlines) == 0))
+    }
+}
+
+class SpSpace {
+    def id:string "space"
+    def name:string ""
+    ; demo, family, business or sports (SpacesVocab)
+    def vocab:string "demo"
+    def resources:[SpResource]
+    def events:[SpEvent]
+    def deadlines:[SpDeadline]
+    def sheets:[SpSheet]
+    def docs:[SpDoc]
+    def made:int 0
+    ; the day the space calls today: a sheet's "19.10." is in its year
+    def today:int 0
+    Constructor () {
+    }
+
+    sfn ymdOf:[int] (d:int) {
+        def p:[int] ([] _:int ( 0 0 0 ))
+        UiDate.fromDays(d p)
+        return p
+    }
+
+    ; --- making -----------------------------------------------------------------
+
+    fn nextId:string (prefix:string) {
+        made = (made + 1)
+        return (prefix + (to_string made))
+    }
+
+    fn addResource:SpResource (id:string name:string color:string) {
+        def r (new SpResource())
+        r.id = id
+        r.name = name
+        r.color = color
+        push resources r
+        return r
+    }
+
+    fn addEvent:SpEvent (title:string day:int startMin:int endMin:int resource:string) {
+        def e (new SpEvent())
+        e.id = (this.nextId("e"))
+        e.title = title
+        e.day = day
+        e.endDay = day
+        e.startMin = startMin
+        e.endMin = endMin
+        e.resource = resource
+        push events e
+        return e
+    }
+
+    fn addAllDay:SpEvent (title:string day:int lastDay:int resource:string) {
+        def e:SpEvent (this.addEvent(title day -1 -1 resource))
+        e.endDay = lastDay
+        return e
+    }
+
+    fn addDeadline:SpDeadline (title:string day:int resource:string) {
+        def d (new SpDeadline())
+        d.id = (this.nextId("d"))
+        d.title = title
+        d.day = day
+        d.resource = resource
+        push deadlines d
+        return d
+    }
+
+    fn addDoc:SpDoc (title:string body:string day:int) {
+        def d (new SpDoc())
+        d.id = (this.nextId("doc"))
+        d.title = title
+        d.body = body
+        d.day = day
+        push docs d
+        return d
+    }
+
+    fn addSheet:SpSheet (sh:SpSheet) {
+        if ((strlen sh.id) == 0) {
+            sh.id = (this.nextId("s"))
+        }
+        push sheets sh
+        return sh
+    }
+
+    ; --- finding ----------------------------------------------------------------
+
+    fn event@(optional):SpEvent (id:string) {
+        def found@(optional):SpEvent
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:SpEvent (itemAt events i)
+            if (e.id == id) {
+                found = e
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    fn resourceName:string (id:string) {
+        def i:int 0
+        while (i < (array_length resources)) {
+            def r:SpResource (itemAt resources i)
+            if (r.id == id) {
+                return r.name
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn resourceColor:string (id:string) {
+        def i:int 0
+        while (i < (array_length resources)) {
+            def r:SpResource (itemAt resources i)
+            if (r.id == id) {
+                return r.color
+            }
+            i = (i + 1)
+        }
+        return "blue"
+    }
+
+    ; the resource a cell names, by id or by name (any case), or ""
+    fn resourceFor:string (text:string) {
+        def t:string (to_lowercase (trim text))
+        if ((strlen t) == 0) {
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length resources)) {
+            def r:SpResource (itemAt resources i)
+            if (((to_lowercase r.id) == t) || ((to_lowercase r.name) == t)) {
+                return r.id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; --- the days events happen on ------------------------------------------------
+
+    ; Every day in [from, to] the event happens on, in order.
+    fn daysOf:[int] (e:SpEvent from:int to:int) {
+        def out:[int]
+        if ((e.repeats()) == false) {
+            ; an all-day span shows on the first day it overlaps
+            def last:int e.day
+            if ((e.allDay()) && (e.endDay > e.day)) {
+                last = e.endDay
+            }
+            if ((last >= from) && (e.day <= to)) {
+                push out e.day
+            }
+            return out
+        }
+        def rule:SpRule e.rule
+        def step:int rule.interval
+        if (step < 1) {
+            step = 1
+        }
+        def stop:int to
+        if ((rule.until > 0) && (rule.until < stop)) {
+            stop = rule.until
+        }
+        def n:int 0
+        if (rule.freq == "daily") {
+            def d:int e.day
+            while (d <= stop) {
+                if ((rule.count > 0) && (n >= rule.count)) {
+                    return out
+                }
+                n = (n + 1)
+                if ((d >= from) && ((e.skips(d)) == false)) {
+                    push out d
+                }
+                d = (d + step)
+            }
+            return out
+        }
+        if (rule.freq == "weekly") {
+            def days:[int] rule.byDay
+            if ((array_length days) == 0) {
+                days = ([] _:int ( (UiDate.weekday(e.day)) ))
+            }
+            ; weeks counted from the Monday of the first one
+            def mon0:int (SpSpace.mondayOf(e.day))
+            def w:int 0
+            while ((mon0 + (w * 7)) <= stop) {
+                if ((w % step) == 0) {
+                    def k:int 0
+                    while (k < 7) {
+                        def d2:int ((mon0 + (w * 7)) + k)
+                        if ((d2 >= e.day) && ((d2 <= stop) && (SpSpace.hasDay(days (UiDate.weekday(d2)))))) {
+                            if ((rule.count > 0) && (n >= rule.count)) {
+                                return out
+                            }
+                            n = (n + 1)
+                            if ((d2 >= from) && ((e.skips(d2)) == false)) {
+                                push out d2
+                            }
+                        }
+                        k = (k + 1)
+                    }
+                }
+                w = (w + 1)
+            }
+            return out
+        }
+        if (rule.freq == "monthly") {
+            def p:[int] ([] _:int ( 0 0 0 ))
+            UiDate.fromDays(e.day p)
+            def y:int (itemAt p 0)
+            def m:int (itemAt p 1)
+            def dom:int (itemAt p 2)
+            def guard:int 0
+            while (guard < 1200) {
+                ; a month without that date (the 31st) is skipped, as RFC 5545 says
+                if (dom <= (UiDate.daysInMonth(y m))) {
+                    def d3:int (UiDate.toDays(y m dom))
+                    if (d3 > stop) {
+                        return out
+                    }
+                    if ((rule.count > 0) && (n >= rule.count)) {
+                        return out
+                    }
+                    n = (n + 1)
+                    if ((d3 >= from) && ((e.skips(d3)) == false)) {
+                        push out d3
+                    }
+                } {
+                    if ((UiDate.toDays(y m 1)) > stop) {
+                        return out
+                    }
+                }
+                m = (m + step)
+                while (m > 12) {
+                    m = (m - 12)
+                    y = (y + 1)
+                }
+                guard = (guard + 1)
+            }
+        }
+        return out
+    }
+
+    sfn hasDay:boolean (days:[int] wd:int) {
+        def i:int 0
+        while (i < (array_length days)) {
+            if ((itemAt days i) == wd) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn mondayOf:int (d:int) {
+        def w:int (UiDate.weekday(d))
+        return (d - ((w + 6) % 7))
+    }
+
+    ; One SpOccur for every day in [from, to] each event happens on, sheet
+    ; rows included, sorted.
+    fn occurrences:[SpOccur] (from:int to:int) {
+        def out:[SpOccur]
+        def all:[SpEvent] (this.allEvents())
+        def i:int 0
+        while (i < (array_length all)) {
+            def e:SpEvent (itemAt all i)
+            def days:[int] (this.daysOf(e from to))
+            def k:int 0
+            while (k < (array_length days)) {
+                def d:int (itemAt days k)
+                def o (new SpOccur())
+                o.eventId = e.id
+                o.id = e.id
+                if (e.repeats()) {
+                    o.id = (e.id + "@" + (to_string d))
+                }
+                o.title = e.title
+                o.day = d
+                o.endDay = (d + (e.endDay - e.day))
+                if (o.endDay < d) {
+                    o.endDay = d
+                }
+                o.startMin = e.startMin
+                o.endMin = e.endMin
+                o.resource = e.resource
+                o.place = e.place
+                o.color = e.color
+                if ((strlen o.color) == 0) {
+                    o.color = (this.resourceColor(e.resource))
+                }
+                o.source = e.source
+                o.repeats = (e.repeats())
+                SpSpace.insertSorted(out o)
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn insertSorted:void (list:[SpOccur] o:SpOccur) {
+        push list o
+        def i:int ((array_length list) - 1)
+        while (i > 0) {
+            def prev:SpOccur (itemAt list (i - 1))
+            if (o.before(prev)) {
+                set list i prev
+                set list (i - 1) o
+                i = (i - 1)
+            } {
+                return
+            }
+        }
+    }
+
+    ; the events made here, then the rows of every sheet that has dates
+    fn allEvents:[SpEvent] () {
+        def out:[SpEvent]
+        def i:int 0
+        while (i < (array_length events)) {
+            push out (itemAt events i)
+            i = (i + 1)
+        }
+        def s:int 0
+        while (s < (array_length sheets)) {
+            def rows:[SpEvent] (this.sheetEvents((itemAt sheets s)))
+            def k:int 0
+            while (k < (array_length rows)) {
+                push out (itemAt rows k)
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        return out
+    }
+
+    ; A sheet's rows as events, when it has a date column. Its columns are
+    ; found by heading in English or Finnish: date/päivä/pvm, time/aika or
+    ; start/alkaa + end/loppuu, title/what/mitä/otsikko/tapahtuma, and
+    ; who/kuka/resource/resurssi. A row without a date that reads is left out.
+    fn sheetEvents:[SpEvent] (sh:SpSheet) {
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def out:[SpEvent]
+        def cDate:int (sh.colOf(([] _:string ( "date" "day" "päivä" "pvm" "päivämäärä" ))))
+        if (cDate < 0) {
+            return out
+        }
+        def cTime:int (sh.colOf(([] _:string ( "time" "aika" "klo" ))))
+        def cStart:int (sh.colOf(([] _:string ( "start" "starts" "alkaa" "alku" ))))
+        def cEnd:int (sh.colOf(([] _:string ( "end" "ends" "loppuu" "loppu" ))))
+        def cTitle:int (sh.colOf(([] _:string ( "title" "what" "event" "mitä" "otsikko" "tapahtuma" "aihe" ))))
+        def cWho:int (sh.colOf(([] _:string ( "who" "resource" "kuka" "resurssi" "vastuu" ))))
+        def r:int 0
+        while (r < (sh.rowCount())) {
+            def d:int (SpText.dayOf((sh.cell(r cDate)) year))
+            if (d >= 0) {
+                def e (new SpEvent())
+                e.id = (sh.id + "-r" + (to_string (r + 1)))
+                e.source = sh.id
+                e.day = d
+                e.endDay = d
+                e.title = sh.name
+                if (cTitle >= 0) {
+                    if ((strlen (trim (sh.cell(r cTitle)))) > 0) {
+                        e.title = (trim (sh.cell(r cTitle)))
+                    }
+                }
+                def s:int -1
+                def en:int -1
+                if (cTime >= 0) {
+                    ; "9.00-10.30" or "9:00"
+                    def tm:string (sh.cell(r cTime))
+                    def dash:int (indexOf tm "-")
+                    if (dash > 0) {
+                        s = (SpText.minuteOf((substring tm 0 dash)))
+                        en = (SpText.minuteOf((substring tm (dash + 1) (strlen tm))))
+                    } {
+                        s = (SpText.minuteOf(tm))
+                    }
+                }
+                if (cStart >= 0) {
+                    s = (SpText.minuteOf((sh.cell(r cStart))))
+                }
+                if (cEnd >= 0) {
+                    en = (SpText.minuteOf((sh.cell(r cEnd))))
+                }
+                if ((s >= 0) && (en <= s)) {
+                    en = (s + 60)
+                }
+                e.startMin = s
+                e.endMin = en
+                if (s < 0) {
+                    e.endMin = -1
+                }
+                if (cWho >= 0) {
+                    e.resource = (this.resourceFor((sh.cell(r cWho))))
+                }
+                push out e
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; --- the summary --------------------------------------------------------------
+
+    ; Today; the rest of this week (tomorrow to Sunday, empty on a Sunday);
+    ; and next week, Monday to Sunday.
+    fn summary:[SpRange] (now:int) {
+        def out:[SpRange]
+        def mon:int (SpSpace.mondayOf(now))
+        push out (this.range("today" now now))
+        push out (this.range("week" (now + 1) (mon + 6)))
+        push out (this.range("next" (mon + 7) (mon + 13)))
+        return out
+    }
+
+    fn range:SpRange (key:string from:int to:int) {
+        def r (new SpRange())
+        r.key = key
+        r.from = from
+        r.to = to
+        if (to < from) {
+            return r
+        }
+        r.items = (this.occurrences(from to))
+        def i:int 0
+        while (i < (array_length deadlines)) {
+            def d:SpDeadline (itemAt deadlines i)
+            if (((d.day >= from) && (d.day <= to)) && (d.done == false)) {
+                push r.deadlines d
+            }
+            i = (i + 1)
+        }
+        return r
+    }
+
+    ; deadlines before today that are not done
+    fn overdue:[SpDeadline] (now:int) {
+        def out:[SpDeadline]
+        def i:int 0
+        while (i < (array_length deadlines)) {
+            def d:SpDeadline (itemAt deadlines i)
+            if ((d.day < now) && (d.done == false)) {
+                push out d
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; how many occurrences each resource has in [from, to], in resource order
+    fn loadOf:[int] (from:int to:int) {
+        def out:[int]
+        def occ:[SpOccur] (this.occurrences(from to))
+        def i:int 0
+        while (i < (array_length resources)) {
+            def r:SpResource (itemAt resources i)
+            def n:int 0
+            def k:int 0
+            while (k < (array_length occ)) {
+                if ((itemAt occ k).resource == r.id) {
+                    n = (n + 1)
+                }
+                k = (k + 1)
+            }
+            push out n
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- changes from the calendar ------------------------------------------------
+
+    ; The calendar moved or resized an occurrence. A single event takes the
+    ; new day and times; one day of a repeating event becomes an exception
+    ; (EXDATE) and a single event of its own. A row from a sheet is the
+    ; sheet's: it is not changed here, and false says so.
+    fn moveOccurrence:boolean (occId:string day:int startMin:int endMin:int) {
+        def at:int (indexOf occId "@")
+        def baseId:string occId
+        def onDay:int -1
+        if (at > 0) {
+            baseId = (substring occId 0 at)
+            onDay = (SpText.number((substring occId (at + 1) (strlen occId))))
+        }
+        def found@(optional):SpEvent (this.event(baseId))
+        if (null? found) {
+            return false
+        }
+        def e:SpEvent (unwrap found)
+        if (onDay < 0) {
+            def span:int (e.endDay - e.day)
+            e.day = day
+            e.endDay = (day + span)
+            if ((e.allDay()) == false) {
+                e.startMin = startMin
+                e.endMin = endMin
+            }
+            return true
+        }
+        push e.exdates onDay
+        def one:SpEvent (this.addEvent(e.title day e.startMin e.endMin e.resource))
+        if ((e.allDay()) == false) {
+            one.startMin = startMin
+            one.endMin = endMin
+        }
+        one.place = e.place
+        one.color = e.color
+        return true
+    }
+}

@@ -1,0 +1,359 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The Spaces page, as an EVG stylesheet (src/SpacesApp.rgr builds the tree).
+ * Class-first, one token per selector. Widths that depend on the window are
+ * set inline by the app; this is colour, type and the boxes.
+ */
+
+@vars {
+  --page: #f6f3ef;
+  --surface: #ffffff;
+  --line: #e7e1d9;
+  --ink: #1f1a16;
+  --muted: #776b60;
+  --faint: #a89c90;
+  --accent: #b4532a;
+  --accent-hover: #9a4522;
+  --on-accent: #ffffff;
+  --soft: #f3ebe4;
+  --late: #b42318;
+  --late-soft: #fdecea;
+}
+
+.sp-shell {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  background-color: var(--page);
+}
+
+/* --- the top bar ------------------------------------------------------------ */
+
+.sp-top {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 16px;
+  background-color: var(--surface);
+}
+
+.sp-top-narrow { flex-wrap: wrap; height: auto; padding: 8px 12px; row-gap: 8px; }
+
+.sp-brand { display: flex; flex-direction: row; align-items: center; gap: 8px; height: 32px; }
+.sp-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background-color: var(--accent);
+}
+.sp-mark-tx { color: var(--on-accent); font-size: 15px; font-weight: 700; height: 20px; line-height: 20px; }
+.sp-brand-tx { color: var(--ink); font-size: 16px; font-weight: 700; height: 22px; line-height: 22px; }
+.sp-spacename { color: var(--muted); font-size: 14px; height: 20px; line-height: 20px; margin-left: 8px; }
+.sp-grow { flex-grow: 1; height: 1px; }
+.sp-pills-label { color: var(--faint); font-size: 12px; height: 16px; line-height: 16px; }
+
+.sp-pills {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background-color: var(--soft);
+}
+.sp-pill {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.sp-pill:hover { background-color: #ebe1d8; }
+.sp-pill:focus { background-color: #ebe1d8; }
+.sp-pill-on { background-color: var(--surface); }
+.sp-pill-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
+.sp-pill-on-tx { color: var(--ink); font-weight: 600; }
+
+/* --- the body: navigation and the main column ---------------------------------- */
+
+.sp-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 24px;
+  padding: 20px 24px 24px 0;
+}
+.sp-body-narrow { flex-direction: column; gap: 12px; padding: 12px; }
+
+.sp-nav {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+  width: 196px;
+  padding: 0 0 0 16px;
+}
+.sp-nav-row { flex-direction: row; flex-wrap: wrap; width: auto; padding: 0; }
+
+.sp-navbtn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.sp-navbtn:hover { background-color: #efe7df; }
+.sp-navbtn:focus { background-color: #efe7df; }
+.sp-navbtn-on { background-color: var(--surface); }
+.sp-navglyph { color: var(--accent); font-size: 15px; width: 18px; height: 20px; line-height: 20px; }
+.sp-navbtn-tx { color: var(--ink); font-size: 14px; height: 20px; line-height: 20px; }
+
+.sp-main { display: flex; flex-direction: column; flex-wrap: nowrap; }
+
+.sp-view { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 16px; }
+
+.sp-head { display: flex; flex-direction: column; gap: 4px; }
+.sp-h1 { color: var(--ink); font-size: 24px; font-weight: 700; height: auto; line-height: 30px; }
+.sp-sub { color: var(--muted); font-size: 14px; height: auto; line-height: 20px; }
+
+/* --- cards ------------------------------------------------------------------------ */
+
+.sp-cols {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 16px;
+}
+.sp-cols-narrow { flex-direction: column; }
+
+.sp-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+}
+.sp-cardtitle { color: var(--ink); font-size: 15px; font-weight: 700; height: auto; line-height: 22px; }
+.sp-cardsub { color: var(--faint); font-size: 12px; height: auto; line-height: 16px; margin-top: -4px; }
+.sp-empty { color: var(--faint); font-size: 13px; height: auto; line-height: 20px; padding: 6px 0; }
+.sp-daylabel { color: var(--muted); font-size: 12px; font-weight: 600; height: auto; line-height: 16px; margin-top: 6px; }
+
+.sp-item {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sp-item:hover { background-color: var(--soft); }
+.sp-item:focus { background-color: var(--soft); }
+.sp-dot { width: 8px; height: 8px; border-radius: 4px; margin-top: 6px; flex-shrink: 0; }
+.sp-time { color: var(--muted); font-size: 13px; width: 82px; height: auto; line-height: 20px; flex-shrink: 0; }
+.sp-itemtext { display: flex; flex-direction: column; flex-wrap: nowrap; flex-grow: 1; }
+.sp-title { color: var(--ink); font-size: 14px; font-weight: 500; height: auto; line-height: 20px; }
+.sp-meta { color: var(--faint); font-size: 12px; height: auto; line-height: 16px; }
+
+.sp-deadline {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background-color: var(--soft);
+}
+.sp-late { background-color: var(--late-soft); }
+.sp-flag { color: var(--accent); font-size: 13px; width: 12px; height: auto; line-height: 20px; flex-shrink: 0; }
+.sp-deadline-tx { color: var(--ink); font-size: 13px; height: auto; line-height: 20px; flex-grow: 1; }
+
+.sp-sheetrow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sp-sheetrow:hover { background-color: var(--soft); }
+.sp-sheetrow:focus { background-color: var(--soft); }
+.sp-sheeticon { color: #15803d; font-size: 18px; width: 20px; height: auto; line-height: 22px; }
+
+.sp-link { display: flex; flex-direction: row; height: auto; padding: 6px; border-radius: 8px; cursor: pointer; }
+.sp-link:hover { background-color: var(--soft); }
+.sp-link:focus { background-color: var(--soft); }
+.sp-link-tx { color: var(--accent); font-size: 13px; font-weight: 600; height: auto; line-height: 18px; }
+
+.sp-loadrow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; height: 26px; }
+.sp-loadname { color: var(--ink); font-size: 13px; width: 96px; height: 18px; line-height: 18px; }
+.sp-bar { height: 10px; border-radius: 5px; }
+.sp-loadnum { color: var(--muted); font-size: 12px; height: 16px; line-height: 16px; }
+
+.sp-writecard {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+}
+.sp-writecard-narrow { flex-direction: column; align-items: flex-start; }
+
+.sp-spark { color: var(--accent); font-size: 22px; width: 24px; height: 28px; line-height: 28px; }
+
+.sp-action {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.sp-action:hover { background-color: var(--soft); }
+.sp-action:focus { background-color: var(--soft); }
+.sp-action-tx { color: var(--ink); font-size: 13px; font-weight: 600; height: 18px; line-height: 18px; }
+.sp-action-primary { background-color: var(--accent); border: 1px solid var(--accent); }
+.sp-action-primary:hover { background-color: var(--accent-hover); }
+.sp-action-primary:focus { background-color: var(--accent-hover); }
+.sp-action-primary-tx { color: var(--on-accent); }
+
+/* --- sheets ----------------------------------------------------------------------- */
+
+.sp-tabs { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.sp-wrap { flex-wrap: wrap; row-gap: 8px; }
+.sp-tab {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sp-tab:hover { background-color: #efe7df; }
+.sp-tab:focus { background-color: #efe7df; }
+.sp-tab-on { background-color: var(--surface); border: 1px solid var(--line); }
+.sp-tab-tx { color: var(--ink); font-size: 13px; font-weight: 500; height: 18px; line-height: 18px; }
+.sp-tab-on-tx { font-weight: 700; }
+
+.sp-table {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+}
+.sp-tr { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; min-height: 36px; padding: 8px 0; }
+.sp-tr-alt { background-color: #fbf8f5; }
+.sp-thead { background-color: var(--soft); }
+.sp-tdmark { color: #15803d; font-size: 13px; width: 40px; height: 18px; line-height: 18px; text-align: center; }
+.sp-th { color: var(--muted); font-size: 12px; font-weight: 700; height: auto; line-height: 18px; padding: 0 8px; }
+.sp-td { color: var(--ink); font-size: 13px; height: auto; line-height: 18px; padding: 0 8px; }
+
+/* --- documents -------------------------------------------------------------------- */
+
+.sp-split { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 16px; align-items: flex-start; }
+.sp-doclist { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; width: 240px; }
+.sp-docitem {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.sp-docitem:hover { background-color: #efe7df; }
+.sp-docitem:focus { background-color: #efe7df; }
+.sp-docitem-on { background-color: var(--surface); border: 1px solid var(--line); }
+
+.sp-doc {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 20px 24px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+}
+.sp-md-h1 { color: var(--ink); font-size: 20px; font-weight: 700; height: auto; line-height: 28px; margin-bottom: 4px; }
+.sp-md-h2 { color: var(--ink); font-size: 15px; font-weight: 700; height: auto; line-height: 22px; margin-top: 10px; }
+.sp-md-li { color: var(--ink); font-size: 14px; height: auto; line-height: 21px; padding-left: 4px; }
+.sp-md-p { color: var(--ink); font-size: 14px; height: auto; line-height: 21px; }
+
+/* --- the assistant ----------------------------------------------------------------- */
+
+.sp-chip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 17px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.sp-chip:hover { background-color: var(--soft); }
+.sp-chip:focus { background-color: var(--soft); }
+.sp-chip-tx { color: var(--ink); font-size: 13px; height: 18px; line-height: 18px; }
+
+.sp-feed { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; }
+.sp-bubble-q {
+  display: flex;
+  flex-direction: row;
+  padding: 8px 14px;
+  border-radius: 14px;
+  background-color: var(--accent);
+}
+.sp-bubble-q-tx { color: var(--on-accent); font-size: 14px; font-weight: 600; height: auto; line-height: 20px; }
+.sp-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; }
+.sp-bubble-a { background-color: var(--surface); }
+
+.sp-status {
+  color: var(--ink);
+  font-size: 13px;
+  height: auto;
+  line-height: 18px;
+  padding: 8px 24px;
+  background-color: var(--soft);
+}
+
+/* --- the colours of resources and events (EcBoard's names) ------------------------ */
+
+.sp-c-blue { background-color: #3b82f6; }
+.sp-c-emerald { background-color: #10b981; }
+.sp-c-violet { background-color: #8b5cf6; }
+.sp-c-amber { background-color: #f59e0b; }
+.sp-c-rose { background-color: #f43f5e; }
+.sp-c-cyan { background-color: #06b6d4; }
+.sp-c-indigo { background-color: #6366f1; }
+.sp-c-orange { background-color: #f97316; }

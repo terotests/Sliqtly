@@ -1,0 +1,38 @@
+# The Spaces demo (apps/spaces): the model's checks, the page in Node, the
+# build, and the built page in Chrome. Deploys nothing.
+name: Spaces
+
+on:
+  pull_request:
+    paths: ["apps/spaces/**", "scripts/lib.mjs", "scripts/build.mjs", "presentation.config.json", ".github/workflows/spaces.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spaces-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - uses: actions/checkout@v4
+      # the Ranger checkout scripts/lib.mjs prepares clones RangerFlow,
+      # RangerMarkdown and RangerPPTX into it
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --no-audit --no-fund
+      - name: Check the model and the page
+        run: npm run spaces:check
+      - name: Build the page
+        run: npm run spaces:build
+      - name: Check the page in Chrome
+        run: npm run spaces:check:page
