@@ -564,8 +564,11 @@ class PresReviewUi {
         ; what the pointer is over stays hovered across a rebuild
         fresh.hoverTid = host.hoverTid
         host = fresh
-        ; a callout's insides are dark (`.theme-rvg`)
-        host.setTheme((trim ("pn " + (? (this.floating()) "rvg " "") + skin)))
+        ; a callout's insides are dark (`.theme-rvg`) and it is drawn over
+        ; the slide, which no skin turns: the same glass in every look (with
+        ; the skin its parts took the dark or retro panel's colours, which
+        ; outrank `.theme-rvg`)
+        host.setTheme((trim (? (this.floating()) "pn rvg" ("pn " + skin))))
         host.setPageSize(w h)
         def none:[PresReviewDot]
         pins = none
