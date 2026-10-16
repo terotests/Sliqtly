@@ -437,3 +437,7 @@
    laid out from its children's set sizes, so a tile says its own */
 .theme-ce .ce-tile { align-self: flex-start; justify-content: flex-start; width: 122px; height: 100px; border-radius: 10px; padding: 6px 6px 8px 6px; gap: 4px; }
 .theme-ce .ce-tile-on { border: 2px solid #18181b; padding: 5px 5px 7px 5px; }
+/* a Figma screen's tile: its picture fits 110 × 110 (PresChartEditor.figmaBody),
+   so the tile is the theme tile with 48 px more height for the taller picture;
+   the name keeps to the bottom so a row's names line up whatever the shapes */
+.theme-ce .fg-tile { height: 148px; justify-content: space-between; }
