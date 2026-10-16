@@ -85,7 +85,8 @@ const geminiRounds = 8
 // reading or the rounds are spent. Its edit calls are collected from every
 // round and answered "made when you finish".
 func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiTurn, r *aiReader) (aiAnswer, error) {
-	contents := make([]geminiContent, 0, len(turns)+2*geminiRounds)
+	rounds := r.rounds()
+	contents := make([]geminiContent, 0, len(turns)+2*rounds)
 	for _, t := range turns {
 		role := "user"
 		if t.Role == "assistant" {
@@ -145,7 +146,7 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 			if c := p.FunctionCall; c != nil {
 				var reply map[string]any
 				switch {
-				case reads[c.Name] && round < geminiRounds-2:
+				case reads[c.Name] && round < rounds-2:
 					got := r.Run(ctx, c.Name, c.Args)
 					reply = map[string]any{"content": got.Text}
 					if got.Failed {
@@ -211,7 +212,7 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 		for _, p := range answers {
 			read = read || reads[p.FunctionResponse.Name]
 		}
-		if (!read && !refused) || round >= geminiRounds-1 {
+		if (!read && !refused) || round >= rounds-1 {
 			return a, nil
 		}
 		mending = refused

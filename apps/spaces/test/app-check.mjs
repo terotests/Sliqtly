@@ -391,10 +391,11 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   a.press("sp-nav-calendar");
   a.press("sp-add");
   t = texts(a);
-  ok("the Add menu lists the family types", t.includes("Party invitation") && t.includes("Care shift") && t.includes("Thing"), t.slice(-40).join(","));
+  ok("the Add menu lists the family types", t.includes("Birthday invitation") && t.includes("Childcare shift") && t.includes("Thing") && !t.includes("Party invitation"), t.slice(-40).join(","));
+  ok("by group", t.includes("Health") && t.includes("Doctor's visit") && t.includes("Change to the usual"));
   a.board.cursor = a.today + 2;
-  a.press("sp-addtype-invitation");
-  ok("a new invitation", a.editing && a.editId === "" && a.editType === "invitation");
+  a.press("sp-addtype-birthday_invitation");
+  ok("a new invitation", a.editing && a.editId === "" && a.editType === "birthday_invitation");
   eq("on the calendar's day", field("date").value, M.UiDate.isoOfDays(a.today + 2));
   field("title").setValue("Eero's birthday");
   field("f:host").setValue("Eero");
@@ -407,7 +408,7 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   a.press("sp-ed-save");
   eq("it is in the space", a.space.events.length, n + 1);
   const inv = a.space.events[n];
-  ok("with its type, fields and cost", inv.typeId === "invitation" && inv.fieldText("rsvp") === "going" && inv.fieldText("host") === "Eero"
+  ok("with its type, fields and cost", inv.typeId === "birthday_invitation" && inv.fieldText("rsvp") === "going" && inv.fieldText("host") === "Eero"
     && inv.hasCost && inv.cost.amount === 20.5 && inv.cost.scope === "shared" && inv.cost.payer === "Mia", JSON.stringify(inv.values));
   ok("and on the calendar", a.occIds.includes(inv.id));
 
@@ -560,6 +561,58 @@ console.log("entries on a server");
       const probs = a.a11yProblems();
       ok(`${w} ${v} on a server lints clean`, probs.length === 0, probs.join(" | "));
     }
+  }
+}
+
+console.log("the assistant on a server");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [{ id: "w1", name: "Leo", color: "sky" }] };
+  a.answer(JSON.stringify({ space, events: [] }));
+  a.press("sp-nav-assistant");
+  ok("a field to write in", texts(a).includes("Lisää kuva") && texts(a).includes("Lähetä"));
+  a.press("sp-assist-send");
+  eq("nothing written, nothing sent", a.outCount(), 0);
+  a.press("sp-assist-image");
+  eq("a picture is the host's to read", a.takeAction(), "image");
+  a.addImage("kirje.jpg", "image/jpeg", "QUJD");
+  ok("the picture is shown", texts(a).includes("× kirje.jpg"));
+  a.assistField.setValue("Leon uinti tiistaisin 17-18 toukokuun loppuun");
+  a.keyWith("Enter", false, false);
+  a.focused = "sp-assist-text";
+  a.press("sp-assist-send");
+  eq("sent to the assistant", a.outOp(), "assist");
+  const body = JSON.parse(a.outBody());
+  ok("with the text, the picture and the day", body.space_id === "sp1" && body.text.startsWith("Leon uinti") && body.images[0].data === "QUJD"
+    && body.images[0].mimeType === "image/jpeg" && body.today === iso(a.today) && body.history.length === 0, JSON.stringify(body));
+  ok("the question is in the feed, the field emptied", texts(a).some((x) => x.startsWith("Leon uinti")) && a.assistField.value === "" && a.pics.length === 0);
+  ok("while it reads", texts(a).includes("Luetaan…"));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin Leon uinnin tiistaisin.", changed: true, event_ids: ["e1"], calls: [{ tool: "import_events", ok: true }] }));
+  ok("its answer", texts(a).includes("Lisäsin Leon uinnin tiistaisin.") && !a.assistBusy);
+  eq("what it made is read again", a.outOp(), "get_space");
+  a.answer(JSON.stringify({ space, events: [
+    { event_id: "e1", title: "Uinti", date: iso(a.today + 1), start: "17:00", end: "18:00", ward: "w1", type: "activity", rrule: "FREQ=WEEKLY", fields: { hobby: "Uinti", gear: ["uimalasit", "pyyhe"] } }] }));
+  eq("still on the assistant", a.tab, "assistant");
+  const e1 = a.space.events[0];
+  eq("a list field reads as one text", e1.fieldText("gear"), "uimalasit; pyyhe");
+  // the next question carries the conversation; a refusal is said
+  a.assistField.setValue("Peru huominen");
+  a.press("sp-assist-send");
+  const b2 = JSON.parse(a.outBody());
+  ok("with the history", b2.history.length === 2 && b2.history[1].text === "Lisäsin Leon uinnin tiistaisin.", JSON.stringify(b2.history));
+  a.failed("Too many questions in a short time; try again in a few minutes.");
+  ok("the error in its place", texts(a).some((x) => x.startsWith("Se ei mennyt läpi")) && !a.assistBusy);
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the assistant lints clean`, probs.length === 0, probs.join(" | "));
   }
 }
 

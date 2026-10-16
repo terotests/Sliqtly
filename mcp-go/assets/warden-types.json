@@ -1,14 +1,1188 @@
 {
-  "about": "Warden's entry types: what an entry of a space can be beyond a plain event, the fields each carries and the vocabulary packs that offer it. The server checks entries against these (mcp-go/warden.go), the page builds its Add menu and forms from them (apps/spaces) and an assistant reads them with list_entry_types. kind: event (on the calendar, a date), deadline (a day something is due, with a reminder), record (kept in a list; a date or a date range is optional). Field types: text, longtext, date, time, number, money (euros), bool, choice (one of options), ward (a ward's id), person (a name), phone, email, url, months.",
-  "version": 1,
+  "about": "Warden's entry types: what an entry of a space can be beyond a plain event, the fields each carries and the vocabulary packs that offer it. The server checks entries against these (mcp-go/warden.go), the page builds its Add menu and forms from them (apps/spaces) and an assistant reads them with list_entry_types. kind: event (on the calendar, a date), deadline (a day something is due, with a reminder), record (kept in a list; a date or a date range is optional). group: what kind of family item it is (event, activity, booking, deadline, financial, asset_action, care, health, travel, reminder). common: fields every entry may carry besides its type's own (status, people, responsible, due, tags, tasks, links, estimated and actual costs, budget category…). required: what an entry of the type must have (title always; date, start, end_date and ward are the event's own; the rest are fields). budget: the money fields that put the entry into the budget when it has no cost of its own (the first one set counts). reminders: the date fields (or date, the entry's day) that make reminders, each so many days before. legacy: an older type kept for entries already made; new entries use the types that replaced it. Field types: text, longtext, date, time, number, money (euros), bool, choice (one of options), ward (a ward's id), person (a name), people (several names), list (several short texts; given as an array or one text with ; or new lines between), phone, email, url, months.",
+  "version": 2,
+  "common": [
+    { "key": "subtype", "type": "text", "name": { "en": "Subtype", "fi": "Alatyyppi" } },
+    { "key": "status", "type": "choice", "options": ["planned", "confirmed", "done", "cancelled", "archived"], "name": { "en": "Status", "fi": "Tila" },
+          "labels": { "planned": { "en": "Planned", "fi": "Suunnitteilla" }, "confirmed": { "en": "Confirmed", "fi": "Vahvistettu" }, "done": { "en": "Done", "fi": "Tehty" }, "cancelled": { "en": "Cancelled", "fi": "Peruttu" }, "archived": { "en": "Archived", "fi": "Arkistoitu" } } },
+    { "key": "description", "type": "longtext", "name": { "en": "Description", "fi": "Kuvaus" } },
+    { "key": "people", "type": "people", "name": { "en": "Who it concerns", "fi": "Keitä koskee" } },
+    { "key": "children", "type": "people", "name": { "en": "Children", "fi": "Lapset" } },
+    { "key": "responsible", "type": "people", "name": { "en": "Responsible", "fi": "Vastuuhenkilöt" } },
+    { "key": "all_day", "type": "bool", "name": { "en": "All day", "fi": "Koko päivän" } },
+    { "key": "timezone", "type": "text", "name": { "en": "Time zone", "fi": "Aikavyöhyke" } },
+    { "key": "due", "type": "date", "name": { "en": "Due", "fi": "Määräpäivä" } },
+    { "key": "planning_from", "type": "date", "name": { "en": "Start preparing", "fi": "Valmistelu alkaa" } },
+    { "key": "visibility", "type": "choice", "options": ["family", "personal", "selected"], "name": { "en": "Visible to", "fi": "Näkyvyys" },
+          "labels": { "family": { "en": "Family", "fi": "Perhe" }, "personal": { "en": "Personal", "fi": "Henkilökohtainen" }, "selected": { "en": "Selected people", "fi": "Valitut henkilöt" } } },
+    { "key": "visible_to", "type": "people", "name": { "en": "Visible to (selected)", "fi": "Näkyy henkilöille" } },
+    { "key": "tags", "type": "list", "name": { "en": "Tags", "fi": "Tunnisteet" } },
+    { "key": "note_list", "type": "list", "name": { "en": "Notes", "fi": "Muistiinpanot" } },
+    { "key": "tasks", "type": "list", "name": { "en": "Tasks", "fi": "Tehtävät" } },
+    { "key": "reminders", "type": "list", "name": { "en": "Reminders", "fi": "Muistutukset" } },
+    { "key": "contacts", "type": "list", "name": { "en": "Contacts", "fi": "Yhteystiedot" } },
+    { "key": "documents", "type": "list", "name": { "en": "Documents", "fi": "Dokumentit" } },
+    { "key": "images", "type": "list", "name": { "en": "Images", "fi": "Kuvat" } },
+    { "key": "receipts", "type": "list", "name": { "en": "Receipts", "fi": "Kuitit" } },
+    { "key": "links", "type": "list", "name": { "en": "Links", "fi": "Linkit" } },
+    { "key": "related", "type": "list", "name": { "en": "Related entries", "fi": "Liittyvät" } },
+    { "key": "estimated_cost", "type": "money", "name": { "en": "Estimated cost", "fi": "Kustannusarvio" } },
+    { "key": "estimated_cost_min", "type": "money", "name": { "en": "Estimate min", "fi": "Arvio min" } },
+    { "key": "estimated_cost_max", "type": "money", "name": { "en": "Estimate max", "fi": "Arvio max" } },
+    { "key": "committed_cost", "type": "money", "name": { "en": "Committed cost", "fi": "Sitoutunut kulu" } },
+    { "key": "actual_cost", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kulu" } },
+    { "key": "paid_amount", "type": "money", "name": { "en": "Paid", "fi": "Maksettu" } },
+    { "key": "payer", "type": "person", "name": { "en": "Payer", "fi": "Maksaja" } },
+    { "key": "budget_owner", "type": "person", "name": { "en": "Budget owner", "fi": "Budjetin omistaja" } },
+    { "key": "budget_category", "type": "text", "name": { "en": "Budget category", "fi": "Budjettikategoria" } },
+    { "key": "allocation_rule", "type": "text", "name": { "en": "Split", "fi": "Jakoperuste" } },
+    { "key": "beneficiaries", "type": "people", "name": { "en": "For whom", "fi": "Kenen hyväksi" } },
+    { "key": "include_in_budget", "type": "bool", "name": { "en": "In the budget", "fi": "Mukaan budjettiin" } },
+    { "key": "include_in_forecast", "type": "bool", "name": { "en": "In the forecast", "fi": "Mukaan ennusteeseen" } },
+    { "key": "created_by", "type": "text", "name": { "en": "Created by", "fi": "Luonut" } }
+  ],
   "types": [
     {
-      "id": "event", "kind": "event", "packs": ["*"], "icon": "calendar",
+      "id": "event", "kind": "event", "packs": ["*"], "icon": "calendar", "group": "event",
       "name": { "en": "Event", "fi": "Tapahtuma" },
-      "fields": []
+      "fields": [],
+      "required": ["date"],
+      "budget": [],
+      "reminders": []
     },
     {
-      "id": "invitation", "kind": "event", "packs": ["family"], "icon": "gift",
+      "id": "birthday_invitation", "kind": "event", "group": "event", "packs": ["family"], "icon": "gift",
+      "name": { "en": "Birthday invitation", "fi": "Syntymäpäiväkutsu" },
+      "help": { "en": "A child is invited to a birthday party: answer, transport, the gift.", "fi": "Lapsi on kutsuttu synttäreille: vastaus, kuljetus, lahja." },
+      "fields": [
+        { "key": "invited", "type": "people", "name": { "en": "Invited children", "fi": "Kutsutut lapset" } },
+        { "key": "birthday_child", "type": "text", "name": { "en": "Birthday child", "fi": "Päivänsankari" } },
+        { "key": "age", "type": "number", "name": { "en": "Turns", "fi": "Täyttää" } },
+        { "key": "host", "type": "person", "name": { "en": "Host or parents", "fi": "Järjestäjä / vanhemmat" } },
+        { "key": "received", "type": "date", "name": { "en": "Invitation received", "fi": "Kutsu saatu" } },
+        { "key": "address", "type": "text", "name": { "en": "Address", "fi": "Osoite" } },
+        { "key": "map", "type": "url", "name": { "en": "Map link", "fi": "Karttalinkki" } },
+        { "key": "rsvp_by", "type": "date", "name": { "en": "Answer by", "fi": "Vastattava viimeistään" } },
+        { "key": "rsvp", "type": "choice", "options": ["open", "going", "not_going", "maybe"], "name": { "en": "Answer", "fi": "Vastaus" },
+          "labels": { "open": { "en": "Not answered", "fi": "Ei vastattu" }, "going": { "en": "Going", "fi": "Menossa" }, "not_going": { "en": "Not going", "fi": "Ei menossa" }, "maybe": { "en": "Maybe", "fi": "Ehkä" } } },
+        { "key": "rsvp_contact", "type": "text", "name": { "en": "Answer to", "fi": "Vastaus kenelle" } },
+        { "key": "takes", "type": "person", "name": { "en": "Takes", "fi": "Vie" } },
+        { "key": "picks_up", "type": "person", "name": { "en": "Picks up", "fi": "Hakee" } },
+        { "key": "transport", "type": "choice", "options": ["car", "walk", "bike", "public", "carpool", "taxi", "other"], "name": { "en": "Transport", "fi": "Kuljetustapa" },
+          "labels": { "car": { "en": "Car", "fi": "Auto" }, "walk": { "en": "Walk", "fi": "Kävellen" }, "bike": { "en": "Bike", "fi": "Pyörällä" }, "public": { "en": "Public transport", "fi": "Julkisilla" }, "carpool": { "en": "Car pool", "fi": "Kimppakyyti" }, "taxi": { "en": "Taxi", "fi": "Taksi" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "leave_at", "type": "time", "name": { "en": "Leave at", "fi": "Lähtöaika" } },
+        { "key": "travel_minutes", "type": "number", "name": { "en": "Travel time (min)", "fi": "Matka-aika (min)" } },
+        { "key": "travel_cost", "type": "money", "name": { "en": "Travel cost", "fi": "Matkakulut" } },
+        { "key": "siblings_meanwhile", "type": "text", "name": { "en": "Others meanwhile", "fi": "Muut lapset sillä aikaa" } },
+        { "key": "needs_childcare", "type": "bool", "name": { "en": "Needs childcare", "fi": "Tarvitaan lastenhoitoa" } },
+        { "key": "gift_idea", "type": "text", "name": { "en": "Gift idea", "fi": "Lahjaidea" } },
+        { "key": "gift_wish", "type": "text", "name": { "en": "Gift wish", "fi": "Lahjatoive" } },
+        { "key": "gift_budget_min", "type": "money", "name": { "en": "Gift budget min", "fi": "Lahjabudjetti min" } },
+        { "key": "gift_budget_max", "type": "money", "name": { "en": "Gift budget max", "fi": "Lahjabudjetti max" } },
+        { "key": "gift_chosen", "type": "bool", "name": { "en": "Gift chosen", "fi": "Lahja valittu" } },
+        { "key": "gift_bought", "type": "bool", "name": { "en": "Gift bought", "fi": "Lahja ostettu" } },
+        { "key": "gift_buyer", "type": "person", "name": { "en": "Gift buyer", "fi": "Lahjan ostaja" } },
+        { "key": "gift_price", "type": "money", "name": { "en": "Gift price", "fi": "Lahjan hinta" } },
+        { "key": "card", "type": "bool", "name": { "en": "Card got", "fi": "Kortti hankittu" } },
+        { "key": "wrapped", "type": "bool", "name": { "en": "Wrapped", "fi": "Paketoitu" } },
+        { "key": "instructions", "type": "longtext", "name": { "en": "Instructions", "fi": "Erityisohjeet" } },
+        { "key": "food", "type": "text", "name": { "en": "Food / allergies", "fi": "Ruoka / allergiat" } },
+        { "key": "invitation_doc", "type": "url", "name": { "en": "Invitation picture", "fi": "Kutsukuva" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["gift_price", "gift_budget_max", "travel_cost"],
+      "reminders": [{ "field": "rsvp_by", "days": 1 }, { "field": "date", "days": 3 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "birthday", "kind": "event", "group": "event", "packs": ["family"], "icon": "cake", "repeats": true,
+      "name": { "en": "Family birthday", "fi": "Oman perheen syntymäpäivä" },
+      "help": { "en": "A family member's birthday and its party: guests, food, gifts, budget.", "fi": "Perheenjäsenen syntymäpäivä ja juhlat: vieraat, tarjoilu, lahjat, budjetti." },
+      "fields": [
+        { "key": "person", "type": "person", "name": { "en": "Whose", "fi": "Kenen" } },
+        { "key": "birth_date", "type": "date", "name": { "en": "Birthday", "fi": "Syntymäpäivä" } },
+        { "key": "age", "type": "number", "name": { "en": "Turns", "fi": "Täyttää" } },
+        { "key": "party_date", "type": "date", "name": { "en": "Party day", "fi": "Juhlapäivä" } },
+        { "key": "party_time", "type": "time", "name": { "en": "Party time", "fi": "Juhlan aika" } },
+        { "key": "guests", "type": "people", "name": { "en": "Guest list", "fi": "Vieraslista" } },
+        { "key": "to_invite", "type": "people", "name": { "en": "To invite", "fi": "Kutsuttavat" } },
+        { "key": "invite_status", "type": "longtext", "name": { "en": "Invited / answered / coming", "fi": "Kutsuttu / vastannut / tulossa" } },
+        { "key": "menu", "type": "longtext", "name": { "en": "Food plan", "fi": "Tarjoilusuunnitelma" } },
+        { "key": "cake", "type": "text", "name": { "en": "Cake", "fi": "Kakku" } },
+        { "key": "decorations", "type": "text", "name": { "en": "Decorations", "fi": "Koristelu" } },
+        { "key": "programme", "type": "longtext", "name": { "en": "Programme", "fi": "Ohjelma" } },
+        { "key": "gift_wishes", "type": "list", "name": { "en": "Gift wishes", "fi": "Lahjatoiveet" } },
+        { "key": "gift_ideas", "type": "list", "name": { "en": "Gift ideas", "fi": "Lahjaideat" } },
+        { "key": "party_budget", "type": "money", "name": { "en": "Party budget", "fi": "Juhlabudjetti" } },
+        { "key": "food_budget", "type": "money", "name": { "en": "Food budget", "fi": "Ruokabudjetti" } },
+        { "key": "gift_budget", "type": "money", "name": { "en": "Gift budget", "fi": "Lahjabudjetti" } },
+        { "key": "venue_rent", "type": "money", "name": { "en": "Venue rent", "fi": "Tilavuokra" } },
+        { "key": "other_costs", "type": "money", "name": { "en": "Other costs", "fi": "Muut kulut" } },
+        { "key": "spent", "type": "money", "name": { "en": "Spent", "fi": "Toteutuneet kulut" } }
+      ],
+      "required": ["date", "person"],
+      "budget": ["spent", "party_budget"],
+      "reminders": [{ "field": "party_date", "days": 14 }, { "field": "date", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "family_event", "kind": "event", "group": "event", "packs": ["family"], "icon": "star",
+      "name": { "en": "Celebration or family event", "fi": "Juhla / perhetapahtuma" },
+      "help": { "en": "Christmas, a graduation, a christening, a family reunion.", "fi": "Joulu, valmistujaiset, ristiäiset, sukutapaaminen." },
+      "fields": [
+        { "key": "what", "type": "choice", "options": ["christmas", "graduation", "christening", "reunion", "wedding", "funeral", "other"], "name": { "en": "Kind", "fi": "Tapahtuman tyyppi" },
+          "labels": { "christmas": { "en": "Christmas", "fi": "Joulu" }, "graduation": { "en": "Graduation", "fi": "Valmistujaiset" }, "christening": { "en": "Christening", "fi": "Ristiäiset" }, "reunion": { "en": "Family reunion", "fi": "Sukutapaaminen" }, "wedding": { "en": "Wedding", "fi": "Häät" }, "funeral": { "en": "Funeral", "fi": "Hautajaiset" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "attendees", "type": "people", "name": { "en": "Attendees", "fi": "Osallistujat" } },
+        { "key": "organiser", "type": "person", "name": { "en": "Organiser", "fi": "Järjestäjä" } },
+        { "key": "guests", "type": "people", "name": { "en": "Guests", "fi": "Vieraat" } },
+        { "key": "food", "type": "longtext", "name": { "en": "Food", "fi": "Tarjoilu" } },
+        { "key": "gifts", "type": "longtext", "name": { "en": "Gifts", "fi": "Lahjat" } },
+        { "key": "clothing", "type": "text", "name": { "en": "Clothing", "fi": "Vaatetus" } },
+        { "key": "transport", "type": "longtext", "name": { "en": "Transport", "fi": "Kuljetukset" } },
+        { "key": "lodging", "type": "text", "name": { "en": "Lodging", "fi": "Majoitus" } },
+        { "key": "budget", "type": "money", "name": { "en": "Budget", "fi": "Budjetti" } },
+        { "key": "personal_costs", "type": "money", "name": { "en": "Personal costs", "fi": "Henkilökohtaiset kulut" } },
+        { "key": "shared_costs", "type": "money", "name": { "en": "Shared costs", "fi": "Yhteiset kulut" } },
+        { "key": "spent", "type": "money", "name": { "en": "Spent", "fi": "Toteutuneet kulut" } }
+      ],
+      "required": ["date"],
+      "budget": ["spent", "budget"],
+      "reminders": [{ "field": "date", "days": 14 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "parent_evening", "kind": "event", "group": "event", "packs": ["family"], "icon": "school",
+      "name": { "en": "Parents' evening", "fi": "Vanhempainilta" },
+      "help": { "en": "A parents' evening at school or daycare.", "fi": "Vanhempainilta koulussa tai päiväkodissa." },
+      "fields": [
+        { "key": "school", "type": "text", "name": { "en": "School or daycare", "fi": "Koulu / päiväkoti" } },
+        { "key": "group", "type": "text", "name": { "en": "Class or group", "fi": "Luokka / ryhmä" } },
+        { "key": "teacher", "type": "person", "name": { "en": "Teacher", "fi": "Opettaja / vetäjä" } },
+        { "key": "remote_link", "type": "url", "name": { "en": "Remote link", "fi": "Etälinkki" } },
+        { "key": "attending", "type": "person", "name": { "en": "Attending parent", "fi": "Osallistuva vanhempi" } },
+        { "key": "register", "type": "bool", "name": { "en": "Registration needed", "fi": "Ilmoittauduttava" } },
+        { "key": "register_by", "type": "date", "name": { "en": "Register by", "fi": "Ilmoittautuminen viimeistään" } },
+        { "key": "agenda", "type": "longtext", "name": { "en": "Agenda", "fi": "Käsiteltävät asiat" } },
+        { "key": "questions", "type": "longtext", "name": { "en": "Our questions", "fi": "Omat kysymykset" } },
+        { "key": "minutes", "type": "longtext", "name": { "en": "Notes", "fi": "Muistiinpanot" } },
+        { "key": "follow_ups", "type": "list", "name": { "en": "Follow-up tasks", "fi": "Jälkeen syntyneet tehtävät" } }
+      ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [{ "field": "register_by", "days": 2 }, { "field": "date", "days": 1 }]
+    },
+    {
+      "id": "school_event", "kind": "event", "group": "event", "packs": ["family"], "icon": "school",
+      "name": { "en": "School event", "fi": "Koulutapahtuma" },
+      "help": { "en": "A trip, photo day, sports day or celebration at school.", "fi": "Retki, kuvauspäivä, urheilupäivä tai juhla koulussa." },
+      "fields": [
+        { "key": "school", "type": "text", "name": { "en": "School", "fi": "Koulu" } },
+        { "key": "group", "type": "text", "name": { "en": "Class", "fi": "Luokka" } },
+        { "key": "what", "type": "choice", "options": ["trip", "photo_day", "sports_day", "celebration", "theme_day", "other"], "name": { "en": "What", "fi": "Tapahtumatyyppi" },
+          "labels": { "trip": { "en": "Trip", "fi": "Retki" }, "photo_day": { "en": "Photo day", "fi": "Kuvauspäivä" }, "sports_day": { "en": "Sports day", "fi": "Urheilupäivä" }, "celebration": { "en": "Celebration", "fi": "Juhla" }, "theme_day": { "en": "Theme day", "fi": "Teemapäivä" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "attendance", "type": "choice", "options": ["mandatory", "optional"], "name": { "en": "Attendance", "fi": "Osallistuminen" },
+          "labels": { "mandatory": { "en": "Mandatory", "fi": "Pakollinen" }, "optional": { "en": "Optional", "fi": "Vapaaehtoinen" } } },
+        { "key": "parents_attend", "type": "bool", "name": { "en": "Parents attend", "fi": "Huoltaja osallistuu" } },
+        { "key": "register_by", "type": "date", "name": { "en": "Register by", "fi": "Ilmoittautuminen viimeistään" } },
+        { "key": "bring", "type": "list", "name": { "en": "Bring along", "fi": "Mukaan" } },
+        { "key": "clothing", "type": "text", "name": { "en": "Clothing", "fi": "Vaatetus" } },
+        { "key": "packed_lunch", "type": "bool", "name": { "en": "Packed lunch", "fi": "Eväät" } },
+        { "key": "transport", "type": "text", "name": { "en": "Transport", "fi": "Kuljetukset" } },
+        { "key": "fee", "type": "money", "name": { "en": "Fee", "fi": "Maksu" } },
+        { "key": "pay_by", "type": "date", "name": { "en": "Pay by", "fi": "Maksettava viimeistään" } },
+        { "key": "contact", "type": "text", "name": { "en": "Contact", "fi": "Yhteyshenkilö" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["fee"],
+      "reminders": [{ "field": "register_by", "days": 2 }, { "field": "pay_by", "days": 3 }, { "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "school_term", "kind": "event", "group": "event", "packs": ["family"], "icon": "school",
+      "name": { "en": "School term", "fi": "Koulun lukukausi" },
+      "help": { "en": "A term: first and last days, holidays, exceptions.", "fi": "Lukukausi: ensimmäinen ja viimeinen päivä, lomat, poikkeuspäivät." },
+      "fields": [
+        { "key": "school", "type": "text", "name": { "en": "School", "fi": "Koulu" } },
+        { "key": "year", "type": "text", "name": { "en": "School year", "fi": "Lukuvuosi" } },
+        { "key": "first_day", "type": "date", "name": { "en": "First school day", "fi": "Ensimmäinen koulupäivä" } },
+        { "key": "last_day", "type": "date", "name": { "en": "Last school day", "fi": "Viimeinen koulupäivä" } },
+        { "key": "holidays", "type": "list", "name": { "en": "Holidays", "fi": "Loma-ajat" } },
+        { "key": "exceptions", "type": "list", "name": { "en": "Exception days", "fi": "Poikkeuspäivät" } },
+        { "key": "teacher", "type": "person", "name": { "en": "Teacher", "fi": "Opettaja" } },
+        { "key": "group", "type": "text", "name": { "en": "Class", "fi": "Luokka" } },
+        { "key": "timetable", "type": "longtext", "name": { "en": "Timetable", "fi": "Lukujärjestys" } },
+        { "key": "school_contacts", "type": "text", "name": { "en": "School contacts", "fi": "Koulun yhteystiedot" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": [],
+      "reminders": [{ "field": "first_day", "days": 7 }]
+    },
+    {
+      "id": "school_exception_day", "kind": "event", "group": "care", "packs": ["family"], "icon": "school",
+      "name": { "en": "School holiday or exception day", "fi": "Koulun lomapäivä / poikkeuspäivä" },
+      "help": { "en": "No school, or a different day: who looks after the child.", "fi": "Ei koulua tai poikkeava päivä: kuka hoitaa lapsen." },
+      "fields": [
+        { "key": "school", "type": "text", "name": { "en": "School", "fi": "Koulu" } },
+        { "key": "reason", "type": "choice", "options": ["holiday", "training_day", "strike", "other"], "name": { "en": "Reason", "fi": "Syy" },
+          "labels": { "holiday": { "en": "Holiday", "fi": "Loma" }, "training_day": { "en": "Teachers' training day", "fi": "Koulutuspäivä" }, "strike": { "en": "Strike", "fi": "Lakko" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "school_open", "type": "bool", "name": { "en": "School open", "fi": "Koulua on" } },
+        { "key": "needs_care", "type": "bool", "name": { "en": "Needs care", "fi": "Tarvitaan hoitoa" } },
+        { "key": "carer", "type": "person", "name": { "en": "Who looks after", "fi": "Kuka hoitaa" } },
+        { "key": "hobbies_effect", "type": "text", "name": { "en": "Effect on hobbies", "fi": "Vaikutus harrastuksiin" } },
+        { "key": "meals_effect", "type": "text", "name": { "en": "Effect on meals", "fi": "Vaikutus ruokailuun" } },
+        { "key": "cost", "type": "money", "name": { "en": "Costs", "fi": "Kulut" } }
+      ],
+      "required": ["date"],
+      "budget": ["cost"],
+      "reminders": [{ "field": "date", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "school_deadline", "kind": "deadline", "group": "deadline", "packs": ["family"], "icon": "pencil",
+      "name": { "en": "Exam or school task", "fi": "Koe / tärkeä koulutehtävä" },
+      "help": { "en": "An exam, presentation or assignment and when to start preparing.", "fi": "Koe, esitelmä tai palautus ja milloin valmistautuminen alkaa." },
+      "fields": [
+        { "key": "subject", "type": "text", "name": { "en": "Subject", "fi": "Aine" } },
+        { "key": "what", "type": "choice", "options": ["exam", "presentation", "assignment"], "name": { "en": "What", "fi": "Mikä" },
+          "labels": { "exam": { "en": "Exam", "fi": "Koe" }, "presentation": { "en": "Presentation", "fi": "Esitelmä" }, "assignment": { "en": "Assignment", "fi": "Palautus" } } },
+        { "key": "prepare_from", "type": "date", "name": { "en": "Start preparing", "fi": "Valmistautuminen alkaa" } },
+        { "key": "materials", "type": "list", "name": { "en": "Materials", "fi": "Materiaalit" } },
+        { "key": "to_buy", "type": "list", "name": { "en": "To buy", "fi": "Tarvittavat hankinnat" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": [],
+      "reminders": [{ "field": "prepare_from", "days": 0 }, { "field": "date", "days": 2 }]
+    },
+    {
+      "id": "daycare_day", "kind": "event", "group": "care", "packs": ["family"], "icon": "home", "repeats": true,
+      "name": { "en": "Daycare day", "fi": "Päiväkotipäivä" },
+      "help": { "en": "A day at daycare: hours, who takes and picks up, exceptions.", "fi": "Päivä päiväkodissa: ajat, viejä ja hakija, poikkeukset." },
+      "fields": [
+        { "key": "daycare", "type": "text", "name": { "en": "Daycare", "fi": "Päiväkoti" } },
+        { "key": "takes", "type": "person", "name": { "en": "Takes", "fi": "Vie" } },
+        { "key": "picks_up", "type": "person", "name": { "en": "Picks up", "fi": "Hakee" } },
+        { "key": "exception", "type": "text", "name": { "en": "Different schedule", "fi": "Poikkeava aikataulu" } },
+        { "key": "meals", "type": "text", "name": { "en": "Meals", "fi": "Ateriat" } },
+        { "key": "instructions", "type": "longtext", "name": { "en": "Instructions", "fi": "Erityisohjeet" } },
+        { "key": "gear", "type": "list", "name": { "en": "Gear", "fi": "Varusteet" } },
+        { "key": "absent", "type": "bool", "name": { "en": "Absent", "fi": "Poissa" } },
+        { "key": "fee_note", "type": "text", "name": { "en": "Affects the fee", "fi": "Maksuun vaikuttava tieto" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": [],
+      "reminders": []
+    },
+    {
+      "id": "childcare_shift", "kind": "event", "group": "care", "packs": ["family"], "icon": "heart",
+      "name": { "en": "Childcare shift", "fi": "Hoitovuoro" },
+      "help": { "en": "Someone looks after the children: grandparents, a friend, a neighbour.", "fi": "Joku hoitaa lapsia: isovanhemmat, ystävä, naapuri." },
+      "fields": [
+        { "key": "carer", "type": "person", "name": { "en": "Carer", "fi": "Hoitaja" } },
+        { "key": "care_place", "type": "text", "name": { "en": "Where", "fi": "Hoitopaikka" } },
+        { "key": "takes", "type": "person", "name": { "en": "Takes", "fi": "Vie" } },
+        { "key": "picks_up", "type": "person", "name": { "en": "Picks up", "fi": "Hakee" } },
+        { "key": "backup", "type": "person", "name": { "en": "Back-up", "fi": "Varahenkilö" } },
+        { "key": "instructions", "type": "longtext", "name": { "en": "Instructions", "fi": "Ohjeet" } },
+        { "key": "food", "type": "text", "name": { "en": "Food", "fi": "Ruoka" } },
+        { "key": "sleep", "type": "text", "name": { "en": "Sleep", "fi": "Nukkuminen" } },
+        { "key": "medicines", "type": "text", "name": { "en": "Medicines", "fi": "Lääkkeet" } },
+        { "key": "phone", "type": "phone", "name": { "en": "Phone", "fi": "Puhelin" } },
+        { "key": "fee", "type": "money", "name": { "en": "Fee", "fi": "Korvaus" } },
+        { "key": "travel_cost", "type": "money", "name": { "en": "Travel cost", "fi": "Matkakulut" } }
+      ],
+      "required": ["date", "carer"],
+      "budget": ["fee", "travel_cost"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "babysitter_booking", "kind": "event", "group": "care", "packs": ["family"], "icon": "heart",
+      "name": { "en": "Babysitter", "fi": "Babysitter / ulkopuolinen hoito" },
+      "help": { "en": "A paid babysitter: hours, price, instructions.", "fi": "Maksettu lastenhoitaja: ajat, hinta, ohjeet." },
+      "fields": [
+        { "key": "sitter", "type": "person", "name": { "en": "Babysitter", "fi": "Hoitaja" } },
+        { "key": "phone", "type": "phone", "name": { "en": "Phone", "fi": "Puhelin" } },
+        { "key": "hourly_rate", "type": "money", "name": { "en": "Hourly rate", "fi": "Tuntihinta" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated price", "fi": "Arvioitu hinta" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual price", "fi": "Toteutunut hinta" } },
+        { "key": "paid", "type": "bool", "name": { "en": "Paid", "fi": "Maksettu" } },
+        { "key": "paid_by", "type": "person", "name": { "en": "Paid by", "fi": "Maksoi" } },
+        { "key": "food", "type": "text", "name": { "en": "Food", "fi": "Ruokaohjeet" } },
+        { "key": "bedtime", "type": "time", "name": { "en": "Bedtime", "fi": "Nukkumaanmeno" } },
+        { "key": "medicines", "type": "text", "name": { "en": "Medicines", "fi": "Lääkkeet" } },
+        { "key": "emergency", "type": "text", "name": { "en": "Emergency contacts", "fi": "Hätäyhteystiedot" } }
+      ],
+      "required": ["date", "start", "sitter"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 2 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "activity", "kind": "event", "group": "activity", "packs": ["family", "sports"], "icon": "run", "repeats": true,
+      "name": { "en": "Hobby", "fi": "Harrastus" },
+      "help": { "en": "A hobby over a season: weekly times, club, fees, gear.", "fi": "Harrastus kauden ajan: viikkoajat, seura, maksut, varusteet." },
+      "fields": [
+        { "key": "hobby", "type": "text", "name": { "en": "Hobby", "fi": "Harrastus" } },
+        { "key": "club", "type": "text", "name": { "en": "Club or organiser", "fi": "Seura / järjestäjä" } },
+        { "key": "group", "type": "text", "name": { "en": "Group", "fi": "Ryhmä" } },
+        { "key": "season", "type": "text", "name": { "en": "Season", "fi": "Kausi" } },
+        { "key": "season_start", "type": "date", "name": { "en": "Season starts", "fi": "Kausi alkaa" } },
+        { "key": "season_end", "type": "date", "name": { "en": "Season ends", "fi": "Kausi loppuu" } },
+        { "key": "coach", "type": "person", "name": { "en": "Coach", "fi": "Valmentaja / vetäjä" } },
+        { "key": "coach_phone", "type": "phone", "name": { "en": "Coach's phone", "fi": "Valmentajan puhelin" } },
+        { "key": "season_fee", "type": "money", "name": { "en": "Season fee", "fi": "Kausimaksu" } },
+        { "key": "other_fees", "type": "money", "name": { "en": "Other fees", "fi": "Muut maksut" } },
+        { "key": "gear", "type": "list", "name": { "en": "Gear", "fi": "Varusteet" } },
+        { "key": "gear_needs", "type": "list", "name": { "en": "Gear needed", "fi": "Varustetarpeet" } },
+        { "key": "insurance", "type": "text", "name": { "en": "Insurance required", "fi": "Vakuutusvaatimus" } },
+        { "key": "licence", "type": "text", "name": { "en": "Licence", "fi": "Lisenssi" } },
+        { "key": "attending", "type": "bool", "name": { "en": "Taking part", "fi": "Osallistuu" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["season_fee", "other_fees"],
+      "reminders": [{ "field": "season_start", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "activity_occurrence", "kind": "event", "group": "activity", "packs": ["family", "sports"], "icon": "run",
+      "name": { "en": "Hobby session", "fi": "Harrastuskerta" },
+      "help": { "en": "One session of a hobby: who takes and picks up, a change.", "fi": "Yksi harrastuskerta: kuka vie ja hakee, muutos." },
+      "fields": [
+        { "key": "hobby", "type": "text", "name": { "en": "Hobby", "fi": "Harrastus" } },
+        { "key": "coach", "type": "person", "name": { "en": "Coach", "fi": "Valmentaja" } },
+        { "key": "attending", "type": "bool", "name": { "en": "Taking part", "fi": "Osallistuu" } },
+        { "key": "cancelled", "type": "bool", "name": { "en": "Cancelled", "fi": "Peruttu" } },
+        { "key": "takes", "type": "person", "name": { "en": "Takes", "fi": "Vie" } },
+        { "key": "picks_up", "type": "person", "name": { "en": "Picks up", "fi": "Hakee" } },
+        { "key": "leave_at", "type": "time", "name": { "en": "Leave at", "fi": "Lähtöaika" } },
+        { "key": "gear", "type": "list", "name": { "en": "Gear", "fi": "Varusteet" } },
+        { "key": "travel_cost", "type": "money", "name": { "en": "Travel cost", "fi": "Matkakulu" } },
+        { "key": "remarks", "type": "text", "name": { "en": "Remarks", "fi": "Huomautukset" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["travel_cost"],
+      "reminders": [],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "competition", "kind": "event", "group": "activity", "packs": ["family", "sports"], "icon": "trophy",
+      "name": { "en": "Competition, tournament or match", "fi": "Kilpailu / turnaus / ottelu" },
+      "help": { "en": "A competition: registration, travel, lodging, costs, result.", "fi": "Kilpailu: ilmoittautuminen, matkat, majoitus, kulut, tulos." },
+      "fields": [
+        { "key": "hobby", "type": "text", "name": { "en": "Hobby", "fi": "Harrastus" } },
+        { "key": "what", "type": "choice", "options": ["match", "tournament", "race", "show", "other"], "name": { "en": "Kind", "fi": "Kilpailutyyppi" },
+          "labels": { "match": { "en": "Match", "fi": "Ottelu" }, "tournament": { "en": "Tournament", "fi": "Turnaus" }, "race": { "en": "Race", "fi": "Kilpailu" }, "show": { "en": "Show", "fi": "Näytös" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "register_from", "type": "date", "name": { "en": "Registration opens", "fi": "Ilmoittautuminen alkaa" } },
+        { "key": "register_by", "type": "date", "name": { "en": "Register by", "fi": "Ilmoittautuminen viimeistään" } },
+        { "key": "registered", "type": "bool", "name": { "en": "Registered", "fi": "Ilmoittauduttu" } },
+        { "key": "leave_at", "type": "time", "name": { "en": "Leave at", "fi": "Lähtöaika" } },
+        { "key": "compete_at", "type": "time", "name": { "en": "Competes at", "fi": "Kilpailuaika" } },
+        { "key": "ends_at", "type": "time", "name": { "en": "Ends about", "fi": "Arvioitu päättyminen" } },
+        { "key": "transport", "type": "text", "name": { "en": "Transport", "fi": "Kuljetus" } },
+        { "key": "carpool", "type": "text", "name": { "en": "Car pool", "fi": "Kimppakyyti" } },
+        { "key": "lodging", "type": "text", "name": { "en": "Lodging", "fi": "Majoitus" } },
+        { "key": "meals", "type": "text", "name": { "en": "Meals", "fi": "Ruokailut" } },
+        { "key": "entry_fee", "type": "money", "name": { "en": "Entry fee", "fi": "Osallistumismaksu" } },
+        { "key": "travel_cost", "type": "money", "name": { "en": "Travel cost", "fi": "Matkakulut" } },
+        { "key": "lodging_cost", "type": "money", "name": { "en": "Lodging cost", "fi": "Majoituskulut" } },
+        { "key": "total_estimate", "type": "money", "name": { "en": "Total estimate", "fi": "Arvioitu kokonaiskulu" } },
+        { "key": "total", "type": "money", "name": { "en": "Total spent", "fi": "Toteutunut kokonaiskulu" } },
+        { "key": "gear", "type": "list", "name": { "en": "Gear", "fi": "Varusteet" } },
+        { "key": "licences", "type": "text", "name": { "en": "Licences", "fi": "Lisenssit" } },
+        { "key": "result", "type": "text", "name": { "en": "Result", "fi": "Tulos" } },
+        { "key": "link", "type": "url", "name": { "en": "Link", "fi": "Linkki" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["total", "total_estimate", "entry_fee"],
+      "reminders": [{ "field": "register_by", "days": 3 }, { "field": "date", "days": 2 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "camp", "kind": "event", "group": "activity", "packs": ["family", "sports"], "icon": "tent",
+      "name": { "en": "Camp", "fi": "Leiri" },
+      "help": { "en": "A camp: dates, registration, fee, gear list.", "fi": "Leiri: päivät, ilmoittautuminen, maksu, varustelista." },
+      "fields": [
+        { "key": "organiser", "type": "text", "name": { "en": "Organiser", "fi": "Järjestäjä" } },
+        { "key": "register_by", "type": "date", "name": { "en": "Register by", "fi": "Ilmoittautuminen viimeistään" } },
+        { "key": "fee", "type": "money", "name": { "en": "Fee", "fi": "Maksu" } },
+        { "key": "pay_by", "type": "date", "name": { "en": "Pay by", "fi": "Maksupäivä" } },
+        { "key": "transport", "type": "text", "name": { "en": "Transport", "fi": "Kuljetus" } },
+        { "key": "lodging", "type": "text", "name": { "en": "Lodging", "fi": "Majoitus" } },
+        { "key": "meals", "type": "text", "name": { "en": "Meals", "fi": "Ruokailu" } },
+        { "key": "packing", "type": "list", "name": { "en": "Packing list", "fi": "Varustelista" } },
+        { "key": "medicines", "type": "text", "name": { "en": "Medicines", "fi": "Lääkkeet" } },
+        { "key": "contact", "type": "text", "name": { "en": "Contact", "fi": "Yhteystiedot" } },
+        { "key": "insurance", "type": "text", "name": { "en": "Insurance", "fi": "Vakuutus" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["fee"],
+      "reminders": [{ "field": "register_by", "days": 3 }, { "field": "pay_by", "days": 3 }, { "field": "date", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "doctor_visit", "kind": "event", "group": "health", "packs": ["family"], "icon": "health",
+      "name": { "en": "Doctor's visit", "fi": "Lääkärikäynti" },
+      "help": { "en": "A doctor's appointment: preparation, costs, follow-up.", "fi": "Lääkärin vastaanotto: valmistautuminen, kulut, jatko." },
+      "fields": [
+        { "key": "provider", "type": "text", "name": { "en": "Doctor or provider", "fi": "Lääkäri / palveluntarjoaja" } },
+        { "key": "clinic", "type": "text", "name": { "en": "Clinic", "fi": "Vastaanotto" } },
+        { "key": "reason", "type": "text", "name": { "en": "Reason", "fi": "Syy" } },
+        { "key": "referral", "type": "bool", "name": { "en": "Referral", "fi": "Lähete" } },
+        { "key": "prepare", "type": "longtext", "name": { "en": "How to prepare", "fi": "Valmistautumisohjeet" } },
+        { "key": "bring", "type": "list", "name": { "en": "Documents to bring", "fi": "Mukaan otettavat dokumentit" } },
+        { "key": "takes", "type": "person", "name": { "en": "Takes", "fi": "Kuka vie" } },
+        { "key": "attends", "type": "person", "name": { "en": "Attends", "fi": "Kuka osallistuu" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } },
+        { "key": "insurance_covers", "type": "bool", "name": { "en": "Insurance covers", "fi": "Vakuutus korvaa" } },
+        { "key": "deductible", "type": "money", "name": { "en": "Deductible", "fi": "Omavastuu" } },
+        { "key": "receipt", "type": "url", "name": { "en": "Receipt", "fi": "Kuitti" } },
+        { "key": "follow_up", "type": "longtext", "name": { "en": "Follow-up", "fi": "Jatkotoimenpiteet" } },
+        { "key": "next_visit", "type": "date", "name": { "en": "Next check", "fi": "Seuraava kontrolli" } }
+      ],
+      "required": ["date", "start"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 1 }, { "field": "next_visit", "days": 14 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "dentist_visit", "kind": "event", "group": "health", "packs": ["family"], "icon": "tooth",
+      "name": { "en": "Dentist", "fi": "Hammaslääkäri" },
+      "help": { "en": "A dentist's check-up or treatment.", "fi": "Hammaslääkärin tarkastus tai hoito." },
+      "fields": [
+        { "key": "provider", "type": "text", "name": { "en": "Doctor or provider", "fi": "Lääkäri / palveluntarjoaja" } },
+        { "key": "clinic", "type": "text", "name": { "en": "Clinic", "fi": "Vastaanotto" } },
+        { "key": "reason", "type": "text", "name": { "en": "Reason", "fi": "Syy" } },
+        { "key": "referral", "type": "bool", "name": { "en": "Referral", "fi": "Lähete" } },
+        { "key": "prepare", "type": "longtext", "name": { "en": "How to prepare", "fi": "Valmistautumisohjeet" } },
+        { "key": "bring", "type": "list", "name": { "en": "Documents to bring", "fi": "Mukaan otettavat dokumentit" } },
+        { "key": "takes", "type": "person", "name": { "en": "Takes", "fi": "Kuka vie" } },
+        { "key": "attends", "type": "person", "name": { "en": "Attends", "fi": "Kuka osallistuu" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } },
+        { "key": "insurance_covers", "type": "bool", "name": { "en": "Insurance covers", "fi": "Vakuutus korvaa" } },
+        { "key": "deductible", "type": "money", "name": { "en": "Deductible", "fi": "Omavastuu" } },
+        { "key": "receipt", "type": "url", "name": { "en": "Receipt", "fi": "Kuitti" } },
+        { "key": "follow_up", "type": "longtext", "name": { "en": "Follow-up", "fi": "Jatkotoimenpiteet" } },
+        { "key": "next_visit", "type": "date", "name": { "en": "Next check", "fi": "Seuraava kontrolli" } },
+        { "key": "what", "type": "choice", "options": ["checkup", "treatment"], "name": { "en": "Check-up or treatment", "fi": "Tarkastus / hoito" },
+          "labels": { "checkup": { "en": "Check-up", "fi": "Tarkastus" }, "treatment": { "en": "Treatment", "fi": "Hoito" } } },
+        { "key": "treatment_plan", "type": "longtext", "name": { "en": "Treatment plan", "fi": "Hoitosuunnitelma" } },
+        { "key": "future_costs", "type": "money", "name": { "en": "Future costs", "fi": "Arvio tulevista kuluista" } }
+      ],
+      "required": ["date", "start"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 1 }, { "field": "next_visit", "days": 30 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "health_check", "kind": "event", "group": "health", "packs": ["family"], "icon": "health",
+      "name": { "en": "Health check", "fi": "Terveydenhoito / neuvola / tarkastus" },
+      "help": { "en": "Child health clinic, school nurse, occupational health, a vaccination.", "fi": "Neuvola, kouluterveydenhoitaja, työterveys, rokotus." },
+      "fields": [
+        { "key": "what", "type": "choice", "options": ["neuvola", "school_health", "occupational", "vaccination", "other"], "name": { "en": "Kind", "fi": "Tarkastuksen tyyppi" },
+          "labels": { "neuvola": { "en": "Child health clinic", "fi": "Neuvola" }, "school_health": { "en": "School health check", "fi": "Kouluterveydenhoitaja" }, "occupational": { "en": "Occupational health", "fi": "Työterveys" }, "vaccination": { "en": "Vaccination", "fi": "Rokotus" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "professional", "type": "person", "name": { "en": "Professional", "fi": "Ammattilainen" } },
+        { "key": "prepare", "type": "longtext", "name": { "en": "How to prepare", "fi": "Valmistautuminen" } },
+        { "key": "vaccinations", "type": "list", "name": { "en": "Vaccinations", "fi": "Rokotukset" } },
+        { "key": "measurements", "type": "text", "name": { "en": "Measurements", "fi": "Mittaukset" } },
+        { "key": "follow_up", "type": "longtext", "name": { "en": "Follow-up", "fi": "Jatkotoimenpiteet" } },
+        { "key": "next_visit", "type": "date", "name": { "en": "Next check", "fi": "Seuraava tarkastus" } },
+        { "key": "price", "type": "money", "name": { "en": "Cost", "fi": "Kustannus" } }
+      ],
+      "required": ["date"],
+      "budget": ["price"],
+      "reminders": [{ "field": "date", "days": 1 }, { "field": "next_visit", "days": 14 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "treatment_period", "kind": "event", "group": "health", "packs": ["family"], "icon": "pill", "repeats": true,
+      "name": { "en": "Medication or treatment", "fi": "Lääkitys / hoitojakso" },
+      "help": { "en": "A course of medicine or treatment: dosage, prescription, renewal.", "fi": "Lääkekuuri tai hoitojakso: annostus, resepti, uusinta." },
+      "fields": [
+        { "key": "treatment", "type": "text", "name": { "en": "Treatment or medicine", "fi": "Hoito / lääkitys" } },
+        { "key": "dosage", "type": "text", "name": { "en": "Dosage", "fi": "Annostus" } },
+        { "key": "times", "type": "list", "name": { "en": "Reminder times", "fi": "Muistutusajat" } },
+        { "key": "prescription_until", "type": "date", "name": { "en": "Prescription valid until", "fi": "Resepti voimassa" } },
+        { "key": "runs_out", "type": "date", "name": { "en": "Runs out about", "fi": "Lääke loppuu arviolta" } },
+        { "key": "renew_by", "type": "date", "name": { "en": "Renew by", "fi": "Uusittava viimeistään" } },
+        { "key": "price", "type": "money", "name": { "en": "Cost", "fi": "Kustannus" } }
+      ],
+      "required": ["date", "treatment"],
+      "budget": ["price"],
+      "reminders": [{ "field": "renew_by", "days": 7 }, { "field": "runs_out", "days": 7 }, { "field": "prescription_until", "days": 30 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "trip", "kind": "event", "group": "travel", "packs": ["family"], "icon": "plane",
+      "name": { "en": "Trip", "fi": "Matka" },
+      "help": { "en": "A trip: who goes, transport, lodging, packing, budget.", "fi": "Matka: osallistujat, kuljetukset, majoitus, pakkaus, budjetti." },
+      "fields": [
+        { "key": "travellers", "type": "people", "name": { "en": "Travellers", "fi": "Osallistujat" } },
+        { "key": "destination", "type": "text", "name": { "en": "Destination", "fi": "Kohde" } },
+        { "key": "from", "type": "text", "name": { "en": "From", "fi": "Lähtöpaikka" } },
+        { "key": "transport", "type": "list", "name": { "en": "Transport", "fi": "Kuljetusmuodot" } },
+        { "key": "flights", "type": "list", "name": { "en": "Flights", "fi": "Lennot" } },
+        { "key": "trains", "type": "list", "name": { "en": "Trains", "fi": "Junat" } },
+        { "key": "car", "type": "text", "name": { "en": "Car", "fi": "Auton käyttö" } },
+        { "key": "lodgings", "type": "list", "name": { "en": "Lodgings", "fi": "Majoitukset" } },
+        { "key": "bookings", "type": "list", "name": { "en": "Bookings", "fi": "Varaukset" } },
+        { "key": "insurance", "type": "text", "name": { "en": "Travel insurance", "fi": "Matkavakuutus" } },
+        { "key": "passports", "type": "text", "name": { "en": "Passport needs", "fi": "Passivaatimukset" } },
+        { "key": "packing", "type": "list", "name": { "en": "Packing list", "fi": "Pakkauslista" } },
+        { "key": "itinerary", "type": "longtext", "name": { "en": "Itinerary", "fi": "Matkasuunnitelma" } },
+        { "key": "budget", "type": "money", "name": { "en": "Total budget", "fi": "Kokonaisbudjetti" } },
+        { "key": "transport_budget", "type": "money", "name": { "en": "Transport budget", "fi": "Kuljetusbudjetti" } },
+        { "key": "lodging_budget", "type": "money", "name": { "en": "Lodging budget", "fi": "Majoitusbudjetti" } },
+        { "key": "food_budget", "type": "money", "name": { "en": "Food budget", "fi": "Ruokabudjetti" } },
+        { "key": "activity_budget", "type": "money", "name": { "en": "Activities budget", "fi": "Aktiviteettibudjetti" } },
+        { "key": "spent", "type": "money", "name": { "en": "Spent", "fi": "Toteutuneet kulut" } }
+      ],
+      "required": ["date", "end_date", "destination"],
+      "budget": ["spent", "budget"],
+      "reminders": [{ "field": "date", "days": 14 }, { "field": "date", "days": 2 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "transport_booking", "kind": "event", "group": "travel", "packs": ["family"], "icon": "plane",
+      "name": { "en": "Flight, train or ferry", "fi": "Lento / juna / laiva / muu matkavaraus" },
+      "help": { "en": "A booked journey: times, booking number, tickets, seats.", "fi": "Varattu matka: ajat, varausnumero, liput, paikat." },
+      "fields": [
+        { "key": "passengers", "type": "people", "name": { "en": "Passengers", "fi": "Matkustajat" } },
+        { "key": "mode", "type": "choice", "options": ["flight", "train", "ship", "bus", "other"], "name": { "en": "Mode", "fi": "Kuljetusmuoto" },
+          "labels": { "flight": { "en": "Flight", "fi": "Lento" }, "train": { "en": "Train", "fi": "Juna" }, "ship": { "en": "Ship", "fi": "Laiva" }, "bus": { "en": "Bus", "fi": "Bussi" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "company", "type": "text", "name": { "en": "Company", "fi": "Yhtiö" } },
+        { "key": "from", "type": "text", "name": { "en": "From", "fi": "Lähtöpaikka" } },
+        { "key": "to", "type": "text", "name": { "en": "To", "fi": "Määränpää" } },
+        { "key": "arrives", "type": "time", "name": { "en": "Arrives", "fi": "Saapumisaika" } },
+        { "key": "booking_ref", "type": "text", "name": { "en": "Booking number", "fi": "Varausnumero" } },
+        { "key": "tickets", "type": "list", "name": { "en": "Tickets", "fi": "Liput" } },
+        { "key": "seats", "type": "text", "name": { "en": "Seats", "fi": "Istumapaikat" } },
+        { "key": "luggage", "type": "text", "name": { "en": "Luggage", "fi": "Matkatavarat" } },
+        { "key": "leave_home", "type": "time", "name": { "en": "Leave home at", "fi": "Lähtö kotoa" } },
+        { "key": "to_station", "type": "text", "name": { "en": "To the airport or station", "fi": "Kuljetus kentälle/asemalle" } },
+        { "key": "price", "type": "money", "name": { "en": "Price", "fi": "Hinta" } },
+        { "key": "paid_by", "type": "person", "name": { "en": "Paid by", "fi": "Maksaja" } }
+      ],
+      "required": ["date", "start"],
+      "budget": ["price"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "accommodation_booking", "kind": "event", "group": "travel", "packs": ["family"], "icon": "bed",
+      "name": { "en": "Accommodation", "fi": "Majoitusvaraus" },
+      "help": { "en": "A hotel or rental: check-in, check-out, cancellation.", "fi": "Hotelli tai vuokramajoitus: tulo, lähtö, peruutus." },
+      "fields": [
+        { "key": "travellers", "type": "people", "name": { "en": "Travellers", "fi": "Matkustajat" } },
+        { "key": "lodging", "type": "text", "name": { "en": "Lodging", "fi": "Majoitus" } },
+        { "key": "address", "type": "text", "name": { "en": "Address", "fi": "Osoite" } },
+        { "key": "check_in", "type": "time", "name": { "en": "Check-in", "fi": "Check-in" } },
+        { "key": "check_out", "type": "time", "name": { "en": "Check-out", "fi": "Check-out" } },
+        { "key": "booking_ref", "type": "text", "name": { "en": "Booking number", "fi": "Varaustunnus" } },
+        { "key": "contact", "type": "text", "name": { "en": "Contact", "fi": "Yhteystiedot" } },
+        { "key": "cancellation", "type": "text", "name": { "en": "Cancellation terms", "fi": "Peruutusehdot" } },
+        { "key": "cancel_by", "type": "date", "name": { "en": "Cancel by", "fi": "Peruutuksen deadline" } },
+        { "key": "price", "type": "money", "name": { "en": "Price", "fi": "Hinta" } },
+        { "key": "paid", "type": "money", "name": { "en": "Paid", "fi": "Maksettu" } },
+        { "key": "left_to_pay", "type": "money", "name": { "en": "Left to pay", "fi": "Jäljellä maksettavaa" } },
+        { "key": "deposit", "type": "money", "name": { "en": "Deposit", "fi": "Vakuus" } }
+      ],
+      "required": ["date", "end_date"],
+      "budget": ["price"],
+      "reminders": [{ "field": "cancel_by", "days": 3 }, { "field": "date", "days": 2 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "property_booking", "kind": "event", "group": "booking", "packs": ["family", "business"], "icon": "home",
+      "name": { "en": "Holiday home booking", "fi": "Loma-asunnon varaus" },
+      "help": { "en": "Who uses the shared cottage or holiday home and when.", "fi": "Kuka käyttää yhteistä mökkiä tai loma-asuntoa ja milloin." },
+      "fields": [
+        { "key": "property", "type": "text", "name": { "en": "Property", "fi": "Kohde" } },
+        { "key": "users", "type": "people", "name": { "en": "Users", "fi": "Käyttäjät" } },
+        { "key": "arrive", "type": "time", "name": { "en": "Arrival", "fi": "Saapumisaika" } },
+        { "key": "leave", "type": "time", "name": { "en": "Departure", "fi": "Lähtöaika" } },
+        { "key": "overlaps", "type": "text", "name": { "en": "Overlapping bookings", "fi": "Päällekkäiset varaukset" } },
+        { "key": "keys", "type": "text", "name": { "en": "Keys", "fi": "Avainjärjestely" } },
+        { "key": "cleaning", "type": "text", "name": { "en": "Cleaning", "fi": "Siivous" } },
+        { "key": "linen", "type": "text", "name": { "en": "Linen", "fi": "Liinavaatteet" } },
+        { "key": "supplies", "type": "list", "name": { "en": "Supplies needed", "fi": "Tarviketarpeet" } },
+        { "key": "price", "type": "money", "name": { "en": "Costs", "fi": "Kustannukset" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } }
+      ],
+      "required": ["date", "end_date", "property"],
+      "budget": ["price"],
+      "reminders": [{ "field": "date", "days": 3 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "insurance_event", "kind": "deadline", "group": "financial", "packs": ["family", "business"], "icon": "shield",
+      "name": { "en": "Insurance renewal or due date", "fi": "Vakuutuksen uusiminen / eräpäivä" },
+      "help": { "en": "An insurance policy's renewal, notice period and payments.", "fi": "Vakuutuksen uusinta, irtisanomisaika ja maksut." },
+      "fields": [
+        { "key": "insurance", "type": "text", "name": { "en": "Insurance", "fi": "Vakuutus" } },
+        { "key": "insured", "type": "text", "name": { "en": "Insured person or property", "fi": "Vakuutettu" } },
+        { "key": "company", "type": "text", "name": { "en": "Company", "fi": "Yhtiö" } },
+        { "key": "number", "type": "text", "name": { "en": "Policy number", "fi": "Vakuutusnumero" } },
+        { "key": "what", "type": "choice", "options": ["home", "cottage", "car_ins", "travel", "life", "accident", "pet", "other"], "name": { "en": "Type", "fi": "Vakuutustyyppi" },
+          "labels": { "home": { "en": "Home", "fi": "Koti" }, "cottage": { "en": "Cottage", "fi": "Mökki" }, "car_ins": { "en": "Car", "fi": "Auto" }, "travel": { "en": "Travel", "fi": "Matka" }, "life": { "en": "Life", "fi": "Henki" }, "accident": { "en": "Accident", "fi": "Tapaturma" }, "pet": { "en": "Pet", "fi": "Lemmikki" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "valid_from", "type": "date", "name": { "en": "Valid from", "fi": "Voimassa alkaen" } },
+        { "key": "valid_to", "type": "date", "name": { "en": "Valid to", "fi": "Voimassa asti" } },
+        { "key": "renew_on", "type": "date", "name": { "en": "Renews on", "fi": "Uusimispäivä" } },
+        { "key": "notice_by", "type": "date", "name": { "en": "Notice by", "fi": "Irtisanottava viimeistään" } },
+        { "key": "next_payment", "type": "date", "name": { "en": "Next payment", "fi": "Seuraava maksu" } },
+        { "key": "every_months", "type": "months", "name": { "en": "Paid every (months)", "fi": "Maksuväli (kk)" } },
+        { "key": "yearly_cost", "type": "money", "name": { "en": "Yearly cost", "fi": "Vuosikustannus" } },
+        { "key": "deductible", "type": "money", "name": { "en": "Deductible", "fi": "Omavastuu" } },
+        { "key": "coverage", "type": "longtext", "name": { "en": "Coverage", "fi": "Kattavuus" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date", "insurance"],
+      "budget": ["yearly_cost"],
+      "reminders": [{ "field": "notice_by", "days": 14 }, { "field": "next_payment", "days": 7 }, { "field": "date", "days": 30 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "identity_document_event", "kind": "deadline", "group": "deadline", "packs": ["family"], "icon": "id",
+      "name": { "en": "Passport or ID renewal", "fi": "Passin / henkilöllisyystodistuksen uusiminen" },
+      "help": { "en": "A passport, ID card or licence running out: when to apply.", "fi": "Passi, henkilökortti tai ajokortti vanhenee: milloin hakea." },
+      "fields": [
+        { "key": "holder", "type": "person", "name": { "en": "Whose", "fi": "Kenen" } },
+        { "key": "what", "type": "choice", "options": ["passport", "id_card", "driving_licence", "other"], "name": { "en": "Document", "fi": "Dokumenttityyppi" },
+          "labels": { "passport": { "en": "Passport", "fi": "Passi" }, "id_card": { "en": "ID card", "fi": "Henkilökortti" }, "driving_licence": { "en": "Driving licence", "fi": "Ajokortti" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "number", "type": "text", "name": { "en": "Number", "fi": "Numero" } },
+        { "key": "issued", "type": "date", "name": { "en": "Issued", "fi": "Myönnetty" } },
+        { "key": "renew_from", "type": "date", "name": { "en": "Renew by (advised)", "fi": "Suositeltu uusimispäivä" } },
+        { "key": "travel_need", "type": "text", "name": { "en": "Travel requirement", "fi": "Matkavaatimus" } },
+        { "key": "trips", "type": "list", "name": { "en": "Trips it affects", "fi": "Tulevat matkat, joihin vaikuttaa" } },
+        { "key": "application", "type": "choice", "options": ["not_started", "applied", "ready"], "name": { "en": "Application", "fi": "Hakemuksen tila" },
+          "labels": { "not_started": { "en": "Not started", "fi": "Ei aloitettu" }, "applied": { "en": "Applied", "fi": "Haettu" }, "ready": { "en": "Ready", "fi": "Valmis" } } },
+        { "key": "appointment", "type": "date", "name": { "en": "Appointment", "fi": "Ajanvaraus" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date", "holder"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "renew_from", "days": 7 }, { "field": "date", "days": 90 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "bill", "kind": "deadline", "group": "financial", "packs": ["family", "business"], "icon": "receipt", "repeats": true,
+      "name": { "en": "Bill", "fi": "Lasku" },
+      "help": { "en": "A bill to pay: due date, amount, who pays, split.", "fi": "Maksettava lasku: eräpäivä, summa, maksaja, jako." },
+      "fields": [
+        { "key": "vendor", "type": "text", "name": { "en": "From", "fi": "Toimittaja" } },
+        { "key": "category", "type": "text", "name": { "en": "Category", "fi": "Kategoria" } },
+        { "key": "for_whom", "type": "text", "name": { "en": "For whom", "fi": "Kenelle kuuluu" } },
+        { "key": "bill_date", "type": "date", "name": { "en": "Bill date", "fi": "Laskun päivä" } },
+        { "key": "amount", "type": "money", "name": { "en": "Amount", "fi": "Summa" } },
+        { "key": "estimate", "type": "bool", "name": { "en": "Estimate", "fi": "Arvio" } },
+        { "key": "pay_status", "type": "choice", "options": ["unpaid", "partly", "paid"], "name": { "en": "Paid?", "fi": "Maksutilanne" },
+          "labels": { "unpaid": { "en": "Unpaid", "fi": "Maksamatta" }, "partly": { "en": "Partly paid", "fi": "Osittain maksettu" }, "paid": { "en": "Paid", "fi": "Maksettu" } } },
+        { "key": "reference", "type": "text", "name": { "en": "Reference", "fi": "Viite" } },
+        { "key": "split", "type": "text", "name": { "en": "Split between parents", "fi": "Jako vanhempien kesken" } },
+        { "key": "bill_doc", "type": "url", "name": { "en": "Bill", "fi": "Laskudokumentti" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date", "amount"],
+      "budget": ["amount"],
+      "reminders": [{ "field": "date", "days": 3 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "expense_reservation", "kind": "record", "group": "financial", "packs": ["family"], "icon": "piggy",
+      "name": { "en": "Expected expense", "fi": "Menovaraus" },
+      "help": { "en": "Money put aside for something coming: estimate, priority, likelihood.", "fi": "Tulevaan menoon varattu raha: arvio, prioriteetti, todennäköisyys." },
+      "fields": [
+        { "key": "about", "type": "text", "name": { "en": "What for", "fi": "Mihin liittyy" } },
+        { "key": "person", "type": "person", "name": { "en": "Person", "fi": "Henkilö" } },
+        { "key": "expected", "type": "date", "name": { "en": "Expected about", "fi": "Arvioitu ajankohta" } },
+        { "key": "min", "type": "money", "name": { "en": "At least", "fi": "Arvio min" } },
+        { "key": "max", "type": "money", "name": { "en": "At most", "fi": "Arvio max" } },
+        { "key": "expected_amount", "type": "money", "name": { "en": "Expected", "fi": "Odotettu summa" } },
+        { "key": "priority", "type": "choice", "options": ["low", "normal", "high"], "name": { "en": "Priority", "fi": "Prioriteetti" },
+          "labels": { "low": { "en": "Low", "fi": "Matala" }, "normal": { "en": "Normal", "fi": "Normaali" }, "high": { "en": "High", "fi": "Korkea" } } },
+        { "key": "reserved", "type": "money", "name": { "en": "Reserved", "fi": "Varattu budjetti" } },
+        { "key": "likelihood", "type": "number", "name": { "en": "Likelihood %", "fi": "Todennäköisyys %" } },
+        { "key": "realised", "type": "bool", "name": { "en": "Realised", "fi": "Toteutunut" } },
+        { "key": "actual", "type": "money", "name": { "en": "Actual amount", "fi": "Toteutunut summa" } }
+      ],
+      "required": ["expected_amount"],
+      "budget": ["actual", "expected_amount", "reserved"],
+      "reminders": [{ "field": "expected", "days": 14 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "purchase", "kind": "record", "group": "financial", "packs": ["family"], "icon": "cart",
+      "name": { "en": "Planned purchase", "fi": "Ostos / suunniteltu hankinta" },
+      "help": { "en": "Something to buy: by when, budget, options, bought.", "fi": "Hankittava asia: mihin mennessä, budjetti, vaihtoehdot, ostettu." },
+      "fields": [
+        { "key": "for_whom", "type": "person", "name": { "en": "For whom", "fi": "Kenelle" } },
+        { "key": "use", "type": "text", "name": { "en": "For", "fi": "Käyttötarkoitus" } },
+        { "key": "buy_by", "type": "date", "name": { "en": "Buy by", "fi": "Ostettava viimeistään" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated price", "fi": "Arvioitu hinta" } },
+        { "key": "budget", "type": "money", "name": { "en": "Budget", "fi": "Budjetti" } },
+        { "key": "options", "type": "list", "name": { "en": "Possible products", "fi": "Mahdolliset tuotteet" } },
+        { "key": "shops", "type": "list", "name": { "en": "Shops", "fi": "Kaupat" } },
+        { "key": "condition", "type": "choice", "options": ["new", "used", "either"], "name": { "en": "New or used", "fi": "Uusi / käytetty" },
+          "labels": { "new": { "en": "New", "fi": "Uusi" }, "used": { "en": "Used", "fi": "Käytetty" }, "either": { "en": "Either", "fi": "Kumpi vain" } } },
+        { "key": "buyer", "type": "person", "name": { "en": "Buyer", "fi": "Ostaja" } },
+        { "key": "bought", "type": "bool", "name": { "en": "Bought", "fi": "Ostettu" } },
+        { "key": "bought_on", "type": "date", "name": { "en": "Bought on", "fi": "Ostopäivä" } },
+        { "key": "price", "type": "money", "name": { "en": "Price", "fi": "Toteutunut hinta" } },
+        { "key": "receipt", "type": "url", "name": { "en": "Receipt", "fi": "Kuitti" } },
+        { "key": "warranty_until", "type": "date", "name": { "en": "Warranty until", "fi": "Takuu asti" } },
+        { "key": "return_by", "type": "date", "name": { "en": "Return by", "fi": "Palautusaika" } }
+      ],
+      "required": [],
+      "budget": ["price", "estimate", "budget"],
+      "reminders": [{ "field": "buy_by", "days": 7 }, { "field": "return_by", "days": 3 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "need", "kind": "record", "group": "financial", "packs": ["family"], "icon": "list",
+      "name": { "en": "Need", "fi": "Ostotarve" },
+      "help": { "en": "Something needed: size, priority, by when, status from idea to bought.", "fi": "Jotain tarvitaan: koko, prioriteetti, mihin mennessä, tila ideasta ostettuun." },
+      "fields": [
+        { "key": "for_whom", "type": "person", "name": { "en": "For whom", "fi": "Kenelle" } },
+        { "key": "why", "type": "text", "name": { "en": "Why", "fi": "Syy" } },
+        { "key": "quantity", "type": "number", "name": { "en": "Quantity", "fi": "Määrä" } },
+        { "key": "size", "type": "text", "name": { "en": "Size", "fi": "Koko" } },
+        { "key": "details", "type": "text", "name": { "en": "Colour / features", "fi": "Väri / ominaisuudet" } },
+        { "key": "priority", "type": "choice", "options": ["low", "normal", "high"], "name": { "en": "Priority", "fi": "Prioriteetti" },
+          "labels": { "low": { "en": "Low", "fi": "Matala" }, "normal": { "en": "Normal", "fi": "Normaali" }, "high": { "en": "High", "fi": "Korkea" } } },
+        { "key": "needed_by", "type": "date", "name": { "en": "Needed by", "fi": "Tarvitaan viimeistään" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated price", "fi": "Arvioitu hinta" } },
+        { "key": "used_ok", "type": "bool", "name": { "en": "Used is fine", "fi": "Voi ostaa käytettynä" } },
+        { "key": "alternatives", "type": "list", "name": { "en": "Alternatives", "fi": "Vaihtoehtoiset tuotteet" } },
+        { "key": "state", "type": "choice", "options": ["idea", "need", "searching", "chosen", "bought"], "name": { "en": "Status", "fi": "Tila" },
+          "labels": { "idea": { "en": "Idea", "fi": "Idea" }, "need": { "en": "Need", "fi": "Tarve" }, "searching": { "en": "Looking", "fi": "Etsitään" }, "chosen": { "en": "Chosen", "fi": "Valittu" }, "bought": { "en": "Bought", "fi": "Ostettu" } } }
+      ],
+      "required": [],
+      "budget": ["estimate"],
+      "reminders": [{ "field": "needed_by", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "gift_idea", "kind": "record", "group": "financial", "packs": ["family"], "icon": "gift",
+      "name": { "en": "Gift idea", "fi": "Lahjaidea" },
+      "help": { "en": "A gift idea for someone: price, where, bought, hidden from them.", "fi": "Lahjaidea jollekin: hinta, mistä, ostettu, piilossa saajalta." },
+      "fields": [
+        { "key": "recipient", "type": "person", "name": { "en": "For", "fi": "Lahjan saaja" } },
+        { "key": "occasion", "type": "text", "name": { "en": "Occasion", "fi": "Juhla / tapahtuma" } },
+        { "key": "idea", "type": "text", "name": { "en": "Idea", "fi": "Idea" } },
+        { "key": "wish", "type": "bool", "name": { "en": "Their wish", "fi": "Toive" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated price", "fi": "Arvioitu hinta" } },
+        { "key": "budget", "type": "money", "name": { "en": "Budget", "fi": "Budjetti" } },
+        { "key": "shop", "type": "text", "name": { "en": "Shop", "fi": "Mahdollinen kauppa" } },
+        { "key": "link", "type": "url", "name": { "en": "Link", "fi": "Linkki" } },
+        { "key": "available", "type": "text", "name": { "en": "Availability", "fi": "Saatavuus" } },
+        { "key": "buyer", "type": "person", "name": { "en": "Buyer", "fi": "Ostaja" } },
+        { "key": "bought", "type": "bool", "name": { "en": "Bought", "fi": "Ostettu" } },
+        { "key": "price", "type": "money", "name": { "en": "Price", "fi": "Toteutunut hinta" } },
+        { "key": "hidden", "type": "bool", "name": { "en": "Hidden from them", "fi": "Piilossa saajalta" } }
+      ],
+      "required": [],
+      "budget": ["price", "estimate"],
+      "reminders": [],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "christmas_gift", "kind": "record", "group": "financial", "packs": ["family"], "icon": "gift",
+      "name": { "en": "Christmas gift", "fi": "Joululahja" },
+      "help": { "en": "A Christmas gift: who buys, ordered, wrapped, hidden where.", "fi": "Joululahja: kuka ostaa, tilattu, paketoitu, piilossa missä." },
+      "fields": [
+        { "key": "recipient", "type": "person", "name": { "en": "For", "fi": "Saaja" } },
+        { "key": "idea", "type": "text", "name": { "en": "Gift", "fi": "Lahjaidea" } },
+        { "key": "priority", "type": "choice", "options": ["low", "normal", "high"], "name": { "en": "Priority", "fi": "Prioriteetti" },
+          "labels": { "low": { "en": "Low", "fi": "Matala" }, "normal": { "en": "Normal", "fi": "Normaali" }, "high": { "en": "High", "fi": "Korkea" } } },
+        { "key": "budget", "type": "money", "name": { "en": "Budget", "fi": "Budjetti" } },
+        { "key": "buyer", "type": "person", "name": { "en": "Buyer", "fi": "Ostaja" } },
+        { "key": "shop", "type": "text", "name": { "en": "From", "fi": "Hankintapaikka" } },
+        { "key": "ordered", "type": "bool", "name": { "en": "Ordered", "fi": "Tilattu" } },
+        { "key": "delivery", "type": "date", "name": { "en": "Delivery", "fi": "Toimituspäivä" } },
+        { "key": "received", "type": "bool", "name": { "en": "Received", "fi": "Vastaanotettu" } },
+        { "key": "wrapped", "type": "bool", "name": { "en": "Wrapped", "fi": "Paketoitu" } },
+        { "key": "hidden_at", "type": "text", "name": { "en": "Hidden at", "fi": "Piilotuspaikka" } },
+        { "key": "price", "type": "money", "name": { "en": "Price", "fi": "Toteutunut hinta" } },
+        { "key": "paid_by", "type": "person", "name": { "en": "Paid by", "fi": "Maksaja" } }
+      ],
+      "required": [],
+      "budget": ["price", "budget"],
+      "reminders": [{ "field": "delivery", "days": 2 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "maintenance", "kind": "deadline", "group": "asset_action", "packs": ["family", "business"], "icon": "wrench",
+      "name": { "en": "Maintenance", "fi": "Tavaran huolto" },
+      "help": { "en": "Regular servicing of a thing: interval, next service, cost.", "fi": "Tavaran säännöllinen huolto: väli, seuraava huolto, kulu." },
+      "fields": [
+        { "key": "item", "type": "text", "name": { "en": "Thing", "fi": "Tavara" } },
+        { "key": "owner", "type": "person", "name": { "en": "Owner", "fi": "Omistaja" } },
+        { "key": "what", "type": "text", "name": { "en": "Kind of service", "fi": "Huollon tyyppi" } },
+        { "key": "every_months", "type": "months", "name": { "en": "Every (months)", "fi": "Huoltoväli (kk)" } },
+        { "key": "last", "type": "date", "name": { "en": "Last service", "fi": "Edellinen huolto" } },
+        { "key": "earliest", "type": "date", "name": { "en": "Earliest", "fi": "Aikaisintaan" } },
+        { "key": "where", "type": "text", "name": { "en": "Where", "fi": "Huoltopaikka" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "parts", "type": "list", "name": { "en": "Parts needed", "fi": "Tarvittavat osat" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } },
+        { "key": "receipt", "type": "url", "name": { "en": "Receipt", "fi": "Kuitti" } },
+        { "key": "auto_next", "type": "bool", "name": { "en": "Next service automatically", "fi": "Seuraava huolto automaattisesti" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date", "item"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "earliest", "days": 0 }, { "field": "date", "days": 14 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "repair", "kind": "deadline", "group": "asset_action", "packs": ["family", "business"], "icon": "wrench",
+      "name": { "en": "Repair", "fi": "Korjaustarve" },
+      "help": { "en": "Something broken: how bad, by when, who fixes, cost.", "fi": "Jotain rikki: kuinka paha, mihin mennessä, kuka korjaa, kulu." },
+      "fields": [
+        { "key": "item", "type": "text", "name": { "en": "Thing", "fi": "Tavara" } },
+        { "key": "problem", "type": "longtext", "name": { "en": "Problem", "fi": "Ongelma" } },
+        { "key": "noticed", "type": "date", "name": { "en": "Noticed", "fi": "Havaittu" } },
+        { "key": "severity", "type": "choice", "options": ["minor", "major", "critical"], "name": { "en": "Severity", "fi": "Vakavuus" },
+          "labels": { "minor": { "en": "Minor", "fi": "Pieni" }, "major": { "en": "Major", "fi": "Suuri" }, "critical": { "en": "Critical", "fi": "Kriittinen" } } },
+        { "key": "usable", "type": "bool", "name": { "en": "Still usable", "fi": "Voi käyttää edelleen" } },
+        { "key": "window", "type": "text", "name": { "en": "When to repair", "fi": "Korjausaikaväli" } },
+        { "key": "repairer", "type": "text", "name": { "en": "Repairer", "fi": "Korjaaja" } },
+        { "key": "parts", "type": "list", "name": { "en": "Parts", "fi": "Varaosat" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Kustannusarvio" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } },
+        { "key": "warranty", "type": "bool", "name": { "en": "Warranty repair", "fi": "Takuukorjaus" } },
+        { "key": "state", "type": "choice", "options": ["reported", "in_repair", "fixed_done"], "name": { "en": "Status", "fi": "Tila" },
+          "labels": { "reported": { "en": "Reported", "fi": "Havaittu" }, "in_repair": { "en": "In repair", "fi": "Korjauksessa" }, "fixed_done": { "en": "Fixed", "fi": "Korjattu" } } }
+      ],
+      "required": ["date", "item"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "safety_maintenance", "kind": "deadline", "group": "asset_action", "packs": ["family", "business"], "icon": "alarm",
+      "name": { "en": "Smoke alarm or safety gear", "fi": "Palohälytin / turvallisuusvaruste" },
+      "help": { "en": "Smoke and CO alarms, fire blankets, extinguishers: checks, batteries, replacement.", "fi": "Palo- ja häkävaroittimet, sammutuspeitteet, sammuttimet: tarkastukset, paristot, uusiminen." },
+      "fields": [
+        { "key": "device", "type": "choice", "options": ["smoke_alarm", "co_alarm", "fire_blanket", "extinguisher", "other"], "name": { "en": "Device", "fi": "Laite" },
+          "labels": { "smoke_alarm": { "en": "Smoke alarm", "fi": "Palovaroitin" }, "co_alarm": { "en": "CO alarm", "fi": "Häkävaroitin" }, "fire_blanket": { "en": "Fire blanket", "fi": "Sammutuspeite" }, "extinguisher": { "en": "Extinguisher", "fi": "Sammutin" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "location", "type": "text", "name": { "en": "Where", "fi": "Sijainti" } },
+        { "key": "what", "type": "choice", "options": ["inspection", "battery", "replace"], "name": { "en": "What", "fi": "Tarkastuksen tyyppi" },
+          "labels": { "inspection": { "en": "Inspection", "fi": "Tarkastus" }, "battery": { "en": "Battery change", "fi": "Pariston vaihto" }, "replace": { "en": "Replacement", "fi": "Uusiminen" } } },
+        { "key": "last", "type": "date", "name": { "en": "Last checked", "fi": "Viimeksi tarkastettu" } },
+        { "key": "battery_on", "type": "date", "name": { "en": "Battery change", "fi": "Pariston vaihto" } },
+        { "key": "replace_on", "type": "date", "name": { "en": "Replace device", "fi": "Laitteen uusimispäivä" } },
+        { "key": "every_months", "type": "months", "name": { "en": "Every (months)", "fi": "Väli (kk)" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Kustannusarvio" } },
+        { "key": "done", "type": "bool", "name": { "en": "Done", "fi": "Suoritettu" } }
+      ],
+      "required": ["date", "device"],
+      "budget": ["estimate"],
+      "reminders": [{ "field": "date", "days": 3 }, { "field": "replace_on", "days": 30 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "flea_market_event", "kind": "event", "group": "event", "packs": ["family"], "icon": "tag",
+      "name": { "en": "Flea market day", "fi": "Kirpputoripäivä" },
+      "help": { "en": "A day selling at a flea market: table, times, sales, result.", "fi": "Myyntipäivä kirpputorilla: pöytä, ajat, myynti, tulos." },
+      "fields": [
+        { "key": "market", "type": "text", "name": { "en": "Flea market", "fi": "Kirpputori" } },
+        { "key": "table", "type": "text", "name": { "en": "Table number", "fi": "Pöytänumero" } },
+        { "key": "booking_ref", "type": "text", "name": { "en": "Booking number", "fi": "Varausnumero" } },
+        { "key": "table_fee", "type": "money", "name": { "en": "Table fee", "fi": "Pöytävuokra" } },
+        { "key": "arrive", "type": "time", "name": { "en": "Arrive at", "fi": "Saapumisaika" } },
+        { "key": "items", "type": "number", "name": { "en": "Number of things", "fi": "Tavaroiden määrä" } },
+        { "key": "in_charge", "type": "people", "name": { "en": "In charge", "fi": "Vastuuhenkilöt" } },
+        { "key": "transport", "type": "text", "name": { "en": "Transport", "fi": "Kuljetus" } },
+        { "key": "target", "type": "money", "name": { "en": "Sales target", "fi": "Tavoitteellinen myynti" } },
+        { "key": "sales", "type": "money", "name": { "en": "Sales", "fi": "Toteutunut myynti" } },
+        { "key": "costs", "type": "money", "name": { "en": "Costs", "fi": "Kulut" } },
+        { "key": "net", "type": "money", "name": { "en": "Net result", "fi": "Nettotulos" } }
+      ],
+      "required": ["date"],
+      "budget": ["table_fee", "costs"],
+      "reminders": [{ "field": "date", "days": 3 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "pickup_delivery", "kind": "event", "group": "event", "packs": ["family"], "icon": "box",
+      "name": { "en": "Pick-up or delivery", "fi": "Nouto / toimitus" },
+      "help": { "en": "Something to collect or that arrives: where, when, who.", "fi": "Noudettava tai saapuva asia: missä, milloin, kuka." },
+      "fields": [
+        { "key": "thing", "type": "text", "name": { "en": "What", "fi": "Asia" } },
+        { "key": "direction", "type": "choice", "options": ["pickup", "delivery"], "name": { "en": "Pick up or delivery", "fi": "Noudetaan / toimitetaan" },
+          "labels": { "pickup": { "en": "Pick up", "fi": "Nouto" }, "delivery": { "en": "Delivery", "fi": "Toimitus" } } },
+        { "key": "person", "type": "person", "name": { "en": "Person", "fi": "Henkilö" } },
+        { "key": "window", "type": "text", "name": { "en": "Time window", "fi": "Aikaväli" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "Who does it", "fi": "Kuka hoitaa" } },
+        { "key": "transport", "type": "text", "name": { "en": "How", "fi": "Kuljetustapa" } },
+        { "key": "remind", "type": "bool", "name": { "en": "Remind", "fi": "Muistutus" } },
+        { "key": "fee", "type": "money", "name": { "en": "Payment", "fi": "Maksu" } }
+      ],
+      "required": ["date", "thing"],
+      "budget": ["fee"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "home_task", "kind": "deadline", "group": "asset_action", "packs": ["family"], "icon": "home", "repeats": true,
+      "name": { "en": "Home task", "fi": "Kotiin liittyvä tehtävä" },
+      "help": { "en": "Something to do at home or the cottage: who, by when, supplies.", "fi": "Tehtävä kotona tai mökillä: kuka, mihin mennessä, tarvikkeet." },
+      "fields": [
+        { "key": "task", "type": "text", "name": { "en": "Task", "fi": "Tehtävä" } },
+        { "key": "where", "type": "text", "name": { "en": "Home, cottage…", "fi": "Koti / mökki / muu" } },
+        { "key": "location", "type": "text", "name": { "en": "Where exactly", "fi": "Sijainti" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "minutes", "type": "number", "name": { "en": "Takes about (min)", "fi": "Arvioitu kesto (min)" } },
+        { "key": "supplies", "type": "list", "name": { "en": "Supplies", "fi": "Tarvikkeet" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "done", "type": "bool", "name": { "en": "Done", "fi": "Tehty" } }
+      ],
+      "required": ["date"],
+      "budget": ["estimate"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "cleaning_event", "kind": "event", "group": "asset_action", "packs": ["family"], "icon": "broom", "repeats": true,
+      "name": { "en": "Cleaning", "fi": "Siivous / kodinhoito" },
+      "help": { "en": "Cleaning: rooms, tasks, who, products, a cleaner.", "fi": "Siivous: huoneet, tehtävät, kuka, tuotteet, siivooja." },
+      "fields": [
+        { "key": "where", "type": "text", "name": { "en": "Home, cottage…", "fi": "Kohde" } },
+        { "key": "rooms", "type": "list", "name": { "en": "Rooms", "fi": "Huone / alue" } },
+        { "key": "chores", "type": "list", "name": { "en": "Chores", "fi": "Tehtävät" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "products", "type": "list", "name": { "en": "Products", "fi": "Tarvittavat tuotteet" } },
+        { "key": "missing", "type": "list", "name": { "en": "Missing products", "fi": "Puuttuvat tuotteet" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "cleaner", "type": "text", "name": { "en": "Cleaner", "fi": "Ulkopuolinen siivooja" } },
+        { "key": "price", "type": "money", "name": { "en": "Cleaning cost", "fi": "Siivouskulu" } }
+      ],
+      "required": ["date"],
+      "budget": ["price", "estimate"],
+      "reminders": [],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "inventory_check", "kind": "event", "group": "asset_action", "packs": ["family", "business"], "icon": "box",
+      "name": { "en": "Storage check", "fi": "Varaston tarkastus" },
+      "help": { "en": "Going through a store: what is missing, low, to sell or to buy.", "fi": "Varaston läpikäynti: mitä puuttuu, mitä vähissä, myyntiin, ostettavaksi." },
+      "fields": [
+        { "key": "store", "type": "text", "name": { "en": "Store or place", "fi": "Varasto / sijainti" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "categories", "type": "list", "name": { "en": "Categories", "fi": "Tarkastettavat kategoriat" } },
+        { "key": "missing", "type": "list", "name": { "en": "Missing", "fi": "Puuttuvat tuotteet" } },
+        { "key": "low", "type": "list", "name": { "en": "Running low", "fi": "Vähissä" } },
+        { "key": "discard", "type": "list", "name": { "en": "To throw away", "fi": "Poistettavat" } },
+        { "key": "to_sell", "type": "list", "name": { "en": "To sell", "fi": "Myyntiin" } },
+        { "key": "to_buy", "type": "list", "name": { "en": "To buy", "fi": "Ostotarpeiksi" } }
+      ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [{ "field": "date", "days": 1 }]
+    },
+    {
+      "id": "deadline", "kind": "deadline", "group": "deadline", "packs": ["*"], "icon": "flag",
+      "name": { "en": "Important deadline", "fi": "Tärkeä määräpäivä" },
+      "help": { "en": "Anything that must be done by a day.", "fi": "Mikä tahansa, joka on hoidettava tiettyyn päivään mennessä." },
+      "fields": [
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "person", "type": "person", "name": { "en": "Concerns", "fi": "Liittyvä henkilö" } },
+        { "key": "about", "type": "text", "name": { "en": "About", "fi": "Liittyvä kohde" } },
+        { "key": "steps", "type": "list", "name": { "en": "Tasks", "fi": "Tarvittavat tehtävät" } },
+        { "key": "cost_effect", "type": "money", "name": { "en": "Cost", "fi": "Kustannusvaikutus" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date"],
+      "budget": ["cost_effect"],
+      "reminders": [{ "field": "date", "days": 7 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "reservation", "kind": "event", "group": "booking", "packs": ["family", "sports", "business"], "icon": "ticket",
+      "name": { "en": "Reservation", "fi": "Varaus" },
+      "help": { "en": "A reservation for a court, a restaurant or an activity.", "fi": "Varaus kentälle, ravintolaan tai aktiviteettiin." },
+      "fields": [
+        { "key": "what", "type": "text", "name": { "en": "What", "fi": "Varauksen kohde" } },
+        { "key": "attendees", "type": "people", "name": { "en": "Attendees", "fi": "Osallistujat" } },
+        { "key": "booking_ref", "type": "text", "name": { "en": "Booking number", "fi": "Varausnumero" } },
+        { "key": "contact", "type": "text", "name": { "en": "Contact", "fi": "Yhteystieto" } },
+        { "key": "cancel_by", "type": "date", "name": { "en": "Cancel by", "fi": "Peruutusdeadline" } },
+        { "key": "price", "type": "money", "name": { "en": "Price", "fi": "Kustannus" } },
+        { "key": "prepaid", "type": "money", "name": { "en": "Prepaid", "fi": "Ennakkomaksu" } },
+        { "key": "left_to_pay", "type": "money", "name": { "en": "Left to pay", "fi": "Maksettavaa jäljellä" } }
+      ],
+      "required": ["date"],
+      "budget": ["price"],
+      "reminders": [{ "field": "cancel_by", "days": 2 }, { "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "appointment", "kind": "event", "group": "event", "packs": ["family", "business"], "icon": "people",
+      "name": { "en": "Meeting", "fi": "Tapaaminen" },
+      "help": { "en": "A meeting with an office, a teacher, a bank, anyone.", "fi": "Tapaaminen viraston, opettajan, pankin tai kenen tahansa kanssa." },
+      "fields": [
+        { "key": "attendees", "type": "people", "name": { "en": "Attendees", "fi": "Osallistujat" } },
+        { "key": "with", "type": "text", "name": { "en": "With", "fi": "Taho / henkilö" } },
+        { "key": "topic", "type": "text", "name": { "en": "Topic", "fi": "Aihe" } },
+        { "key": "contact", "type": "text", "name": { "en": "Contact", "fi": "Yhteyshenkilö" } },
+        { "key": "mode", "type": "choice", "options": ["in_person", "remote"], "name": { "en": "How", "fi": "Tapa" },
+          "labels": { "in_person": { "en": "In person", "fi": "Paikan päällä" }, "remote": { "en": "Remote", "fi": "Etänä" } } },
+        { "key": "remote_link", "type": "url", "name": { "en": "Remote link", "fi": "Etälinkki" } },
+        { "key": "prepare", "type": "list", "name": { "en": "To prepare", "fi": "Valmisteltavat asiat" } },
+        { "key": "bring", "type": "list", "name": { "en": "Documents to bring", "fi": "Mukaan tarvittavat dokumentit" } },
+        { "key": "minutes", "type": "longtext", "name": { "en": "Notes", "fi": "Muistiinpanot" } },
+        { "key": "price", "type": "money", "name": { "en": "Cost", "fi": "Kustannus" } }
+      ],
+      "required": ["date"],
+      "budget": ["price"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "contact_task", "kind": "deadline", "group": "reminder", "packs": ["family", "business"], "icon": "phone",
+      "name": { "en": "Call or contact", "fi": "Yhteydenotto / soitettava asia" },
+      "help": { "en": "Someone to call or e-mail: about what, by when, what was agreed.", "fi": "Joku, jolle soitetaan tai kirjoitetaan: mistä, mihin mennessä, mitä sovittiin." },
+      "fields": [
+        { "key": "whom", "type": "text", "name": { "en": "Whom", "fi": "Kenelle" } },
+        { "key": "phone", "type": "phone", "name": { "en": "Phone", "fi": "Puhelin" } },
+        { "key": "email", "type": "email", "name": { "en": "E-mail", "fi": "Sähköposti" } },
+        { "key": "topic", "type": "text", "name": { "en": "About", "fi": "Aihe" } },
+        { "key": "caller", "type": "person", "name": { "en": "Who contacts", "fi": "Kuka ottaa yhteyttä" } },
+        { "key": "best_time", "type": "text", "name": { "en": "Best time to call", "fi": "Paras soittoaika" } },
+        { "key": "state", "type": "choice", "options": ["to_call", "contacted", "agreed"], "name": { "en": "Status", "fi": "Tila" },
+          "labels": { "to_call": { "en": "To contact", "fi": "Otettava yhteyttä" }, "contacted": { "en": "Contacted", "fi": "Yhteys otettu" }, "agreed": { "en": "Agreed", "fi": "Sovittu" } } },
+        { "key": "agreed", "type": "longtext", "name": { "en": "What was agreed", "fi": "Mitä sovittiin" } },
+        { "key": "next", "type": "text", "name": { "en": "Next step", "fi": "Jatkotoimenpide" } }
+      ],
+      "required": ["date", "whom"],
+      "budget": [],
+      "reminders": [{ "field": "date", "days": 0 }]
+    },
+    {
+      "id": "reminder", "kind": "deadline", "group": "reminder", "packs": ["*"], "icon": "bell", "repeats": true,
+      "name": { "en": "Reminder", "fi": "Perheen muistutus" },
+      "help": { "en": "Something to remember on a day: who, repeats, needs an acknowledgement.", "fi": "Muistettava asia tiettynä päivänä: kenelle, toistuu, kuitattava." },
+      "fields": [
+        { "key": "for_whom", "type": "people", "name": { "en": "For", "fi": "Kenelle" } },
+        { "key": "about", "type": "text", "name": { "en": "About", "fi": "Liittyvä asia" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "ack_needed", "type": "bool", "name": { "en": "Must be acknowledged", "fi": "Kuittaus vaaditaan" } },
+        { "key": "acknowledged", "type": "bool", "name": { "en": "Acknowledged", "fi": "Kuitattu" } },
+        { "key": "escalate_to", "type": "person", "name": { "en": "Escalate to", "fi": "Eskaloidaan henkilölle" } },
+        { "key": "remind_days", "type": "number", "name": { "en": "Remind days before", "fi": "Muistutus päivää ennen" } }
+      ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [{ "field": "date", "days": 0 }]
+    },
+    {
+      "id": "schedule_exception", "kind": "event", "group": "care", "packs": ["family"], "icon": "shuffle",
+      "name": { "en": "Change to the usual", "fi": "Poikkeus normaalirytmiin" },
+      "help": { "en": "A change to a usual routine: \"Leo is not going to after-school club today\".", "fi": "Muutos tavalliseen rytmiin: \"Leo ei mene iltapäiväkerhoon tänään\"." },
+      "fields": [
+        { "key": "routine", "type": "text", "name": { "en": "Usual event", "fi": "Normaali tapahtuma" } },
+        { "key": "what", "type": "choice", "options": ["cancelled", "different_time", "different_place", "different_pickup", "not_attending"], "name": { "en": "Change", "fi": "Poikkeuksen tyyppi" },
+          "labels": { "cancelled": { "en": "Cancelled", "fi": "Peruttu" }, "different_time": { "en": "Different time", "fi": "Eri aika" }, "different_place": { "en": "Different place", "fi": "Eri paikka" }, "different_pickup": { "en": "Different pick-up", "fi": "Eri hakija" }, "not_attending": { "en": "Not attending", "fi": "Ei osallistu" } } },
+        { "key": "instead", "type": "text", "name": { "en": "Arranged instead", "fi": "Korvaava järjestely" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "transport_effect", "type": "text", "name": { "en": "Effect on transport", "fi": "Vaikutus kuljetukseen" } },
+        { "key": "meals_effect", "type": "text", "name": { "en": "Effect on meals", "fi": "Vaikutus ruokailuun" } },
+        { "key": "cost_effect", "type": "money", "name": { "en": "Effect on costs", "fi": "Vaikutus kustannuksiin" } }
+      ],
+      "required": ["date", "ward"],
+      "budget": ["cost_effect"],
+      "reminders": [{ "field": "date", "days": 0 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "transport_arrangement", "kind": "event", "group": "travel", "packs": ["family", "sports"], "icon": "car",
+      "name": { "en": "Ride", "fi": "Kuljetusjärjestely" },
+      "help": { "en": "Who drives whom where: departure, arrival, car pool, return.", "fi": "Kuka kuljettaa kenet minne: lähtö, perillä, kimppakyyti, paluu." },
+      "fields": [
+        { "key": "passengers", "type": "people", "name": { "en": "Passengers", "fi": "Matkustajat" } },
+        { "key": "from", "type": "text", "name": { "en": "From", "fi": "Lähtö" } },
+        { "key": "to", "type": "text", "name": { "en": "To", "fi": "Määränpää" } },
+        { "key": "arrive_by", "type": "time", "name": { "en": "Arrive by", "fi": "Oltava perillä" } },
+        { "key": "driver", "type": "person", "name": { "en": "Driver", "fi": "Kuljettaja" } },
+        { "key": "vehicle", "type": "text", "name": { "en": "Vehicle", "fi": "Ajoneuvo" } },
+        { "key": "carpool", "type": "bool", "name": { "en": "Car pool", "fi": "Kimppakyyti" } },
+        { "key": "others", "type": "people", "name": { "en": "Other passengers", "fi": "Muut matkustajat" } },
+        { "key": "return", "type": "text", "name": { "en": "Return", "fi": "Paluukuljetus" } },
+        { "key": "minutes", "type": "number", "name": { "en": "Travel time (min)", "fi": "Arvioitu matka-aika (min)" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } }
+      ],
+      "required": ["date", "start", "driver"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "meal_event", "kind": "event", "group": "care", "packs": ["family"], "icon": "food",
+      "name": { "en": "Special meal", "fi": "Ruokailu / erityinen ruokajärjestely" },
+      "help": { "en": "Not every dinner: packed lunches, allergies, a meal elsewhere.", "fi": "Ei arkiruokaa: eväät, allergiat, ateria muualla." },
+      "fields": [
+        { "key": "what", "type": "choice", "options": ["breakfast", "lunch", "dinner", "packed", "party_food", "other"], "name": { "en": "Meal", "fi": "Ruokailun tyyppi" },
+          "labels": { "breakfast": { "en": "Breakfast", "fi": "Aamiainen" }, "lunch": { "en": "Lunch", "fi": "Lounas" }, "dinner": { "en": "Dinner", "fi": "Päivällinen" }, "packed": { "en": "Packed lunch", "fi": "Eväät" }, "party_food": { "en": "Party food", "fi": "Juhlaruoka" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "included", "type": "bool", "name": { "en": "Meal included", "fi": "Ateria sisältyy" } },
+        { "key": "packed_lunch", "type": "bool", "name": { "en": "Packed lunch needed", "fi": "Eväät tarvitaan" } },
+        { "key": "allergies", "type": "text", "name": { "en": "Allergies", "fi": "Allergiat" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Arvioitu kustannus" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } }
+      ],
+      "required": ["date"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "recurring_expense", "kind": "deadline", "group": "financial", "packs": ["family"], "icon": "repeat", "repeats": true,
+      "name": { "en": "Recurring family expense", "fi": "Toistuva perhekulu" },
+      "help": { "en": "Daycare, after-school club, a hobby fee: billed every so often.", "fi": "Päivähoito, iltapäiväkerho, harrastusmaksu: laskutetaan säännöllisesti." },
+      "fields": [
+        { "key": "category", "type": "text", "name": { "en": "Category", "fi": "Kategoria" } },
+        { "key": "for_whom", "type": "text", "name": { "en": "Person or family", "fi": "Henkilö / perhe" } },
+        { "key": "ends", "type": "date", "name": { "en": "Ends", "fi": "Päättyy" } },
+        { "key": "billing", "type": "choice", "options": ["monthly", "quarterly", "yearly", "other"], "name": { "en": "Billed", "fi": "Laskutusväli" },
+          "labels": { "monthly": { "en": "Monthly", "fi": "Kuukausittain" }, "quarterly": { "en": "Quarterly", "fi": "Neljännesvuosittain" }, "yearly": { "en": "Yearly", "fi": "Vuosittain" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "due_rule", "type": "text", "name": { "en": "Due day rule", "fi": "Eräpäivälogiikka" } },
+        { "key": "amount", "type": "money", "name": { "en": "Amount", "fi": "Arvioitu summa" } },
+        { "key": "fixed", "type": "choice", "options": ["fixed", "variable"], "name": { "en": "Fixed or variable", "fi": "Kiinteä / muuttuva" },
+          "labels": { "fixed": { "en": "Fixed", "fi": "Kiinteä" }, "variable": { "en": "Variable", "fi": "Muuttuva" } } },
+        { "key": "split", "type": "text", "name": { "en": "Split", "fi": "Jako" } },
+        { "key": "forecast", "type": "bool", "name": { "en": "Forecast automatically", "fi": "Automaattinen ennuste" } }
+      ],
+      "required": ["date", "amount"],
+      "budget": ["amount"],
+      "reminders": [{ "field": "date", "days": 3 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "custom_family_event", "kind": "event", "group": "event", "packs": ["family"], "icon": "star",
+      "name": { "en": "Other family event", "fi": "Muu Family-tapahtuma" },
+      "help": { "en": "Anything else: name it and give it fields of its own.", "fi": "Mikä tahansa muu: nimeä se ja anna sille omat kentät." },
+      "fields": [
+        { "key": "attendees", "type": "people", "name": { "en": "Attendees", "fi": "Osallistujat" } },
+        { "key": "in_charge", "type": "person", "name": { "en": "In charge", "fi": "Vastuuhenkilö" } },
+        { "key": "estimate", "type": "money", "name": { "en": "Estimated cost", "fi": "Kustannusarvio" } },
+        { "key": "price", "type": "money", "name": { "en": "Actual cost", "fi": "Toteutunut kustannus" } },
+        { "key": "extra", "type": "longtext", "name": { "en": "More details", "fi": "Vapaat lisäkentät" } }
+      ],
+      "required": ["date"],
+      "budget": ["price", "estimate"],
+      "reminders": [{ "field": "date", "days": 1 }],
+      "cost": { "en": "Cost", "fi": "Kulu" }
+    },
+    {
+      "id": "invitation", "kind": "event", "packs": [], "icon": "gift", "replaced_by": "birthday_invitation", "legacy": true, "group": "event",
       "name": { "en": "Party invitation", "fi": "Juhlakutsu" },
       "help": { "en": "A ward is invited to someone's party: going or not, who takes and picks up, the gift.", "fi": "Hoidettava on kutsuttu juhliin: mennäänkö, kuka vie ja hakee, lahja." },
       "fields": [
@@ -25,10 +1199,13 @@
         { "key": "gift_buyer", "type": "person", "name": { "en": "Bought by", "fi": "Ostaja" } },
         { "key": "others_care", "type": "text", "name": { "en": "Meanwhile the others", "fi": "Muiden hoito sillä aikaa" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Gift", "fi": "Lahja" }
     },
     {
-      "id": "party", "kind": "event", "packs": ["family"], "icon": "cake",
+      "id": "party", "kind": "event", "packs": [], "icon": "cake", "replaced_by": "birthday", "legacy": true, "group": "event",
       "name": { "en": "Own party", "fi": "Omat juhlat" },
       "help": { "en": "A party the group throws: guests, invitations sent, the plan and its budget.", "fi": "Omat juhlat: vieraat, kutsut, suunnitelma ja budjetti." },
       "fields": [
@@ -38,10 +1215,13 @@
         { "key": "theme", "type": "text", "name": { "en": "Theme", "fi": "Teema" } },
         { "key": "plan", "type": "longtext", "name": { "en": "Plan and tasks", "fi": "Suunnitelma ja tehtävät" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Budget", "fi": "Budjetti" }
     },
     {
-      "id": "hobby", "kind": "event", "packs": ["family", "sports"], "icon": "ball", "repeats": true,
+      "id": "hobby", "kind": "event", "packs": ["sports"], "icon": "ball", "repeats": true, "replaced_by": "activity", "group": "event",
       "name": { "en": "Hobby", "fi": "Harrastus" },
       "help": { "en": "A repeating hobby: the season's first and last day, the weekly times, the place.", "fi": "Toistuva harrastus: kauden alku ja loppu, viikoittaiset ajat, paikka." },
       "fields": [
@@ -50,10 +1230,13 @@
         { "key": "coach_phone", "type": "phone", "name": { "en": "Coach's phone", "fi": "Valmentajan puhelin" } },
         { "key": "gear", "type": "text", "name": { "en": "Gear to bring", "fi": "Mukaan" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Fee", "fi": "Maksu" }
     },
     {
-      "id": "care_shift", "kind": "event", "packs": ["family"], "icon": "heart",
+      "id": "care_shift", "kind": "event", "packs": [], "icon": "heart", "replaced_by": "childcare_shift", "legacy": true, "group": "event",
       "name": { "en": "Care shift", "fi": "Hoitovuoro" },
       "help": { "en": "Who looks after a ward, from when to when (a sitter, grandparents, the other parent).", "fi": "Kuka hoitaa hoidettavaa, mistä mihin (hoitaja, isovanhemmat, toinen vanhempi)." },
       "fields": [
@@ -61,20 +1244,26 @@
         { "key": "carer_phone", "type": "phone", "name": { "en": "Carer's phone", "fi": "Hoitajan puhelin" } },
         { "key": "handover", "type": "text", "name": { "en": "Handover place", "fi": "Luovutuspaikka" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Fee", "fi": "Palkkio" }
     },
     {
-      "id": "care_day", "kind": "event", "packs": ["family"], "icon": "home",
+      "id": "care_day", "kind": "event", "packs": [], "icon": "home", "replaced_by": "daycare_day", "legacy": true, "group": "event",
       "name": { "en": "Day off care", "fi": "Hoitopäivä" },
       "help": { "en": "A day the ward stays home or is looked after outside the usual: sick day, closed daycare, holiday.", "fi": "Päivä, jona hoidettava on poikkeuksellisesti kotona tai hoidossa: sairaus, suljettu päiväkoti, loma." },
       "fields": [
         { "key": "reason", "type": "choice", "options": ["sick", "closed", "holiday", "other"], "name": { "en": "Why", "fi": "Syy" },
           "labels": { "sick": { "en": "Sick", "fi": "Sairas" }, "closed": { "en": "Daycare or school closed", "fi": "Päiväkoti tai koulu kiinni" }, "holiday": { "en": "Holiday", "fi": "Loma" }, "other": { "en": "Other", "fi": "Muu" } } },
         { "key": "carer", "type": "person", "name": { "en": "Looked after by", "fi": "Hoitaja" } }
-      ]
+      ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": []
     },
     {
-      "id": "school", "kind": "event", "packs": ["family"], "icon": "school",
+      "id": "school", "kind": "event", "packs": [], "icon": "school", "replaced_by": "school_event", "legacy": true, "group": "event",
       "name": { "en": "School or daycare", "fi": "Koulu tai päiväkoti" },
       "help": { "en": "Term starts and ends, parents' evenings, trips, photo days: the official dates.", "fi": "Lukukauden alut ja loput, vanhempainillat, retket, kuvauspäivät: viralliset päivät." },
       "fields": [
@@ -82,10 +1271,13 @@
           "labels": { "term": { "en": "Term", "fi": "Lukukausi" }, "holiday": { "en": "Holiday", "fi": "Loma" }, "parents_evening": { "en": "Parents' evening", "fi": "Vanhempainilta" }, "trip": { "en": "Trip", "fi": "Retki" }, "other": { "en": "Other", "fi": "Muu" } } },
         { "key": "school", "type": "text", "name": { "en": "School or group", "fi": "Koulu tai ryhmä" } },
         { "key": "bring", "type": "text", "name": { "en": "Bring along", "fi": "Mukaan" } }
-      ]
+      ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": []
     },
     {
-      "id": "local_event", "kind": "event", "packs": ["family", "sports"], "icon": "flag",
+      "id": "local_event", "kind": "event", "packs": ["sports"], "icon": "flag", "replaced_by": "competition", "group": "event",
       "name": { "en": "Competition or local event", "fi": "Kilpailu tai paikallinen tapahtuma" },
       "help": { "en": "Competitions, tournaments, public parties and local events that break the usual week.", "fi": "Kilpailut, turnaukset, yleiset juhlat ja paikalliset tapahtumat, jotka poikkeavat tavallisesta viikosta." },
       "fields": [
@@ -95,10 +1287,13 @@
         { "key": "register_by", "type": "date", "name": { "en": "Sign up by", "fi": "Ilmoittautuminen viimeistään" } },
         { "key": "link", "type": "url", "name": { "en": "Link", "fi": "Linkki" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Fee", "fi": "Maksu" }
     },
     {
-      "id": "item", "kind": "record", "packs": ["family", "sports", "business"], "icon": "box",
+      "id": "item", "kind": "record", "packs": ["family", "sports", "business"], "icon": "box", "group": "asset_action",
       "name": { "en": "Thing", "fi": "Tavara" },
       "help": { "en": "A thing the group keeps track of: where it is, whether it is missing or needs repair (with the repair's dates), outgrown.", "fi": "Tavara, jota seurataan: missä se on, puuttuuko tai tarvitseeko korjausta (korjauksen ajat), käykö pieneksi." },
       "fields": [
@@ -110,10 +1305,13 @@
         { "key": "size", "type": "text", "name": { "en": "Size", "fi": "Koko" } },
         { "key": "repair_days", "type": "number", "name": { "en": "Repair takes (days)", "fi": "Korjaus kestää (päivää)" } }
       ],
+      "required": [],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Price", "fi": "Hinta" }
     },
     {
-      "id": "stock", "kind": "record", "packs": ["family", "business"], "icon": "shelf",
+      "id": "stock", "kind": "record", "packs": ["family", "business"], "icon": "shelf", "group": "asset_action",
       "name": { "en": "Supply", "fi": "Varasto" },
       "help": { "en": "Supplies kept at home or in storage: how many there are, how few is too few.", "fi": "Kodin tai varaston tarvikkeet: kuinka monta on, milloin liian vähän." },
       "fields": [
@@ -122,10 +1320,13 @@
         { "key": "location", "type": "text", "name": { "en": "Kept in", "fi": "Säilytyspaikka" } },
         { "key": "quantity", "type": "number", "name": { "en": "Quantity", "fi": "Määrä" } },
         { "key": "min", "type": "number", "name": { "en": "Buy more below", "fi": "Hanki lisää, kun alle" } }
-      ]
+      ],
+      "required": [],
+      "budget": [],
+      "reminders": []
     },
     {
-      "id": "wish", "kind": "record", "packs": ["family"], "icon": "star",
+      "id": "wish", "kind": "record", "packs": [], "icon": "star", "replaced_by": "gift_idea", "legacy": true, "group": "event",
       "name": { "en": "Gift or purchase idea", "fi": "Lahja- tai hankintaidea" },
       "help": { "en": "Ideas for what to get a ward: gifts (Christmas, birthday) and purchases (clothes, school, hobby), with their state and price.", "fi": "Ideat hoidettavalle hankittavista: lahjat (joulu, syntymäpäivä) ja hankinnat (vaatteet, koulu, harrastus), tila ja hinta." },
       "fields": [
@@ -137,21 +1338,41 @@
         { "key": "buyer", "type": "person", "name": { "en": "Buys", "fi": "Ostaja" } },
         { "key": "link", "type": "url", "name": { "en": "Link", "fi": "Linkki" } }
       ],
+      "required": [],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Price", "fi": "Hinta" }
     },
     {
-      "id": "sale_item", "kind": "record", "packs": ["family"], "icon": "tag",
+      "id": "sale_item", "kind": "record", "packs": ["family"], "icon": "tag", "group": "financial",
       "name": { "en": "Thing to sell", "fi": "Myytävä" },
       "help": { "en": "A thing for a second-hand sale: its price and label; the label is made from the space's next number when left out.", "fi": "Kirpputorille menevä tavara: hinta ja lappu; lapun numero tehdään tilan seuraavasta numerosta, jos sitä ei anneta." },
       "fields": [
         { "key": "label", "type": "text", "name": { "en": "Label", "fi": "Lappu" } },
         { "key": "price", "type": "money", "name": { "en": "Asking price", "fi": "Pyyntihinta" } },
         { "key": "size", "type": "text", "name": { "en": "Size", "fi": "Koko" } },
-        { "key": "sold", "type": "bool", "name": { "en": "Sold", "fi": "Myyty" } }
-      ]
+        { "key": "sold", "type": "bool", "name": { "en": "Sold", "fi": "Myyty" } },
+        { "key": "owner", "type": "person", "name": { "en": "Owner", "fi": "Omistaja" } },
+        { "key": "category", "type": "text", "name": { "en": "Category", "fi": "Kategoria" } },
+        { "key": "condition", "type": "choice", "options": ["excellent", "good", "fair", "poor"], "name": { "en": "Condition", "fi": "Kunto" },
+          "labels": { "excellent": { "en": "Like new", "fi": "Uudenveroinen" }, "good": { "en": "Good", "fi": "Hyvä" }, "fair": { "en": "Fair", "fi": "Kohtalainen" }, "poor": { "en": "Poor", "fi": "Heikko" } } },
+        { "key": "picture", "type": "url", "name": { "en": "Picture", "fi": "Kuva" } },
+        { "key": "min_price", "type": "money", "name": { "en": "Lowest price", "fi": "Minimihinta" } },
+        { "key": "channel", "type": "choice", "options": ["flea_market", "online", "other"], "name": { "en": "Sold where", "fi": "Myyntikanava" },
+          "labels": { "flea_market": { "en": "Flea market", "fi": "Kirpputori" }, "online": { "en": "Online", "fi": "Verkossa" }, "other": { "en": "Other", "fi": "Muu" } } },
+        { "key": "market_day", "type": "text", "name": { "en": "Flea market day", "fi": "Kirpputoripäivä" } },
+        { "key": "packed", "type": "bool", "name": { "en": "Packed", "fi": "Pakattu" } },
+        { "key": "taken", "type": "bool", "name": { "en": "Taken to sell", "fi": "Viety myyntiin" } },
+        { "key": "sold_for", "type": "money", "name": { "en": "Sold for", "fi": "Myyntihinta" } },
+        { "key": "buyer", "type": "text", "name": { "en": "Buyer", "fi": "Ostaja" } },
+        { "key": "came_back", "type": "bool", "name": { "en": "Came back home", "fi": "Palautunut kotiin" } }
+      ],
+      "required": [],
+      "budget": [],
+      "reminders": []
     },
     {
-      "id": "sale_day", "kind": "event", "packs": ["family"], "icon": "store",
+      "id": "sale_day", "kind": "event", "packs": [], "icon": "store", "replaced_by": "flea_market_event", "legacy": true, "group": "event",
       "name": { "en": "Second-hand sale day", "fi": "Kirpputoripäivä" },
       "help": { "en": "A day at a second-hand market: the table booking, preferred times, the map.", "fi": "Kirpputoripäivä: pöytävaraus, toivotut ajat, kartta." },
       "fields": [
@@ -161,10 +1382,13 @@
         { "key": "table", "type": "text", "name": { "en": "Table number", "fi": "Pöydän numero" } },
         { "key": "map", "type": "url", "name": { "en": "Map", "fi": "Kartta" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Table fee", "fi": "Pöytämaksu" }
     },
     {
-      "id": "renewal", "kind": "deadline", "packs": ["family", "business"], "icon": "alarm",
+      "id": "renewal", "kind": "deadline", "packs": ["business"], "icon": "alarm", "replaced_by": "identity_document_event", "group": "event",
       "name": { "en": "Expiry or renewal", "fi": "Voimassaolo tai uusinta" },
       "help": { "en": "Something that runs out and must be renewed: passport, ID card, travel or home insurance, smoke alarm, contract. The date is its last valid day; it shows as due the chosen number of days before. Renewed every so many months, if set.", "fi": "Jotain, joka vanhenee ja on uusittava: passi, henkilökortti, matka- tai kotivakuutus, palovaroitin, sopimus. Päivä on viimeinen voimassaolopäivä; se näkyy tehtävänä valitun määrän päiviä ennen sitä. Uusitaan halutessa tietyin kuukausivälein." },
       "fields": [
@@ -176,10 +1400,13 @@
         { "key": "location", "type": "text", "name": { "en": "Where (an alarm's room)", "fi": "Missä (varoittimen huone)" } },
         { "key": "number", "type": "text", "name": { "en": "Policy or document number", "fi": "Vakuutus- tai asiakirjanumero" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Cost", "fi": "Hinta" }
     },
     {
-      "id": "booking", "kind": "event", "packs": ["family", "business"], "icon": "key",
+      "id": "booking", "kind": "event", "packs": ["business"], "icon": "key", "replaced_by": "reservation", "group": "event",
       "name": { "en": "Booking", "fi": "Varaus" },
       "help": { "en": "A booked place for some days: a holiday home, a cabin, a room.", "fi": "Varattu paikka joksikin aikaa: loma-asunto, mökki, tila." },
       "fields": [
@@ -188,10 +1415,13 @@
         { "key": "booked_by", "type": "person", "name": { "en": "Booked by", "fi": "Varaaja" } },
         { "key": "keys", "type": "text", "name": { "en": "Keys", "fi": "Avaimet" } }
       ],
+      "required": ["date"],
+      "budget": [],
+      "reminders": [],
       "cost": { "en": "Price", "fi": "Hinta" }
     },
     {
-      "id": "contact", "kind": "record", "packs": ["*"], "icon": "person",
+      "id": "contact", "kind": "record", "packs": ["*"], "icon": "person", "group": "reminder",
       "name": { "en": "Contact", "fi": "Yhteystieto" },
       "help": { "en": "A person to reach: a teacher, a group leader, a coach, a sitter.", "fi": "Henkilö, johon otetaan yhteyttä: opettaja, ryhmän vetäjä, valmentaja, hoitaja." },
       "fields": [
@@ -200,7 +1430,10 @@
         { "key": "group", "type": "text", "name": { "en": "Group", "fi": "Ryhmä" } },
         { "key": "phone", "type": "phone", "name": { "en": "Phone", "fi": "Puhelin" } },
         { "key": "email", "type": "email", "name": { "en": "E-mail", "fi": "Sähköposti" } }
-      ]
+      ],
+      "required": [],
+      "budget": [],
+      "reminders": []
     }
   ]
 }

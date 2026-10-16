@@ -59,8 +59,8 @@ var wardenEventProps = map[string]any{
 	"important": map[string]any{"type": "boolean", "description": "Marks an event that must not be missed"},
 	"source":    strProp("Where it came from, e.g. \"Google Calendar\" or \"school\""),
 	"ext_id":    strProp("The event's id where it came from (an iCalendar UID): importing it again changes it instead of adding it twice"),
-	"type":      strProp("The entry's type (list_entry_types): event (default), invitation, party, hobby, care_shift, care_day, school, local_event, item, stock, wish, sale_item, sale_day, renewal, booking, contact. A record type (item, stock, wish, sale_item, contact) needs no date"),
-	"fields":    map[string]any{"type": "object", "description": "The type's own fields, e.g. an invitation's {host, rsvp: \"going\", takes, gift, gift_bought}; given fields are merged into those the entry has, a field set to null is removed"},
+	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, school_event, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires"),
+	"fields":    map[string]any{"type": "object", "description": "The type's own fields and the common ones (status, people, responsible, due, tags, tasks, links, estimated_cost, actual_cost, payer…), e.g. a birthday_invitation's {birthday_child, rsvp: \"going\", rsvp_by, takes, gift_idea}; a list field takes an array of texts; given fields are merged into those the entry has, a field set to null is removed"},
 	"cost": map[string]any{"type": "object", "description": "What it costs, for the space's budget; null removes it",
 		"properties": map[string]any{
 			"amount":       map[string]any{"type": "number", "description": "Euros"},
@@ -101,7 +101,7 @@ var wardenTools = []roomTool{
 		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}, "type": strProp("Only entries of this type")},
 		required: []string{"space_id"}},
 	{name: "list_entry_types", title: "List entry types", readOnly: true,
-		desc:  "The kinds of entries a space keeps besides plain events (party invitations, hobbies, care shifts, things and their repairs, supplies, gift ideas, things to sell, expiries such as passports and insurances, bookings, contacts), each with its fields, and how a cost is given. Read this before saving a typed entry.",
+		desc:  "The kinds of entries a space keeps besides plain events (for a family: invitations and birthdays, hobbies, school, daycare and care, health, travel, bills and purchases, gift ideas, repairs and home tasks, reminders, changes to the routine…), each with its group, its fields, what it requires, the money fields that go to the budget and the dates that make reminders; the fields common to every entry; and how a cost is given. Read this before saving a typed entry.",
 		props: map[string]any{"space_id": strProp("The space's id: only the types its vocabulary offers")}},
 	{name: "budget", title: "Budget", readOnly: true,
 		desc:     "The costs of a space's entries month by month: each payment (an instalment of a cost), the totals, the group's shared part and each payer's part. Give payer for one person's own budget.",
@@ -155,7 +155,7 @@ func findWardenTool(name string) *roomTool {
 	return nil
 }
 
-const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Other entries (party invitations, hobbies, care shifts, things, supplies, gift ideas, expiries, bookings, contacts) have types: list_entry_types describes them; save_event saves one with its type, fields and cost, and budget sums the costs. Tell the user the page: "
+const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. Tell the user the page: "
 
 // ------------------------------------------------------------------- page --
 
@@ -225,7 +225,7 @@ func serveWardenLogin(env *Env, w http.ResponseWriter, r *http.Request) {
 
 func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string) {
 	g := env.EditorGate
-	if g == nil || (op != "list_spaces" && op != "create_space" && findWardenTool(op) == nil) {
+	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && findWardenTool(op) == nil) {
 		editorJSON(w, 404, map[string]string{"error": "No such call."})
 		return
 	}
@@ -243,7 +243,12 @@ func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string)
 		return
 	}
 	a := map[string]any{}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
+	// the assistant's question carries its pictures
+	max := int64(4 << 20)
+	if op == wardenAssistOp {
+		max = 16 << 20
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, max)).Decode(&a); err != nil && !errors.Is(err, io.EOF) {
 		editorJSON(w, 400, map[string]string{"error": "A JSON object is expected."})
 		return
 	}
