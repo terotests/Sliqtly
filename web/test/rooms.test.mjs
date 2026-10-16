@@ -1,7 +1,7 @@
 // node --test: rooms in this browser (web/rooms.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deckOrderOf, editedOutOfPlace, emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
+import { deckOrderOf, editedOutOfPlace, emptyRooms, parseRooms, changeKept, readKept, roomOf, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, updateRoom, archiveRoom, deleteRoom, moveRoom, createFolder, renameFolder, deleteFolder, foldersOf, folderOf, GENERAL, PLAYGROUND, ONBOARDING, SHOWN, ACTIVE_DAYS, ACTIVE_MAX } from "../rooms.js";
 
 const decks = [
   { id: "a", name: "Budget", updated: 300 },
@@ -391,4 +391,15 @@ test("a save draws the list again only when the open one is not on top yet, last
   assert.equal(editedOutOfPlace([{ id: "a", current: true }, { id: "b" }], "edited"), false);
   assert.equal(editedOutOfPlace([{ id: "x", folder: "f", current: true }, { id: "b" }], "edited"), false);
   assert.equal(editedOutOfPlace([{ id: "b" }], "edited"), false);
+});
+
+test("a room's name pressed again shuts its list, and again shows it", () => {
+  // another room: opens, listed
+  assert.deepEqual(pressRoom(GENERAL, "", PLAYGROUND), { shown: PLAYGROUND, folded: "", open: true });
+  // the open one: its list shuts, the room stays the open one
+  assert.deepEqual(pressRoom(GENERAL, "", GENERAL), { shown: GENERAL, folded: GENERAL, open: false });
+  // shut: shown again
+  assert.deepEqual(pressRoom(GENERAL, GENERAL, GENERAL), { shown: GENERAL, folded: "", open: true });
+  // a shut room left for another: that one opens listed
+  assert.deepEqual(pressRoom(GENERAL, GENERAL, PLAYGROUND), { shown: PLAYGROUND, folded: "", open: true });
 });

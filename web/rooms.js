@@ -471,6 +471,17 @@ export function deckLines(rows, { folders = [], open = [], showAll = "" } = {}) 
   return lines.join("\n");
 }
 
+// A room's name pressed in the panel, like a tree's node: another room opens
+// with its presentations listed; the open one shuts its list, and shows it
+// again on the next press. shown: the open room; folded: the room whose list
+// is shut ("" none). open: the room's chat and stories open too (a shut
+// list leaves them as they are).
+export function pressRoom(shown, folded, id) {
+  if (id !== shown) return { shown: id, folded: "", open: true };
+  if (folded === id) return { shown, folded: "", open: true };
+  return { shown, folded: id, open: false };
+}
+
 // A room opened or used now: it is one of the rooms one is active in.
 export function touchRoom(state, roomId, now = Date.now()) {
   if (!roomId) return state;

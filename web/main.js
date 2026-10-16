@@ -37,7 +37,7 @@ import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sha
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
@@ -1147,6 +1147,8 @@ function beginDoc(text) {
 // the Rooms panel's state (its requests: roomsRequest, below)
 const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
+// the room whose list of presentations is shut, its name pressed again ("" none)
+let roomFolded = "";
 // the room whose "+" → Add new… → Presentation opened File → New's window
 let roomForNew = "";
 let roomChatOne = null;
@@ -2176,6 +2178,7 @@ async function roomsRequest(r) {
     roomsQuery = null;
     if (hit?.room) {
       roomShown = hit.room;
+      roomFolded = "";
       keepRooms((s) => touchRoom(s, hit.room));
     }
     roomChat().close();
@@ -2191,6 +2194,7 @@ async function roomsRequest(r) {
     roomsQuery = null;
     if (id) {
       roomShown = id;
+      roomFolded = "";
       keepRooms((s) => touchRoom(s, id));
     }
     await roomsRequest("room:list");
@@ -2305,10 +2309,13 @@ async function roomsRequest(r) {
     await roomsRequest("room:list");
   } else if (action === "open" || action === "decks") {
     // a room pressed opens its chat (web/roomchat.js); the list shown again
-    // ("decks") only lists its presentations
+    // ("decks") only lists its presentations. The open room pressed again
+    // shuts its list, and the next press shows it (pressRoom)
+    let opened = false;
+    if (action === "open") ({ folded: roomFolded, open: opened } = pressRoom(roomShown, roomFolded, what));
     roomShown = what;
     // pressed: a room one is active in (the list shown again is no use of it)
-    if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
+    if (opened) keepRooms((s) => touchRoom(s, roomShown));
     const { rows, folders } = await roomView(roomShown);
     // the presentation just opened (from a search too) in a shut folder:
     // the folder opens once, so it is in sight; shut again, it stays shut
@@ -2322,14 +2329,16 @@ async function roomsRequest(r) {
       }
     }
     roomListed = rows;
-    const lines = deckLines(rows, {
+    const folded = roomFolded === roomShown;
+    const lines = folded ? "" : deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
     });
+    app.setToolbarOptions("roomfold", "", folded ? "1" : "");
     app.setToolbarOptions("roomdecks", lines, roomShown);
     await showTopic(roomShown, rows, folders);
-    if (action === "open") await roomChat().open(roomShown);
+    if (opened) await roomChat().open(roomShown);
   } else if (action === "fold") {
     // a folder pressed: open or shut, in this browser
     const [room, folder] = rest;

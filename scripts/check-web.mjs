@@ -3155,6 +3155,17 @@ try {
     // a presentation dragged from its room's list onto General: Move
     await R(`t("tb-room-" + idOf("Team room"));`);
     await pageHas("tb-roomdeck-d-");
+    // the open room's name pressed again shuts its list, like a tree's
+    // node, and (+) stands before it; pressed again the list is back, (−)
+    const iconOf = `const ic = tb("tb-room-" + idOf("Team room") + "-icon"); return ic ? ic.svgPath : "";`;
+    const shownIcon = await R(iconOf);
+    await R(`t("tb-room-" + idOf("Team room"));`);
+    const shut = await until(() => { const a = window.__app; a.toolbarJson(); return a.toolbar.roomFolded && !JSON.stringify(a.toolbar.host.lastPage).includes("tb-roomdeck-d-"); });
+    const shutIcon = await R(iconOf);
+    await R(`t("tb-room-" + idOf("Team room"));`);
+    const shownAgain = await pageHas("tb-roomdeck-d-");
+    const stillOpen = await R(`return a.toolbar.roomOpen === idOf("Team room") && !a.toolbar.roomFolded;`);
+    check("…the open room's name pressed again shuts its list, (−) turns (+); pressed again the list is back", shut && shownAgain && stillOpen && shownIcon !== shutIcon && shutIcon.includes("M12 8v8") && !shownIcon.includes("M12 8v8"), JSON.stringify({ shut, shownAgain, stillOpen, shownIcon, shutIcon }));
     const dragged = await R(`a.toolbarJson();
       const deckRow = JSON.stringify(a.toolbar.host.lastPage).match(/"(tb-roomdeck-d-[^"]+)"/);
       const from = deckRow && tb(deckRow[1]);
