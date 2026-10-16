@@ -320,11 +320,6 @@
     ],
     "redirects": [
       {
-        "source": "/apps/warden",
-        "destination": "/apps/warden/",
-        "type": 301
-      },
-      {
         "source": "/download/sliqtly-personal_amd64.deb",
         "destination": "https://firebasestorage.googleapis.com/v0/b/sliqtly.firebasestorage.app/o/downloads%2Fpersonal%2Fsliqtly-personal_latest_amd64.deb?alt=media",
         "type": 302
