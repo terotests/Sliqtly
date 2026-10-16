@@ -40,7 +40,8 @@ export function buildSpaces({ warden = false, ranger } = {}) {
     const html = path.join(out, "index.html");
     fs.writeFileSync(html, fs.readFileSync(html, "utf8")
       .replace("<title>Spaces</title>", "<title>Warden</title>")
-      .replace('<meta name="build"', `<meta name="app-server" content="${WARDEN_PATH}" />\n<meta name="build"`));
+      // the base: its files resolve the same at /apps/warden as at /apps/warden/
+      .replace('<meta name="build"', `<base href="${WARDEN_PATH}" />\n<meta name="app-server" content="${WARDEN_PATH}" />\n<meta name="build"`));
   }
   fs.writeFileSync(path.join(out, "spaces.css"), spacesCss(ranger));
   for (const f of ["evg-webgl.js", "evg-a11y.js", "evg-measure.js", "evg-textinput.js"]) {
