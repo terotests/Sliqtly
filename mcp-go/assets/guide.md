@@ -664,8 +664,9 @@ participants.
 `-.->` `==>` `--o` `--x` `<-->` `~~~`, `linkStyle n` (or `default`) with
 `stroke`, `stroke-width`, `stroke-dasharray`. A node id may contain `-` and
 `.`; `end` is a keyword. A Markdown label ``A["`**bold**`"]`` is drawn as
-plain text. `click` is ignored. Also `sequenceDiagram`, `classDiagram`,
-`stateDiagram-v2`, `erDiagram`, `mindmap`, `timeline`, `journey`, `gantt`,
+plain text. `click <id> "code:…"` links a box to source code (topic
+`text`, Source code in a deck); other `click` lines are ignored. Also
+`sequenceDiagram`, `classDiagram`, `stateDiagram-v2`, `erDiagram`, `mindmap`, `timeline`, `journey`, `gantt`,
 `gitGraph`, `pie`, `quadrantChart`, `xychart`, `sankey`, `block`,
 `architecture`, `kanban`, `requirement`, `C4Context`, `packet`,
 `radar-beta`, `treemap`.
@@ -903,7 +904,9 @@ can edit.
   player (no viewBox, a background not in the slide's shape, things loaded
   from outside, text, filter effects) and what was fixed when it was saved.
   `render_slide` and `render_overview` draw SVG pictures.
-- In PDF and PPTX an SVG is a raster picture; the deck keeps the SVG.
+- In PDF and PPTX an SVG shown whole stays a vector (the PPTX carries a
+  PNG beside it for programs that cannot draw SVG); a cropped one is
+  pixels. The deck keeps the SVG.
 
 ## Vectorizing
 
@@ -2046,6 +2049,16 @@ lands in General, and the user then has to move it by hand.
   `move_presentation` with `folder_id` files a deck there, without it the
   deck is at the room's top; `rename_folder`, `delete_folder` (its decks
   go to the room's top, none is deleted).
+- Folders are optional; a room with a few presentations needs none. When
+  you make a presentation in a room, look at its folders (`get_room`): if
+  one fits the new presentation, file it there (`move_presentation` with
+  `folder_id` after `create_presentation`). Make a new folder only when it
+  clearly helps, e.g. the work will make many presentations of one kind;
+  otherwise leave it at the room's top. When it is unclear whether a
+  folder is wanted, ask the user.
+- A room with 20 or more presentations at its top: suggest sorting them
+  into folders, with names for them, and move them only when the user
+  agrees.
 - `add_link` ties a room to the ticket itself: `room:<room_id>`
   `references` `jira:PROJ-123`.
 
@@ -2100,6 +2113,16 @@ none.
 - `move_presentation` moves a presentation to a room, at its top or into a
   folder (`folder_id`); `create_folder`, `rename_folder`, `delete_folder`
   (its presentations go to the room's top, none is deleted).
+- Folders are optional; a room with a few presentations needs none. When
+  you make a presentation in a room, look at its folders (`get_room`): if
+  one fits the new presentation, file it there (`move_presentation` with
+  `folder_id` after `create_presentation`). Make a new folder only when it
+  clearly helps, e.g. the work will make many presentations of one kind;
+  otherwise leave it at the room's top. When it is unclear whether a
+  folder is wanted, ask the user.
+- A room with 20 or more presentations at its top: suggest sorting them
+  into folders, with names for them, and move them only when the user
+  agrees.
 - `set_story` sets a presentation's type, phase, tags or colour; set the
   phase only when the user says so.
 - The editor shows a change within moments; one the user makes there

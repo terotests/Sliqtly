@@ -210,7 +210,7 @@
 .theme-tb .tb-room-open { background-color: #e0e7ff; }
 .theme-tb .tb-room-open:hover { background-color: #e0e7ff; }
 .tb-room-name { font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
-.tb-room-count { font-size: 11px; color: #71717a; }
+.tb-room-count { font-size: 11px; color: #71717a; flex-shrink: 0; }
 /* a room with chat messages this browser has not read: a small blue dot
    after its name */
 .tb-room-dot { width: 8px; height: 8px; border-radius: 4px; background-color: #2563eb; margin-left: 6px; flex-shrink: 0; }
@@ -248,6 +248,7 @@
 /* a folder of the open room (one level), and its presentations set in under it */
 .theme-tb .tb-icon-roomfold { width: 15px; height: 15px; stroke: #52525b; stroke-width: 1.8; margin: 0 6px 0 0; flex-shrink: 0; }
 .theme-tb .tb-icon-folder { width: 15px; height: 15px; stroke: #71717a; stroke-width: 1.7; margin: 0 6px 0 0; flex-shrink: 0; }
+.theme-tb .tb-icon-pin { width: 14px; height: 14px; stroke: #4f46e5; stroke-width: 1.8; margin: 0 6px 0 0; flex-shrink: 0; }
 .theme-tb .tb-roomdeck-in { margin: 0 0 0 16px; }
 .theme-tb .tb-room-dragged { opacity: 0.45; }
 .theme-tb .tb-room-before { border-top: 2px solid #4f46e5; }

@@ -255,7 +255,7 @@ class Tools {
         cp.put("markdown" (Tools.prop("string" "The whole deck as Sliqtly Markdown")))
         Tools.deckFields(host cp)
         if (host_has_tool host "list_rooms") {
-            cp.put("room_id" (Tools.prop("string" "The room (project) the presentation goes to, room_id from list_rooms or create_room; left out, it goes to General. Look for the room it belongs to first (list_rooms with query, e.g. the ticket code in its name) and suggest it to the user, or ask whether to make a new one.")))
+            cp.put("room_id" (Tools.prop("string" "The room (project) the presentation goes to, room_id from list_rooms or create_room; left out, it goes to General. Look for the room it belongs to first (list_rooms with query, e.g. the ticket code in its name) and suggest it to the user, or ask whether to make a new one. To file it in one of the room's folders, move_presentation with folder_id after it is made; folders are optional (topic rooms).")))
         }
         tools.add((Tools.tool("create_presentation" "Create a presentation" (Tools.withNameRule(host "Create a Sliqtly slide presentation from Markdown (# title slide, ## per slide), an optional theme, extra CSS, pictures and data files (.xlsx, .csv, .json) its charts and tables read. Returns a link that opens the presentation and a link to edit a copy in the Sliqtly editor.")) (Tools.schema(cp ([] _:string ("title" "markdown")))) (Tools.annotations(false 0 false true)) (Tools.uiMeta(host)))))
 

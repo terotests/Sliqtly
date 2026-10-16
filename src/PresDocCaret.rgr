@@ -238,6 +238,24 @@ class PresDocCaret {
         return (this.offsetOnLine((this.lineAtY(y)) x))
     }
 
+    ; The link of the words under a page point, "" for none. A line's height
+    ; around the words counts, as on the slide (PresStageClick.linkAt): a
+    ; link is thin to aim at.
+    fn linkAt:string (x:double y:double) {
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if ((strlen b.link) > 0) {
+                def t:double (itemAt tops i)
+                if (((x >= (b.x - 1.0)) && (x <= ((b.x + b.w) + 1.0))) && ((y >= (t - 2.0)) && (y <= ((t + b.h) + 2.0)))) {
+                    return b.link
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     ; --- an offset → where it is drawn ----------------------------------------
     ; The box an offset is drawn in: the one it is inside, else the one it
     ; ends (the end of a line); -1 when the page does not show it.

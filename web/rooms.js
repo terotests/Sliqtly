@@ -19,9 +19,12 @@ import { storyOf, changeStory } from "./stories.js";
 //          its room; none, or a folder gone, is the room's top)
 //          positions: { roomId: [deckId] },  (a room's presentations as one
 //          dragged them, for the order "custom": sortDecks)
-//          stories: { deckId: { type, phase, tags, color } } }  (a
+//          stories: { deckId: { type, phase, tags, color } },  (a
 //          presentation as a story of its room: web/stories.js; none is
 //          the default story, a deck from before stories)
+//          pinned: { deckId: true } }  (pinned to the top of its room's
+//          list and Stories, above its folders: a master deck one always
+//          wants first; the account's on sliqtly.com, web/layoutsync.js)
 //
 // The order is this browser's view of the rooms, the server's rooms too.
 
@@ -38,7 +41,7 @@ export const ACTIVE_MAX = 8;
 const DAY = 86400000;
 
 export function emptyRooms() {
-  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {}, stories: {} };
+  return { rooms: [], placed: {}, touched: {}, order: [], folders: {}, filed: {}, positions: {}, stories: {}, pinned: {} };
 }
 
 export const isBuiltIn = (id) => BUILT_IN.includes(id);
@@ -60,7 +63,9 @@ export function parseRooms(text) {
     if (s?.positions && typeof s.positions === "object") for (const [r, list] of Object.entries(s.positions)) if (Array.isArray(list)) positions[r] = list.filter((x) => typeof x === "string");
     const stories = {};
     if (s?.stories && typeof s.stories === "object") for (const [d, st] of Object.entries(s.stories)) stories[d] = storyOf(st);
-    return { rooms, placed, touched, order, folders, filed, positions, stories };
+    const pinned = {};
+    if (s?.pinned && typeof s.pinned === "object") for (const [d, on] of Object.entries(s.pinned)) if (on) pinned[d] = true;
+    return { rooms, placed, touched, order, folders, filed, positions, stories, pinned };
   } catch (_) {
     return emptyRooms();
   }
@@ -87,6 +92,7 @@ export function factsOf(state) {
   for (const [deck, folder] of Object.entries(state.filed || {})) out.set("filed/" + deck, String(folder));
   for (const [room, list] of Object.entries(state.positions || {})) if (list.length) out.set("positions/" + room, JSON.stringify(list));
   for (const [deck, st] of Object.entries(state.stories || {})) out.set("story/" + deck, JSON.stringify(storyOf(st)));
+  for (const [deck, on] of Object.entries(state.pinned || {})) if (on) out.set("pinned/" + deck, "1");
   return out;
 }
 
@@ -113,6 +119,7 @@ export function readKept(store, key) {
       else if (kind === "folders" && id) s.folders[id] = folderList(JSON.parse(v));
       else if (kind === "filed" && id) s.filed[id] = v;
       else if (kind === "story" && id) s.stories[id] = storyOf(JSON.parse(v));
+      else if (kind === "pinned" && id && v === "1") s.pinned[id] = true;
       else if (kind === "positions" && id) {
         const o = JSON.parse(v);
         if (Array.isArray(o)) s.positions[id] = o.filter((x) => typeof x === "string");
@@ -199,7 +206,7 @@ export function roomDecks(state, roomId, decks, samples) {
   if (roomId === ONBOARDING) return samples.map((s) => ({ id: "sample:" + s.key, name: s.name, current: !!s.current, ...storyOf(null) }));
   return sortDecks(decks
     .filter((d) => roomOf(state, d.id) === roomId)
-    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id), created: d.created || d.updated || 0, updated: d.updated || d.created || 0, ...storyFor(state, d.id) })));
+    .map((d) => ({ id: d.id, name: d.name, current: !!d.current, folder: folderOf(state, d.id), pinned: isPinned(state, d.id), created: d.created || d.updated || 0, updated: d.updated || d.created || 0, ...storyFor(state, d.id) })));
 }
 
 // --- stories: a presentation as a story of its room (web/stories.js) -------
@@ -215,12 +222,33 @@ export function setStory(state, deckId, patch) {
   return { ...state, stories: { ...(state.stories || {}), [deckId]: changeStory(storyFor(state, deckId), patch) } };
 }
 
-// A deck gone (deleted): its story goes with it.
+// A deck gone (deleted): its story and its pin go with it.
 export function forgetStory(state, deckId) {
-  if (!state.stories?.[deckId]) return state;
-  const stories = { ...state.stories };
+  const next = isPinned(state, deckId) ? setPinned(state, deckId, false) : state;
+  if (!next.stories?.[deckId]) return next;
+  const stories = { ...next.stories };
   delete stories[deckId];
-  return { ...state, stories };
+  return { ...next, stories };
+}
+
+// --- pins: a presentation one always wants first in its room ------------
+
+export const isPinned = (state, deckId) => !!state.pinned?.[deckId];
+
+// The deck pinned (on) or not; a sample is the same for everyone and stays
+// as it is. The pin goes with the deck to another room or folder.
+export function setPinned(state, deckId, on) {
+  if (!deckId || deckId.startsWith("sample:") || isPinned(state, deckId) === !!on) return state;
+  const pinned = { ...(state.pinned || {}) };
+  if (on) pinned[deckId] = true;
+  else delete pinned[deckId];
+  return { ...state, pinned };
+}
+
+// rows (in the order chosen) with the pinned ones first, each part in its
+// order: what pinning means wherever a room's presentations are listed.
+export function pinnedFirst(rows) {
+  return [...rows.filter((r) => r.pinned), ...rows.filter((r) => !r.pinned)];
 }
 
 // The orders a room's presentations can be listed in (File → Settings):
@@ -237,7 +265,8 @@ export const deckOrderOf = (v) => (DECK_ORDERS.includes(v) ? v : DECK_ORDER);
 // (which puts it first) needs the list drawn again.
 export function editedOutOfPlace(rows, by) {
   if (by !== "edited") return false;
-  const top = rows.filter((r) => !r.folder);
+  // a pinned one keeps its place above them
+  const top = rows.filter((r) => !r.folder && !r.pinned);
   const i = top.findIndex((r) => r.current);
   return i > 0;
 }
@@ -445,13 +474,15 @@ function firstAndOpen(rows) {
   return open ? [open, ...first] : first;
 }
 
-// The rows the panel draws under the open room: its folders by name, each
+// The rows the panel draws under the open room: its pinned presentations
+// first, all of them, wherever they are filed (kind "p"; not again in their
+// folder); then its folders by name, each
 // open one followed by its presentations; then at most SHOWN presentations
 // of the room's top (and the open one on top, firstAndOpen), then "… Show all"
 // when there are more. A new presentation or folder is made from the
 // room's "+" (PresToolbar's "Add new…" menu), not from a row.
-// "id TAB name TAB 1 if open TAB kind TAB count": kind "" a presentation at
-// the top, "i" one in a folder, "f" a folder (id "f:<folder id>", count its
+// "id TAB name TAB 1 if open TAB kind TAB count": kind "p" a pinned one,
+// "" a presentation at the top, "i" one in a folder, "f" a folder (id "f:<folder id>", count its
 // presentations), "a" Show all.
 // rows: roomDecks's (or the server's, with folder); folders: [{ id, name }];
 // open: the ids of the folders shown open.
@@ -460,12 +491,14 @@ export function deckLines(rows, { folders = [], open = [], showAll = "" } = {}) 
   const known = new Set(folders.map((f) => f.id));
   const isOpen = new Set(open);
   const lines = [];
+  for (const r of rows) if (r.pinned) lines.push([r.id, clean(r.name), r.current ? "1" : "", "p"].join("\t"));
+  const loose = rows.filter((r) => !r.pinned);
   for (const f of sortFolders(folders)) {
-    const inside = rows.filter((r) => r.folder === f.id);
+    const inside = loose.filter((r) => r.folder === f.id);
     lines.push(["f:" + f.id, clean(f.name), isOpen.has(f.id) ? "1" : "", "f", inside.length ? String(inside.length) : ""].join("\t"));
     if (isOpen.has(f.id)) for (const r of firstAndOpen(inside)) lines.push([r.id, clean(r.name), r.current ? "1" : "", "i"].join("\t"));
   }
-  const top = rows.filter((r) => !r.folder || !known.has(r.folder));
+  const top = loose.filter((r) => !r.folder || !known.has(r.folder));
   for (const r of firstAndOpen(top)) lines.push([r.id, clean(r.name), r.current ? "1" : "", ""].join("\t"));
   if (top.length > SHOWN && showAll) lines.push(["all", showAll, "", "a"].join("\t"));
   return lines.join("\n");

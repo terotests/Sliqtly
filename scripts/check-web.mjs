@@ -2468,6 +2468,52 @@ try {
     return out;
   });
   check("a single click on a link on the slide follows it, a double click picks its paragraph", lk.cursor === "pointer" && lk.req === "link:#kolmas" && lk.picked === false && lk.dbl.join(",") === "true,p," && lk.follow.join(",") === "true,3,false" && lk.landed === 3, JSON.stringify(lk));
+  // …and on the page: the Document tab over the stage and the editor's View
+  // tab while reading follow a link's words the same way
+  const dl = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    const text = "# D\n\n## Eka\n\nKatso [kolmas](#kolmas) tästä.\n\n## Toka\n\nx\n\n## Kolmas\n\ny\n";
+    a.setSource(text);
+    const off = text.indexOf("kolmas]") + 2;
+    const at = (pane) => {
+      const dw = a.docView.width();
+      const c = a.docView.caret.caret(off);
+      return [pane.left(dw) + (c[0] + 0.5) * pane.scale(dw), pane.top(dw) + (c[1] + c[2] / 2) * pane.scale(dw)];
+    };
+    const out = {};
+    while (a.takeRequest()) { /* earlier ones */ }
+    // the Document tab
+    a.selectSlide(0);
+    a.setStageView("doc");
+    a.place();
+    a.docEnsure();
+    let [x, y] = at(a.docPane);
+    out.docCursor = a.cursorAt(x, y);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    out.docReq = a.takeRequest() || "";
+    a.setStageView("slides");
+    // the View tab, reading
+    a.setEditing(false, false);
+    a.showTab("view");
+    a.place();
+    a.edDocEnsure();
+    while (a.takeRequest()) { /* edit-mode:save and the like */ }
+    [x, y] = at(a.edDocPane);
+    out.viewCursor = a.cursorAt(x, y);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    out.viewReq = a.takeRequest() || "";
+    a.selectSlide(1);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    window.__handleRequests();
+    await new Promise((ok) => setTimeout(ok, 600));
+    out.landed = a.selected;
+    a.setEditing(true, false);
+    a.showTab("md");
+    a.setSource(src0);
+    return out;
+  });
+  check("a click on a link on the Document tab and on the View tab follows it", dl.docCursor === "pointer" && dl.docReq === "link:#kolmas" && dl.viewCursor === "pointer" && dl.viewReq === "link:#kolmas" && dl.landed === 3, JSON.stringify(dl));
   check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
   check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
   check("…and its card does not cover the element", pk.offElement === true);
@@ -6120,6 +6166,8 @@ try {
     const s1 = await st();
     check("ToC: the wheel scrolls the list, not the page", s1.listTop > 0 && s1.scroll === s.scroll, JSON.stringify({ s, s1 }));
     const row = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300) return [i, r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; } return null; });
+    await pg.mouse.move(120, row[2] + row[4] / 2 + 60);
+    await pg.waitForTimeout(300);
     await pg.mouse.click(row[1] + 30, row[2] + row[4] / 2);
     await pg.waitForTimeout(500);
     const s2 = await st();
@@ -6131,7 +6179,38 @@ try {
     await pg.waitForTimeout(400);
     const s3 = await st();
     check("ToC: scrolling the page moves the mark along", s3.cur > s2.cur, JSON.stringify({ was: s2.cur, now: s3.cur }));
+    // the search: a press puts the caret in the field, what is typed keeps
+    // the headings that have it, a row of those goes to its heading, Esc
+    // empties the field and then closes the drawer
+    const field = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(field[0] + 40, field[1] + field[3] / 2);
+    await pg.waitForTimeout(200);
+    await pg.keyboard.type("luku 3", { delay: 20 });
+    await pg.waitForTimeout(300);
+    const f1 = await pg.evaluate(() => { const a = window.__app; const u = a.tocUi; return { keys: a.tocHasKeys(), value: u.search.value, caret: u.search.caret, rows: u.drawer.body().getChildCount(), shown: u.shown.length, src: a.source().length }; });
+    check("ToC search: typing goes into the field and keeps the headings that have it", f1.keys && f1.value === "luku 3" && f1.shown === 11 && f1.rows === 11, JSON.stringify(f1));
+    check("ToC search: the caret follows the typing, the deck is untouched", f1.caret === 6 && f1.src === md.length, JSON.stringify(f1));
+    await pg.keyboard.press("ArrowLeft");
+    await pg.keyboard.press("ArrowLeft");
+    await pg.keyboard.type("x");
+    await pg.waitForTimeout(200);
+    const f2 = await pg.evaluate(() => { const u = window.__app.tocUi; return { value: u.search.value, caret: u.search.caret, shown: u.shown.length }; });
+    check("ToC search: ← moves the caret and typing goes in there", f2.value === "lukux 3" && f2.caret === 5 && f2.shown === 0, JSON.stringify(f2));
+    await pg.keyboard.press("Backspace");
+    await pg.waitForTimeout(200);
+    const caretPos = await pg.evaluate(() => { const u = window.__app.tocUi; const c = u.search.caretEl; return { x: c.calculatedX, w: c.calculatedWidth, h: c.calculatedHeight, value: u.search.value }; });
+    check("ToC search: the caret is drawn in the field", caretPos.value === "luku 3" && caretPos.h > 8 && caretPos.x > field[0] && caretPos.x < field[0] + field[2], JSON.stringify({ caretPos, field }));
+    const frow = await pg.evaluate(() => { const r = window.__app.tocUi.drawer.body().getChild(2); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(frow[0] + 30, frow[1] + frow[3] / 2);
+    await pg.waitForTimeout(500);
+    const f3 = await pg.evaluate(() => { const a = window.__app; const i = a.tocUi.shown[2]; const e = a.toc.entryAt(i); return { text: e.text, want: e.slide, slide: a.selectedSlide(), scroll: a.docPane.scroll, y: e.y, keys: a.tocHasKeys() }; });
+    check("ToC search: a found row goes to its heading", f3.text === "Luku 31" && f3.slide === f3.want && Math.abs(f3.scroll - (f3.y - 12)) < 2, JSON.stringify(f3));
+    check("…and the keys go back to the page", !f3.keys, JSON.stringify(f3));
     await pg.evaluate(() => document.getElementById("keys").focus());
+    await pg.keyboard.press("Escape");
+    await pg.waitForTimeout(200);
+    const f4 = await pg.evaluate(() => ({ open: window.__app.tocShown(), value: window.__app.tocUi.search.value, rows: window.__app.tocUi.drawer.body().getChildCount() }));
+    check("ToC search: Esc empties the search first", f4.open && f4.value === "" && f4.rows === 80, JSON.stringify(f4));
     await pg.keyboard.press("Escape");
     await pg.waitForTimeout(200);
     check("ToC: Esc closes it", !(await pg.evaluate(() => window.__app.tocShown())));
@@ -6147,12 +6226,25 @@ try {
     await pg.mouse.click(vb.x + vb.width / 2, vb.y + vb.height / 2);
     await pg.waitForTimeout(500);
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
-    // laid out and scrolled to the heading being read (a slow frame comes late)
-    await pg.waitForFunction(() => { const t = window.__app.tocUi; const r = t.drawer.body().getChild(6); return t.reveal < 0 && r.calculatedHeight > 0; }, null, { timeout: 8000 }).catch(() => {});
-    const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); const r = b.getChild(6); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    // presenting, the search takes the letters (not the bar's keys) and
+    // Enter goes to the first heading found
+    const pfield = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(pfield[0] + 40, pfield[1] + pfield[3] / 2);
+    await pg.keyboard.type("kohta 12", { delay: 20 });
+    await pg.waitForTimeout(200);
+    const pf = await pg.evaluate(() => ({ value: window.__app.tocUi.search.value, shown: window.__app.tocUi.shown.length, slide: window.__app.slideShown() }));
+    check("ToC search: presenting, typing filters and the slide stays", pf.value === "kohta 12" && pf.shown === 1 && pf.slide === 0, JSON.stringify(pf));
+    await pg.keyboard.press("Enter");
+    await pg.waitForTimeout(500);
+    const pe = await pg.evaluate(() => ({ slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode, keys: window.__app.tocHasKeys() }));
+    check("ToC search: Enter shows the found heading's slide", pe.slide === 11 && pe.mode === "present" && !pe.keys, JSON.stringify(pe));
+    await pg.evaluate(() => window.__app.tocEscape());
+    await pg.waitForTimeout(200);
+    // a row in view (the list shows the one being read, Kohta 12.1's)
+    const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300 && window.__app.toc.entryAt(i).slide !== 11) return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight, i]; } return null; });
     await pg.mouse.click(prow[0] + 30, prow[1] + prow[3] / 2);
-    await pg.waitForFunction(() => window.__app.slideShown() === window.__app.toc.entryAt(6).slide, null, { timeout: 8000 }).catch(() => {});
-    const p1 = await pg.evaluate(() => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(6).slide, mode: JSON.parse(window.__app.layoutJson()).mode }));
+    await pg.waitForTimeout(500);
+    const p1 = await pg.evaluate((i) => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(i).slide, mode: JSON.parse(window.__app.layoutJson()).mode }), prow[4]);
     check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
     check("ToC: without errors", terr.length === 0, terr.join(" | "));
     await ctx.close();
@@ -6411,6 +6503,77 @@ try {
     if (shots) await pg.screenshot({ path: path.join(shots, "view-zoomed.png") });
     await pg.keyboard.press("Control+0");
     check("Formatting bar: …without errors", berr.length === 0, berr.join(" | "));
+    await ctx.close();
+  }
+
+  // Keys in the View page's code blocks and lists (RangerMarkdown's caret
+  // stops): a code line takes the caret and typing, an empty code line too,
+  // and Enter in a list makes a new item that is seen and can be typed into.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const kerr = [];
+    pg.on("pageerror", (e) => kerr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const md = "# Avaimet\n\n```js\nlet a = 1;\n\nlet b = 2;\n```\n\n- aa\n- bb\n";
+    await pg.evaluate((md) => { const A = window.__app; A.setEditing(true, false); A.setSource(md); A.showTab("view"); A.edDocEnsure(); }, md);
+    await pg.waitForFunction(() => { const a = window.__app; const t = a.source(); return a.docScreenAt(t.indexOf("bb")) !== ""; }, null, { timeout: 30000 });
+    const src = () => pg.evaluate(() => window.__app.source());
+    const frames = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const at = (o) => pg.evaluate((o) => window.__app.docScreenAt(o), o).then((s) => (s ? s.split(",").map(Number) : null));
+    const caret = () => pg.evaluate(() => window.__app.mdEditor.caretOffset());
+    // a click in a code line puts the caret there; typing writes there
+    const oB = md.indexOf("b = 2");
+    const pB = await at(oB);
+    check("View keys: a code line has its place on the page", !!pB, JSON.stringify(pB));
+    if (pB) {
+      await pg.mouse.click(pB[0] + 1, pB[1] + 4);
+      await frames();
+      const c1 = await caret();
+      await pg.keyboard.type("Z");
+      await frames();
+      const t1 = await src();
+      check("View keys: a click in code puts the caret there and typing writes into the code", t1.includes("let Zb = 2;") || t1.includes("let bZ = 2;"), JSON.stringify({ c1, oB, code: t1.slice(t1.indexOf("```js"), t1.indexOf("```", 8) + 3) }));
+      await pg.keyboard.press("Control+z");
+      await frames();
+    }
+    // the empty code line takes the caret too
+    const oE = md.indexOf("\n\nlet b") + 1;
+    const pE = await at(oE);
+    check("View keys: an empty code line has a place for the caret", !!pE, JSON.stringify(pE));
+    if (pE) {
+      await pg.mouse.click(pE[0] + 2, pE[1] + 4);
+      await frames();
+      await pg.keyboard.type("// x");
+      await frames();
+      check("View keys: …and typing there writes on that line", (await src()).includes("let a = 1;\n// x\nlet b = 2;"), JSON.stringify((await src()).slice(0, 60)));
+    }
+    // Enter at an item's start: a new item above, seen, the caret with the words
+    const oI = (await src()).indexOf("- bb") + 2;
+    await pg.waitForFunction((o) => window.__app.docScreenAt(o) !== "", oI, { timeout: 10000 }).catch(() => {});
+    const before = await at(oI);
+    await pg.evaluate((o) => window.__app.docSelect(o, o), oI);
+    await pg.keyboard.press("Enter");
+    await frames();
+    const t2 = await src();
+    const after = await at(await caret());
+    check("View keys: Enter at a list item's start makes a new item and the words move down with the caret", t2.includes("- aa\n- \n- bb") && after && before && after[1] > before[1] + 5, JSON.stringify({ list: t2.slice(t2.indexOf("- aa")), before, after }));
+    await pg.keyboard.press("ArrowUp");
+    await frames();
+    const up = await at(await caret());
+    await pg.keyboard.type("uusi");
+    await frames();
+    const t3 = await src();
+    check("View keys: ↑ goes to the empty item, and typing writes into it", t3.includes("- aa\n- uusi\n- bb"), JSON.stringify({ list: t3.slice(t3.indexOf("- aa")), up }));
+    // Enter at an item's end starts the next item
+    await pg.keyboard.press("Enter");
+    await pg.keyboard.type("toinen");
+    await frames();
+    check("View keys: Enter at an item's end starts the next item", (await src()).includes("- uusi\n- toinen\n- bb"), JSON.stringify((await src()).slice((await src()).indexOf("- aa"))));
+    if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
+    check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();
   }
 

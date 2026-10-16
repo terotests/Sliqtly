@@ -37,7 +37,7 @@ import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sha
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor, setPinned, isPinned } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
@@ -1682,7 +1682,7 @@ async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
+      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", pinned: isPinned(roomsHere, "cloud:" + p.deck_id), created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
@@ -1711,7 +1711,7 @@ async function showTopic(room, rows, folders = []) {
     stories: g.rows.map((r) => {
       const ago = agoOf(r.updated, now);
       return {
-        id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current,
+        id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current, pinned: !!r.pinned,
         typeLabel: t(TYPE_LABEL[r.type]), phaseLabel: t(PHASE_LABEL[r.phase]), color: storyColor(r),
         folder: (r.folder && folders.find((x) => x.id === r.folder)?.name) || "",
         when: r.updated ? t(AGO[ago.unit]).replace("{n}", String(ago.n)) : "",
@@ -2427,6 +2427,12 @@ async function roomsRequest(r) {
       keepFoldersOpen();
     }
     await roomsRequest("room:decks:" + room);
+  } else if (action === "pin" || action === "unpin") {
+    // a presentation pinned first in its room ("<room>:<deck>"), or not:
+    // kept with the rooms of this browser, the account's on sliqtly.com
+    const [room, ...deckParts] = rest;
+    keepRooms((s) => setPinned(s, deckParts.join(":"), action === "pin"));
+    await roomsRequest("room:decks:" + room);
   } else if (action === "deck") {
     roomChat().close();
     if (what.startsWith("sample:")) await openSample(what.slice(7));
@@ -2584,6 +2590,8 @@ async function duplicateDeck(asked) {
     await useFile(rec);
   }
   shownDoc(text);
+  // a copy is made to be changed: it opens in Edit, as a new deck does
+  app.setEditing(true, true);
   dropThumbs();
   await saveDoc(true);
   await commitVersion("@created").catch((e) => console.warn("no version kept", e));
@@ -5324,6 +5332,7 @@ function frame() {
     collab?.tick();
     meet.tick();
     apps.tick(app.revision(), !!(lastLayout && lastLayout.mode === "present"));
+    docStills(lastLayout);
     // a game that has the keyboard while presenting takes the stage: the
     // controls at the foot give way until Esc (PresApp.gameTakesStage)
     const staged = app.gameTakesStage();
@@ -5545,6 +5554,17 @@ async function editModeChanged(why) {
   refreshCollabBar();
   needsPaint = true;
   if (why !== "save") return;
+  await saveNow();
+}
+
+// ✓ Save, File → Save and ⌘/Ctrl+S: the deck kept where it lives and a
+// version of it in the history. A page with nowhere to keep it (the
+// viewer) hands out its text instead.
+async function saveNow() {
+  if (!vfs || viewer) {
+    document.getElementById("save").click();
+    return;
+  }
   await saveDoc(true);
   const id = await commitVersion("@saved").catch((e) => { console.warn("no version kept", e); return null; });
   toast(id ? t("Saved. The version is in the history.") : t("Saved."));
@@ -5752,6 +5772,9 @@ function handleRequests() {
       const href = r.slice(5);
       const presenting = lastLayout && lastLayout.mode === "present";
       linkTimer = setTimeout(() => followLink(href).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
+    } else if (r === "save:now") {
+      // File → Save, ⌘/Ctrl+S: kept where the deck lives, with a version
+      saveNow().catch(fail);
     } else if (r === "click:editmode") {
       // the bar's ✎ Edit / ✓ Save
       app.setEditing(!app.isEditing(), false);
@@ -6271,6 +6294,25 @@ async function renderWorldStills() {
 // The programs on slides the stage never showed, run for their first frames
 // so an export shows each one's picture, not its fence's plate
 // (web/videoplays.js stillPlays); before the 3-D worlds, which they draw.
+// The Document view shows every slide at once, but a program runs only on
+// the slide the stage shows (web/apps.js): the others get their first frames
+// run here as a still, as an export does, each program once while the deck
+// is open. Their plates say "Loading…" meanwhile (PresDeck.plateLook).
+let docStillsBusy = false;
+let docStillsRev = "";
+const docStillsTried = new Set();
+function docStills(layout) {
+  if (docStillsBusy || !layout || layout.view !== "doc") return;
+  const rev = app.revision();
+  if (rev === docStillsRev) return;
+  docStillsRev = rev;
+  docStillsBusy = true;
+  stillPlays({ app, tried: docStillsTried })
+    .then((n) => { if (n) needsPaint = true; })
+    .catch((e) => console.warn("document view programs", e))
+    .finally(() => { docStillsBusy = false; });
+}
+
 async function renderPlayStills(picked) {
   if (await stillPlays({ app, picked: picked && app.pickCount() > 0 })) needsPaint = true;
 }
@@ -7996,7 +8038,7 @@ window.addEventListener("keydown", (ev) => {
   if (viewer && ev.key === "Escape") {
     ev.stopImmediatePropagation();
     if (app.tocShown()) {
-      app.tocClose();
+      app.tocEscape();
       needsPaint = true;
     } else if (!vGo.hidden) closeGoTo();
     else if (app.navTyping()) {
@@ -9386,8 +9428,16 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   if (presenting) {
-    // with the text tool (Aa) letters write on the slide
-    const writing = app.inkWrites();
+    // with the text tool (Aa) letters write on the slide; the ToC's search
+    // field takes letters too
+    const writing = app.inkWrites() || app.tocHasKeys();
+    if (mod && app.tocHasKeys() && ev.key.length === 1) {
+      if (CLIPBOARD_CHORD.test(ev.key)) return; // paste fires on the field
+      ev.preventDefault();
+      if (ev.key === "a" || ev.key === "A") app.chord("a");
+      afterInput();
+      return;
+    }
     if ((ev.key === "m" || ev.key === "M") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing && music.has()) {
       ev.preventDefault();
       toast(music.toggle() ? t("♪ Music on") : t("♪ Music off"));
@@ -9412,12 +9462,12 @@ keys.addEventListener("keydown", (ev) => {
   }
   // the menus' keys (shown beside their rows): Ctrl+M a new slide (Ctrl on
   // a Mac too: ⌘M minimises the window), ⌘/Ctrl+D duplicate it, ⌘/Ctrl+O
-  // open, ⌘/Ctrl+S save .md
+  // open, ⌘/Ctrl+S save (as ✓ Save does)
   const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
   const menuReq = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new"
     : mod && menuKey === "d" ? "slide:duplicate"
     : mod && menuKey === "o" ? "openbox"
-    : mod && menuKey === "s" ? "click:save"
+    : mod && menuKey === "s" ? "save:now"
     : "";
   if (menuReq) {
     ev.preventDefault();
@@ -9525,6 +9575,15 @@ keys.addEventListener("paste", (ev) => {
   }
   // while a conversation's composer has the keys, text goes into it as it
   // is, and pictures with the AI assistant's next question
+  // the ToC's search field: the words on one line
+  if (app.tocHasKeys()) {
+    const text = ev.clipboardData?.getData("text/plain") || "";
+    if (text) {
+      app.pasteText(text);
+      afterInput();
+    }
+    return;
+  }
   if (app.chatHasKeys()) {
     const pics = app.aiTakesPictures()
       ? items.filter((it) => it.kind === "file" && it.type.startsWith("image/")).map((it) => it.getAsFile()).filter(Boolean)
@@ -10051,6 +10110,7 @@ window.addEventListener("keydown", (ev) => {
   if (!presentingNow() || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
   const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
   let done = false;
+  if (app.tocHasKeys()) return;
   if (mod && (ev.key === "a" || ev.key === "A") && textSelectable()) {
     const read = presentText();
     if (read && read.text) {

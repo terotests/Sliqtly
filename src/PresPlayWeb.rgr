@@ -189,7 +189,9 @@ class PresPlayWeb {
             if (v.loading(now)) {
                 v.paintLoading(out bx by bw bh now ink)
             } {
-                v.paintPlate(out (itemAt specs i) bx by bw bh)
+                def look (new MdAppPlate())
+                look.ink = ink
+                v.paintPlate(out (itemAt specs i) bx by bw bh look)
             }
         }
         return (out.toJson())
