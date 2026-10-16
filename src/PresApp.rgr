@@ -10511,14 +10511,14 @@ class PresApp {
             review.zoomOut = (PresViewZoom.canOut(viewZoom))
             review.zoomIn = (PresViewZoom.canIn(viewZoom))
         }
-        review.zoomGap = (sketch.barW + 8.0)
+        ; the drawing pill between them (PresFootPills fits the three to
+        ; the stage's width)
+        review.sketchW = 0.0
         if pres {
             review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
         } {
-            review.shift = (0.0 - ((sketch.barW + 8.0) * 0.5))
-            if ((strlen review.zoom) > 0) {
-                review.shift = (review.shift - ((review.zoomW + 8.0) * 0.5))
-            }
+            review.sketchW = sketch.barW
+            review.sketchH = sketch.barH
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
     }
@@ -11002,7 +11002,8 @@ class PresApp {
         sketch.barY = ((foot - sketch.barH) - 12.0)
         sketch.barX = ((stageArea.x + (stageArea.w * 0.5)) - (sketch.barW * 0.5))
         if (review.on && (review.barW > 0.0)) {
-            sketch.barX = ((review.barX()) + review.barW + 8.0)
+            sketch.barX = (review.sketchX())
+            sketch.barY = (review.sketchY())
         }
         sketch.place(W H slideRect.x slideRect.y slideRect.w slideRect.h (this.slideScale()) stageArea.x stageArea.y stageArea.w stageArea.h)
         sketch.showSlide(selected (this.sketchPathOf(selected)))

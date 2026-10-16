@@ -38,6 +38,7 @@ Import "../evgui/src/ChatCtl.rgr"
 Import "PresReviewDot.rgr"
 Import "../evgui/src/CalloutCtl.rgr"
 Import "PresReview.rgr"
+Import "PresFootPills.rgr"
 Import "PresI18n.rgr"
 
 class PresReviewUi {
@@ -64,18 +65,23 @@ class PresReviewUi {
     def areaB:double 0.0
     def barW:double 0.0
     def barH:double 40.0
-    ; moved off the middle by this much (the drawing pill beside it, so the
-    ; two sit in the middle together)
-    def shift:double 0.0
+    ; the bar's width as last measured in its full form and in its short
+    ; one (0: not yet), and whether it is in the short one now: the stage
+    ; too narrow for the pills at full size (PresFootPills)
+    def barFullW:double 0.0
+    def barSmallW:double 0.0
+    def compact:boolean false
+    def barSig:string ""
+    ; the drawing pill between the bar and the zoom pill (the host's, 0 none)
+    def sketchW:double 0.0
+    def sketchH:double 40.0
     ; The zoom pill: its middle words ("" no pill), whether − and + go
-    ; anywhere, its size, and the room left between the bar and it (the
-    ; drawing pill's).
+    ; anywhere, its size.
     def zoom:string ""
     def zoomOut:boolean false
     def zoomIn:boolean true
     def zoomW:double 0.0
     def zoomH:double 40.0
-    def zoomGap:double 0.0
     ; the slides' titles, for "Slide 3" and for finding threads again
     def titles:[string]
     def panelW:double 360.0
@@ -266,20 +272,81 @@ class PresReviewUi {
         return ((((this.panelOpen()) && (px >= (this.panelX()))) && (py >= top)) && (py <= h))
     }
 
+    ; The three pills at the stage's foot (the bar, the drawing pill, the
+    ; zoom pill) fitted to its width: in a row in the middle, shorter or on
+    ; more rows when the stage is narrow.
+    fn pills:PresFootPills () {
+        def zw:double 0.0
+        if ((strlen zoom) > 0) {
+            zw = zoomW
+        }
+        def fw:double barFullW
+        if (fw <= 0.0) {
+            fw = barW
+        }
+        def cw:double barSmallW
+        if (cw <= 0.0) {
+            cw = 60.0
+        }
+        return (PresFootPills.fit(areaX areaW ([] _:double (fw sketchW zw)) ([] _:double (cw sketchW zw))))
+    }
+
+    ; a row's height: the tallest pill's
+    fn pillRowH:double () {
+        def rh:double barH
+        if (sketchH > rh) {
+            rh = sketchH
+        }
+        if (zoomH > rh) {
+            rh = zoomH
+        }
+        return rh
+    }
+
+    ; the top of a pill `ph` tall on row `row` (0 the bottom one)
+    fn pillY:double (row:int ph:double) {
+        def ro:int row
+        if (ro < 0) {
+            ro = 0
+        }
+        return (((areaB - 12.0) - ph) - ((to_double ro) * ((this.pillRowH()) + (PresFootPills.gap()))))
+    }
+
     fn barX:double () {
-        return (((areaX + (areaW * 0.5)) - (barW * 0.5)) + shift)
+        def p:PresFootPills (this.pills())
+        return (p.xOf(0))
     }
 
     fn barY:double () {
-        return ((areaB - barH) - 12.0)
+        def p:PresFootPills (this.pills())
+        return (this.pillY((p.rowOf(0)) barH))
+    }
+
+    ; where the host puts the drawing pill
+    fn sketchX:double () {
+        def p:PresFootPills (this.pills())
+        return (p.xOf(1))
+    }
+
+    fn sketchY:double () {
+        def p:PresFootPills (this.pills())
+        return (this.pillY((p.rowOf(1)) sketchH))
     }
 
     fn zoomX:double () {
-        return ((((this.barX()) + barW) + 8.0) + zoomGap)
+        def p:PresFootPills (this.pills())
+        return (p.xOf(2))
     }
 
     fn zoomY:double () {
-        return ((areaB - zoomH) - 12.0)
+        def p:PresFootPills (this.pills())
+        return (this.pillY((p.rowOf(2)) zoomH))
+    }
+
+    ; the top of the pills, all their rows
+    fn pillsTop:double () {
+        def p:PresFootPills (this.pills())
+        return (this.pillY((p.rowCount - 1) (this.pillRowH())))
     }
 
     fn inZoom:boolean (px:double py:double) {
@@ -562,7 +629,12 @@ class PresReviewUi {
     }
 
     fn place:void (pw:double ph:double topBand:double presenting:boolean shown:int x:double y:double sW:double sH:double aX:double aW:double aB:double) {
-        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey + ":" + (this.docNow()) + ":" + zoom + ":" + (? zoomOut "o" "-") + (? zoomIn "i" "-") + ":" + (EVGDisplayList.num(zoomGap)) + ":" + (EVGDisplayList.num(shift)))
+        areaX = aX
+        areaW = aW
+        areaB = aB
+        def fp:PresFootPills (this.pills())
+        compact = fp.compact
+        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey + ":" + (this.docNow()) + ":" + zoom + ":" + (? zoomOut "o" "-") + (? zoomIn "i" "-") + ":" + (EVGDisplayList.num(sketchW)) + ":" + (? compact "c" "f"))
         if (key == builtKey) {
             return
         }
@@ -575,9 +647,6 @@ class PresReviewUi {
         sy = y
         sw = sW
         sh = sH
-        areaX = aX
-        areaW = aW
-        areaB = aB
         this.rebuild()
         builtKey = key
     }
@@ -760,15 +829,29 @@ class PresReviewUi {
         def b:EVGElement (UiTree.div("rv-bar" "rv-bar"))
         UiTree.surface(b "free" "start")
         def n:int (model.openCount())
+        ; other words in it: the widths measured for the old ones are no
+        ; good (measured again as the bar is built)
+        def sig:string ((? placing "p" "-") + (to_string n))
+        if (sig != barSig) {
+            barSig = sig
+            barFullW = 0.0
+            barSmallW = 0.0
+        }
+        ; short (a narrow stage): "+", the count as a number, "›"
         if placing {
-            b.addChild((this.label("rv-hint" "rv-hint" (PresI18n.t("Click where the comment goes")))))
+            if (compact == false) {
+                b.addChild((this.label("rv-hint" "rv-hint" (PresI18n.t("Click where the comment goes")))))
+            }
             b.addChild((this.label("rv-cancel" "rv-btn" (PresI18n.t("Cancel")))))
         } {
-            b.addChild((this.label("rv-add" "rv-btn rv-btn-main" ("+ " + (PresI18n.t("Add comment"))))))
+            b.addChild((this.label("rv-add" "rv-btn rv-btn-main" (? compact "+" ("+ " + (PresI18n.t("Add comment")))))))
             def cnt:string ((to_string n) + " " + (PresI18n.t("open")))
+            if compact {
+                cnt = (to_string n)
+            }
             b.addChild((this.label("rv-count" (? listing "rv-count rv-count-on" "rv-count") cnt)))
             if (n > 0) {
-                b.addChild((this.label("rv-next" "rv-btn" ((PresI18n.t("Next")) + " ›"))))
+                b.addChild((this.label("rv-next" "rv-btn" (? compact "›" ((PresI18n.t("Next")) + " ›")))))
             }
         }
         ; placed where it goes once its size is known (`page`)
@@ -891,8 +974,8 @@ class PresReviewUi {
         ; between the editor's bar at the top and review mode's bar, which
         ; stay in sight and pressable
         def roomH:double h
-        if ((barW > 0.0) && ((this.barY()) > (top + 120.0))) {
-            roomH = ((this.barY()) - 4.0)
+        if ((barW > 0.0) && ((this.pillsTop()) > (top + 120.0))) {
+            roomH = ((this.pillsTop()) - 4.0)
         }
         co.setPage(w h)
         co.setRows(top roomH)
@@ -1124,6 +1207,11 @@ class PresReviewUi {
                 sum = (sum + ((to_double (k - 1)) * 6.0))
             }
             barW = (sum + (be.box.getHorizontalChrome()))
+            if compact {
+                barSmallW = barW
+            } {
+                barFullW = barW
+            }
             be.width = (EVGUnit.px(barW))
             barH = be.calculatedHeight
             be.overlayX = (this.barX())
