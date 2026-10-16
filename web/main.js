@@ -4703,7 +4703,7 @@ function stripKey(ev) {
   const req = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new" : mod && menuKey === "d" ? "slide:duplicate" : "";
   if (name) app.key(name, ev.shiftKey, mod);
   else if (req) app.request(req);
-  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.key.toLowerCase());
+  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.shiftKey && /^z$/i.test(ev.key) ? "y" : ev.key.toLowerCase()); // Ctrl+Shift+Z redoes
   else return false;
   ev.preventDefault();
   afterInput();
@@ -9367,6 +9367,19 @@ let editorWheel = 0;
 // everywhere. The picker (EVGUI's) offers the emojis the slides and their PDF
 // can draw. Ctrl+Space alone is the value popover.
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || "");
+// A Mac's text keys as the app names them: ⌘←/→ the line's start/end,
+// ⌘↑/↓ the document's, ⌥←/→ and ⌥⌫ a word (what Ctrl is elsewhere).
+function macKey(ev, name, mod) {
+  if (!IS_MAC) return [name, mod];
+  if (ev.metaKey && !ev.ctrlKey) {
+    if (name === "left") return ["home", false];
+    if (name === "right") return ["end", false];
+    if (name === "up") return ["home", true];
+    if (name === "down") return ["end", true];
+  }
+  if (ev.altKey && !ev.metaKey && !ev.ctrlKey && /^(left|right|backspace|delete)$/.test(name)) return [name, true];
+  return [name, mod];
+}
 function isEmojiChord(ev) {
   if (!(ev.key === " " || ev.code === "Space") || !ev.ctrlKey || ev.altKey) return false;
   return IS_MAC ? ev.metaKey || ev.shiftKey : ev.shiftKey && !ev.metaKey;
@@ -9588,7 +9601,8 @@ keys.addEventListener("keydown", (ev) => {
   const special = KEY_MAP[ev.key];
   if (special) {
     if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room" && app.focusTarget() !== "find") return;
-    if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
+    const [kname, kmod] = macKey(ev, special, mod);
+    if (app.key(kname, ev.shiftKey, kmod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
     return;
@@ -9658,7 +9672,8 @@ keys.addEventListener("keydown", (ev) => {
     if (CLIPBOARD_CHORD.test(ev.key)) return; // copy / cut / paste fire on the field
     if (/^[azyAZYbiuBIU]$/.test(ev.key)) {
       ev.preventDefault();
-      app.chord(ev.key.toLowerCase());
+      // Ctrl+Shift+Z redoes, as Ctrl+Y does
+      app.chord(ev.shiftKey && /^z$/i.test(ev.key) ? "y" : ev.key.toLowerCase());
       afterInput();
     }
   }
@@ -9675,9 +9690,29 @@ document.addEventListener("keydown", (ev) => {
   ev.preventDefault();
 });
 
+// An input method's marked text, shown at the View page's caret (the field
+// it is typed into is hidden); the Markdown tab's editor shows it in the field
+const preedit = document.getElementById("preedit");
+function showPreedit(text) {
+  const box = text && app.docCaretBox();
+  if (!box) {
+    preedit.style.display = "none";
+    return;
+  }
+  const [x, y, h] = box.split(",").map(Number);
+  preedit.textContent = text;
+  preedit.style.left = x + "px";
+  preedit.style.top = y + "px";
+  preedit.style.height = h + "px";
+  preedit.style.lineHeight = h + "px";
+  preedit.style.fontSize = Math.max(8, h * 0.78) + "px";
+  preedit.style.display = "block";
+}
 keys.addEventListener("compositionstart", () => { composing = true; });
+keys.addEventListener("compositionupdate", (ev) => showPreedit(ev.data || ""));
 keys.addEventListener("compositionend", (ev) => {
   composing = false;
+  showPreedit("");
   if (ev.data) app.text(ev.data);
   afterInput();
 });
@@ -9686,7 +9721,10 @@ keys.addEventListener("beforeinput", (ev) => {
   // an edit that is not the composition's says it is over, whether or not a
   // compositionend came (Enter or a click can end one without it): left
   // switched on, the flag swallowed the commit and every key after it
-  if (!ev.isComposing && ev.inputType !== "insertCompositionText") composing = false;
+  if (!ev.isComposing && ev.inputType !== "insertCompositionText") {
+    composing = false;
+    showPreedit("");
+  }
   if (composing || ev.isComposing) return;
   const type = ev.inputType;
   let handled = true;
@@ -9731,6 +9769,10 @@ keys.addEventListener("copy", (ev) => {
   if (!text) return;
   ev.preventDefault();
   ev.clipboardData?.setData("text/plain", text);
+  // from the View page also as HTML: bold, links and lists survive a paste
+  // into a word processor or a mail
+  const html = app.copySelectionHtml();
+  if (html) ev.clipboardData?.setData("text/html", html);
 });
 keys.addEventListener("cut", (ev) => {
   const text = app.cutSelection();
@@ -9790,6 +9832,12 @@ keys.addEventListener("paste", (ev) => {
   }
   // slides, an element, a diagram or a spec: asked about, then pasted
   if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
+  // on the View page a table from a spreadsheet or a web page lands as a table
+  const pastedHtml = ev.clipboardData?.getData("text/html") || "";
+  if (pastedHtml && app.pasteHtml(pastedHtml, text)) {
+    afterInput();
+    return;
+  }
   if (text && app.focusTarget() === "editor" && dataLink(text)) {
     linkData(text.trim()).catch(fail);
     return;
@@ -9800,7 +9848,7 @@ keys.addEventListener("paste", (ev) => {
   }
 });
 keys.addEventListener("focus", () => { composing = false; mirrorLine(); needsPaint = true; });
-keys.addEventListener("blur", () => { composing = false; });
+keys.addEventListener("blur", () => { composing = false; showPreedit(""); });
 
 // --- Copy and paste of slides and elements (src/PresClip.rgr) ----------------------
 // Ctrl/⌘+C on the filmstrip or the slide copies the picked slides (else the

@@ -6217,6 +6217,9 @@ try {
     await pg.waitForTimeout(200);
     const caretPos = await pg.evaluate(() => { const u = window.__app.tocUi; const c = u.search.caretEl; return { x: c.calculatedX, w: c.calculatedWidth, h: c.calculatedHeight, value: u.search.value }; });
     check("ToC search: the caret is drawn in the field", caretPos.value === "luku 3" && caretPos.h > 8 && caretPos.x > field[0] && caretPos.x < field[0] + field[2], JSON.stringify({ caretPos, field }));
+    // the list is laid out again after the Backspace: its rows have a place
+    // only once the next frame has drawn them
+    await pg.waitForFunction(() => { const b = window.__app.tocUi.drawer.body(); return b.getChildCount() > 2 && b.getChild(2).calculatedHeight > 0; }, null, { timeout: 5000 }).catch(() => {});
     const frow = await pg.evaluate(() => { const r = window.__app.tocUi.drawer.body().getChild(2); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(frow[0] + 30, frow[1] + frow[3] / 2);
     await pg.waitForTimeout(500);
@@ -6245,6 +6248,8 @@ try {
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
     // presenting, the search takes the letters (not the bar's keys) and
     // Enter goes to the first heading found
+    // the drawer just opened: its field has a place once a frame has laid it out
+    await pg.waitForFunction(() => window.__app.tocUi.search.rootEl.calculatedWidth > 0, null, { timeout: 5000 }).catch(() => {});
     const pfield = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(pfield[0] + 40, pfield[1] + pfield[3] / 2);
     await pg.keyboard.type("kohta 12", { delay: 20 });
@@ -6311,20 +6316,27 @@ try {
     await key("Home");
     await key("Backspace");
     let s2 = await src();
-    check("View editing: Backspace at an item's start joins it to the item above", !s2.includes("\n2. XYKuulee") && s2.includes("saanutXYKuulee"), JSON.stringify(s2.slice(p.o - 20, p.o + 10)));
+    // as a word processor: the first Backspace takes the number off, the
+    // second joins the words to the item above
+    check("View editing: Backspace at an item's start makes it a paragraph", !s2.includes("2. XYKuulee") && s2.includes("\n\nXYKuulee"), JSON.stringify(s2.slice(p.o - 20, p.o + 10)));
+    await key("Backspace");
+    s2 = await src();
+    check("View editing: …a second Backspace joins it to the item above", s2.includes("saanutXYKuulee"), JSON.stringify(s2.slice(p.o - 20, p.o + 10)));
+    await pg.keyboard.press("Control+z");
+    await pg.waitForTimeout(200);
     await pg.keyboard.press("Control+z");
     await pg.waitForTimeout(200);
     check("View editing: Ctrl+Z gives it back, byte for byte", (await src()) === s1, "");
     await key("End");
     await key("Enter");
     let s3 = await src();
-    check("View editing: Enter in a list item makes the next item", s3.includes("Geminille\n3. \n3. Vastaus"), JSON.stringify(s3.slice(560, 640)));
+    check("View editing: Enter in a list item makes the next item", s3.includes("Geminille\n3. \n4. Vastaus"), JSON.stringify(s3.slice(560, 640)));
     await pg.keyboard.type("Uusi");
     await key("Enter");
     await key("Enter");
     await pg.keyboard.type("Kappale");
     s3 = await src();
-    check("View editing: Enter on an empty item ends the list in a paragraph", s3.includes("3. Uusi\n\nKappale\n\n3. Vastaus"), JSON.stringify(s3.slice(590, 640)));
+    check("View editing: Enter on an empty item ends the list in a paragraph", s3.includes("3. Uusi\n\nKappale\n\n4. Vastaus"), JSON.stringify(s3.slice(590, 640)));
     p = await at("Vastaus", 2);
     await pg.mouse.dblclick(p.x, p.y);
     await pg.waitForTimeout(200);
@@ -6333,13 +6345,13 @@ try {
     check("View editing: a double click selects the word", t5.slice(Math.min(c.caret, c.anchor), Math.max(c.caret, c.anchor)) === "Vastaus", JSON.stringify(c));
     await pg.keyboard.press("Control+b");
     await pg.waitForTimeout(300);
-    check("View editing: Ctrl+B makes it bold in the Markdown", (await src()).includes("3. **Vastaus** soitetaan"), "");
+    check("View editing: Ctrl+B makes it bold in the Markdown", (await src()).includes("4. **Vastaus** soitetaan"), "");
     await pg.keyboard.press("Control+b");
     await pg.waitForTimeout(300);
     check("View editing: Ctrl+B again takes it off, byte for byte", (await src()) === t5, "");
     await pg.keyboard.press("Control+i");
     await pg.waitForTimeout(300);
-    check("View editing: Ctrl+I", (await src()).includes("3. *Vastaus* soitetaan"), "");
+    check("View editing: Ctrl+I", (await src()).includes("4. *Vastaus* soitetaan"), "");
     p = await at("*Vastaus*", 1);
     await pg.mouse.click(p.x, p.y);
     await pg.waitForTimeout(150);
@@ -6349,7 +6361,7 @@ try {
     check("View editing: ← steps over the hidden marker", c.caret < p.o - 1, JSON.stringify({ c, o: p.o }));
     await key("Backspace");
     const s8 = await src();
-    check("View editing: Backspace there deletes the letter before the caret, not the marker", s8.includes("3. *Vastaus*") && s8 === s7.slice(0, c.caret - 1) + s7.slice(c.caret), JSON.stringify(s8.slice(c.caret - 12, c.caret + 4)));
+    check("View editing: Backspace there deletes the letter before the caret, not the marker", s8.includes("4. *Vastaus*") && s8 === s7.slice(0, c.caret - 1) + s7.slice(c.caret), JSON.stringify(s8.slice(c.caret - 12, c.caret + 4)));
     await pg.keyboard.press("Control+z");
     await pg.waitForTimeout(200);
     p = await at("linkin saanut", 13);
@@ -6589,6 +6601,234 @@ try {
     await pg.keyboard.type("toinen");
     await frames();
     check("View keys: Enter at an item's end starts the next item", (await src()).includes("- uusi\n- toinen\n- bb"), JSON.stringify((await src()).slice((await src()).indexOf("- aa"))));
+    // the keys whose edit depends on the block (src/PresDocKeys.rgr)
+    const put = async (md2, at) => {
+      await pg.evaluate((md2) => { const A = window.__app; A.setSource(md2); A.showTab("view"); A.edDocEnsure(); }, md2);
+      await pg.waitForFunction((o) => window.__app.docScreenAt(o) !== "", md2.indexOf(at), { timeout: 10000 }).catch(() => {});
+      await pg.evaluate((o) => window.__app.docSelect(o, o), md2.indexOf(at));
+    };
+    const keyTo = async (md2, at, key, want, what) => {
+      await put(md2, at);
+      await pg.keyboard.press(key);
+      await frames();
+      const got = await src();
+      check("View keys: " + what, got.endsWith(want), JSON.stringify(got.slice(-Math.max(want.length + 10, 40))));
+    };
+    const body = "# Avaimet\n\n";
+    await keyTo(body + "- aa\n- bb\n- cc\n", "bb", "Tab", "- aa\n  - bb\n- cc\n", "Tab nests a list item under the one above");
+    await keyTo(body + "- aa\n  - bb\n- cc\n", "bb", "Shift+Tab", "- aa\n- bb\n- cc\n", "Shift+Tab takes it a level out");
+    await keyTo(body + "- aa\n  - bb\n- cc\n", "bb", "Backspace", "- aa\n- bb\n- cc\n", "Backspace where a nested item's words start takes it a level out");
+    await keyTo(body + "> yksi\n", "yksi", "End", "> yksi\n", "(End in a quote)");
+    await pg.keyboard.press("Enter");
+    await pg.keyboard.type("kaksi");
+    await frames();
+    check("View keys: Enter in a quote starts a new paragraph of it", (await src()).endsWith("> yksi\n>\n> kaksi\n"), JSON.stringify((await src()).slice(-30)));
+    const tbl = body + "| a | b |\n| --- | --- |\n| c | d |\n\nLoppu\n";
+    await keyTo(tbl, "c |", "Shift+Enter", "| <br>c | d |\n\nLoppu\n", "Shift+Enter in a table cell writes <br>, the table stays");
+    await put(tbl, "d |");
+    await pg.keyboard.press("Tab");
+    await pg.keyboard.type("e");
+    await frames();
+    check("View keys: Tab in the last cell adds a row", (await src()).includes("| c | d |\n| e |  |\n\nLoppu"), JSON.stringify((await src()).slice(-40)));
+    await put(tbl, "Loppu");
+    await pg.keyboard.press("Backspace");
+    await frames();
+    check("View keys: Backspace after a table does not join the paragraph into its row", (await src()) === tbl, JSON.stringify((await src()).slice(-30)));
+    await keyTo(body + "## Otsikko\n", "Otsikko", "Enter", "\n\n## Otsikko\n", "Enter at a heading's start keeps it a heading");
+    await put(body + "## Otsikko\n", "sikko");
+    await pg.keyboard.press("Enter");
+    await frames();
+    check("View keys: Enter in a heading makes two headings", (await src()).endsWith("## Ot\n\n## sikko\n"), JSON.stringify((await src()).slice(-30)));
+    // a new numbered item numbers the ones after it on, in one undo step
+    const num = body + "1. aa\n2. bb\n3. cc\n";
+    await put(num, "aa");
+    await pg.keyboard.press("End");
+    await pg.keyboard.press("Enter");
+    await pg.keyboard.type("uusi");
+    await frames();
+    const n1 = await src();
+    await pg.keyboard.press("Control+z");
+    await pg.keyboard.press("Control+z");
+    await frames();
+    const n2 = await src();
+    check("View keys: Enter in a numbered list numbers the next items on, one undo takes it back", n1.endsWith("1. aa\n2. uusi\n3. bb\n4. cc\n") && n2 === num, JSON.stringify({ n1: n1.slice(-34), n2: n2.slice(-24) }));
+    // Enter at a paragraph's end: an empty line of its own, the caret on it,
+    // the next paragraph below it; Backspace there takes it away
+    const paras = body + "Eka\n\nToka\n";
+    await put(paras, "Eka");
+    const tokaY0 = await pg.evaluate((o) => window.__app.docScreenAt(o), paras.indexOf("Toka"));
+    await pg.keyboard.press("End");
+    await pg.keyboard.press("Enter");
+    await frames();
+    const e1 = await src();
+    const caretShown = await pg.evaluate(() => window.__app.docScreenAt(window.__app.mdEditor.caretOffset()));
+    const tokaY1 = await pg.evaluate((o) => window.__app.docScreenAt(o), e1.indexOf("Toka"));
+    await pg.keyboard.press("Backspace");
+    await frames();
+    const e2 = await src();
+    const yOf = (s) => Number(String(s).split(",")[1]);
+    check("View keys: Enter after a paragraph shows an empty line with the caret on it, Backspace takes it away", caretShown !== "" && yOf(tokaY1) > yOf(tokaY0) + 10 && yOf(caretShown) < yOf(tokaY1) && e2 === paras, JSON.stringify({ caretShown, tokaY0, tokaY1, e1: e1.slice(-16), e2: e2.slice(-14) }));
+    await keyTo(body + "```js\nlet a\n```\n", "let a", "Tab", "```js\n    let a\n```\n", "Tab in code writes four spaces");
+    // undo a word at a time; Ctrl+Shift+Z redoes
+    await put(body + "Teksti\n", "Teksti");
+    await pg.keyboard.press("End");
+    await pg.keyboard.type(" yksi kaksi");
+    await frames();
+    await pg.keyboard.press("Control+z");
+    await frames();
+    const u1 = await src();
+    await pg.keyboard.press("Control+Shift+z");
+    await frames();
+    const u2 = await src();
+    check("View keys: Ctrl+Z takes back the last word, Ctrl+Shift+Z brings it back", u1.endsWith("Teksti yksi \n") && u2.endsWith("Teksti yksi kaksi\n"), JSON.stringify({ u1: u1.slice(-20), u2: u2.slice(-20) }));
+    // a space after bold goes outside its marks
+    await put(body + "Sana **lihava**\n", "lihava");
+    await pg.keyboard.press("End");
+    await pg.keyboard.type(" ja");
+    await frames();
+    check("View keys: a space typed after bold goes outside its stars", (await src()).endsWith("Sana **lihava** ja\n"), JSON.stringify((await src()).slice(-24)));
+    // Ctrl+Backspace a word; Ctrl+A what the page shows; three clicks a paragraph
+    await put(body + "Yksi kaksi kolme\n", "kolme");
+    await pg.keyboard.press("End");
+    await pg.keyboard.press("Control+Backspace");
+    await frames();
+    check("View keys: Ctrl+Backspace takes the word before the caret", (await src()).endsWith("Yksi kaksi \n"), JSON.stringify((await src()).slice(-20)));
+    const fm = "---\ntitle: X\n---\n\n" + body + "Alku\n\nLoppu\n";
+    await put(fm, "Loppu");
+    await pg.keyboard.press("Control+a");
+    await frames();
+    const all = await pg.evaluate(() => { const e = window.__app.mdEditor; return [e.anchorOffset(), e.caretOffset()]; });
+    check("View keys: Ctrl+A selects what the page shows, not the front matter", Math.min(...all) === fm.indexOf("Avaimet") && Math.max(...all) === fm.indexOf("Loppu") + 5, JSON.stringify(all));
+    const para = body + "Ensimmäinen kappale. Toinen lause.\n\nSeuraava\n";
+    await put(para, "Toinen");
+    const [px3, py3] = await at(para.indexOf("Toinen") + 2);
+    await pg.evaluate(({ x, y }) => {
+      const c = document.getElementById("c");
+      const ev = (type, buttons, detail) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons, clientX: x, clientY: y, detail }));
+      ev("pointerdown", 1, 1); ev("pointerup", 0, 1); ev("pointerdown", 1, 2); ev("pointerup", 0, 2); ev("pointerdown", 1, 3); ev("pointerup", 0, 3);
+    }, { x: px3, y: py3 });
+    await frames();
+    const tri = await pg.evaluate(() => { const e = window.__app.mdEditor; return [e.anchorOffset(), e.caretOffset()]; });
+    check("View keys: three clicks select the paragraph", Math.min(...tri) === para.indexOf("Ensimmäinen") && Math.max(...tri) === para.indexOf("lause.") + 6, JSON.stringify(tri));
+    // a click on a task's box ticks it
+    const tasks = body + "- [ ] tee\n- [x] tehty\n";
+    await put(tasks, "tee");
+    const [tx, ty] = await at(tasks.indexOf("tee"));
+    const box = await pg.evaluate(({ y }) => { const a = window.__app; const sc = a.edDocPane.scale(a.docView.width()); return sc; }, { y: ty });
+    await pg.mouse.click(tx - 9 * box, ty + 4);
+    await frames();
+    check("View keys: a click on a task's box ticks it", (await src()).endsWith("- [x] tee\n- [x] tehty\n"), JSON.stringify((await src()).slice(-26)));
+    // the clipboard: a copy carries HTML too, a pasted HTML table lands as a table
+    const rich = body + "Sana **lihava** ja [linkki](https://sliqtly.com).\n\nLoppu\n";
+    await put(rich, "Sana");
+    await pg.evaluate((r) => window.__app.docSelect(r.indexOf("Sana"), r.indexOf(".\n\nLoppu") + 1), rich);
+    const copied = await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+      return { text: dt.getData("text/plain"), html: dt.getData("text/html") };
+    });
+    check("View keys: a copy carries the Markdown and HTML with its bold and link", copied.text.includes("**lihava**") && copied.html.includes("<strong>lihava</strong>") && copied.html.includes('href="https://sliqtly.com"'), JSON.stringify(copied));
+    await put(rich, "Loppu");
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/html", "<table><tr><td>Nimi</td><td>Arvo</td></tr><tr><td>a</td><td>1</td></tr></table>");
+      dt.setData("text/plain", "Nimi\tArvo\na\t1");
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await frames();
+    const pasted = await src();
+    check("View keys: a table pasted from a spreadsheet lands as a Markdown table", /\n\n\| Nimi \| Arvo \|\n\|[-: |]+\|\n\| a +\| 1 +\|\n\nLoppu/.test(pasted), JSON.stringify(pasted.slice(-80)));
+    // Ctrl/⌘+click on a link opens it; a plain click puts the caret in it
+    const lnk = body + "Katso [sivu](https://example.com/k) nyt\n";
+    await put(lnk, "Katso");
+    await pg.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
+    const [lx, ly] = await at(lnk.indexOf("sivu") + 2);
+    await pg.mouse.click(lx, ly + 4);
+    await frames();
+    await pg.waitForTimeout(700);
+    const plain = await pg.evaluate(() => window.__opened.length);
+    await pg.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
+    await pg.mouse.click(lx, ly + 4);
+    await pg.keyboard.up(process.platform === "darwin" ? "Meta" : "Control");
+    await pg.waitForFunction(() => window.__opened.length > 0, null, { timeout: 3000 }).catch(() => {});
+    const opened = await pg.evaluate(() => window.__opened);
+    check("View keys: Ctrl+click opens a link, a plain click edits it", plain === 0 && opened.length === 1 && opened[0].startsWith("https://example.com/k") && (await src()) === lnk, JSON.stringify({ plain, opened }));
+    // plain lines pasted into a list item stay in it
+    const pli = body + "- aa\n- bb\n";
+    await put(pli, "aa");
+    await pg.keyboard.press("End");
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", " x\ny");
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await frames();
+    check("View keys: lines pasted into a list item stay in it", (await src()).endsWith("- aa x\n  y\n- bb\n"), JSON.stringify((await src()).slice(-24)));
+    // a formula is one thing: Backspace after it takes all of $x^2$
+    const fm2 = body + "Kaava $x^2$ tässä\n";
+    await put(fm2, " tässä");
+    const mathShown = await pg.evaluate((o) => window.__app.docScreenAt(o), fm2.indexOf("$x"));
+    await pg.keyboard.press("Backspace");
+    await frames();
+    check("View keys: Backspace after a formula takes it whole", (await src()).endsWith("Kaava  tässä\n") && mathShown !== "", JSON.stringify({ mathShown, s: (await src()).slice(-20) }));
+    // a click on an emoji puts the caret beside it, never inside its pair
+    const emo = body + "Peukku \u{1F44D}\u{1F3FD} jee\n";
+    await put(emo, "jee");
+    const e0 = emo.indexOf("\u{1F44D}");
+    const [ex0, ey0] = (await pg.evaluate((o) => window.__app.docScreenAt(o), e0)).split(",").map(Number);
+    const [ex1] = (await pg.evaluate((o) => window.__app.docScreenAt(o), e0 + 4)).split(",").map(Number);
+    const hits = [];
+    const moved = [];
+    for (const f of [0.2, 0.4, 0.6, 0.8]) {
+      await pg.mouse.click(ex0 + (ex1 - ex0) * f, ey0);
+      await frames();
+      hits.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
+      moved.push(await pg.evaluate((e0) => [window.__app.docScreenAt(e0), window.scrollX, window.scrollY, document.getElementById("stage").scrollLeft, document.getElementById("stage").scrollTop].join(" "), e0));
+    }
+    const eboxes = await pg.evaluate((e0) => window.__app.docView.caret.boxes.filter((b) => b.segSrc <= e0 + 8 && b.segSrc + b.segLen >= e0 - 8).map((b) => [b.segSrc, b.segLen, b.text, Math.round(b.x * 10) / 10, Math.round(b.w * 10) / 10]), e0);
+    check("View keys: a click on an emoji puts the caret beside it", hits.every((h) => h === e0 || h === e0 + 4) && ex1 > ex0, JSON.stringify({ e0, hits, ex0, ex1, eboxes, moved }));
+    // an input method's marked text shows at the caret on the page, its
+    // commit is typed there
+    const ime = body + "Sana\n";
+    await put(ime, "Sana");
+    await pg.keyboard.press("End");
+    await frames();
+    const pre = await pg.evaluate(() => {
+      const k = document.getElementById("keys");
+      k.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+      k.dispatchEvent(new CompositionEvent("compositionupdate", { data: "にほ" }));
+      const p = document.getElementById("preedit");
+      const r = p.getBoundingClientRect();
+      const caret = window.__app.docCaretBox();
+      const out = { shown: getComputedStyle(p).display, text: p.textContent, x: r.left, caret };
+      k.dispatchEvent(new CompositionEvent("compositionend", { data: "日本" }));
+      out.after = getComputedStyle(p).display;
+      return out;
+    });
+    await frames();
+    const cx = Number(String(pre.caret).split(",")[0]);
+    check("View keys: an input method's marked text shows at the caret, its commit is typed", pre.shown === "block" && pre.text === "にほ" && Math.abs(pre.x - cx) < 40 && pre.after === "none" && (await src()).endsWith("Sana日本\n"), JSON.stringify({ pre, s: (await src()).slice(-10) }));
+    // Ctrl+↑/↓ a paragraph at a time
+    const pp = body + "Eka kappale.\n\nToka kappale.\n";
+    await put(pp, "kappale.\n");
+    const ck = [];
+    for (const k of ["Control+ArrowUp", "Control+ArrowUp", "Control+ArrowDown"]) {
+      await pg.keyboard.press(k);
+      await frames();
+      ck.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
+    }
+    check("View keys: Ctrl+↑/↓ go a paragraph at a time", ck[0] === pp.indexOf("Eka") && ck[1] === pp.indexOf("Avaimet") && ck[2] === pp.indexOf("Eka"), JSON.stringify({ ck, eka: pp.indexOf("Eka") }));
+    // bold and a link pasted from a web page stay bold and a link
+    const web = body + "Alku: X\n";
+    await put(web, "X");
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/html", "<meta charset='utf-8'><p>Hei <b>maailma</b> ja <a href='https://x.fi'>linkki</a></p>");
+      dt.setData("text/plain", "Hei maailma ja linkki");
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await frames();
+    check("View keys: bold and a link pasted from a web page stay so", (await src()).endsWith("Alku: Hei **maailma** ja [linkki](https://x.fi)X\n"), JSON.stringify((await src()).slice(-50)));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();
@@ -6627,7 +6867,7 @@ try {
           if (c.length !== 3) continue;
           shown++;
           const back = cm.offsetAt(c[0] + 0.01, c[1] + c[2] * 0.5);
-          if (back !== o && !cm.samePlace(o, back)) bad.push(`${o}→${back}`);
+          if (back !== o && !cm.samePlace(o, back)) bad.push(`${o}→${back} ${JSON.stringify(cm.boxes.filter((b) => o >= b.segSrc && o <= b.segSrc + b.segLen).map((b) => [b.segSrc, b.segLen, b.text, b.kind, b.segAtom, b.x, b.w]))}`);
         }
         for (const b of cm.boxes) {
           if (b.segAtom) continue;
