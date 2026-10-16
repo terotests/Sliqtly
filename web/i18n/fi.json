@@ -1883,6 +1883,8 @@
   "Copied {n} slides as an image.": "{n} diaa kopioitu kuvana.",
   "Table of contents": "Sisällysluettelo",
   "Contents": "Sisällys",
+  "Search headings": "Hae otsikoista",
+  "No heading has these words": "Yhdessäkään otsikossa ei ole näitä sanoja",
   "No headings yet: # and ## lines are listed here": "Ei vielä otsikoita: # ja ## -rivit näkyvät tässä",
   "Zoom out": "Loitonna",
   "Zoom in": "Lähennä",

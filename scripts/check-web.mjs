@@ -6120,6 +6120,8 @@ try {
     const s1 = await st();
     check("ToC: the wheel scrolls the list, not the page", s1.listTop > 0 && s1.scroll === s.scroll, JSON.stringify({ s, s1 }));
     const row = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300) return [i, r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; } return null; });
+    await pg.mouse.move(120, row[2] + row[4] / 2 + 60);
+    await pg.waitForTimeout(300);
     await pg.mouse.click(row[1] + 30, row[2] + row[4] / 2);
     await pg.waitForTimeout(500);
     const s2 = await st();
@@ -6131,7 +6133,38 @@ try {
     await pg.waitForTimeout(400);
     const s3 = await st();
     check("ToC: scrolling the page moves the mark along", s3.cur > s2.cur, JSON.stringify({ was: s2.cur, now: s3.cur }));
+    // the search: a press puts the caret in the field, what is typed keeps
+    // the headings that have it, a row of those goes to its heading, Esc
+    // empties the field and then closes the drawer
+    const field = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(field[0] + 40, field[1] + field[3] / 2);
+    await pg.waitForTimeout(200);
+    await pg.keyboard.type("luku 3", { delay: 20 });
+    await pg.waitForTimeout(300);
+    const f1 = await pg.evaluate(() => { const a = window.__app; const u = a.tocUi; return { keys: a.tocHasKeys(), value: u.search.value, caret: u.search.caret, rows: u.drawer.body().getChildCount(), shown: u.shown.length, src: a.source().length }; });
+    check("ToC search: typing goes into the field and keeps the headings that have it", f1.keys && f1.value === "luku 3" && f1.shown === 11 && f1.rows === 11, JSON.stringify(f1));
+    check("ToC search: the caret follows the typing, the deck is untouched", f1.caret === 6 && f1.src === md.length, JSON.stringify(f1));
+    await pg.keyboard.press("ArrowLeft");
+    await pg.keyboard.press("ArrowLeft");
+    await pg.keyboard.type("x");
+    await pg.waitForTimeout(200);
+    const f2 = await pg.evaluate(() => { const u = window.__app.tocUi; return { value: u.search.value, caret: u.search.caret, shown: u.shown.length }; });
+    check("ToC search: ← moves the caret and typing goes in there", f2.value === "lukux 3" && f2.caret === 5 && f2.shown === 0, JSON.stringify(f2));
+    await pg.keyboard.press("Backspace");
+    await pg.waitForTimeout(200);
+    const caretPos = await pg.evaluate(() => { const u = window.__app.tocUi; const c = u.search.caretEl; return { x: c.calculatedX, w: c.calculatedWidth, h: c.calculatedHeight, value: u.search.value }; });
+    check("ToC search: the caret is drawn in the field", caretPos.value === "luku 3" && caretPos.h > 8 && caretPos.x > field[0] && caretPos.x < field[0] + field[2], JSON.stringify({ caretPos, field }));
+    const frow = await pg.evaluate(() => { const r = window.__app.tocUi.drawer.body().getChild(2); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(frow[0] + 30, frow[1] + frow[3] / 2);
+    await pg.waitForTimeout(500);
+    const f3 = await pg.evaluate(() => { const a = window.__app; const i = a.tocUi.shown[2]; const e = a.toc.entryAt(i); return { text: e.text, want: e.slide, slide: a.selectedSlide(), scroll: a.docPane.scroll, y: e.y, keys: a.tocHasKeys() }; });
+    check("ToC search: a found row goes to its heading", f3.text === "Luku 31" && f3.slide === f3.want && Math.abs(f3.scroll - (f3.y - 12)) < 2, JSON.stringify(f3));
+    check("…and the keys go back to the page", !f3.keys, JSON.stringify(f3));
     await pg.evaluate(() => document.getElementById("keys").focus());
+    await pg.keyboard.press("Escape");
+    await pg.waitForTimeout(200);
+    const f4 = await pg.evaluate(() => ({ open: window.__app.tocShown(), value: window.__app.tocUi.search.value, rows: window.__app.tocUi.drawer.body().getChildCount() }));
+    check("ToC search: Esc empties the search first", f4.open && f4.value === "" && f4.rows === 80, JSON.stringify(f4));
     await pg.keyboard.press("Escape");
     await pg.waitForTimeout(200);
     check("ToC: Esc closes it", !(await pg.evaluate(() => window.__app.tocShown())));
@@ -6147,12 +6180,25 @@ try {
     await pg.mouse.click(vb.x + vb.width / 2, vb.y + vb.height / 2);
     await pg.waitForTimeout(500);
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
-    // laid out and scrolled to the heading being read (a slow frame comes late)
-    await pg.waitForFunction(() => { const t = window.__app.tocUi; const r = t.drawer.body().getChild(6); return t.reveal < 0 && r.calculatedHeight > 0; }, null, { timeout: 8000 }).catch(() => {});
-    const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); const r = b.getChild(6); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    // presenting, the search takes the letters (not the bar's keys) and
+    // Enter goes to the first heading found
+    const pfield = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(pfield[0] + 40, pfield[1] + pfield[3] / 2);
+    await pg.keyboard.type("kohta 12", { delay: 20 });
+    await pg.waitForTimeout(200);
+    const pf = await pg.evaluate(() => ({ value: window.__app.tocUi.search.value, shown: window.__app.tocUi.shown.length, slide: window.__app.slideShown() }));
+    check("ToC search: presenting, typing filters and the slide stays", pf.value === "kohta 12" && pf.shown === 1 && pf.slide === 0, JSON.stringify(pf));
+    await pg.keyboard.press("Enter");
+    await pg.waitForTimeout(500);
+    const pe = await pg.evaluate(() => ({ slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode, keys: window.__app.tocHasKeys() }));
+    check("ToC search: Enter shows the found heading's slide", pe.slide === 11 && pe.mode === "present" && !pe.keys, JSON.stringify(pe));
+    await pg.evaluate(() => window.__app.tocEscape());
+    await pg.waitForTimeout(200);
+    // a row in view (the list shows the one being read, Kohta 12.1's)
+    const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300 && window.__app.toc.entryAt(i).slide !== 11) return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight, i]; } return null; });
     await pg.mouse.click(prow[0] + 30, prow[1] + prow[3] / 2);
-    await pg.waitForFunction(() => window.__app.slideShown() === window.__app.toc.entryAt(6).slide, null, { timeout: 8000 }).catch(() => {});
-    const p1 = await pg.evaluate(() => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(6).slide, mode: JSON.parse(window.__app.layoutJson()).mode }));
+    await pg.waitForTimeout(500);
+    const p1 = await pg.evaluate((i) => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(i).slide, mode: JSON.parse(window.__app.layoutJson()).mode }), prow[4]);
     check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
     check("ToC: without errors", terr.length === 0, terr.join(" | "));
     await ctx.close();

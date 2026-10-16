@@ -5122,6 +5122,17 @@ class PresCheck {
         t4.maxLevel = 4
         t4.build(deck)
         this.ok(((t4.count()) == 9) ("toc: #### listed with maxLevel 4, got " + (to_string (t4.count()))))
+        ; the search: words in the heading, case not counted, Ä as ä
+        this.ok(((array_length (t.matching(""))) == (t.count())) "toc: an empty search keeps every entry")
+        this.ok(((array_length (t.matching("   "))) == (t.count())) "toc: spaces alone are no search")
+        def hits:[int] (t.matching("osa"))
+        this.ok(((((array_length hits) == 2) && ((itemAt hits 0) == 0)) && ((itemAt hits 1) == 5)) "toc: \"osa\" finds Osa yksi and Osa kaksi, in order")
+        def hits2:[int] (t.matching("MENET"))
+        this.ok((((array_length hits2) == 1) && ((itemAt hits2 0) == 3)) "toc: capitals find small letters")
+        this.ok(((array_length (t.matching("LIITE"))) == 1) "toc: the heading added by the edit is found")
+        this.ok(((array_length (t.matching("zzz"))) == 0) "toc: a search nothing has finds none")
+        this.ok((PresToc.finds("Äänet ja Öljy" "ääNET")) "toc: Ä folds to ä")
+        this.ok((PresToc.finds("Kapasiteetti" " teet ")) "toc: the search is trimmed")
     }
 
     fn docView:void () {
