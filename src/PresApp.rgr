@@ -157,6 +157,11 @@ class PresApp {
     ; the whole deck's bytes, shown beside the tabs (PresDeckSize)
     def deckSize:PresDeckSize (new PresDeckSize())
     def sizeShown:string ""
+    ; "Not saved" beside the tabs while the open deck is kept nowhere (the
+    ; page decides, web/decksafe.js); a press opens the Files tab, whose
+    ; note says why and what to do
+    def unsavedText:string ""
+    def unsavedEl@(optional):EVGElement
     def tabH:double 34.0
     ; Over the stage: the slides one at a time ("slides") or the deck read
     ; as one page that scrolls ("doc", PresDocView), and the tabs that switch
@@ -3228,6 +3233,26 @@ class PresApp {
         return (deckSize.label())
     }
 
+    ; The page's word for a deck kept nowhere, "" when it is kept.
+    fn setUnsaved:void (text:string) {
+        if (text != unsavedText) {
+            unsavedText = text
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn unsavedLabel:string () {
+        return unsavedText
+    }
+
+    fn unsavedHas:boolean (x:double y:double) {
+        if (((strlen unsavedText) == 0) || (null? unsavedEl)) {
+            return false
+        }
+        def b:EVGElement (unwrap unsavedEl)
+        return ((((x >= b.calculatedX) && (x <= (b.calculatedX + b.calculatedWidth))) && (y >= b.calculatedY)) && (y <= (b.calculatedY + b.calculatedHeight)))
+    }
+
     ; One rebuild that draws again at most `budget` charts and figures whose
     ; defaults changed (-1: all), the shown slide's and its neighbours'
     ; whatever the count. `lazy`: only those and the ones on the visible
@@ -6173,6 +6198,14 @@ class PresApp {
             def gap:EVGElement (EVGElement.createDiv())
             gap.className = "ed-tabs-gap"
             tabBar.addChild(gap)
+            if ((strlen unsavedText) > 0) {
+                def un:EVGElement (EVGElement.createDiv())
+                un.id = "ed-unsaved"
+                un.className = "ed-unsaved"
+                un.textContent = unsavedText
+                tabBar.addChild(un)
+                unsavedEl = un
+            }
             def size:EVGElement (EVGElement.createDiv())
             size.id = "ed-size"
             size.className = "ed-size"
@@ -6716,6 +6749,14 @@ class PresApp {
             return "stage"
         }
         if (tabRect.has(x y)) {
+            if (this.unsavedHas(x y)) {
+                ; the Files tab's note says why, and what to do
+                if ((strlen filePath) > 0) {
+                    this.closeFile()
+                }
+                this.showTab("files")
+                return "editor"
+            }
             def hitTab:string (this.tabAt(x))
             if ((hitTab == "md") && (this.mdFileOpen())) {
                 ; the deck's own text again
@@ -7666,7 +7707,7 @@ class PresApp {
         if ((tocUi.isOpen()) && ((this.layerAt(x y)) == "toc")) {
             return (tocUi.cursorAt(x y))
         }
-        if ((mode == "edit") && (this.tocBtnHas(x y))) {
+        if ((mode == "edit") && ((this.tocBtnHas(x y)) || (this.unsavedHas(x y)))) {
             return "pointer"
         }
         if (review.on && ((this.layerAt(x y)) == "review")) {

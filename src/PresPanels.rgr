@@ -165,7 +165,8 @@ class PresPanels {
     ; the files tab: the document's files and the stored documents, in the
     ; editor's place (`filesX`…`filesH`). `filesJson` comes from the page:
     ;   {"doc": name, "files": [{"path", "size", "kind"}], "note": text,
-    ;    "promo": {"title", "text", "button"} (optional, drawn first)}
+    ;    "promo": {"title", "text", "button", "warn"} (optional, drawn
+    ;    first; "warn": true, a warning, not an offer)}
     ; With a file open in the editor (`filesOpenPath`) only a bar over it.
     def filesOpen:boolean false
     def filesX:double 0.0
@@ -1338,9 +1339,10 @@ class PresPanels {
         ; the page's offer above everything (Sliqtly: PRO), {"title", "text", "button"}
         def promo:VlJson (data.get("promo"))
         if (promo.isObject()) {
-            def box:EVGElement (UiKit.div("pf-promo"))
-            box.addChild((UiKit.words("pf-promo-title" (promo.stringOr("title" "")))))
-            box.addChild((UiKit.words("pf-promo-text" (promo.stringOr("text" "")))))
+            def warn:boolean (promo.boolOr("warn" false))
+            def box:EVGElement (UiKit.div((? warn "pf-promo pf-warn" "pf-promo")))
+            box.addChild((UiKit.words((? warn "pf-warn-title" "pf-promo-title") (promo.stringOr("title" "")))))
+            box.addChild((UiKit.words((? warn "pf-warn-text" "pf-promo-text") (promo.stringOr("text" "")))))
             def label:string (promo.stringOr("button" ""))
             if ((strlen label) > 0) {
                 def row:EVGElement (UiKit.div("pf-promo-row"))
