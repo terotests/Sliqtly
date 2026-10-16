@@ -1,0 +1,419 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresValueEdit.rgr — a number of the theme changed on trial, then kept or not
+; ============================================================================
+;
+; `page { width: 595.28pt }` typed over one key at a time passes through
+; `5pt`, `59pt` and `595pt`, and the slides are laid out at each: a page an
+; inch wide with its 64pt padding is a column of single letters split over
+; hundreds of pages. The value card (PresHintPopover) over a number of the
+; theme therefore does not write into the sheet while its slider moves or
+; its field is typed in. It shows the value on the slides only, as a
+; preview, and the sheet changes once, on Save (Tallenna); Cancel (Peruuta),
+; Esc or a press outside put the slides back as the sheet has them.
+;
+; This is that card's state, with no UI in it:
+;
+;   begin       the value as written, its unit, the slider's range
+;               (PresRange) — widened to take in the value as written, so
+;               opening the card never changes it
+;   fromSlider  a slider position: the value at that step
+;   fromTyped   the field's text: a number (with its unit, or the card's),
+;               held to the range; anything else leaves the preview as it was
+;   saveText    what Save writes ("" when nothing changed)
+;
+; Typed into the theme tab itself, a number is the author's and is kept as
+; written; the layout draws it inside its safety range (MdCssLimits) and
+; `limitNotes` marks it in the gutter with the value it is drawn at.
+; ============================================================================
+
+Import "PresRange.rgr"
+Import "PresI18n.rgr"
+Import "PresCssSupport.rgr"
+Import "../markdown/src/MdCssLimits.rgr"
+Import "../markdown/src/MdCssSupport.rgr"
+Import "../datagrid/src/script/lang/EditorDiagnostic.rgr"
+
+class PresValueEdit {
+    ; the value as the sheet has it, and as the slides show it now
+    def original:string ""
+    def current:string ""
+    ; the card's unit (the value's own when the hint gave none)
+    def unit:string ""
+    def lo:double 0.0
+    def hi:double 100.0
+    def step:double 1.0
+    ; the last text typed was past the range and was taken to its edge
+    def clamped:boolean false
+    ; the last text typed was not a value; the preview stayed
+    def bad:boolean false
+
+    Constructor () {
+    }
+
+    sfn begin:PresValueEdit (value:string unit0:string lo0:double hi0:double step0:double hasRange:boolean) {
+        def e (new PresValueEdit())
+        e.original = (trim value)
+        e.current = e.original
+        e.unit = unit0
+        if ((strlen e.unit) == 0) {
+            e.unit = (PresValueEdit.unitOf(e.original))
+        }
+        e.step = step0
+        if (e.step <= 0.0) {
+            e.step = 1.0
+        }
+        e.lo = lo0
+        e.hi = hi0
+        if (hasRange == false) {
+            e.lo = 0.0
+            e.hi = 100.0
+        }
+        def n:double (PresValueEdit.numberOf(e.original))
+        if (n < e.lo) {
+            e.lo = n
+        }
+        if (n > e.hi) {
+            e.hi = n
+        }
+        return e
+    }
+
+    ; The number a value starts with (0 when it has none).
+    sfn numberOf:double (t0:string) {
+        def t:string (trim t0)
+        def i:int (PresValueEdit.numberEnd(t))
+        if (i == 0) {
+            return 0.0
+        }
+        return (?? (str2double (substring t 0 i)) 0.0)
+    }
+
+    ; What follows the number: its unit.
+    sfn unitOf:string (t0:string) {
+        def t:string (trim t0)
+        def i:int (PresValueEdit.numberEnd(t))
+        return (trim (substring t i (strlen t)))
+    }
+
+    sfn numberEnd:int (t:string) {
+        def n:int (strlen t)
+        def i:int 0
+        if ((n > 0) && (((charAt t 0) == 45) || ((charAt t 0) == 43))) {
+            i = 1
+        }
+        while ((i < n) && ((((charAt t i) >= 48) && ((charAt t i) <= 57)) || ((charAt t i) == 46))) {
+            i = (i + 1)
+        }
+        if ((i == 1) && ((n > 0) && (((charAt t 0) == 45) || ((charAt t 0) == 43)))) {
+            return 0
+        }
+        return i
+    }
+
+    fn number:double () {
+        return (PresValueEdit.numberOf(current))
+    }
+
+    ; The slider's bounds and position, in steps.
+    fn sliderMin:int () {
+        return (PresValueEdit.round((lo / step)))
+    }
+
+    fn sliderMax:int () {
+        return (PresValueEdit.round((hi / step)))
+    }
+
+    fn sliderAt:int () {
+        return (PresValueEdit.round(((this.number()) / step)))
+    }
+
+    sfn round:int (v:double) {
+        if (v < 0.0) {
+            return (0 - (to_int ((0.0 - v) + 0.5)))
+        }
+        return (to_int (v + 0.5))
+    }
+
+    fn fromSlider:void (i:int) {
+        def v:double ((to_double i) * step)
+        current = ((PresRange.num((this.into(v)))) + unit)
+        clamped = false
+        bad = false
+    }
+
+    fn into:double (v:double) {
+        if (v != v) {
+            return lo
+        }
+        if (v < lo) {
+            return lo
+        }
+        if (v > hi) {
+            return hi
+        }
+        return v
+    }
+
+    ; The field's text: true when it is a value (the preview follows it).
+    fn fromTyped:boolean (text:string) {
+        def v:string (PresRange.typed(text unit))
+        if ((strlen v) == 0) {
+            bad = true
+            return false
+        }
+        bad = false
+        def n:double (PresValueEdit.numberOf(v))
+        def u:string (PresValueEdit.unitOf(v))
+        ; the range is in the card's unit: another length unit is measured
+        ; in it, a unit that is not one (em, %) is not held to it
+        def per:double 1.0
+        if (u != unit) {
+            def pu:double (PresRange.ptPer(u))
+            def pc:double (PresRange.ptPer(unit))
+            if ((pu <= 0.0) || (pc <= 0.0)) {
+                clamped = false
+                current = v
+                return true
+            }
+            per = (pu / pc)
+        }
+        def inUnit:double (n * per)
+        def held:double (this.into(inUnit))
+        clamped = (held != inUnit)
+        if clamped {
+            current = ((PresRange.num((held / per))) + u)
+        } {
+            current = v
+        }
+        return true
+    }
+
+    fn dirty:boolean () {
+        return (current != original)
+    }
+
+    fn saveText:string () {
+        if (this.dirty()) {
+            return current
+        }
+        return ""
+    }
+
+    fn cancel:void () {
+        current = original
+        clamped = false
+        bad = false
+    }
+
+    ; The line under the field: the range, and why a typed number moved.
+    fn note:string () {
+        def r:string ((PresRange.num(lo)) + "–" + (PresRange.num(hi)) + " " + unit)
+        if bad {
+            return ((PresI18n.t("Not a number")) + " · " + r)
+        }
+        if clamped {
+            return ((PresI18n.t("Held to the range")) + " " + r)
+        }
+        return ((PresI18n.t("Range")) + " " + r)
+    }
+
+    ; --- the theme tab: numbers the layout draws at another value ------------------
+    ;
+    ; Every length the layout reads (MdCssLimits.kindOf) that is past its
+    ; safety range against the page: a warning at the number saying what it
+    ; is drawn as. The page is the sheet's own `page { width; height }` when
+    ; it gives one, the slide's (pageW × pageH) otherwise.
+    sfn limitNotes:[EditorDiagnostic] (css:string pageW:double pageH:double) {
+        def out:[EditorDiagnostic]
+        def src:string (MdCssSupport.blankComments(css))
+        def sels:[string]
+        def props:[string]
+        def values:[string]
+        def ats:[int]
+        PresValueEdit.declarations(src sels props values ats)
+        def w:double pageW
+        def h:double pageH
+        def k:int 0
+        while (k < (array_length props)) {
+            if ((itemAt sels k) == "page") {
+                def pv:double (PresValueEdit.lengthPt((trim (itemAt values k))))
+                if ((pv > 0.0) && ((itemAt props k) == "width")) {
+                    w = pv
+                }
+                if ((pv > 0.0) && ((itemAt props k) == "height")) {
+                    h = pv
+                }
+            }
+            k = (k + 1)
+        }
+        k = 0
+        while (k < (array_length props)) {
+            PresValueEdit.checkDecl(css (itemAt sels k) (itemAt props k) (itemAt values k) (itemAt ats k) w h out)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; A length in points ("" or not a length: 0).
+    sfn lengthPt:double (t:string) {
+        def i:int (PresValueEdit.numberEnd(t))
+        if (i == 0) {
+            return 0.0
+        }
+        def per:double (PresRange.ptPer((trim (substring t i (strlen t)))))
+        return ((PresValueEdit.numberOf(t)) * per)
+    }
+
+    ; Each declaration's selector (its last word: `page` of `.dark page`),
+    ; property, value and the offset its value starts at.
+    sfn declarations:void (src:string sels:[string] props:[string] values:[string] ats:[int]) {
+        def n:int (strlen src)
+        def sel:string ""
+        def from:int 0
+        def depth:int 0
+        def i:int 0
+        while (i <= n) {
+            def ch:int 0
+            if (i < n) {
+                ch = (charAt src i)
+            }
+            if (ch == 123) {
+                sel = (PresValueEdit.lastWord((trim (substring src from i))))
+                depth = (depth + 1)
+                from = (i + 1)
+            }
+            if (((ch == 59) || (ch == 125)) || (i == n)) {
+                if (depth > 0) {
+                    PresValueEdit.declAt(src from i sel sels props values ats)
+                }
+                if (ch == 125) {
+                    depth = (depth - 1)
+                    if (depth < 0) {
+                        depth = 0
+                    }
+                    sel = ""
+                }
+                from = (i + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn declAt:void (src:string a:int b:int sel:string sels:[string] props:[string] values:[string] ats:[int]) {
+        def colon:int (indexOfFrom src ":" a)
+        if ((colon < 0) || (colon >= b)) {
+            return
+        }
+        def prop:string (to_lowercase (trim (substring src a colon)))
+        if (((strlen prop) == 0) || ((strlen sel) == 0)) {
+            return
+        }
+        push sels sel
+        push props prop
+        push values (substring src (colon + 1) b)
+        push ats (colon + 1)
+    }
+
+    sfn lastWord:string (s:string) {
+        def t:string s
+        def comma:int (PresRange.lastAt(t ","))
+        if (comma >= 0) {
+            t = (trim (substring t (comma + 1) (strlen t)))
+        }
+        def sp:int (PresRange.lastAt(t " "))
+        if (sp >= 0) {
+            t = (substring t (sp + 1) (strlen t))
+        }
+        return (trim t)
+    }
+
+    ; One declaration: each number of its value against its range.
+    sfn checkDecl:void (css:string sel:string prop:string value:string at:int pageW:double pageH:double out:[EditorDiagnostic]) {
+        def kind:string (MdCssLimits.kindOf(prop sel))
+        if ((strlen kind) == 0) {
+            return
+        }
+        if ((indexOf value "var(") >= 0) {
+            return
+        }
+        def n:int (strlen value)
+        def i:int 0
+        while (i < n) {
+            while ((i < n) && (((charAt value i) == 32) || (((charAt value i) == 9) || ((charAt value i) == 10)))) {
+                i = (i + 1)
+            }
+            def j:int i
+            while ((j < n) && ((((charAt value j) != 32) && ((charAt value j) != 9)) && ((charAt value j) != 10))) {
+                j = (j + 1)
+            }
+            if (j > i) {
+                PresValueEdit.checkToken(css prop sel kind (substring value i j) (at + i) pageW pageH out)
+            }
+            i = j
+        }
+    }
+
+    sfn checkToken:void (css:string prop:string sel:string kind:string tok:string at:int pageW:double pageH:double out:[EditorDiagnostic]) {
+        def e:int (PresValueEdit.numberEnd(tok))
+        if (e == 0) {
+            return
+        }
+        def u:string (substring tok e (strlen tok))
+        def v:double (PresValueEdit.numberOf(tok))
+        def per:double 0.0
+        if (kind == "ratio") {
+            if ((strlen u) > 0) {
+                return
+            }
+            per = 1.0
+        } {
+            per = (PresRange.ptPer(u))
+            if ((strlen u) == 0) {
+                ; a unitless 0 is 0 in any unit; another unitless number is
+                ; not a length the layout reads
+                if (v != 0.0) {
+                    return
+                }
+                per = 1.0
+            }
+        }
+        if (per <= 0.0) {
+            return
+        }
+        def lo:double (MdCssLimits.lo(kind pageW pageH))
+        def hi:double (MdCssLimits.hi(kind pageW pageH))
+        if (kind == "page") {
+            lo = (MdCssLimits.lo("page" 0.0 0.0))
+            hi = (MdCssLimits.hi("page" 0.0 0.0))
+        }
+        def vpt:double (v * per)
+        def drawn:double (MdCssLimits.into(vpt lo hi))
+        if (drawn == vpt) {
+            return
+        }
+        def d (new EditorDiagnostic())
+        def a:[int] (PresCssSupport.lineCol(css at))
+        def b:[int] (PresCssSupport.lineCol(css (at + (strlen tok))))
+        d.line = (itemAt a 0)
+        d.col = (itemAt a 1)
+        d.endLine = (itemAt b 0)
+        d.endCol = (itemAt b 1)
+        d.severity = (DiagnosticSeverity.warning())
+        def shown:string u
+        if ((strlen shown) == 0) {
+            shown = "pt"
+            if (kind == "ratio") {
+                shown = ""
+            }
+        }
+        def sp:double per
+        if ((strlen u) == 0) {
+            sp = 1.0
+        }
+        d.message = ((PresI18n.t("Outside the safe range; drawn as")) + " " + (PresRange.num((drawn / sp))) + shown + " (" + (PresRange.num((lo / sp))) + "–" + (PresRange.num((hi / sp))) + shown + ")")
+        d.source = "css"
+        push out d
+    }
+}

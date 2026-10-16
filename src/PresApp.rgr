@@ -349,6 +349,9 @@ class PresApp {
     ; the popover was opened from the pick: it stays where it was opened,
     ; next to the element, and does not close when the pointer leaves it
     def hintFromStage:boolean false
+    ; the slides show a number of the theme on trial (the value card's
+    ; slider or field) that the sheet does not have yet
+    def themeTrial:boolean false
     def stageHintX:double 0.0
     def stageHintY:double 0.0
     def stageHintH:double 0.0
@@ -1222,6 +1225,38 @@ class PresApp {
     fn applyTheme:void (css:string) {
         deck.setStyleSheet(css)
         this.rebuildDeck()
+        ; the gutter's safety ranges are measured against this slide
+        cssLang.pageW = deck.pageW
+        cssLang.pageH = deck.pageH
+    }
+
+    ; A number of the theme on trial: the slides are laid out with the
+    ; line as it would read, the sheet (and its undo) untouched.
+    fn previewThemeValue:void (line:int a:int b:int text:string) {
+        if ((edTab != "css") || ((line < 0) || (line >= (cssEditor.buf.lineCount())))) {
+            return
+        }
+        def lines:[string] (strsplit (cssEditor.text()) "\n")
+        if (line >= (array_length lines)) {
+            return
+        }
+        def cur:string (itemAt lines line)
+        if ((a < 0) || ((b > (strlen cur)) || (b < a))) {
+            return
+        }
+        set lines line ((substring cur 0 a) + text + (substring cur b (strlen cur)))
+        themeTrial = true
+        deck.setStyleSheet((join lines "\n"))
+        this.rebuildDeck()
+    }
+
+    ; The sheet itself changed (Save, or a key in the text): what it says
+    ; is what the slides show now, and the card's offsets are stale.
+    fn endThemeTrial:void () {
+        if themeTrial {
+            themeTrial = false
+            this.closeHint()
+        }
     }
 
     ; The value card's pipette was pressed: the page samples a colour and
@@ -3032,6 +3067,7 @@ class PresApp {
             ; the theme, live: the slides follow each keystroke
             if (cssEditor.buf.version != cssSynced) {
                 cssSynced = cssEditor.buf.version
+                this.endThemeTrial()
                 themeText = (cssEditor.text())
                 this.applyTheme(themeText)
                 push requests "theme-edited"
@@ -9310,6 +9346,10 @@ class PresApp {
         if (hint.same(json)) {
             return true
         }
+        if themeTrial {
+            themeTrial = false
+            this.applyTheme(themeText)
+        }
         hint.measurer = measurer
         def ok:boolean (hint.open(json W H))
         chromeRev = (chromeRev + 1)
@@ -9322,6 +9362,11 @@ class PresApp {
 
     fn closeHint:void () {
         hintFromStage = false
+        ; a number on trial that was not saved: the slides as the sheet is
+        if themeTrial {
+            themeTrial = false
+            this.applyTheme(themeText)
+        }
         if hint.isOpen {
             hint.close()
             chromeRev = (chromeRev + 1)
@@ -9954,6 +9999,11 @@ class PresApp {
     ; What the popover asked for: its edits into the text, a close, a
     ; selector's property opened in its rule (with its own popover there).
     fn afterHint:void () {
+        if ((strlen hint.wantsPreview) > 0) {
+            def pv:string hint.wantsPreview
+            hint.wantsPreview = ""
+            this.previewThemeValue(hint.line hint.start hint.end pv)
+        }
         def i:int 0
         while (i < (array_length hint.edits)) {
             def e:PresHintEdit (itemAt hint.edits i)
@@ -16890,6 +16940,7 @@ class PresApp {
     fn syncBuffers:void () {
         if (cssEditor.buf.version != cssSynced) {
             cssSynced = cssEditor.buf.version
+            this.endThemeTrial()
             cssEditor.dirty = true
             themeText = (cssEditor.text())
             this.applyTheme(themeText)

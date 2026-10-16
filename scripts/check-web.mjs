@@ -3731,20 +3731,37 @@ try {
       const num = find("hp-num");
       const unitY = (() => { const w = (e) => { if (e.className === "hp-unit") return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.hint.host.lastPage); })();
       const oneLine = !!unitY && Math.abs((unitY.calculatedY + unitY.calculatedHeight / 2) - (num.calculatedY + num.calculatedHeight / 2)) < 6;
+      const midValue = a.hint.value;
       a.pointerMove(sl.calculatedX + sl.calculatedWidth * 0.9, sl.calculatedY + 8);
       a.pointerUp();
+      const endValue = a.hint.value;
+      // a number of the theme is on trial: the slides show it, the sheet
+      // does not have it until Save; Cancel puts the slides back
+      const stageTrial = a.stageJson();
+      const sheetKept = a.themeCss().split("\n")[nl] === before && mid === before;
+      click(find("hp-cancel"));
+      const cancelled = !a.hintIsOpen() && a.themeCss().split("\n")[nl] === before && a.stageJson() !== stageTrial;
+      a.editor.moveCaret(nl, a.themeCss().split("\n")[nl].indexOf(":") + 3, false);
+      a.openHintAtCaret();
+      const sl2 = find("hp-slider");
+      a.pointerDown(sl2.calculatedX + sl2.calculatedWidth * 0.8, sl2.calculatedY + 8, false, 1);
+      a.pointerUp();
+      const saveValue = a.hint.value;
+      click(find("hp-save"));
       const after = a.themeCss().split("\n")[nl];
-      const twoMoves = mid !== before && after !== mid;
+      const saved = !a.hintIsOpen() && after.includes(saveValue) && after !== before;
+      const twoMoves = midValue !== "" && endValue !== midValue;
       a.closeHint();
       a.setStyleSheet(css0);
       a.showTab("md");
       a.setSource(src0);
-      return { opened, drawn, chip, closed, kind, colour, slid: before !== after, twoMoves, oneLine, before, mid, after, htmlGone: !document.getElementById("valHint") };
+      return { opened, drawn, chip, closed, kind, colour, slid: saved, sheetKept, cancelled, twoMoves, oneLine, before, midValue, endValue, after, htmlGone: !document.getElementById("valHint") };
     });
     check("the value popover is drawn on the canvas", hp.opened && hp.drawn > 10 && hp.htmlGone, JSON.stringify(hp));
     check("…a chip writes the value, Escape closes it", hp.chip && hp.closed, JSON.stringify(hp));
     check("…a colour from EVGUI's picker, a number from its slider", hp.kind === "color" && hp.colour && hp.slid, JSON.stringify(hp));
     check("…the slider follows every move of one drag, its unit stays on the line", hp.twoMoves && hp.oneLine, JSON.stringify(hp));
+    check("…a theme number is a trial: the sheet waits for Save, Cancel puts the slides back", hp.sheetKept && hp.cancelled, JSON.stringify(hp));
   }
 
   // The help panel is on the canvas: docked on the right, a property opens in the theme

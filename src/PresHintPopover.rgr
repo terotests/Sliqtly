@@ -11,7 +11,9 @@
 ;   color               EVGUI's colour picker (ColorPickerCtl, drawn by
 ;                       PresColorPanel), alpha included; `none` for a
 ;                       background
-;   number              a slider and the number, in the value's own unit
+;   number              a slider and the number, in the value's own unit;
+;                       in the theme a trial (PresValueEdit): the slides show
+;                       it, the sheet takes it on Save, Cancel puts them back
 ;   adds                the parameters an effect could still take
 ;   wholeStart..End     a button that removes the item
 ;   selector            (`page {` in the theme) the properties it has and the
@@ -34,6 +36,7 @@ Import "../evgui/src/UiHost.rgr"
 Import "UiKit.rgr"
 Import "../evgui/src/EmojiPickerCtl.rgr"
 Import "PresKeep.rgr"
+Import "PresValueEdit.rgr"
 Import "../vela/src/VlJson.rgr"
 
 class PresHintEdit {
@@ -98,6 +101,11 @@ class PresHintPopover {
     def rmax:double 100.0
     def rstep:double 1.0
     def rule:VlJson (VlJson.nullValue())
+    ; a number of the theme: changed on trial (PresValueEdit), shown on
+    ; the slides only (wantsPreview) until Save writes it into the sheet
+    def trial:boolean false
+    def ve:PresValueEdit (new PresValueEdit())
+    def wantsPreview:string ""
     ; what the app is asked to do
     def edits:[PresHintEdit]
     def wantsClose:boolean false
@@ -229,6 +237,11 @@ class PresHintPopover {
             rstep = 1.0
         }
         rule = (j.get("rule"))
+        trial = ((kind == "number") && (tab == "css"))
+        wantsPreview = ""
+        if trial {
+            ve = (PresValueEdit.begin(value unit rmin rmax rstep hasRange))
+        }
         tip = ""
         tipH = -1.0
         wantsClose = false
@@ -619,6 +632,11 @@ class PresHintPopover {
         slider.maxValue = (to_int ((hi / rstep) + 0.5))
         slider.step = 1
         slider.value = (to_int ((num / rstep) + 0.5))
+        if trial {
+            slider.minValue = (ve.sliderMin())
+            slider.maxValue = (ve.sliderMax())
+            slider.value = (ve.sliderAt())
+        }
         slider.build()
         UiTree.addClass((unwrap slider.rootEl) "hp-slider")
         UiKit.put(host slider row)
@@ -640,6 +658,50 @@ class PresHintPopover {
             row.addChild((UiKit.words("hp-unit" u)))
         }
         card.addChild(row)
+        if trial {
+            def nc:string "hp-doc"
+            if (ve.bad || ve.clamped) {
+                nc = "hp-warn"
+            }
+            card.addChild((UiKit.words(nc (ve.note()))))
+            def foot:EVGElement (UiKit.div("hp-foot"))
+            foot.addChild((UiKit.div("hp-grow")))
+            this.button("hp-cancel" (PresI18n.t("Cancel")) "secondary" foot)
+            def sv:string "secondary"
+            if (ve.dirty()) {
+                sv = "primary"
+            }
+            this.button("hp-save" (PresI18n.t("Save")) sv foot)
+            card.addChild(foot)
+        }
+    }
+
+    ; The trial value on the slides, the sheet untouched.
+    fn showTrial:void () {
+        value = ve.current
+        wantsPreview = ve.current
+        rev = (rev + 1)
+    }
+
+    ; Save: the value into the sheet, as one edit; the card closes.
+    fn saveTrial:void () {
+        def t:string (ve.saveText())
+        if ((strlen t) > 0) {
+            this.write(t)
+        }
+        wantsClose = true
+    }
+
+    ; Cancel: the card closes and the app puts the slides back.
+    fn cancelTrial:void () {
+        ve.cancel()
+        value = ve.original
+        wantsClose = true
+    }
+
+    ; The slides show something the sheet does not say.
+    fn previewing:boolean () {
+        return (trial && (ve.dirty()))
     }
 
     fn selectorRows:void (card:EVGElement) {
@@ -1066,6 +1128,14 @@ class PresHintPopover {
             wantsClose = true
             return
         }
+        if (ctlTid == "hp-save") {
+            this.saveTrial()
+            return
+        }
+        if (ctlTid == "hp-cancel") {
+            this.cancelTrial()
+            return
+        }
         if (ctlTid == "hp-back") {
             wantsBack = true
             return
@@ -1200,6 +1270,11 @@ class PresHintPopover {
     }
 
     fn takeSlider:void () {
+        if trial {
+            ve.fromSlider(slider.value)
+            this.showTrial()
+            return
+        }
         def v:double ((to_double slider.value) * rstep)
         def t:string ((this.numberText(v)) + (this.unitText()))
         if (t != value) {
@@ -1364,6 +1439,10 @@ class PresHintPopover {
             }
             return true
         }
+        if (trial && (name0 == "enter")) {
+            this.saveTrial()
+            return true
+        }
         if fieldOn {
             if (name0 == "enter") {
                 this.leaveField()
@@ -1425,6 +1504,16 @@ class PresHintPopover {
     }
 
     fn takeField:void () {
+        if trial {
+            def was:boolean ve.bad
+            if (ve.fromTyped(field.value)) {
+                this.showTrial()
+            }
+            if (was != ve.bad) {
+                rev = (rev + 1)
+            }
+            return
+        }
         def v:string (PresRange.typed(field.value (this.unitText())))
         if ((strlen v) > 0) {
             this.write(v)
