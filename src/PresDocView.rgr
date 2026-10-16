@@ -69,6 +69,9 @@ class PresDocView {
     ; A layout in the document's look, measured as the deck is.
     fn docLayout:MdLayout (deck:PresDeck) {
         def l (new MdLayout())
+        ; the page is edited: an empty code line or list item gets a place
+        ; for the caret
+        l.caretStops = true
         if (!null? deck.md.measurer) {
             l.setMeasurer((unwrap deck.md.measurer))
         }
