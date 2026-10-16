@@ -152,6 +152,9 @@ class PresToolbar {
     def fileRows:string ""
     def roomsW:double 248.0
     def roomOpen:string "general"
+    ; the open room's presentations are shut away, its name pressed again
+    ; (web/rooms.js pressRoom): its (+) shows them again
+    def roomFolded:boolean false
     ; the server's rooms ("<id>\t<title>\t<presentations>" a line) and the
     ; open room's presentations ("<deck id>\t<name>\t<1 for the open deck>");
     ; none: the panel shows its sketch
@@ -233,6 +236,9 @@ class PresToolbar {
         }
         if (id == "roomfound") {
             roomFound = rows
+        }
+        if (id == "roomfold") {
+            roomFolded = (current == "1")
         }
         if (id == "roomdecks") {
             roomDecks = rows
@@ -453,6 +459,16 @@ class PresToolbar {
         }
         ; File → Export's rows: the page's own export buttons
         ; Copy's rows: to the clipboard (the page writes it)
+        ; Export's Image rows: drawn by the page (PresImageExport)
+        if (id == "x-png") {
+            return "image:slide"
+        }
+        if (id == "x-pngPicked") {
+            return "image:picked"
+        }
+        if (id == "x-pngAll") {
+            return "image:all"
+        }
         if ((indexOf id "cp-") == 0) {
             return ("clip:" + (substring id 3 (strlen id)))
         }
@@ -614,6 +630,8 @@ class PresToolbar {
             }
         }
         push out ("x-pdf" + t + (PresI18n.t("PDF (.pdf)")))
+        push out ("x-png" + t + (PresI18n.t("Image of this slide (.png)")))
+        push out ("x-pngAll" + t + (PresI18n.t("Images of all slides (.zip)")))
         push out ("x-video" + t + (PresI18n.t("Video (.webm)")))
         push out ("x-zip" + t + (PresI18n.t("All files (.zip)")))
         if (picked > 0) {
@@ -622,6 +640,8 @@ class PresToolbar {
             push out ("x-docxPicked" + t + (this.pickedLabel("Word (.docx)")))
             push out ("x-htmlPicked" + t + (this.pickedLabel("Web page as View (.html)")))
             push out ("x-pdfPicked" + t + (this.pickedLabel("PDF (.pdf)")))
+            ; i18n: "Images (.png)"
+            push out ("x-pngPicked" + t + (this.pickedLabel("Images (.png)")))
         }
         return out
     }
@@ -667,17 +687,15 @@ class PresToolbar {
             MenuCtl.addKid(parent "cp-mdSlide" ((PresI18n.t("Markdown")) + " – " + (PresI18n.t("this slide"))) false)
             MenuCtl.addKid(parent "cp-mdcSlide" ((PresI18n.t("Markdown + comments")) + " – " + (PresI18n.t("this slide"))) false)
         }
+        ; the slide as a PNG, for apps that take a picture
+        MenuCtl.addKid(parent "cp-imgSlide" ((PresI18n.t("Image")) + " – " + (PresI18n.t("this slide"))) false)
         if (picked > 0) {
             MenuCtl.addKid(parent "cp-mdPicked" (this.pickedLabel("Markdown")) false)
             MenuCtl.addKid(parent "cp-mdcPicked" (this.pickedLabel("Markdown + comments")) false)
+            MenuCtl.addKid(parent "cp-imgPicked" (this.pickedLabel("Image")) false)
         }
-        if (forSlide || (picked > 0)) {
-            MenuCtl.addKidSeparator(parent)
-        }
-        def whole:string ""
-        if (forSlide || (picked > 0)) {
-            whole = (" – " + (PresI18n.t("whole presentation")))
-        }
+        MenuCtl.addKidSeparator(parent)
+        def whole:string (" – " + (PresI18n.t("whole presentation")))
         MenuCtl.addKid(parent "cp-md" ((PresI18n.t("Markdown")) + whole) false)
         MenuCtl.addKid(parent "cp-mdc" ((PresI18n.t("Markdown + comments")) + whole) false)
         MenuCtl.addKid(parent "cp-comments" (PresI18n.t("Open comments")) false)
@@ -1255,6 +1273,7 @@ class PresToolbar {
             cm.addItem("x-docxPicked" (this.pickedLabel("Word (.docx)")) false)
             cm.addItem("x-htmlPicked" (this.pickedLabel("Web page as View (.html)")) false)
             cm.addItem("x-pdfPicked" (this.pickedLabel("PDF (.pdf)")) false)
+            cm.addItem("x-pngPicked" (this.pickedLabel("Images (.png)")) false)
             cm.addItem("x-share" (PresI18n.t("Share selected slides…")) false)
         }
         cm.setShortcut("slideNew" "Control+M")
@@ -1541,10 +1560,23 @@ class PresToolbar {
     ; browser's (web/rooms.js).
     ; `unread`: the room's chat has messages this browser has not read, a
     ; small blue dot after the name
+    ; Its name opens and shuts it like a tree's node: (−) before the open
+    ; room's name when its presentations show under it, (+) otherwise.
     fn roomRow:void (body:EVGElement id:string name:string count:string unread:boolean) {
         def open:boolean (id == roomOpen)
-        def row:ButtonCtl (this.button(("room-" + id) name "ghost" body))
+        def row (new ButtonCtl())
+        row.tid = ("tb-room-" + id)
+        row.name = name
+        row.variant = "ghost"
+        row.icon = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12h8M12 8v8"
+        if (open && (roomFolded == false)) {
+            row.icon = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12h8"
+        }
+        row.iconClass = "tb-icon-roomfold"
+        row.build()
         def rel:EVGElement (unwrap row.rootEl)
+        UiTree.addClass(rel ("tb-button tb-b-room-" + id))
+        UiKit.put(host row body)
         UiTree.addClass(rel "tb-room")
         if open {
             UiTree.addClass(rel "tb-room-open")
@@ -1559,9 +1591,10 @@ class PresToolbar {
         if (dragOn && (id == dragRoom)) {
             UiTree.addClass(rel "tb-room-dragged")
         }
-        if ((rel.getChildCount()) > 0) {
-            ; a long name gives way to the count and the buttons after it
-            def keep:double 40.0
+        if ((rel.getChildCount()) > 1) {
+            ; a long name gives way to the (+), the count and the buttons
+            ; after it
+            def keep:double 61.0
             if ((strlen count) > 0) {
                 keep = (keep + 22.0)
             }
@@ -1574,8 +1607,8 @@ class PresToolbar {
             if ((PresToolbar.builtInRoom(id)) == false) {
                 keep = (keep + 26.0)
             }
-            def lb:EVGElement (rel.getChild(0))
-            lb.textContent = (UiText.fit((this.engine()) ("# " + name) "Open Sans" 13.0 (roomsW - keep)))
+            def lb:EVGElement (rel.getChild(1))
+            lb.textContent = (UiText.fit((this.engine()) name "Open Sans" 13.0 (roomsW - keep)))
             UiTree.addClass(lb "tb-room-name")
         }
         if unread {
@@ -2010,7 +2043,7 @@ class PresToolbar {
                 }
                 this.roomRow(pane id (itemAt parts 1) count unread)
                 if (id == roomOpen) {
-                    ; the room's presentations hang from a thin line under its "#"
+                    ; the room's presentations hang from a thin line under its (−)
                     def nest:EVGElement (UiKit.div("tb-roomdecks"))
                     nest.addChild((UiKit.div("tb-roomdecks-line")))
                     def list:EVGElement (UiKit.div("tb-roomdecks-list"))
@@ -2511,6 +2544,7 @@ class PresToolbar {
             this.button("dr-cp-md" (PresI18n.t("Markdown")) "ghost" body)
             this.button("dr-cp-mdc" (PresI18n.t("Markdown + comments")) "ghost" body)
             this.button("dr-cp-comments" (PresI18n.t("Open comments")) "ghost" body)
+            this.button("dr-cp-imgSlide" ((PresI18n.t("Image")) + " – " + (PresI18n.t("this slide"))) "ghost" body)
             this.button("dr-cp-full" (PresI18n.t("Full presentation")) "ghost" body)
             body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Export")))))
             this.button("dr-x-save" (PresI18n.t("Markdown (.md)")) "ghost" body)
@@ -2528,6 +2562,8 @@ class PresToolbar {
                 }
             }
             this.button("dr-pdf" (PresI18n.t("PDF (.pdf)")) "ghost" body)
+            this.button("dr-x-png" (PresI18n.t("Image of this slide (.png)")) "ghost" body)
+            this.button("dr-x-pngAll" (PresI18n.t("Images of all slides (.zip)")) "ghost" body)
             this.button("dr-video" (PresI18n.t("Video (.webm)")) "ghost" body)
             this.button("dr-zip" (PresI18n.t("All files (.zip)")) "ghost" body)
             body.addChild((UiKit.words("tb-dr-label" (PresI18n.t("Record")))))

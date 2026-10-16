@@ -22,7 +22,7 @@ import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } fro
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
 import { facesFor, PictureQueue } from "./viewload.js";
-import { linkOf, linkAt, linkGo, slideOfName, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
+import { linkOf, linkAt, linkGo, slideOfName, slideLink, viewUrl, exportUrl, exportName, imageName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
 const fi = /^fi\b/i.test(navigator.language || "");
@@ -59,6 +59,11 @@ const vCopyMd = document.getElementById("vCopyMd");
 const COPY_MD_LABEL = say("Copy Markdown", "Kopioi Markdown");
 vCopyMd.firstChild.textContent = COPY_MD_LABEL + " ";
 vCopyMd.title = say("Copy the presentation's Markdown to the clipboard", "Kopioi esityksen Markdown leikepöydälle");
+const vImage = document.getElementById("vImage");
+vImage.firstChild.textContent = say("Image of this slide", "Tämän dian kuva") + " ";
+const vCopyImg = document.getElementById("vCopyImg");
+vCopyImg.firstChild.textContent = say("Copy image", "Kopioi kuva") + " ";
+vCopyImg.title = say("Copy this slide to the clipboard as a picture", "Kopioi tämä dia leikepöydälle kuvana");
 
 // the address, or the one the assistant's preview gives in <meta>
 const given = document.querySelector('meta[name="sliqtly-link"]')?.content || "";
@@ -472,6 +477,8 @@ vMenu.addEventListener("keydown", (ev) => {
 });
 for (const b of vMenu.querySelectorAll("button[data-format]")) b.addEventListener("click", () => download(b.dataset.format));
 vCopyMd.addEventListener("click", copyMarkdown);
+vImage.addEventListener("click", saveImage);
+vCopyImg.addEventListener("click", copyImage);
 
 async function fetchExport(format) {
   const res = await fetch(exportUrl(link, format), { headers: await authHeaders(user) });
@@ -519,6 +526,66 @@ async function copyMarkdown() {
     sayOnExport(said, said.endsWith("✓") ? 2000 : 6000);
   }
 }
+
+// Image of this slide / Copy image: the slide shown (a book's page) drawn
+// here at rest, 1920 wide, with its programs' pictures over it; a PNG Blob,
+// null without a GPU.
+const SHOT_W = 1920;
+let shotGl = null;
+const shotCanvas = document.createElement("canvas");
+function slidePng() {
+  const page = at;
+  if (!deck || page < 0 || page >= lists.length) return Promise.resolve(null);
+  const k = Math.min(SHOT_W / deck.width, 4096 / deck.width, 4096 / deck.height);
+  shotCanvas.width = Math.round(deck.width * k);
+  shotCanvas.height = Math.round(deck.height * k);
+  if (!shotGl) shotGl = shotCanvas.getContext("webgl2", { alpha: false, antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!shotGl) return Promise.resolve(null);
+  const atRest = (plays && plays.listOf(page)) || lists[page];
+  const list = plays ? plays.withWorlds(page, atRest) : atRest;
+  for (const e of list.effects || []) e.time = effectStill(e.kind);
+  const doc = { width: deck.width, height: deck.height, list };
+  const f = prepareDisplayList(shotGl, doc, { dpr: k, images: pictures, contrastGuard: true, contrastRepair: true });
+  f.draw(null, null);
+  f.dispose();
+  if (plays) for (const pl of plays.picturesOf(page)) {
+    const pf = prepareDisplayList(shotGl, { ...doc, list: pl }, { dpr: k, images: pictures });
+    pf.draw(null, null, { clear: false });
+    pf.dispose();
+  }
+  return new Promise((r) => shotCanvas.toBlob(r, "image/png"));
+}
+
+async function saveImage() {
+  openMenu(false);
+  const blob = await slidePng().catch(() => null);
+  if (!blob) {
+    sayOnExport(say("Download failed, try again ▾", "Lataus epäonnistui, yritä uudelleen ▾"), 6000);
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = imageName(deck?.name, at, lists.length);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
+// As copyMarkdown: the ClipboardItem made while the click still counts.
+async function copyImage() {
+  openMenu(false);
+  let said = say("Image copied ✓", "Kuva kopioitu ✓");
+  try {
+    const png = slidePng().then((b) => b || Promise.reject(new Error("no picture")));
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+  } catch (e) {
+    console.warn("copy image", e);
+    said = say("Copy failed, try again ▾", "Kopiointi epäonnistui, yritä uudelleen ▾");
+  }
+  sayOnExport(said, said.endsWith("✓") ? 2000 : 6000);
+}
+window.__slidePng = slidePng;
 
 async function download(format) {
   openMenu(false);

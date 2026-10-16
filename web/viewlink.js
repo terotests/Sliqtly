@@ -60,6 +60,13 @@ export function exportName(name, format) {
   return base + "." + format;
 }
 
+// Export ▾ → Image: the slide shown as "<deck> - 03.png", the number as wide
+// as the deck's last one (as the editor names them, src/PresImageExport.rgr).
+export function imageName(name, page, count) {
+  const n = String(page + 1).padStart(String(Math.max(1, count)).length, "0");
+  return exportName(String(name || "presentation") + " - " + n, "png");
+}
+
 /**
  * The pictures to fetch: each stored file a slide draws, under the name its
  * commands use ("/media/x.png"), with the address to fetch it from.

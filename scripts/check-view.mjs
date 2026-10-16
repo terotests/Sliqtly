@@ -447,6 +447,21 @@ try {
     .catch(() => fail("Copy Markdown did not say it copied"));
   const copied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => "(" + e.message + ")");
   if (copied !== "# Take charge of your money\n") fail(`Copy Markdown put ${JSON.stringify(copied)} on the clipboard`);
+  // Image of this slide: the slide shown as a PNG named by its number;
+  // Copy image: that PNG on the clipboard
+  await page.click("#vExport");
+  const [img] = await Promise.all([page.waitForEvent("download", { timeout: 10000 }).catch(() => null), page.click("#vMenu #vImage")]);
+  if (!img) fail("Image of this slide downloaded nothing");
+  else {
+    const png = fs.readFileSync(await img.path());
+    if (!/ - \d+\.png$/.test(img.suggestedFilename()) || png.subarray(1, 4).toString() !== "PNG") fail(`Image saved as "${img.suggestedFilename()}", ${png.length} bytes`);
+  }
+  await page.click("#vExport");
+  await page.click("#vMenu #vCopyImg");
+  await page.waitForFunction(() => /image copied|kuva kopioitu/i.test(document.getElementById("vExport").textContent), null, { timeout: 10000 })
+    .catch(() => fail("Copy image did not say it copied"));
+  const imgTypes = await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((it) => it.types)).catch((e) => ["(" + e.message + ")"]);
+  if (!imgTypes.includes("image/png")) fail(`Copy image put ${JSON.stringify(imgTypes)} on the clipboard`);
   await page.click("#vExport");
   await page.click('#vMenu [data-format="pdf"]');
   await page.waitForFunction(() => /failed|epäonnistui/.test(document.getElementById("vExport").textContent), null, { timeout: 5000 })

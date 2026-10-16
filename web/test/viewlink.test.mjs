@@ -1,7 +1,7 @@
 // node --test: the public viewer's addresses and keys (web/viewlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkOf, linkAt, linkGo, slideOfName, slideLink, viewUrl, exportUrl, exportName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
+import { linkOf, linkAt, linkGo, slideOfName, slideLink, viewUrl, exportUrl, exportName, imageName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
 
 test("/s/{id} is a shared presentation, its picked slides and the slide shown", () => {
   assert.deepEqual(linkOf("/s/AbCdEf1234", "", ""), { id: "AbCdEf1234", slides: "", slide: 0 });
@@ -41,6 +41,8 @@ test("downloads: the address per format and the file's name", () => {
   assert.equal(exportUrl({ id: "AbCdEf1234", slides: "a,b" }, "md"), "/api/export/AbCdEf1234/md?slides=a%2Cb");
   assert.equal(exportName("Säästöt: Q3/2026", "pptx"), "Säästöt- Q3-2026.pptx");
   assert.equal(exportName("", "md"), "presentation.md");
+  assert.equal(imageName("Raportti", 2, 12), "Raportti - 03.png");
+  assert.equal(imageName("", 0, 5), "presentation - 1.png");
 });
 
 test("pictures by the name the commands draw them by", () => {

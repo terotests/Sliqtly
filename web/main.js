@@ -37,7 +37,7 @@ import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sha
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
@@ -1147,6 +1147,8 @@ function beginDoc(text) {
 // the Rooms panel's state (its requests: roomsRequest, below)
 const ROOMS_KEY = "sliqtly.rooms";
 let roomShown = "";
+// the room whose list of presentations is shut, its name pressed again ("" none)
+let roomFolded = "";
 // the room whose "+" → Add new… → Presentation opened File → New's window
 let roomForNew = "";
 let roomChatOne = null;
@@ -2176,6 +2178,7 @@ async function roomsRequest(r) {
     roomsQuery = null;
     if (hit?.room) {
       roomShown = hit.room;
+      roomFolded = "";
       keepRooms((s) => touchRoom(s, hit.room));
     }
     roomChat().close();
@@ -2191,6 +2194,7 @@ async function roomsRequest(r) {
     roomsQuery = null;
     if (id) {
       roomShown = id;
+      roomFolded = "";
       keepRooms((s) => touchRoom(s, id));
     }
     await roomsRequest("room:list");
@@ -2305,10 +2309,13 @@ async function roomsRequest(r) {
     await roomsRequest("room:list");
   } else if (action === "open" || action === "decks") {
     // a room pressed opens its chat (web/roomchat.js); the list shown again
-    // ("decks") only lists its presentations
+    // ("decks") only lists its presentations. The open room pressed again
+    // shuts its list, and the next press shows it (pressRoom)
+    let opened = false;
+    if (action === "open") ({ folded: roomFolded, open: opened } = pressRoom(roomShown, roomFolded, what));
     roomShown = what;
     // pressed: a room one is active in (the list shown again is no use of it)
-    if (action === "open") keepRooms((s) => touchRoom(s, roomShown));
+    if (opened) keepRooms((s) => touchRoom(s, roomShown));
     const { rows, folders } = await roomView(roomShown);
     // the presentation just opened (from a search too) in a shut folder:
     // the folder opens once, so it is in sight; shut again, it stays shut
@@ -2322,14 +2329,16 @@ async function roomsRequest(r) {
       }
     }
     roomListed = rows;
-    const lines = deckLines(rows, {
+    const folded = roomFolded === roomShown;
+    const lines = folded ? "" : deckLines(rows, {
       folders,
       open: folders.filter((f) => foldersOpen.has(roomShown + "/" + f.id)).map((f) => f.id),
       showAll: "… " + t("Show all") + " (" + rows.length + ")",
     });
+    app.setToolbarOptions("roomfold", "", folded ? "1" : "");
     app.setToolbarOptions("roomdecks", lines, roomShown);
     await showTopic(roomShown, rows, folders);
-    if (action === "open") await roomChat().open(roomShown);
+    if (opened) await roomChat().open(roomShown);
   } else if (action === "fold") {
     // a folder pressed: open or shut, in this browser
     const [room, folder] = rest;
@@ -5866,6 +5875,12 @@ function handleRequests() {
       copyWhole();
     } else if (r === "confirm:cliptoobig") {
       askZip().catch(fail);
+    } else if (r === "clip:imgSlide" || r === "clip:imgPicked") {
+      // Export to Clipboard ▸ Image: the slide, or the picked ones, as a PNG
+      copyImage(r === "clip:imgPicked" ? "picked" : "slide").catch(fail);
+    } else if (r.startsWith("image:")) {
+      // Export ▸ Image: this slide, the picked ones or all as PNG files
+      exportImages(r.slice(6)).catch(fail);
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
@@ -9657,7 +9672,7 @@ async function clipCopyText(kind) {
   return app.clipText();
 }
 
-// The copy's picture (app.clipPictureJson): each slide at rest as the stage
+// The copy's picture (app.clipPictureJson), and Export ▸ Image's: each slide at rest as the stage
 // draws it, one under another, or the element's box of its slide; a PNG
 // Blob, null when there is no GPU for it.
 const CLIP_PIC_W = 1920;
@@ -9716,6 +9731,56 @@ async function clipPicture(spec) {
   if (lose) lose.loseContext();
   return new Promise((r) => out.toBlob(r, "image/png"));
 }
+
+// Export ▸ Image (src/PresImageExport.rgr): each slide at rest as the
+// stage draws it, a PNG 1920 wide; one is saved as it is, several in a zip.
+async function exportImages(scope) {
+  const rows = app.imageExportPlan(scope, exportName(), t("slides")).split("\n");
+  const zip = rows.shift();
+  if (!rows.length || !rows[0]) return;
+  // the programs on slides the stage never showed, for their pictures
+  if (scope !== "slide") await renderPlayStills(scope === "picked");
+  const entries = [];
+  for (const row of rows) {
+    const [page, name] = row.split("\t");
+    const blob = await clipPicture({ pages: [Number(page)] });
+    if (!blob) {
+      toast(t("Could not draw the slide."));
+      return;
+    }
+    entries.push({ name, data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  window.__lastDownload = zip
+    ? deliver(zipStore(entries), zip, "application/zip")
+    : deliver(entries[0].data, entries[0].name, "image/png");
+}
+window.__exportImages = exportImages;
+
+// Export to Clipboard ▸ Image: the slide, or the picked slides one under
+// another, as a PNG and as HTML <img> for apps that paste HTML. No
+// Sliqtly text with it, so a paste here too is a picture. As in clipCopy,
+// the ClipboardItem is made in the press's own turn (Safari).
+function copyImage(scope) {
+  const pages = app.imageExportPlan(scope, "", "").split("\n").slice(1).filter(Boolean).map((r) => Number(r.split("\t")[0]));
+  if (!pages.length) return Promise.resolve();
+  if (typeof ClipboardItem !== "function" || !navigator.clipboard?.write) {
+    toast(t("Could not copy"));
+    return Promise.resolve();
+  }
+  const png = clipPicture({ pages }).then((b) => b || Promise.reject(new Error("no picture")));
+  const parts = { "image/png": png };
+  if (!ClipboardItem.supports || ClipboardItem.supports("text/html")) {
+    parts["text/html"] = png.then(async (b) => new Blob([clipImgHtml(toBase64(await b.arrayBuffer()))], { type: "text/html" }));
+  }
+  let wrote;
+  try {
+    wrote = navigator.clipboard.write([new ClipboardItem(parts)]).then(() => true, () => false);
+  } catch (_) {
+    wrote = Promise.resolve(false);
+  }
+  return wrote.then((ok) => toast(ok ? (pages.length === 1 ? t("Copied the slide as an image.") : t("Copied {n} slides as an image.").replace("{n}", pages.length)) : t("Could not copy")));
+}
+window.__copyImage = copyImage;
 
 // A pasted file into the deck, as Files → Paste puts one.
 async function clipStore(path, type, bytes) {
