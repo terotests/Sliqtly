@@ -1,0 +1,47 @@
+/* ---------------------------------------------------------------------------
+   The ToC drawer (src/PresTocDrawer.rgr): EVGUI's DrawerCtl in the kit's look
+   (ui.css, its .ui-drawer rules), on the canvas at the left edge. The
+   drawer's host runs under "toc", so these rules and the derived dark look
+   apply to it alone.
+   --------------------------------------------------------------------------- */
+.theme-toc .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.theme-toc .ui-drawer-panel {
+  font-family: Open Sans;
+  padding: 10px 8px 10px 12px;
+  gap: 6px;
+  border-radius: 0px 10px 10px 0px;
+  box-shadow: 0px 6px 24px rgba(15, 23, 42, 0.22);
+}
+.theme-toc .ui-drawer-title { font-family: Open Sans-Bold; font-size: 14px; color: #0f172a; padding: 4px 4px 0px 4px; }
+.theme-toc .ui-drawer-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0px;
+  line-height: 24px;
+  text-align: center;
+  font-size: 18px;
+  border-radius: 13px;
+  border: 0px;
+  color: #475569;
+  background-color: rgba(0,0,0,0);
+}
+.theme-toc .ui-drawer-close:hover { background-color: #e2e8f0; }
+.theme-toc .ui-drawer-body { gap: 1px; padding-right: 4px; }
+.theme-toc .toc-row {
+  font-size: 13px;
+  line-height: 18px;
+  color: #1e293b;
+  padding: 5px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.theme-toc .toc-d0 { font-family: Open Sans-Bold; }
+.theme-toc .toc-d1 { padding-left: 22px; }
+.theme-toc .toc-d2 { padding-left: 36px; color: #475569; font-size: 12px; }
+.theme-toc .toc-d3 { padding-left: 50px; color: #475569; font-size: 12px; }
+.theme-toc .toc-hot { background-color: #f1f5f9; }
+.theme-toc .toc-on { background-color: #dbeafe; color: #1e3a8a; }
+.theme-toc .toc-none { font-size: 13px; color: #64748b; padding: 8px; }

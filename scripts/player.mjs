@@ -42,7 +42,7 @@ export function buildPlayer(dist) {
     logLevel: "silent",
   }).outputFiles[0].contents;
   put("main.js", main, TYPES[".js"]);
-  for (const f of ["pres_app.js", "pres_beat.js", "pres_data.js", "pres.css", "ui.css", "chart-editor.css", "hint.css", "find.css", "panels.css"]) {
+  for (const f of ["pres_app.js", "pres_beat.js", "pres_data.js", "pres.css", "ui.css", "chart-editor.css", "hint.css", "find.css", "toc.css", "panels.css"]) {
     put(f, read(f), TYPES[path.extname(f)]);
   }
   for (const dir of ["skins", "themes", "fonts", "i18n"]) {

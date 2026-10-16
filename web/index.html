@@ -183,6 +183,8 @@
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
   #viewBar > #vCount.typing { border-color: #60a5fa; }
+  /* ToC: the table of contents' drawer (PresTocDrawer) */
+  #viewBar > #vToc { font: 600 14px/1 "Open Sans", system-ui, sans-serif; }
   /* the pen, Record and Play recording (main.js syncRecBar) */
   #viewBar > #vPen[aria-pressed="true"] { border-color: #60a5fa; background: rgba(37, 99, 235, 0.55); }
   #viewBar > #vColor .dot { display: inline-block; width: 18px; height: 18px; border-radius: 9px; background: var(--pen, #ef4444); border: 2px solid rgba(255, 255, 255, 0.8); vertical-align: middle; }
@@ -199,7 +201,7 @@
   /* a replay is driven by its own buttons */
   body.viewer:not(.replaying) #viewBar > #vPen { display: none; }
   body.replaying #viewBar > #vFirst, body.replaying #viewBar > #vPrev, body.replaying #viewBar > #vNext,
-  body.replaying #viewBar > #vCount, body.replaying #viewBar > #vPen { display: none; }
+  body.replaying #viewBar > #vCount, body.replaying #viewBar > #vPen, body.replaying #viewBar > #vToc { display: none; }
   /* recording (main.js syncRecBadge): a badge at the top that says so and
      what to do, and the count before it starts */
   #recBadge {
@@ -483,6 +485,7 @@
   <button id="vFirst" title="First slide (Home)" data-i18n-title>⏮&#xFE0E;</button>
   <button id="vPrev" title="Previous (←)" data-i18n-title>◀</button>
   <button id="vNext" title="Next (→, Space)" data-i18n-title>▶</button>
+  <button id="vToc" title="Table of contents" data-i18n-title>ToC</button>
   <button id="vCount" title="Go to slide… (type the number and Enter)" aria-live="polite" data-i18n-title>1 / 1</button>
   <input id="vGo" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Slide number" data-i18n-aria hidden />
   <button id="vData" title="Fetch the charts' data again (R)" data-i18n-title hidden>⟳</button>

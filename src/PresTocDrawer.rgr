@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTocDrawer.rgr — the ToC drawer: EVGUI's DrawerCtl listing the headings.
+; ============================================================================
+;
+; The table of contents (PresToc) in a drawer at the left edge, over the
+; app while editing (under the bar) and over the slide while presenting. A
+; row a heading, set in by its depth; the one being read is marked and kept
+; in view when the drawer opens. A row pressed is `picked` for PresApp to
+; go to; the drawer stays open, as a drawer does, until ×, Esc or ToC.
+;
+; Its own UiHost as big as the app, the sheet ui.css + web/toc.css under
+; the theme "toc" (the dark and retro looks derived for it by the page).
+; ============================================================================
+
+Import "PresI18n.rgr"
+Import "PresToc.rgr"
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/DrawerCtl.rgr"
+Import "UiKit.rgr"
+
+class PresTocDrawer {
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def skin:string ""
+    def drawer:DrawerCtl (new DrawerCtl())
+    def w:double 1200.0
+    def h:double 700.0
+    ; the panel's place (app coordinates): its top, height and width
+    def top:double 0.0
+    def height:double 700.0
+    def width:double 320.0
+    ; the rows shown: each entry's words and depth, and which is read
+    def texts:[string]
+    def depths:[int]
+    def current:int -1
+    ; the row to bring into view at the next layout (-1: none)
+    def reveal:int -1
+    def hot:string ""
+    def measurer@(optional):TTFTextMeasurer
+    def rev:int 0
+
+    Constructor () {
+        drawer.tid = "toc"
+        drawer.side = "left"
+        drawer.durationMs = 0.0
+    }
+
+    fn isOpen:boolean () {
+        return drawer.open
+    }
+
+    ; The rows from the list; `cur` the one being read.
+    fn setEntries:void (toc:PresToc cur:int) {
+        def t:[string]
+        def d:[int]
+        def i:int 0
+        while (i < (toc.count())) {
+            def e:PresTocEntry (toc.entryAt(i))
+            push t e.text
+            push d e.depth
+            i = (i + 1)
+        }
+        def same:boolean ((array_length t) == (array_length texts))
+        if same {
+            def k:int 0
+            while (k < (array_length t)) {
+                if (((itemAt t k) != (itemAt texts k)) || ((itemAt d k) != (itemAt depths k))) {
+                    same = false
+                    break
+                }
+                k = (k + 1)
+            }
+        }
+        if (same && (cur == current)) {
+            return
+        }
+        texts = t
+        depths = d
+        current = cur
+        if drawer.open {
+            this.rebuild()
+        }
+    }
+
+    ; The panel's room: top, height and width (app coordinates).
+    fn place:void (atTop:double tall:double wide:double) {
+        if (((atTop == top) && (tall == height)) && (wide == width)) {
+            return
+        }
+        top = atTop
+        height = tall
+        width = wide
+        if drawer.open {
+            this.rebuild()
+        }
+    }
+
+    fn open:void () {
+        drawer.show()
+        drawer.progress = 1.0
+        drawer.phase = 1.0
+        reveal = current
+        this.rebuild()
+    }
+
+    fn close:void () {
+        drawer.closeNow()
+        hot = ""
+        rev = (rev + 1)
+    }
+
+    fn toggle:void () {
+        if drawer.open {
+            this.close()
+        } {
+            this.open()
+        }
+    }
+
+    sfn rowTid:string (i:int) {
+        return ("toc-" + (to_string i))
+    }
+
+    ; The entry a row id names, -1 for none.
+    sfn rowOf:int (t:string) {
+        if (((indexOf t "toc-") != 0) || ((strlen t) <= 4)) {
+            return -1
+        }
+        def n@(optional):int (str2int (substring t 4 (strlen t)))
+        if (null? n) {
+            return -1
+        }
+        return (unwrap n)
+    }
+
+    fn rebuild:void () {
+        def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
+        fresh.hoverTid = hot
+        host = fresh
+        host.setTheme((trim ("toc " + skin)))
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root"
+        drawer.title = (PresI18n.t("Contents"))
+        drawer.closeLabel = "×"
+        drawer.width = width
+        drawer.top = top
+        drawer.panelHeight = height
+        drawer.pageWidth = w
+        drawer.clearContentTids()
+        drawer.build()
+        def body:EVGElement (drawer.body())
+        UiTree.clearChildren(body)
+        if ((array_length texts) == 0) {
+            def none (EVGElement.createDiv())
+            none.className = "toc-none"
+            none.textContent = (PresI18n.t("No headings yet: # and ## lines are listed here"))
+            body.addChild(none)
+        }
+        def i:int 0
+        while (i < (array_length texts)) {
+            def row (EVGElement.createDiv())
+            row.id = (PresTocDrawer.rowTid(i))
+            def d:int (itemAt depths i)
+            if (d > 3) {
+                d = 3
+            }
+            def cls:string ("toc-row toc-d" + (to_string d))
+            if (i == current) {
+                cls = (cls + " toc-on")
+            }
+            if (row.id == hot) {
+                cls = (cls + " toc-hot")
+            }
+            row.className = cls
+            row.textContent = (itemAt texts i)
+            body.addChild(row)
+            drawer.addContentTid(row.id)
+            i = (i + 1)
+        }
+        UiKit.put(host drawer root)
+        rev = (rev + 1)
+    }
+
+    fn layoutPage:EVGElement () {
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        ; the row being read in view, a little below the top
+        if ((reveal >= 0) && (reveal < (array_length texts))) {
+            def body:EVGElement (drawer.body())
+            def at:int reveal
+            reveal = -1
+            if (at < (body.getChildCount())) {
+                def row:EVGElement (body.getChild(at))
+                def inBody:double ((row.calculatedY - body.calculatedY) + body.scrollTop)
+                def want:double (inBody - (body.clientHeight() * 0.3))
+                if (want < 0.0) {
+                    want = 0.0
+                }
+                if (want > (body.maxScrollTop())) {
+                    want = (body.maxScrollTop())
+                }
+                if (want != body.scrollTop) {
+                    body.scrollTop = want
+                    lay.layout(pg)
+                }
+            }
+        }
+        host.placeText((lay.getTextEngine()))
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.layoutPage())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- the pointer -------------------------------------------------------------
+    fn has:boolean (px:double py:double) {
+        if (drawer.open == false) {
+            return false
+        }
+        return ((((px >= 0.0) && (px <= width)) && (py >= top)) && (py <= (top + height)))
+    }
+
+    ; A press: the entry pressed (-1 for none); × closes.
+    fn press:int (px:double py:double) {
+        if (null? host.lastPage) {
+            this.layoutPage()
+        }
+        def t:string (host.hitTest(px py))
+        drawer.activate(t)
+        def k:string (drawer.consumePicked())
+        if (drawer.open == false) {
+            this.close()
+            return -1
+        }
+        return (PresTocDrawer.rowOf(k))
+    }
+
+    fn hoverAt:void (px:double py:double) {
+        def t:string ""
+        if (this.has(px py)) {
+            if (null? host.lastPage) {
+                this.layoutPage()
+            }
+            t = (host.hitTest(px py))
+        }
+        if ((PresTocDrawer.rowOf(t)) < 0) {
+            if (t != (drawer.closeTid())) {
+                t = ""
+            }
+        }
+        if (t != hot) {
+            hot = t
+            this.rebuild()
+        }
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        if (null? host.lastPage) {
+            this.layoutPage()
+        }
+        def t:string (host.hitTest(px py))
+        if (((PresTocDrawer.rowOf(t)) >= 0) || (t == (drawer.closeTid()))) {
+            return "pointer"
+        }
+        return "default"
+    }
+
+    fn wheel:void (dy:double) {
+        if (null? host.lastPage) {
+            this.layoutPage()
+        }
+        drawer.scrollBy(dy)
+        rev = (rev + 1)
+    }
+}

@@ -1,0 +1,146 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresToc.rgr — the deck's table of contents, from its headings.
+; ============================================================================
+;
+; A long document (a technical text of 70–80 slides) is easier to read with
+; its headings at hand: the ToC drawer (PresTocDrawer) lists them, shows the
+; one being read and goes to the one pressed. It is a reading aid, not part
+; of the deck: nothing here goes into the slides or the exports.
+;
+;   deck's top-level headings (# … up to `maxLevel`) ──► entries
+;     each: level, depth (indent from the shallowest level used), its words,
+;     the slide it is on, its source offset
+;   the Document page (PresDocFlow) ──► `placeOn` ──► each entry's y there
+;
+; Which one is being read: on a slide, the first heading of that slide, or
+; the last one before it when the slide has none of its own; on the page,
+; the last heading at or above the line read from.
+;
+; Nothing here draws or knows the screen: PresApp asks and the drawer shows.
+; ============================================================================
+
+Import "PresDeck.rgr"
+Import "PresDocFlow.rgr"
+
+class PresTocEntry {
+    ; 1 for #, 2 for ##, …
+    def level:int 1
+    ; how far in it is drawn: level − the shallowest level in the list
+    def depth:int 0
+    def text:string ""
+    ; the slide it is on, its offset in the deck's source
+    def slide:int 0
+    def src:int 0
+    ; where it is on the Document page (page units, -1 not placed)
+    def y:double -1.0
+
+    Constructor () {
+    }
+}
+
+class PresToc {
+    def entries:[PresTocEntry]
+    ; the deck revision the list was made from (-1: never)
+    def rev:int -1
+    ; the deepest heading listed (### by default)
+    def maxLevel:int 3
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length entries)
+    }
+
+    fn entryAt:PresTocEntry (i:int) {
+        return (itemAt entries i)
+    }
+
+    ; The list for the deck as it is now: made again when it changed.
+    fn build:void (deck:PresDeck) {
+        if (rev == deck.revision) {
+            return
+        }
+        rev = deck.revision
+        clear entries
+        def doc:MdNode deck.md.edit.doc
+        def n:int (doc.childCount())
+        def least:int 99
+        def c:int 0
+        while (c < n) {
+            def ch:MdNode (doc.childAt(c))
+            if ((ch.kind == "heading") && ((ch.level >= 1) && (ch.level <= maxLevel))) {
+                def words:string (trim (ch.plainText()))
+                def page:int (deck.pageOfNode(ch))
+                if (((strlen words) > 0) && (page >= 0)) {
+                    def e (new PresTocEntry())
+                    e.level = ch.level
+                    e.text = words
+                    e.slide = page
+                    e.src = ch.srcStart
+                    push entries e
+                    if (ch.level < least) {
+                        least = ch.level
+                    }
+                }
+            }
+            c = (c + 1)
+        }
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e2:PresTocEntry (itemAt entries i)
+            e2.depth = (e2.level - least)
+            i = (i + 1)
+        }
+    }
+
+    ; Each entry's y on the Document page: its own block, else the top of
+    ; its slide there (a hidden title draws nothing of its own).
+    fn placeOn:void (flow:PresDocFlow) {
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:PresTocEntry (itemAt entries i)
+            def y:double (flow.yOfKey(e.src))
+            if (y < 0.0) {
+                y = (flow.topOf(e.slide))
+            }
+            e.y = y
+            i = (i + 1)
+        }
+    }
+
+    ; The entry being read on slide `slide`: its first heading, else the
+    ; last one before it; -1 before the first heading.
+    fn currentForSlide:int (slide:int) {
+        def best:int -1
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:PresTocEntry (itemAt entries i)
+            if (e.slide == slide) {
+                return i
+            }
+            if (e.slide < slide) {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The entry being read at page y: the last one placed at or above it;
+    ; -1 above the first.
+    fn currentForY:int (y:double) {
+        def best:int -1
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:PresTocEntry (itemAt entries i)
+            if ((e.y >= 0.0) && (e.y <= y)) {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+}

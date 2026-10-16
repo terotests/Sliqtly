@@ -3850,6 +3850,7 @@ function sendChromeCss() {
   if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
   if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
   if (c.find != null) app.setFindCss(c.find + skinCss(c.find, "fb"));
+  if (c.toc != null) app.setTocCss(c.toc + skinCss(c.toc, "toc"));
   if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
   if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
 }
@@ -4410,6 +4411,9 @@ function paintOnce() {
       paintList(app.reviewJson());
     } else if (layer === "find") {
       paintList(app.findJson());
+    } else if (layer === "toc") {
+      // the table of contents' drawer (PresTocDrawer)
+      paintList(app.tocJson());
     } else if (layer === "hint") {
       paintList(app.hintJson());
     } else if (layer === "chart") {
@@ -7967,7 +7971,10 @@ function wakeViewer() {
 window.addEventListener("keydown", (ev) => {
   if (viewer && ev.key === "Escape") {
     ev.stopImmediatePropagation();
-    if (!vGo.hidden) closeGoTo();
+    if (app.tocShown()) {
+      app.tocClose();
+      needsPaint = true;
+    } else if (!vGo.hidden) closeGoTo();
     else if (app.navTyping()) {
       app.navClear();
       needsPaint = true;
@@ -7984,6 +7991,8 @@ document.getElementById("vFirst").addEventListener("click", () => { app.firstSli
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
 document.getElementById("vData").addEventListener("click", () => refreshLiveData());
+// the table of contents: a drawer at the left with the headings (PresToc)
+document.getElementById("vToc").addEventListener("click", () => { app.tocToggle(); afterInput(); });
 document.getElementById("vFull").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
@@ -10765,6 +10774,7 @@ async function start() {
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
   textOf("./find.css").then((c) => { chromeSheets.find = kit + "\n" + c; app.setFindCss(chromeSheets.find + skinCss(chromeSheets.find, "fb")); }).catch(() => {});
+  textOf("./toc.css").then((c) => { chromeSheets.toc = kit + "\n" + c; app.setTocCss(chromeSheets.toc + skinCss(chromeSheets.toc, "toc")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   // the signed-in account's own store and keys, before anything kept is read
   useAccount(await accountScope().catch((e) => { console.warn("no account known", e); return EDITOR_ROOT && !viewer ? "signed-out" : ""; }));

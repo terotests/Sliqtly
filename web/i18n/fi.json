@@ -1880,5 +1880,8 @@
   "Images (.png)": "Kuvat (.png)",
   "Could not draw the slide.": "Diaa ei voitu piirtää.",
   "Copied the slide as an image.": "Dia kopioitu kuvana.",
-  "Copied {n} slides as an image.": "{n} diaa kopioitu kuvana."
+  "Copied {n} slides as an image.": "{n} diaa kopioitu kuvana.",
+  "Table of contents": "Sisällysluettelo",
+  "Contents": "Sisällys",
+  "No headings yet: # and ## lines are listed here": "Ei vielä otsikoita: # ja ## -rivit näkyvät tässä"
 }
