@@ -7996,7 +7996,7 @@ window.addEventListener("keydown", (ev) => {
   if (viewer && ev.key === "Escape") {
     ev.stopImmediatePropagation();
     if (app.tocShown()) {
-      app.tocClose();
+      app.tocEscape();
       needsPaint = true;
     } else if (!vGo.hidden) closeGoTo();
     else if (app.navTyping()) {
@@ -9386,8 +9386,16 @@ keys.addEventListener("keydown", (ev) => {
     return;
   }
   if (presenting) {
-    // with the text tool (Aa) letters write on the slide
-    const writing = app.inkWrites();
+    // with the text tool (Aa) letters write on the slide; the ToC's search
+    // field takes letters too
+    const writing = app.inkWrites() || app.tocHasKeys();
+    if (mod && app.tocHasKeys() && ev.key.length === 1) {
+      if (CLIPBOARD_CHORD.test(ev.key)) return; // paste fires on the field
+      ev.preventDefault();
+      if (ev.key === "a" || ev.key === "A") app.chord("a");
+      afterInput();
+      return;
+    }
     if ((ev.key === "m" || ev.key === "M") && !mod && !ev.altKey && !app.reviewHasKeys() && !writing && music.has()) {
       ev.preventDefault();
       toast(music.toggle() ? t("♪ Music on") : t("♪ Music off"));
@@ -9525,6 +9533,15 @@ keys.addEventListener("paste", (ev) => {
   }
   // while a conversation's composer has the keys, text goes into it as it
   // is, and pictures with the AI assistant's next question
+  // the ToC's search field: the words on one line
+  if (app.tocHasKeys()) {
+    const text = ev.clipboardData?.getData("text/plain") || "";
+    if (text) {
+      app.pasteText(text);
+      afterInput();
+    }
+    return;
+  }
   if (app.chatHasKeys()) {
     const pics = app.aiTakesPictures()
       ? items.filter((it) => it.kind === "file" && it.type.startsWith("image/")).map((it) => it.getAsFile()).filter(Boolean)
@@ -10051,6 +10068,7 @@ window.addEventListener("keydown", (ev) => {
   if (!presentingNow() || (ev.target !== keys && ev.target.closest?.("input, textarea, [contenteditable]"))) return;
   const mod = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
   let done = false;
+  if (app.tocHasKeys()) return;
   if (mod && (ev.key === "a" || ev.key === "A") && textSelectable()) {
     const read = presentText();
     if (read && read.text) {

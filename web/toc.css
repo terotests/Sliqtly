@@ -66,3 +66,17 @@
 .theme-toc .toc-n.toc-on { color: #ffffff; }
 .theme-toc .toc-lead.toc-on { color: #bfdbfe; }
 .theme-toc .toc-none { font-size: 13px; color: #64748b; padding: 8px; }
+/* the search above the list: as wide as the panel, a blue ring with the keys */
+.theme-toc .toc-search {
+  width: auto;
+  height: 30px;
+  flex-shrink: 0;
+  margin-right: 4px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background-color: #f8fafc;
+}
+.theme-toc .toc-search.ui-input-focused { border: 1px solid #2563eb; background-color: #ffffff; }
+.theme-toc .toc-search-text { font-size: 13px; color: #0f172a; }
+.theme-toc .toc-search-ph { font-size: 13px; color: #94a3b8; }
