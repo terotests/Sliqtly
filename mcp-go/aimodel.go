@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -30,6 +31,11 @@ type claudeModel struct {
 }
 
 func (m *claudeModel) modelName() string { return m.model }
+
+// the same client with another model (WARDEN_AI_MODEL)
+func (m *claudeModel) withModel(name string) aiModel {
+	return &claudeModel{client: m.client, model: name}
+}
 
 // The model the environment names; nil when it names none (no assistant).
 //
@@ -69,7 +75,7 @@ func newAIModel(ctx context.Context) (aiModel, string) {
 	return nil, ""
 }
 
-func (m *claudeModel) Ask(ctx context.Context, system string, turns []aiTurn) (aiAnswer, error) {
+func claudeMessages(turns []aiTurn) []anthropic.MessageParam {
 	msgs := make([]anthropic.MessageParam, 0, len(turns))
 	for _, t := range turns {
 		if t.Role == "assistant" {
@@ -82,6 +88,78 @@ func (m *claudeModel) Ask(ctx context.Context, system string, turns []aiTurn) (a
 			msgs = append(msgs, anthropic.NewUserMessage(append(blocks, anthropic.NewTextBlock(t.Text))...))
 		}
 	}
+	return msgs
+}
+
+func claudeErr(err error) error {
+	var apiErr *anthropic.Error
+	if errors.As(err, &apiErr) && (apiErr.StatusCode == 401 || apiErr.StatusCode == 403 || apiErr.StatusCode == 404) {
+		return fmt.Errorf("%w: %v", errAINotSetUp, err)
+	}
+	return err
+}
+
+// One question with r's tools: each call the model makes is run and its
+// answer handed back, until it answers without calling or the rounds are
+// spent. (Warden's assistant: every tool is run at once, changes too.)
+func (m *claudeModel) AskReading(ctx context.Context, system string, turns []aiTurn, r *aiReader) (aiAnswer, error) {
+	if r == nil || len(r.Tools) == 0 {
+		return m.Ask(ctx, system, turns)
+	}
+	tools := make([]anthropic.ToolUnionParam, 0, len(r.Tools))
+	for _, t := range r.Tools {
+		req, _ := t.Params["required"].([]string)
+		tools = append(tools, anthropic.ToolUnionParam{OfTool: &anthropic.ToolParam{
+			Name: t.Name, Description: anthropic.String(t.Description),
+			InputSchema: anthropic.ToolInputSchemaParam{Properties: t.Params["properties"], Required: req},
+		}})
+	}
+	msgs := claudeMessages(turns)
+	var a aiAnswer
+	for round := 0; round < r.rounds(); round++ {
+		resp, err := m.client.Messages.New(ctx, anthropic.MessageNewParams{
+			Model:     anthropic.Model(m.model),
+			MaxTokens: 16000,
+			System:    []anthropic.TextBlockParam{{Text: system, CacheControl: anthropic.NewCacheControlEphemeralParam()}},
+			Messages:  msgs,
+			Tools:     tools,
+		})
+		a.Calls++
+		if err != nil {
+			return a, claudeErr(err)
+		}
+		a.In += resp.Usage.InputTokens + resp.Usage.CacheReadInputTokens + resp.Usage.CacheCreationInputTokens
+		a.Out += resp.Usage.OutputTokens
+		if resp.StopReason == anthropic.StopReasonRefusal {
+			a.Declined = true
+			return a, nil
+		}
+		var b strings.Builder
+		results := []anthropic.ContentBlockParamUnion{}
+		for _, block := range resp.Content {
+			switch v := block.AsAny().(type) {
+			case anthropic.TextBlock:
+				b.WriteString(v.Text)
+			case anthropic.ToolUseBlock:
+				args := map[string]any{}
+				json.Unmarshal(v.Input, &args)
+				got := r.Run(ctx, v.Name, args)
+				results = append(results, anthropic.NewToolResultBlock(v.ID, got.Text, got.Failed))
+			}
+		}
+		if t := strings.TrimSpace(b.String()); t != "" {
+			a.Text = t
+		}
+		if len(results) == 0 {
+			return a, nil
+		}
+		msgs = append(msgs, resp.ToParam(), anthropic.NewUserMessage(results...))
+	}
+	return a, nil
+}
+
+func (m *claudeModel) Ask(ctx context.Context, system string, turns []aiTurn) (aiAnswer, error) {
+	msgs := claudeMessages(turns)
 	resp, err := m.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(m.model),
 		MaxTokens: 16000,
@@ -91,11 +169,7 @@ func (m *claudeModel) Ask(ctx context.Context, system string, turns []aiTurn) (a
 		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow},
 	})
 	if err != nil {
-		var apiErr *anthropic.Error
-		if errors.As(err, &apiErr) && (apiErr.StatusCode == 401 || apiErr.StatusCode == 403 || apiErr.StatusCode == 404) {
-			return aiAnswer{}, fmt.Errorf("%w: %v", errAINotSetUp, err)
-		}
-		return aiAnswer{}, err
+		return aiAnswer{}, claudeErr(err)
 	}
 	a := aiAnswer{In: resp.Usage.InputTokens + resp.Usage.CacheReadInputTokens + resp.Usage.CacheCreationInputTokens, Out: resp.Usage.OutputTokens}
 	if resp.StopReason == anthropic.StopReasonRefusal {

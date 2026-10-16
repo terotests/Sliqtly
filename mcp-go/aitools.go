@@ -34,6 +34,15 @@ type aiReader struct {
 	// where the person's presentations are kept can be changed
 	// (aiPlaceTools, aiorganize.go): sliqtly.com
 	Places bool
+	// the most calls to the model one question makes (0: geminiRounds)
+	Rounds int
+}
+
+func (r *aiReader) rounds() int {
+	if r == nil || r.Rounds <= 0 {
+		return geminiRounds
+	}
+	return r.Rounds
 }
 
 // a model that can read before it answers

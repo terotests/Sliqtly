@@ -280,6 +280,10 @@ func main() {
 			// the taxi game's lines (ttd.go), when the assistant is Gemini
 			if m, _ := newAIModel(context.Background()); m != nil {
 				e.Taxi = newTTDAI(m)
+				// Warden's assistant on the page (wardenai.go)
+				if e.warden = newWardenService(e.DB); e.warden != nil {
+					e.warden.ai = newWardenAssist(m)
+				}
 			}
 			e.EditorGate = newEditorGate(webFiles(*web), e.DB, e.VerifyIDToken, splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")))
 			if e.EditorGate != nil {
