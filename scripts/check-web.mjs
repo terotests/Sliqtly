@@ -6634,6 +6634,18 @@ try {
     await pg.keyboard.press("Backspace");
     await frames();
     check("View keys: Backspace after a table does not join the paragraph into its row", (await src()) === tbl, JSON.stringify((await src()).slice(-30)));
+    await put(tbl, "Loppu");
+    await pg.keyboard.press("Shift+Tab");
+    await pg.keyboard.type("X");
+    await frames();
+    check("View keys: Shift+Tab at the start of the paragraph after a table goes to its last cell", (await src()).includes("| c | Xd |\n\nLoppu"), JSON.stringify((await src()).slice(-40)));
+    const tbl2 = body + "Ennen\n\n| a | b |\n| --- | --- |\n";
+    await put(tbl2, "Ennen");
+    await pg.keyboard.press("End");
+    await pg.keyboard.press("Tab");
+    await pg.keyboard.type("X");
+    await frames();
+    check("View keys: Tab at the end of the paragraph before a table goes to its first cell", (await src()).includes("Ennen\n\n| Xa | b |"), JSON.stringify((await src()).slice(-40)));
     await keyTo(body + "## Otsikko\n", "Otsikko", "Enter", "\n\n## Otsikko\n", "Enter at a heading's start keeps it a heading");
     await put(body + "## Otsikko\n", "sikko");
     await pg.keyboard.press("Enter");

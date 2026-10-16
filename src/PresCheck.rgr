@@ -5649,6 +5649,17 @@ class PresCheck {
     }
 
     fn docKeys:void () {
+        ; Tab beside a table: into its first cell, Shift+Tab after it: its last
+        def tb:string "Ennen\n\n| A | B |\n|---|---|\n| c | d |\n\nJälkeen"
+        def te:int (PresDocKeys.tableEdgeJump(tb 5 1))
+        this.ok((te == (indexOf tb "A")) ("dockeys: Tab at a paragraph's end before a table goes to its first cell, got " + (to_string te)))
+        this.ok(((PresDocKeys.tableEdgeJump(tb 2 1)) < 0) "dockeys: …not from the middle of the paragraph")
+        def ta:int (indexOf tb "Jälkeen")
+        def tl:int (PresDocKeys.tableEdgeJump(tb ta -1))
+        this.ok((tl == (indexOf tb "d")) ("dockeys: Shift+Tab at the start of the paragraph after a table goes to its last cell, got " + (to_string tl)))
+        this.ok(((PresDocKeys.tableEdgeJump(tb (ta + 1) -1)) < 0) "dockeys: …not from inside the paragraph")
+        def tli:string "- aa\n\n| A |\n|---|"
+        this.ok(((PresDocKeys.tableEdgeJump(tli 4 1)) < 0) "dockeys: a list item keeps Tab for its level")
         ; Tab under the item above, with its sub-items; the caret keeps its place
         def l:string "- aa\n- bb\n  - cc\n- dd"
         def b:int (indexOf l "bb")
