@@ -66,8 +66,9 @@ Speaker notes.
    slides). Send the whole `markdown` for a rewrite.
 3. `render_overview` once before giving the link; `render_slide` for
    charts, diagrams and any ⚠.
-4. Give the user the link and say anyone with it can see the deck (unless
-   `visibility: "private"`).
+4. Give the user the link. Signed in on sliqtly.com a deck is private:
+   give the editor link, which opens after signing in with that Google
+   account. With `visibility: "link"` say anyone with the link can see it.
 5. When a read or a save lists changes the user made by hand (`user_edits`),
    keep them; a save that overwrote one says so → topic=editing.
 
@@ -1906,11 +1907,15 @@ pictures under 300 dpi in print ("media/x.jpg: 180 dpi in print, under
   a further create_presentation, since a new connection to Sliqtly does
   not carry it. It holds until it goes a day without a change. Keep it in
   the conversation; never put it in slides or links.
+- Signed in on sliqtly.com, a presentation is `private` unless you ask
+  for `link`: only the user's Google account sees it, in the editor
+  (`edit_url`, `/editor/d/<id>`) and at its link after signing in there.
+  Give the user the editor link. Ask the user before making it
+  `visibility: "link"`.
 - A presentation with `visibility: "link"` is seen by anyone who has its
-  link: every slide, picture and file. Say so to the user when you give
-  the link. Signed in, `visibility: "private"` keeps one for the user's
-  Google account only (it opens at its link after signing in there with
-  that account); `visibility: "link"` opens it again.
+  link: every slide, picture and file. Without sign-in (and on a server of
+  one's own) every presentation is `link`. Say so to the user when you
+  give the link.
 - `delete_presentation` (deck_id) deletes one for good, pictures and files
   too: its owner signed in, or the conversation that made it without
   sign-in. Ask the user first.
