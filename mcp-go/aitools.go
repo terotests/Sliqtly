@@ -47,8 +47,10 @@ const (
 	aiReadImages = 2
 )
 
-// MCP tools the drawer leaves out though they only read (list_presentations
-// is in: it tells where each presentation is kept, for sorting them)
+// MCP tools the drawer leaves out though they only read: list_comments reads
+// the saved copy, while the page sends the comments as the editor has them
+// (aiContext.Comments). list_presentations is in: it tells where each
+// presentation is kept, for sorting them.
 var aiReadSkip = []string{"list_comments"}
 
 // the drawer's own: the Markdown in the editor, drawn

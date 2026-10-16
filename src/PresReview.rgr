@@ -344,6 +344,25 @@ class PresReview {
         return true
     }
 
+    ; An answer in a thread from someone outside it (the editor's AI
+    ; assistant, an agent): a resolved thread is opened again for it, as
+    ; MCP add_comment does. False when there is no such thread or nothing
+    ; to say.
+    fn answer:boolean (id:string m:PresReviewMsg) {
+        def i:int (this.indexOf(id))
+        if ((i < 0) || ((strlen (trim m.text)) == 0)) {
+            return false
+        }
+        def t:PresReviewThread (itemAt threads i)
+        if (t.hasMsg(m.id)) {
+            return false
+        }
+        if t.closed {
+            this.setClosed(id false m.who m.at)
+        }
+        return (this.reply(id m))
+    }
+
     ; closed (true) or open again (false); false when it already was
     fn setClosed:boolean (id:string closed:boolean who:string at:double) {
         def i:int (this.indexOf(id))
@@ -1019,6 +1038,44 @@ class PresReview {
             out = (out + p)
         }
         return out
+    }
+
+    ; The comments for the editor's AI assistant: every thread on `slide`
+    ; (from 0; resolved ones said so), then the open ones on the other
+    ; slides. Each with its id (to answer it by), where it is pinned, the
+    ; block of the slide it is on and its messages. "" when there are none.
+    fn aiText:string (slide:int titles:[string]) {
+        def out:string ""
+        for (this.onSlide(slide)) t:PresReviewThread i {
+            out = (out + (PresReview.aiThread(t titles)))
+        }
+        for (this.openOrder()) o:PresReviewThread k {
+            if (o.slide != slide) {
+                out = (out + (PresReview.aiThread(o titles)))
+            }
+        }
+        return (trim out)
+    }
+
+    sfn aiThread:string (t:PresReviewThread titles:[string]) {
+        def nl:string (strfromcode 10)
+        def state:string "open"
+        if t.closed {
+            state = "resolved"
+        }
+        if ((strlen t.severity) > 0) {
+            state = (state + ", severity " + t.severity)
+        }
+        def head:string ("Thread " + t.id + " (" + state + ") on " + (PresReview.slideLabel(t.slide titles)) + ", " + (PresReview.whereText(t)))
+        def on:string (trim t.el)
+        if (((strlen on) > 0) && ((t.isCode()) == false)) {
+            def first:string (itemAt (strsplit on nl) 0)
+            if ((strlen first) > 120) {
+                first = ((substring first 0 120) + "…")
+            }
+            head = (head + ", on the block \"" + first + "\"")
+        }
+        return (head + ":" + nl + (PresReview.messagesText(t "  ")) + nl)
     }
 
     ; One thread to copy: where it is, then its messages.
