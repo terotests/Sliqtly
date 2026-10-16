@@ -194,8 +194,8 @@ const ttdRole = `Kirjoitat repliikkejä suomenkieliseen Tampere Taxi Driver -pel
 
 - name_ok: kelpaako kuljettajan nimi peliin, joka näkyy muille pelaajille. Hylkää kiroilu, rasistiset, seksuaaliset tai loukkaavat nimet, oikeiden julkisuuden henkilöiden nimet ja mainokset tai linkit. Lempinimet, keksityt nimet ja tavalliset etunimet kelpaavat.
 - note: jos nimi ei kelpaa, lyhyt ystävällinen syy (enintään 60 merkkiä), muuten "".
-- greeting: taksikeskuksen päivystäjän tervehdys kuljettajalle vuoron alkuun, nimellä jos nimi kelpaa (enintään 90 merkkiä). Ota huomioon kellonaika.
-- lines: jokaiselle asiakastyypille kaksi uutta asiaa, joita asiakas sanoo matkan aikana. type on tyypin numero listassa. Tyypin mukainen puhetapa, Tampere-viittauksia (Näsinneula, Pyynikki, Hämeenkatu, ratikka, Tammerkoski, mustamakkara, Tappara, Ilves) saa käyttää. Enintään 90 merkkiä, ei kiroilua, ei loukkaavaa.`
+- greeting: taksikeskuksen päivystäjän tervehdys kuljettajalle vuoron alkuun, nimellä jos nimi kelpaa (enintään 50 merkkiä, näkyy yhden rivin puhekuplana). Ota huomioon kellonaika.
+- lines: jokaiselle asiakastyypille kaksi uutta asiaa, joita asiakas sanoo matkan aikana. type on tyypin numero listassa. Tyypin mukainen puhetapa, Tampere-viittauksia (Näsinneula, Pyynikki, Hämeenkatu, ratikka, Tammerkoski, mustamakkara, Tappara, Ilves) saa käyttää. Enintään 50 merkkiä (puhekupla), ei kiroilua, ei loukkaavaa.`
 
 func (t *ttdAI) ask(ctx context.Context, q ttdAsk) (ttdAnswer, error) {
 	name, shaped := ttdNameShape(q.Name)
@@ -230,7 +230,7 @@ func (t *ttdAI) ask(ctx context.Context, q ttdAsk) (ttdAnswer, error) {
 	if err := json.Unmarshal([]byte(txt), &raw); err != nil {
 		return ttdAnswer{}, err
 	}
-	a := ttdAnswer{NameOK: shaped && raw.NameOK, Name: name, Note: ttdClip(raw.Note, 80), Greeting: ttdClip(raw.Greeting, 120)}
+	a := ttdAnswer{NameOK: shaped && raw.NameOK, Name: name, Note: ttdClip(raw.Note, 80), Greeting: ttdClip(raw.Greeting, 70)}
 	if !a.NameOK {
 		a.Name = ""
 		if a.Note == "" {
@@ -239,7 +239,7 @@ func (t *ttdAI) ask(ctx context.Context, q ttdAsk) (ttdAnswer, error) {
 	}
 	seen := map[int]int{}
 	for _, l := range raw.Lines {
-		text := ttdClip(l.Text, 110)
+		text := ttdClip(l.Text, 70)
 		if l.Type < 0 || l.Type >= len(q.Types) || text == "" || seen[l.Type] >= 3 {
 			continue
 		}

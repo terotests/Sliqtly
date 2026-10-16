@@ -163,7 +163,7 @@ the driver's name checked and new lines for the passengers at the start of a
 shift, by `gemini-3.5-flash-lite` (`TTD_AI_MODEL` picks another) on the same
 Vertex AI and credits. Only the game's pages may call it (CORS), 10 calls
 per address in 10 minutes and 3000 a day per instance; it answers only
-when `SLIQTLY_AI=gemini`. One call is about 1 000 tokens in and 800 out.
+when `SLIQTLY_AI=gemini`. One call is about 700 tokens in and 600 out.
 
 Each user has AI actions per calendar month (UTC): one per question or quick
 action, two for a question about the whole presentation. The Trial has 50;
