@@ -17402,6 +17402,50 @@ class PresApp {
         return (editor.selectionText())
     }
 
+    ; The selection on the View page as HTML too, for a paste into a word
+    ; processor or a mail that keeps its bold, links and lists; "" elsewhere.
+    fn copySelectionHtml:string () {
+        if (((this.docEditing()) == false) || (focus != "editor")) {
+            return ""
+        }
+        def md:string (mdEditor.selectionText())
+        if ((strlen (trim md)) == 0) {
+            return ""
+        }
+        return (MdToHtml.render((MdBlock.parseText(md))))
+    }
+
+    ; A paste on the View page with the clipboard's HTML: a table copied
+    ; from a spreadsheet or a web page becomes a Markdown table (blank lines
+    ; around it); otherwise the text, as `pasteText`. False when the View
+    ; page does not take it.
+    fn pasteHtml:boolean (html:string text:string) {
+        if ((((this.docEditing()) == false) || (focus != "editor")) || ((this.mayEdit()) == false)) {
+            return false
+        }
+        def made:string ""
+        if ((strlen html) > 0) {
+            made = (MdSemanticEdit.tableFromHtml(html))
+        }
+        if ((strlen made) == 0) {
+            return false
+        }
+        def src:string (mdEditor.text())
+        def at:int (mdEditor.caretOffset())
+        def a:int (mdEditor.anchorOffset())
+        def lo:int (? (a < at) a at)
+        def head:string "\n\n"
+        if ((lo == 0) || ((PresDocCaret.lineStartOf(src lo)) == lo)) {
+            head = (? ((lo >= 2) && ((charAt src (lo - 2)) == 10)) "" "\n")
+            if (lo == 0) {
+                head = ""
+            }
+        }
+        def tail:string (? (PresDocKeys.endsWith(made "\n")) "\n" "\n\n")
+        this.docType((head + made + tail))
+        return true
+    }
+
     ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
     ; editor's to cut (and is read, not edited), so nothing is cut then.
     fn cutSelection:string () {

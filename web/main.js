@@ -9567,6 +9567,10 @@ keys.addEventListener("copy", (ev) => {
   if (!text) return;
   ev.preventDefault();
   ev.clipboardData?.setData("text/plain", text);
+  // from the View page also as HTML: bold, links and lists survive a paste
+  // into a word processor or a mail
+  const html = app.copySelectionHtml();
+  if (html) ev.clipboardData?.setData("text/html", html);
 });
 keys.addEventListener("cut", (ev) => {
   const text = app.cutSelection();
@@ -9626,6 +9630,12 @@ keys.addEventListener("paste", (ev) => {
   }
   // slides, an element, a diagram or a spec: asked about, then pasted
   if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
+  // on the View page a table from a spreadsheet or a web page lands as a table
+  const pastedHtml = ev.clipboardData?.getData("text/html") || "";
+  if (pastedHtml && app.pasteHtml(pastedHtml, text)) {
+    afterInput();
+    return;
+  }
   if (text && app.focusTarget() === "editor" && dataLink(text)) {
     linkData(text.trim()).catch(fail);
     return;

@@ -6667,6 +6667,26 @@ try {
     await pg.mouse.click(tx - 9 * box, ty + 4);
     await frames();
     check("View keys: a click on a task's box ticks it", (await src()).endsWith("- [x] tee\n- [x] tehty\n"), JSON.stringify((await src()).slice(-26)));
+    // the clipboard: a copy carries HTML too, a pasted HTML table lands as a table
+    const rich = body + "Sana **lihava** ja [linkki](https://sliqtly.com).\n\nLoppu\n";
+    await put(rich, "Sana");
+    await pg.evaluate((r) => window.__app.docSelect(r.indexOf("Sana"), r.indexOf(".\n\nLoppu") + 1), rich);
+    const copied = await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+      return { text: dt.getData("text/plain"), html: dt.getData("text/html") };
+    });
+    check("View keys: a copy carries the Markdown and HTML with its bold and link", copied.text.includes("**lihava**") && copied.html.includes("<strong>lihava</strong>") && copied.html.includes('href="https://sliqtly.com"'), JSON.stringify(copied));
+    await put(rich, "Loppu");
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/html", "<table><tr><td>Nimi</td><td>Arvo</td></tr><tr><td>a</td><td>1</td></tr></table>");
+      dt.setData("text/plain", "Nimi\tArvo\na\t1");
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await frames();
+    const pasted = await src();
+    check("View keys: a table pasted from a spreadsheet lands as a Markdown table", /\n\n\| Nimi \| Arvo \|\n\|[-: |]+\|\n\| a +\| 1 +\|\n\nLoppu/.test(pasted), JSON.stringify(pasted.slice(-80)));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();
