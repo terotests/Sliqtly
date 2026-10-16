@@ -1874,5 +1874,8 @@
   "This presentation": "Tämä esitys",
   "Paste this in the assistant's chat: it names the presentation and the tools that load and save it. Open in Claude starts a chat with it.": "Liitä tämä avustajan keskusteluun: se nimeää esityksen ja työkalut, joilla se ladataan ja tallennetaan. Avaa Claudessa aloittaa keskustelun sillä.",
   "Open in Claude": "Avaa Claudessa",
-  "All instructions": "Kaikki ohjeet"
+  "All instructions": "Kaikki ohjeet",
+  "Table of contents": "Sisällysluettelo",
+  "Contents": "Sisällys",
+  "No headings yet: # and ## lines are listed here": "Ei vielä otsikoita: # ja ## -rivit näkyvät tässä"
 }

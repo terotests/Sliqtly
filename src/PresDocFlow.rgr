@@ -322,6 +322,20 @@ class PresDocFlow {
     }
 
     ; Where slide p starts, or -1 when it has nothing on the page.
+    ; The y of the block that starts at source offset `key`, -1 when no
+    ; item is that block.
+    fn yOfKey:double (key:int) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:PresDocItem (itemAt items i)
+            if ((it.key == key) && (it.kind != 2)) {
+                return it.y
+            }
+            i = (i + 1)
+        }
+        return -1.0
+    }
+
     fn topOf:double (p:int) {
         if ((p < 0) || (p >= (array_length slideTops))) {
             return -1.0

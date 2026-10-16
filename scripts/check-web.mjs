@@ -5990,6 +5990,78 @@ try {
     await ctx.close();
   }
 
+  // The table of contents (PresToc, PresTocDrawer): "ToC" beside Slides |
+  // Document opens a drawer at the left with the deck's headings; the one
+  // being read is marked, a row pressed goes there (the Document page
+  // scrolls to it), the wheel scrolls a long list and Esc closes it.
+  // Presenting, the bar's ToC opens the same drawer and a row shows that
+  // slide whole.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    const pg = await ctx.newPage();
+    const terr = [];
+    pg.on("pageerror", (e) => terr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    let md = "---\nslide-split-level: 2\n---\n\n";
+    for (let i = 1; i <= 40; i++) md += `## Luku ${i}\n\nTeksti ${i}.\n\n### Kohta ${i}.1\n\nLisää.\n\n`;
+    await pg.evaluate((md) => { window.__app.setSource(md); window.__app.setStageView("doc"); }, md);
+    await pg.waitForFunction(() => window.__app.deck.slideCount() === 40, null, { timeout: 30000 });
+    await pg.waitForTimeout(500);
+    const btn = await pg.evaluate(() => { const b = window.__app.tocBtn; return b ? [b.calculatedX, b.calculatedY, b.calculatedWidth, b.calculatedHeight] : null; });
+    check("ToC: a ToC button beside Slides | Document", !!btn && btn[2] > 0, JSON.stringify(btn));
+    await pg.mouse.click(btn[0] + btn[2] / 2, btn[1] + btn[3] / 2);
+    await pg.waitForTimeout(500);
+    const st = () => pg.evaluate(() => {
+      const a = window.__app;
+      const body = a.tocUi.drawer.body();
+      return { open: a.tocShown(), count: a.toc.count(), rows: body.getChildCount(), cur: a.tocUi.current, slide: a.selectedSlide(), scroll: a.docPane.scroll, listTop: body.scrollTop };
+    });
+    let s = await st();
+    check("ToC: pressed, the drawer lists every heading", s.open && s.count === 80 && s.rows === 80, JSON.stringify(s));
+    check("ToC: the heading being read is marked", s.cur === 0, String(s.cur));
+    await pg.mouse.move(120, 400);
+    await pg.mouse.wheel(0, 600);
+    await pg.waitForTimeout(300);
+    const s1 = await st();
+    check("ToC: the wheel scrolls the list, not the page", s1.listTop > 0 && s1.scroll === s.scroll, JSON.stringify({ s, s1 }));
+    const row = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300) return [i, r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; } return null; });
+    await pg.mouse.click(row[1] + 30, row[2] + row[4] / 2);
+    await pg.waitForTimeout(500);
+    const s2 = await st();
+    const want = await pg.evaluate((i) => { const e = window.__app.toc.entryAt(i); return { slide: e.slide, y: e.y }; }, row[0]);
+    check("ToC: a row pressed goes to its heading on the Document page", s2.slide === want.slide && Math.abs(s2.scroll - (want.y - 12)) < 2 && s2.cur === row[0], JSON.stringify({ s2, want, row: row[0] }));
+    check("…and the drawer stays open", s2.open);
+    await pg.mouse.move(900, 400);
+    await pg.mouse.wheel(0, 1200);
+    await pg.waitForTimeout(400);
+    const s3 = await st();
+    check("ToC: scrolling the page moves the mark along", s3.cur > s2.cur, JSON.stringify({ was: s2.cur, now: s3.cur }));
+    await pg.evaluate(() => document.getElementById("keys").focus());
+    await pg.keyboard.press("Escape");
+    await pg.waitForTimeout(200);
+    check("ToC: Esc closes it", !(await pg.evaluate(() => window.__app.tocShown())));
+    const md0 = await pg.evaluate(() => window.__app.source());
+    check("ToC: nothing of it goes into the deck", md0 === md);
+    // presenting: the bar's ToC
+    await pg.keyboard.press("F5");
+    await pg.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 8000 });
+    await pg.waitForTimeout(300);
+    const vb = await pg.evaluate(() => document.getElementById("vToc").getBoundingClientRect().toJSON());
+    await pg.mouse.move(vb.x + vb.width / 2 - 3, vb.y + vb.height / 2);
+    await pg.waitForFunction(() => !document.body.classList.contains("idle"), null, { timeout: 4000 }).catch(() => {});
+    await pg.mouse.click(vb.x + vb.width / 2, vb.y + vb.height / 2);
+    await pg.waitForTimeout(500);
+    check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
+    const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); const r = b.getChild(6); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
+    await pg.mouse.click(prow[0] + 30, prow[1] + prow[3] / 2);
+    await pg.waitForTimeout(500);
+    const p1 = await pg.evaluate(() => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(6).slide, mode: JSON.parse(window.__app.layoutJson()).mode }));
+    check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
+    check("ToC: without errors", terr.length === 0, terr.join(" | "));
+    await ctx.close();
+  }
+
   // Editing on the View page (src/PresDocCaret.rgr, PresApp "editing on the
   // View page"): the page is a picture of the Markdown and the Markdown the
   // only document; a press puts the Markdown's caret on the character
