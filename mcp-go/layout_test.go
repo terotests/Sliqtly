@@ -135,6 +135,10 @@ func TestLayoutSync(t *testing.T) {
 	eq(t, out["full"], false)
 	eq(t, facts(out), map[string]any{"deck/d2": "r-b", "order": nil})
 
+	// a presentation pinned first in its room is a fact like the others
+	_, out = do("tero", map[string]any{"put": []any{map[string]any{"k": "pinned/cloud:d2", "v": "1"}}})
+	eq(t, facts(out)["pinned/cloud:d2"], "1", "pinned kept")
+
 	// another account sees none of it
 	_, out = do("anna", map[string]any{})
 	eq(t, facts(out), map[string]any{})

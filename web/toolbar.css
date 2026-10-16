@@ -248,6 +248,7 @@
 /* a folder of the open room (one level), and its presentations set in under it */
 .theme-tb .tb-icon-roomfold { width: 15px; height: 15px; stroke: #52525b; stroke-width: 1.8; margin: 0 6px 0 0; flex-shrink: 0; }
 .theme-tb .tb-icon-folder { width: 15px; height: 15px; stroke: #71717a; stroke-width: 1.7; margin: 0 6px 0 0; flex-shrink: 0; }
+.theme-tb .tb-icon-pin { width: 14px; height: 14px; stroke: #4f46e5; stroke-width: 1.8; margin: 0 6px 0 0; flex-shrink: 0; }
 .theme-tb .tb-roomdeck-in { margin: 0 0 0 16px; }
 .theme-tb .tb-room-dragged { opacity: 0.45; }
 .theme-tb .tb-room-before { border-top: 2px solid #4f46e5; }

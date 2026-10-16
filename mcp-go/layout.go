@@ -13,7 +13,7 @@
 // A fact is web/rooms.js's: "room/<id>" (the room as JSON), "deck/<deck>"
 // (its room), "folders/<room>" (JSON [{id, name}]), "filed/<deck>" (its
 // folder), "story/<deck>" (JSON), "touched/<room>", "positions/<room>",
-// "order". Each change is numbered (seq): a page asks for the changes after
+// "pinned/<deck>" ("1": first in its room), "order". Each change is numbered (seq): a page asks for the changes after
 // the last number it has. A fact removed is kept as removed for a while so
 // the pages hear of it; one that asks from before that is sent everything.
 
@@ -50,7 +50,7 @@ const (
 	layoutMaxPut = 5000
 )
 
-var layoutKey = regexp.MustCompile(`^(?:order|(?:room|deck|touched|folders|filed|positions|story)/[A-Za-z0-9:_.~-]{1,100})$`)
+var layoutKey = regexp.MustCompile(`^(?:order|(?:room|deck|touched|folders|filed|positions|story|pinned)/[A-Za-z0-9:_.~-]{1,100})$`)
 
 // one fact: V nil when it was removed; S the change's number, T when (ms)
 type layoutFact struct {

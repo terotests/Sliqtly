@@ -11393,6 +11393,11 @@ class PresApp {
         }
         if (((itemAt f 0) == "topic:ctx") && ((array_length f) >= 6)) {
             toolbar.openDeckContext((?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0) "room" (itemAt f 1) (itemAt f 5) ((itemAt f 2) == "1"))
+            ; the card knows its pin, the room's list may be shut
+            if ((array_length f) >= 7) {
+                toolbar.ctxDeckPinned = ((itemAt f 6) == "1")
+                toolbar.rebuild()
+            }
             return
         }
         push requests r

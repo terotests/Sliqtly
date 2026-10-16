@@ -37,7 +37,7 @@ import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, sha
 import { deckRows, sortRows, deckListJson, nextSort, firstDir, roomShareRows } from "./decklist.js";
 import { publishedRows, publishedListJson, publishedTitle, removal, afterRemoval, nextSort as nextPubSort } from "./published.js";
 import { presenceByDeck, presenceSummary, headPresence, cardPresence, whoRows, whoListJson, whoNote, nextWhoSort, samePresence, spanText } from "./presence.js";
-import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor } from "./rooms.js";
+import { emptyRooms, readKept, changeKept, listRooms, roomDecks, createRoom, moveDeck, deckLines, pressRoom, touchRoom, activeRooms, searchRooms, orderRooms, sortDecks, placeDeck, deckOrderOf, DECK_ORDER, editedOutOfPlace, updateRoom, archiveRoom, deleteRoom, moveRoom, isBuiltIn, ONBOARDING, GENERAL, roomOf, foldersOf, createFolder, renameFolder, deleteFolder, syncShared, adoptRoom, isShared, setStory, forgetStory, storyFor, setPinned, isPinned } from "./rooms.js";
 import { groupStories, groupByOf, storySortOf, agoOf, NEW_STORY, TYPE_LABEL, PHASE_LABEL, storyColor, storyOf, cleanTags, bulkAction } from "./stories.js";
 import { cloudRoomsCall, listenRoomChat } from "./cloudchat.js";
 import { listenPresence, presenceAnswer } from "./cloudpresence.js";
@@ -1682,7 +1682,7 @@ async function roomView(room) {
   if (ownServer()) {
     const g = await roomsCall("get_room", { room_id: room });
     return {
-      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
+      rows: ordered((g.presentations || []).map((p) => live({ id: "cloud:" + p.deck_id, name: p.name || t("presentation"), current: p.deck_id === doc.cloud, folder: p.folder_id || "", pinned: isPinned(roomsHere, "cloud:" + p.deck_id), created: p.created || 0, updated: p.updated || 0, type: p.type, phase: p.phase, tags: p.tags, color: p.color }))),
       folders: (g.folders || []).map((f) => ({ id: f.folder_id, name: f.name })),
     };
   }
@@ -1711,7 +1711,7 @@ async function showTopic(room, rows, folders = []) {
     stories: g.rows.map((r) => {
       const ago = agoOf(r.updated, now);
       return {
-        id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current,
+        id: r.id, name: r.name, type: r.type, phase: r.phase, tags: r.tags, current: !!r.current, pinned: !!r.pinned,
         typeLabel: t(TYPE_LABEL[r.type]), phaseLabel: t(PHASE_LABEL[r.phase]), color: storyColor(r),
         folder: (r.folder && folders.find((x) => x.id === r.folder)?.name) || "",
         when: r.updated ? t(AGO[ago.unit]).replace("{n}", String(ago.n)) : "",
@@ -2426,6 +2426,12 @@ async function roomsRequest(r) {
       foldersOpen.add(room + "/" + folder);
       keepFoldersOpen();
     }
+    await roomsRequest("room:decks:" + room);
+  } else if (action === "pin" || action === "unpin") {
+    // a presentation pinned first in its room ("<room>:<deck>"), or not:
+    // kept with the rooms of this browser, the account's on sliqtly.com
+    const [room, ...deckParts] = rest;
+    keepRooms((s) => setPinned(s, deckParts.join(":"), action === "pin"));
     await roomsRequest("room:decks:" + room);
   } else if (action === "deck") {
     roomChat().close();
