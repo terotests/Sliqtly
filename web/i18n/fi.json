@@ -1951,5 +1951,16 @@
   "{n} files deleted": "{n} tiedostoa poistettu",
   "Could not move the file": "Tiedostoa ei voitu siirtää",
   "Could not make the folder": "Kansiota ei voitu tehdä",
-  "Could not delete the folder": "Kansiota ei voitu poistaa"
+  "Could not delete the folder": "Kansiota ei voitu poistaa",
+  "Paste a table": "Liitä taulukko",
+  "Numbers": "Numerot",
+  "Rounding noise removed": "Pyöristyskohina pois",
+  "As copied": "Kuten kopioitu",
+  "No decimals": "Ei desimaaleja",
+  "1 decimal": "1 desimaali",
+  "2 decimals": "2 desimaalia",
+  "3 decimals": "3 desimaalia",
+  "Rows": "Rivit",
+  "First": "Ensimmäiset",
+  "Paste table": "Liitä taulukko"
 }

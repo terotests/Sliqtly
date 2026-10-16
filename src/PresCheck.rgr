@@ -5,6 +5,7 @@ Import "PresFootPills.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
 Import "PresDocKeys.rgr"
+Import "PresPasteTable.rgr"
 Import "PresDocPages.rgr"
 Import "PresToc.rgr"
 Import "PresEditMode.rgr"
@@ -5590,6 +5591,81 @@ class PresCheck {
 
     ; The caret on the View page (PresDocCaret): a page point and a source
     ; offset map onto each other, and what Backspace/Enter may write.
+
+    ; A table pasted from a spreadsheet (src/PresPasteTable.rgr)
+    fn pasteTable:void () {
+        this.ok(((PresPasteTable.tidy("5.1020000000000003")) == "5.102") ("paste: float noise rounded, got " + (PresPasteTable.tidy("5.1020000000000003"))))
+        this.ok(((PresPasteTable.tidy("26.234999999999999")) == "26.235") "paste: noise below rounds up")
+        this.ok(((PresPasteTable.tidy("66.099999999999994")) == "66.1") "paste: up through the nines")
+        this.ok(((PresPasteTable.tidy("4.7619047620000003")) == "4.761904762") "paste: a long ratio")
+        this.ok(((PresPasteTable.tidy("-0.00012300000000000001")) == "-0.000123") "paste: leading zeros are not significant")
+        this.ok(((PresPasteTable.tidy("81.40")) == "81.40") "paste: a number as typed stays")
+        this.ok(((PresPasteTable.tidy("5,1020000000000003")) == "5,102") "paste: a decimal comma kept")
+        this.ok(((PresPasteTable.tidy("99.999999999999999")) == "100") ("paste: carried into the integer, got " + (PresPasteTable.tidy("99.999999999999999"))))
+        this.ok(((PresPasteTable.fixed("394.63200000000001" 2)) == "394.63") "paste: two decimals")
+        this.ok(((PresPasteTable.fixed("0.995" 2)) == "1.00") "paste: 0.995 → 1.00")
+        this.ok(((PresPasteTable.fixed("7" 1)) == "7.0") "paste: decimals added")
+        this.ok(((PresPasteTable.fixed("-0.004" 2)) == "0.00") "paste: no minus zero")
+        this.ok(((PresPasteTable.fixed("2.5" 0)) == "3") "paste: half up, no separator")
+        this.ok(((PresPasteTable.format("26.234999999999999" "2")) == "26.24") "paste: decimals rounded from the number meant")
+        this.ok(((((PresPasteTable.isNumber("2/17/2019")) == false) && ((PresPasteTable.isNumber("1e5")) == false)) && (PresPasteTable.isNumber("-12"))) "paste: what is a number")
+        ; Excel's two flavours: the HTML table wins, an empty column and row go
+        def html:string "<table><tr><td>Line</td><td>Tax 5%</td><td></td><td>Date</td><td>Qty</td></tr><tr><td>A | B</td><td>5.1020000000000003</td><td></td><td>43711</td><td>4</td></tr><tr><td>C</td><td>18.792000000000002</td><td></td><td>2/17/2019</td><td>12</td></tr><tr><td></td><td></td><td></td><td></td><td></td></tr></table>"
+        def t (new PresPasteTable())
+        this.ok((t.load(html "ignored\ttext")) "paste: an HTML table read")
+        this.ok(((t.cols == 4) && (t.rows == 2)) ("paste: empty column and row dropped, got " + (to_string t.cols) + "x" + (to_string t.rows)))
+        this.ok((((itemAt t.numeric 1) == true) && ((itemAt t.numeric 2) == false)) "paste: a column of numbers, a column of dates is text")
+        def md:string (t.markdown())
+        this.ok((md == "| Line   | Tax 5% | Date      | Qty |\n| ------ | -----: | --------- | --: |\n| A \\| B |  5.102 | 43711     |   4 |\n| C      | 18.792 | 2/17/2019 |  12 |\n") ("paste: the table, got\n" + md))
+        t.toggle(2)
+        t.toggle(3)
+        t.digits = "1"
+        t.maxRows = 1
+        this.ok(((t.markdown()) == "| Line   | Tax 5% |\n| ------ | -----: |\n| A \\| B |    5.1 |\n") ("paste: a column out, one decimal, one row, got\n" + (t.markdown())))
+        t.toggle(0)
+        t.toggle(1)
+        this.ok(((t.shownCols()) == 1) "paste: the last column stays")
+        t.toggle(3)
+        this.ok(((t.value(0 3)) == "4") "paste: a count keeps no decimals")
+        def tsv (new PresPasteTable())
+        this.ok(((tsv.load("" "a\tb\r\n1\t2\r\n")) && ((tsv.rows == 1) && (tsv.cols == 2))) "paste: tab-separated text")
+        this.ok(((tsv.load("" "one line, no tabs")) == false) "paste: plain text is not a table")
+    }
+
+    ; A press on a cell of a wide table (Tero 2026-10-16): a cell that
+    ; wraps puts its second line between the row's boxes in reading order,
+    ; and the press found only the wrapped cell's first words.
+    fn docCaretWide:void () {
+        def text:string "| Product_line | Unit price | Quantity | Tax 5% | Total | Date | Time | Payment | cogs | gross margin percentage |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| Electronic_accessories | 25.51 | 4 | 5.1020000000000003 | 107.142 | 43711 | 17:03:00 | Cash | 102.04 | 4.7619047620000003 |\n| Electronic_accessories | 81.40| 3 | 12.21 | 256.41000000000003 | 43710 | 19:43:00 | Cash | 244.2 | 4.7619047620000003 |\n"
+        def deck (new PresDeck())
+        deck.setText(text)
+        def v (new PresDocView())
+        v.build(deck)
+        def cm:PresDocCaret v.caret
+        def bad:string ""
+        def wrapped:boolean false
+        def b:int 0
+        while (b < (array_length cm.boxes)) {
+            def bx:MdBox (itemAt cm.boxes b)
+            def ty:double (itemAt cm.tops b)
+            if ((b > 0) && (ty > (itemAt cm.tops (b - 1)))) {
+                def prev:MdBox (itemAt cm.boxes (b - 1))
+                if (bx.x < prev.x) {
+                    wrapped = true
+                }
+            }
+            if (bx.segLen > 0) {
+                def hit:int (cm.offsetAt((bx.x + (bx.w * 0.5)) (ty + (bx.h * 0.5))))
+                if (((hit < bx.segSrc) || (hit > (bx.segSrc + bx.segLen))) && ((strlen bad) < 80)) {
+                    bad = (bad + bx.text + "→" + (to_string hit) + " ")
+                }
+            }
+            b = (b + 1)
+        }
+        this.ok(wrapped "doccaret wide table: a cell wraps on the page")
+        this.ok(((strlen bad) == 0) ("doccaret wide table: a press on a cell's words lands in them, wrong at " + bad))
+    }
+
     fn docCaret:void () {
         def text:string ("---\ntitle: Raportti\n---\n\n"
             + "## Eka otsikko\n\nTeksti **lihava** ja tavallinen loppu.\n\n- yksi\n- kaksi\n\n"
@@ -10065,6 +10141,8 @@ class PresCheck {
         c.machineSlide()
         c.sameFenceTwice()
         c.gridModel()
+        c.docCaretWide()
+        c.pasteTable()
         c.controlsFade()
         c.zoomMenu()
         c.diagramSteer()

@@ -128,6 +128,23 @@ editors goes in as before, without a question.
 **Paste without formatting** (Ctrl/⌘+Shift+V, Edit menu, the slide menu)
 leaves the styles out.
 
+### A table from a spreadsheet
+
+Cells copied in Excel, Sheets or Numbers and pasted in the Markdown editor or
+on the View page open **Paste a table** first (`src/PresPasteTable.rgr`):
+
+- **Columns**: each one in or out; empty columns and rows are left out.
+- **Numbers**: *Rounding noise removed* (default) rounds a number of 16 or
+  more significant digits to 15, so `5.1020000000000003` becomes `5.102`
+  and a number written as `81.40` stays as it is; *As copied*; or 0–3
+  decimals. Only columns of numbers change, and a column of whole numbers
+  keeps no decimals.
+- **Rows**: all, or the first 10 / 20 / 50.
+
+The first row is the header and number columns are right-aligned.
+**Paste as text** pastes the clipboard's text as it is, and Paste without
+formatting skips the window.
+
 ### The presentation pasted into wins
 
 - A pasted rule is added (at the end of the theme, under
