@@ -312,6 +312,14 @@ class PresDocCaret {
         if (bi < 0) {
             return out
         }
+        ; not between the two halves of an emoji or a letter and its accent
+        def b:MdBox (itemAt boxes bi)
+        def within:int (off - b.segSrc)
+        if (((b.segAtom == false) && (within > 0)) && (within < (strlen b.text))) {
+            if ((OfficeCaretMotion.stepForward(b.text (OfficeCaretMotion.stepBack(b.text within)))) != within) {
+                return out
+            }
+        }
         def li:int (itemAt boxLine bi)
         push out (this.xIn(bi off))
         push out (itemAt lineTop li)

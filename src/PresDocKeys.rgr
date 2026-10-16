@@ -588,6 +588,38 @@ class PresDocKeys {
         return none
     }
 
+    ; The empty item at `ls` replaced by `gap` (the list ends there in a
+    ; paragraph): a numbered item after it takes its number, and the ones
+    ; after that follow on. One patch on `text`.
+    sfn endItemOp:MdEditOp (text:string ls:int gap:string) {
+        def it:PresListItem (PresDocKeys.itemAt(text ls))
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        def plain:MdEditOp (MdEdit.patch(text ls le gap))
+        if ((it.ls < 0) || (it.ordered == false)) {
+            return plain
+        }
+        def nx:PresListItem (PresDocKeys.nextSibling(text it))
+        if ((nx.ls < 0) || (nx.num == it.num)) {
+            return plain
+        }
+        ; the next item numbered as this one was, then the rest on from it
+        def after:string ((substring text 0 ls) + gap + (substring text le (strlen text)))
+        def shift:int ((strlen gap) - (le - ls))
+        def nls:int (nx.ls + shift)
+        def nit:PresListItem (PresDocKeys.itemAt(after nls))
+        def renum:string ((substring after 0 (nls + nit.indent)) + (to_string it.num) + (substring after (PresDocKeys.numEnd(after nit)) (strlen after)))
+        def rn:MdEditOp (PresDocKeys.renumberOp(renum nls))
+        def fin:string (? (rn.isEmpty()) renum (MdEdit.applyTo(renum rn)))
+        ; one patch: from the item to the last change
+        def tail:int 0
+        def n:int (strlen text)
+        def m:int (strlen fin)
+        while (((tail < (n - le)) && (tail < (m - ls))) && ((charAt text ((n - 1) - tail)) == (charAt fin ((m - 1) - tail)))) {
+            tail = (tail + 1)
+        }
+        return (MdEdit.patch(text ls (n - tail) (substring fin ls (m - tail))))
+    }
+
     ; The end of a numbered item's number.
     sfn numEnd:int (text:string it:PresListItem) {
         def sp:int (? ((it.width > 0) && ((charAt text (it.words - 1)) == 32)) 1 0)

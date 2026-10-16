@@ -54,6 +54,7 @@ Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 Import "../markdown/src/R5MdLanguage.rgr"
 Import "../markdown/src/MdSearchText.rgr"
+Import "../markdown/src/MdFromHtml.rgr"
 Import "PresCssLanguage.rgr"
 Import "PresFileLanguage.rgr"
 Import "../datagrid/src/script/lang/JsLanguage.rgr"
@@ -2641,6 +2642,13 @@ class PresApp {
         if (vert == false) {
             docWantX = -1.0
         }
+        ; Ctrl+↑/↓: the start of this paragraph or the one before, the start
+        ; of the next one
+        if (ctrl && ((name == "up") || (name == "down"))) {
+            docWantX = -1.0
+            this.docSetCaret((this.docBlockStep(off (? (name == "up") -1 1))) shift)
+            return true
+        }
         if ((name == "left") || (name == "right")) {
             def left:boolean (name == "left")
             if ((shift == false) && (lo != hi)) {
@@ -2929,6 +2937,35 @@ class PresApp {
         this.docSetCaret(qe false)
     }
 
+    ; Where Ctrl+↑ (`dir` -1) or Ctrl+↓ (1) takes the caret from `off`: the
+    ; first place shown in a top-level block, before or after it; `off`
+    ; when there is none.
+    fn docBlockStep:int (off:int dir:int) {
+        def doc:MdNode deck.md.edit.doc
+        def cm:PresDocCaret docView.caret
+        def n:int (doc.childCount())
+        ; the block at `off`, or the last one starting before it
+        def ci:int -1
+        def c:int 0
+        while (c < n) {
+            def ch:MdNode (doc.childAt(c))
+            if (ch.srcStart <= off) {
+                ci = c
+            }
+            c = (c + 1)
+        }
+        c = (? (dir < 0) ci (ci + 1))
+        while ((c >= 0) && (c < n)) {
+            def ch2:MdNode (doc.childAt(c))
+            def s:int (cm.shownAfter((ch2.srcStart - 1)))
+            if (((s >= ch2.srcStart) && (s < ch2.srcEnd)) && (? (dir < 0) (s < off) (s > off))) {
+                return s
+            }
+            c = (c + dir)
+        }
+        return off
+    }
+
     ; The type of the top-level block at `off` ("" for none).
     fn docBlockKind:string (off:int) {
         def doc:MdNode deck.md.edit.doc
@@ -3031,7 +3068,10 @@ class PresApp {
                 ; a paragraph of its own: a blank line before it, and one
                 ; after it when more of the list follows
                 def more:boolean ((le < (strlen text)) && (((PresDocCaret.lineEndOf(text (le + 1))) > (le + 1)) && ((strlen (trim (substring text (le + 1) (PresDocCaret.lineEndOf(text (le + 1)))))) > 0)))
-                this.docReplace(ls le (? more "\n\n" "\n"))
+                ; the numbered items after it go on from its number, as a
+                ; word processor's list goes on past a paragraph
+                def ends:MdEditOp (PresDocKeys.endItemOp(text ls (? more "\n\n" "\n")))
+                this.docReplace(ends.start ends.end ends.inserted)
                 this.docSetCaret((ls + 1) false)
                 return
             }
@@ -17460,7 +17500,8 @@ class PresApp {
         if ((strlen (trim md)) == 0) {
             return ""
         }
-        return (MdToHtml.render((MdBlock.parseText(md))))
+        ; marked as the page's own: pasted back here, its text is the Markdown
+        return ("<!--sliqtly-->" + (MdToHtml.render((MdBlock.parseText(md)))))
     }
 
     ; A paste on the View page with the clipboard's HTML: a table copied
@@ -17475,13 +17516,29 @@ class PresApp {
         if ((strlen html) > 0) {
             made = (MdSemanticEdit.tableFromHtml(html))
         }
-        if ((strlen made) == 0) {
-            return false
-        }
         def src:string (mdEditor.text())
         def at:int (mdEditor.caretOffset())
         def a:int (mdEditor.anchorOffset())
         def lo:int (? (a < at) a at)
+        if ((strlen made) == 0) {
+            ; bold, links, headings and lists from a web page, Word or Docs:
+            ; the Markdown that says them (MdFromHtml); "" when the plain
+            ; text says as much
+            if ((indexOf html "<!--sliqtly-->") >= 0) {
+                return false
+            }
+            def md:string (MdFromHtml.convert(html))
+            if ((strlen md) == 0) {
+                return false
+            }
+            if (((indexOf md "\n") < 0) && ((PresDocCaret.inTable(src lo)) == false)) {
+                ; words in a sentence: where the caret is
+                this.docReplace(lo (? (a < at) at a) md)
+                docWantX = -1.0
+                return true
+            }
+            made = md
+        }
         def head:string "\n\n"
         if ((lo == 0) || ((PresDocCaret.lineStartOf(src lo)) == lo)) {
             head = (? ((lo >= 2) && ((charAt src (lo - 2)) == 10)) "" "\n")
@@ -17581,10 +17638,31 @@ class PresApp {
 
     ; "x,y,h" of the editor's caret in app pixels, "" while no editor shows
     fn caretBox:string () {
-        if ((mode != "edit") || ((edRect.w <= 0.0) || (edTab == "view"))) {
+        if ((mode != "edit") || (edRect.w <= 0.0)) {
             return ""
         }
+        if (edTab == "view") {
+            return (this.docCaretBox())
+        }
         return caretAt
+    }
+
+    ; The View page's caret on the screen, "x,y,h", while the page is
+    ; edited ("" otherwise): where the keyboard's field sits, so an input
+    ; method's candidates and its marked text (web/main.js) are at the caret.
+    fn docCaretBox:string () {
+        if ((this.docEditing()) == false) {
+            return ""
+        }
+        def c:[double] (this.docCaretAt((mdEditor.caretOffset())))
+        if ((array_length c) < 3) {
+            return ""
+        }
+        def dw:double (docView.width())
+        def sc:double (edDocPane.scale(dw))
+        def sx:double ((edDocPane.left(dw)) + ((itemAt c 0) * sc))
+        def sy:double ((edDocPane.top(dw)) + ((itemAt c 1) * sc))
+        return ((EVGDisplayList.num(sx)) + "," + (EVGDisplayList.num(sy)) + "," + (EVGDisplayList.num(((itemAt c 2) * sc))))
     }
 
     fn caretCol:int () {

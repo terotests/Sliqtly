@@ -6308,13 +6308,13 @@ try {
     await key("End");
     await key("Enter");
     let s3 = await src();
-    check("View editing: Enter in a list item makes the next item", s3.includes("Geminille\n3. \n3. Vastaus"), JSON.stringify(s3.slice(560, 640)));
+    check("View editing: Enter in a list item makes the next item", s3.includes("Geminille\n3. \n4. Vastaus"), JSON.stringify(s3.slice(560, 640)));
     await pg.keyboard.type("Uusi");
     await key("Enter");
     await key("Enter");
     await pg.keyboard.type("Kappale");
     s3 = await src();
-    check("View editing: Enter on an empty item ends the list in a paragraph", s3.includes("3. Uusi\n\nKappale\n\n3. Vastaus"), JSON.stringify(s3.slice(590, 640)));
+    check("View editing: Enter on an empty item ends the list in a paragraph", s3.includes("3. Uusi\n\nKappale\n\n4. Vastaus"), JSON.stringify(s3.slice(590, 640)));
     p = await at("Vastaus", 2);
     await pg.mouse.dblclick(p.x, p.y);
     await pg.waitForTimeout(200);
@@ -6323,13 +6323,13 @@ try {
     check("View editing: a double click selects the word", t5.slice(Math.min(c.caret, c.anchor), Math.max(c.caret, c.anchor)) === "Vastaus", JSON.stringify(c));
     await pg.keyboard.press("Control+b");
     await pg.waitForTimeout(300);
-    check("View editing: Ctrl+B makes it bold in the Markdown", (await src()).includes("3. **Vastaus** soitetaan"), "");
+    check("View editing: Ctrl+B makes it bold in the Markdown", (await src()).includes("4. **Vastaus** soitetaan"), "");
     await pg.keyboard.press("Control+b");
     await pg.waitForTimeout(300);
     check("View editing: Ctrl+B again takes it off, byte for byte", (await src()) === t5, "");
     await pg.keyboard.press("Control+i");
     await pg.waitForTimeout(300);
-    check("View editing: Ctrl+I", (await src()).includes("3. *Vastaus* soitetaan"), "");
+    check("View editing: Ctrl+I", (await src()).includes("4. *Vastaus* soitetaan"), "");
     p = await at("*Vastaus*", 1);
     await pg.mouse.click(p.x, p.y);
     await pg.waitForTimeout(150);
@@ -6339,7 +6339,7 @@ try {
     check("View editing: ← steps over the hidden marker", c.caret < p.o - 1, JSON.stringify({ c, o: p.o }));
     await key("Backspace");
     const s8 = await src();
-    check("View editing: Backspace there deletes the letter before the caret, not the marker", s8.includes("3. *Vastaus*") && s8 === s7.slice(0, c.caret - 1) + s7.slice(c.caret), JSON.stringify(s8.slice(c.caret - 12, c.caret + 4)));
+    check("View editing: Backspace there deletes the letter before the caret, not the marker", s8.includes("4. *Vastaus*") && s8 === s7.slice(0, c.caret - 1) + s7.slice(c.caret), JSON.stringify(s8.slice(c.caret - 12, c.caret + 4)));
     await pg.keyboard.press("Control+z");
     await pg.waitForTimeout(200);
     p = await at("linkin saanut", 13);
@@ -6762,6 +6762,48 @@ try {
       hits.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
     }
     check("View keys: a click on an emoji puts the caret beside it", hits.every((h) => h === e0 || h === e0 + 4) && ex1 > ex0, JSON.stringify({ e0, hits, ex0, ex1 }));
+    // an input method's marked text shows at the caret on the page, its
+    // commit is typed there
+    const ime = body + "Sana\n";
+    await put(ime, "Sana");
+    await pg.keyboard.press("End");
+    await frames();
+    const pre = await pg.evaluate(() => {
+      const k = document.getElementById("keys");
+      k.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+      k.dispatchEvent(new CompositionEvent("compositionupdate", { data: "にほ" }));
+      const p = document.getElementById("preedit");
+      const r = p.getBoundingClientRect();
+      const caret = window.__app.docCaretBox();
+      const out = { shown: getComputedStyle(p).display, text: p.textContent, x: r.left, caret };
+      k.dispatchEvent(new CompositionEvent("compositionend", { data: "日本" }));
+      out.after = getComputedStyle(p).display;
+      return out;
+    });
+    await frames();
+    const cx = Number(String(pre.caret).split(",")[0]);
+    check("View keys: an input method's marked text shows at the caret, its commit is typed", pre.shown === "block" && pre.text === "にほ" && Math.abs(pre.x - cx) < 40 && pre.after === "none" && (await src()).endsWith("Sana日本\n"), JSON.stringify({ pre, s: (await src()).slice(-10) }));
+    // Ctrl+↑/↓ a paragraph at a time
+    const pp = body + "Eka kappale.\n\nToka kappale.\n";
+    await put(pp, "kappale.\n");
+    const ck = [];
+    for (const k of ["Control+ArrowUp", "Control+ArrowUp", "Control+ArrowDown"]) {
+      await pg.keyboard.press(k);
+      await frames();
+      ck.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
+    }
+    check("View keys: Ctrl+↑/↓ go a paragraph at a time", ck[0] === pp.indexOf("Eka") && ck[1] === pp.indexOf("Avaimet") && ck[2] === pp.indexOf("Eka"), JSON.stringify({ ck, eka: pp.indexOf("Eka") }));
+    // bold and a link pasted from a web page stay bold and a link
+    const web = body + "Alku: X\n";
+    await put(web, "X");
+    await pg.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/html", "<meta charset='utf-8'><p>Hei <b>maailma</b> ja <a href='https://x.fi'>linkki</a></p>");
+      dt.setData("text/plain", "Hei maailma ja linkki");
+      document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await frames();
+    check("View keys: bold and a link pasted from a web page stay so", (await src()).endsWith("Alku: Hei **maailma** ja [linkki](https://x.fi)X\n"), JSON.stringify((await src()).slice(-50)));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();
@@ -6800,7 +6842,7 @@ try {
           if (c.length !== 3) continue;
           shown++;
           const back = cm.offsetAt(c[0] + 0.01, c[1] + c[2] * 0.5);
-          if (back !== o && !cm.samePlace(o, back)) bad.push(`${o}→${back}`);
+          if (back !== o && !cm.samePlace(o, back)) bad.push(`${o}→${back} ${JSON.stringify(cm.boxes.filter((b) => o >= b.segSrc && o <= b.segSrc + b.segLen).map((b) => [b.segSrc, b.segLen, b.text, b.kind, b.segAtom, b.x, b.w]))}`);
         }
         for (const b of cm.boxes) {
           if (b.segAtom) continue;

@@ -9554,9 +9554,29 @@ document.addEventListener("keydown", (ev) => {
   ev.preventDefault();
 });
 
+// An input method's marked text, shown at the View page's caret (the field
+// it is typed into is hidden); the Markdown tab's editor shows it in the field
+const preedit = document.getElementById("preedit");
+function showPreedit(text) {
+  const box = text && app.docCaretBox();
+  if (!box) {
+    preedit.style.display = "none";
+    return;
+  }
+  const [x, y, h] = box.split(",").map(Number);
+  preedit.textContent = text;
+  preedit.style.left = x + "px";
+  preedit.style.top = y + "px";
+  preedit.style.height = h + "px";
+  preedit.style.lineHeight = h + "px";
+  preedit.style.fontSize = Math.max(8, h * 0.78) + "px";
+  preedit.style.display = "block";
+}
 keys.addEventListener("compositionstart", () => { composing = true; });
+keys.addEventListener("compositionupdate", (ev) => showPreedit(ev.data || ""));
 keys.addEventListener("compositionend", (ev) => {
   composing = false;
+  showPreedit("");
   if (ev.data) app.text(ev.data);
   afterInput();
 });
@@ -9565,7 +9585,10 @@ keys.addEventListener("beforeinput", (ev) => {
   // an edit that is not the composition's says it is over, whether or not a
   // compositionend came (Enter or a click can end one without it): left
   // switched on, the flag swallowed the commit and every key after it
-  if (!ev.isComposing && ev.inputType !== "insertCompositionText") composing = false;
+  if (!ev.isComposing && ev.inputType !== "insertCompositionText") {
+    composing = false;
+    showPreedit("");
+  }
   if (composing || ev.isComposing) return;
   const type = ev.inputType;
   let handled = true;
@@ -9689,7 +9712,7 @@ keys.addEventListener("paste", (ev) => {
   }
 });
 keys.addEventListener("focus", () => { composing = false; mirrorLine(); needsPaint = true; });
-keys.addEventListener("blur", () => { composing = false; });
+keys.addEventListener("blur", () => { composing = false; showPreedit(""); });
 
 // --- Copy and paste of slides and elements (src/PresClip.rgr) ----------------------
 // Ctrl/⌘+C on the filmstrip or the slide copies the picked slides (else the
