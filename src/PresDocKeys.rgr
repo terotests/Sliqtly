@@ -17,6 +17,10 @@
 ;                  code: four spaces in / out
 ;   Backspace      at a list item's words: one level out, at the top level
 ;                  the item becomes a paragraph
+;   Enter at the end of a heading or a paragraph: an open paragraph under it
+;                  (`openParagraphAt`), written once words are typed on it;
+;                  Enter on that: an empty line that stays (`blankParagraph`)
+;   Backspace / Delete next to a table: the table selected (`tableRange`)
 ;
 ; Pure functions of the text and an offset; PresApp applies the patch
 ; (`docApply`), so undo and the other editors follow. An empty op: the key
@@ -846,5 +850,189 @@ class PresDocKeys {
             return "<br>"
         }
         return "  \n"
+    }
+
+    ; --- the open paragraph -----------------------------------------------------
+    ; Enter at `off` at the end of a heading (`heading`) or a paragraph of its
+    ; own: where its open paragraph stands, the end of the line (after the
+    ; heading's `{…}` or the spaces typed last); -1 when Enter is not at the
+    ; end, the paragraph goes on on the next line, or the line is a list
+    ; item or a quote's (those have their own Enter).
+    sfn openParagraphAt:int (text:string off:int heading:boolean) {
+        def le:int (PresDocCaret.lineEndOf(text off))
+        if heading {
+            if ((PresDocKeys.headingEnterOp(text off off)).isEmpty()) {
+                return le
+            }
+            return -1
+        }
+        if ((strlen (trim (substring text off le))) > 0) {
+            return -1
+        }
+        if ((strlen (trim (PresDocCaret.markerOf(text off)))) > 0) {
+            return -1
+        }
+        if ((le < (strlen text)) && ((PresDocKeys.blankLine(text (le + 1))) == false)) {
+            return -1
+        }
+        return le
+    }
+
+    ; Backspace taking [qs, off), the last words of a paragraph of their own
+    ; (a blank line before them, the line's end after): the paragraph goes
+    ; with them and the caret is on an open paragraph again, where the
+    ; block before it ends (that offset, the blank line before the words
+    ; taken too); -1 when words stay or the line is not a paragraph's.
+    sfn emptiedAt:int (text:string qs:int off:int) {
+        if (((qs < 2) || ((charAt text (qs - 1)) != 10)) || ((charAt text (qs - 2)) != 10)) {
+            return -1
+        }
+        if ((off < (strlen text)) && ((charAt text off) != 10)) {
+            return -1
+        }
+        if ((qs < 3) || ((charAt text (qs - 3)) == 10)) {
+            return -1
+        }
+        def word:string (substring text qs off)
+        if ((strlen word) == 0) {
+            return -1
+        }
+        def c:int (charAt word 0)
+        ; a marker typed alone is not a paragraph's words
+        if ((((c == 35) || (c == 62)) || ((c == 45) || (c == 42))) || (c == 124)) {
+            return -1
+        }
+        return (qs - 2)
+    }
+
+    ; An empty line that stays, written after a block: a paragraph of a
+    ; no-break space (Markdown has no empty paragraph; blank lines are only
+    ; the space between blocks, and `<br>` alone on a line is HTML that is
+    ; not shown).
+    sfn blankParagraph:string () {
+        return "\n\n&nbsp;"
+    }
+
+    ; --- a table as one -----------------------------------------------------------
+    ; The table (a top-level block of `doc`, the parse of `text`) that `at`
+    ; is in: [its start, its end without the line breaks after it]; [] when
+    ; `at` is in no table.
+    sfn tableRange:[int] (text:string doc:MdNode at:int) {
+        def out:[int]
+        def lo:int 0
+        def hi:int ((doc.childCount()) - 1)
+        while (lo <= hi) {
+            def mid:int (idiv (lo + hi) 2)
+            def ch:MdNode (doc.childAt(mid))
+            if (at < ch.srcStart) {
+                hi = (mid - 1)
+            } {
+                if (at >= ch.srcEnd) {
+                    lo = (mid + 1)
+                } {
+                    if (ch.kind != "table") {
+                        return out
+                    }
+                    def e:int ch.srcEnd
+                    if (e > (strlen text)) {
+                        e = (strlen text)
+                    }
+                    while ((e > ch.srcStart) && (((charAt text (e - 1)) == 10) || ((charAt text (e - 1)) == 32))) {
+                        e = (e - 1)
+                    }
+                    push out ch.srcStart
+                    push out e
+                    return out
+                }
+            }
+        }
+        return out
+    }
+
+    ; --- a link's address -----------------------------------------------------------
+    ; The inline link `[words](address)` around `off` on its line: [its
+    ; start, its end, the address's start, the address's end] (a title after
+    ; the address, `"…"`, is not part of it); [] when `off` is in none. A
+    ; picture's `![…](…)` is no link.
+    sfn linkAround:[int] (text:string off:int) {
+        def out:[int]
+        def ls:int (PresDocCaret.lineStartOf(text off))
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        def i:int ls
+        while (i < le) {
+            def c:int (charAt text i)
+            if (((c == 91) && ((i == ls) || ((charAt text (i - 1)) != 92))) && ((i == ls) || ((charAt text (i - 1)) != 33))) {
+                ; the words' closing bracket, one level of brackets inside
+                def j:int (i + 1)
+                def depth:int 0
+                def close:int -1
+                while ((j < le) && (close < 0)) {
+                    def cj:int (charAt text j)
+                    if ((cj == 92) && ((j + 1) < le)) {
+                        j = (j + 1)
+                    } {
+                        if (cj == 91) {
+                            depth = (depth + 1)
+                        }
+                        if (cj == 93) {
+                            if (depth == 0) {
+                                close = j
+                            } {
+                                depth = (depth - 1)
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (((close > 0) && ((close + 1) < le)) && ((charAt text (close + 1)) == 40)) {
+                    def k:int (close + 2)
+                    def par:int 0
+                    def endAt:int -1
+                    while ((k < le) && (endAt < 0)) {
+                        def ck:int (charAt text k)
+                        if (ck == 40) {
+                            par = (par + 1)
+                        }
+                        if (ck == 41) {
+                            if (par == 0) {
+                                endAt = k
+                            } {
+                                par = (par - 1)
+                            }
+                        }
+                        k = (k + 1)
+                    }
+                    if (endAt > 0) {
+                        if ((off >= i) && (off <= (endAt + 1))) {
+                            def ua:int (close + 2)
+                            while ((ua < endAt) && ((charAt text ua) == 32)) {
+                                ua = (ua + 1)
+                            }
+                            def ub:int ua
+                            if ((ub < endAt) && ((charAt text ub) == 60)) {
+                                ; <address with spaces>
+                                ua = (ua + 1)
+                                ub = ua
+                                while ((ub < endAt) && ((charAt text ub) != 62)) {
+                                    ub = (ub + 1)
+                                }
+                            } {
+                                while ((ub < endAt) && ((charAt text ub) != 32)) {
+                                    ub = (ub + 1)
+                                }
+                            }
+                            push out i
+                            push out (endAt + 1)
+                            push out ua
+                            push out ub
+                            return out
+                        }
+                        i = endAt
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
     }
 }

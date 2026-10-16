@@ -29,3 +29,17 @@
 .theme-db .db-zoom .ui-toolbar-button { font-family: Open Sans; font-size: 14px; color: #27272a; background-color: rgba(0,0,0,0); border: 0px solid #ffffff; border-radius: 6px; padding: 4px 8px; height: 28px; }
 .theme-db .db-zoom .ui-toolbar-button:hover { background-color: #f1f5f9; }
 .theme-db .db-zoom .ui-toolbar-button-icon { width: 28px; padding: 3px; }
+/* the link's address (when the caret is in a link), and ✓ Save at the end */
+.theme-db .db-link {
+  width: 260px; height: 28px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid #d4d4d8; background-color: #fafafa;
+}
+.theme-db .db-link.ui-input-focused { border: 1px solid #2563eb; background-color: #ffffff; }
+.theme-db .db-link-text { font-family: Open Sans; font-size: 13px; color: #1d4ed8; }
+.theme-db .db-link-ph { font-family: Open Sans; font-size: 13px; color: #94a3b8; }
+.theme-db .db-gap { flex-grow: 1; height: 1px; }
+.theme-db .db-save .ui-toolbar-button {
+  font-family: Open Sans; font-size: 14px; height: 28px; padding: 4px 12px; border-radius: 6px;
+  color: #ffffff; background-color: #16a34a; border: 0px solid #16a34a;
+}
+.theme-db .db-save .ui-toolbar-button:hover { background-color: #15803d; }

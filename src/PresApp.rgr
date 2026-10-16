@@ -1460,8 +1460,10 @@ class PresApp {
     ; The page built for the deck as it is now; `pane` scrolled to the
     ; selected slide when that changed since it last followed it.
     fn docFollow:void (pane:PresDocPane) {
-        if (docView.rev != deck.revision) {
+        def open:int (this.docOpenWanted())
+        if ((docView.rev != deck.revision) || (docView.builtOpen != open)) {
             this.settleAll()
+            docView.openAt = open
             docView.build(deck)
         }
         if (pane.seen != selected) {
@@ -1811,6 +1813,43 @@ class PresApp {
     def docPicDrag:boolean false
     ; the x Up and Down aim at (page units), kept across a run of them
     def docWantX:double -1.0
+    ; an open paragraph: Enter at the end of a heading or a paragraph opens
+    ; an empty line under it, and the caret goes there, but nothing is
+    ; written to the Markdown until something is typed on it (blank lines
+    ; are no paragraph in Markdown: written at once they would only gather
+    ; in the text). Its offset (the block's end), -1 for none. Enter on it
+    ; writes a visible empty line, `&nbsp;`.
+    def docOpen:int -1
+
+    ; The caret is on the open paragraph.
+    fn docOpenHere:boolean () {
+        if (docOpen < 0) {
+            return false
+        }
+        return (((mdEditor.caretOffset()) == docOpen) && ((mdEditor.anchorOffset()) == docOpen))
+    }
+
+    ; The open paragraph the page is to show, -1 for none.
+    fn docOpenWanted:int () {
+        if ((this.docOpenHere()) && editMode.editing) {
+            return docOpen
+        }
+        return -1
+    }
+
+    ; Enter at the end of a heading or a paragraph of its own (not in a
+    ; list, a quote or a table): the offset its open paragraph stands at
+    ; (the end of its line), -1 when Enter there writes as usual.
+    fn docOpenAt:int (text:string lo:int hi:int) {
+        if (lo != hi) {
+            return -1
+        }
+        def kind:string (this.docBlockKind(lo))
+        if ((kind != "heading") && (kind != "paragraph")) {
+            return -1
+        }
+        return (PresDocKeys.openParagraphAt(text lo (kind == "heading")))
+    }
 
     fn docEditing:boolean () {
         return ((this.edDocShown()) && editMode.editing)
@@ -1828,6 +1867,9 @@ class PresApp {
 
     ; The caret to `off` (the selection's other end stays with `extend`).
     fn docSetCaret:void (off:int extend:boolean) {
+        if ((off != docOpen) || extend) {
+            docOpen = -1
+        }
         ; the caret moved: what is typed next is an undo step of its own
         mdEditor.buf.closeTyping()
         this.posOf((mdEditor.text()) off)
@@ -1845,30 +1887,13 @@ class PresApp {
     ; under the last word before it (a new empty paragraph shows no word).
     fn docCaretAt:[double] (off:int) {
         def cm:PresDocCaret docView.caret
-        def c:[double] (cm.caret(off))
-        if ((array_length c) == 3) {
-            return c
-        }
-        def out:[double]
-        def before:int (cm.shownBefore(off))
-        def p:[double] (cm.caret(before))
-        if ((array_length p) == 3) {
-            def gaps:int 1
-            def k:int before
-            def text:string (mdEditor.text())
-            while ((k < off) && (k < (strlen text))) {
-                if ((charAt text k) == 10) {
-                    gaps = (gaps + 1)
-                }
-                k = (k + 1)
+        if (((off == docOpen) && (docView.builtOpen == docOpen)) && (this.docOpenHere())) {
+            def oc:[double] (cm.openCaret())
+            if ((array_length oc) == 3) {
+                return oc
             }
-            def h:double (itemAt p 2)
-            def down:double (? (gaps > 2) (h * 1.6) h)
-            push out (docView.flow.colX())
-            push out ((itemAt p 1) + down)
-            push out h
         }
-        return out
+        return (cm.caretNear((mdEditor.text()) off))
     }
 
     ; Where the page shows an offset on the screen, "x,y" (the middle of
@@ -2282,6 +2307,7 @@ class PresApp {
         if ((this.mayEdit()) == false) {
             return
         }
+        docOpen = -1
         docPic = -1
         def text:string (mdEditor.text())
         ; a numbered list's items after the edited one numbered on, in the
@@ -2323,6 +2349,17 @@ class PresApp {
 
     ; Typed text, over the selection.
     fn docType:void (s:string) {
+        if (this.docOpenHere()) {
+            ; the first words on the open paragraph: it is written now
+            def at:int docOpen
+            def rest:string s
+            while (((strlen rest) > 0) && ((charAt rest 0) == 10)) {
+                rest = (substring rest 1 (strlen rest))
+            }
+            this.docReplace(at at ("\n\n" + rest))
+            docWantX = -1.0
+            return
+        }
         def a:int (mdEditor.anchorOffset())
         def c:int (mdEditor.caretOffset())
         if (a == c) {
@@ -2392,6 +2429,11 @@ class PresApp {
     ; What the bar shows for the caret, read again when the text or the
     ; caret moved: [state key] → docBar.setState.
     def docBarKey:string ""
+    ; the link the bar shows the address of: an offset in its words (the
+    ; caret's, or the last link the pointer was over), -1 for none; and the
+    ; caret the bar last followed
+    def docLinkAt:int -1
+    def docLinkCaret:int -1
 
     fn docBarSync:void () {
         def text:string (mdEditor.text())
@@ -2399,7 +2441,12 @@ class PresApp {
         def anc:int (mdEditor.anchorOffset())
         def undoN:int (array_length mdEditor.buf.undoStack)
         def redoN:int (array_length mdEditor.buf.redoStack)
-        def key:string ((to_string deck.revision) + ":" + (to_string (strlen text)) + ":" + (to_string off) + ":" + (to_string anc) + ":" + (to_string undoN) + ":" + (to_string redoN))
+        ; the caret moved: the bar shows its link (if it is in one)
+        if (off != docLinkCaret) {
+            docLinkCaret = off
+            docLinkAt = off
+        }
+        def key:string ((to_string deck.revision) + ":" + (to_string (strlen text)) + ":" + (to_string off) + ":" + (to_string anc) + ":" + (to_string undoN) + ":" + (to_string redoN) + ":" + (to_string docLinkAt))
         if (key == docBarKey) {
             return
         }
@@ -2437,6 +2484,76 @@ class PresApp {
             push onNow "quote"
         }
         docBar.setState(lv onNow (undoN > 0) (redoN > 0))
+        def la:[int] (PresDocKeys.linkAround(text docLinkAt))
+        docBar.setLink((? ((array_length la) == 4) (substring text (itemAt la 2) (itemAt la 3)) ""))
+    }
+
+    ; The pointer over the View page while editing: a link under it is the
+    ; one the bar shows (and keeps showing once the pointer moves on, so it
+    ; can be reached to change).
+    fn docLinkHover:void (x:double y:double) {
+        if ((((this.docEditing()) == false) || ((edRect.has(x y)) == false)) || docBar.typing) {
+            return
+        }
+        def src:int (docView.caret.linkSrcAt((this.docPageX(x)) (this.docPageY(y))))
+        if ((src >= 0) && (src != docLinkAt)) {
+            docLinkAt = src
+            docBarKey = ""
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    ; Does the bar's link field have the keys?
+    fn docLinkHasKeys:boolean () {
+        return ((docBar.typing && (focus == "docbar")) && (this.docBarShown()))
+    }
+
+    fn docLinkKey:boolean (name:string shift:boolean ctrl:boolean) {
+        if (name == "tab") {
+            return false
+        }
+        def k:string (PresChartEditor.kitKey(name))
+        if ((strlen k) == 0) {
+            return true
+        }
+        def r:string (docBar.key(k shift ctrl))
+        if (r == "link:commit") {
+            this.docLinkCommit()
+        }
+        if (r == "link:cancel") {
+            focus = "editor"
+        }
+        chromeRev = (chromeRev + 1)
+        return true
+    }
+
+    ; Enter in the bar's link field: the address typed written into the
+    ; link's Markdown, the caret where it was.
+    fn docLinkCommit:void () {
+        focus = "editor"
+        docBarKey = ""
+        def text:string (mdEditor.text())
+        def la:[int] (PresDocKeys.linkAround(text docLinkAt))
+        def url:string (docBar.linkTyped())
+        if (((array_length la) < 4) || ((strlen url) == 0)) {
+            return
+        }
+        def ua:int (itemAt la 2)
+        def ub:int (itemAt la 3)
+        def put:string url
+        def bracketed:boolean ((ua > 0) && ((charAt text (ua - 1)) == 60))
+        if (((indexOf url " ") >= 0) && (bracketed == false)) {
+            put = ("<" + url + ">")
+        }
+        if (put == (substring text ua ub)) {
+            return
+        }
+        def keep:int (mdEditor.caretOffset())
+        if (keep >= ub) {
+            keep = (keep + ((strlen put) - (ub - ua)))
+        }
+        this.docReplace(ua ub put)
+        this.docSetCaret(keep false)
     }
 
     ; The line of `text` the offset is on.
@@ -2488,6 +2605,17 @@ class PresApp {
                 z = (PresViewZoom.stepOut(edDocPane.zoom))
             }
             this.edDocZoomTo(z (edRect.x + (edRect.w * 0.5)) (edDocPane.y + (edDocPane.h * 0.5)))
+            return
+        }
+        if (cmd == "link:field") {
+            focus = "docbar"
+            return
+        }
+        if (cmd == "save") {
+            ; the top bar's ✓ Save
+            if editMode.editing {
+                push requests "click:editmode"
+            }
             return
         }
         if (cmd == "undo") {
@@ -2630,6 +2758,22 @@ class PresApp {
             }
             docPic = -1
             chromeRev = (chromeRev + 1)
+        }
+        if (this.docOpenHere()) {
+            ; the open paragraph, still empty: Backspace, Delete, ←, ↑ and
+            ; Escape close it (the caret at the end of its block again), Home
+            ; and End stay; other keys go on from the block's end
+            if ((((name == "backspace") || (name == "delete")) || ((name == "left") || (name == "up"))) || (name == "escape")) {
+                docOpen = -1
+                chromeRev = (chromeRev + 1)
+                return true
+            }
+            if ((name == "home") || (name == "end")) {
+                return true
+            }
+            if (name != "enter") {
+                docOpen = -1
+            }
         }
         def cm:PresDocCaret docView.caret
         def text:string (mdEditor.text())
@@ -2900,6 +3044,14 @@ class PresApp {
         def qs:int (itemAt u 0)
         def qe:int (itemAt u 1)
         if (qe >= off) {
+            ; the paragraph's last letter: it goes, and its line stays open
+            ; on the page, not as blank lines in the Markdown
+            def em:int (PresDocKeys.emptiedAt(text qs off))
+            if (em >= 0) {
+                this.docReplace(em off "")
+                this.docOpenLine(em)
+                return
+            }
             this.docReplace(qs off "")
             return
         }
@@ -2926,7 +3078,23 @@ class PresApp {
             this.docReplace((qe + nl) off "")
             return
         }
+        ; a table before the caret: selected, with the blank lines after
+        ; it (a second Backspace removes it, as a word processor does)
+        def tb:[int] (PresDocKeys.tableRange(text deck.md.edit.doc qe))
+        if ((array_length tb) == 2) {
+            this.docSelect((itemAt tb 0) off)
+            return
+        }
         this.docSetCaret(qe false)
+    }
+
+    ; The caret onto a new open paragraph at `at`.
+    fn docOpenLine:void (at:int) {
+        this.docSetCaret(at false)
+        docOpen = at
+        docWantX = -1.0
+        this.docReveal()
+        chromeRev = (chromeRev + 1)
     }
 
     ; The type of the top-level block at `off` ("" for none).
@@ -2987,6 +3155,12 @@ class PresApp {
             this.docReplace((off + nl) qs "")
             return
         }
+        ; a table after the caret: selected, with the blank lines before it
+        def tf:[int] (PresDocKeys.tableRange(text deck.md.edit.doc qs))
+        if ((array_length tf) == 2) {
+            this.docSelect(off (itemAt tf 1))
+            return
+        }
         this.docSetCaret(qs false)
     }
 
@@ -2995,6 +3169,21 @@ class PresApp {
     fn docEnter:void (text:string lo:int hi:int shift:boolean) {
         if shift {
             this.docReplace(lo hi (PresDocKeys.breakText(text lo)))
+            return
+        }
+        if (this.docOpenHere()) {
+            ; Enter on the open paragraph: an empty line that stays (a
+            ; paragraph of a no-break space, shown on the slides and in the
+            ; exports too), and the open paragraph under it
+            def at:int docOpen
+            def line:string (PresDocKeys.blankParagraph())
+            this.docReplace(at at line)
+            this.docOpenLine((at + (strlen line)))
+            return
+        }
+        def open:int (this.docOpenAt(text lo hi))
+        if (open >= 0) {
+            this.docOpenLine(open)
             return
         }
         def kind:string (this.docBlockKind(lo))
@@ -6446,6 +6635,13 @@ class PresApp {
         if tocUi.typing {
             this.tocBlur()
         }
+        ; and the View bar's link field, off the bar
+        if ((docBar.typing) && ((this.layerAt(x y)) != "docbar")) {
+            docBar.blur()
+            if (focus == "docbar") {
+                focus = "editor"
+            }
+        }
         ; review mode: a pin, its bar, a thread, or where a new comment goes
         if review.on {
             if (((this.layerAt(x y)) == "review") && (review.press(x y clicks shift))) {
@@ -6976,6 +7172,11 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        if docBar.selecting {
+            docBar.dragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if codePress {
             codeView.drag(tr x y)
             chromeRev = (chromeRev + 1)
@@ -7104,6 +7305,7 @@ class PresApp {
                 docBar.hoverAt(x y)
             } {
                 docBar.hoverAt(-1000000.0 -1000000.0)
+                this.docLinkHover(x y)
             }
             if (docBar.rev != dbHot) {
                 chromeRev = (chromeRev + 1)
@@ -7212,6 +7414,11 @@ class PresApp {
 
     fn pointerUp:void () {
         docDrag = false
+        if docBar.selecting {
+            docBar.release()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if tocUi.selecting {
             tocUi.release()
             chromeRev = (chromeRev + 1)
@@ -7715,6 +7922,9 @@ class PresApp {
         if (this.tocHasKeys()) {
             return (this.tocKey(name shift ctrl))
         }
+        if (this.docLinkHasKeys()) {
+            return (this.docLinkKey(name shift ctrl))
+        }
         if (this.roomHasKeys()) {
             return (this.roomKey(name shift ctrl))
         }
@@ -8061,6 +8271,11 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        if (this.docLinkHasKeys()) {
+            docBar.type(s)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (this.roomHasKeys()) {
             room.text(s)
             this.afterRoom()
@@ -8190,6 +8405,11 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        if (this.docLinkHasKeys()) {
+            docBar.type((trim (PresToc.oneLine(s))))
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; into the docked chat's composer (the room's or the AI assistant's)
         if (this.chatHasKeys()) {
             def tc:ChatCtl (panels.dockChat())
@@ -8289,6 +8509,13 @@ class PresApp {
             return true
         }
         ; Ctrl+A in the ToC's search: all of its text
+        if (this.docLinkHasKeys()) {
+            if (ch == "a") {
+                docBar.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
         if (this.tocHasKeys()) {
             if (ch == "a") {
                 tocUi.selectAll()

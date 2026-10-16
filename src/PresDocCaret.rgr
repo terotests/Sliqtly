@@ -48,6 +48,8 @@ class PresDocCaret {
     ; the pictures, each one's top on the page
     def pics:[MdBox]
     def picTops:[double]
+    ; the open paragraph (`addOpen`): the box of its empty line, -1 for none
+    def openBox:int -1
 
     Constructor () {
     }
@@ -63,6 +65,7 @@ class PresDocCaret {
         clear lineTo
         clear pics
         clear picTops
+        openBox = -1
     }
 
     ; A box the page drew at `dy` below where its layout put it.
@@ -77,6 +80,103 @@ class PresDocCaret {
         }
         push boxes b
         push tops (b.y + dy)
+    }
+
+    ; The open paragraph: an empty line the page shows after a block where
+    ; Enter was pressed and nothing is written yet (PresDocView.openAt).
+    ; Its one place for the caret stands for `src`, the block's end, which
+    ; the block's own last word keeps for itself (`boxOf`).
+    fn addOpen:void (x:double top:double h:double src:int) {
+        def b:MdBox (MdBox.text("" x top 0.0 h))
+        b.segSrc = src
+        b.segLen = 0
+        if (!null? lay) {
+            def l:MdLayout (unwrap lay)
+            b.family = l.style.bodyFamily
+            b.size = l.style.bodySize
+        }
+        openBox = (array_length boxes)
+        push boxes b
+        push tops top
+    }
+
+    ; [x, top, height] of the caret on the open paragraph's line, [] when
+    ; there is none.
+    fn openCaret:[double] () {
+        def out:[double]
+        if ((openBox < 0) || (openBox >= (array_length boxLine))) {
+            return out
+        }
+        def b:MdBox (itemAt boxes openBox)
+        def li:int (itemAt boxLine openBox)
+        push out b.x
+        push out (itemAt lineTop li)
+        push out (itemAt lineH li)
+        return out
+    }
+
+    ; Whether a page point is on the open paragraph's line.
+    fn onOpen:boolean (y:double) {
+        if ((openBox < 0) || (openBox >= (array_length boxLine))) {
+            return false
+        }
+        return ((this.lineAtY(y)) == (itemAt boxLine openBox))
+    }
+
+    ; One line of body text on this page.
+    fn bodyLine:double () {
+        if (null? lay) {
+            return 16.0
+        }
+        def l:MdLayout (unwrap lay)
+        return (l.style.bodySize * l.style.lineHeight)
+    }
+
+    ; [x, top, height] for the caret at an offset the page does not show:
+    ; past spaces at the end of a line (typed, or one the layout drops), on
+    ; the same line after the last word shown and the spaces' width; past a
+    ; line break, a body line under it. [] when nothing before it is shown.
+    fn caretNear:[double] (text:string off:int) {
+        def c:[double] (this.caret(off))
+        if ((array_length c) == 3) {
+            return c
+        }
+        def out:[double]
+        def before:int (this.shownBefore(off))
+        def bi:int (this.boxOf(before))
+        if ((bi < 0) || (before >= off)) {
+            return out
+        }
+        def p:[double] (this.caret(before))
+        def gaps:int 0
+        def k:int before
+        def n:int (strlen text)
+        while ((k < off) && (k < n)) {
+            if ((charAt text k) == 10) {
+                gaps = (gaps + 1)
+            }
+            k = (k + 1)
+        }
+        if (gaps == 0) {
+            def b:MdBox (itemAt boxes bi)
+            push out ((itemAt p 0) + (this.measure((substring text before off) b)))
+            push out (itemAt p 1)
+            push out (itemAt p 2)
+            return out
+        }
+        def h:double (itemAt p 2)
+        def body:double (this.bodyLine())
+        def down:double (? (gaps > 1) (h + (body * 0.6)) h)
+        push out (this.lineX((itemAt boxLine bi)))
+        push out ((itemAt p 1) + down)
+        push out (? (h > body) body h)
+        return out
+    }
+
+    ; Where line `li` starts.
+    fn lineX:double (li:int) {
+        def b:MdBox (itemAt boxes (itemAt lineFrom li))
+        return b.x
     }
 
     fn finish:void () {
@@ -256,6 +356,23 @@ class PresDocCaret {
         return ""
     }
 
+    ; Where in the file the link under a page point starts to be drawn (its
+    ; words' first offset), -1 for none: the link's Markdown is around it.
+    fn linkSrcAt:int (x:double y:double) {
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if ((strlen b.link) > 0) {
+                def t:double (itemAt tops i)
+                if (((x >= (b.x - 1.0)) && (x <= ((b.x + b.w) + 1.0))) && ((y >= (t - 2.0)) && (y <= ((t + b.h) + 2.0)))) {
+                    return b.segSrc
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     ; --- an offset → where it is drawn ----------------------------------------
     ; The box an offset is drawn in: the one it is inside, else the one it
     ; ends (the end of a line); -1 when the page does not show it.
@@ -267,7 +384,8 @@ class PresDocCaret {
             if ((off >= b.segSrc) && (off < (b.segSrc + b.segLen))) {
                 return i
             }
-            if ((off == (b.segSrc + b.segLen)) && (ends < 0)) {
+            ; the open paragraph's place is asked for by itself (openCaret)
+            if (((off == (b.segSrc + b.segLen)) && (ends < 0)) && (i != openBox)) {
                 ends = i
             }
             i = (i + 1)

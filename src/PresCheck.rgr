@@ -5574,6 +5574,89 @@ class PresCheck {
         ; Enter in a quote: a new paragraph of it
         this.ok(((PresDocCaret.enterText("> yksi" 6 false)) == "\n>\n> ") "dockeys: Enter in a quote")
         this.ok(((PresDocCaret.enterText("> - yksi" 8 false)) == "\n> - ") "dockeys: …a list in a quote goes on as a list")
+        this.docOpenParagraph()
+    }
+
+    ; Enter at the end of a heading or a paragraph opens an empty line on the
+    ; View page and writes nothing until words are typed there; the caret
+    ; past a space at a line's end stays on that line; a table next to the
+    ; caret is taken whole.
+    fn docOpenParagraph:void () {
+        def t:string "## Otsikko {.x}\n\nTeksti tässä.\nToinen rivi.\n\n- kohta\n\nLoppu\n"
+        this.ok(((PresDocKeys.openParagraphAt(t 15 true)) == 15) "open: Enter at a heading's end, after its {…}")
+        this.ok(((PresDocKeys.openParagraphAt(t 10 true)) == 15) "open: …or at its words' end")
+        this.ok(((PresDocKeys.openParagraphAt(t 3 true)) == -1) "open: not in the heading's middle (it splits)")
+        def p2:int ((indexOf t "Toinen rivi.") + 12)
+        this.ok(((PresDocKeys.openParagraphAt(t p2 false)) == p2) "open: at a paragraph's end")
+        def p1:int ((indexOf t "tässä.") + 6)
+        this.ok(((PresDocKeys.openParagraphAt(t p1 false)) == -1) "open: not where the paragraph goes on on the next line")
+        this.ok(((PresDocKeys.openParagraphAt(t ((indexOf t "kohta") + 5) false)) == -1) "open: not in a list item")
+        this.ok(((PresDocKeys.blankParagraph()) == "\n\n&nbsp;") "open: Enter on it writes a no-break space paragraph")
+        ; the page: the open line pushes what follows down by a body line
+        def deck (new PresDeck())
+        deck.setText(t)
+        def v (new PresDocView())
+        v.build(deck)
+        def tek:int (indexOf t "Teksti")
+        def before:[double] (v.caret.caret(tek))
+        this.ok(((array_length (v.caret.openCaret())) == 0) "open: none until Enter")
+        def v2 (new PresDocView())
+        v2.openAt = 15
+        v2.build(deck)
+        def oc:[double] (v2.caret.openCaret())
+        def after:[double] (v2.caret.caret(tek))
+        def head:[double] (v2.caret.caret(3))
+        this.ok(((array_length oc) == 3) "open: the open line has a caret")
+        if ((((array_length oc) == 3) && ((array_length after) == 3)) && (((array_length before) == 3) && ((array_length head) == 3))) {
+            def body:double (v2.caret.bodyLine())
+            this.ok((((itemAt oc 1) > ((itemAt head 1) + (itemAt head 2))) && ((itemAt oc 1) < (itemAt after 1))) "open: its line is between the heading and the paragraph")
+            this.ok((((itemAt oc 2) > (body * 0.9)) && ((itemAt oc 2) < (body * 1.1))) ("open: a body line tall, not the heading's, got " + (to_string (itemAt oc 2))))
+            def pushed:double ((itemAt after 1) - (itemAt before 1))
+            this.ok(((pushed > body) && (pushed < (body * 2.0))) ("open: the paragraph after it moves down a line, got " + (to_string pushed)))
+            ; the heading's own end is still the heading's
+            this.ok((((v2.caret.boxOf(10)) >= 0) && ((itemAt (v2.caret.caret(10)) 1) == (itemAt head 1))) "open: the heading's end stays on the heading")
+        }
+        ; a no-break space paragraph is a line of its own
+        def nb (new PresDeck())
+        nb.setText("Yksi\n\n&nbsp;\n\nKaksi\n")
+        def nv (new PresDocView())
+        nv.build(nb)
+        def plain (new PresDeck())
+        plain.setText("Yksi\n\nKaksi\n")
+        def pv (new PresDocView())
+        pv.build(plain)
+        def k1:[double] (nv.caret.caret(((indexOf "Yksi\n\n&nbsp;\n\nKaksi\n" "Kaksi") + 1)))
+        def k0:[double] (pv.caret.caret(7))
+        this.ok(((((array_length k1) == 3) && ((array_length k0) == 3)) && ((itemAt k1 1) > ((itemAt k0 1) + ((pv.caret.bodyLine()) * 0.8)))) "open: &nbsp; shows an empty line")
+        ; a space typed at a line's end: the caret stays on that line
+        def sp:string "## A\n\nTyhjää \n\nSeuraava\n"
+        def sd (new PresDeck())
+        sd.setText(sp)
+        def sv (new PresDocView())
+        sv.build(sd)
+        def end:int ((indexOf sp "Tyhjää") + 6)
+        def w:[double] (sv.caret.caret(end))
+        def s1:[double] (sv.caret.caretNear(sp (end + 1)))
+        this.ok(((((array_length w) == 3) && ((array_length s1) == 3)) && (((itemAt s1 1) == (itemAt w 1)) && ((itemAt s1 0) > (itemAt w 0)))) "open: past a space at a line's end, the caret stays on the line, after the space")
+        ; a table: Backspace after it / Delete before it take it whole
+        def tt:string "Ennen\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nJälkeen\n"
+        def td:MdNode (MdBlock.parseText(tt))
+        def tr:[int] (PresDocKeys.tableRange(tt td ((indexOf tt "| 1") + 2)))
+        this.ok((((array_length tr) == 2) && (((itemAt tr 0) == (indexOf tt "| a")) && ((substring tt (itemAt tr 1) ((itemAt tr 1) + 2)) == "\n\n"))) "open: a table's range, without the blank lines after it")
+        this.ok(((array_length (PresDocKeys.tableRange(tt td 2))) == 0) "open: a paragraph is no table")
+        ; the last letter of a paragraph taken: back to an open paragraph
+        def em:string "## Otsikko\n\nA\n\nSeuraava"
+        this.ok(((PresDocKeys.emptiedAt(em 12 13)) == 10) "open: the last letter's Backspace leaves an open paragraph, no blank lines")
+        this.ok(((PresDocKeys.emptiedAt("## Otsikko\n\nAb" 13 14)) == -1) "open: …not while words stay")
+        this.ok(((PresDocKeys.emptiedAt("- a\n\n-" 5 6)) == -1) "open: …not a list marker")
+        ; a link's address, around the caret on its line
+        def lk:string "Katso [feature-lista](https://sliqtly.com/s/AbC \"otsikko\") ja ![kuva](a.png) [b](<x y.md>)"
+        def la:[int] (PresDocKeys.linkAround(lk ((indexOf lk "feature") + 2)))
+        this.ok((((array_length la) == 4) && ((substring lk (itemAt la 2) (itemAt la 3)) == "https://sliqtly.com/s/AbC")) "link: the address around the caret, without its title")
+        this.ok(((array_length (PresDocKeys.linkAround(lk 2))) == 0) "link: plain words are in no link")
+        this.ok(((array_length (PresDocKeys.linkAround(lk ((indexOf lk "kuva") + 1)))) == 0) "link: a picture is no link")
+        def lb:[int] (PresDocKeys.linkAround(lk ((indexOf lk "[b]") + 1)))
+        this.ok((((array_length lb) == 4) && ((substring lk (itemAt lb 2) (itemAt lb 3)) == "x y.md")) "link: an address in <…>")
     }
 
     fn docx:void () {

@@ -6363,6 +6363,60 @@ try {
     check("View editing: a press on another slide puts the caret there", c.caret === p.o, JSON.stringify({ c, o: p.o }));
     await key("Enter");
     check("View editing: Enter splits a paragraph into two", (await src()).includes("esitys: \n\nteksti, puhe"), "");
+    // Enter at a heading's end: an open line under it, nothing written to
+    // the Markdown until words are typed there (src/PresDocKeys.rgr
+    // openParagraphAt, PresApp docOpen)
+    {
+      const h0 = await src();
+      const hEnd = h0.indexOf("## Kolme osaa");
+      const le = h0.indexOf("\n", hEnd);
+      p = await at("Kolme osaa", 4);
+      await pg.mouse.click(p.x, p.y);
+      await pg.waitForTimeout(150);
+      await key("End");
+      const headCaret = await pg.evaluate(() => window.__app.docCaretAt(window.__app.mdEditor.caretOffset()));
+      await key("Enter");
+      const h1 = await src();
+      const open = await pg.evaluate(() => ({ at: window.__app.docOpen, c: window.__app.docCaretAt(window.__app.mdEditor.caretOffset()) }));
+      check("View editing: Enter at a heading's end writes nothing yet", h1 === h0 && open.at === le, JSON.stringify({ open, le }));
+      check("View editing: …the caret goes under the heading, a body line tall", open.c[1] > headCaret[1] + headCaret[2] && open.c[2] < headCaret[2], JSON.stringify({ open, headCaret }));
+      await pg.keyboard.type("Ab");
+      await pg.waitForTimeout(300);
+      const h2 = await src();
+      check("View editing: …typing there writes a paragraph under the heading", h2 === h0.slice(0, le) + "\n\nAb" + h0.slice(le), JSON.stringify(h2.slice(hEnd, le + 12)));
+      await key("Backspace", 2);
+      await key("Backspace");
+      check("View editing: …Backspace takes it out again, the Markdown as it was", (await src()) === h0, JSON.stringify((await src()).slice(hEnd, le + 12)));
+      // a space typed after a word at a line's end: the caret stays on the line
+      await key("End");
+      await pg.keyboard.type(" ");
+      await pg.waitForTimeout(200);
+      const sp = await pg.evaluate(() => window.__app.docCaretAt(window.__app.mdEditor.caretOffset()));
+      const word = await pg.evaluate(() => window.__app.docCaretAt(window.__app.mdEditor.caretOffset() - 1));
+      check("View editing: a space at a line's end keeps the caret on that line, after the space", sp[1] === word[1] && sp[0] > word[0], JSON.stringify({ sp, word }));
+      await key("Backspace");
+    }
+    // a link: the bar shows its address while the caret is in it, and an
+    // address typed there and Enter rewrite the link's Markdown
+    {
+      p = await at("teksti, puhe", 0);
+      await pg.mouse.click(p.x, p.y);
+      await pg.waitForTimeout(150);
+      await pg.evaluate(() => window.__app.docType("[Linkki](https://sliqtly.com/s/AbCdEf1234) "));
+      await pg.waitForTimeout(300);
+      const l0 = await src();
+      const lo = l0.indexOf("[Linkki]");
+      await pg.evaluate((o) => window.__app.docSetCaret(o, false), lo + 3);
+      await pg.waitForTimeout(200);
+      const shown = await pg.evaluate(() => { window.__app.docBarSync(); return window.__app.docBar.linkUrl; });
+      check("View editing: the bar shows the address of the link at the caret", shown === "https://sliqtly.com/s/AbCdEf1234", JSON.stringify(shown));
+      await pg.evaluate(() => { const A = window.__app; A.docBar.typing = true; A.docBar.linkIn.selectAll(); A.focus = "docbar"; });
+      await pg.keyboard.type("https://example.com/x");
+      await key("Enter");
+      const l1 = await src();
+      check("View editing: …an address typed there and Enter change the link", l1.includes("[Linkki](https://example.com/x) teksti, puhe"), JSON.stringify(l1.slice(lo - 4, lo + 50)));
+      check("View editing: …and the keys are the page's again", (await pg.evaluate(() => window.__app.docBar.typing)) === false, "");
+    }
     // the time a key takes: written, the deck and the page built again
     const ms = await pg.evaluate(() => { const A = window.__app; const t0 = performance.now(); for (let i = 0; i < 20; i++) { A.docType("a"); A.docReveal(); } return (performance.now() - t0) / 20; });
     check("View editing: a key under 50 ms, deck and page built again", ms < 50, ms.toFixed(1) + " ms");

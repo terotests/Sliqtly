@@ -37,3 +37,24 @@ test("other addresses open as they are; script and mail addresses do not", () =>
 test("the wait outlasts the page's double click", () => {
   assert.ok(FOLLOW_MS > 400);
 });
+
+test("a double click on a link drops it, also after the wait is over", async () => {
+  const { LinkWait } = await import("../stagelink.js");
+  const w = new LinkWait();
+  const t = w.link(1000);
+  assert.ok(w.wanted(t));
+  // the second click of the double click, counted on the link's press
+  w.press(1000, 2);
+  assert.equal(w.wanted(t), false);
+  // a single click elsewhere leaves a link alone
+  const t2 = w.link(5000);
+  w.press(5000, 1);
+  assert.ok(w.wanted(t2));
+  // a double click later, not on the link's press, leaves it too
+  w.press(4000, 2);
+  assert.ok(w.wanted(t2));
+  // a newer link takes over from an older one
+  const t3 = w.link(6000);
+  assert.equal(w.wanted(t2), false);
+  assert.ok(w.wanted(t3));
+});

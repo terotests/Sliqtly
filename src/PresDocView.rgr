@@ -61,6 +61,12 @@ class PresDocView {
     ; picture and figure, and a slide's rule with the start of the slide
     def atomTop:[double]
     def atomBottom:[double]
+    ; an open paragraph: Enter at the end of a block opens an empty line
+    ; under it before anything is written to the Markdown (PresApp
+    ; docOpen); its source offset, the block's end, or -1. `builtOpen` is
+    ; what the page was built with.
+    def openAt:int -1
+    def builtOpen:int -1
 
     Constructor () {
     }
@@ -322,6 +328,8 @@ class PresDocView {
         if (cur >= 0) {
             this.addNotes(deck cur itemChild noteLayouts noteItems)
         }
+        builtOpen = openAt
+        this.addOpen(l itemChild)
         flow.place((deck.slideCount()))
         ; a program with no picture yet says it is loading: the page runs
         ; its first frames for this view (web/main.js docStills)
@@ -329,6 +337,36 @@ class PresDocView {
         this.paint(deck l word boxChild itemChild noteLayouts noteItems)
         deck.platesLoading = false
         caret.finish()
+    }
+
+    ; The open paragraph's line, after the block that ends at `openAt`
+    ; (the last text or shot starting at or before it).
+    fn addOpen:void (l:MdLayout itemChild:[int]) {
+        if (openAt < 0) {
+            return
+        }
+        def at:int -1
+        def i:int 0
+        while (i < (array_length flow.items)) {
+            def it:PresDocItem (itemAt flow.items i)
+            if ((it.kind < 2) && (it.key <= openAt)) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return
+        }
+        def prev:PresDocItem (itemAt flow.items at)
+        def op (new PresDocItem())
+        op.kind = 3
+        op.page = prev.page
+        op.key = openAt
+        op.keyEnd = openAt
+        op.sw = l.style.paraSpacing
+        op.sh = (l.style.bodySize * l.style.lineHeight)
+        insert flow.items (at + 1) op
+        insert itemChild (at + 1) -1
     }
 
     fn reads:boolean (page:int) {
@@ -483,6 +521,9 @@ class PresDocView {
                     }
                     k = (k + 1)
                 }
+            }
+            if (it.kind == 3) {
+                caret.addOpen(it.x it.y it.h it.key)
             }
             if (it.kind == 1) {
                 this.paintShot(deck word it)

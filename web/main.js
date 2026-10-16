@@ -51,7 +51,7 @@ import { RoomChat, unreadRooms, chatMe } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
-import { linkTarget, FOLLOW_MS } from "./stagelink.js";
+import { linkTarget, FOLLOW_MS, LinkWait } from "./stagelink.js";
 import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
@@ -5717,7 +5717,9 @@ async function openAbout() {
 // from the presentations window, someone else's in a new tab, as does any
 // other web address.
 let linkTimer = 0;
-async function followLink(href) {
+const linkWait = new LinkWait();
+async function followLink(href, wanted = () => true) {
+  if (!wanted()) return;
   if (app.followLink(href)) {
     needsPaint = true;
     return;
@@ -5730,7 +5732,7 @@ async function followLink(href) {
       needsPaint = true;
       return;
     }
-    const opened = await loadingScreen(() => openOwnCloud(to.deck).catch((e) => { console.warn(e); return false; }));
+    const opened = await loadingScreen(() => openOwnCloud(to.deck, wanted).catch((e) => { console.warn(e); return false; }));
     // overtaken: another deck was opened meanwhile, and it is the one shown
     if (opened === OVERTAKEN) return;
     if (opened) {
@@ -5740,7 +5742,7 @@ async function followLink(href) {
       return;
     }
   }
-  window.open(to.url, "_blank", "noopener");
+  if (wanted()) window.open(to.url, "_blank", "noopener");
 }
 
 function handleRequests() {
@@ -5771,7 +5773,9 @@ function handleRequests() {
       clearTimeout(linkTimer);
       const href = r.slice(5);
       const presenting = lastLayout && lastLayout.mode === "present";
-      linkTimer = setTimeout(() => followLink(href).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
+      // the press that asked for it may be the first of a double click
+      const turn = linkWait.link(lastDown);
+      linkTimer = setTimeout(() => followLink(href, () => linkWait.wanted(turn)).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
     } else if (r === "save:now") {
       // File → Save, ⌘/Ctrl+S: kept where the deck lives, with a version
       saveNow().catch(fail);
@@ -7240,15 +7244,17 @@ function shareFiles(files, init) {
 // Opens the signed-in owner's deck from its share (/s/{id}?edit): the cloud
 // has the latest, an assistant's changes included. Kept in this browser
 // under the id it had here, or a new one. False when it is not theirs.
-async function openOwnCloud(id) {
+async function openOwnCloud(id, wanted = () => true) {
   try {
-    return await openOwnCloudNow(id);
+    return await openOwnCloudNow(id, wanted);
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
     throw e;
   }
 }
-async function openOwnCloudNow(id) {
+// `wanted`: whether it is still to be opened (a link's press that turned
+// out to be a double click is not), asked before the deck shown is left
+async function openOwnCloudNow(id, wanted = () => true) {
   const turn = ++openTurn;
   const p = await pro();
   const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
@@ -7258,11 +7264,12 @@ async function openOwnCloudNow(id) {
   const mine = typeof p.mayChange === "function" ? p.mayChange(shared) : shared.owner === who.uid;
   if (!shared || !mine) return false;
   const local = (await vfs.listDocs()).find((d) => d.cloud === id);
+  if (!wanted()) return OVERTAKEN;
   // changes made here that the cloud does not have yet, and nobody changed
   // it since: this browser's copy is the newer, and goes up on the next save
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
   await leaveDoc();
-  if (overtaken(turn)) return OVERTAKEN;
+  if (overtaken(turn) || !wanted()) return OVERTAKEN;
   beginDoc(shared.md || "");
   doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
@@ -10451,6 +10458,9 @@ canvas.addEventListener("pointerdown", (ev) => {
   // a finger gets a wider spot than a mouse
   const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < (finger ? 40 : 8);
   clicks = now - lastDown < 400 && near ? clicks + 1 : 1;
+  // the second click of a double click on a link: not followed, also when
+  // its deck is already on its way
+  linkWait.press(lastDown, clicks);
   lastDown = now;
   lastDownAt = [x, y];
   // a double tap on the slide while editing: in to read it, or back out

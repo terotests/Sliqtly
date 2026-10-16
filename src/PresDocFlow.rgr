@@ -21,7 +21,8 @@
 ; ============================================================================
 
 class PresDocItem {
-    ; 0 text, 1 shot, 2 notes
+    ; 0 text, 1 shot, 2 notes, 3 an open paragraph (an empty line after
+    ; the item before it, where Enter was pressed: PresDocView.openAt)
     def kind:int 0
     ; the slide it is on
     def page:int 0
@@ -32,7 +33,8 @@ class PresDocItem {
     ; (both -1 when it had none)
     def top:double -1.0
     def bottom:double -1.0
-    ; a SHOT: its rectangle's size on the slide. NOTES: their height
+    ; a SHOT: its rectangle's size on the slide. NOTES: their height. An
+    ; OPEN paragraph: the room above it (sw) and its line's height (sh)
     def sw:double 0.0
     def sh:double 0.0
     ; --- placed ---
@@ -168,13 +170,21 @@ class PresDocFlow {
                 it.h = it.sh
                 it.y = (cursor + shotGap)
             }
+            ; an open paragraph pushes what follows down by its line; the
+            ; gap after it is the one the next item had to the item before
+            if (it.kind == 3) {
+                it.x = (this.colX())
+                it.w = cw
+                it.h = it.sh
+                it.y = (cursor + it.sw)
+            }
             if (newSlide && ((it.page >= 0) && (it.page < slides))) {
                 if ((itemAt slideTops it.page) < 0.0) {
                     set slideTops it.page it.y
                 }
             }
             cursor = (it.bottomEdge())
-            if (it.kind != 2) {
+            if ((it.kind != 2) && (it.kind != 3)) {
                 prevBottom = it.bottom
             }
             prevPage = it.page
@@ -328,7 +338,7 @@ class PresDocFlow {
         def i:int 0
         while (i < (array_length items)) {
             def it:PresDocItem (itemAt items i)
-            if ((it.key == key) && (it.kind != 2)) {
+            if ((it.key == key) && (it.kind < 2)) {
                 return it.y
             }
             i = (i + 1)
