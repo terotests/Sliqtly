@@ -9831,9 +9831,16 @@ keys.addEventListener("paste", (ev) => {
     return;
   }
   // slides, an element, a diagram or a spec: asked about, then pasted
-  if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
-  // on the View page a table from a spreadsheet or a web page lands as a table
+  const plain = performance.now() - plainAt < 1500;
+  if (text && clipPaste(text, plain)) return;
+  // a table from a spreadsheet, in the Markdown or on the View page: the
+  // paste window picks its columns, numbers and rows (src/PresPasteTable.rgr)
   const pastedHtml = ev.clipboardData?.getData("text/html") || "";
+  if (!plain && !viewer && app.pasteTableAsk(pastedHtml, text)) {
+    needsPaint = true;
+    return;
+  }
+  // on the View page a table from a web page lands as a table
   if (pastedHtml && app.pasteHtml(pastedHtml, text)) {
     afterInput();
     return;

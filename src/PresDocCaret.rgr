@@ -243,8 +243,54 @@ class PresDocCaret {
         return (this.offsetInBox(best x))
     }
 
+    ; Every line at y's distance is asked, not only the first: in a table
+    ; row whose cell wraps, the cell's second line sits between the row's
+    ; boxes in reading order, so the row's cells at one height fall in
+    ; separate lines (the first holds only the wrapped cell's first words).
     fn offsetAt:int (x:double y:double) {
-        return (this.offsetOnLine((this.lineAtY(y)) x))
+        def first:int (this.lineAtY(y))
+        if (first < 0) {
+            return -1
+        }
+        def want:double (this.yDistance(first y))
+        def best:int -1
+        def bestD:double -1.0
+        def li:int first
+        while (li < (array_length lineTop)) {
+            if ((this.yDistance(li y)) <= (want + 0.01)) {
+                def i:int (itemAt lineFrom li)
+                while (i < (itemAt lineTo li)) {
+                    def b:MdBox (itemAt boxes i)
+                    def d:double 0.0
+                    if (x < b.x) {
+                        d = (b.x - x)
+                    }
+                    if (x > (b.x + b.w)) {
+                        d = (x - (b.x + b.w))
+                    }
+                    if ((bestD < 0.0) || (d < bestD)) {
+                        best = i
+                        bestD = d
+                    }
+                    i = (i + 1)
+                }
+            }
+            li = (li + 1)
+        }
+        return (this.offsetInBox(best x))
+    }
+
+    ; How far y is from line `li` (0 inside it).
+    fn yDistance:double (li:int y:double) {
+        def t:double (itemAt lineTop li)
+        def h:double (itemAt lineH li)
+        if (y < t) {
+            return (t - y)
+        }
+        if (y > (t + h)) {
+            return (y - (t + h))
+        }
+        return 0.0
     }
 
     ; The link of the words under a page point, "" for none. A line's height

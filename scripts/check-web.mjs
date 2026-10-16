@@ -6752,8 +6752,18 @@ try {
       document.getElementById("keys").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
     });
     await frames();
+    // the paste window first: its columns, numbers and rows
+    const ptOpen = await pg.evaluate(() => window.__app.shareIsOpen() && window.__app.panels.dialogKind === "pastetable");
+    await pg.evaluate(() => {
+      const a = window.__app;
+      a.panelsJson();
+      const walk = (e) => { if (e.id === "pn-pt-ok") return e; for (const k of e.children || []) { const r = walk(k); if (r) return r; } return null; };
+      const b = walk(a.panels.host.lastPage);
+      if (b) { a.pointerDown(b.calculatedX + 8, b.calculatedY + 8, false, 1); a.pointerUp(); }
+    });
+    await frames();
     const pasted = await src();
-    check("View keys: a table pasted from a spreadsheet lands as a Markdown table", /\n\n\| Nimi \| Arvo \|\n\|[-: |]+\|\n\| a +\| 1 +\|\n\nLoppu/.test(pasted), JSON.stringify(pasted.slice(-80)));
+    check("View keys: a table pasted from a spreadsheet asks first, then lands as a Markdown table", ptOpen && /\n\n\| Nimi \| Arvo \|\n\|[-: |]+\|\n\| a +\| +1 \|\n\nLoppu/.test(pasted), JSON.stringify({ ptOpen, end: pasted.slice(-80) }));
     // Ctrl/⌘+click on a link opens it; a plain click puts the caret in it
     const lnk = body + "Katso [sivu](https://example.com/k) nyt\n";
     await put(lnk, "Katso");

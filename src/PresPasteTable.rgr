@@ -1,0 +1,529 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresPasteTable.rgr — a table pasted from a spreadsheet, before it is written
+; ============================================================================
+;
+; Excel, Sheets and Numbers put a selection on the clipboard as HTML (a
+; <table>) and as tab-separated text. Pasted straight in, a sheet of ten
+; columns and hundreds of rows is a Markdown table nobody wanted whole, and
+; a cell holding a computed number can carry the binary float's noise
+; (5.1020000000000003 for 5.102).
+;
+; This holds the pasted cells and the person's choices in the paste window:
+;
+;   the columns    each one in or out of the table
+;   the numbers    "tidy": a number of 16 or more significant digits rounded
+;                  to 15, the noise gone and every number that was written
+;                  as typed kept as it is (81.40 stays 81.40);
+;                  "copied": as on the clipboard; "0".."3": that many
+;                  decimals. Only the columns of numbers are touched.
+;   the rows       all, or the first 10 / 20 / 50
+;
+; and writes the GFM table: the first row the header, the columns padded
+; to line up, number columns right-aligned. No UI here: PresPanels draws
+; the window, PresApp puts the table at the caret.
+; ============================================================================
+
+Import "../docx_viewer/src/ClipboardTable.rgr"
+Import "../markdown/src/MdSemanticEdit.rgr"
+
+class PresPasteTable {
+    ; the header row's cells, then the rows under it a row at a time
+    def head:[string]
+    def cells:[string]
+    def cols:int 0
+    def rows:int 0
+    ; per column: in the table, and every value in it a number
+    def on:[boolean]
+    def numeric:[boolean]
+    ; per column: whole numbers only (a count stays 4, never 4.00)
+    def whole:[boolean]
+    ; "tidy", "copied", "0", "1", "2" or "3"
+    def digits:string "tidy"
+    ; the rows written: 0 = all
+    def maxRows:int 0
+    ; the clipboard's plain text, for "Paste as text"
+    def raw:string ""
+
+    Constructor () {
+    }
+
+    ; The clipboard's HTML table, else its tab-separated text. False when
+    ; neither is a table with a header and a row under it.
+    fn load:boolean (html:string text:string) {
+        raw = text
+        def tbl:ClipboardTable (new ClipboardTable)
+        def got:boolean false
+        if (((strlen html) > 0) && ((indexOf (ClipboardTable.lower(html)) "<table") >= 0)) {
+            got = (tbl.parseHtml(html))
+        }
+        if ((got == false) && (ClipboardTable.looksTabular(text))) {
+            got = (tbl.parseTsv(text))
+        }
+        if (got == false) {
+            return false
+        }
+        def n:int (tbl.columnCount())
+        def grid:[string]
+        def kept:int 0
+        def r:int 0
+        while (r < (tbl.rowCount())) {
+            def row:ClipRow (tbl.rowAt(r))
+            def line:[string]
+            def any:boolean false
+            def c:int 0
+            while (c < n) {
+                def v:string ""
+                if (c < (array_length row.cells)) {
+                    def cell:ClipCell (itemAt row.cells c)
+                    v = (MdSemanticEdit.cellText(cell.text))
+                }
+                if ((strlen v) > 0) {
+                    any = true
+                }
+                push line v
+                c = (c + 1)
+            }
+            ; an empty row (Excel's last line, a gap in the selection) is not one
+            if any {
+                def k:int 0
+                while (k < n) {
+                    push grid (itemAt line k)
+                    k = (k + 1)
+                }
+                kept = (kept + 1)
+            }
+            r = (r + 1)
+        }
+        ; the columns with anything in them
+        def use:[int]
+        def c2:int 0
+        while (c2 < n) {
+            def full:boolean false
+            def r2:int 0
+            while (r2 < kept) {
+                if ((strlen (itemAt grid ((r2 * n) + c2))) > 0) {
+                    full = true
+                }
+                r2 = (r2 + 1)
+            }
+            if full {
+                push use c2
+            }
+            c2 = (c2 + 1)
+        }
+        cols = (array_length use)
+        rows = (kept - 1)
+        if ((kept < 2) || (cols < 1)) {
+            return false
+        }
+        clear head
+        clear cells
+        clear on
+        clear numeric
+        clear whole
+        def r3:int 0
+        while (r3 < kept) {
+            def u:int 0
+            while (u < cols) {
+                def v3:string (itemAt grid ((r3 * n) + (itemAt use u)))
+                if (r3 == 0) {
+                    push head v3
+                } {
+                    push cells v3
+                }
+                u = (u + 1)
+            }
+            r3 = (r3 + 1)
+        }
+        def k2:int 0
+        while (k2 < cols) {
+            push on true
+            push numeric (this.allNumbers(k2))
+            push whole (this.allWhole(k2))
+            k2 = (k2 + 1)
+        }
+        return true
+    }
+
+    fn allNumbers:boolean (c:int) {
+        def any:boolean false
+        def r:int 0
+        while (r < rows) {
+            def v:string (this.cell(r c))
+            if ((strlen v) > 0) {
+                if ((PresPasteTable.isNumber(v)) == false) {
+                    return false
+                }
+                any = true
+            }
+            r = (r + 1)
+        }
+        return any
+    }
+
+    fn allWhole:boolean (c:int) {
+        def r:int 0
+        while (r < rows) {
+            def v:string (this.cell(r c))
+            if (((indexOf v ".") >= 0) || ((indexOf v ",") >= 0)) {
+                return false
+            }
+            r = (r + 1)
+        }
+        return true
+    }
+
+    ; A data cell as pasted.
+    fn cell:string (r:int c:int) {
+        return (itemAt cells ((r * cols) + c))
+    }
+
+    ; A data cell as the table will have it.
+    fn value:string (r:int c:int) {
+        def v:string (this.cell(r c))
+        if (((itemAt numeric c) == false) || (itemAt whole c)) {
+            return v
+        }
+        return (PresPasteTable.format(v digits))
+    }
+
+    fn toggle:void (c:int) {
+        if ((c < 0) || (c >= cols)) {
+            return
+        }
+        def now:boolean (itemAt on c)
+        ; the last column in stays in: a table of none is not a table
+        if (now && ((this.shownCols()) <= 1)) {
+            return
+        }
+        set on c (now == false)
+    }
+
+    fn shownCols:int () {
+        def n:int 0
+        def c:int 0
+        while (c < cols) {
+            if (itemAt on c) {
+                n = (n + 1)
+            }
+            c = (c + 1)
+        }
+        return n
+    }
+
+    fn shownRows:int () {
+        if ((maxRows > 0) && (maxRows < rows)) {
+            return maxRows
+        }
+        return rows
+    }
+
+    fn anyNumbers:boolean () {
+        def c:int 0
+        while (c < cols) {
+            if (itemAt numeric c) {
+                return true
+            }
+            c = (c + 1)
+        }
+        return false
+    }
+
+    ; The table as GFM, a line per row, ending in a newline.
+    fn markdown:string () {
+        def pick:[int]
+        def c:int 0
+        while (c < cols) {
+            if (itemAt on c) {
+                push pick c
+            }
+            c = (c + 1)
+        }
+        def nr:int (this.shownRows())
+        def width:[int]
+        def p:int 0
+        while (p < (array_length pick)) {
+            def col:int (itemAt pick p)
+            def wd:int (strlen (itemAt head col))
+            if (wd < 3) {
+                wd = 3
+            }
+            def r:int 0
+            while (r < nr) {
+                def l:int (strlen (this.value(r col)))
+                if (l > wd) {
+                    wd = l
+                }
+                r = (r + 1)
+            }
+            push width wd
+            p = (p + 1)
+        }
+        def out:string ""
+        def r2:int -1
+        while (r2 < nr) {
+            def line:string "|"
+            def p2:int 0
+            while (p2 < (array_length pick)) {
+                def col2:int (itemAt pick p2)
+                def wd2:int (itemAt width p2)
+                if (r2 < 0) {
+                    line = (line + " " + (PresPasteTable.padRight((itemAt head col2) wd2)) + " |")
+                } {
+                    def v:string (this.value(r2 col2))
+                    if (itemAt numeric col2) {
+                        line = (line + " " + (PresPasteTable.padLeft(v wd2)) + " |")
+                    } {
+                        line = (line + " " + (PresPasteTable.padRight(v wd2)) + " |")
+                    }
+                }
+                p2 = (p2 + 1)
+            }
+            out = (out + line + "\n")
+            if (r2 < 0) {
+                def sep:string "|"
+                def p3:int 0
+                while (p3 < (array_length pick)) {
+                    def dashes:string (PresPasteTable.repeat("-" (itemAt width p3)))
+                    if (itemAt numeric (itemAt pick p3)) {
+                        dashes = ((substring dashes 0 ((strlen dashes) - 1)) + ":")
+                    }
+                    sep = (sep + " " + dashes + " |")
+                    p3 = (p3 + 1)
+                }
+                out = (out + sep + "\n")
+            }
+            r2 = (r2 + 1)
+        }
+        return out
+    }
+
+    ; --- numbers ----------------------------------------------------------------
+
+    sfn repeat:string (s:string n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            out = (out + s)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn padRight:string (v:string n:int) {
+        return (v + (PresPasteTable.repeat(" " (n - (strlen v)))))
+    }
+
+    sfn padLeft:string (v:string n:int) {
+        return ((PresPasteTable.repeat(" " (n - (strlen v)))) + v)
+    }
+
+    sfn isDigit:boolean (c:int) {
+        return ((c >= 48) && (c <= 57))
+    }
+
+    ; A plain decimal: an optional sign, digits, and one "." or "," with
+    ; digits after it. Thousands separators, exponents, percentages and
+    ; currencies are text here.
+    sfn isNumber:boolean (v:string) {
+        def n:int (strlen v)
+        def i:int 0
+        if ((n > 0) && (((charAt v 0) == 45) || ((charAt v 0) == 43))) {
+            i = 1
+        }
+        def before:int 0
+        def after:int 0
+        def sep:boolean false
+        while (i < n) {
+            def c:int (charAt v i)
+            if (PresPasteTable.isDigit(c)) {
+                if sep {
+                    after = (after + 1)
+                } {
+                    before = (before + 1)
+                }
+            } {
+                if (((c == 46) || (c == 44)) && (sep == false)) {
+                    sep = true
+                } {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        if (before == 0) {
+            return false
+        }
+        if (sep && (after == 0)) {
+            return false
+        }
+        return true
+    }
+
+    ; A number in the way `digits` asks (a column of whole numbers is left
+    ; as it is: `value`) ("tidy", "copied", "0".."3"); text
+    ; that is not a number comes back as it is.
+    sfn format:string (v:string digits:string) {
+        if ((digits == "copied") || ((PresPasteTable.isNumber(v)) == false)) {
+            return v
+        }
+        if (digits == "tidy") {
+            return (PresPasteTable.tidy(v))
+        }
+        def d:int (?? (str2int digits) -1)
+        if (d < 0) {
+            return v
+        }
+        ; rounded from the number meant (26.235, not 26.234999…)
+        return (PresPasteTable.fixed((PresPasteTable.tidy(v)) d))
+    }
+
+    ; Float noise gone: a number of more than 15 significant digits rounded
+    ; to 15 and its trailing zeros dropped. Shorter numbers are as written.
+    sfn tidy:string (v:string) {
+        def parts:[string] (PresPasteTable.split(v))
+        def sign:string (itemAt parts 0)
+        def ip:string (itemAt parts 1)
+        def sp:string (itemAt parts 2)
+        def fp:string (itemAt parts 3)
+        def lead:int 0
+        while ((lead < (strlen ip)) && ((charAt ip lead) == 48)) {
+            lead = (lead + 1)
+        }
+        def intSig:int ((strlen ip) - lead)
+        def keep:int 0
+        if (intSig > 0) {
+            keep = (15 - intSig)
+        } {
+            def z:int 0
+            while ((z < (strlen fp)) && ((charAt fp z) == 48)) {
+                z = (z + 1)
+            }
+            if (z == (strlen fp)) {
+                return v
+            }
+            keep = (z + 15)
+        }
+        if ((keep < 0) || ((strlen fp) <= keep)) {
+            return v
+        }
+        def rd:[string] (PresPasteTable.round(ip fp keep))
+        def nf:string (itemAt rd 1)
+        def e:int (strlen nf)
+        while ((e > 0) && ((charAt nf (e - 1)) == 48)) {
+            e = (e - 1)
+        }
+        nf = (substring nf 0 e)
+        return (PresPasteTable.join(sign (itemAt rd 0) sp nf))
+    }
+
+    ; `d` decimals, rounded half away from zero, zeros added to fill.
+    sfn fixed:string (v:string d:int) {
+        def parts:[string] (PresPasteTable.split(v))
+        def sp:string (itemAt parts 2)
+        if ((strlen sp) == 0) {
+            sp = "."
+        }
+        def fp:string (itemAt parts 3)
+        def rd:[string] (PresPasteTable.round((itemAt parts 1) fp d))
+        def nf:string (itemAt rd 1)
+        nf = (nf + (PresPasteTable.repeat("0" (d - (strlen nf)))))
+        return (PresPasteTable.join((itemAt parts 0) (itemAt rd 0) sp nf))
+    }
+
+    ; [sign, integer digits, separator, fraction digits]
+    sfn split:[string] (v:string) {
+        def out:[string]
+        def s:string ""
+        def rest:string v
+        if (((charAt v 0) == 45) || ((charAt v 0) == 43)) {
+            s = (substring v 0 1)
+            rest = (substring v 1 (strlen v))
+        }
+        if (s == "+") {
+            s = ""
+        }
+        def at:int (indexOf rest ".")
+        if (at < 0) {
+            at = (indexOf rest ",")
+        }
+        push out s
+        if (at < 0) {
+            push out rest
+            push out ""
+            push out ""
+        } {
+            push out (substring rest 0 at)
+            push out (substring rest at (at + 1))
+            push out (substring rest (at + 1) (strlen rest))
+        }
+        return out
+    }
+
+    sfn join:string (sign:string ip:string sp:string fp:string) {
+        def i:string ip
+        if ((strlen i) == 0) {
+            i = "0"
+        }
+        def out:string i
+        if ((strlen fp) > 0) {
+            out = (out + sp + fp)
+        }
+        ; no "-0" when rounding took everything
+        def nz:boolean false
+        def k:int 0
+        while (k < (strlen out)) {
+            def c:int (charAt out k)
+            if ((c >= 49) && (c <= 57)) {
+                nz = true
+            }
+            k = (k + 1)
+        }
+        if nz {
+            return (sign + out)
+        }
+        return out
+    }
+
+    ; [integer digits, the first `keep` fraction digits], rounded half up on
+    ; the digits themselves (no float in between to bring the noise back).
+    sfn round:[string] (ip:string fp:string keep:int) {
+        def out:[string]
+        if ((strlen fp) <= keep) {
+            push out ip
+            push out fp
+            return out
+        }
+        def ds:string (ip + (substring fp 0 keep))
+        def up:boolean ((charAt fp keep) >= 53)
+        if up {
+            def i:int ((strlen ds) - 1)
+            def carry:boolean true
+            def res:string ""
+            while (i >= 0) {
+                def c:int (charAt ds i)
+                if carry {
+                    if (c == 57) {
+                        res = ("0" + res)
+                    } {
+                        res = ((strfromcode (c + 1)) + res)
+                        carry = false
+                    }
+                } {
+                    res = ((substring ds i (i + 1)) + res)
+                }
+                i = (i - 1)
+            }
+            if carry {
+                res = ("1" + res)
+            }
+            ds = res
+        }
+        def il:int ((strlen ds) - keep)
+        push out (substring ds 0 il)
+        push out (substring ds il (strlen ds))
+        return out
+    }
+}

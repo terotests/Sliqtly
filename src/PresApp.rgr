@@ -13715,11 +13715,15 @@ class PresApp {
                       if ((indexOf r "data:") == 0) {
                         this.dataRequest((substring r 5 (strlen r)))
                       } {
+                      if ((indexOf r "pastetable:") == 0) {
+                        this.pasteTableRequest((substring r 11 (strlen r)))
+                      } {
                         if ((indexOf r "ai-") == 0) {
                           this.aiRequest(r)
                         } {
                           push requests r
                         }
+                      }
                       }
                     }
                   }
@@ -17607,6 +17611,10 @@ class PresApp {
         return ("<!--sliqtly-->" + (MdToHtml.render((MdBlock.parseText(md)))))
     }
 
+    ; where the paste window's table goes: the View page's caret, or the
+    ; Markdown editor's
+    def pasteOnView:boolean false
+
     ; A paste on the View page with the clipboard's HTML: a table copied
     ; from a spreadsheet or a web page becomes a Markdown table (blank lines
     ; around it); otherwise the text, as `pasteText`. False when the View
@@ -17642,6 +17650,17 @@ class PresApp {
             }
             made = md
         }
+        this.docPasteBlock(made)
+        return true
+    }
+
+    ; Blocks pasted on the View page: on lines of their own, a blank line
+    ; around them.
+    fn docPasteBlock:void (made:string) {
+        def src:string (mdEditor.text())
+        def at:int (mdEditor.caretOffset())
+        def a:int (mdEditor.anchorOffset())
+        def lo:int (? (a < at) a at)
         def head:string "\n\n"
         if ((lo == 0) || ((PresDocCaret.lineStartOf(src lo)) == lo)) {
             head = (? ((lo >= 2) && ((charAt src (lo - 2)) == 10)) "" "\n")
@@ -17651,7 +17670,56 @@ class PresApp {
         }
         def tail:string (? (PresDocKeys.endsWith(made "\n")) "\n" "\n\n")
         this.docType((head + made + tail))
+    }
+
+    ; A table from a spreadsheet pasted in the Markdown or on the View page:
+    ; the paste window asks which columns, how the numbers read and how many
+    ; rows first (PresPasteTable). False when the paste is not a table or
+    ; not the document's (the page pastes it as before).
+    fn pasteTableAsk:boolean (html:string text:string) {
+        if (((focus != "editor") || (mode == "present")) || ((this.mayEdit()) == false)) {
+            return false
+        }
+        def onView:boolean (this.docEditing())
+        if (onView == false) {
+            if ((this.clipWhere()) != "md") {
+                return false
+            }
+            ; a fence's text is the fence's: tabs stay tabs
+            if (PresClip.insideFence((mdEditor.text()) (this.offsetOf(mdEditor.sel.caret.line mdEditor.sel.caret.col)))) {
+                return false
+            }
+        }
+        ; the page's own copy (View → Copy) is its Markdown already
+        if ((indexOf html "<!--sliqtly-->") >= 0) {
+            return false
+        }
+        def t (new PresPasteTable())
+        if ((t.load(html text)) == false) {
+            return false
+        }
+        pasteOnView = onView
+        this.closeHint()
+        panels.openPasteTable(t)
+        chromeRev = (chromeRev + 1)
         return true
+    }
+
+    ; The paste window's answer: "table" writes the table, "text" pastes
+    ; the clipboard's text as it is.
+    fn pasteTableRequest:void (what:string) {
+        def t:PresPasteTable panels.paste
+        if (what == "text") {
+            this.pasteText(t.raw)
+            return
+        }
+        def made:string (t.markdown())
+        if pasteOnView {
+            this.docPasteBlock(made)
+            return
+        }
+        ; a table runs on into the next line unless a blank line ends it
+        this.insertBlock((made + "\n"))
     }
 
     ; Ctrl+X cuts from the editor only; text selected elsewhere is not the
