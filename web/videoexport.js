@@ -14,7 +14,8 @@
 //
 // The encoder is not here: scripts/video.mjs pipes the pixels into FFmpeg or
 // Sliqtly's own VP8 encoder (README "Video"), and File → Export → Video
-// hands them to that encoder in a worker (web/video-worker.js).
+// hands them to the browser's H.264 encoder (web/mp4export.js, MP4) or to
+// that VP8 encoder in a worker (web/video-worker.js, WebM).
 
 /**
  * @param {object} deps

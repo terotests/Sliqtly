@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import zlib from "node:zlib";
+import { spawnSync } from "node:child_process";
 import { distDir, log, ensureRanger, root } from "./lib.mjs";
 import { build } from "./build.mjs";
 
@@ -1045,6 +1046,47 @@ try {
     const still = c.filter((x) => x[1]).length;
     const pictures = new Set(c.map((x) => x[0])).size;
     check("…a frame like the one before is not drawn again", still > 0 && pictures > 1, `${still} still, ${pictures} different of ${c.length}`);
+    // File → Export → Video…: the window offers MP4 only where this browser
+    // codes H.264 (WebCodecs), WebM always; 720p picked, the file is made
+    // and saved. Playwright's Chromium has no H.264 encoder (no proprietary
+    // codecs), so there this checks the WebM fallback; a Chrome with H.264
+    // checks the MP4 (web/mp4mux.js readMp4).
+    {
+      await pv.evaluate(() => window.__app.setSource("---\nfx: none\nstep: 0.5\nhold: 1.0\n---\n\n## Video\n\nTeksti\n"));
+      const h264 = await pv.evaluate(() => window.__canH264());
+      const win = await pv.evaluate(async () => {
+        const a = window.__app;
+        await window.__askVideo();
+        return { open: a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "video", picks: a.chart.cfPicks, pick: a.chart.cfPick };
+      });
+      check("Export → Video… asks the format, size and rate" + (h264 ? " (MP4 here)" : " (no H.264 here: WebM only)"),
+        win.open && win.picks.includes("webm=") && win.picks.includes("mp4=") === h264 && win.picks.includes("720=1280 × 720") && win.picks.includes("60=60 fps") && win.pick === (h264 ? "mp4" : "webm") + ",1080,30", JSON.stringify(win));
+      const got = pv.waitForEvent("download", { timeout: 300000 });
+      await pv.evaluate(() => {
+        const a = window.__app;
+        a.chart.confirmAct("cf-pick-1-720");
+        a.chart.confirmAct("cf-ok");
+        a.afterChart();
+        window.__handleRequests();
+      });
+      const dl = await got.catch((e) => null);
+      const file = dl ? path.join(fs.mkdtempSync(path.join(os.tmpdir(), "video-")), dl.suggestedFilename()) : "";
+      if (dl) await dl.saveAs(file);
+      const bytes = file ? fs.readFileSync(file) : Buffer.alloc(0);
+      const err = await pv.evaluate(() => document.getElementById("err").textContent);
+      if (h264) {
+        const { readMp4 } = await import(path.join(distDir, "mp4mux.js"));
+        let r = null;
+        try { r = readMp4(new Uint8Array(bytes)); } catch (e) { r = { error: String(e) }; }
+        check("…an MP4 of 1280 × 720 as long as the deck", file.endsWith(".mp4") && r.width === 1280 && r.height === 720 && r.duration > 0 && r.durations.reduce((x, y) => x + y, 0) === r.duration, JSON.stringify({ file, err, ...r, avcC: undefined, sizes: undefined }));
+      } else {
+        check("…a WebM (VP8) instead, 1280 × 720", file.endsWith(".webm") && bytes.readUInt32BE(0) === 0x1a45dfa3, JSON.stringify({ file, size: bytes.length, err }));
+      }
+      // what a player reads from it, where FFmpeg is installed
+      const probe = file ? spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height", "-of", "csv=p=0", file], { encoding: "utf8" }) : null;
+      if (probe && !probe.error) check("…FFmpeg reads it: " + probe.stdout.trim(), probe.status === 0 && probe.stdout.trim() === (h264 ? "h264" : "vp8") + ",1280,720", probe.stderr);
+      if (file) fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    }
     await pv.close();
   }
   check("typing a heading makes a slide", r.slidesAfterTyping === 7, String(r.slidesAfterTyping));

@@ -4382,11 +4382,28 @@ class PresCheck {
             return
         }
         ; options: kept when sensible, the defaults otherwise
-        def o:PresVideoOptions (PresVideoOptions.parse("{\"width\":1281,\"height\":720,\"fps\":25,\"codec\":\"h264\",\"quality\":99}"))
+        def o:PresVideoOptions (PresVideoOptions.parse("{\"width\":1281,\"height\":720,\"fps\":25,\"codec\":\"x264\",\"quality\":99}"))
         this.ok(((o.width == 1280) && (o.height == 720)) ("video: sides even, " + (to_string o.width)))
         this.ok((((o.fps == 25) && (o.codec == "vp9")) && (o.quality == 32)) "video: an unknown codec and quality keep the defaults")
         def o8:PresVideoOptions (PresVideoOptions.parse("{\"codec\":\"vp8\"}"))
         this.ok((o8.codec == "vp8") "video: vp8 is Sliqtly's own encoder")
+        def oh:PresVideoOptions (PresVideoOptions.parse("{\"codec\":\"h264\"}"))
+        this.ok((oh.codec == "h264") "video: h264 is the browser's encoder (MP4)")
+        ; Export → Video…'s window: MP4 offered only where the browser codes
+        ; H.264, the last answer picked first, a portrait deck turned
+        def pk:string (PresVideoChoice.picks(true false))
+        def pkNo:string (PresVideoChoice.picks(false false))
+        this.ok(((((indexOf pk "mp4=") >= 0) && ((indexOf pkNo "mp4=") < 0)) && ((indexOf pkNo "webm=") >= 0)) "video: MP4 is a choice only with H.264")
+        this.ok((((indexOf pk "1080=1920 × 1080") >= 0) && ((indexOf (PresVideoChoice.picks(true true)) "1080=1080 × 1920") >= 0)) "video: a portrait deck's sizes are turned")
+        this.ok(((PresVideoChoice.chosen(true "")) == "mp4,1080,30") "video: MP4 1080p30 the first time")
+        this.ok(((PresVideoChoice.chosen(false "mp4,720,60")) == "webm,720,60") "video: no H.264, the last MP4 answer is WebM")
+        this.ok(((PresVideoChoice.chosen(true "webm,720,60")) == "webm,720,60") "video: the last answer is kept")
+        def ch:PresVideoChoice (PresVideoChoice.parse("mp4,720,60" true))
+        def chO:PresVideoOptions (PresVideoOptions.parse((ch.optionsJson(1280.0 720.0))))
+        this.ok((((((chO.width == 1280) && (chO.height == 720)) && (chO.fps == 60)) && (chO.codec == "h264")) && ((ch.ext()) == ".mp4")) "video: MP4 720p60 options")
+        def pt:PresVideoChoice (PresVideoChoice.parse("webm,1080,30" true))
+        def ptO:PresVideoOptions (PresVideoOptions.parse((pt.optionsJson(720.0 1280.0))))
+        this.ok(((((ptO.width == 1080) && (ptO.height == 1920)) && (ptO.codec == "vp8")) && ((pt.mime()) == "video/webm")) "video: a portrait deck gets a portrait frame, WebM is VP8")
         ; Export's rows: Video always, the Cloud rows only where the page
         ; publishes to sliqtly.com (not a server of one's own, PresApp.setCloud)
         def tb (new PresToolbar())
