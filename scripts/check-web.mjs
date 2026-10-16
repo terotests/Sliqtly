@@ -6063,7 +6063,7 @@ try {
     check("View editing: ← steps over the hidden marker", c.caret < p.o - 1, JSON.stringify({ c, o: p.o }));
     await key("Backspace");
     const s8 = await src();
-    check("View editing: Backspace there deletes a letter, not the marker", s8.includes("3. *Vastaus*") && s8.length === s7.length - 1, "");
+    check("View editing: Backspace there deletes the letter before the caret, not the marker", s8.includes("3. *Vastaus*") && s8 === s7.slice(0, c.caret - 1) + s7.slice(c.caret), JSON.stringify(s8.slice(c.caret - 12, c.caret + 4)));
     await pg.keyboard.press("Control+z");
     await pg.waitForTimeout(200);
     p = await at("linkin saanut", 13);
@@ -6090,6 +6090,37 @@ try {
     // the time a key takes: written, the deck and the page built again
     const ms = await pg.evaluate(() => { const A = window.__app; const t0 = performance.now(); for (let i = 0; i < 20; i++) { A.docType("a"); A.docReveal(); } return (performance.now() - t0) / 20; });
     check("View editing: a key under 50 ms, deck and page built again", ms < 50, ms.toFixed(1) + " ms");
+    // a slide's notes are words on the page too: a press in them puts the
+    // caret in the ::: notes block, keys write there, the [[cue]] marks the
+    // page does not show stay as they are
+    const noteAt = async (word) => {
+      const t = await src();
+      const o = t.indexOf(word);
+      let xy = await pg.evaluate((o) => window.__app.docScreenAt(o), o);
+      for (let i = 0; i < 40 && xy !== ""; i++) {
+        const y = +xy.split(",")[1];
+        if (y > 150 && y < 700) break;
+        await pg.mouse.move(337, 400);
+        await pg.mouse.wheel(0, y > 700 ? 120 : -120);
+        await pg.waitForTimeout(80);
+        xy = await pg.evaluate((o) => window.__app.docScreenAt(o), o);
+      }
+      const [x, y] = xy.split(",").map(Number);
+      return { o, x, y, xy };
+    };
+    const n0 = await src();
+    p = await noteAt("Se kuulee äänen");
+    check("View editing: a slide's notes have a caret on the page", p.xy !== "" && n0.lastIndexOf("::: notes", p.o) > n0.lastIndexOf("\n:::\n", p.o), JSON.stringify(p));
+    await pg.mouse.click(p.x + 1, p.y);
+    await pg.waitForTimeout(200);
+    c = await st();
+    check("View editing: a press in the notes puts the caret on that character", c.caret === p.o, JSON.stringify({ c, o: p.o }));
+    await pg.keyboard.type("Nyt ");
+    await pg.waitForTimeout(300);
+    const n1 = await src();
+    check("View editing: typing in the notes writes into the notes block, its cues kept", n1.length === n0.length + 4 && n1.includes("saanut. [[1]]\nNyt Se kuulee äänen ja välittää sen Geminille. [[2]]"), JSON.stringify(n1.slice(p.o - 30, p.o + 50)));
+    await key("Backspace", 4);
+    check("View editing: Backspace in the notes takes it out again, byte for byte", (await src()) === n0, "");
     // a diagram drawn as its slide draws it: a double click opens its window
     const shotAt = () => pg.evaluate(() => {
       const A = window.__app;

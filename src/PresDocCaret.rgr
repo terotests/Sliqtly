@@ -23,8 +23,10 @@
 ; two paragraphs. A gap with anything else in it (a `---`, `{.class}`, a
 ; fence) is not taken.
 ;
-; Shots (charts and diagrams drawn as the slide draws them) and notes are
-; not words on this page: no caret goes into them. A table's cells are
+; Shots (charts and diagrams drawn as the slide draws them) are not words
+; on this page: no caret goes into them; a double click opens their window.
+; A slide's notes are: PresDocView moves their boxes onto the source of the
+; ::: notes block (notesToSource), the [[cue]] marks between them hidden. A table's cells are
 ; words (Tab goes from cell to cell: `cellAfter` / `cellBefore`). A picture
 ; is not a run of words either: `picAt` names the one under a point, for
 ; its handles (PresImageDrag) and its settings.

@@ -189,6 +189,10 @@ class PresSlide {
     def fxNames:[string]
     def fxValues:[string]
     def notes:string ""
+    ; where each notes block's body starts in the source, and how long it
+    ; is: `notes` is those bodies joined with "\n" (the View page edits them)
+    def noteAt:[int]
+    def noteLen:[int]
     def audio:string ""
     ; THE SLIDE'S OWN DATA, from the keys on its heading the engine does not
     ; know: `## Revenue {jira=ACME-412 owner=Tero}` (MdSlideMeta). Nothing
@@ -5503,6 +5507,8 @@ class PresDeck {
                         s2.notes = (s2.notes + "\n")
                     }
                     s2.notes = (s2.notes + blk.body)
+                    push s2.noteAt blk.bodyAt
+                    push s2.noteLen (strlen blk.body)
                 }
                 if (blk.kind == "audio") {
                     s2.audio = (PresSource.argValue(blk.args "src"))

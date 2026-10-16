@@ -37,6 +37,9 @@ class PresBlock {
     def end:int 0
     ; the line the body starts on, counted from 1
     def bodyLine:int 1
+    ; offset of the body's first character in the source: `body` is
+    ; (substring text bodyAt (bodyAt + (strlen body)))
+    def bodyAt:int 0
     ; a ```fx block's fence (``` or ~~~): its closing line starts with it
     def fence:string ""
 }
@@ -135,6 +138,14 @@ class PresSource {
         return out
     }
 
+    ; where `trimmed` (raw with its ends trimmed) starts, raw being at `at`
+    sfn trimmedAt:int (raw:string trimmed:string at:int) {
+        if ((strlen trimmed) == 0) {
+            return at
+        }
+        return (at + (indexOf raw trimmed))
+    }
+
     fn read:void (text:string) {
         clear blocks
         def n:int (strlen text)
@@ -202,8 +213,10 @@ class PresSource {
                             body = (substring text bodyStart lineStart)
                         }
                         ob.body = body
+                        ob.bodyAt = bodyStart
                         if ((strlen ob.fence) == 0) {
                             ob.body = (trim body)
+                            ob.bodyAt = (PresSource.trimmedAt(body ob.body bodyStart))
                         }
                         ob.end = next
                         push blocks ob
@@ -221,9 +234,12 @@ class PresSource {
         ; code fence does.
         if (!null? open) {
             def ob2:PresBlock (unwrap open)
-            ob2.body = (substring text bodyStart n)
+            def raw2:string (substring text bodyStart n)
+            ob2.body = raw2
+            ob2.bodyAt = bodyStart
             if ((strlen ob2.fence) == 0) {
-                ob2.body = (trim ob2.body)
+                ob2.body = (trim raw2)
+                ob2.bodyAt = (PresSource.trimmedAt(raw2 ob2.body bodyStart))
             }
             ob2.end = n
             push blocks ob2
