@@ -107,6 +107,8 @@ type Env struct {
 	// nil: none. Registrations: a limiter for POST /oauth/register.
 	Quota         func(ctx context.Context, who string) string
 	Registrations func(who string) string
+	// Taxi: Tampere Taxi Driver's lines (ttd.go); nil: 503 there
+	Taxi *ttdAI
 	// Hits: a limiter for the visit beacon POST /api/hit, per address.
 	Hits func(who string) string
 	// Renders: drawings (render_slide, render_overview,
@@ -222,6 +224,10 @@ func NewApp(env *Env) http.Handler {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(429)
 			io.WriteString(w, `{"error":"slow_down","error_description":"Too many registrations from here; try again in a few minutes."}`)
+			return
+		}
+		if r.URL.Path == ttdPath {
+			env.Taxi.serve(w, r)
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, adminPath) {

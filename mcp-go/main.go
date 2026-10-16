@@ -277,6 +277,10 @@ func main() {
 			e.Renders = dailyRenders(e.DB, 100, 500, time.Now)
 			// the editor at /editor, for signed-in people (editor.go), when
 			// the binary has it built in
+			// the taxi game's lines (ttd.go), when the assistant is Gemini
+			if m, _ := newAIModel(context.Background()); m != nil {
+				e.Taxi = newTTDAI(m)
+			}
 			e.EditorGate = newEditorGate(webFiles(*web), e.DB, e.VerifyIDToken, splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")))
 			if e.EditorGate != nil {
 				e.Editor = true
