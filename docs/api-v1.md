@@ -12,7 +12,9 @@ https:// (the server's own CA, or a certificate given with
 `Authorization: Bearer <token>`, where the token is either
 
 - the server's static token (`-token` / `SLIQTLY_TOKEN`; it covers `/api/v1`
-  as well as `/mcp`), compared in constant time, or
+  as well as `/mcp`, and the rest of the server), compared in constant time;
+  with `-listen wired` or `network` and no `-token`, the server's own token
+  (`<data>/access-token`, logged at start), or
 - an OAuth access token the server issued (its own OAuth 2.1 authorization
   server, sign-in delegated to a third-party OIDC provider when `-oidc-*` is
   set; see below).
@@ -25,7 +27,8 @@ a token was sent, plus, when OAuth is on,
 `resource_metadata="<server>/.well-known/oauth-protected-resource"`
 (`.../oauth-protected-resource/mcp` on `/mcp`).
 
-With neither a token nor OIDC set, the server has no sign-in: `/api/v1`
+With neither a token nor OIDC set, and only this computer connecting
+(`-listen local`), the server has no sign-in: `/api/v1`
 answers the server's own pages, pages on this computer (loopback origins)
 and programs that send no `Origin`; `/api/v1/info` is also readable by the
 origins on `-cors-origins`.

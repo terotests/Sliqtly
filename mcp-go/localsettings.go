@@ -6,12 +6,14 @@
 //	GET  /api/settings         {"naming": {enabled, pattern, example, rule}}
 //	PUT  /api/settings         the same; the rule is checked before it is kept
 //	POST /api/settings/check   {"naming": {…}, "name": "…"} → {ok, key, error}
-//	GET  /api/settings/network {access, allow, fixed, editable, interfaces, listening}
+//	GET  /api/settings/network {access, allow, fixed, editable, interfaces, listening,
+//	                           accessToken: {where, token (this computer only)}}
 //	PUT  /api/settings/network {access, allow}: from this computer only
 //	GET  /api/settings/listing {enabled, editable}
 //	PUT  /api/settings/listing {enabled}: from this computer only
 //
-// Like the rest of /api/ it has no sign-in: whoever reaches the server can
+// Like the rest of /api/ it needs the server's credential only when others
+// can connect or a token is set (localaccess.go); whoever passes that can
 // change the naming rule. Whether the decks are listed on / and /decks is
 // changed only from a browser on the server's own computer, and is off
 // until turned on: a deck opens by its link. Who can connect (netaccess.go) is changed only
@@ -199,6 +201,15 @@ func (s *localServer) networkAPI(w http.ResponseWriter, r *http.Request) {
 			"editable":   !p.Fixed && fromHere(r),
 			"interfaces": ifs, "listening": s.expo.Listening(),
 		}
+		// who else connects needs the token (localaccess.go): where its
+		// owner finds it, and on the server's own computer the token
+		if s.authRequired() {
+			tok := map[string]any{"where": s.secretWhere()}
+			if fromHere(r) {
+				tok["token"] = s.secret()
+			}
+			out["accessToken"] = tok
+		}
 		if s.certs != nil {
 			out["certificate"] = map[string]any{"fingerprint": s.certs.fingerprint(), "https": s.httpsAddrs(ifs)}
 		}
@@ -240,6 +251,10 @@ func (s *localServer) networkAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		s.expo.setPolicy(p)
 		s.expo.sync(false)
+		// this browser keeps working when the server now needs the token
+		if s.authRequired() {
+			s.setAccessCookie(w, r)
+		}
 		writeJSON(w, 200, state())
 	default:
 		writeJSON(w, 405, map[string]string{"error": "GET or PUT"})
@@ -338,6 +353,7 @@ ul { padding-left: 20px; }
 </fieldset>
 </form>
 <p id="netnote" class="muted"></p>
+<p id="tokennote" class="muted" hidden></p>
 <div id="ifs"></div>
 
 <div id="cert" hidden>
@@ -439,6 +455,7 @@ function showNet(n) {
   for (const r of document.querySelectorAll("input[name=access]")) r.checked = r.value === n.access;
   $("allow").value = (n.allow || []).join("\n");
   showCert(n.certificate);
+  showToken(n.accessToken);
   $("net").disabled = !n.editable;
   $("netnote").textContent = n.fixed
     ? "Set by SLIQTLY_LISTEN / SLIQTLY_ALLOW where the server is started; change it there."
@@ -454,6 +471,13 @@ function showNet(n) {
     t.append(tr);
   }
   el.append(t);
+}
+function showToken(a) {
+  const el = $("tokennote");
+  el.hidden = !a;
+  if (!a) return;
+  el.textContent = "Other computers' agents and browsers need this server's access token: agents send Authorization: Bearer <token>, a browser opens a page of the server once with ?token=<token>. " +
+    (a.token ? "The token: " + a.token + " (also in " + a.where + ")." : "It is in " + a.where + " on the server.");
 }
 function showCert(c) {
   $("cert").hidden = !c;

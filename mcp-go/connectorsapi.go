@@ -222,14 +222,15 @@ func (s *localServer) connectorsAPI(w http.ResponseWriter, r *http.Request, who 
 }
 
 // the settings page's way in: the server's own user, as the rest of
-// /api/settings, and only on a server without sign-in or from its own
-// computer (a page cannot show a bearer token it does not have)
+// /api/settings, and only on a server without sign-in, from its own
+// computer, or from a page with the server's own access cookie (a page
+// cannot show a bearer token it does not have)
 func (s *localServer) settingsConnectors(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		writeJSON(w, 415, map[string]string{"error": "send JSON"})
 		return
 	}
-	if s.authRequired() && !fromHere(r) {
+	if s.authRequired() && !fromHere(r) && !s.ownerCredential(r) {
 		writeJSON(w, 403, map[string]string{"error": "on a server with sign-in, connectors are set on the server's own computer or through /api/v1"})
 		return
 	}

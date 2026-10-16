@@ -73,7 +73,7 @@ func main() {
 	port := flag.String("port", env("PORT", "8080"), "port to listen on (PORT)")
 	base := flag.String("url", env("SLIQTLY_URL", ""), "the address people and links use, e.g. https://sliqtly.example.com (SLIQTLY_URL)")
 	user := flag.String("user", env("SLIQTLY_USER", "local"), "the owner of the decks kept in the folder (SLIQTLY_USER)")
-	token := flag.String("token", env("SLIQTLY_TOKEN", ""), "require Authorization: Bearer <token> on /mcp (SLIQTLY_TOKEN)")
+	token := flag.String("token", env("SLIQTLY_TOKEN", ""), "require this token: Authorization: Bearer <token> on /mcp and /api/v1, and on the rest of the server that or the cookie a browser gets with ?token=<token>; when other computers can connect (-listen wired or network) and this is unset, the server makes its own, kept in <data>/access-token (SLIQTLY_TOKEN)")
 	web := flag.String("web", env("SLIQTLY_WEB", ""), "serve the editor and player from this built web/dist instead of the copy built in (SLIQTLY_WEB)")
 	listen := flag.String("listen", env("SLIQTLY_LISTEN", ""), "who can connect: local (this computer only, the default), wired (also computers on a wired network) or network (every interface); unset: the settings page decides (SLIQTLY_LISTEN)")
 	allow := flag.String("allow", env("SLIQTLY_ALLOW", ""), "other computers' address ranges let in, e.g. 10.20.0.0/16 (SLIQTLY_ALLOW)")
@@ -176,6 +176,7 @@ func main() {
 		ls.board = board
 		ls.expo = expo
 		ls.cors = cors
+		ls.tokenFile = accessTokenPath(*data)
 		if err := ls.useOIDC(oidcCfg); err != nil {
 			log.Fatal(err)
 		}
@@ -235,6 +236,10 @@ func main() {
 			bucket.gitMax = gc.maxFile()
 			kind += ", decks in Git"
 			go m.run(stop, e.Store)
+		}
+		// the server's own token, said in the log, when it needs one
+		if ls.authRequired() {
+			ls.secret()
 		}
 		sw.set(ls)
 		go ls.sweepExpired(stop)

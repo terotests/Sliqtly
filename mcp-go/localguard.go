@@ -25,9 +25,12 @@ import (
 // preview, whose origin is "null") may only read what a link to one deck
 // already opens: the page and its files, the themes, one deck by its id
 // and that deck's files, and the server's status. The deck list, the
-// rooms, editing together, the streams, the settings, every write and
-// /mcp answer only this server's own pages and programs that send no
-// Origin (an MCP client, curl).
+// rooms and their files, the shared files, editing together, the streams,
+// the settings, every write and /mcp answer only this server's own pages
+// and programs that send no Origin (an MCP client, curl). Which answers
+// say Access-Control-Allow-Origin is localaccess.go's openToPages; and
+// when others can connect, every request needs the server's credential
+// besides (localaccess.go).
 type hostGuard struct {
 	names map[string]bool
 	// the names set where the server is started (SLIQTLY_URL when given,
@@ -101,10 +104,17 @@ func crossOriginReadable(r *http.Request) bool {
 	switch {
 	case p == "/api/status", p == "/api/me":
 		return true
-	case shareAPIPath.MatchString(p), strings.HasPrefix(p, "/api/view/"), strings.HasPrefix(p, "/api/card/"):
+	case shareAPIPath.MatchString(p):
+		// the deck itself, not its viewing links
+		return shareAPIPath.FindStringSubmatch(p)[2] == ""
+	case strings.HasPrefix(p, "/api/view/"), strings.HasPrefix(p, "/api/card/"):
 		return true
 	case strings.HasPrefix(p, "/api/"), p == "/mcp", strings.HasPrefix(p, "/oauth/"),
-		strings.HasPrefix(p, "/.well-known/"), p == "/settings", p == "/decks":
+		strings.HasPrefix(p, "/.well-known/"), p == "/settings", p == "/decks", p == "/access", p == "/access/check":
+		return false
+	case strings.HasPrefix(p, "/files/rooms/"), strings.HasPrefix(p, "/files/shared/"):
+		// a room's files and the shared files go by names anyone can
+		// guess (the rooms general and playground are on every server)
 		return false
 	}
 	// the page, its files, the themes, a deck's player and pictures, its
