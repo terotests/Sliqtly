@@ -1204,6 +1204,12 @@ try {
     // the slide the editor was on fades out first: read the drawing once
     // the first slide has come to rest
     await page.waitForFunction(() => { const l = JSON.parse(window.__app.layoutJson()); return l.slide === 0 && l.settled; }, null, { timeout: 8000 });
+    // and painted: a slow frame can still show the slide before
+    await page.waitForFunction(() => {
+      const st = window.__lastStage, md = window.__app.source();
+      const found = (st?.list?.cmds || []).filter((c) => c.k === 3 && c.text && c.text.trim().length > 8).map((c) => md.indexOf(c.text.trim())).filter((o) => o >= 0);
+      return found.length > 0 && found.every((o) => window.__app.deck.pageOfOffset(o) === 0);
+    }, null, { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(300);
     // the longest line of the slide, in the page's pixels
     const line = () => page.evaluate(() => {
@@ -6134,9 +6140,11 @@ try {
     await pg.mouse.click(vb.x + vb.width / 2, vb.y + vb.height / 2);
     await pg.waitForTimeout(500);
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
+    // laid out and scrolled to the heading being read (a slow frame comes late)
+    await pg.waitForFunction(() => { const t = window.__app.tocUi; const r = t.drawer.body().getChild(6); return t.reveal < 0 && r.calculatedHeight > 0; }, null, { timeout: 8000 }).catch(() => {});
     const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); const r = b.getChild(6); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(prow[0] + 30, prow[1] + prow[3] / 2);
-    await pg.waitForTimeout(500);
+    await pg.waitForFunction(() => window.__app.slideShown() === window.__app.toc.entryAt(6).slide, null, { timeout: 8000 }).catch(() => {});
     const p1 = await pg.evaluate(() => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(6).slide, mode: JSON.parse(window.__app.layoutJson()).mode }));
     check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
     check("ToC: without errors", terr.length === 0, terr.join(" | "));
