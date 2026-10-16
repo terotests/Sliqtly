@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: 20
       - run: npm ci --no-audit --no-fund
+      # every string the interface translates has its Finnish (web/i18n)
+      - name: Check the translations
+        run: node scripts/i18n.mjs --strict
       # programs on slides (```app) run in CErXes built to WebAssembly
       # (scripts/lib.mjs ensureCerxes); the runner has cargo, not this target
       - name: Rust's WebAssembly target
