@@ -51,6 +51,14 @@
     position: absolute; top: 0; left: 0; width: 1px; height: 1px;
     padding: 0; border: 0; outline: none; opacity: 0; resize: none;
     overflow: hidden; white-space: pre; z-index: 1;
+    /* it follows the caret: a click there is the page's, not the field's */
+    pointer-events: none;
+  }
+  /* An input method's marked text on the View page, at the caret (main.js) */
+  #preedit {
+    position: absolute; display: none; z-index: 2; pointer-events: none;
+    white-space: pre; background: #fff; color: #111; text-decoration: underline;
+    font-family: "Open Sans", system-ui, sans-serif;
   }
   /* web/main.js closedByUpdate: this tab's store was taken over by a newer page */
   #tabNotice {
@@ -458,6 +466,7 @@
   <canvas id="c" aria-label="Presentation editor" data-i18n-aria></canvas>
   <textarea id="keys" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
             aria-label="Markdown — type here" data-i18n-aria></textarea>
+  <div id="preedit" aria-hidden="true"></div>
   <div id="brandIntro" role="img" aria-label="Sliqtly"><img class="logo" src="./favicon.svg" alt="" width="220" height="220" /><span class="name">Sliqtly</span><span class="site">sliqtly.com</span><span id="loadNote" class="note" role="status"></span></div>
   <script>window.__introAt = performance.now();</script>
 </main>

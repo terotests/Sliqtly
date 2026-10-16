@@ -4,6 +4,7 @@ Import "PresViewZoom.rgr"
 Import "PresFootPills.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
+Import "PresDocKeys.rgr"
 Import "PresDocPages.rgr"
 Import "PresToc.rgr"
 Import "PresEditMode.rgr"
@@ -291,6 +292,46 @@ class PresCheck {
         u.setCredits("{\"available\":true,\"credits\":{\"left\":-1,\"unlimited\":true}}")
         this.ok(((u.creditsShort()) == "no limit") "ai: no limit")
         this.ok(((PresAi.actionFits("explain" ctx)) == false) "ai: Explain only with code on the slide")
+        this.aiPlaces(ctx)
+    }
+
+    ; Where presentations are kept (PresAi placing): one move made comes
+    ; with the answer, several wait for a yes, then go to the page once.
+    fn aiPlaces:void (ctx:PresAiContext) {
+        def a (new PresAi())
+        a.available = 1
+        a.ask("Sort the tests" "" ctx)
+        a.takePending()
+        a.answer("{\"reply\":\"Filed.\",\"placed\":[{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\",\"deck\":\"Test one\",\"room\":\"General\",\"folder\":\"Testing\"},{\"tool\":\"move_presentation\",\"room_id\":\"r9\",\"deck_id\":\"d2\",\"deck\":\"Plan\",\"error\":\"not found\"}]}")
+        def m:PresAiMsg (itemAt a.msgs 1)
+        this.ok((m.text == "Filed.\n\n✓ Test one → General › Testing\n✗ Plan → r9: not found") ("ai places: one made, said: " + m.text))
+        this.ok(((a.placingLabel()) == "") "ai places: nothing waits")
+        a.ask("Sort them all" "" ctx)
+        a.takePending()
+        a.answer("{\"reply\":\"Two into Testing.\",\"organize\":[{\"tool\":\"create_folder\",\"room_id\":\"general\",\"name\":\"Testing\",\"room\":\"General\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\",\"folder_id\":\"new:Testing\",\"deck\":\"Test one\",\"room\":\"General\",\"folder\":\"Testing\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\",\"folder_id\":\"new:Testing\",\"deck\":\"Test two\",\"room\":\"General\",\"folder\":\"Testing\"}]}")
+        def q:PresAiMsg (itemAt a.msgs 3)
+        this.ok(((indexOf q.text "Move 2 presentations?\n• Folder: Testing (General)\n• Test one → General › Testing") > 0) ("ai places: the moves asked about: " + q.text))
+        this.ok(((a.placingLabel()) == "✓ Move 2 presentations") ("ai places: the button: " + (a.placingLabel())))
+        this.ok(((a.takeOrganize()) == "") "ai places: nothing posted before a yes")
+        this.ok((a.sayYes()) "ai places: yes")
+        this.ok(((a.placingLabel()) == "") "ai places: asked once")
+        this.ok(a.busy "ai places: waiting for the server")
+        def body:string (a.takeOrganize())
+        this.ok(((indexOf body "{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\",\"folder_id\":\"new:Testing\"}") > 0) ("ai places: the steps posted: " + body))
+        this.ok(((a.takeOrganize()) == "") "ai places: posted once")
+        a.organized("{\"placed\":[{\"tool\":\"move_presentation\",\"deck\":\"Test two\",\"room\":\"General\",\"folder\":\"Testing\"}]}")
+        def n:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok(((n.role == "note") && (n.text == "✓ Test two → General › Testing")) ("ai places: made: " + n.text))
+        this.ok((a.busy == false) "ai places: done")
+        ; no: nothing moves; a new question drops the plan too
+        a.ask("Again" "" ctx)
+        a.takePending()
+        a.answer("{\"reply\":\"x\",\"organize\":[{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\"}]}")
+        a.sayNo()
+        this.ok((((a.placingLabel()) == "") && ((a.sayYes()) == false)) "ai places: no")
+        a.answer("{\"reply\":\"x\",\"organize\":[{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\"}]}")
+        a.ask("Something else" "" ctx)
+        this.ok(((a.placingLabel()) == "") "ai places: a new question leaves them behind")
     }
 
     fn run:void () {
@@ -5599,6 +5640,125 @@ class PresCheck {
         this.ok((PresDocCaret.isRule("| :--- | ---: |") && ((PresDocCaret.isRule("| a | b |")) == false)) "doccaret: a delimiter row")
     }
 
+    ; What Enter, Tab and Backspace write on the View page (PresDocKeys).
+    fn keyRun:string (text:string op:MdEditOp) {
+        if (op.isEmpty()) {
+            return text
+        }
+        return (MdEdit.applyTo(text op))
+    }
+
+    fn docKeys:void () {
+        ; Tab under the item above, with its sub-items; the caret keeps its place
+        def l:string "- aa\n- bb\n  - cc\n- dd"
+        def b:int (indexOf l "bb")
+        def t1:MdEditOp (PresDocKeys.indentOp(l (b + 1) (b + 1) 1))
+        this.ok(((this.keyRun(l t1)) == "- aa\n  - bb\n    - cc\n- dd") ("dockeys: Tab nests an item with its own, got " + (this.keyRun(l t1))))
+        this.ok((t1.selAfterA == (b + 3)) ("dockeys: …the caret stays in its word, got " + (to_string t1.selAfterA)))
+        def first:MdEditOp (PresDocKeys.indentOp(l 3 3 1))
+        this.ok((first.isEmpty()) "dockeys: the first item cannot go in")
+        def l2:string "- aa\n  - bb\n- cc"
+        def o1:MdEditOp (PresDocKeys.indentOp(l2 (indexOf l2 "bb") (indexOf l2 "bb") -1))
+        this.ok(((this.keyRun(l2 o1)) == "- aa\n- bb\n- cc") ("dockeys: Shift+Tab takes it a level out, got " + (this.keyRun(l2 o1))))
+        def top:MdEditOp (PresDocKeys.indentOp(l2 (indexOf l2 "cc") (indexOf l2 "cc") -1))
+        this.ok(((this.keyRun(l2 top)) == "- aa\n  - bb\n\ncc") ("dockeys: Shift+Tab at the top level makes a paragraph, got " + (this.keyRun(l2 top))))
+        ; numbered: in → from 1 under its item, out → after its parent
+        def n:string "1. aa\n2. bb\n3. cc"
+        def ni:MdEditOp (PresDocKeys.indentOp(n (indexOf n "bb") (indexOf n "bb") 1))
+        this.ok(((this.keyRun(n ni)) == "1. aa\n   1. bb\n3. cc") ("dockeys: a numbered item in starts from 1, got " + (this.keyRun(n ni))))
+        def n2:string "1. aa\n   1. bb\n   2. cc"
+        def no:MdEditOp (PresDocKeys.indentOp(n2 (indexOf n2 "cc") (indexOf n2 "cc") -1))
+        this.ok(((this.keyRun(n2 no)) == "1. aa\n   1. bb\n2. cc") ("dockeys: out, numbered after its parent, got " + (this.keyRun(n2 no))))
+        ; a selection of items goes together
+        def sel:MdEditOp (PresDocKeys.indentOp(l (indexOf l "bb") (indexOf l "dd") 1))
+        this.ok(((this.keyRun(l sel)) == "- aa\n  - bb\n    - cc\n  - dd") ("dockeys: Tab on selected items, got " + (this.keyRun(l sel))))
+        ; Backspace where an item's words start
+        def bk:MdEditOp (PresDocKeys.itemBackspaceOp(l2 (indexOf l2 "bb")))
+        this.ok(((this.keyRun(l2 bk)) == "- aa\n- bb\n- cc") ("dockeys: Backspace at a nested item's words takes it out, got " + (this.keyRun(l2 bk))))
+        def bk2:MdEditOp (PresDocKeys.itemBackspaceOp(l2 (indexOf l2 "cc")))
+        this.ok((((this.keyRun(l2 bk2)) == "- aa\n  - bb\n\ncc") && (bk2.selAfterA == ((indexOf l2 "cc") - 1))) ("dockeys: …a top-level one leaves the list, got " + (this.keyRun(l2 bk2))))
+        def bk3:MdEditOp (PresDocKeys.itemBackspaceOp(l2 ((indexOf l2 "cc") + 1)))
+        this.ok((bk3.isEmpty()) "dockeys: inside the words Backspace is a character")
+        def bk4:MdEditOp (PresDocKeys.itemBackspaceOp("- aa\n- \n- bb" 7))
+        this.ok((bk4.isEmpty()) "dockeys: an empty top-level item is joined as before")
+        ; numbering on after an edit: the items after the caret's one, and
+        ; after each item it is under
+        def r1:string "1. aa\n2. uusi\n2. bb\n3. cc"
+        def ro1:MdEditOp (PresDocKeys.renumberOp(r1 (indexOf r1 "uusi")))
+        this.ok(((this.keyRun(r1 ro1)) == "1. aa\n2. uusi\n3. bb\n4. cc") ("dockeys: a new numbered item numbers the next ones on, got " + (this.keyRun(r1 ro1))))
+        this.ok((ro1.selAfterA == (indexOf r1 "uusi")) ("dockeys: …the caret stays, got " + (to_string ro1.selAfterA)))
+        def r2:string "1. aa\n   1. bb\n3. cc\n4. dd"
+        def ro2:MdEditOp (PresDocKeys.renumberOp(r2 (indexOf r2 "bb")))
+        this.ok(((this.keyRun(r2 ro2)) == "1. aa\n   1. bb\n2. cc\n3. dd") ("dockeys: an item gone in numbers its old list on, got " + (this.keyRun(r2 ro2))))
+        def r3:string "1. aa\n1. bb\n2. uusi\n1. cc"
+        def ro3:MdEditOp (PresDocKeys.renumberOp(r3 (indexOf r3 "uusi")))
+        this.ok(((this.keyRun(r3 ro3)) == "1. aa\n1. bb\n1. uusi\n1. cc") ("dockeys: a \"1. 1.\" list keeps its style, got " + (this.keyRun(r3 ro3))))
+        def r4:string "1. aa\n2. bb\n\n- x"
+        this.ok(((PresDocKeys.renumberOp(r4 (indexOf r4 "bb"))).isEmpty()) "dockeys: a list in order is left as it is")
+        def r5:string "1. aa\n\n2. bb\n4. cc"
+        def ro5:MdEditOp (PresDocKeys.renumberOp(r5 (indexOf r5 "aa")))
+        this.ok(((this.keyRun(r5 ro5)) == "1. aa\n\n2. bb\n3. cc") ("dockeys: a loose list too, got " + (this.keyRun(r5 ro5))))
+        ; empty paragraphs: every other line of a run of blank lines
+        def bs1:[int] (PresDocCaret.blankStops("Para\n\n\n\nNext"))
+        this.ok((((array_length bs1) == 1) && ((itemAt bs1 0) == 6)) ("dockeys: one Enter after a paragraph is one empty line, got " + (to_string (array_length bs1))))
+        def bs2:[int] (PresDocCaret.blankStops("Para\n\nNext\n"))
+        this.ok(((array_length bs2) == 0) "dockeys: a block break is no empty line")
+        def bs3:[int] (PresDocCaret.blankStops("Para\n\n"))
+        this.ok((((array_length bs3) == 1) && ((itemAt bs3 0) == 6)) "dockeys: an empty line at the end")
+        def bs4:[int] (PresDocCaret.blankStops("Para\n\n\n\n\n\nNext"))
+        this.ok((((array_length bs4) == 2) && ((itemAt bs4 1) == 8)) "dockeys: two Enters, two empty lines")
+        def bs5:[int] (PresDocCaret.blankStops("\n\nNext"))
+        this.ok((((array_length bs5) == 1) && ((itemAt bs5 0) == 0)) "dockeys: an empty line before the first block")
+        ; plain text pasted into a list item stays in it, into a cell stays a cell
+        def pl:string "- aa\n- bb"
+        def pf1:string (PresDocKeys.pasteFit(pl 4 "x\r\ny\n\nz"))
+        this.ok((pf1 == "x\n  y\n\n  z") ("dockeys: lines pasted in an item go to its words' column, got " + pf1))
+        def pt:string "| a | b |\n| --- | --- |\n| c | d |\n"
+        def pf2:string (PresDocKeys.pasteFit(pt (indexOf pt "c |") "x\ny|z"))
+        this.ok((pf2 == "x<br>y\\|z") ("dockeys: lines pasted in a cell are <br>, a | escaped, got " + pf2))
+        this.ok(((PresDocKeys.pasteFit("Para" 2 "x\ny")) == "x\ny") "dockeys: in a paragraph the lines are kept")
+        def ei:string "1. aa\n2. \n3. bb\n4. cc"
+        def eio:MdEditOp (PresDocKeys.endItemOp(ei (indexOf ei "2. ") "\n\n"))
+        this.ok(((this.keyRun(ei eio)) == "1. aa\n\n\n\n2. bb\n3. cc") ("dockeys: a list ended by an empty item goes on from its number after it, got " + (this.keyRun(ei eio))))
+        ; Enter on an empty nested item
+        def e:string "- aa\n  - \n- cc"
+        def eo:MdEditOp (PresDocKeys.emptyItemEnterOp(e 9))
+        this.ok(((this.keyRun(e eo)) == "- aa\n- \n- cc") ("dockeys: Enter on an empty nested item goes a level out, got " + (this.keyRun(e eo))))
+        ; headings
+        def h:string "Para\n\n## Otsikko"
+        def hs:MdEditOp (PresDocKeys.headingEnterOp(h (indexOf h "Otsikko") (indexOf h "Otsikko")))
+        this.ok((((this.keyRun(h hs)) == "Para\n\n\n\n## Otsikko") && (hs.selAfterA == 6)) ("dockeys: Enter at a heading's start keeps it a heading, got " + (this.keyRun(h hs))))
+        def hm:MdEditOp (PresDocKeys.headingEnterOp(h ((indexOf h "Otsikko") + 3) ((indexOf h "Otsikko") + 3)))
+        this.ok(((this.keyRun(h hm)) == "Para\n\n## Ots\n\n## ikko") ("dockeys: Enter in a heading makes two, got " + (this.keyRun(h hm))))
+        def he:MdEditOp (PresDocKeys.headingEnterOp(h (strlen h) (strlen h)))
+        this.ok((he.isEmpty()) "dockeys: Enter at a heading's end is the default")
+        ; tables
+        def tb:string "| a | bb |\n| --- | --- |\n| c | d |\n\nx"
+        def te:MdEditOp (PresDocKeys.tableEnterOp(tb (indexOf tb "bb")))
+        this.ok(((te.isEmpty()) && (te.selAfterA == (indexOf tb "d |"))) ("dockeys: Enter in a table goes to the same column below, got " + (to_string te.selAfterA)))
+        def tl:MdEditOp (PresDocKeys.tableEnterOp(tb (indexOf tb "d |")))
+        def tlr:string (this.keyRun(tb tl))
+        this.ok(((tlr == "| a | bb |\n| --- | --- |\n| c | d |\n|  |  |\n\nx") && ((substring tlr (tl.selAfterA - 2) tl.selAfterA) == "| ")) ("dockeys: Enter in the last row adds a row, got " + tlr + " at " + (to_string tl.selAfterA)))
+        def ad:MdEditOp (PresDocKeys.addRowOp(tb (indexOf tb "d |") 0))
+        this.ok((ad.selAfterA == ((indexOf tb "| c |") + 12)) ("dockeys: a new row's first cell, got " + (to_string ad.selAfterA)))
+        this.ok((((PresDocKeys.breakText(tb 3)) == "<br>") && (((PresDocKeys.breakText(h 9)) == "<br>") && ((PresDocKeys.breakText(h 1)) == "  \n"))) "dockeys: Shift+Enter in a table or heading is <br>")
+        ; code
+        def code:string "```\nlet a\n  let b\n```"
+        def ct:MdEditOp (PresDocKeys.codeTabOp(code 4 4 1))
+        this.ok(((this.keyRun(code ct)) == "```\n    let a\n  let b\n```") "dockeys: Tab in code writes four spaces")
+        def cs:MdEditOp (PresDocKeys.codeTabOp(code 11 11 -1))
+        this.ok(((this.keyRun(code cs)) == "```\nlet a\nlet b\n```") ("dockeys: Shift+Tab in code takes the line's spaces out, got " + (this.keyRun(code cs))))
+        ; a task's box
+        def tk:string "- [ ] tee\n- [x] tehty"
+        def tk1:MdEditOp (PresDocKeys.taskToggleOp(tk 7))
+        def tk2:MdEditOp (PresDocKeys.taskToggleOp(tk 18))
+        def tk3:MdEditOp (PresDocKeys.taskToggleOp("- tee" 3))
+        this.ok(((((this.keyRun(tk tk1)) == "- [x] tee\n- [x] tehty") && ((this.keyRun(tk tk2)) == "- [ ] tee\n- [ ] tehty")) && (tk3.isEmpty())) "dockeys: a press on a task's box ticks it or clears it")
+        ; Enter in a quote: a new paragraph of it
+        this.ok(((PresDocCaret.enterText("> yksi" 6 false)) == "\n>\n> ") "dockeys: Enter in a quote")
+        this.ok(((PresDocCaret.enterText("> - yksi" 8 false)) == "\n> - ") "dockeys: …a list in a quote goes on as a list")
+    }
+
     fn docx:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
@@ -9887,6 +10047,7 @@ class PresCheck {
         c.docPlays()
         c.toc()
         c.docCaret()
+        c.docKeys()
         c.editMode()
         c.traceChecks()
         c.imageDrag()

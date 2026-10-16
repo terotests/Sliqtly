@@ -79,6 +79,7 @@ class PresDocView {
         ; the page is edited: an empty code line or list item gets a place
         ; for the caret
         l.caretStops = true
+        l.blankStops = (PresDocCaret.blankStops(deck.text))
         if (!null? deck.md.measurer) {
             l.setMeasurer((unwrap deck.md.measurer))
         }
