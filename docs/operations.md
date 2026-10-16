@@ -157,6 +157,14 @@ aistudio.google.com/spend. `SLIQTLY_AI=vertex` asks Claude on Vertex AI
 service's project) point Vertex AI elsewhere. Cloud credits left:
 console.cloud.google.com/billing/credits.
 
+The same service answers Tampere Taxi Driver's browser game
+(tamperetaxidriver.app) at `POST sliqtly.com/api/ttd/start` (mcp-go/ttd.go):
+the driver's name checked and new lines for the passengers at the start of a
+shift, by `gemini-3.5-flash-lite` (`TTD_AI_MODEL` picks another) on the same
+Vertex AI and credits. Only the game's pages may call it (CORS), 10 calls
+per address in 10 minutes and 3000 a day per instance; it answers only
+when `SLIQTLY_AI=gemini`. One call is about 1 000 tokens in and 800 out.
+
 Each user has AI actions per calendar month (UTC): one per question or quick
 action, two for a question about the whole presentation. The Trial has 50;
 `aiMonthly` on `licenses/{uid}` changes it (−1 = no limit); admins have no

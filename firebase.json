@@ -259,6 +259,13 @@
         }
       },
       {
+        "source": "/api/ttd/start",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
         "source": "/api/hit",
         "run": {
           "serviceId": "sliqtly-mcp",
