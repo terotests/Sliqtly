@@ -74,7 +74,11 @@ try {
     await page.mouse.click(imp[0], imp[1]);
     await (await chooser).setFiles(csv);
     await page.waitForFunction(() => window.__spaces.space.sheets.length === 2);
-    ok("a picked CSV is a sheet", (await texts(page)).includes("Imported row"));
+    // The model takes the sheet at once; the canvas paints it on the next frame.
+    const painted = await page
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Imported row"), null, { timeout: 3000 })
+      .then(() => true, () => false);
+    ok("a picked CSV is a sheet", painted);
     const home = await centre(page, "sp-nav-home");
     await page.mouse.click(home[0], home[1]);
     await page.waitForTimeout(300);
