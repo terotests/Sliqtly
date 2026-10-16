@@ -28,6 +28,12 @@ it, and how ("Takes: Juho", "Picks up: Mia").
 - **Assistant**: answers about today, this week, next week, overdue items, and
   drafts a plan for next week, from the space's own data.
 
+Entry types come from `mcp-go/assets/warden-types.json`: fields common to
+every entry, and for Family about fifty types (invitations, hobbies, school,
+care, health, travel, bills, purchases, repairs, reminders, changes to the
+routine…), each with its group (the Add menu's headings), what it requires,
+the money fields that go to the budget and the dates that make reminders.
+
 Repeating events take a subset of iCalendar RRULE: DAILY, WEEKLY (with
 BYDAY), MONTHLY, INTERVAL, UNTIL, COUNT and EXDATE.
 
@@ -56,6 +62,11 @@ With the meta tag the page
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
+- has an **Assistant** that takes text or pictures (a school letter, a
+  timetable, an invitation; a picture is made a JPEG of at most 1600 px
+  first) and sends them to `assist`: the server's model makes the entries
+  with Warden's own MCP tools (`mcp-go/wardenai.go`), and the page reads the
+  space again;
 - has a **Members** view (members, invites; the owner invites by email and
   removes) and a **Spaces** view (the spaces you are in, and a new one);
 - offers an empty space the pack's demo data: its wards, then its events

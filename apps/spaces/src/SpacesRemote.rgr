@@ -243,6 +243,23 @@ class SpRemote {
                 if (v.isString()) {
                     e.setField(key v.str "string")
                 }
+                ; a list: its items as one text, which the server splits
+                ; again at the semicolons
+                if (v.isArray()) {
+                    def items:string ""
+                    def j:int 0
+                    while (j < (v.count())) {
+                        def it:VlJson (v.at(j))
+                        if (it.isString()) {
+                            if ((strlen items) > 0) {
+                                items = (items + "; ")
+                            }
+                            items = (items + it.str)
+                        }
+                        j = (j + 1)
+                    }
+                    e.setField(key items "string")
+                }
                 i = (i + 1)
             }
         }

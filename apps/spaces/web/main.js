@@ -3,8 +3,9 @@
 // The Spaces page. The app (src/SpacesApp.rgr, compiled into spaces_app.js)
 // builds one EVG tree; this file paints its display list on a WebGL canvas,
 // sends it the pointer, the wheel and the keys, mirrors its accessible tree
-// into DOM over the canvas, and does the two things a tree cannot: read a
-// file or pasted cells for an import, and save a download. A double-click
+// into DOM over the canvas, and does what a tree cannot: read a file or
+// pasted cells for an import, read a picture for the assistant (made
+// smaller first), and save a download. A double-click
 // opens the event under it; Backspace and Delete outside a text field go to
 // the app, which deletes the selected event.
 //
@@ -37,6 +38,7 @@ app.useClock(now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("canvas");
 const fileInput = document.getElementById("file");
+const pictureInput = document.getElementById("picture");
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
 if (!gl) document.body.textContent = "WebGL 2 is not available in this browser.";
 
@@ -86,6 +88,7 @@ function frame(t) {
 function after() {
   const a = app.takeAction();
   if (a === "import") fileInput.click();
+  else if (a === "image") pictureInput.click();
   else if (a.startsWith("export:")) {
     const id = a.slice(7);
     download(app.sheetFileName(id), app.sheetCsv(id), "text/csv");
@@ -190,8 +193,45 @@ fileInput.addEventListener("change", async () => {
   paint();
 });
 
-// Cells copied from a spreadsheet arrive as tab-separated text.
+// A picture for the assistant: at most 1600 px on its longer side, as JPEG,
+// so a phone's photo of a school letter stays readable and small.
+const PICTURE_SIDE = 1600;
+async function addPicture(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, PICTURE_SIDE / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff";
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    const url = c.toDataURL("image/jpeg", 0.85);
+    app.addImage(file.name || "", "image/jpeg", url.slice(url.indexOf(",") + 1));
+  } catch {
+    app.status = app.lang === "fi" ? "Kuvaa ei voitu lukea" : "The picture could not be read";
+    app.rebuild();
+  }
+  paint();
+}
+
+pictureInput.addEventListener("change", async () => {
+  for (const f of Array.from(pictureInput.files || [])) await addPicture(f);
+  pictureInput.value = "";
+});
+
+// Cells copied from a spreadsheet arrive as tab-separated text; a picture
+// pasted on the Warden page goes to the assistant.
 document.addEventListener("paste", (ev) => {
+  const items = ev.clipboardData ? Array.from(ev.clipboardData.items || []) : [];
+  const pic = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
+  if (SERVER && pic) {
+    ev.preventDefault();
+    addPicture(pic.getAsFile());
+    return;
+  }
   const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
   if (!text || !/\t/.test(text)) return;
   ev.preventDefault();
@@ -261,7 +301,7 @@ canvas.addEventListener("wheel", (ev) => {
 }, { passive: false });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.target === fileInput) return;
+  if (ev.target === fileInput || ev.target === pictureInput) return;
   // a key a text field's input already handed to the app (Enter, Tab,
   // Escape) is not the page's a second time
   if (ev.defaultPrevented) return;

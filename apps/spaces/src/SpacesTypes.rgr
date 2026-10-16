@@ -98,6 +98,12 @@ class SpType {
     def hasCost:boolean false
     def cost:SpWord (new SpWord())
     def repeats:boolean false
+    ; what kind of family item it is (event, activity, booking, deadline,
+    ; financial, asset_action, care, health, travel, reminder)
+    def group:string "event"
+    ; kept for entries made before; new ones take `replacedBy`
+    def legacy:boolean false
+    def replacedBy:string ""
     Constructor () {
     }
 
@@ -181,6 +187,9 @@ class SpTypes {
         t.name = (SpWord.read(t.id (o.get("name"))))
         t.help = (SpWord.read("" (o.get("help"))))
         t.repeats = (o.boolOr("repeats" false))
+        t.group = (o.stringOr("group" "event"))
+        t.legacy = (o.boolOr("legacy" false))
+        t.replacedBy = (o.stringOr("replaced_by" ""))
         def c:VlJson (o.get("cost"))
         if (c.isObject()) {
             t.hasCost = true
@@ -252,13 +261,13 @@ class SpTypes {
         return tt.kind
     }
 
-    ; The types a pack offers, in the schema's order.
+    ; The types a pack offers, in the schema's order; not the legacy ones.
     fn forPack:[SpType] (pack:string) {
         def out:[SpType]
         def i:int 0
         while (i < (array_length types)) {
             def t:SpType (itemAt types i)
-            if (t.offeredIn(pack)) {
+            if ((t.offeredIn(pack)) && (t.legacy == false)) {
                 push out t
             }
             i = (i + 1)
@@ -279,6 +288,11 @@ class SpTypes {
             i = (i + 1)
         }
         return out
+    }
+
+    ; The groups of a pack's types, in the order the Add menu shows them.
+    sfn groups:[string] () {
+        return ([] _:string ( "event" "activity" "care" "health" "travel" "booking" "deadline" "reminder" "financial" "asset_action" ))
     }
 
     sfn kindOfField:string (type:string) {

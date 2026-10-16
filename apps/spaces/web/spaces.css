@@ -426,8 +426,8 @@
 .sp-addbar { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
 .sp-addmenu {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-direction: column;
+  flex-wrap: nowrap;
   gap: 8px;
   row-gap: 8px;
   padding: 12px;
@@ -435,6 +435,9 @@
   border: 1px solid var(--line);
   background-color: var(--surface);
 }
+.sp-addgroup { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; row-gap: 8px; }
+.sp-addgroup-name { color: var(--muted); font-size: 12px; font-weight: 600; height: auto; line-height: 16px; margin-top: 4px; }
+.sp-assist { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; margin-bottom: 16px; }
 .sp-form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; row-gap: 12px; }
 .sp-fld { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; }
 .sp-fldlabel { color: var(--muted); font-size: 12px; font-weight: 600; height: auto; line-height: 16px; }
