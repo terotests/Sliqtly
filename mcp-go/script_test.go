@@ -108,7 +108,7 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	defer s.close()
 	md := "# Deck\n\n## Sales grow {script=apps/fx.tsx export-frame=2s}\n\n- Saturday record\n- Buns sell\n"
 	src := "let t = 0;\nfunction tick(dt) { t += dt; find(\"li:2\").set({ opacity: Math.max(0, 1 - t) }); }\n"
-	c := call(t, s, "create_presentation", map[string]any{"title": "Deck", "markdown": md,
+	c := call(t, s, "create_presentation", map[string]any{"title": "Deck", "visibility": "link", "markdown": md,
 		"files": []any{map[string]any{"name": "fx.tsx", "text": src}}})
 	if c.IsError {
 		t.Fatal(textOf(c))
@@ -244,7 +244,7 @@ func TestSlideScriptRunsOnServer(t *testing.T) {
 	// scripts/check-view.mjs's deck: a heading the script opens blue and
 	// turns red while it runs (final() leaves it as the Markdown has it)
 	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
-		red := call(t, s, "create_presentation", map[string]any{"title": "Script", "markdown": "## Turns red {script=apps/red.tsx}\n\n- One\n- Two\n",
+		red := call(t, s, "create_presentation", map[string]any{"title": "Script", "visibility": "link", "markdown": "## Turns red {script=apps/red.tsx}\n\n- One\n- Two\n",
 			"files": []any{map[string]any{"name": "red.tsx", "text": "let t = 0;\nfunction start() { find(\"h2\").set({ color: \"#2020ff\" }); }\nfunction tick(dt) { t += dt; if (t > 1) find(\"h2\").set({ color: \"#ff2020\" }); }\nfunction final() { find(\"h2\").set({ color: null }); }\n"}}})
 		_, _, _, rb := getView(t, s.root+"/api/view/"+sc(red)["deck_id"].(string))
 		if err := os.WriteFile("../scripts/fixtures/view-script.json", []byte(rb), 0o644); err != nil {
