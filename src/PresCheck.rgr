@@ -5509,6 +5509,23 @@ class PresCheck {
         this.ok((bk3.isEmpty()) "dockeys: inside the words Backspace is a character")
         def bk4:MdEditOp (PresDocKeys.itemBackspaceOp("- aa\n- \n- bb" 7))
         this.ok((bk4.isEmpty()) "dockeys: an empty top-level item is joined as before")
+        ; numbering on after an edit: the items after the caret's one, and
+        ; after each item it is under
+        def r1:string "1. aa\n2. uusi\n2. bb\n3. cc"
+        def ro1:MdEditOp (PresDocKeys.renumberOp(r1 (indexOf r1 "uusi")))
+        this.ok(((this.keyRun(r1 ro1)) == "1. aa\n2. uusi\n3. bb\n4. cc") ("dockeys: a new numbered item numbers the next ones on, got " + (this.keyRun(r1 ro1))))
+        this.ok((ro1.selAfterA == (indexOf r1 "uusi")) ("dockeys: …the caret stays, got " + (to_string ro1.selAfterA)))
+        def r2:string "1. aa\n   1. bb\n3. cc\n4. dd"
+        def ro2:MdEditOp (PresDocKeys.renumberOp(r2 (indexOf r2 "bb")))
+        this.ok(((this.keyRun(r2 ro2)) == "1. aa\n   1. bb\n2. cc\n3. dd") ("dockeys: an item gone in numbers its old list on, got " + (this.keyRun(r2 ro2))))
+        def r3:string "1. aa\n1. bb\n2. uusi\n1. cc"
+        def ro3:MdEditOp (PresDocKeys.renumberOp(r3 (indexOf r3 "uusi")))
+        this.ok(((this.keyRun(r3 ro3)) == "1. aa\n1. bb\n1. uusi\n1. cc") ("dockeys: a \"1. 1.\" list keeps its style, got " + (this.keyRun(r3 ro3))))
+        def r4:string "1. aa\n2. bb\n\n- x"
+        this.ok(((PresDocKeys.renumberOp(r4 (indexOf r4 "bb"))).isEmpty()) "dockeys: a list in order is left as it is")
+        def r5:string "1. aa\n\n2. bb\n4. cc"
+        def ro5:MdEditOp (PresDocKeys.renumberOp(r5 (indexOf r5 "aa")))
+        this.ok(((this.keyRun(r5 ro5)) == "1. aa\n\n2. bb\n3. cc") ("dockeys: a loose list too, got " + (this.keyRun(r5 ro5))))
         ; Enter on an empty nested item
         def e:string "- aa\n  - \n- cc"
         def eo:MdEditOp (PresDocKeys.emptyItemEnterOp(e 9))

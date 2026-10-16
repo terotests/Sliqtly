@@ -6617,6 +6617,19 @@ try {
     await pg.keyboard.press("Enter");
     await frames();
     check("View keys: Enter in a heading makes two headings", (await src()).endsWith("## Ot\n\n## sikko\n"), JSON.stringify((await src()).slice(-30)));
+    // a new numbered item numbers the ones after it on, in one undo step
+    const num = body + "1. aa\n2. bb\n3. cc\n";
+    await put(num, "aa");
+    await pg.keyboard.press("End");
+    await pg.keyboard.press("Enter");
+    await pg.keyboard.type("uusi");
+    await frames();
+    const n1 = await src();
+    await pg.keyboard.press("Control+z");
+    await pg.keyboard.press("Control+z");
+    await frames();
+    const n2 = await src();
+    check("View keys: Enter in a numbered list numbers the next items on, one undo takes it back", n1.endsWith("1. aa\n2. uusi\n3. bb\n4. cc\n") && n2 === num, JSON.stringify({ n1: n1.slice(-34), n2: n2.slice(-24) }));
     await keyTo(body + "```js\nlet a\n```\n", "let a", "Tab", "```js\n    let a\n```\n", "Tab in code writes four spaces");
     // undo a word at a time; Ctrl+Shift+Z redoes
     await put(body + "Teksti\n", "Teksti");

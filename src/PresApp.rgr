@@ -2284,16 +2284,37 @@ class PresApp {
         }
         docPic = -1
         def text:string (mdEditor.text())
-        this.posOf(text a)
+        ; a numbered list's items after the edited one numbered on, in the
+        ; same edit (one undo)
+        def ra:int a
+        def rb:int b
+        def rs:string s
+        def caret:int -1
+        def after:string ((substring text 0 a) + s + (substring text b (strlen text)))
+        def p:int (a + (strlen s))
+        def rn:MdEditOp (PresDocKeys.renumberOp(after p))
+        if ((rn.isEmpty()) == false) {
+            def fin:string (MdEdit.applyTo(after rn))
+            def endAfter:int (? (rn.end > p) rn.end p)
+            ra = (? (rn.start < a) rn.start a)
+            rb = ((endAfter - p) + b)
+            rs = (substring fin ra (endAfter + ((strlen fin) - (strlen after))))
+            caret = rn.selAfterA
+        }
+        this.posOf(text ra)
         mdEditor.moveCaret(posLine posCol false)
-        this.posOf(text b)
+        this.posOf(text rb)
         mdEditor.moveCaret(posLine posCol true)
-        if ((strlen s) == 0) {
-            if (a != b) {
+        if ((strlen rs) == 0) {
+            if (ra != rb) {
                 mdEditor.deleteSelection()
             }
         } {
-            mdEditor.insert(s)
+            mdEditor.insert(rs)
+        }
+        if (caret >= 0) {
+            this.posOf((mdEditor.text()) caret)
+            mdEditor.moveCaret(posLine posCol false)
         }
         this.syncEditor()
         this.docReveal()

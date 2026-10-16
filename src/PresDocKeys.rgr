@@ -463,6 +463,114 @@ class PresDocKeys {
         return (PresDocKeys.indentOp(text off off -1))
     }
 
+    ; --- numbering -----------------------------------------------------------------
+    ; The next item at `it`'s level and of its kind (numbered or not) after
+    ; what belongs to it; none past one blank line or another block.
+    sfn nextSibling:PresListItem (text:string it:PresListItem) {
+        def none (new PresListItem())
+        none.ls = -1
+        def n:int (strlen text)
+        def ls:int ((PresDocKeys.itemEnd(text it)) + 1)
+        def blanks:int 0
+        while ((ls < n) && (PresDocKeys.blankLine(text ls))) {
+            blanks = (blanks + 1)
+            if (blanks >= 2) {
+                return none
+            }
+            ls = ((PresDocCaret.lineEndOf(text ls)) + 1)
+        }
+        if (ls >= n) {
+            return none
+        }
+        def sib:PresListItem (PresDocKeys.itemAt(text ls))
+        if (((sib.ls >= 0) && (sib.indent == it.indent)) && (sib.ordered == it.ordered)) {
+            return sib
+        }
+        return none
+    }
+
+    ; The end of a numbered item's number.
+    sfn numEnd:int (text:string it:PresListItem) {
+        def sp:int (? ((it.width > 0) && ((charAt text (it.words - 1)) == 32)) 1 0)
+        return (((it.ls + it.indent) + it.width) - ((strlen it.delim) + sp))
+    }
+
+    ; The numbered items after the one at `at`, and after each item it is
+    ; under, numbered on from it, as a word processor shows them; an empty
+    ; op when they already are. A list written "1. 1. 1." (two items of the
+    ; same number) keeps that: the item at `at` takes the number above it.
+    sfn renumberOp:MdEditOp (text:string at:int) {
+        def none (new MdEditOp())
+        def it:PresListItem (PresDocKeys.itemAt(text at))
+        if (it.ls < 0) {
+            return none
+        }
+        def own:int it.ls
+        def shift:int 0
+        def from:int -1
+        def to:int -1
+        def out:string ""
+        def guard:int 0
+        while ((it.ls >= 0) && (guard < 32)) {
+            guard = (guard + 1)
+            if it.ordered {
+                def head:PresListItem it
+                def up:PresListItem (PresDocKeys.itemAbove(text head false))
+                while ((up.ls >= 0) && up.ordered) {
+                    head = up
+                    up = (PresDocKeys.itemAbove(text head false))
+                }
+                def same:boolean false
+                def prev:PresListItem head
+                def nx:PresListItem (PresDocKeys.nextSibling(text head))
+                while (nx.ls >= 0) {
+                    if (((prev.ls != own) && (nx.ls != own)) && (prev.num == nx.num)) {
+                        same = true
+                    }
+                    prev = nx
+                    nx = (PresDocKeys.nextSibling(text nx))
+                }
+                if same {
+                    def above:PresListItem (PresDocKeys.itemAbove(text it false))
+                    if (((it.ls == own) && (above.ls >= 0)) && (above.num != it.num)) {
+                        from = (it.ls + it.indent)
+                        to = (PresDocKeys.numEnd(text it))
+                        out = (to_string above.num)
+                        if (at >= to) {
+                            shift = ((strlen out) - (to - from))
+                        }
+                    }
+                } {
+                    def num:int it.num
+                    def sib:PresListItem (PresDocKeys.nextSibling(text it))
+                    while (sib.ls >= 0) {
+                        num = (num + 1)
+                        if (sib.num != num) {
+                            def ds:int (sib.ls + sib.indent)
+                            if (from < 0) {
+                                from = ds
+                            } {
+                                out = (out + (substring text to ds))
+                            }
+                            out = (out + (to_string num))
+                            to = (PresDocKeys.numEnd(text sib))
+                        }
+                        sib = (PresDocKeys.nextSibling(text sib))
+                    }
+                }
+            }
+            it = (PresDocKeys.itemAbove(text it true))
+        }
+        if (from < 0) {
+            return none
+        }
+        def op:MdEditOp (MdEdit.patch(text from to out))
+        ; the caret: where it was, by the change of its own item's number
+        op.selAfterA = (at + shift)
+        op.selAfterB = op.selAfterA
+        return op
+    }
+
     ; --- headings -----------------------------------------------------------------
     ; Enter in an ATX heading: at its words' start a paragraph above it (the
     ; heading stays one), in its words two headings of the same level, at
