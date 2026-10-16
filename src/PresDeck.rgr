@@ -287,6 +287,10 @@ class PresDeck {
     ; list being built is the stage (controls drawn) or a thumbnail
     def uiNow:double 0.0
     def showControls:boolean false
+    ; File → Settings → Diagram zoom: the viewer moves a diagram's camera
+    ; by hand (a press on a box zooms to it, ▶ + − 100 %, the magnifier).
+    ; Off, a press on a diagram leaves it as it is (PresDiagram.steer).
+    def diagramZoom:boolean false
     ; Painting for a page that does not move (the PDF): every diagram at
     ; rest, whole, rather than where its walk is at a moment.
     def still:boolean false
@@ -468,6 +472,7 @@ class PresDeck {
             if ((only < 0) || (only == k)) {
                 def dd:PresDiagram (u.active(uiNow))
                 dd.uiNow = uiNow
+                dd.steer = diagramZoom
                 r = (dd.hit((u.activeTime(t uiNow)) (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) px py))
             }
             if (r == -12) {
@@ -790,6 +795,29 @@ class PresDeck {
         return true
     }
 
+    ; File → Settings → Diagram zoom turned on or off. Off, every diagram
+    ; goes back to its own camera and one open over a slide to its place:
+    ; nothing is left zoomed that the viewer can no longer move.
+    fn setDiagramZoom:void (on:boolean) {
+        diagramZoom = on
+        if on {
+            return
+        }
+        for slides s:PresSlide i {
+            for s.diagrams u:PresDiaUse k {
+                u.diagram.steer = false
+                u.diagram.menuOpen = false
+                u.diagram.zoomOpen = false
+                u.diagram.exploreHome()
+                u.big.steer = false
+                u.big.exploreHome()
+                if u.diagram.full.open {
+                    u.diagram.full.setOpen(uiNow false)
+                }
+            }
+        }
+    }
+
     ; The slide on screen is i: a diagram left open over another slide is
     ; back in its place when that slide shows again.
     def fullSlide:int -1
@@ -823,6 +851,7 @@ class PresDeck {
             def b:[double] (u.boxNow(uiNow (this.fullBoxNow())))
             def dd:PresDiagram (u.active(uiNow))
             dd.uiNow = uiNow
+            dd.steer = diagramZoom
             dd.pointerAt((j == k) (u.activeTime(t uiNow)) (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) px py)
             j = (j + 1)
         }
@@ -6199,6 +6228,7 @@ class PresDeck {
                 def dia:PresDiaUse (itemAt s.diagrams use)
                 dia.diagram.uiNow = uiNow
                 dia.diagram.showControls = showControls
+                dia.diagram.steer = diagramZoom
                 dia.diagram.live = live
                 ; a `bg=` can come after the fence was read
                 dia.diagram.rimFade = (this.flatGround(s))
@@ -6210,7 +6240,7 @@ class PresDeck {
                 ; the magnifier: presenting, and the diagram drawn small here
                 ; (laid out for the whole slide its boxes draw bigger)
                 dia.diagram.canFull = false
-                if ((live && showControls) && (still == false)) {
+                if (((live && showControls) && diagramZoom) && (still == false)) {
                     def big:PresDiagram (this.bigOf(s dia))
                     if big.ok {
                         def fb:[double] (this.fullBoxNow())
@@ -6527,6 +6557,7 @@ class PresDeck {
         def dd:PresDiagram (u.active(uiNow))
         dd.uiNow = uiNow
         dd.showControls = showControls
+        dd.steer = diagramZoom
         dd.live = live
         dd.rimFade = u.diagram.rimFade
         dd.paint(out (itemAt b 0) (itemAt b 1) (itemAt b 2) (itemAt b 3) (u.activeTime(t uiNow)) l.style.textColor paper l)

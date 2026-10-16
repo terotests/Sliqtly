@@ -808,6 +808,9 @@ class PresPanels {
     ; experimental: the 3-D flight while presenting (web/flight3d.js), off
     ; until turned on here
     def flight3d:boolean false
+    ; a press on a diagram zooms to its box, ▶ + − 100 % on it
+    ; (PresDiagram.steer); off until turned on here
+    def diagramZoom:boolean false
     ; File → Settings → Presentations open in: View (false) or Edit
     ; (src/PresEditMode.rgr)
     def openInEdit:boolean false
@@ -2442,6 +2445,15 @@ class PresPanels {
         this.button("pn-set-open-edit" (PresI18n.t("Edit")) (? openInEdit "primary" "secondary") orw)
         ow.addChild(orw)
         d.addChild(ow)
+        ; a diagram's own camera in the viewer's hand, off unless turned on
+        def zw:EVGElement (UiKit.div("pn-opt"))
+        zw.addChild((UiKit.words("pn-otitle" (PresI18n.t("Diagram zoom")))))
+        zw.addChild((UiKit.words("pn-odesc" (PresI18n.t("A click on a diagram zooms to the box clicked, and ▶ + − 100 % show on the diagram. Off, a diagram stays as it is; the slide as a whole zooms with − 100 % + under it.")))))
+        def zr:EVGElement (UiKit.div("pn-orow"))
+        this.button("pn-set-diazoom-off" (PresI18n.t("Off")) (? diagramZoom "secondary" "primary") zr)
+        this.button("pn-set-diazoom-on" (PresI18n.t("On")) (? diagramZoom "primary" "secondary") zr)
+        zw.addChild(zr)
+        d.addChild(zw)
         ; features still being tried out, off unless turned on
         def xw:EVGElement (UiKit.div("pn-opt"))
         xw.addChild((UiKit.words("pn-otitle" (PresI18n.t("Experimental: 3-D flight")))))
@@ -3057,6 +3069,12 @@ class PresPanels {
             if ((sc == "pn-set-open-view") || (sc == "pn-set-open-edit")) {
                 openInEdit = (sc == "pn-set-open-edit")
                 push requests ("setting:openin:" + (? openInEdit "edit" "view"))
+                this.rebuild()
+                return
+            }
+            if ((sc == "pn-set-diazoom-on") || (sc == "pn-set-diazoom-off")) {
+                diagramZoom = (sc == "pn-set-diazoom-on")
+                push requests ("setting:diazoom:" + (? diagramZoom "on" "off"))
                 this.rebuild()
                 return
             }

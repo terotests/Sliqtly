@@ -1,0 +1,67 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresViewZoom.rgr — the whole slide seen closer, from the pill at its foot
+; ============================================================================
+;
+; The stage can show the slide bigger than it fits (PresApp.viewZoom: a
+; pinch, a double tap, Ctrl + wheel). The pill at the stage's foot, beside
+; review's "+ Add comment" and the drawing pill, does the same by steps:
+;
+;   −        a step out (to the slide as it fits, no further)
+;   100 %    how big the slide is now; a press puts it back as it fits
+;   +        a step in (up to `most`, 600 %)
+;
+; A step goes to the next level of `levels` past where the view is, so a
+; pinch that left it at 137 % steps to 150 % or to 125 %. Nothing here draws.
+; ============================================================================
+
+class PresViewZoom {
+    ; the furthest in: as far as a pinch goes (PresApp.viewPinch)
+    sfn most:double () {
+        return 6.0
+    }
+
+    ; the steps, times the fitted size
+    sfn levels:[double] () {
+        return ([] _:double (1.0 1.25 1.5 2.0 3.0 4.0 6.0))
+    }
+
+    ; The next level in from z (the last one when z is past it).
+    sfn stepIn:double (z:double) {
+        def lv:[double] (PresViewZoom.levels())
+        for lv v:double i {
+            if (v > (z + 0.001)) {
+                return v
+            }
+        }
+        return (PresViewZoom.most())
+    }
+
+    ; The next level out from z (1.0, the slide as it fits, at the least).
+    sfn stepOut:double (z:double) {
+        def lv:[double] (PresViewZoom.levels())
+        def r:double 1.0
+        for lv v:double i {
+            if (v < (z - 0.001)) {
+                r = v
+            }
+        }
+        return r
+    }
+
+    ; "150 %": the view's size in whole per cent.
+    sfn label:string (z:double) {
+        def p:int (to_int ((z * 100.0) + 0.5))
+        return ((to_string p) + " %")
+    }
+
+    ; − can go out, + can go in.
+    sfn canOut:boolean (z:double) {
+        return (z > 1.001)
+    }
+
+    sfn canIn:boolean (z:double) {
+        return (z < ((PresViewZoom.most()) - 0.001))
+    }
+}
