@@ -2498,6 +2498,7 @@ try {
     a.showTab("view");
     a.place();
     a.edDocEnsure();
+    while (a.takeRequest()) { /* edit-mode:save and the like */ }
     [x, y] = at(a.edDocPane);
     out.viewCursor = a.cursorAt(x, y);
     a.pointerDown(x, y, false, 1); a.pointerUp();
