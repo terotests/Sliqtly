@@ -1,0 +1,329 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresTwoScreen.rgr — the speaker view on one screen, the slides on another
+; ============================================================================
+;
+; With a projector beside the laptop, the speaker view (S) on the laptop and
+; the slides alone on the projector: P while presenting, or ⋯ → Presenter
+; view on another screen, opens a second window of the page (the audience's,
+; `?audience=<pair>`, web/twoscreen.js) that shows the slide and nothing
+; else, and this window turns to the speaker view.
+;
+; The presenter's window leads. It sends where the presentation is (the
+; slide, the build step, the deck clock, whether it is past the end) when
+; that changes, and the audience's window takes it as a jump (PresNav's
+; PresNavAt: no transition is run on the way; the clock goes on from the
+; presenter's). A key or a click in the audience's window is not taken
+; there: it is sent to the presenter's window, which takes it as its own,
+; so both move (a clicker paired with whichever window has the focus works).
+; Only F (full screen of that window) stays where it was pressed.
+;
+; The windows talk over a BroadcastChannel named for the pair; what crosses
+; is a line of fields separated by tabs (the deck itself goes as
+; web/version-view.js's packet, which is the page's):
+;
+;   hello                        audience → presenter: it is there (opened,
+;                                or reloaded); the deck and the state, please
+;   state slide step clock ended presenter → audience
+;   key key code mods            audience → presenter: a key pressed there
+;   click                        audience → presenter: a click on the slide
+;   bye                          either: this window is going
+;
+; How the mode ends:
+;   - the presenter ends the presentation (Esc, ✕), or switches the mode off:
+;     the presenter's window says bye and closes the audience's
+;   - the presenter's window goes (closed, reloaded): it says bye and the
+;     audience's window closes. A reload comes back as the editor, not
+;     presenting, so there is nothing to go on with
+;   - the audience's window is closed: the presenter's window sees it closed
+;     (or hears its bye and no hello within GRACE seconds) and goes back to
+;     the view it had before the mode began
+;   - the audience's window is reloaded: its bye and then its hello; the
+;     presenter sends the deck and the state again and the mode goes on
+; ============================================================================
+
+Import "PresNav.rgr"
+
+class PresTwoMsg {
+    ; "hello" | "state" | "key" | "click" | "bye" | "" (not a message)
+    def kind:string ""
+    def slide:int 0
+    def step:int 0
+    def clock:double 0.0
+    def ended:boolean false
+    ; a key: KeyboardEvent.key and .code, and its modifiers as letters
+    ; (s Shift, c Ctrl, m Meta, a Alt)
+    def key:string ""
+    def code:string ""
+    def mods:string ""
+}
+
+class PresTwoScreen {
+    ; "" (one screen) | "lead" (the presenter's window) | "follow" (the
+    ; audience's)
+    def role:string ""
+    ; the pair's name: both windows' channel (web/twoscreen.js channelName)
+    def pair:string ""
+    ; lead: whether the speaker view was on before the mode, for its end
+    def speakerWas:boolean false
+    ; lead: the state last sent, as "slide step ended" ("" none yet)
+    def sent:string ""
+    ; lead: the audience has said hello since it was opened
+    def joined:boolean false
+    ; lead: when the audience said bye (-1: it did not), to tell a reload
+    ; from a window closed
+    def byeAt:double -1.0
+    ; follow: the state that came before the presentation began
+    def pending:PresTwoMsg (new PresTwoMsg())
+    def hasPending:boolean false
+    ; the last message taken (a key's fields for the page)
+    def last:PresTwoMsg (new PresTwoMsg())
+
+    Constructor () {
+    }
+
+    ; seconds the presenter waits for a reloaded audience to say hello again
+    sfn GRACE:double () {
+        return 4.0
+    }
+
+    fn on:boolean () {
+        return ((strlen role) > 0)
+    }
+
+    fn lead:void (name:string speakerOn:boolean) {
+        role = "lead"
+        pair = name
+        speakerWas = speakerOn
+        sent = ""
+        joined = false
+        byeAt = -1.0
+    }
+
+    fn follow:void (name:string) {
+        role = "follow"
+        pair = name
+        hasPending = false
+    }
+
+    ; Back to one screen. -> whether the speaker view goes back on (lead):
+    ; the view it had before the mode.
+    fn stop:boolean () {
+        def was:boolean speakerWas
+        role = ""
+        pair = ""
+        sent = ""
+        joined = false
+        byeAt = -1.0
+        hasPending = false
+        speakerWas = false
+        return was
+    }
+
+    ; --- the lines -----------------------------------------------------------
+
+    sfn stateLine:string (slide:int step:int clock:double ended:boolean) {
+        def c:double ((to_double (to_int ((clock * 1000.0) + 0.5))) / 1000.0)
+        if (clock < 0.0) {
+            c = 0.0
+        }
+        return ((((((("state\t" + (to_string slide)) + "\t") + (to_string step)) + "\t") + (to_string c)) + "\t") + (? ended "1" "0"))
+    }
+
+    sfn keyLine:string (key:string code:string shift:boolean ctrl:boolean meta:boolean alt:boolean) {
+        def mods:string ""
+        if shift {
+            mods = (mods + "s")
+        }
+        if ctrl {
+            mods = (mods + "c")
+        }
+        if meta {
+            mods = (mods + "m")
+        }
+        if alt {
+            mods = (mods + "a")
+        }
+        return ((((("key\t" + (PresTwoScreen.field(key))) + "\t") + (PresTwoScreen.field(code))) + "\t") + mods)
+    }
+
+    ; a field never holds the separators (a key's name is one character or
+    ; a word: "\t" only as "Tab")
+    sfn field:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c != 9) && (c != 10)) {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A line → the message; kind "" for anything else (another version of the
+    ; page, a line cut short).
+    sfn parse:PresTwoMsg (line:string) {
+        def m (new PresTwoMsg())
+        def parts:[string] (strsplit line "\t")
+        def n:int (array_length parts)
+        if (n == 0) {
+            return m
+        }
+        def kind:string (itemAt parts 0)
+        if ((((kind == "hello") || (kind == "click")) || (kind == "bye")) && (n == 1)) {
+            m.kind = kind
+            return m
+        }
+        if ((kind == "state") && (n == 5)) {
+            def slide:int (?? (to_int (trim (itemAt parts 1))) -1)
+            def step:int (?? (to_int (trim (itemAt parts 2))) -1)
+            def clock:double (?? (to_double (trim (itemAt parts 3))) -1.0)
+            def ended:string (itemAt parts 4)
+            if ((((slide < 0) || (step < 0)) || (clock < 0.0)) || ((ended != "0") && (ended != "1"))) {
+                return m
+            }
+            m.kind = kind
+            m.slide = slide
+            m.step = step
+            m.clock = clock
+            m.ended = (ended == "1")
+            return m
+        }
+        if ((kind == "key") && (n == 4)) {
+            if ((strlen (itemAt parts 1)) == 0) {
+                return m
+            }
+            m.kind = kind
+            m.key = (itemAt parts 1)
+            m.code = (itemAt parts 2)
+            m.mods = (itemAt parts 3)
+            return m
+        }
+        return m
+    }
+
+    ; Keys the audience's window keeps: F (and F11) make that window full
+    ; screen. Everything else goes to the presenter's window.
+    sfn followKeeps:boolean (key:string ctrl:boolean meta:boolean alt:boolean) {
+        if (key == "F11") {
+            return true
+        }
+        if ((ctrl || meta) || alt) {
+            return false
+        }
+        return ((key == "f") || (key == "F"))
+    }
+
+    ; --- the presenter's window --------------------------------------------
+
+    ; The line to send now: the state when it moved since it was last sent
+    ; (or the audience asked for it), else "". The clock alone moving is no
+    ; news: both windows run it.
+    fn out:string (slide:int step:int clock:double ended:boolean) {
+        if (role != "lead") {
+            return ""
+        }
+        def key:string ((((to_string slide) + " ") + (to_string step)) + (? ended " e" ""))
+        if (key == sent) {
+            return ""
+        }
+        sent = key
+        return (PresTwoScreen.stateLine(slide step clock ended))
+    }
+
+    ; A line the other window sent, taken. What the page does then:
+    ;   lead:   "welcome" send the deck (then `out` sends the state)
+    ;           "key"     press the key here (`last` has it)
+    ;           "click"   the next step here
+    ;           ""        nothing
+    ;   follow: "state"   go where the presenter is (`last`; PresApp applies it)
+    ;           "close"   the presenter's window went: close this one
+    fn take:string (line:string now:double) {
+        def m:PresTwoMsg (PresTwoScreen.parse(line))
+        last = m
+        if (role == "lead") {
+            if (m.kind == "hello") {
+                joined = true
+                byeAt = -1.0
+                sent = ""
+                return "welcome"
+            }
+            if (m.kind == "bye") {
+                byeAt = now
+                return ""
+            }
+            if ((m.kind == "key") || (m.kind == "click")) {
+                return m.kind
+            }
+            return ""
+        }
+        if (role == "follow") {
+            if (m.kind == "bye") {
+                return "close"
+            }
+            if (m.kind == "state") {
+                pending = m
+                hasPending = true
+                return "state"
+            }
+        }
+        return ""
+    }
+
+    ; The presenter's window, now and then: "end" when the audience's window
+    ; is gone (closed, or a bye with no hello after it), else "".
+    fn tick:string (now:double closed:boolean) {
+        if (role != "lead") {
+            return ""
+        }
+        if closed {
+            return "end"
+        }
+        if ((byeAt >= 0.0) && ((now - byeAt) > (PresTwoScreen.GRACE()))) {
+            return "end"
+        }
+        return ""
+    }
+
+    ; --- the audience's window ---------------------------------------------
+
+    ; Whether the state `m` is somewhere else than the presentation is now
+    ; (the clock aside: a state sent again changes nothing).
+    sfn moves:boolean (m:PresTwoMsg slide:int step:int ended:boolean) {
+        return (((m.slide != slide) || (m.step != step)) || (m.ended != ended))
+    }
+
+    ; The state as a jump in this window's deck: the slide and step held
+    ; inside it, the clock inside the slide.
+    sfn at:PresNavAt (deck:PresDeck m:PresTwoMsg) {
+        def at (new PresNavAt())
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            return at
+        }
+        def k:int m.slide
+        if (k > (n - 1)) {
+            k = (n - 1)
+        }
+        def s:PresSlide (deck.slideAt(k))
+        def start:double (PresTimeline.slideStart(deck k))
+        at.slide = k
+        at.step = m.step
+        if (at.step > s.steps) {
+            at.step = s.steps
+        }
+        at.clock = m.clock
+        if (at.clock < start) {
+            at.clock = start
+        }
+        if (at.clock > (start + s.duration)) {
+            at.clock = (start + s.duration)
+        }
+        at.ended = m.ended
+        return at
+    }
+}

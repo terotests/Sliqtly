@@ -30,7 +30,8 @@ import { scaled, previewOf, render, asPicture } from "./image-adjust.js";
 import { decodePicture, pictureCache, isSvg, isSmartArt, SMARTART_TYPE } from "./picture.js";
 import { DeckHistory, TAB, mergeCopies, resolveMerge, lineStats } from "./versions.js";
 import { showHistory, askMerge } from "./versions-ui.js";
-import { isViewFrame, readyMessage, readPacket } from "./version-view.js";
+import { isViewFrame, readyMessage, readPacket, viewPacket } from "./version-view.js";
+import { audiencePair, openAudience, openChannel, newPair } from "./twoscreen.js";
 import { wantsIntro, INTRO_MS } from "./brand.js";
 import { embeddedAsset, embeddedScriptUrl, embeddedDeck, fileData, playerHtml, base64 } from "./player-file.js";
 import { sharedPngUrl, sharedSourceUrl, listShared, putShared, removeShared, moveShared, makeSharedFolder, removeSharedFolder, sharedPanelJson, sharedIndex, anyIndexing, useEditorRoots } from "./sharedfiles.js";
@@ -290,6 +291,155 @@ for (const g of document.querySelectorAll("optgroup[label]")) g.label = t(g.labe
 const app = new globalThis.PresApp();
 window.__app = app;
 app.setAppName(APP_NAME);
+
+// --- the presenter view on another screen (src/PresTwoScreen.rgr, web/twoscreen.js) ---
+// P while presenting (⋯ → Presenter view on another screen) opens the page
+// again as the audience's window, which shows the slide alone; this window
+// turns to the speaker view and leads. The audience's window takes no key
+// or click itself (F aside, its full screen): each goes to this window, so
+// both move. Its listeners go first, before the viewer's own.
+const audience = audiencePair(location.search, !!window.opener);
+let twoCh = null; // the channel to the other window
+let twoWin = null; // the presenter's: the audience's window
+let twoTimer = 0;
+let twoOpening = false;
+function twoAvailable() {
+  return !framed && !audience && typeof BroadcastChannel === "function" && typeof window.open === "function";
+}
+function twoSend(x) {
+  try { twoCh?.postMessage(x); } catch (e) { console.warn("two screens: not sent", e); }
+}
+// the presenter's window: where the presentation is, when that moved
+function twoPump() {
+  if (!twoCh || app.twoRole() !== "lead") return;
+  const line = app.twoOut();
+  if (line) twoSend(line);
+}
+async function twoOpen() {
+  if (!twoAvailable()) {
+    toast(t("This browser cannot open the slides in a second window"));
+    return;
+  }
+  // P pressed again while the window is on its way opens no second one
+  if (twoOpening || twoCh) return;
+  twoOpening = true;
+  const pair = newPair();
+  const ch = openChannel(pair, { line: twoHeard });
+  const { win, placed } = await openAudience(pair).finally(() => { twoOpening = false; });
+  if (!win) {
+    ch.close();
+    toast(t("The browser blocked the second window: allow pop-ups for this site and try again"));
+    return;
+  }
+  twoCh = ch;
+  twoWin = win;
+  app.twoLead(pair);
+  // the presentation ended while the window opened
+  if (app.twoRole() !== "lead") return twoClose();
+  twoTimer = setInterval(twoTick, 500);
+  needsPaint = true;
+  placed.then((on) => {
+    if (app.twoRole() !== "lead") return;
+    toast(on ? t("The slides are on the other screen: press F there for full screen")
+      : t("Drag the new window to the other screen and press F there for full screen"));
+  });
+}
+function twoTick() {
+  if (app.twoTick(performance.now() / 1000, !twoWin || twoWin.closed) === "end") handleRequests();
+  twoPump();
+}
+// back to one screen: the audience's window told and closed
+function twoClose() {
+  clearInterval(twoTimer);
+  twoTimer = 0;
+  twoSend("bye");
+  twoCh?.close();
+  twoCh = null;
+  try { if (twoWin && !twoWin.closed) twoWin.close(); } catch (_) { /* gone already */ }
+  twoWin = null;
+  needsPaint = true;
+}
+// the deck as it is here, for the audience's window (the version frame's packet)
+async function twoSendDeck() {
+  const files = (await docFiles()).filter((f) => f.path !== REVIEW_PATH);
+  const theme = themeSel.value || "";
+  twoSend(viewPacket({ name: docName, md: app.source(), css: editedCss[theme] ?? null, theme, files }));
+}
+// a line from the other window
+function twoHeard(line) {
+  const what = app.twoTake(line, performance.now() / 1000);
+  if (what === "welcome") twoSendDeck().catch(fail);
+  else if (what === "key") {
+    const mods = app.twoKeyMods();
+    keys.dispatchEvent(new KeyboardEvent("keydown", {
+      key: app.twoKey(), code: app.twoKeyCode(), shiftKey: mods.includes("s"), ctrlKey: mods.includes("c"),
+      metaKey: mods.includes("m"), altKey: mods.includes("a"), bubbles: false, cancelable: true,
+    }));
+  } else if (what === "moved") afterInput();
+  else if (what === "close") window.close();
+  twoPump();
+  needsPaint = true;
+}
+// the audience's window: a key goes to the presenter's, F stays (full screen)
+function audienceKey(ev) {
+  if (/^(Shift|Control|Alt|Meta)$/.test(ev.key) || ev.isComposing) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  if (app.twoKeeps(ev.key, ev.ctrlKey, ev.metaKey, ev.altKey)) {
+    if (ev.repeat) return;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen?.().catch(() => {});
+    return;
+  }
+  twoSend(app.twoKeyLine(ev.key, ev.code, ev.shiftKey, ev.ctrlKey, ev.metaKey, ev.altKey));
+}
+// …and a click (a tap) on the slide is the next step there
+function audiencePress(ev) {
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  if (ev.type === "pointerdown" && ev.button === 0) twoSend("click");
+}
+if (audience) {
+  window.addEventListener("keydown", audienceKey, true);
+  for (const type of ["pointerdown", "pointerup", "click", "dblclick", "wheel", "contextmenu"]) window.addEventListener(type, audiencePress, { capture: true, passive: false });
+}
+// either window going says so: the audience's closes with the presenter's,
+// the presenter's waits for a reloaded audience to say hello again
+window.addEventListener("pagehide", () => {
+  if (!twoCh) return;
+  twoSend("bye");
+  if (twoWin && !twoWin.closed) try { twoWin.close(); } catch (_) { /* gone already */ }
+});
+// The audience's window at its start: the deck from the presenter's (asked
+// for until it comes), then the presentation where the presenter is.
+function audienceDeck() {
+  return new Promise((done) => {
+    twoCh = openChannel(audience, {
+      line: twoHeard,
+      packet: (d) => {
+        const v = readPacket(d);
+        if (v) done(v);
+      },
+    });
+    const ask = () => {
+      // the presenter's window gone before it answered
+      if (!window.opener || window.opener.closed) return window.close();
+      twoSend("hello");
+    };
+    ask();
+    const again = setInterval(() => (window.__twoDeck ? clearInterval(again) : ask()), 1000);
+  });
+}
+async function openAudienceView() {
+  app.twoFollow(audience);
+  const v = await audienceDeck();
+  window.__twoDeck = true;
+  await showDeck(v);
+  enterViewer({ from: "audience" });
+  // the presenter's window closed without a word (a crash): this one too
+  setInterval(() => { if (!window.opener || window.opener.closed) window.close(); }, 1000);
+  toast(t("Press F for full screen"));
+}
 // less motion when the viewer's system asks for it, followed when it changes
 {
   const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -5361,6 +5511,7 @@ function frame() {
       needsPaint = true;
     }
     recFrame();
+    twoPump();
     if ((doc.cloud || "") !== collabWant) collabFollow();
     collab?.tick();
     meet.tick();
@@ -5827,6 +5978,10 @@ function handleRequests() {
       // arrive in; a presentation without keys is a slideshow nobody can drive.
       keys.focus({ preventScroll: true });
       requestAnimationFrame(resize);
+    } else if (r === "two:open") {
+      twoOpen().catch(fail);
+    } else if (r === "two:close") {
+      twoClose();
     } else if (r.startsWith("meet:")) {
       meet.request(r);
       refreshCollabBar();
@@ -8868,6 +9023,8 @@ function toggleViewMenu(open) {
   }
   document.getElementById("vEdit").hidden = !ownsShare();
   document.getElementById("vSpeaker").setAttribute("aria-checked", String(app.speakerOn()));
+  document.getElementById("vTwo").hidden = !twoAvailable();
+  document.getElementById("vTwo").setAttribute("aria-checked", String(app.twoRole() === "lead"));
   document.getElementById("vAuto").setAttribute("aria-checked", String(app.autoOn()));
   wakeViewer();
   [...vMenu.querySelectorAll("button")].find((b) => b.offsetParent)?.focus();
@@ -8934,6 +9091,10 @@ vMenu.addEventListener("click", (ev) => {
     else EXPORTS[act]().catch(fail);
   } else if (act === "speaker") {
     app.setSpeaker(!app.speakerOn());
+    needsPaint = true;
+  } else if (act === "two") {
+    app.twoToggle();
+    handleRequests();
     needsPaint = true;
   } else if (act === "auto") {
     app.setAuto(!app.autoOn());
@@ -9568,6 +9729,9 @@ function afterInput() {
   mirrorLine();
   handleRequests();
   rebaseClock();
+  // the audience's window follows a press at once, not at the next frame
+  // (which a window behind another may not draw)
+  twoPump();
   needsPaint = true;
 }
 
@@ -11120,9 +11284,15 @@ if (versionFrame) {
   viewer = true;
   document.body.classList.add("viewer", "versionFrame");
 }
+// The audience's window of the presenter view on another screen: the
+// viewer too, its deck from the presenter's window.
+if (audience) {
+  viewer = true;
+  document.body.classList.add("viewer", "audience");
+}
 // A presentation exported as one .html file (web/player-file.js): the viewer
 // from the start, the deck from the file, no store, nothing saved.
-const playerDeck = versionFrame ? null : embeddedDeck(document);
+const playerDeck = versionFrame || audience ? null : embeddedDeck(document);
 if (playerDeck) {
   viewer = true;
   document.body.classList.add("viewer", "playerFile");
@@ -11142,7 +11312,12 @@ function versionFromEditor() {
   });
 }
 async function openVersionView() {
-  const v = await versionFromEditor();
+  await showDeck(await versionFromEditor());
+  enterViewer({ from: "version" });
+}
+// A deck handed over whole (the version frame's, the audience window's):
+// shown as the viewer shows one, nothing kept.
+async function showDeck(v) {
   beginDoc(v.md);
   themeSel.value = v.theme;
   app.setStyleSheet(v.theme ? themeCss[v.theme] || "" : "");
@@ -11160,7 +11335,6 @@ async function openVersionView() {
   shownDoc(v.md);
   dropThumbs();
   needsPaint = true;
-  enterViewer({ from: "version" });
 }
 
 async function openPlayerDeck() {
@@ -11306,6 +11480,7 @@ async function start() {
   sharedRefresh();
   try {
     if (versionFrame) await openVersionView();
+    else if (audience) await openAudienceView();
     else if (playerDeck) await openPlayerDeck();
     else if (editing && editId && (await openOwnCloud(editId).catch((e) => { console.warn(e); return false; }))) {
       // a deck's link on a server of one's own: its room open on the left,
