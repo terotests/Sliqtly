@@ -860,6 +860,55 @@ class PresDocKeys {
         return (PresDocCaret.cellStart(text pipe))
     }
 
+    ; Tab at the end of the paragraph just before a table: the start of its
+    ; first cell; Shift+Tab (`dir` < 0) at the start of the block just after one:
+    ; its last row's last cell. -1 when `off` is not at such an edge.
+    sfn tableEdgeJump:int (text:string off:int dir:int) {
+        if (PresDocCaret.inTable(text off)) {
+            return -1
+        }
+        ; a list item keeps Tab for its level
+        def li:PresListItem (PresDocKeys.itemAt(text off))
+        if (li.ls >= 0) {
+            return -1
+        }
+        def n:int (strlen text)
+        def ls:int (PresDocCaret.lineStartOf(text off))
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        if (dir > 0) {
+            if ((off != le) || (le >= n)) {
+                return -1
+            }
+            def s:int (le + 1)
+            while (s < n) {
+                def e:int (PresDocCaret.lineEndOf(text s))
+                if ((strlen (trim (substring text s e))) > 0) {
+                    if (PresDocCaret.inTable(text s)) {
+                        return (PresDocKeys.cellIn(text s 0))
+                    }
+                    return -1
+                }
+                s = (e + 1)
+            }
+            return -1
+        }
+        if ((off > (PresDocKeys.firstNonSpace(text ls))) || (ls == 0)) {
+            return -1
+        }
+        def pe:int (ls - 1)
+        while (pe >= 0) {
+            def ps:int (PresDocCaret.lineStartOf(text pe))
+            if ((strlen (trim (substring text ps pe))) > 0) {
+                if (PresDocCaret.inTable(text ps)) {
+                    return (PresDocKeys.cellIn(text ps ((PresDocKeys.cellCount(text ps)) - 1)))
+                }
+                return -1
+            }
+            pe = (ps - 1)
+        }
+        return -1
+    }
+
     ; A new empty row after the table's row at `off`, the caret in its cell
     ; `col`.
     sfn addRowOp:MdEditOp (text:string off:int col:int) {

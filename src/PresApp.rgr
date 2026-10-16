@@ -2814,6 +2814,15 @@ class PresApp {
                 this.docApply((PresDocKeys.codeTabOp(text lo hi tdir)))
                 return true
             }
+            ; at the edge of the block beside a table: into its first cell
+            ; (Shift: its last)
+            if (lo == hi) {
+                def edge:int (PresDocKeys.tableEdgeJump(text off tdir))
+                if (edge >= 0) {
+                    this.docSelect(edge edge)
+                    return true
+                }
+            }
             ; a list item: a level in or out, with its own
             if ((PresDocCaret.inTable(text off)) == false) {
                 def li:PresListItem (PresDocKeys.itemAt(text lo))
