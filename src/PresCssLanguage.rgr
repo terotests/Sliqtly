@@ -13,9 +13,15 @@
 
 Import "../datagrid/src/script/lang/EditorLanguage.rgr"
 Import "PresCssSupport.rgr"
+Import "PresValueEdit.rgr"
 
 class PresCssLanguage {
     Extends(EditorLanguage)
+
+    ; the slide, in points: what a number past its safety range is measured
+    ; against when the sheet sets no page of its own (PresValueEdit)
+    def pageW:double 960.0
+    def pageH:double 540.0
 
     Constructor () {
     }
@@ -38,14 +44,20 @@ class PresCssLanguage {
 
     ; A line the slides will not use — an unsupported property, a selector
     ; the sheet cannot match, `color: ;` — is marked where it is written
-    ; (PresCssSupport). Cheap enough for every keystroke: one pass over the
-    ; text, no layout.
+    ; (PresCssSupport). So is a number the layout draws at another value,
+    ; past its safety range (PresValueEdit.limitNotes). Cheap enough for
+    ; every keystroke: one pass over the text, no layout.
     fn diagnose:[EditorDiagnostic] (source:string) {
-        return (PresCssSupport.diagnostics(source))
+        def out:[EditorDiagnostic] (PresCssSupport.diagnostics(source))
+        def lim:[EditorDiagnostic] (PresValueEdit.limitNotes(source pageW pageH))
+        for lim d:EditorDiagnostic i {
+            push out d
+        }
+        return out
     }
 
     fn quickDiagnose:[EditorDiagnostic] (lines:[string]) {
-        return (PresCssSupport.diagnostics((join lines "\n")))
+        return (this.diagnose((join lines "\n")))
     }
 
     fn tokenize:[CodeTokenLine] (lines:[string]) {

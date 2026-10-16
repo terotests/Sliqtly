@@ -20,6 +20,7 @@ Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresTerm.rgr"
 Import "PresHints.rgr"
+Import "PresValueEdit.rgr"
 Import "PresHelp.rgr"
 Import "PresFlowModel.rgr"
 Import "PresThemeEdit.rgr"
@@ -2856,6 +2857,52 @@ class PresCheck {
 
     ; A length's slider runs over what the slide can take: the page's
     ; padding on a 960 × 540 slide stops where half of the height is left.
+    ; The theme's number card: a preview until Save, held to its range
+    fn valueEdit:void () {
+        def e:PresValueEdit (PresValueEdit.begin("64pt" "pt" 0.0 135.0 1.0 true))
+        this.ok(((e.unit == "pt") && ((e.dirty()) == false)) "value card starts clean")
+        this.ok(((e.saveText()) == "") "nothing to save before a change")
+        e.fromSlider(80)
+        this.ok((e.current == "80pt") ("slider step: " + e.current))
+        this.ok(((e.saveText()) == "80pt") "save writes the slider's value")
+        e.cancel()
+        this.ok(((e.current == "64pt") && ((e.dirty()) == false)) "cancel goes back to the sheet's value")
+        ; a typed number past the range is held to its edge
+        this.ok((e.fromTyped("2020")) "a number typed")
+        this.ok(((e.current == "135pt") && e.clamped) ("typed past the range: " + e.current))
+        this.ok((e.fromTyped("5")) "a small number")
+        this.ok(((e.current == "5pt") && (e.clamped == false)) ("in range: " + e.current))
+        ; another length unit is measured in the card's
+        e.fromTyped("3in")
+        this.ok((e.current == "1.875in") ("inches held to 135pt: " + e.current))
+        ; not a number: the preview stays
+        this.ok(((e.fromTyped("abc")) == false) "text is not a value")
+        this.ok(((e.current == "1.875in") && e.bad) "and the preview stays")
+        ; em is not held to a range in points
+        e.fromTyped("2em")
+        this.ok((e.current == "2em") ("em kept: " + e.current))
+        ; the value as written is inside the range even when the range is not
+        def wide:PresValueEdit (PresValueEdit.begin("595.28pt" "" 72.0 300.0 1.0 true))
+        this.ok(((wide.hi == 595.28) && (wide.unit == "pt")) ("range takes in the value: " + (PresRange.num(wide.hi)) + wide.unit))
+        this.ok(((wide.sliderAt()) == 595) ("slider position: " + (to_string (wide.sliderAt()))))
+        ; the gutter: numbers the layout draws at another value
+        def css:string "page {\n  width: 595.28pt;\n  height: 841.89pt;\n  padding: 300pt;\n}\nh1 { font-size: 2020px; line-height: 9; }\np { margin: 0 12pt; }"
+        def notes:[EditorDiagnostic] (PresValueEdit.limitNotes(css 960.0 540.0))
+        this.ok(((array_length notes) == 3) ("three numbers past their range: " + (to_string (array_length notes))))
+        if ((array_length notes) == 3) {
+            def n0:EditorDiagnostic (itemAt notes 0)
+            this.ok(((n0.line == 3) && (n0.col == 11)) ("padding marked at its number: " + (to_string n0.line) + ":" + (to_string n0.col)))
+            ; against the sheet's own A4 page: 0.4 of 595.28pt
+            this.ok(((indexOf n0.message "238.112pt") >= 0) ("drawn as: " + n0.message))
+            def n1:EditorDiagnostic (itemAt notes 1)
+            this.ok(((indexOf n1.message "px") >= 0) ("font size in its own unit: " + n1.message))
+            def n2:EditorDiagnostic (itemAt notes 2)
+            this.ok(((indexOf n2.message "5)") >= 0) ("line height as a ratio: " + n2.message))
+        }
+        def calm:[EditorDiagnostic] (PresValueEdit.limitNotes("/* page { width: 1pt } */\npage { width: 13.333in; padding: 0.5in }" 960.0 540.0))
+        this.ok(((array_length calm) == 0) "comments and sane values are quiet")
+    }
+
     fn ranges:void () {
         def box:PresRangeBox (PresRangeBox.slide(960.0 540.0))
         def pin@(optional):PresRange (PresRange.forLength("padding" "in" "page" box))
@@ -9763,6 +9810,7 @@ class PresCheck {
         c.roomTerm()
         c.storyPick()
         c.ranges()
+        c.valueEdit()
         c.limits()
         c.chartLocale()
         c.chartLeavesRoom()
