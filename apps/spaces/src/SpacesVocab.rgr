@@ -180,6 +180,59 @@ class SpWords {
         if (key == "loading") { return (SpWords.pick(lang "Loading…" "Ladataan…")) }
         if (key == "saving") { return (SpWords.pick(lang "Saving…" "Tallennetaan…")) }
         if (key == "important") { return (SpWords.pick(lang "Important" "Tärkeä")) }
+        if (key == "lists") { return (SpWords.pick(lang "Lists" "Listat")) }
+        if (key == "budget") { return (SpWords.pick(lang "Budget" "Budjetti")) }
+        if (key == "add") { return (SpWords.pick(lang "+ Add…" "+ Lisää…")) }
+        if (key == "addOne") { return (SpWords.pick(lang "+ Add" "+ Lisää")) }
+        if (key == "new") { return (SpWords.pick(lang "New" "Uusi")) }
+        if (key == "save") { return (SpWords.pick(lang "Save" "Tallenna")) }
+        if (key == "cancel") { return (SpWords.pick(lang "Cancel" "Peruuta")) }
+        if (key == "delete") { return (SpWords.pick(lang "Delete" "Poista")) }
+        if (key == "deleteDay") { return (SpWords.pick(lang "Delete this day only" "Poista vain tämä päivä")) }
+        if (key == "undo") { return (SpWords.pick(lang "Undo" "Kumoa")) }
+        if (key == "saved") { return (SpWords.pick(lang "Saved" "Tallennettu")) }
+        if (key == "deleted") { return (SpWords.pick(lang "Deleted" "Poistettu")) }
+        if (key == "restored") { return (SpWords.pick(lang "Brought back" "Palautettu")) }
+        if (key == "check") { return (SpWords.pick(lang "Check" "Tarkista")) }
+        if (key == "details") { return (SpWords.pick(lang "Details" "Tiedot")) }
+        if (key == "showCal") { return (SpWords.pick(lang "Show in the calendar" "Näytä kalenterissa")) }
+        if (key == "title") { return (SpWords.pick(lang "Title" "Otsikko")) }
+        if (key == "date") { return (SpWords.pick(lang "Date" "Päivä")) }
+        if (key == "dueDate") { return (SpWords.pick(lang "Ends or is due" "Päättyy tai erääntyy")) }
+        if (key == "dateOptional") { return (SpWords.pick(lang "Date (optional)" "Päivä (vapaaehtoinen)")) }
+        if (key == "end_date") { return (SpWords.pick(lang "Last day" "Viimeinen päivä")) }
+        if (key == "start") { return (SpWords.pick(lang "Starts" "Alkaa")) }
+        if (key == "end") { return (SpWords.pick(lang "Ends" "Päättyy")) }
+        if (key == "who") { return (SpWords.pick(lang "Who looks after it" "Kuka huolehtii")) }
+        if (key == "whoHint") { return (SpWords.pick(lang "Takes: Mia, Picks up: Juho" "Vie: Mia, Hakee: Juho")) }
+        if (key == "notes") { return (SpWords.pick(lang "Notes" "Lisätiedot")) }
+        if (key == "repeat") { return (SpWords.pick(lang "Repeats" "Toistuu")) }
+        if (key == "once") { return (SpWords.pick(lang "Once" "Kerran")) }
+        if (key == "daily") { return (SpWords.pick(lang "Daily" "Päivittäin")) }
+        if (key == "weekly") { return (SpWords.pick(lang "Weekly" "Viikoittain")) }
+        if (key == "monthly") { return (SpWords.pick(lang "Monthly" "Kuukausittain")) }
+        if (key == "until") { return (SpWords.pick(lang "Until" "Asti")) }
+        if (key == "none") { return (SpWords.pick(lang "None" "Ei mitään")) }
+        if (key == "cost") { return (SpWords.pick(lang "Cost" "Kustannus")) }
+        if (key == "cost:amount") { return (SpWords.pick(lang "Amount (€)" "Summa (€)")) }
+        if (key == "cost:payer") { return (SpWords.pick(lang "Paid by" "Maksaja")) }
+        if (key == "cost:scope") { return (SpWords.pick(lang "In whose budget" "Kenen budjettiin")) }
+        if (key == "cost:instalments") { return (SpWords.pick(lang "Instalments" "Erät")) }
+        if (key == "cost:first") { return (SpWords.pick(lang "First payment" "Ensimmäinen erä")) }
+        if (key == "cost:every") { return (SpWords.pick(lang "Every (months)" "Välein (kk)")) }
+        if (key == "personal") { return (SpWords.pick(lang "Personal" "Oma")) }
+        if (key == "shared") { return (SpWords.pick(lang "Shared" "Yhteinen")) }
+        if (key == "late") { return (SpWords.pick(lang "Late" "Myöhässä")) }
+        if (key == "dueSoon") { return (SpWords.pick(lang "Due" "Ajankohtainen")) }
+        if (key == "noEntries") { return (SpWords.pick(lang "Nothing here yet" "Täällä ei ole vielä mitään")) }
+        if (key == "payer") { return (SpWords.pick(lang "Payer" "Maksaja")) }
+        if (key == "everyone") { return (SpWords.pick(lang "Everyone" "Kaikki")) }
+        if (key == "total") { return (SpWords.pick(lang "Total" "Yhteensä")) }
+        if (key == "sharedTotal") { return (SpWords.pick(lang "Of it shared" "Siitä yhteistä")) }
+        if (key == "noPayer") { return (SpWords.pick(lang "No payer" "Ei maksajaa")) }
+        if (key == "noCosts") { return (SpWords.pick(lang "No costs in these months" "Ei kuluja näinä kuukausina")) }
+        if (key == "earlier") { return (SpWords.pick(lang "‹ Earlier" "‹ Aiemmin")) }
+        if (key == "later") { return (SpWords.pick(lang "Later ›" "Myöhemmin ›")) }
         return key
     }
 

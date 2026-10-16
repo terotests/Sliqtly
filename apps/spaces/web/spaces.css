@@ -345,6 +345,7 @@
   line-height: 18px;
   padding: 8px 24px;
   background-color: var(--soft);
+  flex-grow: 1;
 }
 
 /* --- the colours of resources and events (EcBoard's names) ------------------------ */
@@ -419,3 +420,45 @@
 .ui-input-caret { width: 2px; }
 .ui-input-selection { background-color: #f3d9cb; }
 .ui-input-clear { width: 18px; height: 18px; border-radius: 9px; color: var(--muted); background-color: var(--soft); font-size: 13px; text-align: center; line-height: 18px; margin-left: 6px; }
+
+/* --- entries: the Add menu, the form, lists and the budget ----------------------- */
+
+.sp-addbar { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
+.sp-addmenu {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+}
+.sp-form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; row-gap: 12px; }
+.sp-fld { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; }
+.sp-fldlabel { color: var(--muted); font-size: 12px; font-weight: 600; height: auto; line-height: 16px; }
+.sp-formhead { color: var(--ink); font-size: 14px; font-weight: 700; height: auto; line-height: 20px; margin-top: 10px; }
+.sp-formerr { color: var(--late); font-size: 13px; height: auto; line-height: 18px; padding: 8px 10px; border-radius: 8px; background-color: var(--late-soft); }
+.sp-statusrow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding-right: 16px; background-color: var(--soft); }
+.sp-moneyrow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 6px; }
+.sp-moneylabel { color: var(--ink); font-size: 13px; height: auto; line-height: 18px; }
+.sp-money { color: var(--ink); font-size: 13px; height: auto; line-height: 18px; flex-shrink: 0; }
+.sp-money-strong { font-weight: 700; }
+.sp-opt {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.sp-opt:hover { background-color: var(--soft); }
+.sp-opt:focus { background-color: var(--soft); }
+.sp-opt-on { background-color: var(--soft); border: 1px solid var(--accent); }
+.sp-opt-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
+.sp-opt-on-tx { color: var(--ink); font-weight: 600; }

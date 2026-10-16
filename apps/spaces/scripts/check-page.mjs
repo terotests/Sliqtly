@@ -7,7 +7,10 @@
  *
  * Then the Warden page (npm run warden:build) against a stand-in for the
  * server: it reads the space from the API, a typed invite reaches the API,
- * and a signed-out answer sends the page to the sign-in page.
+ * a double-click opens an event in the form and a typed title is saved,
+ * Backspace deletes the selected event, the Add menu makes a new entry, the
+ * budget is read from the API, and a signed-out answer sends the page to
+ * the sign-in page.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -54,6 +57,19 @@ const centre = (p, id) => p.evaluate((id) => {
   const e = find(a.root);
   return e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2] : null;
 }, id);
+
+// a click on an element of the app's tree, scrolled into the window first
+const clickId = async (p, id) => {
+  const c = await centre(p, id);
+  if (!c) return false;
+  const top = await p.evaluate((y) => {
+    const want = Math.max(0, y - window.innerHeight / 2);
+    window.scrollTo(0, want);
+    return window.scrollY;
+  }, c[1]);
+  await p.mouse.click(c[0], c[1] - top);
+  return true;
+};
 
 try {
   for (const [w, h, locale, today] of [[1280, 800, "fi-FI", "Tänään"], [390, 844, "en-US", "Today"]]) {
@@ -121,7 +137,17 @@ try {
     if (!signedIn) return send({ error: "sign in", code: "signed-out" }, 401);
     if (op === "list_spaces") return send({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [space()] });
     if (op === "get_space") {
-      return send({ space: space(), events: [{ event_id: "ev1", title: "Dentist", date: iso(new Date()), start: "23:00", end: "23:30", ward: "w1", who: [{ name: "Juho", role: "takes" }] }] });
+      return send({ space: space(), events: [
+        { event_id: "ev1", title: "Dentist", date: iso(new Date()), start: "23:00", end: "23:30", ward: "w1", who: [{ name: "Juho", role: "takes" }] },
+        { event_id: "ev2", title: "Camp", date: iso(new Date()), ward: "w1", type: "local_event", fields: { registered: true } },
+      ] });
+    }
+    const last = calls[calls.length - 1].body;
+    if (op === "save_event") return send({ ...last, space_id: undefined, event_id: last.event_id || "ev" + calls.length });
+    if (op === "delete_event") return send({ deleted: last.event_id });
+    if (op === "budget") {
+      return send({ from: last.from, to: last.to, total: 42, shared: 42, by_payer: { Mia: 42 }, months: [{ month: last.from, total: 42, shared: 42, by_payer: { Mia: 42 },
+        lines: [{ event_id: "ev7", title: "Swimming fee", type: "hobby", date: last.from + "-10", amount: 42, payer: "Mia", scope: "shared", n: 1, of: 1 }] }] });
     }
     if (op === "invite_member") return send(space({ invites: [calls[calls.length - 1].body.email] }));
     return send({ error: "not in this check" }, 400);
@@ -152,7 +178,72 @@ try {
       .waitForFunction(() => window.__spaces.space.invites.length === 1, null, { timeout: 5000 })
       .then(() => true, () => false);
     const inv = calls.find((c) => c.op === "invite_member");
+    ok("once", calls.filter((c) => c.op === "invite_member").length === 1, JSON.stringify(calls.map((c) => c.op)));
     ok("a typed invite reaches the API", invited && inv && inv.body.email === "leena@example.com" && inv.body.space_id === "sp1", JSON.stringify(inv));
+
+    // a double-click on the calendar opens the event; a typed title is saved
+    const calNav = await centre(page, "sp-nav-calendar");
+    await page.mouse.click(calNav[0], calNav[1]);
+    await page.waitForTimeout(300);
+    const bandId = await page.evaluate(() => {
+      const a = window.__spaces;
+      const k = a.occIds.indexOf(a.space.events.find((e) => e.title === "Camp").id);
+      return "spc-band-" + a.boardIds[k];
+    });
+    const band = await centre(page, bandId);
+    ok("the all-day event is drawn on this week", !!band, bandId);
+    if (band) {
+      await page.mouse.dblclick(band[0], band[1]);
+      await page.waitForTimeout(300);
+      ok("a double-click opens it in the form", await page.evaluate(() => window.__spaces.editing && window.__spaces.editType === "local_event"));
+      await clickId(page, "sp-ed-0");
+      await page.waitForTimeout(100);
+      await page.keyboard.press("End");
+      await page.keyboard.type(" weekend");
+      await clickId(page, "sp-ed-save");
+      const saved = await page
+        .waitForFunction(() => window.__spaces.outCount() === 0 && !window.__spaces.editing, null, { timeout: 5000 })
+        .then(() => true, () => false);
+      const sv = calls.find((c) => c.op === "save_event");
+      ok("the typed title is saved", saved && sv && sv.body.event_id === "ev2" && sv.body.title === "Camp weekend" && sv.body.type === "local_event" && sv.body.fields.registered === true, JSON.stringify(sv));
+
+      // select it and press Backspace
+      await clickId(page, bandId);
+      await page.waitForTimeout(200);
+      await page.keyboard.press("Backspace");
+      const deleted = await page
+        .waitForFunction(() => window.__spaces.outCount() === 0 && !window.__spaces.space.events.some((e) => e.remoteId === "ev2"), null, { timeout: 5000 })
+        .then(() => true, () => false);
+      const del = calls.find((c) => c.op === "delete_event");
+      ok("Backspace deletes the selected event", deleted && del && del.body.event_id === "ev2", JSON.stringify(calls.map((c) => c.op)));
+      ok("with Undo offered", (await texts(page)).includes("Undo"));
+    }
+
+    // the Add menu: a new thing, with no date
+    await clickId(page, "sp-add");
+    await page.waitForTimeout(200);
+    const thing = await clickId(page, "sp-addtype-item");
+    ok("the Add menu offers a thing", thing);
+    if (thing) {
+      await page.waitForTimeout(200);
+      await clickId(page, "sp-ed-0");
+      await page.waitForTimeout(100);
+      await page.keyboard.type("Bike helmet");
+      await page.keyboard.press("Enter");
+      const made = await page
+        .waitForFunction(() => window.__spaces.space.events.some((e) => e.title === "Bike helmet" && e.remoteId), null, { timeout: 5000 })
+        .then(() => true, () => false);
+      const nt = calls.filter((c) => c.op === "save_event").pop();
+      ok("Enter saves a new thing", made && nt.body.type === "item" && nt.body.date === "" && nt.body.event_id === "", JSON.stringify(nt));
+      ok("once", calls.filter((c) => c.op === "save_event" && c.body.title === "Bike helmet").length === 1, JSON.stringify(calls.map((c) => c.op)));
+    }
+
+    // the budget comes from the API
+    await clickId(page, "sp-nav-budget");
+    const budget = await page
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Swimming fee"), null, { timeout: 5000 })
+      .then(() => true, () => false);
+    ok("the budget is read from the API", budget, JSON.stringify(calls.map((c) => c.op)));
     ok("no errors", errors.length === 0, errors.join(" | "));
     await page.close();
 

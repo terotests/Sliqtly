@@ -1,0 +1,308 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SpacesBudget — what the entries cost, month by month
+; =============================================================================
+; An entry's cost is paid in instalments: the amount in `instalments` equal
+; parts (the last one takes what rounding to cents left over), the first on
+; the cost's first day (or the entry's own day) and then every
+; `everyMonths` months. A month's lines are the instalments that fall in it.
+; Personal costs are one payer's; shared ones the group's. Every line counts
+; in the total and its payer's sum; `shared` sums the shared lines only.
+; Filtered by a payer, it is that payer's own budget.
+;
+; The server answers the same question (the budget op); `read` takes its
+; answer, `compute` works it out from the space on the page.
+;
+;   {from, to, total, shared, by_payer:{name: amount},
+;    months:[{month, total, shared, by_payer,
+;             lines:[{event_id, title, type, date, amount, payer, scope, n, of}]}]}
+; =============================================================================
+
+Import "SpacesModel.rgr"
+Import "../vela/src/VlJson.rgr"
+Import "../evgui/src/UiDate.rgr"
+
+class SpBudgetLine {
+    def eventId:string ""
+    def title:string ""
+    def typeId:string ""
+    ; YYYY-MM-DD, the instalment's day
+    def date:string ""
+    def amount:double 0.0
+    def payer:string ""
+    def scope:string "personal"
+    ; the n:th instalment of `of`
+    def n:int 1
+    def of:int 1
+    Constructor () {
+    }
+}
+
+; Sums by payer, in the order the payers first came.
+class SpSums {
+    def names:[string]
+    def sums:[double]
+    Constructor () {
+    }
+
+    fn add:void (name:string v:double) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                set sums i ((itemAt sums i) + v)
+                return
+            }
+            i = (i + 1)
+        }
+        push names name
+        push sums v
+    }
+
+    fn of:double (name:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return (itemAt sums i)
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    fn read:void (o:VlJson) {
+        if ((o.isObject()) == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length o.keys)) {
+            def k:string (itemAt o.keys i)
+            def v:VlJson (o.get(k))
+            this.add(k (v.asDouble()))
+            i = (i + 1)
+        }
+    }
+}
+
+class SpBudgetMonth {
+    ; YYYY-MM
+    def month:string ""
+    def total:double 0.0
+    def shared:double 0.0
+    def byPayer:SpSums (new SpSums())
+    def lines:[SpBudgetLine]
+    Constructor () {
+    }
+
+    fn add:void (l:SpBudgetLine) {
+        push lines l
+        total = (total + l.amount)
+        if (l.scope == "shared") {
+            shared = (shared + l.amount)
+        }
+        byPayer.add(l.payer l.amount)
+    }
+}
+
+class SpBudget {
+    def from:string ""
+    def to:string ""
+    def payer:string ""
+    def total:double 0.0
+    def shared:double 0.0
+    def byPayer:SpSums (new SpSums())
+    def months:[SpBudgetMonth]
+    Constructor () {
+    }
+
+    ; --- months as numbers: year * 12 + month - 1 ------------------------------------
+
+    sfn monthIndex:int (y:int m:int) {
+        return ((y * 12) + (m - 1))
+    }
+
+    sfn monthOfDay:int (d:int) {
+        def p:[int] (SpSpace.ymdOf(d))
+        return (SpBudget.monthIndex((itemAt p 0) (itemAt p 1)))
+    }
+
+    ; "2026-10" → its index, -1 when it does not read
+    sfn monthOf:int (text:string) {
+        def t:string (trim text)
+        if ((strlen t) < 7) {
+            return -1
+        }
+        def y:int (SpText.number((substring t 0 4)))
+        def m:int (SpText.number((substring t 5 7)))
+        if ((y < 1970) || ((m < 1) || (m > 12))) {
+            return -1
+        }
+        return (SpBudget.monthIndex(y m))
+    }
+
+    sfn monthText:string (idx:int) {
+        def y:int (idiv idx 12)
+        def m:int ((idx - (y * 12)) + 1)
+        def ms:string (to_string m)
+        if (m < 10) {
+            ms = ("0" + ms)
+        }
+        return ((to_string y) + "-" + ms)
+    }
+
+    ; The day `months` months after `d`, on the same day of the month or the
+    ; month's last day when it is shorter.
+    sfn addMonths:int (d:int months:int) {
+        def p:[int] (SpSpace.ymdOf(d))
+        def idx:int ((SpBudget.monthIndex((itemAt p 0) (itemAt p 1))) + months)
+        def y:int (idiv idx 12)
+        def m:int ((idx - (y * 12)) + 1)
+        def dom:int (itemAt p 2)
+        def last:int (UiDate.daysInMonth(y m))
+        if (dom > last) {
+            dom = last
+        }
+        return (UiDate.toDays(y m dom))
+    }
+
+    ; The instalments of one entry's cost: one line each, every one of them,
+    ; in order. An entry without a cost, or with nothing to pay, has none.
+    ; `fallback` is the first day when neither the cost nor the entry has one.
+    sfn instalments:[SpBudgetLine] (e:SpEvent fallback:int) {
+        def out:[SpBudgetLine]
+        if ((e.hasCost == false) || (e.cost.amount <= 0.0)) {
+            return out
+        }
+        def c:SpCost e.cost
+        def n:int c.instalments
+        if (n < 1) {
+            n = 1
+        }
+        def every:int c.everyMonths
+        if (every < 1) {
+            every = 1
+        }
+        def first:int c.first
+        if (first < 0) {
+            first = e.day
+        }
+        if (first < 0) {
+            first = fallback
+        }
+        ; in cents, so the parts add up to the amount
+        def cents:int (to_int ((c.amount * 100.0) + 0.5))
+        def part:int (idiv cents n)
+        def k:int 0
+        while (k < n) {
+            def l (new SpBudgetLine())
+            l.eventId = e.remoteId
+            if ((strlen l.eventId) == 0) {
+                l.eventId = e.id
+            }
+            l.title = e.title
+            l.typeId = e.typeId
+            l.date = (UiDate.isoOfDays((SpBudget.addMonths(first (k * every)))))
+            def these:int part
+            if (k == (n - 1)) {
+                these = (cents - (part * (n - 1)))
+            }
+            l.amount = ((to_double these) / 100.0)
+            l.payer = c.payer
+            l.scope = c.scope
+            l.n = (k + 1)
+            l.of = n
+            push out l
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The space's budget from month `fromIdx` to `toIdx` (inclusive), every
+    ; payer's or, with `payer`, that one's only.
+    sfn compute:SpBudget (s:SpSpace fromIdx:int toIdx:int payer:string) {
+        def b (new SpBudget())
+        b.from = (SpBudget.monthText(fromIdx))
+        b.to = (SpBudget.monthText(toIdx))
+        b.payer = payer
+        def m:int fromIdx
+        while (m <= toIdx) {
+            def bm (new SpBudgetMonth())
+            bm.month = (SpBudget.monthText(m))
+            push b.months bm
+            m = (m + 1)
+        }
+        def i:int 0
+        while (i < (array_length s.events)) {
+            def e:SpEvent (itemAt s.events i)
+            def lines:[SpBudgetLine] (SpBudget.instalments(e s.today))
+            def k:int 0
+            while (k < (array_length lines)) {
+                def l:SpBudgetLine (itemAt lines k)
+                def at:int ((SpBudget.monthOf(l.date)) - fromIdx)
+                if (((at >= 0) && (at < (array_length b.months))) && (((strlen payer) == 0) || (l.payer == payer))) {
+                    def into:SpBudgetMonth (itemAt b.months at)
+                    into.add(l)
+                    b.total = (b.total + l.amount)
+                    if (l.scope == "shared") {
+                        b.shared = (b.shared + l.amount)
+                    }
+                    b.byPayer.add(l.payer l.amount)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+
+    ; The server's answer to budget; an answer that does not read is an
+    ; empty budget.
+    sfn read:SpBudget (text:string) {
+        def b (new SpBudget())
+        def p (new VlJsonParser())
+        def o:VlJson (p.parse(text))
+        if ((p.ok == false) || ((o.isObject()) == false)) {
+            return b
+        }
+        b.from = (o.stringOr("from" ""))
+        b.to = (o.stringOr("to" ""))
+        b.payer = (o.stringOr("payer" ""))
+        b.total = (o.doubleOr("total" 0.0))
+        b.shared = (o.doubleOr("shared" 0.0))
+        b.byPayer.read((o.get("by_payer")))
+        def ms:VlJson (o.get("months"))
+        def i:int 0
+        while (i < (ms.count())) {
+            def mo:VlJson (ms.at(i))
+            if (mo.isObject()) {
+                def bm (new SpBudgetMonth())
+                bm.month = (mo.stringOr("month" ""))
+                bm.total = (mo.doubleOr("total" 0.0))
+                bm.shared = (mo.doubleOr("shared" 0.0))
+                bm.byPayer.read((mo.get("by_payer")))
+                def ls:VlJson (mo.get("lines"))
+                def k:int 0
+                while (k < (ls.count())) {
+                    def lo:VlJson (ls.at(k))
+                    if (lo.isObject()) {
+                        def l (new SpBudgetLine())
+                        l.eventId = (lo.stringOr("event_id" ""))
+                        l.title = (lo.stringOr("title" ""))
+                        l.typeId = (lo.stringOr("type" ""))
+                        l.date = (lo.stringOr("date" ""))
+                        l.amount = (lo.doubleOr("amount" 0.0))
+                        l.payer = (lo.stringOr("payer" ""))
+                        l.scope = (lo.stringOr("scope" "personal"))
+                        l.n = (lo.intOr("n" 1))
+                        l.of = (lo.intOr("of" 1))
+                        push bm.lines l
+                    }
+                    k = (k + 1)
+                }
+                push b.months bm
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+}

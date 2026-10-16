@@ -59,6 +59,17 @@ var wardenEventProps = map[string]any{
 	"important": map[string]any{"type": "boolean", "description": "Marks an event that must not be missed"},
 	"source":    strProp("Where it came from, e.g. \"Google Calendar\" or \"school\""),
 	"ext_id":    strProp("The event's id where it came from (an iCalendar UID): importing it again changes it instead of adding it twice"),
+	"type":      strProp("The entry's type (list_entry_types): event (default), invitation, party, hobby, care_shift, care_day, school, local_event, item, stock, wish, sale_item, sale_day, renewal, booking, contact. A record type (item, stock, wish, sale_item, contact) needs no date"),
+	"fields":    map[string]any{"type": "object", "description": "The type's own fields, e.g. an invitation's {host, rsvp: \"going\", takes, gift, gift_bought}; given fields are merged into those the entry has, a field set to null is removed"},
+	"cost": map[string]any{"type": "object", "description": "What it costs, for the space's budget; null removes it",
+		"properties": map[string]any{
+			"amount":       map[string]any{"type": "number", "description": "Euros"},
+			"payer":        strProp("Who pays"),
+			"scope":        strProp("shared (the group's spending, the default) or personal (the payer's own budget; still listed in the group's spending)"),
+			"instalments":  map[string]any{"type": "integer", "description": "Paid in this many parts (default 1)"},
+			"first":        strProp("The first payment's day, YYYY-MM-DD; the entry's date by default"),
+			"every_months": map[string]any{"type": "integer", "description": "Months between parts (default 1)"},
+		}, "required": []string{"amount"}},
 }
 
 func wardenWith(props map[string]any, more map[string]any) map[string]any {
@@ -87,7 +98,14 @@ var wardenTools = []roomTool{
 		required: []string{"space_id"}},
 	{name: "list_events", title: "List events", readOnly: true,
 		desc:     "A space's events that may happen between from and to (repeating ones are listed once, with their rrule).",
-		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}},
+		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}, "type": strProp("Only entries of this type")},
+		required: []string{"space_id"}},
+	{name: "list_entry_types", title: "List entry types", readOnly: true,
+		desc:  "The kinds of entries a space keeps besides plain events (party invitations, hobbies, care shifts, things and their repairs, supplies, gift ideas, things to sell, expiries such as passports and insurances, bookings, contacts), each with its fields, and how a cost is given. Read this before saving a typed entry.",
+		props: map[string]any{"space_id": strProp("The space's id: only the types its vocabulary offers")}},
+	{name: "budget", title: "Budget", readOnly: true,
+		desc:     "The costs of a space's entries month by month: each payment (an instalment of a cost), the totals, the group's shared part and each payer's part. Give payer for one person's own budget.",
+		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First month, YYYY-MM (this month by default)"), "to": strProp("Last month, YYYY-MM (a year on by default)"), "payer": strProp("Only this payer's costs")},
 		required: []string{"space_id"}},
 	{name: "import_events", title: "Import events",
 		desc: "Bring events into a space, e.g. the important ones from the user's own calendar, a school's or a club's schedule, or an email. Give each its ext_id (the source's event id) so importing again updates instead of duplicating. Name the ward each event concerns and who is responsible (who). Times are the space's local time. All events are checked before any is saved.",
@@ -99,12 +117,12 @@ var wardenTools = []roomTool{
 		props:    map[string]any{"space_id": spaceIDProp, "ics": strProp("The iCalendar text, BEGIN:VCALENDAR … END:VCALENDAR"), "ward": strProp("A ward's id or name for all of them"), "important": map[string]any{"type": "boolean", "description": "Mark all of them important"}, "source": strProp("Where they came from")},
 		required: []string{"space_id", "ics"}},
 	{name: "save_event", title: "Save an event",
-		desc:     "Make one event, or change one: give event_id to change it (only the fields given change).",
+		desc:     "Make one entry (an event or a typed entry, see list_entry_types), or change one: give event_id to change it (only the fields given change). From a photo or a text the user gives (an invitation card, a school letter, a receipt), read the details and save them with the fitting type.",
 		props:    wardenWith(wardenEventProps, map[string]any{"space_id": spaceIDProp, "event_id": strProp("The event to change; leave out to make a new one")}),
 		required: []string{"space_id"}},
 	{name: "delete_event", title: "Delete an event", destructive: true,
 		props:    map[string]any{"space_id": spaceIDProp, "event_id": strProp("The event")},
-		desc:     "Delete one event of a space.",
+		desc:     "Delete one event or entry of a space.",
 		required: []string{"space_id", "event_id"}},
 	{name: "add_ward", title: "Add a ward",
 		desc:     "A new ward: someone or something the group is responsible for (a child, a pet, a car, a client, a player).",
@@ -137,7 +155,7 @@ func findWardenTool(name string) *roomTool {
 	return nil
 }
 
-const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Tell the user the page: "
+const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Other entries (party invitations, hobbies, care shifts, things, supplies, gift ideas, expiries, bookings, contacts) have types: list_entry_types describes them; save_event saves one with its type, fields and cost, and budget sums the costs. Tell the user the page: "
 
 // ------------------------------------------------------------------- page --
 

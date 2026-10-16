@@ -240,7 +240,7 @@ func TestWardenMcp(t *testing.T) {
 	for _, x := range tools {
 		names = append(names, x.(map[string]any)["name"].(string))
 	}
-	match(t, strings.Join(names, " "), "^list_spaces create_space get_space list_events import_events import_ics save_event delete_event")
+	match(t, strings.Join(names, " "), "^list_spaces create_space get_space list_events list_entry_types budget import_events import_ics save_event delete_event")
 
 	call := func(name string, args map[string]any) (bool, map[string]any, string) {
 		t.Helper()

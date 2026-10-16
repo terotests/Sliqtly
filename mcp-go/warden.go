@@ -539,9 +539,6 @@ func (sp *wardenSpace) eventDoc(a map[string]any, base Doc, newWards *bool) (Doc
 			d[k] = v
 		}
 	}
-	if !wardenDate(docStr(d, "date")) {
-		return nil, roomErr{"date is missing: the day as YYYY-MM-DD"}
-	}
 	if e := docStr(d, "end_date"); e != "" && e <= docStr(d, "date") {
 		d["end_date"] = ""
 	}
@@ -647,6 +644,10 @@ func (sp *wardenSpace) eventDoc(a map[string]any, base Doc, newWards *bool) (Doc
 		}
 		d["important"] = b
 	}
+	// the type, its fields and the cost; a record may be without a day
+	if err := sp.entryDoc(a, d, newWards); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -745,6 +746,7 @@ func wardenEventJSON(id string, d Doc) map[string]any {
 	if b, _ := d["important"].(bool); b {
 		out["important"] = true
 	}
+	wardenEntryJSON(out, d)
 	return out
 }
 
@@ -811,6 +813,7 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 		}
 	}
 	only := argBool(a, "important_only", false)
+	typ := strings.ToLower(argStr(a, "type"))
 	docs, ids, err := s.events(ctx, sp)
 	if err != nil {
 		return nil, err
@@ -822,10 +825,13 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 				continue
 			}
 		}
+		if typ != "" && wardenOr(docStr(d, "type"), "event") != typ {
+			continue
+		}
 		if to != "" && docStr(d, "date") > to {
 			continue
 		}
-		if from != "" {
+		if from != "" && docStr(d, "date") != "" {
 			last := docStr(d, "date")
 			if e := docStr(d, "end_date"); e != "" {
 				last = e
@@ -861,6 +867,9 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 	d, err := sp.eventDoc(a, base, &newWards)
 	if err != nil {
 		return nil, err
+	}
+	if sp.saleLabel(d) {
+		newWards = true // the space's next label number is kept with it
 	}
 	if id == "" {
 		if ext := docStr(d, "ext_id"); ext != "" {
@@ -958,6 +967,9 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			}
 			return nil, err
 		}
+		if sp.saleLabel(d) {
+			newWards = true
+		}
 		seen[id] = true
 		puts = append(puts, put{id, d, !slices.Contains(have, id)})
 	}
@@ -1007,6 +1019,8 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		return s.listSpaces(ctx, who, page)
 	case "create_space":
 		return s.createSpace(ctx, who, a)
+	case "list_entry_types":
+		return s.listEntryTypes(ctx, who, a)
 	}
 	if findWardenTool(op) == nil {
 		return nil, roomErr{"no such operation: " + op}
@@ -1039,6 +1053,8 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		return s.importEvents(ctx, sp, l, nil)
 	case "import_ics":
 		return s.importICS(ctx, sp, a)
+	case "budget":
+		return s.budget(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }
