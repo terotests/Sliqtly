@@ -17662,7 +17662,13 @@ class PresApp {
         def sc:double (edDocPane.scale(dw))
         def sx:double ((edDocPane.left(dw)) + ((itemAt c 0) * sc))
         def sy:double ((edDocPane.top(dw)) + ((itemAt c 1) * sc))
-        return ((EVGDisplayList.num(sx)) + "," + (EVGDisplayList.num(sy)) + "," + (EVGDisplayList.num(((itemAt c 2) * sc))))
+        def sh:double ((itemAt c 2) * sc)
+        ; scrolled out of the pane: no place (a focused field moved off the
+        ; screen makes the browser scroll the page to it)
+        if (((sy < edDocPane.y) || ((sy + sh) > (edDocPane.y + edDocPane.h))) || ((sx < edDocPane.x) || (sx > (edDocPane.x + edDocPane.w)))) {
+            return ""
+        }
+        return ((EVGDisplayList.num(sx)) + "," + (EVGDisplayList.num(sy)) + "," + (EVGDisplayList.num(sh)))
     }
 
     fn caretCol:int () {

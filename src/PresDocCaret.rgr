@@ -316,8 +316,14 @@ class PresDocCaret {
         def b:MdBox (itemAt boxes bi)
         def within:int (off - b.segSrc)
         if (((b.segAtom == false) && (within > 0)) && (within < (strlen b.text))) {
-            if ((OfficeCaretMotion.stepForward(b.text (OfficeCaretMotion.stepBack(b.text within)))) != within) {
-                return out
+            ; asked of every offset each frame: the grapheme rules only where
+            ; a character could be a joiner, a mark or a pair's second half
+            def ch:int (charAt b.text within)
+            def pv:int (charAt b.text (within - 1))
+            if (((ch >= 768) && (ch < 12288)) || (((ch >= 55296) && (ch <= 57343)) || (((ch >= 65024) && (ch <= 65039)) || (pv == 8205)))) {
+                if ((OfficeCaretMotion.stepForward(b.text (OfficeCaretMotion.stepBack(b.text within)))) != within) {
+                    return out
+                }
             }
         }
         def li:int (itemAt boxLine bi)

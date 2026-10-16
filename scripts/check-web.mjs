@@ -6200,6 +6200,9 @@ try {
     await pg.waitForTimeout(200);
     const caretPos = await pg.evaluate(() => { const u = window.__app.tocUi; const c = u.search.caretEl; return { x: c.calculatedX, w: c.calculatedWidth, h: c.calculatedHeight, value: u.search.value }; });
     check("ToC search: the caret is drawn in the field", caretPos.value === "luku 3" && caretPos.h > 8 && caretPos.x > field[0] && caretPos.x < field[0] + field[2], JSON.stringify({ caretPos, field }));
+    // the list is laid out again after the Backspace: its rows have a place
+    // only once the next frame has drawn them
+    await pg.waitForFunction(() => { const b = window.__app.tocUi.drawer.body(); return b.getChildCount() > 2 && b.getChild(2).calculatedHeight > 0; }, null, { timeout: 5000 }).catch(() => {});
     const frow = await pg.evaluate(() => { const r = window.__app.tocUi.drawer.body().getChild(2); return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(frow[0] + 30, frow[1] + frow[3] / 2);
     await pg.waitForTimeout(500);
@@ -6228,6 +6231,8 @@ try {
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
     // presenting, the search takes the letters (not the bar's keys) and
     // Enter goes to the first heading found
+    // the drawer just opened: its field has a place once a frame has laid it out
+    await pg.waitForFunction(() => window.__app.tocUi.search.rootEl.calculatedWidth > 0, null, { timeout: 5000 }).catch(() => {});
     const pfield = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(pfield[0] + 40, pfield[1] + pfield[3] / 2);
     await pg.keyboard.type("kohta 12", { delay: 20 });
