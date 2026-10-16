@@ -6742,6 +6742,26 @@ try {
     });
     await frames();
     check("View keys: lines pasted into a list item stay in it", (await src()).endsWith("- aa x\n  y\n- bb\n"), JSON.stringify((await src()).slice(-24)));
+    // a formula is one thing: Backspace after it takes all of $x^2$
+    const fm2 = body + "Kaava $x^2$ tässä\n";
+    await put(fm2, " tässä");
+    const mathShown = await pg.evaluate((o) => window.__app.docScreenAt(o), fm2.indexOf("$x"));
+    await pg.keyboard.press("Backspace");
+    await frames();
+    check("View keys: Backspace after a formula takes it whole", (await src()).endsWith("Kaava  tässä\n") && mathShown !== "", JSON.stringify({ mathShown, s: (await src()).slice(-20) }));
+    // a click on an emoji puts the caret beside it, never inside its pair
+    const emo = body + "Peukku \u{1F44D}\u{1F3FD} jee\n";
+    await put(emo, "jee");
+    const e0 = emo.indexOf("\u{1F44D}");
+    const [ex0, ey0] = (await pg.evaluate((o) => window.__app.docScreenAt(o), e0)).split(",").map(Number);
+    const [ex1] = (await pg.evaluate((o) => window.__app.docScreenAt(o), e0 + 4)).split(",").map(Number);
+    const hits = [];
+    for (const f of [0.2, 0.4, 0.6, 0.8]) {
+      await pg.mouse.click(ex0 + (ex1 - ex0) * f, ey0);
+      await frames();
+      hits.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
+    }
+    check("View keys: a click on an emoji puts the caret beside it", hits.every((h) => h === e0 || h === e0 + 4) && ex1 > ex0, JSON.stringify({ e0, hits, ex0, ex1 }));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();

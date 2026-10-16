@@ -72,7 +72,9 @@ class PresDocCaret {
             push picTops (b.y + dy)
             return
         }
-        if (((b.kind != 0) || (b.segSrc < 0)) || ((b.furniture != 0) || b.retold)) {
+        ; a formula is one thing the caret passes (MdLayout gives it its source)
+        def math:boolean ((b.kind == 5) && ((b.segLen > 0) && b.segAtom))
+        if ((((b.kind != 0) && (math == false)) || (b.segSrc < 0)) || ((b.furniture != 0) || b.retold)) {
             return
         }
         push boxes b
@@ -180,6 +182,10 @@ class PresDocCaret {
         def b:MdBox (itemAt boxes bi)
         def len:int (strlen b.text)
         def want:double (x - b.x)
+        if b.segAtom {
+            ; passed whole: its nearer side
+            return (? (want < (b.w * 0.5)) b.segSrc (this.endOf(bi)))
+        }
         if ((len == 0) || (want <= 0.0)) {
             return b.segSrc
         }
@@ -187,17 +193,20 @@ class PresDocCaret {
         def k:int 0
         def w0:double 0.0
         while (k < len) {
-            def w1:double (this.measure((substring b.text 0 (k + 1)) b))
+            ; a character as the reader sees it: an emoji or a letter with
+            ; its accents is one step, never the middle of a pair
+            def nk:int (OfficeCaretMotion.stepForward(b.text k))
+            if (nk <= k) {
+                nk = (k + 1)
+            }
+            def w1:double (this.measure((substring b.text 0 nk) b))
             if (want < ((w0 + w1) * 0.5)) {
                 hit = k
                 k = len
             } {
                 w0 = w1
-                k = (k + 1)
+                k = nk
             }
-        }
-        if b.segAtom {
-            return (? ((hit * 2) < len) b.segSrc (this.endOf(bi)))
         }
         def at:int (b.segSrc + hit)
         if (at > (this.endOf(bi))) {
@@ -291,7 +300,7 @@ class PresDocCaret {
             take = tl
         }
         if b.segAtom {
-            take = (? (within >= b.segLen) tl 0)
+            return (? (within >= b.segLen) (b.x + b.w) b.x)
         }
         return (b.x + (this.measure((substring b.text 0 take) b)))
     }
