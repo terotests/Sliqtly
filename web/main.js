@@ -5692,8 +5692,32 @@ function askAi(body) {
     .then(async (text) => {
       await aiFiles(text).catch(fail);
       app.aiAnswer(text);
+      if (aiPlaced(text)) aiTopicsMoved();
     })
     .catch((e) => app.aiFail(t("The question did not reach the assistant: ") + (e?.message || e)))
+    .finally(() => { needsPaint = true; });
+}
+
+// Where the person's presentations are kept, changed by the assistant on the
+// server (mcp-go/aiorganize.go): one move comes with its answer ("placed"),
+// several after the person presses Move in the drawer ("ai-organize"). The
+// topics list reads them from the server at once (web/layoutsync.js).
+function aiPlaced(text) {
+  try {
+    return Array.isArray(JSON.parse(text).placed);
+  } catch { return false; }
+}
+function aiTopicsMoved() {
+  layout?.sync().catch((e) => console.warn("topics not synced", e));
+}
+function organizeAi(body) {
+  if (!body) return;
+  aiCall("organize", body)
+    .then((text) => {
+      app.aiOrganized(text);
+      if (aiPlaced(text)) aiTopicsMoved();
+    })
+    .catch((e) => app.aiOrganized(JSON.stringify({ error: t("The presentations were not moved: ") + (e?.message || e) })))
     .finally(() => { needsPaint = true; });
 }
 
@@ -6075,6 +6099,8 @@ function handleRequests() {
       refreshCollabBar();
     } else if (r === "ai-ask") {
       askAi(app.aiTakeAsk());
+    } else if (r === "ai-organize") {
+      organizeAi(app.aiTakeOrganize());
     } else if (r === "ai-closed") {
       needsPaint = true;
     } else if (r === "picture-place") {

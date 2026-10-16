@@ -107,6 +107,11 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 			decls = append(decls, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Params})
 			reads[t.Name] = true
 		}
+		if r.Places {
+			for _, t := range aiPlaceTools {
+				decls = append(decls, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Params})
+			}
+		}
 	}
 	var a aiAnswer
 	pictures := true
@@ -158,6 +163,16 @@ func (m *geminiModel) AskReading(ctx context.Context, system string, turns []aiT
 					continue
 				case reads[c.Name]:
 					reply = map[string]any{"content": "No more looking for this question: make your changes now, or answer."}
+				case r != nil && r.Places && (c.Name == "create_folder" || c.Name == "move_presentation"):
+					if p, ok := aiPlaceOf(c.Name, c.Args); ok {
+						a.Places.add(p)
+						reply = map[string]any{"content": "Done when you finish (several moves after the person says yes in the drawer)."}
+						if p.Tool == "create_folder" {
+							reply["folder_id"] = aiNewFolder + p.Name
+						}
+					} else {
+						reply = map[string]any{"content": "Not taken: room_id and name (create_folder) or deck_id and room_id (move_presentation) are needed.", "error": true}
+					}
 				default:
 					if e, ok := aiEditOf(c.Name, c.Args); ok {
 						// a round that changes the presentation again, after

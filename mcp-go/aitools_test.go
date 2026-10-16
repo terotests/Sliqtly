@@ -142,7 +142,7 @@ func TestAIDeckReader(t *testing.T) {
 			t.Errorf("no %s in %v", want, names)
 		}
 	}
-	for _, not := range []string{"update_presentation", "create_presentation", "delete_presentation", "list_presentations"} {
+	for _, not := range []string{"update_presentation", "create_presentation", "delete_presentation", "move_presentation", "create_folder"} {
 		if slices.Contains(names, not) {
 			t.Errorf("%s offered", not)
 		}

@@ -136,6 +136,9 @@ func (a *aiAssist) ask(ctx context.Context, q aiQuestion, check func(theme strin
 		ans.Calls = max(ans.Calls, 1) + max(fixed.Calls, 1)
 		return ans, nil
 	}
+	if len(fixed.Places.Steps) == 0 {
+		fixed.Places = ans.Places
+	}
 	fixed.In += ans.In
 	fixed.Out += ans.Out
 	fixed.Calls = max(fixed.Calls, 1) + max(ans.Calls, 1)

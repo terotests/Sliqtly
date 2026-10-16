@@ -12412,6 +12412,17 @@ class PresApp {
         return (ai.takePending())
     }
 
+    ; the moves the person said yes to, to post (JSON), once: "ai-organize"
+    fn aiTakeOrganize:string () {
+        return (ai.takeOrganize())
+    }
+
+    ; what the server made of them
+    fn aiOrganized:void (json:string) {
+        ai.organized(json)
+        this.aiFill()
+    }
+
     ; What a question is about now: the slide shown, its Markdown, what is
     ; selected in the editor, the whole Markdown and the deck's name.
     fn aiContext:PresAiContext () {
@@ -12504,6 +12515,18 @@ class PresApp {
                 if (v == "use") {
                     this.aiApply()
                 } {
+                    if (v == "place") {
+                        if (ai.sayYes()) {
+                            push requests "ai-organize"
+                        }
+                        this.aiFill()
+                        return
+                    }
+                    if (v == "place-no") {
+                        ai.sayNo()
+                        this.aiFill()
+                        return
+                    }
                     if (v == "clear") {
                         ai.clear()
                     } {
@@ -12588,6 +12611,12 @@ class PresApp {
         }
         if ((strlen (ai.suggestion())) > 0) {
             c.addAction("use" ("✓ " + (PresI18n.t("Use on slide"))) "primary")
+        }
+        ; the moves the answer suggests, made when the person says yes
+        def moveLabel:string (ai.placingLabel())
+        if ((strlen moveLabel) > 0) {
+            c.addAction("place" moveLabel "primary")
+            c.addAction("place-no" (PresI18n.t("Cancel")) "")
         }
         def ids:[string] (PresAi.actionIds())
         for ids id:string i {

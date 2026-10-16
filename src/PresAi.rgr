@@ -24,6 +24,10 @@
 ;   editing   the changes an answer asks for (its `edits`: front matter,
 ;             slides replaced, added or taken out), made on the Markdown by
 ;             PresAiDeck so the app writes them as one edit
+;   placing   where the person's presentations are kept (topics, folders):
+;             the server makes one move at once (`placed`); several wait in
+;             `placing` until the person presses "Move", then the page posts
+;             them (POST /editor/api/ai/organize, mcp-go/aiorganize.go)
 ; ============================================================================
 
 Import "../vela/src/VlJson.rgr"
@@ -420,6 +424,26 @@ class PresAiDeck {
 }
 
 ; A picture pasted into the drawer, sent with the next question.
+; A step of an answer's plan for where presentations are kept
+; (mcp-go/aiorganize.go aiPlace): create_folder (roomId, name) or
+; move_presentation (deckId, roomId, folderId: "new:<name>" for a folder the
+; plan makes). deck, room and folder are their names; error why a step made
+; was not done.
+class PresAiPlace {
+    def tool:string ""
+    def roomId:string ""
+    def deckId:string ""
+    def folderId:string ""
+    def name:string ""
+    def deck:string ""
+    def room:string ""
+    def folder:string ""
+    def error:string ""
+
+    Constructor () {
+    }
+}
+
 class PresAiPicture {
     def name:string ""
     def mime:string ""
@@ -462,6 +486,10 @@ class PresAi {
     def usedId:string ""
     ; the changes the last answer asks for, until the app takes them
     def edits:[PresAiEdit]
+    ; the moves the last answer suggests, until the person says yes or no
+    def placing:[PresAiPlace]
+    ; the moves said yes to, for the page to post ("" none)
+    def organizing:string ""
     def rev:int 0
 
     Constructor () {
@@ -727,6 +755,9 @@ class PresAi {
             return false
         }
         pending = (this.requestJson(q action ctx))
+        ; a new question leaves the moves not said yes to behind
+        def noplan:[PresAiPlace]
+        placing = noplan
         def shown:string q
         for pictures p:PresAiPicture pi {
             shown = (shown + (strfromcode 10) + "🖼 " + p.name)
@@ -881,6 +912,23 @@ class PresAi {
                 k = (k + 1)
             }
         }
+        if (root.has("placed")) {
+            def made:string (PresAi.placedText((PresAi.placesOf((root.get("placed"))))))
+            if (((strlen done) > 0) && ((strlen made) > 0)) {
+                done = (done + (strfromcode 10))
+            }
+            done = (done + made)
+        }
+        if (root.has("organize")) {
+            def plan:[PresAiPlace] (PresAi.placesOf((root.get("organize"))))
+            if ((PresAi.moves(plan)) > 0) {
+                placing = plan
+                if ((strlen done) > 0) {
+                    done = (done + (strfromcode 10))
+                }
+                done = (done + (PresAi.planText(plan)))
+            }
+        }
         if ((strlen done) > 0) {
             if ((strlen reply) > 0) {
                 reply = (reply + (strfromcode 10) + (strfromcode 10) + done)
@@ -971,6 +1019,9 @@ class PresAi {
     fn clear:void () {
         def none:[PresAiMsg]
         msgs = none
+        def noplan:[PresAiPlace]
+        placing = noplan
+        organizing = ""
         def nopics:[PresAiPicture]
         pictures = nopics
         busy = false
@@ -983,6 +1034,166 @@ class PresAi {
             scope = s
             rev = (rev + 1)
         }
+    }
+
+    ; --- where presentations are kept ------------------------------------------------------
+    ; the steps of a plan (the server's "placed" or "organize" array)
+    sfn placesOf:[PresAiPlace] (arr:VlJson) {
+        def out:[PresAiPlace]
+        def k:int 0
+        while (k < (arr.count())) {
+            def o:VlJson (arr.at(k))
+            def p (new PresAiPlace())
+            p.tool = (o.stringOr("tool" ""))
+            p.roomId = (o.stringOr("room_id" ""))
+            p.deckId = (o.stringOr("deck_id" ""))
+            p.folderId = (o.stringOr("folder_id" ""))
+            p.name = (o.stringOr("name" ""))
+            p.deck = (o.stringOr("deck" ""))
+            p.room = (o.stringOr("room" ""))
+            p.folder = (o.stringOr("folder" ""))
+            p.error = (o.stringOr("error" ""))
+            if ((p.tool == "create_folder") || (p.tool == "move_presentation")) {
+                push out p
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; how many presentations a plan moves
+    sfn moves:int (plan:[PresAiPlace]) {
+        def n:int 0
+        for plan p:PresAiPlace i {
+            if (p.tool == "move_presentation") {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; a step in words: "Folder: Testing (General)", "Plan → Web › Testing"
+    sfn placeText:string (p:PresAiPlace) {
+        def room:string p.room
+        if ((strlen room) == 0) {
+            room = p.roomId
+        }
+        if (p.tool == "create_folder") {
+            return (((PresI18n.t("Folder:")) + " ") + p.name + " (" + room + ")")
+        }
+        def deck:string p.deck
+        if ((strlen deck) == 0) {
+            deck = p.deckId
+        }
+        def to:string room
+        if ((strlen p.folder) > 0) {
+            to = (room + " › " + p.folder)
+        }
+        return (deck + " → " + to)
+    }
+
+    ; the steps made, a line each: ✓ done, ✗ not, with why
+    sfn placedText:string (done:[PresAiPlace]) {
+        def out:string ""
+        for done p:PresAiPlace i {
+            if ((strlen out) > 0) {
+                out = (out + (strfromcode 10))
+            }
+            if ((strlen p.error) > 0) {
+                out = (out + "✗ " + (PresAi.placeText(p)) + ": " + p.error)
+            } {
+                out = (out + "✓ " + (PresAi.placeText(p)))
+            }
+        }
+        return out
+    }
+
+    ; the moves waiting for a yes, as the drawer asks about them
+    sfn planText:string (plan:[PresAiPlace]) {
+        def out:string (PresAi.fill((PresI18n.t("Move {n} presentations?")) (PresAi.moves(plan))))
+        for plan p:PresAiPlace i {
+            out = (out + (strfromcode 10) + "• " + (PresAi.placeText(p)))
+        }
+        return out
+    }
+
+    ; the moves waiting, as the button says it ("" none)
+    fn placingLabel:string () {
+        def n:int (PresAi.moves(placing))
+        if (n == 0) {
+            return ""
+        }
+        return ("✓ " + (PresAi.fill((PresI18n.t("Move {n} presentations")) n)))
+    }
+
+    ; The person said yes: the moves as the page posts them, {"steps": […]}.
+    ; False when none wait, or an answer is awaited.
+    fn sayYes:boolean () {
+        if (((PresAi.moves(placing)) == 0) || busy) {
+            return false
+        }
+        def root:VlJson (VlJson.objectValue())
+        def steps:VlJson (VlJson.arrayValue())
+        for placing p:PresAiPlace i {
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("tool" (VlJson.stringValue(p.tool)))
+            o.setMember("room_id" (VlJson.stringValue(p.roomId)))
+            if (p.tool == "create_folder") {
+                o.setMember("name" (VlJson.stringValue(p.name)))
+            } {
+                o.setMember("deck_id" (VlJson.stringValue(p.deckId)))
+                o.setMember("folder_id" (VlJson.stringValue(p.folderId)))
+            }
+            push steps.arr o
+        }
+        root.setMember("steps" steps)
+        def w (new VlJsonWriter())
+        organizing = (w.write(root))
+        def noplan:[PresAiPlace]
+        placing = noplan
+        busy = true
+        rev = (rev + 1)
+        return true
+    }
+
+    ; the person said no: nothing moves
+    fn sayNo:void () {
+        if ((PresAi.moves(placing)) == 0) {
+            return
+        }
+        def noplan:[PresAiPlace]
+        placing = noplan
+        this.add("note" (PresI18n.t("Nothing was moved.")))
+    }
+
+    ; the moves to post, once
+    fn takeOrganize:string () {
+        def s:string organizing
+        organizing = ""
+        return s
+    }
+
+    ; the server's {"placed": […]} for the moves said yes to, or {"error"}
+    fn organized:void (json:string) {
+        busy = false
+        def p (new VlJsonParser())
+        def root:VlJson (p.parse(json))
+        if ((p.ok == false) || ((root.isObject()) == false)) {
+            this.add("note" (PresI18n.t("The answer could not be read.")))
+            return
+        }
+        if (root.has("placed")) {
+            def made:string (PresAi.placedText((PresAi.placesOf((root.get("placed"))))))
+            if ((strlen made) > 0) {
+                this.add("note" made)
+                return
+            }
+        }
+        def err:string (root.stringOr("error" ""))
+        if ((strlen err) == 0) {
+            err = (PresI18n.t("Nothing was moved."))
+        }
+        this.add("note" err)
     }
 
     ; --- using an answer -------------------------------------------------------------------
