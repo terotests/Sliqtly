@@ -1,0 +1,111 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresImageExport.rgr — slides as pictures: Export ▸ Image and Export to
+; Clipboard ▸ Image
+; ============================================================================
+;
+; Which slides a picture export takes, and the files it makes. UI-free: the
+; page draws each slide at rest (web/main.js slidePicture) and saves or
+; copies what this names.
+;
+;   scope "slide"   the selected slide
+;         "picked"  the slides picked in the strip, in deck order (the
+;                   selected one when none are)
+;         "all"     every slide
+;
+; One slide is one PNG, "<deck> - 03.png" (the number as wide as the deck's
+; last one, so the files sort); several are those PNGs in a zip.
+; ============================================================================
+
+class PresImageExport {
+    Constructor () {
+    }
+
+    ; The pages (0 = first) `scope` takes of a deck of `count` slides.
+    sfn pages:[int] (scope:string selected:int picked:[int] count:int) {
+        def out:[int]
+        if (count <= 0) {
+            return out
+        }
+        if (scope == "all") {
+            def i:int 0
+            while (i < count) {
+                push out i
+                i = (i + 1)
+            }
+            return out
+        }
+        if (scope == "picked") {
+            for picked p:int k {
+                if (((p >= 0) && (p < count)) && ((indexOf out p) < 0)) {
+                    push out p
+                }
+            }
+            if ((array_length out) > 0) {
+                return out
+            }
+        }
+        def s:int selected
+        if (s < 0) {
+            s = 0
+        }
+        if (s >= count) {
+            s = (count - 1)
+        }
+        push out s
+        return out
+    }
+
+    ; `n` with zeros in front up to `width` digits.
+    sfn pad:string (n:int width:int) {
+        def s:string (to_string n)
+        while ((strlen s) < width) {
+            s = ("0" + s)
+        }
+        return s
+    }
+
+    ; The PNG of page `page` (0 = first) of a deck of `count` slides.
+    sfn fileName:string (base:string page:int count:int) {
+        def b:string base
+        if ((strlen b) == 0) {
+            b = "presentation"
+        }
+        return (b + " - " + (PresImageExport.pad((page + 1) (strlen (to_string count)))) + ".png")
+    }
+
+    ; The zip of several: "<deck> (PNG).zip", for picked slides
+    ; "<deck> (<slides> 2,4,5).zip" with `slides` the word in the page's
+    ; language.
+    sfn zipName:string (base:string pages:[int] scope:string slides:string) {
+        def b:string base
+        if ((strlen b) == 0) {
+            b = "presentation"
+        }
+        if (scope == "picked") {
+            def nums:[string]
+            for pages p:int i {
+                push nums (to_string (p + 1))
+            }
+            return (b + " (" + slides + " " + (join nums ",") + ").zip")
+        }
+        return (b + " (PNG).zip")
+    }
+
+    ; The export for the page: the zip's name on the first line ("" for one
+    ; PNG), then a line "<page><TAB><file name>" per slide.
+    sfn plan:string (scope:string base:string selected:int picked:[int] count:int slides:string) {
+        def ps:[int] (PresImageExport.pages(scope selected picked count))
+        def lines:[string]
+        if ((array_length ps) > 1) {
+            push lines (PresImageExport.zipName(base ps scope slides))
+        } {
+            push lines ""
+        }
+        for ps p:int i {
+            push lines ((to_string p) + (strfromcode 9) + (PresImageExport.fileName(base p count)))
+        }
+        return (join lines (strfromcode 10))
+    }
+}

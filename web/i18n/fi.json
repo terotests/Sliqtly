@@ -1199,7 +1199,7 @@
   "Comments (review)": "Kommentit (katselmointi)",
   "+ Add comment   Review in the left rail": "+ Lisää kommentti   Katselmointi vasemmassa palkissa",
   "Press + Add comment and then the slide to pin a comment there; each comment is its own conversation that can be closed. Review in the left rail opens and closes the list of comments. The comments are kept in the presentation's files.": "Paina + Lisää kommentti ja sitten diaa, niin kommentti kiinnittyy siihen kohtaan; jokainen kommentti on oma keskustelunsa, jonka voi sulkea. Katselmointi vasemmassa palkissa avaa ja sulkee kommenttien listan. Kommentit tallentuvat esityksen tiedostoihin.",
-  "File → Export   PDF   PowerPoint   Word   Web page   Presentation player   Markdown   All files (.zip)": "Tiedosto → Vie   PDF   PowerPoint   Word   Verkkosivu   Esityssoitin   Markdown   Kaikki tiedostot (.zip)",
+  "File → Export   PDF   PowerPoint   Word   Web page   Presentation player   Markdown   Image (.png)   All files (.zip)": "Tiedosto → Vie   PDF   PowerPoint   Word   Verkkosivu   Esityssoitin   Markdown   Kuva (.png)   Kaikki tiedostot (.zip)",
   "Saves the presentation as a file. Pick slides in the strip with Ctrl/⌘ or Shift + click to export only them. The presentation player is one .html file that presents without Sliqtly.": "Tallentaa esityksen tiedostoksi. Valitse dioja nauhasta Ctrl/⌘- tai Shift-napsautuksella, niin vain ne viedään. Esityssoitin on yksi .html-tiedosto, joka esittää ilman Sliqtlyä.",
   "Copy to the clipboard": "Kopioi leikepöydälle",
   "Sharing": "Jakaminen",
@@ -1221,7 +1221,7 @@
   "How to use Sliqtly": "Sliqtlyn käyttö",
   "Current and next slide, notes and the clock, for your own screen": "Nykyinen ja seuraava dia, muistiinpanot ja kello omalle näytöllesi",
   "The slides go on by themselves": "Diat etenevät itsestään",
-  "Copies the Markdown of this slide, the picked slides or the whole presentation, with the open comments as footnotes or without, or only the open comments with their slides, for example to hand to an assistant.": "Kopioi tämän dian, valittujen diojen tai koko esityksen Markdownin, avoimet kommentit alaviitteinä tai ilman, tai pelkät avoimet kommentit dioineen, esimerkiksi avustajalle annettavaksi.",
+  "Copies the Markdown of this slide, the picked slides or the whole presentation, with the open comments as footnotes or without, or only the open comments with their slides, for example to hand to an assistant. Image copies the slide or the picked slides as a picture.": "Kopioi tämän dian, valittujen diojen tai koko esityksen Markdownin, avoimet kommentit alaviitteinä tai ilman, tai pelkät avoimet kommentit dioineen, esimerkiksi avustajalle annettavaksi. Kuva kopioi dian tai valitut diat kuvana.",
   "You are editing a copy: changes and comments stay in your copy, and the shared presentation does not change.": "Muokkaat kopiota: muutokset ja kommentit jäävät kopioosi, eikä jaettu esitys muutu.",
   "This presentation belongs to another Sliqtly account than {account}. Your changes and comments go to your own copy, not to it, and an assistant reading it does not see them.\n\nIf it is yours under another Google account (for example the one the Claude connector signed in with), press OK and choose that account. Cancel keeps editing a copy.": "Tämä esitys kuuluu toiselle Sliqtly-tilille kuin {account}. Muutoksesi ja kommenttisi tallentuvat omaan kopioosi, eivät tähän esitykseen, eikä sitä lukeva avustaja näe niitä.\n\nJos esitys on sinun toisella Google-tilillä (esimerkiksi sillä, jolla Claude-yhdistin kirjautui), paina OK ja valitse se tili. Peruuta jatkaa kopion muokkausta.",
   "The colour of the plates under {container=box} and {container=bubble} blocks. Translucent: #ffffffcc (the last two digits are the opacity).": "Taustalaattojen väri {container=box}- ja {container=bubble}-lohkojen alla. Läpikuultava: #ffffffcc (kaksi viimeistä numeroa ovat peittävyys).",
@@ -1874,5 +1874,11 @@
   "This presentation": "Tämä esitys",
   "Paste this in the assistant's chat: it names the presentation and the tools that load and save it. Open in Claude starts a chat with it.": "Liitä tämä avustajan keskusteluun: se nimeää esityksen ja työkalut, joilla se ladataan ja tallennetaan. Avaa Claudessa aloittaa keskustelun sillä.",
   "Open in Claude": "Avaa Claudessa",
-  "All instructions": "Kaikki ohjeet"
+  "All instructions": "Kaikki ohjeet",
+  "Image of this slide (.png)": "Tämän dian kuva (.png)",
+  "Images of all slides (.zip)": "Kaikkien diojen kuvat (.zip)",
+  "Images (.png)": "Kuvat (.png)",
+  "Could not draw the slide.": "Diaa ei voitu piirtää.",
+  "Copied the slide as an image.": "Dia kopioitu kuvana.",
+  "Copied {n} slides as an image.": "{n} diaa kopioitu kuvana."
 }
