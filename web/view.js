@@ -22,7 +22,7 @@ import { bookOf, spreadOfPage, firstPage, spreadLabel, spreadPages, grabAt } fro
 import { autoTurn, grabTurn, dragTurn, releaseTurn, stepTurn, turnScene, turnPages } from "./bookturn.js";
 import { BookGL } from "./bookgl.js";
 import { facesFor, PictureQueue } from "./viewload.js";
-import { linkOf, slideLink, viewUrl, exportUrl, exportName, imageName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
+import { linkOf, linkAt, linkGo, slideOfName, slideLink, viewUrl, exportUrl, exportName, imageName, picturesOf, lookFacesOf, LOOK_FACES, slideForKey, fitSlide, pinchView, panView, isZoomed } from "./viewlink.js";
 
 const FONTS = document.querySelector('meta[name="fonts"]')?.content || "";
 const fi = /^fi\b/i.test(navigator.language || "");
@@ -732,7 +732,7 @@ const letSelPress = (ev) => {
   selPress = null;
   // a plain click on text: the next slide (the previous on the left third),
   // as a click anywhere else
-  if (sel.release() === "click" && !far && ev.type === "pointerup") step(ev.clientX < canvas.clientWidth / 3 ? -1 : 1);
+  if (sel.release() === "click" && !far && ev.type === "pointerup" && !followLinkAt(ev)) step(ev.clientX < canvas.clientWidth / 3 ? -1 : 1);
   repaint();
 };
 canvas.addEventListener("pointerup", letSelPress);
@@ -811,7 +811,49 @@ canvas.addEventListener("pointerup", (ev) => {
   const dy = ev.clientY - down.y;
   down = null;
   if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) && !zoom) step(dx < 0 ? 1 : -1);
-  else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) step(ev.clientX < canvas.clientWidth / 3 ? -1 : 1);
+  else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && !followLinkAt(ev)) step(ev.clientX < canvas.clientWidth / 3 ? -1 : 1);
+});
+
+// --- links on the slides -------------------------------------------------------
+// The server lays out where each slide's links are (list.links, View.rgr). A
+// click on one goes where it points instead of to the next slide: a slide of
+// this deck, another presentation in this tab (Back returns), any other
+// address in a new tab.
+const SITE = document.querySelector('meta[name="sliqtly-site"]')?.content || "https://sliqtly.com";
+function linkUnder(ev) {
+  if (!painted || !deck || realistic()) return null;
+  const p = slidePointOf(ev);
+  for (const it of painted.items) {
+    const a = linkAt(lists[it.page], p.x - it.x * deck.width, p.y);
+    if (a) return a;
+  }
+  return null;
+}
+function followLinkAt(ev) {
+  const to = linkGo(linkUnder(ev), location.origin, SITE);
+  if (!to) return false;
+  if (to.slide >= 0) go(to.slide);
+  else if (to.open && sameDeck(to.open)) go(slideIn(new URL(to.open)));
+  // the assistant's preview is no page to leave: another deck in a tab
+  else if (to.open && !given) location.assign(to.open);
+  else window.open(to.open || to.tab, "_blank", "noopener");
+  return true;
+}
+// this very deck by its full address: a slide here, the page stays
+function sameDeck(url) {
+  const u = new URL(url);
+  return !given && u.origin === location.origin && u.pathname.replace(/\/$/, "") === location.pathname.replace(/\/$/, "");
+}
+function slideIn(u) {
+  const named = slideOfName(deck.names, u.hash);
+  if (named >= 0) return named;
+  const l = linkOf(u.pathname, u.search, u.hash);
+  return l ? l.slide : 0;
+}
+canvas.addEventListener("pointermove", (ev) => {
+  if (ev.pointerType !== "mouse" || ev.buttons || turn) return;
+  if (linkUnder(ev)) canvas.style.cursor = "pointer";
+  else if (canvas.style.cursor === "pointer") canvas.style.cursor = "";
 });
 // iOS Safari zooms the page on a pinch despite touch-action: not over the slide
 canvas.addEventListener("touchmove", (ev) => ev.preventDefault(), { passive: false });
@@ -942,7 +984,10 @@ async function start() {
   // rest follow while it is shown (web/viewload.js)
   const looks = lookFacesOf(got.lists).map((name) => [name, LOOK_FACES[name]]);
   const faceSets = facesFor(got.lists, FACES);
-  const first = Math.max(0, Math.min(link.slide, got.lists.length - 1));
+  // /s/{id}#heading: the slide of that heading (a link from another deck)
+  const named = given ? -1 : slideOfName(deck.names, location.hash);
+  if (named >= 0) history.replaceState(null, "", location.pathname + location.search);
+  const first = Math.max(0, Math.min(named >= 0 ? named : link.slide, got.lists.length - 1));
   queue = new PictureQueue(picturesOf(deck), got.lists, { load: pictureOf, loaded: pictureIn, at: first, parallel: 4 });
   shown.then(() => {
     if (!lists.length && !note.textContent) intro.classList.add("loading");

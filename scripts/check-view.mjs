@@ -62,6 +62,12 @@ const THREE_ID = "ThreeFixture1";
 const NOSEL_ID = "NoSelect12";
 const noSelDeck = JSON.stringify({ ...JSON.parse(deck), deck: { ...JSON.parse(deck).deck, selectText: false } });
 const threeDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-three.json"));
+// links on the slides (mcp-go/view_test.go TestViewLinks writes it): slide 1
+// links to slide 2 by its heading, to slide 3 by number and to another deck
+// (/s/AbCdEf1234#pdf-export, here the Finance sample)
+const LINKS_ID = "LinksFix01";
+const OTHER_ID = "AbCdEf1234";
+const linksDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-links.json"));
 // the Finance sample recorded for the web at 10 frames a second (the
 // editor's Export ▸ Cloud HTML, web/main.js recordForWeb(10),
 // gzipped as web/recstream.js packStream keeps it), under its hash
@@ -122,7 +128,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (rel.startsWith("/api/view/")) {
-    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck, [NOSEL_ID]: noSelDeck };
+    const answers = { [ID]: deck, [APP_ID]: appDeck, [WORLD_ID]: worldDeck, [SCRIPT_ID]: scriptDeck, [GLTF_ID]: gltfDeck, [THREE_ID]: threeDeck, [NOSEL_ID]: noSelDeck, [LINKS_ID]: linksDeck, [OTHER_ID]: deck };
     const found = answers[rel.slice("/api/view/".length)];
     res.writeHead(found ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(found || '{"error":"This shared presentation was not found."}');
@@ -688,6 +694,56 @@ try {
   await page.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
   if ((await text(page, "vCount")) !== `4 / ${slides}`) fail("?slide=4 did not open on slide 4");
   await page.close();
+
+  // a link on a slide: a click goes where it points, not to the next slide
+  {
+    const ld = JSON.parse(linksDeck);
+    const W = ld.deck.width;
+    const H = ld.deck.height;
+    const ready = async (p) => {
+      await p.waitForFunction(() => !document.getElementById("viewBar").hidden, null, { timeout: 15000 });
+      await p.waitForTimeout(300);
+    };
+    // the middle of slide 1's k-th link on the screen
+    const at = async (p, k) => {
+      const r = await p.evaluate(() => { const b = document.getElementById("c").getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+      const sc = Math.min(r[2] / W, r[3] / H);
+      const a = ld.lists[0].links[k];
+      return [r[0] + (r[2] - W * sc) / 2 + (a.x + a.w / 2) * sc, r[1] + (r[3] - H * sc) / 2 + (a.y + a.h / 3) * sc];
+    };
+    page = await open("/s/" + LINKS_ID);
+    await ready(page);
+    let [x, y] = await at(page, 0);
+    await page.mouse.move(x, y);
+    if ((await page.evaluate(() => document.getElementById("c").style.cursor)) !== "pointer") fail("links: no hand over a link");
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(200);
+    if ((await text(page, "vCount")) !== "2 / 3") fail(`links: #heading did not go to slide 2: ${await text(page, "vCount")}`);
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(200);
+    [x, y] = await at(page, 1);
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(200);
+    if ((await text(page, "vCount")) !== "3 / 3") fail(`links: #slide=3 did not go to slide 3: ${await text(page, "vCount")}`);
+    // another deck: opened in this tab, Back returns
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(200);
+    [x, y] = await at(page, 2);
+    await page.mouse.click(x, y);
+    await page.waitForURL((u) => u.pathname === "/s/" + OTHER_ID, { timeout: 5000 }).catch(() => fail(`links: the other deck did not open: ${page.url()}`));
+    await ready(page);
+    if ((await text(page, "vCount")) !== `1 / ${slides}`) fail(`links: the other deck shows ${await text(page, "vCount")}`);
+    await page.goBack();
+    await ready(page);
+    if (!page.url().includes("/s/" + LINKS_ID)) fail(`links: Back did not return: ${page.url()}`);
+    await page.close();
+    // a link from another deck to a heading here
+    page = await open("/s/" + LINKS_ID + "#hinnat-ja-%C3%A4%C3%A4net");
+    await ready(page);
+    if ((await text(page, "vCount")) !== "2 / 3") fail(`links: /s/{id}#heading opened ${await text(page, "vCount")}`);
+    if (/hinnat/.test(page.url())) fail(`links: the heading's name stayed in the address: ${page.url()}`);
+    await page.close();
+  }
 
   // one that is not there
   page = await open("/s/Nothing999");

@@ -5697,7 +5697,7 @@ async function followLink(href) {
   if (!to) return;
   if (to.deck) {
     if (to.deck === doc.cloud) {
-      app.selectSlide(to.slide);
+      if (!(to.name && app.followLink(to.name))) app.selectSlide(to.slide);
       needsPaint = true;
       return;
     }
@@ -5705,7 +5705,7 @@ async function followLink(href) {
     // overtaken: another deck was opened meanwhile, and it is the one shown
     if (opened === OVERTAKEN) return;
     if (opened) {
-      if (to.slide > 0) app.selectSlide(to.slide);
+      if (!(to.name && app.followLink(to.name)) && to.slide > 0) app.selectSlide(to.slide);
       refreshFiles();
       needsPaint = true;
       return;

@@ -1,7 +1,7 @@
 // node --test: the public viewer's addresses and keys (web/viewlink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkOf, slideLink, viewUrl, exportUrl, exportName, imageName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
+import { linkOf, linkAt, linkGo, slideOfName, slideLink, viewUrl, exportUrl, exportName, imageName, picturesOf, lookFacesOf, slideForKey, fitSlide, pinchView, panView, isZoomed } from "../viewlink.js";
 
 test("/s/{id} is a shared presentation, its picked slides and the slide shown", () => {
   assert.deepEqual(linkOf("/s/AbCdEf1234", "", ""), { id: "AbCdEf1234", slides: "", slide: 0 });
@@ -96,4 +96,46 @@ test("a zoomed slide is dragged no further than its edges", () => {
   assert.equal(panView(z, 400, 800, 960, 540, -5000, 0).x, 400 - 960 * z.scale);
   // shorter than the window: it stays centred up and down
   assert.equal(panView(z, 400, 800, 960, 540, 0, 300).y, (800 - 540 * z.scale) / 2);
+});
+
+test("a click on a slide's link: its area, a line's height around the words", () => {
+  const list = { links: [{ x: 10, y: 20, w: 50, h: 12, href: "#plan", slide: 2 }, { x: 10, y: 40, w: 30, h: 12, href: "/s/AbCdEf1234", slide: -1 }] };
+  assert.equal(linkAt(list, 30, 25).href, "#plan");
+  assert.equal(linkAt(list, 30, 33).href, "#plan");
+  assert.equal(linkAt(list, 25, 45).href, "/s/AbCdEf1234");
+  assert.equal(linkAt(list, 100, 25), null);
+  assert.equal(linkAt({ cmds: [] }, 30, 25), null);
+});
+
+test("where a link goes from the viewer: a slide here, a deck in this tab, the web in a new one", () => {
+  const o = "https://sliqtly.com";
+  assert.deepEqual(linkGo({ href: "#plan", slide: 2 }, o, o), { slide: 2 });
+  assert.equal(linkGo({ href: "#gone", slide: -1 }, o, o), null);
+  assert.deepEqual(linkGo({ href: "https://sliqtly.com/s/AbCdEf1234#slide=3", slide: -1 }, o, o), { open: "https://sliqtly.com/s/AbCdEf1234#slide=3" });
+  assert.deepEqual(linkGo({ href: "/s/AbCdEf1234#export", slide: -1 }, o, o), { open: "https://sliqtly.com/s/AbCdEf1234#export" });
+  // the editor's address of a deck opens in the viewer
+  assert.deepEqual(linkGo({ href: "https://sliqtly.com/editor/s/AbCdEf1234", slide: -1 }, o, o), { open: "https://sliqtly.com/s/AbCdEf1234" });
+  assert.deepEqual(linkGo({ href: "https://sliqtly.com/editor/d/AbCdEf1234", slide: -1 }, o, o), { open: "https://sliqtly.com/s/AbCdEf1234" });
+  // a server of one's own: its decks here, the public site's in their place
+  const local = "http://localhost:8080";
+  assert.deepEqual(linkGo({ href: "/s/AbCdEf1234", slide: -1 }, local, o), { open: "http://localhost:8080/s/AbCdEf1234" });
+  assert.deepEqual(linkGo({ href: "https://sliqtly.com/s/AbCdEf1234", slide: -1 }, local, o), { open: "https://sliqtly.com/s/AbCdEf1234" });
+  assert.deepEqual(linkGo({ href: "https://example.com/x", slide: -1 }, o, o), { tab: "https://example.com/x" });
+  assert.deepEqual(linkGo({ href: "https://sliqtly.com/editor", slide: -1 }, o, o), { tab: "https://sliqtly.com/editor" });
+  assert.equal(linkGo({ href: "javascript:alert(1)", slide: -1 }, o, o), null);
+  assert.equal(linkGo({ href: "mailto:a@b.c", slide: -1 }, o, o), null);
+  assert.equal(linkGo(null, o, o), null);
+});
+
+test("a link from another deck to a heading: /s/{id}#heading", () => {
+  const names = [["Intro"], ["Mihin raha menee?", "money"], ["Kolmas"], ["Äänet → tulos"]];
+  assert.equal(slideOfName(names, "#mihin-raha-menee"), 1);
+  assert.equal(slideOfName(names, "#money"), 1);
+  assert.equal(slideOfName(names, "#Mihin%20raha%20menee%3F"), 1);
+  assert.equal(slideOfName(names, "#Kolmas"), 2);
+  assert.equal(slideOfName(names, "#%C3%A4%C3%A4net-tulos"), 3);
+  assert.equal(slideOfName(names, "#slide=3"), -1);
+  assert.equal(slideOfName(names, "#ei-ole"), -1);
+  assert.equal(slideOfName(names, ""), -1);
+  assert.equal(slideOfName(undefined, "#intro"), -1);
 });

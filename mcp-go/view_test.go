@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -217,6 +218,62 @@ func TestViewSelectText(t *testing.T) {
 		t.Fatalf("selectText %v without select-text in the front matter", v)
 	}
 	eq(t, open("---\nselect-text: off\n---\n\n")["selectText"], false)
+}
+
+// A link on a slide comes with the view as an area to click: a link to a
+// slide of this deck with that slide found, another deck's with -1; each
+// slide's heading words are there for a link to a heading from elsewhere
+// (/s/<id>#heading). scripts/check-view.mjs clicks them.
+func TestViewLinks(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "---\nslide-split-level: 2\n---\n\n## Pääsivu\n\n- [Hinnat](#hinnat-ja-äänet)\n- [Kolmas dia](#slide=3)\n- [Toinen esitys](/s/AbCdEf1234#pdf-export)\n\n" +
+		"## Hinnat ja äänet\n\nTeksti\n\n## Kolmas\n\n[Ulos](https://example.com/x)\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Linkit", "markdown": md, "visibility": "link"})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	code, _, _, body := getView(t, s.root+"/api/view/"+sc(c)["deck_id"].(string))
+	eq(t, code, 200)
+	var v struct {
+		Deck struct {
+			Names [][]string `json:"names"`
+		} `json:"deck"`
+		Lists []struct {
+			Links []struct {
+				X, Y, W, H float64
+				Href       string
+				Slide      int
+			} `json:"links"`
+		} `json:"lists"`
+	}
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, len(v.Lists), 3)
+	got := v.Lists[0].Links
+	if len(got) != 3 {
+		t.Fatalf("want three links on the first slide, got %+v", got)
+	}
+	eq(t, got[0].Href, "#hinnat-ja-äänet")
+	eq(t, got[0].Slide, 1)
+	eq(t, got[1].Slide, 2)
+	eq(t, got[2].Href, "/s/AbCdEf1234#pdf-export")
+	eq(t, got[2].Slide, -1)
+	for _, a := range got {
+		if a.W <= 0 || a.H <= 0 {
+			t.Fatalf("a link with no area: %+v", a)
+		}
+	}
+	eq(t, len(v.Lists[1].Links), 0)
+	eq(t, len(v.Lists[2].Links), 1)
+	eq(t, v.Deck.Names[1][0], "Hinnat ja äänet")
+	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
+		if err := os.WriteFile("../scripts/fixtures/view-links.json", []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // The view shows each slide at rest and cannot play a story's steps, so the

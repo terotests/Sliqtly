@@ -24,6 +24,7 @@ Import "McpHost.rgr"
 Import "McpJson.rgr"
 Import "Tools.rgr"
 Import "../presentation/PresPick.rgr"
+Import "../presentation/PresStageClick.rgr"
 
 class View {
     ; whether the viewer may show doc to uid ("" for nobody signed in)
@@ -127,6 +128,12 @@ class View {
             if ((d.worldsAt >= 0) && ((strlen lj) > 1)) {
                 lj = ("{\"worldsAt\":" + (to_string d.worldsAt) + "," + (substring lj 1 (strlen lj)))
             }
+            ; the slide's links: the page follows a click on one
+            ; (web/view.js), to a slide here, another deck or the web
+            def la:MfJ (View.linkAreas(d i))
+            if (((array_length la.arr) > 0) && ((strlen lj) > 1)) {
+                lj = ("{\"links\":" + (JOut.text(la)) + "," + (substring lj 1 (strlen lj)))
+            }
             push lists lj
             i = (i + 1)
         }
@@ -193,6 +200,19 @@ class View {
         deck.putNum("height" d.pageH)
         deck.putInt("slides" n)
         deck.put("files" files)
+        ; each slide's heading words and id, for a link from another deck
+        ; to a heading here (/s/<id>#<heading>, web/viewlink.js slideOfName)
+        def names:MfJ (MfJ.newArr())
+        def ni:int 0
+        while (ni < n) {
+            def nj:MfJ (MfJ.newArr())
+            for (PresStageClick.names(d ni)) nm:string nmi {
+                nj.add((MfJ.ofStr(nm)))
+            }
+            names.add(nj)
+            ni = (ni + 1)
+        }
+        deck.put("names" names)
         ; `select-text: off`: the page lets nobody select the slides' text
         ; (web/slidetext.js); by default it does
         if (PresDeck.selectTextOff(md)) {
@@ -221,6 +241,23 @@ class View {
         ; the deck's own effects (```fx, the theme's @effect) as shader
         ; text the deck's compiler wrote (FxLang), for the page to register
         return ("{\"deck\":" + (JOut.text(deck)) + ",\"lists\":[" + all + "],\"effects\":" + (d.effectsJson()) + ",\"scripts\":" + scripts + "}")
+    }
+
+    ; slide i's links (PresStageClick.areas): [{x, y, w, h, href, slide}],
+    ; slide -1 for a link out of this deck
+    sfn linkAreas:MfJ (d:PresDeck i:int) {
+        def out:MfJ (MfJ.newArr())
+        for (PresStageClick.areas(d i)) a:PresLinkArea ai {
+            def o:MfJ (MfJ.newObj())
+            o.put("x" (MfJ.ofNum(a.x)))
+            o.put("y" (MfJ.ofNum(a.y)))
+            o.put("w" (MfJ.ofNum(a.w)))
+            o.put("h" (MfJ.ofNum(a.h)))
+            o.putStr("href" a.href)
+            o.putInt("slide" a.slide)
+            out.add(o)
+        }
+        return out
     }
 
     ; a picture the viewer gets through the server (View.picture), which

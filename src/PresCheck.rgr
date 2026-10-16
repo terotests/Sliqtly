@@ -4548,6 +4548,26 @@ class PresCheck {
         }
         this.ok((found >= 3) ("click: the links are found where they are drawn, " + (to_string found)))
         this.ok(((PresStageClick.linkAt(l 0 -50.0 -50.0)) == "") "click: no link off the text")
+        ; the viewer's part (mcp-go/rgr/View.rgr): the areas, one per line
+        ; of a link, with this deck's slides found
+        def a0:[PresLinkArea] (PresStageClick.areas(deck 0))
+        this.ok(((array_length a0) == 2) ("areas: slide 1 has two links, got " + (to_string (array_length a0))))
+        if ((array_length a0) == 2) {
+            def first:PresLinkArea (itemAt a0 0)
+            def second:PresLinkArea (itemAt a0 1)
+            this.ok(((first.href == "#mihin-raha-menee") && (first.slide == 1)) ("areas: the heading link goes to slide 2, " + first.href + " " + (to_string first.slide)))
+            this.ok((second.slide == 2) "areas: #slide=3 is the third")
+            this.ok(((PresStageClick.linkAt(l 0 (first.x + (first.w - 1.0)) (first.y + (first.h / 2.0)))) == first.href) "areas: the whole run of words is the link")
+        }
+        def a1:[PresLinkArea] (PresStageClick.areas(deck 1))
+        this.ok(((array_length a1) == 1) "areas: one link on slide 2")
+        if ((array_length a1) == 1) {
+            def other:PresLinkArea (itemAt a1 0)
+            this.ok((other.slide == -1) "areas: another deck is no slide of this one")
+        }
+        this.ok(((array_length (PresStageClick.areas(deck 2))) == 0) "areas: none on slide 3")
+        def nm:[string] (PresStageClick.names(deck 1))
+        this.ok((((array_length nm) >= 1) && ((itemAt nm 0) == "Mihin raha menee?")) "names: slide 2 by its heading's words")
         def at:PresNavAt (PresNav.start(deck 2))
         this.ok(((at.slide == 2) && (at.step == 0)) "click: a link while presenting goes to the slide's start")
     }
