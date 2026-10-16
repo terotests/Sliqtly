@@ -51,7 +51,7 @@ import { RoomChat, unreadRooms, chatMe } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
-import { linkTarget, FOLLOW_MS, LinkWait } from "./stagelink.js";
+import { linkTarget, FOLLOW_MS, LinkWait, returnTo } from "./stagelink.js";
 import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
@@ -2968,9 +2968,12 @@ function sampleChartSlide() {
 // own once it is saved: the address loses the link, so a reload opens the
 // saved deck, pictures and all, and not the link's text again.
 function plainAddress() {
+  // a step of Back and Forward (followLink) keeps what it was kept with,
+  // when that is still this deck
+  const step = history.state && history.state.doc && history.state.doc === doc.id ? history.state : null;
   // a PRO deck: its own address, which a reload opens from the cloud
   if (doc.cloud) {
-    history.replaceState(null, "", editAddress(doc.cloud));
+    history.replaceState(step, "", editAddress(doc.cloud));
     lastHash = "";
     return;
   }
@@ -2982,7 +2985,7 @@ function plainAddress() {
   q.delete("deck");
   q.delete("from");
   const search = q.toString();
-  history.replaceState(null, "", (shared ? EDITOR_ROOT + "/" : location.pathname) + (search ? "?" + search : ""));
+  history.replaceState(step, "", (shared ? EDITOR_ROOT + "/" : location.pathname) + (search ? "?" + search : ""));
   lastHash = "";
 }
 
@@ -5732,11 +5735,21 @@ async function followLink(href, wanted = () => true) {
       needsPaint = true;
       return;
     }
+    // the address left, as the step Back returns to (onpopstate below)
+    const left = { href: location.href, state: { deck: doc.cloud || "", doc: doc.id || "" } };
     const opened = await loadingScreen(() => openOwnCloud(to.deck, wanted).catch((e) => { console.warn(e); return false; }));
     // overtaken: another deck was opened meanwhile, and it is the one shown
     if (opened === OVERTAKEN) return;
     if (opened) {
       if (!(to.name && app.followLink(to.name)) && to.slide > 0) app.selectSlide(to.slide);
+      // opening replaced the address (plainAddress): the deck left keeps
+      // its step, and the deck opened is a new one after it
+      const at = location.href;
+      if (at !== left.href) {
+        history.replaceState(left.state, "", left.href);
+        history.pushState({ deck: doc.cloud || "", doc: doc.id || "" }, "", at);
+        lastHash = location.hash;
+      }
       refreshFiles();
       needsPaint = true;
       return;
@@ -6569,10 +6582,59 @@ async function askPdf(picked) {
     t("Landscape has one slide on each page. Portrait has the presentation as the View tab shows it, on A4 pages."),
     t("Export"), picks, chosen)) {
     needsPaint = true;
+    // the pictures of both layouts, once the window shows
+    requestAnimationFrame(() => pdfPreviews(picked));
     return;
   }
   // no window now (presenting): the last answer, without comments
   await exportPdfAs(lastPdfLayout(), picked, false);
+}
+// The PDF window's picture of each layout: its first pages side by side, as
+// the file will have them (app.pdfPreviewJson), on a grey ground.
+const PDF_PREV = { h: 150, most: 3, gap: 8, pad: 8, dpr: 2 };
+function pdfPreviews(picked) {
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  const lines = [];
+  for (const layout of ["landscape", "portrait"]) {
+    const pages = [];
+    for (let i = 0; i < PDF_PREV.most; i++) {
+      const text = app.pdfPreviewJson(picked, layout === "portrait", i);
+      if (!text) break;
+      pages.push(atRest(JSON.parse(text)));
+    }
+    if (!pages.length) continue;
+    const ph = PDF_PREV.h - 2 * PDF_PREV.pad;
+    const widths = pages.map((d) => (d.width * ph) / d.height);
+    const w = widths.reduce((a, b) => a + b, 0) + PDF_PREV.gap * (pages.length - 1) + 2 * PDF_PREV.pad;
+    const out = document.createElement("canvas");
+    out.width = Math.round(w * PDF_PREV.dpr);
+    out.height = PDF_PREV.h * PDF_PREV.dpr;
+    const o = out.getContext("2d");
+    o.fillStyle = "#e4e4e7";
+    o.fillRect(0, 0, out.width, out.height);
+    let x = PDF_PREV.pad;
+    pages.forEach((doc, i) => {
+      const k = (ph / doc.height) * PDF_PREV.dpr;
+      c.width = Math.max(1, Math.round(doc.width * k));
+      c.height = Math.max(1, Math.round(doc.height * k));
+      const f = prepareDisplayList(g, doc, { dpr: k, images: pictures, contrastGuard: layout === "landscape", contrastRepair: autoContrast });
+      f.draw(null, null);
+      f.dispose();
+      o.fillStyle = "rgba(0,0,0,0.18)";
+      o.fillRect(Math.round(x * PDF_PREV.dpr) + 2, PDF_PREV.pad * PDF_PREV.dpr + 2, c.width, c.height);
+      o.drawImage(c, Math.round(x * PDF_PREV.dpr), PDF_PREV.pad * PDF_PREV.dpr);
+      x += widths[i] + PDF_PREV.gap;
+    });
+    const src = "/__pdfprev/" + layout;
+    pictures.set(src, asPicture(out));
+    lines.push(layout + "=" + src + "=" + out.width + "=" + out.height);
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+  app.setPickShots(lines.join("\n"));
+  needsPaint = true;
 }
 function answerPdf(picked) {
   const got = app.picked().split(",");
@@ -7269,7 +7331,7 @@ async function openOwnCloudNow(id, wanted = () => true) {
   // it since: this browser's copy is the newer, and goes up on the next save
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
   await leaveDoc();
-  if (overtaken(turn) || !wanted()) return OVERTAKEN;
+  if (overtaken(turn)) return OVERTAKEN;
   beginDoc(shared.md || "");
   doc.src = "cloud:" + id;
   doc.id = local?.id || newId();
@@ -8796,6 +8858,25 @@ async function openFromHash() {
     return false;
   }
 }
+// Back and Forward between decks opened from links (followLink): the
+// deck of the step is opened here, as the link opened it, not by loading
+// the page again. A step within the deck shown is the hashchange's below.
+window.addEventListener("popstate", (e) => {
+  const to = returnTo(e.state, location.href, location.origin, SITE, { deck: doc.cloud || "", doc: doc.id || "" });
+  if (!to) return;
+  const href = location.href;
+  const q = hashParams();
+  loadingScreen(() => (to.deck ? openOwnCloud(to.deck) : openDoc(to.doc)).catch((err) => { console.warn(err); return false; })).then((opened) => {
+    if (opened === OVERTAKEN) return;
+    // not to be opened here (no longer theirs, removed): as the page would
+    if (!opened) return location.reload();
+    // opening tidied the address: the step's own, slide and tab with it
+    history.replaceState(e.state, "", href);
+    lastHash = location.hash;
+    useAddress(q);
+    refreshFiles();
+  });
+});
 window.addEventListener("hashchange", () => {
   if (location.hash === lastHash) return;
   if (hashParams().has("md")) openFromHash();

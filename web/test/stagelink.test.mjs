@@ -1,7 +1,7 @@
 // node --test: a link clicked on a slide (web/stagelink.js)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { linkTarget, FOLLOW_MS } from "../stagelink.js";
+import { linkTarget, FOLLOW_MS, returnTo } from "../stagelink.js";
 
 const O = "https://sliqtly.com";
 
@@ -57,4 +57,23 @@ test("a double click on a link drops it, also after the wait is over", async () 
   const t3 = w.link(6000);
   assert.equal(w.wanted(t2), false);
   assert.ok(w.wanted(t3));
+});
+
+test("Back and Forward open the deck the step was kept with", () => {
+  const open = { deck: "Child12345", doc: "d2" };
+  // the master deck the link was followed from
+  assert.deepEqual(returnTo({ deck: "Master1234", doc: "d1" }, O + "/editor/d/Master1234#tab=view", O, O, open), { deck: "Master1234" });
+  // a step whose state was dropped: its address names the deck
+  assert.deepEqual(returnTo(null, O + "/editor/d/Master1234#tab=view&slide=3", O, O, open), { deck: "Master1234" });
+  assert.deepEqual(returnTo(null, "http://localhost:8080/s/Master1234?edit", "http://localhost:8080", O, open), { deck: "Master1234" });
+  // a deck kept in this browser only, which has no address of its own
+  assert.deepEqual(returnTo({ deck: "", doc: "d1" }, "http://localhost:8080/#tab=view", "http://localhost:8080", O, open), { doc: "d1" });
+});
+
+test("a step within the deck shown opens nothing", () => {
+  const open = { deck: "Child12345", doc: "d2" };
+  assert.equal(returnTo({ deck: "Child12345", doc: "d2" }, O + "/editor/d/Child12345#slide=2", O, O, open), null);
+  assert.equal(returnTo(null, O + "/editor/d/Child12345#slide=2", O, O, open), null);
+  assert.equal(returnTo(null, O + "/editor/#tab=view", O, O, open), null);
+  assert.equal(returnTo({ deck: "", doc: "d2" }, "http://localhost:8080/", "http://localhost:8080", O, { deck: "", doc: "d2" }), null);
 });

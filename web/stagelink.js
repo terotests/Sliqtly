@@ -90,3 +90,20 @@ export class LinkWait {
     return turn === this.turn;
   }
 }
+
+/**
+ * Back or Forward to an address of this page (a deck opened from a link is
+ * a step of the browser's history, main.js followLink): the deck to open
+ * there, when it is not the one open. `state` is what the step was kept
+ * with ({ deck, doc }), null for one kept without; `open` is the deck shown
+ * ({ deck: its share id or "", doc: this page's id }). { deck } for a
+ * presentation of the cloud, { doc } for one kept in this browser only, or
+ * null when the step is in the deck shown (its slide or tab, which the
+ * address's #… names).
+ */
+export function returnTo(state, href, origin, site, open) {
+  const deck = (state && state.deck) || (linkTarget(href, origin, site) || {}).deck || "";
+  if (deck) return deck === (open && open.deck) ? null : { deck };
+  const doc = state && state.doc;
+  return doc && doc !== (open && open.doc) ? { doc } : null;
+}

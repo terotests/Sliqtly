@@ -315,6 +315,29 @@ class PresExport {
         def e:MarkdownEdit mw.edit
         def w:double (view.width())
         def h:double (PresDocPages.a4Height(w))
+        def cuts:[double] (PresExport.docCuts(view))
+        def renderer:EVGPDFRenderer (this.pdfRenderer(w h))
+        def root:EVGElement (EVGListToElements.printRoot(w h))
+        def section:EVGElement (EVGListToElements.sectionOf(root))
+        def bg:EVGColor (EVGColor.parse(view.paper))
+        def known:[string] (this.stillPaths())
+        def missing:[string]
+        def i:int 0
+        while (i < (idiv (array_length cuts) 2)) {
+            def dl:EVGDisplayList (PresExport.docSheet(view cuts i))
+            this.keepDrawable(dl renderer e known missing)
+            def pageEl:EVGElement (EVGListToElements.pageFrom(dl w h bg true))
+            this.vectorize(pageEl)
+            section.addChild(pageEl)
+            i = (i + 1)
+        }
+        return (renderer.render(root))
+    }
+
+    ; Where the View page's A4 sheets start and end: [top0, bottom0, …].
+    sfn docCuts:[double] (view:PresDocView) {
+        def w:double (view.width())
+        def h:double (PresDocPages.a4Height(w))
         def margin:double view.flow.margin
         def top:double margin
         def bottom:double ((view.height()) - margin)
@@ -322,27 +345,20 @@ class PresExport {
             top = 0.0
             bottom = (view.height())
         }
-        def cuts:[double] (PresDocPages.cut(view.atomTop view.atomBottom top bottom (h - (2.0 * margin))))
-        def renderer:EVGPDFRenderer (this.pdfRenderer(w h))
-        def root:EVGElement (EVGListToElements.printRoot(w h))
-        def section:EVGElement (EVGListToElements.sectionOf(root))
-        def bg:EVGColor (EVGColor.parse(view.paper))
-        def known:[string] (this.stillPaths())
-        def missing:[string]
+        return (PresDocPages.cut(view.atomTop view.atomBottom top bottom (h - (2.0 * margin))))
+    }
+
+    ; Sheet `i` of those, with its number at the foot.
+    sfn docSheet:EVGDisplayList (view:PresDocView cuts:[double] i:int) {
+        def w:double (view.width())
+        def h:double (PresDocPages.a4Height(w))
+        def margin:double view.flow.margin
         def sheets:int (idiv (array_length cuts) 2)
-        def i:int 0
-        while (i < sheets) {
-            def dl:EVGDisplayList (view.sheet((itemAt cuts (i * 2)) (itemAt cuts ((i * 2) + 1)) margin w h))
-            this.keepDrawable(dl renderer e known missing)
-            def num:string ((to_string (i + 1)) + " / " + (to_string sheets))
-            def nw:double (to_double ((strlen num) * 5))
-            dl.addText(num ((w - nw) * 0.5) (h - (margin * 0.5)) 9.0 (EVGColor.parse(view.muted)) "Open Sans" false false (nw + 10.0) 9.0)
-            def pageEl:EVGElement (EVGListToElements.pageFrom(dl w h bg true))
-            this.vectorize(pageEl)
-            section.addChild(pageEl)
-            i = (i + 1)
-        }
-        return (renderer.render(root))
+        def dl:EVGDisplayList (view.sheet((itemAt cuts (i * 2)) (itemAt cuts ((i * 2) + 1)) margin w h))
+        def num:string ((to_string (i + 1)) + " / " + (to_string sheets))
+        def nw:double (to_double ((strlen num) * 5))
+        dl.addText(num ((w - nw) * 0.5) (h - (margin * 0.5)) 9.0 (EVGColor.parse(view.muted)) "Open Sans" false false (nw + 10.0) 9.0)
+        return dl
     }
 
     ; --- review comments as footnotes ---------------------------------------------

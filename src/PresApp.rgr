@@ -18118,6 +18118,51 @@ class PresApp {
         return (ex.docPdf(view))
     }
 
+    ; The PDF window's picture of each choice (web/main.js pdfPreviews):
+    ; page `i` of the PDF as it would be made, as {width, height, list};
+    ; "" past the last. Portrait: the A4 sheets, laid out again when `i` is
+    ; 0. Landscape: the slides, each as it ends.
+    def pdfPrevView:PresDocView (new PresDocView())
+    def pdfPrevCuts:[double]
+
+    fn pdfPreviewJson:string (picked:boolean portrait:boolean i:int) {
+        def ex:PresExport (this.exportOf(picked))
+        if portrait {
+            if (i == 0) {
+                pdfPrevView = (new PresDocView())
+                pdfPrevView.only = ex.only
+                pdfPrevView.build(deck)
+                pdfPrevCuts = (PresExport.docCuts(pdfPrevView))
+            }
+            if ((i * 2) >= (array_length pdfPrevCuts)) {
+                return ""
+            }
+            def w:double (pdfPrevView.width())
+            def l:EVGDisplayList (PresExport.docSheet(pdfPrevView pdfPrevCuts i))
+            return ("{\"width\":" + (EVGDisplayList.num(w)) + ",\"height\":" + (EVGDisplayList.num((PresDocPages.a4Height(w)))) + ",\"list\":" + (l.toJson()) + "}")
+        }
+        def at:int i
+        if ((array_length ex.only) > 0) {
+            if (i >= (array_length ex.only)) {
+                return ""
+            }
+            at = (itemAt ex.only i)
+        }
+        if (at >= (deck.slideCount())) {
+            return ""
+        }
+        return (this.slideJson(at))
+    }
+
+    ; the pictures beside the choices of the open window (openPick): one
+    ; "key=picture=width=height" line per choice of the first group
+    fn setPickShots:void (shots:string) {
+        if (chart.isOpen && (chart.mode == "confirm")) {
+            chart.cfShots = shots
+            chart.rebuild()
+        }
+    }
+
     ; --- Word (PresExport.docx) ----------------------------------------------------
     ; Two steps, because the stage draws some blocks (a diagram, a chart, a
     ; SmartArt) that only the host can turn into pictures: `docxBegin` names
