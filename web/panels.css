@@ -439,8 +439,7 @@
 .rm-grow { flex-grow: 1; }
 .rm-topic { display: flex; flex-direction: column; flex-wrap: nowrap; background-color: #fafafa; font-family: Open Sans; }
 .rm-thead { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 18px 24px 10px; flex-shrink: 0; }
-.rm-ttitle { font-size: 20px; font-weight: 700; color: #18181b; white-space: nowrap; }
-.rm-tcount { font-size: 13px; color: #71717a; white-space: nowrap; }
+.rm-ttitle { flex: 0 1 auto; min-width: 0; font-size: 20px; font-weight: 700; color: #18181b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-tctl { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; padding: 0 24px 10px; flex-shrink: 0; }
 .rm-tlabel { font-size: 12px; color: #71717a; margin-right: 4px; white-space: nowrap; }
 .rm-tgap { width: 16px; }

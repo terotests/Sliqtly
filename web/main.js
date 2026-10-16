@@ -1725,7 +1725,6 @@ async function showTopic(room, rows, folders = []) {
     // where it is known who works where (a server of one's own, or
     // sliqtly.com signed in): always said
     who: presenceShown() ? headPresence(here, t) : null,
-    count: rows.length === 1 ? t("1 presentation") : t("{n} presentations").replace("{n}", String(rows.length)),
     empty: t("No presentations in this room yet. + New presentation makes one."),
     canNew: room !== ONBOARDING && !info?.archived,
   }));
