@@ -21,9 +21,12 @@ class SpAssist {
             t = ((SpWords.dayLabel(lang o.day)) + " ")
         }
         t = (t + (SpWords.timeOf(lang o)) + " " + o.title)
-        def who:string (s.resourceName(o.resource))
-        if ((strlen who) > 0) {
-            t = (t + " (" + who + ")")
+        if o.important {
+            t = ("★ " + t)
+        }
+        def about:string (s.aboutOf(o))
+        if ((strlen about) > 0) {
+            t = (t + " (" + about + ")")
         }
         return t
     }

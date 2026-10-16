@@ -4,6 +4,7 @@
 Import "SpacesModel.rgr"
 Import "SpacesVocab.rgr"
 Import "SpacesAssist.rgr"
+Import "SpacesRemote.rgr"
 Import "../evgui/src/UiDate.rgr"
 
 class SpacesCheck {
@@ -259,12 +260,12 @@ class SpacesCheck {
     fn assist:void () {
         def wed:int (UiDate.toDays(2026 10 21))
         def s:SpSpace (SpSeed.build("family" "fi" wed))
-        this.eq((SpAssist.answer(s "fi" wed "qToday")) "- 14.00–14.30 Hammaslääkäri (Aino)\n- 16.00–16.45 Pianotunti (Aino)" "today, in Finnish")
+        this.eq((SpAssist.answer(s "fi" wed "qToday")) "- 14.00–14.30 Hammaslääkäri (Aino · Vie: Juho)\n- 16.00–16.45 Pianotunti (Aino · Hakee: Mia)" "today, in Finnish, with the ward and who looks after it")
         def late:string (SpAssist.answer(s "fi" wed "qLate"))
         this.ok(((indexOf late "Palauta kirjaston kirjat") >= 0) "overdue")
         def week:string (SpAssist.weekSummary(s "fi" wed))
         this.ok(((indexOf week "# Viikkokooste ma 19.10.–su 25.10.") == 0) "the week summary's title")
-        this.ok(((indexOf week "- Eero: 2") >= 0) "load per resource")
+        this.ok(((indexOf week "- Eero: 3") >= 0) "load per resource")
         this.ok(((indexOf week "Kuskausvuorot") < 0) "a sheet's name is not an event title")
         this.ok(((indexOf week "Treenikyyti") >= 0) "sheet rows are in the summary")
         def plan:string (SpAssist.plan(s "en" wed))
@@ -273,6 +274,120 @@ class SpacesCheck {
         this.ok(((indexOf planFi "- [ ] Allekirjoita lupalappu") >= 0) "next week's deadline is a task")
         this.ok(((indexOf planFi "## Muistettavaa") >= 0) "the pack's word for deadlines")
         this.eq((SpWords.clock("en" 545)) "9:05" "an English clock")
+    }
+
+
+    fn words:void () {
+        this.eq((SpWords.noun("fi" "demo" "resources")) "Vastuukohteet" "demo wards, fi")
+        this.eq((SpWords.noun("en" "demo" "resource")) "Ward" "a demo ward, en")
+        this.eq((SpWords.noun("fi" "family" "resources")) "Hoidettavat" "family wards, fi")
+        this.eq((SpWords.noun("en" "business" "resources")) "Clients and equipment" "business wards, en")
+        this.eq((SpWords.noun("fi" "sports" "resources")) "Pelaajat ja kalusto" "sports wards, fi")
+        this.eq((SpWords.noun("fi" "family" "responsibility")) "Hoitovuoro" "family responsibility")
+        this.eq((SpWords.noun("en" "sports" "responsibility")) "Coach in charge" "sports responsibility")
+        def w (new SpWho())
+        w.name = "Aino"
+        w.role = "vie"
+        this.eq((w.text()) "Vie: Aino" "a responsibility as the summary shows it")
+        w.role = ""
+        this.eq((w.text()) "Aino" "no role: the name alone")
+    }
+
+    fn rrules:void () {
+        def r (new SpRule())
+        this.ok((r.parse("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;UNTIL=20261231;COUNT=5")) "an RRULE reads")
+        this.eq(r.freq "weekly" "FREQ")
+        this.eqi(r.interval 2 "INTERVAL")
+        this.eq((SpacesCheck.ints(r.byDay)) "1,3" "BYDAY")
+        this.eq((UiDate.isoOfDays(r.until)) "2026-12-31" "UNTIL")
+        this.eqi(r.count 5 "COUNT")
+        this.eq((r.toText()) "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;UNTIL=20261231;COUNT=5" "and back")
+        def r2 (new SpRule())
+        this.ok((r2.parse("RRULE:FREQ=MONTHLY;UNTIL=20270115T225959Z;X-NAME=1")) "with a prefix, a time and a part it does not know")
+        this.eq((r2.toText()) "FREQ=MONTHLY;UNTIL=20270115" "what it keeps")
+        def r3 (new SpRule())
+        this.ok(((r3.parse("FREQ=YEARLY")) == false) "a FREQ it does not know")
+        this.eq((r3.toText()) "" "is no rule")
+        this.eq((SpSpace.timeText(545)) "09:05" "a time for the server")
+        this.eq((SpSpace.timeText(-1)) "" "no time")
+    }
+
+    sfn ints:string (list:[int]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length list)) {
+            push parts (to_string (itemAt list i))
+            i = (i + 1)
+        }
+        return (join parts ",")
+    }
+
+    sfn spaceJson:string () {
+        return "{\"space\":{\"space_id\":\"sp1\",\"name\":\"Kotiväki\",\"vocab\":\"family\",\"lang\":\"fi\",\"role\":\"member\",\"members\":[{\"uid\":\"u1\",\"name\":\"Mia\",\"email\":\"mia@example.com\",\"role\":\"owner\"},{\"uid\":\"u2\",\"name\":\"Juho\",\"email\":\"juho@example.com\",\"role\":\"member\"}],\"invites\":[\"leena@example.com\"],\"wards\":[{\"id\":\"w1\",\"name\":\"Aino\",\"color\":\"rose\"},{\"id\":\"w2\",\"name\":\"Nappi\",\"color\":\"\"}]},\"events\":[{\"event_id\":\"ev1\",\"title\":\"Uinti\",\"date\":\"2026-10-05\",\"start\":\"17:00\",\"end\":\"17:45\",\"ward\":\"w1\",\"rrule\":\"FREQ=WEEKLY;BYDAY=MO,WE\",\"exdates\":[\"2026-10-21\"],\"who\":[{\"name\":\"Juho\",\"role\":\"vie\"}]},{\"event_id\":\"ev2\",\"title\":\"Mökki\",\"date\":\"2026-10-23\",\"end_date\":\"2026-10-25\",\"important\":true,\"notes\":\"Avaimet\",\"source\":\"ics\",\"ext_id\":\"x-9\"},{\"event_id\":\"bad\",\"title\":\"Ei päivää\",\"date\":\"\"}]}"
+    }
+
+    fn remote:void () {
+        def s (new SpSpace())
+        s.today = (UiDate.toDays(2026 10 21))
+        s.addEvent("Left over" s.today 600 660 "")
+        this.ok((SpRemote.readSpace(s (SpacesCheck.spaceJson()))) "a space from the server reads")
+        this.eq(s.name "Kotiväki" "its name")
+        this.eq(s.vocab "family" "its words")
+        this.eq(s.remoteId "sp1" "its id")
+        this.eq(s.myRole "member" "the viewer's role")
+        this.eqi((array_length s.members) 2 "the members")
+        this.eqi((array_length s.invites) 1 "the invites")
+        this.eqi((array_length s.resources) 2 "the wards")
+        def nappi:SpResource (itemAt s.resources 1)
+        this.eq(nappi.color "blue" "a ward with no colour")
+        this.eqi((array_length s.events) 2 "the events, the one without a date left out, what was there before gone")
+        def swim:SpEvent (itemAt s.events 0)
+        this.eq(swim.remoteId "ev1" "the server's id")
+        this.ok(((swim.startMin == 1020) && (swim.endMin == 1065)) "HH:MM into minutes")
+        this.eq((SpacesCheck.days((s.daysOf(swim (s.today - 2) (s.today + 6))))) "2026-10-19 2026-10-26" "the rule and its exdate")
+        this.eq((SpWho.listText(swim.who)) "Vie: Juho" "who")
+        def cabin:SpEvent (itemAt s.events 1)
+        this.ok(((cabin.allDay()) && ((cabin.endDay - cabin.day) == 2)) "an all-day event over three days")
+        this.ok((cabin.important && ((cabin.notes == "Avaimet") && ((cabin.origin == "ics") && (cabin.extId == "x-9")))) "important, notes and where it came from")
+        this.eqi((array_length (s.dirtyEvents())) 0 "nothing loaded is dirty")
+        def occ:[SpOccur] (s.occurrences((s.today + 5) (s.today + 5)))
+        this.eq((s.aboutOf((itemAt occ 0))) "Aino · Vie: Juho" "an occurrence's ward and who")
+
+        ; written back as it was read
+        def body:string (SpRemote.saveBody("sp1" swim))
+        this.eq(body "{\"title\":\"Uinti\",\"date\":\"2026-10-05\",\"start\":\"17:00\",\"end\":\"17:45\",\"ward\":\"w1\",\"rrule\":\"FREQ=WEEKLY;BYDAY=MO,WE\",\"exdates\":[\"2026-10-21\"],\"who\":[{\"name\":\"Juho\",\"role\":\"vie\"}],\"space_id\":\"sp1\",\"event_id\":\"ev1\"}" "save_event's body")
+        this.eq((SpRemote.saveBody("sp1" cabin)) "{\"title\":\"Mökki\",\"date\":\"2026-10-23\",\"end_date\":\"2026-10-25\",\"notes\":\"Avaimet\",\"important\":true,\"source\":\"ics\",\"ext_id\":\"x-9\",\"space_id\":\"sp1\",\"event_id\":\"ev2\"}" "an all-day event's body")
+
+        ; the calendar's changes are dirty
+        this.ok((s.moveOccurrence(cabin.id (s.today + 3) -1 -1)) "a single event moves")
+        this.ok((cabin.dirty && (cabin.rev == 1)) "and is dirty")
+        def before:int (array_length s.events)
+        this.ok((s.moveOccurrence((swim.id + "@" + (to_string (s.today + 5))) (s.today + 6) 1080 1125)) "one day of a series moves")
+        this.ok(swim.dirty "the series is dirty (its new exdate)")
+        def one:SpEvent (itemAt s.events before)
+        this.ok((one.dirty && ((strlen one.remoteId) == 0)) "the day is a new event, dirty and not on the server")
+        this.eq((SpWho.listText(one.who)) "Vie: Juho" "it keeps who")
+        this.eqi((array_length (s.dirtyEvents())) 3 "three to save")
+        this.ok(((indexOf (SpRemote.saveBody("sp1" swim)) "\"exdates\":[\"2026-10-21\",\"2026-10-26\"]") > 0) "the series is saved with both exdates")
+
+        ; a Space alone changes the people, not the events
+        def meta:VlJson (SpRemote.parse("{\"space_id\":\"sp1\",\"name\":\"Uusi nimi\",\"role\":\"owner\",\"members\":[{\"uid\":\"u1\",\"name\":\"Mia\",\"email\":\"mia@example.com\",\"role\":\"owner\"}],\"invites\":[]}"))
+        SpRemote.readMeta(s meta)
+        this.ok((((s.name == "Uusi nimi") && (s.myRole == "owner")) && (((array_length s.members) == 1) && ((array_length s.invites) == 0))) "a Space updates the name and the people")
+        this.eqi((array_length s.events) (before + 1) "and keeps the events")
+
+        def acc:SpAccount (SpRemote.account("{\"me\":{\"uid\":\"u1\",\"name\":\"Mia\",\"email\":\"mia@example.com\"},\"spaces\":[{\"space_id\":\"sp1\",\"name\":\"Kotiväki\",\"vocab\":\"family\",\"lang\":\"fi\",\"role\":\"owner\"}]}"))
+        this.ok(((acc.uid == "u1") && ((array_length acc.spaces) == 1)) "list_spaces reads")
+        def bad:SpAccount (SpRemote.account("not json"))
+        this.eqi((array_length bad.spaces) 0 "an answer that does not read is no spaces")
+
+        ; the demo data a space on a server keeps
+        def seed:SpSpace (SpSeed.build("family" "fi" s.today))
+        def evs:[SpEvent] (SpSeed.serverEvents(seed))
+        this.eqi((array_length evs) ((array_length seed.events) + (array_length seed.deadlines)) "events and deadlines")
+        def last:SpEvent (itemAt evs ((array_length evs) - 1))
+        this.ok(((last.allDay()) && last.important) "a deadline is an important all-day event")
+        this.ok(((indexOf (SpRemote.importBody("sp1" evs)) "\"rrule\":\"FREQ=WEEKLY;BYDAY=TU,TH\"") > 0) "import_events carries the rules")
     }
 
     sfn main:void () {
@@ -284,6 +399,9 @@ class SpacesCheck {
         c.moves()
         c.seeds()
         c.assist()
+        c.words()
+        c.rrules()
+        c.remote()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

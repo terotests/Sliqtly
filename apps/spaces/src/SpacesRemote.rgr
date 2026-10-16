@@ -1,0 +1,311 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SpacesRemote — a space kept on a server, as the JSON the server speaks
+; =============================================================================
+; The page talks to the server with POST <op> and a JSON object; this reads
+; the answers into the model (through SpSpace.beginLoad and the calls after
+; it) and writes the bodies the page sends. Nothing here does any I/O.
+;
+;   Space  {space_id, name, vocab, lang, role, members:[{uid,name,email,role}],
+;           invites:[email], wards:[{id,name,color}]}
+;   Event  {event_id, title, date, end_date?, start?, end?, ward?, place?,
+;           notes?, color?, rrule?, exdates?:[date], who?:[{name,role}],
+;           important?, source?, ext_id?}
+; =============================================================================
+
+Import "SpacesModel.rgr"
+Import "../vela/src/VlJson.rgr"
+
+; One space in the list the server keeps for the person signed in.
+class SpSpaceInfo {
+    def id:string ""
+    def name:string ""
+    def vocab:string "demo"
+    def lang:string "fi"
+    def role:string "member"
+    Constructor () {
+    }
+}
+
+; The person signed in and their spaces (list_spaces).
+class SpAccount {
+    def uid:string ""
+    def name:string ""
+    def email:string ""
+    def spaces:[SpSpaceInfo]
+    Constructor () {
+    }
+
+    fn find@(optional):SpSpaceInfo (id:string) {
+        def found@(optional):SpSpaceInfo
+        def i:int 0
+        while (i < (array_length spaces)) {
+            def s:SpSpaceInfo (itemAt spaces i)
+            if (s.id == id) {
+                found = s
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; a space in the list takes what the server last said of it
+    fn put:SpSpaceInfo (info:SpSpaceInfo) {
+        def i:int 0
+        while (i < (array_length spaces)) {
+            def s:SpSpaceInfo (itemAt spaces i)
+            if (s.id == info.id) {
+                set spaces i info
+                return info
+            }
+            i = (i + 1)
+        }
+        push spaces info
+        return info
+    }
+}
+
+class SpRemote {
+
+    ; The text as JSON; an object that is empty when it does not read.
+    sfn parse:VlJson (text:string) {
+        def p (new VlJsonParser())
+        def v:VlJson (p.parse(text))
+        if ((p.ok == false) || ((v.isObject()) == false)) {
+            return (VlJson.objectValue())
+        }
+        return v
+    }
+
+    sfn str:VlJson (v:string) {
+        return (VlJson.stringValue(v))
+    }
+
+    sfn info:SpSpaceInfo (o:VlJson) {
+        def s (new SpSpaceInfo())
+        s.id = (o.stringOr("space_id" ""))
+        s.name = (o.stringOr("name" ""))
+        s.vocab = (o.stringOr("vocab" "demo"))
+        s.lang = (o.stringOr("lang" "fi"))
+        s.role = (o.stringOr("role" "member"))
+        return s
+    }
+
+    ; list_spaces: {me:{uid,name,email}, spaces:[Space]}
+    sfn account:SpAccount (text:string) {
+        def o:VlJson (SpRemote.parse(text))
+        def a (new SpAccount())
+        def me:VlJson (o.get("me"))
+        if (me.isObject()) {
+            a.uid = (me.stringOr("uid" ""))
+            a.name = (me.stringOr("name" ""))
+            a.email = (me.stringOr("email" ""))
+        }
+        def list:VlJson (o.get("spaces"))
+        def i:int 0
+        while (i < (list.count())) {
+            def one:VlJson (list.at(i))
+            if (one.isObject()) {
+                push a.spaces (SpRemote.info(one))
+            }
+            i = (i + 1)
+        }
+        return a
+    }
+
+    ; What a Space object says about the space itself and its people, into
+    ; `s`: the name, words, language, the viewer's role, members and invites.
+    ; The wards and the events are left as they are.
+    sfn readMeta:void (s:SpSpace o:VlJson) {
+        s.remoteId = (o.stringOr("space_id" s.remoteId))
+        s.name = (o.stringOr("name" s.name))
+        s.vocab = (o.stringOr("vocab" s.vocab))
+        s.lang = (o.stringOr("lang" s.lang))
+        s.myRole = (o.stringOr("role" s.myRole))
+        def m:[SpMember]
+        s.members = m
+        def iv:[string]
+        s.invites = iv
+        def ms:VlJson (o.get("members"))
+        def i:int 0
+        while (i < (ms.count())) {
+            def one:VlJson (ms.at(i))
+            s.loadMember((one.stringOr("uid" "")) (one.stringOr("name" "")) (one.stringOr("email" "")) (one.stringOr("role" "member")))
+            i = (i + 1)
+        }
+        def ivs:VlJson (o.get("invites"))
+        def k:int 0
+        while (k < (ivs.count())) {
+            def e:VlJson (ivs.at(k))
+            if (e.isString()) {
+                s.loadInvite(e.str)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; get_space: {space: Space, events: [Event]}, the whole space. False when
+    ; the answer has no space in it.
+    sfn readSpace:boolean (s:SpSpace text:string) {
+        def o:VlJson (SpRemote.parse(text))
+        def sp:VlJson (o.get("space"))
+        if ((sp.isObject()) == false) {
+            return false
+        }
+        SpRemote.readWhole(s sp (o.get("events")))
+        return true
+    }
+
+    ; A Space and its events into `s`, replacing what it held.
+    sfn readWhole:void (s:SpSpace sp:VlJson events:VlJson) {
+        s.beginLoad((sp.stringOr("name" "")) (sp.stringOr("vocab" "demo")))
+        SpRemote.readMeta(s sp)
+        def ws:VlJson (sp.get("wards"))
+        def i:int 0
+        while (i < (ws.count())) {
+            def w:VlJson (ws.at(i))
+            s.loadWard((w.stringOr("id" "")) (w.stringOr("name" "")) (w.stringOr("color" "")))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (events.count())) {
+            SpRemote.readEvent(s (events.at(k)))
+            k = (k + 1)
+        }
+    }
+
+    sfn readEvent:void (s:SpSpace o:VlJson) {
+        def made@(optional):SpEvent (s.loadEvent((o.stringOr("event_id" "")) (o.stringOr("title" "")) (o.stringOr("date" "")) (o.stringOr("end_date" "")) (o.stringOr("start" "")) (o.stringOr("end" "")) (o.stringOr("ward" "")) (o.stringOr("place" "")) (o.stringOr("color" "")) (o.stringOr("notes" "")) (o.boolOr("important" false))))
+        if (null? made) {
+            return
+        }
+        def e:SpEvent made
+        e.origin = (o.stringOr("source" ""))
+        e.extId = (o.stringOr("ext_id" ""))
+        def rr:string (o.stringOr("rrule" ""))
+        if ((strlen rr) > 0) {
+            s.loadRule(e rr)
+        }
+        def ex:VlJson (o.get("exdates"))
+        def i:int 0
+        while (i < (ex.count())) {
+            def d:VlJson (ex.at(i))
+            if (d.isString()) {
+                s.loadExdate(e d.str)
+            }
+            i = (i + 1)
+        }
+        def who:VlJson (o.get("who"))
+        def k:int 0
+        while (k < (who.count())) {
+            def w:VlJson (who.at(k))
+            if (w.isObject()) {
+                e.addWho((w.stringOr("name" "")) (w.stringOr("role" "")))
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; --- what the page sends -----------------------------------------------------
+
+    ; An event as the server takes it, without its id.
+    sfn eventObj:VlJson (e:SpEvent) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("title" (SpRemote.str(e.title)))
+        o.setMember("date" (SpRemote.str((SpSpace.dateText(e.day)))))
+        if (e.endDay > e.day) {
+            o.setMember("end_date" (SpRemote.str((SpSpace.dateText(e.endDay)))))
+        }
+        if ((e.allDay()) == false) {
+            o.setMember("start" (SpRemote.str((SpSpace.timeText(e.startMin)))))
+            o.setMember("end" (SpRemote.str((SpSpace.timeText(e.endMin)))))
+        }
+        if ((strlen e.resource) > 0) {
+            o.setMember("ward" (SpRemote.str(e.resource)))
+        }
+        if ((strlen e.place) > 0) {
+            o.setMember("place" (SpRemote.str(e.place)))
+        }
+        if ((strlen e.notes) > 0) {
+            o.setMember("notes" (SpRemote.str(e.notes)))
+        }
+        if ((strlen e.color) > 0) {
+            o.setMember("color" (SpRemote.str(e.color)))
+        }
+        def rr:string (e.rule.toText())
+        if ((strlen rr) > 0) {
+            o.setMember("rrule" (SpRemote.str(rr)))
+        }
+        if ((array_length e.exdates) > 0) {
+            def ex:VlJson (VlJson.arrayValue())
+            def i:int 0
+            while (i < (array_length e.exdates)) {
+                push ex.arr (SpRemote.str((SpSpace.dateText((itemAt e.exdates i)))))
+                i = (i + 1)
+            }
+            o.setMember("exdates" ex)
+        }
+        if ((array_length e.who) > 0) {
+            def ws:VlJson (VlJson.arrayValue())
+            def k:int 0
+            while (k < (array_length e.who)) {
+                def w:SpWho (itemAt e.who k)
+                def wo:VlJson (VlJson.objectValue())
+                wo.setMember("name" (SpRemote.str(w.name)))
+                wo.setMember("role" (SpRemote.str(w.role)))
+                push ws.arr wo
+                k = (k + 1)
+            }
+            o.setMember("who" ws)
+        }
+        if e.important {
+            o.setMember("important" (VlJson.boolValue(true)))
+        }
+        if ((strlen e.origin) > 0) {
+            o.setMember("source" (SpRemote.str(e.origin)))
+        }
+        if ((strlen e.extId) > 0) {
+            o.setMember("ext_id" (SpRemote.str(e.extId)))
+        }
+        return o
+    }
+
+    sfn write:string (v:VlJson) {
+        def w (new VlJsonWriter())
+        return (w.write(v))
+    }
+
+    ; save_event: the space, the event's id ("" makes a new one) and its fields
+    sfn saveBody:string (spaceId:string e:SpEvent) {
+        def o:VlJson (SpRemote.eventObj(e))
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("event_id" (SpRemote.str(e.remoteId)))
+        return (SpRemote.write(o))
+    }
+
+    ; import_events: many events at once, none with an id
+    sfn importBody:string (spaceId:string events:[SpEvent]) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        def list:VlJson (VlJson.arrayValue())
+        def i:int 0
+        while (i < (array_length events)) {
+            push list.arr (SpRemote.eventObj((itemAt events i)))
+            i = (i + 1)
+        }
+        o.setMember("events" list)
+        return (SpRemote.write(o))
+    }
+
+    ; A body of string fields: keys and values in turn.
+    sfn body:string (pairs:[string]) {
+        def o:VlJson (VlJson.objectValue())
+        def i:int 0
+        while ((i + 1) < (array_length pairs)) {
+            o.setMember((itemAt pairs i) (SpRemote.str((itemAt pairs (i + 1)))))
+            i = (i + 2)
+        }
+        return (SpRemote.write(o))
+    }
+}

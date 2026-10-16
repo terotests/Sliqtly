@@ -3,7 +3,9 @@
 ; =============================================================================
 ; SpacesVocab — the words a space is shown in, and its demo data
 ; =============================================================================
-; The model has one set of nouns (space, resource, event, place, deadline);
+; The model has one set of nouns (space, ward, responsibility, event, place,
+; deadline): a ward is what the space looks after (a child, a pet, a car, a
+; client, a team) and a responsibility who looks after an event, and how;
 ; a vocabulary pack names them for one kind of group. `demo` is the neutral
 ; one; `family`, `business` and `sports` are the same app with other words
 ; and their own demo data. The page's own words (navigation, headings) are
@@ -43,8 +45,8 @@ class SpWords {
         return (SpWords.pick(lang "Demo" "Demo"))
     }
 
-    ; A noun of the model, named by the pack: space, resources, resource,
-    ; event, place, deadlines.
+    ; A noun of the model, named by the pack: space, resources (the wards),
+    ; resource (one ward), responsibility, event, place, deadlines.
     sfn noun:string (lang:string pack:string key:string) {
         if (key == "space") {
             if (pack == "family") {
@@ -60,15 +62,39 @@ class SpWords {
         }
         if (key == "resources") {
             if (pack == "family") {
-                return (SpWords.pick(lang "Family members" "Perheenjäsenet"))
+                return (SpWords.pick(lang "Dependants" "Hoidettavat"))
             }
             if (pack == "business") {
-                return (SpWords.pick(lang "People and rooms" "Ihmiset ja tilat"))
+                return (SpWords.pick(lang "Clients and equipment" "Asiakkaat ja laitteet"))
             }
             if (pack == "sports") {
-                return (SpWords.pick(lang "Teams" "Joukkueet"))
+                return (SpWords.pick(lang "Players and kit" "Pelaajat ja kalusto"))
             }
-            return (SpWords.pick(lang "Resources" "Resurssit"))
+            return (SpWords.pick(lang "Wards" "Vastuukohteet"))
+        }
+        if (key == "resource") {
+            if (pack == "family") {
+                return (SpWords.pick(lang "Dependant" "Hoidettava"))
+            }
+            if (pack == "business") {
+                return (SpWords.pick(lang "Client or equipment" "Asiakas tai laite"))
+            }
+            if (pack == "sports") {
+                return (SpWords.pick(lang "Player or kit" "Pelaaja tai väline"))
+            }
+            return (SpWords.pick(lang "Ward" "Vastuukohde"))
+        }
+        if (key == "responsibility") {
+            if (pack == "family") {
+                return (SpWords.pick(lang "Turn" "Hoitovuoro"))
+            }
+            if (pack == "business") {
+                return (SpWords.pick(lang "Owner" "Vastuuhenkilö"))
+            }
+            if (pack == "sports") {
+                return (SpWords.pick(lang "Coach in charge" "Vastuuvalmentaja"))
+            }
+            return (SpWords.pick(lang "Responsibility" "Vastuu"))
         }
         if (key == "event") {
             if (pack == "family") {
@@ -136,6 +162,24 @@ class SpWords {
         if (key == "qPlan") { return (SpWords.pick(lang "Draft a plan for next week" "Luonnostele ensi viikon suunnitelma")) }
         if (key == "local") { return (SpWords.pick(lang "Answers come from this space's calendar, sheets and deadlines." "Vastaukset tulevat tämän tilan kalenterista, taulukoista ja määräajoista.")) }
         if (key == "noDocs") { return (SpWords.pick(lang "No documents yet" "Ei vielä dokumentteja")) }
+        if (key == "members") { return (SpWords.pick(lang "Members" "Jäsenet")) }
+        if (key == "spaces") { return (SpWords.pick(lang "Spaces" "Tilat")) }
+        if (key == "owner") { return (SpWords.pick(lang "owner" "omistaja")) }
+        if (key == "member") { return (SpWords.pick(lang "member" "jäsen")) }
+        if (key == "invited") { return (SpWords.pick(lang "Invited, not joined yet" "Kutsuttu, ei vielä liittynyt")) }
+        if (key == "invite") { return (SpWords.pick(lang "Invite" "Kutsu")) }
+        if (key == "email") { return (SpWords.pick(lang "Email address" "Sähköpostiosoite")) }
+        if (key == "remove") { return (SpWords.pick(lang "Remove" "Poista")) }
+        if (key == "newSpace") { return (SpWords.pick(lang "New space" "Uusi tila")) }
+        if (key == "spaceName") { return (SpWords.pick(lang "Name of the space" "Tilan nimi")) }
+        if (key == "create") { return (SpWords.pick(lang "Create" "Luo")) }
+        if (key == "open") { return (SpWords.pick(lang "Open" "Avaa")) }
+        if (key == "seed") { return (SpWords.pick(lang "Load demo data" "Lataa esimerkkidata")) }
+        if (key == "empty") { return (SpWords.pick(lang "This space is empty. Add events on the calendar, or start from the demo data." "Tila on tyhjä. Lisää tapahtumia kalenterissa tai aloita esimerkkidatasta.")) }
+        if (key == "noSpaces") { return (SpWords.pick(lang "You have no spaces yet. Create one, or ask to be invited to one." "Sinulla ei ole vielä tiloja. Luo uusi tai pyydä kutsu johonkin.")) }
+        if (key == "loading") { return (SpWords.pick(lang "Loading…" "Ladataan…")) }
+        if (key == "saving") { return (SpWords.pick(lang "Saving…" "Tallennetaan…")) }
+        if (key == "important") { return (SpWords.pick(lang "Important" "Tärkeä")) }
         return key
     }
 
@@ -210,85 +254,103 @@ class SpSeed {
         return e
     }
 
+    ; who is responsible: "Takes: Alex"
+    sfn who:SpEvent (e:SpEvent lang:string en:string fi:string name:string) {
+        e.addWho(name (SpWords.pick(lang en fi)))
+        return e
+    }
+
+    ; Wards here are a child, a dog and a car; Alex, Sam and Kim look after
+    ; them.
     sfn demo:void (s:SpSpace lang:string today:int mon:int) {
         s.name = (SpWords.pick(lang "Demo space" "Demotila"))
-        s.addResource("a" "Alex" "blue")
-        s.addResource("b" "Sam" "emerald")
-        s.addResource("c" "Kim" "violet")
-        SpSeed.weekly(s (SpWords.pick(lang "Weekly check-in" "Viikkokatsaus")) (mon - 28) 540 570 "a" ([] _:int ( 1 )))
-        SpSeed.weekly(s (SpWords.pick(lang "Gym" "Sali")) (mon - 28) 1080 1140 "b" ([] _:int ( 2 4 )))
-        s.addEvent((SpWords.pick(lang "Lunch with Kim" "Lounas Kimin kanssa")) today 690 750 "c")
-        s.addEvent((SpWords.pick(lang "Workshop" "Työpaja")) (mon + 3) 780 930 "a")
-        s.addAllDay((SpWords.pick(lang "Trip" "Matka")) (mon + 9) (mon + 11) "b")
-        s.addEvent((SpWords.pick(lang "Review" "Katselmointi")) (mon + 8) 600 660 "c")
-        s.addDeadline((SpWords.pick(lang "Send the report" "Lähetä raportti")) (mon + 4) "a")
-        s.addDeadline((SpWords.pick(lang "Book the venue" "Varaa tila")) (mon + 10) "b")
-        s.addDeadline((SpWords.pick(lang "Return the forms" "Palauta lomakkeet")) (today - 2) "c")
+        def car:string (SpWords.pick(lang "Car" "Auto"))
+        s.addResource("aino" "Aino" "rose")
+        s.addResource("otso" "Otso" "amber")
+        s.addResource("car" car "blue")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "Swimming lesson" "Uimakoulu")) (mon - 28) 1020 1065 "aino" ([] _:int ( 1 )))) lang "takes" "vie" "Alex")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "Dog walk" "Koiralenkki")) (mon - 28) 1080 1140 "otso" ([] _:int ( 2 4 )))) lang "walks" "ulkoiluttaa" "Sam")
+        def vet:SpEvent (SpSeed.who((s.addEvent((SpWords.pick(lang "Vet" "Eläinlääkäri")) today 690 750 "otso")) lang "takes" "vie" "Kim"))
+        vet.important = true
+        SpSeed.who((s.addEvent((SpWords.pick(lang "Car service" "Auton huolto")) (mon + 3) 780 930 "car")) lang "takes" "vie" "Alex")
+        SpSeed.who((s.addAllDay((SpWords.pick(lang "Camp" "Leiri")) (mon + 9) (mon + 11) "aino")) lang "picks up" "hakee" "Sam")
+        SpSeed.who((s.addEvent((SpWords.pick(lang "Parents' evening" "Vanhempainilta")) (mon + 8) 1080 1170 "aino")) lang "attends" "osallistuu" "Kim")
+        s.addDeadline((SpWords.pick(lang "Renew the car insurance" "Uusi auton vakuutus")) (mon + 4) "car")
+        s.addDeadline((SpWords.pick(lang "Book the dog's vaccination" "Varaa koiran rokotus")) (mon + 10) "otso")
+        s.addDeadline((SpWords.pick(lang "Return the forms" "Palauta lomakkeet")) (today - 2) "aino")
         s.addSheet((SpSeed.sheet("s1" (SpWords.pick(lang "Shared schedule" "Yhteinen aikataulu")) lang
             ([] _:string ( "date" "time" "what" "who" ))
             ([] _:int ( (today + 1) (mon + 7) (mon + 12) ))
-            ([] _:string ( "16-17" (SpWords.pick(lang "Cleaning rota" "Siivousvuoro")) "Kim" "9-10" (SpWords.pick(lang "Planning" "Suunnittelu")) "Alex" "" (SpWords.pick(lang "Open day" "Avoimet ovet")) "Sam" )))))
+            ([] _:string ( "16-17" (SpWords.pick(lang "Drive to practice" "Treenikyyti")) "Aino" "9-10" (SpWords.pick(lang "Grooming" "Trimmaus")) "Otso" "" (SpWords.pick(lang "Tyre change" "Renkaanvaihto")) car )))))
         s.addDoc((SpWords.pick(lang "How we work" "Näin toimimme"))
-            (SpWords.pick(lang "# How we work\n\n- The summary shows today, this week and next week.\n- Shared schedules live in Sheets; dated rows show in the calendar.\n- Ask the assistant for a summary or a plan."
-                "# Näin toimimme\n\n- Koonti näyttää tämän päivän, tämän viikon ja ensi viikon.\n- Yhteiset aikataulut ovat Taulukoissa; päivätyt rivit näkyvät kalenterissa.\n- Pyydä avustajalta koostetta tai suunnitelmaa.")) (mon - 3))
+            (SpWords.pick(lang "# How we work\n\n- The summary shows today, this week and next week.\n- Each event names its ward and who looks after it.\n- Shared schedules live in Sheets; dated rows show in the calendar.\n- Ask the assistant for a summary or a plan."
+                "# Näin toimimme\n\n- Koonti näyttää tämän päivän, tämän viikon ja ensi viikon.\n- Jokaisessa tapahtumassa näkyy vastuukohde ja kuka siitä huolehtii.\n- Yhteiset aikataulut ovat Taulukoissa; päivätyt rivit näkyvät kalenterissa.\n- Pyydä avustajalta koostetta tai suunnitelmaa.")) (mon - 3))
     }
 
+    ; Three children and a cat; Mia and Juho take turns.
     sfn family:void (s:SpSpace lang:string today:int mon:int) {
         s.addResource("aino" "Aino" "rose")
         s.addResource("eero" "Eero" "blue")
-        s.addResource("mia" "Mia" "amber")
         s.addResource("leo" "Leo" "emerald")
-        SpSeed.weekly(s (SpWords.pick(lang "Football practice" "Jalkapallotreenit")) (mon - 28) 1050 1140 "eero" ([] _:int ( 2 4 )))
-        SpSeed.weekly(s (SpWords.pick(lang "Piano lesson" "Pianotunti")) (mon - 28) 960 1005 "aino" ([] _:int ( 3 )))
-        SpSeed.weekly(s (SpWords.pick(lang "Swimming" "Uinti")) (mon - 28) 600 660 "leo" ([] _:int ( 6 )))
-        s.addEvent((SpWords.pick(lang "Dentist" "Hammaslääkäri")) today 840 870 "aino")
-        s.addEvent((SpWords.pick(lang "Parents' evening" "Vanhempainilta")) (mon + 3) 1080 1170 "mia")
+        s.addResource("nappi" "Nappi" "amber")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "Football practice" "Jalkapallotreenit")) (mon - 28) 1050 1140 "eero" ([] _:int ( 2 4 )))) lang "takes" "vie" "Juho")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "Piano lesson" "Pianotunti")) (mon - 28) 960 1005 "aino" ([] _:int ( 3 )))) lang "picks up" "hakee" "Mia")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "Swimming" "Uinti")) (mon - 28) 600 660 "leo" ([] _:int ( 6 )))) lang "takes" "vie" "Mia")
+        SpSeed.who((s.addEvent((SpWords.pick(lang "Dentist" "Hammaslääkäri")) today 840 870 "aino")) lang "takes" "vie" "Juho")
+        SpSeed.who((s.addEvent((SpWords.pick(lang "Parents' evening" "Vanhempainilta")) (mon + 3) 1080 1170 "")) lang "attends" "osallistuu" "Mia")
+        def vac:SpEvent (SpSeed.who((s.addEvent((SpWords.pick(lang "Cat's vaccination" "Nappin rokotus")) (mon + 9) 600 630 "nappi")) lang "takes" "vie" "Juho"))
+        vac.important = true
         s.addAllDay((SpWords.pick(lang "Grandparents visit" "Isovanhemmat kylässä")) (mon + 12) (mon + 13) "")
-        s.addEvent((SpWords.pick(lang "Birthday party" "Synttärit")) (mon + 12) 780 900 "leo")
-        s.addDeadline((SpWords.pick(lang "Pay the school trip" "Maksa luokkaretki")) (mon + 4) "mia")
+        SpSeed.who((s.addEvent((SpWords.pick(lang "Birthday party" "Synttärit")) (mon + 12) 780 900 "leo")) lang "takes" "vie" "Mia")
+        s.addDeadline((SpWords.pick(lang "Pay the school trip" "Maksa luokkaretki")) (mon + 4) "eero")
         s.addDeadline((SpWords.pick(lang "Sign the permission slip" "Allekirjoita lupalappu")) (mon + 8) "eero")
         s.addDeadline((SpWords.pick(lang "Return library books" "Palauta kirjaston kirjat")) (today - 1) "aino")
         s.addSheet((SpSeed.sheet("s1" (SpWords.pick(lang "Driving rota" "Kuskausvuorot")) lang
             ([] _:string ( "date" "time" "what" "who" ))
             ([] _:int ( (today + 1) (mon + 8) (mon + 10) ))
-            ([] _:string ( "17.15" (SpWords.pick(lang "Drive to practice" "Treenikyyti")) "Mia" "17.15" (SpWords.pick(lang "Drive to practice" "Treenikyyti")) "Leo" "15.45" (SpWords.pick(lang "Pick up from piano" "Haku pianotunnilta")) "Mia" )))))
+            ([] _:string ( "17.15" (SpWords.pick(lang "Drive to practice" "Treenikyyti")) "Eero" "17.15" (SpWords.pick(lang "Drive to practice" "Treenikyyti")) "Leo" "15.45" (SpWords.pick(lang "Pick up from piano" "Haku pianotunnilta")) "Aino" )))))
         s.addDoc((SpWords.pick(lang "Holiday plans" "Lomasuunnitelmat"))
             (SpWords.pick(lang "# Holiday plans\n\n- Cabin week: decide the dates.\n- Who looks after the cat?\n- Packing list in Sheets."
                 "# Lomasuunnitelmat\n\n- Mökkiviikko: päätetään päivät.\n- Kuka hoitaa kissan?\n- Pakkauslista Taulukoissa.")) (mon - 5))
     }
 
+    ; Two clients and a van; Ella and Oskari own them.
     sfn business:void (s:SpSpace lang:string today:int mon:int) {
-        s.addResource("ops" (SpWords.pick(lang "Operations" "Operatiivinen")) "blue")
-        s.addResource("sales" (SpWords.pick(lang "Sales" "Myynti")) "emerald")
-        s.addResource("room" (SpWords.pick(lang "Meeting room" "Neuvotteluhuone")) "violet")
-        SpSeed.weekly(s (SpWords.pick(lang "Team stand-up" "Tiimin aamupalaveri")) (mon - 28) 540 555 "ops" ([] _:int ( 1 2 3 4 5 )))
-        SpSeed.weekly(s (SpWords.pick(lang "Sales pipeline" "Myyntiputki")) (mon - 28) 780 840 "sales" ([] _:int ( 3 )))
-        s.addEvent((SpWords.pick(lang "Customer workshop" "Asiakastyöpaja")) today 600 720 "room")
-        s.addEvent((SpWords.pick(lang "Quarterly review" "Kvartaalikatsaus")) (mon + 9) 780 900 "room")
-        s.addAllDay((SpWords.pick(lang "Trade fair" "Messut")) (mon + 10) (mon + 11) "sales")
-        s.addDeadline((SpWords.pick(lang "Offer to customer" "Tarjous asiakkaalle")) (mon + 4) "sales")
-        s.addDeadline((SpWords.pick(lang "Monthly report" "Kuukausiraportti")) (mon + 7) "ops")
-        s.addDeadline((SpWords.pick(lang "Approve invoices" "Hyväksy laskut")) (today - 1) "ops")
-        s.addSheet((SpSeed.sheet("s1" (SpWords.pick(lang "Shift list" "Vuorolista")) lang
+        def van:string (SpWords.pick(lang "Delivery van" "Pakettiauto"))
+        s.addResource("kide" (SpWords.pick(lang "Kide Ltd" "Kide Oy")) "blue")
+        s.addResource("vireo" (SpWords.pick(lang "Vireo Ltd" "Vireo Oy")) "emerald")
+        s.addResource("van" van "violet")
+        SpSeed.weekly(s (SpWords.pick(lang "Team stand-up" "Tiimin aamupalaveri")) (mon - 28) 540 555 "" ([] _:int ( 1 2 3 4 5 )))
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "Account review" "Asiakaskatsaus")) (mon - 28) 780 840 "vireo" ([] _:int ( 3 )))) lang "leads" "vetää" "Oskari")
+        SpSeed.who((s.addEvent((SpWords.pick(lang "Customer workshop" "Asiakastyöpaja")) today 600 720 "kide")) lang "leads" "vetää" "Ella")
+        def qr:SpEvent (SpSeed.who((s.addEvent((SpWords.pick(lang "Quarterly review" "Kvartaalikatsaus")) (mon + 9) 780 900 "kide")) lang "leads" "vetää" "Ella"))
+        qr.important = true
+        SpSeed.who((s.addAllDay((SpWords.pick(lang "Trade fair" "Messut")) (mon + 10) (mon + 11) "van")) lang "drives" "ajaa" "Oskari")
+        s.addDeadline((SpWords.pick(lang "Offer to customer" "Tarjous asiakkaalle")) (mon + 4) "vireo")
+        s.addDeadline((SpWords.pick(lang "Van inspection" "Pakettiauton katsastus")) (mon + 7) "van")
+        s.addDeadline((SpWords.pick(lang "Approve invoices" "Hyväksy laskut")) (today - 1) "kide")
+        s.addSheet((SpSeed.sheet("s1" (SpWords.pick(lang "Visits and deliveries" "Käynnit ja toimitukset")) lang
             ([] _:string ( "date" "time" "what" "who" ))
             ([] _:int ( today (today + 1) (mon + 8) ))
-            ([] _:string ( "12-16" (SpWords.pick(lang "Customer desk" "Asiakaspalvelu")) (SpWords.pick(lang "Sales" "Myynti")) "8-12" (SpWords.pick(lang "Customer desk" "Asiakaspalvelu")) (SpWords.pick(lang "Operations" "Operatiivinen")) "8-16" (SpWords.pick(lang "Stock count" "Inventaario")) (SpWords.pick(lang "Operations" "Operatiivinen")) )))))
+            ([] _:string ( "12-16" (SpWords.pick(lang "Site visit" "Asiakaskäynti")) (SpWords.pick(lang "Vireo Ltd" "Vireo Oy")) "8-12" (SpWords.pick(lang "Delivery" "Toimitus")) van "8-16" (SpWords.pick(lang "Installation" "Asennus")) (SpWords.pick(lang "Kide Ltd" "Kide Oy")) )))))
         s.addDoc((SpWords.pick(lang "Q4 goals" "Q4-tavoitteet"))
-            (SpWords.pick(lang "# Q4 goals\n\n- Three new customers.\n- Shift list kept in Sheets.\n- Review every Friday."
-                "# Q4-tavoitteet\n\n- Kolme uutta asiakasta.\n- Vuorolista Taulukoissa.\n- Katsaus joka perjantai.")) (mon - 4))
+            (SpWords.pick(lang "# Q4 goals\n\n- Three new customers.\n- Visits and deliveries kept in Sheets.\n- Review every Friday."
+                "# Q4-tavoitteet\n\n- Kolme uutta asiakasta.\n- Käynnit ja toimitukset Taulukoissa.\n- Katsaus joka perjantai.")) (mon - 4))
     }
 
+    ; Two teams and the ball bags; Niko and Sara coach.
     sfn sports:void (s:SpSpace lang:string today:int mon:int) {
         s.addResource("u12" "U12" "blue")
         s.addResource("u14" "U14" "amber")
-        s.addResource("hall" (SpWords.pick(lang "Sports hall" "Urheiluhalli")) "emerald")
-        SpSeed.weekly(s (SpWords.pick(lang "U12 practice" "U12 treenit")) (mon - 28) 1020 1110 "u12" ([] _:int ( 1 3 )))
-        SpSeed.weekly(s (SpWords.pick(lang "U14 practice" "U14 treenit")) (mon - 28) 1110 1200 "u14" ([] _:int ( 2 4 )))
-        s.addEvent((SpWords.pick(lang "Coaches' meeting" "Valmentajapalaveri")) today 1080 1140 "hall")
-        s.addAllDay((SpWords.pick(lang "Tournament" "Turnaus")) (mon + 12) (mon + 13) "u12")
+        s.addResource("kit" (SpWords.pick(lang "Ball bags" "Pallokassit")) "emerald")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "U12 practice" "U12 treenit")) (mon - 28) 1020 1110 "u12" ([] _:int ( 1 3 )))) lang "coaches" "valmentaa" "Niko")
+        SpSeed.who((SpSeed.weekly(s (SpWords.pick(lang "U14 practice" "U14 treenit")) (mon - 28) 1110 1200 "u14" ([] _:int ( 2 4 )))) lang "coaches" "valmentaa" "Sara")
+        s.addEvent((SpWords.pick(lang "Coaches' meeting" "Valmentajapalaveri")) today 1080 1140 "")
+        def t:SpEvent (SpSeed.who((s.addAllDay((SpWords.pick(lang "Tournament" "Turnaus")) (mon + 12) (mon + 13) "u12")) lang "leads" "johtaa" "Niko"))
+        t.important = true
         s.addDeadline((SpWords.pick(lang "Tournament sign-up" "Turnausilmoittautuminen")) (mon + 4) "u12")
         s.addDeadline((SpWords.pick(lang "Season fees" "Kausimaksut")) (mon + 9) "u14")
-        s.addDeadline((SpWords.pick(lang "Kit order" "Asutilaus")) (today - 3) "u14")
+        s.addDeadline((SpWords.pick(lang "Kit order" "Asutilaus")) (today - 3) "kit")
         s.addSheet((SpSeed.sheet("s1" (SpWords.pick(lang "Match schedule" "Otteluohjelma")) lang
             ([] _:string ( "date" "time" "what" "who" ))
             ([] _:int ( (today + 1) (mon + 6) (mon + 13) ))
@@ -296,6 +358,31 @@ class SpSeed {
         s.addDoc((SpWords.pick(lang "Season plan" "Kausisuunnitelma"))
             (SpWords.pick(lang "# Season plan\n\n- Two practices a week per team.\n- Match schedule in Sheets.\n- Fees due before the first game."
                 "# Kausisuunnitelma\n\n- Kaksi treeniä viikossa joukkuetta kohden.\n- Otteluohjelma Taulukoissa.\n- Maksut ennen ensimmäistä ottelua.")) (mon - 6))
+    }
+
+    ; What a space on a server keeps of the seed: its wards and its events,
+    ; each deadline as an important all-day event. Sheets and documents stay
+    ; in the page.
+    sfn serverEvents:[SpEvent] (s:SpSpace) {
+        def out:[SpEvent]
+        def i:int 0
+        while (i < (array_length s.events)) {
+            push out (itemAt s.events i)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length s.deadlines)) {
+            def d:SpDeadline (itemAt s.deadlines k)
+            def e (new SpEvent())
+            e.title = d.title
+            e.day = d.day
+            e.endDay = d.day
+            e.resource = d.resource
+            e.important = true
+            push out e
+            k = (k + 1)
+        }
+        return out
     }
 
     ; A sheet with English or Finnish headings: `heads` are the English keys,

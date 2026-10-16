@@ -33,6 +33,9 @@
  *                linked from nowhere and not indexed
  *   web/use-cases.html, web/use-cases/   the use cases page they link to, with
  *                pictures of its example decks (web/alt/use-cases/)
+ *   apps/warden/  the Warden page (apps/spaces, npm run warden:build): the
+ *                Spaces app on the server's /apps/warden/ API; built here when
+ *                apps/spaces/web/dist-warden is not there yet
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -40,6 +43,7 @@ import crypto from "node:crypto";
 import { ensureRanger, ensureCerxes, compile, root, webDir, log } from "./lib.mjs";
 import { copyFaces, facesStamp, minify, buildThree, buildScriptSel, markParts } from "./build.mjs";
 import { stampImports, unstampedImports } from "./stamp.mjs";
+import { buildSpaces, wardenDir } from "../apps/spaces/scripts/build.mjs";
 
 export const viewDir = path.join(webDir, "dist-view");
 
@@ -87,6 +91,10 @@ export function buildView({ ranger } = {}) {
   if (cerxes.wasm) copy(cerxes.wasm, "cerxes.wasm");
   else if (process.env.SLIQTLY_NEED_CERXES) throw new Error(`cerxes not built: ${cerxes.why} (SLIQTLY_NEED_CERXES is set)`);
   else log(`cerxes not built: ${cerxes.why}; programs on slides show their plates`);
+
+  // the Warden page, served at /apps/warden/
+  if (!fs.existsSync(path.join(wardenDir, "index.html"))) buildSpaces({ warden: true });
+  for (const f of files(wardenDir)) copy(path.join(wardenDir, f), "apps/warden/" + f);
 
   // every module's relative imports are among the files copied
   const shipped = new Set(files(viewDir));

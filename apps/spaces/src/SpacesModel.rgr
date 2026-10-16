@@ -15,6 +15,15 @@
 ; days in `exdates`. `occurrences(from to)` expands them into one SpOccur per
 ; day an event happens on, sorted by day, all-day first, then start time.
 ;
+; A ward is what a space looks after: a child, a pet, a car, a client, a
+; team (SpResource, named by the vocabulary pack). An event may name its ward
+; and who is responsible for it, each with a role ("takes", "picks up").
+;
+; A space kept on a server is loaded with `beginLoad`, `loadWard`,
+; `loadEvent` and the calls after it, from the server's own strings (dates
+; "YYYY-MM-DD", times "HH:MM", an RRULE). What the calendar changes is marked
+; `dirty` for the page to save, and `remoteId` is the server's id once it has.
+;
 ; Sheets are tables of text. A sheet whose columns name a date (and maybe a
 ; time, a title and a resource) is a source of events: `sheetEvents` reads
 ; those rows, so a schedule kept as a spreadsheet shows up in the summary and
@@ -32,6 +41,45 @@ class SpResource {
     }
 }
 
+; Who looks after an event, and how: "Mia" who "takes".
+class SpWho {
+    def name:string ""
+    def role:string ""
+    Constructor () {
+    }
+
+    ; "Takes: Mia", or the name alone
+    fn text:string () {
+        def r:string (trim role)
+        if ((strlen r) == 0) {
+            return name
+        }
+        return ((to_uppercase (substring r 0 1)) + (substring r 1 (strlen r)) + ": " + name)
+    }
+
+    sfn listText:string (list:[SpWho]) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length list)) {
+            def w:SpWho (itemAt list i)
+            push parts (w.text())
+            i = (i + 1)
+        }
+        return (join parts ", ")
+    }
+}
+
+; A member of a space kept on a server.
+class SpMember {
+    def uid:string ""
+    def name:string ""
+    def email:string ""
+    ; "owner" or "member"
+    def role:string "member"
+    Constructor () {
+    }
+}
+
 class SpRule {
     ; "" (once), "daily", "weekly" or "monthly"
     def freq:string ""
@@ -44,6 +92,116 @@ class SpRule {
     ; how many times it happens (0 = no limit)
     def count:int 0
     Constructor () {
+    }
+
+    sfn dayCodes:[string] () {
+        return ([] _:string ( "SU" "MO" "TU" "WE" "TH" "FR" "SA" ))
+    }
+
+    ; An RRULE ("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;UNTIL=20261231;COUNT=5")
+    ; into this rule. Parts it does not know are left out. False when there is
+    ; no FREQ it knows.
+    fn parse:boolean (text:string) {
+        freq = ""
+        interval = 1
+        def none:[int]
+        byDay = none
+        until = 0
+        count = 0
+        def t:string (trim text)
+        if ((indexOf (to_uppercase t) "RRULE:") == 0) {
+            t = (substring t 6 (strlen t))
+        }
+        def parts:[string] (strsplit t ";")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def kv:string (trim (itemAt parts i))
+            def eqAt:int (indexOf kv "=")
+            if (eqAt > 0) {
+                def k:string (to_uppercase (trim (substring kv 0 eqAt)))
+                def v:string (to_uppercase (trim (substring kv (eqAt + 1) (strlen kv))))
+                if (k == "FREQ") {
+                    if (v == "DAILY") {
+                        freq = "daily"
+                    }
+                    if (v == "WEEKLY") {
+                        freq = "weekly"
+                    }
+                    if (v == "MONTHLY") {
+                        freq = "monthly"
+                    }
+                }
+                if (k == "INTERVAL") {
+                    def n:int (SpText.number(v))
+                    if (n > 0) {
+                        interval = n
+                    }
+                }
+                if (k == "COUNT") {
+                    def c:int (SpText.number(v))
+                    if (c > 0) {
+                        count = c
+                    }
+                }
+                if (k == "UNTIL") {
+                    ; 20261231 or 20261231T235959Z: the date part
+                    if ((strlen v) >= 8) {
+                        def d:int (SpText.ymd((SpText.number((substring v 0 4))) (SpText.number((substring v 4 6))) (SpText.number((substring v 6 8)))))
+                        if (d >= 0) {
+                            until = d
+                        }
+                    }
+                }
+                if (k == "BYDAY") {
+                    def codes:[string] (SpRule.dayCodes())
+                    def ds:[string] (strsplit v ",")
+                    def j:int 0
+                    while (j < (array_length ds)) {
+                        def code:string (trim (itemAt ds j))
+                        def w:int 0
+                        while (w < 7) {
+                            if (code == (itemAt codes w)) {
+                                push byDay w
+                            }
+                            w = (w + 1)
+                        }
+                        j = (j + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ((strlen freq) > 0)
+    }
+
+    ; The rule as an RRULE, "" for an event that happens once.
+    fn toText:string () {
+        if ((strlen freq) == 0) {
+            return ""
+        }
+        def parts:[string]
+        push parts ("FREQ=" + (to_uppercase freq))
+        if (interval > 1) {
+            push parts ("INTERVAL=" + (to_string interval))
+        }
+        if ((array_length byDay) > 0) {
+            def codes:[string] (SpRule.dayCodes())
+            def ds:[string]
+            def i:int 0
+            while (i < (array_length byDay)) {
+                push ds (itemAt codes (itemAt byDay i))
+                i = (i + 1)
+            }
+            push parts ("BYDAY=" + (join ds ","))
+        }
+        if (until > 0) {
+            def iso:string (UiDate.isoOfDays(until))
+            push parts ("UNTIL=" + (substring iso 0 4) + (substring iso 5 7) + (substring iso 8 10))
+        }
+        if (count > 0) {
+            push parts ("COUNT=" + (to_string count))
+        }
+        return (join parts ";")
     }
 }
 
@@ -63,7 +221,33 @@ class SpEvent {
     def exdates:[int]
     ; the sheet an event was read from, "" for one made here
     def source:string ""
+    def notes:string ""
+    ; who is responsible for it, and how
+    def who:[SpWho]
+    def important:boolean false
+    ; on a server: its id there ("" until saved), where it was imported
+    ; from and its id in that source
+    def remoteId:string ""
+    def origin:string ""
+    def extId:string ""
+    ; changed here and not saved yet; `rev` counts the changes, so a save
+    ; answered after a newer change leaves the event dirty
+    def dirty:boolean false
+    def rev:int 0
     Constructor () {
+    }
+
+    fn touch:void () {
+        dirty = true
+        rev = (rev + 1)
+    }
+
+    fn addWho:SpWho (name:string role:string) {
+        def w (new SpWho())
+        w.name = name
+        w.role = role
+        push who w
+        return w
     }
 
     fn allDay:boolean () {
@@ -100,6 +284,8 @@ class SpOccur {
     def color:string ""
     def source:string ""
     def repeats:boolean false
+    def who:[SpWho]
+    def important:boolean false
     Constructor () {
     }
 
@@ -496,6 +682,14 @@ class SpSpace {
     def name:string ""
     ; demo, family, business or sports (SpacesVocab)
     def vocab:string "demo"
+    ; "fi" or "en"
+    def lang:string ""
+    ; kept on a server: its id there, the members and the invited emails,
+    ; and whether the one viewing owns it
+    def remoteId:string ""
+    def members:[SpMember]
+    def invites:[string]
+    def myRole:string "owner"
     def resources:[SpResource]
     def events:[SpEvent]
     def deadlines:[SpDeadline]
@@ -613,6 +807,20 @@ class SpSpace {
             i = (i + 1)
         }
         return "blue"
+    }
+
+    ; An occurrence's ward and who looks after it: "Aino · Takes: Juho".
+    fn aboutOf:string (o:SpOccur) {
+        def parts:[string]
+        def ward:string (this.resourceName(o.resource))
+        if ((strlen ward) > 0) {
+            push parts ward
+        }
+        def resp:string (SpWho.listText(o.who))
+        if ((strlen resp) > 0) {
+            push parts resp
+        }
+        return (join parts " · ")
     }
 
     ; the resource a cell names, by id or by name (any case), or ""
@@ -788,6 +996,8 @@ class SpSpace {
                 }
                 o.source = e.source
                 o.repeats = (e.repeats())
+                o.who = e.who
+                o.important = e.important
                 SpSpace.insertSorted(out o)
                 k = (k + 1)
             }
@@ -995,16 +1205,194 @@ class SpSpace {
                 e.startMin = startMin
                 e.endMin = endMin
             }
+            e.touch()
             return true
         }
         push e.exdates onDay
+        e.touch()
         def one:SpEvent (this.addEvent(e.title day e.startMin e.endMin e.resource))
         if ((e.allDay()) == false) {
             one.startMin = startMin
             one.endMin = endMin
         }
+        one.endDay = (day + (e.endDay - e.day))
         one.place = e.place
         one.color = e.color
+        one.notes = e.notes
+        one.important = e.important
+        def i:int 0
+        while (i < (array_length e.who)) {
+            def w:SpWho (itemAt e.who i)
+            one.addWho(w.name w.role)
+            i = (i + 1)
+        }
+        one.touch()
         return true
+    }
+
+    ; The events changed here and not saved yet.
+    fn dirtyEvents:[SpEvent] () {
+        def out:[SpEvent]
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:SpEvent (itemAt events i)
+            if e.dirty {
+                push out e
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn eventByRemote@(optional):SpEvent (rid:string) {
+        def found@(optional):SpEvent
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:SpEvent (itemAt events i)
+            if (e.remoteId == rid) {
+                found = e
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; --- loading a space kept on a server ------------------------------------------
+    ; The page reads the server's answer and calls these in order: beginLoad,
+    ; then loadWard for each ward, loadEvent for each event (each followed by
+    ; its loadRule, loadExdate and loadWho), loadMember and loadInvite.
+    ; Nothing loaded is dirty.
+
+    fn beginLoad:void (spaceName:string vocabName:string) {
+        name = spaceName
+        vocab = vocabName
+        def r:[SpResource]
+        resources = r
+        def e:[SpEvent]
+        events = e
+        def d:[SpDeadline]
+        deadlines = d
+        def m:[SpMember]
+        members = m
+        def iv:[string]
+        invites = iv
+    }
+
+    fn loadWard:SpResource (wid:string wname:string color:string) {
+        def c:string color
+        if ((strlen c) == 0) {
+            c = "blue"
+        }
+        return (this.addResource(wid wname c))
+    }
+
+    ; One event: `date` and `endDate` "YYYY-MM-DD" (no end date: one day),
+    ; `start` and `end` "HH:MM" (no start: all day). Null when the date does
+    ; not read.
+    fn loadEvent@(optional):SpEvent (rid:string title:string date:string endDate:string start:string end:string ward:string place:string color:string notes:string important:boolean) {
+        def made@(optional):SpEvent
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def d:int (SpText.dayOf(date year))
+        if (d < 0) {
+            return made
+        }
+        def s:int (SpText.minuteOf(start))
+        def en:int -1
+        if (s >= 0) {
+            en = (SpText.minuteOf(end))
+            if (en <= s) {
+                en = (s + 60)
+            }
+        }
+        def e:SpEvent (this.addEvent(title d s en ward))
+        def last:int (SpText.dayOf(endDate year))
+        if (last > d) {
+            e.endDay = last
+        }
+        e.remoteId = rid
+        e.place = place
+        e.color = color
+        e.notes = notes
+        e.important = important
+        made = e
+        return made
+    }
+
+    fn loadRule:void (e:SpEvent rrule:string) {
+        e.rule.parse(rrule)
+    }
+
+    fn loadExdate:void (e:SpEvent date:string) {
+        def d:int (SpText.dayOf(date (itemAt (SpSpace.ymdOf(today)) 0)))
+        if (d >= 0) {
+            push e.exdates d
+        }
+    }
+
+    fn loadMember:SpMember (uid:string mname:string email:string role:string) {
+        def m (new SpMember())
+        m.uid = uid
+        m.name = mname
+        m.email = email
+        m.role = role
+        push members m
+        return m
+    }
+
+    fn loadInvite:void (email:string) {
+        push invites email
+    }
+
+    ; A ward takes the id the server gave it, and so do its events and
+    ; deadlines.
+    fn renameWard:void (from:string to:string) {
+        def i:int 0
+        while (i < (array_length resources)) {
+            def r:SpResource (itemAt resources i)
+            if (r.id == from) {
+                r.id = to
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length events)) {
+            def e:SpEvent (itemAt events k)
+            if (e.resource == from) {
+                e.resource = to
+            }
+            k = (k + 1)
+        }
+        def j:int 0
+        while (j < (array_length deadlines)) {
+            def d:SpDeadline (itemAt deadlines j)
+            if (d.resource == from) {
+                d.resource = to
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; --- the server's strings ----------------------------------------------------
+
+    sfn dateText:string (d:int) {
+        return (UiDate.isoOfDays(d))
+    }
+
+    ; "09:30", "" for no time
+    sfn timeText:string (m:int) {
+        if (m < 0) {
+            return ""
+        }
+        def h:int (idiv m 60)
+        def mm:int (m - (h * 60))
+        def hs:string (to_string h)
+        if (h < 10) {
+            hs = ("0" + hs)
+        }
+        def ms:string (to_string mm)
+        if (mm < 10) {
+            ms = ("0" + ms)
+        }
+        return (hs + ":" + ms)
     }
 }

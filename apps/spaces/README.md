@@ -5,16 +5,21 @@ a summary of what happens **today, later this week and next week** on the
 front page, a calendar, sheets, documents and an assistant.
 
 The same app speaks to different groups through **vocabulary packs**: Demo,
-Family, Business and Sports rename the space, its resources, events and
-deadlines and load their own demo data. The page is in Finnish or English.
+Family, Business and Sports rename the space, its wards, events and deadlines
+and load their own demo data. The page is in Finnish or English.
+
+A **ward** is what the space looks after: a child, a pet, a car, a client, a
+team. An event names its ward and its **responsibilities**: who looks after
+it, and how ("Takes: Juho", "Picks up: Mia").
 
 ## What it does
 
 - **Summary**: three columns (today, the rest of this week, next week) with
-  events, repeating events and dated rows from sheets; overdue deadlines; the
-  sheets; how busy each resource is this week and next.
+  events, repeating events and dated rows from sheets, each with its ward and
+  who looks after it, important ones marked; overdue deadlines; the sheets;
+  how busy each ward is this week and next.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
-  resource views). A move, a resize or a new event is written back to the
+  per-ward views). A move, a resize or a new event is written back to the
   space; one day of a repeating event becomes its own event.
 - **Sheets**: tables of text. A sheet with a date column (and optionally time,
   title and who) feeds the summary and the calendar. Import a CSV, or paste
@@ -34,27 +39,57 @@ From the repository root, after `npm run setup`:
 npm run spaces:build   # compile src/ and assemble apps/spaces/web/dist
 npm run spaces:serve   # http://127.0.0.1:8090/
 npm run spaces:check   # the model's checks and the page in Node
-npm run spaces:check:page   # the built page in Chrome
+npm run spaces:check:page   # both built pages in Chrome
+npm run warden:build   # the Warden page, apps/spaces/web/dist-warden
 ```
+
+## Warden
+
+Warden is the same app on a server: `npm run warden:build` builds it with
+the title Warden and `<meta name="app-server" content="/apps/warden/">`, and
+`scripts/build-view.mjs` copies it into the public site at `/apps/warden/`.
+With the meta tag the page
+
+- calls the server with `POST /apps/warden/api/<op>` and a JSON body
+  (`list_spaces`, `get_space`, `create_space`, `set_space`, `save_event`,
+  `add_ward`, `invite_member`, `remove_member`, `import_events`), sending the
+  sign-in cookie; a 401 sends it to `/apps/warden/login`;
+- saves what the calendar changes: a moved event, a new one, and one day of a
+  repeating event (the series gets an exdate, the day becomes its own event);
+- has a **Members** view (members, invites; the owner invites by email and
+  removes) and a **Spaces** view (the spaces you are in, and a new one);
+- offers an empty space the pack's demo data: its wards, then its events
+  (deadlines as important all-day events).
+
+The app keeps the calls in an outbox (`outOp`, `outBody`); `web/main.js`
+sends them one at a time and hands each reply to `answer` or `failed`.
+Reading and writing the JSON is `src/SpacesRemote.rgr`; dates are the
+space's own wall-clock days (`YYYY-MM-DD`, `HH:MM`) and repeats an RRULE.
+Sheets and documents still live in the page only.
 
 ## How it is made
 
-- `src/SpacesModel.rgr`: the space, repeating events, sheets (CSV and
-  tab-separated parsing), the summary ranges and calendar write-back. No UI.
+- `src/SpacesModel.rgr`: the space, wards and who looks after an event,
+  repeating events (RRULE in and out), sheets (CSV and tab-separated
+  parsing), the summary ranges, calendar write-back and what is left to save.
+  No UI.
+- `src/SpacesRemote.rgr`: a space on a server, as the JSON the server speaks.
 - `src/SpacesVocab.rgr`: the vocabulary packs, the page's words in Finnish and
   English, and the demo data of each pack.
 - `src/SpacesAssist.rgr`: the assistant's answers and documents as Markdown.
 - `src/SpacesApp.rgr`: the page, one EVG tree built with EVGUI controls.
 - `src/SpacesCheck.rgr`, `test/app-check.mjs`, `scripts/check-page.mjs`: the
   checks.
-- `web/`: the host page (`main.js` paints with EVG's WebGL painter and mirrors
-  the accessible tree into the DOM) and the stylesheet.
+- `web/`: the host page (`main.js` paints with EVG's WebGL painter, mirrors
+  the accessible tree into the DOM, edits text fields through EVG's
+  text-input bridge and, for Warden, talks to the server) and the stylesheet.
 
 The build reuses Sliqtly's pipeline (`scripts/lib.mjs`): the same Ranger
 checkout and EVGUI, with `src/` linked in as `gallery/spaces`.
 
 ## Not yet
 
-The data lives in the page and resets on reload. Saving spaces on a server,
-members and sharing, `.xlsx` files, editing documents in place and a language
-model behind the assistant come next.
+Without a server the data lives in the page and resets on reload; on one,
+sheets and documents still do. Editing an event's details (title, ward, who)
+in a form, deleting events, `.xlsx` files, editing documents in place and a
+language model behind the assistant come next.

@@ -1,10 +1,11 @@
 # The Spaces demo (apps/spaces): the model's checks, the page in Node, the
-# build, and the built page in Chrome. Deploys nothing.
+# builds (Spaces, and Warden: the same app on a server), and both built pages
+# in Chrome. Deploys nothing.
 name: Spaces
 
 on:
   pull_request:
-    paths: ["apps/spaces/**", "scripts/lib.mjs", "scripts/build.mjs", "presentation.config.json", ".github/workflows/spaces.yml"]
+    paths: ["apps/spaces/**", "scripts/lib.mjs", "scripts/build.mjs", "scripts/stamp.mjs", "presentation.config.json", ".github/workflows/spaces.yml"]
 
 permissions:
   contents: read
@@ -34,5 +35,7 @@ jobs:
         run: npm run spaces:check
       - name: Build the page
         run: npm run spaces:build
-      - name: Check the page in Chrome
+      - name: Build the Warden page
+        run: npm run warden:build
+      - name: Check both pages in Chrome
         run: npm run spaces:check:page

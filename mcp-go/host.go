@@ -190,6 +190,9 @@ type Env struct {
 	Admin *adminConfig
 	// the editor for signed-in people at /editor (editor.go); nil: none
 	EditorGate *editorGate
+	// warden: shared spaces at /apps/warden (warden.go), with DB; nil
+	// elsewhere
+	warden *wardenService
 }
 
 // The whole server as one handler.
@@ -209,6 +212,9 @@ func NewApp(env *Env) http.Handler {
 	if env.renders == nil {
 		env.renders = &renderSlots{max: 2, lease: 3 * time.Minute, held: map[string][]time.Time{}}
 	}
+	if env.warden == nil {
+		env.warden = newWardenService(env.DB)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {
@@ -224,6 +230,9 @@ func NewApp(env *Env) http.Handler {
 		}
 		if r.URL.Path == editorPath || strings.HasPrefix(r.URL.Path, editorPath+"/") {
 			serveEditor(env, w, r)
+			return
+		}
+		if serveWarden(env, w, r) {
 			return
 		}
 		if env.EditorGate != nil {

@@ -151,9 +151,43 @@
             "value": "*"
           }
         ]
+      },
+      {
+        "source": "/apps/warden/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          },
+          {
+            "key": "X-Robots-Tag",
+            "value": "noindex"
+          }
+        ]
       }
     ],
     "rewrites": [
+      {
+        "source": "/apps/warden/api/**",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/apps/warden/mcp",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
+      {
+        "source": "/apps/warden/login",
+        "run": {
+          "serviceId": "sliqtly-mcp",
+          "region": "europe-west1"
+        }
+      },
       {
         "source": "/editor",
         "run": {
@@ -285,6 +319,11 @@
       }
     ],
     "redirects": [
+      {
+        "source": "/apps/warden",
+        "destination": "/apps/warden/",
+        "type": 301
+      },
       {
         "source": "/download/sliqtly-personal_amd64.deb",
         "destination": "https://firebasestorage.googleapis.com/v0/b/sliqtly.firebasestorage.app/o/downloads%2Fpersonal%2Fsliqtly-personal_latest_amd64.deb?alt=media",
