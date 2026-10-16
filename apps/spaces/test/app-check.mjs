@@ -55,7 +55,7 @@ console.log("every view lays out");
   const a = fresh();
   eq("no stylesheet errors", a.styleErrorCount(), 0);
   for (const w of [1280, 390]) {
-    for (const t of ["home", "calendar", "sheets", "docs", "assistant"]) {
+    for (const t of ["home", "calendar", "lists", "budget", "sheets", "docs", "assistant"]) {
       a.setWidth(w, 700);
       a.press("sp-nav-" + t);
       if (t === "assistant") ["qToday", "qWeek", "qNext", "qLate", "qPlan"].forEach((q) => a.press("sp-q-" + q));
@@ -340,6 +340,227 @@ console.log("a space on a server");
   eq("no spaces: nothing to open", b.outCount(), 0);
   ok("and the spaces view says so", texts(b).some((s) => s.startsWith("Sinulla ei ole vielä tiloja")));
   ok("with a field for a new one", !!byId(b, "sp-new-name"));
+}
+
+console.log("entries: the form, the Add menu, deleting and Undo");
+{
+  const a = fresh("en", "family");
+  a.setWidth(1280, 700);
+  // a summary row opens its event in the form
+  const vet = a.space.events.find((e) => e.title === "Dentist");
+  texts(a);
+  const row = a.itemOccs.indexOf(vet.id);
+  ok("the dentist is in the summary", row >= 0);
+  a.press("sp-item-" + row);
+  ok("a click opens the form", a.editing && a.editId === vet.id);
+  let t = texts(a);
+  ok("with its title and who", t.includes("Dentist") && t.includes("Takes: Juho"), t.slice(0, 60).join(","));
+  const field = (key) => a.formCtls[a.formKeys.indexOf(key)];
+  field("title").setValue("Dentist, check-up");
+  field("place").setValue("Health centre");
+  field("start").setValue("15.00");
+  a.press("sp-tog-" + a.pickKeys.indexOf("important"));
+  a.press("sp-ed-save");
+  ok("saved", !a.editing && vet.title === "Dentist, check-up" && vet.place === "Health centre" && vet.startMin === 900 && vet.important, a.formErr);
+  eq("the end follows a start after it", vet.endMin, 960);
+
+  // a bad date is named, nothing is changed
+  a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
+  field("date").setValue("31.2.");
+  a.press("sp-ed-save");
+  ok("a date that does not read is named", a.editing && a.formErr.includes("Date"), a.formErr);
+  a.keyWith("Escape", false, false);
+  ok("Escape closes the form", !a.editing);
+
+  // every view of the form lays out and lints, at both widths, for every type
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    for (const ty of a.types.types) {
+      a.openNew(ty.id);
+      a.rebuild();
+      const probs = a.a11yProblems();
+      ok(`${w} the form of ${ty.id} lints clean`, probs.length === 0, probs.join(" | "));
+      const main = byId(a, "sp-main");
+      ok(`${w} the form of ${ty.id} fits`, main.calculatedX + main.calculatedWidth <= w + 0.5);
+      a.press("sp-ed-cancel");
+    }
+  }
+  a.setWidth(1280, 700);
+
+  // the Add menu offers the pack's types
+  a.press("sp-nav-calendar");
+  a.press("sp-add");
+  t = texts(a);
+  ok("the Add menu lists the family types", t.includes("Party invitation") && t.includes("Care shift") && t.includes("Thing"), t.slice(-40).join(","));
+  a.board.cursor = a.today + 2;
+  a.press("sp-addtype-invitation");
+  ok("a new invitation", a.editing && a.editId === "" && a.editType === "invitation");
+  eq("on the calendar's day", field("date").value, M.UiDate.isoOfDays(a.today + 2));
+  field("title").setValue("Eero's birthday");
+  field("f:host").setValue("Eero");
+  const rsvp = a.pickKeys.indexOf("f:rsvp");
+  a.press(`sp-pick-${rsvp}-1`);
+  field("cost:amount").setValue("20,50");
+  field("cost:payer").setValue("Mia");
+  a.press(`sp-pick-${a.pickKeys.indexOf("cost:scope")}-1`);
+  const n = a.space.events.length;
+  a.press("sp-ed-save");
+  eq("it is in the space", a.space.events.length, n + 1);
+  const inv = a.space.events[n];
+  ok("with its type, fields and cost", inv.typeId === "invitation" && inv.fieldText("rsvp") === "going" && inv.fieldText("host") === "Eero"
+    && inv.hasCost && inv.cost.amount === 20.5 && inv.cost.scope === "shared" && inv.cost.payer === "Mia", JSON.stringify(inv.values));
+  ok("and on the calendar", a.occIds.includes(inv.id));
+
+  // a record without a date
+  a.press("sp-nav-lists");
+  a.press("sp-addtype-item");
+  eq("a thing has no date to start with", field("date").value, "");
+  field("title").setValue("Skates");
+  a.press(`sp-pick-${a.pickKeys.indexOf("f:state")}-2`);
+  a.press("sp-ed-save");
+  const skates = a.space.events.find((e) => e.title === "Skates");
+  ok("saved without a date", !!skates && skates.day === -1 && skates.fieldText("state") === "repair", a.formErr);
+  a.press("sp-list-item");
+  ok("listed under Things", texts(a).includes("Skates"));
+  ok("not on the calendar", !a.occIds.includes(skates.id));
+
+  // Backspace deletes the selected event; Undo brings it back
+  a.press("sp-nav-calendar");
+  a.displayListJson();
+  const k = a.occIds.indexOf(inv.id);
+  a.press("spc-ev-" + a.boardIds[k]);
+  eq("a click selects it", a.selectedOcc(), inv.id);
+  ok("Backspace deletes it", a.keyWith("Backspace", false, false));
+  ok("gone", !a.space.events.includes(inv) && !a.occIds.includes(inv.id));
+  ok("with Undo offered", a.status.startsWith("Deleted") && !!byId(a, "sp-undo"));
+  a.press("sp-undo");
+  ok("Undo brings it back", a.space.events.includes(inv) && a.occIds.includes(inv.id));
+  // in a text field, Backspace is the field's
+  a.press("sp-entry-" + skates.id);
+  a.press("sp-ed-0");
+  eq("the title field has the keyboard", a.focusedField(), "sp-ed-0");
+  a.keyWith("End", false, false);
+  a.keyWith("Backspace", false, false);
+  ok("Backspace in a field edits the text", field("title").value === "Skate" && a.space.events.includes(skates), field("title").value);
+  a.keyWith("Escape", false, false);
+  a.keyWith("Escape", false, false);
+  ok("and Escape leaves the form", !a.editing);
+
+  // one day of a series
+  a.press("sp-nav-calendar");
+  a.displayListJson();
+  const wk = a.space.events.find((e) => e.rule.freq === "weekly");
+  const occ = a.occIds.findIndex((id) => id.startsWith(wk.id + "@"));
+  a.press("spc-ev-" + a.boardIds[occ]);
+  a.keyWith("Delete", false, false);
+  eq("Delete on one day of a series skips that day", wk.exdates.length, 1);
+  a.keyWith("z", false, true);
+  eq("Ctrl+Z puts it back", wk.exdates.length, 0);
+  // Enter on a selected event opens it
+  a.displayListJson();
+  a.press("spc-ev-" + a.boardIds[occ]);
+  a.keyWith("Enter", false, false);
+  ok("Enter opens the selected event", a.editing && a.editId === wk.id && a.editOcc >= 0);
+  ok("with Delete this day only", !!byId(a, "sp-ed-delday"));
+  a.press("sp-ed-cancel");
+  // a sheet row is not deleted
+  const sr = a.occIds.findIndex((id) => id.startsWith("s1-r"));
+  a.press("spc-ev-" + a.boardIds[sr]);
+  const before = a.space.events.length;
+  a.keyWith("Backspace", false, false);
+  ok("a sheet row stays", a.space.events.length === before && a.status.includes("sheet"), a.status);
+
+  // the budget
+  a.press("sp-nav-budget");
+  t = texts(a);
+  ok("the budget shows the cost", t.includes("Eero's birthday") && t.includes("€20.50"), t.filter((x) => /€/.test(x)).join(","));
+  const mia = a.space.payers().indexOf("Mia");
+  a.press("sp-bud-payer-" + mia);
+  ok("one payer's budget", texts(a).includes("Eero's birthday"));
+  eq("without a server nothing is sent", a.outCount(), 0);
+}
+
+console.log("entries on a server");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }], invites: [], wards: [{ id: "w1", name: "Aino", color: "rose" }] },
+    events: [
+      { event_id: "ev1", title: "Synttärit", date: iso(a.today + 1), start: "13:00", end: "15:00", ward: "w1", type: "invitation", fields: { rsvp: "open", gift_bought: false }, cost: { amount: 20, payer: "Mia", scope: "personal", instalments: 1, every_months: 1 } },
+      { event_id: "ev2", title: "Passi", date: iso(a.today + 10), type: "renewal", remind_from: iso(a.today - 20) },
+      { event_id: "ev3", title: "Luistimet", date: "", type: "item", fields: { state: "repair" } },
+    ],
+  }));
+  eq("three entries", a.space.events.length, 3);
+  let t = texts(a);
+  ok("a due renewal is on the summary", t.some((x) => x === "Passi"), t.slice(0, 50).join(","));
+  const party = a.space.events[0];
+  a.press("sp-item-" + a.itemOccs.indexOf(party.id));
+  const field = (key) => a.formCtls[a.formKeys.indexOf(key)];
+  ok("the form shows the type's fields", texts(a).includes("Mennäänkö?") && texts(a).includes("Ei vastattu"));
+  a.press(`sp-pick-${a.pickKeys.indexOf("f:rsvp")}-0`);
+  field("f:gift").setValue("Kirja");
+  field("cost:amount").setValue("");
+  a.press("sp-ed-save");
+  eq("saving is a save_event", a.outOp(), "save_event");
+  let body = JSON.parse(a.outBody());
+  ok("with the fields", body.event_id === "ev1" && body.type === "invitation" && body.fields.gift === "Kirja" && body.fields.rsvp === "open", JSON.stringify(body));
+  ok("and the cost removed", body.cost === null, JSON.stringify(body));
+  a.answer(JSON.stringify({ ...body, cost: undefined }));
+  ok("answered, nothing is left to save", !party.dirty && !party.costDropped);
+
+  // delete: a delete_event; Undo before it is sent keeps it
+  a.press("sp-nav-lists");
+  a.press("sp-list-item");
+  a.press("sp-entry-" + a.space.events[2].id);
+  a.press("sp-ed-cancel");
+  a.setFocus("sp-entry-" + a.space.events[2].id);
+  a.keyWith("Backspace", false, false);
+  eq("Backspace on a list row deletes it", a.outOp(), "delete_event");
+  eq("by the server's id", JSON.parse(a.outBody()).event_id, "ev3");
+  a.answer(JSON.stringify({ deleted: true }));
+  eq("gone", a.space.events.length, 2);
+  a.press("sp-undo");
+  eq("Undo after the delete was sent saves it again", a.outOp(), "save_event");
+  body = JSON.parse(a.outBody());
+  ok("as a new entry, its fields kept", body.event_id === "" && body.type === "item" && body.date === "" && body.fields.state === "repair", JSON.stringify(body));
+  a.answer(JSON.stringify({ ...body, event_id: "ev9" }));
+  eq("with a new id", a.space.events[2].remoteId, "ev9");
+
+  // a failed delete puts it back
+  a.setFocus("sp-entry-" + a.space.events[2].id);
+  a.keyWith("Delete", false, false);
+  a.failed("not allowed");
+  eq("a delete the server refuses is undone", a.space.events.length, 3);
+
+  // the budget comes from the server
+  a.press("sp-nav-budget");
+  eq("the budget is asked for", a.outOp(), "budget");
+  const bb = JSON.parse(a.outBody());
+  ok("for six months", bb.space_id === "sp1" && bb.from.length === 7 && bb.to.length === 7 && !bb.payer, JSON.stringify(bb));
+  a.answer(JSON.stringify({ from: bb.from, to: bb.to, total: 120, shared: 100, by_payer: { Mia: 100, Juho: 20 },
+    months: [{ month: bb.from, total: 120, shared: 100, by_payer: { Mia: 100, Juho: 20 }, lines: [
+      { event_id: "ev5", title: "Uintimaksu", type: "hobby", date: bb.from + "-15", amount: 100, payer: "Mia", scope: "shared", n: 1, of: 2 },
+      { event_id: "ev6", title: "Lahja", type: "wish", date: bb.from + "-20", amount: 20, payer: "Juho", scope: "personal", n: 1, of: 1 }] }] }));
+  t = texts(a);
+  ok("the server's budget is shown", t.includes("Uintimaksu") && t.includes("120 €") && t.includes("100 €"), t.filter((x) => /€/.test(x)).join(","));
+  a.press("sp-bud-payer-0");
+  eq("a payer asks again", JSON.parse(a.outBody()).payer, "Mia");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    for (const v of ["lists", "budget"]) {
+      a.press("sp-nav-" + v);
+      const probs = a.a11yProblems();
+      ok(`${w} ${v} on a server lints clean`, probs.length === 0, probs.join(" | "));
+    }
+  }
 }
 
 console.log(`passed=${passed} failed=${failed}`);

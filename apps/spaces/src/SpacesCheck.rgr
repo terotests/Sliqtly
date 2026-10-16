@@ -5,6 +5,8 @@ Import "SpacesModel.rgr"
 Import "SpacesVocab.rgr"
 Import "SpacesAssist.rgr"
 Import "SpacesRemote.rgr"
+Import "SpacesTypes.rgr"
+Import "SpacesBudget.rgr"
 Import "../evgui/src/UiDate.rgr"
 
 class SpacesCheck {
@@ -390,6 +392,270 @@ class SpacesCheck {
         this.ok(((indexOf (SpRemote.importBody("sp1" evs)) "\"rrule\":\"FREQ=WEEKLY;BYDAY=TU,TH\"") > 0) "import_events carries the rules")
     }
 
+    ; --- typed entries -----------------------------------------------------------------
+
+    fn types:void () {
+        def ts:SpTypes (SpTypes.builtin())
+        this.ok(((array_length ts.types) >= 10) "the built-in schema reads")
+        def inv@(optional):SpType (ts.find("invitation"))
+        this.ok((!null? inv) "a party invitation")
+        if (!null? inv) {
+            def t:SpType inv
+            this.eq(t.kind "event" "is on the calendar")
+            this.eq((t.name.text("fi")) "Juhlakutsu" "its Finnish name")
+            this.ok(t.hasCost "it has a cost")
+            this.eq((t.cost.text("en")) "Gift" "named for what it is")
+            def rsvp@(optional):SpField (t.field("rsvp"))
+            this.ok((!null? rsvp) "its fields")
+            if (!null? rsvp) {
+                def f:SpField rsvp
+                this.eqi((array_length f.options) 3 "a choice's options")
+                this.eq((f.optionLabel("fi" "not_going")) "Ei mennä" "an option's label")
+                this.ok((f.picked()) "a choice is picked, not typed")
+            }
+        }
+        this.eq((ts.kindOf("renewal")) "deadline" "a renewal is a deadline")
+        this.eq((ts.kindOf("item")) "record" "a thing is a record")
+        this.eq((ts.kindOf("")) "event" "no type is an event")
+        this.eq((ts.kindOf("nonesuch")) "event" "an unknown type is an event")
+        def fam:[SpType] (ts.forPack("family"))
+        def biz:[SpType] (ts.forPack("business"))
+        def demo:[SpType] (ts.forPack("demo"))
+        this.eqi((array_length demo) (array_length ts.types) "the demo pack offers every type")
+        this.ok(((array_length biz) < (array_length fam)) "a pack offers its own types")
+        def bizHasCare:boolean false
+        def i:int 0
+        while (i < (array_length biz)) {
+            def bt:SpType (itemAt biz i)
+            if (bt.id == "care_shift") {
+                bizHasCare = true
+            }
+            i = (i + 1)
+        }
+        this.ok((bizHasCare == false) "business has no care shifts")
+        def listed:[SpType] (ts.listedFor("family"))
+        this.ok(((array_length listed) > 2) "lists for records and deadlines")
+        def j:int 0
+        def allListed:boolean true
+        while (j < (array_length listed)) {
+            def lt:SpType (itemAt listed j)
+            if ((lt.listed()) == false) {
+                allListed = false
+            }
+            j = (j + 1)
+        }
+        this.ok(allListed "and no events among them")
+        def badTypes:SpTypes (SpTypes.parse("not json"))
+        this.eqi((array_length badTypes.types) 0 "an answer that does not read is no types")
+
+        ; what is typed into a field
+        def err:[string]
+        this.eq((SpTypes.normalize("money" "12,50 €" 2026 err)) "12.5" "money with a comma")
+        this.eq((SpTypes.normalize("number" "3" 2026 err)) "3" "a number")
+        this.eq((SpTypes.normalize("date" "24.12." 2026 err)) "2026-12-24" "a Finnish date in the year")
+        this.eq((SpTypes.normalize("date" "2027-01-05" 2026 err)) "2027-01-05" "an ISO date")
+        this.eq((SpTypes.normalize("time" "9.30" 2026 err)) "09:30" "a time")
+        this.eq((SpTypes.normalize("text" "  hello  " 2026 err)) "hello" "text, trimmed")
+        this.eq((SpTypes.normalize("bool" "yes" 2026 err)) "true" "a switch")
+        this.eq((SpTypes.normalize("text" "   " 2026 err)) "" "an empty field")
+        this.eqi((array_length err) 0 "all of those read")
+        SpTypes.normalize("date" "31.2.2026" 2026 err)
+        SpTypes.normalize("number" "lots" 2026 err)
+        SpTypes.normalize("months" "0" 2026 err)
+        SpTypes.normalize("email" "nobody" 2026 err)
+        this.eqi((array_length err) 4 "a bad date, number, interval and email do not")
+        this.eq((SpTypes.money("fi" 1234.5)) "1234,50 €" "euros in Finnish")
+        this.eq((SpTypes.money("en" 20.0)) "€20" "whole euros in English")
+        def who:[SpWho] (SpWho.parseList("Takes: Mia, Picks up: Juho, Leena"))
+        this.eqi((array_length who) 3 "who looks after it, read back")
+        def who1:SpWho (itemAt who 1)
+        this.eq(who1.role "picks up" "a role")
+        this.eq((SpWho.listText(who)) "Takes: Mia, Picks up: Juho, Leena" "and written the same")
+    }
+
+    fn entries:void () {
+        def s (new SpSpace())
+        s.types = (SpTypes.builtin())
+        s.today = (UiDate.toDays(2026 10 21))
+        def party:SpEvent (s.addEvent("Synttärit" (s.today + 3) 780 900 ""))
+        party.typeId = "invitation"
+        party.setField("rsvp" "going" "string")
+        party.setField("gift_bought" "true" "bool")
+        this.eq((party.fieldText("rsvp")) "going" "a field")
+        this.ok((party.fieldOn("gift_bought")) "a switch")
+        party.setField("rsvp" "not_going" "string")
+        this.eqi((array_length party.values) 2 "set again, one value")
+        party.setField("gift_bought" "" "bool")
+        this.eqi((array_length party.values) 1 "an empty value removes it")
+        this.eq((join party.dropped ",") "gift_bought" "and the server is told")
+        party.setField("gift_bought" "false" "bool")
+        this.eqi((array_length party.dropped) 0 "set again, it is no longer removed")
+
+        def thing:SpEvent (s.addEvent("Luistimet" -1 -1 -1 ""))
+        thing.typeId = "item"
+        def kept:SpEvent (s.addEvent("Pyörä" (s.today + 1) -1 -1 ""))
+        kept.typeId = "item"
+        def occ:[SpOccur] (s.occurrences(s.today (s.today + 7)))
+        def onCal:boolean false
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            if ((o.title == "Luistimet") || (o.title == "Pyörä")) {
+                onCal = true
+            }
+            i = (i + 1)
+        }
+        this.ok((onCal == false) "records are on no calendar, dated or not")
+        this.ok(((array_length occ) == 1) "the invitation is")
+        def occ0:SpOccur (itemAt occ 0)
+        this.eq(occ0.typeId "invitation" "with its type")
+        def items:[SpEvent] (s.entriesOf("item"))
+        this.eqi((array_length items) 2 "a type's entries")
+        def item0:SpEvent (itemAt items 0)
+        this.eq(item0.title "Pyörä" "dated ones first")
+
+        ; deadlines and their reminders
+        def pass:SpEvent (s.addAllDay("Passi" (s.today + 20) (s.today + 20) ""))
+        pass.typeId = "renewal"
+        def ins:SpEvent (s.addAllDay("Kotivakuutus" (s.today + 40) (s.today + 40) ""))
+        ins.typeId = "renewal"
+        ins.setField("remind_days" "60" "number")
+        def alarm:SpEvent (s.addAllDay("Palovaroitin" (s.today - 2) (s.today - 2) ""))
+        alarm.typeId = "renewal"
+        def far:SpEvent (s.addAllDay("Henkilökortti" (s.today + 90) (s.today + 90) ""))
+        far.typeId = "renewal"
+        this.eq((pass.dueState(s.today)) "due" "inside 30 days it is due")
+        this.eq((ins.dueState(s.today)) "due" "remind_days moves the reminder")
+        this.eq((alarm.dueState(s.today)) "late" "past its day it is late")
+        this.eq((far.dueState(s.today)) "" "far off it is neither")
+        far.remindFrom = (s.today - 1)
+        this.eq((far.dueState(s.today)) "due" "the server's remind_from is kept")
+        def due:[SpEvent] (s.dueEntries(s.today))
+        this.eqi((array_length due) 4 "the due and late deadlines")
+        def due0:SpEvent (itemAt due 0)
+        this.eq(due0.title "Palovaroitin" "the earliest first")
+
+        ; taking out and putting back
+        def n:int (array_length s.events)
+        def gone@(optional):SpEvent (s.removeEvent(party.id))
+        this.ok((!null? gone) "an event is taken out")
+        this.eqi((array_length s.events) (n - 1) "and is gone")
+        s.putBack(party)
+        s.putBack(party)
+        this.eqi((array_length s.events) n "and goes back once")
+        def wk:SpEvent (s.addEvent("Uinti" (s.today - 7) 600 660 ""))
+        wk.rule.freq = "weekly"
+        this.eq((s.eventIdOf((wk.id + "@" + (to_string s.today)))) wk.id "an occurrence's event")
+        this.eqi((SpSpace.occDayOf((wk.id + "@" + (to_string s.today)))) s.today "and its day")
+        this.eq((s.eventIdOf("s1-r1")) "" "a sheet row is no event")
+        this.ok((s.skipDay(wk.id s.today)) "one day of a series is skipped")
+        this.ok((wk.skips(s.today)) "and is left out")
+        this.ok((s.unskipDay(wk.id s.today)) "and put back")
+        this.ok(((wk.skips(s.today)) == false) "in the series again")
+
+        ; costs and payers
+        def c (new SpCost())
+        c.amount = 25.0
+        c.payer = "Mia"
+        party.setCost(c)
+        this.eq((join (s.payers()) ",") "Mia" "the payers")
+        party.clearCost()
+        this.ok(((party.hasCost == false) && party.costDropped) "a cost removed is sent as removed")
+        party.saved(party.rev)
+        this.ok(((party.costDropped == false) && ((array_length party.dropped) == 0)) "until it is saved")
+    }
+
+    sfn entryJson:string () {
+        return "{\"space\":{\"space_id\":\"sp1\",\"name\":\"Kotiväki\",\"vocab\":\"family\",\"lang\":\"fi\",\"role\":\"owner\",\"members\":[],\"invites\":[],\"wards\":[{\"id\":\"w1\",\"name\":\"Aino\",\"color\":\"rose\"}]},\"events\":[{\"event_id\":\"ev1\",\"title\":\"Eeron synttärit\",\"date\":\"2026-10-24\",\"start\":\"13:00\",\"end\":\"15:00\",\"ward\":\"w1\",\"type\":\"invitation\",\"fields\":{\"rsvp\":\"going\",\"gift_bought\":false,\"guests\":12},\"cost\":{\"amount\":20,\"payer\":\"Mia\",\"scope\":\"shared\",\"instalments\":1,\"first\":\"2026-10-20\",\"every_months\":1}},{\"event_id\":\"ev2\",\"title\":\"Luistimet\",\"date\":\"\",\"type\":\"item\",\"fields\":{\"state\":\"repair\"}},{\"event_id\":\"ev3\",\"title\":\"Passi\",\"date\":\"2026-12-01\",\"type\":\"renewal\",\"remind_from\":\"2026-11-01\"},{\"event_id\":\"ev4\",\"title\":\"Ei päivää\",\"date\":\"\",\"type\":\"invitation\"}]}"
+    }
+
+    fn entriesRemote:void () {
+        def s (new SpSpace())
+        s.types = (SpTypes.builtin())
+        s.today = (UiDate.toDays(2026 10 21))
+        this.ok((SpRemote.readSpace(s (SpacesCheck.entryJson()))) "a space with entries reads")
+        this.eqi((array_length s.events) 3 "a record without a date is kept, an event without one is not")
+        def party:SpEvent (itemAt s.events 0)
+        this.eq(party.typeId "invitation" "its type")
+        this.eq((party.fieldText("rsvp")) "going" "a text field")
+        this.eq((party.fieldText("gift_bought")) "false" "a switch")
+        this.eq((party.fieldText("guests")) "12" "a number")
+        this.ok((party.hasCost && ((party.cost.amount == 20.0) && (party.cost.scope == "shared"))) "its cost")
+        this.eq((UiDate.isoOfDays(party.cost.first)) "2026-10-20" "the first instalment's day")
+        def thing:SpEvent (itemAt s.events 1)
+        this.ok(((thing.dated()) == false) "an undated record")
+        def pass:SpEvent (itemAt s.events 2)
+        this.eq((UiDate.isoOfDays(pass.remindFrom)) "2026-11-01" "remind_from")
+        this.ok(((party.dirty == false) && ((array_length party.dropped) == 0)) "nothing loaded is to save")
+
+        party.setField("rsvp" "" "string")
+        party.setField("gift_bought" "true" "bool")
+        def body:string (SpRemote.saveBody("sp1" party))
+        this.ok(((indexOf body "\"type\":\"invitation\"") > 0) "the type is saved")
+        this.ok(((indexOf body "\"rsvp\":null") > 0) "a removed field is sent as null")
+        this.ok(((indexOf body "\"gift_bought\":true") > 0) "a switch as a boolean")
+        this.ok(((indexOf body "\"guests\":12") > 0) "a number as a number")
+        this.ok(((indexOf body "\"cost\":{\"amount\":20,\"payer\":\"Mia\",\"scope\":\"shared\",\"instalments\":1,\"first\":\"2026-10-20\",\"every_months\":1}") > 0) ("the cost: " + body))
+        party.clearCost()
+        this.ok(((indexOf (SpRemote.saveBody("sp1" party)) "\"cost\":null") > 0) "a removed cost is sent as null")
+        def tb:string (SpRemote.saveBody("sp1" thing))
+        this.ok(((indexOf tb "\"date\":\"\"") > 0) "an undated record is saved without a date")
+        this.eq((SpRemote.deleteBody("sp1" "ev2")) "{\"space_id\":\"sp1\",\"event_id\":\"ev2\"}" "delete_event")
+        this.eq((SpRemote.budgetBody("sp1" "2026-10" "2027-03" "Mia")) "{\"space_id\":\"sp1\",\"from\":\"2026-10\",\"to\":\"2027-03\",\"payer\":\"Mia\"}" "budget")
+    }
+
+    fn budget:void () {
+        def s (new SpSpace())
+        s.today = (UiDate.toDays(2026 10 21))
+        def hobby:SpEvent (s.addEvent("Uintikausi" (UiDate.toDays(2026 9 1)) 1020 1065 ""))
+        def fee (new SpCost())
+        fee.amount = 100.0
+        fee.payer = "Mia"
+        fee.scope = "shared"
+        fee.instalments = 3
+        fee.first = (UiDate.toDays(2026 10 31))
+        hobby.setCost(fee)
+        def gift:SpEvent (s.addEvent("Lahja" (UiDate.toDays(2026 11 7)) -1 -1 ""))
+        def g (new SpCost())
+        g.amount = 15.5
+        g.payer = "Juho"
+        gift.setCost(g)
+        def lines:[SpBudgetLine] (SpBudget.instalments(hobby s.today))
+        this.eqi((array_length lines) 3 "three instalments")
+        def ln0:SpBudgetLine (itemAt lines 0)
+        def ln1:SpBudgetLine (itemAt lines 1)
+        def ln2:SpBudgetLine (itemAt lines 2)
+        this.eq(ln1.date "2026-11-30" "a month later, on the month's last day")
+        this.eq(ln2.date "2026-12-31" "and the next")
+        this.ok(((ln0.amount == 33.33) && (ln2.amount == 33.34)) "the last one takes the cents left over")
+        def b:SpBudget (SpBudget.compute(s (SpBudget.monthOf("2026-10")) (SpBudget.monthOf("2026-12")) ""))
+        this.eqi((array_length b.months) 3 "a month each")
+        this.ok(((b.total > 115.49) && (b.total < 115.51)) "the total")
+        this.ok(((b.shared > 99.99) && (b.shared < 100.01)) "the shared part")
+        this.ok((((b.byPayer.of("Juho")) == 15.5) && ((b.byPayer.of("Mia")) > 99.99)) "by payer")
+        def nov:SpBudgetMonth (itemAt b.months 1)
+        this.eq(nov.month "2026-11" "November")
+        this.eqi((array_length nov.lines) 2 "has an instalment and the gift")
+        def mine:SpBudget (SpBudget.compute(s (SpBudget.monthOf("2026-10")) (SpBudget.monthOf("2026-12")) "Juho"))
+        this.ok((mine.total == 15.5) "one payer's own budget")
+        def every:SpCost hobby.cost
+        every.everyMonths = 2
+        def two:[SpBudgetLine] (SpBudget.instalments(hobby s.today))
+        def two1:SpBudgetLine (itemAt two 1)
+        this.eq(two1.date "2026-12-31" "every other month")
+        this.eq((UiDate.isoOfDays((SpBudget.addMonths((UiDate.toDays(2027 1 31)) 1)))) "2027-02-28" "a month after the 31st")
+
+        def r:SpBudget (SpBudget.read("{\"from\":\"2026-10\",\"to\":\"2026-11\",\"total\":45.5,\"shared\":30,\"by_payer\":{\"Mia\":30,\"Juho\":15.5},\"months\":[{\"month\":\"2026-10\",\"total\":45.5,\"shared\":30,\"by_payer\":{\"Mia\":30,\"Juho\":15.5},\"lines\":[{\"event_id\":\"ev1\",\"title\":\"Uinti\",\"type\":\"hobby\",\"date\":\"2026-10-31\",\"amount\":30,\"payer\":\"Mia\",\"scope\":\"shared\",\"n\":1,\"of\":3}]},{\"month\":\"2026-11\",\"total\":0,\"shared\":0,\"by_payer\":{},\"lines\":[]}]}"))
+        this.ok(((r.total == 45.5) && (r.shared == 30.0)) "the server's budget reads")
+        this.eqi((array_length r.months) 2 "its months")
+        def oct:SpBudgetMonth (itemAt r.months 0)
+        def l0:SpBudgetLine (itemAt oct.lines 0)
+        this.ok((((l0.n == 1) && (l0.of == 3)) && (l0.typeId == "hobby")) "its lines")
+        this.eq((join r.byPayer.names ",") "Mia,Juho" "by payer, in order")
+        def badBudget:SpBudget (SpBudget.read("nope"))
+        this.eqi((array_length badBudget.months) 0 "an answer that does not read is empty")
+    }
+
     sfn main:void () {
         def c (new SpacesCheck())
         c.rules()
@@ -402,6 +668,10 @@ class SpacesCheck {
         c.words()
         c.rrules()
         c.remote()
+        c.types()
+        c.entries()
+        c.entriesRemote()
+        c.budget()
         print ((to_string c.passes) + " passed, " + (to_string c.fails) + " failed")
         if (c.fails > 0) {
             print "CHECK FAILED"

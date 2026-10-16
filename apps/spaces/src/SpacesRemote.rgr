@@ -11,7 +11,12 @@
 ;           invites:[email], wards:[{id,name,color}]}
 ;   Event  {event_id, title, date, end_date?, start?, end?, ward?, place?,
 ;           notes?, color?, rrule?, exdates?:[date], who?:[{name,role}],
-;           important?, source?, ext_id?}
+;           important?, source?, ext_id?, type?, fields?:{key: value},
+;           cost?:{amount, payer, scope, instalments, first, every_months},
+;           remind_from?}
+;   A record's date may be empty. On a save, `fields` is merged into what
+;   the server has (a key set to null is removed) and `cost` replaces it
+;   (null removes it).
 ; =============================================================================
 
 Import "SpacesModel.rgr"
@@ -176,7 +181,13 @@ class SpRemote {
     }
 
     sfn readEvent:void (s:SpSpace o:VlJson) {
-        def made@(optional):SpEvent (s.loadEvent((o.stringOr("event_id" "")) (o.stringOr("title" "")) (o.stringOr("date" "")) (o.stringOr("end_date" "")) (o.stringOr("start" "")) (o.stringOr("end" "")) (o.stringOr("ward" "")) (o.stringOr("place" "")) (o.stringOr("color" "")) (o.stringOr("notes" "")) (o.boolOr("important" false))))
+        def made@(optional):SpEvent
+        def date:string (trim (o.stringOr("date" "")))
+        if (((strlen date) == 0) && ((s.types.kindOf((o.stringOr("type" "")))) == "record")) {
+            made = (s.loadUndated((o.stringOr("event_id" "")) (o.stringOr("title" "")) (o.stringOr("ward" "")) (o.stringOr("place" "")) (o.stringOr("color" "")) (o.stringOr("notes" "")) (o.boolOr("important" false))))
+        } {
+            made = (s.loadEvent((o.stringOr("event_id" "")) (o.stringOr("title" "")) (o.stringOr("date" "")) (o.stringOr("end_date" "")) (o.stringOr("start" "")) (o.stringOr("end" "")) (o.stringOr("ward" "")) (o.stringOr("place" "")) (o.stringOr("color" "")) (o.stringOr("notes" "")) (o.boolOr("important" false))))
+        }
         if (null? made) {
             return
         }
@@ -205,6 +216,52 @@ class SpRemote {
             }
             k = (k + 1)
         }
+        SpRemote.readEntry(s e o)
+    }
+
+    ; What an Event says of its type, fields, cost and reminder, into `e`.
+    sfn readEntry:void (s:SpSpace e:SpEvent o:VlJson) {
+        def t:string (o.stringOr("type" ""))
+        if (t == "event") {
+            t = ""
+        }
+        e.typeId = t
+        def none:[SpValue]
+        e.values = none
+        def fs:VlJson (o.get("fields"))
+        if (fs.isObject()) {
+            def i:int 0
+            while (i < (array_length fs.keys)) {
+                def key:string (itemAt fs.keys i)
+                def v:VlJson (fs.get(key))
+                if (v.isBool()) {
+                    e.setField(key (v.asString()) "bool")
+                }
+                if (v.isNumber()) {
+                    e.setField(key (SpTypes.numText(v.num)) "number")
+                }
+                if (v.isString()) {
+                    e.setField(key v.str "string")
+                }
+                i = (i + 1)
+            }
+        }
+        def nd:[string]
+        e.dropped = nd
+        def c:VlJson (o.get("cost"))
+        e.hasCost = false
+        e.costDropped = false
+        if (c.isObject()) {
+            def cost (new SpCost())
+            cost.amount = (c.doubleOr("amount" 0.0))
+            cost.payer = (c.stringOr("payer" ""))
+            cost.scope = (c.stringOr("scope" "personal"))
+            cost.instalments = (c.intOr("instalments" 1))
+            cost.everyMonths = (c.intOr("every_months" 1))
+            cost.first = (SpText.dayOf((c.stringOr("first" "")) (itemAt (SpSpace.ymdOf(s.today)) 0)))
+            e.setCost(cost)
+        }
+        e.remindFrom = (SpText.dayOf((o.stringOr("remind_from" "")) (itemAt (SpSpace.ymdOf(s.today)) 0)))
     }
 
     ; --- what the page sends -----------------------------------------------------
@@ -213,7 +270,11 @@ class SpRemote {
     sfn eventObj:VlJson (e:SpEvent) {
         def o:VlJson (VlJson.objectValue())
         o.setMember("title" (SpRemote.str(e.title)))
-        o.setMember("date" (SpRemote.str((SpSpace.dateText(e.day)))))
+        if ((e.dated()) == false) {
+            o.setMember("date" (SpRemote.str("")))
+        } {
+            o.setMember("date" (SpRemote.str((SpSpace.dateText(e.day)))))
+        }
         if (e.endDay > e.day) {
             o.setMember("end_date" (SpRemote.str((SpSpace.dateText(e.endDay)))))
         }
@@ -268,7 +329,56 @@ class SpRemote {
         if ((strlen e.extId) > 0) {
             o.setMember("ext_id" (SpRemote.str(e.extId)))
         }
+        if ((strlen e.typeId) > 0) {
+            o.setMember("type" (SpRemote.str(e.typeId)))
+        }
+        if (((array_length e.values) > 0) || ((array_length e.dropped) > 0)) {
+            def fs:VlJson (VlJson.objectValue())
+            def i2:int 0
+            while (i2 < (array_length e.values)) {
+                def v:SpValue (itemAt e.values i2)
+                fs.setMember(v.key (SpRemote.valueJson(v)))
+                i2 = (i2 + 1)
+            }
+            def d2:int 0
+            while (d2 < (array_length e.dropped)) {
+                fs.setMember((itemAt e.dropped d2) (VlJson.nullValue()))
+                d2 = (d2 + 1)
+            }
+            o.setMember("fields" fs)
+        }
+        if e.hasCost {
+            def c:SpCost e.cost
+            def co:VlJson (VlJson.objectValue())
+            co.setMember("amount" (VlJson.numberValue(c.amount)))
+            co.setMember("payer" (SpRemote.str(c.payer)))
+            co.setMember("scope" (SpRemote.str(c.scope)))
+            co.setMember("instalments" (VlJson.intValue(c.instalments)))
+            if (c.first >= 0) {
+                co.setMember("first" (SpRemote.str((SpSpace.dateText(c.first)))))
+            }
+            co.setMember("every_months" (VlJson.intValue(c.everyMonths)))
+            o.setMember("cost" co)
+        } {
+            if e.costDropped {
+                o.setMember("cost" (VlJson.nullValue()))
+            }
+        }
         return o
+    }
+
+    ; A field's value as JSON keeps it.
+    sfn valueJson:VlJson (v:SpValue) {
+        if (v.kind == "bool") {
+            return (VlJson.boolValue((v.text == "true")))
+        }
+        if (v.kind == "number") {
+            def d@(optional):double (str2double v.text)
+            if (!null? d) {
+                return (VlJson.numberValue((unwrap d)))
+            }
+        }
+        return (SpRemote.str(v.text))
     }
 
     sfn write:string (v:VlJson) {
@@ -281,6 +391,23 @@ class SpRemote {
         def o:VlJson (SpRemote.eventObj(e))
         o.setMember("space_id" (SpRemote.str(spaceId)))
         o.setMember("event_id" (SpRemote.str(e.remoteId)))
+        return (SpRemote.write(o))
+    }
+
+    ; delete_event
+    sfn deleteBody:string (spaceId:string remoteId:string) {
+        return (SpRemote.body(([] _:string ( "space_id" spaceId "event_id" remoteId ))))
+    }
+
+    ; budget: months "YYYY-MM", every payer's ("") or one payer's
+    sfn budgetBody:string (spaceId:string from:string to:string payer:string) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("from" (SpRemote.str(from)))
+        o.setMember("to" (SpRemote.str(to)))
+        if ((strlen payer) > 0) {
+            o.setMember("payer" (SpRemote.str(payer)))
+        }
         return (SpRemote.write(o))
     }
 

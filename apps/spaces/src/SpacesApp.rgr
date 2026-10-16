@@ -24,12 +24,23 @@
 ; new spaces and the demo data go the same way. Text fields are EVGUI
 ; InputCtls; the host's text-input bridge edits them through `focusedField`,
 ; `fieldStateJson` and `applyEdit`.
+;
+; Entries have types (SpacesTypes.rgr, the schema the server shares): the
+; Add menu offers the types of the space's words, and one form edits any
+; entry — its date and times, ward, who, place, notes, the type's own fields
+; and its cost. An event opens in the form from the summary (a click), the
+; calendar (a double-click, or Enter on the selected event) and the lists;
+; Backspace or Delete on a selected event deletes it, with Undo in the
+; status line (Ctrl+Z). Lists shows the record and deadline types, Budget
+; what the costs come to month by month.
 ; =============================================================================
 
 Import "SpacesModel.rgr"
 Import "SpacesVocab.rgr"
 Import "SpacesAssist.rgr"
 Import "SpacesRemote.rgr"
+Import "SpacesTypes.rgr"
+Import "SpacesBudget.rgr"
 Import "../evgui/src/InputCtl.rgr"
 Import "../evgui/src/EventCalBoard.rgr"
 Import "../evgui/src/EventCalCtl.rgr"
@@ -75,8 +86,10 @@ class SpacesApp {
     def occStart:[int]
     def occEnd:[int]
 
-    ; the days the summary's rows open in the calendar, by row
+    ; the days the summary's rows open in the calendar, by row, and the
+    ; occurrence each row is
     def itemDays:[int]
+    def itemOccs:[string]
     def sheetSel:string ""
     def docSel:string ""
     ; the assistant's conversation: question keys and answers
@@ -106,6 +119,41 @@ class SpacesApp {
     def shown:[InputCtl]
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
+
+    ; --- entries ----------------------------------------------------------------------
+    ; the entry types (the schema the server shares)
+    def types:SpTypes (SpTypes.builtin())
+    ; the Add menu is open
+    def addOpen:boolean false
+    ; the form: open, on which event ("" for a new one), of which type, and
+    ; the day of a repeating event's occurrence it was opened from (-1)
+    def editing:boolean false
+    def editId:string ""
+    def editType:string ""
+    def editOcc:int -1
+    ; the form's text fields by key ("title", "date", "f:<field>",
+    ; "cost:amount" …), and what is picked from buttons by key ("ward",
+    ; "important", "f:<field>", "cost:scope", "repeat")
+    def formKeys:[string]
+    def formCtls:[InputCtl]
+    def pickKeys:[string]
+    def pickVals:[string]
+    ; the form has a cost section (the type has one, or the event a cost)
+    def formCost:boolean false
+    def formErr:string ""
+    ; deleted events, for Undo; what Undo would bring back: "entry" (the
+    ; event `undoId`) or "day" (the day `undoDay` of the series `undoId`)
+    def trash:[SpEvent]
+    def undoKind:string ""
+    def undoId:string ""
+    def undoDay:int -1
+    ; the Lists view's type, and the Budget view's first month, payer and
+    ; the server's last answer (what it was asked for in `budgetAsked`)
+    def listType:string ""
+    def budgetFrom:int -1
+    def budgetPayer:string ""
+    def budgetAnswer@(optional):SpBudget
+    def budgetAsked:string ""
 
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
@@ -156,6 +204,9 @@ class SpacesApp {
         } {
             space = (SpSeed.build(pack lang today))
         }
+        space.types = types
+        editing = false
+        addOpen = false
         sheetSel = ""
         docSel = ""
         def none:[string]
@@ -171,7 +222,11 @@ class SpacesApp {
         def keepCursor:int today
         if (board.today > 0) {
             keepView = board.view
-            keepCursor = board.cursor
+            ; the day it showed, unless the clock moved (the host's clock
+            ; replaces the one the page starts with)
+            if (board.today == today) {
+                keepCursor = board.cursor
+            }
         }
         board = (new EcBoard())
         board.browserOff = browserOff
@@ -365,18 +420,27 @@ class SpacesApp {
         if ((tab == "spaces") || noSpace) {
             main.addChild((this.spacesView()))
         } {
-            if (tab == "members") {
-                main.addChild((this.membersView()))
+            if editing {
+                main.addChild((this.editorView()))
             } {
-                main.addChild((this.tabView()))
+                if (tab == "members") {
+                    main.addChild((this.membersView()))
+                } {
+                    main.addChild((this.tabView()))
+                }
             }
         }
         body.addChild(main)
         shell.addChild(body)
         if ((strlen status) > 0) {
+            def row:EVGElement (SpacesApp.box("sp-statusrow"))
             def st:EVGElement (UiTree.label("sp-status" "sp-status" status))
             st.role = "status"
-            shell.addChild(st)
+            row.addChild(st)
+            if ((strlen undoKind) > 0) {
+                row.addChild((SpacesApp.btn("sp-undo" "sp-action" (SpWords.ui(lang "undo")))))
+            }
+            shell.addChild(row)
         }
         return shell
     }
@@ -393,6 +457,12 @@ class SpacesApp {
         }
         if (tab == "assistant") {
             return (this.assistantView())
+        }
+        if (tab == "lists") {
+            return (this.listsView())
+        }
+        if (tab == "budget") {
+            return (this.budgetView())
         }
         return (this.homeView())
     }
@@ -471,11 +541,11 @@ class SpacesApp {
             nav = (SpacesApp.box("sp-nav sp-nav-row"))
         }
         nav.role = "navigation"
-        def tabs:[string] ([] _:string ( "home" "calendar" "sheets" "docs" "assistant" ))
-        def glyphs:[string] ([] _:string ( "◎" "▦" "▤" "▧" "✦" ))
+        def tabs:[string] ([] _:string ( "home" "calendar" "lists" "budget" "sheets" "docs" "assistant" ))
+        def glyphs:[string] ([] _:string ( "◎" "▦" "☰" "€" "▤" "▧" "✦" ))
         if server {
-            tabs = ([] _:string ( "home" "calendar" "members" "spaces" "sheets" "docs" "assistant" ))
-            glyphs = ([] _:string ( "◎" "▦" "◈" "▣" "▤" "▧" "✦" ))
+            tabs = ([] _:string ( "home" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
+            glyphs = ([] _:string ( "◎" "▦" "☰" "€" "◈" "▣" "▤" "▧" "✦" ))
         }
         def i:int 0
         while (i < (array_length tabs)) {
@@ -518,6 +588,8 @@ class SpacesApp {
     fn homeView:EVGElement () {
         def none:[int]
         itemDays = none
+        def noOccs:[string]
+        itemOccs = noOccs
         def v:EVGElement (SpacesApp.box("sp-view"))
         def todayLong:string (EcI18n.dayTitle(lang today))
         def sub:string (todayLong + " · " + space.name)
@@ -525,6 +597,7 @@ class SpacesApp {
             sub = (todayLong + " · " + (SpWords.ui(lang "loading")))
         }
         v.addChild((this.heading((SpWords.ui(lang "home")) sub)))
+        v.addChild((this.addBar()))
         if ((server && (loading == false)) && (((array_length space.events) == 0) && ((array_length space.resources) == 0))) {
             v.addChild((this.emptyCard()))
         }
@@ -612,6 +685,7 @@ class SpacesApp {
     fn itemRow:EVGElement (o:SpOccur) {
         def n:int (array_length itemDays)
         push itemDays o.day
+        push itemOccs o.id
         def who:string (space.aboutOf(o))
         def label:string ((SpWords.timeOf(lang o)) + " " + o.title)
         if ((strlen who) > 0) {
@@ -696,7 +770,13 @@ class SpacesApp {
     fn lateCard:EVGElement () {
         def c:EVGElement (this.card("late" ((SpWords.ui(lang "overdue")) + " · " + (SpWords.noun(lang pack "deadlines")))))
         def late:[SpDeadline] (space.overdue(today))
-        if ((array_length late) == 0) {
+        def due:[SpEvent] (space.dueEntries(today))
+        def d:int 0
+        while (d < (array_length due)) {
+            c.addChild((this.entryRow((itemAt due d))))
+            d = (d + 1)
+        }
+        if (((array_length late) == 0) && ((array_length due) == 0)) {
             c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Nothing is overdue" "Mikään ei ole myöhässä")))))
         }
         def i:int 0
@@ -1071,6 +1151,9 @@ class SpacesApp {
 
     ; Enter in a field presses its button.
     sfn submitOf:string (tid:string) {
+        if (UiTree.beginsWith(tid "sp-ed-")) {
+            return "sp-ed-save"
+        }
         if (tid == "sp-invite-email") {
             return "sp-invite"
         }
@@ -1084,7 +1167,8 @@ class SpacesApp {
 
     fn calendarView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
-        v.addChild((this.heading((SpWords.ui(lang "calendar")) (SpWords.pick(lang "Drag to move, drag an empty slot to add. Sheet rows are changed in their sheet." "Siirrä vetämällä, lisää vetämällä tyhjään kohtaan. Taulukon rivit muutetaan taulukossa.")))))
+        v.addChild((this.heading((SpWords.ui(lang "calendar")) (SpWords.pick(lang "Drag to move, drag an empty slot to add. Double-click or Enter opens an event, Backspace deletes it." "Siirrä vetämällä, lisää vetämällä tyhjään kohtaan. Kaksoisnapsautus tai Enter avaa tapahtuman, askelpalautin poistaa sen.")))))
+        v.addChild((this.addBar()))
         board.cardW = (this.mainW())
         board.narrow = (this.narrow())
         board.focused = focused
@@ -1390,6 +1474,1501 @@ class SpacesApp {
     }
 
     ; =========================================================================
+    ; entries: the Add menu, the form, deleting and Undo
+    ; =========================================================================
+
+    fn typeOf@(optional):SpType (id:string) {
+        def tid:string id
+        if ((strlen tid) == 0) {
+            tid = "event"
+        }
+        return (types.find(tid))
+    }
+
+    fn typeName:string (id:string) {
+        def t@(optional):SpType (this.typeOf(id))
+        if (null? t) {
+            return (SpWords.noun(lang pack "event"))
+        }
+        def tt:SpType t
+        return (tt.name.text(lang))
+    }
+
+    fn kindOf:string (id:string) {
+        return (types.kindOf(id))
+    }
+
+    ; "+ Add…" and, when open, the types of the space's words.
+    fn addBar:EVGElement () {
+        def bar:EVGElement (SpacesApp.box("sp-addbar"))
+        def b:EVGElement (SpacesApp.btn("sp-add" "sp-action sp-action-primary" (SpWords.ui(lang "add"))))
+        b.a11yExpanded = (SpacesApp.tri(addOpen))
+        def row:EVGElement (SpacesApp.box("sp-row"))
+        row.addChild(b)
+        bar.addChild(row)
+        if addOpen {
+            def menu:EVGElement (UiTree.div("sp-addmenu" "sp-addmenu"))
+            menu.role = "menu"
+            menu.a11yLabel = (SpWords.ui(lang "add"))
+            def list:[SpType] (types.forPack(pack))
+            def i:int 0
+            while (i < (array_length list)) {
+                def t:SpType (itemAt list i)
+                def it:EVGElement (SpacesApp.btn(("sp-addtype-" + t.id) "sp-chip" (t.name.text(lang))))
+                it.role = "menuitem"
+                menu.addChild(it)
+                i = (i + 1)
+            }
+            bar.addChild(menu)
+        }
+        return bar
+    }
+
+    ; The occurrence a press or the focus is on: a calendar event (its box,
+    ; chip, agenda row or all-day bar), a summary row or a list row. "" for
+    ; none.
+    fn occOfTarget:string (target:string) {
+        if (UiTree.beginsWith(target "sp-item-")) {
+            def n@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length itemOccs))) {
+                    return (itemAt itemOccs k)
+                }
+            }
+            return ""
+        }
+        if (UiTree.beginsWith(target "sp-entry-")) {
+            return (substring target 9 (strlen target))
+        }
+        def prefixes:[string] ([] _:string ( "spc-ev-" "spc-rz-" "spc-chip-" "spc-ag-" "spc-band-" ))
+        def i:int 0
+        while (i < (array_length prefixes)) {
+            def pf:string (itemAt prefixes i)
+            if (UiTree.beginsWith(target pf)) {
+                def rest:string (substring target (strlen pf) (strlen target))
+                def dash:int (indexOf rest "-")
+                if (dash > 0) {
+                    rest = (substring rest 0 dash)
+                }
+                def k2:int (this.boardIndex(rest))
+                if (k2 >= 0) {
+                    return (itemAt occIds k2)
+                }
+                return ""
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn selectedOcc:string () {
+        return (this.occOfTarget(focused))
+    }
+
+    ; A double-click at a point: the event under it opens in the form.
+    fn openAt:boolean (x:double y:double) {
+        def id0:string (this.hitId(x y))
+        def id:string id0
+        if (this.onBoard(id0)) {
+            id = (board.refine(id0 x y))
+        }
+        def occ:string (this.occOfTarget(id))
+        if ((strlen occ) == 0) {
+            return false
+        }
+        def r:boolean (this.openOcc(occ))
+        this.rebuild()
+        return r
+    }
+
+    ; The event of an occurrence in the form; a sheet's row is the sheet's.
+    fn openOcc:boolean (occ:string) {
+        def id:string (space.eventIdOf(occ))
+        if ((strlen id) == 0) {
+            status = (SpWords.pick(lang "Rows from a sheet are changed in the sheet" "Taulukon rivit muutetaan taulukossa"))
+            return false
+        }
+        def found@(optional):SpEvent (space.event(id))
+        if (null? found) {
+            return false
+        }
+        def e:SpEvent found
+        editId = id
+        editOcc = (SpSpace.occDayOf(occ))
+        editType = e.typeId
+        this.fillForm(e)
+        return true
+    }
+
+    ; A new entry of a type: on the calendar's day (or today), a record
+    ; without one.
+    fn openNew:void (typeId:string) {
+        def tid:string typeId
+        if (tid == "event") {
+            tid = ""
+        }
+        def e (new SpEvent())
+        e.typeId = tid
+        e.day = today
+        if ((tab == "calendar") && (board.cursor > 0)) {
+            e.day = board.cursor
+        }
+        def kind:string (this.kindOf(tid))
+        if (kind == "record") {
+            e.day = -1
+        }
+        if (kind == "event") {
+            e.startMin = 720
+            e.endMin = 780
+        }
+        e.endDay = e.day
+        editId = ""
+        editOcc = -1
+        editType = tid
+        this.fillForm(e)
+    }
+
+    fn addText:void (key:string value:string) {
+        def c (new InputCtl())
+        c.setValue(value)
+        push formKeys key
+        push formCtls c
+    }
+
+    fn addPick:void (key:string value:string) {
+        push pickKeys key
+        push pickVals value
+    }
+
+    ; The form, filled from an event (a new one is not in the space yet).
+    fn fillForm:void (e:SpEvent) {
+        def k:[string]
+        formKeys = k
+        def c:[InputCtl]
+        formCtls = c
+        def pk:[string]
+        pickKeys = pk
+        def pv:[string]
+        pickVals = pv
+        formErr = ""
+        addOpen = false
+        editing = true
+        focused = ""
+        def kind:string (this.kindOf(e.typeId))
+        this.addText("title" e.title)
+        def dateText:string ""
+        if (e.dated()) {
+            dateText = (UiDate.isoOfDays(e.day))
+        }
+        this.addText("date" dateText)
+        if (kind == "event") {
+            def endText:string ""
+            if ((e.endDay > e.day) && (e.dated())) {
+                endText = (UiDate.isoOfDays(e.endDay))
+            }
+            this.addText("end_date" endText)
+            this.addText("start" (SpSpace.timeText(e.startMin)))
+            this.addText("end" (SpSpace.timeText(e.endMin)))
+        }
+        if ((array_length space.resources) > 0) {
+            this.addPick("ward" e.resource)
+        }
+        if (kind != "record") {
+            this.addText("who" (SpWho.listText(e.who)))
+        }
+        if (kind == "event") {
+            this.addText("place" e.place)
+            def tp@(optional):SpType (this.typeOf(e.typeId))
+            def repeatable:boolean (e.repeats())
+            if (!null? tp) {
+                def tt:SpType tp
+                if tt.repeats {
+                    repeatable = true
+                }
+            }
+            if repeatable {
+                this.addPick("repeat" e.rule.freq)
+                def untilText:string ""
+                if (e.rule.until > 0) {
+                    untilText = (UiDate.isoOfDays(e.rule.until))
+                }
+                this.addText("until" untilText)
+            }
+        }
+        def t@(optional):SpType (this.typeOf(e.typeId))
+        formCost = e.hasCost
+        if (!null? t) {
+            def ty:SpType t
+            if ty.hasCost {
+                formCost = true
+            }
+            def i:int 0
+            while (i < (array_length ty.fields)) {
+                def f:SpField (itemAt ty.fields i)
+                if (f.picked()) {
+                    this.addPick(("f:" + f.key) (e.fieldText(f.key)))
+                } {
+                    this.addText(("f:" + f.key) (e.fieldText(f.key)))
+                }
+                i = (i + 1)
+            }
+        }
+        this.addText("notes" e.notes)
+        if (kind != "record") {
+            def imp:string "false"
+            if e.important {
+                imp = "true"
+            }
+            this.addPick("important" imp)
+        }
+        if formCost {
+            def amount:string ""
+            def payer:string ""
+            def inst:string ""
+            def first:string ""
+            def every:string ""
+            def scope:string "personal"
+            if e.hasCost {
+                amount = (SpTypes.numText(e.cost.amount))
+                payer = e.cost.payer
+                inst = (to_string e.cost.instalments)
+                if (e.cost.first >= 0) {
+                    first = (UiDate.isoOfDays(e.cost.first))
+                }
+                every = (to_string e.cost.everyMonths)
+                scope = e.cost.scope
+            }
+            this.addText("cost:amount" amount)
+            this.addText("cost:payer" payer)
+            this.addPick("cost:scope" scope)
+            this.addText("cost:instalments" inst)
+            this.addText("cost:first" first)
+            this.addText("cost:every" every)
+        }
+    }
+
+    fn formText:string (key:string) {
+        def i:int 0
+        while (i < (array_length formKeys)) {
+            if ((itemAt formKeys i) == key) {
+                def c:InputCtl (itemAt formCtls i)
+                return (trim c.value)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn hasText:boolean (key:string) {
+        def i:int 0
+        while (i < (array_length formKeys)) {
+            if ((itemAt formKeys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn pickOf:string (key:string) {
+        def i:int 0
+        while (i < (array_length pickKeys)) {
+            if ((itemAt pickKeys i) == key) {
+                return (itemAt pickVals i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn hasPick:boolean (key:string) {
+        def i:int 0
+        while (i < (array_length pickKeys)) {
+            if ((itemAt pickKeys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn editField@(optional):SpField (key:string) {
+        def none@(optional):SpField
+        if ((UiTree.beginsWith(key "f:")) == false) {
+            return none
+        }
+        def t@(optional):SpType (this.typeOf(editType))
+        if (null? t) {
+            return none
+        }
+        def tt:SpType t
+        return (tt.field((substring key 2 (strlen key))))
+    }
+
+    ; A form key's label.
+    fn formLabel:string (key:string) {
+        def f@(optional):SpField (this.editField(key))
+        if (!null? f) {
+            def ff:SpField f
+            return (ff.label(lang))
+        }
+        if (key == "ward") {
+            return (SpWords.noun(lang pack "resource"))
+        }
+        if (key == "place") {
+            return (SpWords.noun(lang pack "place"))
+        }
+        if (key == "date") {
+            def kind:string (this.kindOf(editType))
+            if (kind == "deadline") {
+                return (SpWords.ui(lang "dueDate"))
+            }
+            if (kind == "record") {
+                return (SpWords.ui(lang "dateOptional"))
+            }
+        }
+        if (key == "cost:amount") {
+            def t@(optional):SpType (this.typeOf(editType))
+            if (!null? t) {
+                def tt:SpType t
+                if tt.hasCost {
+                    return (tt.cost.text(lang) + " (€)")
+                }
+            }
+        }
+        return (SpWords.ui(lang key))
+    }
+
+    ; What a text field expects.
+    fn formHint:string (key:string) {
+        def f@(optional):SpField (this.editField(key))
+        def type:string "text"
+        if (!null? f) {
+            def ff:SpField f
+            type = ff.type
+        }
+        if ((((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) || (type == "date")) {
+            return (SpWords.pick(lang "YYYY-MM-DD" "pp.kk.vvvv"))
+        }
+        if (((key == "start") || (key == "end")) || (type == "time")) {
+            return (SpWords.pick(lang "HH:MM" "hh.mm"))
+        }
+        if (key == "who") {
+            return (SpWords.ui(lang "whoHint"))
+        }
+        if ((type == "money") || (key == "cost:amount")) {
+            return "0,00 €"
+        }
+        if (key == "cost:instalments") {
+            return "1"
+        }
+        if (key == "cost:every") {
+            return "1"
+        }
+        return ""
+    }
+
+    ; The buttons a picked key chooses from: values, "" for none.
+    fn pickOptions:[string] (key:string) {
+        def out:[string]
+        if (key == "ward") {
+            push out ""
+            def i:int 0
+            while (i < (array_length space.resources)) {
+                def r:SpResource (itemAt space.resources i)
+                push out r.id
+                i = (i + 1)
+            }
+            return out
+        }
+        if (key == "repeat") {
+            return ([] _:string ( "" "daily" "weekly" "monthly" ))
+        }
+        if (key == "cost:scope") {
+            return ([] _:string ( "personal" "shared" ))
+        }
+        def f@(optional):SpField (this.editField(key))
+        if (!null? f) {
+            def ff:SpField f
+            if (ff.type == "ward") {
+                push out ""
+                def k:int 0
+                while (k < (array_length space.resources)) {
+                    def r2:SpResource (itemAt space.resources k)
+                    push out r2.id
+                    k = (k + 1)
+                }
+                return out
+            }
+            if (ff.type == "choice") {
+                return ff.options
+            }
+        }
+        return out
+    }
+
+    ; A switch rather than a choice.
+    fn pickIsSwitch:boolean (key:string) {
+        if (key == "important") {
+            return true
+        }
+        def f@(optional):SpField (this.editField(key))
+        if (!null? f) {
+            def ff:SpField f
+            return (ff.type == "bool")
+        }
+        return false
+    }
+
+    fn optionLabel:string (key:string v:string) {
+        if ((strlen v) == 0) {
+            if (key == "repeat") {
+                return (SpWords.ui(lang "once"))
+            }
+            return (SpWords.ui(lang "none"))
+        }
+        if (key == "ward") {
+            return (space.resourceName(v))
+        }
+        if ((key == "repeat") || (key == "cost:scope")) {
+            return (SpWords.ui(lang v))
+        }
+        def f@(optional):SpField (this.editField(key))
+        if (!null? f) {
+            def ff:SpField f
+            if (ff.type == "ward") {
+                return (space.resourceName(v))
+            }
+            return (ff.optionLabel(lang v))
+        }
+        return v
+    }
+
+    ; --- the form ----------------------------------------------------------------------
+
+    fn formW:double () {
+        return ((this.mainW()) - 38.0)
+    }
+
+    ; One labelled text field of the form.
+    fn textField:EVGElement (i:int) {
+        def key:string (itemAt formKeys i)
+        def c:InputCtl (itemAt formCtls i)
+        def label:string (this.formLabel(key))
+        def wide:boolean ((((key == "title") || (key == "notes")) || (key == "who")) || (key == "place"))
+        def f@(optional):SpField (this.editField(key))
+        if (!null? f) {
+            def ff:SpField f
+            if ((ff.type == "longtext") || (ff.type == "text")) {
+                wide = true
+            }
+        }
+        def w:double 200.0
+        if (wide || (this.narrow())) {
+            w = (this.formW())
+        }
+        def box:EVGElement (SpacesApp.box("sp-fld"))
+        def lb:EVGElement (SpacesApp.tx("sp-fldlabel" label))
+        lb.a11yHidden = true
+        box.addChild(lb)
+        def kind:string "text"
+        if (key == "cost:payer") {
+            kind = "text"
+        }
+        def fr:EVGElement (this.field(c ("sp-ed-" + (to_string i)) label (this.formHint(key)) kind))
+        UiTree.inline(fr "width" (SpacesApp.px(w)))
+        box.addChild(fr)
+        UiTree.inline(box "width" (SpacesApp.px(w)))
+        return box
+    }
+
+    ; One labelled row of buttons (a choice) or a switch.
+    fn pickField:EVGElement (i:int) {
+        def key:string (itemAt pickKeys i)
+        def val:string (itemAt pickVals i)
+        def label:string (this.formLabel(key))
+        def box:EVGElement (SpacesApp.box("sp-fld"))
+        UiTree.inline(box "width" (SpacesApp.px((this.formW()))))
+        if (this.pickIsSwitch(key)) {
+            def on:boolean (val == "true")
+            def cls:string "sp-opt"
+            if on {
+                cls = "sp-opt sp-opt-on"
+            }
+            def mark:string "○ "
+            if on {
+                mark = "● "
+            }
+            def sw:EVGElement (SpacesApp.btn(("sp-tog-" + (to_string i)) cls (mark + label)))
+            sw.role = "switch"
+            sw.a11yLabel = label
+            sw.a11yChecked = (SpacesApp.tri(on))
+            def row0:EVGElement (SpacesApp.box("sp-formrow"))
+            row0.addChild(sw)
+            box.addChild(row0)
+            return box
+        }
+        def lb:EVGElement (SpacesApp.tx("sp-fldlabel" label))
+        lb.a11yHidden = true
+        box.addChild(lb)
+        def row:EVGElement (UiTree.div(("sp-pickrow-" + (to_string i)) "sp-formrow"))
+        row.role = "group"
+        row.a11yLabel = label
+        def opts:[string] (this.pickOptions(key))
+        def k:int 0
+        while (k < (array_length opts)) {
+            def o:string (itemAt opts k)
+            def on2:boolean (o == val)
+            def pc:string "sp-opt"
+            if on2 {
+                pc = "sp-opt sp-opt-on"
+            }
+            def pb:EVGElement (SpacesApp.btn(("sp-pick-" + (to_string i) + "-" + (to_string k)) pc (this.optionLabel(key o))))
+            pb.a11yPressed = (SpacesApp.tri(on2))
+            row.addChild(pb)
+            k = (k + 1)
+        }
+        box.addChild(row)
+        return box
+    }
+
+    fn textIndex:int (key:string) {
+        def i:int 0
+        while (i < (array_length formKeys)) {
+            if ((itemAt formKeys i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn pickIndex:int (key:string) {
+        def i:int 0
+        while (i < (array_length pickKeys)) {
+            if ((itemAt pickKeys i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The fields whose keys start with `prefix` ("" for the entry's own,
+    ; "f:" for the type's, "cost:" for the cost), in the order they were
+    ; made, into `into`.
+    fn addFields:void (into:EVGElement prefix:string) {
+        def keys:[string] (this.formOrder())
+        def j:int 0
+        while (j < (array_length keys)) {
+            def key:string (itemAt keys j)
+            def mine:boolean false
+            if (prefix == "") {
+                mine = (((UiTree.beginsWith(key "f:")) == false) && ((UiTree.beginsWith(key "cost:")) == false))
+            } {
+                mine = (UiTree.beginsWith(key prefix))
+            }
+            if mine {
+                def ti:int (this.textIndex(key))
+                if (ti >= 0) {
+                    into.addChild((this.textField(ti)))
+                } {
+                    def pi:int (this.pickIndex(key))
+                    if (pi >= 0) {
+                        into.addChild((this.pickField(pi)))
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; Every key of the form in the order it is shown.
+    fn formOrder:[string] () {
+        def out:[string]
+        def own:[string] ([] _:string ( "title" "ward" "date" "end_date" "start" "end" "repeat" "until" "who" "place" "important" ))
+        def i:int 0
+        while (i < (array_length own)) {
+            def key:string (itemAt own i)
+            if ((this.hasText(key)) || (this.hasPick(key))) {
+                push out key
+            }
+            i = (i + 1)
+        }
+        def t@(optional):SpType (this.typeOf(editType))
+        if (!null? t) {
+            def tt:SpType t
+            def k:int 0
+            while (k < (array_length tt.fields)) {
+                def f:SpField (itemAt tt.fields k)
+                push out ("f:" + f.key)
+                k = (k + 1)
+            }
+        }
+        push out "notes"
+        def cost:[string] ([] _:string ( "cost:amount" "cost:payer" "cost:scope" "cost:instalments" "cost:first" "cost:every" ))
+        def c:int 0
+        while (c < (array_length cost)) {
+            def ck:string (itemAt cost c)
+            if ((this.hasText(ck)) || (this.hasPick(ck))) {
+                push out ck
+            }
+            c = (c + 1)
+        }
+        return out
+    }
+
+    fn editorView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        def name:string (this.typeName(editType))
+        def title:string name
+        if ((strlen editId) == 0) {
+            title = ((SpWords.ui(lang "new")) + ": " + name)
+        }
+        def help:string ""
+        def t@(optional):SpType (this.typeOf(editType))
+        if (!null? t) {
+            def tt:SpType t
+            help = (tt.help.text(lang))
+        }
+        v.addChild((this.heading(title help)))
+        def c:EVGElement (UiTree.div("sp-card-editor" "sp-card"))
+        c.role = "form"
+        c.a11yLabel = title
+        if ((strlen formErr) > 0) {
+            def er:EVGElement (UiTree.label("sp-formerr" "sp-formerr" formErr))
+            er.role = "alert"
+            c.addChild(er)
+        }
+        def own:EVGElement (SpacesApp.box("sp-form"))
+        this.addFields(own "")
+        c.addChild(own)
+        if ((array_length (this.typeFieldKeys())) > 0) {
+            c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "details")))))
+            def more:EVGElement (SpacesApp.box("sp-form"))
+            this.addFields(more "f:")
+            c.addChild(more)
+        }
+        if formCost {
+            c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "cost")))))
+            def cost:EVGElement (SpacesApp.box("sp-form"))
+            this.addFields(cost "cost:")
+            c.addChild(cost)
+        }
+        def bar:EVGElement (SpacesApp.box("sp-formrow"))
+        bar.addChild((SpacesApp.btn("sp-ed-save" "sp-action sp-action-primary" (SpWords.ui(lang "save")))))
+        bar.addChild((SpacesApp.btn("sp-ed-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
+        if ((strlen editId) > 0) {
+            if (editOcc >= 0) {
+                bar.addChild((SpacesApp.btn("sp-ed-delday" "sp-action" (SpWords.ui(lang "deleteDay")))))
+            }
+            bar.addChild((SpacesApp.btn("sp-ed-delete" "sp-action" (SpWords.ui(lang "delete")))))
+            def found@(optional):SpEvent (space.event(editId))
+            if (!null? found) {
+                def fe:SpEvent found
+                if ((fe.dated()) && ((this.kindOf(fe.typeId)) != "record")) {
+                    bar.addChild((SpacesApp.btn("sp-ed-showcal" "sp-link" (SpWords.ui(lang "showCal")))))
+                }
+            }
+        }
+        c.addChild(bar)
+        v.addChild(c)
+        return v
+    }
+
+    fn typeFieldKeys:[string] () {
+        def out:[string]
+        def t@(optional):SpType (this.typeOf(editType))
+        if (!null? t) {
+            def tt:SpType t
+            def i:int 0
+            while (i < (array_length tt.fields)) {
+                def f:SpField (itemAt tt.fields i)
+                push out f.key
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; --- saving ------------------------------------------------------------------------
+
+    ; The form into its event: a new one is added. False, with `formErr`
+    ; naming the fields, when something does not read.
+    fn saveForm:boolean () {
+        if (editing == false) {
+            return false
+        }
+        def bad:[string]
+        def kind:string (this.kindOf(editType))
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def title:string (this.formText("title"))
+        if ((strlen title) == 0) {
+            title = (this.typeName(editType))
+        }
+        def day:int -1
+        def dateText:string (this.formText("date"))
+        if ((strlen dateText) > 0) {
+            day = (SpTypes.dayOf(dateText year))
+            if (day < 0) {
+                push bad (this.formLabel("date"))
+            }
+        } {
+            if (kind != "record") {
+                push bad (this.formLabel("date"))
+            }
+        }
+        def lastDay:int day
+        def endText:string (this.formText("end_date"))
+        if ((strlen endText) > 0) {
+            lastDay = (SpTypes.dayOf(endText year))
+            if (lastDay < day) {
+                push bad (this.formLabel("end_date"))
+            }
+        }
+        def s:int -1
+        def en:int -1
+        def startText:string (this.formText("start"))
+        if ((strlen startText) > 0) {
+            s = (SpTypes.minuteOf(startText))
+            if (s < 0) {
+                push bad (this.formLabel("start"))
+            }
+        }
+        def endT:string (this.formText("end"))
+        if ((s >= 0) && ((strlen endT) > 0)) {
+            en = (SpTypes.minuteOf(endT))
+            if (en < 0) {
+                push bad (this.formLabel("end"))
+            }
+        }
+        if ((s >= 0) && (en <= s)) {
+            en = (s + 60)
+        }
+        def until:int 0
+        def untilText:string (this.formText("until"))
+        if ((strlen untilText) > 0) {
+            until = (SpTypes.dayOf(untilText year))
+            if (until < 0) {
+                push bad (this.formLabel("until"))
+            }
+        }
+        ; the type's own fields, as the server keeps them
+        def fkeys:[string]
+        def fvals:[string]
+        def fkinds:[string]
+        def t@(optional):SpType (this.typeOf(editType))
+        if (!null? t) {
+            def tt:SpType t
+            def i:int 0
+            while (i < (array_length tt.fields)) {
+                def f:SpField (itemAt tt.fields i)
+                def v:string ""
+                if (f.picked()) {
+                    v = (this.pickOf(("f:" + f.key)))
+                    if ((f.type == "bool") && (v != "true")) {
+                        v = "false"
+                    }
+                } {
+                    def err:[string]
+                    v = (SpTypes.normalize(f.type (this.formText(("f:" + f.key))) year err))
+                    if ((array_length err) > 0) {
+                        push bad (f.label(lang))
+                    }
+                }
+                push fkeys f.key
+                push fvals v
+                push fkinds (f.valueKind())
+                i = (i + 1)
+            }
+        }
+        ; the cost: an empty amount is no cost
+        def cost (new SpCost())
+        def withCost:boolean false
+        if formCost {
+            def amountText:string (this.formText("cost:amount"))
+            if ((strlen amountText) > 0) {
+                if (SpTypes.readsAsNumber(amountText)) {
+                    cost.amount = (SpTypes.amountOf(amountText))
+                    withCost = true
+                } {
+                    push bad (this.formLabel("cost:amount"))
+                }
+            }
+            cost.payer = (this.formText("cost:payer"))
+            cost.scope = (this.pickOf("cost:scope"))
+            if ((strlen cost.scope) == 0) {
+                cost.scope = "personal"
+            }
+            def instText:string (this.formText("cost:instalments"))
+            if ((strlen instText) > 0) {
+                cost.instalments = (SpText.number(instText))
+                if (cost.instalments < 1) {
+                    push bad (this.formLabel("cost:instalments"))
+                }
+            }
+            def everyText:string (this.formText("cost:every"))
+            if ((strlen everyText) > 0) {
+                cost.everyMonths = (SpText.number(everyText))
+                if (cost.everyMonths < 1) {
+                    push bad (this.formLabel("cost:every"))
+                }
+            }
+            def firstText:string (this.formText("cost:first"))
+            if ((strlen firstText) > 0) {
+                cost.first = (SpTypes.dayOf(firstText year))
+                if (cost.first < 0) {
+                    push bad (this.formLabel("cost:first"))
+                }
+            }
+        }
+        if ((array_length bad) > 0) {
+            formErr = ((SpWords.ui(lang "check")) + ": " + (join bad ", "))
+            return false
+        }
+
+        def e (new SpEvent())
+        if ((strlen editId) > 0) {
+            def found@(optional):SpEvent (space.event(editId))
+            if (null? found) {
+                editing = false
+                return false
+            }
+            e = (unwrap found)
+        } {
+            e = (space.addEvent(title day s en (this.pickOf("ward"))))
+        }
+        e.title = title
+        e.day = day
+        e.endDay = day
+        e.startMin = s
+        e.endMin = en
+        if (s < 0) {
+            e.endMin = -1
+            if (lastDay > day) {
+                e.endDay = lastDay
+            }
+        }
+        e.resource = (this.pickOf("ward"))
+        e.place = (this.formText("place"))
+        e.notes = (this.formText("notes"))
+        if (this.hasText("who")) {
+            e.who = (SpWho.parseList((this.formText("who"))))
+        }
+        e.important = ((this.pickOf("important")) == "true")
+        e.typeId = editType
+        if (this.hasPick("repeat")) {
+            def freq:string (this.pickOf("repeat"))
+            if (freq != e.rule.freq) {
+                def none:[int]
+                e.rule.byDay = none
+            }
+            e.rule.freq = freq
+            e.rule.until = until
+            if ((strlen freq) == 0) {
+                def none2:[int]
+                e.exdates = none2
+            }
+        }
+        def k:int 0
+        while (k < (array_length fkeys)) {
+            e.setField((itemAt fkeys k) (itemAt fvals k) (itemAt fkinds k))
+            k = (k + 1)
+        }
+        if withCost {
+            e.setCost(cost)
+        } {
+            e.clearCost()
+        }
+        ; the server works out the reminder again
+        e.remindFrom = -1
+        e.touch()
+        editing = false
+        focused = ""
+        status = ((SpWords.ui(lang "saved")) + ": " + title)
+        this.fillBoard()
+        this.queueSaves()
+        this.budgetChanged()
+        return true
+    }
+
+    ; --- deleting ----------------------------------------------------------------------
+
+    ; Delete an event, or with `day` one day of a repeating one. Undo brings
+    ; it back.
+    fn deleteEntry:boolean (id:string day:int) {
+        def found@(optional):SpEvent (space.event(id))
+        if (null? found) {
+            return false
+        }
+        def e:SpEvent found
+        editing = false
+        focused = ""
+        if ((day >= 0) && (e.repeats())) {
+            space.skipDay(id day)
+            undoKind = "day"
+            undoId = id
+            undoDay = day
+            status = ((SpWords.ui(lang "deleted")) + ": " + e.title + ", " + (SpWords.dayLabel(lang day)))
+            this.fillBoard()
+            this.queueSaves()
+            return true
+        }
+        space.removeEvent(id)
+        push trash e
+        undoKind = "entry"
+        undoId = id
+        undoDay = -1
+        status = ((SpWords.ui(lang "deleted")) + ": " + e.title)
+        if (server && ((strlen spaceId) > 0)) {
+            if ((strlen e.remoteId) > 0) {
+                this.queue("delete_event" (SpRemote.deleteBody(spaceId e.remoteId)) id)
+            }
+            ; a save not sent yet is not needed; one on its way is answered
+            ; with the id the delete then goes to
+            this.dropQueued("save_event" id)
+        }
+        this.fillBoard()
+        this.budgetChanged()
+        return true
+    }
+
+    ; Calls of `op` about `ref` that are still waiting (not the first, which
+    ; may be on its way); whether there were any.
+    fn dropQueued:boolean (op:string ref:string) {
+        def rest:[SpCall]
+        def did:boolean false
+        def i:int 0
+        while (i < (array_length outbox)) {
+            def c:SpCall (itemAt outbox i)
+            if (((i > 0) && (c.op == op)) && (c.ref == ref)) {
+                did = true
+            } {
+                push rest c
+            }
+            i = (i + 1)
+        }
+        outbox = rest
+        return did
+    }
+
+    fn trashed@(optional):SpEvent (id:string) {
+        def found@(optional):SpEvent
+        def i:int 0
+        while (i < (array_length trash)) {
+            def e:SpEvent (itemAt trash i)
+            if (e.id == id) {
+                found = e
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    fn untrash:void (id:string) {
+        def kept:[SpEvent]
+        def i:int 0
+        while (i < (array_length trash)) {
+            def e:SpEvent (itemAt trash i)
+            if (e.id != id) {
+                push kept e
+            }
+            i = (i + 1)
+        }
+        trash = kept
+    }
+
+    ; The selected event: Backspace and Delete take it away.
+    fn deleteSelected:boolean () {
+        def occ:string (this.selectedOcc())
+        if ((strlen occ) == 0) {
+            return false
+        }
+        def id:string (space.eventIdOf(occ))
+        if ((strlen id) == 0) {
+            status = (SpWords.pick(lang "Rows from a sheet are changed in the sheet" "Taulukon rivit muutetaan taulukossa"))
+            return true
+        }
+        return (this.deleteEntry(id (SpSpace.occDayOf(occ))))
+    }
+
+    ; What the last delete took away comes back.
+    fn undo:boolean () {
+        if (undoKind == "day") {
+            space.unskipDay(undoId undoDay)
+            this.queueSaves()
+        }
+        if (undoKind == "entry") {
+            def found@(optional):SpEvent (this.trashed(undoId))
+            if (!null? found) {
+                def e:SpEvent found
+                this.untrash(undoId)
+                ; a delete still waiting is not sent; one already sent made
+                ; it new again
+                if ((this.dropQueued("delete_event" undoId)) == false) {
+                    if ((strlen e.remoteId) > 0) {
+                        e.remoteId = ""
+                        e.touch()
+                    }
+                }
+                if ((strlen e.remoteId) == 0) {
+                    e.touch()
+                }
+                space.putBack(e)
+                this.queueSaves()
+            }
+        }
+        if ((strlen undoKind) == 0) {
+            return false
+        }
+        undoKind = ""
+        status = (SpWords.ui(lang "restored"))
+        this.fillBoard()
+        this.budgetChanged()
+        return true
+    }
+
+    ; --- lists -------------------------------------------------------------------------
+
+    ; One entry in a list: its title, the day, its state and its cost.
+    fn entryRow:EVGElement (e:SpEvent) {
+        def due:string (e.dueState(today))
+        def kind:string (this.kindOf(e.typeId))
+        def cls:string "sp-item"
+        if ((kind == "deadline") && ((strlen due) > 0)) {
+            cls = "sp-item sp-item-important"
+        }
+        def row:EVGElement (UiTree.div(("sp-entry-" + e.id) cls))
+        row.role = "button"
+        row.a11yFocusable = true
+        def parts:[string]
+        if (kind == "deadline") {
+            if (due == "late") {
+                push parts (SpWords.ui(lang "late"))
+            }
+            if (due == "due") {
+                push parts (SpWords.ui(lang "dueSoon"))
+            }
+        }
+        if (e.dated()) {
+            push parts (SpWords.dayLabel(lang e.day))
+        }
+        def t@(optional):SpType (this.typeOf(e.typeId))
+        if (!null? t) {
+            def tt:SpType t
+            def i:int 0
+            while (i < (array_length tt.fields)) {
+                def f:SpField (itemAt tt.fields i)
+                def v:string (e.fieldText(f.key))
+                if (((strlen v) > 0) && ((f.type == "choice") || ((f.type == "person") || (f.type == "phone")))) {
+                    if (f.type == "choice") {
+                        push parts (f.optionLabel(lang v))
+                    } {
+                        push parts v
+                    }
+                }
+                if ((f.type == "bool") && (v == "true")) {
+                    push parts (f.label(lang))
+                }
+                if (((f.type == "number") || (f.type == "money")) && ((strlen v) > 0)) {
+                    push parts ((f.label(lang)) + " " + v)
+                }
+                i = (i + 1)
+            }
+        }
+        def ward:string (space.resourceName(e.resource))
+        if ((strlen ward) > 0) {
+            push parts ward
+        }
+        if e.hasCost {
+            push parts (SpTypes.money(lang e.cost.amount))
+        }
+        def meta:string (join parts " · ")
+        row.a11yLabel = (e.title + ", " + meta)
+        def icon:string "•"
+        if ((kind == "deadline") && ((strlen due) > 0)) {
+            icon = "⚑"
+        }
+        def ic:EVGElement (SpacesApp.tx("sp-star" icon))
+        ic.a11yHidden = true
+        row.addChild(ic)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        def tt2:EVGElement (SpacesApp.tx("sp-title" e.title))
+        tt2.a11yHidden = true
+        col.addChild(tt2)
+        if ((strlen meta) > 0) {
+            def mt:EVGElement (SpacesApp.tx("sp-meta" meta))
+            mt.a11yHidden = true
+            col.addChild(mt)
+        }
+        row.addChild(col)
+        return row
+    }
+
+    fn listsView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "lists")) (SpWords.pick(lang "Things, supplies, ideas, renewals and contacts: kept here, not on the calendar." "Tavarat, tarvikkeet, ideat, uusittavat ja yhteystiedot: täällä, ei kalenterissa.")))))
+        def listed:[SpType] (types.listedFor(pack))
+        if ((array_length listed) == 0) {
+            v.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noEntries")))))
+            return v
+        }
+        def cur:SpType (itemAt listed 0)
+        def i:int 0
+        while (i < (array_length listed)) {
+            def t:SpType (itemAt listed i)
+            if (t.id == listType) {
+                cur = t
+            }
+            i = (i + 1)
+        }
+        def bar:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        bar.role = "tablist"
+        def k:int 0
+        while (k < (array_length listed)) {
+            def t2:SpType (itemAt listed k)
+            def on:boolean (t2.id == cur.id)
+            def cls:string "sp-tab"
+            if on {
+                cls = "sp-tab sp-tab-on"
+            }
+            def n:int (array_length (space.entriesOf(t2.id)))
+            def label:string (t2.name.text(lang))
+            if (n > 0) {
+                label = (label + " " + (to_string n))
+            }
+            def tb:EVGElement (SpacesApp.btn(("sp-list-" + t2.id) cls label))
+            tb.role = "tab"
+            tb.a11ySelected = (SpacesApp.tri(on))
+            bar.addChild(tb)
+            k = (k + 1)
+        }
+        v.addChild(bar)
+        def c:EVGElement (this.card(("list-" + cur.id) (cur.name.text(lang))))
+        def help:string (cur.help.text(lang))
+        if ((strlen help) > 0) {
+            c.addChild((SpacesApp.tx("sp-cardsub" help)))
+        }
+        def entries:[SpEvent] (space.entriesOf(cur.id))
+        if ((array_length entries) == 0) {
+            c.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noEntries")))))
+        }
+        def j:int 0
+        while (j < (array_length entries)) {
+            c.addChild((this.entryRow((itemAt entries j))))
+            j = (j + 1)
+        }
+        c.addChild((SpacesApp.btn(("sp-addtype-" + cur.id) "sp-link" ((SpWords.ui(lang "addOne")) + ": " + (cur.name.text(lang))))))
+        v.addChild(c)
+        return v
+    }
+
+    ; --- the budget ----------------------------------------------------------------------
+
+    fn budgetStart:int () {
+        if (budgetFrom < 0) {
+            budgetFrom = (SpBudget.monthOfDay(today))
+        }
+        return budgetFrom
+    }
+
+    ; The budget shown: the server's, or worked out here.
+    fn currentBudget:SpBudget () {
+        def from:int (this.budgetStart())
+        if server {
+            if (!null? budgetAnswer) {
+                def b:SpBudget budgetAnswer
+                return b
+            }
+        }
+        return (SpBudget.compute(space from (from + 5) budgetPayer))
+    }
+
+    ; On a server, ask for the months shown (once for each question).
+    fn askBudget:void () {
+        if ((server == false) || ((strlen spaceId) == 0)) {
+            return
+        }
+        def from:int (this.budgetStart())
+        def body:string (SpRemote.budgetBody(spaceId (SpBudget.monthText(from)) (SpBudget.monthText((from + 5))) budgetPayer))
+        if (body == budgetAsked) {
+            return
+        }
+        budgetAsked = body
+        if ((this.queued("budget" "")) == false) {
+            this.queue("budget" body "")
+        }
+    }
+
+    ; Costs changed: the server's budget is out of date.
+    fn budgetChanged:void () {
+        budgetAsked = ""
+        if (tab == "budget") {
+            this.askBudget()
+        }
+    }
+
+    fn budgetView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        def b:SpBudget (this.currentBudget())
+        def from:int (this.budgetStart())
+        def range:string ((this.monthName(from)) + " – " + (this.monthName((from + 5))))
+        v.addChild((this.heading((SpWords.ui(lang "budget")) range)))
+        def bar:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        bar.addChild((SpacesApp.btn("sp-bud-prev" "sp-action" (SpWords.ui(lang "earlier")))))
+        bar.addChild((SpacesApp.btn("sp-bud-next" "sp-action" (SpWords.ui(lang "later")))))
+        def pills:EVGElement (SpacesApp.box("sp-pills"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.ui(lang "payer"))
+        def allOn:boolean ((strlen budgetPayer) == 0)
+        def ac:string "sp-pill"
+        if allOn {
+            ac = "sp-pill sp-pill-on"
+        }
+        def all:EVGElement (SpacesApp.btn("sp-bud-all" ac (SpWords.ui(lang "everyone"))))
+        all.a11yPressed = (SpacesApp.tri(allOn))
+        pills.addChild(all)
+        def payers:[string] (space.payers())
+        def i:int 0
+        while (i < (array_length payers)) {
+            def name:string (itemAt payers i)
+            def on:boolean (name == budgetPayer)
+            def pc:string "sp-pill"
+            if on {
+                pc = "sp-pill sp-pill-on"
+            }
+            def pb:EVGElement (SpacesApp.btn(("sp-bud-payer-" + (to_string i)) pc name))
+            pb.a11yPressed = (SpacesApp.tri(on))
+            pills.addChild(pb)
+            i = (i + 1)
+        }
+        bar.addChild(pills)
+        v.addChild(bar)
+
+        def sum:EVGElement (this.card("budget-sum" (SpWords.ui(lang "total"))))
+        sum.addChild((this.moneyRow("sp-bud-total" (SpWords.ui(lang "total")) b.total true)))
+        if allOn {
+            sum.addChild((this.moneyRow("sp-bud-shared" (SpWords.ui(lang "sharedTotal")) b.shared false)))
+            def k:int 0
+            while (k < (array_length b.byPayer.names)) {
+                def pn:string (itemAt b.byPayer.names k)
+                def label:string pn
+                if ((strlen pn) == 0) {
+                    label = (SpWords.ui(lang "noPayer"))
+                }
+                sum.addChild((this.moneyRow(("sp-bud-by-" + (to_string k)) label (itemAt b.byPayer.sums k) false)))
+                k = (k + 1)
+            }
+        }
+        v.addChild(sum)
+        def any:boolean false
+        def m:int 0
+        while (m < (array_length b.months)) {
+            def bm:SpBudgetMonth (itemAt b.months m)
+            if ((array_length bm.lines) > 0) {
+                any = true
+                def mi:int (SpBudget.monthOf(bm.month))
+                def mc:EVGElement (this.card(("month-" + bm.month) (this.monthName(mi))))
+                def j:int 0
+                while (j < (array_length bm.lines)) {
+                    def l:SpBudgetLine (itemAt bm.lines j)
+                    mc.addChild((this.budgetLine(l)))
+                    j = (j + 1)
+                }
+                mc.addChild((this.moneyRow("" (SpWords.ui(lang "total")) bm.total true)))
+                v.addChild(mc)
+            }
+            m = (m + 1)
+        }
+        if (any == false) {
+            v.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noCosts")))))
+        }
+        return v
+    }
+
+    fn monthName:string (idx:int) {
+        def y:int (idiv idx 12)
+        def m:int ((idx - (y * 12)) + 1)
+        def fi:[string] ([] _:string ( "tammikuu" "helmikuu" "maaliskuu" "huhtikuu" "toukokuu" "kesäkuu" "heinäkuu" "elokuu" "syyskuu" "lokakuu" "marraskuu" "joulukuu" ))
+        def en:[string] ([] _:string ( "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December" ))
+        if (lang == "fi") {
+            return ((itemAt fi (m - 1)) + " " + (to_string y))
+        }
+        return ((itemAt en (m - 1)) + " " + (to_string y))
+    }
+
+    fn moneyRow:EVGElement (id:string label:string v:double strong:boolean) {
+        def row:EVGElement (UiTree.div(id "sp-moneyrow"))
+        row.role = "listitem"
+        def money:string (SpTypes.money(lang v))
+        row.a11yLabel = (label + ": " + money)
+        def lb:EVGElement (SpacesApp.tx("sp-moneylabel" label))
+        lb.a11yHidden = true
+        row.addChild(lb)
+        row.addChild((SpacesApp.box("sp-grow")))
+        def cls:string "sp-money"
+        if strong {
+            cls = "sp-money sp-money-strong"
+        }
+        def mv:EVGElement (SpacesApp.tx(cls money))
+        mv.a11yHidden = true
+        row.addChild(mv)
+        return row
+    }
+
+    fn budgetLine:EVGElement (l:SpBudgetLine) {
+        def row:EVGElement (SpacesApp.box("sp-moneyrow"))
+        row.role = "listitem"
+        def parts:[string]
+        def d:int (SpTypes.dayOf(l.date 2000))
+        if (d >= 0) {
+            push parts (SpWords.dayLabel(lang d))
+        }
+        if (l.of > 1) {
+            push parts ((to_string l.n) + "/" + (to_string l.of))
+        }
+        if ((strlen l.payer) > 0) {
+            push parts l.payer
+        }
+        push parts (SpWords.ui(lang l.scope))
+        def meta:string (join parts " · ")
+        def money:string (SpTypes.money(lang l.amount))
+        row.a11yLabel = (l.title + ", " + meta + ": " + money)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        def tt:EVGElement (SpacesApp.tx("sp-title" l.title))
+        tt.a11yHidden = true
+        col.addChild(tt)
+        def mt:EVGElement (SpacesApp.tx("sp-meta" meta))
+        mt.a11yHidden = true
+        col.addChild(mt)
+        row.addChild(col)
+        def mv:EVGElement (SpacesApp.tx("sp-money" money))
+        mv.a11yHidden = true
+        row.addChild(mv)
+        return row
+    }
+
+    ; A press on the form, the Add menu, the lists or the budget: true when
+    ; it was one.
+    fn pressEntries:boolean (target:string) {
+        if (target == "sp-add") {
+            addOpen = (addOpen == false)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-addtype-")) {
+            this.openNew((substring target 11 (strlen target)))
+            return true
+        }
+        if (target == "sp-undo") {
+            this.undo()
+            return true
+        }
+        if (target == "sp-ed-save") {
+            this.saveForm()
+            return true
+        }
+        if (target == "sp-ed-cancel") {
+            editing = false
+            focused = ""
+            return true
+        }
+        if (target == "sp-ed-delete") {
+            this.deleteEntry(editId -1)
+            return true
+        }
+        if (target == "sp-ed-delday") {
+            this.deleteEntry(editId editOcc)
+            return true
+        }
+        if (target == "sp-ed-showcal") {
+            def found@(optional):SpEvent (space.event(editId))
+            if (!null? found) {
+                def e:SpEvent found
+                board.cursor = e.day
+                if (editOcc >= 0) {
+                    board.cursor = editOcc
+                }
+                board.view = "day"
+                board.applySettings()
+            }
+            editing = false
+            tab = "calendar"
+            focused = ""
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-tog-")) {
+            def n@(optional):int (to_int (substring target 7 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length pickVals))) {
+                    if ((itemAt pickVals k) == "true") {
+                        set pickVals k "false"
+                    } {
+                        set pickVals k "true"
+                    }
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-pick-")) {
+            def rest:string (substring target 8 (strlen target))
+            def dash:int (indexOf rest "-")
+            if (dash > 0) {
+                def a@(optional):int (to_int (substring rest 0 dash))
+                def b@(optional):int (to_int (substring rest (dash + 1) (strlen rest)))
+                if ((!null? a) && (!null? b)) {
+                    def pi:int (unwrap a)
+                    def oi:int (unwrap b)
+                    if ((pi >= 0) && (pi < (array_length pickKeys))) {
+                        def opts:[string] (this.pickOptions((itemAt pickKeys pi)))
+                        if ((oi >= 0) && (oi < (array_length opts))) {
+                            set pickVals pi (itemAt opts oi)
+                        }
+                    }
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-entry-")) {
+            this.openOcc((substring target 9 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-list-")) {
+            listType = (substring target 8 (strlen target))
+            return true
+        }
+        if ((target == "sp-bud-prev") || (target == "sp-bud-next")) {
+            def from:int (this.budgetStart())
+            if (target == "sp-bud-prev") {
+                budgetFrom = (from - 6)
+            } {
+                budgetFrom = (from + 6)
+            }
+            this.askBudget()
+            return true
+        }
+        if (target == "sp-bud-all") {
+            budgetPayer = ""
+            this.askBudget()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-bud-payer-")) {
+            def pn@(optional):int (to_int (substring target 13 (strlen target)))
+            if (!null? pn) {
+                def payers:[string] (space.payers())
+                def pk:int (unwrap pn)
+                if ((pk >= 0) && (pk < (array_length payers))) {
+                    budgetPayer = (itemAt payers pk)
+                }
+            }
+            this.askBudget()
+            return true
+        }
+        return false
+    }
+
+    ; =========================================================================
     ; input
     ; =========================================================================
 
@@ -1399,6 +2978,9 @@ class SpacesApp {
 
     fn press:boolean (target:string) {
         status = ""
+        if (target != "sp-undo") {
+            undoKind = ""
+        }
         if (target == "") {
             if (board.closeOverlays()) {
                 this.rebuild()
@@ -1423,12 +3005,21 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (this.pressEntries(target)) {
+            this.rebuild()
+            return true
+        }
         if (server && (this.pressServer(target))) {
             this.rebuild()
             return true
         }
         if (UiTree.beginsWith(target "sp-nav-")) {
             tab = (substring target 7 (strlen target))
+            editing = false
+            addOpen = false
+            if (tab == "budget") {
+                this.askBudget()
+            }
             this.rebuild()
             return true
         }
@@ -1443,6 +3034,13 @@ class SpacesApp {
             return true
         }
         if (UiTree.beginsWith(target "sp-item-")) {
+            ; an event opens in the form; a sheet's row on the calendar
+            def occ:string (this.occOfTarget(target))
+            if ((strlen (space.eventIdOf(occ))) > 0) {
+                this.openOcc(occ)
+                this.rebuild()
+                return true
+            }
             def n@(optional):int (to_int (substring target 8 (strlen target)))
             if (!null? n) {
                 def k:int (unwrap n)
@@ -1653,11 +3251,30 @@ class SpacesApp {
             if (!null? found) {
                 def e:SpEvent found
                 e.remoteId = (o.stringOr("event_id" e.remoteId))
-                if (e.rev == c.rev) {
-                    e.dirty = false
+                e.saved(c.rev)
+                def rf:string (o.stringOr("remind_from" ""))
+                if ((strlen rf) > 0) {
+                    e.remindFrom = (SpText.dayOf(rf (itemAt (SpSpace.ymdOf(today)) 0)))
+                }
+            } {
+                ; deleted while its first save was on its way: now it has
+                ; an id to delete
+                def gone@(optional):SpEvent (this.trashed(c.ref))
+                if (!null? gone) {
+                    def g:SpEvent gone
+                    g.remoteId = (o.stringOr("event_id" g.remoteId))
+                    if (((strlen g.remoteId) > 0) && ((this.queued("delete_event" c.ref)) == false)) {
+                        this.queue("delete_event" (SpRemote.deleteBody(spaceId g.remoteId)) c.ref)
+                    }
                 }
             }
             this.queueSaves()
+            this.budgetChanged()
+        }
+        if (c.op == "budget") {
+            if (c.body == budgetAsked) {
+                budgetAnswer = (SpBudget.read(text))
+            }
         }
         if (c.op == "add_ward") {
             this.seedWardAdded(c.ref (o.stringOr("id" "")))
@@ -1680,6 +3297,7 @@ class SpacesApp {
         }
         def s (new SpSpace())
         s.today = today
+        s.types = types
         SpRemote.readWhole(s sp events)
         space = s
         spaceId = s.remoteId
@@ -1693,6 +3311,10 @@ class SpacesApp {
         loading = false
         sheetSel = ""
         docSel = ""
+        editing = false
+        def none@(optional):SpBudget
+        budgetAnswer = none
+        budgetAsked = ""
         this.newBoard()
     }
 
@@ -1704,6 +3326,20 @@ class SpacesApp {
         def c:SpCall (this.takeFirst())
         status = message
         loading = false
+        if (c.op == "delete_event") {
+            ; the server keeps it: so does the page
+            def found@(optional):SpEvent (this.trashed(c.ref))
+            if (!null? found) {
+                def e:SpEvent found
+                this.untrash(c.ref)
+                space.putBack(e)
+                undoKind = ""
+                this.fillBoard()
+            }
+        }
+        if (c.op == "budget") {
+            budgetAsked = ""
+        }
         if ((c.op == "add_ward") || (c.op == "import_events")) {
             ; the demo data stops where it failed
             def none@(optional):SpSpace
@@ -1899,6 +3535,12 @@ class SpacesApp {
             board.focused = focused
             board.hovered = hovered
             board.pointerDown(id x y)
+            ; an event pressed is selected (the card leaves an all-day bar
+            ; unfocused until it is moved)
+            def ref:string (board.refine(id x y))
+            if ((strlen (this.occOfTarget(ref))) > 0) {
+                board.focused = ref
+            }
             focused = board.focused
             this.rebuild()
             return true
@@ -2045,6 +3687,32 @@ class SpacesApp {
             c.keyDownWith(c.tid k shift ctrl)
             this.rebuild()
             return true
+        }
+        if ((k == "Escape") && (editing || addOpen)) {
+            editing = false
+            addOpen = false
+            focused = ""
+            this.rebuild()
+            return true
+        }
+        if (ctrl && ((k == "z") && ((strlen undoKind) > 0))) {
+            this.undo()
+            this.rebuild()
+            return true
+        }
+        if (((k == "Backspace") || (k == "Delete")) && (editing == false)) {
+            if (this.deleteSelected()) {
+                this.rebuild()
+                return true
+            }
+        }
+        if ((k == "Enter") && (editing == false)) {
+            def occ:string (this.selectedOcc())
+            if (((strlen occ) > 0) && ((UiTree.beginsWith(focused "sp-")) == false)) {
+                this.openOcc(occ)
+                this.rebuild()
+                return true
+            }
         }
         if (k == "Tab") {
             if (this.onBoard(focused)) {

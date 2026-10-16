@@ -4,7 +4,9 @@
 // builds one EVG tree; this file paints its display list on a WebGL canvas,
 // sends it the pointer, the wheel and the keys, mirrors its accessible tree
 // into DOM over the canvas, and does the two things a tree cannot: read a
-// file or pasted cells for an import, and save a download.
+// file or pasted cells for an import, and save a download. A double-click
+// opens the event under it; Backspace and Delete outside a text field go to
+// the app, which deletes the selected event.
 //
 // The Warden page is the same app on a server: its index.html names the
 // server's path in <meta name="app-server">. The app then keeps an outbox
@@ -236,6 +238,12 @@ canvas.addEventListener("pointerup", () => {
   paint();
 });
 
+// A double-click opens the event under it in the form.
+canvas.addEventListener("dblclick", (ev) => {
+  const [x, y] = at(ev);
+  if (app.openAt(x, y)) after();
+});
+
 canvas.addEventListener("pointerleave", () => {
   if (app.hovered) {
     app.setHover("");
@@ -254,6 +262,9 @@ canvas.addEventListener("wheel", (ev) => {
 
 document.addEventListener("keydown", (ev) => {
   if (ev.target === fileInput) return;
+  // a key a text field's input already handed to the app (Enter, Tab,
+  // Escape) is not the page's a second time
+  if (ev.defaultPrevented) return;
   if (textInput.isActive() && ev.target === textInput.element()) return;
   if (app.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)) {
     ev.preventDefault();
