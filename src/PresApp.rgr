@@ -880,12 +880,12 @@ class PresApp {
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {
-        def v@(optional):PresPlayView (deck.playView(key))
-        if (null? v) {
-            return false
+        def was:int deck.revision
+        def ok:boolean (deck.setPlayFrame(key tree))
+        if (deck.revision != was) {
+            chromeRev = (chromeRev + 1)
         }
-        def view:PresPlayView (unwrap v)
-        return (view.setTree(tree))
+        return ok
     }
 
     ; Program `key` asks its slide to stay `seconds` when the deck plays on

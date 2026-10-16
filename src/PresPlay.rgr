@@ -538,12 +538,18 @@ class PresPlayView {
     }
 
     ; The fence's plate in the box (bx, by, bw, bh) of `out`, at the
-    ; program's shape, with `note()` under its name.
-    fn paintPlate:void (out:EVGDisplayList spec:MdAppSpec bx:double by:double bw:double bh:double) {
+    ; program's shape, as `look` has it (the slide's ink, a caption), with
+    ; `note()` under its name.
+    fn paintPlate:void (out:EVGDisplayList spec:MdAppSpec bx:double by:double bw:double bh:double look:MdAppPlate) {
         def f:[double] (this.fitIn(bx by bw bh))
         def w:double (width * (itemAt f 2))
         def h:double (height * (itemAt f 2))
-        def root:EVGElement (MdApp.plate(spec w h (this.note())))
+        look.note = (this.note())
+        ; one that stopped is not loading: its note says why instead
+        if ((strlen look.note) > 0) {
+            look.caption = ""
+        }
+        def root:EVGElement (MdApp.plateIn(spec w h look))
         root.position = "absolute"
         root.left = (EVGUnit.px((itemAt f 0)))
         root.top = (EVGUnit.px((itemAt f 1)))

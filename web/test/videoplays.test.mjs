@@ -178,3 +178,22 @@ test("a program that throws in its first frames says why on its plate", async ()
   assert.deepEqual(stopped, [["a#1", "TypeError: boom"]]);
   assert.ok(ended);
 });
+
+test("the Document view runs each program once: tried ones are skipped", async () => {
+  const made = [];
+  const set = [];
+  const app = {
+    playsStill: () => JSON.stringify([{ key: "a#1", slide: 0, w: 1, h: 1 }, { key: "b#1", slide: 1, w: 1, h: 1 }]),
+    playSource: (k) => (k === "b#1" ? "" : "x"),
+    playState: () => "{}",
+    setPlayFrame: (key) => { set.push(key); return true; },
+    setPlayStopped: () => {},
+  };
+  const tried = new Set();
+  assert.equal(await stillPlays({ app, tried, makeWorker: () => fakeWorker(made) }), 1);
+  // one whose source has not come yet is tried when it has
+  assert.deepEqual([...tried], ["a#1"]);
+  assert.equal(await stillPlays({ app, tried, makeWorker: () => fakeWorker(made) }), 0);
+  assert.equal(made.length, 1);
+  assert.deepEqual(set, ["a#1"]);
+});

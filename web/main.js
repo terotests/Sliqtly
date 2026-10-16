@@ -5324,6 +5324,7 @@ function frame() {
     collab?.tick();
     meet.tick();
     apps.tick(app.revision(), !!(lastLayout && lastLayout.mode === "present"));
+    docStills(lastLayout);
     // a game that has the keyboard while presenting takes the stage: the
     // controls at the foot give way until Esc (PresApp.gameTakesStage)
     const staged = app.gameTakesStage();
@@ -6271,6 +6272,25 @@ async function renderWorldStills() {
 // The programs on slides the stage never showed, run for their first frames
 // so an export shows each one's picture, not its fence's plate
 // (web/videoplays.js stillPlays); before the 3-D worlds, which they draw.
+// The Document view shows every slide at once, but a program runs only on
+// the slide the stage shows (web/apps.js): the others get their first frames
+// run here as a still, as an export does, each program once while the deck
+// is open. Their plates say "Loading…" meanwhile (PresDeck.plateLook).
+let docStillsBusy = false;
+let docStillsRev = "";
+const docStillsTried = new Set();
+function docStills(layout) {
+  if (docStillsBusy || !layout || layout.view !== "doc") return;
+  const rev = app.revision();
+  if (rev === docStillsRev) return;
+  docStillsRev = rev;
+  docStillsBusy = true;
+  stillPlays({ app, tried: docStillsTried })
+    .then((n) => { if (n) needsPaint = true; })
+    .catch((e) => console.warn("document view programs", e))
+    .finally(() => { docStillsBusy = false; });
+}
+
 async function renderPlayStills(picked) {
   if (await stillPlays({ app, picked: picked && app.pickCount() > 0 })) needsPaint = true;
 }
