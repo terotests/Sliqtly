@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { root, log } from "./lib.mjs";
 import { viewDir } from "./build-view.mjs";
 
@@ -73,6 +74,16 @@ const linksDeck = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-l
 // gzipped as web/recstream.js packStream keeps it), under its hash
 const recFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec.sliqrec"));
 const REC_HASH = crypto.createHash("sha256").update(recFile).digest("hex").slice(0, 24);
+// the same as an export of now would be (web/recstream.js REV: every slide
+// says where it is shown whole), and as one of format 1 (before #489): the
+// fixture is from between the two, before its slides said it (#530)
+const recNow = (() => {
+  const s = JSON.parse(zlib.gunzipSync(recFile));
+  return zlib.gzipSync(JSON.stringify({ ...s, rev: 1, slides: s.slides.map((x) => ({ ...x, settled: x.end })) }));
+})();
+const REC_NOW_HASH = crypto.createHash("sha256").update(recNow).digest("hex").slice(0, 24);
+const recOne = zlib.gzipSync(JSON.stringify({ sliqrec: 1, width: 960, height: 540, fps: 10, frames: 1, duration: 0.1, slides: [{ start: 0, end: 0.1, steps: [] }], cmds: [], keys: [] }));
+const REC_ONE_HASH = crypto.createHash("sha256").update(recOne).digest("hex").slice(0, 24);
 // the same kind of recording exported with the 3-D flight (version 3-D)
 const rec3dFile = fs.readFileSync(path.join(root, "scripts", "fixtures", "view-rec3d.sliqrec"));
 const REC3D_HASH = crypto.createHash("sha256").update(rec3dFile).digest("hex").slice(0, 24);
@@ -120,6 +131,12 @@ const server = http.createServer((req, res) => {
   if (rel === "/api/view/" + ID + "/rec/" + REC3D_HASH) {
     res.writeHead(200, { "content-type": "application/octet-stream" });
     res.end(rec3dFile);
+    return;
+  }
+  for (const [h, bytes] of [[REC_NOW_HASH, recNow], [REC_ONE_HASH, recOne]]) {
+    if (rel !== "/api/view/" + ID + "/rec/" + h) continue;
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    res.end(bytes);
     return;
   }
   if (rel === "/api/view/" + ID + "/rec/" + REC_HASH) {
@@ -322,6 +339,28 @@ try {
     await gone.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
     if (!(await gone.evaluate(() => document.getElementById("note").textContent)).length) fail("a missing recording says nothing");
     await gone.close();
+    // made with an older Sliqtly: format 1 is not played and says to export
+    // it again; one from before #530 plays, and says so too; one of now
+    // plays without a word
+    const aged = async (hash) => {
+      const ap = await browser.newPage();
+      ap.on("pageerror", (e) => fail(`/r/ older: ${e.message}`));
+      await ap.goto(base + "/r/" + ID + "/" + hash, { waitUntil: "load" });
+      await ap.waitForFunction(() => window.__pageStarted, null, { timeout: 15000 });
+      const got = await ap.evaluate(() => ({
+        note: document.getElementById("note").hidden ? "" : document.getElementById("note").textContent,
+        older: document.getElementById("older").hidden ? "" : document.getElementById("older").textContent,
+        bar: !document.getElementById("bar").hidden,
+      }));
+      await ap.close();
+      return got;
+    };
+    const one = await aged(REC_ONE_HASH);
+    if (one.bar || !/older Sliqtly: export it again/.test(one.note)) fail("a recording of format 1 is not said to be older: " + JSON.stringify(one));
+    const before = await aged(REC_HASH);
+    if (!before.bar || !/older Sliqtly: export it again/.test(before.older)) fail("a recording from before #530 does not play with a word that it is older: " + JSON.stringify(before));
+    const now = await aged(REC_NOW_HASH);
+    if (!now.bar || now.older || now.note) fail("a recording of now plays with a word: " + JSON.stringify(now));
     // exported with the 3-D flight: offered on the page and on the bar; a
     // press flies it in full screen (the editor's flight, web/flight3d.js),
     // Esc lands back in the slides; a 2-D recording offers none
