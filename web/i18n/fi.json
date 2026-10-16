@@ -1923,5 +1923,10 @@
   "box border width": "laatikon reunan leveys",
   "box corners": "laatikon kulmat",
   "Fit": "Sovita",
-  "Fit the page to the editor": "Sovita sivu editoriin"
+  "Fit the page to the editor": "Sovita sivu editoriin",
+  "Pages": "Sivut",
+  "Landscape: slides": "Vaaka: diat",
+  "Portrait: as View": "Pysty: kuten Näkymä",
+  "Review comments on slides": "Katselmointikommentit dioissa",
+  "Landscape has one slide on each page. Portrait has the presentation as the View tab shows it, on A4 pages.": "Vaakasivuilla on yksi dia sivullaan. Pystysivuilla esitys on kuten Näkymä-välilehdellä, A4-sivuina."
 }

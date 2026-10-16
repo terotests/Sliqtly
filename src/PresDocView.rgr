@@ -54,6 +54,13 @@ class PresDocView {
     def muted:string "#6e7781"
     def rule:string "#d0d7de"
     def noteBar:string "#d0d7de"
+    ; the slides the page reads (0 = first), all of them when empty: the
+    ; portrait PDF of the picked slides
+    def only:[int]
+    ; what a printed sheet may not cut in two (PresDocPages): each line,
+    ; picture and figure, and a slide's rule with the start of the slide
+    def atomTop:[double]
+    def atomBottom:[double]
 
     Constructor () {
     }
@@ -217,6 +224,8 @@ class PresDocView {
         clear segTo
         clear segTop
         clear segBottom
+        clear atomTop
+        clear atomBottom
         def e:MarkdownEdit deck.md.edit
         def doc:MdNode e.doc
         ; the shots, as the exports find them
@@ -271,7 +280,7 @@ class PresDocView {
             if (page < 0) {
                 page = cur
             }
-            if (page >= 0) {
+            if ((page >= 0) && (this.reads(page))) {
                 if (page != cur) {
                     if (cur >= 0) {
                         this.addNotes(deck cur itemChild noteLayouts noteItems)
@@ -319,6 +328,23 @@ class PresDocView {
         this.paint(deck l word boxChild itemChild noteLayouts noteItems)
         deck.platesLoading = false
         caret.finish()
+    }
+
+    fn reads:boolean (page:int) {
+        if ((array_length only) == 0) {
+            return true
+        }
+        for only p:int i {
+            if (p == page) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn atom:void (top:double bottom:double) {
+        push atomTop top
+        push atomBottom bottom
     }
 
     sfn shotOf@(optional):PresDocxShot (word:PresDocx key:int) {
@@ -450,12 +476,16 @@ class PresDocView {
                     if (b.kind != 6) {
                         painter.paintBox(list l b it.dy)
                         caret.add(b it.dy)
+                        if ((((b.kind == 0) || (b.kind == 3)) || (b.kind == 4)) || (b.kind == 5)) {
+                            this.atom((b.y + it.dy) ((b.y + b.h) + it.dy))
+                        }
                     }
                     k = (k + 1)
                 }
             }
             if (it.kind == 1) {
                 this.paintShot(deck word it)
+                this.atom(it.y (it.bottomEdge()))
             }
             if (it.kind == 2) {
                 def nk:int it.note
@@ -483,6 +513,8 @@ class PresDocView {
         list.addRect((flow.colX()) y (flow.colW()) 1.0 (EVGColor.parse(rule)))
         list.addText((to_string (page + 1)) 8.0 (y - 6.0) 10.0 (EVGColor.parse(muted)) "Open Sans" false false 24.0 10.0)
         this.segment(from (y - 8.0) (y + 8.0))
+        ; the rule stays with the first lines of its slide
+        this.atom((y - 8.0) (y + 72.0))
     }
 
     ; A block as its slide shows it at rest, cut to its rectangle and set
@@ -599,6 +631,7 @@ class PresDocView {
                 painter.paintBox(list nl m it.y)
                 if (m.kind == 0) {
                     caret.add(m it.y)
+                    this.atom((m.y + it.y) ((m.y + m.h) + it.y))
                 }
             }
             k = (k + 1)
@@ -761,6 +794,32 @@ class PresDocView {
             }
             i = (i + 1)
         }
+        return out
+    }
+
+    ; One printed sheet `w` × `h`: the page from `top` to `bottom` set at
+    ; `margin` from the sheet's top, on the page's paper, with what runs past
+    ; that stretch clipped. The commands are copies: the page keeps its own.
+    fn sheet:EVGDisplayList (top:double bottom:double margin:double w:double h:double) {
+        def body (new EVGDisplayList())
+        def i:int 0
+        while (i < (array_length segFrom)) {
+            if (((itemAt segBottom i) > top) && ((itemAt segTop i) < bottom)) {
+                def c:int (itemAt segFrom i)
+                def stop:int (itemAt segTo i)
+                while (c < stop) {
+                    body.addCmd((PresScriptApply.copyCmd((itemAt list.cmds c))))
+                    c = (c + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        body.offsetBy(0.0 (margin - top))
+        def out (new EVGDisplayList())
+        out.addRect(0.0 0.0 w h (EVGColor.parse(paper)))
+        out.addClip(0.0 margin w (bottom - top))
+        out.appendFrom(body)
+        out.addClipEnd()
         return out
     }
 
