@@ -62,6 +62,7 @@ Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresFindBar.rgr"
+Import "PresTocDrawer.rgr"
 Import "PresPanels.rgr"
 Import "PresMeet.rgr"
 Import "PresReviewUi.rgr"
@@ -330,6 +331,11 @@ class PresApp {
     def hint:PresHintPopover (new PresHintPopover())
     ; Ctrl/Cmd+F over the code editor
     def find:PresFindBar (new PresFindBar())
+    ; the table of contents (PresToc) and its drawer, opened by "ToC" over
+    ; the stage while editing and in the presenting bar
+    def toc:PresToc (new PresToc())
+    def tocUi:PresTocDrawer (new PresTocDrawer())
+    def tocBtn@(optional):EVGElement
     ; the element picked on the slide, with its handles (PresSelect.rgr)
     def pick:PresSelect (new PresSelect())
     ; the popover was opened from the pick: it stays where it was opened,
@@ -411,6 +417,7 @@ class PresApp {
         layers.add("code" "docked")
         layers.add("review" "docked")
         layers.add("find" "docked")
+        layers.add("toc" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
         layers.add("dialog" "modal")
@@ -5612,6 +5619,15 @@ class PresApp {
             this.makeViewTabs()
             laidViewTabs = viewTabs
             vBar.addChild((unwrap viewTabs.rootEl))
+            def vGap:EVGElement (EVGElement.createDiv())
+            vGap.className = "ed-tabs-gap"
+            vBar.addChild(vGap)
+            def tb:EVGElement (EVGElement.createDiv())
+            tb.id = "toc-btn"
+            tb.className = (? (tocUi.isOpen()) "toc-btn toc-btn-on" "toc-btn")
+            tb.textContent = "ToC"
+            vBar.addChild(tb)
+            tocBtn = tb
             root.addChild(vBar)
         }
         root.addChild((PresApp.div("stage-area" "stage-area" stageArea.x stageArea.y stageArea.w stageArea.h)))
@@ -5944,7 +5960,7 @@ class PresApp {
         out = (out + ":" + (to_string editor.sel.anchor.line) + "," + (to_string editor.sel.anchor.col))
         out = (out + ":" + (to_string editor.layout.scrollLine) + ":" + (to_string blink))
         out = (out + ":" + focus + ":" + mode + ":" + (EVGDisplayList.num(W)) + "x" + (EVGDisplayList.num(H)))
-        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev) + ":p" + (to_string panels.rev))
+        out = (out + ":c" + (to_string chart.rev) + ":t" + (to_string toolbar.rev) + ":h" + (to_string hint.rev) + ":p" + (to_string panels.rev) + ":k" + (to_string tocUi.rev))
         out = (out + ":r" + (to_string review.rev) + ":m" + (to_string room.rev))
         return out
     }
@@ -5964,6 +5980,11 @@ class PresApp {
     ; Where a press landed: "editor", "sep", "scrub", "thumb", "stage" or "".
     fn pointerDown:string (x:double y:double shift:boolean clicks:int) {
         this.place()
+        ; the ToC drawer over everything but a menu or a window
+        if ((tocUi.isOpen()) && ((this.layerAt(x y)) == "toc")) {
+            this.tocPress(x y)
+            return "toc"
+        }
         ; review mode: a pin, its bar, a thread, or where a new comment goes
         if review.on {
             if (((this.layerAt(x y)) == "review") && (review.press(x y clicks shift))) {
@@ -6106,6 +6127,10 @@ class PresApp {
             return "sep"
         }
         if (viewTabRect.has(x y)) {
+            if (this.tocBtnHas(x y)) {
+                this.tocToggle()
+                return "toc"
+            }
             def hitView:string (this.viewTabAt(x))
             if ((strlen hitView) > 0) {
                 this.setStageView(hitView)
@@ -6574,6 +6599,13 @@ class PresApp {
         if ((chart.rev + review.rev) != winBefore) {
             chromeRev = (chromeRev + 1)
         }
+        if (tocUi.isOpen()) {
+            def tocHot:int tocUi.rev
+            tocUi.hoverAt(x y)
+            if (tocUi.rev != tocHot) {
+                chromeRev = (chromeRev + 1)
+            }
+        }
         this.diagramPointer(x y top)
         if ((mode == "present") && (inkPress == false)) {
             this.inkHover(x y)
@@ -6879,6 +6911,11 @@ class PresApp {
     }
 
     fn wheel:boolean (x:double y:double dy:double) {
+        if ((tocUi.isOpen()) && ((this.layerAt(x y)) == "toc")) {
+            tocUi.wheel(dy)
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if ((this.layerAt(x y)) == "room") {
             room.wheel(x y dy)
             this.afterRoom()
@@ -7016,6 +7053,12 @@ class PresApp {
                 def mc:string (room.cursorAt(x y))
                 return (? ((strlen mc) > 0) mc "default")
             }
+        }
+        if ((tocUi.isOpen()) && ((this.layerAt(x y)) == "toc")) {
+            return (tocUi.cursorAt(x y))
+        }
+        if ((mode == "edit") && (this.tocBtnHas(x y))) {
+            return "pointer"
         }
         if (review.on && ((this.layerAt(x y)) == "review")) {
             def rc:string (review.cursorAt(x y))
@@ -7176,6 +7219,10 @@ class PresApp {
                 this.afterSketch()
                 return true
             }
+        }
+        if ((name == "escape") && (tocUi.isOpen())) {
+            this.tocClose()
+            return true
         }
         if ((name == "escape") && (review.escape())) {
             if (focus == "review") {
@@ -8558,6 +8605,7 @@ class PresApp {
         ; on the Document tab the comments are pinned on the page
         layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
+        layers.setOpen("toc" (tocUi.isOpen()))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
         layers.setOpen("dialog" (panels.shareOpen && edit))
@@ -8601,6 +8649,9 @@ class PresApp {
         }
         if (id == "find") {
             return (find.has(x y))
+        }
+        if (id == "toc") {
+            return (tocUi.has(x y))
         }
         if (id == "chart") {
             return (chart.has(x y))
@@ -8671,6 +8722,143 @@ class PresApp {
     ; --- the value popover --------------------------------------------------------
     fn setHintCss:void (css:string) {
         hint.css = css
+    }
+
+    ; --- the table of contents (PresToc, PresTocDrawer) ----------------------
+    ; "ToC" at the right of Slides | Document while editing, and in the
+    ; presenting bar (the page calls `tocToggle`), opens a drawer at the left
+    ; with the deck's headings; the one being read is marked, a press goes
+    ; to one. Only a reading aid: nothing of it is in the deck or an export.
+    fn tocBtnHas:boolean (x:double y:double) {
+        if (((mode != "edit") || (viewTabRect.h <= 0.0)) || (null? tocBtn)) {
+            return false
+        }
+        def b:EVGElement (unwrap tocBtn)
+        return ((((x >= b.calculatedX) && (x <= (b.calculatedX + b.calculatedWidth))) && (y >= b.calculatedY)) && (y <= (b.calculatedY + b.calculatedHeight)))
+    }
+
+    fn tocShown:boolean () {
+        return (tocUi.isOpen())
+    }
+
+    fn tocToggle:void () {
+        if (tocUi.isOpen()) {
+            this.tocClose()
+            return
+        }
+        this.tocSync()
+        tocUi.open()
+        chromeRev = (chromeRev + 1)
+    }
+
+    fn tocClose:void () {
+        tocUi.close()
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The entry being read now: on the page that is shown (the stage's
+    ; Document view, else the editor's View tab) by where it is scrolled,
+    ; else by the slide.
+    fn tocCurrent:int () {
+        if (this.docShown()) {
+            this.docEnsure()
+            toc.placeOn(docView.flow)
+            return (toc.currentForY((docPane.readY((docView.width()) (docView.height())))))
+        }
+        if (this.edDocShown()) {
+            this.edDocEnsure()
+            toc.placeOn(docView.flow)
+            return (toc.currentForY((edDocPane.readY((docView.width()) (docView.height())))))
+        }
+        return (toc.currentForSlide(selected))
+    }
+
+    ; The list and the drawer's room for the deck and the screen as they are.
+    fn tocSync:void () {
+        toc.build(deck)
+        tocUi.measurer = measurer
+        tocUi.w = W
+        tocUi.h = H
+        def top:double 0.0
+        if (mode != "present") {
+            top = barH
+        }
+        def wide:double 340.0
+        if (wide > (W * 0.85)) {
+            wide = (W * 0.85)
+        }
+        tocUi.place(top (H - top) wide)
+        tocUi.setEntries(toc (this.tocCurrent()))
+    }
+
+    fn tocPress:void (x:double y:double) {
+        def i:int (tocUi.press(x y))
+        if (i >= 0) {
+            this.tocPick(i)
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Go to entry i: presenting, its slide whole; editing, its slide with
+    ; the Markdown's caret on the heading, and the page shown scrolled to it.
+    fn tocPick:void (i:int) {
+        toc.build(deck)
+        if ((i < 0) || (i >= (toc.count()))) {
+            return
+        }
+        def e:PresTocEntry (toc.entryAt(i))
+        if (mode == "present") {
+            this.jump((PresNav.whole(deck e.slide)))
+            return
+        }
+        this.selectSlide(e.slide)
+        this.posOf((mdEditor.text()) e.src)
+        mdEditor.sel.setCaret(posLine 0)
+        mdEditor.sel.collapseToCaret()
+        this.headingInView(posLine)
+        if ((this.docShown()) || (this.edDocShown())) {
+            if (this.docShown()) {
+                this.docEnsure()
+            }
+            if (this.edDocShown()) {
+                this.edDocEnsure()
+            }
+            toc.placeOn(docView.flow)
+            def y:double e.y
+            if (y >= 0.0) {
+                def dw:double (docView.width())
+                def dh:double (docView.height())
+                if (this.docShown()) {
+                    docPane.scroll = (y - 12.0)
+                    docPane.clamp(dw dh)
+                    docPane.seen = selected
+                }
+                if (this.edDocShown()) {
+                    edDocPane.scroll = (y - 12.0)
+                    edDocPane.clamp(dw dh)
+                    edDocPane.seen = selected
+                }
+            }
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The drawer as a display list over the page: "" while it is closed.
+    fn tocJson:string () {
+        if ((tocUi.isOpen()) == false) {
+            return ""
+        }
+        this.tocSync()
+        def dl:EVGDisplayList (tocUi.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
+    fn setTocCss:void (css:string) {
+        tocUi.css = css
+        if (tocUi.isOpen()) {
+            tocUi.rebuild()
+            chromeRev = (chromeRev + 1)
+        }
     }
 
     fn setFindCss:void (css:string) {
@@ -12384,6 +12572,7 @@ class PresApp {
         panels.skinHue = hue
         hint.skin = s
         find.skin = s
+        tocUi.skin = s
         chart.skin = s
         PresApp.skinEditor(editor s hue)
         PresApp.skinEditor(cssEditor s hue)

@@ -2,6 +2,7 @@
 ; Node checks for the deck and the timeline: `npm run check`.
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
+Import "PresToc.rgr"
 Import "PresEditMode.rgr"
 Import "PresVideo.rgr"
 Import "PresToolbar.rgr"
@@ -4906,6 +4907,92 @@ class PresCheck {
 
     ; The document view of a deck (PresDocView): every slide's text in one
     ; column, the diagram as its slide shows it, the notes under their slide.
+    ; The table of contents (PresToc): the headings in order, each with its
+    ; slide and indent, where each is on the Document page, and which one is
+    ; being read on a slide and at a point of the page.
+    fn toc:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n"
+            + "# Osa yksi\n\n## Johdanto\n\nTeksti.\n\n### Tausta\n\nLisää.\n\n#### Liian syvä\n\nPois.\n\n"
+            + "## Menetelmä {#m}\n\nKuvaus.\n\n## Ilman alaotsikoita\n\nVain tekstiä.\n\n"
+            + "# Osa kaksi\n\n## Tulokset\n\nLuvut.\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        def t (new PresToc())
+        t.build(deck)
+        def names:string ""
+        def depths:string ""
+        def i:int 0
+        while (i < (t.count())) {
+            def e:PresTocEntry (t.entryAt(i))
+            names = (names + e.text + "|")
+            depths = (depths + (to_string e.depth))
+            i = (i + 1)
+        }
+        this.ok((names == "Osa yksi|Johdanto|Tausta|Menetelmä|Ilman alaotsikoita|Osa kaksi|Tulokset|") ("toc: the headings to ###, in order, without their {attributes}; got " + names))
+        this.ok((depths == "0121101") ("toc: indent from the shallowest level, got " + depths))
+        if ((t.count()) != 7) {
+            return
+        }
+        def slides:string ""
+        def ok:boolean true
+        i = 0
+        while (i < (t.count())) {
+            def e2:PresTocEntry (t.entryAt(i))
+            slides = (slides + (to_string e2.slide) + ",")
+            if ((i > 0) && (e2.slide < (t.entryAt((i - 1))).slide)) {
+                ok = false
+            }
+            i = (i + 1)
+        }
+        this.ok(ok ("toc: slides never go back, got " + slides))
+        def menet:PresTocEntry (t.entryAt(3))
+        def tausta:PresTocEntry (t.entryAt(2))
+        def johd:PresTocEntry (t.entryAt(1))
+        this.ok((tausta.slide == johd.slide) "toc: ### stays on its ## slide")
+        this.ok((menet.slide > johd.slide) "toc: the next ## is a slide of its own")
+        ; on a slide: its first heading; a slide with none: the one before
+        this.ok(((t.currentForSlide(johd.slide)) == (? ((t.entryAt(0)).slide == johd.slide) 0 1)) "toc: the slide's first heading is the one read")
+        this.ok(((t.currentForSlide(menet.slide)) == 3) "toc: Menetelmä's slide reads Menetelmä")
+        this.ok(((t.currentForSlide(-1)) == -1) "toc: before the first slide, none")
+        this.ok(((t.currentForSlide(999)) == 6) "toc: past the end, the last")
+        ; same revision: not made again
+        def before:PresTocEntry (t.entryAt(0))
+        before.y = 123.0
+        t.build(deck)
+        this.ok(((t.entryAt(0)).y == 123.0) "toc: the same revision keeps the list")
+        deck.setText((text + "\n## Liite\n\nLoppu.\n"))
+        t.build(deck)
+        this.ok(((t.count()) == 8) ("toc: an edit makes it again, got " + (to_string (t.count()))))
+        ; on the Document page
+        def v (new PresDocView())
+        v.build(deck)
+        t.placeOn(v.flow)
+        def ys:boolean true
+        i = 0
+        while (i < (t.count())) {
+            def e3:PresTocEntry (t.entryAt(i))
+            if (e3.y < 0.0) {
+                ys = false
+            }
+            if ((i > 0) && (e3.y <= (t.entryAt((i - 1))).y)) {
+                ys = false
+            }
+            i = (i + 1)
+        }
+        this.ok(ys "toc: every heading placed on the page, top to bottom")
+        def m2:PresTocEntry (t.entryAt(3))
+        this.ok(((t.currentForY(m2.y)) == 3) "toc: at Menetelmä's line, Menetelmä")
+        this.ok(((t.currentForY((m2.y + 5.0))) == 3) "toc: just below it, still Menetelmä")
+        this.ok(((t.currentForY((m2.y - 1.0))) == 2) "toc: just above it, the one before")
+        this.ok(((t.currentForY(-10.0)) == -1) "toc: above the first, none")
+        this.ok(((v.flow.yOfKey(-5)) < 0.0) "toc: no block at an offset that starts none")
+        ; deeper levels when asked for
+        def t4 (new PresToc())
+        t4.maxLevel = 4
+        t4.build(deck)
+        this.ok(((t4.count()) == 9) ("toc: #### listed with maxLevel 4, got " + (to_string (t4.count()))))
+    }
+
     fn docView:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n\n"
@@ -9281,6 +9368,7 @@ class PresCheck {
         c.docFlow()
         c.docPoints()
         c.docView()
+        c.toc()
         c.docCaret()
         c.editMode()
         c.traceChecks()
