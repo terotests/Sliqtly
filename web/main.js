@@ -5761,7 +5761,8 @@ function handleRequests() {
       // Edit is not offered for this deck here (app.setEditLock)
       toast(r.slice(12));
     } else if (r === "edit-needed") {
-      toast(t("Press ✎ Edit to change the presentation."));
+      // on the View page the text itself is where editing starts
+      toast(app.editorTab() === "view" ? t("Double-click the text, or press ✎ Edit, to change the presentation.") : t("Press ✎ Edit to change the presentation."));
     } else if (r.startsWith("click:")) {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
