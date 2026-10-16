@@ -1509,14 +1509,32 @@ class PresApp {
     ; is selected; a double click shows that slide in the Presentation view.
     fn docPress:void (x:double y:double clicks:int) {
         this.docEnsure()
+        def link:string (this.docPaneLink(docPane x y))
         if ((this.docPanePress(docPane x y)) == false) {
             return
         }
         if (clicks >= 2) {
             this.setStageView("slides")
+        } {
+            ; a link is followed once the press is not the first of a
+            ; double click (the page waits, as for a link on the slide)
+            if ((strlen link) > 0) {
+                push requests ("link:" + link)
+            }
         }
         focus = "stage"
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The link of the words under a screen point of a pane of the page, ""
+    ; for none.
+    fn docPaneLink:string (pane:PresDocPane x:double y:double) {
+        def dw:double (docView.width())
+        if ((pane.has(x y)) == false) {
+            return ""
+        }
+        def px:double ((x - (pane.left(dw))) / (pane.scale(dw)))
+        return (docView.caret.linkAt(px (pane.pageY(y dw))))
     }
 
     ; A press on a pane of the page: its slide selected, the Markdown's
@@ -1722,9 +1740,14 @@ class PresApp {
             this.docEditPress(x y shift clicks)
             return
         }
+        def link:string (this.docPaneLink(edDocPane x y))
         def hit:boolean (this.docPanePress(edDocPane x y))
         focus = "editor"
         chromeRev = (chromeRev + 1)
+        if ((hit && (clicks == 1)) && ((strlen link) > 0)) {
+            ; reading: a link is followed (after the double-click time)
+            push requests ("link:" + link)
+        }
         if ((hit == false) || (clicks < 2)) {
             return
         }
@@ -7140,6 +7163,9 @@ class PresApp {
                 }
                 return "pointer"
             }
+        }
+        if ((((this.docShown()) && (stageArea.has(x y))) && ((strlen (this.docPaneLink(docPane x y))) > 0)) || ((((this.edDocShown()) && ((this.docEditing()) == false)) && (edRect.has(x y))) && ((strlen (this.docPaneLink(edDocPane x y))) > 0))) {
+            return "pointer"
         }
         if (((this.docEditing()) && (edRect.has(x y))) && (docPic >= 0)) {
             def dz:string (this.docPicZone((this.docPageX(x)) (this.docPageY(y))))

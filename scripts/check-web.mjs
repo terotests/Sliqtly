@@ -2468,6 +2468,51 @@ try {
     return out;
   });
   check("a single click on a link on the slide follows it, a double click picks its paragraph", lk.cursor === "pointer" && lk.req === "link:#kolmas" && lk.picked === false && lk.dbl.join(",") === "true,p," && lk.follow.join(",") === "true,3,false" && lk.landed === 3, JSON.stringify(lk));
+  // …and on the page: the Document tab over the stage and the editor's View
+  // tab while reading follow a link's words the same way
+  const dl = await page.evaluate(async () => {
+    const a = window.__app;
+    const src0 = a.source();
+    const text = "# D\n\n## Eka\n\nKatso [kolmas](#kolmas) tästä.\n\n## Toka\n\nx\n\n## Kolmas\n\ny\n";
+    a.setSource(text);
+    const off = text.indexOf("kolmas]") + 2;
+    const at = (pane) => {
+      const dw = a.docView.width();
+      const c = a.docView.caret.caret(off);
+      return [pane.left(dw) + (c[0] + 0.5) * pane.scale(dw), pane.top(dw) + (c[1] + c[2] / 2) * pane.scale(dw)];
+    };
+    const out = {};
+    while (a.takeRequest()) { /* earlier ones */ }
+    // the Document tab
+    a.selectSlide(0);
+    a.setStageView("doc");
+    a.place();
+    a.docEnsure();
+    let [x, y] = at(a.docPane);
+    out.docCursor = a.cursorAt(x, y);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    out.docReq = a.takeRequest() || "";
+    a.setStageView("slides");
+    // the View tab, reading
+    a.setEditing(false, false);
+    a.showTab("view");
+    a.place();
+    a.edDocEnsure();
+    [x, y] = at(a.edDocPane);
+    out.viewCursor = a.cursorAt(x, y);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    out.viewReq = a.takeRequest() || "";
+    a.selectSlide(1);
+    a.pointerDown(x, y, false, 1); a.pointerUp();
+    window.__handleRequests();
+    await new Promise((ok) => setTimeout(ok, 600));
+    out.landed = a.selected;
+    a.setEditing(true, false);
+    a.showTab("md");
+    a.setSource(src0);
+    return out;
+  });
+  check("a click on a link on the Document tab and on the View tab follows it", dl.docCursor === "pointer" && dl.docReq === "link:#kolmas" && dl.viewCursor === "pointer" && dl.viewReq === "link:#kolmas" && dl.landed === 3, JSON.stringify(dl));
   check("…its Style lists h2's and all headings' properties, set and not", pk.style.join(",") === "true,selector,true" && pk.styleProps.includes("h2>font-size=") && pk.styleProps.includes("heading>margin-top=") && pk.styleProps.some((p) => p.endsWith("+")), JSON.stringify(pk.styleProps));
   check("…a band opens its value in the theme, next to the slide", pk.band.join(",") === "css,number,heading › margin-bottom,true,true", JSON.stringify(pk.band));
   check("…and its card does not cover the element", pk.offElement === true);
