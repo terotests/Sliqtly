@@ -4986,7 +4986,7 @@ class PresCheck {
     fn docCaret:void () {
         def text:string ("---\ntitle: Raportti\n---\n\n"
             + "## Eka otsikko\n\nTeksti **lihava** ja tavallinen loppu.\n\n- yksi\n- kaksi\n\n"
-            + "::: notes\nPuhe.\n:::\n\n---\n\n## Toinen\n\n1. a\n2. b\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n")
+            + "::: notes\nPuhe ensin. [[1]] Sitten.\n:::\n\n---\n\n## Toinen\n\n1. a\n2. b\n\n| Nimi | Määrä |\n| :--- | ---: |\n| omena | 3 |\n")
         def deck (new PresDeck())
         deck.setText(text)
         def v (new PresDocView())
@@ -5016,7 +5016,21 @@ class PresCheck {
         this.ok(((cm.stepRight(text (lih - 2))) == (lih + 1)) ("doccaret: → steps over the markers and a letter, got " + (to_string (cm.stepRight(text (lih - 2))))))
         this.ok(((cm.stepLeft(text (lih + 1))) == lih) "doccaret: ← one letter back")
         this.ok(((cm.stepLeft(text lih)) == (lih - 3)) ("doccaret: ← over the markers and the space, got " + (to_string (cm.stepLeft(text lih)))))
-        this.ok(((cm.has((indexOf text "Puhe"))) == false) "doccaret: the notes are not on the caret's page")
+        ; the notes are words on the page, at their place in the ::: notes
+        ; block; the [[1]] cue between them is not shown
+        def puhe:int (indexOf text "Puhe ensin.")
+        def cue:int (indexOf text "[[1]]")
+        this.ok((cm.has(puhe) && cm.has((indexOf text "Sitten."))) "doccaret: the notes' words are on the caret's page")
+        this.ok(((cm.has((cue + 2))) == false) "doccaret: the notes' [[cue]] is not shown")
+        def sit:int (indexOf text "Sitten.")
+        def sb:MdBox (itemAt cm.boxes (cm.boxOf((sit + 1))))
+        def sbSrc:string (substring text sb.segSrc (sb.segSrc + sb.segLen))
+        this.ok((((sb.segAtom == false) && (sbSrc == sb.text)) && ((indexOf sbSrc "Sitten.") >= 0)) ("doccaret: the words past the cue are a box of their own, letter for letter, got " + sb.text + " = " + sbSrc))
+        def pb:int (cm.boxOf(puhe))
+        def pbox:MdBox (itemAt cm.boxes pb)
+        this.ok((pbox.segSrc == puhe) ("doccaret: a notes box starts where its words are in the source, got " + (to_string pbox.segSrc) + " want " + (to_string puhe)))
+        def bl:PresBlock (itemAt deck.src.blocks 0)
+        this.ok(((substring text bl.bodyAt (bl.bodyAt + (strlen bl.body))) == bl.body) "doccaret: a block's bodyAt is where its body is in the source")
         this.ok((cm.has(((indexOf text "omena") + 2))) "doccaret: a table cell's words are on the caret's page")
         ; Backspace joins and Enter's text
         this.ok((PresDocCaret.gapJoins("\n\n- ")) "doccaret: a gap of a bullet joins")

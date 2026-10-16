@@ -329,12 +329,15 @@ class PresDocView {
     }
 
     ; Slide `page`'s notes as an item: laid out as Markdown in the column,
-    ; a little in from its edge.
+    ; a little in from its edge. Their words are the source's words: each
+    ; box's segSrc is moved from the notes text to the deck's source, so the
+    ; caret goes into them as into the slide's own words.
     fn addNotes:void (deck:PresDeck page:int itemChild:[int] noteLayouts:[MdLayout] noteItems:[PresDocItem]) {
         if (page >= (deck.slideCount())) {
             return
         }
         def s:PresSlide (deck.slideAt(page))
+        def at:[int] (PresDocView.notesMap(s))
         def text:string (trim (PresDocx.notesText(s.notes)))
         if ((strlen text) == 0) {
             return
@@ -344,6 +347,7 @@ class PresDocView {
         nl.style.margin = 0.0
         def nd:MdNode (MdBlock.parseText(text))
         nl.layoutContinuous(nd ((flow.colW()) - 16.0))
+        PresDocView.notesToSource(nl at)
         def it:PresDocItem (flow.add(2 page -1 -1))
         it.sh = nl.documentHeight
         it.note = (array_length noteLayouts)
@@ -586,9 +590,147 @@ class PresDocView {
                 def m:MdBox (b.copy())
                 m.x = ((m.x + it.x) + 16.0)
                 painter.paintBox(list nl m it.y)
+                if (m.kind == 0) {
+                    caret.add(m it.y)
+                }
             }
             k = (k + 1)
         }
+    }
+
+    ; For each character of the notes text the View page lays out
+    ; (trim (PresDocx.notesText s.notes)), its offset in the deck's source:
+    ; the notes blocks' bodies joined with "\n", the [[cue]] marks taken
+    ; out, the ends trimmed, as that text is made. [] when the slide's notes
+    ; did not come from its source (a Figma file's).
+    sfn notesMap:[int] (s:PresSlide) {
+        def at:[int]
+        def raw:[int]
+        def chars:[int]
+        def nb:int (array_length s.noteAt)
+        def b:int 0
+        def pos:int 0
+        while (b < nb) {
+            if (b > 0) {
+                ; the "\n" between two blocks stands at the end of the first
+                push raw ((itemAt s.noteAt (b - 1)) + (itemAt s.noteLen (b - 1)))
+                push chars 10
+                pos = (pos + 1)
+            }
+            def a0:int (itemAt s.noteAt b)
+            def ln:int (itemAt s.noteLen b)
+            def j:int 0
+            while (j < ln) {
+                push raw (a0 + j)
+                push chars (charAt s.notes (pos + j))
+                j = (j + 1)
+            }
+            pos = (pos + ln)
+            b = (b + 1)
+        }
+        if (pos != (strlen s.notes)) {
+            return at
+        }
+        ; the cues out, as PresDocx.notesText takes them
+        def kept:[int]
+        def kc:[int]
+        def n:int (array_length raw)
+        def i:int 0
+        while (i < n) {
+            if (((i + 1) < n) && (((itemAt chars i) == 91) && ((itemAt chars (i + 1)) == 91))) {
+                def rest:string (substring s.notes i n)
+                def close:int (indexOf rest "]]")
+                if (close > 0) {
+                    i = ((i + close) + 2)
+                    continue
+                }
+            }
+            push kept (itemAt raw i)
+            push kc (itemAt chars i)
+            i = (i + 1)
+        }
+        ; the ends trimmed
+        def from:int 0
+        def to:int (array_length kept)
+        while ((from < to) && (PresDocView.isBlank((itemAt kc from)))) {
+            from = (from + 1)
+        }
+        while ((to > from) && (PresDocView.isBlank((itemAt kc (to - 1))))) {
+            to = (to - 1)
+        }
+        while (from < to) {
+            push at (itemAt kept from)
+            from = (from + 1)
+        }
+        return at
+    }
+
+    sfn isBlank:boolean (c:int) {
+        return ((((c == 32) || (c == 10)) || (c == 9)) || (c == 13))
+    }
+
+    ; The notes layout's boxes moved from the notes text to the source. A
+    ; box whose characters are not one stretch of the source (a [[cue]]
+    ; taken out from between its words) is cut where the stretch breaks, so
+    ; each part maps letter for letter; a box whose text is not its source
+    ; (an atom) stands for its whole stretch. With no map the boxes have no
+    ; source and the caret passes them by.
+    sfn notesToSource:void (nl:MdLayout at:[int]) {
+        def n:int (array_length at)
+        def out:[MdBox]
+        def k:int 0
+        while (k < (array_length nl.boxes)) {
+            def b:MdBox (itemAt nl.boxes k)
+            def s0:int b.segSrc
+            def e0:int (s0 + b.segLen)
+            if (s0 < 0) {
+                push out b
+            } {
+                if ((s0 >= n) || (e0 > n)) {
+                    b.segSrc = -1
+                    push out b
+                } {
+                    if (b.segAtom || ((b.kind != 0) || ((strlen b.text) != b.segLen))) {
+                        def s1:int (itemAt at s0)
+                        def e1:int s1
+                        if (e0 > s0) {
+                            e1 = ((itemAt at (e0 - 1)) + 1)
+                        }
+                        b.segSrc = s1
+                        b.segLen = (e1 - s1)
+                        if (b.kind == 0) {
+                            b.segAtom = true
+                        }
+                        push out b
+                    } {
+                        ; letter for letter: cut where the source jumps
+                        def j0:int s0
+                        def j:int (s0 + 1)
+                        while (j <= e0) {
+                            if ((j == e0) || ((itemAt at j) != ((itemAt at (j - 1)) + 1))) {
+                                if ((j0 == s0) && (j == e0)) {
+                                    b.segSrc = (itemAt at s0)
+                                    push out b
+                                } {
+                                    def part:MdBox (b.copy())
+                                    def before:string (substring b.text 0 (j0 - s0))
+                                    part.text = (substring b.text (j0 - s0) (j - s0))
+                                    part.x = (b.x + (nl.measureStyled(before b.family b.size b.bold b.italic)))
+                                    part.w = (nl.measureStyled(part.text b.family b.size b.bold b.italic))
+                                    part.segSrc = (itemAt at j0)
+                                    part.segLen = (j - j0)
+                                    push out part
+                                }
+                                j0 = j
+                            }
+                            j = (j + 1)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        nl.boxes = out
     }
 
     ; The page between top and bottom (page units): the paper and every

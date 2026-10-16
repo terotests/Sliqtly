@@ -2399,6 +2399,24 @@ class PresApp {
     fn docUnitBefore:[int] (text:string off:int) {
         def out:[int]
         def cm:PresDocCaret docView.caret
+        ; the caret inside a run of words, or at its end: the character
+        ; just before it
+        def k:int 0
+        while (k < (array_length cm.boxes)) {
+            def kb:MdBox (itemAt cm.boxes k)
+            if ((off > kb.segSrc) && (off <= (kb.segSrc + kb.segLen))) {
+                if kb.segAtom {
+                    push out kb.segSrc
+                    push out (kb.segSrc + kb.segLen)
+                    return out
+                }
+                push out (OfficeCaretMotion.stepBack(text off))
+                push out off
+                return out
+            }
+            k = (k + 1)
+        }
+        ; at the start of a run: the end of what is shown before it
         def at:int (cm.shownBefore(off))
         if (at >= off) {
             return out
