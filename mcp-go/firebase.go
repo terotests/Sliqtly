@@ -160,6 +160,28 @@ func (d firestoreDB) UpdateIf(ctx context.Context, col, id, field, want string, 
 	return ok, err
 }
 
+func (d firestoreDB) IncrementCapped(ctx context.Context, col, id string, path []string, n, limit int64) (bool, error) {
+	ref := d.c.Collection(col).Doc(id)
+	ok := false
+	err := d.c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		ok = false
+		snap, err := tx.Get(ref)
+		var cur Doc
+		if err == nil {
+			cur = snap.Data()
+		} else if status.Code(err) != codes.NotFound {
+			return err
+		}
+		v := docPathInt(cur, path) + n
+		if v > limit {
+			return nil
+		}
+		ok = true
+		return tx.Set(ref, docAtPath(path, v), firestore.MergeAll)
+	})
+	return ok, err
+}
+
 // the leaves as firestore.Increment, merged into the document: map keys are
 // field names, so a referrer's "example.com" stays one field
 func (d firestoreDB) Increment(ctx context.Context, col, id string, add Doc) error {
