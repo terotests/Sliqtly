@@ -1651,7 +1651,6 @@ class PresApp {
         }
         this.docPeersInto(placed sc)
         this.docPicInto(placed sc)
-        this.docBlockInto(placed sc)
         this.docCaretInto(placed sc)
         placed.scaleBy(sc)
         placed.offsetBy((edDocPane.left(dw)) (edDocPane.top(dw)))
@@ -1744,6 +1743,33 @@ class PresApp {
             this.showTab("view")
             this.docEditPress(x y false 1)
         }
+    }
+
+    ; --- the View page's zoom (PresDocBar's pill, Ctrl + wheel, a pinch) ---------
+    ; `z` times the column fitting, the page point under (sx, sy) kept there.
+    fn edDocZoomTo:void (z:double sx:double sy:double) {
+        this.edDocEnsure()
+        def zz:double z
+        if (zz < 1.0) {
+            zz = 1.0
+        }
+        if (zz > (PresViewZoom.most())) {
+            zz = (PresViewZoom.most())
+        }
+        edDocPane.zoomAt(zz sx sy (docView.width()) (docView.height()))
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Over the View page: a pinch or Ctrl + wheel by `factor`.
+    fn edDocPinch:boolean (x:double y:double factor:double) {
+        if (((this.edDocShown()) == false) || ((edRect.has(x y)) == false)) {
+            return false
+        }
+        if ((strlen (this.layerAt(x y))) > 0) {
+            return false
+        }
+        this.edDocZoomTo((edDocPane.zoom * factor) x y)
+        return true
     }
 
     ; --- editing on the View page --------------------------------------------
@@ -1856,6 +1882,17 @@ class PresApp {
         if (bottom > (edDocPane.scroll + viewH)) {
             edDocPane.scroll = ((bottom - viewH) + 24.0)
         }
+        ; zoomed past the editor's width: sideways too
+        if (edDocPane.wide(dw)) {
+            def viewW:double ((edDocPane.w - (edDocPane.side * 2.0)) / sc)
+            def cx:double (itemAt c 0)
+            if (cx < (edDocPane.scrollX + 16.0)) {
+                edDocPane.scrollX = (cx - 48.0)
+            }
+            if (cx > ((edDocPane.scrollX + viewW) - 16.0)) {
+                edDocPane.scrollX = ((cx - viewW) + 48.0)
+            }
+        }
         edDocPane.clamp(dw (docView.height()))
         def p:int (deck.pageOfOffset(off))
         if (((p >= 0) && (p < (deck.slideCount()))) && (p != selected)) {
@@ -1897,27 +1934,6 @@ class PresApp {
             return
         }
         placed.addRect(((itemAt c 0) - (1.0 / sc)) (itemAt c 1) (2.0 / sc) (itemAt c 2) (EVGColor.parse("#1f6feb")))
-    }
-
-    ; The block the caret is in, framed: where the keys write.
-    fn docBlockInto:void (placed:EVGDisplayList sc:double) {
-        if (((this.docEditing()) == false) || (focus != "editor")) {
-            return
-        }
-        if (docPic >= 0) {
-            return
-        }
-        def off:int (mdEditor.caretOffset())
-        def i:int 0
-        while (i < (array_length docView.flow.items)) {
-            def it:PresDocItem (itemAt docView.flow.items i)
-            if ((((it.kind == 0) && (it.h > 0.0)) && (off >= it.key)) && (off <= it.keyEnd)) {
-                def pad:double (6.0 / sc)
-                placed.addFrame((it.x - pad) (it.y - pad) (it.w + (2.0 * pad)) (it.h + (2.0 * pad)) (1.0 / sc) (EVGColor.parse("#93b4f5")))
-                return
-            }
-            i = (i + 1)
-        }
     }
 
     ; A press on the page while editing: the caret to the character pressed
@@ -2380,6 +2396,17 @@ class PresApp {
             return
         }
         docBarKey = ""
+        if ((indexOf cmd "zoom:") == 0) {
+            def z:double 1.0
+            if (cmd == "zoom:in") {
+                z = (PresViewZoom.stepIn(edDocPane.zoom))
+            }
+            if (cmd == "zoom:out") {
+                z = (PresViewZoom.stepOut(edDocPane.zoom))
+            }
+            this.edDocZoomTo(z (edRect.x + (edRect.w * 0.5)) (edDocPane.y + (edDocPane.h * 0.5)))
+            return
+        }
         if (cmd == "undo") {
             this.undo()
             this.docReveal()
@@ -2449,10 +2476,21 @@ class PresApp {
 
     ; The bar as a display list over the page: "" when it is not shown.
     fn docBarJson:string () {
-        if ((this.docBarShown()) == false) {
+        if ((this.edDocShown()) == false) {
             return ""
         }
-        this.docBarSync()
+        docBar.showBar = (this.docBarShown())
+        if docBar.showBar {
+            this.docBarSync()
+        }
+        this.edDocEnsure()
+        def dw:double (docView.width())
+        docBar.zoomLabel = (PresViewZoom.label((edDocPane.scale(dw))))
+        docBar.zoomOut = (PresViewZoom.canOut(edDocPane.zoom))
+        docBar.zoomIn = (PresViewZoom.canIn(edDocPane.zoom))
+        docBar.paneX = edRect.x
+        docBar.paneW = edRect.w
+        docBar.paneB = (edRect.y + edRect.h)
         docBar.measurer = measurer
         docBar.w = W
         docBar.h = H
@@ -7149,6 +7187,12 @@ class PresApp {
             }
             return true
         }
+        if ((((mode != "present") && (this.edDocShown())) && (edRect.has(x y))) && ((fabs dx) > (fabs dy))) {
+            this.edDocEnsure()
+            edDocPane.scrollXBy(dx (docView.width()))
+            chromeRev = (chromeRev + 1)
+            return true
+        }
         if (((mode != "present") && (edRect.has(x y))) && ((fabs dx) > (fabs dy))) {
             editor.scrollByX((to_int dx))
             chromeRev = (chromeRev + 1)
@@ -8859,7 +8903,7 @@ class PresApp {
         ; on the Document tab the comments are pinned on the page
         layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
-        layers.setOpen("docbar" ((this.docBarShown()) && edit))
+        layers.setOpen("docbar" ((this.edDocShown()) && edit))
         layers.setOpen("toc" (tocUi.isOpen()))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -17244,6 +17288,11 @@ class PresApp {
     ; wheel) over the editor. `steps` is +1 / -1 per step, 0 the default size.
     ; The Markdown, Theme (CSS) and file texts share one size.
     fn zoomEditor:boolean (steps:int) {
+        ; the View tab: Ctrl + / − / 0 zoom its page, as its pill does
+        if (this.edDocShown()) {
+            this.docBarCommand((? (steps > 0) "zoom:in" (? (steps < 0) "zoom:out" "zoom:fit")))
+            return true
+        }
         if ((editor.zoomBy(steps)) == false) {
             return false
         }

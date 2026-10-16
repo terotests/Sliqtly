@@ -10627,6 +10627,12 @@ canvas.addEventListener("wheel", (ev) => {
     needsPaint = true;
     return;
   }
+  // over the View page: the page closer (its zoom pill's zoom)
+  if (ev.ctrlKey && app.edDocPinch(x, y, Math.exp(-ev.deltaY * 0.01))) {
+    ev.preventDefault();
+    needsPaint = true;
+    return;
+  }
   // over the code editor it sizes the text: a wheel notch (100 px, or three
   // lines) is a step, a pinch adds up its small deltas to one
   if (ev.ctrlKey && app.editorAt(x, y)) {

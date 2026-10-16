@@ -19,6 +19,14 @@
 ; The commands, as `press` answers them: "undo" "redo" "level:<p|h1…h6>"
 ; "bold" "italic" "underline" "strike" "code" "link" "bullet" "ordered"
 ; "quote" "comment".
+;
+; Under the page, reading or editing, floats the zoom pill:
+;
+;   − 59 % + | Fit
+;
+; the page's size on the screen in per cent, a step out or in
+; (PresViewZoom's steps) and back to the column fitting: "zoom:out"
+; "zoom:in" "zoom:fit".
 ; ============================================================================
 
 Import "PresI18n.rgr"
@@ -50,6 +58,21 @@ class PresDocBar {
     def rev:int 0
     ; the state the bar was last built for
     def builtKey:string ""
+    ; the strip shows while editing; the zoom pill whenever the page does
+    def showBar:boolean true
+    def zoomTools:ToolbarCtl (new ToolbarCtl())
+    def zoomLabel:string ""
+    def zoomOut:boolean false
+    def zoomIn:boolean true
+    ; the page's rectangle the pill floats over the foot of
+    def paneX:double 0.0
+    def paneW:double 0.0
+    def paneB:double 0.0
+    ; the pill's place once laid out
+    def zx:double 0.0
+    def zy:double 0.0
+    def zw:double 0.0
+    def zh:double 0.0
 
     sfn buttons:[string] () {
         def out:[string] (strsplit "undo,redo,sep,bold,italic,underline,strike,code,sep,link,sep,bullet,ordered,quote,sep,comment" ",")
@@ -99,7 +122,7 @@ class PresDocBar {
     }
 
     fn stateKey:string () {
-        return (levelNow + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" ""))
+        return (levelNow + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" "") + "|" + (? showBar "b" "") + zoomLabel + (? zoomOut "o" "") + (? zoomIn "i" "") + "|" + (to_string paneX) + "," + (to_string paneW) + "," + (to_string paneB))
     }
 
     fn rebuildIfChanged:void () {
@@ -118,6 +141,15 @@ class PresDocBar {
         host.setPageSize(w h)
         def root:EVGElement (unwrap host.root)
         root.className = "ui-root"
+        if ((strlen zoomLabel) > 0) {
+            this.addZoomPill(root)
+        }
+        if (showBar == false) {
+            this.page()
+            this.placePill()
+            rev = (rev + 1)
+            return
+        }
         def bar (EVGElement.createDiv())
         bar.id = "db"
         bar.className = "db-bar"
@@ -177,6 +209,68 @@ class PresDocBar {
         if (bar.calculatedHeight > bh) {
             bh = bar.calculatedHeight
         }
+        this.placePill()
+    }
+
+    ; i18n: "Zoom out" "Zoom in" "Fit" "Fit the page to the editor"
+    fn addZoomPill:void (root:EVGElement) {
+        def pill (EVGElement.createDiv())
+        pill.id = "db-zoom"
+        pill.className = "db-zoom"
+        UiTree.surface(pill "free" "start")
+        pill.overlayX = zx
+        pill.overlayY = (paneB - 52.0)
+        root.addChild(pill)
+        def zt (new ToolbarCtl())
+        zt.tid = "db-z"
+        zt.name = (PresI18n.t("Zoom"))
+        zt.addIcon("out" (PresI18n.t("Zoom out")) "M6 12h12" (zoomOut == false))
+        zt.addItem("val" zoomLabel false)
+        zt.addIcon("in" (PresI18n.t("Zoom in")) "M6 12h12M12 6v12" (zoomIn == false))
+        zt.addSeparator()
+        zt.addItem("fit" (PresI18n.t("Fit")) false)
+        zt.build()
+        zoomTools = zt
+        UiKit.put(host zt pill)
+    }
+
+    ; The pill in the middle of the page's foot, now that its width is known.
+    fn placePill:void () {
+        if ((strlen zoomLabel) == 0) {
+            zw = 0.0
+            return
+        }
+        def r:string (host.rectOf("db-zoom"))
+        def parts:[string] (strsplit r ",")
+        if ((array_length parts) < 4) {
+            return
+        }
+        zw = (?? (to_double (itemAt parts 2)) 0.0)
+        zh = (?? (to_double (itemAt parts 3)) 0.0)
+        def nx:double (paneX + ((paneW - zw) * 0.5))
+        def ny:double ((paneB - zh) - 16.0)
+        if (((fabs (nx - zx)) > 0.5) || ((fabs (ny - zy)) > 0.5)) {
+            zx = nx
+            zy = ny
+            def root:EVGElement (unwrap host.root)
+            def i:int 0
+            while (i < (array_length root.children)) {
+                def c:EVGElement (itemAt root.children i)
+                if (c.id == "db-zoom") {
+                    c.overlayX = zx
+                    c.overlayY = zy
+                }
+                i = (i + 1)
+            }
+            this.page()
+        }
+    }
+
+    fn inPill:boolean (px:double py:double) {
+        if (zw <= 0.0) {
+            return false
+        }
+        return (((px >= zx) && (px <= (zx + zw))) && ((py >= zy) && (py <= (zy + zh))))
     }
 
     fn page:EVGElement () {
@@ -199,6 +293,16 @@ class PresDocBar {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        ; the zoom pill as wide as its parts, not the page
+        def zf@(optional):EVGElement (host.findEl(r "db-zoom"))
+        if (!null? zf) {
+            def ze:EVGElement (unwrap zf)
+            def want:double ((lay.intrinsicWidthOf(ze)) + 1.0)
+            if ((fabs (ze.calculatedWidth - want)) > 1.0) {
+                ze.width = (EVGUnit.px(want))
+                lay.layout(pg)
+            }
+        }
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg
@@ -220,6 +324,12 @@ class PresDocBar {
     ; --- the pointer -------------------------------------------------------------
     ; The bar's strip, and the style list hanging under it while it is open.
     fn has:boolean (px:double py:double) {
+        if (this.inPill(px py)) {
+            return true
+        }
+        if (showBar == false) {
+            return false
+        }
         if (((px >= x) && (px <= (x + bw))) && ((py >= y) && (py <= (y + bh)))) {
             return true
         }
@@ -240,6 +350,18 @@ class PresDocBar {
             this.page()
         }
         def t:string (host.hitTest(px py))
+        if ((indexOf t "db-z-") == 0) {
+            if (((indexOf t "db-z-out") == 0) && zoomOut) {
+                return "zoom:out"
+            }
+            if (((indexOf t "db-z-in") == 0) && zoomIn) {
+                return "zoom:in"
+            }
+            if (((indexOf t "db-z-val") == 0) || ((indexOf t "db-z-fit") == 0)) {
+                return "zoom:fit"
+            }
+            return ""
+        }
         if ((indexOf t "db-level") == 0) {
             def was:string level.value
             host.click(t)
@@ -292,7 +414,7 @@ class PresDocBar {
             return ""
         }
         def t:string (host.hitTest(px py))
-        if (((strlen t) == 0) || (t == "db") || (t == tools.tid)) {
+        if (((strlen t) == 0) || ((t == "db") || (t == "db-zoom")) || ((t == tools.tid) || (t == zoomTools.tid))) {
             return "default"
         }
         return "pointer"

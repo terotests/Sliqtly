@@ -6334,7 +6334,8 @@ try {
     await pg.waitForFunction(() => { const a = window.__app; const t = a.source(); return t.includes("Vastaus") && a.docScreenAt(t.indexOf("Vastaus")) !== ""; }, null, { timeout: 60000 });
     const src = () => pg.evaluate(() => window.__app.source());
     const frames = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-    check("Formatting bar: not there while reading", (await pg.evaluate(() => window.__app.docBarJson())) === "", "");
+    const reading = await pg.evaluate(() => { const a = window.__app; a.docBarJson(); return { tools: a.docBar.host.rectOf("db-tools"), pill: a.docBar.host.rectOf("db-zoom") }; });
+    check("Formatting bar: not there while reading, the zoom pill is", reading.tools === "" && reading.pill !== "", JSON.stringify(reading));
     const o = (await src()).indexOf("Vastaus") + 2;
     const [x, y] = (await pg.evaluate((o) => window.__app.docScreenAt(o), o)).split(",").map(Number);
     await pg.evaluate(({ x, y }) => {
@@ -6381,6 +6382,34 @@ try {
     const t3 = await src();
     const line3 = t3.slice(t3.lastIndexOf("\n", o) + 1, t3.indexOf("\n", o + 2));
     check("Formatting bar: ❝ makes the line a quote", line3.startsWith("> "), JSON.stringify(line3));
+    // the zoom pill under the page, and Ctrl + / − / 0 there
+    const zoom = () => pg.evaluate(() => ({ z: window.__app.edDocPane.zoom, label: window.__app.docBar.zoomLabel }));
+    const z0 = await zoom();
+    await press("db-z-in");
+    const z1 = await zoom();
+    check("Formatting bar: + on the zoom pill brings the page closer", z1.z > z0.z && z1.label !== z0.label, JSON.stringify({ z0, z1 }));
+    await press("db-z-fit");
+    const z2 = await zoom();
+    check("Formatting bar: Fit fits the page again", z2.z === 1, JSON.stringify(z2));
+    await pg.keyboard.press("Control+Equal");
+    await frames();
+    const z3 = await zoom();
+    await pg.keyboard.press("Control+Minus");
+    await frames();
+    const z4 = await zoom();
+    check("Formatting bar: Ctrl + and Ctrl − zoom the View page", z3.z > 1 && z4.z === 1, JSON.stringify({ z3, z4 }));
+    await pg.keyboard.press("Control+Equal");
+    await pg.keyboard.press("Control+Equal");
+    await pg.keyboard.press("Control+Equal");
+    await frames();
+    await pg.keyboard.press("End");
+    const typed0 = await src();
+    await pg.keyboard.type("Q");
+    await frames();
+    const wide = await pg.evaluate(() => { const a = window.__app; const c = a.mdEditor.caretOffset(); const [x] = a.docScreenAt(c).split(",").map(Number); return { x, l: a.edDocPane.x, r: a.edDocPane.x + a.edDocPane.w, sx: a.edDocPane.scrollX }; });
+    check("Formatting bar: zoomed in, typing still writes at the caret, which stays in view", (await src()).length === typed0.length + 1 && wide.x >= wide.l && wide.x <= wide.r, JSON.stringify(wide));
+    if (shots) await pg.screenshot({ path: path.join(shots, "view-zoomed.png") });
+    await pg.keyboard.press("Control+0");
     check("Formatting bar: …without errors", berr.length === 0, berr.join(" | "));
     await ctx.close();
   }

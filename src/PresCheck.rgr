@@ -4514,7 +4514,7 @@ class PresCheck {
         b.h = 700.0
         b.bw = 800.0
         ; the shape of web/docbar.css and the kit's toolbar rules
-        b.css = ".theme-db .db-bar { display: flex; flex-direction: row; align-items: center; padding: 8px; } .theme-db .ui-toolbar { display: flex; flex-direction: row; } .theme-db .ui-toolbar-button-icon { width: 26px; height: 28px; } .theme-db .ui-toolbar-separator { width: 1px; height: 20px; } .theme-db .db-level { width: 120px; height: 28px; }"
+        b.css = ".theme-db .db-bar { display: flex; flex-direction: row; align-items: center; padding: 8px; } .theme-db .ui-toolbar { display: flex; flex-direction: row; } .theme-db .ui-toolbar-button-icon { width: 26px; height: 28px; } .theme-db .ui-toolbar-separator { width: 1px; height: 20px; } .theme-db .db-level { width: 120px; height: 28px; } .theme-db .db-zoom { display: flex; flex-direction: row; } .theme-db .ui-toolbar-button { height: 28px; padding: 4px; }"
         def on:[string]
         push on "bold"
         b.setState("h2" on false true)
@@ -4526,6 +4526,33 @@ class PresCheck {
         this.ok(((PresCheck.docBarAt(b "db-tools-redo")) == "redo") "docbar: redo redoes")
         this.ok((b.level.value == "h2") "docbar: the style list shows the caret's block")
         this.ok((b.bh >= 44.0) "docbar: the bar is as tall as its rows")
+        ; the zoom pill: its parts are its commands
+        b.zoomLabel = "59 %"
+        b.zoomOut = false
+        b.paneX = 0.0
+        b.paneW = 800.0
+        b.paneB = 600.0
+        b.rebuild()
+        this.ok(((PresCheck.docBarAt(b "db-z-in")) == "zoom:in") "docbar: + on the zoom pill steps in")
+        this.ok(((PresCheck.docBarAt(b "db-z-out")) == "") "docbar: − at the fitted size does nothing")
+        this.ok(((PresCheck.docBarAt(b "db-z-fit")) == "zoom:fit") "docbar: Fit fits")
+        b.showBar = false
+        b.rebuild()
+        this.ok((((strlen (b.host.rectOf("db-tools"))) == 0) && ((strlen (b.host.rectOf("db-zoom"))) > 0)) "docbar: reading, only the zoom pill")
+        ; the pane: zoomed about a point that stays put, sideways once wider
+        def pn (new PresDocPane())
+        pn.setArea(0.0 0.0 500.0 400.0)
+        pn.minScale = 0.3
+        pn.maxScale = 1.0
+        def l0:double (pn.left(960.0))
+        def py0:double (pn.pageY(200.0 960.0))
+        def px0:double ((250.0 - l0) / (pn.scale(960.0)))
+        pn.zoomAt(2.0 250.0 200.0 960.0 3000.0)
+        def px1:double ((250.0 - (pn.left(960.0))) / (pn.scale(960.0)))
+        def py1:double (pn.pageY(200.0 960.0))
+        this.ok((((pn.wide(960.0)) && ((fabs (px1 - px0)) < 0.01)) && ((fabs (py1 - py0)) < 0.01)) "docpane: a zoom keeps the point under the pointer")
+        pn.scrollXBy(100000.0 960.0)
+        this.ok(((fabs (pn.scrollX - (pn.maxScrollX(960.0)))) < 0.01) "docpane: sideways no further than the page")
     }
 
     fn quickBar:void () {
