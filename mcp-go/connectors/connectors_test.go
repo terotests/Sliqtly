@@ -266,6 +266,10 @@ func TestCallChecks(t *testing.T) {
 	ctx := context.Background()
 	connect(t, g, "tero")
 	g.Grants().Approve("*", "github", []string{"*"}, "admin")
+	// one fixed minute: on the clock the calls below could cross into the
+	// next minute, which starts the count again
+	at := time.Now()
+	g.now = func() time.Time { return at }
 	base := Call{Who: "tero", Deck: "D1", Connector: "github", Op: "getWorkflowRuns"}
 	for _, tc := range []struct {
 		args map[string]any
