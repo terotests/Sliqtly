@@ -2,21 +2,22 @@
    The ToC drawer (src/PresTocDrawer.rgr): EVGUI's DrawerCtl in the kit's look
    (ui.css, its .ui-drawer rules), on the canvas at the left edge. The
    drawer's host runs under "toc", so these rules and the derived dark look
-   apply to it alone.
+   apply to it alone. A row reads as a book's contents line: the heading as a
+   link (blue), dots, the slide's number at the right.
    --------------------------------------------------------------------------- */
 .theme-toc .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
 .theme-toc .ui-drawer-panel {
   font-family: Open Sans;
-  padding: 10px 8px 10px 12px;
-  gap: 6px;
+  padding: 14px 10px 12px 14px;
+  gap: 10px;
   border-radius: 0px 10px 10px 0px;
   box-shadow: 0px 6px 24px rgba(15, 23, 42, 0.22);
 }
-.theme-toc .ui-drawer-title { font-family: Open Sans-Bold; font-size: 14px; color: #0f172a; padding: 4px 4px 0px 4px; }
+.theme-toc .ui-drawer-title { font-family: Open Sans-Bold; font-size: 16px; line-height: 22px; color: #0f172a; padding: 2px 4px 6px 4px; border-bottom: 1px solid #e2e8f0; }
 .theme-toc .ui-drawer-close {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
   width: 26px;
   height: 26px;
   padding: 0px;
@@ -29,19 +30,39 @@
   background-color: rgba(0,0,0,0);
 }
 .theme-toc .ui-drawer-close:hover { background-color: #e2e8f0; }
-.theme-toc .ui-drawer-body { gap: 1px; padding-right: 4px; }
+.theme-toc .ui-drawer-body { gap: 0px; padding-right: 4px; }
 .theme-toc .toc-row {
-  font-size: 13px;
-  line-height: 18px;
-  color: #1e293b;
-  padding: 5px 8px;
-  border-radius: 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
   flex-shrink: 0;
 }
-.theme-toc .toc-d0 { font-family: Open Sans-Bold; }
-.theme-toc .toc-d1 { padding-left: 22px; }
-.theme-toc .toc-d2 { padding-left: 36px; color: #475569; font-size: 12px; }
-.theme-toc .toc-d3 { padding-left: 50px; color: #475569; font-size: 12px; }
-.theme-toc .toc-hot { background-color: #f1f5f9; }
-.theme-toc .toc-on { background-color: #dbeafe; color: #1e3a8a; }
+.theme-toc .toc-d0 { margin-top: 6px; }
+.theme-toc .toc-d1 { padding-left: 20px; }
+.theme-toc .toc-d2 { padding-left: 36px; }
+.theme-toc .toc-d3 { padding-left: 52px; }
+.theme-toc .toc-hot { background-color: #dbeafe; }
+.theme-toc .toc-on { background-color: #2563eb; }
+.theme-toc .toc-t { font-size: 13px; line-height: 18px; color: #1d4ed8; flex-shrink: 1; min-width: 0px; }
+.theme-toc .toc-t0 { font-family: Open Sans-Bold; color: #1e3a8a; }
+.theme-toc .toc-t2, .theme-toc .toc-t3 { font-size: 12px; }
+.theme-toc .toc-t.toc-hot { color: #1e3a8a; }
+.theme-toc .toc-t.toc-on { color: #ffffff; }
+.theme-toc .toc-lead {
+  flex-grow: 1;
+  flex-shrink: 1;
+  min-width: 12px;
+  height: 18px;
+  line-height: 18px;
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.theme-toc .toc-n { font-size: 12px; line-height: 18px; color: #475569; flex-shrink: 0; text-align: right; }
+.theme-toc .toc-n.toc-on { color: #ffffff; }
+.theme-toc .toc-lead.toc-on { color: #bfdbfe; }
 .theme-toc .toc-none { font-size: 13px; color: #64748b; padding: 8px; }

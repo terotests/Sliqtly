@@ -34,6 +34,12 @@ class PresTocDrawer {
     ; the rows shown: each entry's words and depth, and which is read
     def texts:[string]
     def depths:[int]
+    ; the slide each is on (shown from 1, as a book's page number)
+    def slides:[int]
+    ; the dots between each heading and its number, measured to fit once
+    ; the rows are laid out (a text that overflows is not cut off here)
+    def leads:[string]
+    def leadsOk:boolean false
     def current:int -1
     ; the row to bring into view at the next layout (-1: none)
     def reveal:int -1
@@ -55,18 +61,20 @@ class PresTocDrawer {
     fn setEntries:void (toc:PresToc cur:int) {
         def t:[string]
         def d:[int]
+        def sl:[int]
         def i:int 0
         while (i < (toc.count())) {
             def e:PresTocEntry (toc.entryAt(i))
             push t e.text
             push d e.depth
+            push sl e.slide
             i = (i + 1)
         }
         def same:boolean ((array_length t) == (array_length texts))
         if same {
             def k:int 0
             while (k < (array_length t)) {
-                if (((itemAt t k) != (itemAt texts k)) || ((itemAt d k) != (itemAt depths k))) {
+                if ((((itemAt t k) != (itemAt texts k)) || ((itemAt d k) != (itemAt depths k))) || ((itemAt sl k) != (itemAt slides k))) {
                     same = false
                     break
                 }
@@ -76,8 +84,12 @@ class PresTocDrawer {
         if (same && (cur == current)) {
             return
         }
+        if (same == false) {
+            leadsOk = false
+        }
         texts = t
         depths = d
+        slides = sl
         current = cur
         if drawer.open {
             this.rebuild()
@@ -88,6 +100,9 @@ class PresTocDrawer {
     fn place:void (atTop:double tall:double wide:double) {
         if (((atTop == top) && (tall == height)) && (wide == width)) {
             return
+        }
+        if (wide != width) {
+            leadsOk = false
         }
         top = atTop
         height = tall
@@ -176,7 +191,30 @@ class PresTocDrawer {
                 cls = (cls + " toc-hot")
             }
             row.className = cls
-            row.textContent = (itemAt texts i)
+            ; the heading as a link, dots to its slide's number, as a book's
+            ; contents page reads; the parts take the row's state as classes
+            ; (a hover rule reaches only the element hovered)
+            def state:string ""
+            if (i == current) {
+                state = " toc-on"
+            }
+            if (row.id == hot) {
+                state = (state + " toc-hot")
+            }
+            def title (EVGElement.createDiv())
+            title.className = ("toc-t toc-t" + (to_string d) + state)
+            title.textContent = (itemAt texts i)
+            row.addChild(title)
+            def lead (EVGElement.createDiv())
+            lead.className = ("toc-lead" + state)
+            if (leadsOk && (i < (array_length leads))) {
+                lead.textContent = (itemAt leads i)
+            }
+            row.addChild(lead)
+            def num (EVGElement.createDiv())
+            num.className = ("toc-n" + state)
+            num.textContent = (to_string ((itemAt slides i) + 1))
+            row.addChild(num)
             body.addChild(row)
             drawer.addContentTid(row.id)
             i = (i + 1)
@@ -202,6 +240,9 @@ class PresTocDrawer {
             lay.setMeasurer((unwrap measurer))
         }
         lay.layout(pg)
+        if (this.fillLeads()) {
+            lay.layout(pg)
+        }
         ; the row being read in view, a little below the top
         if ((reveal >= 0) && (reveal < (array_length texts))) {
             def body:EVGElement (drawer.body())
@@ -226,6 +267,46 @@ class PresTocDrawer {
         host.placeText((lay.getTextEngine()))
         host.lastPage = pg
         return pg
+    }
+
+    ; Each row's dots as many as fit the room the row left them: true when
+    ; they were made now (the page is laid out again with them).
+    fn fillLeads:boolean () {
+        if leadsOk {
+            return false
+        }
+        def unit:double 5.6
+        if (!null? measurer) {
+            def m:TTFTextMeasurer (unwrap measurer)
+            def mw:double (m.measureTextWidth(". " "Open Sans" 11.0))
+            if (mw > 0.0) {
+                unit = mw
+            }
+        }
+        def body:EVGElement (drawer.body())
+        def out:[string]
+        def i:int 0
+        while (i < (array_length texts)) {
+            def dots:string ""
+            if (i < (body.getChildCount())) {
+                def row:EVGElement (body.getChild(i))
+                if ((row.getChildCount()) >= 2) {
+                    def lead:EVGElement (row.getChild(1))
+                    def n:int (to_int ((lead.calculatedWidth - 2.0) / unit))
+                    def k:int 0
+                    while (k < n) {
+                        dots = (dots + ". ")
+                        k = (k + 1)
+                    }
+                    lead.textContent = dots
+                }
+            }
+            push out dots
+            i = (i + 1)
+        }
+        leads = out
+        leadsOk = true
+        return true
     }
 
     fn displayList:EVGDisplayList () {
