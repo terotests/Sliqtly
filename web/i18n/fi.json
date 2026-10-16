@@ -1623,8 +1623,6 @@
   "A room gathers the presentations of one whole piece of work. Call them topics and stories, rooms, or projects; the editor opens again with the words you choose.": "Huone kokoaa yhden kokonaisuuden esitykset. Kutsu niitä aiheiksi ja tarinoiksi, huoneiksi tai projekteiksi; editori avautuu uudelleen valitsemillasi sanoilla.",
   "Topics and stories": "Aiheet ja tarinat",
   "+ New presentation": "+ Uusi esitys",
-  "1 presentation": "1 esitys",
-  "{n} presentations": "{n} esitystä",
   "No presentations in this room yet. + New presentation makes one.": "Huoneessa ei ole vielä esityksiä. + Uusi esitys tekee sellaisen.",
   "Problem": "Ongelma",
   "Task": "Tehtävä",

@@ -123,12 +123,9 @@ class PresTopicView {
         UiTree.inline(view "height" ((EVGDisplayList.num(h)) + "px"))
 
         def head:EVGElement (UiKit.div("rm-thead"))
-        def tw:double (w - 200.0)
-        if (tw < 120.0) {
-            tw = 120.0
-        }
-        head.addChild((UiKit.words("rm-ttitle" (UiText.fit(eng (j.stringOr("title" "")) "Open Sans" 20.0 tw)))))
-        head.addChild((UiKit.words("rm-tcount" (j.stringOr("count" "")))))
+        ; the title takes what the pills and + New leave and ends in "…"
+        ; (.rm-ttitle: text-overflow: ellipsis), measured in its own bold face
+        head.addChild((UiKit.words("rm-ttitle" (j.stringOr("title" "")))))
         this.who(host head "rm-twho" (j.get("who")) (w - 260.0) eng)
         head.addChild((UiKit.div("rm-grow")))
         if (j.boolOr("canNew" true)) {
