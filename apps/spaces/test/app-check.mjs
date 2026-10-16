@@ -75,16 +75,34 @@ console.log("the summary");
   const a = fresh("fi", "family");
   a.setWidth(1280, 700);
   const t = texts(a);
-  for (const h of ["Tänään", "Myöhemmin tällä viikolla", "Ensi viikolla"]) ok(`the section ${h}`, t.includes(h), t.slice(0, 30).join(","));
+  for (const h of ["Tänään", "Tämä viikko", "Tulossa", "Muista"]) ok(`the section ${h}`, t.includes(h), t.slice(0, 30).join(","));
+  ok("the clock", t.includes("10.00"));
+  ok("the day and the week", t.includes("keskiviikko 21. lokakuuta") && t.includes("viikko 43 · Perhe"), t.slice(0, 30).join(","));
   ok("today's dentist", t.includes("Hammaslääkäri"));
-  ok("a sheet row later this week", t.includes("Treenikyyti"));
-  ok("an overdue deadline", t.some((s) => s.startsWith("Palauta kirjaston kirjat")));
-  ok("a row names its ward and who looks after it", t.includes("Aino · Vie: Juho"), t.filter((s) => /·/.test(s)).join(","));
+  ok("the next plan shows who looks after it", t.includes("14.00–14.30 · Vie: Juho"), t.filter((s) => /·/.test(s)).join(","));
+  ok("a sheet row this week", t.includes("Treenikyyti"));
+  ok("an overdue deadline", t.includes("Palauta kirjaston kirjat") && t.some((s) => s.startsWith("myöhässä")));
+  ok("the wards' colours", t.includes("Nappi") && t.includes("Koko perhe"));
+  ok("the Add button", t.includes("+ Lisää meno"));
+  ok("no weather until the host has it", !byId(a, "sp-wx"));
+  a.setWeather("Helsinki", 7, 9, 4, 20, 2);
+  ok("the weather", texts(a).includes("7°") && texts(a).includes("Helsinki · ylin 9° alin 4°"));
   const today = byId(a, "sp-card-today");
   const week = byId(a, "sp-card-week");
-  const next = byId(a, "sp-card-next");
-  ok("three columns side by side at 1280", today.calculatedY === week.calculatedY && week.calculatedY === next.calculatedY
-    && today.calculatedX < week.calculatedX && week.calculatedX < next.calculatedX);
+  const late = byId(a, "sp-card-late");
+  ok("three columns side by side at 1280", today.calculatedY === week.calculatedY && week.calculatedY === late.calculatedY
+    && today.calculatedX < week.calculatedX && week.calculatedX < late.calculatedX);
+  // a ticked deadline is done
+  const books = a.space.deadlines.find((d) => d.title === "Palauta kirjaston kirjat");
+  a.press("sp-done-" + books.id);
+  ok("ticked off", books.done && !texts(a).includes("Palauta kirjaston kirjat"));
+  // the minute moves on
+  a.setNow(11 * 60 + 5);
+  ok("the clock follows", texts(a).includes("11.05"));
+  // a day of the week opens in the calendar
+  a.press("sp-day-" + (a.today + 1));
+  ok("a day opens in the calendar", a.tab === "calendar" && a.board.view === "day" && a.board.cursor === a.today + 1);
+  a.press("sp-nav-home");
   a.setWidth(390, 700);
   a.laidOut();
   const t2 = byId(a, "sp-card-today");
@@ -99,7 +117,7 @@ console.log("the words switch");
   a.press("sp-pack-sports");
   eq("the pack", a.pack, "sports");
   const t = texts(a);
-  ok("sports words", t.some((s) => s.startsWith("Players and kit")), t.filter((s) => /·/.test(s)).join(","));
+  ok("sports words", t.includes("Whole club") && t.includes("+ Add session"), t.slice(0, 80).join(","));
   ok("sports data", t.includes("Coaches' meeting"));
   a.press("sp-lang-fi");
   ok("in Finnish", texts(a).includes("Valmentajapalaveri"));
@@ -212,9 +230,9 @@ console.log("a space on a server");
   eq("nothing left to send", a.outCount(), 0);
   eq("the space's words", a.pack, "family");
   let t = texts(a);
-  ok("the summary shows it", t.includes("Dentist") && t.includes("Swimming"), t.slice(0, 40).join(","));
-  ok("with the ward and who", t.includes("Aino · Takes: Juho"));
-  ok("an important event is marked", t.includes("★"));
+  ok("the summary shows it", t.includes("★ Dentist") && t.includes("Swimming"), t.slice(0, 40).join(","));
+  ok("with the ward and who", t.includes("Aino") && t.includes("14:00–14:30 · Takes: Juho"), t.filter((s) => /·/.test(s)).join(","));
+  ok("an important event is marked", t.includes("★ Dentist"));
   ok("the brand", t.includes("Warden"));
 
   // a move on the calendar is saved

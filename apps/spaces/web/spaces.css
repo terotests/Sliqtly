@@ -358,6 +358,163 @@
 .sp-c-cyan { background-color: #06b6d4; }
 .sp-c-indigo { background-color: #6366f1; }
 .sp-c-orange { background-color: #f97316; }
+.sp-c-all { background-color: #d9573f; }
+
+/* --- the summary: a wall calendar ------------------------------------------------- */
+
+.sp-dashhead {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 28px;
+  padding: 4px 0 8px 0;
+}
+.sp-dashhead-narrow { flex-wrap: wrap; gap: 12px; row-gap: 8px; }
+.sp-clock { color: var(--ink); font-size: 64px; font-weight: 800; height: 76px; line-height: 76px; }
+.sp-datecol { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+.sp-date { color: var(--ink); font-size: 28px; font-weight: 700; height: auto; line-height: 34px; }
+.sp-datesub { color: var(--muted); font-size: 16px; height: auto; line-height: 22px; }
+
+.sp-wx {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  border-radius: 16px;
+  background-color: var(--surface);
+}
+.sp-wxicon { color: #e0a526; font-size: 34px; height: 44px; line-height: 44px; }
+.sp-wxtemp { color: var(--ink); font-size: 38px; font-weight: 800; height: 46px; line-height: 46px; }
+.sp-wxtext { display: flex; flex-direction: column; flex-wrap: nowrap; }
+.sp-wxline { color: var(--muted); font-size: 14px; height: 20px; line-height: 20px; }
+
+.sp-dash { gap: 28px; align-items: flex-start; }
+.sp-col { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+.sp-sect { color: var(--accent); font-size: 20px; font-weight: 700; height: auto; line-height: 28px; margin-bottom: 4px; }
+.sp-hint { color: var(--faint); font-size: 13px; height: auto; line-height: 18px; margin-top: 8px; }
+
+.sp-tcard {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.sp-tcard:hover { background-color: var(--soft); }
+.sp-tcard:focus { background-color: var(--soft); }
+.sp-tcard-now { background-color: #fbf0de; }
+.sp-tcard-past { opacity: 0.55; }
+.sp-tbar { width: 5px; border-radius: 3px; flex-shrink: 0; }
+.sp-ttime { color: var(--ink); font-size: 20px; font-weight: 700; width: 62px; height: auto; line-height: 26px; flex-shrink: 0; margin-top: 2px; }
+.sp-ttime-allday { font-size: 13px; font-weight: 600; line-height: 18px; margin-top: 6px; }
+.sp-ttitle { color: var(--ink); font-size: 18px; font-weight: 700; height: auto; line-height: 24px; }
+.sp-tmeta { color: var(--muted); font-size: 14px; height: auto; line-height: 20px; }
+.sp-tdetail { color: var(--accent); font-size: 14px; height: auto; line-height: 20px; margin-top: 2px; }
+
+.sp-wrow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 2px solid var(--surface);
+  background-color: var(--surface);
+}
+.sp-wrow-today { border: 2px solid var(--accent); }
+.sp-wrow-past { opacity: 0.6; }
+.sp-wday {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 74px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.sp-wday:hover { background-color: var(--soft); }
+.sp-wday:focus { background-color: var(--soft); }
+.sp-wday-tx { color: var(--ink); font-size: 17px; font-weight: 700; height: 22px; line-height: 22px; white-space: nowrap; }
+.sp-wday-today-tx { color: var(--accent); }
+.sp-evchip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.sp-evchip-tx { color: #ffffff; font-size: 13px; font-weight: 600; height: 18px; line-height: 18px; white-space: nowrap; }
+.sp-more { color: var(--muted); font-size: 13px; font-weight: 600; height: 18px; line-height: 18px; }
+
+.sp-arow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sp-arow:hover { background-color: var(--soft); }
+.sp-arow:focus { background-color: var(--soft); }
+.sp-adot { width: 12px; height: 12px; border-radius: 6px; flex-shrink: 0; }
+.sp-aday { color: var(--ink); font-size: 16px; font-weight: 700; width: 92px; height: 22px; line-height: 22px; flex-shrink: 0; }
+.sp-atitle { color: var(--ink); font-size: 16px; height: auto; line-height: 22px; }
+
+.sp-rcard {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.sp-rcard:hover { background-color: var(--soft); }
+.sp-rcard:focus { background-color: var(--soft); }
+.sp-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--accent); flex-shrink: 0; margin-top: 2px; }
+.sp-rflag { color: var(--accent); font-size: 18px; width: 22px; height: 26px; line-height: 26px; flex-shrink: 0; }
+.sp-rtitle { color: var(--ink); font-size: 17px; font-weight: 500; height: auto; line-height: 22px; }
+.sp-rwhen { color: var(--muted); font-size: 14px; height: auto; line-height: 20px; }
+.sp-rwhen-late { color: var(--late); }
+
+.sp-addbig {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  margin-top: 8px;
+  border-radius: 26px;
+  background-color: var(--accent);
+  cursor: pointer;
+}
+.sp-addbig:hover { background-color: var(--accent-hover); }
+.sp-addbig:focus { background-color: var(--accent-hover); }
+.sp-addbig-tx { color: var(--on-accent); font-size: 18px; font-weight: 700; height: 24px; line-height: 24px; }
+
+.sp-legend { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; margin-top: 12px; padding-left: 6px; }
+.sp-legrow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 24px; }
+.sp-legdot { width: 14px; height: 14px; border-radius: 7px; }
+.sp-legname { color: var(--ink); font-size: 15px; height: 20px; line-height: 20px; }
 
 /* --- important events, members, spaces (a space kept on a server) ---------------- */
 

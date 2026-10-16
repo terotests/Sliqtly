@@ -14,10 +14,14 @@ it, and how ("Takes: Juho", "Picks up: Mia").
 
 ## What it does
 
-- **Summary**: three columns (today, the rest of this week, next week) with
-  events, repeating events and dated rows from sheets, each with its ward and
-  who looks after it, important ones marked; overdue deadlines; the sheets;
-  how busy each ward is this week and next.
+- **Summary**: a wall calendar. On top the clock, the date, the week number
+  and the weather (Open-Meteo, Helsinki, read by the host page). Below it
+  three columns: **today** as cards with each ward's colour, the plan going
+  on or coming next open with its times, who looks after it and its notes;
+  **this week** day by day with the plans as coloured chips (today framed,
+  a day opens in the calendar) and **coming up**, the next one-off plans;
+  **remember**, the deadlines to tick off and reminders to open, the Add
+  button and the wards' colours.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the
   space; one day of a repeating event becomes its own event.

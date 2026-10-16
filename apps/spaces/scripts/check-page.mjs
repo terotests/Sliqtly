@@ -5,6 +5,8 @@
  * answers a click where it is drawn, and a CSV picked in the file dialog
  * lands in the sheets and the summary.
  *
+ * The summary shows the weather (Open-Meteo's answer is stubbed here).
+ *
  * Then the Warden page (npm run warden:build) against a stand-in for the
  * server: it reads the space from the API, a typed invite reaches the API,
  * a double-click opens an event in the form and a typed title is saved,
@@ -37,6 +39,13 @@ const ok = (what, cond, detail = "") => {
   console.log(`  ${cond ? "PASS" : "FAIL"} ${what}${!cond && detail ? ": " + detail : ""}`);
   if (!cond) failed++;
 };
+
+// the summary's weather, answered here instead of by Open-Meteo
+const stubWeather = (p) => p.route("https://api.open-meteo.com/**", (r) => r.fulfill({
+  contentType: "application/json",
+  body: JSON.stringify({ current: { temperature_2m: 6.6, weather_code: 2 },
+    daily: { temperature_2m_max: [9.2], temperature_2m_min: [3.8], precipitation_probability_max: [20] } }),
+}));
 
 const server = await serveDist(0);
 const base = `http://127.0.0.1:${server.address().port}/`;
@@ -75,12 +84,17 @@ try {
   for (const [w, h, locale, today] of [[1280, 800, "fi-FI", "Tänään"], [390, 844, "en-US", "Today"]]) {
     console.log(`${w}×${h} ${locale}`);
     const page = await browser.newPage({ viewport: { width: w, height: h }, locale });
+    await stubWeather(page);
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
     await page.goto(base);
     await page.waitForFunction(() => window.__lastList && window.__lastList.cmds.length > 20);
     ok("the summary paints", (await texts(page)).includes(today));
+    const wx = await page
+      .waitForFunction(() => window.__lastList.cmds.some((c) => c.text === "7°"), null, { timeout: 3000 })
+      .then(() => true, () => false);
+    ok("with the weather", wx);
     const nav = await centre(page, "sp-nav-calendar");
     await page.mouse.click(nav[0], nav[1]);
     await page.waitForTimeout(300);
@@ -157,12 +171,13 @@ try {
   try {
     console.log("Warden 1280×800 en-US");
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+    await stubWeather(page);
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
     await page.goto(wardenUrl);
     const shown = await page
-      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Aino · Takes: Juho"), null, { timeout: 8000 })
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Dentist"), null, { timeout: 8000 })
       .then(() => true, () => false);
     ok("the space comes from the API", shown, JSON.stringify(calls.map((c) => c.op)));
     ok("as JSON", calls.every((c) => c.type === "application/json"));
