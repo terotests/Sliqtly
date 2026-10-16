@@ -96,6 +96,8 @@ class PresTopicView {
         UiTree.addClass(el "rm-seg")
         if on {
             UiTree.addClass(el "rm-seg-on")
+        } {
+            UiKit.labelClass(b "rm-seg-label")
         }
         UiKit.put(host b parent)
     }

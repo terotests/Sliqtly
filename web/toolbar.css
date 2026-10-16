@@ -184,7 +184,10 @@
 .tb-logo-ghost2 { fill: #CD946A; }
 .tb-logo-card { fill: #B5602F; }
 .tb-logo-play { fill: #F9EDDF; }
-.theme-tb .ui-rail { flex-grow: 1; font-family: Open Sans; }
+.theme-tb .ui-rail { flex-grow: 1; font-family: Open Sans; width: 80px; }
+/* the item a step wider than EVGUI's 64px, so the longest name
+   ("Katselmointi") keeps some room from its edges (PresToolbar.railW) */
+.theme-tb .ui-rail-item { width: 74px; }
 
 /* The deck's name at the start of the bar (Google Drive's): a quiet button
    that shows its edge on hover; pressed, a field of the same size. */

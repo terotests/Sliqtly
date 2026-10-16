@@ -1,0 +1,113 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocPages.rgr — the View page cut into printed pages.
+; ============================================================================
+;
+; File → Export ▸ PDF in portrait prints the View page (PresDocView), the
+; deck read as one document, on A4 sheets. That page is one long column;
+; this file says where each sheet starts and ends, and nothing else, so it
+; is checked without a layout or a painter:
+;
+;   the page's atoms (a line, a picture, a figure, a slide's rule and what
+;   follows it) ──► cut() ──► [top, bottom] of each sheet
+;
+; A sheet ends where no atom is cut in two: at the last gap between atoms
+; that fits. An atom taller than a sheet (a figure longer than the paper)
+; has no such gap, and is cut where the sheet ends.
+; ============================================================================
+
+class PresDocPages {
+
+    Constructor () {
+    }
+
+    ; An A4 sheet's height for a page `w` wide (210 × 297 mm).
+    sfn a4Height:double (w:double) {
+        return ((w * 297.0) / 210.0)
+    }
+
+    ; The sheets of the page from `from` to `to`, each at most `room` of
+    ; it: [top0, bottom0, top1, bottom1, …]. `tops`/`bottoms`: the atoms, in
+    ; any order.
+    sfn cut:[double] (tops:[double] bottoms:[double] from:double to:double room:double) {
+        def out:[double]
+        def height:double to
+        if ((to <= from) || (room <= 1.0)) {
+            return out
+        }
+        def spans:[double] (PresDocPages.merged(tops bottoms))
+        def n:int (idiv (array_length spans) 2)
+        def a:double from
+        while (a < (height - 0.5)) {
+            def limit:double (a + room)
+            if (limit >= height) {
+                push out a
+                push out height
+                return out
+            }
+            ; the span the limit falls in, if any: the sheet ends above it
+            def b:double limit
+            def i:int 0
+            while (i < n) {
+                def s0:double (itemAt spans (i * 2))
+                def s1:double (itemAt spans ((i * 2) + 1))
+                if ((s0 < limit) && (s1 > limit)) {
+                    if (s0 > (a + 0.5)) {
+                        b = s0
+                    }
+                }
+                i = (i + 1)
+            }
+            push out a
+            push out b
+            a = b
+        }
+        return out
+    }
+
+    ; The atoms as spans that do not overlap, top to bottom: two that
+    ; overlap are one; two that only touch stay two, with a gap of no
+    ; height between them where a sheet may end.
+    sfn merged:[double] (tops:[double] bottoms:[double]) {
+        def n:int (array_length tops)
+        def order:[int]
+        def i:int 0
+        while (i < n) {
+            if ((itemAt bottoms i) > (itemAt tops i)) {
+                push order i
+            }
+            i = (i + 1)
+        }
+        ; by top (insertion: a page has a few thousand atoms at most, and
+        ; they come nearly in order)
+        def k:int 1
+        while (k < (array_length order)) {
+            def v:int (itemAt order k)
+            def j:int (k - 1)
+            while ((j >= 0) && ((itemAt tops (itemAt order j)) > (itemAt tops v))) {
+                set order (j + 1) (itemAt order j)
+                j = (j - 1)
+            }
+            set order (j + 1) v
+            k = (k + 1)
+        }
+        def out:[double]
+        def m:int 0
+        while (m < (array_length order)) {
+            def t:double (itemAt tops (itemAt order m))
+            def b:double (itemAt bottoms (itemAt order m))
+            def last:int (array_length out)
+            if ((last >= 2) && (t < ((itemAt out (last - 1)) - 0.01))) {
+                if (b > (itemAt out (last - 1))) {
+                    set out (last - 1) b
+                }
+            } {
+                push out t
+                push out b
+            }
+            m = (m + 1)
+        }
+        return out
+    }
+}

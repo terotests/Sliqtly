@@ -5849,6 +5849,8 @@ function handleRequests() {
       exportZip(true).catch(fail);
     } else if (r === "confirm:zip:alt") {
       exportZip(false).catch(fail);
+    } else if (r.startsWith("confirm:pdf:")) {
+      answerPdf(r.split(":")[2] === "picked");
     } else if (r.startsWith("confirm:xc:")) {
       const [, , kind, which, alt] = r.split(":");
       exportWithComments(kind, which === "picked", alt !== "alt").catch(fail);
@@ -6543,6 +6545,47 @@ async function askComments(kind, picked) {
   }
   await exportWithComments(kind, picked, false);
 }
+// File → Export → PDF asks how the pages go: "landscape" the slides, one a
+// page; "portrait" the deck as the View page reads it, on A4 sheets
+// (app.pdfDoc). With open review comments it also asks for them (slides
+// only). The last answer is picked first next time.
+const PDF_LAYOUT_KEY = "sliqtly.pdfLayout";
+function lastPdfLayout() {
+  try { return localStorage.getItem(PDF_LAYOUT_KEY) === "portrait" ? "portrait" : "landscape"; } catch (_) { return "landscape"; }
+}
+async function askPdf(picked) {
+  const n = app.exportCommentCount(picked);
+  let picks = t("Pages") + "\nlandscape=" + t("Landscape: slides") + "\nportrait=" + t("Portrait: as View");
+  let chosen = lastPdfLayout();
+  if (n > 0) {
+    picks += "\n\n" + t("Review comments on slides") + "\nwith=" + t("With comments") + "\nwithout=" + t("Without comments");
+    chosen += ",with";
+  }
+  if (app.openPick("pdf:" + (picked ? "picked" : "all"), t("PDF (.pdf)"),
+    t("Landscape has one slide on each page. Portrait has the presentation as the View tab shows it, on A4 pages."),
+    t("Export"), picks, chosen)) {
+    needsPaint = true;
+    return;
+  }
+  // no window now (presenting): the last answer, without comments
+  await exportPdfAs(lastPdfLayout(), picked, false);
+}
+function answerPdf(picked) {
+  const got = app.picked().split(",");
+  const layout = got[0] === "portrait" ? "portrait" : "landscape";
+  try { localStorage.setItem(PDF_LAYOUT_KEY, layout); } catch (_) { /* this time only */ }
+  exportPdfAs(layout, picked, got[1] === "with").catch(fail);
+}
+async function exportPdfAs(layout, picked, comments) {
+  if (layout === "portrait") await exportPdfDoc(picked);
+  else await exportWithComments("pdf", picked, comments);
+}
+async function exportPdfDoc(picked = false) {
+  await renderPlayStills(picked);
+  await Promise.all([renderFxStills(), loadEmojiFace(), renderWorldStills()]);
+  window.__lastDownload = deliver(app.pdfDoc(picked), (picked && app.pickCount() > 0 ? pickedName() : exportName()) + ".pdf", "application/pdf");
+}
+window.__exportPdfAs = exportPdfAs;
 async function exportWithComments(kind, picked, comments) {
   app.setExportComments(comments);
   try {
@@ -6945,12 +6988,12 @@ document.getElementById("html").addEventListener("click", () => { askComments("h
 document.getElementById("player").addEventListener("click", () => { exportPlayer().catch(fail); });
 document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { askComments("html", true).catch(fail); });
-document.getElementById("pdf").addEventListener("click", () => { askComments("pdf", false).catch(fail); });
+document.getElementById("pdf").addEventListener("click", () => { askPdf(false).catch(fail); });
 document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
 document.getElementById("vidweb").addEventListener("click", () => { exportCloudVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });
-document.getElementById("pdfPicked").addEventListener("click", () => { askComments("pdf", true).catch(fail); });
+document.getElementById("pdfPicked").addEventListener("click", () => { askPdf(true).catch(fail); });
 document.getElementById("pptxPicked").addEventListener("click", () => { exportPptx(true).catch(fail); });
 // Open: a presentation (.md) replaces the deck; data (Excel, CSV, JSON) and
 // pictures go to the Files tab as if dropped there. One data file opens the

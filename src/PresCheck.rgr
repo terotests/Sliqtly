@@ -4,6 +4,7 @@ Import "PresViewZoom.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
 Import "PresDocKeys.rgr"
+Import "PresDocPages.rgr"
 Import "PresToc.rgr"
 Import "PresEditMode.rgr"
 Import "PresVideo.rgr"
@@ -5282,6 +5283,101 @@ class PresCheck {
         this.ok(((cl.kind == 4) && ((cl.w == 50.0) && (cl.h == 40.0))) "docview: a clip inside narrowed to it")
     }
 
+    ; The View page on A4 sheets (PresDocPages, PresDocView.sheet): a sheet
+    ; ends between atoms, never in one, unless the atom is taller than a
+    ; sheet.
+    fn docPages:void () {
+        this.ok(((PresDocPages.a4Height(210.0)) == 297.0) "docpages: A4 is 210 × 297")
+        ; two lines that touch, one that overlaps them, a gap, a tall one
+        def tops:[double]
+        def bottoms:[double]
+        push tops 10.0
+        push bottoms 30.0
+        push tops 30.0
+        push bottoms 50.0
+        push tops 25.0
+        push bottoms 40.0
+        push tops 60.0
+        push bottoms 80.0
+        push tops 100.0
+        push bottoms 400.0
+        def m:[double] (PresDocPages.merged(tops bottoms))
+        this.ok(((array_length m) == 6) ("docpages: overlapping atoms are one span, got " + (to_string (array_length m))))
+        this.ok((((itemAt m 0) == 10.0) && ((itemAt m 1) == 50.0)) "docpages: …from the first top to the last bottom")
+        def c1:[double] (PresDocPages.cut(tops bottoms 0.0 90.0 55.0))
+        this.ok((((array_length c1) == 4) && ((itemAt c1 1) == 55.0)) ("docpages: room after the span: the sheet ends at the limit, got " + (to_string (itemAt c1 1))))
+        def c2:[double] (PresDocPages.cut(tops bottoms 0.0 90.0 70.0))
+        this.ok(((itemAt c2 1) == 60.0) ("docpages: a line at the limit goes to the next sheet, got " + (to_string (itemAt c2 1))))
+        this.ok(((itemAt c2 2) == 60.0) "docpages: …which starts where the last ended")
+        def c3:[double] (PresDocPages.cut(tops bottoms 90.0 420.0 100.0))
+        this.ok(((itemAt c3 1) == 100.0) ("docpages: the tall atom starts the next sheet, got " + (to_string (itemAt c3 1))))
+        this.ok(((itemAt c3 3) == 200.0) ("docpages: …and is cut where a sheet ends, got " + (to_string (itemAt c3 3))))
+        this.ok(((itemAt c3 ((array_length c3) - 1)) == 420.0) "docpages: the last sheet ends at the page's end")
+        this.ok(((array_length (PresDocPages.cut(tops bottoms 0.0 0.0 100.0))) == 0) "docpages: an empty page has no sheets")
+        ; a real deck: many lines over many sheets
+        def text:string "---\ntitle: Pitkä\nslide-split-level: 2\n---\n\n"
+        def s:int 0
+        while (s < 12) {
+            text = (text + "## Osa " + (to_string (s + 1)) + "\n\n")
+            def p:int 0
+            while (p < 4) {
+                text = (text + "Kappale, jossa on niin monta sanaa, että se rivittyy kahdelle tai kolmelle riville sivun leveydellä. \n\n")
+                p = (p + 1)
+            }
+            s = (s + 1)
+        }
+        def deck (new PresDeck())
+        deck.setText(text)
+        def v (new PresDocView())
+        v.build(deck)
+        def w:double (v.width())
+        def room:double ((PresDocPages.a4Height(w)) - 72.0)
+        def cuts:[double] (PresDocPages.cut(v.atomTop v.atomBottom 36.0 ((v.height()) - 36.0) room))
+        def n:int (idiv (array_length cuts) 2)
+        this.ok((n >= 2) ("docpages: a long deck on several sheets, got " + (to_string n)))
+        def inLine:int 0
+        def tooTall:int 0
+        def i:int 0
+        while (i < n) {
+            def a:double (itemAt cuts (i * 2))
+            def b:double (itemAt cuts ((i * 2) + 1))
+            if ((b - a) > (room + 0.01)) {
+                tooTall = (tooTall + 1)
+            }
+            def k:int 0
+            while (k < (array_length v.atomTop)) {
+                if (((itemAt v.atomTop k) < (b - 0.01)) && ((itemAt v.atomBottom k) > (b + 0.01))) {
+                    inLine = (inLine + 1)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        this.ok((tooTall == 0) "docpages: no sheet holds more than its room")
+        this.ok((inLine == 0) ("docpages: no sheet ends inside a line, got " + (to_string inLine)))
+        def sh:EVGDisplayList (v.sheet((itemAt cuts 2) (itemAt cuts 3) 36.0 w (PresDocPages.a4Height(w))))
+        def words:string ""
+        def k2:int 0
+        while (k2 < (array_length sh.cmds)) {
+            def cmd:EVGDrawCmd (itemAt sh.cmds k2)
+            if (cmd.kind == 3) {
+                words = (words + cmd.text + " ")
+            }
+            k2 = (k2 + 1)
+        }
+        this.ok((((indexOf words "Osa") >= 0) || ((indexOf words "Kappale") >= 0)) "docpages: the second sheet has the deck's words")
+        this.ok(((indexOf words "Pitkä") < 0) "docpages: …not the first sheet's title")
+        def lastCmd:EVGDrawCmd (itemAt v.list.cmds ((array_length v.list.cmds) - 1))
+        def before:double lastCmd.y
+        def again:EVGDisplayList (v.sheet(0.0 ((v.height()) + 1.0) 36.0 w 1000.0))
+        this.ok((lastCmd.y == before) "docpages: a sheet leaves the page's own commands where they were")
+        ; the picked slides only
+        def v2 (new PresDocView())
+        push v2.only 1
+        v2.build(deck)
+        this.ok(((v2.height()) < ((v.height()) * 0.25)) "docpages: one picked slide makes a short page")
+    }
+
     ; The caret on the View page (PresDocCaret): a page point and a source
     ; offset map onto each other, and what Backspace/Enter may write.
     fn docCaret:void () {
@@ -9734,6 +9830,7 @@ class PresCheck {
         c.docFlow()
         c.docPoints()
         c.docView()
+        c.docPages()
         c.docPlays()
         c.toc()
         c.docCaret()

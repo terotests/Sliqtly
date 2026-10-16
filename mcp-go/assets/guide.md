@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-16.** If a result names a newer version, read Core
+**Guide version 2026-10-16b.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -131,6 +131,7 @@ by default. Readability comes first.
 | `apps` | a program or game running on a slide (`app` blocks, TSX + CSS) |
 | `scripts` | a program that moves the slide's own text, chart bars and diagram nodes (`{script=…}`), sprites, the presenter |
 | `script-api` | the `"Sliqtly"` module scripts import, as TypeScript declarations |
+| `run-script` | a JavaScript program run on the presentation's files with Node.js's `fs` and `path` (`run_script`): SVG from data, CSV from CSV, slides from a table |
 | `editing` | `edits`, another assistant on the same deck, review comments, the layout report |
 | `export` | PDF, PPTX, DOCX, HTML, print pages with bleed |
 | `limits` | quotas, sign-in, privacy, deleting decks |
@@ -1712,6 +1713,95 @@ declare function onClick(entity: Entity | null): void;
 declare function onLeave(to: number): void;
 declare function final(): void;
 ```
+
+<!-- topic: run-script -->
+# Topic: run-script
+
+`run_script` runs a JavaScript or TypeScript program on one presentation's
+files and keeps what it writes. Node.js's own modules are there over a file
+system that holds that presentation and nothing else:
+
+| Module | What works |
+|---|---|
+| `fs` | `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `statSync`, `readdirSync` (`withFileTypes`, `recursive`), `mkdirSync`, `rmSync`, `unlinkSync`, `renameSync`, `copyFileSync`, `cpSync`; the callback forms and `fs.promises` |
+| `path` | POSIX: `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `normalize`, `parse`, `format` |
+| `process` | `argv` (the call's `args` after the program's path), `cwd()`, `chdir()`, `exit()`, `exitCode`, `stdout.write()` |
+| `buffer` | `Buffer.from` (utf8, base64, hex), `alloc`, `concat`, `byteLength`, `toString()` |
+| `util`, `os` | `util.format`, `util.promisify`; `os.EOL`, `os.tmpdir()` |
+
+`require("fs")`, `require("node:fs")`, `import fs from "node:fs"` and
+`import { readFileSync } from "fs"` all work. There is no network and there
+are no npm packages; a program is one file. It may run 10 seconds.
+
+## The files
+
+| Path | Holds | Kept when written |
+|---|---|---|
+| `/presentation.md` | the deck's Markdown | yes: the deck's new text |
+| `/data/` | CSV, TSV, JSON, text; a workbook's sheets as `data/<book>-<Sheet>.csv` (read only) | `.csv .tsv .json .txt .gltf` as text, `.xlsx` as bytes |
+| `/media/` | pictures: SVG as text, others by name and size only | `.svg` as text; `.png .jpg .gif .webp` as bytes (a `Buffer` or `Uint8Array`) |
+| `/apps/` | programs of `app` blocks and slide scripts | `.tsx .jsx` and their `.tsx.css` |
+| `/code/` | source files, programs kept for `run_script` | any text file |
+| `/tmp/` | scratch | no |
+
+The working folder is `/`, so `data/sales.csv` and `/data/sales.csv` are the
+same file. A text file reads as a string with or without an encoding. A
+picture's or workbook's bytes are not handed in: reading one fails with
+`ENOTSUP`, `statSync` still gives its size. Writing a sheet's CSV fails with
+`EACCES`; `write_workbook` changes the workbook. Files the program removes
+stay in the presentation.
+
+Errors are Node's: `e.code` is `ENOENT`, `EISDIR`, `EEXIST`, `ENOTEMPTY`,
+`EACCES` or `ENOTSUP`.
+
+What is kept is saved only when the program ends without an error
+(`process.exit(0)` counts as no error). With `save: false` it runs and the
+result lists what it would keep. The result gives what the program printed
+(`console.log`) and the layout report of the saved deck, as
+`update_presentation` does.
+
+## SVG from data
+
+JSX works, and `renderToString` turns an element tree into markup:
+
+```js
+const fs = require("fs");
+const rows = fs.readFileSync("data/sales.csv", "utf8").trim().split("\n").slice(1)
+  .map(line => line.split(","));
+const max = Math.max(...rows.map(r => +r[1]));
+const W = 600, H = 300, bar = W / rows.length;
+const svg = renderToString(
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox={"0 0 " + W + " " + H}>
+    {rows.map((r, i) => {
+      const h = (H - 40) * r[1] / max;
+      return <g>
+        <rect x={i * bar + 8} y={H - 20 - h} width={bar - 16} height={h} rx="4" fill="#3b82f6" />
+        <text x={i * bar + bar / 2} y={H - 4} text-anchor="middle" font-size="14">{r[0]}</text>
+      </g>;
+    })}
+  </svg>);
+fs.writeFileSync("media/sales-bars.svg", svg);
+```
+
+A slide then shows it as `![Sales by month](media/sales-bars.svg)`. A
+drawing whose numbers are computed (angles, scales, positions on a grid) is
+easier to get right as a program than written out by hand.
+
+## A table into slides
+
+```js
+const fs = require("fs");
+const rows = JSON.parse(fs.readFileSync("data/team.json", "utf8"));
+const slides = rows.map(p => "## " + p.name + "\n\n- " + p.role + "\n- " + p.city + "\n").join("\n");
+fs.appendFileSync("presentation.md", "\n" + slides);
+```
+
+## A program kept with the deck
+
+Keep a program under `code/` (`files: [{ name: "code/scripts/bars.js",
+text }]` on create or update) and run it again by `path` when its data
+changes: `run_script({ deck_id, path: "code/scripts/bars.js", args: ["2026"] })`.
+`process.argv[2]` is then `"2026"`.
 
 <!-- topic: editing -->
 # Topic: editing

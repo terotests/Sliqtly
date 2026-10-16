@@ -8,6 +8,8 @@ Import "PresDeck.rgr"
 Import "PresDocx.rgr"
 Import "PresHtml.rgr"
 Import "PresCommentNotes.rgr"
+Import "PresDocView.rgr"
+Import "PresDocPages.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 
 class PresExport {
@@ -191,44 +193,14 @@ class PresExport {
         ; a page grown for its footnotes is a section of its own size
         def secH:double ph
         footnotes = 0
-        def renderer (new EVGPDFRenderer())
-        renderer.init(renderer)
-        renderer.setPageSize(pw ph)
+        def renderer:EVGPDFRenderer (this.pdfRenderer(pw ph))
         def bleed:double 0.0
         if l.style.forPrint {
             bleed = l.style.bleed
             renderer.setBleed(bleed)
             renderer.setCropMarks(l.style.cropMarks)
         }
-        ; the effects the host rendered: sharp enough for a full page
-        def si:int 0
-        while (si < (array_length stillIdx)) {
-            def ib (new ImageBuffer())
-            ib.width = (itemAt stillW si)
-            ib.height = (itemAt stillH si)
-            ib.pixels = (itemAt stillRgba si)
-            renderer.registerImage((PresDeck.fxStillPath((itemAt stillIdx si))) ib)
-            renderer.maxImageWidth = 1600
-            renderer.maxImageHeight = 1600
-            si = (si + 1)
-        }
-        if (mw.faceCount > 0) {
-            renderer.setFontManager(mw.fontManager)
-            if (!null? mw.measurer) {
-                renderer.setMeasurer((unwrap mw.measurer))
-            }
-        }
-        ; Every picture on a page is handed over as pixels: the renderer can
-        ; only otherwise open it as a file, which a browser has no way to do
-        ; (`require` is not defined). That is the slides' own pictures, a
-        ; slide's background and a logo in the header or footer alike; one
-        ; the deck has no bytes for is left out rather than failing the file.
-        def known:[string]
-        def si2:int 0
-        while (si2 < (array_length stillIdx)) {
-            push known (PresDeck.fxStillPath((itemAt stillIdx si2)))
-            si2 = (si2 + 1)
-        }
+        def known:[string] (this.stillPaths())
         def missing:[string]
         deck.still = true
         def i:int 0
@@ -239,26 +211,7 @@ class PresExport {
             }
             def groups:[int]
             def dl:EVGDisplayList (deck.slideList(i groups 0.0))
-            def kept:[EVGDrawCmd]
-            def c:int 0
-            while (c < (array_length dl.cmds)) {
-                def cmd:EVGDrawCmd (itemAt dl.cmds c)
-                def keep:boolean true
-                if (cmd.kind == 2) {
-                    ; an SVG picture shown whole is drawn as its paths
-                    ; (`vectorize` below); the rest as pixels
-                    if (this.svgWhole(cmd)) {
-                        keep = true
-                    } {
-                        keep = (PresExport.pdfImage(renderer e cmd.src known missing))
-                    }
-                }
-                if keep {
-                    push kept cmd
-                }
-                c = (c + 1)
-            }
-            dl.cmds = kept
+            this.keepDrawable(dl renderer e known missing)
             def pageH:double ph
             def ns:[PresCommentNote] (comments.onPage(i))
             if ((array_length ns) > 0) {
@@ -284,6 +237,111 @@ class PresExport {
             i = (i + 1)
         }
         deck.still = false
+        return (renderer.render(root))
+    }
+
+    ; A PDF renderer for pages `pw` × `ph`, with the effects the host
+    ; rendered (sharp enough for a full page) and the deck's faces.
+    fn pdfRenderer:EVGPDFRenderer (pw:double ph:double) {
+        def mw:MarkdownWeb deck.md
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(pw ph)
+        def si:int 0
+        while (si < (array_length stillIdx)) {
+            def ib (new ImageBuffer())
+            ib.width = (itemAt stillW si)
+            ib.height = (itemAt stillH si)
+            ib.pixels = (itemAt stillRgba si)
+            renderer.registerImage((PresDeck.fxStillPath((itemAt stillIdx si))) ib)
+            renderer.maxImageWidth = 1600
+            renderer.maxImageHeight = 1600
+            si = (si + 1)
+        }
+        if (mw.faceCount > 0) {
+            renderer.setFontManager(mw.fontManager)
+            if (!null? mw.measurer) {
+                renderer.setMeasurer((unwrap mw.measurer))
+            }
+        }
+        return renderer
+    }
+
+    ; the pictures the renderer has from the host: the effects' stills
+    fn stillPaths:[string] () {
+        def known:[string]
+        def si:int 0
+        while (si < (array_length stillIdx)) {
+            push known (PresDeck.fxStillPath((itemAt stillIdx si)))
+            si = (si + 1)
+        }
+        return known
+    }
+
+    ; Every picture on a page is handed over as pixels: the renderer can
+    ; only otherwise open it as a file, which a browser has no way to do
+    ; (`require` is not defined). That is the slides' own pictures, a
+    ; slide's background and a logo in the header or footer alike; one
+    ; the deck has no bytes for is left out rather than failing the file.
+    fn keepDrawable:void (dl:EVGDisplayList renderer:EVGPDFRenderer e:MarkdownEdit known:[string] missing:[string]) {
+        def kept:[EVGDrawCmd]
+        def c:int 0
+        while (c < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds c)
+            def keep:boolean true
+            if (cmd.kind == 2) {
+                ; an SVG picture shown whole is drawn as its paths
+                ; (`vectorize`); the rest as pixels
+                if (this.svgWhole(cmd)) {
+                    keep = true
+                } {
+                    keep = (PresExport.pdfImage(renderer e cmd.src known missing))
+                }
+            }
+            if keep {
+                push kept cmd
+            }
+            c = (c + 1)
+        }
+        dl.cmds = kept
+    }
+
+    ; --- portrait: the View page on A4 sheets ---------------------------------------
+    ; The deck as its View page reads it (PresDocView, built for this deck,
+    ; with `only` its slides), cut into A4 sheets as wide as the page
+    ; (PresDocPages), each with its number at the foot.
+    fn docPdf:buffer (view:PresDocView) {
+        def mw:MarkdownWeb deck.md
+        def e:MarkdownEdit mw.edit
+        def w:double (view.width())
+        def h:double (PresDocPages.a4Height(w))
+        def margin:double view.flow.margin
+        def top:double margin
+        def bottom:double ((view.height()) - margin)
+        if (bottom <= top) {
+            top = 0.0
+            bottom = (view.height())
+        }
+        def cuts:[double] (PresDocPages.cut(view.atomTop view.atomBottom top bottom (h - (2.0 * margin))))
+        def renderer:EVGPDFRenderer (this.pdfRenderer(w h))
+        def root:EVGElement (EVGListToElements.printRoot(w h))
+        def section:EVGElement (EVGListToElements.sectionOf(root))
+        def bg:EVGColor (EVGColor.parse(view.paper))
+        def known:[string] (this.stillPaths())
+        def missing:[string]
+        def sheets:int (idiv (array_length cuts) 2)
+        def i:int 0
+        while (i < sheets) {
+            def dl:EVGDisplayList (view.sheet((itemAt cuts (i * 2)) (itemAt cuts ((i * 2) + 1)) margin w h))
+            this.keepDrawable(dl renderer e known missing)
+            def num:string ((to_string (i + 1)) + " / " + (to_string sheets))
+            def nw:double (to_double ((strlen num) * 5))
+            dl.addText(num ((w - nw) * 0.5) (h - (margin * 0.5)) 9.0 (EVGColor.parse(view.muted)) "Open Sans" false false (nw + 10.0) 9.0)
+            def pageEl:EVGElement (EVGListToElements.pageFrom(dl w h bg true))
+            this.vectorize(pageEl)
+            section.addChild(pageEl)
+            i = (i + 1)
+        }
         return (renderer.render(root))
     }
 

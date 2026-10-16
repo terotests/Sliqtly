@@ -457,6 +457,7 @@ class PresRoomView {
         if (view == "stories") {
             def cb:ButtonCtl (UiKit.button("rm-close" "×" "ghost"))
             UiTree.addClass((unwrap cb.rootEl) "rm-close")
+            UiKit.labelClass(cb "rm-tab-label")
             UiKit.put(host cb tabs)
         }
         frame.addChild(tabs)
@@ -491,6 +492,8 @@ class PresRoomView {
         if on {
             UiTree.addClass(el "rm-tab-on")
             UiKit.labelClass(b "rm-tab-label-on")
+        } {
+            UiKit.labelClass(b "rm-tab-label")
         }
         UiKit.put(host b parent)
     }

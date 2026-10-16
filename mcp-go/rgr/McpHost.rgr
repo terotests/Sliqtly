@@ -405,6 +405,15 @@ operators {
             go ( (e 1) ".ScriptRun(" (e 2) ", " (e 3) ", " (e 4) ")" )
         }
     }
+    ; run_script (noderun.go): the program `code` run in CErXes on the
+    ; deck's files `mount` with Node.js's fs, path and process
+    ; (web/node-runtime.js); {"ran", "error", "output", "changes"}, ran false
+    ; when there is no engine here
+    host_node_run _:string (h:McpHost mount:string code:string) {
+        templates {
+            go ( (e 1) ".NodeRun(" (e 2) ", " (e 3) ")" )
+        }
+    }
     ; --- slides as pictures (render.go)
 
     ; a picture the display lists name (/media/<name>), for the painter
