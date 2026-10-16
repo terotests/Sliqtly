@@ -3373,7 +3373,8 @@ try {
       return { newKids, newReqs, kids, zip, red, last, asked, confirm, okDanger: !!ok && (ok.className || "").includes("ui-button-danger"), closed: !a.chart.isOpen, after };
     });
     check("…File → New offers Presentation… (the window), Datasheet… (the spreadsheet editor) and Questionnaire… (a story of its own)", fx.newKids.join() === "newPres,newSheet,newForm" && fx.newReqs.join() === "files:new,files:newsheet,files:newform", JSON.stringify(fx));
-    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep")).join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
+    // the link rows (x-recweb, x-vidweb) only where the page hands out links
+    check("…File → Export lists .md, .pptx, .docx, .html, the player, .pdf, the images, the video and .zip, a line and Export to Clipboard ▸, and the zip row is the page's ZIP button", fx.kids.filter((k) => !k.startsWith("sep") && k !== "x-recweb" && k !== "x-vidweb").join() === "x-save,x-pptx,x-docx,x-html,x-player,x-pdf,x-png,x-pngAll,x-video,x-zip,x-clip" && fx.zip.includes("click:zip"), JSON.stringify(fx));
     check("…File → Delete presentation… is red and last, and asks first; Esc deletes nothing", fx.red && fx.last && fx.asked.includes("files:deletedeck") && fx.confirm && fx.okDanger && fx.closed && !fx.after.some((r) => r.startsWith("confirm:")), JSON.stringify(fx));
 
     // File → Recent: Browse all… first (the Files tab), a line, then the decks
@@ -4681,6 +4682,28 @@ try {
       ran && seen.cls.includes("playerFile") && seen.src.includes("## Toinen") && !errs.length,
       JSON.stringify({ ran, cls: seen.cls, bytes: fs.statSync(file).size, errs: errs.slice(0, 3) }));
     await off.close();
+    await page.evaluate((src) => window.__app.setSource(src), src0);
+  }
+  // Export ▸ Image: this slide as one PNG, every slide as PNGs in a zip
+  {
+    const src0 = await page.evaluate(() => window.__app.source());
+    await page.evaluate(() => window.__app.setSource("# Kuva\n\n## Toinen\n\nteksti\n"));
+    await page.waitForTimeout(300);
+    const one = page.waitForEvent("download");
+    await page.evaluate(() => window.__exportImages("slide"));
+    const d1 = await one;
+    const png = fs.readFileSync(await d1.path());
+    check("Image export: this slide as a PNG named by its number",
+      /- 1\.png$/.test(d1.suggestedFilename()) && png.subarray(1, 4).toString() === "PNG" && png.length > 2000,
+      JSON.stringify({ name: d1.suggestedFilename(), bytes: png.length }));
+    const all = page.waitForEvent("download");
+    await page.evaluate(() => window.__exportImages("all"));
+    const d2 = await all;
+    const zip = fs.readFileSync(await d2.path());
+    const names = zip.toString("latin1").match(/[^\/\x00-\x1f]* - [12]\.png/g) || [];
+    check("Image export: every slide as PNGs in a zip",
+      d2.suggestedFilename().endsWith("(PNG).zip") && zip.readUInt32LE(0) === 0x04034b50 && names.some((n) => n.endsWith(" - 2.png")),
+      JSON.stringify({ name: d2.suggestedFilename(), names: names.slice(0, 4) }));
     await page.evaluate((src) => window.__app.setSource(src), src0);
   }
   // A slide's effect goes into both exports as a picture under the content
@@ -6799,7 +6822,7 @@ try {
       window.__handleRequests();
       return { kids };
     });
-    check("Export to Clipboard ends with Full presentation", menu.kids.filter((k) => !k.startsWith("sep")).join() === "cp-md,cp-mdc,cp-comments,cp-full", JSON.stringify(menu));
+    check("Export to Clipboard ends with Full presentation", menu.kids.filter((k) => !k.startsWith("sep")).join() === "cp-imgSlide,cp-md,cp-mdc,cp-comments,cp-full", JSON.stringify(menu));
     let text = "";
     for (let i = 0; i < 20 && !text.includes("presentation,"); i++) {
       await A.page.waitForTimeout(300);
@@ -6808,6 +6831,14 @@ try {
     check("…it copies the whole deck: Markdown, theme and files", text.startsWith(`===== Sliqtly clipboard v1: presentation, ${nA} slides =====`) && text.includes("----- theme: css -----") && text.includes("----- file: media/logo.png (image/png, base64) -----"), text.slice(0, 200));
     const too = await A.page.evaluate(() => { const a = window.__app; a.clipWhole("media/logo.png\nmedia/video.mp4", ""); const w = a.clipTooLarge("67\n40000000"); return { w, open: a.clipSayTooLarge(w) && a.chart.isOpen }; });
     check("…one too large is not copied: the window names its largest file and offers the ZIP", too.open && too.w.includes("media/video.mp4") && too.w.includes("All files (.zip)"), JSON.stringify(too));
+    // Export to Clipboard ▸ Image: the slide as a PNG (and HTML <img>), no text
+    await A.page.evaluate(() => window.__copyImage("slide"));
+    let types = [];
+    for (let i = 0; i < 20 && !types.includes("image/png"); i++) {
+      await A.page.waitForTimeout(300);
+      types = await A.page.evaluate(async () => { try { return (await navigator.clipboard.read()).flatMap((it) => it.types); } catch (e) { return [String(e)]; } });
+    }
+    check("Export to Clipboard ▸ Image puts the slide on the clipboard as a PNG", types.includes("image/png") && !types.includes("text/plain"), JSON.stringify(types));
     await A.ctx.close();
 
     const B = await openCtx();

@@ -5875,6 +5875,12 @@ function handleRequests() {
       copyWhole();
     } else if (r === "confirm:cliptoobig") {
       askZip().catch(fail);
+    } else if (r === "clip:imgSlide" || r === "clip:imgPicked") {
+      // Export to Clipboard ▸ Image: the slide, or the picked ones, as a PNG
+      copyImage(r === "clip:imgPicked" ? "picked" : "slide").catch(fail);
+    } else if (r.startsWith("image:")) {
+      // Export ▸ Image: this slide, the picked ones or all as PNG files
+      exportImages(r.slice(6)).catch(fail);
     } else if (r.startsWith("clip:")) {
       // Copy ▸ / Export ▸ Clipboard: the Markdown, with the comments, the slide's
       writeClip(app.copyText(r.slice(5))).then((ok) => toast(ok ? t("Copied") : t("Could not copy"))).catch(fail);
@@ -9666,7 +9672,7 @@ async function clipCopyText(kind) {
   return app.clipText();
 }
 
-// The copy's picture (app.clipPictureJson): each slide at rest as the stage
+// The copy's picture (app.clipPictureJson), and Export ▸ Image's: each slide at rest as the stage
 // draws it, one under another, or the element's box of its slide; a PNG
 // Blob, null when there is no GPU for it.
 const CLIP_PIC_W = 1920;
@@ -9725,6 +9731,56 @@ async function clipPicture(spec) {
   if (lose) lose.loseContext();
   return new Promise((r) => out.toBlob(r, "image/png"));
 }
+
+// Export ▸ Image (src/PresImageExport.rgr): each slide at rest as the
+// stage draws it, a PNG 1920 wide; one is saved as it is, several in a zip.
+async function exportImages(scope) {
+  const rows = app.imageExportPlan(scope, exportName(), t("slides")).split("\n");
+  const zip = rows.shift();
+  if (!rows.length || !rows[0]) return;
+  // the programs on slides the stage never showed, for their pictures
+  if (scope !== "slide") await renderPlayStills(scope === "picked");
+  const entries = [];
+  for (const row of rows) {
+    const [page, name] = row.split("\t");
+    const blob = await clipPicture({ pages: [Number(page)] });
+    if (!blob) {
+      toast(t("Could not draw the slide."));
+      return;
+    }
+    entries.push({ name, data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  window.__lastDownload = zip
+    ? deliver(zipStore(entries), zip, "application/zip")
+    : deliver(entries[0].data, entries[0].name, "image/png");
+}
+window.__exportImages = exportImages;
+
+// Export to Clipboard ▸ Image: the slide, or the picked slides one under
+// another, as a PNG and as HTML <img> for apps that paste HTML. No
+// Sliqtly text with it, so a paste here too is a picture. As in clipCopy,
+// the ClipboardItem is made in the press's own turn (Safari).
+function copyImage(scope) {
+  const pages = app.imageExportPlan(scope, "", "").split("\n").slice(1).filter(Boolean).map((r) => Number(r.split("\t")[0]));
+  if (!pages.length) return Promise.resolve();
+  if (typeof ClipboardItem !== "function" || !navigator.clipboard?.write) {
+    toast(t("Could not copy"));
+    return Promise.resolve();
+  }
+  const png = clipPicture({ pages }).then((b) => b || Promise.reject(new Error("no picture")));
+  const parts = { "image/png": png };
+  if (!ClipboardItem.supports || ClipboardItem.supports("text/html")) {
+    parts["text/html"] = png.then(async (b) => new Blob([clipImgHtml(toBase64(await b.arrayBuffer()))], { type: "text/html" }));
+  }
+  let wrote;
+  try {
+    wrote = navigator.clipboard.write([new ClipboardItem(parts)]).then(() => true, () => false);
+  } catch (_) {
+    wrote = Promise.resolve(false);
+  }
+  return wrote.then((ok) => toast(ok ? (pages.length === 1 ? t("Copied the slide as an image.") : t("Copied {n} slides as an image.").replace("{n}", pages.length)) : t("Could not copy")));
+}
+window.__copyImage = copyImage;
 
 // A pasted file into the deck, as Files → Paste puts one.
 async function clipStore(path, type, bytes) {

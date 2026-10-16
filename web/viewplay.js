@@ -280,6 +280,11 @@ export async function startPlays({ plays = [], scripts = [], lists = [], slideW 
         cameFrom = seenPage + 1;
         seenPage = page;
       }
+      return this.picturesOf(page);
+    },
+    // page's programs' pictures as they are now, for a still of it (the
+    // viewer's Image of this slide); nothing about where it is painted
+    picturesOf(page) {
       const out = [];
       for (const p of plays) if (p.slide === page) out.push(JSON.parse(web.paintJson(p.key)));
       return out;

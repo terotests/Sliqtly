@@ -35,6 +35,7 @@ Import "PresColorPanel.rgr"
 Import "PresReviewDot.rgr"
 Import "PresHeadingAttr.rgr"
 Import "PresPick.rgr"
+Import "PresImageExport.rgr"
 Import "PresSelect.rgr"
 Import "PresNav.rgr"
 Import "PresStory.rgr"
@@ -3818,6 +3819,35 @@ class PresCheck {
         this.ok(((PresFollow.moved(10 11 5 1)) == 10) "follow: after it")
         this.ok(((PresFollow.moved(10 8 5 2)) == 10) "follow: its start removed, from the edit's end")
         this.ok(((PresFollow.moved(-1 0 0 4)) == -1) "follow: not known stays so")
+    }
+
+    sfn intsJoined:string (xs:[int]) {
+        def out:[string]
+        for xs x:int i {
+            push out (to_string x)
+        }
+        return (join out ",")
+    }
+
+    ; Export ▸ Image: which slides, and the files' names
+    fn imageExport:void () {
+        def none:[int]
+        def two:[int] ([] _:int (4 1 4 99))
+        this.ok(((PresCheck.intsJoined((PresImageExport.pages("slide" 3 two 12)))) == "3") "image: the selected slide")
+        this.ok(((PresCheck.intsJoined((PresImageExport.pages("slide" 40 none 12)))) == "11") "image: a selected slide past the end is the last")
+        this.ok(((PresCheck.intsJoined((PresImageExport.pages("picked" 3 two 12)))) == "4,1") "image: the picked slides, once each, none past the end")
+        this.ok(((PresCheck.intsJoined((PresImageExport.pages("picked" 2 none 12)))) == "2") "image: no picks = the selected slide")
+        this.ok(((array_length (PresImageExport.pages("all" 0 none 3))) == 3) "image: every slide")
+        this.ok(((array_length (PresImageExport.pages("slide" 0 none 0))) == 0) "image: an empty deck has none")
+        this.ok(((PresImageExport.fileName("Raportti" 2 12)) == "Raportti - 03.png") ("image: numbered as wide as the last, got " + (PresImageExport.fileName("Raportti" 2 12))))
+        this.ok(((PresImageExport.fileName("" 0 5)) == "presentation - 1.png") "image: a deck with no name")
+        def tab:string (strfromcode 9)
+        def one:string (PresImageExport.plan("slide" "D" 1 none 3 "dia"))
+        this.ok((one == ("\n1" + tab + "D - 2.png")) ("image: one slide is one PNG, got " + one))
+        def picked:[int] ([] _:int (1 4))
+        def many:string (PresImageExport.plan("picked" "D" 0 picked 12 "diat"))
+        this.ok((many == ("D (diat 2,5).zip\n1" + tab + "D - 02.png\n4" + tab + "D - 05.png")) ("image: picked slides in a zip, got " + many))
+        this.ok(((indexOf (PresImageExport.plan("all" "D" 0 none 2 "s")) "D (PNG).zip") == 0) "image: every slide's zip")
     }
 
     ; Slides picked in the strip (PresPick), and a view of only some of them
@@ -9355,6 +9385,7 @@ class PresCheck {
         c.followEdits()
         c.invites()
         c.picks()
+        c.imageExport()
         c.navJumps()
         c.stageClicks()
         c.quickBar()
