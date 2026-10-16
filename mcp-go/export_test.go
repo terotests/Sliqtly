@@ -438,3 +438,47 @@ func TestExportPptxLinksAndFaces(t *testing.T) {
 		t.Fatalf("the theme does not name the deck's faces: %s", theme)
 	}
 }
+
+// The PDF finds its way: an address is a URI link, `#the-end` and `#3` go to
+// the end's page (the second when only slides 1 and 3 are exported), the
+// Finnish title is UTF-16 in the document information (Go strings are bytes:
+// walked by byte it came out as two wrong characters per letter), and the
+// slides' titles are its bookmarks.
+func TestExportPdfLinksAndTitle(t *testing.T) {
+	f := fakeFirebase()
+	s := start(t, withSignIn(testEnv(&f, nil)), signIn(f))
+	defer s.close()
+	md := "---\ntitle: Kesän esitys\nauthor: Tero\nslide-split-level: 2\n---\n\n## Alku\n\nSee [the site](https://example.com/docs), [the end](#the-end) or [three](#3).\n\n## Middle\n\nText.\n\n## The end\n\nBye.\n"
+	c := call(t, s, "create_presentation", map[string]any{"title": "Links", "markdown": md})
+	if c.IsError {
+		t.Fatal(textOf(c))
+	}
+	id := sc(c)["deck_id"].(string)
+	x := call(t, s, "export_presentation", map[string]any{"deck_id": id, "format": "pdf", "slides": []any{1, 3}})
+	if x.IsError {
+		t.Fatal(textOf(x))
+	}
+	pdf := string(f.bucket.saved["shares/"+id+"/exports/Links (slides 1, 3).pdf"].data)
+	kids := regexp.MustCompile(`/Kids \[(\d+) 0 R (\d+) 0 R\]`).FindStringSubmatch(pdf)
+	if kids == nil {
+		t.Fatalf("not two pages: %s", regexp.MustCompile(`/Kids \[[^]]*\]`).FindString(pdf))
+	}
+	for _, want := range []string{
+		"/Annots [",
+		"/S /URI /URI (https://example.com/docs)",
+		"/Title <FEFF004B0065007300E4006E0020006500730069007400790073>",
+		"/Author (Tero)",
+		"/PageMode /UseOutlines",
+		"/Title (Alku)",
+		"/Title (The end)",
+		"/Dest [" + kids[2] + " 0 R /Fit]",
+	} {
+		if !strings.Contains(pdf, want) {
+			t.Fatalf("%q is not in the PDF", want)
+		}
+	}
+	eq(t, strings.Count(pdf, "/S /GoTo /D ["+kids[2]+" 0 R /Fit]"), 2, "#the-end and #3 go to the second page")
+	if strings.Contains(pdf, "/Title (Middle)") {
+		t.Fatal("a bookmark for a slide left out")
+	}
+}
