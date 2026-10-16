@@ -142,10 +142,11 @@ test.
 
 ## Who may do what, and how much
 
-The deck id locates a deck and grants nothing to change it. sliqtly.com is
-an open demo: a deck is read by anyone with its link (`visibility: "link"`,
-the default; every result says so) unless its signed-in owner made it
-`private`. A signed-in user's deck is changed and deleted
+The deck id locates a deck and grants nothing to change it. On sliqtly.com
+a deck a signed-in user makes is `private` (only that Google account reads
+it; results lead with its editor link `/editor/d/<id>`) unless asked to be
+`visibility: "link"`; a deck made without sign-in, or on a server of one's
+own, is `link`: read by anyone with its link, and every result says so. A signed-in user's deck is changed and deleted
 (`delete_presentation`: the record, then `shares/<id>/` in Storage) by its
 owner; a deck made without sign-in only by the MCP session that made it
 (`mcp_sessions/{sha256(Mcp-Session-Id)}`, a day after its last change, or

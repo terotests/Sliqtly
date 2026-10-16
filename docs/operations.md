@@ -36,9 +36,11 @@ Signed in, the deck is kept as its owner's in Firestore (`decks/{deckId}`)
 with a copy under a short random id (`shares/{id}`, its pictures and data
 files in Storage under `shares/{id}/`). The copy's `visibility` says who
 reads it: `private` only its owner's Google account, `link` anyone with
-`/s/{id}`. sliqtly.com is an open demo, so a deck starts `link` (not for private
-data: every slide is reachable by its hidden link); `update_presentation` with `visibility: "private"` keeps one for its
-owner, who opens it at `/s/{id}` by signing in with Google on the page. A share without the field (made
+`/s/{id}`. A deck an assistant makes signed in starts `private` (Tero
+2026-10-16): its owner opens it in the editor at `/editor/d/{id}`, the link
+the result leads with, or at `/s/{id}` by signing in with Google on the
+page; `update_presentation` with `visibility: "link"` opens it to anyone with
+the link (not for private data: every slide is reachable by its hidden link). A share without the field (made
 before it existed, or by an assistant without sign-in) is `link`. The id
 locates a deck and grants nothing: an assistant without sign-in changes its
 deck only within the MCP session that made it (`mcp_sessions`, keyed by the

@@ -139,8 +139,8 @@ func TestDownloadLinkExpires(t *testing.T) {
 	eq(t, get(), 410, "expired")
 }
 
-// sliqtly.com is an open demo: a deck is seen by its link unless made
-// private, and the result says so. A private deck: only that Google account
+// sliqtly.com: a signed-in user's deck is private unless asked to be seen
+// by link, and the result leads with its editor link. A private deck: only that Google account
 // reads it through the read tools; visibility "link" opens it to anyone with
 // the id, and only the owner changes that. A deck made without sign-in is
 // read by anyone with its id and changed only by the session that made it.
@@ -153,12 +153,29 @@ func TestPrivateDeckOnlyForItsOwner(t *testing.T) {
 	anon := start(t, testEnv(&f, nil), "")
 	defer anon.close()
 
-	open := call(t, me, "create_presentation", map[string]any{"title": "Open", "markdown": "# Open\n\nText."})
-	if open.IsError {
-		t.Fatal(textOf(open))
+	def := call(t, me, "create_presentation", map[string]any{"title": "Default", "markdown": "# Default\n\nText."})
+	if def.IsError {
+		t.Fatal(textOf(def))
 	}
-	eq(t, sc(open)["visibility"], "link")
-	match(t, textOf(open), `Visibility link: anyone who has this presentation's link can open every slide`)
+	eq(t, sc(def)["visibility"], "private")
+	eq(t, f.db.doc("shares/" + str(sc(def)["deck_id"]))["visibility"], "private")
+	match(t, textOf(def), `Private: only this Google account sees it`)
+	if strings.Contains(textOf(def), "Visibility link") {
+		t.Fatal("a private deck said to be seen by link")
+	}
+	// with the editor served (/editor), the editor link leads
+	edEnv := withSignIn(testEnv(&f, nil))
+	edEnv.Editor = true
+	ed := start(t, edEnv, signIn(f))
+	defer ed.close()
+	e := call(t, ed, "create_presentation", map[string]any{"title": "Edited", "markdown": "# Edited"})
+	eid := str(sc(e)["deck_id"])
+	eq(t, sc(e)["edit_url"], BASE+"/editor/d/"+eid)
+	match(t, textOf(e), `Presentation \(in the editor\): `+regexp.QuoteMeta(BASE+"/editor/d/"+eid))
+	match(t, textOf(e), `Give the user the editor link`)
+	match(t, textOf(call(t, ed, "list_presentations", map[string]any{})), eid+`, private, .*/editor/d/`+eid)
+	el := call(t, ed, "create_presentation", map[string]any{"title": "Linked", "markdown": "# Linked", "visibility": "link"})
+	match(t, textOf(el), `Presentation: `+regexp.QuoteMeta(BASE+"/s/"+str(sc(el)["deck_id"])))
 
 	c := call(t, me, "create_presentation", map[string]any{"title": "Mine", "markdown": "# Mine\n\n## Two\n\nText.", "visibility": "private",
 		"files": []any{map[string]any{"name": "d.csv", "text": "a,b\nx,1\n"}}})
