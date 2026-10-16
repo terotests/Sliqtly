@@ -6,7 +6,10 @@
  * the one Playwright keeps under PLAYWRIGHT_BROWSERS_PATH. What it checks is
  * whether the page is WIRED — the chrome, the stage, the timeline, typing,
  * presenting, the two exports and a pasted picture — not how it looks.
- * `--shots=DIR` also writes screenshots.
+ * `--shots=DIR` also writes screenshots. `--part=1` runs only the checks on
+ * the editor page every early check shares, `--part=2` only the ones after
+ * them that open pages of their own: the Web workflow runs the two side by
+ * side.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -19,13 +22,24 @@ import { build } from "./build.mjs";
 
 const shotsArg = process.argv.find((a) => a.startsWith("--shots="));
 const shots = shotsArg ? path.resolve(shotsArg.split("=")[1]) : "";
+const partArg = process.argv.find((a) => a.startsWith("--part="));
+const part = partArg ? Number(partArg.split("=")[1]) : 0;
+if (partArg && part !== 1 && part !== 2) {
+  log(`--part is 1 or 2, not ${partArg.split("=")[1]}`);
+  process.exit(1);
+}
 
-function chromiumPath() {
-  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+// CHROMIUM_PATH, a Chromium under PLAYWRIGHT_BROWSERS_PATH, the one
+// `npx playwright-core install chromium` put there for this version (the
+// Web workflow's check-web job: the whole Chromium, as the others, not the
+// headless shell Playwright would pick), else the installed Chrome
+function chromium_(chromium) {
+  if (process.env.CHROMIUM_PATH) return { executablePath: process.env.CHROMIUM_PATH };
   const base = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
   const direct = path.join(base, "chromium");
-  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) return direct;
-  return undefined;
+  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) return { executablePath: direct };
+  if (fs.existsSync(chromium.executablePath())) return { executablePath: chromium.executablePath() };
+  return { channel: "chrome" };
 }
 
 function serve() {
@@ -64,8 +78,12 @@ function unzip(buf) {
 }
 
 let failures = 0;
+const failed = [];
 function check(name, ok, note = "") {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+    failed.push(`${name}${note ? `  (${note})` : ""}`);
+  }
   log(`${ok ? "ok  " : "FAIL"} ${name}${note ? `  (${note})` : ""}`);
 }
 
@@ -81,7 +99,7 @@ fs.writeFileSync(path.join(distDir, "data", "check-sales.csv"), "month,sales,dat
 const server = await serve();
 const url = `http://127.0.0.1:${server.address().port}/`;
 const browser = await chromium.launch({
-  executablePath: chromiumPath(),
+  ...chromium_(chromium),
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 // The checks read the interface's words as written ("room",
@@ -91,9 +109,19 @@ const roomWords = () => { try { if (!localStorage.getItem("sliqtly.roomWord")) l
 // …and opens presentations in Edit (Settings → Presentations open in), as
 // the editor did before View; "a deck opens in View" checks it on its own
 const openInEdit = () => { try { if (!localStorage.getItem("sliqtly.openIn")) localStorage.setItem("sliqtly.openIn", "edit"); } catch (_) {} };
+// Google's sign-in scripts are not fetched: the page goes on without
+// sign-in at once, as it does wherever they cannot be had, rather than
+// after however long this network takes to fail (a load behind a proxy can
+// outlast a check's timeout). The PRO checks route them to stand-ins of
+// their own, which are asked first.
+const signInScripts = /^https:\/\/(www\.gstatic\.com\/firebasejs|apis\.google\.com)\//;
 const plainContext = browser.newContext.bind(browser);
 browser.newContext = async (opts) => {
   const c = await plainContext(opts);
+  await c.route(signInScripts, (r) => r.abort());
+  // a page loads as long as it takes on a busy machine, as its start is
+  // waited for (__pageStarted, 90 s), not Playwright's 30 s
+  c.setDefaultNavigationTimeout(90000);
   await c.addInitScript(roomWords);
   await c.addInitScript(openInEdit);
   return c;
@@ -105,6 +133,9 @@ browser.newPage = async (opts) => {
   return p;
 };
 try {
+  // part 1: the editor page `page` and the checks that go on with it, in
+  // order (not indented, to keep the checks' lines as they were)
+  if (part !== 2) {
   // A phone: the filmstrip swipes, a tap picks a thumbnail, two fingers
   // zoom the slide (clipped to the stage) and a double tap goes back out.
   {
@@ -1407,13 +1438,20 @@ try {
       a.selectSlide(0);
       a.request("rec:start");
       const open = a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "recstart";
+      // the count seen by the page itself, not by a poll a busy machine may
+      // run only after the three seconds are over
+      const el = document.getElementById("recCount");
+      const seen = () => { if (!el.hidden && !document.body.classList.contains("recording")) window.__recCounted = true; };
+      window.__recCounted = false;
+      new MutationObserver(seen).observe(el, { attributes: true, attributeFilter: ["hidden"] });
       a.chart.confirmAct("cf-alt");
       a.afterChart();
+      seen();
       return open;
     });
-    await page.waitForFunction(() => !document.getElementById("recCount").hidden, null, { timeout: 8000 }).catch(() => {});
-    const counted = await page.evaluate(() => !document.getElementById("recCount").hidden && !document.body.classList.contains("recording"));
-    await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 8000 });
+    // asked for in a frame, then 3, 2, 1: as long as this machine takes
+    await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 20000 });
+    const counted = await page.evaluate(() => window.__recCounted);
     await page.waitForTimeout(300);
     const badge = await page.evaluate(() => ({ shown: !document.getElementById("recBadge").hidden, mute: !document.getElementById("recMute").hidden, hint: document.getElementById("recHint").textContent }));
     check("Record asks with or without the voice, counts down, then shows REC (no sound) and what to do", asked && counted && badge.shown && badge.mute && badge.hint.length > 0, JSON.stringify({ asked, counted, badge }));
@@ -1464,7 +1502,9 @@ try {
     await page.waitForFunction(() => document.body.classList.contains("replaying"), null, { timeout: 8000 });
     await page.waitForFunction(() => JSON.parse(window.__app.inkState()).strokes > 0, null, { timeout: 20000 }).catch(() => {});
     const played = await ink();
-    await page.waitForFunction(() => window.__app.slideShown() !== 0 || !window.__app.isReplaying(), null, { timeout: 20000 }).catch(() => {});
+    // the replay goes on when the take did, which is later the slower this
+    // machine recorded it: wait for that, up to the take's whole length
+    await page.waitForFunction(() => window.__app.slideShown() !== 0 || !window.__app.isReplaying(), null, { timeout: Math.max(20000, (played.duration - played.t) * 1000 + 5000) }).catch(() => {});
     const on = await ink();
     check("Play recording draws what was drawn and goes on where it went", played.replaying && played.strokes === 1 && played.slide === 0 && on.slide !== 0, JSON.stringify({ played, on }));
     await page.keyboard.press("Escape");
@@ -4068,11 +4108,12 @@ try {
     await page.evaluate(() => window.__kb.focusRegion("rail"));
     for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) await page.keyboard.press("Tab");
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(300);
+    // the dialog is drawn and focused a frame or more after the key
+    await page.waitForFunction(() => /^pn-set-/.test(document.activeElement?.dataset?.a11yId || "") && !!document.querySelector('.evg-a11y [data-a11y-id="pn-dlg"]'), null, { timeout: 5000 }).catch(() => {});
     const inSettings = await act();
     const dialog = await page.evaluate(() => { const d = document.querySelector('.evg-a11y [data-a11y-id="pn-dlg"]'); return d ? d.getAttribute("role") + ":" + d.getAttribute("aria-modal") + ":" + d.getAttribute("aria-label") : ""; });
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => document.activeElement?.dataset?.a11yId === "tb-rail-settings", null, { timeout: 5000 }).catch(() => {});
     const afterSettings = await act();
     check("Tab runs on from the bar into the next area instead of round the bar", walk.some((x) => /^tb-rail-/.test(x)), walk.join(","));
     check("Esc and then Tab leaves the editor, the text untouched", leftEditor !== "keys" && srcSame, leftEditor);
@@ -5113,6 +5154,23 @@ try {
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
 
+  // Open → Sample documents: English decks for an English interface, and the
+  // prompt is the trigger's text, not a row in the list
+  const samples = await page.evaluate(() => {
+    const a = window.__app;
+    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    const sel = a.panels.samplePick;
+    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
+    a.closeShare();
+    return out;
+  });
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "welcome=Welcome: what Sliqtly can do" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
+  check("no page errors", errors.length === 0, errors.join(" | "));
+  } // part 1
+
+  // part 2: checks that open pages of their own
+  if (part !== 1) {
   // A data file dropped on the editor: the import dialog, a chart made from
   // its columns, and a paged table (a .xlsx through its own bundle).
   {
@@ -5150,9 +5208,10 @@ try {
     check("a dropped CSV asks what to make; Chart groups Revenue by Region and opens the chart editor", dlgOpen && plan.cat === 0 && plan.rev && chart.open && chart.fence, JSON.stringify({ dlgOpen, plan, chart }));
     await pd.evaluate(() => { const a = window.__app; a.closeChart(); a.setSource(a.source() + "\n\n## Data table\n\n"); a.mdEditor.moveCaret(a.mdEditor.buf.lineCount() - 1, 0, false); });
     await drop("check-import.csv", Buffer.from(rows.join("\n") + "\n").toString("base64"), "text/csv");
-    await pd.waitForTimeout(300);
+    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.dialogKind === "data", null, { timeout: 5000 }).catch(() => {});
     await press("pn-d-table");
-    await pd.waitForTimeout(800);
+    // the table pages once its file is read, which a busy machine takes a while to do
+    await pd.waitForFunction(() => { const u = window.__app.deck.tables[0]; return !!u && u.pages() > 1; }, null, { timeout: 10000 }).catch(() => {});
     const table = await pd.evaluate(() => {
       const a = window.__app;
       const u = a.deck.tables[0];
@@ -5716,18 +5775,6 @@ try {
     await ctx.close();
   }
 
-  // Open → Sample documents: English decks for an English interface, and the
-  // prompt is the trigger's text, not a row in the list
-  const samples = await page.evaluate(() => {
-    const a = window.__app;
-    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
-    const sel = a.panels.samplePick;
-    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
-    a.closeShare();
-    return out;
-  });
-  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "welcome=Welcome: what Sliqtly can do" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
-
   // a first visit (nothing kept in this browser) opens the welcome deck in
   // English, with a card that starts a deck of one's own
   {
@@ -5963,6 +6010,12 @@ try {
     };
     const src = (p) => p.evaluate(() => window.__app.source());
     const edit = (p, from, to) => p.evaluate(([a, b]) => window.__app.setSource(window.__app.source().replace(a, b)), [from, to]);
+    // the two tabs settle as fast as this machine lets them: ask until they
+    // have (or the time is up, and the check below says how they stand)
+    const settled = async (ok, ms = 20000) => {
+      for (const end = Date.now() + ms; Date.now() < end; await a.waitForTimeout(250)) if (await ok()) return;
+    };
+    const agree = (...words) => async () => { const m = [await src(a), await src(b)]; return m[0] === m[1] && words.every((w) => m[0].includes(w)); };
     const base = "# Kaksi ikkunaa\n\n## Yksi\n\nrivi 1\nrivi 2\nrivi 3\n\n## Kaksi\n\nrivi 4\nrivi 5\nrivi 6\n";
     const a = await tab(url);
     await a.evaluate(() => window.__fileRequest("new"));
@@ -5978,19 +6031,20 @@ try {
     check("versions: a change in one tab shows in the other", (await src(b)).includes("rivi 1 A"));
     await edit(a, "rivi 2", "rivi 2 A");
     await edit(b, "rivi 5", "rivi 5 B");
-    await a.waitForTimeout(6000);
+    await settled(agree("rivi 2 A", "rivi 5 B"));
     const m = [await src(a), await src(b)];
     check("versions: edits to different lines in two tabs are merged", m[0] === m[1] && m[0].includes("rivi 2 A") && m[0].includes("rivi 5 B"), JSON.stringify(m));
     await edit(a, "rivi 3", "rivi 3 A");
     await edit(b, "rivi 3", "rivi 3 B");
-    await a.waitForTimeout(4000);
+    const card = (p) => p.evaluate(() => !!document.getElementById("mergeCard"));
+    await settled(async () => (await card(a)) || (await card(b)));
     const asked = (await a.evaluate(() => !!document.getElementById("mergeCard"))) ? a : (await b.evaluate(() => !!document.getElementById("mergeCard"))) ? b : null;
     check("versions: the same line edited in two tabs asks", !!asked);
     if (asked) {
       await asked.evaluate(() => document.querySelector('#mergeCard input[value="both"]').click());
       await asked.evaluate(() => document.querySelector("#mergeCard button.primary").click());
     }
-    await a.waitForTimeout(5000);
+    await settled(agree("rivi 3 A", "rivi 3 B"));
     const both = [await src(a), await src(b)];
     check("versions: both kept as asked, and the tabs agree", both[0] === both[1] && both[0].includes("rivi 3 A") && both[0].includes("rivi 3 B"), JSON.stringify(both));
     await a.evaluate(() => document.getElementById("history").click());
@@ -6371,12 +6425,14 @@ try {
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
     // presenting, the search takes the letters (not the bar's keys) and
     // Enter goes to the first heading found
-    // the drawer just opened: its field has a place once a frame has laid it out
+    // the drawer just opened: its field has a place once a frame has laid it
+    // out (until then it keeps where the editor's drawer had it)
+    await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await pg.waitForFunction(() => window.__app.tocUi.search.rootEl.calculatedWidth > 0, null, { timeout: 5000 }).catch(() => {});
     const pfield = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(pfield[0] + 40, pfield[1] + pfield[3] / 2);
     await pg.keyboard.type("kohta 12", { delay: 20 });
-    await pg.waitForTimeout(200);
+    await pg.waitForFunction(() => window.__app.tocUi.shown.length === 1, null, { timeout: 5000 }).catch(() => {});
     const pf = await pg.evaluate(() => ({ value: window.__app.tocUi.search.value, shown: window.__app.tocUi.shown.length, slide: window.__app.slideShown() }));
     check("ToC search: presenting, typing filters and the slide stays", pf.value === "kohta 12" && pf.shown === 1 && pf.slide === 0, JSON.stringify(pf));
     await pg.keyboard.press("Enter");
@@ -6384,11 +6440,11 @@ try {
     const pe = await pg.evaluate(() => ({ slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode, keys: window.__app.tocHasKeys() }));
     check("ToC search: Enter shows the found heading's slide", pe.slide === 11 && pe.mode === "present" && !pe.keys, JSON.stringify(pe));
     await pg.evaluate(() => window.__app.tocEscape());
-    await pg.waitForTimeout(200);
+    await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // a row in view (the list shows the one being read, Kohta 12.1's)
     const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300 && window.__app.toc.entryAt(i).slide !== 11) return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight, i]; } return null; });
     await pg.mouse.click(prow[0] + 30, prow[1] + prow[3] / 2);
-    await pg.waitForTimeout(500);
+    await pg.waitForFunction((i) => window.__app.slideShown() === window.__app.toc.entryAt(i).slide, prow[4], { timeout: 5000 }).catch(() => {});
     const p1 = await pg.evaluate((i) => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(i).slide, mode: JSON.parse(window.__app.layoutJson()).mode }), prow[4]);
     check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
     check("ToC: without errors", terr.length === 0, terr.join(" | "));
@@ -7669,10 +7725,15 @@ try {
   await pageFi.close();
   check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar && fi.sample, JSON.stringify(fi));
 
-  check("no page errors", errors.length === 0, errors.join(" | "));
+  } // part 2
+} catch (e) {
+  // a step that threw (a wait without its .catch, a crashed page) ends the
+  // run: listed with the failed checks, whose summary still follows
+  check("the run goes on to its end", false, (e.stack || String(e)).split("\n").slice(0, 3).join(" | "));
 } finally {
   await browser.close();
   server.close();
 }
-log(failures ? `${failures} failed` : "all passed");
+if (failures) log(`\n${failures} failed${part ? ` in part ${part}` : ""}:\n${failed.map((f) => `FAIL ${f}`).join("\n")}`);
+else log(`all passed${part ? ` in part ${part}` : ""}`);
 process.exit(failures ? 1 : 0);

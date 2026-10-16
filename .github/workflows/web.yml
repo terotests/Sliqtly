@@ -1,7 +1,8 @@
 # Builds the editor and runs the same checks the deploy runs before it goes
-# live (scripts/check.mjs, and every sample deck opened in Chrome), on each
-# pull request, so a change that breaks them is seen before it is merged
-# rather than when main is deployed. Deploys nothing.
+# live (scripts/check.mjs, and every sample deck opened in Chrome), and the
+# editor's own browser checks (scripts/check-web.mjs), on each pull request,
+# so a change that breaks them is seen before it is merged rather than when
+# main is deployed. Deploys nothing.
 name: Web
 
 on:
@@ -61,3 +62,37 @@ jobs:
       # editor and no engine. Opened in Chrome like the samples above.
       - name: Build and check the public viewer
         run: node scripts/build-view.mjs && node scripts/check-view.mjs
+
+  # npm run check:web: the editor driven in Chromium (typing, presenting,
+  # the exports, View, PRO saves …), beside `check` above and in two halves
+  # side by side (scripts/check-web.mjs --part): each builds the page itself.
+  # A failed check is listed again at the end of the log, and fails the job.
+  check-web:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2]
+    name: check-web (part ${{ matrix.part }})
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+      # a program on a slide runs in CErXes (cerxes.wasm), never its plate
+      SLIQTLY_NEED_CERXES: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git access to RangerFlow, RangerMarkdown and RangerPPTX
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: sh scripts/ci-git-auth.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --no-audit --no-fund
+      - name: Rust's WebAssembly target
+        run: rustup target add wasm32-wasip1
+      # the Chromium of the package-lock's playwright-core, as the checks
+      # are run locally (/opt/pw-browsers), with the libraries it needs
+      - name: Chromium
+        run: npx playwright-core install --with-deps --no-shell chromium
+      - name: Check the page in Chromium
+        run: node scripts/check-web.mjs --part=${{ matrix.part }}
