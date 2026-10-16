@@ -1,0 +1,723 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocKeys.rgr — what Enter, Tab and Backspace write on the View page
+; ============================================================================
+;
+; The View page is edited as a word processor is, but the document is the
+; Markdown. These are the keys whose edit depends on the block the caret is
+; in, as one patch each (an MdEditOp, its caret after it in selAfterA/B):
+;
+;   Shift+Enter    a line break; `<br>` in a table cell or a heading
+;   Enter          heading: start → a paragraph above, middle → two headings
+;                  table: the same column in the next row (a new last row)
+;                  an empty nested item: one level out
+;   Tab / ⇧Tab     list item: one level in / out (with its sub-items)
+;                  table's last cell: a new row
+;                  code: four spaces in / out
+;   Backspace      at a list item's words: one level out, at the top level
+;                  the item becomes a paragraph
+;
+; Pure functions of the text and an offset; PresApp applies the patch
+; (`docApply`), so undo and the other editors follow. An empty op: the key
+; has nothing to do here (the caller's default applies).
+; ============================================================================
+
+Import "PresDocCaret.rgr"
+
+; A list item's line: where its marker is, how wide, what number.
+class PresListItem {
+    def ls:int 0
+    def le:int 0
+    ; spaces before the marker; the marker with its space ("- ", "10. ")
+    def indent:int 0
+    def width:int 0
+    def ordered:boolean false
+    def num:int 0
+    ; "." or ")" of an ordered item
+    def delim:string "."
+    ; where the item's words start
+    def words:int 0
+}
+
+class PresDocKeys {
+
+    ; --- list items ---------------------------------------------------------------
+    ; The item opening the line at `off`; empty (`ls < 0`) for a line that is
+    ; not one. A task's box is part of its words.
+    sfn itemAt:PresListItem (text:string off:int) {
+        def it (new PresListItem())
+        it.ls = -1
+        def s:int (PresDocCaret.lineStartOf(text off))
+        def e:int (PresDocCaret.lineEndOf(text s))
+        def i:int s
+        while ((i < e) && ((charAt text i) == 32)) {
+            i = (i + 1)
+        }
+        if (i >= e) {
+            return it
+        }
+        def c:int (charAt text i)
+        def w:int 0
+        if ((c == 45) || ((c == 42) || (c == 43))) {
+            if (((i + 1) == e) || ((charAt text (i + 1)) == 32)) {
+                w = 1
+            }
+        } {
+            def j:int i
+            while ((j < e) && (((charAt text j) >= 48) && ((charAt text j) <= 57))) {
+                j = (j + 1)
+            }
+            if (((j > i) && ((j - i) <= 9)) && ((j < e) && (((charAt text j) == 46) || ((charAt text j) == 41)))) {
+                if (((j + 1) == e) || ((charAt text (j + 1)) == 32)) {
+                    it.ordered = true
+                    it.num = (?? (str2int (substring text i j)) 1)
+                    it.delim = (substring text j (j + 1))
+                    w = ((j + 1) - i)
+                }
+            }
+        }
+        if (w == 0) {
+            return it
+        }
+        ; the marker's space
+        if (((i + w) < e) && ((charAt text (i + w)) == 32)) {
+            w = (w + 1)
+        }
+        ; a thematic break (`- - -`, `***`) is not an item
+        if ((it.ordered == false) && (PresDocKeys.isBreak((substring text s e)))) {
+            return it
+        }
+        it.ls = s
+        it.le = e
+        it.indent = (i - s)
+        it.width = w
+        it.words = (i + w)
+        return it
+    }
+
+    sfn isBreak:boolean (line:string) {
+        def t:string (trim line)
+        def n:int (strlen t)
+        if (n < 3) {
+            return false
+        }
+        def c0:int (charAt t 0)
+        def count:int 0
+        def k:int 0
+        while (k < n) {
+            def c:int (charAt t k)
+            if (c == c0) {
+                count = (count + 1)
+            } {
+                if (c != 32) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        return (count >= 3)
+    }
+
+    sfn indentOf:int (text:string ls:int) {
+        def n:int (strlen text)
+        def i:int ls
+        while ((i < n) && ((charAt text i) == 32)) {
+            i = (i + 1)
+        }
+        return (i - ls)
+    }
+
+    sfn blankLine:boolean (text:string ls:int) {
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        return ((strlen (trim (substring text ls le))) == 0)
+    }
+
+    ; The item above `it` at its own level (its sibling), or one less
+    ; indented (its parent) when `parent`; empty when there is none. The
+    ; search stops at a line less indented than `it` that is not an item,
+    ; and at two blank lines.
+    sfn itemAbove:PresListItem (text:string it:PresListItem parent:boolean) {
+        def none (new PresListItem())
+        none.ls = -1
+        def ls:int it.ls
+        def blanks:int 0
+        while (ls > 0) {
+            ls = (PresDocCaret.lineStartOf(text (ls - 1)))
+            if (PresDocKeys.blankLine(text ls)) {
+                blanks = (blanks + 1)
+                if (blanks >= 2) {
+                    return none
+                }
+            } {
+                blanks = 0
+                def up:PresListItem (PresDocKeys.itemAt(text ls))
+                def ind:int (PresDocKeys.indentOf(text ls))
+                if (up.ls >= 0) {
+                    if parent {
+                        if (up.indent < it.indent) {
+                            return up
+                        }
+                    } {
+                        if (up.indent == it.indent) {
+                            return up
+                        }
+                        if (up.indent < it.indent) {
+                            return none
+                        }
+                    }
+                } {
+                    if (ind < it.indent) {
+                        return none
+                    }
+                    if ((ind == 0) && (it.indent == 0)) {
+                        ; a paragraph above a top-level item
+                        return none
+                    }
+                }
+            }
+        }
+        return none
+    }
+
+    ; Where the item at `ls` ends with what belongs to it (its sub-items,
+    ; its continuation lines): the end of its last line.
+    sfn itemEnd:int (text:string it:PresListItem) {
+        def n:int (strlen text)
+        def end:int it.le
+        def ls:int (it.le + 1)
+        while (ls < n) {
+            def le:int (PresDocCaret.lineEndOf(text ls))
+            if (PresDocKeys.blankLine(text ls)) {
+                ; a blank line belongs to it only when more of it follows
+                def nx:int (le + 1)
+                while ((nx < n) && (PresDocKeys.blankLine(text nx))) {
+                    nx = ((PresDocCaret.lineEndOf(text nx)) + 1)
+                }
+                if ((nx >= n) || ((PresDocKeys.indentOf(text nx)) <= it.indent)) {
+                    return end
+                }
+            } {
+                def ind:int (PresDocKeys.indentOf(text ls))
+                if (ind <= it.indent) {
+                    ; a lazy line of its paragraph goes with it
+                    def up:PresListItem (PresDocKeys.itemAt(text ls))
+                    if (((up.ls >= 0) || (ind < it.indent)) || ((PresDocKeys.isBreak((substring text ls le))) || ((charAt text (ls + ind)) == 35))) {
+                        return end
+                    }
+                    if ((ind == it.indent) && ((PresDocKeys.blankLine(text (PresDocCaret.lineStartOf(text (ls - 1))))) == false)) {
+                        if (ls > 0) {
+                            def prevItem:PresListItem (PresDocKeys.itemAt(text (ls - 1)))
+                            if ((prevItem.ls < 0) && ((PresDocKeys.indentOf(text (PresDocCaret.lineStartOf(text (ls - 1))))) <= it.indent)) {
+                                return end
+                            }
+                        }
+                    } {
+                        return end
+                    }
+                }
+                end = le
+            }
+            ls = (le + 1)
+        }
+        return end
+    }
+
+    ; The lines [from, to) moved by `by` spaces (out when negative, as far
+    ; as each line has spaces); `sub` lines are the item's own.
+    sfn shiftLines:string (text:string from:int to:int by:int) {
+        def out:string ""
+        def ls:int from
+        while (ls <= to) {
+            def le:int (PresDocCaret.lineEndOf(text ls))
+            if (le > to) {
+                le = to
+            }
+            def line:string (substring text ls le)
+            if ((strlen (trim line)) > 0) {
+                if (by > 0) {
+                    def k:int 0
+                    while (k < by) {
+                        out = (out + " ")
+                        k = (k + 1)
+                    }
+                    out = (out + line)
+                } {
+                    def take:int (0 - by)
+                    def have:int (PresDocKeys.indentOf(line 0))
+                    if (have < take) {
+                        take = have
+                    }
+                    out = (out + (substring line take (strlen line)))
+                }
+            } {
+                out = (out + line)
+            }
+            if (le < to) {
+                out = (out + "\n")
+            }
+            ls = (le + 1)
+        }
+        return out
+    }
+
+    ; A marker for `it` at a new place: an ordered item numbered after
+    ; `after` (or from 1), a bullet as it was.
+    sfn markerFor:string (text:string it:PresListItem after:PresListItem) {
+        def m:string (substring text (it.ls + it.indent) it.words)
+        if (it.ordered == false) {
+            return m
+        }
+        def num:int 1
+        if ((after.ls >= 0) && after.ordered) {
+            num = (after.num + 1)
+        }
+        def sp:string (? ((it.words > 0) && ((charAt text (it.words - 1)) == 32)) " " "")
+        return ((to_string num) + it.delim + sp)
+    }
+
+    ; Tab (`dir` 1) or Shift+Tab (-1) on the list items in [lo, hi]: each
+    ; moves a level with what belongs to it. The first item of a list cannot
+    ; go in (there is no item for it to belong to); a top-level item going
+    ; out becomes a paragraph.
+    sfn indentOp:MdEditOp (text:string lo:int hi:int dir:int) {
+        def none (new MdEditOp())
+        def first:PresListItem (PresDocKeys.itemAt(text lo))
+        if (first.ls < 0) {
+            return none
+        }
+        if ((dir < 0) && (first.indent == 0)) {
+            ; out of the list: a paragraph of its own
+            return (PresDocKeys.unlistOp(text first lo))
+        }
+        def last:int (PresDocCaret.lineStartOf(text hi))
+        def from:int first.ls
+        def to:int first.ls
+        def out:string ""
+        def acc:int 0
+        def newLo:int lo
+        def newHi:int hi
+        def ls:int first.ls
+        def done:boolean false
+        while (done == false) {
+            def it:PresListItem (PresDocKeys.itemAt(text ls))
+            if ((it.ls < 0) || ((dir < 0) && (it.indent == 0))) {
+                done = true
+            } {
+                def end:int (PresDocKeys.itemEnd(text it))
+                def by:int 0
+                def after (new PresListItem())
+                after.ls = -1
+                if (dir > 0) {
+                    def sib:PresListItem (PresDocKeys.itemAbove(text it false))
+                    if (sib.ls < 0) {
+                        if (ls == first.ls) {
+                            return none
+                        }
+                        done = true
+                    } {
+                        ; under the sibling's words, numbered after the
+                        ; last item already at that level
+                        by = sib.width
+                        after = (PresDocKeys.lastChildOf(text sib it))
+                    }
+                } {
+                    def par:PresListItem (PresDocKeys.itemAbove(text it true))
+                    by = (0 - (? (par.ls >= 0) (it.indent - par.indent) it.indent))
+                    after = par
+                }
+                if (done == false) {
+                    def shifted:string (PresDocKeys.shiftLines(text it.ls end by))
+                    def ni:int (it.indent + by)
+                    def oldMk:string (substring text (it.ls + it.indent) it.words)
+                    def mk:string (PresDocKeys.markerFor(text it after))
+                    def moved:string ((substring shifted 0 ni) + mk + (substring shifted (ni + (strlen oldMk)) (strlen shifted)))
+                    out = (out + (substring text to it.ls))
+                    if ((lo >= it.ls) && (lo <= end)) {
+                        newLo = ((PresDocKeys.mapIn(text it moved lo)) + acc)
+                    }
+                    if ((hi >= it.ls) && (hi <= end)) {
+                        newHi = ((PresDocKeys.mapIn(text it moved hi)) + acc)
+                    }
+                    out = (out + moved)
+                    acc = (acc + ((strlen moved) - (end - it.ls)))
+                    to = end
+                    ls = (end + 1)
+                    if ((ls > last) || (ls >= (strlen text))) {
+                        done = true
+                    }
+                }
+            }
+        }
+        if (hi > to) {
+            newHi = (hi + acc)
+        }
+        def op:MdEditOp (MdEdit.patch(text from to out))
+        op.selAfterA = newLo
+        op.selAfterB = (? (lo == hi) newLo newHi)
+        return op
+    }
+
+    ; Where offset `at` of the item `it` is once the item is written as
+    ; `moved` at the same place: on its line, by the change of what comes
+    ; before the words (the marker's line) or the indent (a line below).
+    sfn mapIn:int (text:string it:PresListItem moved:string at:int) {
+        def ls:int (PresDocCaret.lineStartOf(text at))
+        def k:int 0
+        def cur:int it.ls
+        while (cur < ls) {
+            cur = ((PresDocCaret.lineEndOf(text cur)) + 1)
+            k = (k + 1)
+        }
+        def mls:int 0
+        def j:int 0
+        while (j < k) {
+            mls = ((PresDocCaret.lineEndOf(moved mls)) + 1)
+            j = (j + 1)
+        }
+        def col:int (at - ls)
+        def oldP:int 0
+        def newP:int 0
+        if (k == 0) {
+            oldP = (it.words - it.ls)
+            def mi:PresListItem (PresDocKeys.itemAt(moved 0))
+            newP = (? (mi.ls >= 0) mi.words oldP)
+        } {
+            if ((PresDocKeys.blankLine(text ls)) == false) {
+                oldP = (PresDocKeys.indentOf(text ls))
+                newP = (PresDocKeys.indentOf(moved mls))
+            }
+        }
+        def nc:int (? (col >= oldP) (col + (newP - oldP)) (? (col < newP) col newP))
+        return ((it.ls + mls) + nc)
+    }
+
+    ; The last item already under `sib` one level in (the one `it` is
+    ; numbered after when it goes in), or none.
+    sfn lastChildOf:PresListItem (text:string sib:PresListItem it:PresListItem) {
+        def none (new PresListItem())
+        none.ls = -1
+        def want:int (sib.indent + sib.width)
+        def ls:int (sib.le + 1)
+        def found (new PresListItem())
+        found.ls = -1
+        while (ls < it.ls) {
+            def c:PresListItem (PresDocKeys.itemAt(text ls))
+            if ((c.ls >= 0) && (c.indent == want)) {
+                found = c
+            }
+            ls = ((PresDocCaret.lineEndOf(text ls)) + 1)
+        }
+        return found
+    }
+
+    ; A top-level item out of its list: its marker gone, a blank line
+    ; before it (a paragraph would else run into the item above).
+    sfn unlistOp:MdEditOp (text:string it:PresListItem caret:int) {
+        def head:string ""
+        def above:boolean ((it.ls > 0) && ((PresDocKeys.blankLine(text (PresDocCaret.lineStartOf(text (it.ls - 1))))) == false))
+        if above {
+            head = "\n"
+        }
+        def op:MdEditOp (MdEdit.patch(text it.ls it.words head))
+        def at:int (caret - it.words)
+        if (at < 0) {
+            at = 0
+        }
+        op.selAfterA = ((it.ls + (strlen head)) + at)
+        op.selAfterB = op.selAfterA
+        return op
+    }
+
+    ; Backspace at `off` where an item's words start: a nested item goes a
+    ; level out, a top-level one leaves the list. Empty op elsewhere, and
+    ; for an empty top-level item.
+    sfn itemBackspaceOp:MdEditOp (text:string off:int) {
+        def none (new MdEditOp())
+        def it:PresListItem (PresDocKeys.itemAt(text off))
+        if ((it.ls < 0) || (off != it.words)) {
+            return none
+        }
+        if (it.indent > 0) {
+            return (PresDocKeys.indentOp(text off off -1))
+        }
+        ; an empty one goes as a whole (the caller joins it to the item
+        ; above): a paragraph with nothing in it would not be seen
+        if ((strlen (trim (substring text it.words it.le))) == 0) {
+            return none
+        }
+        return (PresDocKeys.unlistOp(text it off))
+    }
+
+    ; Enter on an empty nested item: a level out (an empty top-level item
+    ; ends the list, which the caller does).
+    sfn emptyItemEnterOp:MdEditOp (text:string off:int) {
+        def none (new MdEditOp())
+        def it:PresListItem (PresDocKeys.itemAt(text off))
+        if ((it.ls < 0) || (it.indent == 0)) {
+            return none
+        }
+        if ((strlen (trim (substring text it.words it.le))) > 0) {
+            return none
+        }
+        return (PresDocKeys.indentOp(text off off -1))
+    }
+
+    ; --- headings -----------------------------------------------------------------
+    ; Enter in an ATX heading: at its words' start a paragraph above it (the
+    ; heading stays one), in its words two headings of the same level, at
+    ; its end the default (a paragraph after it).
+    sfn headingEnterOp:MdEditOp (text:string lo:int hi:int) {
+        def none (new MdEditOp())
+        def ls:int (PresDocCaret.lineStartOf(text lo))
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        if (hi > le) {
+            return none
+        }
+        def i:int ls
+        while (((i < le) && ((i - ls) < 3)) && ((charAt text i) == 32)) {
+            i = (i + 1)
+        }
+        def h:int i
+        while ((h < le) && ((charAt text h) == 35)) {
+            h = (h + 1)
+        }
+        if (((h == i) || ((h - i) > 6)) || ((h < le) && ((charAt text h) != 32))) {
+            return none
+        }
+        def words:int h
+        while ((words < le) && ((charAt text words) == 32)) {
+            words = (words + 1)
+        }
+        ; the words' end, before an attribute block `{…}` and closing #s
+        def tail:int le
+        def t:string (substring text words le)
+        def brace:int (lastIndexOf t " {")
+        if ((brace >= 0) && ((PresDocKeys.endsWith((trim t) "}")))) {
+            tail = (words + brace)
+        }
+        if (lo <= words) {
+            ; a paragraph above: the caret on the new empty line
+            def gap:boolean ((ls == 0) || (PresDocKeys.blankLine(text (PresDocCaret.lineStartOf(text (ls - 1))))))
+            def ins:string (? gap "\n\n" "\n\n\n")
+            def op:MdEditOp (MdEdit.patch(text ls ls ins))
+            op.selAfterA = (ls + (? gap 0 1))
+            op.selAfterB = op.selAfterA
+            return op
+        }
+        if (hi >= tail) {
+            return none
+        }
+        ; split: the words after the caret a heading of the same level
+        def a:int lo
+        while ((a > words) && ((charAt text (a - 1)) == 32)) {
+            a = (a - 1)
+        }
+        def b:int hi
+        while ((b < tail) && ((charAt text b) == 32)) {
+            b = (b + 1)
+        }
+        def marks:string (substring text i h)
+        def ins2:string ("\n\n" + marks + " ")
+        def op2:MdEditOp (MdEdit.patch(text a b ins2))
+        op2.selAfterA = (a + (strlen ins2))
+        op2.selAfterB = op2.selAfterA
+        return op2
+    }
+
+    sfn endsWith:boolean (s:string tail:string) {
+        def n:int (strlen s)
+        def m:int (strlen tail)
+        if (m > n) {
+            return false
+        }
+        return ((substring s (n - m) n) == tail)
+    }
+
+    ; --- tables -------------------------------------------------------------------
+    ; The cells of the row at `ls`: the offsets of its unescaped pipes.
+    sfn pipesOf:[int] (text:string ls:int) {
+        def out:[int]
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        def i:int ls
+        while (i < le) {
+            if (((charAt text i) == 124) && ((i == ls) || ((charAt text (i - 1)) != 92))) {
+                push out i
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Which cell of its row `off` is in (0 the first).
+    sfn columnOf:int (text:string off:int) {
+        def ls:int (PresDocCaret.lineStartOf(text off))
+        def p:[int] (PresDocKeys.pipesOf(text ls))
+        def first:int (PresDocKeys.firstNonSpace(text ls))
+        def col:int 0
+        def k:int 0
+        while (k < (array_length p)) {
+            def at:int (itemAt p k)
+            if ((at < off) && (at != first)) {
+                col = (col + 1)
+            }
+            k = (k + 1)
+        }
+        return col
+    }
+
+    sfn firstNonSpace:int (text:string ls:int) {
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        def i:int ls
+        while ((i < le) && ((charAt text i) == 32)) {
+            i = (i + 1)
+        }
+        return i
+    }
+
+    ; How many cells the row at `ls` has.
+    sfn cellCount:int (text:string ls:int) {
+        def p:[int] (PresDocKeys.pipesOf(text ls))
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        def t:string (trim (substring text ls le))
+        def n:int ((array_length p) + 1)
+        if (((strlen t) > 0) && ((charAt t 0) == 124)) {
+            n = (n - 1)
+        }
+        if (((strlen t) > 1) && ((charAt t ((strlen t) - 1)) == 124)) {
+            n = (n - 1)
+        }
+        return (? (n < 1) 1 n)
+    }
+
+    ; The start of cell `col`'s words in the row at `ls` (its last when the
+    ; row is shorter).
+    sfn cellIn:int (text:string ls:int col:int) {
+        def p:[int] (PresDocKeys.pipesOf(text ls))
+        def first:int (PresDocKeys.firstNonSpace(text ls))
+        def opens:[int]
+        def lead:boolean (((array_length p) > 0) && ((itemAt p 0) == first))
+        if (lead == false) {
+            push opens -1
+        }
+        def k:int 0
+        while (k < (array_length p)) {
+            if ((PresDocCaret.lastPipe(text (itemAt p k))) == false) {
+                push opens (itemAt p k)
+            }
+            k = (k + 1)
+        }
+        if ((array_length opens) == 0) {
+            return first
+        }
+        def c:int col
+        if (c >= (array_length opens)) {
+            c = ((array_length opens) - 1)
+        }
+        def pipe:int (itemAt opens c)
+        if (pipe < 0) {
+            return first
+        }
+        return (PresDocCaret.cellStart(text pipe))
+    }
+
+    ; A new empty row after the table's row at `off`, the caret in its cell
+    ; `col`.
+    sfn addRowOp:MdEditOp (text:string off:int col:int) {
+        def ls:int (PresDocCaret.lineStartOf(text off))
+        def le:int (PresDocCaret.lineEndOf(text ls))
+        def n:int (PresDocKeys.cellCount(text ls))
+        def row:string "|"
+        def k:int 0
+        while (k < n) {
+            row = (row + "  |")
+            k = (k + 1)
+        }
+        def op:MdEditOp (MdEdit.patch(text le le ("\n" + row)))
+        def c:int col
+        if (c >= n) {
+            c = (n - 1)
+        }
+        op.selAfterA = (((le + 1) + 2) + (c * 3))
+        op.selAfterB = op.selAfterA
+        return op
+    }
+
+    ; The row after the one at `off` in its table (over the delimiter row);
+    ; -1 at the last.
+    sfn rowAfter:int (text:string off:int) {
+        def n:int (strlen text)
+        def le:int (PresDocCaret.lineEndOf(text off))
+        def ls:int (le + 1)
+        while (ls < n) {
+            if ((PresDocCaret.inTable(text ls)) == false) {
+                return -1
+            }
+            def e:int (PresDocCaret.lineEndOf(text ls))
+            if ((PresDocCaret.isRule((substring text ls e))) == false) {
+                return ls
+            }
+            ls = (e + 1)
+        }
+        return -1
+    }
+
+    ; Enter in a table: the same column of the next row, a new row at the
+    ; last. Tab in the last cell: a new row (its first cell).
+    sfn tableEnterOp:MdEditOp (text:string off:int) {
+        def col:int (PresDocKeys.columnOf(text off))
+        def next:int (PresDocKeys.rowAfter(text off))
+        if (next < 0) {
+            return (PresDocKeys.addRowOp(text off col))
+        }
+        def op (new MdEditOp())
+        op.selAfterA = (PresDocKeys.cellIn(text next col))
+        op.selAfterB = op.selAfterA
+        return op
+    }
+
+    ; --- code ------------------------------------------------------------------------
+    ; Tab in code: four spaces at the caret (on each selected line when the
+    ; selection spans lines); Shift+Tab: up to four out of each line.
+    sfn codeTabOp:MdEditOp (text:string lo:int hi:int dir:int) {
+        def ls:int (PresDocCaret.lineStartOf(text lo))
+        def multi:boolean ((PresDocCaret.lineStartOf(text hi)) != ls)
+        if ((dir > 0) && (multi == false)) {
+            def op:MdEditOp (MdEdit.patch(text lo hi "    "))
+            op.selAfterA = (lo + 4)
+            op.selAfterB = op.selAfterA
+            return op
+        }
+        def le:int (PresDocCaret.lineEndOf(text hi))
+        def moved:string (PresDocKeys.shiftLines(text ls le (? (dir > 0) 4 -4)))
+        def op2:MdEditOp (MdEdit.patch(text ls le moved))
+        ; the caret: by the first line's change, the selection's end by all
+        def d0:int ((PresDocKeys.indentOf(moved 0)) - (PresDocKeys.indentOf(text ls)))
+        def a:int (lo + d0)
+        if (a < ls) {
+            a = ls
+        }
+        def b:int (hi + ((strlen moved) - (le - ls)))
+        if (b < a) {
+            b = a
+        }
+        op2.selAfterA = a
+        op2.selAfterB = (? (lo == hi) a b)
+        return op2
+    }
+
+    ; --- Shift+Enter ------------------------------------------------------------------
+    ; A line break: two spaces and a newline, `<br>` where a newline would
+    ; end the block (a table row, a heading).
+    sfn breakText:string (text:string off:int) {
+        if (PresDocCaret.inTable(text off)) {
+            return "<br>"
+        }
+        def ls:int (PresDocCaret.lineStartOf(text off))
+        def f:int (PresDocKeys.firstNonSpace(text ls))
+        if ((f < (strlen text)) && ((charAt text f) == 35)) {
+            return "<br>"
+        }
+        return "  \n"
+    }
+}

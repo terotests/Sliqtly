@@ -4671,7 +4671,7 @@ function stripKey(ev) {
   const req = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new" : mod && menuKey === "d" ? "slide:duplicate" : "";
   if (name) app.key(name, ev.shiftKey, mod);
   else if (req) app.request(req);
-  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.key.toLowerCase());
+  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.shiftKey && /^z$/i.test(ev.key) ? "y" : ev.key.toLowerCase()); // Ctrl+Shift+Z redoes
   else return false;
   ev.preventDefault();
   afterInput();
@@ -9188,6 +9188,19 @@ let editorWheel = 0;
 // everywhere. The picker (EVGUI's) offers the emojis the slides and their PDF
 // can draw. Ctrl+Space alone is the value popover.
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || "");
+// A Mac's text keys as the app names them: ⌘←/→ the line's start/end,
+// ⌘↑/↓ the document's, ⌥←/→ and ⌥⌫ a word (what Ctrl is elsewhere).
+function macKey(ev, name, mod) {
+  if (!IS_MAC) return [name, mod];
+  if (ev.metaKey && !ev.ctrlKey) {
+    if (name === "left") return ["home", false];
+    if (name === "right") return ["end", false];
+    if (name === "up") return ["home", true];
+    if (name === "down") return ["end", true];
+  }
+  if (ev.altKey && !ev.metaKey && !ev.ctrlKey && /^(left|right|backspace|delete)$/.test(name)) return [name, true];
+  return [name, mod];
+}
 function isEmojiChord(ev) {
   if (!(ev.key === " " || ev.code === "Space") || !ev.ctrlKey || ev.altKey) return false;
   return IS_MAC ? ev.metaKey || ev.shiftKey : ev.shiftKey && !ev.metaKey;
@@ -9409,7 +9422,8 @@ keys.addEventListener("keydown", (ev) => {
   const special = KEY_MAP[ev.key];
   if (special) {
     if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room" && app.focusTarget() !== "find") return;
-    if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
+    const [kname, kmod] = macKey(ev, special, mod);
+    if (app.key(kname, ev.shiftKey, kmod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
     return;
@@ -9479,7 +9493,8 @@ keys.addEventListener("keydown", (ev) => {
     if (CLIPBOARD_CHORD.test(ev.key)) return; // copy / cut / paste fire on the field
     if (/^[azyAZYbiuBIU]$/.test(ev.key)) {
       ev.preventDefault();
-      app.chord(ev.key.toLowerCase());
+      // Ctrl+Shift+Z redoes, as Ctrl+Y does
+      app.chord(ev.shiftKey && /^z$/i.test(ev.key) ? "y" : ev.key.toLowerCase());
       afterInput();
     }
   }

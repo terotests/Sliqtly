@@ -3,6 +3,7 @@
 Import "PresViewZoom.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
+Import "PresDocKeys.rgr"
 Import "PresToc.rgr"
 Import "PresEditMode.rgr"
 Import "PresVideo.rgr"
@@ -5371,6 +5372,80 @@ class PresCheck {
         this.ok((PresDocCaret.isRule("| :--- | ---: |") && ((PresDocCaret.isRule("| a | b |")) == false)) "doccaret: a delimiter row")
     }
 
+    ; What Enter, Tab and Backspace write on the View page (PresDocKeys).
+    fn keyRun:string (text:string op:MdEditOp) {
+        if (op.isEmpty()) {
+            return text
+        }
+        return (MdEdit.applyTo(text op))
+    }
+
+    fn docKeys:void () {
+        ; Tab under the item above, with its sub-items; the caret keeps its place
+        def l:string "- aa\n- bb\n  - cc\n- dd"
+        def b:int (indexOf l "bb")
+        def t1:MdEditOp (PresDocKeys.indentOp(l (b + 1) (b + 1) 1))
+        this.ok(((this.keyRun(l t1)) == "- aa\n  - bb\n    - cc\n- dd") ("dockeys: Tab nests an item with its own, got " + (this.keyRun(l t1))))
+        this.ok((t1.selAfterA == (b + 3)) ("dockeys: …the caret stays in its word, got " + (to_string t1.selAfterA)))
+        def first:MdEditOp (PresDocKeys.indentOp(l 3 3 1))
+        this.ok((first.isEmpty()) "dockeys: the first item cannot go in")
+        def l2:string "- aa\n  - bb\n- cc"
+        def o1:MdEditOp (PresDocKeys.indentOp(l2 (indexOf l2 "bb") (indexOf l2 "bb") -1))
+        this.ok(((this.keyRun(l2 o1)) == "- aa\n- bb\n- cc") ("dockeys: Shift+Tab takes it a level out, got " + (this.keyRun(l2 o1))))
+        def top:MdEditOp (PresDocKeys.indentOp(l2 (indexOf l2 "cc") (indexOf l2 "cc") -1))
+        this.ok(((this.keyRun(l2 top)) == "- aa\n  - bb\n\ncc") ("dockeys: Shift+Tab at the top level makes a paragraph, got " + (this.keyRun(l2 top))))
+        ; numbered: in → from 1 under its item, out → after its parent
+        def n:string "1. aa\n2. bb\n3. cc"
+        def ni:MdEditOp (PresDocKeys.indentOp(n (indexOf n "bb") (indexOf n "bb") 1))
+        this.ok(((this.keyRun(n ni)) == "1. aa\n   1. bb\n3. cc") ("dockeys: a numbered item in starts from 1, got " + (this.keyRun(n ni))))
+        def n2:string "1. aa\n   1. bb\n   2. cc"
+        def no:MdEditOp (PresDocKeys.indentOp(n2 (indexOf n2 "cc") (indexOf n2 "cc") -1))
+        this.ok(((this.keyRun(n2 no)) == "1. aa\n   1. bb\n2. cc") ("dockeys: out, numbered after its parent, got " + (this.keyRun(n2 no))))
+        ; a selection of items goes together
+        def sel:MdEditOp (PresDocKeys.indentOp(l (indexOf l "bb") (indexOf l "dd") 1))
+        this.ok(((this.keyRun(l sel)) == "- aa\n  - bb\n    - cc\n  - dd") ("dockeys: Tab on selected items, got " + (this.keyRun(l sel))))
+        ; Backspace where an item's words start
+        def bk:MdEditOp (PresDocKeys.itemBackspaceOp(l2 (indexOf l2 "bb")))
+        this.ok(((this.keyRun(l2 bk)) == "- aa\n- bb\n- cc") ("dockeys: Backspace at a nested item's words takes it out, got " + (this.keyRun(l2 bk))))
+        def bk2:MdEditOp (PresDocKeys.itemBackspaceOp(l2 (indexOf l2 "cc")))
+        this.ok((((this.keyRun(l2 bk2)) == "- aa\n  - bb\n\ncc") && (bk2.selAfterA == ((indexOf l2 "cc") - 1))) ("dockeys: …a top-level one leaves the list, got " + (this.keyRun(l2 bk2))))
+        def bk3:MdEditOp (PresDocKeys.itemBackspaceOp(l2 ((indexOf l2 "cc") + 1)))
+        this.ok((bk3.isEmpty()) "dockeys: inside the words Backspace is a character")
+        def bk4:MdEditOp (PresDocKeys.itemBackspaceOp("- aa\n- \n- bb" 7))
+        this.ok((bk4.isEmpty()) "dockeys: an empty top-level item is joined as before")
+        ; Enter on an empty nested item
+        def e:string "- aa\n  - \n- cc"
+        def eo:MdEditOp (PresDocKeys.emptyItemEnterOp(e 9))
+        this.ok(((this.keyRun(e eo)) == "- aa\n- \n- cc") ("dockeys: Enter on an empty nested item goes a level out, got " + (this.keyRun(e eo))))
+        ; headings
+        def h:string "Para\n\n## Otsikko"
+        def hs:MdEditOp (PresDocKeys.headingEnterOp(h (indexOf h "Otsikko") (indexOf h "Otsikko")))
+        this.ok((((this.keyRun(h hs)) == "Para\n\n\n\n## Otsikko") && (hs.selAfterA == 6)) ("dockeys: Enter at a heading's start keeps it a heading, got " + (this.keyRun(h hs))))
+        def hm:MdEditOp (PresDocKeys.headingEnterOp(h ((indexOf h "Otsikko") + 3) ((indexOf h "Otsikko") + 3)))
+        this.ok(((this.keyRun(h hm)) == "Para\n\n## Ots\n\n## ikko") ("dockeys: Enter in a heading makes two, got " + (this.keyRun(h hm))))
+        def he:MdEditOp (PresDocKeys.headingEnterOp(h (strlen h) (strlen h)))
+        this.ok((he.isEmpty()) "dockeys: Enter at a heading's end is the default")
+        ; tables
+        def tb:string "| a | bb |\n| --- | --- |\n| c | d |\n\nx"
+        def te:MdEditOp (PresDocKeys.tableEnterOp(tb (indexOf tb "bb")))
+        this.ok(((te.isEmpty()) && (te.selAfterA == (indexOf tb "d |"))) ("dockeys: Enter in a table goes to the same column below, got " + (to_string te.selAfterA)))
+        def tl:MdEditOp (PresDocKeys.tableEnterOp(tb (indexOf tb "d |")))
+        def tlr:string (this.keyRun(tb tl))
+        this.ok(((tlr == "| a | bb |\n| --- | --- |\n| c | d |\n|  |  |\n\nx") && ((substring tlr (tl.selAfterA - 2) tl.selAfterA) == "| ")) ("dockeys: Enter in the last row adds a row, got " + tlr + " at " + (to_string tl.selAfterA)))
+        def ad:MdEditOp (PresDocKeys.addRowOp(tb (indexOf tb "d |") 0))
+        this.ok((ad.selAfterA == ((indexOf tb "| c |") + 12)) ("dockeys: a new row's first cell, got " + (to_string ad.selAfterA)))
+        this.ok((((PresDocKeys.breakText(tb 3)) == "<br>") && (((PresDocKeys.breakText(h 9)) == "<br>") && ((PresDocKeys.breakText(h 1)) == "  \n"))) "dockeys: Shift+Enter in a table or heading is <br>")
+        ; code
+        def code:string "```\nlet a\n  let b\n```"
+        def ct:MdEditOp (PresDocKeys.codeTabOp(code 4 4 1))
+        this.ok(((this.keyRun(code ct)) == "```\n    let a\n  let b\n```") "dockeys: Tab in code writes four spaces")
+        def cs:MdEditOp (PresDocKeys.codeTabOp(code 11 11 -1))
+        this.ok(((this.keyRun(code cs)) == "```\nlet a\nlet b\n```") ("dockeys: Shift+Tab in code takes the line's spaces out, got " + (this.keyRun(code cs))))
+        ; Enter in a quote: a new paragraph of it
+        this.ok(((PresDocCaret.enterText("> yksi" 6 false)) == "\n>\n> ") "dockeys: Enter in a quote")
+        this.ok(((PresDocCaret.enterText("> - yksi" 8 false)) == "\n> - ") "dockeys: …a list in a quote goes on as a list")
+    }
+
     fn docx:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
@@ -9656,6 +9731,7 @@ class PresCheck {
         c.docPlays()
         c.toc()
         c.docCaret()
+        c.docKeys()
         c.editMode()
         c.traceChecks()
         c.imageDrag()
