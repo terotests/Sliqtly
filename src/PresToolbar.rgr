@@ -1480,9 +1480,8 @@ class PresToolbar {
     }
 
     ; The frame's piece over the work's top left corner at (x, y): it
-    ; rounds the corner of whatever is there (Rooms, the tab row). In the
-    ; retro skin the bar and the rail are not one frame; the piece is the
-    ; rail's dark there (retro.css), so the work's corner still turns.
+    ; rounds the corner of whatever is there (Rooms, the tab row). The retro
+    ; skin colours it with its own frame (retro.css).
     fn frameCorner:EVGElement (x:double y:double) {
         def r:double 12.0
         def el (EVGElement.createPath())
@@ -1525,6 +1524,19 @@ class PresToolbar {
 
     fn buildRail:void (root:EVGElement) {
         def col:EVGElement (UiKit.div("tb-railcol"))
+        if ((this.framed()) == false) {
+            ; retro: the bar's crest over the rail's top, so the bar and the
+            ; rail are one frame (retro.css); the rest of the rail is the
+            ; colour the bar ends in
+            def cap:EVGElement (UiKit.div("tb-railcap"))
+            cap.a11yHidden = true
+            cap.setAttribute("position" "absolute")
+            cap.setAttribute("left" "0px")
+            cap.setAttribute("top" "0px")
+            cap.setAttribute("width" ((EVGDisplayList.num(railW)) + "px"))
+            cap.setAttribute("height" ((EVGDisplayList.num(barH)) + "px"))
+            col.addChild(cap)
+        }
         col.addChild((this.logoEl()))
         def r:RailCtl (this.railCtl((? (this.terracotta()) "frame" "")))
         ; the column's height under the mark: the bottom places at its foot

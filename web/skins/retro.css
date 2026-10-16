@@ -73,14 +73,22 @@
 .theme-retro .tb-title-box,
 .theme-retro .tb-roomname-box { background-color: var(--retro-screen); border: 1px solid var(--retro-hot-b); }
 
-/* --- the left rail and Rooms beside it: the player's dark side panel --------- */
-.theme-retro .tb-railcol {
-  background: linear-gradient(90deg, var(--retro-screen-2), var(--retro-screen));
-  border-right: 2px solid var(--retro-shell-b);
-}
-/* where the rail meets the bar: the work's corner rounded in the rail's
-   dark (PresToolbar.frameCorner) */
-.theme-retro .tb-corner-retro { fill: var(--retro-screen); }
+/* --- the left rail: one frame with the bar ------------------------------------ */
+/* The bar's crest runs over the rail's top (tb-railcap) and the rail below is
+   the green the bar ends in, so the bar and the rail are one frame and the
+   work is set into it, its top left corner rounded (PresToolbar.frameCorner).
+   Rooms beside the rail is the player's dark side panel. */
+.theme-retro .tb-railcol { background: linear-gradient(180deg, var(--retro-shell-b), var(--retro-shell-b)); }
+/* the crest box (tb-railcap) sits on the column's content edge, so the
+   column's top padding moves onto the logo */
+.theme-retro .tb-railcol { padding: 0; }
+.theme-retro .tb-logo { margin: 8px 0 6px 0; }
+.theme-retro .tb-railcap { background: linear-gradient(180deg, var(--retro-crest-a), var(--retro-shell-a), var(--retro-shell-b)); }
+.theme-retro .tb-corner-retro { fill: var(--retro-shell-b); }
+.theme-retro .ui-rail-icon { stroke: var(--retro-crest-a); }
+.theme-retro .ui-rail-label { color: var(--retro-crest-a); }
+.theme-retro .ui-rail-item:hover,
+.theme-retro .ui-rail-item:focus { background-color: rgba(255, 255, 255, 0.14); }
 .theme-retro .tb-rooms {
   background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
   border-right: 2px solid var(--retro-shell-b);
