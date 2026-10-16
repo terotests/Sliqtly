@@ -77,6 +77,7 @@
 .theme-retro .tb-icon-roomgear { stroke: var(--retro-ink-dim); }
 .theme-retro .tb-icon-roomfold { stroke: var(--retro-ink); }
 .theme-retro .tb-icon-folder { stroke: var(--retro-ink-dim); }
+.theme-retro .tb-icon-pin { stroke: var(--retro-ink); }
 .theme-retro .tb-room-open { background-color: var(--retro-screen-3); }
 .theme-retro .tb-room-open:hover { background-color: var(--retro-screen-3); }
 .theme-retro .tb-room-name { color: var(--retro-ink); }

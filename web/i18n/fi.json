@@ -1353,6 +1353,8 @@
   "Folder deleted. Its presentations are at the room's top.": "Kansio poistettu. Sen esitykset ovat huoneen ylätasolla.",
   "Move to folder": "Siirrä kansioon",
   "Out of the folder": "Pois kansiosta",
+  "Pin to top": "Kiinnitä ylimmäksi",
+  "Unpin": "Poista kiinnitys",
   "New folder…": "Uusi kansio…",
   "Value": "Arvo",
   "+ Data": "+ Tieto",

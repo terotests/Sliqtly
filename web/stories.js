@@ -104,6 +104,8 @@ export const storyColor = (story) => {
 // changed first ("updated"), by title, or newest first ("created"); ties
 // by id, so an order never changes on its own.
 export function sortStories(rows, by = "updated") {
+  // the pinned ones (web/rooms.js setPinned) first, each part sorted
+  if (rows.some((r) => r.pinned) && rows.some((r) => !r.pinned)) return [...sortStories(rows.filter((r) => r.pinned), by), ...sortStories(rows.filter((r) => !r.pinned), by)];
   const made = (r) => r.created || r.updated || 0;
   const changed = (r) => r.updated || made(r);
   const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
