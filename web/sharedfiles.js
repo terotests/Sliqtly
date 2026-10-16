@@ -53,7 +53,7 @@ async function answer(res) {
   return body;
 }
 
-// { files: [{ id, name, kind, bytes, status, error, pages, screens, added, updated, base, changes }], max }
+// { files: [{ id, name, kind, bytes, status, error, pages, screens, added, updated, base, changes, folder }], max, folders }
 // (sliqtly.com adds `upload`: the Storage folder the page puts a file in)
 export async function listShared(fetchFn = fetch) {
   return answer(await fetchFn(roots.api));
@@ -63,14 +63,41 @@ export async function listShared(fetchFn = fetch) {
 // files; resolves to its card, status "indexing" until the server is done.
 // `upload` (sliqtly.com) puts the file in Storage and resolves to where;
 // the server then moves it in.
-export async function putShared(file, fetchFn = fetch, upload = null) {
+// `folder` ("" the top) is the folder it is shown in.
+export async function putShared(file, fetchFn = fetch, upload = null, folder = "") {
   if (upload) {
     const path = await upload(file);
     return answer(await fetchFn(`${roots.api}/add`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name, upload: path }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name, upload: path, folder }),
     }));
   }
-  return answer(await fetchFn(`${roots.api}/` + encodeURIComponent(file.name), { method: "PUT", body: file }));
+  const q = folder ? "?folder=" + encodeURIComponent(folder) : "";
+  return answer(await fetchFn(`${roots.api}/` + encodeURIComponent(file.name) + q, { method: "PUT", body: file }));
+}
+
+// the file shown in another folder ("" the top)
+export async function moveShared(id, folder, fetchFn = fetch) {
+  return answer(await fetchFn(`${roots.api}/${encodeURIComponent(id)}/move`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder }),
+  }));
+}
+
+// a folder kept, with nothing in it yet; one with nothing in it forgotten
+export async function makeSharedFolder(path, fetchFn = fetch) {
+  return answer(await fetchFn(`${roots.api}/~folders`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }),
+  }));
+}
+
+export async function removeSharedFolder(path, fetchFn = fetch) {
+  return answer(await fetchFn(`${roots.api}/~folders?path=` + encodeURIComponent(path), { method: "DELETE" }));
+}
+
+// What the rail's Files panel is given (PresSharedList.setData): each
+// file's name, kind, folder and what its row says under it.
+export function sharedPanelJson(res, t = (s) => s) {
+  const files = (res?.files || []).map((f) => ({ id: f.id, name: f.name || "", kind: f.kind || "", status: f.status || "", folder: f.folder || "", note: sharedNote(f, t) }));
+  return JSON.stringify({ files, folders: res?.folders || [] });
 }
 
 export async function renameShared(id, name, fetchFn = fetch) {

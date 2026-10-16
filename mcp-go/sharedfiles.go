@@ -18,7 +18,9 @@
 //	shared/{id}/png/{node}@{k}.png  a screen or a part drawn, made the first
 //	                                time it is asked for
 //	shared/{id}/export/{name}.fig   the file built for a download
-//	sharedmeta/{id}.json            the file's card: name, size, state
+//	sharedmeta/{id}.json            the file's card: name, size, state,
+//	                                the folder it is shown in
+//	sharedfolders.json              the folders kept, empty ones too
 //
 // A variation of a file keeps variation.json in place of source.fig: only
 // what it changes (sharedvariation.go).
@@ -29,7 +31,11 @@
 //	GET    /api/shared                       the files
 //	PUT    /api/shared/{name}[?id=]          a file, as the body; the same
 //	                                         name (or ?id) replaces it
+//	PUT    /api/shared/{name}?folder=        … put in that folder
 //	POST   /api/shared/{id}/rename {name}
+//	POST   /api/shared/{id}/move {folder}    shown in another folder
+//	POST   /api/shared/~folders {path}       a folder kept, empty too
+//	DELETE /api/shared/~folders?path=        an empty folder forgotten
 //	DELETE /api/shared/{id}
 //	GET    /files/shared/{id}/index.json
 //	GET    /files/shared/{id}/source           the file itself
@@ -64,6 +70,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/terotests/sliqtly/mcp-go/figdv"
 	"github.com/terotests/sliqtly/mcp-go/store"
@@ -135,6 +142,8 @@ type sharedFile struct {
 	// changes in words
 	Base    string `json:"base,omitempty"`
 	Changes string `json:"changes,omitempty"`
+	// the folder it is shown in, names joined by "/"; "" the top
+	Folder string `json:"folder,omitempty"`
 }
 
 func newSharedFiles(files sharedStore, logf func(string)) *sharedFiles {
@@ -344,6 +353,7 @@ func (s *sharedFiles) keep(ctx context.Context, name, id string, keep func(src s
 	f := sharedFile{ID: id, Name: name, Kind: kind, Bytes: size, Sha: sum, Status: "indexing", Added: time.Now().UnixMilli()}
 	if oldErr == nil {
 		f.Added = old.Added
+		f.Folder = old.Folder
 		// a file put over one of the other kind leaves no old source behind
 		if old.Kind != kind {
 			s.files.Remove(sharedDir(id) + "/" + sharedSourceName(old.Kind))
@@ -393,6 +403,118 @@ func (s *sharedFiles) remove(ctx context.Context, id string) error {
 	return s.files.Remove(sharedMetaPath(id))
 }
 
+// --- folders: a file's card names its folder; the folders kept with
+// nothing in them are listed in sharedfolders.json
+
+const sharedFoldersPath = "sharedfolders.json"
+
+// a folder path as kept (PresSharedList.clean): names trimmed, empty, "."
+// and ".." names dropped, no control characters or backslashes, at most 8
+// deep and 60 characters a name
+func sharedFolder(p string) string {
+	out := []string{}
+	for _, part := range strings.Split(p, "/") {
+		nm := strings.Map(func(r rune) rune {
+			if r < 32 || r == '\\' || r == 127 {
+				return -1
+			}
+			return r
+		}, part)
+		nm = strings.TrimSpace(nm)
+		if nm == "." || nm == ".." {
+			nm = ""
+		}
+		if utf8.RuneCountInString(nm) > 60 {
+			nm = strings.TrimSpace(string([]rune(nm)[:60]))
+		}
+		if nm != "" && len(out) < 8 {
+			out = append(out, nm)
+		}
+	}
+	return strings.Join(out, "/")
+}
+
+// `p` is `dir` or a folder under it
+func sharedWithin(p, dir string) bool {
+	return dir == "" || p == dir || strings.HasPrefix(p, dir+"/")
+}
+
+// the folders kept, even with nothing in them
+func (s *sharedFiles) folders(ctx context.Context) []string {
+	out := []string{}
+	if b, err := s.files.Read(ctx, sharedFoldersPath, 1<<20); err == nil {
+		json.Unmarshal(b, &out)
+	}
+	return out
+}
+
+func (s *sharedFiles) putFolders(ctx context.Context, ds []string) error {
+	sort.Strings(ds)
+	b, _ := json.Marshal(ds)
+	return s.files.Save(ctx, sharedFoldersPath, "application/json", b, nil)
+}
+
+// addFolder keeps the folder `p` (and so the ones it is in)
+func (s *sharedFiles) addFolder(ctx context.Context, p string) (string, error) {
+	p = sharedFolder(p)
+	if p == "" {
+		return "", sharedErr{400, "the folder needs a name"}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ds := s.folders(ctx)
+	for _, d := range ds {
+		if d == p {
+			return p, nil
+		}
+	}
+	if len(ds) >= 1000 {
+		return "", sharedErr{400, "at most 1000 folders"}
+	}
+	return p, s.putFolders(ctx, append(ds, p))
+}
+
+// removeFolder forgets the folder `p`, only when no file is in it or under it
+func (s *sharedFiles) removeFolder(ctx context.Context, p string) error {
+	p = sharedFolder(p)
+	if p == "" {
+		return sharedErr{400, "no such folder"}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	files, err := s.list(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if sharedWithin(f.Folder, p) {
+			return sharedErr{409, "the folder has files in it: move or remove them first"}
+		}
+	}
+	keep := []string{}
+	for _, d := range s.folders(ctx) {
+		if d != p && sharedWithin(d, p) {
+			return sharedErr{409, "the folder has folders in it: remove them first"}
+		}
+		if d != p {
+			keep = append(keep, d)
+		}
+	}
+	return s.putFolders(ctx, keep)
+}
+
+// move puts the file `id` in the folder `p` ("" the top)
+func (s *sharedFiles) move(ctx context.Context, id, p string) (sharedFile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.card(ctx, id)
+	if err != nil {
+		return f, err
+	}
+	f.Folder = sharedFolder(p)
+	return f, s.putCard(ctx, f)
+}
+
 // --- reading a file (once)
 
 func (s *sharedFiles) worker(q chan string) {
@@ -415,6 +537,13 @@ func (s *sharedFiles) read(ctx context.Context, id string) {
 	fail := func(msg string) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		// the card as it is now: renamed or moved while it was read
+		if cur, err := s.card(ctx, id); err == nil {
+			if cur.Sha != f.Sha {
+				return
+			}
+			f = cur
+		}
 		f.Status, f.Error = "failed", msg
 		s.putCard(ctx, f)
 		s.log("shared " + id + ": " + msg)
@@ -444,8 +573,12 @@ func (s *sharedFiles) read(ctx context.Context, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// a newer upload while this one was read queues itself again
-	if cur, err := s.card(ctx, id); err == nil && cur.Sha != f.Sha {
-		return
+	if cur, err := s.card(ctx, id); err == nil {
+		if cur.Sha != f.Sha {
+			return
+		}
+		// renamed or moved while it was read
+		f = cur
 	}
 	f.Status, f.Error, f.Pages, f.Screens = "ready", "", n.pages, n.screens
 	f.Index = s.indexURL(id)
@@ -735,14 +868,37 @@ func (s *localServer) sharedAPI(r *http.Request, rest string) (any, int, error) 
 	switch {
 	case rest == "" && r.Method == http.MethodGet:
 		files, err := sh.list(ctx)
-		return map[string]any{"files": files, "max": sh.max}, 200, err
+		return map[string]any{"files": files, "max": sh.max, "folders": sh.folders(ctx)}, 200, err
+	case rest == "~folders" && r.Method == http.MethodPost:
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+			return nil, 0, fail(400, "", "send {path}")
+		}
+		p, err := sh.addFolder(ctx, body.Path)
+		return map[string]string{"path": p}, 201, sharedFail(err)
+	case rest == "~folders" && r.Method == http.MethodDelete:
+		return nil, 204, sharedFail(sh.removeFolder(ctx, r.URL.Query().Get("path")))
 	case r.Method == http.MethodPut && rest != "" && !strings.Contains(rest, "/"):
 		name, err := url.PathUnescape(rest)
 		if err != nil {
 			return nil, 0, fail(400, "", "bad file name")
 		}
 		f, err := sh.put(ctx, name, r.URL.Query().Get("id"), r.Body)
+		if err == nil && r.URL.Query().Has("folder") {
+			f, err = sh.move(ctx, f.ID, r.URL.Query().Get("folder"))
+		}
 		return f, 201, sharedFail(err)
+	case strings.HasSuffix(rest, "/move") && r.Method == http.MethodPost:
+		var body struct {
+			Folder string `json:"folder"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+			return nil, 0, fail(400, "", "send {folder}")
+		}
+		f, err := sh.move(ctx, strings.TrimSuffix(rest, "/move"), body.Folder)
+		return f, 200, sharedFail(err)
 	case strings.HasSuffix(rest, "/rename") && r.Method == http.MethodPost:
 		var body struct {
 			Name string `json:"name"`

@@ -23,6 +23,8 @@ Import "../evgui/src/UiHost.rgr"
 Import "UiKit.rgr"
 Import "PresStoryNames.rgr"
 Import "PresI18n.rgr"
+Import "PresSharedList.rgr"
+Import "../evgui/src/CheckboxCtl.rgr"
 Import "../evgui/src/UiText.rgr"
 Import "../evgui/src/UiShapes.rgr"
 
@@ -151,8 +153,13 @@ class PresToolbar {
     ; is a place of the rail where the server keeps sessions
     def sessionOn:boolean false
     def filesOpen:boolean false
-    ; a file a row: "id \t name \t note \t status" (web/sharedfiles.js)
-    def fileRows:string ""
+    ; the shared files as a folder browser (web/main.js sharedRefresh sends
+    ; {"files", "folders"}); a press on ✕ or Delete first only asks
+    ; (sharedArmed), the rows' and folders' buttons by index
+    def shared:PresSharedList (new PresSharedList())
+    def sharedArmed:string ""
+    def sharedIds:[string]
+    def sharedDirs:[string]
     def roomsW:double 248.0
     def roomOpen:string "general"
     ; the open room's presentations are shut away, its name pressed again
@@ -251,7 +258,7 @@ class PresToolbar {
             sessionOn = (current == "1")
         }
         if (id == "files") {
-            fileRows = rows
+            shared.setData(rows)
             filesOn = (current == "1")
             if (filesOn == false) {
                 filesOpen = false
@@ -1856,42 +1863,288 @@ class PresToolbar {
     }
 
     ; The shared Files: what everyone on this server can put on a slide
-    ; (design files first: a Figma file's screens). "+" adds one; a row
-    ; opens its window (PresChartEditor's "figma").
+    ; (design files first: a Figma file's screens), as a folder browser.
+    ; The folder shown has its path on top, its folders then its files; a
+    ; file row is ticked as in the deck's Files tab, its tag says its type,
+    ; its name opens its window (PresChartEditor's "figma"). Files ticked in
+    ; one folder can be moved into the one shown.
     fn buildFiles:void (root:EVGElement) {
+        def noIds:[string]
+        sharedIds = noIds
+        def noDirs:[string]
+        sharedDirs = noDirs
         def pane:EVGElement (UiKit.div("tb-rooms"))
         def head:EVGElement (UiKit.div("tb-rooms-head"))
         def close:ButtonCtl (this.iconButton("files-close" (PresI18n.t("Close")) "ghost" "M15 5l-7 7 7 7" head))
         UiTree.addClass((unwrap close.rootEl) "tb-rooms-close")
         head.addChild((UiKit.words("tb-rooms-title" (PresI18n.t("Files")))))
         head.addChild((UiKit.div("tb-grow")))
+        def mk:ButtonCtl (this.iconButton("files-mkdir" (PresI18n.t("New folder")) "ghost" "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 10v6M9 13h6" head))
+        UiTree.addClass((unwrap mk.rootEl) "tb-rooms-add")
         def add:ButtonCtl (this.iconButton("files-add" (PresI18n.t("Add a file")) "ghost" "M12 5v14M5 12h14" head))
         UiTree.addClass((unwrap add.rootEl) "tb-rooms-add")
         pane.addChild(head)
         def w:double (roomsW - 40.0)
-        def any:boolean false
-        for (strsplit fileRows (strfromcode 10)) line:string i {
-            def parts:[string] (strsplit line (strfromcode 9))
-            if ((array_length parts) >= 2) {
-                any = true
-                def id:string (itemAt parts 0)
-                def b:ButtonCtl (this.button(("sfile-" + id) (UiText.fit((this.engine()) (itemAt parts 1) "Open Sans" 13.0 w)) "ghost" pane))
-                def el:EVGElement (unwrap b.rootEl)
-                UiTree.addClass(el "tb-found")
-                if ((el.getChildCount()) > 0) {
-                    UiTree.addClass((el.getChild(0)) "tb-found-name")
-                }
-                if (((array_length parts) >= 3) && ((strlen (itemAt parts 2)) > 0)) {
-                    el.addChild((UiKit.words("tb-found-text" (UiText.fit((this.engine()) (itemAt parts 2) "Open Sans" 11.0 w)))))
+        ; where the folder shown is: Files › Designs › Mobile, each pressed opens it
+        def crumbs:[string] (shared.crumbs())
+        if ((array_length crumbs) > 0) {
+            def path:EVGElement (UiKit.div("tb-spath"))
+            def rootB:ButtonCtl (this.button("scrumb-0" (PresI18n.t("Files")) "ghost" path))
+            UiTree.addClass((unwrap rootB.rootEl) "tb-scrumb")
+            def nameW:double (w / (to_double ((array_length crumbs) + 1)))
+            for crumbs c:string ci {
+                path.addChild((UiKit.words("tb-scrumb-sep" "›")))
+                def cb:ButtonCtl (this.button(("scrumb-" + (to_string (ci + 1))) (UiText.fit((this.engine()) c "Open Sans" 12.0 nameW)) "ghost" path))
+                UiTree.addClass((unwrap cb.rootEl) "tb-scrumb")
+            }
+            pane.addChild(path)
+        }
+        ; over the rows, as a data table's header: this folder's box, and
+        ; with files ticked what can be done to them
+        def here:[int] (shared.here())
+        def picked:int (array_length (shared.picked()))
+        def moving:int (array_length (shared.movePlan()))
+        if (((array_length here) > 0) || (picked > 0)) {
+            def bar:EVGElement (UiKit.div("pf-sel tb-ssel"))
+            if ((array_length here) > 0) {
+                def all (new CheckboxCtl())
+                all.tid = "tb-sall"
+                all.name = (PresI18n.t("Select all"))
+                all.checkState = (shared.hereState())
+                all.labelShown = false
+                all.build()
+                UiTree.addClass((unwrap all.rootEl) "pf-check")
+                UiKit.put(host all bar)
+            }
+            ; with Move here on the bar the count is on it: room for Delete
+            if (picked == 0) {
+                bar.addChild((UiKit.words("pf-sel-text" (PresI18n.t("Select all")))))
+            }
+            if ((picked > 0) && (moving == 0)) {
+                bar.addChild((UiKit.words("pf-sel-text pf-sel-count" ((to_string picked) + (PresI18n.t(" selected"))))))
+            }
+            bar.addChild((UiKit.div("tb-grow")))
+            if (moving > 0) {
+                def mv:ButtonCtl (this.button("smove" ((PresI18n.t("Move here")) + " (" + (to_string moving) + ")") "secondary" bar))
+                UiTree.addClass((unwrap mv.rootEl) "tb-sact")
+            }
+            if (picked > 0) {
+                if (sharedArmed == "bulk") {
+                    def d:ButtonCtl (this.button("sbulkdel" ((PresI18n.t("Delete ")) + (to_string picked) + "?") "primary" bar))
+                    UiTree.addClass((unwrap d.rootEl) "tb-sact")
+                } {
+                    def d2:ButtonCtl (this.button("sbulkdel" (PresI18n.t("Delete")) "ghost" bar))
+                    UiTree.addClass((unwrap d2.rootEl) "tb-sact")
                 }
             }
+            pane.addChild(bar)
         }
-        if (any == false) {
-            for (UiText.wrapLines((this.engine()) (PresI18n.t("Files everyone on this server can use in a presentation. Add a Figma file (.fig) with +: its screens can then be put on a slide.")) "Open Sans" 12.0 w)) ln:string li {
+        ; a new folder's name, typed in the folder shown
+        if (titleEditing && (editFor == "sfolder")) {
+            def c:InputCtl titleIn
+            c.tid = "tb-title-in"
+            c.name = (PresI18n.t("Folder name"))
+            c.placeholder = (PresI18n.t("Folder name"))
+            c.boxClass = "tb-roomname-box"
+            c.focused = true
+            c.build()
+            UiKit.put(host c pane)
+        }
+        for (shared.subfolders()) dir:string di {
+            def k:int (array_length sharedDirs)
+            push sharedDirs dir
+            def row:EVGElement (UiKit.div("tb-srow"))
+            def n:int (shared.countIn(dir))
+            def fb (new ButtonCtl())
+            fb.tid = ("tb-sdir-" + (to_string k))
+            fb.name = (UiText.fit((this.engine()) (PresSharedList.baseOf(dir)) "Open Sans" 13.0 (w - 70.0)))
+            fb.variant = "ghost"
+            fb.icon = "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
+            fb.iconClass = "tb-icon-folder"
+            fb.build()
+            def fel:EVGElement (unwrap fb.rootEl)
+            UiTree.addClass(fel "tb-button tb-roomdeck tb-sdir")
+            if ((fel.getChildCount()) > 1) {
+                UiTree.addClass((fel.getChild(1)) "tb-roomdeck-label")
+            }
+            fel.addChild((UiKit.div("tb-grow")))
+            if (n > 0) {
+                fel.addChild((UiKit.words("tb-room-count" (to_string n))))
+            }
+            UiKit.put(host fb row)
+            if (shared.canRemoveFolder(dir)) {
+                if (sharedArmed == ("dir" + (strfromcode 9) + dir)) {
+                    def rd:ButtonCtl (this.button(("srmdir-" + (to_string k)) (PresI18n.t("Delete?")) "primary" row))
+                    UiTree.addClass((unwrap rd.rootEl) "tb-sact")
+                } {
+                    def rd2:ButtonCtl (this.button(("srmdir-" + (to_string k)) "✕" "ghost" row))
+                    UiTree.addClass((unwrap rd2.rootEl) "tb-sx")
+                }
+            }
+            pane.addChild(row)
+        }
+        for here fi:int hi {
+            def e:PresSharedEntry (shared.entry(fi))
+            def k:int (array_length sharedIds)
+            push sharedIds e.id
+            def row:EVGElement (UiKit.div("tb-srow"))
+            def on:boolean (shared.pick.has(e.id))
+            if on {
+                UiTree.addClass(row "pf-row-picked")
+            }
+            def box (new CheckboxCtl())
+            box.tid = ("tb-sc-" + (to_string k))
+            box.name = ((PresI18n.t("Select ")) + e.name)
+            if on {
+                box.checkState = 1
+            }
+            box.labelShown = false
+            box.build()
+            UiTree.addClass((unwrap box.rootEl) "pf-check")
+            UiKit.put(host box row)
+            row.addChild((UiKit.words(("pf-tag pf-tag-" + (shared.tagKind(fi))) (shared.tagOf(fi)))))
+            def b:ButtonCtl (this.button(("sfile-" + e.id) (UiText.fit((this.engine()) e.name "Open Sans" 13.0 (w - 96.0))) "ghost" row))
+            def el:EVGElement (unwrap b.rootEl)
+            UiTree.addClass(el "tb-found tb-sfile")
+            if ((el.getChildCount()) > 0) {
+                UiTree.addClass((el.getChild(0)) "tb-found-name")
+            }
+            if ((strlen e.note) > 0) {
+                el.addChild((UiKit.words("tb-found-text" (UiText.fit((this.engine()) e.note "Open Sans" 11.0 (w - 96.0))))))
+            }
+            if (sharedArmed == ("del" + (strfromcode 9) + e.id)) {
+                def dx:ButtonCtl (this.button(("sdel-" + (to_string k)) (PresI18n.t("Delete?")) "primary" row))
+                UiTree.addClass((unwrap dx.rootEl) "tb-sact")
+            } {
+                def dx2:ButtonCtl (this.button(("sdel-" + (to_string k)) "✕" "ghost" row))
+                UiTree.addClass((unwrap dx2.rootEl) "tb-sx")
+            }
+            pane.addChild(row)
+        }
+        if (((array_length here) == 0) && ((array_length sharedDirs) == 0)) {
+            def empty:string (PresI18n.t("Files everyone on this server can use in a presentation. Add a Figma file (.fig) with +: its screens can then be put on a slide."))
+            if ((array_length crumbs) > 0) {
+                empty = (PresI18n.t("This folder is empty. Add a file with +, or tick files in another folder and move them here."))
+            }
+            for (UiText.wrapLines((this.engine()) empty "Open Sans" 12.0 w)) ln:string li {
                 pane.addChild((UiKit.words("tb-found-text" ln)))
             }
         }
         root.addChild(pane)
+    }
+
+    ; The ids of the ticked files, tab-separated, for the page.
+    fn sharedPicked:string () {
+        return (join (shared.picked()) (strfromcode 9))
+    }
+
+    ; A press in the Files panel; false when it was not one of its own.
+    fn sharedPress:boolean (ctlTid:string) {
+        if (ctlTid == "tb-files-mkdir") {
+            this.closeSelects()
+            this.closeMenus()
+            titleIn = (new InputCtl())
+            editFor = "sfolder"
+            titleEditing = true
+            this.rebuild()
+            return true
+        }
+        if (ctlTid == "tb-files-add") {
+            push requests ("shared:add:" + shared.cwd)
+            return true
+        }
+        if ((indexOf ctlTid "tb-scrumb-") == 0) {
+            def n:int (?? (str2int (substring ctlTid 10 (strlen ctlTid))) 0)
+            def cs:[string] (shared.crumbs())
+            def p:string ""
+            def i:int 0
+            while ((i < n) && (i < (array_length cs))) {
+                p = (PresSharedList.join(p (itemAt cs i)))
+                i = (i + 1)
+            }
+            shared.open(p)
+            sharedArmed = ""
+            this.rebuild()
+            return true
+        }
+        if ((indexOf ctlTid "tb-sdir-") == 0) {
+            def k:int (?? (str2int (substring ctlTid 8 (strlen ctlTid))) -1)
+            if ((k >= 0) && (k < (array_length sharedDirs))) {
+                shared.open((itemAt sharedDirs k))
+                sharedArmed = ""
+                this.rebuild()
+            }
+            return true
+        }
+        if ((indexOf ctlTid "tb-srmdir-") == 0) {
+            def k2:int (?? (str2int (substring ctlTid 10 (strlen ctlTid))) -1)
+            if ((k2 >= 0) && (k2 < (array_length sharedDirs))) {
+                def key:string ("dir" + (strfromcode 9) + (itemAt sharedDirs k2))
+                if (sharedArmed != key) {
+                    sharedArmed = key
+                } {
+                    sharedArmed = ""
+                    push requests ("shared:rmdir:" + (itemAt sharedDirs k2))
+                }
+                this.rebuild()
+            }
+            return true
+        }
+        if (ctlTid == "tb-sall") {
+            shared.toggleHere()
+            sharedArmed = ""
+            this.rebuild()
+            return true
+        }
+        if ((indexOf ctlTid "tb-sc-") == 0) {
+            def k3:int (?? (str2int (substring ctlTid 6 (strlen ctlTid))) -1)
+            if ((k3 >= 0) && (k3 < (array_length sharedIds))) {
+                shared.toggle((itemAt sharedIds k3))
+                sharedArmed = ""
+                this.rebuild()
+            }
+            return true
+        }
+        if ((indexOf ctlTid "tb-sdel-") == 0) {
+            def k4:int (?? (str2int (substring ctlTid 8 (strlen ctlTid))) -1)
+            if ((k4 >= 0) && (k4 < (array_length sharedIds))) {
+                def id:string (itemAt sharedIds k4)
+                def dkey:string ("del" + (strfromcode 9) + id)
+                if (sharedArmed != dkey) {
+                    sharedArmed = dkey
+                } {
+                    sharedArmed = ""
+                    push requests ("shared:delmany:" + id)
+                }
+                this.rebuild()
+            }
+            return true
+        }
+        if (ctlTid == "tb-sbulkdel") {
+            if ((array_length (shared.picked())) == 0) {
+                return true
+            }
+            if (sharedArmed != "bulk") {
+                sharedArmed = "bulk"
+            } {
+                sharedArmed = ""
+                push requests ("shared:delmany:" + (this.sharedPicked()))
+                shared.clearPicks()
+            }
+            this.rebuild()
+            return true
+        }
+        if (ctlTid == "tb-smove") {
+            def ids:[string] (shared.movePlan())
+            if ((array_length ids) > 0) {
+                push requests ("shared:move:" + shared.cwd + (strfromcode 9) + (join ids (strfromcode 9)))
+                shared.clearPicks()
+                sharedArmed = ""
+                this.rebuild()
+            }
+            return true
+        }
+        return false
     }
 
     fn buildRooms:void (root:EVGElement) {
@@ -2302,6 +2555,16 @@ class PresToolbar {
         if (editFor == "search") {
             ; Enter opens the first room found
             push requests ("room:searchgo:" + v)
+            this.rebuild()
+            return
+        }
+        if (editFor == "sfolder") {
+            ; a new folder in the one shown, opened
+            def made:string (PresSharedList.join(shared.cwd v))
+            if ((strlen made) > 0) {
+                shared.wanted = made
+                push requests ("shared:mkdir:" + made)
+            }
             this.rebuild()
             return
         }
@@ -2954,8 +3217,7 @@ class PresToolbar {
             this.rebuild()
             return
         }
-        if (ctlTid == "tb-files-add") {
-            push requests "shared:add"
+        if (this.sharedPress(ctlTid)) {
             return
         }
         if ((indexOf ctlTid "tb-sfile-") == 0) {

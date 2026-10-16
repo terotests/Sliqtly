@@ -269,3 +269,30 @@
 .theme-tb .tb-found-name { text-align: left; font-size: 13px; font-weight: 500; color: #27272a; white-space: nowrap; }
 .tb-found-room { font-size: 11px; color: #4f46e5; white-space: nowrap; }
 .tb-found-text { font-size: 11px; color: #71717a; white-space: nowrap; }
+
+/* the rail's Files as a folder browser (PresToolbar.buildFiles): the path
+   on top, a data table's header, folders then files; a file's tag as in
+   the deck's Files tab (panels.css .pf-tag) */
+.tb-spath { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; padding: 0 0 4px 0; }
+.theme-tb .tb-scrumb { height: 26px; padding: 0 6px; border-radius: 5px; font-size: 12px; }
+.tb-scrumb-sep { font-size: 12px; color: #a1a1aa; }
+.theme-tb .tb-ssel { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; height: 34px; min-height: 34px; padding: 0 2px 0 8px; margin: 0 0 4px 0; border-bottom: 1px solid #f4f4f5; background-color: transparent; }
+.tb-srow { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 0 0 0 8px; border-radius: 6px; flex-shrink: 0; }
+.theme-tb .tb-sdir { flex-grow: 1; padding-left: 0; }
+.theme-tb .tb-sfile { flex-grow: 1; flex-shrink: 1; padding-left: 2px; }
+.theme-tb .tb-sx { width: 24px; height: 24px; padding: 0; border-radius: 5px; flex-shrink: 0; color: #71717a; }
+.theme-tb .tb-sact { height: 26px; padding: 0 8px; font-size: 12px; flex-shrink: 0; }
+.theme-tb .pf-check { flex-shrink: 0; cursor: pointer; }
+.theme-tb .ui-checkbox-box { width: 18px; min-width: 18px; height: 18px; min-height: 18px; border-radius: 4px; }
+.theme-tb .ui-checkbox-mark { width: 14px; min-width: 14px; height: 14px; min-height: 14px; }
+.theme-tb .pf-row-picked { background-color: #eff6ff; }
+.pf-sel-text { font-size: 12px; color: #71717a; white-space: nowrap; }
+.pf-sel-count { color: #09090b; font-weight: 600; }
+.pf-tag {
+  font-size: 10px; font-weight: 700; color: #3f3f46; background-color: #e4e4e7;
+  border-radius: 4px; padding: 1px 5px; min-width: 30px; text-align: center; white-space: nowrap; flex-shrink: 0;
+}
+.pf-tag-fig { background-color: #ede9fe; color: #6d28d9; }
+.pf-tag-pptx { background-color: #ffedd5; color: #c2410c; }
+.theme-tb .ui-checkbox-box-state-indeterminate { background-color: #2563eb; border-color: #2563eb; }
+.theme-tb .ui-checkbox-mark-state-indeterminate { stroke: #ffffff; }

@@ -295,3 +295,82 @@ func TestSharedFigmaTools(t *testing.T) {
 		t.Fatalf("the picture is %vx%v, not the screen's shape", w, h)
 	}
 }
+
+// folders: a file put in one, moved, a folder kept empty and removed only
+// when nothing is in it; a move while the file is read is kept
+func TestSharedFolders(t *testing.T) {
+	done := make(chan string, 4)
+	srv, _ := startLocalWith(t, t.TempDir(), "", func(e *Env) {
+		e.shared.indexed = func(id string) { done <- id }
+	})
+	defer srv.Close()
+	call := func(method, path, body string) (int, map[string]any) {
+		t.Helper()
+		req, _ := http.NewRequest(method, srv.URL+"/api/shared"+path, strings.NewReader(body))
+		if method == http.MethodPost {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	list := func() (files []sharedFile, folders []string) {
+		t.Helper()
+		_, _, body := get(t, srv.URL+"/api/shared")
+		var l struct {
+			Files   []sharedFile `json:"files"`
+			Folders []string     `json:"folders"`
+		}
+		json.Unmarshal([]byte(body), &l)
+		return l.Files, l.Folders
+	}
+
+	st, out := call(http.MethodPut, "/app.fig?folder="+"%20Designs//Mobile%20", "not a figma file")
+	if st != 201 {
+		t.Fatalf("put: %d %v", st, out)
+	}
+	eq(t, out["folder"], "Designs/Mobile")
+	if st, out := call(http.MethodPost, "/app/move", `{"folder":"Designs/../Old"}`); st != 200 || out["folder"] != "Designs/Old" {
+		t.Fatalf("move: %d %v", st, out)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("never read")
+	}
+	files, _ := list()
+	if len(files) != 1 || files[0].Folder != "Designs/Old" || files[0].Status != "failed" {
+		t.Fatalf("the move outlives the reading: %+v", files)
+	}
+
+	if st, out := call(http.MethodPost, "/~folders", `{"path":"Empty/Inner"}`); st != 201 || out["path"] != "Empty/Inner" {
+		t.Fatalf("mkdir: %d %v", st, out)
+	}
+	if st, _ := call(http.MethodPost, "/~folders", `{"path":" / .. "}`); st != 400 {
+		t.Fatalf("a folder with no name: %d", st)
+	}
+	if st, _ := call(http.MethodDelete, "/~folders?path=Designs", ""); st != 409 {
+		t.Fatalf("a folder with a file in it is kept: %d", st)
+	}
+	call(http.MethodPost, "/~folders", `{"path":"Empty"}`)
+	if st, _ := call(http.MethodDelete, "/~folders?path=Empty", ""); st != 409 {
+		t.Fatalf("a folder with a folder in it is kept: %d", st)
+	}
+	if st, _ := call(http.MethodDelete, "/~folders?path=Empty/Inner", ""); st != 204 {
+		t.Fatalf("rmdir: %d", st)
+	}
+	_, folders := list()
+	if strings.Join(folders, ",") != "Empty" {
+		t.Fatalf("folders: %v", folders)
+	}
+
+	// a file put again keeps its folder
+	call(http.MethodPut, "/app.fig", "another body")
+	files, _ = list()
+	eq(t, files[0].Folder, "Designs/Old")
+}

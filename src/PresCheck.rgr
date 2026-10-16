@@ -16,6 +16,7 @@ Import "PresChartModel.rgr"
 Import "PresCascade.rgr"
 Import "PresThemeGallery.rgr"
 Import "PresFigma.rgr"
+Import "PresSharedList.rgr"
 Import "PresSelect.rgr"
 Import "PresDocSettings.rgr"
 Import "PresTerm.rgr"
@@ -2376,6 +2377,7 @@ class PresCheck {
         this.themeGallery()
         this.figmaFiles()
         this.pptxFiles()
+        this.sharedList()
     }
 
     ; The theme picker's tiles from the page's select rows, their groups and
@@ -2428,6 +2430,40 @@ class PresCheck {
         b.open("q3" "Q3.pptx" "ready" "" (PresCheck.pptxIndexJson()))
         b.pick("2" "")
         this.ok(((b.address()) == "pptx:q3/2") ("the window's pick: " + (b.address())))
+    }
+
+    ; the left rail's Files: folders, tags, ticking and moving
+    fn sharedList:void () {
+        this.ok(((PresSharedList.clean(" /Designs//./ Mobile /../")) == "Designs/Mobile") ("a folder path cleaned: " + (PresSharedList.clean(" /Designs//./ Mobile /../"))))
+        this.ok(((PresSharedList.clean("a\\b")) == "ab") "no backslash")
+        def l (new PresSharedList())
+        l.setData("{\"files\":[{\"id\":\"app\",\"name\":\"app.fig\",\"kind\":\"figma\"},{\"id\":\"deck\",\"name\":\"Q3.pptx\",\"kind\":\"pptx\",\"folder\":\"Decks\"},{\"id\":\"m\",\"name\":\"mobile.fig\",\"kind\":\"figma-variation\",\"folder\":\"Designs/Mobile\"},{\"id\":\"n\",\"name\":\"notes.txt\",\"kind\":\"\",\"folder\":\"Designs\"}],\"folders\":[\"Empty\",\"Designs/Old\"]}")
+        def top:[string] (l.subfolders())
+        this.ok(((join top ",") == "Decks,Designs,Empty") ("top folders, by name: " + (join top ",")))
+        this.ok((((array_length (l.here())) == 1) && ((l.entry((itemAt (l.here()) 0))).id == "app")) "the top's own files")
+        this.ok((((l.tagOf(0)) == "FIG") && ((l.tagOf(1)) == "PPTX") && ((l.tagOf(2)) == "FIG") && ((l.tagOf(3)) == "TXT")) "tags by kind, else by extension")
+        this.ok((((l.tagKind(1)) == "pptx") && ((l.tagKind(3)) == "file")) "tag colours")
+        l.open("Designs")
+        this.ok(((join (l.subfolders()) ",") == "Designs/Mobile,Designs/Old") ("under Designs: " + (join (l.subfolders()) ",")))
+        this.ok(((join (l.crumbs()) ">") == "Designs") "crumbs")
+        this.ok(((l.countIn("Designs")) == 2) "files under a folder, all depths")
+        this.ok((((l.canRemoveFolder("Designs/Old")) == true) && ((l.canRemoveFolder("Designs")) == false) && ((l.canRemoveFolder("Empty")) == true)) "only an empty folder is removed")
+        l.open("Nowhere")
+        this.ok((l.cwd == "Designs") "a folder not there is not opened")
+        l.toggleHere()
+        this.ok(((l.hereState()) == 1) "the header's box ticks this folder's files")
+        this.ok(((join (l.picked()) ",") == "n") "only this folder's")
+        l.up()
+        this.ok(((l.cwd == "") && ((l.hereState()) == 0)) "up, nothing ticked here")
+        this.ok(((join (l.movePlan()) ",") == "n") "ticked elsewhere: moved here")
+        l.toggle("app")
+        this.ok(((join (l.movePlan()) ",") == "n") "one already here is not moved")
+        l.open("Designs/Mobile")
+        l.setData("{\"files\":[{\"id\":\"app\",\"name\":\"app.fig\",\"kind\":\"figma\"}],\"folders\":[]}")
+        this.ok(((l.cwd == "") && ((join (l.picked()) ",") == "app")) "a folder gone opens the top; ticks of files gone dropped")
+        l.wanted = "New/Inner"
+        l.setData("{\"files\":[],\"folders\":[\"New/Inner\"]}")
+        this.ok((l.cwd == "New/Inner") "a folder made opens once listed")
     }
 
     fn figmaFiles:void () {
