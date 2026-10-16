@@ -880,12 +880,12 @@ class PresApp {
     ; A frame of program `key`: its view() as JSON. False when that was no
     ; element tree (the program's error then says so).
     fn setPlayFrame:boolean (key:string tree:string) {
-        def v@(optional):PresPlayView (deck.playView(key))
-        if (null? v) {
-            return false
+        def was:int deck.revision
+        def ok:boolean (deck.setPlayFrame(key tree))
+        if (deck.revision != was) {
+            chromeRev = (chromeRev + 1)
         }
-        def view:PresPlayView (unwrap v)
-        return (view.setTree(tree))
+        return ok
     }
 
     ; Program `key` asks its slide to stay `seconds` when the deck plays on
@@ -1516,14 +1516,32 @@ class PresApp {
     ; is selected; a double click shows that slide in the Presentation view.
     fn docPress:void (x:double y:double clicks:int) {
         this.docEnsure()
+        def link:string (this.docPaneLink(docPane x y))
         if ((this.docPanePress(docPane x y)) == false) {
             return
         }
         if (clicks >= 2) {
             this.setStageView("slides")
+        } {
+            ; a link is followed once the press is not the first of a
+            ; double click (the page waits, as for a link on the slide)
+            if ((strlen link) > 0) {
+                push requests ("link:" + link)
+            }
         }
         focus = "stage"
         chromeRev = (chromeRev + 1)
+    }
+
+    ; The link of the words under a screen point of a pane of the page, ""
+    ; for none.
+    fn docPaneLink:string (pane:PresDocPane x:double y:double) {
+        def dw:double (docView.width())
+        if ((pane.has(x y)) == false) {
+            return ""
+        }
+        def px:double ((x - (pane.left(dw))) / (pane.scale(dw)))
+        return (docView.caret.linkAt(px (pane.pageY(y dw))))
     }
 
     ; A press on a pane of the page: its slide selected, the Markdown's
@@ -1731,9 +1749,14 @@ class PresApp {
             this.docEditPress(x y shift clicks)
             return
         }
+        def link:string (this.docPaneLink(edDocPane x y))
         def hit:boolean (this.docPanePress(edDocPane x y))
         focus = "editor"
         chromeRev = (chromeRev + 1)
+        if ((hit && (clicks == 1)) && ((strlen link) > 0)) {
+            ; reading: a link is followed (after the double-click time)
+            push requests ("link:" + link)
+        }
         if ((hit == false) || (clicks < 2)) {
             return
         }
@@ -6250,8 +6273,12 @@ class PresApp {
         this.place()
         ; the ToC drawer over everything but a menu or a window
         if ((tocUi.isOpen()) && ((this.layerAt(x y)) == "toc")) {
-            this.tocPress(x y)
+            this.tocPress(x y clicks shift)
             return "toc"
+        }
+        ; anywhere else the ToC's search lets the keys go
+        if tocUi.typing {
+            this.tocBlur()
         }
         ; review mode: a pin, its bar, a thread, or where a new comment goes
         if review.on {
@@ -6778,6 +6805,11 @@ class PresApp {
             }
             return
         }
+        if tocUi.selecting {
+            tocUi.dragTo(x)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if codePress {
             codeView.drag(tr x y)
             chromeRev = (chromeRev + 1)
@@ -7014,6 +7046,11 @@ class PresApp {
 
     fn pointerUp:void () {
         docDrag = false
+        if tocUi.selecting {
+            tocUi.release()
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if docPicDrag {
             docPicDrag = false
             this.docPicDrop()
@@ -7433,6 +7470,9 @@ class PresApp {
                 return "pointer"
             }
         }
+        if ((((this.docShown()) && (stageArea.has(x y))) && ((strlen (this.docPaneLink(docPane x y))) > 0)) || ((((this.edDocShown()) && ((this.docEditing()) == false)) && (edRect.has(x y))) && ((strlen (this.docPaneLink(edDocPane x y))) > 0))) {
+            return "pointer"
+        }
         if (((this.docEditing()) && (edRect.has(x y))) && (docPic >= 0)) {
             def dz:string (this.docPicZone((this.docPageX(x)) (this.docPageY(y))))
             if ((strlen dz) > 0) {
@@ -7506,6 +7546,9 @@ class PresApp {
             this.takeToolbar()
             return usedT
         }
+        if (this.tocHasKeys()) {
+            return (this.tocKey(name shift ctrl))
+        }
         if (this.roomHasKeys()) {
             return (this.roomKey(name shift ctrl))
         }
@@ -7519,7 +7562,7 @@ class PresApp {
             }
         }
         if ((name == "escape") && (tocUi.isOpen())) {
-            this.tocClose()
+            this.tocEscape()
             return true
         }
         if ((name == "escape") && (review.escape())) {
@@ -7847,6 +7890,11 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        if (this.tocHasKeys()) {
+            tocUi.type(s)
+            chromeRev = (chromeRev + 1)
+            return
+        }
         if (this.roomHasKeys()) {
             room.text(s)
             this.afterRoom()
@@ -7971,6 +8019,11 @@ class PresApp {
             this.takeToolbar()
             return
         }
+        if (this.tocHasKeys()) {
+            tocUi.type((PresToc.oneLine(s)))
+            chromeRev = (chromeRev + 1)
+            return
+        }
         ; into the docked chat's composer (the room's or the AI assistant's)
         if (this.chatHasKeys()) {
             def tc:ChatCtl (panels.dockChat())
@@ -8065,6 +8118,14 @@ class PresApp {
         if (review.hasKeys()) {
             if (ch == "a") {
                 review.selectAll()
+                chromeRev = (chromeRev + 1)
+            }
+            return true
+        }
+        ; Ctrl+A in the ToC's search: all of its text
+        if (this.tocHasKeys()) {
+            if (ch == "a") {
+                tocUi.selectAll()
                 chromeRev = (chromeRev + 1)
             }
             return true
@@ -9054,8 +9115,54 @@ class PresApp {
     }
 
     fn tocClose:void () {
+        this.tocBlur()
         tocUi.close()
         chromeRev = (chromeRev + 1)
+    }
+
+    ; Esc: the search emptied first, then the drawer closed.
+    fn tocEscape:void () {
+        if (tocUi.clearSearch()) {
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        this.tocClose()
+    }
+
+    ; Does the ToC's search have the keys?
+    fn tocHasKeys:boolean () {
+        return (((tocUi.isOpen()) && tocUi.typing) && (focus == "toc"))
+    }
+
+    ; The search lets the keys go: back to the page or the slide.
+    fn tocBlur:void () {
+        tocUi.blur()
+        if (focus == "toc") {
+            focus = (? (mode == "present") "stage" "editor")
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; A key in the search: Esc empties it (then closes), ↑/↓ mark a row,
+    ; Enter goes to the marked (or first) one, the rest edit the words.
+    fn tocKey:boolean (name:string shift:boolean ctrl:boolean) {
+        if (name == "escape") {
+            this.tocEscape()
+            return true
+        }
+        if (name == "tab") {
+            return false
+        }
+        def k:string (PresChartEditor.kitKey(name))
+        if ((strlen k) == 0) {
+            return true
+        }
+        def i:int (tocUi.key(k shift ctrl))
+        if (i >= 0) {
+            this.tocPick(i)
+        }
+        chromeRev = (chromeRev + 1)
+        return true
     }
 
     ; The entry being read now: on the page that is shown (the stage's
@@ -9093,8 +9200,15 @@ class PresApp {
         tocUi.setEntries(toc (this.tocCurrent()))
     }
 
-    fn tocPress:void (x:double y:double) {
-        def i:int (tocUi.press(x y))
+    fn tocPress:void (x:double y:double clicks:int shift:boolean) {
+        def i:int (tocUi.press(x y clicks shift))
+        if tocUi.typing {
+            focus = "toc"
+        } {
+            if (focus == "toc") {
+                focus = (? (mode == "present") "stage" "editor")
+            }
+        }
         if (i >= 0) {
             this.tocPick(i)
         }
@@ -9109,6 +9223,10 @@ class PresApp {
             return
         }
         def e:PresTocEntry (toc.entryAt(i))
+        ; going to it is where the reader looks next, not the search
+        if tocUi.typing {
+            this.tocBlur()
+        }
         if (mode == "present") {
             this.jump((PresNav.whole(deck e.slide)))
             return
@@ -11275,6 +11393,11 @@ class PresApp {
         }
         if (((itemAt f 0) == "topic:ctx") && ((array_length f) >= 6)) {
             toolbar.openDeckContext((?? (str2double (itemAt f 3)) 0.0) (?? (str2double (itemAt f 4)) 0.0) "room" (itemAt f 1) (itemAt f 5) ((itemAt f 2) == "1"))
+            ; the card knows its pin, the room's list may be shut
+            if ((array_length f) >= 7) {
+                toolbar.ctxDeckPinned = ((itemAt f 6) == "1")
+                toolbar.rebuild()
+            }
             return
         }
         push requests r

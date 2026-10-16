@@ -313,7 +313,11 @@ class PresDocView {
             this.addNotes(deck cur itemChild noteLayouts noteItems)
         }
         flow.place((deck.slideCount()))
+        ; a program with no picture yet says it is loading: the page runs
+        ; its first frames for this view (web/main.js docStills)
+        deck.platesLoading = true
         this.paint(deck l word boxChild itemChild noteLayouts noteItems)
+        deck.platesLoading = false
         caret.finish()
     }
 

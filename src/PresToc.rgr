@@ -18,6 +18,9 @@
 ; the last one before it when the slide has none of its own; on the page,
 ; the last heading at or above the line read from.
 ;
+; The drawer's search keeps the entries whose words have what is typed in
+; them, case not counted (A–Z and the Nordic letters); the empty search all.
+;
 ; Nothing here draws or knows the screen: PresApp asks and the drawer shows.
 ; ============================================================================
 
@@ -142,5 +145,45 @@ class PresToc {
             i = (i + 1)
         }
         return best
+    }
+
+    ; The entries `query` finds, in order: all of them for an empty one.
+    fn matching:[int] (query:string) {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:PresTocEntry (itemAt entries i)
+            if (PresToc.finds(e.text query)) {
+                push out i
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Does `words` have `query` in it (trimmed, case not counted)?
+    sfn finds:boolean (words:string query:string) {
+        def q:string (PresToc.fold((trim query)))
+        if ((strlen q) == 0) {
+            return true
+        }
+        return ((indexOf (PresToc.fold(words)) q) >= 0)
+    }
+
+    ; Pasted words on one line (a search field has no other).
+    sfn oneLine:string (s:string) {
+        def t:string (join (strsplit s "\r") " ")
+        return (join (strsplit t "\n") " ")
+    }
+
+    ; Small letters for A–Z and the capitals a Nordic text has.
+    sfn fold:string (s:string) {
+        def t:string (PresDeck.lower(s))
+        t = (join (strsplit t "Ä") "ä")
+        t = (join (strsplit t "Ö") "ö")
+        t = (join (strsplit t "Å") "å")
+        t = (join (strsplit t "Ü") "ü")
+        t = (join (strsplit t "É") "é")
+        return t
     }
 }

@@ -23,7 +23,8 @@
 ;   topic:by\t<type|phase|tag|none>, topic:sort\t<updated|title|created>
 ;   topic:new                    + New story
 ;   topic:menu\t<deck>\t<type|phase>\t<type>\t<phase>\t<x>\t<y>\t<name>
-;   topic:ctx\t<deck>\t<1 when open>\t<x>\t<y>\t<name>   a card's context menu
+;   topic:ctx\t<deck>\t<1 when open>\t<x>\t<y>\t<name>\t<1 when pinned>
+;                                a card's context menu
 ;   topic:bulkmenu\t<x>\t<y>    Actions pressed: the toolbar's menu of what
 ;                                can be done to the ticked ones; its row
 ;                                comes back as `choose`
@@ -54,6 +55,7 @@ class PresTopicView {
     def types:[string]
     def phases:[string]
     def currents:[boolean]
+    def pinneds:[boolean]
     def room:string ""
     ; the ticked cards and the action chosen for them
     def picks:PresStoryPick (new PresStoryPick())
@@ -110,6 +112,8 @@ class PresTopicView {
         phases = np
         def nc:[boolean]
         currents = nc
+        def npn:[boolean]
+        pinneds = npn
         def p (new VlJsonParser())
         def j:VlJson (p.parse(json))
         def view:EVGElement (UiKit.div("rm-topic"))
@@ -246,6 +250,8 @@ class PresTopicView {
         def name:string (s.stringOr("name" ""))
         def col:string (s.stringOr("color" "#8a8f98"))
         def cur:boolean (s.boolOr("current" false))
+        def pinned:boolean (s.boolOr("pinned" false))
+        push pinneds pinned
         push ids id
         push names name
         push types (s.stringOr("type" "story"))
@@ -296,6 +302,17 @@ class PresTopicView {
         }
         UiKit.put(host tp top)
         top.addChild((UiKit.div("rm-grow")))
+        ; pinned first in the topic (the deck's context menu, Pin to top)
+        if pinned {
+            def pin (EVGElement.createDiv())
+            pin.className = "rm-pin"
+            pin.tagName = "path"
+            pin.elementType = 3
+            pin.viewBox = "0 0 24 24"
+            pin.svgPath = (PresToolbar.pinIcon())
+            pin.a11yHidden = true
+            top.addChild(pin)
+        }
         def pp:ButtonCtl (UiKit.button(("rm-stp-" + n) (s.stringOr("phaseLabel" "")) "ghost"))
         def ppe:EVGElement (unwrap pp.rootEl)
         UiTree.addClass(ppe "rm-pill")
@@ -468,7 +485,7 @@ class PresTopicView {
         if (i < 0) {
             return false
         }
-        push requests ("topic:ctx\t" + (itemAt ids i) + "\t" + (? (itemAt currents i) "1" "") + "\t" + (EVGDisplayList.num(px)) + "\t" + (EVGDisplayList.num(py)) + "\t" + (itemAt names i))
+        push requests ("topic:ctx\t" + (itemAt ids i) + "\t" + (? (itemAt currents i) "1" "") + "\t" + (EVGDisplayList.num(px)) + "\t" + (EVGDisplayList.num(py)) + "\t" + (itemAt names i) + "\t" + (? (itemAt pinneds i) "1" ""))
         return true
     }
 }

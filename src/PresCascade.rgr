@@ -456,7 +456,8 @@ class PresCascade {
 
     ; A block with a class or an id: the plate its rule can put round it
     ; (background, padding, border, corners); only that rule sets them.
-    ; i18n: "box background" "box padding" "box border" "box corners"
+    ; i18n: "box background" "box padding" "box border" "box border colour"
+    ; i18n: "box border width" "box corners"
     fn boxFacets:void (e:PresCssElement tag:string) {
         if (((array_length e.classes) == 0) && ((strlen e.id) == 0)) {
             return

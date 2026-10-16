@@ -469,6 +469,7 @@
 .theme-pn .rm-card-cur { background-color: #f0fdf4; }
 .theme-pn .rm-card-sel { background-color: #eff6ff; border-color: #93c5fd; }
 .rm-ctop { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.rm-pin { width: 13px; height: 13px; fill: none; stroke: #4f46e5; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .theme-pn .rm-pill { height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid #e4e4e7; background-color: #ffffff; }
 .theme-pn .rm-pill-phase { background-color: #f4f4f5; }
 .theme-pn .rm-pill:hover { background-color: #f4f4f5; }

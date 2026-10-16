@@ -10,6 +10,11 @@
 ; in view when the drawer opens. A row pressed is `picked` for PresApp to
 ; go to; the drawer stays open, as a drawer does, until ×, Esc or ToC.
 ;
+; Above the list a search field (EVGUI's InputCtl): what is typed keeps the
+; headings that have it (PresToc.finds), ↑/↓ move through them and Enter
+; goes to the one marked (the first by default). Esc empties the field
+; first; PresApp gives it the keys while `typing`.
+;
 ; Its own UiHost as big as the app, the sheet ui.css + web/toc.css under
 ; the theme "toc" (the dark and retro looks derived for it by the page).
 ; ============================================================================
@@ -18,6 +23,7 @@ Import "PresI18n.rgr"
 Import "PresToc.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/DrawerCtl.rgr"
+Import "../evgui/src/InputCtl.rgr"
 Import "UiKit.rgr"
 
 class PresTocDrawer {
@@ -44,6 +50,13 @@ class PresTocDrawer {
     ; the row to bring into view at the next layout (-1: none)
     def reveal:int -1
     def hot:string ""
+    ; the search: the field, the entries it keeps (indices into texts), the
+    ; one ↑/↓ marked among them (-1: none), and whether it has the keys
+    def search:InputCtl (new InputCtl())
+    def shown:[int]
+    def kbd:int -1
+    def typing:boolean false
+    def selecting:boolean false
     def measurer@(optional):TTFTextMeasurer
     def rev:int 0
 
@@ -51,6 +64,44 @@ class PresTocDrawer {
         drawer.tid = "toc"
         drawer.side = "left"
         drawer.durationMs = 0.0
+        search.tid = "toc-search"
+        search.boxClass = "toc-search"
+        search.textClass = "toc-search-text"
+        search.placeholderClass = "toc-search-ph"
+        search.clearable = true
+        search.clearLabel = "×"
+    }
+
+    fn query:string () {
+        return search.value
+    }
+
+    ; The entries the search keeps, from the words as they are now.
+    fn filter:void () {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length texts)) {
+            if (PresToc.finds((itemAt texts i) search.value)) {
+                push out i
+            }
+            i = (i + 1)
+        }
+        def same:boolean ((array_length out) == (array_length shown))
+        if same {
+            def k:int 0
+            while (k < (array_length out)) {
+                if ((itemAt out k) != (itemAt shown k)) {
+                    same = false
+                    break
+                }
+                k = (k + 1)
+            }
+        }
+        if (same == false) {
+            shown = out
+            leadsOk = false
+            kbd = -1
+        }
     }
 
     fn isOpen:boolean () {
@@ -91,6 +142,7 @@ class PresTocDrawer {
         depths = d
         slides = sl
         current = cur
+        this.filter()
         if drawer.open {
             this.rebuild()
         }
@@ -123,6 +175,9 @@ class PresTocDrawer {
     fn close:void () {
         drawer.closeNow()
         hot = ""
+        typing = false
+        selecting = false
+        search.setFocused(false)
         rev = (rev + 1)
     }
 
@@ -141,6 +196,11 @@ class PresTocDrawer {
     ; The entry a row id names, -1 for none.
     sfn rowOf:int (t:string) {
         if (((indexOf t "toc-") != 0) || ((strlen t) <= 4)) {
+            return -1
+        }
+        ; the search field's ids (toc-search…) are no row's
+        def c0:int (charAt t 4)
+        if ((c0 < 48) || (c0 > 57)) {
             return -1
         }
         def n@(optional):int (str2int (substring t 4 (strlen t)))
@@ -167,6 +227,18 @@ class PresTocDrawer {
         drawer.pageWidth = w
         drawer.clearContentTids()
         drawer.build()
+        ; the search between the title and the list (the list scrolls, the
+        ; field stays)
+        def panel:EVGElement drawer.panelEl
+        UiTree.clearChildren(panel)
+        panel.addChild(drawer.titleEl)
+        panel.addChild(drawer.closeEl)
+        search.placeholder = (PresI18n.t("Search headings"))
+        search.name = search.placeholder
+        search.focused = typing
+        search.build()
+        UiKit.put(host search panel)
+        panel.addChild(drawer.bodyEl)
         def body:EVGElement (drawer.body())
         UiTree.clearChildren(body)
         if ((array_length texts) == 0) {
@@ -174,9 +246,21 @@ class PresTocDrawer {
             none.className = "toc-none"
             none.textContent = (PresI18n.t("No headings yet: # and ## lines are listed here"))
             body.addChild(none)
+        } {
+            if ((array_length shown) == 0) {
+                def none2 (EVGElement.createDiv())
+                none2.className = "toc-none"
+                none2.textContent = (PresI18n.t("No heading has these words"))
+                body.addChild(none2)
+            }
         }
-        def i:int 0
-        while (i < (array_length texts)) {
+        def kbdTid:string ""
+        if ((kbd >= 0) && (kbd < (array_length shown))) {
+            kbdTid = (PresTocDrawer.rowTid((itemAt shown kbd)))
+        }
+        def at:int 0
+        while (at < (array_length shown)) {
+            def i:int (itemAt shown at)
             def row (EVGElement.createDiv())
             row.id = (PresTocDrawer.rowTid(i))
             def d:int (itemAt depths i)
@@ -187,7 +271,8 @@ class PresTocDrawer {
             if (i == current) {
                 cls = (cls + " toc-on")
             }
-            if (row.id == hot) {
+            def marked:boolean ((row.id == hot) || (row.id == kbdTid))
+            if marked {
                 cls = (cls + " toc-hot")
             }
             row.className = cls
@@ -198,7 +283,7 @@ class PresTocDrawer {
             if (i == current) {
                 state = " toc-on"
             }
-            if (row.id == hot) {
+            if marked {
                 state = (state + " toc-hot")
             }
             def title (EVGElement.createDiv())
@@ -207,8 +292,8 @@ class PresTocDrawer {
             row.addChild(title)
             def lead (EVGElement.createDiv())
             lead.className = ("toc-lead" + state)
-            if (leadsOk && (i < (array_length leads))) {
-                lead.textContent = (itemAt leads i)
+            if (leadsOk && (at < (array_length leads))) {
+                lead.textContent = (itemAt leads at)
             }
             row.addChild(lead)
             def num (EVGElement.createDiv())
@@ -217,7 +302,7 @@ class PresTocDrawer {
             row.addChild(num)
             body.addChild(row)
             drawer.addContentTid(row.id)
-            i = (i + 1)
+            at = (at + 1)
         }
         UiKit.put(host drawer root)
         rev = (rev + 1)
@@ -244,10 +329,10 @@ class PresTocDrawer {
             lay.layout(pg)
         }
         ; the row being read in view, a little below the top
-        if ((reveal >= 0) && (reveal < (array_length texts))) {
+        def at:int (this.shownAt(reveal))
+        reveal = -1
+        if (at >= 0) {
             def body:EVGElement (drawer.body())
-            def at:int reveal
-            reveal = -1
             if (at < (body.getChildCount())) {
                 def row:EVGElement (body.getChild(at))
                 def inBody:double ((row.calculatedY - body.calculatedY) + body.scrollTop)
@@ -286,7 +371,7 @@ class PresTocDrawer {
         def body:EVGElement (drawer.body())
         def out:[string]
         def i:int 0
-        while (i < (array_length texts)) {
+        while (i < (array_length shown)) {
             def dots:string ""
             if (i < (body.getChildCount())) {
                 def row:EVGElement (body.getChild(i))
@@ -330,12 +415,41 @@ class PresTocDrawer {
         return ((((px >= 0.0) && (px <= width)) && (py >= top)) && (py <= (top + height)))
     }
 
-    ; A press: the entry pressed (-1 for none); × closes.
-    fn press:int (px:double py:double) {
+    ; Where entry i is among the rows shown, -1 when it is not.
+    fn shownAt:int (i:int) {
+        def k:int 0
+        while (k < (array_length shown)) {
+            if ((itemAt shown k) == i) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    ; A press: the entry pressed (-1 for none); × closes; on the search
+    ; field, its caret (and the keys), anywhere else the field lets them go.
+    fn press:int (px:double py:double clicks:int shift:boolean) {
         if (null? host.lastPage) {
             this.layoutPage()
         }
         def t:string (host.hitTest(px py))
+        if (search.owns(t)) {
+            def before:string search.value
+            typing = true
+            search.textPointerDown(t px clicks shift)
+            selecting = search.dragging
+            if (search.value != before) {
+                this.filter()
+            }
+            this.rebuild()
+            return -1
+        }
+        if typing {
+            typing = false
+            search.setFocused(false)
+            rev = (rev + 1)
+        }
         drawer.activate(t)
         def k:string (drawer.consumePicked())
         if (drawer.open == false) {
@@ -343,6 +457,97 @@ class PresTocDrawer {
             return -1
         }
         return (PresTocDrawer.rowOf(k))
+    }
+
+    ; A drag that began in the field: its selection.
+    fn dragTo:void (px:double) {
+        if selecting {
+            search.textPointerDrag(px)
+            rev = (rev + 1)
+        }
+    }
+
+    fn release:void () {
+        if selecting {
+            selecting = false
+            search.pointerUp()
+            rev = (rev + 1)
+        }
+    }
+
+    ; The field lets the keys go (a press outside the drawer).
+    fn blur:void () {
+        if typing {
+            typing = false
+            selecting = false
+            search.setFocused(false)
+            if drawer.open {
+                this.rebuild()
+            }
+        }
+    }
+
+    ; Words typed into the field.
+    fn type:void (s:string) {
+        search.typeChar(search.tid s)
+        this.filter()
+        this.rebuild()
+    }
+
+    fn selectAll:void () {
+        search.selectAll()
+        rev = (rev + 1)
+    }
+
+    ; A key while the field has them (`k` as EVGUI names it: "ArrowDown",
+    ; "Enter", "Backspace", …): the entry Enter goes to, else -1.
+    fn key:int (k:string shift:boolean ctrl:boolean) {
+        def n:int (array_length shown)
+        if ((k == "ArrowDown") || (k == "ArrowUp")) {
+            if (n > 0) {
+                if (k == "ArrowDown") {
+                    kbd = (? (kbd < 0) 0 (kbd + 1))
+                } {
+                    kbd = (? (kbd < 0) (n - 1) (kbd - 1))
+                }
+                if (kbd >= n) {
+                    kbd = (n - 1)
+                }
+                if (kbd < 0) {
+                    kbd = 0
+                }
+                reveal = (itemAt shown kbd)
+                this.rebuild()
+            }
+            return -1
+        }
+        if (k == "Enter") {
+            if (n == 0) {
+                return -1
+            }
+            def pos:int (? (kbd >= 0) kbd 0)
+            if (pos >= n) {
+                pos = 0
+            }
+            return (itemAt shown pos)
+        }
+        search.keyDownWith(search.tid k shift ctrl)
+        this.filter()
+        this.rebuild()
+        return -1
+    }
+
+    ; Esc: the search emptied first; true when it had something to empty.
+    fn clearSearch:boolean () {
+        if ((strlen search.value) == 0) {
+            return false
+        }
+        search.setValue("")
+        search.moveTo(0 false)
+        this.filter()
+        reveal = current
+        this.rebuild()
+        return true
     }
 
     fn hoverAt:void (px:double py:double) {
@@ -372,6 +577,12 @@ class PresTocDrawer {
             this.layoutPage()
         }
         def t:string (host.hitTest(px py))
+        if (search.isClearHit(t)) {
+            return "pointer"
+        }
+        if (search.owns(t)) {
+            return "text"
+        }
         if (((PresTocDrawer.rowOf(t)) >= 0) || (t == (drawer.closeTid()))) {
             return "pointer"
         }

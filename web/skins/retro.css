@@ -77,6 +77,7 @@
 .theme-retro .tb-icon-roomgear { stroke: var(--retro-ink-dim); }
 .theme-retro .tb-icon-roomfold { stroke: var(--retro-ink); }
 .theme-retro .tb-icon-folder { stroke: var(--retro-ink-dim); }
+.theme-retro .tb-icon-pin { stroke: var(--retro-ink); }
 .theme-retro .tb-room-open { background-color: var(--retro-screen-3); }
 .theme-retro .tb-room-open:hover { background-color: var(--retro-screen-3); }
 .theme-retro .tb-room-name { color: var(--retro-ink); }
@@ -283,3 +284,20 @@
 .theme-retro .rm-tag { background-color: var(--retro-screen); border-color: var(--retro-screen-3); }
 .theme-retro .rm-pill-label,
 .theme-retro .rm-tag { color: var(--retro-ink); }
+
+/* the ToC drawer (web/toc.css): links in the screen's ink, the marked row lit */
+.theme-retro .toc-t { color: var(--retro-ink); }
+.theme-retro .toc-t0 { color: var(--retro-hot-b); }
+.theme-retro .toc-lead { color: var(--retro-shell-b); }
+.theme-retro .toc-n { color: var(--retro-ink-dim); }
+.theme-retro .toc-none { color: var(--retro-ink-dim); }
+.theme-retro .toc-hot { background-color: var(--retro-chin-a); }
+.theme-retro .toc-t.toc-hot { color: var(--retro-hot-a); }
+.theme-retro .toc-on { background-color: var(--retro-hot-b); }
+.theme-retro .toc-t.toc-on { color: var(--retro-btn-ink); }
+.theme-retro .toc-n.toc-on { color: var(--retro-btn-ink); }
+.theme-retro .toc-lead.toc-on { color: var(--retro-shell-b); }
+.theme-retro .toc-search-text { color: var(--retro-ink); }
+.theme-retro .toc-search-ph { color: var(--retro-ink-dim); }
+.theme-retro .toc-search { background-color: var(--retro-screen); border: 1px solid var(--retro-shell-b); }
+.theme-retro .toc-search.ui-input-focused { background-color: var(--retro-screen); border: 1px solid var(--retro-hot-b); }

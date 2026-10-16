@@ -304,7 +304,7 @@ struct Host {
       SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
     } else if (r == "exit-fullscreen") {
       SDL_SetWindowFullscreen(window, 0);
-    } else if (r == "click:save") {
+    } else if (r == "click:save" || r == "save:now") {
       save();
     } else if (r == "click:present") {
       app->present(true);
