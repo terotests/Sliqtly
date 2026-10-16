@@ -17661,6 +17661,17 @@ class PresApp {
         return ((this.exportOf(true)).pptx())
     }
 
+    ; The PDF in portrait: the deck as its View page reads it, on A4 sheets
+    ; (PresExport.docPdf). `picked`: only the picked slides, all of them
+    ; when none is picked.
+    fn pdfDoc:buffer (picked:boolean) {
+        def ex:PresExport (this.exportOf(picked))
+        def view (new PresDocView())
+        view.only = ex.only
+        view.build(deck)
+        return (ex.docPdf(view))
+    }
+
     ; --- Word (PresExport.docx) ----------------------------------------------------
     ; Two steps, because the stage draws some blocks (a diagram, a chart, a
     ; SmartArt) that only the host can turn into pictures: `docxBegin` names
