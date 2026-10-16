@@ -250,6 +250,9 @@ class PresChartEditor {
     ; which the page reads when it hears "confirm:<key>"
     def cfPicks:string ""
     def cfPick:string ""
+    ; a picture for each choice of the first group, shown under it: one
+    ; "key=picture=width=height" line each (the PDF window's pages)
+    def cfShots:string ""
     def wantsAlt:boolean false
     ; A long job's window (`mode` "progress": a video being made): `pgKey`
     ; names the job to the page, `pgText` says what it is, the bar shows
@@ -628,6 +631,7 @@ class PresChartEditor {
         cfSafe = false
         cfPicks = ""
         cfPick = ""
+        cfShots = ""
         wantsConfirm = false
         wantsAlt = false
         this.openAt(px py pw ph)
@@ -3041,6 +3045,9 @@ class PresChartEditor {
                     }
                 }
                 pane.addChild(pc)
+                if (g == 0) {
+                    this.pickShot(pane pick)
+                }
                 g = (g + 1)
             }
         }
@@ -3057,6 +3064,39 @@ class PresChartEditor {
             this.button("cf-ok" cfOk "danger" bottom)
         }
         root.addChild(bottom)
+    }
+
+    ; the picture of choice `key` (cfShots), at most 528 × 150
+    fn pickShot:void (pane:EVGElement key:string) {
+        def nl:string (strfromcode 10)
+        for (strsplit cfShots nl) line:string i {
+            def parts:[string] (strsplit line "=")
+            if (((array_length parts) == 4) && ((itemAt parts 0) == key)) {
+                def sw:double (?? (to_double (itemAt parts 2)) 0.0)
+                def sh:double (?? (to_double (itemAt parts 3)) 0.0)
+                if ((sw > 0.0) && (sh > 0.0)) {
+                    def k:double (150.0 / sh)
+                    if ((sw * k) > 528.0) {
+                        k = (528.0 / sw)
+                    }
+                    def box:EVGElement (UiKit.div("ce-pick-shot"))
+                    ; sized as the trace's box is (the picture's own size does
+                    ; not reach its box), the same for every choice so the
+                    ; window keeps its height
+                    UiTree.inline(box "height" "158px")
+                    def im (EVGElement.createImg())
+                    im.id = "cf-shot"
+                    im.src = (itemAt parts 1)
+                    im.objectFit = "fill"
+                    im.sourceWidth = sw
+                    im.sourceHeight = sh
+                    UiTree.inline(im "width" ((to_string (to_int ((sw * k) + 0.5))) + "px"))
+                    UiTree.inline(im "height" ((to_string (to_int ((sh * k) + 0.5))) + "px"))
+                    box.addChild(im)
+                    pane.addChild(box)
+                }
+            }
+        }
     }
 
     fn confirmAct:boolean (tid:string) {

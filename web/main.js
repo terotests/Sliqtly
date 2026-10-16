@@ -6565,10 +6565,59 @@ async function askPdf(picked) {
     t("Landscape has one slide on each page. Portrait has the presentation as the View tab shows it, on A4 pages."),
     t("Export"), picks, chosen)) {
     needsPaint = true;
+    // the pictures of both layouts, once the window shows
+    requestAnimationFrame(() => pdfPreviews(picked));
     return;
   }
   // no window now (presenting): the last answer, without comments
   await exportPdfAs(lastPdfLayout(), picked, false);
+}
+// The PDF window's picture of each layout: its first pages side by side, as
+// the file will have them (app.pdfPreviewJson), on a grey ground.
+const PDF_PREV = { h: 150, most: 3, gap: 8, pad: 8, dpr: 2 };
+function pdfPreviews(picked) {
+  const c = document.createElement("canvas");
+  const g = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
+  if (!g) return;
+  const lines = [];
+  for (const layout of ["landscape", "portrait"]) {
+    const pages = [];
+    for (let i = 0; i < PDF_PREV.most; i++) {
+      const text = app.pdfPreviewJson(picked, layout === "portrait", i);
+      if (!text) break;
+      pages.push(atRest(JSON.parse(text)));
+    }
+    if (!pages.length) continue;
+    const ph = PDF_PREV.h - 2 * PDF_PREV.pad;
+    const widths = pages.map((d) => (d.width * ph) / d.height);
+    const w = widths.reduce((a, b) => a + b, 0) + PDF_PREV.gap * (pages.length - 1) + 2 * PDF_PREV.pad;
+    const out = document.createElement("canvas");
+    out.width = Math.round(w * PDF_PREV.dpr);
+    out.height = PDF_PREV.h * PDF_PREV.dpr;
+    const o = out.getContext("2d");
+    o.fillStyle = "#e4e4e7";
+    o.fillRect(0, 0, out.width, out.height);
+    let x = PDF_PREV.pad;
+    pages.forEach((doc, i) => {
+      const k = (ph / doc.height) * PDF_PREV.dpr;
+      c.width = Math.max(1, Math.round(doc.width * k));
+      c.height = Math.max(1, Math.round(doc.height * k));
+      const f = prepareDisplayList(g, doc, { dpr: k, images: pictures, contrastGuard: layout === "landscape", contrastRepair: autoContrast });
+      f.draw(null, null);
+      f.dispose();
+      o.fillStyle = "rgba(0,0,0,0.18)";
+      o.fillRect(Math.round(x * PDF_PREV.dpr) + 2, PDF_PREV.pad * PDF_PREV.dpr + 2, c.width, c.height);
+      o.drawImage(c, Math.round(x * PDF_PREV.dpr), PDF_PREV.pad * PDF_PREV.dpr);
+      x += widths[i] + PDF_PREV.gap;
+    });
+    const src = "/__pdfprev/" + layout;
+    pictures.set(src, asPicture(out));
+    lines.push(layout + "=" + src + "=" + out.width + "=" + out.height);
+  }
+  const lose = g.getExtension("WEBGL_lose_context");
+  if (lose) lose.loseContext();
+  app.setPickShots(lines.join("\n"));
+  needsPaint = true;
 }
 function answerPdf(picked) {
   const got = app.picked().split(",");
