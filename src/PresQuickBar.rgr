@@ -255,10 +255,16 @@ class PresQuickBar {
         if (what == "link") {
             return "link"
         }
+        if (what == "strike") {
+            return "strike"
+        }
+        if (what == "code") {
+            return "code"
+        }
         return ""
     }
 
-    ; Whether `what` (bold italic underline link) covers all of [a, b): every
+    ; Whether `what` (bold italic underline strike code link) covers all of [a, b): every
     ; block of it (a list's items) inside such a node.
     sfn isOn:boolean (text:string doc:MdNode what:string a:int b:int) {
         def kind:string (PresQuickBar.kindOf(what))

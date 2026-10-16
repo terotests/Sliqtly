@@ -1,0 +1,21 @@
+/* ---------------------------------------------------------------------------
+   The formatting bar over the View page while it is edited
+   (src/PresDocBar.rgr): EVGUI's SelectCtl and ToolbarCtl in the kit's look,
+   under the theme "db".
+   --------------------------------------------------------------------------- */
+.theme-db .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.theme-db .db-bar {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  padding: 7px 8px; background-color: #ffffff;
+  border-bottom: 1px solid #e4e4e7;
+  font-family: Open Sans;
+}
+.theme-db .db-level { width: 124px; }
+.theme-db .ui-toolbar { gap: 1px; flex-wrap: nowrap; }
+.theme-db .ui-toolbar-button-icon { width: 26px; height: 28px; padding: 3px; border: 0px solid #ffffff; background-color: rgba(0,0,0,0); border-radius: 6px; }
+.theme-db .ui-toolbar-button-icon:hover { background-color: #f1f5f9; }
+.theme-db .ui-toolbar-button-state-on { background-color: #e0e7ff; }
+.theme-db .ui-toolbar-icon { stroke: #27272a; }
+.theme-db .ui-toolbar-button-disabled { opacity: 0.4; }
+.theme-db .ui-select-trigger { font-family: Open Sans; height: 28px; }
+.theme-db .ui-toolbar-separator { margin: 0px 3px; }

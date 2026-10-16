@@ -3864,6 +3864,7 @@ function sendChromeCss() {
   if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
   if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
   if (c.find != null) app.setFindCss(c.find + skinCss(c.find, "fb"));
+  if (c.docbar != null) app.setDocBarCss(c.docbar + skinCss(c.docbar, "db"));
   if (c.toc != null) app.setTocCss(c.toc + skinCss(c.toc, "toc"));
   if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
   if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
@@ -4425,6 +4426,9 @@ function paintOnce() {
       paintList(app.reviewJson());
     } else if (layer === "find") {
       paintList(app.findJson());
+    } else if (layer === "docbar") {
+      // the formatting bar over the View page while it is edited (PresDocBar)
+      paintList(app.docBarJson());
     } else if (layer === "toc") {
       // the table of contents' drawer (PresTocDrawer)
       paintList(app.tocJson());
@@ -10812,6 +10816,7 @@ async function start() {
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
   textOf("./find.css").then((c) => { chromeSheets.find = kit + "\n" + c; app.setFindCss(chromeSheets.find + skinCss(chromeSheets.find, "fb")); }).catch(() => {});
+  textOf("./docbar.css").then((c) => { chromeSheets.docbar = kit + "\n" + c; app.setDocBarCss(chromeSheets.docbar + skinCss(chromeSheets.docbar, "db")); }).catch(() => {});
   textOf("./toc.css").then((c) => { chromeSheets.toc = kit + "\n" + c; app.setTocCss(chromeSheets.toc + skinCss(chromeSheets.toc, "toc")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   // the signed-in account's own store and keys, before anything kept is read

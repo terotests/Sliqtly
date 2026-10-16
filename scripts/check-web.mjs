@@ -6320,6 +6320,71 @@ try {
     await ctx.close();
   }
 
+  // The formatting bar over the View page while it is edited (src/PresDocBar.rgr):
+  // shown with the caret, its buttons edit the Markdown at the caret, the
+  // toggles show what is on there, and the style list sets the block's style.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const berr = [];
+    pg.on("pageerror", (e) => berr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    await pg.waitForFunction(() => { const a = window.__app; const t = a.source(); return t.includes("Vastaus") && a.docScreenAt(t.indexOf("Vastaus")) !== ""; }, null, { timeout: 60000 });
+    const src = () => pg.evaluate(() => window.__app.source());
+    const frames = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    check("Formatting bar: not there while reading", (await pg.evaluate(() => window.__app.docBarJson())) === "", "");
+    const o = (await src()).indexOf("Vastaus") + 2;
+    const [x, y] = (await pg.evaluate((o) => window.__app.docScreenAt(o), o)).split(",").map(Number);
+    await pg.evaluate(({ x, y }) => {
+      const c = document.getElementById("c");
+      const ev = (type, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons, clientX: x, clientY: y }));
+      ev("pointerdown", 1); ev("pointerup", 0); ev("pointerdown", 1); ev("pointerup", 0);
+    }, { x, y });
+    await pg.waitForFunction(() => window.__app.isEditing() && window.__app.docBarJson() !== "", null, { timeout: 10000 }).catch(() => {});
+    await frames();
+    const shown = await pg.evaluate(() => ({ editing: window.__app.isEditing(), bar: window.__app.docBarJson().length, y: window.__app.docBar.y, bh: window.__app.docBar.bh }));
+    check("Formatting bar: a double click on the page starts editing and shows the bar", shown.editing && shown.bar > 0, JSON.stringify(shown));
+    if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-format-bar.png") }); }
+    const press = async (tid) => {
+      const r = await pg.evaluate((tid) => window.__app.docBar.host.rectOf(tid), tid);
+      if (!r) return false;
+      const [rx, ry, rw, rh] = r.split(",").map(Number);
+      await pg.mouse.click(rx + rw / 2, ry + rh / 2);
+      await pg.waitForTimeout(200);
+      await frames();
+      return true;
+    };
+    const t0 = await src();
+    // the word at the caret, made bold by the bar's B
+    const pressedB = await press("db-tools-bold");
+    let t1 = await src();
+    check("Formatting bar: B makes the word at the caret bold in the Markdown", pressedB && t1.includes("**Vastaus**"), JSON.stringify(t1.slice(o - 12, o + 20)));
+    const onNow = await pg.evaluate(() => window.__app.docBar.isOn("bold"));
+    check("Formatting bar: B shows on where the text is bold", onNow, "");
+    await press("db-tools-bold");
+    check("Formatting bar: B again takes it off, byte for byte", (await src()) === t0, "");
+    await press("db-tools-italic");
+    check("Formatting bar: I", (await src()).includes("*Vastaus*"), "");
+    await press("db-tools-undo");
+    check("Formatting bar: ↶ undoes it", (await src()) === t0, "");
+    // the block's style from the list
+    await press("db-level-trigger");
+    const open = await pg.evaluate(() => window.__app.docBar.level.open);
+    const pressedH = await press("db-level-item-h2");
+    const t2 = await src();
+    const line = t2.slice(t2.lastIndexOf("\n", o) + 1, t2.indexOf("\n", o));
+    check("Formatting bar: the style list makes the line a heading (a list item keeps its number, as in a word processor)", open && pressedH && line.startsWith("3. ## Vastaus"), JSON.stringify({ open, pressedH, line }));
+    await press("db-tools-undo");
+    await press("db-tools-quote");
+    const t3 = await src();
+    const line3 = t3.slice(t3.lastIndexOf("\n", o) + 1, t3.indexOf("\n", o + 2));
+    check("Formatting bar: ❝ makes the line a quote", line3.startsWith("> "), JSON.stringify(line3));
+    check("Formatting bar: …without errors", berr.length === 0, berr.join(" | "));
+    await ctx.close();
+  }
+
   // The caret is exact on every sample deck: each character the View page
   // shows comes back from its own point (offset → point → offset), and each
   // run of words stands for the same characters in the Markdown (a typographic

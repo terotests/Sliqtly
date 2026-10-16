@@ -64,6 +64,7 @@ Import "PresFlight.rgr"
 Import "PresToolbar.rgr"
 Import "PresHintPopover.rgr"
 Import "PresFindBar.rgr"
+Import "PresDocBar.rgr"
 Import "PresTocDrawer.rgr"
 Import "PresPanels.rgr"
 Import "PresMeet.rgr"
@@ -213,6 +214,9 @@ class PresApp {
     ; reorder and delete slides) | "chart" | ""
     def focus:string "editor"
     def blink:int 0
+    ; the View page's caret: its place when last drawn, and the blink phase then
+    def docCaretKey:string ""
+    def docBlinkFrom:int 0
     ; the caret's place, from the last paint (caretBox)
     def caretAt:string ""
     def chromeRev:int 0
@@ -333,6 +337,8 @@ class PresApp {
     def hint:PresHintPopover (new PresHintPopover())
     ; Ctrl/Cmd+F over the code editor
     def find:PresFindBar (new PresFindBar())
+    ; the formatting bar over the View page while it is edited
+    def docBar:PresDocBar (new PresDocBar())
     ; the table of contents (PresToc) and its drawer, opened by "ToC" over
     ; the stage while editing and in the presenting bar
     def toc:PresToc (new PresToc())
@@ -419,6 +425,7 @@ class PresApp {
         layers.add("code" "docked")
         layers.add("review" "docked")
         layers.add("find" "docked")
+        layers.add("docbar" "docked")
         layers.add("toc" "docked")
         layers.add("hint" "window")
         layers.add("chart" "window")
@@ -1620,7 +1627,9 @@ class PresApp {
         edDocPane.minScale = 0.3
         edDocPane.maxScale = 1.0
         edDocPane.side = 12.0
-        edDocPane.setArea(edRect.x edRect.y edRect.w edRect.h)
+        ; editing: the formatting bar over the page (PresDocBar)
+        def barTop:double (? (this.docBarShown()) docBar.bh 0.0)
+        edDocPane.setArea(edRect.x (edRect.y + barTop) edRect.w (edRect.h - barTop))
         this.docFollow(edDocPane)
     }
 
@@ -1642,6 +1651,7 @@ class PresApp {
         }
         this.docPeersInto(placed sc)
         this.docPicInto(placed sc)
+        this.docBlockInto(placed sc)
         this.docCaretInto(placed sc)
         placed.scaleBy(sc)
         placed.offsetBy((edDocPane.left(dw)) (edDocPane.top(dw)))
@@ -1876,7 +1886,38 @@ class PresApp {
         if ((array_length c) < 3) {
             return
         }
-        placed.addRect(((itemAt c 0) - (0.75 / sc)) (itemAt c 1) (1.5 / sc) (itemAt c 2) (EVGColor.parse("#1f6feb")))
+        ; blinking as the code editor's does, steady for a moment after each
+        ; move or key: the phase counts from the caret's last change
+        def caretKey:string ((to_string (mdEditor.caretOffset())) + ":" + (to_string editor.buf.version))
+        if (caretKey != docCaretKey) {
+            docCaretKey = caretKey
+            docBlinkFrom = blink
+        }
+        if (((blink - docBlinkFrom) % 2) == 1) {
+            return
+        }
+        placed.addRect(((itemAt c 0) - (1.0 / sc)) (itemAt c 1) (2.0 / sc) (itemAt c 2) (EVGColor.parse("#1f6feb")))
+    }
+
+    ; The block the caret is in, framed: where the keys write.
+    fn docBlockInto:void (placed:EVGDisplayList sc:double) {
+        if (((this.docEditing()) == false) || (focus != "editor")) {
+            return
+        }
+        if (docPic >= 0) {
+            return
+        }
+        def off:int (mdEditor.caretOffset())
+        def i:int 0
+        while (i < (array_length docView.flow.items)) {
+            def it:PresDocItem (itemAt docView.flow.items i)
+            if ((((it.kind == 0) && (it.h > 0.0)) && (off >= it.key)) && (off <= it.keyEnd)) {
+                def pad:double (6.0 / sc)
+                placed.addFrame((it.x - pad) (it.y - pad) (it.w + (2.0 * pad)) (it.h + (2.0 * pad)) (1.0 / sc) (EVGColor.parse("#93b4f5")))
+                return
+            }
+            i = (i + 1)
+        }
     }
 
     ; A press on the page while editing: the caret to the character pressed
@@ -2239,6 +2280,193 @@ class PresApp {
             return
         }
         this.docApply(op)
+    }
+
+    ; --- the formatting bar over the View page (PresDocBar) -----------------------
+    ; Shown while the View page is edited. Its buttons are the edits of the
+    ; keys (Ctrl+B …) and of the quick bar, on the caret's selection, its word
+    ; or its lines, each one MdEditOp written into the Markdown.
+    fn docBarShown:boolean () {
+        return (this.docEditing())
+    }
+
+    ; What the bar shows for the caret, read again when the text or the
+    ; caret moved: [state key] → docBar.setState.
+    def docBarKey:string ""
+
+    fn docBarSync:void () {
+        def text:string (mdEditor.text())
+        def off:int (mdEditor.caretOffset())
+        def anc:int (mdEditor.anchorOffset())
+        def undoN:int (array_length mdEditor.buf.undoStack)
+        def redoN:int (array_length mdEditor.buf.redoStack)
+        def key:string ((to_string deck.revision) + ":" + (to_string (strlen text)) + ":" + (to_string off) + ":" + (to_string anc) + ":" + (to_string undoN) + ":" + (to_string redoN))
+        if (key == docBarKey) {
+            return
+        }
+        docBarKey = key
+        def r:[int] (this.docBarRange(text))
+        def lo:int (itemAt r 0)
+        def hi:int (itemAt r 1)
+        def doc:MdNode (MdBlock.parseText(text))
+        def onNow:[string]
+        def wraps:[string] (strsplit "bold,italic,underline,strike,code,link" ",")
+        def i:int 0
+        while (i < (array_length wraps)) {
+            def wv:string (itemAt wraps i)
+            if (PresQuickBar.isOn(text doc wv lo hi)) {
+                push onNow wv
+            }
+            i = (i + 1)
+        }
+        def line:string (this.lineAround(text off))
+        def lv:string "p"
+        def hashes:int 0
+        while ((hashes < (strlen line)) && ((charAt line hashes) == 35)) {
+            hashes = (hashes + 1)
+        }
+        if (((hashes >= 1) && (hashes <= 6)) && ((hashes == (strlen line)) || ((charAt line hashes) == 32))) {
+            lv = ("h" + (to_string hashes))
+        }
+        if ((strlen (MdSemanticEdit.markerOn(line "bullet"))) > 0) {
+            push onNow "bullet"
+        }
+        if ((strlen (MdSemanticEdit.markerOn(line "ordered"))) > 0) {
+            push onNow "ordered"
+        }
+        if ((strlen (MdSemanticEdit.markerOn(line "quote"))) > 0) {
+            push onNow "quote"
+        }
+        docBar.setState(lv onNow (undoN > 0) (redoN > 0))
+    }
+
+    ; The line of `text` the offset is on.
+    fn lineAround:string (text:string off:int) {
+        def a:int off
+        while ((a > 0) && ((charAt text (a - 1)) != 10)) {
+            a = (a - 1)
+        }
+        def b:int off
+        def n:int (strlen text)
+        while ((b < n) && ((charAt text b) != 10)) {
+            b = (b + 1)
+        }
+        return (substring text a b)
+    }
+
+    ; What a button works on: the selection, or the word at the caret.
+    fn docBarRange:[int] (text:string) {
+        def a:int (mdEditor.anchorOffset())
+        def c:int (mdEditor.caretOffset())
+        def lo:int (? (a < c) a c)
+        def hi:int (? (a < c) c a)
+        if (lo == hi) {
+            def w:[int]
+            OfficeCaretMotion.wordAt(text lo w)
+            if (((array_length w) == 2) && (PresDocCaret.hasWordChar((substring text (itemAt w 0) (itemAt w 1))))) {
+                lo = (itemAt w 0)
+                hi = (itemAt w 1)
+            }
+        }
+        def out:[int]
+        push out lo
+        push out hi
+        return out
+    }
+
+    ; A button pressed (PresDocBar.press's command).
+    fn docBarCommand:void (cmd:string) {
+        if ((strlen cmd) == 0) {
+            return
+        }
+        docBarKey = ""
+        if (cmd == "undo") {
+            this.undo()
+            this.docReveal()
+            return
+        }
+        if (cmd == "redo") {
+            this.redo()
+            this.docReveal()
+            return
+        }
+        def text:string (mdEditor.text())
+        def off:int (mdEditor.caretOffset())
+        def anc:int (mdEditor.anchorOffset())
+        def lo:int (? (anc < off) anc off)
+        def hi:int (? (anc < off) off anc)
+        if ((indexOf cmd "level:") == 0) {
+            def lv:string (substring cmd 6 (strlen cmd))
+            def n:int 0
+            if ((strlen lv) == 2) {
+                n = (?? (str2int (substring lv 1 2)) 0)
+            }
+            def op:MdEditOp (MdSemanticEdit.setHeading(text (MdBlock.parseText(text)) off n))
+            this.docBarApply(op)
+            return
+        }
+        if ((((cmd == "bold") || (cmd == "italic")) || ((cmd == "underline") || (cmd == "strike"))) || (cmd == "code")) {
+            this.wrapSelection(cmd)
+            return
+        }
+        if (cmd == "link") {
+            def r:[int] (this.docBarRange(text))
+            this.docBarApply((PresQuickBar.linkOp(text (MdBlock.parseText(text)) (itemAt r 0) (itemAt r 1))))
+            return
+        }
+        if (((cmd == "bullet") || (cmd == "ordered")) || (cmd == "quote")) {
+            this.docBarApply((MdSemanticEdit.toggleLinePrefix(text cmd lo hi)))
+            return
+        }
+        if (cmd == "comment") {
+            this.docComment()
+            return
+        }
+    }
+
+    fn docBarApply:void (op:MdEditOp) {
+        if (op.isEmpty()) {
+            this.toast((PresI18n.t("That cannot be formatted here: select whole words inside one style.")))
+            chromeRev = (chromeRev + 1)
+            return
+        }
+        this.docApply(op)
+    }
+
+    ; A comment on the caret's slide, pinned at its top right (review mode's
+    ; own draft, as + Add comment starts it).
+    fn docComment:void () {
+        if (review.on == false) {
+            return
+        }
+        def pg:int (deck.pageOfOffset((mdEditor.caretOffset())))
+        if (pg < 0) {
+            pg = selected
+        }
+        review.startDraft(pg 0.9 0.1)
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The bar as a display list over the page: "" when it is not shown.
+    fn docBarJson:string () {
+        if ((this.docBarShown()) == false) {
+            return ""
+        }
+        this.docBarSync()
+        docBar.measurer = measurer
+        docBar.w = W
+        docBar.h = H
+        docBar.x = edRect.x
+        docBar.y = edRect.y
+        docBar.bw = edRect.w
+        def bhWas:double docBar.bh
+        docBar.rebuildIfChanged()
+        if (docBar.bh != bhWas) {
+            ; the page under it moves down or up: drawn again
+            chromeRev = (chromeRev + 1)
+        }
+        def dl:EVGDisplayList (docBar.displayList())
+        return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
 
     ; The same patch in the Markdown tab: written by the editor, its
@@ -6081,6 +6309,12 @@ class PresApp {
             this.afterFind()
             return "find"
         }
+        if (top == "docbar") {
+            focus = "editor"
+            this.docBarCommand((docBar.press(x y)))
+            chromeRev = (chromeRev + 1)
+            return "docbar"
+        }
         if (top == "room") {
             room.press(x y clicks shift)
             this.afterRoom()
@@ -6628,6 +6862,17 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        if (this.docBarShown()) {
+            def dbHot:int docBar.rev
+            if (top == "docbar") {
+                docBar.hoverAt(x y)
+            } {
+                docBar.hoverAt(-1000000.0 -1000000.0)
+            }
+            if (docBar.rev != dbHot) {
+                chromeRev = (chromeRev + 1)
+            }
+        }
         if (this.findShown()) {
             def findHot:int find.rev
             if (top == "find") {
@@ -7095,6 +7340,9 @@ class PresApp {
             }
             if (top == "find") {
                 lc = (find.cursorAt(x y))
+            }
+            if (top == "docbar") {
+                lc = (docBar.cursorAt(x y))
             }
             if (top == "chart") {
                 lc = (chart.cursorAt(x y))
@@ -8611,6 +8859,7 @@ class PresApp {
         ; on the Document tab the comments are pinned on the page
         layers.setOpen("review" ((review.on && ((deck.slideCount()) > 0)) && ((this.gameTakesStage()) == false)))
         layers.setOpen("find" (((this.findShown()) && edit) && ((this.filesListShowing()) == false)))
+        layers.setOpen("docbar" ((this.docBarShown()) && edit))
         layers.setOpen("toc" (tocUi.isOpen()))
         layers.setOpen("hint" (hint.isOpen && edit))
         layers.setOpen("chart" chart.isOpen)
@@ -8655,6 +8904,9 @@ class PresApp {
         }
         if (id == "find") {
             return (find.has(x y))
+        }
+        if (id == "docbar") {
+            return (docBar.has(x y))
         }
         if (id == "toc") {
             return (tocUi.has(x y))
@@ -8865,6 +9117,12 @@ class PresApp {
             tocUi.rebuild()
             chromeRev = (chromeRev + 1)
         }
+    }
+
+    fn setDocBarCss:void (css:string) {
+        docBar.css = css
+        docBar.builtKey = ""
+        chromeRev = (chromeRev + 1)
     }
 
     fn setFindCss:void (css:string) {
@@ -12627,6 +12885,8 @@ class PresApp {
         panels.skinHue = hue
         hint.skin = s
         find.skin = s
+        docBar.skin = s
+        docBar.builtKey = ""
         tocUi.skin = s
         chart.skin = s
         PresApp.skinEditor(editor s hue)

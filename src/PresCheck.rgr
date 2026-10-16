@@ -43,6 +43,7 @@ Import "PresStory.rgr"
 Import "PresPuppet.rgr"
 Import "PresStageClick.rgr"
 Import "PresQuickBar.rgr"
+Import "PresDocBar.rgr"
 Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
 Import "PresRecord.rgr"
@@ -4493,6 +4494,38 @@ class PresCheck {
             return text
         }
         return (MdEdit.applyTo(text op))
+    }
+
+    ; The View page's formatting bar: a press on a button is its command,
+    ; undo is refused with nothing to undo, a toggle shows what is on.
+    sfn docBarAt:string (b:PresDocBar tid:string) {
+        def r:[string] (strsplit (b.host.rectOf(tid)) ",")
+        if ((array_length r) < 4) {
+            return ("(no " + tid + ")")
+        }
+        def x:double ((?? (to_double (itemAt r 0)) 0.0) + ((?? (to_double (itemAt r 2)) 0.0) * 0.5))
+        def y:double ((?? (to_double (itemAt r 1)) 0.0) + ((?? (to_double (itemAt r 3)) 0.0) * 0.5))
+        return (b.press(x y))
+    }
+
+    fn docBar:void () {
+        def b (new PresDocBar())
+        b.w = 1200.0
+        b.h = 700.0
+        b.bw = 800.0
+        ; the shape of web/docbar.css and the kit's toolbar rules
+        b.css = ".theme-db .db-bar { display: flex; flex-direction: row; align-items: center; padding: 8px; } .theme-db .ui-toolbar { display: flex; flex-direction: row; } .theme-db .ui-toolbar-button-icon { width: 26px; height: 28px; } .theme-db .ui-toolbar-separator { width: 1px; height: 20px; } .theme-db .db-level { width: 120px; height: 28px; }"
+        def on:[string]
+        push on "bold"
+        b.setState("h2" on false true)
+        b.rebuild()
+        this.ok(((b.isOn("bold")) && ((b.isOn("italic")) == false)) "docbar: B is on where the caret's text is bold")
+        this.ok(((PresCheck.docBarAt(b "db-tools-italic")) == "italic") "docbar: a press on I is italic")
+        this.ok(((PresCheck.docBarAt(b "db-tools-quote")) == "quote") "docbar: a press on the quote button is quote")
+        this.ok(((PresCheck.docBarAt(b "db-tools-undo")) == "") "docbar: undo with nothing to undo does nothing")
+        this.ok(((PresCheck.docBarAt(b "db-tools-redo")) == "redo") "docbar: redo redoes")
+        this.ok((b.level.value == "h2") "docbar: the style list shows the caret's block")
+        this.ok((b.bh >= 44.0) "docbar: the bar is as tall as its rows")
     }
 
     fn quickBar:void () {
@@ -9492,6 +9525,7 @@ class PresCheck {
         c.navJumps()
         c.stageClicks()
         c.quickBar()
+        c.docBar()
         c.recording()
         c.video()
         c.docx()
