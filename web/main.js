@@ -3864,6 +3864,7 @@ function sendChromeCss() {
   if (c.chart != null) app.setChartCss(c.chart + skinCss(c.chart, "ce"));
   if (c.hint != null) app.setHintCss(c.hint + skinCss(c.hint, "hp"));
   if (c.find != null) app.setFindCss(c.find + skinCss(c.find, "fb"));
+  if (c.docbar != null) app.setDocBarCss(c.docbar + skinCss(c.docbar, "db"));
   if (c.toc != null) app.setTocCss(c.toc + skinCss(c.toc, "toc"));
   if (c.panels != null) app.setPanelsCss(c.panels + skinCss(c.panels, "pn"));
   if (c.toolbar != null) app.setToolbarCss(c.toolbar + skinCss(c.toolbar, "tb"));
@@ -4425,6 +4426,9 @@ function paintOnce() {
       paintList(app.reviewJson());
     } else if (layer === "find") {
       paintList(app.findJson());
+    } else if (layer === "docbar") {
+      // the formatting bar over the View page while it is edited (PresDocBar)
+      paintList(app.docBarJson());
     } else if (layer === "toc") {
       // the table of contents' drawer (PresTocDrawer)
       paintList(app.tocJson());
@@ -5757,7 +5761,8 @@ function handleRequests() {
       // Edit is not offered for this deck here (app.setEditLock)
       toast(r.slice(12));
     } else if (r === "edit-needed") {
-      toast(t("Press ✎ Edit to change the presentation."));
+      // on the View page the text itself is where editing starts
+      toast(app.editorTab() === "view" ? t("Double-click the text, or press ✎ Edit, to change the presentation.") : t("Press ✎ Edit to change the presentation."));
     } else if (r.startsWith("click:")) {
       // the canvas bar: the page's own button does what it always did
       const b = document.getElementById(r.slice(6));
@@ -10622,6 +10627,12 @@ canvas.addEventListener("wheel", (ev) => {
     needsPaint = true;
     return;
   }
+  // over the View page: the page closer (its zoom pill's zoom)
+  if (ev.ctrlKey && app.edDocPinch(x, y, Math.exp(-ev.deltaY * 0.01))) {
+    ev.preventDefault();
+    needsPaint = true;
+    return;
+  }
   // over the code editor it sizes the text: a wheel notch (100 px, or three
   // lines) is a step, a pinch adds up its small deltas to one
   if (ev.ctrlKey && app.editorAt(x, y)) {
@@ -10812,6 +10823,7 @@ async function start() {
   app.setChartCss(chromeSheets.chart + skinCss(chromeSheets.chart, "ce"));
   textOf("./hint.css").then((c) => { chromeSheets.hint = kit + "\n" + chartCss + "\n" + c; app.setHintCss(chromeSheets.hint + skinCss(chromeSheets.hint, "hp")); }).catch(() => {});
   textOf("./find.css").then((c) => { chromeSheets.find = kit + "\n" + c; app.setFindCss(chromeSheets.find + skinCss(chromeSheets.find, "fb")); }).catch(() => {});
+  textOf("./docbar.css").then((c) => { chromeSheets.docbar = kit + "\n" + c; app.setDocBarCss(chromeSheets.docbar + skinCss(chromeSheets.docbar, "db")); }).catch(() => {});
   textOf("./toc.css").then((c) => { chromeSheets.toc = kit + "\n" + c; app.setTocCss(chromeSheets.toc + skinCss(chromeSheets.toc, "toc")); }).catch(() => {});
   textOf("./panels.css").then((c) => { chromeSheets.panels = kit + "\n" + c; app.setPanelsCss(chromeSheets.panels + skinCss(chromeSheets.panels, "pn")); }).catch(() => {});
   // the signed-in account's own store and keys, before anything kept is read

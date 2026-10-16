@@ -1,0 +1,31 @@
+/* ---------------------------------------------------------------------------
+   The formatting bar over the View page while it is edited
+   (src/PresDocBar.rgr): EVGUI's SelectCtl and ToolbarCtl in the kit's look,
+   under the theme "db".
+   --------------------------------------------------------------------------- */
+.theme-db .ui-root { padding: 0; gap: 0; background-color: rgba(0,0,0,0); }
+.theme-db .db-bar {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  padding: 7px 8px; background-color: #ffffff;
+  border-bottom: 1px solid #e4e4e7;
+  font-family: Open Sans;
+}
+.theme-db .db-level { width: 124px; }
+.theme-db .ui-toolbar { gap: 1px; flex-wrap: nowrap; }
+.theme-db .ui-toolbar-button-icon { width: 26px; height: 28px; padding: 3px; border: 0px solid #ffffff; background-color: rgba(0,0,0,0); border-radius: 6px; }
+.theme-db .ui-toolbar-button-icon:hover { background-color: #f1f5f9; }
+.theme-db .ui-toolbar-button-state-on { background-color: #e0e7ff; }
+.theme-db .ui-toolbar-icon { stroke: #27272a; }
+.theme-db .ui-toolbar-button-disabled { opacity: 0.4; }
+.theme-db .ui-select-trigger { font-family: Open Sans; height: 28px; }
+.theme-db .ui-toolbar-separator { margin: 0px 3px; }
+/* the zoom pill floating at the page's foot: − 59 % + | Fit */
+.theme-db .db-zoom {
+  display: flex; flex-direction: row; align-items: center;
+  padding: 4px 6px; background-color: #ffffff; border-radius: 12px;
+  border: 1px solid #e4e4e7; box-shadow: 0px 4px 14px rgba(0,0,0,0.12);
+  font-family: Open Sans;
+}
+.theme-db .db-zoom .ui-toolbar-button { font-family: Open Sans; font-size: 14px; color: #27272a; background-color: rgba(0,0,0,0); border: 0px solid #ffffff; border-radius: 6px; padding: 4px 8px; height: 28px; }
+.theme-db .db-zoom .ui-toolbar-button:hover { background-color: #f1f5f9; }
+.theme-db .db-zoom .ui-toolbar-button-icon { width: 28px; padding: 3px; }

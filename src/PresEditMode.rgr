@@ -148,7 +148,9 @@ class PresEditMode {
 ; The same page is shown on the stage (Slides | Document) and in the editor's
 ; View tab: each has its own rectangle and its own scroll. Page units go to
 ; the screen as  screen = left + page × scale  (y: top − scroll × scale); the
-; column fills the rectangle, within `minScale`..`maxScale`.
+; column fills the rectangle, within `minScale`..`maxScale`, times `zoom`
+; (the View's zoom pill, PresViewZoom's steps): a page wider than the
+; rectangle then scrolls sideways too (`scrollX`, page units).
 ; ============================================================================
 
 class PresDocPane {
@@ -164,6 +166,10 @@ class PresDocPane {
     def pad:double 16.0
     def minScale:double 0.4
     def maxScale:double 1.6
+    ; times the fitted scale (1: the column fits)
+    def zoom:double 1.0
+    ; how far right the window is, while the page is wider than it
+    def scrollX:double 0.0
 
     Constructor () {
     }
@@ -194,11 +200,53 @@ class PresDocPane {
         if (docW <= 0.0) {
             return 1.0
         }
+        return ((this.fitScale(docW)) * zoom)
+    }
+
+    ; the scale the column fits at
+    fn fitScale:double (docW:double) {
+        if (docW <= 0.0) {
+            return 1.0
+        }
         return (PresDocPane.clampD(((w - (side * 2.0)) / docW) minScale maxScale))
     }
 
+    fn wide:boolean (docW:double) {
+        return ((docW * (this.scale(docW))) > (w - (side * 2.0)))
+    }
+
     fn left:double (docW:double) {
+        if (this.wide(docW)) {
+            return ((x + side) - (scrollX * (this.scale(docW))))
+        }
         return (x + ((w - (docW * (this.scale(docW)))) * 0.5))
+    }
+
+    fn maxScrollX:double (docW:double) {
+        def m:double (docW - ((w - (side * 2.0)) / (this.scale(docW))))
+        if (m < 0.0) {
+            return 0.0
+        }
+        return m
+    }
+
+    ; scrolled sideways by dx screen pixels
+    fn scrollXBy:void (dx:double docW:double) {
+        scrollX = (PresDocPane.clampD((scrollX + (dx / (this.scale(docW)))) 0.0 (this.maxScrollX(docW))))
+    }
+
+    ; Zoomed to `z` with the page point under (sx, sy) staying there.
+    fn zoomAt:void (z:double sx:double sy:double docW:double docH:double) {
+        def s0:double (this.scale(docW))
+        def px:double ((sx - (this.left(docW))) / s0)
+        def py:double (this.pageY(sy docW))
+        zoom = z
+        def s1:double (this.scale(docW))
+        if (this.wide(docW)) {
+            scrollX = (px - ((sx - (x + side)) / s1))
+        }
+        scroll = (py - ((sy - (y + pad)) / s1))
+        this.clamp(docW docH)
     }
 
     fn top:double (docW:double) {
@@ -215,6 +263,7 @@ class PresDocPane {
 
     fn clamp:void (docW:double docH:double) {
         scroll = (PresDocPane.clampD(scroll 0.0 (this.maxScroll(docW docH))))
+        scrollX = (PresDocPane.clampD(scrollX 0.0 (this.maxScrollX(docW))))
     }
 
     ; scrolled by dy screen pixels

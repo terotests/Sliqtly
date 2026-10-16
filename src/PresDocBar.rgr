@@ -1,0 +1,449 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; PresDocBar.rgr — the formatting bar over the View page while editing
+; ============================================================================
+;
+; While the View page is edited (PresApp "editing on the View page") a bar
+; sits between the editor's tabs and the page, as a word processor's does:
+;
+;   ↶ ↷ | [Paragraph ▾] | B I U S <> | 🔗 | • 1. ❝ | 💬
+;
+; The controls are EVGUI's: a SelectCtl for the block's style and a
+; ToolbarCtl for the buttons (toggles that show what is on at the caret), in
+; a UiHost of their own as wide as the editor, under the theme "db". What
+; each button does is PresApp's (`docBarCommand`): every edit is one
+; MdEditOp written into the Markdown, the only document (PresQuickBar's
+; ops and MdSemanticEdit), so undo and the other editors follow.
+;
+; The commands, as `press` answers them: "undo" "redo" "level:<p|h1…h6>"
+; "bold" "italic" "underline" "strike" "code" "link" "bullet" "ordered"
+; "quote" "comment".
+;
+; Under the page, reading or editing, floats the zoom pill:
+;
+;   − 59 % + | Fit
+;
+; the page's size on the screen in per cent, a step out or in
+; (PresViewZoom's steps) and back to the column fitting: "zoom:out"
+; "zoom:in" "zoom:fit".
+; ============================================================================
+
+Import "PresI18n.rgr"
+Import "PresQuickBar.rgr"
+Import "../evgui/src/UiHost.rgr"
+Import "../evgui/src/ToolbarCtl.rgr"
+Import "../evgui/src/SelectCtl.rgr"
+Import "UiKit.rgr"
+
+class PresDocBar {
+    def host:UiHost (new UiHost())
+    def css:string ""
+    def skin:string ""
+    ; the app's size, and the bar's place in it
+    def w:double 1200.0
+    def h:double 700.0
+    def x:double 0.0
+    def y:double 0.0
+    def bw:double 600.0
+    def bh:double 44.0
+    def tools:ToolbarCtl (new ToolbarCtl())
+    def level:SelectCtl (new SelectCtl())
+    ; the block's style at the caret ("p", "h1"…), and what is on there
+    def levelNow:string "p"
+    def on:[string]
+    def canUndo:boolean false
+    def canRedo:boolean false
+    def measurer@(optional):TTFTextMeasurer
+    def rev:int 0
+    ; the state the bar was last built for
+    def builtKey:string ""
+    ; the strip shows while editing; the zoom pill whenever the page does
+    def showBar:boolean true
+    def zoomTools:ToolbarCtl (new ToolbarCtl())
+    def zoomLabel:string ""
+    def zoomOut:boolean false
+    def zoomIn:boolean true
+    ; the page's rectangle the pill floats over the foot of
+    def paneX:double 0.0
+    def paneW:double 0.0
+    def paneB:double 0.0
+    ; the pill's place once laid out
+    def zx:double 0.0
+    def zy:double 0.0
+    def zw:double 0.0
+    def zh:double 0.0
+
+    sfn buttons:[string] () {
+        def out:[string] (strsplit "undo,redo,sep,bold,italic,underline,strike,code,sep,link,sep,bullet,ordered,quote,sep,comment" ",")
+        return out
+    }
+
+    ; i18n: "Undo" "Redo" "Bold" "Italic" "Underline" "Strikethrough" "Code" "Link" "Bulleted list" "Numbered list" "Quote" "Comment" "Paragraph style"
+    sfn nameOf:string (id:string) {
+        if (id == "undo") { return (PresI18n.t("Undo")) }
+        if (id == "redo") { return (PresI18n.t("Redo")) }
+        if (id == "bold") { return (PresI18n.t("Bold")) }
+        if (id == "italic") { return (PresI18n.t("Italic")) }
+        if (id == "underline") { return (PresI18n.t("Underline")) }
+        if (id == "strike") { return (PresI18n.t("Strikethrough")) }
+        if (id == "code") { return (PresI18n.t("Code")) }
+        if (id == "link") { return (PresI18n.t("Link")) }
+        if (id == "bullet") { return (PresI18n.t("Bulleted list")) }
+        if (id == "ordered") { return (PresI18n.t("Numbered list")) }
+        if (id == "quote") { return (PresI18n.t("Quote")) }
+        if (id == "comment") { return (PresI18n.t("Comment")) }
+        return id
+    }
+
+    ; The buttons that show on or off.
+    sfn isToggle:boolean (id:string) {
+        return ((((id == "bold") || (id == "italic")) || ((id == "underline") || (id == "strike"))) || ((((id == "code") || (id == "link")) || ((id == "bullet") || (id == "ordered"))) || (id == "quote")))
+    }
+
+    fn isOn:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length on)) {
+            if ((itemAt on i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What the caret has: its block's style, the buttons that are on, whether
+    ; there is something to undo or redo. Built again only when it changed.
+    fn setState:void (lv:string onNow:[string] undo:boolean redo:boolean) {
+        levelNow = lv
+        on = onNow
+        canUndo = undo
+        canRedo = redo
+    }
+
+    fn stateKey:string () {
+        return (levelNow + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" "") + "|" + (? showBar "b" "") + zoomLabel + (? zoomOut "o" "") + (? zoomIn "i" "") + "|" + (to_string paneX) + "," + (to_string paneW) + "," + (to_string paneB))
+    }
+
+    fn rebuildIfChanged:void () {
+        if ((this.stateKey()) != builtKey) {
+            this.rebuild()
+        }
+    }
+
+    fn rebuild:void () {
+        builtKey = (this.stateKey())
+        def fresh (new UiHost())
+        fresh.addStyleSheetFrom(css host)
+        fresh.hoverTid = host.hoverTid
+        host = fresh
+        host.setTheme((trim ("db " + skin)))
+        host.setPageSize(w h)
+        def root:EVGElement (unwrap host.root)
+        root.className = "ui-root"
+        if ((strlen zoomLabel) > 0) {
+            this.addZoomPill(root)
+        }
+        if (showBar == false) {
+            this.page()
+            this.placePill()
+            rev = (rev + 1)
+            return
+        }
+        def bar (EVGElement.createDiv())
+        bar.id = "db"
+        bar.className = "db-bar"
+        bar.setAttribute("width" ((EVGDisplayList.num(bw)) + "px"))
+        UiTree.surface(bar "free" "start")
+        bar.overlayX = x
+        bar.overlayY = y
+        root.addChild(bar)
+        ; the block's style
+        def wasOpen:boolean level.open
+        def lv (new SelectCtl())
+        lv.tid = "db-level"
+        lv.name = (PresI18n.t("Paragraph style"))
+        def lvs:[string] (PresQuickBar.levels())
+        def i:int 0
+        while (i < (array_length lvs)) {
+            def v:string (itemAt lvs i)
+            lv.addItem(v (PresQuickBar.levelName(v)) false)
+            i = (i + 1)
+        }
+        lv.value = levelNow
+        if wasOpen {
+            lv.openList()
+        }
+        lv.build()
+        UiTree.addClass((unwrap lv.rootEl) "db-level")
+        level = lv
+        UiKit.put(host lv bar)
+        ; the buttons
+        def tb (new ToolbarCtl())
+        tb.tid = "db-tools"
+        tb.name = (PresI18n.t("Formatting"))
+        def ids:[string] (PresDocBar.buttons())
+        i = 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            if (id == "sep") {
+                tb.addSeparator()
+            } {
+                if (PresDocBar.isToggle(id)) {
+                    tb.addToggle(id (PresDocBar.nameOf(id)) (PresDocBar.iconOf(id)) (this.isOn(id)))
+                } {
+                    def off:boolean (((id == "undo") && (canUndo == false)) || ((id == "redo") && (canRedo == false)))
+                    tb.addIcon(id (PresDocBar.nameOf(id)) (PresDocBar.iconOf(id)) off)
+                }
+            }
+            i = (i + 1)
+        }
+        tb.build()
+        tools = tb
+        UiKit.put(host tb bar)
+        rev = (rev + 1)
+        ; as tall as its rows: a narrow editor wraps the buttons under the
+        ; style list, and the page starts under them
+        this.page()
+        bh = 44.0
+        if (bar.calculatedHeight > bh) {
+            bh = bar.calculatedHeight
+        }
+        this.placePill()
+    }
+
+    ; i18n: "Zoom out" "Zoom in" "Fit" "Fit the page to the editor"
+    fn addZoomPill:void (root:EVGElement) {
+        def pill (EVGElement.createDiv())
+        pill.id = "db-zoom"
+        pill.className = "db-zoom"
+        UiTree.surface(pill "free" "start")
+        pill.overlayX = zx
+        pill.overlayY = (paneB - 52.0)
+        root.addChild(pill)
+        def zt (new ToolbarCtl())
+        zt.tid = "db-z"
+        zt.name = (PresI18n.t("Zoom"))
+        zt.addIcon("out" (PresI18n.t("Zoom out")) "M6 12h12" (zoomOut == false))
+        zt.addItem("val" zoomLabel false)
+        zt.addIcon("in" (PresI18n.t("Zoom in")) "M6 12h12M12 6v12" (zoomIn == false))
+        zt.addSeparator()
+        zt.addItem("fit" (PresI18n.t("Fit")) false)
+        zt.build()
+        zoomTools = zt
+        UiKit.put(host zt pill)
+    }
+
+    ; The pill in the middle of the page's foot, now that its width is known.
+    fn placePill:void () {
+        if ((strlen zoomLabel) == 0) {
+            zw = 0.0
+            return
+        }
+        def r:string (host.rectOf("db-zoom"))
+        def parts:[string] (strsplit r ",")
+        if ((array_length parts) < 4) {
+            return
+        }
+        zw = (?? (to_double (itemAt parts 2)) 0.0)
+        zh = (?? (to_double (itemAt parts 3)) 0.0)
+        def nx:double (paneX + ((paneW - zw) * 0.5))
+        def ny:double ((paneB - zh) - 16.0)
+        if (((fabs (nx - zx)) > 0.5) || ((fabs (ny - zy)) > 0.5)) {
+            zx = nx
+            zy = ny
+            def root:EVGElement (unwrap host.root)
+            def i:int 0
+            while (i < (array_length root.children)) {
+                def c:EVGElement (itemAt root.children i)
+                if (c.id == "db-zoom") {
+                    c.overlayX = zx
+                    c.overlayY = zy
+                }
+                i = (i + 1)
+            }
+            this.page()
+        }
+    }
+
+    fn inPill:boolean (px:double py:double) {
+        if (zw <= 0.0) {
+            return false
+        }
+        return (((px >= zx) && (px <= (zx + zw))) && ((py >= zy) && (py <= (zy + zh))))
+    }
+
+    fn page:EVGElement () {
+        if ((strlen builtKey) == 0) {
+            this.rebuild()
+        }
+        def r:EVGElement (unwrap host.root)
+        def s:EVGStyleSheet (unwrap host.sheet)
+        s.setViewport(w h false)
+        host.markStates(r)
+        s.applyTree(r host.theme)
+        def pg (EVGElement.createDiv())
+        pg.id = "page"
+        pg.width = (EVGUnit.px(w))
+        pg.height = (EVGUnit.px(h))
+        pg.addChild(r)
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        lay.layout(pg)
+        ; the zoom pill as wide as its parts, not the page
+        def zf@(optional):EVGElement (host.findEl(r "db-zoom"))
+        if (!null? zf) {
+            def ze:EVGElement (unwrap zf)
+            def want:double ((lay.intrinsicWidthOf(ze)) + 1.0)
+            if ((fabs (ze.calculatedWidth - want)) > 1.0) {
+                ze.width = (EVGUnit.px(want))
+                lay.layout(pg)
+            }
+        }
+        host.placeText((lay.getTextEngine()))
+        host.lastPage = pg
+        return pg
+    }
+
+    fn displayList:EVGDisplayList () {
+        def pg:EVGElement (this.page())
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        if (!null? measurer) {
+            lay.setMeasurer((unwrap measurer))
+        }
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(pg)
+        return dl
+    }
+
+    ; --- the pointer -------------------------------------------------------------
+    ; The bar's strip, and the style list hanging under it while it is open.
+    fn has:boolean (px:double py:double) {
+        if (this.inPill(px py)) {
+            return true
+        }
+        if (showBar == false) {
+            return false
+        }
+        if (((px >= x) && (px <= (x + bw))) && ((py >= y) && (py <= (y + bh)))) {
+            return true
+        }
+        if level.open {
+            if (null? host.lastPage) {
+                this.page()
+            }
+            def t:string (host.hitTest(px py))
+            return ((indexOf t "db-level") == 0)
+        }
+        return false
+    }
+
+    ; A press: the command it gives ("" for none — the style list opened or
+    ; closed, a gap of the bar).
+    fn press:string (px:double py:double) {
+        if (null? host.lastPage) {
+            this.page()
+        }
+        def t:string (host.hitTest(px py))
+        if ((indexOf t "db-z-") == 0) {
+            if (((indexOf t "db-z-out") == 0) && zoomOut) {
+                return "zoom:out"
+            }
+            if (((indexOf t "db-z-in") == 0) && zoomIn) {
+                return "zoom:in"
+            }
+            if (((indexOf t "db-z-val") == 0) || ((indexOf t "db-z-fit") == 0)) {
+                return "zoom:fit"
+            }
+            return ""
+        }
+        if ((indexOf t "db-level") == 0) {
+            def was:string level.value
+            host.click(t)
+            if (level.value != was) {
+                def v:string level.value
+                level.closeList()
+                this.rebuild()
+                return ("level:" + v)
+            }
+            this.rebuild()
+            return ""
+        }
+        if level.open {
+            level.closeList()
+            this.rebuild()
+        }
+        def ids:[string] (PresDocBar.buttons())
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            def tid:string (tools.itemTid(id))
+            if ((id != "sep") && ((t == tid) || ((indexOf t (tid + "-")) == 0))) {
+                if (((id == "undo") && (canUndo == false)) || ((id == "redo") && (canRedo == false))) {
+                    return ""
+                }
+                return id
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn hoverAt:void (px:double py:double) {
+        def t:string ""
+        if (this.has(px py)) {
+            if (null? host.lastPage) {
+                this.page()
+            }
+            t = (host.hitTest(px py))
+        }
+        if (t != host.hoverTid) {
+            host.hoverTid = t
+            builtKey = ""
+            rev = (rev + 1)
+        }
+    }
+
+    fn cursorAt:string (px:double py:double) {
+        if ((this.has(px py)) == false) {
+            return ""
+        }
+        def t:string (host.hitTest(px py))
+        if (((strlen t) == 0) || ((t == "db") || (t == "db-zoom")) || ((t == tools.tid) || (t == zoomTools.tid))) {
+            return "default"
+        }
+        return "pointer"
+    }
+
+    ; --- icons --------------------------------------------------------------------
+    ; On a 24×24 grid; the quick bar's where it has one.
+    sfn iconOf:string (id:string) {
+        if (id == "undo") {
+            return "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
+        }
+        if (id == "redo") {
+            return "M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"
+        }
+        if (id == "strike") {
+            return "M4 12h16M16.5 7.5C16 5.6 14.2 4.5 12 4.5c-2.6 0-4.5 1.4-4.5 3.4 0 1.5 1 2.5 3 3.1M7.5 16.5c.5 1.9 2.3 3 4.5 3 2.6 0 4.5-1.4 4.5-3.5 0-.9-.3-1.6-.9-2.1"
+        }
+        if (id == "code") {
+            return "M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5"
+        }
+        if (id == "bullet") {
+            return (PresQuickBar.iconPath("list"))
+        }
+        if (id == "ordered") {
+            return "M10 6h10M10 12h10M10 18h10M4 4.5h1.5V9M4 9h3M4 14.5c.4-.6 1-1 1.7-1 .8 0 1.3.5 1.3 1.2 0 1.3-3 2.3-3 4.3h3"
+        }
+        if (id == "quote") {
+            return "M6 6v12M10 8h10M10 12h10M10 16h7"
+        }
+        return (PresQuickBar.iconPath(id))
+    }
+}
