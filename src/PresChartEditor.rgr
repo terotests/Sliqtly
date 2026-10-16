@@ -2306,6 +2306,12 @@ class PresChartEditor {
                 pane.addChild((UiKit.words("ce-doc" (PresI18n.t("No screen has all of those words.")))))
             }
             def row:EVGElement (UiKit.div("ce-tiles"))
+            ; names are measured before the window is laid out
+            def tl (new EVGLayout())
+            if (!null? measurer) {
+                tl.setMeasurer((unwrap measurer))
+            }
+            def eng:EVGTextEngine (tl.getTextEngine())
             for hits hit:FigmaHit hi {
                 def pw:double hit.screen.w
                 def ph:double hit.screen.h
@@ -2317,14 +2323,13 @@ class PresChartEditor {
                         ph = part.h
                     }
                 }
-                def box:[double] (PresChartEditor.fitTile(pw ph 120.0))
+                ; the picture fills the tile's inner width (.fg-tile in
+                ; chart-editor.css is sized for it) and the name is measured
+                ; into the same width, "…" at the cut
+                def box:[double] (PresChartEditor.fitTile(pw ph 110.0))
                 def b:ButtonCtl (new ButtonCtl())
                 b.tid = ("fg-h-" + (to_string hi))
-                def label:string (hit.name())
-                if ((strlen label) > 20) {
-                    label = ((trim (substring label 0 19)) + "…")
-                }
-                b.name = label
+                b.name = (UiText.fit(eng (hit.name()) "Open Sans" 13.0 110.0))
                 b.variant = "outline"
                 b.picture = (FigmaBrowser.thumbKey(hit.fileId (hit.node())))
                 b.picW = (itemAt box 0)
