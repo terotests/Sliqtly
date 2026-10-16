@@ -155,6 +155,10 @@ class PresPanels {
     def paste:PresPasteTable (new PresPasteTable())
     def dataSels:[SelectCtl]
     def dataOpenSel:string ""
+    ; the open list of those selects, held to a height, scrolls by the wheel
+    ; (a sheet's forty columns run off the page otherwise)
+    def selScroll:UiScroll (new UiScroll())
+    def selScrollFor:string ""
     ; "show" or "edit": the button that says it copied
     def copied:string ""
     def copyOk:boolean true
@@ -1062,6 +1066,17 @@ class PresPanels {
 
     ; The wheel over the dialog: it scrolls. True when it moved.
     fn dialogWheel:boolean (dy:double) {
+        ; an open select's list first
+        if (((strlen dataOpenSel) > 0) && (!null? host.lastPage)) {
+            def s@(optional):SelectCtl (this.dataSel(dataOpenSel))
+            if (!null? s) {
+                def lst@(optional):EVGElement (host.findEl((unwrap host.lastPage) ((unwrap s).contentTid())))
+                if ((!null? lst) && (selScroll.scrollBy((unwrap lst) dy))) {
+                    rev = (rev + 1)
+                    return true
+                }
+            }
+        }
         def d@(optional):EVGElement (this.dialogEl())
         if (null? d) {
             return false
@@ -2706,8 +2721,18 @@ class PresPanels {
         push dataSels sel
         UiKit.put(host sel parent)
         if (dataOpenSel == sel.tid) {
+            if (selScrollFor != sel.tid) {
+                selScroll.reset()
+                selScrollFor = sel.tid
+            }
             sel.openList()
             sel.build()
+            def ce:EVGElement (unwrap sel.contentEl)
+            ce.scrollTop = selScroll.top
+        } {
+            if (selScrollFor == sel.tid) {
+                selScrollFor = ""
+            }
         }
     }
 
@@ -2815,27 +2840,31 @@ class PresPanels {
         info = (((info + (to_string t.cols)) + " ") + (PresI18n.t("columns")))
         d.addChild((UiKit.words("pn-odesc" info)))
 
+        ; the columns: a list of check boxes that stays open while ticked
         def cr:EVGElement (UiKit.div("pn-field"))
         cr.addChild((UiKit.words("pn-flabel" (PresI18n.t("Columns")))))
-        def chips:EVGElement (UiKit.div("pn-chips"))
+        def cs:SelectCtl (this.dataSelect("pn-pt-cols"))
+        cs.baseUi = true
+        cs.multiple = true
+        def chosen:[string]
         def c:int 0
         while (c < t.cols) {
-            def on:boolean (itemAt t.on c)
             def label:string (itemAt t.head c)
             if ((strlen label) == 0) {
                 label = ((PresI18n.t("Column")) + " " + (to_string (c + 1)))
             }
-            if ((strlen label) > 24) {
-                label = ((substring label 0 23) + "…")
+            if ((strlen label) > 40) {
+                label = ((substring label 0 39) + "…")
             }
-            if on {
-                label = ("✓ " + label)
+            cs.addItem((to_string c) label false)
+            if (itemAt t.on c) {
+                push chosen (to_string c)
             }
-            def b:ButtonCtl (this.button(("pn-pt-c-" + (to_string c)) label (? on "primary" "secondary") chips))
-            UiTree.addClass((unwrap b.rootEl) "pn-chip")
             c = (c + 1)
         }
-        cr.addChild(chips)
+        cs.values = chosen
+        cs.summary = ((to_string (t.shownCols())) + " / " + (to_string t.cols) + " " + (PresI18n.t("columns")))
+        this.finishSelect(cs "" cr)
         d.addChild(cr)
 
         if (t.anyNumbers()) {
@@ -2949,9 +2978,22 @@ class PresPanels {
         if (!null? s) {
             def sel:SelectCtl (unwrap s)
             def before:string sel.value
+            def beforeAll:string (join sel.values ",")
             host.click((host.hitTest(px py)))
             sel.build()
             dataOpenSel = (? sel.open sel.tid "")
+            if (sel.multiple && ((join sel.values ",") != beforeAll)) {
+                ; a column ticked in or out; the list stays open
+                def c:int 0
+                while (c < paste.cols) {
+                    if ((itemAt paste.on c) != ((indexOf sel.values (to_string c)) >= 0)) {
+                        paste.toggle(c)
+                    }
+                    c = (c + 1)
+                }
+                this.rebuild()
+                return
+            }
             if (sel.value != before) {
                 dataOpenSel = ""
                 if (sel.tid == "pn-pt-digits") {
@@ -2968,11 +3010,6 @@ class PresPanels {
         }
         if ((strlen dataOpenSel) > 0) {
             dataOpenSel = ""
-            this.rebuild()
-            return
-        }
-        if ((indexOf oc "pn-pt-c-") == 0) {
-            paste.toggle((?? (str2int (substring oc 8 (strlen oc))) -1))
             this.rebuild()
             return
         }

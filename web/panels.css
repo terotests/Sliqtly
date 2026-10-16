@@ -210,6 +210,8 @@
 .pn-field { display: flex; flex-direction: row; align-items: center; gap: 12px; }
 .pn-flabel { font-size: 12px; font-weight: 700; color: #3f3f46; width: 90px; }
 .pn-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; width: 500px; }
+/* a select's list in a dialog: held to a height, the wheel scrolls it */
+.theme-pn .ui-select-content { max-height: 320px; overflow-y: auto; }
 /* the files tab: the picture under the pointer, beside the panel */
 .pf-preview {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
