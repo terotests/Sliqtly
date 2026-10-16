@@ -485,6 +485,64 @@ class PresDocCaret {
     }
 
     ; --- joining blocks -------------------------------------------------------------
+    ; Where the page shows an empty line between blocks (MdLayout
+    ; blankStops): Markdown has no empty paragraph, so Enter at a
+    ; paragraph's end writes a blank line more than a block break needs
+    ; ("Para\n\n|\n\nNext"). In a run of blank lines the block break takes
+    ; one on each side and every other line between is an empty paragraph,
+    ; as they come one Enter ("\n\n") each. Offsets of those lines' starts.
+    sfn blankStops:[int] (text:string) {
+        def out:[int]
+        def n:int (strlen text)
+        def starts:[int]
+        def blank:[boolean]
+        def ls:int 0
+        while (ls <= n) {
+            def le:int ls
+            while ((le < n) && ((charAt text le) != 10)) {
+                le = (le + 1)
+            }
+            push starts ls
+            push blank ((strlen (trim (substring text ls le))) == 0)
+            ls = (le + 1)
+        }
+        def lines:int (array_length starts)
+        def i:int 0
+        while (i < lines) {
+            if (itemAt blank i) {
+                def r0:int i
+                while ((i < lines) && (itemAt blank i)) {
+                    i = (i + 1)
+                }
+                def k:int (i - r0)
+                def hasA:boolean (r0 > 0)
+                def hasB:boolean (i < lines)
+                if (hasA || hasB) {
+                    def j:int (? hasA 2 0)
+                    def last:int (? hasB (? hasA (k - 1) (k - 2)) k)
+                    while (j <= last) {
+                        def at:int (? hasA ((r0 + j) - 1) (r0 + j))
+                        push out (itemAt starts at)
+                        j = (j + 2)
+                    }
+                }
+            } {
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; Whether an empty line of `blankStops` starts in (a, b).
+    sfn blankIn:boolean (text:string a:int b:int) {
+        for (PresDocCaret.blankStops(text)) at:int k {
+            if ((at > a) && (at < b)) {
+                return true
+            }
+        }
+        return false
+    }
+
     ; Whether a Backspace at the start of a block may take the text between
     ; the end of the block before and it: only blank lines and block markers
     ; (`#`, `>`, a bullet, `1.`), and no line that is a thematic break or a

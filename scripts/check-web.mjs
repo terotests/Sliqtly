@@ -6630,6 +6630,22 @@ try {
     await frames();
     const n2 = await src();
     check("View keys: Enter in a numbered list numbers the next items on, one undo takes it back", n1.endsWith("1. aa\n2. uusi\n3. bb\n4. cc\n") && n2 === num, JSON.stringify({ n1: n1.slice(-34), n2: n2.slice(-24) }));
+    // Enter at a paragraph's end: an empty line of its own, the caret on it,
+    // the next paragraph below it; Backspace there takes it away
+    const paras = body + "Eka\n\nToka\n";
+    await put(paras, "Eka");
+    const tokaY0 = await pg.evaluate((o) => window.__app.docScreenAt(o), paras.indexOf("Toka"));
+    await pg.keyboard.press("End");
+    await pg.keyboard.press("Enter");
+    await frames();
+    const e1 = await src();
+    const caretShown = await pg.evaluate(() => window.__app.docScreenAt(window.__app.mdEditor.caretOffset()));
+    const tokaY1 = await pg.evaluate((o) => window.__app.docScreenAt(o), e1.indexOf("Toka"));
+    await pg.keyboard.press("Backspace");
+    await frames();
+    const e2 = await src();
+    const yOf = (s) => Number(String(s).split(",")[1]);
+    check("View keys: Enter after a paragraph shows an empty line with the caret on it, Backspace takes it away", caretShown !== "" && yOf(tokaY1) > yOf(tokaY0) + 10 && yOf(caretShown) < yOf(tokaY1) && e2 === paras, JSON.stringify({ caretShown, tokaY0, tokaY1, e1: e1.slice(-16), e2: e2.slice(-14) }));
     await keyTo(body + "```js\nlet a\n```\n", "let a", "Tab", "```js\n    let a\n```\n", "Tab in code writes four spaces");
     // undo a word at a time; Ctrl+Shift+Z redoes
     await put(body + "Teksti\n", "Teksti");

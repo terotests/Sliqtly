@@ -5526,6 +5526,17 @@ class PresCheck {
         def r5:string "1. aa\n\n2. bb\n4. cc"
         def ro5:MdEditOp (PresDocKeys.renumberOp(r5 (indexOf r5 "aa")))
         this.ok(((this.keyRun(r5 ro5)) == "1. aa\n\n2. bb\n3. cc") ("dockeys: a loose list too, got " + (this.keyRun(r5 ro5))))
+        ; empty paragraphs: every other line of a run of blank lines
+        def bs1:[int] (PresDocCaret.blankStops("Para\n\n\n\nNext"))
+        this.ok((((array_length bs1) == 1) && ((itemAt bs1 0) == 6)) ("dockeys: one Enter after a paragraph is one empty line, got " + (to_string (array_length bs1))))
+        def bs2:[int] (PresDocCaret.blankStops("Para\n\nNext\n"))
+        this.ok(((array_length bs2) == 0) "dockeys: a block break is no empty line")
+        def bs3:[int] (PresDocCaret.blankStops("Para\n\n"))
+        this.ok((((array_length bs3) == 1) && ((itemAt bs3 0) == 6)) "dockeys: an empty line at the end")
+        def bs4:[int] (PresDocCaret.blankStops("Para\n\n\n\n\n\nNext"))
+        this.ok((((array_length bs4) == 2) && ((itemAt bs4 1) == 8)) "dockeys: two Enters, two empty lines")
+        def bs5:[int] (PresDocCaret.blankStops("\n\nNext"))
+        this.ok((((array_length bs5) == 1) && ((itemAt bs5 0) == 0)) "dockeys: an empty line before the first block")
         ; Enter on an empty nested item
         def e:string "- aa\n  - \n- cc"
         def eo:MdEditOp (PresDocKeys.emptyItemEnterOp(e 9))

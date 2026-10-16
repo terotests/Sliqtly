@@ -2914,6 +2914,11 @@ class PresApp {
         if (this.docPicIn(qe off)) {
             return
         }
+        ; an empty line between: that line goes, the blocks stay apart
+        if (PresDocCaret.blankIn(text qe off)) {
+            this.docReplace((off - 2) off "")
+            return
+        }
         def head:string (substring between 0 nl)
         def gap:string (substring between nl (strlen between))
         ; a table's last row takes no paragraph into it
@@ -2970,6 +2975,10 @@ class PresApp {
             return
         }
         if (this.docPicIn(off qs)) {
+            return
+        }
+        if (PresDocCaret.blankIn(text off qs)) {
+            this.docReplace(off (off + 2) "")
             return
         }
         def head:string (substring between 0 nl)
