@@ -51,7 +51,7 @@ import { RoomChat, unreadRooms, chatMe } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
-import { linkTarget, FOLLOW_MS } from "./stagelink.js";
+import { linkTarget, FOLLOW_MS, returnTo } from "./stagelink.js";
 import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
@@ -2968,9 +2968,12 @@ function sampleChartSlide() {
 // own once it is saved: the address loses the link, so a reload opens the
 // saved deck, pictures and all, and not the link's text again.
 function plainAddress() {
+  // a step of Back and Forward (followLink) keeps what it was kept with,
+  // when that is still this deck
+  const step = history.state && history.state.doc && history.state.doc === doc.id ? history.state : null;
   // a PRO deck: its own address, which a reload opens from the cloud
   if (doc.cloud) {
-    history.replaceState(null, "", editAddress(doc.cloud));
+    history.replaceState(step, "", editAddress(doc.cloud));
     lastHash = "";
     return;
   }
@@ -2982,7 +2985,7 @@ function plainAddress() {
   q.delete("deck");
   q.delete("from");
   const search = q.toString();
-  history.replaceState(null, "", (shared ? EDITOR_ROOT + "/" : location.pathname) + (search ? "?" + search : ""));
+  history.replaceState(step, "", (shared ? EDITOR_ROOT + "/" : location.pathname) + (search ? "?" + search : ""));
   lastHash = "";
 }
 
@@ -5730,11 +5733,21 @@ async function followLink(href) {
       needsPaint = true;
       return;
     }
+    // the address left, as the step Back returns to (onpopstate below)
+    const left = { href: location.href, state: { deck: doc.cloud || "", doc: doc.id || "" } };
     const opened = await loadingScreen(() => openOwnCloud(to.deck).catch((e) => { console.warn(e); return false; }));
     // overtaken: another deck was opened meanwhile, and it is the one shown
     if (opened === OVERTAKEN) return;
     if (opened) {
       if (!(to.name && app.followLink(to.name)) && to.slide > 0) app.selectSlide(to.slide);
+      // opening replaced the address (plainAddress): the deck left keeps
+      // its step, and the deck opened is a new one after it
+      const at = location.href;
+      if (at !== left.href) {
+        history.replaceState(left.state, "", left.href);
+        history.pushState({ deck: doc.cloud || "", doc: doc.id || "" }, "", at);
+        lastHash = location.hash;
+      }
       refreshFiles();
       needsPaint = true;
       return;
@@ -8838,6 +8851,25 @@ async function openFromHash() {
     return false;
   }
 }
+// Back and Forward between decks opened from links (followLink): the
+// deck of the step is opened here, as the link opened it, not by loading
+// the page again. A step within the deck shown is the hashchange's below.
+window.addEventListener("popstate", (e) => {
+  const to = returnTo(e.state, location.href, location.origin, SITE, { deck: doc.cloud || "", doc: doc.id || "" });
+  if (!to) return;
+  const href = location.href;
+  const q = hashParams();
+  loadingScreen(() => (to.deck ? openOwnCloud(to.deck) : openDoc(to.doc)).catch((err) => { console.warn(err); return false; })).then((opened) => {
+    if (opened === OVERTAKEN) return;
+    // not to be opened here (no longer theirs, removed): as the page would
+    if (!opened) return location.reload();
+    // opening tidied the address: the step's own, slide and tab with it
+    history.replaceState(e.state, "", href);
+    lastHash = location.hash;
+    useAddress(q);
+    refreshFiles();
+  });
+});
 window.addEventListener("hashchange", () => {
   if (location.hash === lastHash) return;
   if (hashParams().has("md")) openFromHash();
