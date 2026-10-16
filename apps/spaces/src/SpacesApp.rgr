@@ -1466,7 +1466,13 @@ class SpacesApp {
             if (UiTree.beginsWith(qk "@")) {
                 qt = (SpacesApp.clip((substring qk 1 (strlen qk)) 400))
             }
-            q.addChild((SpacesApp.tx("sp-bubble-q-tx" qt)))
+            def qtx:EVGElement (SpacesApp.tx("sp-bubble-q-tx" qt))
+            ; a long question wraps in a bubble as wide as the answers
+            if ((strlen qt) > 60) {
+                UiTree.inline(q "width" (SpacesApp.px(w)))
+                UiTree.inline(qtx "width" (SpacesApp.px((w - 90.0))))
+            }
+            q.addChild(qtx)
             qrow.addChild(q)
             feed.addChild(qrow)
             def a:EVGElement (this.markdown(("sp-answer-" + (to_string j)) (itemAt answers j) w))
