@@ -13581,8 +13581,10 @@ class PresApp {
         return m
     }
 
+    ; Commenting is always on in the editor (web/main.js applyReviewMode) and
+    ; takes its own presses first (pointerDown), so it does not stop a drag.
     fn imageGrab:boolean (x:double y:double clicks:int) {
-        if (((mode != "edit") || playing) || (review.on)) {
+        if ((mode != "edit") || playing) {
             return false
         }
         if ((pick.on == false) || (pick.sel != "img")) {
@@ -16801,6 +16803,26 @@ class PresApp {
 
     ; A picture the host stored, as markdown on its own line at the caret.
     fn insertPicture:void (path:string alt:string) {
+        ; Never inside the front matter: a picture there splits it open and
+        ; its keys become a slide's text. It goes under the first slide's
+        ; heading instead (the caret is on the top `---` when a deck opens).
+        def front:int (PresApp.frontLineCount((editor.text())))
+        if (editor.sel.caret.line < front) {
+            def to:int front
+            def k:int front
+            def n:int (editor.buf.lineCount())
+            while (k < n) {
+                if ((indexOf (editor.buf.lineAt(k)) "#") == 0) {
+                    to = k
+                    k = n
+                }
+                k = (k + 1)
+            }
+            if (to >= n) {
+                to = (n - 1)
+            }
+            editor.moveCaret(to (strlen (editor.buf.lineAt(to))) false)
+        }
         def line:string (editor.buf.lineAt(editor.sel.caret.line))
         def pre:string ""
         if ((strlen (trim line)) > 0) {
@@ -16819,6 +16841,24 @@ class PresApp {
         editor.handleText((pre + "![" + alt + "](" + path + ")\n"))
         this.syncEditor()
         chromeRev = (chromeRev + 1)
+    }
+
+    ; How many lines the front matter takes, its two `---` with it; 0 when
+    ; the text has none.
+    sfn frontLineCount:int (text:string) {
+        def fe:int (PresPick.frontEnd(text))
+        def lines:int 0
+        def i:int 0
+        while (i < fe) {
+            if ((charAt text i) == 10) {
+                lines = (lines + 1)
+            }
+            i = (i + 1)
+        }
+        if ((fe > 0) && ((charAt text (fe - 1)) != 10)) {
+            lines = (lines + 1)
+        }
+        return lines
     }
 
     fn currentLine:string () {

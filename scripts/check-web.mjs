@@ -1201,6 +1201,9 @@ try {
     await page.keyboard.press("F5");
     await page.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 8000 });
     await page.keyboard.press("Home");
+    // the slide the editor was on fades out first: read the drawing once
+    // the first slide has come to rest
+    await page.waitForFunction(() => { const l = JSON.parse(window.__app.layoutJson()); return l.slide === 0 && l.settled; }, null, { timeout: 8000 });
     await page.waitForTimeout(300);
     // the longest line of the slide, in the page's pixels
     const line = () => page.evaluate(() => {
@@ -1940,6 +1943,8 @@ try {
       a.pointerUp();
     }
     const plan = JSON.parse(a.pastePlan());
+    // the page measured the picture flat: the window will add it vectorized
+    const flat = a.chart.pasteVector;
     // Enter adds it
     a.key("enter", false, false);
     window.__handleRequests();
@@ -1956,7 +1961,7 @@ try {
     const rel = (src.match(/\]\((media\/liitetty-[^)]+)\)/) || [])[1] || "";
     const bmp = rel ? await window.__pictureSize("/" + rel) : [0, 0];
     return {
-      dialog, shown: !!shown, before, plan, rel, flat: plan.trace, traced,
+      dialog, shown: !!shown, before, plan, rel, flat, traced,
       md: !!rel,
       image: stage.list.cmds.some((c) => c.k === 2 && String(c.src || "").includes("media/liitetty-")),
       size: bmp,
@@ -2923,8 +2928,9 @@ try {
         const theme0 = document.getElementById("theme").value;
         a.requests.push("themes");
         a.chromeRev += 1;
-        // the page answers the request on its next frame and draws the pictures one a frame
-        for (let n = 0; n < 80 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 20); n++) await new Promise((res) => setTimeout(res, 100));
+        // the page answers the request on its next frame and draws the pictures
+        // one a frame (a frame drawn in software can take a third of a second)
+        for (let n = 0; n < 300 && !(a.chartIsOpen() && window.__themePictures && window.__themePictures() >= 20); n++) await new Promise((res) => setTimeout(res, 100));
         const open = a.chartIsOpen() && a.chart.mode === "themes";
         const pics = window.__themePictures ? window.__themePictures() : -1;
         // the window opens on the tab of the theme in use; Effects shows its tiles
@@ -2939,7 +2945,7 @@ try {
         const pic = pearl && pearl.children[0];
         const hasPic = !!pic && pic.src === "/__theme/pearl";
         if (pearl) { a.pointerDown(pearl.calculatedX + 20, pearl.calculatedY + 20, false, 1); a.pointerUp(); }
-        await new Promise((res) => setTimeout(res, 300));
+        for (let n = 0; n < 50 && document.getElementById("theme").value !== "pearl"; n++) await new Promise((res) => setTimeout(res, 100));
         const now = document.getElementById("theme").value;
         const marked = (tile("th-pick-pearl")?.className || "").includes("ce-tile-on");
         a.key("escape", false, false);
@@ -2973,7 +2979,9 @@ try {
 
     // over the Files tab: the File menu is drawn on top and a row under it is pressed
     await page.evaluate(() => window.__app.showTab("files"));
-    await page.waitForTimeout(600);
+    // the page opens the Files panel on a frame of its own
+    await page.waitForFunction(() => window.__app.panels.filesOpen, null, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(200);
     const onFiles = await page.evaluate(() => {
       const a = window.__app;
       const find = (id) => { a.toolbarJson(); const w = (e) => { if (e.id === id) return e; for (const k of e.children || []) { const r = w(k); if (r) return r; } return null; }; return w(a.toolbar.host.lastPage); };
@@ -3206,8 +3214,9 @@ try {
     const foundDeck = await until(() => window.__app.toolbar.roomFound.includes("teksti"));
     const foundRow = await rp.evaluate(() => window.__app.toolbar.roomFound);
     await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("fx-hue");`);
-    await rp.waitForTimeout(800);
-    const syntaxNotFound = await rp.evaluate(() => window.__app.toolbar.roomFound === "");
+    // the list of the search before goes once this one has run (after a
+    // pause in typing, a frame drawn in software later)
+    const syntaxNotFound = await until(() => window.__app.toolbar.roomFound === "", null, 5000);
     await R(`a.key("escape", false, false); t("tb-roomsearch"); a.text("teksti");`);
     await until(() => window.__app.toolbar.roomFound.length > 0);
     await R(`t("tb-found-" + a.toolbar.roomFound.split("\\t")[0]);`);
@@ -3882,6 +3891,9 @@ try {
   {
     const src0 = await page.evaluate(() => window.__app.source());
     const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
+    // the mirror follows the app on the page's next frame, and a frame
+    // drawn in software can take longer than a fixed wait
+    const frames = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await page.evaluate(() => {
       const a = window.__app;
       a.showTab("md");
@@ -3889,6 +3901,7 @@ try {
       a.selectSlide(0);
     });
     await page.waitForTimeout(400);
+    await frames();
     const slide = await page.evaluate(() => {
       const st = document.querySelector('.evg-a11y [data-a11y-id="stage"]');
       const q = (sel) => [...st.querySelectorAll(sel)].map((e) => e.textContent.trim());
@@ -3896,6 +3909,7 @@ try {
     });
     await page.evaluate(() => window.__app.selectSlide(1));
     await page.waitForTimeout(400);
+    await frames();
     const chart = await page.evaluate(() => {
       const t = document.querySelector('.evg-a11y [data-a11y-id="stage"] [role=table]');
       return t ? [t.getAttribute("aria-label"), [...t.querySelectorAll("[role=rowheader],[role=cell]")].map((e) => e.textContent).join(" ")] : null;
@@ -3905,14 +3919,17 @@ try {
     // a comment from the keyboard: on the slide's first element, the keys in it
     await page.evaluate(() => { window.__app.selectSlide(0); window.__app.setReviewMode(true); });
     await page.waitForTimeout(400);
+    await frames();
     const before = await page.evaluate(() => window.__app.reviewCount());
     await page.evaluate(() => document.querySelector('.evg-a11y [data-a11y-id="rv-add"]').focus());
     await page.keyboard.press("Enter");
     await page.waitForTimeout(300);
+    await frames();
     const typing = [await act(), await page.evaluate(() => document.getElementById("keys").getAttribute("aria-label"))];
     await page.keyboard.type("Näppäimistöltä");
     await page.keyboard.press("Enter");
     await page.waitForTimeout(400);
+    await frames();
     const after = await page.evaluate(() => window.__app.reviewCount());
     const pins = await page.evaluate(() => [...document.querySelectorAll('.evg-a11y [data-a11y-id^="rv-pin-"]')].map((e) => e.getAttribute("aria-label") || e.textContent).join("|"));
     await page.evaluate(() => window.__app.setReviewMode(false));
@@ -5113,7 +5130,20 @@ try {
           return { docs, empty: docs.length === 0 };
         },
       });
-      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, [[f, op, v]], 0) }) };
+      // a transaction as Firestore runs one: its reads, then its writes
+      // together once the function has returned
+      const runTransaction = async (fn) => {
+        const writes = [];
+        const tx = {
+          get: (r) => r.get(),
+          update: (r, data) => { writes.push(() => r.update(data)); return tx; },
+          set: (r, data, o) => { writes.push(() => r.set(data, o)); return tx; },
+        };
+        const out = await fn(tx);
+        for (const w of writes) await w();
+        return out;
+      };
+      const db = { collection: (c) => ({ doc: (id) => ref(c, id), where: (f, op, v) => query(c, [[f, op, v]], 0) }), runTransaction };
       const firestore = () => db;
       firestore.FieldValue = { serverTimestamp: () => ({ __ts: true }) };
       const storage = () => ({ ref: (p) => ({
@@ -5186,6 +5216,9 @@ try {
     // Share: a viewing link of its own, no editing link, no new copy, the
     // deck still private
     await pc.evaluate(() => { window.__lastShare = ""; window.__lastShareShow = ""; document.getElementById("share").click(); });
+    // Share asks first how long the viewing link works (web/linkdays.js)
+    await pc.waitForTimeout(300);
+    await pc.evaluate(() => window.__answerLinkDays(7));
     await pc.waitForFunction(() => /\/s\/[A-Za-z0-9]+$/.test(window.__lastShareShow || ""), null, { timeout: 10000 }).catch(() => {});
     const link = await pc.evaluate(() => ({ show: window.__lastShareShow || "", edit: window.__lastShare || "" }));
     check("PRO: Share gives a viewing link of its own, never the deck's id, and the deck stays private",
@@ -5629,6 +5662,9 @@ try {
       a.showTab("md");
       a.openDocSettings("");
       a.chartJson();
+      // the data rows are on the Metadata tab
+      tap(a.chart.host.lastPage, "ds-tabs-tab-meta");
+      a.chartJson();
       const out = { row: !!walk(a.chart.host.lastPage, "ds-dk-0") && !walk(a.chart.host.lastPage, "ds-dk-1") };
       tap(a.chart.host.lastPage, "ds-dadd");
       a.chartJson();
@@ -5644,6 +5680,17 @@ try {
       return out;
     });
     check("Document settings: the presentation's data as rows, + Data writes a new key", dd.row && dd.src === "---|title: Q3|jira: ACME-400|footer-right: \"{jira} · {page}\"|owner: Tero|---", JSON.stringify(dd));
+    // a picture added with the caret in the front matter goes below it,
+    // so the front matter stays whole
+    const fp = await pd.evaluate(() => {
+      const a = window.__app;
+      a.setSource("---\ntitle: Q3\nseconds: 1\n---\n\n# Cover\n");
+      a.showTab("md");
+      a.editor.moveCaret(0, 0, false);
+      a.insertPicture("pictures/p.png", "p");
+      return a.source();
+    });
+    check("a picture added from inside the front matter lands after it", fp.startsWith("---\ntitle: Q3\nseconds: 1\n---\n") && fp.indexOf("pictures/p.png") > fp.indexOf("# Cover"), JSON.stringify(fp));
     await pd.close();
   }
 
@@ -6120,10 +6167,19 @@ try {
     };
     const s0 = await src();
     let p = await at("Kuulee", 0);
-    await pg.mouse.dblclick(p.x + 1, p.y);
+    // a hand's double click: the mouse moves a pixel or two while pressed
+    // (a drag that small selects nothing, and the double click still counts).
+    // Sent in one go, as a hand does: the page's frames here are slow enough
+    // that presses sent one by one come further apart than a double click.
+    await pg.evaluate(({ x, y }) => {
+      const c = document.getElementById("c");
+      const ev = (type, x, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons, clientX: x, clientY: y }));
+      ev("pointerdown", x - 1, 1); ev("pointermove", x, 1); ev("pointermove", x + 1, 1); ev("pointerup", x + 1, 0);
+      ev("pointerdown", x + 1, 1); ev("pointerup", x + 1, 0);
+    }, p);
     await pg.waitForTimeout(300);
     const a = await st();
-    check("View editing: a double click while reading starts editing on the page", a.editing && a.tab === "view" && a.caret === p.o, JSON.stringify({ a, o: p.o }));
+    check("View editing: a double click while reading starts editing on the page, a wobble of the mouse or not", a.editing && a.tab === "view" && a.caret === p.o, JSON.stringify({ a, o: p.o }));
     await pg.keyboard.type("XY");
     await pg.waitForTimeout(300);
     const s1 = await src();

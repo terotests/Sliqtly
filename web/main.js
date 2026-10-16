@@ -10002,6 +10002,10 @@ function textPressAt(ev, x, y, clicks) {
 }
 function textDragTo(ev, x, y) {
   if (!textPress || textPress.id !== ev.pointerId) return false;
+  // a click's pixel of wobble is not a drag (it selected a letter, and the
+  // click that moves the slide on was lost)
+  if (!textPress.dragging && Math.hypot(x - textPress.x, y - textPress.y) < 4) return true;
+  textPress.dragging = true;
   const [px, py] = stagePoint(x, y);
   if (textSel.drag(indexAt(presentText(), px, py))) needsPaint = true;
   return true;
@@ -10095,6 +10099,14 @@ function docPressAt(ev, x, y, clicks) {
   if (ev.pointerType !== "mouse" || ev.button !== 0 || app.layerAt(x, y) !== "") return false;
   const pl = docPlace(x, y);
   if (!pl) return false;
+  // the second press of a double click starts editing there (PresApp
+  // edDocPress), whatever the first press's hand did: a mouse that moved a
+  // pixel while pressed had made a one-letter selection, and the double
+  // click never reached the page
+  if (clicks >= 2) {
+    if (docSel.has()) { docSel.clear(); docBandSync(); }
+    return false;
+  }
   const read = docText();
   if (!read || !read.text) return false;
   const [px, py] = docPoint(pl, x, y);
@@ -10106,6 +10118,10 @@ function docPressAt(ev, x, y, clicks) {
 }
 function docDragTo(ev, x, y) {
   if (!docPress || docPress.id !== ev.pointerId) return false;
+  // a hand on a mouse moves a pixel or two while it clicks: a drag starts
+  // past that
+  if (!docPress.dragging && Math.hypot(x - docPress.x, y - docPress.y) < 4) return true;
+  docPress.dragging = true;
   const [px, py] = docPoint(docPress.pl, x, y);
   if (docSel.drag(indexAt(docText(), px, py))) docBandSync();
   return true;
@@ -10281,7 +10297,10 @@ canvas.addEventListener("pointerdown", (ev) => {
     ev.preventDefault();
     return;
   }
-  const now = performance.now();
+  // when the press happened, not when this got to it: a busy frame (a slide
+  // effect drawn in software) held the second press of a double click back
+  // past the double click's time, and it counted as a click of its own
+  const now = ev.timeStamp || performance.now();
   // the second click of a double click on a link: the block is picked, the
   // link stays where it is
   clearTimeout(linkTimer);
