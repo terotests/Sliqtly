@@ -18,6 +18,9 @@
 ;   thread   the conversation docked on the right (EVGUI ChatCtl as a
 ;            thread): its messages, a line to answer on, Resolve; a resolved
 ;            one Reopen and Delete (pressed twice), and no line to answer on
+;   zoom     a second pill after the drawing pill: − 100 % + (PresViewZoom),
+;            the whole slide seen closer; asked of the host as "view-zoom:in",
+;            "view-zoom:out" and "view-zoom:fit"
 ;   page     the deck read as one page (the View, the Document tab): every
 ;            slide's comments as pins where the page shows their point
 ;            (`setDocSpot`, the host maps them), and "+ Add comment" then a
@@ -64,6 +67,15 @@ class PresReviewUi {
     ; moved off the middle by this much (the drawing pill beside it, so the
     ; two sit in the middle together)
     def shift:double 0.0
+    ; The zoom pill: its middle words ("" no pill), whether − and + go
+    ; anywhere, its size, and the room left between the bar and it (the
+    ; drawing pill's).
+    def zoom:string ""
+    def zoomOut:boolean false
+    def zoomIn:boolean true
+    def zoomW:double 0.0
+    def zoomH:double 40.0
+    def zoomGap:double 0.0
     ; the slides' titles, for "Slide 3" and for finding threads again
     def titles:[string]
     def panelW:double 360.0
@@ -262,6 +274,35 @@ class PresReviewUi {
         return ((areaB - barH) - 12.0)
     }
 
+    fn zoomX:double () {
+        return ((((this.barX()) + barW) + 8.0) + zoomGap)
+    }
+
+    fn zoomY:double () {
+        return ((areaB - zoomH) - 12.0)
+    }
+
+    fn inZoom:boolean (px:double py:double) {
+        if (((on == false) || ((strlen zoom) == 0)) || (zoomW <= 0.0)) {
+            return false
+        }
+        def zx:double (this.zoomX())
+        def zy:double (this.zoomY())
+        return ((((px >= zx) && (px <= (zx + zoomW))) && (py >= zy)) && (py <= (zy + zoomH)))
+    }
+
+    ; The zoom pill: −, the size now, +.
+    fn zoomEl:EVGElement () {
+        def b:EVGElement (UiTree.div("rv-zoom" "rv-bar"))
+        UiTree.surface(b "free" "start")
+        b.addChild((this.label("rv-zout" (? zoomOut "rv-btn rv-zbtn" "rv-btn rv-zbtn rv-zoff") "−")))
+        b.addChild((this.label("rv-zval" "rv-count rv-zval" zoom)))
+        b.addChild((this.label("rv-zin" (? zoomIn "rv-btn rv-zbtn" "rv-btn rv-zbtn rv-zoff") "+")))
+        b.overlayX = (this.zoomX())
+        b.overlayY = (this.zoomY())
+        return b
+    }
+
     fn inBar:boolean (px:double py:double) {
         if ((on == false) || (barW <= 0.0)) {
             return false
@@ -396,7 +437,7 @@ class PresReviewUi {
         if (on == false) {
             return false
         }
-        if (((this.inPanel(px py)) || (this.inBar(px py))) || ((strlen (this.pinAt(px py))) > 0)) {
+        if ((((this.inPanel(px py)) || (this.inBar(px py))) || (this.inZoom(px py))) || ((strlen (this.pinAt(px py))) > 0)) {
             return true
         }
         return (placing && ((this.inSlide(px py)) || (this.inDoc(px py))))
@@ -521,7 +562,7 @@ class PresReviewUi {
     }
 
     fn place:void (pw:double ph:double topBand:double presenting:boolean shown:int x:double y:double sW:double sH:double aX:double aW:double aB:double) {
-        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey + ":" + (this.docNow()))
+        def key:string ((EVGDisplayList.num(pw)) + ":" + (EVGDisplayList.num(ph)) + ":" + (EVGDisplayList.num(topBand)) + ":" + (? presenting "p" "e") + ":" + (to_string shown) + ":" + (EVGDisplayList.num(x)) + ":" + (EVGDisplayList.num(y)) + ":" + (EVGDisplayList.num(sW)) + ":" + (EVGDisplayList.num(sH)) + ":" + (EVGDisplayList.num(aX)) + ":" + (EVGDisplayList.num(aW)) + ":" + (EVGDisplayList.num(aB)) + ":" + (to_string model.rev) + ":" + spotKey + ":" + (this.docNow()) + ":" + zoom + ":" + (? zoomOut "o" "-") + (? zoomIn "i" "-") + ":" + (EVGDisplayList.num(zoomGap)) + ":" + (EVGDisplayList.num(shift)))
         if (key == builtKey) {
             return
         }
@@ -705,6 +746,9 @@ class PresReviewUi {
             root.addChild((this.calloutEl()))
         }
         root.addChild((this.bar()))
+        if ((strlen zoom) > 0) {
+            root.addChild((this.zoomEl()))
+        }
         if ((this.panelOpen()) && ((this.floating()) == false)) {
             root.addChild((this.panel()))
         }
@@ -1086,6 +1130,28 @@ class PresReviewUi {
             be.overlayY = (this.barY())
             lay.layout(pg)
         }
+        ; the zoom pill after it, as wide as its parts too
+        def zf@(optional):EVGElement (host.findEl(r "rv-zoom"))
+        if (!null? zf) {
+            def ze:EVGElement (unwrap zf)
+            def zsum:double 0.0
+            def zk:int 0
+            while (zk < (ze.getChildCount())) {
+                zsum = (zsum + (lay.intrinsicWidthOf((ze.getChild(zk)))))
+                zk = (zk + 1)
+            }
+            if (zk > 1) {
+                zsum = (zsum + ((to_double (zk - 1)) * 6.0))
+            }
+            zoomW = (zsum + (ze.box.getHorizontalChrome()))
+            ze.width = (EVGUnit.px(zoomW))
+            zoomH = ze.calculatedHeight
+            ze.overlayX = (this.zoomX())
+            ze.overlayY = (this.zoomY())
+            lay.layout(pg)
+        } {
+            zoomW = 0.0
+        }
         ; the callout beside its point, now that its size is known
         if ((this.floating()) && (this.panelOpen())) {
             def cf@(optional):EVGElement (host.findEl(r (co.frameTid())))
@@ -1149,6 +1215,19 @@ class PresReviewUi {
             return true
         }
         typing = false
+        if (this.inZoom(px py)) {
+            def zt:string (this.barButtonAt(px py))
+            if ((zt == "rv-zout") && zoomOut) {
+                push requests "view-zoom:out"
+            }
+            if (zt == "rv-zval") {
+                push requests "view-zoom:fit"
+            }
+            if ((zt == "rv-zin") && zoomIn) {
+                push requests "view-zoom:in"
+            }
+            return true
+        }
         if (this.inBar(px py)) {
             def tid:string (this.barButtonAt(px py))
             if (tid == "rv-add") {
@@ -1203,7 +1282,7 @@ class PresReviewUi {
             return ""
         }
         def pg:EVGElement (unwrap host.lastPage)
-        for ([] _:string ("rv-add" "rv-cancel" "rv-next" "rv-count")) id:string i {
+        for ([] _:string ("rv-add" "rv-cancel" "rv-next" "rv-count" "rv-zout" "rv-zval" "rv-zin")) id:string i {
             def f@(optional):EVGElement (host.findEl(pg id))
             if (!null? f) {
                 def el:EVGElement (unwrap f)
@@ -1734,6 +1813,19 @@ class PresReviewUi {
         if ((on == false) || (this.inPanel(px py))) {
             return ""
         }
+        if (this.inZoom(px py)) {
+            def zt:string (this.barButtonAt(px py))
+            if (zt == "rv-zout") {
+                return (PresI18n.t("Zoom out (Ctrl + wheel, a pinch)"))
+            }
+            if (zt == "rv-zin") {
+                return (PresI18n.t("Zoom in (Ctrl + wheel, a pinch)"))
+            }
+            if (zt == "rv-zval") {
+                return (PresI18n.t("The slide as it fits"))
+            }
+            return ""
+        }
         if (this.inBar(px py)) {
             def tid:string (this.barButtonAt(px py))
             if (tid == "rv-add") {
@@ -1794,7 +1886,7 @@ class PresReviewUi {
         if dragging {
             return "grabbing"
         }
-        if (this.inBar(px py)) {
+        if ((this.inBar(px py)) || (this.inZoom(px py))) {
             return "pointer"
         }
         if ((strlen (this.pinAt(px py))) > 0) {

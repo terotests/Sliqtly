@@ -1,5 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Node checks for the deck and the timeline: `npm run check`.
+Import "PresViewZoom.rgr"
 Import "PresTimeline.rgr"
 Import "PresDocView.rgr"
 Import "PresToc.rgr"
@@ -3433,6 +3434,8 @@ class PresCheck {
         ; on the stage: a press where a hidden button is goes past it
         def text:string ("---\nslide-split-level: 2\n---\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n")
         def deck (new PresDeck())
+        ; the buttons and the camera in the viewer's hand: File → Settings → Diagram zoom
+        deck.diagramZoom = true
         deck.setText(text)
         PresTimeline.planAll(deck)
         def s:PresSlide (deck.slideAt(0))
@@ -3497,6 +3500,8 @@ class PresCheck {
         ; text under it
         def text:string ("---\nslide-split-level: 1\npage: a4 landscape\n---\n\n# Tietomalli\n\n```mermaid\nclassDiagram\n  direction LR\n  class created_model_provenance {\n    +machineId()\n    +catalogKey()\n  }\n  class Project\n  class ManageLayer\n  ManageLayer --> created_model_provenance : uses\n  created_model_provenance --> Project : lookup\n```\n\n**Mitä malli tekee:** apufunktiot.\n\n**Tarkoitus:** pitää tämän.\n\n**Suunta:** kutsutaan.\n")
         def deck (new PresDeck())
+        ; the buttons and the camera in the viewer's hand: File → Settings → Diagram zoom
+        deck.diagramZoom = true
         deck.setText(text)
         PresTimeline.planAll(deck)
         def s:PresSlide (deck.slideAt(0))
@@ -3580,6 +3585,8 @@ class PresCheck {
         this.ok(((array_length (PresDiagram.zoomLevels(0.5))) == 1) "zoom: 100 % is always offered")
         def text:string ("---\nslide-split-level: 2\n---\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n")
         def deck (new PresDeck())
+        ; the buttons and the camera in the viewer's hand: File → Settings → Diagram zoom
+        deck.diagramZoom = true
         deck.setText(text)
         PresTimeline.planAll(deck)
         def s:PresSlide (deck.slideAt(0))
@@ -3609,6 +3616,80 @@ class PresCheck {
         this.ok((u.diagram.exploring && (u.diagram.exTZ == 2.0)) ("zoom: 200 % is where the view goes: " + (to_string u.diagram.exTZ)))
         u.diagram.zoomTo(1.0)
         this.ok((u.diagram.exTZ == 1.0) "zoom: 100 % is the whole diagram")
+    }
+
+    ; File → Settings → Diagram zoom off (the default): a press on a
+    ; diagram's box does not zoom to it, its buttons are not there to press
+    ; and a drag does not pan it; the question's choices still take a press.
+    ; On, all of it is back; turned off again, the diagram is let go.
+    fn diagramSteer:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n## Kaavio\n\n```mermaid\nflowchart LR\n  A[Alku] --> B[Loppu]\n```\n")
+        def deck (new PresDeck())
+        deck.setText(text)
+        PresTimeline.planAll(deck)
+        this.ok((deck.diagramZoom == false) "steer: diagram zoom is off by default")
+        def s:PresSlide (deck.slideAt(0))
+        if ((array_length s.diagrams) == 0) {
+            this.ok(false "steer: the diagram is there")
+            return
+        }
+        def u:PresDiaUse (itemAt s.diagrams 0)
+        def d:PresDiagram u.diagram
+        def t:double (u.start + 30.0)
+        deck.live = true
+        deck.showControls = true
+        deck.uiNow = 100.0
+        def g0:[int]
+        deck.slideList(0 g0 t)
+        this.ok((d.steer == false) "steer: the deck tells the diagram")
+        this.ok((d.canFull == false) "steer: no magnifier")
+        ; the middle of box A, where the camera has it at rest
+        d.cameraAt((t - u.start) u.bw u.bh)
+        def a:PresDNode (d.nodeNamed("A"))
+        def sc:double ((d.fitOf(u.bw u.bh)) * d.camZ)
+        def ax:double ((((a.x + (a.w * 0.5)) * sc) + (u.bx + (u.bw * 0.5))) - (d.camX * sc))
+        def ay:double ((((a.y + (a.h * 0.5)) * sc) + (u.by + (u.bh * 0.5))) - (d.camY * sc))
+        this.ok(((deck.diagramHit(0 t ax ay)) == "") ("steer: a press on a box is not the diagram's: " + (deck.diagramHit(0 t ax ay))))
+        def cy:double ((u.by + u.bh) - 24.0)
+        deck.diagramPointer(0 0 t ((u.bx + u.bw) - 150.0) cy)
+        deck.uiNow = 100.3
+        this.ok(((deck.diagramHit(0 t ((u.bx + u.bw) - 150.0) cy)) == "") "steer: no + to press, even under the pointer")
+        this.ok((d.controlsUp() == false) "steer: the buttons are not up")
+        d.uiNow = 100.3
+        d.zoomBy(2.0)
+        d.panStart()
+        d.panBy(40.0 0.0)
+        d.explore(0)
+        this.ok((d.exploring == false) "steer: zoom, pan and a box's zoom leave the camera alone")
+        ; the buttons are not drawn: the same list with and without them
+        def dl0 (new EVGDisplayList())
+        d.paint(dl0 u.bx u.by u.bw u.bh (t - u.start) "#ffffff" "#000000" (deck.layout()))
+        d.steer = true
+        def dl1 (new EVGDisplayList())
+        d.paint(dl1 u.bx u.by u.bw u.bh (t - u.start) "#ffffff" "#000000" (deck.layout()))
+        this.ok(((array_length dl1.cmds) > (array_length dl0.cmds)) ("steer: the buttons are drawn only when on: " + (to_string (array_length dl0.cmds)) + " / " + (to_string (array_length dl1.cmds))))
+        ; on: a press on the box is the diagram's and zooms there
+        deck.setDiagramZoom(true)
+        this.ok(((deck.diagramHit(0 t ax ay)) == "0:node0") ("steer: on, a press on box A is its: " + (deck.diagramHit(0 t ax ay))))
+        d.explore(0)
+        this.ok(d.exploring "steer: on, the camera goes to the box")
+        ; off again: the camera goes back to the walk
+        deck.setDiagramZoom(false)
+        this.ok((d.exReturn && (d.steer == false)) "steer: turned off, the diagram goes back to its own camera")
+    }
+
+    ; The pill at the stage's foot: − 100 % + steps through the levels.
+    fn viewZoomSteps:void () {
+        this.ok(((PresViewZoom.stepIn(1.0)) == 1.25) "view zoom: + from 100 % is 125 %")
+        this.ok(((PresViewZoom.stepIn(1.37)) == 1.5) "view zoom: + from a pinch's 137 % is 150 %")
+        this.ok(((PresViewZoom.stepOut(1.37)) == 1.25) "view zoom: − from 137 % is 125 %")
+        this.ok(((PresViewZoom.stepOut(1.25)) == 1.0) "view zoom: − from 125 % is the slide as it fits")
+        this.ok(((PresViewZoom.stepOut(1.0)) == 1.0) "view zoom: no further out than fits")
+        this.ok(((PresViewZoom.stepIn(6.0)) == 6.0) "view zoom: no further in than 600 %")
+        this.ok(((PresViewZoom.label(1.5)) == "150 %") ("view zoom: 1.5 reads 150 %: " + (PresViewZoom.label(1.5))))
+        this.ok(((PresViewZoom.label(1.0001)) == "100 %") "view zoom: a hair past fitted reads 100 %")
+        this.ok((((PresViewZoom.canOut(1.0)) == false) && (PresViewZoom.canIn(1.0))) "view zoom: at 100 % only + goes")
+        this.ok((((PresViewZoom.canIn(6.0)) == false) && (PresViewZoom.canOut(6.0))) "view zoom: at 600 % only − goes")
     }
 
     ; A chain of seven steps written left to right, on a wide slide: drawn
@@ -9398,6 +9479,8 @@ class PresCheck {
         c.gridModel()
         c.controlsFade()
         c.zoomMenu()
+        c.diagramSteer()
+        c.viewZoomSteps()
         c.diaFull()
         c.flowchartFindings()
         c.roundNodes()

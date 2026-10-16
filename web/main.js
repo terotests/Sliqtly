@@ -375,6 +375,10 @@ const three3d = createThree3d({
 // Experimental: off until File → Settings turns it on, per browser.
 let flightOn = false;
 try { flightOn = localStorage.getItem("sliqtly.flight3d") === "on"; } catch (_) { /* off */ }
+// File → Settings → Diagram zoom: a click on a diagram zooms to its box and
+// ▶ + − 100 % show on it (src/PresDiagram.rgr steer). Off by default.
+let diagramZoomOn = false;
+try { diagramZoomOn = localStorage.getItem("sliqtly.diagramZoom") === "on"; } catch (_) { /* off */ }
 // File → Settings → Presentations open in: View (Edit to change one) or Edit
 // at once (src/PresEditMode.rgr)
 let openInEdit = false;
@@ -1983,6 +1987,7 @@ function setDeckOrder(by) {
   needsPaint = true;
 }
 app.setFlight3d(flightOn);
+app.setDiagramZoom(diagramZoomOn);
 app.setOpenInEdit(openInEdit);
 async function roomRows(room) {
   return (await roomView(room)).rows;
@@ -5793,6 +5798,11 @@ function handleRequests() {
     } else if (r.startsWith("setting:openin:")) {
       openInEdit = r.endsWith(":edit");
       try { localStorage.setItem("sliqtly.openIn", openInEdit ? "edit" : "view"); } catch (_) { /* this session only */ }
+    } else if (r.startsWith("setting:diazoom:")) {
+      diagramZoomOn = r.endsWith(":on");
+      try { localStorage.setItem("sliqtly.diagramZoom", diagramZoomOn ? "on" : "off"); } catch (_) { /* this session only */ }
+      app.setDiagramZoom(diagramZoomOn);
+      needsPaint = true;
     } else if (r.startsWith("setting:flight:")) {
       flightOn = r.endsWith(":on");
       try { localStorage.setItem("sliqtly.flight3d", flightOn ? "on" : "off"); } catch (_) { /* this session only */ }

@@ -41,6 +41,7 @@ Import "PresNav.rgr"
 Import "PresStripDrag.rgr"
 Import "PresStageClick.rgr"
 Import "PresBook.rgr"
+Import "PresViewZoom.rgr"
 Import "PresScrollInput.rgr"
 Import "PresServer.rgr"
 Import "PresThemeEdit.rgr"
@@ -3478,7 +3479,7 @@ class PresApp {
         def t:double (this.stageTime())
         def k:int (deck.askingAt(selected t))
         def sl0:PresSlide (deck.slideAt(selected))
-        if ((array_length sl0.diagrams) > 0) {
+        if (((array_length sl0.diagrams) > 0) && deck.diagramZoom) {
             def ue:PresDiaUse (itemAt sl0.diagrams 0)
             def ued:PresDiagram (ue.active(deck.uiNow))
             if ((name == "+") || (name == "=")) {
@@ -6294,6 +6295,10 @@ class PresApp {
         if (slideRect.has(x y)) {
             this.slidePoint(x y)
             stageDia = (deck.diagramAt(selected spX spY))
+            ; without diagram zoom a drag over a diagram is the slide's
+            if (deck.diagramZoom == false) {
+                stageDia = -1
+            }
             tapDia = stageDia
             ; a finger pans a diagram only once it has been tapped
             if (touch && (stageDia != activeDia)) {
@@ -10078,10 +10083,22 @@ class PresApp {
         this.reviewDoc()
         this.reviewSpots()
         def pres:boolean (mode == "present")
+        ; the zoom pill: editing the slides (the Document tab scrolls a
+        ; page of its own); after the drawing pill, all three in the middle
+        review.zoom = ""
+        if (((pres == false) && ((this.docShown()) == false)) && ((deck.slideCount()) > 0)) {
+            review.zoom = (PresViewZoom.label(viewZoom))
+            review.zoomOut = (PresViewZoom.canOut(viewZoom))
+            review.zoomIn = (PresViewZoom.canIn(viewZoom))
+        }
+        review.zoomGap = (sketch.barW + 8.0)
         if pres {
             review.place(W H 0.0 true selected slideRect.x slideRect.y slideRect.w slideRect.h 0.0 W H)
         } {
             review.shift = (0.0 - ((sketch.barW + 8.0) * 0.5))
+            if ((strlen review.zoom) > 0) {
+                review.shift = (review.shift - ((review.zoomW + 8.0) * 0.5))
+            }
             review.place(W H barH false selected slideRect.x slideRect.y slideRect.w slideRect.h stageArea.x stageArea.w (stageArea.y + stageArea.h))
         }
     }
@@ -11593,6 +11610,11 @@ class PresApp {
         }
         while ((array_length review.requests) > 0) {
             def rq:string (itemAt review.requests 0)
+            if ((indexOf rq "view-zoom:") == 0) {
+                this.viewStep((substring rq 10 (strlen rq)))
+                remove_index review.requests 0
+                continue
+            }
             if (rq == "review-copy-open") {
                 review.clip = (this.reviewOpenMarkdown())
                 rq = "review-copy"
@@ -12515,6 +12537,38 @@ class PresApp {
         panels.flight3d = on
     }
 
+    ; File → Settings → Diagram zoom, as the page keeps it: a press on a
+    ; diagram zooms to its box and ▶ + − 100 % show on it. Off (the
+    ; default) a press leaves the diagram as it is; the slide as a whole is
+    ; seen closer from the pill at the stage's foot instead.
+    fn setDiagramZoom:void (on:boolean) {
+        panels.diagramZoom = on
+        deck.setDiagramZoom(on)
+        if (on == false) {
+            activeDia = -1
+        }
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; The zoom pill at the stage's foot (PresViewZoom): "in", "out", or
+    ; "fit" (the slide as it fits). About the stage's middle.
+    fn viewStep:void (how:string) {
+        if (how == "fit") {
+            this.viewReset()
+            return
+        }
+        def z:double (PresViewZoom.stepIn(viewZoom))
+        if (how == "out") {
+            z = (PresViewZoom.stepOut(viewZoom))
+        }
+        if (z <= 1.0001) {
+            this.viewReset()
+            return
+        }
+        this.place()
+        this.viewPinch((stageArea.x + (stageArea.w * 0.5)) (stageArea.y + (stageArea.h * 0.5)) (z / viewZoom) 0.0 0.0)
+    }
+
     ; File → Settings → Order of presentations: how a room lists them, as
     ; the page keeps it ("created", "newest", "edited", "name", "custom").
     fn setDeckOrder:void (by:string) {
@@ -13200,6 +13254,11 @@ class PresApp {
                 def cnt:string ((to_string (review.model.openCount())) + " " + (PresI18n.t("open")))
                 PresA11y.buttonAt(t rp "rv-count" "rv" cnt)
                 PresA11y.buttonAt(t rp "rv-next" "rv" (PresI18n.t("Next")))
+            }
+            if ((strlen review.zoom) > 0) {
+                PresA11y.buttonAt(t rp "rv-zout" "rv" (PresI18n.t("Zoom out")))
+                PresA11y.buttonAt(t rp "rv-zval" "rv" ((PresI18n.t("Zoom")) + " " + review.zoom))
+                PresA11y.buttonAt(t rp "rv-zin" "rv" (PresI18n.t("Zoom in")))
             }
             PresA11y.addHost(t review.host "rv")
         }

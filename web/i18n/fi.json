@@ -1883,5 +1883,12 @@
   "Copied {n} slides as an image.": "{n} diaa kopioitu kuvana.",
   "Table of contents": "Sisällysluettelo",
   "Contents": "Sisällys",
-  "No headings yet: # and ## lines are listed here": "Ei vielä otsikoita: # ja ## -rivit näkyvät tässä"
+  "No headings yet: # and ## lines are listed here": "Ei vielä otsikoita: # ja ## -rivit näkyvät tässä",
+  "Zoom out": "Loitonna",
+  "Zoom in": "Lähennä",
+  "Diagram zoom": "Kaavioiden zoomaus",
+  "A click on a diagram zooms to the box clicked, and ▶ + − 100 % show on the diagram. Off, a diagram stays as it is; the slide as a whole zooms with − 100 % + under it.": "Klikkaus kaaviossa zoomaa klikattuun laatikkoon, ja kaavion päällä näkyvät ▶ + − 100 %. Pois päältä kaavio pysyy paikallaan; koko diaa zoomataan sen alla olevilla − 100 % +.",
+  "Zoom out (Ctrl + wheel, a pinch)": "Loitonna (Ctrl + rulla, nipistys)",
+  "Zoom in (Ctrl + wheel, a pinch)": "Lähennä (Ctrl + rulla, nipistys)",
+  "The slide as it fits": "Dia kokonaan näkyviin"
 }
