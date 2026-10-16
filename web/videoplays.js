@@ -180,15 +180,19 @@ export const STILL_DT = 0.016;
  * (app.playsStill(picked): its slide was never on the stage) is started and
  * run for its first frames, as on its slide, and its last tree is set as
  * its picture (app.setPlayFrame). One that does not run says why on its
- * plate (app.setPlayStopped). Returns how many got a picture.
+ * plate (app.setPlayStopped). Returns how many got a picture. `tried`: a
+ * Set of keys run before, skipped and added to (the Document view runs each
+ * program once, not again while one gives no picture).
  */
-export async function stillPlays({ app, picked = false, makeWorker = () => new Worker(workerUrl("cerxes-worker.js"), { type: "module" }) }) {
+export async function stillPlays({ app, picked = false, tried = null, makeWorker = () => new Worker(workerUrl("cerxes-worker.js"), { type: "module" }) }) {
   let list = [];
   try { list = JSON.parse(app.playsStill(picked)); } catch { list = []; }
   let drawn = 0;
   for (const p of list) {
+    if (tried && tried.has(p.key)) continue;
     const source = app.playSource(p.key);
     if (!source) continue;
+    if (tried) tried.add(p.key);
     let worker = null;
     try {
       worker = makeWorker();

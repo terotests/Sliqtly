@@ -45,6 +45,7 @@ Import "PresStory.rgr"
 Import "PresPuppet.rgr"
 Import "PresPlay.rgr"
 Import "PresPlayFiles.rgr"
+Import "PresI18n.rgr"
 Import "PresScript.rgr"
 Import "Pres3DTree.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -1311,6 +1312,42 @@ class PresDeck {
         return (v.loading(uiNow))
     }
 
+    ; A frame of program `key` (its view() as JSON); false when that was no
+    ; element tree. Its first picture moves the revision: what is drawn from
+    ; it (the Document view, the slide strip) is drawn again with the
+    ; picture, not left at the plate. Later frames move only the stage,
+    ; which paints each frame anyway.
+    fn setPlayFrame:boolean (key:string tree:string) {
+        def v@(optional):PresPlayView (this.playView(key))
+        if (null? v) {
+            return false
+        }
+        def view:PresPlayView (unwrap v)
+        def had:boolean view.drawn
+        def ok:boolean (view.setTree(tree))
+        if (ok && ((had == false) && view.drawn)) {
+            revision = (revision + 1)
+        }
+        return ok
+    }
+
+    ; A program's plate in this deck's look: the slide's text colour, and
+    ; "Loading…" under the name while `platesLoading` (the Document view,
+    ; whose page is running the programs' first frames for it).
+    fn plateLook:MdAppPlate () {
+        def look (new MdAppPlate())
+        look.ink = (trim (this.themeRule("document" "color")))
+        if platesLoading {
+            look.caption = (PresI18n.t("Loading…"))
+        }
+        return look
+    }
+
+    ; true while the Document view is drawn (PresDocView.build): a program
+    ; with no picture yet is being run for one (web/main.js docStills), so
+    ; its plate says it is loading.
+    def platesLoading:boolean false
+
     ; The loading ring's colour: the slide's text colour, else a grey.
     fn loadingInk:string () {
         def ink:string (trim (this.themeRule("document" "color")))
@@ -1930,7 +1967,7 @@ class PresDeck {
                     shown = (pv.paint(out b.x b.y b.w b.h))
                     said = (pv.note())
                     if ((shown == false) && ((strlen said) > 0)) {
-                        pv.paintPlate(out u.spec b.x b.y b.w b.h)
+                        pv.paintPlate(out u.spec b.x b.y b.w b.h (this.plateLook()))
                         shown = true
                     }
                 }
@@ -1943,7 +1980,12 @@ class PresDeck {
                     }
                 }
                 if ((shown == false) && (platesOff == false)) {
-                    painter.paintBox(out l b 0.0)
+                    if (!null? v) {
+                        def plv:PresPlayView (unwrap v)
+                        plv.paintPlate(out u.spec b.x b.y b.w b.h (this.plateLook()))
+                    } {
+                        painter.paintBox(out l b 0.0)
+                    }
                 }
                 if ((((!null? v) && (u.key == playFocus)) && showControls) && (still == false)) {
                     def fv:PresPlayView (unwrap v)
