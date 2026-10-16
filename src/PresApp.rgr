@@ -1969,6 +1969,15 @@ class PresApp {
     fn docEditPress:void (x:double y:double shift:boolean clicks:int) {
         focus = "editor"
         docWantX = -1.0
+        ; Ctrl/⌘+click on a link while editing opens it (a click edits it)
+        if (pressCtrl && (clicks == 1)) {
+            def link:string (this.docPaneLink(edDocPane x y))
+            if ((strlen link) > 0) {
+                push requests ("link:" + link)
+                chromeRev = (chromeRev + 1)
+                return
+            }
+        }
         def px:double (this.docPageX(x))
         def py:double (this.docPageY(y))
         if (this.docPicPress(px py clicks)) {

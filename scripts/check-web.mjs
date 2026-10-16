@@ -6687,6 +6687,21 @@ try {
     await frames();
     const pasted = await src();
     check("View keys: a table pasted from a spreadsheet lands as a Markdown table", /\n\n\| Nimi \| Arvo \|\n\|[-: |]+\|\n\| a +\| 1 +\|\n\nLoppu/.test(pasted), JSON.stringify(pasted.slice(-80)));
+    // Ctrl/⌘+click on a link opens it; a plain click puts the caret in it
+    const lnk = body + "Katso [sivu](https://example.com/k) nyt\n";
+    await put(lnk, "Katso");
+    await pg.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
+    const [lx, ly] = await at(lnk.indexOf("sivu") + 2);
+    await pg.mouse.click(lx, ly + 4);
+    await frames();
+    await pg.waitForTimeout(700);
+    const plain = await pg.evaluate(() => window.__opened.length);
+    await pg.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
+    await pg.mouse.click(lx, ly + 4);
+    await pg.keyboard.up(process.platform === "darwin" ? "Meta" : "Control");
+    await pg.waitForFunction(() => window.__opened.length > 0, null, { timeout: 3000 }).catch(() => {});
+    const opened = await pg.evaluate(() => window.__opened);
+    check("View keys: Ctrl+click opens a link, a plain click edits it", plain === 0 && opened.length === 1 && opened[0].startsWith("https://example.com/k") && (await src()) === lnk, JSON.stringify({ plain, opened }));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();
