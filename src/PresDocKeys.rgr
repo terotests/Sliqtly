@@ -706,6 +706,25 @@ class PresDocKeys {
         return op2
     }
 
+    ; --- task lists --------------------------------------------------------------------
+    ; A press on a task item's box: `[ ]` ↔ `[x]`; empty when the line at
+    ; `off` is not a task.
+    sfn taskToggleOp:MdEditOp (text:string off:int) {
+        def none (new MdEditOp())
+        def it:PresListItem (PresDocKeys.itemAt(text off))
+        if ((it.ls < 0) || ((it.words + 3) > (strlen text))) {
+            return none
+        }
+        def box:string (substring text it.words (it.words + 3))
+        if (box == "[ ]") {
+            return (MdEdit.patch(text (it.words + 1) (it.words + 2) "x"))
+        }
+        if ((box == "[x]") || (box == "[X]")) {
+            return (MdEdit.patch(text (it.words + 1) (it.words + 2) " "))
+        }
+        return none
+    }
+
     ; --- Shift+Enter ------------------------------------------------------------------
     ; A line break: two spaces and a newline, `<br>` where a newline would
     ; end the block (a table row, a heading).

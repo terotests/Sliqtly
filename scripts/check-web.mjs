@@ -6659,6 +6659,14 @@ try {
     await frames();
     const tri = await pg.evaluate(() => { const e = window.__app.mdEditor; return [e.anchorOffset(), e.caretOffset()]; });
     check("View keys: three clicks select the paragraph", Math.min(...tri) === para.indexOf("Ensimmäinen") && Math.max(...tri) === para.indexOf("lause.") + 6, JSON.stringify(tri));
+    // a click on a task's box ticks it
+    const tasks = body + "- [ ] tee\n- [x] tehty\n";
+    await put(tasks, "tee");
+    const [tx, ty] = await at(tasks.indexOf("tee"));
+    const box = await pg.evaluate(({ y }) => { const a = window.__app; const sc = a.edDocPane.scale(a.docView.width()); return sc; }, { y: ty });
+    await pg.mouse.click(tx - 9 * box, ty + 4);
+    await frames();
+    check("View keys: a click on a task's box ticks it", (await src()).endsWith("- [x] tee\n- [x] tehty\n"), JSON.stringify((await src()).slice(-26)));
     if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
     check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
     await ctx.close();

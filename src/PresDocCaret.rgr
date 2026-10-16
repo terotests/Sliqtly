@@ -332,6 +332,15 @@ class PresDocCaret {
         return out
     }
 
+    ; Where line `li`'s first words start on the page (x); -1 for none.
+    fn lineLeft:double (li:int) {
+        if ((li < 0) || (li >= (array_length lineFrom))) {
+            return -1.0
+        }
+        def b:MdBox (itemAt boxes (itemAt lineFrom li))
+        return b.x
+    }
+
     fn lineOf:int (off:int) {
         def bi:int (this.boxOf(off))
         if (bi < 0) {

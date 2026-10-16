@@ -5441,6 +5441,12 @@ class PresCheck {
         this.ok(((this.keyRun(code ct)) == "```\n    let a\n  let b\n```") "dockeys: Tab in code writes four spaces")
         def cs:MdEditOp (PresDocKeys.codeTabOp(code 11 11 -1))
         this.ok(((this.keyRun(code cs)) == "```\nlet a\nlet b\n```") ("dockeys: Shift+Tab in code takes the line's spaces out, got " + (this.keyRun(code cs))))
+        ; a task's box
+        def tk:string "- [ ] tee\n- [x] tehty"
+        def tk1:MdEditOp (PresDocKeys.taskToggleOp(tk 7))
+        def tk2:MdEditOp (PresDocKeys.taskToggleOp(tk 18))
+        def tk3:MdEditOp (PresDocKeys.taskToggleOp("- tee" 3))
+        this.ok(((((this.keyRun(tk tk1)) == "- [x] tee\n- [x] tehty") && ((this.keyRun(tk tk2)) == "- [ ] tee\n- [ ] tehty")) && (tk3.isEmpty())) "dockeys: a press on a task's box ticks it or clears it")
         ; Enter in a quote: a new paragraph of it
         this.ok(((PresDocCaret.enterText("> yksi" 6 false)) == "\n>\n> ") "dockeys: Enter in a quote")
         this.ok(((PresDocCaret.enterText("> - yksi" 8 false)) == "\n> - ") "dockeys: …a list in a quote goes on as a list")

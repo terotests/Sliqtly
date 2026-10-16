@@ -1994,6 +1994,20 @@ class PresApp {
             chromeRev = (chromeRev + 1)
             return
         }
+        ; a task's box, left of its words: ticked or cleared
+        if ((clicks == 1) && (shift == false)) {
+            def tli:int (docView.caret.lineAtY(py))
+            def left:double (docView.caret.lineLeft(tli))
+            if (((left >= 0.0) && (px < (left - 2.0))) && (px > (left - 30.0))) {
+                def tk:MdEditOp (PresDocKeys.taskToggleOp((mdEditor.text()) (docView.caret.lineStart(tli))))
+                if ((tk.isEmpty()) == false) {
+                    def keep:int (mdEditor.caretOffset())
+                    this.docApply(tk)
+                    this.docSetCaret(keep false)
+                    return
+                }
+            }
+        }
         if (clicks == 2) {
             def text:string (mdEditor.text())
             def w:[int]
