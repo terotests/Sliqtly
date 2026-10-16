@@ -261,6 +261,9 @@ class PresQuickBar {
         if (what == "code") {
             return "code"
         }
+        if (what == "highlight") {
+            return "mark"
+        }
         return ""
     }
 

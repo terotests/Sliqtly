@@ -2349,7 +2349,7 @@ class PresApp {
         def hi:int (itemAt r 1)
         def doc:MdNode (MdBlock.parseText(text))
         def onNow:[string]
-        def wraps:[string] (strsplit "bold,italic,underline,strike,code,link" ",")
+        def wraps:[string] (strsplit "bold,italic,underline,strike,code,highlight,link" ",")
         def i:int 0
         while (i < (array_length wraps)) {
             def wv:string (itemAt wraps i)
@@ -2377,6 +2377,7 @@ class PresApp {
             push onNow "quote"
         }
         docBar.setState(lv onNow (undoN > 0) (redoN > 0))
+        docBar.setCallout((MdSemanticEdit.calloutAt(doc off)))
     }
 
     ; The line of `text` the offset is on.
@@ -2455,8 +2456,13 @@ class PresApp {
             this.docBarApply(op)
             return
         }
-        if ((((cmd == "bold") || (cmd == "italic")) || ((cmd == "underline") || (cmd == "strike"))) || (cmd == "code")) {
+        if ((((cmd == "bold") || (cmd == "italic")) || ((cmd == "underline") || (cmd == "strike"))) || ((cmd == "code") || (cmd == "highlight"))) {
             this.wrapSelection(cmd)
+            return
+        }
+        if ((indexOf cmd "callout:") == 0) {
+            def tone:string (substring cmd 8 (strlen cmd))
+            this.docBarApply((MdSemanticEdit.setCallout(text (MdBlock.parseText(text)) lo hi tone)))
             return
         }
         if (cmd == "link") {

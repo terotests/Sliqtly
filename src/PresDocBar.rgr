@@ -7,7 +7,13 @@
 ; While the View page is edited (PresApp "editing on the View page") a bar
 ; sits between the editor's tabs and the page, as a word processor's does:
 ;
-;   ↶ ↷ | [Paragraph ▾] | B I U S <> | 🔗 | • 1. ❝ | 💬
+;   ↶ ↷ | [Paragraph ▾] [No callout ▾] | B I U S <> ▮ | 🔗 | • 1. ❝ | 💬
+;
+; The callout list puts the caret's blocks in a `::: info|tip|warning|danger`
+; box (RangerMarkdown's tones: a tint of the theme's page, the text kept
+; readable, a line round it) and ▮ marks words `==highlighted==` in the
+; theme's `mark` colour; no free colours, so a theme decides what they look
+; like.
 ;
 ; The controls are EVGUI's: a SelectCtl for the block's style and a
 ; ToolbarCtl for the buttons (toggles that show what is on at the caret), in
@@ -17,8 +23,8 @@
 ; ops and MdSemanticEdit), so undo and the other editors follow.
 ;
 ; The commands, as `press` answers them: "undo" "redo" "level:<p|h1…h6>"
-; "bold" "italic" "underline" "strike" "code" "link" "bullet" "ordered"
-; "quote" "comment".
+; "callout:<|info|tip|warning|danger>" "bold" "italic" "underline" "strike" "code"
+; "highlight" "link" "bullet" "ordered" "quote" "comment".
 ;
 ; Under the page, reading or editing, floats the zoom pill:
 ;
@@ -49,6 +55,9 @@ class PresDocBar {
     def bh:double 44.0
     def tools:ToolbarCtl (new ToolbarCtl())
     def level:SelectCtl (new SelectCtl())
+    ; the callout the caret's blocks are in ("" none, "info" …)
+    def box:SelectCtl (new SelectCtl())
+    def calloutNow:string ""
     ; the block's style at the caret ("p", "h1"…), and what is on there
     def levelNow:string "p"
     def on:[string]
@@ -75,11 +84,11 @@ class PresDocBar {
     def zh:double 0.0
 
     sfn buttons:[string] () {
-        def out:[string] (strsplit "undo,redo,sep,bold,italic,underline,strike,code,sep,link,sep,bullet,ordered,quote,sep,comment" ",")
+        def out:[string] (strsplit "undo,redo,sep,bold,italic,underline,strike,code,highlight,sep,link,sep,bullet,ordered,quote,sep,comment" ",")
         return out
     }
 
-    ; i18n: "Undo" "Redo" "Bold" "Italic" "Underline" "Strikethrough" "Code" "Link" "Bulleted list" "Numbered list" "Quote" "Comment" "Paragraph style"
+    ; i18n: "Undo" "Redo" "Bold" "Italic" "Underline" "Strikethrough" "Code" "Link" "Bulleted list" "Numbered list" "Quote" "Comment" "Paragraph style" "Highlight" "Callout" "No callout" "Info" "Tip" "Warning" "Danger"
     sfn nameOf:string (id:string) {
         if (id == "undo") { return (PresI18n.t("Undo")) }
         if (id == "redo") { return (PresI18n.t("Redo")) }
@@ -88,6 +97,7 @@ class PresDocBar {
         if (id == "underline") { return (PresI18n.t("Underline")) }
         if (id == "strike") { return (PresI18n.t("Strikethrough")) }
         if (id == "code") { return (PresI18n.t("Code")) }
+        if (id == "highlight") { return (PresI18n.t("Highlight")) }
         if (id == "link") { return (PresI18n.t("Link")) }
         if (id == "bullet") { return (PresI18n.t("Bulleted list")) }
         if (id == "ordered") { return (PresI18n.t("Numbered list")) }
@@ -98,7 +108,7 @@ class PresDocBar {
 
     ; The buttons that show on or off.
     sfn isToggle:boolean (id:string) {
-        return ((((id == "bold") || (id == "italic")) || ((id == "underline") || (id == "strike"))) || ((((id == "code") || (id == "link")) || ((id == "bullet") || (id == "ordered"))) || (id == "quote")))
+        return ((((id == "bold") || (id == "italic")) || ((id == "underline") || (id == "strike"))) || ((((id == "code") || ((id == "link") || (id == "highlight"))) || ((id == "bullet") || (id == "ordered"))) || (id == "quote")))
     }
 
     fn isOn:boolean (id:string) {
@@ -115,14 +125,33 @@ class PresDocBar {
     ; What the caret has: its block's style, the buttons that are on, whether
     ; there is something to undo or redo. Built again only when it changed.
     fn setState:void (lv:string onNow:[string] undo:boolean redo:boolean) {
+        this.setCallout("")
         levelNow = lv
         on = onNow
         canUndo = undo
         canRedo = redo
     }
 
+    ; The callout at the caret, set after setState.
+    fn setCallout:void (tone:string) {
+        calloutNow = tone
+    }
+
+    sfn callouts:[string] () {
+        def out:[string] (strsplit ",info,tip,warning,danger" ",")
+        return out
+    }
+
+    sfn calloutName:string (tone:string) {
+        if (tone == "info") { return (PresI18n.t("Info")) }
+        if (tone == "tip") { return (PresI18n.t("Tip")) }
+        if (tone == "warning") { return (PresI18n.t("Warning")) }
+        if (tone == "danger") { return (PresI18n.t("Danger")) }
+        return (PresI18n.t("No callout"))
+    }
+
     fn stateKey:string () {
-        return (levelNow + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" "") + "|" + (? showBar "b" "") + zoomLabel + (? zoomOut "o" "") + (? zoomIn "i" "") + "|" + (to_string paneX) + "," + (to_string paneW) + "," + (to_string paneB))
+        return (levelNow + "|" + calloutNow + (? box.open "O" "") + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" "") + "|" + (? showBar "b" "") + zoomLabel + (? zoomOut "o" "") + (? zoomIn "i" "") + "|" + (to_string paneX) + "," + (to_string paneW) + "," + (to_string paneB))
     }
 
     fn rebuildIfChanged:void () {
@@ -178,6 +207,27 @@ class PresDocBar {
         UiTree.addClass((unwrap lv.rootEl) "db-level")
         level = lv
         UiKit.put(host lv bar)
+        ; the callout the blocks are in
+        def boxWasOpen:boolean box.open
+        def bx (new SelectCtl())
+        bx.tid = "db-box"
+        bx.name = (PresI18n.t("Callout"))
+        def tones:[string] (PresDocBar.callouts())
+        i = 0
+        while (i < (array_length tones)) {
+            def tv:string (itemAt tones i)
+            def key:string (? ((strlen tv) == 0) "none" tv)
+            bx.addItem(key (PresDocBar.calloutName(tv)) false)
+            i = (i + 1)
+        }
+        bx.value = (? ((strlen calloutNow) == 0) "none" calloutNow)
+        if boxWasOpen {
+            bx.openList()
+        }
+        bx.build()
+        UiTree.addClass((unwrap bx.rootEl) "db-box")
+        box = bx
+        UiKit.put(host bx bar)
         ; the buttons
         def tb (new ToolbarCtl())
         tb.tid = "db-tools"
@@ -333,12 +383,12 @@ class PresDocBar {
         if (((px >= x) && (px <= (x + bw))) && ((py >= y) && (py <= (y + bh)))) {
             return true
         }
-        if level.open {
+        if (level.open || box.open) {
             if (null? host.lastPage) {
                 this.page()
             }
             def t:string (host.hitTest(px py))
-            return ((indexOf t "db-level") == 0)
+            return (((indexOf t "db-level") == 0) || ((indexOf t "db-box") == 0))
         }
         return false
     }
@@ -363,6 +413,9 @@ class PresDocBar {
             return ""
         }
         if ((indexOf t "db-level") == 0) {
+            if box.open {
+                box.closeList()
+            }
             def was:string level.value
             host.click(t)
             if (level.value != was) {
@@ -374,8 +427,24 @@ class PresDocBar {
             this.rebuild()
             return ""
         }
-        if level.open {
+        if ((indexOf t "db-box") == 0) {
+            if level.open {
+                level.closeList()
+            }
+            def wasBox:string box.value
+            host.click(t)
+            if (box.value != wasBox) {
+                def bv:string box.value
+                box.closeList()
+                this.rebuild()
+                return ("callout:" + (? (bv == "none") "" bv))
+            }
+            this.rebuild()
+            return ""
+        }
+        if (level.open || box.open) {
             level.closeList()
+            box.closeList()
             this.rebuild()
         }
         def ids:[string] (PresDocBar.buttons())
@@ -434,6 +503,10 @@ class PresDocBar {
         }
         if (id == "code") {
             return "M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5"
+        }
+        if (id == "highlight") {
+            ; a marker's tip over the line it draws
+            return "M14.5 4.5l5 5-7.5 7.5H7v-5zM12 7l5 5M4 20h16"
         }
         if (id == "bullet") {
             return (PresQuickBar.iconPath("list"))

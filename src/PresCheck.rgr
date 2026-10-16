@@ -4538,6 +4538,21 @@ class PresCheck {
         this.ok(((PresCheck.docBarAt(b "db-tools-redo")) == "redo") "docbar: redo redoes")
         this.ok((b.level.value == "h2") "docbar: the style list shows the caret's block")
         this.ok((b.bh >= 44.0) "docbar: the bar is as tall as its rows")
+        ; ▮ highlight and the callout list
+        this.ok(((PresCheck.docBarAt(b "db-tools-highlight")) == "highlight") "docbar: a press on ▮ is highlight")
+        b.setCallout("warning")
+        b.rebuild()
+        this.ok((b.box.value == "warning") "docbar: the callout list shows the caret's callout")
+        this.ok(((PresCheck.docBarAt(b "db-box-trigger")) == "") "docbar: a press on the callout list opens it")
+        this.ok(b.box.open "docbar: …and it is open")
+        this.ok(((PresCheck.docBarAt(b "db-box-item-tip")) == "callout:tip") "docbar: a tone in the list is callout:tip")
+        b.setCallout("tip")
+        b.rebuild()
+        this.ok(((PresCheck.docBarAt(b "db-box-trigger")) == "") "docbar: opened again")
+        this.ok(((PresCheck.docBarAt(b "db-box-item-none")) == "callout:") "docbar: No callout is callout: (fences off)")
+        b.setState("h2" on false true)
+        b.rebuild()
+        this.ok((b.box.value == "none") "docbar: outside a callout the list says none")
         ; the zoom pill: its parts are its commands
         b.zoomLabel = "59 %"
         b.zoomOut = false
