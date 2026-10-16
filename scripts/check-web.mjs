@@ -3111,9 +3111,9 @@ try {
       a.undo();
       return { title, undone: a.docTitle(), tab: a.deckTabsState(), fileX1 };
     });
-    check("the rail sits left of the editor: Rooms, Review, Versions, the dark switch and Settings; its switch presses the bar's", railTop.edX0 === 72 && railTop.places.every(Boolean) && !railTop.gone && railTop.dark.includes("click:modeBtn"), JSON.stringify(railTop));
-    check("…Rooms opens beside the rail with General, Playground and Onboarding, the editor moved over, then back", railed.roomsShown && railTop.roomsX === 72 + 248 && railed.backX === 72, JSON.stringify({ railTop, railed }));
-    check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 72, JSON.stringify(railed));
+    check("the rail sits left of the editor: Rooms, Review, Versions, the dark switch and Settings; its switch presses the bar's", railTop.edX0 === 80 && railTop.places.every(Boolean) && !railTop.gone && railTop.dark.includes("click:modeBtn"), JSON.stringify(railTop));
+    check("…Rooms opens beside the rail with General, Playground and Onboarding, the editor moved over, then back", railed.roomsShown && railTop.roomsX === 80 + 248 && railed.backX === 80, JSON.stringify({ railTop, railed }));
+    check("…the ‹ before the Rooms heading closes the panel", railed.chevronX === 80, JSON.stringify(railed));
     check("…the name's button keeps its width, so the menus after it stay put when the name changes", railed.fileX0 === renamed.fileX1, JSON.stringify({ before: railed.fileX0, after: renamed.fileX1 }));
     check("…the name at the start of the bar becomes a field; Enter renames the deck, as one edit that undoes", railed.editing && !railed.after && renamed.title === "Renamed deck" && renamed.undone !== "Renamed deck", JSON.stringify(renamed));
 

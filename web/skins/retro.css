@@ -27,6 +27,17 @@
   --accent: var(--retro-hot-b);
 }
 
+/* EVGUI's skin gives every host's root the dark chin; Sliqtly's hosts lie
+   over one another (the bar and the rail, the panels, a room's stories) and
+   their roots are see-through, as in the other looks (.theme-pn .ui-root…) */
+.theme-retro .tb-page,
+.theme-retro .pn-page,
+.theme-retro .rm-page,
+.theme-retro .rv-page,
+.theme-retro .sk-page,
+.theme-retro .hp-page,
+.theme-retro .ce-page { background-color: rgba(0, 0, 0, 0); }
+
 /* --- the shell: the bar is the player's crest -------------------------------- */
 .theme-retro .app { background: linear-gradient(180deg, var(--retro-chin-a), var(--retro-chin-b)); }
 .theme-retro .stage-area { background: linear-gradient(180deg, hsl(var(--retro-hue) 71% 13%), var(--retro-chin-b)); }
@@ -67,6 +78,9 @@
   background: linear-gradient(90deg, var(--retro-screen-2), var(--retro-screen));
   border-right: 2px solid var(--retro-shell-b);
 }
+/* where the rail meets the bar: the work's corner rounded in the rail's
+   dark (PresToolbar.frameCorner) */
+.theme-retro .tb-corner-retro { fill: var(--retro-screen); }
 .theme-retro .tb-rooms {
   background: linear-gradient(180deg, var(--retro-screen-2), var(--retro-screen));
   border-right: 2px solid var(--retro-shell-b);
@@ -97,7 +111,7 @@
 
 /* --- the editor tabs, the tracks, the strip: dark displays -------------------- */
 /* the open-presentation row under the bar: a dark screen the tabs sit on */
-.theme-retro .deck-row { background-color: var(--retro-screen); border-bottom: 0px solid rgba(0, 0, 0, 0); }
+.theme-retro .deck-row { background: linear-gradient(180deg, var(--retro-screen), var(--retro-screen)); border-bottom: 0px solid rgba(0, 0, 0, 0); }
 .theme-retro .ed-tabs {
   background: linear-gradient(180deg, var(--retro-shell-a), var(--retro-shell-b));
   border-bottom: 2px solid var(--retro-edge);
@@ -274,8 +288,20 @@
 .theme-retro .rm-who,
 .theme-retro .rm-who-working { background-color: var(--retro-screen-2); border-color: var(--retro-screen-3); }
 .theme-retro .rm-wtext { color: var(--retro-ink-dim); }
-.theme-retro .rm-card:hover,
 .theme-retro .rm-card-cur { background-color: var(--retro-screen-3); }
+/* the tabs, the segments, the cards and their pills are ghost buttons, whose
+   words are the lit buttons' dark ink and whose hover is the lit lime
+   (EVGUI retro.css): here on the dark screen the words are light and a
+   hover is a step lighter screen */
+.theme-retro .rm-tab-label,
+.theme-retro .rm-tab-label-on { color: var(--retro-ink); }
+.theme-retro .rm-seg-label { color: var(--retro-ink-dim); }
+.theme-retro .rm-tab:hover,
+.theme-retro .rm-close:hover,
+.theme-retro .rm-seg:hover,
+.theme-retro .rm-card:hover,
+.theme-retro .rm-pill:hover { background: linear-gradient(180deg, var(--retro-screen-3), var(--retro-screen-3)); border-color: var(--retro-shell-b); }
+.theme-retro .rm-seg-on:hover { background: linear-gradient(180deg, var(--retro-hot-a), var(--retro-hot-b)); }
 .theme-retro .rm-card-sel { background-color: var(--retro-screen-3); border-color: var(--retro-shell-b); }
 .theme-retro .rm-tbulk { background-color: var(--retro-screen-2); border-color: var(--retro-screen-3); }
 .theme-retro .rm-tbulk-count { color: inherit; }
