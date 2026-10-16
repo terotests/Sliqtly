@@ -97,7 +97,8 @@ class PresHelp {
                 }
                 i = (e + 2)
             } {
-                out = (out + (strfromcode (charAt css i)))
+                ; the unit itself (`strfromcode` of a byte breaks "ä" on Go)
+                out = (out + (substring css i (i + 1)))
                 i = (i + 1)
             }
         }

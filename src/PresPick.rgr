@@ -28,6 +28,7 @@
 ; ============================================================================
 
 Import "PresDeck.rgr"
+Import "../markdown/src/MdChar.rgr"
 
 class PresPickSection {
     ; offsets in the Markdown: the section's first character and the one
@@ -204,10 +205,13 @@ class PresPick {
     sfn slug:string (s:string) {
         def out:string ""
         def dash:boolean false
+        ; by code point, the same on every target: on Go a `charAt` is a
+        ; byte, and "ä" two of them (one kept, one a dash)
+        def cs:[int] (to_chars s)
         def k:int 0
-        def len:int (strlen s)
+        def len:int (array_length cs)
         while (k < len) {
-            def c:int (charAt s k)
+            def c:int (itemAt cs k)
             if ((c >= 65) && (c <= 90)) {
                 c = (c + 32)
             }
@@ -217,10 +221,7 @@ class PresPick {
                     out = (out + "-")
                 }
                 dash = false
-                out = (out + (substring s k (k + 1)))
-                if ((charAt s k) != c) {
-                    out = ((substring out 0 ((strlen out) - 1)) + (strfromcode c))
-                }
+                out = (out + (MdChar.fromCode(c)))
             } {
                 dash = true
             }

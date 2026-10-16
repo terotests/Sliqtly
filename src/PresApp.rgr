@@ -11483,10 +11483,11 @@ class PresApp {
     sfn slug:string (t:string) {
         def out:string ""
         def dash:boolean false
-        def low:string (to_lowercase t)
+        ; by code point: on Go a `charAt` is a byte, and "ä" (228) never one
+        def low:[int] (to_chars (to_lowercase t))
         def i:int 0
-        while ((i < (strlen low)) && ((strlen out) < 40)) {
-            def c:int (charAt low i)
+        while ((i < (array_length low)) && ((strlen out) < 40)) {
+            def c:int (itemAt low i)
             ; ä å → a, ö → o
             if ((c == 228) || (c == 229)) {
                 c = 97

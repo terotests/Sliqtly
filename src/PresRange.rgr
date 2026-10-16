@@ -290,7 +290,9 @@ class PresRange {
                     inC = true
                     k = (k + 1)
                 } {
-                    t = (t + (strfromcode ch))
+                    ; the unit itself: `strfromcode` of a `charAt` splits
+                    ; "ä" into two characters on Go, whose strings are bytes
+                    t = (t + (substring upto k (k + 1)))
                 }
             }
             k = (k + 1)

@@ -833,7 +833,8 @@ class PresHint {
             if (c < 32) {
                 out = (out + " ")
             } {
-                out = (out + (strfromcode c))
+                ; the unit itself (`strfromcode` of a byte breaks "ä" on Go)
+                out = (out + (substring s i (i + 1)))
             }
             i = (i + 1)
         }
