@@ -100,9 +100,18 @@ class SpacesApp {
     def itemOccs:[string]
     def sheetSel:string ""
     def docSel:string ""
-    ; the assistant's conversation: question keys and answers
+    ; the assistant's conversation: question keys and answers; a question
+    ; the person wrote is kept as "@" and its text
     def asked:[string]
     def answers:[string]
+    ; on a server: what the person writes or pastes for the assistant, the
+    ; pictures added to it (base64, their types and names) and whether its
+    ; answer is on its way
+    def assistField:InputCtl (new InputCtl())
+    def pics:[string]
+    def picTypes:[string]
+    def picNames:[string]
+    def assistBusy:boolean false
     ; what the host has to do after a press ("import", "export:<id>")
     def action:string ""
     def status:string ""
@@ -654,6 +663,10 @@ class SpacesApp {
         cols.addChild(c2)
         cols.addChild(c3)
         v.addChild(cols)
+        ; the Add menu is long: under the columns, the page's width
+        if addOpen {
+            v.addChild((this.addMenu()))
+        }
         v.addChild((SpacesApp.tx("sp-hint" (SpWords.pick(lang "Tap a plan or a reminder to open it" "Napauta menoa tai muistutusta avataksesi sen")))))
         return v
     }
@@ -966,14 +979,15 @@ class SpacesApp {
     }
 
     ; One-off plans after today, the next five within two months; repeating
-    ; ones are the week's routine and reminders are under Remember.
+    ; ones are the week's routine, and reminders and deadlines are under
+    ; Remember.
     fn comingUp:[SpOccur] () {
         def out:[SpOccur]
         def all:[SpOccur] (space.occurrences((today + 1) (today + 60)))
         def i:int 0
         while ((i < (array_length all)) && ((array_length out) < 5)) {
             def o:SpOccur (itemAt all i)
-            if (((o.repeats) == false) && ((this.isReminder(o)) == false)) {
+            if (((o.repeats) == false) && (((this.isReminder(o)) == false) && ((this.kindOf(o.typeId)) != "deadline"))) {
                 push out o
             }
             i = (i + 1)
@@ -1038,23 +1052,35 @@ class SpacesApp {
             shown = (shown + 1)
             j = (j + 1)
         }
-        ; deadline entries whose reminder is on
+        ; deadline entries whose reminder is on, not yet done
         def due:[SpEvent] (space.dueEntries(today))
         def m:int 0
         while (m < (array_length due)) {
             def e:SpEvent (itemAt due m)
-            c.addChild((this.remindRow(("sp-entry-" + e.id) false e.title e.day (space.resourceName(e.resource)))))
-            shown = (shown + 1)
+            if ((SpacesApp.closed(e)) == false) {
+                c.addChild((this.remindRow(("sp-tick-" + e.id) true e.title e.day (space.resourceName(e.resource)))))
+                shown = (shown + 1)
+            }
             m = (m + 1)
         }
-        ; important all-day plans in the next four weeks
+        ; important all-day plans in the next four weeks: one-off ones are
+        ; ticked off, a repeating one opens in the form
         def occ:[SpOccur] (space.occurrences(today (today + 28)))
         def q:int 0
         while (q < (array_length occ)) {
             def o:SpOccur (itemAt occ q)
-            if (this.isReminder(o)) {
-                def n:int (this.rowOf(o))
-                c.addChild((this.remindRow(("sp-item-" + (to_string n)) false o.title o.day (space.resourceName(o.resource)))))
+            def oe@(optional):SpEvent (space.event(o.eventId))
+            def open:boolean true
+            if (!null? oe) {
+                open = ((SpacesApp.closed((unwrap oe))) == false)
+            }
+            if ((this.isReminder(o)) && open) {
+                if o.repeats {
+                    def n:int (this.rowOf(o))
+                    c.addChild((this.remindRow(("sp-item-" + (to_string n)) false o.title o.day (space.resourceName(o.resource)))))
+                } {
+                    c.addChild((this.remindRow(("sp-tick-" + o.eventId) true o.title o.day (space.resourceName(o.resource)))))
+                }
                 shown = (shown + 1)
             }
             q = (q + 1)
@@ -1065,15 +1091,19 @@ class SpacesApp {
         def add:EVGElement (SpacesApp.btn("sp-add" "sp-addbig" ((SpWords.pick(lang "+ Add " "+ Lisää ")) + (to_lowercase (SpWords.noun(lang pack "event"))))))
         add.a11yExpanded = (SpacesApp.tri(addOpen))
         c.addChild(add)
-        if addOpen {
-            c.addChild((this.addMenu()))
-        }
         c.addChild((this.legend()))
         return c
     }
 
-    ; A reminder: a box to tick (a deadline of the page's own) or a flag (an
-    ; entry, opened in the form), its title and when.
+    ; An entry marked done, cancelled or archived (the common `status`).
+    sfn closed:boolean (e:SpEvent) {
+        def st:string (e.fieldText("status"))
+        return (((st == "done") || (st == "cancelled")) || (st == "archived"))
+    }
+
+    ; A reminder: a box to tick (a deadline, or an entry whose status then
+    ; becomes done) or a flag (a repeating plan, opened in the form), its
+    ; title and when.
     fn remindRow:EVGElement (id:string tick:boolean title:string day:int ward:string) {
         def row:EVGElement (UiTree.div(id "sp-rcard"))
         row.role = "button"
@@ -1443,6 +1473,9 @@ class SpacesApp {
         if (tid == "sp-new-name") {
             return "sp-create"
         }
+        if (tid == "sp-assist-text") {
+            return "sp-assist-send"
+        }
         return ""
     }
 
@@ -1701,7 +1734,14 @@ class SpacesApp {
 
     fn assistantView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
-        v.addChild((this.heading((SpWords.ui(lang "assistant")) (SpWords.ui(lang "local")))))
+        def sub:string (SpWords.ui(lang "local"))
+        if (server && ((strlen spaceId) > 0)) {
+            sub = (SpWords.pick(lang "Write or paste a school letter, a timetable, an invitation or a message, or add a picture of one: the assistant makes the events, hobbies, deadlines and reminders of it in the calendar." "Kirjoita tai liitä koulun tiedote, aikataulu, kutsu tai viesti, tai lisää siitä kuva: avustaja tekee siitä menot, harrastukset, määräpäivät ja muistutukset kalenteriin."))
+        }
+        v.addChild((this.heading((SpWords.ui(lang "assistant")) sub)))
+        if (server && ((strlen spaceId) > 0)) {
+            v.addChild((this.assistInput()))
+        }
         def qs:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
         qs.role = "group"
         qs.a11yLabel = (SpWords.ui(lang "ask"))
@@ -1725,7 +1765,18 @@ class SpacesApp {
             def qrow:EVGElement (SpacesApp.box("sp-row"))
             qrow.addChild((SpacesApp.box("sp-grow")))
             def q:EVGElement (SpacesApp.box("sp-bubble-q"))
-            q.addChild((SpacesApp.tx("sp-bubble-q-tx" (SpWords.ui(lang (itemAt asked j))))))
+            def qk:string (itemAt asked j)
+            def qt:string (SpWords.ui(lang qk))
+            if (UiTree.beginsWith(qk "@")) {
+                qt = (SpacesApp.clip((substring qk 1 (strlen qk)) 400))
+            }
+            def qtx:EVGElement (SpacesApp.tx("sp-bubble-q-tx" qt))
+            ; a long question wraps in a bubble as wide as the answers
+            if ((strlen qt) > 60) {
+                UiTree.inline(q "width" (SpacesApp.px(w)))
+                UiTree.inline(qtx "width" (SpacesApp.px((w - 90.0))))
+            }
+            q.addChild(qtx)
             qrow.addChild(q)
             feed.addChild(qrow)
             def a:EVGElement (this.markdown(("sp-answer-" + (to_string j)) (itemAt answers j) w))
@@ -1754,6 +1805,167 @@ class SpacesApp {
     fn ask:void (q:string) {
         push asked q
         push answers (SpAssist.answer(space lang today q))
+    }
+
+    ; The field, the pictures added and Send.
+    fn assistInput:EVGElement () {
+        def box:EVGElement (SpacesApp.box("sp-assist"))
+        assistField.multiline = true
+        assistField.maxLines = 6
+        def fr:EVGElement (this.field(assistField "sp-assist-text" (SpWords.pick(lang "For the assistant" "Avustajalle")) (SpWords.pick(lang "E.g. Leo has swimming on Tuesdays at 17–18 until the end of May" "Esim. Leolla on uinti tiistaisin klo 17–18 toukokuun loppuun")) "text"))
+        ; as wide as the view: a letter is long
+        UiTree.inline(fr "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+        box.addChild(fr)
+        if ((array_length pics) > 0) {
+            def prow:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+            def i:int 0
+            while (i < (array_length pics)) {
+                def nm:string (itemAt picNames i)
+                prow.addChild((SpacesApp.btn(("sp-assist-drop-" + (to_string i)) "sp-chip" ("× " + nm))))
+                i = (i + 1)
+            }
+            box.addChild(prow)
+        }
+        def row:EVGElement (SpacesApp.box("sp-row"))
+        row.addChild((SpacesApp.btn("sp-assist-image" "sp-action" (SpWords.pick(lang "Add a picture" "Lisää kuva")))))
+        row.addChild((SpacesApp.box("sp-grow")))
+        if assistBusy {
+            row.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "Reading…" "Luetaan…")))))
+        } {
+            row.addChild((SpacesApp.btn("sp-assist-send" "sp-action sp-action-primary" (SpWords.pick(lang "Send" "Lähetä")))))
+        }
+        box.addChild(row)
+        return box
+    }
+
+    sfn clip:string (t:string n:int) {
+        if ((strlen t) <= n) {
+            return t
+        }
+        return ((substring t 0 n) + "…")
+    }
+
+    ; A picture for the assistant, from the host: its type, base64 and name.
+    fn addImage:void (name:string mime:string data:string) {
+        if ((array_length pics) >= 3) {
+            status = (SpWords.pick(lang "At most three pictures at a time" "Enintään kolme kuvaa kerralla"))
+            this.rebuild()
+            return
+        }
+        push pics data
+        push picTypes mime
+        def nm:string name
+        if ((strlen nm) == 0) {
+            nm = (SpWords.pick(lang "Picture" "Kuva"))
+        }
+        push picNames (SpacesApp.clip(nm 24))
+        tab = "assistant"
+        this.rebuild()
+    }
+
+    fn dropImage:void (k:int) {
+        def p2:[string]
+        def t2:[string]
+        def n2:[string]
+        def i:int 0
+        while (i < (array_length pics)) {
+            if (i != k) {
+                push p2 (itemAt pics i)
+                push t2 (itemAt picTypes i)
+                push n2 (itemAt picNames i)
+            }
+            i = (i + 1)
+        }
+        pics = p2
+        picTypes = t2
+        picNames = n2
+    }
+
+    ; What is written and the pictures go to the server's assistant, with
+    ; the conversation so far.
+    fn sendAssist:void () {
+        def text:string (trim assistField.value)
+        if (((strlen text) == 0) && ((array_length pics) == 0)) {
+            status = (SpWords.pick(lang "Write something or add a picture" "Kirjoita jotain tai lisää kuva"))
+            focused = "sp-assist-text"
+            return
+        }
+        if assistBusy {
+            return
+        }
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("text" (SpRemote.str(text)))
+        o.setMember("today" (SpRemote.str((SpSpace.dateText(today)))))
+        def ims:VlJson (VlJson.arrayValue())
+        def i:int 0
+        while (i < (array_length pics)) {
+            def im:VlJson (VlJson.objectValue())
+            im.setMember("mimeType" (SpRemote.str((itemAt picTypes i))))
+            im.setMember("data" (SpRemote.str((itemAt pics i))))
+            push ims.arr im
+            i = (i + 1)
+        }
+        o.setMember("images" ims)
+        def hist:VlJson (VlJson.arrayValue())
+        def j:int 0
+        while (j < (array_length asked)) {
+            def qk:string (itemAt asked j)
+            if (UiTree.beginsWith(qk "@")) {
+                def hu:VlJson (VlJson.objectValue())
+                hu.setMember("role" (SpRemote.str("user")))
+                hu.setMember("text" (SpRemote.str((substring qk 1 (strlen qk)))))
+                push hist.arr hu
+                def ha:VlJson (VlJson.objectValue())
+                ha.setMember("role" (SpRemote.str("assistant")))
+                ha.setMember("text" (SpRemote.str((itemAt answers j))))
+                push hist.arr ha
+            }
+            j = (j + 1)
+        }
+        o.setMember("history" hist)
+        def shown:string text
+        if ((array_length pics) > 0) {
+            def tag:string (SpWords.pick(lang "picture" "kuva"))
+            if ((array_length pics) > 1) {
+                tag = ((to_string (array_length pics)) + (SpWords.pick(lang " pictures" " kuvaa")))
+            }
+            shown = ("[" + tag + "]")
+            if ((strlen text) > 0) {
+                shown = (text + " [" + tag + "]")
+            }
+        }
+        push asked ("@" + shown)
+        push answers (SpWords.pick(lang "Reading…" "Luetaan…"))
+        this.queue("assist" (SpRemote.write(o)) (to_string ((array_length answers) - 1)))
+        assistBusy = true
+        assistField.setValue("")
+        def none:[string]
+        pics = none
+        def none2:[string]
+        picTypes = none2
+        def none3:[string]
+        picNames = none3
+    }
+
+    ; The assistant's answer, in the row it was asked in.
+    fn assistAnswered:void (row:string text:string ok:boolean) {
+        assistBusy = false
+        def k@(optional):int (to_int row)
+        if (null? k) {
+            return
+        }
+        def n:int (unwrap k)
+        if ((n >= 0) && (n < (array_length answers))) {
+            def t:string text
+            if ((strlen t) == 0) {
+                t = (SpWords.pick(lang "Done." "Valmis."))
+            }
+            if (ok == false) {
+                t = ((SpWords.pick(lang "That did not go through: " "Se ei mennyt läpi: ")) + t)
+            }
+            set answers n t
+        }
     }
 
     ; =========================================================================
@@ -1795,21 +2007,51 @@ class SpacesApp {
         return bar
     }
 
-    ; The Add menu: the types of the space's words.
+    ; The Add menu: the types of the space's words, by group, each under its
+    ; name when the pack has several.
     fn addMenu:EVGElement () {
         def menu:EVGElement (UiTree.div("sp-addmenu" "sp-addmenu"))
         menu.role = "menu"
         menu.a11yLabel = (SpWords.ui(lang "add"))
         def list:[SpType] (types.forPack(pack))
-        def i:int 0
-        while (i < (array_length list)) {
-            def t:SpType (itemAt list i)
-            def it:EVGElement (SpacesApp.btn(("sp-addtype-" + t.id) "sp-chip" (t.name.text(lang))))
-            it.role = "menuitem"
-            menu.addChild(it)
-            i = (i + 1)
+        def groups:[string] (SpTypes.groups())
+        def g:int 0
+        while (g < (array_length groups)) {
+            def gid:string (itemAt groups g)
+            def row:EVGElement (SpacesApp.box("sp-addgroup"))
+            def n:int 0
+            def i:int 0
+            while (i < (array_length list)) {
+                def t:SpType (itemAt list i)
+                if ((t.group == gid) || (((g == 0) && ((SpacesApp.knownGroup(t.group)) == false)))) {
+                    def it:EVGElement (SpacesApp.btn(("sp-addtype-" + t.id) "sp-chip" (t.name.text(lang))))
+                    it.role = "menuitem"
+                    row.addChild(it)
+                    n = (n + 1)
+                }
+                i = (i + 1)
+            }
+            if (n > 0) {
+                if ((array_length list) > 12) {
+                    menu.addChild((SpacesApp.tx("sp-addgroup-name" (SpWords.groupName(lang gid)))))
+                }
+                menu.addChild(row)
+            }
+            g = (g + 1)
         }
         return menu
+    }
+
+    sfn knownGroup:boolean (g:string) {
+        def all:[string] (SpTypes.groups())
+        def i:int 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == g) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; The occurrence a press or the focus is on: a calendar event (its box,
@@ -2898,6 +3140,15 @@ class SpacesApp {
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.heading((SpWords.ui(lang "lists")) (SpWords.pick(lang "Things, supplies, ideas, renewals and contacts: kept here, not on the calendar." "Tavarat, tarvikkeet, ideat, uusittavat ja yhteystiedot: täällä, ei kalenterissa.")))))
         def listed:[SpType] (types.listedFor(pack))
+        ; an older type the space still has entries of
+        def lt:int 0
+        while (lt < (array_length types.types)) {
+            def old:SpType (itemAt types.types lt)
+            if ((old.legacy && (old.listed())) && ((array_length (space.entriesOf(old.id))) > 0)) {
+                push listed old
+            }
+            lt = (lt + 1)
+        }
         if ((array_length listed) == 0) {
             v.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noEntries")))))
             return v
@@ -3359,6 +3610,21 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (UiTree.beginsWith(target "sp-tick-")) {
+            ; an entry ticked off on the summary: its status is done, saved
+            ; like any change
+            def e@(optional):SpEvent (space.event((substring target 8 (strlen target))))
+            if (!null? e) {
+                def ev:SpEvent (unwrap e)
+                ev.setField("status" "done" "string")
+                ev.touch()
+                status = ((SpWords.pick(lang "Done: " "Tehty: ")) + ev.title)
+                this.queueSaves()
+            }
+            focused = ""
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-day-")) {
             def dn@(optional):int (to_int (substring target 7 (strlen target)))
             if (!null? dn) {
@@ -3595,6 +3861,15 @@ class SpacesApp {
         if (c.op == "add_ward") {
             this.seedWardAdded(c.ref (o.stringOr("id" "")))
         }
+        if (c.op == "assist") {
+            this.assistAnswered(c.ref (o.stringOr("text" "")) true)
+            ; what it made or changed, from the server
+            if ((o.boolOr("changed" false)) && ((strlen spaceId) > 0)) {
+                def keep:string tab
+                this.openSpace(spaceId)
+                tab = keep
+            }
+        }
         if (c.op == "import_events") {
             def none@(optional):SpSpace
             seed = none
@@ -3656,6 +3931,9 @@ class SpacesApp {
         if (c.op == "budget") {
             budgetAsked = ""
         }
+        if (c.op == "assist") {
+            this.assistAnswered(c.ref message false)
+        }
         if ((c.op == "add_ward") || (c.op == "import_events")) {
             ; the demo data stops where it failed
             def none@(optional):SpSpace
@@ -3710,6 +3988,21 @@ class SpacesApp {
 
     ; A press that is about the server: true when it was one.
     fn pressServer:boolean (target:string) {
+        if (target == "sp-assist-send") {
+            this.sendAssist()
+            return true
+        }
+        if (target == "sp-assist-image") {
+            action = "image"
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-assist-drop-")) {
+            def dk@(optional):int (to_int (substring target 15 (strlen target)))
+            if (!null? dk) {
+                this.dropImage((unwrap dk))
+            }
+            return true
+        }
         if (UiTree.beginsWith(target "sp-open-")) {
             this.openSpace((substring target 8 (strlen target)))
             return true

@@ -45,6 +45,7 @@ type wardenField struct {
 type wardenType struct {
 	ID      string        `json:"id"`
 	Kind    string        `json:"kind"`
+	Group   string        `json:"group"`
 	Packs   []string      `json:"packs"`
 	Icon    string        `json:"icon"`
 	Repeats bool          `json:"repeats,omitempty"`
@@ -52,19 +53,44 @@ type wardenType struct {
 	Help    wardenText    `json:"help,omitempty"`
 	Fields  []wardenField `json:"fields"`
 	Cost    wardenText    `json:"cost,omitempty"`
+	// what an entry must have: date, start, end_date, ward or a field's key
+	Required []string `json:"required"`
+	// the money fields that put an entry without a cost into the budget,
+	// the first one set counting
+	Budget []string `json:"budget"`
+	// the date fields ("date": the entry's day) that make reminders
+	Reminders []wardenReminder `json:"reminders"`
+	// kept for entries already made; new ones take ReplacedBy
+	Legacy     bool   `json:"legacy,omitempty"`
+	ReplacedBy string `json:"replaced_by,omitempty"`
 }
 
-var wardenTypes = func() []wardenType {
+type wardenReminder struct {
+	Field string `json:"field"`
+	Days  int    `json:"days"`
+}
+
+var wardenTypes, wardenCommon = func() ([]wardenType, []wardenField) {
 	var f struct {
-		Types []wardenType `json:"types"`
+		Common []wardenField `json:"common"`
+		Types  []wardenType  `json:"types"`
 	}
 	if err := json.Unmarshal(wardenTypesJSON, &f); err != nil {
 		panic("assets/warden-types.json: " + err.Error())
 	}
-	return f.Types
+	return f.Types, f.Common
 }()
 
-var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "phone", "email", "url", "months"}
+var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "people", "list", "phone", "email", "url", "months"}
+
+// the entry's own keys a type may require besides its fields
+var wardenCoreKeys = []string{"title", "date", "start", "end_date", "ward", "place"}
+
+// most items of a list or people field, and characters of one item
+const (
+	wardenMaxItems = 50
+	wardenItemLen  = 200
+)
 
 var wardenPhoneRe = regexp.MustCompile(`^\+?[0-9 ()./-]{3,40}$`)
 
@@ -83,10 +109,14 @@ func wardenTypeOf(id string) *wardenType {
 	return nil
 }
 
-// the types a vocabulary pack offers; "demo" shows them all
+// the types a vocabulary pack offers; "demo" shows them all but the legacy
+// ones
 func wardenTypesFor(vocab string) []wardenType {
 	out := []wardenType{}
 	for _, t := range wardenTypes {
+		if t.Legacy {
+			continue
+		}
 		if vocab == "" || vocab == "demo" || slices.Contains(t.Packs, "*") || slices.Contains(t.Packs, vocab) {
 			out = append(out, t)
 		}
@@ -102,13 +132,14 @@ func (sp *wardenSpace) typeIDs() []string {
 	return ids
 }
 
-// the type an entry names, offered by the space's pack
-func (sp *wardenSpace) entryType(id string) (*wardenType, error) {
+// the type an entry names, offered by the space's pack; had: the type the
+// entry has already (a type its pack no longer offers stays its own)
+func (sp *wardenSpace) entryType(id, had string) (*wardenType, error) {
 	if id == "" {
 		id = "event"
 	}
 	t := wardenTypeOf(id)
-	if t == nil || !slices.Contains(sp.typeIDs(), id) {
+	if t == nil || (!slices.Contains(sp.typeIDs(), id) && id != had) {
 		return nil, roomErr{"type is one of " + strings.Join(sp.typeIDs(), ", ") + " (list_entry_types describes them)"}
 	}
 	return t, nil
@@ -234,8 +265,84 @@ func (sp *wardenSpace) fieldValue(f wardenField, v any, newWards *bool) (any, er
 			return bad("a web address, https://…")
 		}
 		return s, nil
+	case "list", "people":
+		max := wardenItemLen
+		if f.Type == "people" {
+			max = 60
+		}
+		var items []string
+		switch l := v.(type) {
+		case []any:
+			for _, x := range l {
+				s, ok := x.(string)
+				if !ok {
+					return bad("a list of texts")
+				}
+				items = append(items, s)
+			}
+		case []string:
+			items = l
+		case string:
+			items = strings.FieldsFunc(l, func(r rune) bool { return r == ';' || r == '\n' })
+		default:
+			return bad("a list of texts, or one text with ; between them")
+		}
+		out := []any{}
+		for _, s := range items {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			if f.Type == "people" {
+				s = cleanName(s)
+			}
+			if len([]rune(s)) > max {
+				return bad(fmt.Sprintf("a list of texts of at most %d characters each", max))
+			}
+			out = append(out, s)
+		}
+		if len(out) > wardenMaxItems {
+			return bad(fmt.Sprintf("a list of at most %d", wardenMaxItems))
+		}
+		if len(out) == 0 {
+			return nil, nil
+		}
+		return out, nil
 	}
 	return bad("not a known kind of field")
+}
+
+// a field an entry of type t may carry: the type's own, then the common ones
+func (t *wardenType) field(key string) (wardenField, bool) {
+	for _, f := range t.Fields {
+		if f.Key == key {
+			return f, true
+		}
+	}
+	for _, f := range wardenCommon {
+		if f.Key == key {
+			return f, true
+		}
+	}
+	return wardenField{}, false
+}
+
+// what an entry of type t lacks of what the type requires, by key
+func (t *wardenType) missing(d Doc) []string {
+	out := []string{}
+	fields, _ := d["fields"].(map[string]any)
+	for _, k := range t.Required {
+		if slices.Contains(wardenCoreKeys, k) {
+			if docStr(d, k) == "" {
+				out = append(out, k)
+			}
+			continue
+		}
+		if v, ok := fields[k]; !ok || v == nil {
+			out = append(out, "fields."+k)
+		}
+	}
+	return out
 }
 
 // the type, fields and cost of an entry, checked into d; base is what the
@@ -249,7 +356,7 @@ func (sp *wardenSpace) entryDoc(a map[string]any, d Doc, newWards *bool) error {
 		}
 		tid = strings.ToLower(strings.TrimSpace(s))
 	}
-	t, err := sp.entryType(tid)
+	t, err := sp.entryType(tid, docStr(d, "type"))
 	if err != nil {
 		return err
 	}
@@ -258,12 +365,13 @@ func (sp *wardenSpace) entryDoc(a map[string]any, d Doc, newWards *bool) error {
 	} else {
 		d["type"] = t.ID
 	}
-	// fields: the type's only; those a changed type no longer has are dropped
+	// fields: the type's and the common ones; those a changed type no longer
+	// has are dropped
 	old, _ := d["fields"].(map[string]any)
 	fields := map[string]any{}
-	for _, f := range t.Fields {
-		if v, ok := old[f.Key]; ok {
-			fields[f.Key] = v
+	for k, v := range old {
+		if _, ok := t.field(k); ok {
+			fields[k] = v
 		}
 	}
 	if v, ok := a["fields"]; ok && v != nil {
@@ -272,18 +380,19 @@ func (sp *wardenSpace) entryDoc(a map[string]any, d Doc, newWards *bool) error {
 			return roomErr{"fields is an object of the type's fields"}
 		}
 		for k, v := range m {
-			i := slices.IndexFunc(t.Fields, func(f wardenField) bool { return f.Key == k })
-			if i < 0 {
+			f, ok := t.field(k)
+			if !ok {
 				keys := []string{}
 				for _, f := range t.Fields {
 					keys = append(keys, f.Key)
 				}
-				if len(keys) == 0 {
-					return roomErr{"fields: a " + t.ID + " has none"}
+				own := "none of its own"
+				if len(keys) > 0 {
+					own = strings.Join(keys, ", ")
 				}
-				return roomErr{fmt.Sprintf("fields.%s is not a field of %s: %s", k, t.ID, strings.Join(keys, ", "))}
+				return roomErr{fmt.Sprintf("fields.%s is not a field of %s: it has %s, and the common fields of list_entry_types", k, t.ID, own)}
 			}
-			val, err := sp.fieldValue(t.Fields[i], v, newWards)
+			val, err := sp.fieldValue(f, v, newWards)
 			if err != nil {
 				return err
 			}
@@ -312,6 +421,9 @@ func (sp *wardenSpace) entryDoc(a map[string]any, d Doc, newWards *bool) error {
 	}
 	if t.Kind != "record" && !wardenDate(docStr(d, "date")) {
 		return roomErr{"date is missing: the day as YYYY-MM-DD"}
+	}
+	if miss := t.missing(d); len(miss) > 0 {
+		return roomErr{fmt.Sprintf("a %s needs %s", t.ID, strings.Join(miss, ", "))}
 	}
 	return nil
 }
@@ -381,7 +493,8 @@ func wardenNum(v any) float64 {
 	return 0
 }
 
-// the day a deadline starts to show as due
+// the day a deadline starts to show as due: remind_days before its day, or
+// as many as the type's reminder on its day says, or wardenRemindDays
 func wardenRemindFrom(d Doc) string {
 	t := wardenTypeOf(docStr(d, "type"))
 	day, err := time.Parse("2006-01-02", docStr(d, "date"))
@@ -389,12 +502,70 @@ func wardenRemindFrom(d Doc) string {
 		return ""
 	}
 	n := wardenRemindDays
+	for _, r := range t.Reminders {
+		if r.Field == "date" {
+			n = r.Days
+			break
+		}
+	}
 	if f, _ := d["fields"].(map[string]any); f != nil {
 		if v, ok := f["remind_days"]; ok {
 			n = int(wardenNum(v))
 		}
 	}
 	return day.AddDate(0, 0, -n).Format("2006-01-02")
+}
+
+// the reminders the type makes of an entry's dates: {field, date, day}, the
+// day the reminder is for
+func wardenReminders(d Doc) []any {
+	t := wardenTypeOf(docStr(d, "type"))
+	if t == nil {
+		return nil
+	}
+	fields, _ := d["fields"].(map[string]any)
+	out := []any{}
+	for _, r := range t.Reminders {
+		date := docStr(d, "date")
+		if r.Field != "date" {
+			date, _ = fields[r.Field].(string)
+		}
+		day, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			continue
+		}
+		out = append(out, map[string]any{"field": r.Field, "date": date, "day": day.AddDate(0, 0, -r.Days).Format("2006-01-02")})
+	}
+	return out
+}
+
+// An entry without a cost of its own that the budget still counts: the
+// first of the type's budget fields that is set, then the common actual,
+// committed and estimated costs; nil when none is set, or the entry is left
+// out of the budget.
+func wardenDerivedCost(d Doc) map[string]any {
+	fields, _ := d["fields"].(map[string]any)
+	if fields == nil {
+		return nil
+	}
+	if in, ok := fields["include_in_budget"].(bool); ok && !in {
+		return nil
+	}
+	keys := []string{}
+	if t := wardenTypeOf(docStr(d, "type")); t != nil {
+		keys = append(keys, t.Budget...)
+	}
+	keys = append(keys, "actual_cost", "committed_cost", "estimated_cost")
+	for _, k := range keys {
+		if amt := wardenNum(fields[k]); amt > 0 {
+			c := map[string]any{"amount": amt, "scope": "shared", "instalments": 1, "every_months": 1, "field": k}
+			if p := docStr(fields, "payer"); p != "" {
+				c["payer"] = p
+			}
+			return c
+		}
+	}
+	return nil
 }
 
 // the type's part of an entry's answer
@@ -410,6 +581,9 @@ func wardenEntryJSON(out map[string]any, d Doc) {
 	}
 	if r := wardenRemindFrom(d); r != "" {
 		out["remind_from"] = r
+	}
+	if r := wardenReminders(d); len(r) > 0 {
+		out["reminders"] = r
 	}
 }
 
@@ -446,7 +620,7 @@ func (s *wardenService) listEntryTypes(ctx context.Context, who wardenWho, a map
 		About string `json:"about"`
 	}
 	json.Unmarshal(wardenTypesJSON, &about)
-	return map[string]any{"about": about.About, "types": wardenTypesFor(vocab),
+	return map[string]any{"about": about.About, "common": wardenCommon, "types": wardenTypesFor(vocab),
 		"cost": "cost {amount (euros), payer (a name), scope shared|personal (a personal cost is in its payer's own budget and still listed in the group's spending), instalments (paid in this many parts, default 1), first (the first payment's day; the entry's day by default), every_months (months between parts, default 1)}"}, nil
 }
 
@@ -484,6 +658,9 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	lines := []line{}
 	for i, d := range docs {
 		c, _ := d["cost"].(map[string]any)
+		if c == nil {
+			c = wardenDerivedCost(d)
+		}
 		if c == nil {
 			continue
 		}
@@ -528,6 +705,10 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 				"event_id": ids[i], "title": docStr(d, "title"), "type": wardenOr(docStr(d, "type"), "event"),
 				"date": pd.Format("2006-01-02"), "amount": amt, "payer": who, "scope": docStr(c, "scope"), "n": k + 1, "of": n,
 			}})
+			// a cost read from the entry's fields says which
+			if f := docStr(c, "field"); f != "" {
+				lines[len(lines)-1].m["from_field"] = f
+			}
 		}
 	}
 	sort.SliceStable(lines, func(i, j int) bool { return docStr(lines[i].m, "date") < docStr(lines[j].m, "date") })

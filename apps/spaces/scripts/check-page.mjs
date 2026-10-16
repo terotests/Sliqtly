@@ -11,8 +11,9 @@
  * server: it reads the space from the API, a typed invite reaches the API,
  * a double-click opens an event in the form and a typed title is saved,
  * Backspace deletes the selected event, the Add menu makes a new entry, the
- * budget is read from the API, and a signed-out answer sends the page to
- * the sign-in page.
+ * budget is read from the API, a picture picked for the assistant goes to
+ * it with the text (made a JPEG) and its answer is shown, and a signed-out
+ * answer sends the page to the sign-in page.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -164,6 +165,7 @@ try {
         lines: [{ event_id: "ev7", title: "Swimming fee", type: "hobby", date: last.from + "-10", amount: 42, payer: "Mia", scope: "shared", n: 1, of: 1 }] }] });
     }
     if (op === "invite_member") return send(space({ invites: [calls[calls.length - 1].body.email] }));
+    if (op === "assist") return send({ space_id: "sp1", text: "Added Leo's swimming on Tuesdays.", changed: true, event_ids: ["ev9"], calls: [{ tool: "import_events", ok: true }] });
     return send({ error: "not in this check" }, 400);
   });
   await new Promise((ok) => api.listen(0, "127.0.0.1", ok));
@@ -259,6 +261,30 @@ try {
       .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Swimming fee"), null, { timeout: 5000 })
       .then(() => true, () => false);
     ok("the budget is read from the API", budget, JSON.stringify(calls.map((c) => c.op)));
+
+    // the assistant: a picture and a line of text
+    await clickId(page, "sp-nav-assistant");
+    await page.waitForTimeout(200);
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg==", "base64");
+    await page.setInputFiles("#picture", { name: "letter.png", mimeType: "image/png", buffer: png });
+    const picked = await page.waitForFunction(() => window.__spaces.pics.length === 1, null, { timeout: 5000 }).then(() => true, () => false);
+    ok("a picked picture is added", picked);
+    await clickId(page, "sp-assist-text");
+    await page.waitForTimeout(100);
+    await page.keyboard.type("Swimming on Tuesdays");
+    await page.keyboard.press("Enter");
+    const answered = await page
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Added Leo's swimming on Tuesdays."), null, { timeout: 5000 })
+      .then(() => true, () => false);
+    const asked = calls.filter((c) => c.op === "assist").pop();
+    ok("the assistant gets the text and a JPEG", asked && asked.body.text === "Swimming on Tuesdays" && asked.body.images.length === 1
+      && asked.body.images[0].mimeType === "image/jpeg" && Buffer.from(asked.body.images[0].data, "base64")[0] === 0xff, JSON.stringify(asked && asked.body.text));
+    ok("its answer is shown and the space read again", answered && calls[calls.length - 1].op === "get_space", JSON.stringify(calls.slice(-3).map((c) => c.op)));
+    if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "assistant.png") });
+    await clickId(page, "sp-nav-calendar");
+    await clickId(page, "sp-add");
+    await page.waitForTimeout(200);
+    if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "addmenu.png"), fullPage: true });
     ok("no errors", errors.length === 0, errors.join(" | "));
     await page.close();
 

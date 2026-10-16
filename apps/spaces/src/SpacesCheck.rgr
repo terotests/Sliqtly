@@ -421,7 +421,31 @@ class SpacesCheck {
         def fam:[SpType] (ts.forPack("family"))
         def biz:[SpType] (ts.forPack("business"))
         def demo:[SpType] (ts.forPack("demo"))
-        this.eqi((array_length demo) (array_length ts.types) "the demo pack offers every type")
+        def legacy:int 0
+        def li:int 0
+        while (li < (array_length ts.types)) {
+            def lty:SpType (itemAt ts.types li)
+            if lty.legacy {
+                legacy = (legacy + 1)
+            }
+            li = (li + 1)
+        }
+        this.ok((legacy > 0) "older types are kept as legacy")
+        this.eqi((array_length demo) ((array_length ts.types) - legacy) "the demo pack offers every type but the legacy ones")
+        def famIds:string ""
+        def fi:int 0
+        while (fi < (array_length fam)) {
+            def ft:SpType (itemAt fam fi)
+            famIds = (famIds + " " + ft.id)
+            fi = (fi + 1)
+        }
+        this.ok((((indexOf famIds " birthday_invitation") >= 0) && ((indexOf famIds " invitation") < 0)) "family offers the new invitation, not the old")
+        def bi@(optional):SpType (ts.find("birthday_invitation"))
+        if (!null? bi) {
+            def b:SpType bi
+            this.eq(b.group "event" "a type's group")
+            this.eq((b.name.text("fi")) "Syntymäpäiväkutsu" "its Finnish name")
+        }
         this.ok(((array_length biz) < (array_length fam)) "a pack offers its own types")
         def bizHasCare:boolean false
         def i:int 0

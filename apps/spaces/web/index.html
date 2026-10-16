@@ -12,12 +12,13 @@
   /* One canvas drawn by EVG; the a11y mirror lies over it. */
   #stage { position: relative; width: 100%; }
   #stage canvas { display: block; outline: none; }
-  #file { display: none; }
+  #file, #picture { display: none; }
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="canvas" tabindex="0"></canvas></div>
 <input id="file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" />
+<input id="picture" type="file" accept="image/*" multiple />
 <script src="./spaces_app.js?v=__BUILD__"></script>
 <script type="module" src="./main.js?v=__BUILD__"></script>
 </body>

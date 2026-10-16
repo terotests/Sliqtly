@@ -20,8 +20,9 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   on or coming next open with its times, who looks after it and its notes;
   **this week** day by day with the plans as coloured chips (today framed,
   a day opens in the calendar) and **coming up**, the next one-off plans;
-  **remember**, the deadlines to tick off and reminders to open, the Add
-  button and the wards' colours.
+  **remember**, the deadlines and reminders to tick off (an entry's
+  `status` becomes `done`, saved like any change), the Add button and the
+  wards' colours.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the
   space; one day of a repeating event becomes its own event.
@@ -31,6 +32,12 @@ it, and how ("Takes: Juho", "Picks up: Mia").
 - **Documents**: notes, and the summaries and plans the assistant writes.
 - **Assistant**: answers about today, this week, next week, overdue items, and
   drafts a plan for next week, from the space's own data.
+
+Entry types come from `mcp-go/assets/warden-types.json`: fields common to
+every entry, and for Family about fifty types (invitations, hobbies, school,
+care, health, travel, bills, purchases, repairs, reminders, changes to the
+routine…), each with its group (the Add menu's headings), what it requires,
+the money fields that go to the budget and the dates that make reminders.
 
 Repeating events take a subset of iCalendar RRULE: DAILY, WEEKLY (with
 BYDAY), MONTHLY, INTERVAL, UNTIL, COUNT and EXDATE.
@@ -60,6 +67,11 @@ With the meta tag the page
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
+- has an **Assistant** that takes text or pictures (a school letter, a
+  timetable, an invitation; a picture is made a JPEG of at most 1600 px
+  first) and sends them to `assist`: the server's model makes the entries
+  with Warden's own MCP tools (`mcp-go/wardenai.go`), and the page reads the
+  space again;
 - has a **Members** view (members, invites; the owner invites by email and
   removes) and a **Spaces** view (the spaces you are in, and a new one);
 - offers an empty space the pack's demo data: its wards, then its events
@@ -95,5 +107,5 @@ checkout and EVGUI, with `src/` linked in as `gallery/spaces`.
 
 Without a server the data lives in the page and resets on reload; on one,
 sheets and documents still do. Editing an event's details (title, ward, who)
-in a form, deleting events, `.xlsx` files, editing documents in place and a
-language model behind the assistant come next.
+in a form, deleting events, `.xlsx` files and editing documents in place
+come next; the assistant's language model is Warden's only (a server's).

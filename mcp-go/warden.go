@@ -79,6 +79,8 @@ type wardenWho struct {
 type wardenService struct {
 	db  DB
 	now func() time.Time
+	// the page's assistant (wardenai.go); nil: none
+	ai *wardenAssist
 }
 
 func newWardenService(db DB) *wardenService {
@@ -1015,6 +1017,8 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		a = map[string]any{}
 	}
 	switch op {
+	case wardenAssistOp:
+		return s.assist(ctx, who, a)
 	case "list_spaces":
 		return s.listSpaces(ctx, who, page)
 	case "create_space":

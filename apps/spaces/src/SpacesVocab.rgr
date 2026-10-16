@@ -32,6 +32,20 @@ class SpWords {
         return en
     }
 
+    ; The name of a group of entry types (SpTypes.groups).
+    sfn groupName:string (lang:string g:string) {
+        if (g == "activity") { return (SpWords.pick(lang "Hobbies" "Harrastukset")) }
+        if (g == "care") { return (SpWords.pick(lang "Care and daily routine" "Hoito ja arki")) }
+        if (g == "health") { return (SpWords.pick(lang "Health" "Terveys")) }
+        if (g == "travel") { return (SpWords.pick(lang "Travel" "Matkat")) }
+        if (g == "booking") { return (SpWords.pick(lang "Bookings" "Varaukset")) }
+        if (g == "deadline") { return (SpWords.pick(lang "Deadlines" "Määräpäivät")) }
+        if (g == "reminder") { return (SpWords.pick(lang "Reminders and contacts" "Muistutukset ja yhteydenotot")) }
+        if (g == "financial") { return (SpWords.pick(lang "Money and purchases" "Raha ja hankinnat")) }
+        if (g == "asset_action") { return (SpWords.pick(lang "Home and things" "Koti ja tavarat")) }
+        return (SpWords.pick(lang "Events" "Tapahtumat"))
+    }
+
     sfn packName:string (lang:string pack:string) {
         if (pack == "family") {
             return (SpWords.pick(lang "Family" "Perhe"))
