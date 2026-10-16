@@ -135,8 +135,9 @@ class PresToolbar {
     def ctxBulk:boolean false
     ; The left rail (a wide window): the places, Slack's way, an icon and a
     ; name each; the bar starts after it. `railValue` is the one open now
-    ; (PresApp says: the editor, the Files tab or Rooms).
-    def railW:double 72.0
+    ; (PresApp says: the editor, the Files tab or Rooms). Its width leaves the
+    ; longest name ("Katselmointi") room inside its item (toolbar.css).
+    def railW:double 80.0
     def rail:RailCtl (new RailCtl())
     def railValue:string "edit"
     ; open comments in the deck: a dot on the rail's Review
@@ -1479,12 +1480,14 @@ class PresToolbar {
     }
 
     ; The frame's piece over the work's top left corner at (x, y): it
-    ; rounds the corner of whatever is there (Rooms, the tab row).
+    ; rounds the corner of whatever is there (Rooms, the tab row). In the
+    ; retro skin the bar and the rail are not one frame; the piece is the
+    ; rail's dark there (retro.css), so the work's corner still turns.
     fn frameCorner:EVGElement (x:double y:double) {
         def r:double 12.0
         def el (EVGElement.createPath())
         el.id = "tb-corner"
-        el.className = "tb-corner"
+        el.className = (? (this.framed()) "tb-corner" "tb-corner-retro")
         el.a11yHidden = true
         el.setAttribute("position" "absolute")
         el.setAttribute("left" ((EVGDisplayList.num(x)) + "px"))
@@ -2567,10 +2570,8 @@ class PresToolbar {
             }
             ; the bar and the rail are a frame in the brand's colour; the
             ; work under the bar and right of the rail is set into it, its
-            ; top left corner rounded (Slack's window)
-            if (this.framed()) {
-                root.addChild((this.frameCorner(railW barH)))
-            }
+            ; top left corner rounded (Slack's window), in every skin
+            root.addChild((this.frameCorner(railW barH)))
         }
         if dragOn {
             this.dragChip(root)
