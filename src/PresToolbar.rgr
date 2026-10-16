@@ -516,6 +516,9 @@ class PresToolbar {
         if (id == "openbox") {
             return "openbox"
         }
+        if (id == "saveNow") {
+            return "save:now"
+        }
         if ((indexOf id "rec-") == 0) {
             return ("rec:" + (substring id 4 (strlen id)))
         }
@@ -1059,7 +1062,7 @@ class PresToolbar {
     ; assistant | settings | delete, red and last. File and a presentation's
     ; context menu in Rooms both have them.
     fn deckRows:void (m:MenuCtl canDelete:boolean) {
-        m.addItem("save" (PresI18n.t("Save .md")) false)
+        m.addItem("save" (PresI18n.t("Download .md")) false)
         def xs:UiItem (m.addSub("export" (PresI18n.t("Export")) false))
         this.exportGroups(xs)
         m.addSeparator()
@@ -2342,9 +2345,12 @@ class PresToolbar {
                 file.addItem("published" (this.publishedLabel()) false)
             }
             file.addSeparator()
+            ; Save keeps the deck where it lives (and a version of it), as
+            ; the bar's ✓ Save does; Download .md below hands out the text
+            file.addItem("saveNow" (PresI18n.t("Save")) false)
             this.deckRows(file true)
             file.setShortcut("openbox" (this.modKey("O")))
-            file.setShortcut("save" (this.modKey("S")))
+            file.setShortcut("saveNow" (this.modKey("S")))
             ; Edit: the keys' commands as rows, Paste without formatting
             ; among them (the theme's styles not taken along)
             def ed:MenuCtl (this.dropdown("edit" (PresI18n.t("Edit"))))
@@ -2516,7 +2522,8 @@ class PresToolbar {
                 this.button("dr-published" (this.publishedLabel()) "ghost" body)
             }
             body.addChild((UiKit.div("tb-dr-sep")))
-            this.button("dr-save" (PresI18n.t("Save .md")) "ghost" body)
+            this.button("dr-saveNow" (PresI18n.t("Save")) "ghost" body)
+            this.button("dr-save" (PresI18n.t("Download .md")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))
             this.button("dr-aiClaude" (PresI18n.t("Connect to AI…")) "ghost" body)
             body.addChild((UiKit.div("tb-dr-sep")))

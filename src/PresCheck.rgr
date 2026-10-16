@@ -4086,6 +4086,14 @@ class PresCheck {
         this.ok(((deck.storyStepAt(0 (lineAt + 3))) == 4) ("story: the caret on the second line is step 4, " + (to_string (deck.storyStepAt(0 (lineAt + 3))))))
         this.ok(((deck.storyStepAt(0 (indexOf deck.text "Yksi."))) == 3) "story: the caret on the first line is step 3")
         this.ok(((deck.storyStepAt(0 (indexOf deck.text "- a"))) == 0) "story: the caret off the story is no step")
+        ; a blank line after `::: story`: the body is trimmed, its lines
+        ; still counted from where its words are
+        def deckB (new PresDeck())
+        deckB.setText("## S\n\n::: story\n\nYksi.\nMutta kaksi.\n:::\n")
+        PresTimeline.planAll(deckB)
+        def atB:int (indexOf deckB.text "Mutta kaksi.")
+        this.ok(((deckB.storyStepAt(0 atB)) == 2) ("story: after a blank line the second line is step 2, " + (to_string (deckB.storyStepAt(0 atB)))))
+        this.ok(((deckB.storyStepAt(0 (indexOf deckB.text "Yksi."))) == 1) "story: after a blank line the first line is step 1")
         ; drawn: the presenter, and nothing of it when the page cannot play it
         def full:EVGDisplayList (deck.stillSlide(0))
         deck.presenterOff = true
@@ -4196,6 +4204,9 @@ class PresCheck {
         def own:string (join (tb.exportFormats()) "\n")
         def ownRows:boolean (((indexOf own "x-vidweb") >= 0) && ((indexOf own "x-recweb") >= 0))
         this.ok((ownRows && ((indexOf own "Cloud") < 0)) "export: a server's own links, not Cloud rows")
+        ; File → Save (⌘/Ctrl+S) keeps the deck; Download .md hands out its text
+        this.ok(((PresToolbar.requestFor("saveNow")) == "save:now") "file: Save asks the page to keep the deck")
+        this.ok(((PresToolbar.requestFor("save")) == "click:save") "file: Download .md is the page's download")
         def d:PresVideoOptions (PresVideoOptions.parse(""))
         this.ok((((d.width == 1920) && (d.height == 1080)) && (d.fps == 30)) "video: 1080p30 by default")
         ; the video's window: how far, Cancel asks the page, another job's

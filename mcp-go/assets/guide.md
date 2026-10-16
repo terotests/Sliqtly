@@ -663,8 +663,9 @@ participants.
 `-.->` `==>` `--o` `--x` `<-->` `~~~`, `linkStyle n` (or `default`) with
 `stroke`, `stroke-width`, `stroke-dasharray`. A node id may contain `-` and
 `.`; `end` is a keyword. A Markdown label ``A["`**bold**`"]`` is drawn as
-plain text. `click` is ignored. Also `sequenceDiagram`, `classDiagram`,
-`stateDiagram-v2`, `erDiagram`, `mindmap`, `timeline`, `journey`, `gantt`,
+plain text. `click <id> "code:…"` links a box to source code (topic
+`text`, Source code in a deck); other `click` lines are ignored. Also
+`sequenceDiagram`, `classDiagram`, `stateDiagram-v2`, `erDiagram`, `mindmap`, `timeline`, `journey`, `gantt`,
 `gitGraph`, `pie`, `quadrantChart`, `xychart`, `sankey`, `block`,
 `architecture`, `kanban`, `requirement`, `C4Context`, `packet`,
 `radar-beta`, `treemap`.
@@ -902,7 +903,9 @@ can edit.
   player (no viewBox, a background not in the slide's shape, things loaded
   from outside, text, filter effects) and what was fixed when it was saved.
   `render_slide` and `render_overview` draw SVG pictures.
-- In PDF and PPTX an SVG is a raster picture; the deck keeps the SVG.
+- In PDF and PPTX an SVG shown whole stays a vector (the PPTX carries a
+  PNG beside it for programs that cannot draw SVG); a cropped one is
+  pixels. The deck keeps the SVG.
 
 ## Vectorizing
 

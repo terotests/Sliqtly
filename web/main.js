@@ -2584,6 +2584,8 @@ async function duplicateDeck(asked) {
     await useFile(rec);
   }
   shownDoc(text);
+  // a copy is made to be changed: it opens in Edit, as a new deck does
+  app.setEditing(true, true);
   dropThumbs();
   await saveDoc(true);
   await commitVersion("@created").catch((e) => console.warn("no version kept", e));
@@ -5545,6 +5547,17 @@ async function editModeChanged(why) {
   refreshCollabBar();
   needsPaint = true;
   if (why !== "save") return;
+  await saveNow();
+}
+
+// ✓ Save, File → Save and ⌘/Ctrl+S: the deck kept where it lives and a
+// version of it in the history. A page with nowhere to keep it (the
+// viewer) hands out its text instead.
+async function saveNow() {
+  if (!vfs || viewer) {
+    document.getElementById("save").click();
+    return;
+  }
   await saveDoc(true);
   const id = await commitVersion("@saved").catch((e) => { console.warn("no version kept", e); return null; });
   toast(id ? t("Saved. The version is in the history.") : t("Saved."));
@@ -5752,6 +5765,9 @@ function handleRequests() {
       const href = r.slice(5);
       const presenting = lastLayout && lastLayout.mode === "present";
       linkTimer = setTimeout(() => followLink(href).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
+    } else if (r === "save:now") {
+      // File → Save, ⌘/Ctrl+S: kept where the deck lives, with a version
+      saveNow().catch(fail);
     } else if (r === "click:editmode") {
       // the bar's ✎ Edit / ✓ Save
       app.setEditing(!app.isEditing(), false);
@@ -9420,12 +9436,12 @@ keys.addEventListener("keydown", (ev) => {
   }
   // the menus' keys (shown beside their rows): Ctrl+M a new slide (Ctrl on
   // a Mac too: ⌘M minimises the window), ⌘/Ctrl+D duplicate it, ⌘/Ctrl+O
-  // open, ⌘/Ctrl+S save .md
+  // open, ⌘/Ctrl+S save (as ✓ Save does)
   const menuKey = !ev.altKey && !ev.shiftKey && ev.key.length === 1 ? ev.key.toLowerCase() : "";
   const menuReq = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new"
     : mod && menuKey === "d" ? "slide:duplicate"
     : mod && menuKey === "o" ? "openbox"
-    : mod && menuKey === "s" ? "click:save"
+    : mod && menuKey === "s" ? "save:now"
     : "";
   if (menuReq) {
     ev.preventDefault();
