@@ -6414,6 +6414,77 @@ try {
     await ctx.close();
   }
 
+  // Keys in the View page's code blocks and lists (RangerMarkdown's caret
+  // stops): a code line takes the caret and typing, an empty code line too,
+  // and Enter in a list makes a new item that is seen and can be typed into.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem("sliqtly.openIn", "view"); } catch (_) {} });
+    const pg = await ctx.newPage();
+    const kerr = [];
+    pg.on("pageerror", (e) => kerr.push(e.message));
+    await pg.goto(url + "?sample=esittely");
+    await pg.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
+    const md = "# Avaimet\n\n```js\nlet a = 1;\n\nlet b = 2;\n```\n\n- aa\n- bb\n";
+    await pg.evaluate((md) => { const A = window.__app; A.setEditing(true, false); A.setSource(md); A.showTab("view"); A.edDocEnsure(); }, md);
+    await pg.waitForFunction(() => { const a = window.__app; const t = a.source(); return a.docScreenAt(t.indexOf("bb")) !== ""; }, null, { timeout: 30000 });
+    const src = () => pg.evaluate(() => window.__app.source());
+    const frames = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const at = (o) => pg.evaluate((o) => window.__app.docScreenAt(o), o).then((s) => (s ? s.split(",").map(Number) : null));
+    const caret = () => pg.evaluate(() => window.__app.mdEditor.caretOffset());
+    // a click in a code line puts the caret there; typing writes there
+    const oB = md.indexOf("b = 2");
+    const pB = await at(oB);
+    check("View keys: a code line has its place on the page", !!pB, JSON.stringify(pB));
+    if (pB) {
+      await pg.mouse.click(pB[0] + 1, pB[1] + 4);
+      await frames();
+      const c1 = await caret();
+      await pg.keyboard.type("Z");
+      await frames();
+      const t1 = await src();
+      check("View keys: a click in code puts the caret there and typing writes into the code", t1.includes("let Zb = 2;") || t1.includes("let bZ = 2;"), JSON.stringify({ c1, oB, code: t1.slice(t1.indexOf("```js"), t1.indexOf("```", 8) + 3) }));
+      await pg.keyboard.press("Control+z");
+      await frames();
+    }
+    // the empty code line takes the caret too
+    const oE = md.indexOf("\n\nlet b") + 1;
+    const pE = await at(oE);
+    check("View keys: an empty code line has a place for the caret", !!pE, JSON.stringify(pE));
+    if (pE) {
+      await pg.mouse.click(pE[0] + 2, pE[1] + 4);
+      await frames();
+      await pg.keyboard.type("// x");
+      await frames();
+      check("View keys: …and typing there writes on that line", (await src()).includes("let a = 1;\n// x\nlet b = 2;"), JSON.stringify((await src()).slice(0, 60)));
+    }
+    // Enter at an item's start: a new item above, seen, the caret with the words
+    const oI = (await src()).indexOf("- bb") + 2;
+    await pg.waitForFunction((o) => window.__app.docScreenAt(o) !== "", oI, { timeout: 10000 }).catch(() => {});
+    const before = await at(oI);
+    await pg.evaluate((o) => window.__app.docSelect(o, o), oI);
+    await pg.keyboard.press("Enter");
+    await frames();
+    const t2 = await src();
+    const after = await at(await caret());
+    check("View keys: Enter at a list item's start makes a new item and the words move down with the caret", t2.includes("- aa\n- \n- bb") && after && before && after[1] > before[1] + 5, JSON.stringify({ list: t2.slice(t2.indexOf("- aa")), before, after }));
+    await pg.keyboard.press("ArrowUp");
+    await frames();
+    const up = await at(await caret());
+    await pg.keyboard.type("uusi");
+    await frames();
+    const t3 = await src();
+    check("View keys: ↑ goes to the empty item, and typing writes into it", t3.includes("- aa\n- uusi\n- bb"), JSON.stringify({ list: t3.slice(t3.indexOf("- aa")), up }));
+    // Enter at an item's end starts the next item
+    await pg.keyboard.press("Enter");
+    await pg.keyboard.type("toinen");
+    await frames();
+    check("View keys: Enter at an item's end starts the next item", (await src()).includes("- uusi\n- toinen\n- bb"), JSON.stringify((await src()).slice((await src()).indexOf("- aa"))));
+    if (shots) { fs.mkdirSync(shots, { recursive: true }); await pg.screenshot({ path: path.join(shots, "view-keys.png") }); }
+    check("View keys: …without errors", kerr.length === 0, kerr.join(" | "));
+    await ctx.close();
+  }
+
   // The caret is exact on every sample deck: each character the View page
   // shows comes back from its own point (offset → point → offset), and each
   // run of words stands for the same characters in the Markdown (a typographic
