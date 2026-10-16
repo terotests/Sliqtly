@@ -150,3 +150,85 @@ function keepInView(view, w, h, pw, ph) {
   const along = (at, size, room) => (size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, at)));
   return { x: along(view.x, pw * view.scale, w), y: along(view.y, ph * view.scale, h), scale: view.scale };
 }
+
+/**
+ * The link under slide point (x, y) on a slide's list (its `links`, laid out
+ * by the server: mcp-go/rgr/View.rgr), null for none. A line's height
+ * around the words counts, as in the editor (src/PresStageClick.rgr).
+ */
+export function linkAt(list, x, y) {
+  for (const a of (list && list.links) || []) {
+    if (x >= a.x - 1 && x <= a.x + a.w + 1 && y >= a.y - 2 && y <= a.y + a.h + 2) return a;
+  }
+  return null;
+}
+
+/**
+ * What a click on link area `a` does in the viewer on `origin`, whose
+ * public site is `site`: { slide } a slide of this deck, { open } another
+ * Sliqtly presentation on this site (this tab, so Back returns), { tab } any
+ * other web address (a new tab), or null (a script, mail, nothing).
+ */
+export function linkGo(a, origin, site) {
+  if (!a) return null;
+  if (a.slide >= 0) return { slide: a.slide };
+  const href = String(a.href || "").trim();
+  if (!href || href.startsWith("#")) return null;
+  let u;
+  try {
+    u = new URL(href, origin);
+  } catch (_) {
+    return null;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  let siteOrigin = "";
+  try {
+    siteOrigin = new URL(site).origin;
+  } catch (_) { /* no site */ }
+  if (u.origin === origin || (siteOrigin && u.origin === siteOrigin)) {
+    // the editor's address of a deck is shown here as the viewer's
+    const path = u.pathname.replace(/^\/editor\/[sd](?=\/)/, "/s");
+    if (/^\/s\/[A-Za-z0-9]{6,32}\/?$/.test(path)) {
+      // a deck on the public site opens there; on this page's own origin
+      // (a server of one's own) at this origin
+      return { open: (u.origin === origin ? origin : u.origin) + path + u.search + u.hash };
+    }
+  }
+  return { tab: u.href };
+}
+
+/**
+ * The slide a link's `#name` names (0-based), -1 when none does: a
+ * heading's anchor (or its words) or a slide's id; deck.names has each
+ * slide's heading words and id.
+ */
+export function slideOfName(names, hash) {
+  const h = String(hash || "").replace(/^#/, "");
+  if (!h || /^slide=/.test(h) || h.includes("=")) return -1;
+  let name = h;
+  try {
+    name = decodeURIComponent(h);
+  } catch (_) { /* as it is */ }
+  const want = anchorOf(name);
+  const list = names || [];
+  for (let i = 0; i < list.length; i++) {
+    for (const n of list[i] || []) if (n === name || (want && anchorOf(n) === want)) return i;
+  }
+  return -1;
+}
+
+// a heading's words as an anchor, as MdAnchor.slug makes it: lower case,
+// letters, digits and _ kept, a space or a dash between words one dash,
+// other signs left out
+function anchorOf(t) {
+  let out = "";
+  let dash = false;
+  for (const ch of String(t || "").trim().toLowerCase()) {
+    if (/[\p{L}\p{N}_]/u.test(ch)) {
+      if (dash && out) out += "-";
+      dash = false;
+      out += ch;
+    } else if (ch === " " || ch === "-" || ch === "\t") dash = true;
+  }
+  return out;
+}

@@ -16,10 +16,26 @@
 ; does not leave the slide. `#heading`, `#slide=3` and `#3` are this
 ; deck's own slides (`slideOf`); anything else is the page's to open: a
 ; Sliqtly share opens that presentation, other addresses a new tab.
+;
+; The public viewer has no layout of its own: the server hands it each
+; slide's link areas (`areas`) with the slide a link to this deck goes to
+; already found, and each slide's names (`names`) for a link from another
+; deck to a heading here (mcp-go/rgr/View.rgr, web/viewlink.js).
 ; ============================================================================
 
 Import "PresDeck.rgr"
 Import "../markdown/src/MdAnchor.rgr"
+
+; A link's words on a slide: where they are drawn (slide units), where
+; the link goes, and the slide of this deck it goes to (-1: elsewhere).
+class PresLinkArea {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def href:string ""
+    def slide:int -1
+}
 
 class PresStageClick {
 
@@ -106,5 +122,55 @@ class PresStageClick {
             return -1
         }
         return (v - 1)
+    }
+
+    ; The links on page `pg`, a line's run of one link as one area (a link
+    ; is drawn word by word).
+    sfn areas:[PresLinkArea] (deck:PresDeck pg:int) {
+        def out:[PresLinkArea]
+        def l:MdLayout (deck.layout())
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            k = (k + 1)
+            if ((((b.page != pg) || (b.kind != 0)) || ((strlen b.link) == 0)) || ((strlen (trim b.text)) == 0)) {
+                continue
+            }
+            def n:int (array_length out)
+            if (n > 0) {
+                def last:PresLinkArea (itemAt out (n - 1))
+                if (((last.href == b.link) && ((PresStageClick.near(last.y b.y)) && (PresStageClick.near(last.h b.h)))) && (b.x >= last.x)) {
+                    last.w = ((b.x + b.w) - last.x)
+                    continue
+                }
+            }
+            def a (new PresLinkArea)
+            a.x = b.x
+            a.y = b.y
+            a.w = b.w
+            a.h = b.h
+            a.href = b.link
+            a.slide = (PresStageClick.slideOf(deck b.link))
+            push out a
+        }
+        return out
+    }
+
+    sfn near:boolean (a:double b:double) {
+        return (((a - b) < 0.5) && ((b - a) < 0.5))
+    }
+
+    ; What a link from elsewhere may name slide i by (`…#name`): its
+    ; heading's words and its own id. The page makes the anchor of the words
+    ; (web/viewlink.js anchorOf, as MdAnchor.slug in the browser): a server
+    ; reading strings as bytes would cut letters like ä in two.
+    sfn names:[string] (deck:PresDeck i:int) {
+        def out:[string]
+        def s:PresSlide (deck.slideAt(i))
+        push out s.title
+        if ((strlen s.id) > 0) {
+            push out s.id
+        }
+        return out
     }
 }

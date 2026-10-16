@@ -1,6 +1,6 @@
 # Sliqtly guide
 
-**Guide version 2026-10-13b.** If a result names a newer version, read Core
+**Guide version 2026-10-16.** If a result names a newer version, read Core
 again.
 
 `sliqtly_guide()` returns this Core; `sliqtly_guide(topic="…")` returns one
@@ -1745,6 +1745,22 @@ saves nothing and says why. The answer lists what each edit changed.
 `create_presentation` returns a share link; keep `deck_id` to change the
 same deck with `update_presentation`; the link stays the same. Without
 sign-in, also send the `session_key` it gave (topic `limits`).
+
+## Linking presentations
+
+A long whole splits into a main deck and its parts, each a deck of its own,
+linked with Markdown links. Make the parts first, then the main deck with
+their links, then each part's link back:
+
+- `[Export](https://sliqtly.com/s/<deck_id>)`: another deck, opened in the
+  same tab (Back returns). `…/s/<deck_id>#slide=3` opens its third slide,
+  `…/s/<deck_id>#pdf-export` the slide whose heading is "PDF export".
+- `[Plan](#plan)`, `[third](#slide=3)`: a slide of this deck.
+- Any other `https://` address opens in a new tab.
+
+Links are followed by a click in the viewer, while presenting and in the
+editor. Each part keeps its own visibility: a `private` part does not open
+for others from a `link` main deck.
 
 ## The layout report
 

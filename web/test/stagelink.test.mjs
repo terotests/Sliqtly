@@ -6,12 +6,16 @@ import { linkTarget, FOLLOW_MS } from "../stagelink.js";
 const O = "https://sliqtly.com";
 
 test("a Sliqtly presentation's link is a deck, with its slide", () => {
-  assert.deepEqual(linkTarget("https://sliqtly.com/s/AbCdEf1234", O, O), { deck: "AbCdEf1234", slide: 0, url: "https://sliqtly.com/s/AbCdEf1234" });
+  assert.deepEqual(linkTarget("https://sliqtly.com/s/AbCdEf1234", O, O), { deck: "AbCdEf1234", slide: 0, name: "", url: "https://sliqtly.com/s/AbCdEf1234" });
   assert.equal(linkTarget("https://sliqtly.com/s/AbCdEf1234?slide=3", O, O).slide, 2);
   assert.equal(linkTarget("https://sliqtly.com/s/AbCdEf1234#slide=2", O, O).slide, 1);
   // the editor's address, and one relative to this page
   assert.equal(linkTarget("https://sliqtly.com/editor/s/AbCdEf1234?edit", O, O).deck, "AbCdEf1234");
   assert.equal(linkTarget("/s/AbCdEf1234", O, O).deck, "AbCdEf1234");
+  assert.equal(linkTarget("https://sliqtly.com/editor/d/AbCdEf1234", O, O).deck, "AbCdEf1234");
+  // a heading of the other deck, found when it is open
+  assert.equal(linkTarget("/s/AbCdEf1234#pdf-export", O, O).name, "#pdf-export");
+  assert.equal(linkTarget("/s/AbCdEf1234#slide=2", O, O).name, "");
 });
 
 test("a local server's page knows the public site's links too", () => {
