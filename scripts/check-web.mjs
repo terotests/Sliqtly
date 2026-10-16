@@ -6110,10 +6110,10 @@ try {
     const log = await pg.evaluate(async () => (await window.__versions()?.log())?.map((e) => e.message) || []);
     check("✓ Save: back to View, a \"Saved\" version kept", !saved.editing && saved.tab === "view" && log.includes("@saved"), JSON.stringify({ saved, log }));
     // the View page's words are selected with a drag, as on a web page
-    await pg.mouse.move(128, 274);
+    await pg.mouse.move(136, 274);
     await pg.mouse.down();
-    await pg.mouse.move(250, 290, { steps: 5 });
-    await pg.mouse.move(350, 302, { steps: 5 });
+    await pg.mouse.move(258, 290, { steps: 5 });
+    await pg.mouse.move(358, 302, { steps: 5 });
     await pg.mouse.up();
     await pg.waitForTimeout(200);
     const sel = await pg.evaluate(() => ({ text: window.__docSelected(), editing: window.__app.isEditing() }));
@@ -6825,7 +6825,7 @@ try {
       const walk = (el, id) => { if (!el) return null; if (el.id === id) return el; for (let i = 0; i < el.getChildCount(); i++) { const f = walk(el.getChild(i), id); if (f) return f; } return null; };
       const r = walk(a.chromeRoot, "decktabs");
       const t = walk(a.chromeRoot, "decktabs-tab-sample:welcome");
-      return { y: r.calculatedY, h: r.calculatedHeight, bar: a.toolbar.barH, wings: t.getChildCount(), edY: a.tabRect.y };
+      return { y: r.calculatedY, h: r.calculatedHeight, bar: a.toolbar.barH, parts: t.getChildCount(), edY: a.tabRect.y };
     });
     // a press on the first tab opens its deck
     await drag(pg, "decktabs-tab-sample:esittely", 0);
@@ -6859,7 +6859,7 @@ try {
     const closed = await row(pg);
     await go(pg, keptId);
     const back = await pg.evaluate(() => window.__app.source());
-    check("deck tabs: the row is under the top bar and the editor under it", shape.y === shape.bar && shape.h === 40 && shape.edY === shape.bar + 40 && shape.wings === 3, JSON.stringify(shape));
+    check("deck tabs: the row is under the top bar and the editor under it", shape.y === shape.bar && shape.h === 40 && shape.edY === shape.bar + 40 && shape.parts === 5, JSON.stringify(shape));
     check("deck tabs: a deck slow to open shows no logo, only a busy pointer", !slow.shown && slow.busy && !slow.after, JSON.stringify(slow));
     check("deck tabs: the deck shown has the one tab", one.length === 2 && one[0] === "sample:esittely", one.join(" | "));
     check("deck tabs: a sample's tab takes the deck's id once it is kept", keptId && !keptId.startsWith("sample:") && kept[2] === keptId + "\tMyynti 2027", kept.join(" | "));
