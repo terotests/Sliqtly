@@ -152,6 +152,9 @@ class PresToolbar {
     def fileRows:string ""
     def roomsW:double 248.0
     def roomOpen:string "general"
+    ; the open room's presentations are shut away, its name pressed again
+    ; (web/rooms.js pressRoom): its (+) shows them again
+    def roomFolded:boolean false
     ; the server's rooms ("<id>\t<title>\t<presentations>" a line) and the
     ; open room's presentations ("<deck id>\t<name>\t<1 for the open deck>");
     ; none: the panel shows its sketch
@@ -233,6 +236,9 @@ class PresToolbar {
         }
         if (id == "roomfound") {
             roomFound = rows
+        }
+        if (id == "roomfold") {
+            roomFolded = (current == "1")
         }
         if (id == "roomdecks") {
             roomDecks = rows
@@ -1541,10 +1547,23 @@ class PresToolbar {
     ; browser's (web/rooms.js).
     ; `unread`: the room's chat has messages this browser has not read, a
     ; small blue dot after the name
+    ; Its name opens and shuts it like a tree's node: (−) before the open
+    ; room's name when its presentations show under it, (+) otherwise.
     fn roomRow:void (body:EVGElement id:string name:string count:string unread:boolean) {
         def open:boolean (id == roomOpen)
-        def row:ButtonCtl (this.button(("room-" + id) name "ghost" body))
+        def row (new ButtonCtl())
+        row.tid = ("tb-room-" + id)
+        row.name = name
+        row.variant = "ghost"
+        row.icon = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12h8M12 8v8"
+        if (open && (roomFolded == false)) {
+            row.icon = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8 12h8"
+        }
+        row.iconClass = "tb-icon-roomfold"
+        row.build()
         def rel:EVGElement (unwrap row.rootEl)
+        UiTree.addClass(rel ("tb-button tb-b-room-" + id))
+        UiKit.put(host row body)
         UiTree.addClass(rel "tb-room")
         if open {
             UiTree.addClass(rel "tb-room-open")
@@ -1559,9 +1578,10 @@ class PresToolbar {
         if (dragOn && (id == dragRoom)) {
             UiTree.addClass(rel "tb-room-dragged")
         }
-        if ((rel.getChildCount()) > 0) {
-            ; a long name gives way to the count and the buttons after it
-            def keep:double 40.0
+        if ((rel.getChildCount()) > 1) {
+            ; a long name gives way to the (+), the count and the buttons
+            ; after it
+            def keep:double 61.0
             if ((strlen count) > 0) {
                 keep = (keep + 22.0)
             }
@@ -1574,8 +1594,8 @@ class PresToolbar {
             if ((PresToolbar.builtInRoom(id)) == false) {
                 keep = (keep + 26.0)
             }
-            def lb:EVGElement (rel.getChild(0))
-            lb.textContent = (UiText.fit((this.engine()) ("# " + name) "Open Sans" 13.0 (roomsW - keep)))
+            def lb:EVGElement (rel.getChild(1))
+            lb.textContent = (UiText.fit((this.engine()) name "Open Sans" 13.0 (roomsW - keep)))
             UiTree.addClass(lb "tb-room-name")
         }
         if unread {
@@ -2010,7 +2030,7 @@ class PresToolbar {
                 }
                 this.roomRow(pane id (itemAt parts 1) count unread)
                 if (id == roomOpen) {
-                    ; the room's presentations hang from a thin line under its "#"
+                    ; the room's presentations hang from a thin line under its (−)
                     def nest:EVGElement (UiKit.div("tb-roomdecks"))
                     nest.addChild((UiKit.div("tb-roomdecks-line")))
                     def list:EVGElement (UiKit.div("tb-roomdecks-list"))

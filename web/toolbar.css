@@ -217,7 +217,7 @@
 /* a room's presentations: rows on the panel's own ground, hung from a thin
    line under the room's "#" (EVG draws no one-sided border: the line is an
    element); the open one tinted like the open room, its name in bold */
-.tb-roomdecks { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; margin: 0 0 2px 17px; }
+.tb-roomdecks { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; margin: 0 0 2px 15px; }
 .tb-roomdecks-line { width: 1px; min-width: 1px; background-color: #e4e4e7; margin: 2px 0; }
 .tb-roomdecks-list { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; flex-grow: 1; gap: 1px; padding: 0 0 0 6px; }
 .theme-tb .tb-roomdeck { height: 28px; padding: 0 8px; border-radius: 6px; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
@@ -246,6 +246,7 @@
 .theme-tb .tb-roomgear { width: 24px; height: 24px; padding: 0; margin: 0 -4px 0 6px; border-radius: 5px; flex-shrink: 0; }
 .theme-tb .tb-icon-roomgear { width: 15px; height: 15px; stroke: #a1a1aa; stroke-width: 1.8; }
 /* a folder of the open room (one level), and its presentations set in under it */
+.theme-tb .tb-icon-roomfold { width: 15px; height: 15px; stroke: #52525b; stroke-width: 1.8; margin: 0 6px 0 0; flex-shrink: 0; }
 .theme-tb .tb-icon-folder { width: 15px; height: 15px; stroke: #71717a; stroke-width: 1.7; margin: 0 6px 0 0; flex-shrink: 0; }
 .theme-tb .tb-roomdeck-in { margin: 0 0 0 16px; }
 .theme-tb .tb-room-dragged { opacity: 0.45; }
