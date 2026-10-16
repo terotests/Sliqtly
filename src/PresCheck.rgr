@@ -4086,6 +4086,14 @@ class PresCheck {
         this.ok(((deck.storyStepAt(0 (lineAt + 3))) == 4) ("story: the caret on the second line is step 4, " + (to_string (deck.storyStepAt(0 (lineAt + 3))))))
         this.ok(((deck.storyStepAt(0 (indexOf deck.text "Yksi."))) == 3) "story: the caret on the first line is step 3")
         this.ok(((deck.storyStepAt(0 (indexOf deck.text "- a"))) == 0) "story: the caret off the story is no step")
+        ; a blank line after `::: story`: the body is trimmed, its lines
+        ; still counted from where its words are
+        def deckB (new PresDeck())
+        deckB.setText("## S\n\n::: story\n\nYksi.\nMutta kaksi.\n:::\n")
+        PresTimeline.planAll(deckB)
+        def atB:int (indexOf deckB.text "Mutta kaksi.")
+        this.ok(((deckB.storyStepAt(0 atB)) == 2) ("story: after a blank line the second line is step 2, " + (to_string (deckB.storyStepAt(0 atB)))))
+        this.ok(((deckB.storyStepAt(0 (indexOf deckB.text "Yksi."))) == 1) "story: after a blank line the first line is step 1")
         ; drawn: the presenter, and nothing of it when the page cannot play it
         def full:EVGDisplayList (deck.stillSlide(0))
         deck.presenterOff = true

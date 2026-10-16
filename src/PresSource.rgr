@@ -139,6 +139,20 @@ class PresSource {
     }
 
     ; where `trimmed` (raw with its ends trimmed) starts, raw being at `at`
+    ; The line breaks in text[from, to): the blank lines a trimmed body
+    ; starts after, so its bodyLine is the line its first words are on.
+    sfn newlines:int (text:string from:int to:int) {
+        def n:int 0
+        def i:int from
+        while (i < to) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn trimmedAt:int (raw:string trimmed:string at:int) {
         if ((strlen trimmed) == 0) {
             return at
@@ -217,6 +231,7 @@ class PresSource {
                         if ((strlen ob.fence) == 0) {
                             ob.body = (trim body)
                             ob.bodyAt = (PresSource.trimmedAt(body ob.body bodyStart))
+                            ob.bodyLine = (ob.bodyLine + (PresSource.newlines(text bodyStart ob.bodyAt)))
                         }
                         ob.end = next
                         push blocks ob
@@ -240,6 +255,7 @@ class PresSource {
             if ((strlen ob2.fence) == 0) {
                 ob2.body = (trim raw2)
                 ob2.bodyAt = (PresSource.trimmedAt(raw2 ob2.body bodyStart))
+                ob2.bodyLine = (ob2.bodyLine + (PresSource.newlines(text bodyStart ob2.bodyAt)))
             }
             ob2.end = n
             push blocks ob2
