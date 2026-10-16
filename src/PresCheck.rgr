@@ -5808,6 +5808,68 @@ class PresCheck {
         this.ok(((PresDocCaret.enterText("> - yksi" 8 false)) == "\n> - ") "dockeys: …a list in a quote goes on as a list")
     }
 
+    ; The PowerPoint file's links click through: an address as a hyperlink
+    ; (a relationship with TargetMode External), a `#name` or `#3` of this
+    ; deck as a jump to that slide, a name no slide has as plain text. Its
+    ; text is set in the theme's faces, in the theme and on the runs.
+    fn pptxLinks:void () {
+        def text:string ("---\nslide-split-level: 2\n---\n\n"
+            + "## Start\n\nSee [the site](https://example.com/docs?a=1&b=2), [the end](#the-end), [three](#3) or [elsewhere](#no-such).\n\n"
+            + "## Middle\n\nText.\n\n## The end\n\nBye.\n")
+        def deck (new PresDeck())
+        deck.setStyleSheet("heading { font-family: Fjalla One } document { font-family: Lato }")
+        deck.setText(text)
+        this.ok(((deck.slideCount()) == 3) ("pptx links: three slides, got " + (to_string (deck.slideCount()))))
+        def ex (new PresExport())
+        ex.deck = deck
+        def pkg (new OpcPackage())
+        this.ok((pkg.openBytes((ex.pptx()) "links.pptx")) "pptx links: the file opens")
+        def xml:string (pkg.readXml("ppt/slides/slide1.xml"))
+        def rels:string (pkg.readXml("ppt/slides/_rels/slide1.xml.rels"))
+        this.ok(((indexOf xml "<a:hlinkClick r:id=\"rIdLink1\"/></a:rPr><a:t xml:space=\"preserve\">the site</a:t>") > 0) ("pptx links: the address is clicked through: " + xml))
+        this.ok(((indexOf rels "<Relationship Id=\"rIdLink1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"https://example.com/docs?a=1&amp;b=2\" TargetMode=\"External\"/>") > 0) ("pptx links: …to its address, external: " + rels))
+        this.ok(((PresCheck.countIn(xml "<a:hlinkClick r:id=\"rIdJump1\" action=\"ppaction://hlinksldjump\"/>")) == 2) "pptx links: #the-end and #3 jump to the same slide")
+        this.ok(((indexOf rels "<Relationship Id=\"rIdJump1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"../slides/slide3.xml\"/>") > 0) ("pptx links: …the third: " + rels))
+        this.ok(((PresCheck.countIn(xml "<a:hlinkClick")) == 3) "pptx links: a name no slide has is no link")
+        this.ok(((indexOf xml "<a:latin typeface=\"Lato\"/>") > 0) "pptx links: the runs are set in the body face")
+        this.ok(((indexOf xml "<a:latin typeface=\"Fjalla One\"/>") > 0) "pptx links: the heading in the heading face")
+        this.ok(((indexOf xml "Arial") < 0) "pptx links: no Arial in its place")
+        def theme:string (pkg.readXml("ppt/theme/theme1.xml"))
+        this.ok(((indexOf theme "<a:majorFont><a:latin typeface=\"Fjalla One\"/>") > 0) "pptx links: the theme's heading face")
+        this.ok(((indexOf theme "<a:minorFont><a:latin typeface=\"Lato\"/>") > 0) "pptx links: the theme's body face")
+        pkg.close()
+        ; slides 1 and 3 only: the jump goes to where the end is in that file,
+        ; a jump to a slide left out is none
+        def ex2 (new PresExport())
+        ex2.deck = deck
+        def only:[int] ([] _:int ( 0 2 ))
+        ex2.only = only
+        def pkg2 (new OpcPackage())
+        this.ok((pkg2.openBytes((ex2.pptx()) "some.pptx")) "pptx links: two slides of it open")
+        def rels2:string (pkg2.readXml("ppt/slides/_rels/slide1.xml.rels"))
+        this.ok(((indexOf rels2 "Target=\"../slides/slide2.xml\"/>") > 0) ("pptx links: the end is the second slide there: " + rels2))
+        pkg2.close()
+        def ex3 (new PresExport())
+        ex3.deck = deck
+        def first:[int] ([] _:int ( 0 ))
+        ex3.only = first
+        def pkg3 (new OpcPackage())
+        this.ok((pkg3.openBytes((ex3.pptx()) "one.pptx")) "pptx links: one slide of it opens")
+        def xml3:string (pkg3.readXml("ppt/slides/slide1.xml"))
+        this.ok(((PresCheck.countIn(xml3 "<a:hlinkClick")) == 1) "pptx links: a jump to a slide left out is plain text")
+        pkg3.close()
+    }
+
+    sfn countIn:int (s:string needle:string) {
+        def n:int 0
+        def at:int (indexOf s needle)
+        while (at >= 0) {
+            n = (n + 1)
+            at = (indexOfFrom s needle (at + (strlen needle)))
+        }
+        return n
+    }
+
     fn docx:void () {
         def text:string ("---\ntitle: Raportti\nslide-split-level: 2\n---\n\n"
             + "## Eka & toka\n\nTeksti **lihava** ja [linkki](https://sliqtly.com).\n\n- yksi\n- kaksi\n  - sisempi\n\n"
@@ -10085,6 +10147,7 @@ class PresCheck {
         c.recording()
         c.video()
         c.docx()
+        c.pptxLinks()
         c.a11ySlide()
         c.calmMotion()
         c.htmlPage()
