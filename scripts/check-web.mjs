@@ -6796,6 +6796,9 @@ try {
     const hits = [];
     const moved = [];
     for (const f of [0.2, 0.4, 0.6, 0.8]) {
+      // apart by more than the 400 ms that makes near presses a double or
+      // triple click (web/main.js), which select the word or the line
+      await pg.waitForTimeout(450);
       await pg.mouse.click(ex0 + (ex1 - ex0) * f, ey0);
       await frames();
       hits.push(await pg.evaluate(() => window.__app.mdEditor.caretOffset()));
