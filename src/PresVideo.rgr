@@ -39,7 +39,8 @@ class PresVideoOptions {
     def width:int 1920
     def height:int 1080
     def fps:int 30
-    ; vp9 | av1 (FFmpeg) | vp8 (Sliqtly's own encoder, PresVp8.rs)
+    ; vp9 | av1 (FFmpeg) | vp8 (Sliqtly's own encoder, PresVp8.rs) | h264
+    ; (the browser's own, WebCodecs: web/mp4export.js)
     def codec:string "vp9"
     ; yuv420p | yuv444p
     def pixelFormat:string "yuv420p"
@@ -75,7 +76,7 @@ class PresVideoOptions {
             o.fps = f
         }
         def c:string (root.stringOr("codec" "vp9"))
-        if ((c == "vp9") || (c == "av1") || (c == "vp8")) {
+        if ((((c == "vp9") || (c == "av1")) || (c == "vp8")) || (c == "h264")) {
             o.codec = c
         }
         def pf:string (root.stringOr("pixelFormat" "yuv420p"))
@@ -88,6 +89,110 @@ class PresVideoOptions {
         }
         o.sceneAware = (root.boolOr("sceneAware" false))
         return o
+    }
+}
+
+; File → Export → Video…'s window (PresApp.videoPicks, openPick): the
+; file's format, its size and its rate. MP4 (H.264 by the browser's own
+; encoder) where the browser codes H.264, WebM (Sliqtly's VP8) always, so
+; MP4 is the first choice only where it can be made. A portrait deck gets a
+; portrait frame of the same size (1080 × 1920), not a landscape one with
+; black beside the slide.
+class PresVideoChoice {
+    ; mp4 | webm
+    def format:string "mp4"
+    ; the short side: 1080 | 720
+    def size:int 1080
+    ; 30 | 60
+    def fps:int 30
+
+    ; The window's chips (PresChartEditor cfPicks): a heading and a
+    ; "key=label" line per choice, the groups apart by an empty line.
+    sfn picks:string (h264:boolean portrait:boolean) {
+        def nl:string (strfromcode 10)
+        def s:string ((PresI18n.t("Format")) + nl)
+        if h264 {
+            s = (s + "mp4=" + (PresI18n.t("MP4 (H.264)")) + nl)
+        }
+        s = (s + "webm=" + (PresI18n.t("WebM (VP8)")) + nl + nl + (PresI18n.t("Size")) + nl)
+        def big:string "1920 × 1080"
+        def small:string "1280 × 720"
+        if portrait {
+            big = "1080 × 1920"
+            small = "720 × 1280"
+        }
+        s = (s + "1080=" + big + nl + "720=" + small + nl + nl + (PresI18n.t("Frame rate")) + nl)
+        s = (s + "30=30 fps" + nl + "60=60 fps")
+        return s
+    }
+
+    ; What the window's chips say: "format,size,fps", "," between, as the
+    ; window keeps them (cfPick). Anything unknown keeps its default, and
+    ; MP4 where the browser cannot make it is WebM.
+    sfn parse:PresVideoChoice (picked:string h264:boolean) {
+        def c (new PresVideoChoice())
+        def parts:[string] (strsplit picked ",")
+        if ((array_length parts) > 0) {
+            def f:string (trim (itemAt parts 0))
+            if (f == "webm") {
+                c.format = "webm"
+            }
+        }
+        if ((array_length parts) > 1) {
+            if ((trim (itemAt parts 1)) == "720") {
+                c.size = 720
+            }
+        }
+        if ((array_length parts) > 2) {
+            if ((trim (itemAt parts 2)) == "60") {
+                c.fps = 60
+            }
+        }
+        if (h264 == false) {
+            c.format = "webm"
+        }
+        return c
+    }
+
+    ; The chips picked when the window opens: the last answer (`last`, as
+    ; picked() gave it), MP4 at 1080p30 the first time.
+    sfn chosen:string (h264:boolean last:string) {
+        def c:PresVideoChoice (PresVideoChoice.parse(last h264))
+        return (c.picked())
+    }
+
+    fn picked:string () {
+        return (format + "," + (to_string size) + "," + (to_string fps))
+    }
+
+    ; The video's options (PresVideoOptions.parse) for a deck of that page:
+    ; the long side 16:9 to the short one, turned when the page is taller
+    ; than wide.
+    fn optionsJson:string (pageW:double pageH:double) {
+        def long:int 1920
+        if (size == 720) {
+            long = 1280
+        }
+        def w:int long
+        def h:int size
+        if (pageH > pageW) {
+            w = size
+            h = long
+        }
+        def codec:string "vp8"
+        if (format == "mp4") {
+            codec = "h264"
+        }
+        return ("{\"width\":" + (to_string w) + ",\"height\":" + (to_string h) + ",\"fps\":" + (to_string fps) + ",\"codec\":\"" + codec + "\"}")
+    }
+
+    ; the file's extension and type
+    fn ext:string () {
+        return (? (format == "mp4") ".mp4" ".webm")
+    }
+
+    fn mime:string () {
+        return (? (format == "mp4") "video/mp4" "video/webm")
     }
 }
 

@@ -56,6 +56,7 @@ import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from ".
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
 import { createVideoFrames } from "./videoexport.js";
+import { h264Config, createH264Encoder } from "./mp4export.js";
 import { createVideoPlays, probeVideo, stillPlays } from "./videoplays.js";
 import { RecEncoder, packStream, streamHash, streamPath, STREAM_TYPE } from "./recstream.js";
 import { playUrl } from "./playlink.js";
@@ -5909,6 +5910,8 @@ function handleRequests() {
       keepReview().catch(fail);
     } else if (r === "progress-cancel:" + VIDEO_KEY) {
       if (videoJob) videoJob.cancel();
+    } else if (r === "confirm:video") {
+      answerVideo().catch(fail);
     } else if (r === "confirm:linkdays") {
       answerLinkDays();
     } else if (r === "confirm:zip") {
@@ -6394,9 +6397,10 @@ async function exportPdf(picked = false) {
     : deliver(app.pdf(), exportName() + ".pdf", "application/pdf");
 }
 // Video: the frames the presentation shows at n / fps (web/videoexport.js),
-// coded to WebM by Sliqtly's own VP8 encoder in a worker
-// (web/video-worker.js) and saved here. A few frames wait at most, so the
-// page holds two or three pictures, not the whole video.
+// coded to MP4 by the browser's own H.264 encoder (web/mp4export.js) or to
+// WebM by Sliqtly's own VP8 encoder in a worker (web/video-worker.js), and
+// saved here. A few frames wait at most, so the page holds two or three
+// pictures, not the whole video.
 let videoBusy = false;
 // The video being made: its window's key and how to stop it (Cancel in the
 // window asks "progress-cancel:video").
@@ -6415,28 +6419,14 @@ function videoNote(n, frames, since) {
   }
   return note;
 }
-// The video's bytes, or null when one is already being made (its window is
-// shown again) or it was cancelled. `keepOpen`: the window stays, busy, for
-// what comes after (the upload); the caller closes it.
-async function makeVideo(keepOpen = false) {
-  if (videoBusy) {
-    videoWindow();
-    return null;
-  }
-  videoBusy = true;
+// Sliqtly's own VP8 encoder in its worker, as an encoder of frames:
+// frame(n, rgba|null), end(frames) → the WebM's bytes, cancel().
+function vp8Encoder(tl) {
   const worker = new Worker("./video-worker.js?v=" + BUILD, { name: BUILD });
   const waiting = [];
   let done = null;
   let failed = null;
-  let cancelled = false;
   const release = () => { while (waiting.length) waiting.shift()(); };
-  videoJob = {
-    cancel() {
-      cancelled = true;
-      worker.terminate();
-      release();
-    },
-  };
   worker.onmessage = (e) => {
     const m = e.data;
     if (m.kind === "error") failed = new Error(m.message);
@@ -6453,18 +6443,87 @@ async function makeVideo(keepOpen = false) {
     worker.postMessage(msg);
   });
   const check = () => { if (failed) throw failed; };
+  let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
+  return {
+    async frame(n, rgba) {
+      pending.push(send({ kind: "frame", n, rgba }));
+      if (pending.length > 2) await pending.shift();
+      check();
+    },
+    async end(frames) {
+      await Promise.all(pending);
+      pending = [];
+      check();
+      await send({ kind: "end", frames });
+      check();
+      return done.bytes;
+    },
+    cancel() {
+      worker.terminate();
+      release();
+    },
+    close() { worker.terminate(); },
+  };
+}
+// The browser's H.264 encoder, as vp8Encoder; its frames are copied, the
+// video's pixels are reused for the next frame.
+function h264Encoder(tl, config) {
+  const enc = createH264Encoder({ width: tl.width, height: tl.height, fps: tl.fps, config });
+  return {
+    frame: (n, rgba) => enc.frame(n, rgba),
+    end: (frames) => enc.end(frames),
+    cancel: () => enc.close(),
+    close: () => enc.close(),
+  };
+}
+// Whether this browser makes MP4 (H.264): asked once, at 1080p30.
+let h264Here = null;
+function canH264() {
+  h264Here ??= h264Config(1920, 1080, 30).then((c) => !!c, () => false);
+  return h264Here;
+}
+// The video as `choice` asks (app.videoChoiceJson: options, ext, mime):
+// { bytes, ext, mime }, or null when one is already being made (its window
+// is shown again) or it was cancelled. MP4 this browser cannot code at that
+// size and rate is WebM. `keepOpen`: the window stays, busy, for what comes
+// after (the upload); the caller closes it.
+async function makeVideo(choice, keepOpen = false) {
+  if (videoBusy) {
+    videoWindow();
+    return null;
+  }
+  videoBusy = true;
+  let enc = null;
+  let cancelled = false;
+  videoJob = {
+    cancel() {
+      cancelled = true;
+      if (enc) enc.cancel();
+    },
+  };
   let closed = false;
   let plays = null;
+  let { options, ext, mime } = choice;
   videoWindow();
   try {
+    let config = null;
+    if (options.codec === "h264") {
+      config = await h264Config(options.width, options.height, options.fps);
+      if (!config) {
+        options = { ...options, codec: "vp8" };
+        ext = ".webm";
+        mime = "video/webm";
+        toast(t("This browser does not make MP4 at that size: the video is WebM."));
+      }
+    }
     await loadEmojiFace();
     // how long the programs on slides ask to be seen (presentation.video)
     await probeVideo({ app });
     if (cancelled) return null;
-    const tl = window.__video.begin({ codec: "vp8" });
+    const tl = window.__video.begin(options);
+    enc = config ? h264Encoder(tl, config) : vp8Encoder(tl);
     // the programs on slides, stepped to each frame's time (web/videoplays.js)
     plays = createVideoPlays({ app });
-    let pending = [send({ kind: "begin", width: tl.width, height: tl.height, fps: tl.fps, quality: 32 })];
     const since = Date.now();
     for (let n = 0; n < tl.frames && !cancelled; n++) {
       if (plays.has()) {
@@ -6472,45 +6531,75 @@ async function makeVideo(keepOpen = false) {
         await plays.step(at.slide, at.fx, 1 / tl.fps);
       }
       const f = window.__video.frame(n);
-      pending.push(send({ kind: "frame", n, rgba: f.same ? null : f.rgba }));
-      if (pending.length > 2) await pending.shift();
+      await enc.frame(n, f.same ? null : f.rgba);
       if (cancelled) break;
-      check();
       app.setProgress(VIDEO_KEY, n, tl.frames, videoNote(n, tl.frames, since), true);
     }
     if (cancelled) {
       toast(t("The video was cancelled."));
       return null;
     }
-    await Promise.all(pending);
     app.setProgress(VIDEO_KEY, tl.frames, tl.frames, t("Finishing the file…"), true);
-    await send({ kind: "end", frames: tl.frames });
+    const bytes = await enc.end(tl.frames);
     if (cancelled) {
       toast(t("The video was cancelled."));
       return null;
     }
-    check();
     if (keepOpen) {
       closed = true;
       app.setProgress(VIDEO_KEY, 1, 1, t("Sending the video to the cloud…"), false);
     }
-    return done.bytes;
+    return { bytes, ext, mime };
+  } catch (e) {
+    if (cancelled) {
+      toast(t("The video was cancelled."));
+      return null;
+    }
+    throw e;
   } finally {
     if (!closed) app.closeProgress(VIDEO_KEY);
     if (plays) plays.end();
     window.__video.close();
-    worker.terminate();
+    if (enc) enc.close();
     videoJob = null;
     videoBusy = false;
   }
 }
-async function exportVideo() {
-  const bytes = await makeVideo();
-  if (!bytes) return;
-  window.__lastDownload = deliver(bytes, exportName() + ".webm", "video/webm");
-  toast(t("The video is ready.") + " " + (bytes.length / 1048576).toFixed(1) + " MB");
+// File → Export → Video… asks the format (MP4 where this browser codes
+// H.264, WebM always), the size and the rate; the last answer is picked
+// first next time. "confirm:video" makes it.
+const VIDEO_PICK_KEY = "sliqtly.videoPick";
+function lastVideoPick() {
+  try { return localStorage.getItem(VIDEO_PICK_KEY) || ""; } catch (_) { return ""; }
+}
+async function askVideo() {
+  const h264 = await canH264();
+  const words = h264
+    ? t("MP4 plays everywhere: QuickTime, PowerPoint, phones and social media. WebM is smaller and made by Sliqtly's own encoder.")
+    : t("This browser cannot make MP4 (H.264), so the video is WebM, made by Sliqtly's own encoder. Chrome, Edge and Safari make MP4.");
+  if (app.openPick("video", t("Video"), words, t("Export"), app.videoPicks(h264), JSON.parse(app.videoChoiceJson(lastVideoPick(), h264)).picked)) {
+    needsPaint = true;
+    return;
+  }
+  // no window now (presenting): the last answer
+  await exportVideo(lastVideoPick());
+}
+async function answerVideo() {
+  const picked = app.picked();
+  try { localStorage.setItem(VIDEO_PICK_KEY, picked); } catch (_) { /* this time only */ }
+  await exportVideo(picked);
+}
+// `picked`: "format,size,fps" as the window's chips say (PresVideoChoice)
+async function exportVideo(picked = "") {
+  const choice = JSON.parse(app.videoChoiceJson(picked, await canH264()));
+  const made = await makeVideo(choice);
+  if (!made) return;
+  window.__lastDownload = deliver(made.bytes, exportName() + made.ext, made.mime);
+  toast(t("The video is ready.") + " " + (made.bytes.length / 1048576).toFixed(1) + " MB");
 }
 window.__exportVideo = exportVideo;
+window.__askVideo = askVideo;
+window.__canH264 = canH264;
 // The runs the contrast guard repairs on the stage (a colour that reads, or an
 // outline round big letters) are a judgement made while drawing, over the
 // pictures under them, so the PPTX would have the theme's colour where the
@@ -6977,8 +7066,11 @@ async function exportCloudVideo(days) {
   }
   if (!days) return askLinkDays(ownLinks() ? t("Link to a video") : t("Export as Cloud video"), exportCloudVideo);
   if (!(await cloudTakesDeck())) return;
-  const bytes = await makeVideo(true);
-  if (!bytes) return;
+  // WebM (the player at /r/ knows it by its first bytes), 1080p30, a
+  // portrait deck in a portrait frame
+  const made = await makeVideo(JSON.parse(app.videoChoiceJson("webm,1080,30", false)), true);
+  if (!made) return;
+  const bytes = made.bytes;
   try {
     await publishForWeb(bytes, ".webm", "video/webm",
       t("The presentation as a video, played by the browser's own player. A new export gets a new link.") + " (" + (bytes.length / 1048576).toFixed(1) + " MB)", days);
@@ -7106,7 +7198,7 @@ document.getElementById("player").addEventListener("click", () => { exportPlayer
 document.getElementById("recweb").addEventListener("click", () => { exportRecWeb().catch(fail); });
 document.getElementById("htmlPicked").addEventListener("click", () => { askComments("html", true).catch(fail); });
 document.getElementById("pdf").addEventListener("click", () => { askPdf(false).catch(fail); });
-document.getElementById("video").addEventListener("click", () => { exportVideo().catch(fail); });
+document.getElementById("video").addEventListener("click", () => { askVideo().catch(fail); });
 document.getElementById("vidweb").addEventListener("click", () => { exportCloudVideo().catch(fail); });
 document.getElementById("pptx").addEventListener("click", () => { exportPptx().catch(fail); });
 document.getElementById("zip").addEventListener("click", () => { askZip().catch(fail); });

@@ -441,9 +441,13 @@ is coded coarser and the one it stops at sharp. No sound yet.
 `npm run check:vp8` builds a test video with rustc and with Ranger (the
 bytes must be equal) and has FFmpeg decode it to the encoder's own pictures.
 
-In the editor, File → Export → Video (.webm) makes the same video in the
-page: 1920x1080 at 30 frames a second, coded by `vp8enc.js` in a worker
-(`web/video-worker.js`), saved as a file. Export → Cloud video keeps it
+In the editor, File → Export → Video… makes the same video in the page
+and saves it as a file. Its window asks the format, 1920x1080 or 1280x720,
+and 30 or 60 frames a second (a portrait deck gets a portrait frame,
+`PresVideoChoice`): MP4 (H.264, which QuickTime, PowerPoint and LinkedIn
+play) where the browser codes H.264 with WebCodecs (`web/mp4export.js`,
+muxed by `web/mp4mux.js`), otherwise WebM coded by `vp8enc.js` in a worker
+(`web/video-worker.js`). Export → Cloud video (WebM, 1080p30) keeps it
 with the deck as `recordings/web-<hash>.webm` and links
 `/r/{viewing link}/{hash}`, where the page (`web/play.js`) hands it to the
 browser's own video player instead of painting a recording.
@@ -479,7 +483,7 @@ voice filter, the deck's music, a realistic book's page turns. Needs
 | `src/PresTimeline.rgr` | (deck, slide, t) → display list. Deterministic: no clock of its own |
 | `src/PresEditMode.rgr` | View or Edit: a change only after Edit, Save back to reading, the tabs following (PresEditMode); a window onto the Document view's page, on the stage or in the View tab (PresDocPane) |
 | `src/PresDocView.rgr`, `src/PresDocFlow.rgr` | The Document view: the deck through the Markdown engine's continuous layout, with the Word/HTML exports' slide pictures (PresDocx shots) as vectors; PresDocFlow is its geometry alone |
-| `src/PresVideo.rgr`, `web/videoexport.js`, `web/video-worker.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
+| `src/PresVideo.rgr`, `web/videoexport.js`, `web/video-worker.js`, `web/mp4export.js`, `web/mp4mux.js`, `scripts/video.mjs` | The video export: frame n → time n / fps (the deck or a recording), its pixels, FFmpeg |
 | `src/PresVp8.rs`, `src/PresVp8Check.rs`, `scripts/check-vp8.mjs` | Sliqtly's own VP8/WebM video encoder (Rust that Ranger builds to JavaScript) and its check |
 | `src/PresApp.rgr` | The editor: panels, tracks, filmstrip, presenting, exports |
 | `src/PresCheck.rgr` | Node checks |

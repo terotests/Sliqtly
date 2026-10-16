@@ -6072,6 +6072,20 @@ class PresApp {
         return (video.toJson())
     }
 
+    ; File → Export → Video…'s choices for this deck (PresVideoChoice):
+    ; MP4 only where the browser codes H.264, the sizes turned for a
+    ; portrait deck.
+    fn videoPicks:string (h264:boolean) {
+        return (PresVideoChoice.picks(h264 (deck.pageH > deck.pageW)))
+    }
+
+    ; What the window's picked chips make: {"picked", "ext", "mime",
+    ; "options"} (options for videoBegin).
+    fn videoChoiceJson:string (picked:string h264:boolean) {
+        def c:PresVideoChoice (PresVideoChoice.parse(picked h264))
+        return ("{\"picked\":\"" + (c.picked()) + "\",\"ext\":\"" + (c.ext()) + "\",\"mime\":\"" + (c.mime()) + "\",\"options\":" + (c.optionsJson(deck.pageW deck.pageH)) + "}")
+    }
+
     ; Frame n of it: the slide's list as listJson gives it, with the slide
     ; and its effects' clock ("fx").
     ; Where frame n of the video is, without drawing it: {"slide", "local",
