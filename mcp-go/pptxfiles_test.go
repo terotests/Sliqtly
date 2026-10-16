@@ -169,4 +169,37 @@ func TestSharedPptx(t *testing.T) {
 	if !pptxgo.PptxGo_static_ok(d) || pptxgo.PptxGo_static_slideCount(d) != 4 || !strings.Contains(pptxgo.PptxGo_static_indexJson(d), `"name":"Mitä tänään"`) {
 		t.Fatalf("the saved deck: %s", pptxgo.PptxGo_static_err(d))
 	}
+	match(t, textOf(ed), `edit_pptx with undo: true`)
+
+	// taken back: the deck as it was before the edit, its five slides read
+	// again; nothing older is kept, so a second undo says so
+	un := call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "undo": true})
+	if un.IsError {
+		t.Fatal(textOf(un))
+	}
+	match(t, textOf(un), `"undo_left": 0`)
+	ls = call(t, s, "list_shared_files", nil)
+	match(t, textOf(ls), `"screens": 5`)
+	if sl := textOf(call(t, s, "get_pptx_slide", map[string]any{"file_id": "q3-review", "slide": 2})); strings.Contains(sl, "Mitä tänään") {
+		t.Fatal("undo left the edit in")
+	}
+	match(t, textOf(call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "undo": true})), `no earlier version`)
+	both := call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "undo": true, "edits": []any{map[string]any{"slide": 1, "remove": true}}})
+	match(t, textOf(both), `either edits or undo`)
+
+	// only the last pptxKeep versions are kept; undo walks back through them
+	for i := range pptxKeep + 2 {
+		e := call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "edits": []any{map[string]any{"slide": 2, "shape": "2", "text": fmt.Sprintf("Round %d", i)}}})
+		if e.IsError {
+			t.Fatal(textOf(e))
+		}
+	}
+	for want := pptxKeep + 1; want > 1; want-- {
+		u := call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "undo": true})
+		if u.IsError {
+			t.Fatal(textOf(u))
+		}
+		match(t, textOf(call(t, s, "get_pptx_slide", map[string]any{"file_id": "q3-review", "slide": 2})), fmt.Sprintf("Round %d", want-1))
+	}
+	match(t, textOf(call(t, s, "edit_pptx", map[string]any{"file_id": "q3-review", "undo": true})), `no earlier version`)
 }

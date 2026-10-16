@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -319,4 +320,123 @@ func TestAIUsage(t *testing.T) {
 	}
 	eq(t, aiUsageOf("some-model", aiAnswer{In: 1})["usd"], -1.0)
 	eq(t, (&aiAssist{model: &geminiModel{model: "gemini-3.6-flash"}}).modelName(), "gemini-3.6-flash")
+}
+
+// a model safe to ask side by side, a while answering; fail: it used
+// tokens in rounds and then failed, as an agent loop can
+type slowAI struct {
+	mu    sync.Mutex
+	asked int
+	fail  bool
+}
+
+func (f *slowAI) Ask(_ context.Context, _ string, _ []aiTurn) (aiAnswer, error) {
+	f.mu.Lock()
+	f.asked++
+	f.mu.Unlock()
+	time.Sleep(20 * time.Millisecond)
+	if f.fail {
+		return aiAnswer{In: 8 * 900, Out: 8 * 50, Calls: 8}, errors.New("round 8: 500")
+	}
+	return aiAnswer{Text: "Done.", In: 100, Out: 20}, nil
+}
+
+// The month's allowance is taken before the model is asked, the check and
+// the taking in one step: questions asked side by side never go over it.
+// A call that fails after using tokens is charged; one that used none is not.
+func TestAIQuotaAtomic(t *testing.T) {
+	e, base, stop := editorServer(t)
+	defer stop()
+	api := base + "/editor/api/ai/"
+	ai := &slowAI{}
+	e.EditorGate.ai = newAIAssist(ai, e.DB)
+	e.EditorGate.ai.now = func() time.Time { return editorNow }
+	ctx := context.Background()
+	if err := e.DB.Set(ctx, licenseCol, "u-anna", Doc{"aiMonthly": int64(5)}); err != nil {
+		t.Fatal(err)
+	}
+	ask := `{"message":"Make it shorter","scope":"slide","context":{"slide":1,"slides":1,"slideMarkdown":"## Two"}}`
+	var wg sync.WaitGroup
+	codes := make([]int, 20)
+	for i := range codes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, _ := editorDo(t, "POST", api+"ask", "anna", base, ask)
+			codes[i] = res.StatusCode
+		}()
+	}
+	wg.Wait()
+	answered := 0
+	for _, c := range codes {
+		if c == 200 {
+			answered++
+		} else if c != 402 {
+			t.Fatalf("status %d", c)
+		}
+	}
+	used := func() Doc {
+		u, _ := e.DB.Get(ctx, aiUsageCol, "u-anna")
+		m, _ := u["2026-10"].(map[string]any)
+		return m
+	}
+	eq(t, answered, 5)
+	eq(t, ai.asked, 5)
+	eq(t, docInt(used()["actions"]), int64(5))
+
+	// the rounds a failing call used are counted, and so is its action
+	if err := e.DB.Set(ctx, licenseCol, "u-anna", Doc{"aiMonthly": int64(50)}); err != nil {
+		t.Fatal(err)
+	}
+	ai.fail = true
+	res, body := editorDo(t, "POST", api+"ask", "anna", base, ask)
+	eq(t, res.StatusCode, 502)
+	match(t, body, `"left":44`)
+	m := used()
+	eq(t, []any{docInt(m["actions"]), docInt(m["calls"]), docInt(m["in"]), docInt(m["out"])}, []any{int64(6), int64(13), int64(5*100 + 8*900), int64(5*20 + 8*50)})
+
+	// a model out of reach used no tokens: the action is given back
+	e.EditorGate.ai.model = &fakeAI{err: errAINotSetUp}
+	res, body = editorDo(t, "POST", api+"ask", "anna", base, ask)
+	eq(t, res.StatusCode, 502)
+	match(t, body, `"left":44`)
+	eq(t, docInt(used()["actions"]), int64(6))
+}
+
+// IncrementCapped on the folder store: one step, never over the cap.
+func TestIncrementCappedFolder(t *testing.T) {
+	db, _, err := newFSStore(t.TempDir(), "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	got := 0
+	for range 12 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := db.IncrementCapped(ctx, aiUsageCol, "u1", []string{"2026-10", "actions"}, 2, 9)
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				mu.Lock()
+				got++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	eq(t, got, 4)
+	d, _ := db.Get(ctx, aiUsageCol, "u1")
+	eq(t, docPathInt(d, []string{"2026-10", "actions"}), int64(8))
+	// the other fields of the month stay as they were
+	if err := db.Increment(ctx, aiUsageCol, "u1", Doc{"2026-10": Doc{"in": int64(7)}}); err != nil {
+		t.Fatal(err)
+	}
+	ok, _ := db.IncrementCapped(ctx, aiUsageCol, "u1", []string{"2026-10", "actions"}, 1, 9)
+	d, _ = db.Get(ctx, aiUsageCol, "u1")
+	eq(t, []any{ok, docPathInt(d, []string{"2026-10", "actions"}), docPathInt(d, []string{"2026-10", "in"})}, []any{true, int64(9), int64(7)})
 }

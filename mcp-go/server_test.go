@@ -203,6 +203,30 @@ func (f *fakeDB) Increment(_ context.Context, col, id string, add Doc) error {
 	f.data[col+"/"+id] = inc(f.data[col+"/"+id], add)
 	return nil
 }
+func (f *fakeDB) IncrementCapped(_ context.Context, col, id string, path []string, n, limit int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cur := f.data[col+"/"+id]
+	v := docPathInt(cur, path) + n
+	if v > limit {
+		return false, nil
+	}
+	if cur == nil {
+		cur = Doc{}
+		f.data[col+"/"+id] = cur
+	}
+	m := map[string]any(cur)
+	for _, k := range path[:len(path)-1] {
+		sub, _ := m[k].(map[string]any)
+		if sub == nil {
+			sub = map[string]any{}
+			m[k] = sub
+		}
+		m = sub
+	}
+	m[path[len(path)-1]] = v
+	return true, nil
+}
 func (f *fakeDB) doc(k string) Doc {
 	f.mu.Lock()
 	defer f.mu.Unlock()

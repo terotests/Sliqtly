@@ -257,6 +257,33 @@ func (d *engineDB) Increment(ctx context.Context, col, id string, add Doc) error
 	return err
 }
 
+func (d *engineDB) IncrementCapped(ctx context.Context, col, id string, path []string, n, limit int64) (bool, error) {
+	_, _, err := d.e.Update(ctx, col, id, func(cur Doc, _ store.Rev) (Doc, error) {
+		v := docPathInt(cur, path) + n
+		if v > limit {
+			return nil, errNotWanted
+		}
+		if cur == nil {
+			cur = Doc{}
+		}
+		m := cur
+		for _, k := range path[:len(path)-1] {
+			sub, _ := m[k].(map[string]any)
+			if sub == nil {
+				sub = map[string]any{}
+				m[k] = sub
+			}
+			m = sub
+		}
+		m[path[len(path)-1]] = v
+		return cur, nil
+	})
+	if errors.Is(err, errNotWanted) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // the collections whose documents go once their `expires` has passed, as
 // Firestore's TTL policies have them (firestore.indexes.json)
 var ttlCollections = []string{"shares", "mcp_keys", "mcp_sessions", "mcp_quota", "mcp_oauth_requests", "mcp_oauth_codes", "mcp_oauth_tokens", "mcp_oauth_oidc", "stats_salt", "stats_seen", "mcp_work", "mcp_bases"}

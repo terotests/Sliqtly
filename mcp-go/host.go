@@ -70,6 +70,11 @@ type DB interface {
 	// Increment adds the int64 leaves of add to the document's fields
 	// (nested maps for nested fields), creating what is missing.
 	Increment(ctx context.Context, col, id string, add Doc) error
+	// IncrementCapped adds n to the int64 at path (nested maps, created
+	// when missing) only when the sum stays at or under limit, in one
+	// transaction; false, and nothing written, when it would go over. Two
+	// callers racing for the last of an allowance: one of them gets it.
+	IncrementCapped(ctx context.Context, col, id string, path []string, n, limit int64) (bool, error)
 	// UpdateIf updates the document (writes it whole when there is none)
 	// only when its string field `field` is `want` (missing reads as ""),
 	// in one transaction; false when the field was something else.
@@ -730,6 +735,24 @@ func (h *McpHost) UpdateDocIf(col, id, field, want, text string) string {
 }
 
 // the string a document's field holds, "" when it is missing or not a string
+// the number at path in d's nested maps (0 when missing)
+func docPathInt(d Doc, path []string) int64 {
+	var m map[string]any = d
+	for _, k := range path[:len(path)-1] {
+		m, _ = m[k].(map[string]any)
+	}
+	return docInt(m[path[len(path)-1]])
+}
+
+// the nested maps that hold v at path
+func docAtPath(path []string, v any) Doc {
+	d := Doc{path[len(path)-1]: v}
+	for i := len(path) - 2; i >= 0; i-- {
+		d = Doc{path[i]: d}
+	}
+	return d
+}
+
 func fieldText(d Doc, field string) string {
 	s, _ := d[field].(string)
 	return s

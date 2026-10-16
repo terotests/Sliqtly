@@ -658,17 +658,31 @@ func (a *aiAssist) credits(ctx context.Context, uid string, admin bool) (aiCredi
 	return c, nil
 }
 
-// the call, counted against the month (also when it gave no answer: the
-// tokens were spent)
-func (a *aiAssist) spend(ctx context.Context, uid string, q aiQuestion, ans aiAnswer) {
-	cost := q.cost()
-	if ans.Declined {
-		cost = 0
+// Take the question's actions from the month before the model is asked,
+// the check and the taking in one step: questions asked side by side cannot
+// together go over the month's allowance. False when too few are left.
+func (a *aiAssist) reserve(ctx context.Context, uid, month string, c aiCredits, cost int64) (bool, error) {
+	if c.Monthly < 0 {
+		return true, a.db.Increment(ctx, aiUsageCol, uid, Doc{month: Doc{"actions": cost}})
 	}
-	add := Doc{aiMonth(a.now()): Doc{"actions": cost, "calls": max(ans.Calls, 1), "in": ans.In, "out": ans.Out}}
-	if err := a.db.Increment(ctx, aiUsageCol, uid, add); err != nil {
+	return a.db.IncrementCapped(ctx, aiUsageCol, uid, []string{month, "actions"}, cost, c.Monthly)
+}
+
+// The call, settled against the month reserve took its actions from: its
+// tokens and calls counted, also when it failed (the rounds an agent loop
+// made before it failed were spent). The actions are given back when the
+// model declined, or failed before it used a token. True when they were
+// given back.
+func (a *aiAssist) settle(ctx context.Context, uid, month string, cost int64, ans aiAnswer, failed bool) bool {
+	refund := ans.Declined || failed && ans.In == 0 && ans.Out == 0
+	m := Doc{"calls": int64(max(ans.Calls, 1)), "in": ans.In, "out": ans.Out}
+	if refund {
+		m["actions"] = -cost
+	}
+	if err := a.db.Increment(ctx, aiUsageCol, uid, Doc{month: m}); err != nil {
 		log.Printf("ai: usage not counted: %v", err)
 	}
+	return refund
 }
 
 func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op string) {
@@ -723,13 +737,25 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			editorJSON(w, 503, map[string]string{"error": "The AI actions left could not be read; try again in a moment."})
 			return
 		}
-		if c.Monthly >= 0 && c.left() < q.cost() {
+		cost, month := q.cost(), aiMonth(a.now())
+		ok, err := a.reserve(r.Context(), t.UID, month, c, cost)
+		if err != nil {
+			log.Printf("ai: credits: %v", err)
+			editorJSON(w, 503, map[string]string{"error": "The AI actions left could not be read; try again in a moment."})
+			return
+		}
+		if !ok {
 			editorJSON(w, 402, map[string]any{"error": fmt.Sprintf("This month's AI actions are used up. More come on %s.", c.Resets.Format("2006-01-02")), "code": "no-credits", "credits": c.json()})
 			return
 		}
+		c.Used += cost
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 		defer cancel()
 		ans, err := a.ask(ctx, q, func(theme string) aiChecker { return aiDeckCheck(env, ctx, theme) }, aiDeckReader(env, t.UID, q))
+		// counted also when the person has gone: the tokens were spent
+		if a.settle(context.WithoutCancel(r.Context()), t.UID, month, cost, ans, err != nil) {
+			c.Used -= cost
+		}
 		if err != nil {
 			log.Printf("ai: %v", err)
 			msg := "The assistant could not answer just now; try again in a moment."
@@ -738,10 +764,6 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			}
 			editorJSON(w, 502, map[string]any{"error": msg, "credits": c.json()})
 			return
-		}
-		a.spend(r.Context(), t.UID, q, ans)
-		if !ans.Declined {
-			c.Used += q.cost()
 		}
 		reply := ans.Text
 		places := ans.Places
