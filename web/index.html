@@ -295,6 +295,12 @@
   #endPanel button.primary:hover, #endPanel button.primary:focus-visible { background: #1d4ed8; }
   /* the panel says it all: the viewer's bar stays out of its way */
   body.ended #viewBar { display: none; }
+  /* the audience's window of the presenter view on another screen
+     (web/twoscreen.js): the slide alone; the presenter's window has the
+     controls, and past the end the screen goes dark */
+  body.audience #viewBar, body.audience #endPanel { display: none !important; }
+  body.audience #c { cursor: none; }
+  body.audience.ended #c { visibility: hidden; }
   body.ended #c { cursor: default; }
   /* web/versions-ui.js: the version history and the merge of two copies */
   .vPanel {
@@ -527,6 +533,7 @@
     </div>
     <hr />
     <button role="menuitemcheckbox" data-act="speaker" id="vSpeaker" aria-checked="false" title="Current and next slide, notes and the clock, for your own screen" data-i18n-title><span data-i18n>Speaker view</span><span class="vKey" aria-hidden="true">S</span></button>
+    <button role="menuitemcheckbox" data-act="two" id="vTwo" aria-checked="false" hidden title="The slides alone in a second window for the projector, the speaker view here" data-i18n-title><span data-i18n>Presenter view on another screen</span><span class="vKey" aria-hidden="true">P</span></button>
     <button role="menuitemcheckbox" data-act="auto" id="vAuto" aria-checked="false" title="The slides go on by themselves" data-i18n-title><span data-i18n>Auto-advance</span><span class="vKey" aria-hidden="true">A</span></button>
     <button role="menuitem" data-act="flight" id="vFlight" hidden title="Fly through the presentation in 3-D: the diagrams and charts as holograms. Esc comes back" data-i18n-title><span data-i18n>3-D flight</span><span class="vKey" aria-hidden="true">G</span></button>
     <hr />

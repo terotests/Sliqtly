@@ -38,6 +38,7 @@ Import "PresPick.rgr"
 Import "PresImageExport.rgr"
 Import "PresClip.rgr"
 Import "PresNav.rgr"
+Import "PresTwoScreen.rgr"
 Import "PresStripDrag.rgr"
 Import "PresStageClick.rgr"
 Import "PresBook.rgr"
@@ -383,6 +384,8 @@ class PresApp {
     def room:PresRoomView (new PresRoomView())
     ; the jumps while presenting and the slide number being typed
     def nav:PresNav (new PresNav())
+    ; the speaker view here, the slides in another window (P while presenting)
+    def two:PresTwoScreen (new PresTwoScreen())
     def reviewTitlesKey:string ""
     ; every slide's elements as laid out last, for comments pinned on them
     ; (PresReview.follow)
@@ -4136,6 +4139,8 @@ class PresApp {
         review.setCodeView("")
         this.codeWant(deck.codeLinks.links)
         push requests "fullscreen"
+        ; the audience's window: where the presenter already is
+        this.twoCatchUp()
         chromeRev = (chromeRev + 1)
     }
 
@@ -4143,6 +4148,7 @@ class PresApp {
         if (mode != "present") {
             return
         }
+        this.twoEnd()
         if recording {
             this.recordStop()
         }
@@ -8251,6 +8257,10 @@ class PresApp {
             if ((s == "a") || (s == "A")) {
                 auto = (! auto)
                 chromeRev = (chromeRev + 1)
+            }
+            ; P: the slides in a window of their own, the speaker view here
+            if ((s == "p") || (s == "P")) {
+                this.twoToggle()
             }
             ; E: into the live sheet on this slide (the page moves the keyboard)
             if ((s == "e") || (s == "E")) {
@@ -12434,6 +12444,134 @@ class PresApp {
     fn setSpeaker:void (on:boolean) {
         speaker = on
         chromeRev = (chromeRev + 1)
+    }
+
+    ; --- the speaker view here, the slides on another screen (PresTwoScreen) ----
+    ; P while presenting, or ⋯ → Presenter view on another screen: the page
+    ; opens the audience's window ("two:open", web/twoscreen.js) and says so
+    ; with `twoLead`; switched off, or the presentation ended, the page closes
+    ; it ("two:close"). The page passes the lines the windows send each other
+    ; (`twoOut` here → there, `twoTake` there → here).
+    fn twoRole:string () {
+        return two.role
+    }
+
+    fn twoPair:string () {
+        return two.pair
+    }
+
+    fn twoToggle:void () {
+        if (mode != "present") {
+            return
+        }
+        if (two.role == "lead") {
+            this.twoEnd()
+            return
+        }
+        if (two.role == "") {
+            push requests "two:open"
+        }
+    }
+
+    ; The audience's window is open: this one turns to the speaker view.
+    fn twoLead:void (pair:string) {
+        if ((mode != "present") || (two.role == "follow")) {
+            return
+        }
+        two.lead(pair speaker)
+        speaker = true
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; This is the audience's window: the slide alone, moved by the presenter.
+    fn twoFollow:void (pair:string) {
+        two.follow(pair)
+        speaker = false
+        auto = false
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; Back to one screen (the presenter's window): the view it had before.
+    fn twoEnd:void () {
+        if (two.role != "lead") {
+            return
+        }
+        speaker = (two.stop())
+        push requests "two:close"
+        chromeRev = (chromeRev + 1)
+    }
+
+    ; the presenter's window: the line to send the audience's now ("" none)
+    fn twoOut:string () {
+        if (mode != "present") {
+            return ""
+        }
+        return (two.out(selected pStep clock ended))
+    }
+
+    ; A line from the other window. -> what the page does (PresTwoScreen.take):
+    ; "welcome" (send the deck), "key" (press twoKey… here), "moved" (the
+    ; presentation moved: the page's clock follows), "close" (close this
+    ; window), "".
+    fn twoTake:string (line:string now:double) {
+        def what:string (two.take(line now))
+        if (what == "click") {
+            if (mode == "present") {
+                this.next()
+            }
+            return "moved"
+        }
+        if (what == "state") {
+            this.twoCatchUp()
+            return "moved"
+        }
+        return what
+    }
+
+    ; The audience's window: where the presenter is, once presenting (a state
+    ; that came while the deck was still loading waits for it).
+    fn twoCatchUp:void () {
+        if ((two.role != "follow") || (two.hasPending == false) || (mode != "present")) {
+            return
+        }
+        def m:PresTwoMsg two.pending
+        two.hasPending = false
+        if (PresTwoScreen.moves(m selected pStep ended)) {
+            this.jump((PresTwoScreen.at(deck m)))
+        }
+    }
+
+    ; The presenter's window, now and then: "end" when the audience's window
+    ; is gone (`closed`: the page sees it closed) and this one went back to
+    ; one screen.
+    fn twoTick:string (now:double closed:boolean) {
+        def what:string (two.tick(now closed))
+        if (what == "end") {
+            this.twoEnd()
+        }
+        return what
+    }
+
+    ; The audience's window: whether a key stays there (F: its full screen),
+    ; and the line that hands any other to the presenter's window.
+    fn twoKeeps:boolean (key:string ctrl:boolean meta:boolean alt:boolean) {
+        return (PresTwoScreen.followKeeps(key ctrl meta alt))
+    }
+
+    fn twoKeyLine:string (key:string code:string shift:boolean ctrl:boolean meta:boolean alt:boolean) {
+        return (PresTwoScreen.keyLine(key code shift ctrl meta alt))
+    }
+
+    fn twoKey:string () {
+        return two.last.key
+    }
+
+    fn twoKeyCode:string () {
+        return two.last.code
+    }
+
+    fn twoKeyMods:string () {
+        return two.last.mods
     }
 
     fn autoOn:boolean () {

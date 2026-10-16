@@ -1213,7 +1213,8 @@ try {
     await settle();
     const stepped = await at();
     check("presenting from the editor shows the bar with \"n / N\" and the … menu", start.bar === "flex" && start.more !== "none" && start.label === "1 / " + start.count, JSON.stringify(start));
-    // its … menu: only Speaker view and Auto-advance, and Speaker view switches it
+    // its … menu: only Speaker view, the two screens and Auto-advance, and
+    // Speaker view switches it
     await press("#vMore");
     const sp = await page.evaluate(() => {
       const rows = [...document.querySelectorAll("#vMenu > *")].filter((e) => getComputedStyle(e).display !== "none").map((e) => e.dataset.act || e.tagName);
@@ -1223,7 +1224,7 @@ try {
       document.getElementById("keys").focus();
       return { rows, on };
     });
-    check("…the editor's … menu has Speaker view and Auto-advance, and switches the speaker view", sp.on && sp.rows.join() === "speaker,auto", JSON.stringify(sp));
+    check("…the editor's … menu has Speaker view, Presenter view on another screen and Auto-advance, and switches the speaker view", sp.on && sp.rows.join() === "speaker,two,auto", JSON.stringify(sp));
     check("PageDown goes a whole slide on, its builds shown", paged.slide === 2 && paged.step === paged.steps && !paged.end && paged.label === "3 / " + paged.count, JSON.stringify(paged));
     check("PageUp a whole slide back", pagedBack.slide === 1 && pagedBack.step === pagedBack.steps, JSON.stringify(pagedBack));
     check("End is the last slide, Home the first from its start", last.slide === last.count - 1 && !last.end && home.slide === 0 && home.step === 0, JSON.stringify({ last, home }));
@@ -1231,6 +1232,82 @@ try {
     check("the counter takes a number", counted.slide === 1, JSON.stringify(counted));
     check("⏮ is the first slide, and the arrows still work after it", first.slide === 0 && keysBack && (stepped.slide === 1 || stepped.step === 1), JSON.stringify({ first, keysBack, stepped }));
     await page.keyboard.press("Escape");
+    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+  }
+
+  // The presenter view on another screen (src/PresTwoScreen.rgr,
+  // web/twoscreen.js): P while presenting opens the audience's window with
+  // the slide alone, this one turns to the speaker view, and a next-slide
+  // press in either window moves both. Closing the audience's window goes
+  // back to one screen.
+  {
+    await page.evaluate(() => { document.getElementById("keys").focus(); });
+    await page.keyboard.press("F5");
+    await page.waitForFunction(() => JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 8000 });
+    const opened = page.context().waitForEvent("page", { timeout: 15000 });
+    await page.keyboard.press("p");
+    const aud = await opened.catch(() => null);
+    const where = (p) => p.evaluate(() => { const a = window.__app; return { mode: JSON.parse(a.layoutJson()).mode, slide: a.slideShown(), step: a.pStep, end: a.atEnd(), speaker: a.speakerOn(), role: a.twoRole() }; });
+    let audStart = null;
+    if (aud) {
+      await aud.waitForFunction(() => window.__app && JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 90000 }).catch(() => {});
+      audStart = await where(aud);
+    }
+    const lead = await where(page);
+    // a step on here (PageDown: the next slide whole), then both
+    await page.keyboard.press("PageDown");
+    const same = (p, slide) => p.waitForFunction((s) => window.__app.slideShown() === s, slide, { timeout: 8000 }).then(() => true).catch(() => false);
+    const followed = aud ? await same(aud, 1) : false;
+    const afterLead = await where(page);
+    const afterAud = aud ? await where(aud) : null;
+    // a press in the audience's window moves the presenter's (and itself)
+    if (aud) {
+      await aud.bringToFront();
+      await aud.keyboard.press("PageDown");
+    }
+    const ledBack = await same(page, 2);
+    const audToo = aud ? await same(aud, 2) : false;
+    const fromAud = { lead: await where(page), aud: aud ? await where(aud) : null };
+    // → (a build step or the next slide) from the presenter's window again
+    await page.bringToFront();
+    await page.keyboard.press("ArrowRight");
+    const leadNow = await where(page);
+    const arrowed = aud ? await aud.waitForFunction((w) => window.__app.slideShown() === w.slide && window.__app.pStep === w.step, leadNow, { timeout: 8000 }).then(() => true).catch(() => false) : false;
+    const ui = aud ? await aud.evaluate(() => ({ bar: getComputedStyle(document.getElementById("viewBar")).display, audience: document.body.classList.contains("audience") })) : null;
+    check("P while presenting opens the audience's window with the slide alone, and the speaker view here", !!aud && audStart?.mode === "present" && !audStart.speaker && audStart.role === "follow" && lead.speaker && lead.role === "lead" && ui?.bar === "none" && ui.audience, JSON.stringify({ audStart, lead, ui }));
+    check("…a next-slide press in the presenter's window moves both", followed && afterLead.slide === 1 && afterAud?.slide === 1 && afterAud.step === afterLead.step, JSON.stringify({ afterLead, afterAud }));
+    check("…and one in the audience's window moves both", ledBack && audToo, JSON.stringify(fromAud));
+    check("…→ steps both alike", arrowed && (leadNow.slide !== fromAud.lead.slide || leadNow.step !== fromAud.lead.step), JSON.stringify(leadNow));
+    // the audience's window reloaded: it asks again and lands where the presenter is
+    let reloaded = null;
+    if (aud) {
+      await aud.reload();
+      await aud.waitForFunction(() => window.__app && JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 90000 }).catch(() => {});
+      await aud.waitForFunction((s) => window.__app.slideShown() === s, leadNow.slide, { timeout: 8000 }).catch(() => {});
+      reloaded = { aud: await where(aud), lead: await where(page) };
+    }
+    check("…a reloaded audience's window comes back where the presenter is", reloaded?.aud.slide === leadNow.slide && reloaded.aud.step === leadNow.step && reloaded.aud.role === "follow" && reloaded.lead.role === "lead", JSON.stringify(reloaded));
+    // closing the audience's window: one screen again, as before
+    // (headless Chromium leaves the opener in the background when its
+    // window closes, its timers held: brought to the front as a screen is)
+    if (aud) await aud.close();
+    await page.bringToFront();
+    const back = await page.waitForFunction(() => window.__app.twoRole() === "", null, { timeout: 8000 }).then(() => true).catch(() => false);
+    const after = await where(page);
+    check("…closing it goes back to one screen and the view before", back && !after.speaker && after.mode === "present", JSON.stringify(after));
+    // again, and Esc in the presenter's window ends the presentation: the
+    // audience's window closes with it
+    await page.bringToFront();
+    await page.evaluate(() => { document.getElementById("keys").focus(); });
+    const again = page.context().waitForEvent("page", { timeout: 15000 });
+    await page.keyboard.press("p");
+    const aud2 = await again.catch(() => null);
+    if (aud2) await aud2.waitForFunction(() => window.__app && JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 90000 }).catch(() => {});
+    const closed = aud2 ? aud2.waitForEvent("close", { timeout: 8000 }).then(() => true).catch(() => false) : false;
+    await page.keyboard.press("Escape");
+    const ended = await page.evaluate(() => JSON.parse(window.__app.layoutJson()).mode);
+    check("…Esc in the presenter's window ends it and closes the audience's", !!aud2 && (await closed) && ended === "edit", JSON.stringify({ ended }));
+    await page.bringToFront();
     await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
   }
 
