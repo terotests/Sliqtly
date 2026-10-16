@@ -51,7 +51,7 @@ import { RoomChat, unreadRooms, chatMe } from "./roomchat.js";
 import { RdOtDelta, RdOtClient } from "./rangerdiff.mjs";
 import { VoiceRecorder, VoicePlayer, clockText } from "./recorder.js";
 import { secondaryPress, pickKeyHeld } from "./press.js";
-import { linkTarget, FOLLOW_MS, returnTo } from "./stagelink.js";
+import { linkTarget, FOLLOW_MS, LinkWait, returnTo } from "./stagelink.js";
 import { slideText, runAt, indexAt, withBand, bandRects, TextSelection } from "./slidetext.js";
 import { stampSvg, readStamp, retraceSource, svgTarget, looksFlat } from "./trace-source.js";
 import { BookGL } from "./bookgl.js";
@@ -4674,7 +4674,7 @@ function stripKey(ev) {
   const req = ev.ctrlKey && !ev.metaKey && menuKey === "m" ? "slide:new" : mod && menuKey === "d" ? "slide:duplicate" : "";
   if (name) app.key(name, ev.shiftKey, mod);
   else if (req) app.request(req);
-  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.key.toLowerCase());
+  else if (mod && /^[zy]$/i.test(ev.key)) app.chord(ev.shiftKey && /^z$/i.test(ev.key) ? "y" : ev.key.toLowerCase()); // Ctrl+Shift+Z redoes
   else return false;
   ev.preventDefault();
   afterInput();
@@ -5720,7 +5720,9 @@ async function openAbout() {
 // from the presentations window, someone else's in a new tab, as does any
 // other web address.
 let linkTimer = 0;
-async function followLink(href) {
+const linkWait = new LinkWait();
+async function followLink(href, wanted = () => true) {
+  if (!wanted()) return;
   if (app.followLink(href)) {
     needsPaint = true;
     return;
@@ -5735,7 +5737,7 @@ async function followLink(href) {
     }
     // the address left, as the step Back returns to (onpopstate below)
     const left = { href: location.href, state: { deck: doc.cloud || "", doc: doc.id || "" } };
-    const opened = await loadingScreen(() => openOwnCloud(to.deck).catch((e) => { console.warn(e); return false; }));
+    const opened = await loadingScreen(() => openOwnCloud(to.deck, wanted).catch((e) => { console.warn(e); return false; }));
     // overtaken: another deck was opened meanwhile, and it is the one shown
     if (opened === OVERTAKEN) return;
     if (opened) {
@@ -5753,7 +5755,7 @@ async function followLink(href) {
       return;
     }
   }
-  window.open(to.url, "_blank", "noopener");
+  if (wanted()) window.open(to.url, "_blank", "noopener");
 }
 
 function handleRequests() {
@@ -5784,7 +5786,9 @@ function handleRequests() {
       clearTimeout(linkTimer);
       const href = r.slice(5);
       const presenting = lastLayout && lastLayout.mode === "present";
-      linkTimer = setTimeout(() => followLink(href).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
+      // the press that asked for it may be the first of a double click
+      const turn = linkWait.link(lastDown);
+      linkTimer = setTimeout(() => followLink(href, () => linkWait.wanted(turn)).catch((e) => console.warn("link not followed", e)), presenting ? 0 : FOLLOW_MS);
     } else if (r === "save:now") {
       // File → Save, ⌘/Ctrl+S: kept where the deck lives, with a version
       saveNow().catch(fail);
@@ -7302,15 +7306,17 @@ function shareFiles(files, init) {
 // Opens the signed-in owner's deck from its share (/s/{id}?edit): the cloud
 // has the latest, an assistant's changes included. Kept in this browser
 // under the id it had here, or a new one. False when it is not theirs.
-async function openOwnCloud(id) {
+async function openOwnCloud(id, wanted = () => true) {
   try {
-    return await openOwnCloudNow(id);
+    return await openOwnCloudNow(id, wanted);
   } catch (e) {
     if (doc.loading) shownDoc(doc.openedText);
     throw e;
   }
 }
-async function openOwnCloudNow(id) {
+// `wanted`: whether it is still to be opened (a link's press that turned
+// out to be a double click is not), asked before the deck shown is left
+async function openOwnCloudNow(id, wanted = () => true) {
   const turn = ++openTurn;
   const p = await pro();
   const who = await Promise.race([p.signedIn(), new Promise((ok) => setTimeout(() => ok(null), 8000))]);
@@ -7320,6 +7326,7 @@ async function openOwnCloudNow(id) {
   const mine = typeof p.mayChange === "function" ? p.mayChange(shared) : shared.owner === who.uid;
   if (!shared || !mine) return false;
   const local = (await vfs.listDocs()).find((d) => d.cloud === id);
+  if (!wanted()) return OVERTAKEN;
   // changes made here that the cloud does not have yet, and nobody changed
   // it since: this browser's copy is the newer, and goes up on the next save
   if (local && local.md !== local.cloudMd && shared.md === local.cloudMd) return openDoc(local.id);
@@ -9312,6 +9319,19 @@ let editorWheel = 0;
 // everywhere. The picker (EVGUI's) offers the emojis the slides and their PDF
 // can draw. Ctrl+Space alone is the value popover.
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || "");
+// A Mac's text keys as the app names them: ⌘←/→ the line's start/end,
+// ⌘↑/↓ the document's, ⌥←/→ and ⌥⌫ a word (what Ctrl is elsewhere).
+function macKey(ev, name, mod) {
+  if (!IS_MAC) return [name, mod];
+  if (ev.metaKey && !ev.ctrlKey) {
+    if (name === "left") return ["home", false];
+    if (name === "right") return ["end", false];
+    if (name === "up") return ["home", true];
+    if (name === "down") return ["end", true];
+  }
+  if (ev.altKey && !ev.metaKey && !ev.ctrlKey && /^(left|right|backspace|delete)$/.test(name)) return [name, true];
+  return [name, mod];
+}
 function isEmojiChord(ev) {
   if (!(ev.key === " " || ev.code === "Space") || !ev.ctrlKey || ev.altKey) return false;
   return IS_MAC ? ev.metaKey || ev.shiftKey : ev.shiftKey && !ev.metaKey;
@@ -9533,7 +9553,8 @@ keys.addEventListener("keydown", (ev) => {
   const special = KEY_MAP[ev.key];
   if (special) {
     if (special === "tab" && app.focusTarget() !== "editor" && app.focusTarget() !== "chart" && app.focusTarget() !== "room" && app.focusTarget() !== "find") return;
-    if (app.key(special, ev.shiftKey, mod)) ev.preventDefault();
+    const [kname, kmod] = macKey(ev, special, mod);
+    if (app.key(kname, ev.shiftKey, kmod)) ev.preventDefault();
     else if (app.focusTarget() === "editor" || app.focusTarget() === "chart") ev.preventDefault();
     afterInput();
     return;
@@ -9603,7 +9624,8 @@ keys.addEventListener("keydown", (ev) => {
     if (CLIPBOARD_CHORD.test(ev.key)) return; // copy / cut / paste fire on the field
     if (/^[azyAZYbiuBIU]$/.test(ev.key)) {
       ev.preventDefault();
-      app.chord(ev.key.toLowerCase());
+      // Ctrl+Shift+Z redoes, as Ctrl+Y does
+      app.chord(ev.shiftKey && /^z$/i.test(ev.key) ? "y" : ev.key.toLowerCase());
       afterInput();
     }
   }
@@ -9676,6 +9698,10 @@ keys.addEventListener("copy", (ev) => {
   if (!text) return;
   ev.preventDefault();
   ev.clipboardData?.setData("text/plain", text);
+  // from the View page also as HTML: bold, links and lists survive a paste
+  // into a word processor or a mail
+  const html = app.copySelectionHtml();
+  if (html) ev.clipboardData?.setData("text/html", html);
 });
 keys.addEventListener("cut", (ev) => {
   const text = app.cutSelection();
@@ -9735,6 +9761,12 @@ keys.addEventListener("paste", (ev) => {
   }
   // slides, an element, a diagram or a spec: asked about, then pasted
   if (text && clipPaste(text, performance.now() - plainAt < 1500)) return;
+  // on the View page a table from a spreadsheet or a web page lands as a table
+  const pastedHtml = ev.clipboardData?.getData("text/html") || "";
+  if (pastedHtml && app.pasteHtml(pastedHtml, text)) {
+    afterInput();
+    return;
+  }
   if (text && app.focusTarget() === "editor" && dataLink(text)) {
     linkData(text.trim()).catch(fail);
     return;
@@ -10507,6 +10539,9 @@ canvas.addEventListener("pointerdown", (ev) => {
   // a finger gets a wider spot than a mouse
   const near = Math.hypot(x - lastDownAt[0], y - lastDownAt[1]) < (finger ? 40 : 8);
   clicks = now - lastDown < 400 && near ? clicks + 1 : 1;
+  // the second click of a double click on a link: not followed, also when
+  // its deck is already on its way
+  linkWait.press(lastDown, clicks);
   lastDown = now;
   lastDownAt = [x, y];
   // a double tap on the slide while editing: in to read it, or back out

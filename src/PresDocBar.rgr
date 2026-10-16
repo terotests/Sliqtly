@@ -7,7 +7,12 @@
 ; While the View page is edited (PresApp "editing on the View page") a bar
 ; sits between the editor's tabs and the page, as a word processor's does:
 ;
-;   ↶ ↷ | [Paragraph ▾] | B I U S <> | 🔗 | • 1. ❝ | 💬
+;   ↶ ↷ | [Paragraph ▾] | B I U S <> | 🔗 | • 1. ❝ | 💬 | [link address]   ✓ Save
+;
+; The link address shows when the caret is in a link or the pointer was
+; last over one (`linkUrl`): an EVGUI InputCtl, Enter writes the address
+; typed into the link's Markdown ("link:commit"), Esc puts it back. ✓ Save
+; is the top bar's ✓ Save, here where the eye is while writing ("save").
 ;
 ; The controls are EVGUI's: a SelectCtl for the block's style and a
 ; ToolbarCtl for the buttons (toggles that show what is on at the caret), in
@@ -34,6 +39,7 @@ Import "PresQuickBar.rgr"
 Import "../evgui/src/UiHost.rgr"
 Import "../evgui/src/ToolbarCtl.rgr"
 Import "../evgui/src/SelectCtl.rgr"
+Import "../evgui/src/InputCtl.rgr"
 Import "UiKit.rgr"
 
 class PresDocBar {
@@ -73,6 +79,13 @@ class PresDocBar {
     def zy:double 0.0
     def zw:double 0.0
     def zh:double 0.0
+    ; the link's address shown ("" for none), its field, and whether the
+    ; field has the keys (PresApp gives them while `typing`)
+    def linkUrl:string ""
+    def linkIn:InputCtl (new InputCtl())
+    def typing:boolean false
+    def selecting:boolean false
+    def saveTools:ToolbarCtl (new ToolbarCtl())
 
     sfn buttons:[string] () {
         def out:[string] (strsplit "undo,redo,sep,bold,italic,underline,strike,code,sep,link,sep,bullet,ordered,quote,sep,comment" ",")
@@ -122,7 +135,81 @@ class PresDocBar {
     }
 
     fn stateKey:string () {
-        return (levelNow + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" "") + "|" + (? showBar "b" "") + zoomLabel + (? zoomOut "o" "") + (? zoomIn "i" "") + "|" + (to_string paneX) + "," + (to_string paneW) + "," + (to_string paneB))
+        return (levelNow + "|" + (join on ",") + "|" + (? canUndo "u" "") + (? canRedo "r" "") + "|" + (to_string x) + "," + (to_string y) + "," + (to_string bw) + "|" + (to_string w) + "x" + (to_string h) + "|" + (? level.open "o" "") + "|" + (? showBar "b" "") + zoomLabel + (? zoomOut "o" "") + (? zoomIn "i" "") + "|" + (to_string paneX) + "," + (to_string paneW) + "," + (to_string paneB) + "|" + linkUrl + (? typing "t" ""))
+    }
+
+    ; i18n: "Link address" "Save"
+    ; The link at the caret (or under the pointer) is `url`, "" for none:
+    ; the field shows it, unless it is being typed into.
+    fn setLink:void (url:string) {
+        if typing {
+            return
+        }
+        if (url != linkUrl) {
+            linkUrl = url
+            linkIn.setValue(url)
+            linkIn.moveTo((strlen url) false)
+        }
+    }
+
+    ; Words typed into the link's field.
+    fn type:void (s:string) {
+        linkIn.typeChar(linkIn.tid s)
+        this.rebuild()
+    }
+
+    ; A key while the field has them (EVGUI's names: "Enter", "Escape", …):
+    ; "link:commit" for Enter, "link:cancel" for Esc, else "" (an edit).
+    fn key:string (k:string shift:boolean ctrl:boolean) {
+        if (k == "Enter") {
+            this.blur()
+            return "link:commit"
+        }
+        if (k == "Escape") {
+            this.blur()
+            linkIn.setValue(linkUrl)
+            this.rebuild()
+            return "link:cancel"
+        }
+        linkIn.keyDownWith(linkIn.tid k shift ctrl)
+        this.rebuild()
+        return ""
+    }
+
+    fn selectAll:void () {
+        linkIn.selectAll()
+        this.rebuild()
+    }
+
+    ; The field lets the keys go.
+    fn blur:void () {
+        if typing {
+            typing = false
+            selecting = false
+            linkIn.setFocused(false)
+            builtKey = ""
+            rev = (rev + 1)
+        }
+    }
+
+    ; What is typed in the field now.
+    fn linkTyped:string () {
+        return (trim linkIn.value)
+    }
+
+    fn dragTo:void (px:double) {
+        if selecting {
+            linkIn.textPointerDrag(px)
+            this.rebuild()
+        }
+    }
+
+    fn release:void () {
+        if selecting {
+            selecting = false
+            linkIn.pointerUp()
+            this.rebuild()
+        }
     }
 
     fn rebuildIfChanged:void () {
@@ -201,6 +288,30 @@ class PresDocBar {
         tb.build()
         tools = tb
         UiKit.put(host tb bar)
+        ; the link's address, to read and to change
+        if ((strlen linkUrl) > 0) {
+            linkIn.tid = "db-link"
+            linkIn.boxClass = "db-link"
+            linkIn.textClass = "db-link-text"
+            linkIn.placeholderClass = "db-link-ph"
+            linkIn.placeholder = (PresI18n.t("Link address"))
+            linkIn.name = linkIn.placeholder
+            linkIn.focused = typing
+            linkIn.build()
+            UiKit.put(host linkIn bar)
+        }
+        ; ✓ Save at the bar's right end
+        def gap (EVGElement.createDiv())
+        gap.className = "db-gap"
+        bar.addChild(gap)
+        def sv (new ToolbarCtl())
+        sv.tid = "db-save"
+        sv.name = (PresI18n.t("Save"))
+        sv.addItem("save" ("✓ " + (PresI18n.t("Save"))) false)
+        sv.build()
+        UiTree.addClass((unwrap sv.rootEl) "db-save")
+        saveTools = sv
+        UiKit.put(host sv bar)
         rev = (rev + 1)
         ; as tall as its rows: a narrow editor wraps the buttons under the
         ; style list, and the page starts under them
@@ -361,6 +472,19 @@ class PresDocBar {
                 return "zoom:fit"
             }
             return ""
+        }
+        ; the link's field takes the keys; a press anywhere else lets them go
+        if (((strlen linkUrl) > 0) && (linkIn.owns(t))) {
+            typing = true
+            linkIn.textPointerDown(t px 1 false)
+            selecting = linkIn.dragging
+            this.rebuild()
+            return "link:field"
+        }
+        this.blur()
+        def stid:string (saveTools.itemTid("save"))
+        if ((t == stid) || ((indexOf t (stid + "-")) == 0)) {
+            return "save"
         }
         if ((indexOf t "db-level") == 0) {
             def was:string level.value

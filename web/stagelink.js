@@ -54,6 +54,44 @@ function nameOf(hash) {
 }
 
 /**
+ * The link a press asked for, while it waits (FOLLOW_MS) and while its
+ * deck opens. The press may be the first of a double click, which starts
+ * editing or picks the block instead: the second click drops the link, even
+ * when the wait was over before the page got to that click (a busy frame
+ * holds a press back) and the deck is already on its way. The opening asks
+ * `wanted(turn)` before it leaves the deck shown.
+ */
+export class LinkWait {
+  constructor() {
+    this.turn = 0;
+    this.pressAt = -1;
+  }
+
+  /** A link asked for by the press at `at` (a time): its turn. */
+  link(at) {
+    this.pressAt = at;
+    return ++this.turn;
+  }
+
+  /**
+   * A press: `prev` the time of the press before it, `clicks` as the page
+   * counts them. The second click of a double click on the link's press
+   * drops the link.
+   */
+  press(prev, clicks) {
+    if (clicks > 1 && this.pressAt >= 0 && prev === this.pressAt) {
+      this.turn++;
+      this.pressAt = -1;
+    }
+  }
+
+  /** Whether the link of `turn` is still to be followed. */
+  wanted(turn) {
+    return turn === this.turn;
+  }
+}
+
+/**
  * Back or Forward to an address of this page (a deck opened from a link is
  * a step of the browser's history, main.js followLink): the deck to open
  * there, when it is not the one open. `state` is what the step was kept

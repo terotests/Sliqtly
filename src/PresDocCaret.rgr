@@ -48,6 +48,8 @@ class PresDocCaret {
     ; the pictures, each one's top on the page
     def pics:[MdBox]
     def picTops:[double]
+    ; the open paragraph (`addOpen`): the box of its empty line, -1 for none
+    def openBox:int -1
 
     Constructor () {
     }
@@ -63,6 +65,7 @@ class PresDocCaret {
         clear lineTo
         clear pics
         clear picTops
+        openBox = -1
     }
 
     ; A box the page drew at `dy` below where its layout put it.
@@ -77,6 +80,103 @@ class PresDocCaret {
         }
         push boxes b
         push tops (b.y + dy)
+    }
+
+    ; The open paragraph: an empty line the page shows after a block where
+    ; Enter was pressed and nothing is written yet (PresDocView.openAt).
+    ; Its one place for the caret stands for `src`, the block's end, which
+    ; the block's own last word keeps for itself (`boxOf`).
+    fn addOpen:void (x:double top:double h:double src:int) {
+        def b:MdBox (MdBox.text("" x top 0.0 h))
+        b.segSrc = src
+        b.segLen = 0
+        if (!null? lay) {
+            def l:MdLayout (unwrap lay)
+            b.family = l.style.bodyFamily
+            b.size = l.style.bodySize
+        }
+        openBox = (array_length boxes)
+        push boxes b
+        push tops top
+    }
+
+    ; [x, top, height] of the caret on the open paragraph's line, [] when
+    ; there is none.
+    fn openCaret:[double] () {
+        def out:[double]
+        if ((openBox < 0) || (openBox >= (array_length boxLine))) {
+            return out
+        }
+        def b:MdBox (itemAt boxes openBox)
+        def li:int (itemAt boxLine openBox)
+        push out b.x
+        push out (itemAt lineTop li)
+        push out (itemAt lineH li)
+        return out
+    }
+
+    ; Whether a page point is on the open paragraph's line.
+    fn onOpen:boolean (y:double) {
+        if ((openBox < 0) || (openBox >= (array_length boxLine))) {
+            return false
+        }
+        return ((this.lineAtY(y)) == (itemAt boxLine openBox))
+    }
+
+    ; One line of body text on this page.
+    fn bodyLine:double () {
+        if (null? lay) {
+            return 16.0
+        }
+        def l:MdLayout (unwrap lay)
+        return (l.style.bodySize * l.style.lineHeight)
+    }
+
+    ; [x, top, height] for the caret at an offset the page does not show:
+    ; past spaces at the end of a line (typed, or one the layout drops), on
+    ; the same line after the last word shown and the spaces' width; past a
+    ; line break, a body line under it. [] when nothing before it is shown.
+    fn caretNear:[double] (text:string off:int) {
+        def c:[double] (this.caret(off))
+        if ((array_length c) == 3) {
+            return c
+        }
+        def out:[double]
+        def before:int (this.shownBefore(off))
+        def bi:int (this.boxOf(before))
+        if ((bi < 0) || (before >= off)) {
+            return out
+        }
+        def p:[double] (this.caret(before))
+        def gaps:int 0
+        def k:int before
+        def n:int (strlen text)
+        while ((k < off) && (k < n)) {
+            if ((charAt text k) == 10) {
+                gaps = (gaps + 1)
+            }
+            k = (k + 1)
+        }
+        if (gaps == 0) {
+            def b:MdBox (itemAt boxes bi)
+            push out ((itemAt p 0) + (this.measure((substring text before off) b)))
+            push out (itemAt p 1)
+            push out (itemAt p 2)
+            return out
+        }
+        def h:double (itemAt p 2)
+        def body:double (this.bodyLine())
+        def down:double (? (gaps > 1) (h + (body * 0.6)) h)
+        push out (this.lineX((itemAt boxLine bi)))
+        push out ((itemAt p 1) + down)
+        push out (? (h > body) body h)
+        return out
+    }
+
+    ; Where line `li` starts.
+    fn lineX:double (li:int) {
+        def b:MdBox (itemAt boxes (itemAt lineFrom li))
+        return b.x
     }
 
     fn finish:void () {
@@ -256,6 +356,23 @@ class PresDocCaret {
         return ""
     }
 
+    ; Where in the file the link under a page point starts to be drawn (its
+    ; words' first offset), -1 for none: the link's Markdown is around it.
+    fn linkSrcAt:int (x:double y:double) {
+        def i:int 0
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if ((strlen b.link) > 0) {
+                def t:double (itemAt tops i)
+                if (((x >= (b.x - 1.0)) && (x <= ((b.x + b.w) + 1.0))) && ((y >= (t - 2.0)) && (y <= ((t + b.h) + 2.0)))) {
+                    return b.segSrc
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     ; --- an offset → where it is drawn ----------------------------------------
     ; The box an offset is drawn in: the one it is inside, else the one it
     ; ends (the end of a line); -1 when the page does not show it.
@@ -267,7 +384,8 @@ class PresDocCaret {
             if ((off >= b.segSrc) && (off < (b.segSrc + b.segLen))) {
                 return i
             }
-            if ((off == (b.segSrc + b.segLen)) && (ends < 0)) {
+            ; the open paragraph's place is asked for by itself (openCaret)
+            if (((off == (b.segSrc + b.segLen)) && (ends < 0)) && (i != openBox)) {
                 ends = i
             }
             i = (i + 1)
@@ -308,6 +426,37 @@ class PresDocCaret {
         push out (itemAt lineTop li)
         push out (itemAt lineH li)
         return out
+    }
+
+    ; [start, end) of the paragraph at `off`: the lines the page wrapped it
+    ; into (no newline in the source between them); [] when not shown.
+    fn paragraphOf:[int] (text:string off:int) {
+        def out:[int]
+        def li:int (this.lineOf(off))
+        if (li < 0) {
+            return out
+        }
+        def a:int li
+        while ((a > 0) && ((indexOf (substring text (this.lineEnd((a - 1))) (this.lineStart(a))) "\n") < 0)) {
+            a = (a - 1)
+        }
+        def z:int li
+        def n:int (array_length lineTop)
+        while (((z + 1) < n) && ((indexOf (substring text (this.lineEnd(z)) (this.lineStart((z + 1)))) "\n") < 0)) {
+            z = (z + 1)
+        }
+        push out (this.lineStart(a))
+        push out (this.lineEnd(z))
+        return out
+    }
+
+    ; Where line `li`'s first words start on the page (x); -1 for none.
+    fn lineLeft:double (li:int) {
+        if ((li < 0) || (li >= (array_length lineFrom))) {
+            return -1.0
+        }
+        def b:MdBox (itemAt boxes (itemAt lineFrom li))
+        return b.x
     }
 
     fn lineOf:int (off:int) {
@@ -454,6 +603,64 @@ class PresDocCaret {
     }
 
     ; --- joining blocks -------------------------------------------------------------
+    ; Where the page shows an empty line between blocks (MdLayout
+    ; blankStops): Markdown has no empty paragraph, so Enter at a
+    ; paragraph's end writes a blank line more than a block break needs
+    ; ("Para\n\n|\n\nNext"). In a run of blank lines the block break takes
+    ; one on each side and every other line between is an empty paragraph,
+    ; as they come one Enter ("\n\n") each. Offsets of those lines' starts.
+    sfn blankStops:[int] (text:string) {
+        def out:[int]
+        def n:int (strlen text)
+        def starts:[int]
+        def blank:[boolean]
+        def ls:int 0
+        while (ls <= n) {
+            def le:int ls
+            while ((le < n) && ((charAt text le) != 10)) {
+                le = (le + 1)
+            }
+            push starts ls
+            push blank ((strlen (trim (substring text ls le))) == 0)
+            ls = (le + 1)
+        }
+        def lines:int (array_length starts)
+        def i:int 0
+        while (i < lines) {
+            if (itemAt blank i) {
+                def r0:int i
+                while ((i < lines) && (itemAt blank i)) {
+                    i = (i + 1)
+                }
+                def k:int (i - r0)
+                def hasA:boolean (r0 > 0)
+                def hasB:boolean (i < lines)
+                if (hasA || hasB) {
+                    def j:int (? hasA 2 0)
+                    def last:int (? hasB (? hasA (k - 1) (k - 2)) k)
+                    while (j <= last) {
+                        def at:int (? hasA ((r0 + j) - 1) (r0 + j))
+                        push out (itemAt starts at)
+                        j = (j + 2)
+                    }
+                }
+            } {
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; Whether an empty line of `blankStops` starts in (a, b).
+    sfn blankIn:boolean (text:string a:int b:int) {
+        for (PresDocCaret.blankStops(text)) at:int k {
+            if ((at > a) && (at < b)) {
+                return true
+            }
+        }
+        return false
+    }
+
     ; Whether a Backspace at the start of a block may take the text between
     ; the end of the block before and it: only blank lines and block markers
     ; (`#`, `>`, a bullet, `1.`), and no line that is a thematic break or a
@@ -595,12 +802,43 @@ class PresDocCaret {
         return false
     }
 
+    ; A marker of quote signs only ("> ", "> > ").
+    sfn quoteOnly:boolean (m:string) {
+        def k:int 0
+        def q:boolean false
+        while (k < (strlen m)) {
+            def c:int (charAt m k)
+            if (c == 62) {
+                q = true
+            } {
+                if (c != 32) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        return q
+    }
+
+    sfn trimEnd:string (s:string) {
+        def e:int (strlen s)
+        while ((e > 0) && ((charAt s (e - 1)) == 32)) {
+            e = (e - 1)
+        }
+        return (substring s 0 e)
+    }
+
     sfn enterText:string (text:string off:int code:boolean) {
         if code {
             return "\n"
         }
         def m:string (PresDocCaret.markerOf(text off))
         if ((strlen (trim m)) > 0) {
+            ; in a quote a new paragraph of it (`>` alone on the line
+            ; between); "\n> " would only go on with the same paragraph
+            if (PresDocCaret.quoteOnly(m)) {
+                return ("\n" + (PresDocCaret.trimEnd(m)) + "\n" + m)
+            }
             return ("\n" + m)
         }
         return "\n\n"
