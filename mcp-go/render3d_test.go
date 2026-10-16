@@ -227,7 +227,7 @@ func TestSliqGltfReadsTheDecksModel(t *testing.T) {
 	// the viewer's fixture (scripts/check-view.mjs): this deck, its model
 	// served beside it
 	if os.Getenv("SLIQTLY_WRITE_FIXTURES") != "" {
-		one := call(t, s, "create_presentation", map[string]any{"title": "N", "markdown": "## Play\n\n```app\nsrc: apps/w.tsx\nsize: 480x270\nallow: 3d\n```\n",
+		one := call(t, s, "create_presentation", map[string]any{"title": "N", "visibility": "link", "markdown": "## Play\n\n```app\nsrc: apps/w.tsx\nsize: 480x270\nallow: 3d\n```\n",
 			"files": []any{
 				map[string]any{"name": "w.tsx", "text": world("<SliqGltf src=\"data/m.gltf\" />")},
 				map[string]any{"name": "m.gltf", "text": model},
@@ -296,7 +296,7 @@ func TestRangerThreeFileRunsAsItIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	md := "## Courtyard\n\n```app\nsrc: apps/courtyard.tsx\nsize: 480x270\nallow: 3d\n```\n"
-	c := call(t, s, "create_presentation", map[string]any{"title": "C", "markdown": md,
+	c := call(t, s, "create_presentation", map[string]any{"title": "C", "visibility": "link", "markdown": md,
 		"files": []any{map[string]any{"name": "courtyard.tsx", "text": string(prog)}}})
 	if c.IsError {
 		t.Fatal(textOf(c))
