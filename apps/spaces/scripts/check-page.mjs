@@ -4,12 +4,18 @@
  * it paints at desktop and phone width without an error, the navigation
  * answers a click where it is drawn, and a CSV picked in the file dialog
  * lands in the sheets and the summary.
+ *
+ * Then the Warden page (npm run warden:build) against a stand-in for the
+ * server: it reads the space from the API, a typed invite reaches the API,
+ * and a signed-out answer sends the page to the sign-in page.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { log } from "../../../scripts/lib.mjs";
-import { serveDist } from "./serve.mjs";
+import http from "node:http";
+import { serveDist, serveDir } from "./serve.mjs";
+import { appDir } from "./lib.mjs";
 
 const { chromium } = await import("playwright-core").catch(() => {
   log("playwright-core is not installed: npm install");
@@ -87,6 +93,77 @@ try {
     ok("the accessible tree is mirrored", nodes > 20, String(nodes));
     ok("no errors", errors.length === 0, errors.join(" | "));
     await page.close();
+  }
+
+  // --- Warden, against a stand-in for the server -----------------------------------
+  const wardenDist = path.join(appDir, "web", "dist-warden");
+  if (!fs.existsSync(path.join(wardenDist, "index.html"))) throw new Error("npm run warden:build first");
+  const calls = [];
+  let signedIn = true;
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const space = (extra = {}) => ({
+    space_id: "sp1", name: "Home crew", vocab: "family", lang: "en", role: "owner",
+    members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }], invites: [],
+    wards: [{ id: "w1", name: "Aino", color: "rose" }], ...extra,
+  });
+  const files = serveDir(wardenDist);
+  const api = http.createServer(async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    if (!url.pathname.startsWith("/apps/warden/")) return res.writeHead(404).end();
+    const rest = url.pathname.slice("/apps/warden/".length);
+    if (rest === "login") return res.writeHead(200, { "content-type": "text/html" }).end("<title>Sign in</title>");
+    if (!rest.startsWith("api/")) return files(rest, res);
+    let body = "";
+    for await (const c of req) body += c;
+    const op = rest.slice(4);
+    calls.push({ op, body: JSON.parse(body || "{}"), type: req.headers["content-type"] });
+    const send = (v, status = 200) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(v));
+    if (!signedIn) return send({ error: "sign in", code: "signed-out" }, 401);
+    if (op === "list_spaces") return send({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [space()] });
+    if (op === "get_space") {
+      return send({ space: space(), events: [{ event_id: "ev1", title: "Dentist", date: iso(new Date()), start: "23:00", end: "23:30", ward: "w1", who: [{ name: "Juho", role: "takes" }] }] });
+    }
+    if (op === "invite_member") return send(space({ invites: [calls[calls.length - 1].body.email] }));
+    return send({ error: "not in this check" }, 400);
+  });
+  await new Promise((ok) => api.listen(0, "127.0.0.1", ok));
+  const wardenUrl = `http://127.0.0.1:${api.address().port}/apps/warden/`;
+  try {
+    console.log("Warden 1280×800 en-US");
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    await page.goto(wardenUrl);
+    const shown = await page
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Aino · Takes: Juho"), null, { timeout: 8000 })
+      .then(() => true, () => false);
+    ok("the space comes from the API", shown, JSON.stringify(calls.map((c) => c.op)));
+    ok("as JSON", calls.every((c) => c.type === "application/json"));
+    const nav = await centre(page, "sp-nav-members");
+    await page.mouse.click(nav[0], nav[1]);
+    await page.waitForTimeout(300);
+    const field = await centre(page, "sp-invite-email");
+    await page.mouse.click(field[0], field[1]);
+    await page.waitForTimeout(100);
+    await page.keyboard.type("leena@example.com");
+    await page.keyboard.press("Enter");
+    const invited = await page
+      .waitForFunction(() => window.__spaces.space.invites.length === 1, null, { timeout: 5000 })
+      .then(() => true, () => false);
+    const inv = calls.find((c) => c.op === "invite_member");
+    ok("a typed invite reaches the API", invited && inv && inv.body.email === "leena@example.com" && inv.body.space_id === "sp1", JSON.stringify(inv));
+    ok("no errors", errors.length === 0, errors.join(" | "));
+    await page.close();
+
+    signedIn = false;
+    const out = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await out.goto(wardenUrl);
+    const moved = await out.waitForURL(/\/apps\/warden\/login$/, { timeout: 5000 }).then(() => true, () => false);
+    ok("signed out, the page goes to sign in", moved, out.url());
+    await out.close();
+  } finally {
+    api.close();
   }
 } finally {
   await browser.close();

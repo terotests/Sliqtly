@@ -357,3 +357,65 @@
 .sp-c-cyan { background-color: #06b6d4; }
 .sp-c-indigo { background-color: #6366f1; }
 .sp-c-orange { background-color: #f97316; }
+
+/* --- important events, members, spaces (a space kept on a server) ---------------- */
+
+.sp-item-important { background-color: var(--late-soft); }
+.sp-star { color: var(--late); font-size: 13px; width: 12px; height: auto; line-height: 20px; flex-shrink: 0; }
+
+.sp-person {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px;
+  border-radius: 8px;
+}
+.sp-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background-color: var(--soft);
+  flex-shrink: 0;
+}
+.sp-avatar-tx { color: var(--accent); font-size: 13px; font-weight: 700; height: 18px; line-height: 18px; }
+.sp-role { color: var(--muted); font-size: 12px; height: 16px; line-height: 16px; padding: 2px 8px; border-radius: 10px; background-color: var(--soft); }
+.sp-formrow { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 8px; }
+.sp-spacerow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sp-spacerow:hover { background-color: var(--soft); }
+.sp-spacerow:focus { background-color: var(--soft); }
+.sp-spacerow-on { background-color: var(--soft); }
+
+/* A text field (EVGUI InputCtl): the field places its own caret and band. */
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background-color: var(--surface);
+  color: var(--ink);
+  padding: 0 10px;
+  width: 260px;
+  height: 34px;
+}
+.ui-input-focused { border: 1px solid var(--accent); }
+.ui-input-text { color: var(--ink); font-size: 14px; height: 18px; line-height: 18px; }
+.ui-input-placeholder { color: var(--faint); }
+.ui-input-caret { width: 2px; }
+.ui-input-selection { background-color: #f3d9cb; }
+.ui-input-clear { width: 18px; height: 18px; border-radius: 9px; color: var(--muted); background-color: var(--soft); font-size: 13px; text-align: center; line-height: 18px; margin-left: 6px; }

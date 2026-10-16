@@ -16,11 +16,21 @@
 ; What the host does that the tree cannot: read a file or the clipboard for
 ; an import, and save a download. A press that needs one leaves `action` set
 ; ("import", "export:<sheet id>") for the host to take.
+;
+; With `server` on (the Warden page) the space lives on a server. The app
+; keeps an outbox of calls (`outOp`, `outBody`); the host sends the first,
+; one at a time, and hands the reply to `answer` (or the error to `failed`).
+; What the calendar changes is queued as save_event calls; members, invites,
+; new spaces and the demo data go the same way. Text fields are EVGUI
+; InputCtls; the host's text-input bridge edits them through `focusedField`,
+; `fieldStateJson` and `applyEdit`.
 ; =============================================================================
 
 Import "SpacesModel.rgr"
 Import "SpacesVocab.rgr"
 Import "SpacesAssist.rgr"
+Import "SpacesRemote.rgr"
+Import "../evgui/src/InputCtl.rgr"
 Import "../evgui/src/EventCalBoard.rgr"
 Import "../evgui/src/EventCalCtl.rgr"
 Import "../evgui/src/EventCalI18n.rgr"
@@ -35,6 +45,18 @@ Import "pkg:evg/EVGTransition.rgr"
 Import "pkg:evg/EVGA11yTree.rgr"
 Import "pkg:evg/EVGA11yFromTree.rgr"
 Import "pkg:evg/EVGHitTest.rgr"
+
+; One call for the host to make: POST <op> with `body`. `ref` is what the
+; answer is about (an event's or a ward's id here), `rev` the event's change
+; count when its body was taken.
+class SpCall {
+    def op:string ""
+    def body:string "{}"
+    def ref:string ""
+    def rev:int 0
+    Constructor () {
+    }
+}
 
 class SpacesApp {
     def space:SpSpace (new SpSpace())
@@ -63,6 +85,27 @@ class SpacesApp {
     ; what the host has to do after a press ("import", "export:<id>")
     def action:string ""
     def status:string ""
+
+    ; --- a space on a server -----------------------------------------------------
+    def server:boolean false
+    ; the person signed in and their spaces
+    def account:SpAccount (new SpAccount())
+    ; the space on the page ("" for none yet), and the one the host remembers
+    ; was open last
+    def spaceId:string ""
+    def prefer:string ""
+    def loading:boolean false
+    def outbox:[SpCall]
+    ; the demo data on its way to the server, and how many wards are left
+    ; to add before its events go
+    def seed@(optional):SpSpace
+    def seedLeft:int 0
+    ; the words picked for a new space
+    def newPack:string "family"
+    ; text fields: the ones on the page now, and the fields themselves
+    def shown:[InputCtl]
+    def nameField:InputCtl (new InputCtl())
+    def inviteField:InputCtl (new InputCtl())
 
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
@@ -104,9 +147,15 @@ class SpacesApp {
         this.load()
     }
 
-    ; A fresh space of the pack's demo data, in the page's language.
+    ; A fresh space of the pack's demo data, in the page's language. On a
+    ; server the space comes from there (`answer`); until it does it is empty.
     fn load:void () {
-        space = (SpSeed.build(pack lang today))
+        if server {
+            space = (new SpSpace())
+            space.today = today
+        } {
+            space = (SpSeed.build(pack lang today))
+        }
         sheetSel = ""
         docSel = ""
         def none:[string]
@@ -205,9 +254,11 @@ class SpacesApp {
             } {
                 ; made on the card
                 if ce.allDay {
-                    space.addAllDay(ce.title ce.startDay ce.endDay ce.resource)
+                    def ad:SpEvent (space.addAllDay(ce.title ce.startDay ce.endDay ce.resource))
+                    ad.touch()
                 } {
-                    space.addEvent(ce.title ce.startDay ce.startMin ce.endMin ce.resource)
+                    def ev:SpEvent (space.addEvent(ce.title ce.startDay ce.startMin ce.endMin ce.resource))
+                    ev.touch()
                 }
                 status = (SpWords.pick(lang "Added " "Lisätty ") + ce.title)
                 changed = true
@@ -216,6 +267,7 @@ class SpacesApp {
         }
         if changed {
             this.fillBoard()
+            this.queueSaves()
         }
         return changed
     }
@@ -297,6 +349,8 @@ class SpacesApp {
 
     fn page:EVGElement () {
         builtW = pageW
+        def none:[InputCtl]
+        shown = none
         def shell:EVGElement (UiTree.div("sp-shell" "sp-shell"))
         shell.addChild((this.topBar()))
         def body:EVGElement (SpacesApp.box("sp-body"))
@@ -307,21 +361,14 @@ class SpacesApp {
         def main:EVGElement (UiTree.div("sp-main" "sp-main"))
         main.role = "main"
         UiTree.inline(main "width" (SpacesApp.px((this.mainW()))))
-        if (tab == "calendar") {
-            main.addChild((this.calendarView()))
+        def noSpace:boolean (server && (((strlen spaceId) == 0) && (loading == false)))
+        if ((tab == "spaces") || noSpace) {
+            main.addChild((this.spacesView()))
         } {
-            if (tab == "sheets") {
-                main.addChild((this.sheetsView()))
+            if (tab == "members") {
+                main.addChild((this.membersView()))
             } {
-                if (tab == "docs") {
-                    main.addChild((this.docsView()))
-                } {
-                    if (tab == "assistant") {
-                        main.addChild((this.assistantView()))
-                    } {
-                        main.addChild((this.homeView()))
-                    }
-                }
+                main.addChild((this.tabView()))
             }
         }
         body.addChild(main)
@@ -334,6 +381,29 @@ class SpacesApp {
         return shell
     }
 
+    fn tabView:EVGElement () {
+        if (tab == "calendar") {
+            return (this.calendarView())
+        }
+        if (tab == "sheets") {
+            return (this.sheetsView())
+        }
+        if (tab == "docs") {
+            return (this.docsView())
+        }
+        if (tab == "assistant") {
+            return (this.assistantView())
+        }
+        return (this.homeView())
+    }
+
+    fn appName:string () {
+        if server {
+            return "Warden"
+        }
+        return "Spaces"
+    }
+
     fn topBar:EVGElement () {
         def bar:EVGElement (SpacesApp.box("sp-top"))
         if (this.narrow()) {
@@ -342,16 +412,18 @@ class SpacesApp {
         bar.role = "banner"
         def brand:EVGElement (SpacesApp.box("sp-brand"))
         def mark:EVGElement (SpacesApp.box("sp-mark"))
-        mark.addChild((SpacesApp.tx("sp-mark-tx" "S")))
+        mark.addChild((SpacesApp.tx("sp-mark-tx" (substring (this.appName()) 0 1))))
         brand.addChild(mark)
-        brand.addChild((SpacesApp.tx("sp-brand-tx" "Spaces")))
+        brand.addChild((SpacesApp.tx("sp-brand-tx" (this.appName()))))
         bar.addChild(brand)
         if ((this.narrow()) == false) {
             def name:EVGElement (SpacesApp.tx("sp-spacename" space.name))
             bar.addChild(name)
         }
         bar.addChild((SpacesApp.box("sp-grow")))
-        if ((this.narrow()) == false) {
+        ; on a server only the owner changes the space's words
+        def wordsOn:boolean ((server == false) || (((strlen spaceId) > 0) && (space.myRole == "owner")))
+        if (((this.narrow()) == false) && wordsOn) {
             bar.addChild((SpacesApp.tx("sp-pills-label" (SpWords.ui(lang "words")))))
         }
         def packs:[string] (SpWords.packs())
@@ -370,7 +442,9 @@ class SpacesApp {
             pills.addChild(b)
             i = (i + 1)
         }
-        bar.addChild(pills)
+        if wordsOn {
+            bar.addChild(pills)
+        }
         def lg:EVGElement (SpacesApp.box("sp-pills"))
         lg.role = "group"
         lg.a11yLabel = (SpWords.ui(lang "lang"))
@@ -399,6 +473,10 @@ class SpacesApp {
         nav.role = "navigation"
         def tabs:[string] ([] _:string ( "home" "calendar" "sheets" "docs" "assistant" ))
         def glyphs:[string] ([] _:string ( "◎" "▦" "▤" "▧" "✦" ))
+        if server {
+            tabs = ([] _:string ( "home" "calendar" "members" "spaces" "sheets" "docs" "assistant" ))
+            glyphs = ([] _:string ( "◎" "▦" "◈" "▣" "▤" "▧" "✦" ))
+        }
         def i:int 0
         while (i < (array_length tabs)) {
             def t:string (itemAt tabs i)
@@ -442,7 +520,14 @@ class SpacesApp {
         itemDays = none
         def v:EVGElement (SpacesApp.box("sp-view"))
         def todayLong:string (EcI18n.dayTitle(lang today))
-        v.addChild((this.heading((SpWords.ui(lang "home")) (todayLong + " · " + space.name))))
+        def sub:string (todayLong + " · " + space.name)
+        if loading {
+            sub = (todayLong + " · " + (SpWords.ui(lang "loading")))
+        }
+        v.addChild((this.heading((SpWords.ui(lang "home")) sub)))
+        if ((server && (loading == false)) && (((array_length space.events) == 0) && ((array_length space.resources) == 0))) {
+            v.addChild((this.emptyCard()))
+        }
         def ranges:[SpRange] (space.summary(today))
         def cols:EVGElement (SpacesApp.box("sp-cols"))
         if (this.narrow()) {
@@ -522,19 +607,34 @@ class SpacesApp {
         return c
     }
 
+    ; One event on a day: its time, title, ward and who looks after it
+    ; ("Aino · Vie: Juho"); an important one is marked.
     fn itemRow:EVGElement (o:SpOccur) {
         def n:int (array_length itemDays)
         push itemDays o.day
-        def who:string (space.resourceName(o.resource))
+        def who:string (space.aboutOf(o))
         def label:string ((SpWords.timeOf(lang o)) + " " + o.title)
         if ((strlen who) > 0) {
             label = (label + ", " + who)
         }
-        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) "sp-item"))
+        if o.important {
+            label = ((SpWords.ui(lang "important")) + ": " + label)
+        }
+        def cls:string "sp-item"
+        if o.important {
+            cls = "sp-item sp-item-important"
+        }
+        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) cls))
         row.role = "button"
         row.a11yFocusable = true
         row.a11yLabel = label
-        row.addChild((SpacesApp.dot(o.color)))
+        if o.important {
+            def star:EVGElement (SpacesApp.tx("sp-star" "★"))
+            star.a11yHidden = true
+            row.addChild(star)
+        } {
+            row.addChild((SpacesApp.dot(o.color)))
+        }
         def tm:EVGElement (SpacesApp.tx("sp-time" (SpWords.timeOf(lang o))))
         tm.a11yHidden = true
         row.addChild(tm)
@@ -694,6 +794,290 @@ class SpacesApp {
         c.addChild((SpacesApp.btn("sp-write-summary" "sp-action" (SpWords.ui(lang "newSummary")))))
         c.addChild((SpacesApp.btn("sp-write-plan" "sp-action sp-action-primary" (SpWords.ui(lang "newPlan")))))
         return c
+    }
+
+    ; An empty space on a server: where to start.
+    fn emptyCard:EVGElement () {
+        def c:EVGElement (UiTree.div("sp-card-empty" "sp-writecard"))
+        if (this.narrow()) {
+            c = (UiTree.div("sp-card-empty" "sp-writecard sp-writecard-narrow"))
+        }
+        c.role = "region"
+        c.a11yLabel = (SpWords.ui(lang "seed"))
+        c.addChild((SpacesApp.tx("sp-spark" "✦")))
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        col.addChild((SpacesApp.tx("sp-meta" (SpWords.ui(lang "empty")))))
+        if (this.narrow()) {
+            UiTree.inline(col "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+        }
+        c.addChild(col)
+        c.addChild((SpacesApp.box("sp-grow")))
+        if (null? seed) {
+            c.addChild((SpacesApp.btn("sp-seed" "sp-action sp-action-primary" (SpWords.ui(lang "seed")))))
+        } {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.ui(lang "saving")))))
+        }
+        return c
+    }
+
+    ; --- members ----------------------------------------------------------------------
+
+    fn initials:string (name:string) {
+        def t:string (trim name)
+        if ((strlen t) == 0) {
+            return "?"
+        }
+        return (to_uppercase (substring t 0 1))
+    }
+
+    fn personRow:EVGElement (id:string name:string detail:string role:string removeId:string) {
+        def row:EVGElement (UiTree.div(id "sp-person"))
+        row.role = "listitem"
+        row.a11yLabel = (name + ", " + detail)
+        def av:EVGElement (SpacesApp.box("sp-avatar"))
+        av.a11yHidden = true
+        av.addChild((SpacesApp.tx("sp-avatar-tx" (this.initials(name)))))
+        row.addChild(av)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        def nm:EVGElement (SpacesApp.tx("sp-title" name))
+        nm.a11yHidden = true
+        col.addChild(nm)
+        if ((strlen detail) > 0) {
+            def dt:EVGElement (SpacesApp.tx("sp-meta" detail))
+            dt.a11yHidden = true
+            col.addChild(dt)
+        }
+        row.addChild(col)
+        if ((strlen role) > 0) {
+            def rl:EVGElement (SpacesApp.tx("sp-role" role))
+            rl.a11yHidden = true
+            row.addChild(rl)
+        }
+        if ((strlen removeId) > 0) {
+            row.addChild((SpacesApp.btn(removeId "sp-action" (SpWords.ui(lang "remove")))))
+        }
+        return row
+    }
+
+    ; Who is in the space and who is invited; the owner invites and removes.
+    fn membersView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        v.addChild((this.heading((SpWords.ui(lang "members")) space.name)))
+        def owner:boolean (space.myRole == "owner")
+        def c:EVGElement (this.card("members" (SpWords.ui(lang "members"))))
+        def i:int 0
+        while (i < (array_length space.members)) {
+            def m:SpMember (itemAt space.members i)
+            def rm:string ""
+            if (owner && ((m.uid != account.uid) && (m.role != "owner"))) {
+                rm = ("sp-remove-" + (to_string i))
+            }
+            def nm:string m.name
+            if ((strlen nm) == 0) {
+                nm = m.email
+            }
+            c.addChild((this.personRow(("sp-member-" + (to_string i)) nm m.email (SpWords.ui(lang m.role)) rm)))
+            i = (i + 1)
+        }
+        v.addChild(c)
+        if (((array_length space.invites) > 0) || owner) {
+            def iv:EVGElement (this.card("invites" (SpWords.ui(lang "invited"))))
+            def k:int 0
+            while (k < (array_length space.invites)) {
+                def email:string (itemAt space.invites k)
+                def rm2:string ""
+                if owner {
+                    rm2 = ("sp-uninvite-" + (to_string k))
+                }
+                iv.addChild((this.personRow(("sp-invitee-" + (to_string k)) email "" "" rm2)))
+                k = (k + 1)
+            }
+            if owner {
+                def form:EVGElement (SpacesApp.box("sp-formrow"))
+                form.addChild((this.field(inviteField "sp-invite-email" (SpWords.ui(lang "email")) "name@example.com" "email")))
+                form.addChild((SpacesApp.btn("sp-invite" "sp-action sp-action-primary" (SpWords.ui(lang "invite")))))
+                iv.addChild(form)
+            }
+            v.addChild(iv)
+        }
+        return v
+    }
+
+    ; --- spaces -------------------------------------------------------------------------
+
+    ; The spaces the person is in, and a new one.
+    fn spacesView:EVGElement () {
+        def v:EVGElement (SpacesApp.box("sp-view"))
+        def sub:string account.email
+        if loading {
+            sub = (SpWords.ui(lang "loading"))
+        }
+        v.addChild((this.heading((SpWords.ui(lang "spaces")) sub)))
+        def list:EVGElement (this.card("spaces" (SpWords.ui(lang "spaces"))))
+        if (((array_length account.spaces) == 0) && (loading == false)) {
+            list.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noSpaces")))))
+        }
+        def i:int 0
+        while (i < (array_length account.spaces)) {
+            def info:SpSpaceInfo (itemAt account.spaces i)
+            def on:boolean (info.id == spaceId)
+            def cls:string "sp-spacerow"
+            if on {
+                cls = "sp-spacerow sp-spacerow-on"
+            }
+            def b:EVGElement (UiTree.div(("sp-open-" + info.id) cls))
+            b.role = "button"
+            b.a11yFocusable = true
+            b.a11yLabel = info.name
+            b.a11yPressed = (SpacesApp.tri(on))
+            b.addChild((SpacesApp.dot("blue")))
+            def col:EVGElement (SpacesApp.box("sp-itemtext"))
+            def nm:EVGElement (SpacesApp.tx("sp-title" info.name))
+            nm.a11yHidden = true
+            col.addChild(nm)
+            def mt:EVGElement (SpacesApp.tx("sp-meta" ((SpWords.packName(lang info.vocab)) + " · " + (SpWords.ui(lang info.role)))))
+            mt.a11yHidden = true
+            col.addChild(mt)
+            b.addChild(col)
+            list.addChild(b)
+            i = (i + 1)
+        }
+        v.addChild(list)
+        def nw:EVGElement (this.card("newspace" (SpWords.ui(lang "newSpace"))))
+        def form:EVGElement (SpacesApp.box("sp-formrow"))
+        form.addChild((this.field(nameField "sp-new-name" (SpWords.ui(lang "spaceName")) (SpWords.noun(lang newPack "space")) "text")))
+        def pills:EVGElement (SpacesApp.box("sp-pills"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.ui(lang "words"))
+        def packs:[string] (SpWords.packs())
+        def k:int 0
+        while (k < (array_length packs)) {
+            def pk:string (itemAt packs k)
+            def pc:string "sp-pill"
+            if (pk == newPack) {
+                pc = "sp-pill sp-pill-on"
+            }
+            def pb:EVGElement (SpacesApp.btn(("sp-newpack-" + pk) pc (SpWords.packName(lang pk))))
+            pb.a11yPressed = (SpacesApp.tri((pk == newPack)))
+            pills.addChild(pb)
+            k = (k + 1)
+        }
+        form.addChild(pills)
+        form.addChild((SpacesApp.btn("sp-create" "sp-action sp-action-primary" (SpWords.ui(lang "create")))))
+        nw.addChild(form)
+        v.addChild(nw)
+        return v
+    }
+
+    ; --- text fields ----------------------------------------------------------------------
+
+    ; An InputCtl on the page: built from its state, focused when the page's
+    ; focus is on it, and placed after layout (`placeFields`).
+    fn field:EVGElement (c:InputCtl tid:string label:string hint:string kind:string) {
+        c.tid = tid
+        c.name = label
+        c.placeholder = hint
+        c.kind = kind
+        c.focused = (focused == tid)
+        if (c.focused == false) {
+            c.dragging = false
+        }
+        c.build()
+        def fr:EVGElement (unwrap c.rootEl)
+        fr.role = "textbox"
+        fr.a11yLabel = label
+        fr.a11yValue = c.value
+        fr.a11yFocusable = true
+        def view:EVGElement (unwrap c.viewEl)
+        view.a11yHidden = true
+        if (this.narrow()) {
+            UiTree.inline(fr "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+        }
+        push shown c
+        return fr
+    }
+
+    fn fieldOf@(optional):InputCtl (id:string) {
+        def found@(optional):InputCtl
+        if ((strlen id) == 0) {
+            return found
+        }
+        def i:int 0
+        while (i < (array_length shown)) {
+            def c:InputCtl (itemAt shown i)
+            if (c.owns(id)) {
+                found = c
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    fn placeFields:void (lay:EVGLayout) {
+        def e:EVGTextEngine (lay.getTextEngine())
+        def i:int 0
+        while (i < (array_length shown)) {
+            def c:InputCtl (itemAt shown i)
+            c.placeText(e)
+            i = (i + 1)
+        }
+    }
+
+    ; The field the keyboard is in, or "".
+    fn focusedField:string () {
+        def f@(optional):InputCtl (this.fieldOf(focused))
+        if (null? f) {
+            return ""
+        }
+        return focused
+    }
+
+    ; A field's value, selection and box, for the host's text-input bridge.
+    fn fieldStateJson:string (tid:string) {
+        def f@(optional):InputCtl (this.fieldOf(tid))
+        if (null? f) {
+            return "null"
+        }
+        def c:InputCtl f
+        this.laidOut()
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("value" (VlJson.stringValue(c.value)))
+        o.setMember("selStart" (VlJson.intValue((c.selStart()))))
+        o.setMember("selEnd" (VlJson.intValue((c.selEnd()))))
+        o.setMember("kind" (VlJson.stringValue(c.kind)))
+        o.setMember("maxLength" (VlJson.intValue(c.maxLength)))
+        o.setMember("readOnly" (VlJson.boolValue(c.readOnly)))
+        def r:EVGElement (unwrap c.rootEl)
+        def box:VlJson (VlJson.objectValue())
+        box.setMember("x" (VlJson.numberValue(r.calculatedX)))
+        box.setMember("y" (VlJson.numberValue(r.calculatedY)))
+        box.setMember("w" (VlJson.numberValue(r.calculatedWidth)))
+        box.setMember("h" (VlJson.numberValue(r.calculatedHeight)))
+        o.setMember("box" box)
+        return (SpRemote.write(o))
+    }
+
+    ; What the bridge's input now holds.
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def f@(optional):InputCtl (this.fieldOf(tid))
+        if (null? f) {
+            return false
+        }
+        def c:InputCtl f
+        c.applyEdit(v selStart selEnd)
+        this.rebuild()
+        return true
+    }
+
+    ; Enter in a field presses its button.
+    sfn submitOf:string (tid:string) {
+        if (tid == "sp-invite-email") {
+            return "sp-invite"
+        }
+        if (tid == "sp-new-name") {
+            return "sp-create"
+        }
+        return ""
     }
 
     ; --- the calendar ---------------------------------------------------------------
@@ -1032,6 +1416,17 @@ class SpacesApp {
         }
         board.closeOverlays()
         focused = target
+        def asField@(optional):InputCtl (this.fieldOf(target))
+        if (!null? asField) {
+            def fc:InputCtl asField
+            focused = fc.tid
+            this.rebuild()
+            return true
+        }
+        if (server && (this.pressServer(target))) {
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-nav-")) {
             tab = (substring target 7 (strlen target))
             this.rebuild()
@@ -1105,6 +1500,347 @@ class SpacesApp {
         return false
     }
 
+    ; =========================================================================
+    ; a space on a server
+    ; =========================================================================
+
+    ; The page's first call: who is signed in, and their spaces.
+    fn start:void () {
+        if (server == false) {
+            return
+        }
+        loading = true
+        this.queue("list_spaces" "{}" "")
+        this.rebuild()
+    }
+
+    fn queue:SpCall (op:string body:string ref:string) {
+        def c (new SpCall())
+        c.op = op
+        c.body = body
+        c.ref = ref
+        push outbox c
+        return c
+    }
+
+    fn outCount:int () {
+        return (array_length outbox)
+    }
+
+    ; The first call's op, "" when there is none.
+    fn outOp:string () {
+        if ((array_length outbox) == 0) {
+            return ""
+        }
+        def c:SpCall (itemAt outbox 0)
+        return c.op
+    }
+
+    ; The first call's body. An event's is taken now, so it carries every
+    ; change made while it waited.
+    fn outBody:string () {
+        if ((array_length outbox) == 0) {
+            return "{}"
+        }
+        def c:SpCall (itemAt outbox 0)
+        if (c.op == "save_event") {
+            def found@(optional):SpEvent (space.event(c.ref))
+            if (!null? found) {
+                def e:SpEvent found
+                c.rev = e.rev
+                c.body = (SpRemote.saveBody(spaceId e))
+            }
+        }
+        return c.body
+    }
+
+    fn takeFirst:SpCall () {
+        def c:SpCall (itemAt outbox 0)
+        def rest:[SpCall]
+        def i:int 1
+        while (i < (array_length outbox)) {
+            push rest (itemAt outbox i)
+            i = (i + 1)
+        }
+        outbox = rest
+        return c
+    }
+
+    fn queued:boolean (op:string ref:string) {
+        def i:int 0
+        while (i < (array_length outbox)) {
+            def c:SpCall (itemAt outbox i)
+            if ((c.op == op) && (c.ref == ref)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A save_event for every changed event that has none waiting. One at a
+    ; time per event: a new event has no id on the server until its first
+    ; save is answered.
+    fn queueSaves:void () {
+        if ((server == false) || ((strlen spaceId) == 0)) {
+            return
+        }
+        def dirty:[SpEvent] (space.dirtyEvents())
+        def i:int 0
+        while (i < (array_length dirty)) {
+            def e:SpEvent (itemAt dirty i)
+            if ((this.queued("save_event" e.id)) == false) {
+                this.queue("save_event" "" e.id)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn openSpace:void (id:string) {
+        spaceId = id
+        loading = true
+        tab = "home"
+        this.queue("get_space" (SpRemote.body(([] _:string ( "space_id" id )))) id)
+    }
+
+    ; The server's answer to the first call.
+    fn answer:void (text:string) {
+        if ((array_length outbox) == 0) {
+            return
+        }
+        def c:SpCall (this.takeFirst())
+        def o:VlJson (SpRemote.parse(text))
+        if (c.op == "list_spaces") {
+            account = (SpRemote.account(text))
+            def pick:string ""
+            if (!null? (account.find(prefer))) {
+                pick = prefer
+            }
+            if (((strlen pick) == 0) && ((array_length account.spaces) > 0)) {
+                def first:SpSpaceInfo (itemAt account.spaces 0)
+                pick = first.id
+            }
+            if ((strlen pick) > 0) {
+                this.openSpace(pick)
+            } {
+                loading = false
+                tab = "spaces"
+            }
+        }
+        if (c.op == "get_space") {
+            if (c.ref == spaceId) {
+                this.showSpace((o.get("space")) (o.get("events")))
+            }
+        }
+        if (c.op == "create_space") {
+            nameField.setValue("")
+            this.showSpace(o (VlJson.arrayValue()))
+            tab = "home"
+            status = ((SpWords.pick(lang "Created " "Luotu ")) + space.name)
+        }
+        if (((c.op == "set_space") || (c.op == "invite_member")) || (c.op == "remove_member")) {
+            if ((o.stringOr("space_id" "")) == spaceId) {
+                SpRemote.readMeta(space o)
+                account.put((SpRemote.info(o)))
+            }
+            if (c.op == "invite_member") {
+                inviteField.setValue("")
+                status = ((SpWords.pick(lang "Invited " "Kutsuttu ")) + c.ref)
+            }
+        }
+        if (c.op == "save_event") {
+            def found@(optional):SpEvent (space.event(c.ref))
+            if (!null? found) {
+                def e:SpEvent found
+                e.remoteId = (o.stringOr("event_id" e.remoteId))
+                if (e.rev == c.rev) {
+                    e.dirty = false
+                }
+            }
+            this.queueSaves()
+        }
+        if (c.op == "add_ward") {
+            this.seedWardAdded(c.ref (o.stringOr("id" "")))
+        }
+        if (c.op == "import_events") {
+            def none@(optional):SpSpace
+            seed = none
+            def n:int (o.intOr("created" 0))
+            status = ((SpWords.pick(lang "Demo data saved: " "Esimerkkidata tallennettu: ")) + (to_string n))
+            this.openSpace(spaceId)
+        }
+        this.rebuild()
+    }
+
+    ; A space and its events on the page, replacing what was there.
+    fn showSpace:void (sp:VlJson events:VlJson) {
+        if ((sp.isObject()) == false) {
+            loading = false
+            return
+        }
+        def s (new SpSpace())
+        s.today = today
+        SpRemote.readWhole(s sp events)
+        space = s
+        spaceId = s.remoteId
+        account.put((SpRemote.info(sp)))
+        if ((strlen s.vocab) > 0) {
+            pack = s.vocab
+        }
+        if ((strlen s.lang) > 0) {
+            lang = s.lang
+        }
+        loading = false
+        sheetSel = ""
+        docSel = ""
+        this.newBoard()
+    }
+
+    ; The first call failed: the server said why, or the host did.
+    fn failed:void (message:string) {
+        if ((array_length outbox) == 0) {
+            return
+        }
+        def c:SpCall (this.takeFirst())
+        status = message
+        loading = false
+        if ((c.op == "add_ward") || (c.op == "import_events")) {
+            ; the demo data stops where it failed
+            def none@(optional):SpSpace
+            seed = none
+            def rest:[SpCall]
+            def i:int 0
+            while (i < (array_length outbox)) {
+                def k:SpCall (itemAt outbox i)
+                if ((k.op != "add_ward") && (k.op != "import_events")) {
+                    push rest k
+                }
+                i = (i + 1)
+            }
+            outbox = rest
+        }
+        this.rebuild()
+    }
+
+    ; The demo data of the space's words: its wards first, then, with the ids
+    ; the server gave them, its events in one import.
+    fn startSeed:void () {
+        if ((strlen spaceId) == 0) {
+            return
+        }
+        def s:SpSpace (SpSeed.build(pack lang today))
+        seed = s
+        seedLeft = (array_length s.resources)
+        def i:int 0
+        while (i < (array_length s.resources)) {
+            def r:SpResource (itemAt s.resources i)
+            this.queue("add_ward" (SpRemote.body(([] _:string ( "space_id" spaceId "name" r.name "color" r.color )))) r.id)
+            i = (i + 1)
+        }
+        if (seedLeft == 0) {
+            this.queue("import_events" (SpRemote.importBody(spaceId (SpSeed.serverEvents(s)))) "")
+        }
+    }
+
+    fn seedWardAdded:void (localId:string serverId:string) {
+        if (null? seed) {
+            return
+        }
+        def s:SpSpace seed
+        if ((strlen serverId) > 0) {
+            s.renameWard(localId serverId)
+        }
+        seedLeft = (seedLeft - 1)
+        if (seedLeft <= 0) {
+            this.queue("import_events" (SpRemote.importBody(spaceId (SpSeed.serverEvents(s)))) "")
+        }
+    }
+
+    ; A press that is about the server: true when it was one.
+    fn pressServer:boolean (target:string) {
+        if (UiTree.beginsWith(target "sp-open-")) {
+            this.openSpace((substring target 8 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-newpack-")) {
+            newPack = (substring target 11 (strlen target))
+            return true
+        }
+        if (target == "sp-create") {
+            def nm:string (trim nameField.value)
+            if ((strlen nm) == 0) {
+                status = (SpWords.pick(lang "Give the space a name" "Anna tilalle nimi"))
+                focused = "sp-new-name"
+                return true
+            }
+            this.queue("create_space" (SpRemote.body(([] _:string ( "name" nm "vocab" newPack "lang" lang )))) "")
+            return true
+        }
+        if (target == "sp-invite") {
+            def email:string (trim inviteField.value)
+            if ((indexOf email "@") <= 0) {
+                status = (SpWords.pick(lang "Write an email address" "Kirjoita sähköpostiosoite"))
+                focused = "sp-invite-email"
+                return true
+            }
+            this.queue("invite_member" (SpRemote.body(([] _:string ( "space_id" spaceId "email" email )))) email)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-remove-")) {
+            def n@(optional):int (to_int (substring target 10 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length space.members))) {
+                    def m:SpMember (itemAt space.members k)
+                    def who:string m.uid
+                    if ((strlen who) == 0) {
+                        who = m.email
+                    }
+                    this.queue("remove_member" (SpRemote.body(([] _:string ( "space_id" spaceId "member" who )))) who)
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-uninvite-")) {
+            def n2@(optional):int (to_int (substring target 12 (strlen target)))
+            if (!null? n2) {
+                def k2:int (unwrap n2)
+                if ((k2 >= 0) && (k2 < (array_length space.invites))) {
+                    def email2:string (itemAt space.invites k2)
+                    this.queue("remove_member" (SpRemote.body(([] _:string ( "space_id" spaceId "member" email2 )))) email2)
+                }
+            }
+            return true
+        }
+        if (target == "sp-seed") {
+            this.startSeed()
+            return true
+        }
+        ; the words and the language are the space's own: kept on the server
+        ; when the owner changes them, and only on this page otherwise
+        if (UiTree.beginsWith(target "sp-pack-")) {
+            pack = (substring target 8 (strlen target))
+            space.vocab = pack
+            this.spaceChanged("vocab" pack)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-lang-")) {
+            lang = (substring target 8 (strlen target))
+            this.spaceChanged("lang" lang)
+            return true
+        }
+        return false
+    }
+
+    fn spaceChanged:void (key:string value:string) {
+        if ((strlen spaceId) > 0) {
+            if (space.myRole == "owner") {
+                this.queue("set_space" (SpRemote.body(([] _:string ( "space_id" spaceId key value )))) "")
+            }
+        }
+        this.newBoard()
+    }
+
     ; The host's answer to "import": a sheet from CSV or pasted cells.
     fn importSheet:boolean (name:string text:string) {
         def sh:SpSheet (SpSheet.parse("" name text))
@@ -1149,6 +1885,16 @@ class SpacesApp {
         this.laidOut()
         lastX = x
         lastY = y
+        def f@(optional):InputCtl (this.fieldOf(id))
+        if (!null? f) {
+            def c:InputCtl f
+            board.closeOverlays()
+            focused = c.tid
+            c.focused = true
+            c.textPointerDownAt(id x y 1 false)
+            this.rebuild()
+            return true
+        }
         if (this.onBoard(id)) {
             board.focused = focused
             board.hovered = hovered
@@ -1164,6 +1910,15 @@ class SpacesApp {
     fn pointerMove:boolean (x:double y:double) {
         lastX = x
         lastY = y
+        def f@(optional):InputCtl (this.fieldOf(focused))
+        if (!null? f) {
+            def c:InputCtl f
+            if c.dragging {
+                c.textPointerDragAt(x y)
+                this.rebuild()
+                return true
+            }
+        }
         if ((strlen board.armed) == 0) {
             return false
         }
@@ -1176,6 +1931,11 @@ class SpacesApp {
     }
 
     fn pointerUp:boolean () {
+        def f@(optional):InputCtl (this.fieldOf(focused))
+        if (!null? f) {
+            def c:InputCtl f
+            c.textPointerUp()
+        }
         if ((strlen board.armed) == 0) {
             return false
         }
@@ -1263,6 +2023,29 @@ class SpacesApp {
     }
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        def f@(optional):InputCtl (this.fieldOf(focused))
+        if ((!null? f) && (k != "Tab")) {
+            def c:InputCtl f
+            if (k == "Enter") {
+                def go:string (SpacesApp.submitOf(c.tid))
+                if ((strlen go) > 0) {
+                    return (this.press(go))
+                }
+                return false
+            }
+            if (k == "Escape") {
+                focused = ""
+                this.rebuild()
+                return true
+            }
+            ; a shortcut other than Ctrl+A is the page's, not the field's
+            if (ctrl && (k != "a")) {
+                return false
+            }
+            c.keyDownWith(c.tid k shift ctrl)
+            this.rebuild()
+            return true
+        }
         if (k == "Tab") {
             if (this.onBoard(focused)) {
                 def back:string (board.closeLists())
@@ -1358,6 +2141,7 @@ class SpacesApp {
                 lay.setPageSize(pageW pageH)
                 lay.layout(r)
                 this.fitHeight(lay)
+                this.placeFields(lay)
             }
             return lay
         }
@@ -1366,6 +2150,7 @@ class SpacesApp {
         layout = fresh
         fresh.layout(r)
         this.fitHeight(fresh)
+        this.placeFields(fresh)
         return fresh
     }
 
@@ -1431,7 +2216,7 @@ class SpacesApp {
         this.laidOut()
         def r:EVGElement (unwrap root)
         def b (new EVGA11yFromTree())
-        def t:EVGA11yTree (b.build(r "Spaces" generation focusId))
+        def t:EVGA11yTree (b.build(r (this.appName()) generation focusId))
         return (t.toJson())
     }
 

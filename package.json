@@ -28,7 +28,8 @@
     "spaces:build": "node apps/spaces/scripts/build.mjs",
     "spaces:check": "node apps/spaces/scripts/check.mjs",
     "spaces:serve": "node apps/spaces/scripts/serve.mjs",
-    "spaces:check:page": "node apps/spaces/scripts/check-page.mjs"
+    "spaces:check:page": "node apps/spaces/scripts/check-page.mjs",
+    "warden:build": "node apps/spaces/scripts/build.mjs --warden"
   },
   "devDependencies": {
     "playwright-core": "^1.55.0",
