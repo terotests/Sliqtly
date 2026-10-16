@@ -5321,6 +5321,21 @@ class PresCheck {
         def bl:PresBlock (itemAt deck.src.blocks 0)
         this.ok(((substring text bl.bodyAt (bl.bodyAt + (strlen bl.body))) == bl.body) "doccaret: a block's bodyAt is where its body is in the source")
         this.ok((cm.has(((indexOf text "omena") + 2))) "doccaret: a table cell's words are on the caret's page")
+        ; a link's words on the page: a press there names where it goes
+        def lt:string "## Osat\n\nKatso [feature-lista](https://sliqtly.com/s/AbCdEf1234) ja [alku](#osat).\n\n| Alue |\n| --- |\n| [Kaaviot](/s/AbCdEf1234) |\n"
+        def ld (new PresDeck())
+        ld.setText(lt)
+        def lv (new PresDocView())
+        lv.build(ld)
+        def lc:PresDocCaret lv.caret
+        def lk:[double] (lc.caret(((indexOf lt "feature-lista") + 3)))
+        this.ok(((lc.linkAt(((itemAt lk 0) + 0.5) ((itemAt lk 1) + ((itemAt lk 2) * 0.5)))) == "https://sliqtly.com/s/AbCdEf1234") "doclink: a press on a link's words names it")
+        def lk2:[double] (lc.caret(((indexOf lt "alku") + 1)))
+        this.ok(((lc.linkAt(((itemAt lk2 0) + 0.5) ((itemAt lk2 1) + ((itemAt lk2 2) * 0.5)))) == "#osat") "doclink: a link to a heading of the deck")
+        def lk3:[double] (lc.caret(((indexOf lt "Kaaviot") + 2)))
+        this.ok(((lc.linkAt(((itemAt lk3 0) + 0.5) ((itemAt lk3 1) + ((itemAt lk3 2) * 0.5)))) == "/s/AbCdEf1234") "doclink: a link in a table cell")
+        def lk4:[double] (lc.caret(((indexOf lt "Katso") + 1)))
+        this.ok(((lc.linkAt(((itemAt lk4 0) + 0.5) ((itemAt lk4 1) + ((itemAt lk4 2) * 0.5)))) == "") "doclink: plain words are no link")
         ; Backspace joins and Enter's text
         this.ok((PresDocCaret.gapJoins("\n\n- ")) "doccaret: a gap of a bullet joins")
         this.ok(((PresDocCaret.gapJoins("\n\n---\n\n## ")) == false) "doccaret: a slide break does not")
