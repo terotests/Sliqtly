@@ -1903,7 +1903,6 @@
   "Zoom out (Ctrl + wheel, a pinch)": "Loitonna (Ctrl + rulla, nipistys)",
   "Zoom in (Ctrl + wheel, a pinch)": "Lähennä (Ctrl + rulla, nipistys)",
   "The slide as it fits": "Dia kokonaan näkyviin",
-  "That cannot be formatted here: select whole words inside one style.": "Tätä ei voi muotoilla tässä: valitse kokonaisia sanoja yhden tyylin sisältä.",
   "The samples are in the browser editor.": "Esimerkit ovat selaimen editorissa.",
   "Save the presentation first: then it is in a room.": "Tallenna esitys ensin: sitten se on huoneessa.",
   "This export is in the browser editor for now.": "Tämä vienti on toistaiseksi vain selaimen editorissa.",
@@ -1920,5 +1919,7 @@
   "box border": "laatikon reuna",
   "box border colour": "laatikon reunan väri",
   "box border width": "laatikon reunan leveys",
-  "box corners": "laatikon kulmat"
+  "box corners": "laatikon kulmat",
+  "Fit": "Sovita",
+  "Fit the page to the editor": "Sovita sivu editoriin"
 }
