@@ -102,5 +102,5 @@ checkout and EVGUI, with `src/` linked in as `gallery/spaces`.
 
 Without a server the data lives in the page and resets on reload; on one,
 sheets and documents still do. Editing an event's details (title, ward, who)
-in a form, deleting events, `.xlsx` files, editing documents in place and a
-language model behind the assistant come next.
+in a form, deleting events, `.xlsx` files and editing documents in place
+come next; the assistant's language model is Warden's only (a server's).
