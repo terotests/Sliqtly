@@ -31,6 +31,9 @@ type aiRead struct {
 type aiReader struct {
 	Tools []aiTool
 	Run   func(ctx context.Context, name string, args map[string]any) aiRead
+	// where the person's presentations are kept can be changed
+	// (aiPlaceTools, aiorganize.go): sliqtly.com
+	Places bool
 }
 
 // a model that can read before it answers
@@ -44,9 +47,9 @@ const (
 	aiReadImages = 2
 )
 
-// MCP tools the drawer leaves out though they only read: listing the
-// person's other presentations is not about the one open
-var aiReadSkip = []string{"list_presentations", "list_comments"}
+// MCP tools the drawer leaves out though they only read (list_presentations
+// is in: it tells where each presentation is kept, for sorting them)
+var aiReadSkip = []string{"list_comments"}
 
 // the drawer's own: the Markdown in the editor, drawn
 var aiLookTools = []aiTool{
@@ -109,7 +112,7 @@ func aiDeckReader(env *Env, uid string, q aiQuestion) *aiReader {
 		}
 		return aiReadOf(JOut_static_text(r))
 	}
-	return &aiReader{Tools: tools, Run: run}
+	return &aiReader{Tools: tools, Run: run, Places: aiPlacesOn(env)}
 }
 
 // An MCP answer ({"content": [{type: text|image, …}], "isError"}) as a read.

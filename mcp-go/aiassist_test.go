@@ -26,6 +26,7 @@ type fakeAI struct {
 	refuse bool
 	err    error
 	edits  []aiEdit
+	places []aiPlace
 }
 
 func (f *fakeAI) Ask(_ context.Context, system string, turns []aiTurn) (aiAnswer, error) {
@@ -33,7 +34,7 @@ func (f *fakeAI) Ask(_ context.Context, system string, turns []aiTurn) (aiAnswer
 	if f.err != nil {
 		return aiAnswer{}, f.err
 	}
-	return aiAnswer{Text: f.reply, In: 100, Out: 20, Declined: f.refuse, Edits: f.edits}, nil
+	return aiAnswer{Text: f.reply, In: 100, Out: 20, Declined: f.refuse, Edits: f.edits, Places: aiPlan{Steps: f.places}}, nil
 }
 
 func TestAISystemHasTheGuide(t *testing.T) {

@@ -291,6 +291,46 @@ class PresCheck {
         u.setCredits("{\"available\":true,\"credits\":{\"left\":-1,\"unlimited\":true}}")
         this.ok(((u.creditsShort()) == "no limit") "ai: no limit")
         this.ok(((PresAi.actionFits("explain" ctx)) == false) "ai: Explain only with code on the slide")
+        this.aiPlaces(ctx)
+    }
+
+    ; Where presentations are kept (PresAi placing): one move made comes
+    ; with the answer, several wait for a yes, then go to the page once.
+    fn aiPlaces:void (ctx:PresAiContext) {
+        def a (new PresAi())
+        a.available = 1
+        a.ask("Sort the tests" "" ctx)
+        a.takePending()
+        a.answer("{\"reply\":\"Filed.\",\"placed\":[{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\",\"deck\":\"Test one\",\"room\":\"General\",\"folder\":\"Testing\"},{\"tool\":\"move_presentation\",\"room_id\":\"r9\",\"deck_id\":\"d2\",\"deck\":\"Plan\",\"error\":\"not found\"}]}")
+        def m:PresAiMsg (itemAt a.msgs 1)
+        this.ok((m.text == "Filed.\n\n✓ Test one → General › Testing\n✗ Plan → r9: not found") ("ai places: one made, said: " + m.text))
+        this.ok(((a.placingLabel()) == "") "ai places: nothing waits")
+        a.ask("Sort them all" "" ctx)
+        a.takePending()
+        a.answer("{\"reply\":\"Two into Testing.\",\"organize\":[{\"tool\":\"create_folder\",\"room_id\":\"general\",\"name\":\"Testing\",\"room\":\"General\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\",\"folder_id\":\"new:Testing\",\"deck\":\"Test one\",\"room\":\"General\",\"folder\":\"Testing\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\",\"folder_id\":\"new:Testing\",\"deck\":\"Test two\",\"room\":\"General\",\"folder\":\"Testing\"}]}")
+        def q:PresAiMsg (itemAt a.msgs 3)
+        this.ok(((indexOf q.text "Move 2 presentations?\n• Folder: Testing (General)\n• Test one → General › Testing") > 0) ("ai places: the moves asked about: " + q.text))
+        this.ok(((a.placingLabel()) == "✓ Move 2 presentations") ("ai places: the button: " + (a.placingLabel())))
+        this.ok(((a.takeOrganize()) == "") "ai places: nothing posted before a yes")
+        this.ok((a.sayYes()) "ai places: yes")
+        this.ok(((a.placingLabel()) == "") "ai places: asked once")
+        this.ok(a.busy "ai places: waiting for the server")
+        def body:string (a.takeOrganize())
+        this.ok(((indexOf body "{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\",\"folder_id\":\"new:Testing\"}") > 0) ("ai places: the steps posted: " + body))
+        this.ok(((a.takeOrganize()) == "") "ai places: posted once")
+        a.organized("{\"placed\":[{\"tool\":\"move_presentation\",\"deck\":\"Test two\",\"room\":\"General\",\"folder\":\"Testing\"}]}")
+        def n:PresAiMsg (itemAt a.msgs ((array_length a.msgs) - 1))
+        this.ok(((n.role == "note") && (n.text == "✓ Test two → General › Testing")) ("ai places: made: " + n.text))
+        this.ok((a.busy == false) "ai places: done")
+        ; no: nothing moves; a new question drops the plan too
+        a.ask("Again" "" ctx)
+        a.takePending()
+        a.answer("{\"reply\":\"x\",\"organize\":[{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\"}]}")
+        a.sayNo()
+        this.ok((((a.placingLabel()) == "") && ((a.sayYes()) == false)) "ai places: no")
+        a.answer("{\"reply\":\"x\",\"organize\":[{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d1\"},{\"tool\":\"move_presentation\",\"room_id\":\"general\",\"deck_id\":\"d2\"}]}")
+        a.ask("Something else" "" ctx)
+        this.ok(((a.placingLabel()) == "") "ai places: a new question leaves them behind")
     }
 
     fn run:void () {

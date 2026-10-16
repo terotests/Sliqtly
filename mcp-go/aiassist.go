@@ -91,6 +91,8 @@ type aiAnswer struct {
 	Declined bool  // the model declined to answer
 	// the changes it asked the editor to make, in order (aiEditTools)
 	Edits []aiEdit
+	// where it moves presentations (aiPlaceTools), made after it answers
+	Places aiPlan
 }
 
 // A change to the presentation the model asked for: one of aiEditTools by
@@ -271,6 +273,8 @@ Answer in the language the person writes in. Be brief: a few sentences or a shor
 When the person asks you to change the presentation, change it with your functions: set_theme for one of the ready themes (its look: colours, fonts, backgrounds; "darker" or "lighter" usually means another theme from <themes>), add_theme_css for a look of its own ("make a theme of our own", "sporty", "in our brand colours": start from the theme closest to it with set_theme if it helps, then add_theme_css with its colours, fonts and backgrounds; read sliqtly_guide topic css and read_theme_css first, and look_at_slide after), set_front_matter for other front-matter keys, replace_slide, insert_slide and delete_slide for slides (numbered as in <slides>), replace_presentation only when most of it changes, add_file for a file the slides use: a picture you draw as SVG goes in media/ (add_file media/forest.svg, then ![Forest](media/forest.svg) on the slide; or the <svg>…</svg> itself on lines of its own in the slide), data a chart or a table reads in data/, a program running on the slide (an ` + "```app" + ` block or {script=…}) by writing its file in apps/ whole again: its text is in <file>. Do not paste the changed Markdown into your answer; the editor makes the change at once and the person can undo it. Say in a sentence what you changed. When they only ask a question, answer it without changing anything. Write in Sliqtly's Markdown as the guide below describes, and keep what the person wrote unless you were asked to change it.
 
 Before you answer you may look, as many times as you need: look_at_slide and look_at_presentation draw the presentation as it is in the editor and report what does not fit; sliqtly_guide gives any topic of the guide the summary below leaves out (smartart, diagrams, charts, figures, tables, apps, 3d…), so read the topic before you write a block of that kind; list_files, read_file and get_display_list read the presentation's files and drawing; search_figma and get_figma_screen read the person's Figma; the other read functions do as they say. Look first, then make all your changes together in your last turn: changes in a later turn replace the earlier ones. You cannot read the web; say so when that is needed.
+
+The person keeps their presentations in topics (rooms), each with one level of folders. list_presentations tells where each one is (room, folder), list_rooms and get_room the topics and their folders; create_folder and move_presentation sort them, when you have them (read sliqtly_guide topic rooms first). Folders are optional: a topic with a few presentations needs none; use a folder the topic has when it fits, make a new one only when it clearly helps (many presentations of one kind), and ask the person when it is unclear. A topic with 20 or more presentations at its top: suggest sorting them into folders, with names for them. Moving more than one presentation is shown to the person in the drawer to confirm, so make the moves you suggest and say in a sentence what they are; nothing moves until they say yes there. You cannot pin presentations: the person pins them in the topic list.
 
 This is a conversation: your earlier answers and the person's earlier messages come before the new message. A short message ("check it", "tarkasta", "yes", "do it", "the other one") continues it: answer it about what was said last, not as a new task. Your functions are yours to call; never tell the person to call one by its name.
 
@@ -653,6 +657,12 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			return
 		}
 		editorJSON(w, 200, map[string]any{"available": true, "credits": c.json(), "model": a.modelName()})
+	case "organize":
+		if r.Method != http.MethodPost || !sameSite(env, r) {
+			editorJSON(w, 403, map[string]string{"error": "Not allowed."})
+			return
+		}
+		serveAIOrganize(env, w, r, t.UID)
 	case "ask":
 		if r.Method != http.MethodPost || !sameSite(env, r) {
 			editorJSON(w, 403, map[string]string{"error": "Not allowed."})
@@ -699,14 +709,25 @@ func serveAI(env *Env, g *editorGate, w http.ResponseWriter, r *http.Request, op
 			c.Used += q.cost()
 		}
 		reply := ans.Text
+		places := ans.Places
+		if ans.Declined || aiNamePlan(env, r.Context(), t.UID, &places) != nil {
+			places = aiPlan{}
+		}
 		if ans.Declined {
 			reply = "I can't help with that one. Try asking another way."
-		} else if reply == "" && len(ans.Edits) == 0 {
+		} else if reply == "" && len(ans.Edits) == 0 && len(places.Steps) == 0 {
 			reply = "I did not get to an answer this time. Ask again, or in smaller steps."
 		}
 		out := map[string]any{"reply": reply, "credits": c.json(), "usage": aiUsageOf(a.modelName(), ans)}
 		if !ans.Declined && len(ans.Edits) > 0 {
 			out["edits"] = ans.Edits
+		}
+		// several presentations move when the person says yes in the
+		// drawer; one (and the folder it goes to) at once
+		if places.asks() {
+			out["organize"] = places.Steps
+		} else if len(places.Steps) > 0 {
+			out["placed"] = places.run(aiPlaceCall(env, r.Context(), t.UID))
 		}
 		editorJSON(w, 200, out)
 	default:
