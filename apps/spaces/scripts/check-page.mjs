@@ -5,7 +5,8 @@
  * answers a click where it is drawn, and a CSV picked in the file dialog
  * lands in the sheets and the summary.
  *
- * The summary shows the weather (Open-Meteo's answer is stubbed here).
+ * The summary shows the weather (Open-Meteo's answer is stubbed here); its
+ * lines wrap inside the card at phone width.
  *
  * Then the Warden page (npm run warden:build) against a stand-in for the
  * server: it reads the space from the API, a typed invite reaches the API,
@@ -46,7 +47,7 @@ const eq = (what, got, want) => ok(what, got === want, `got ${JSON.stringify(got
 const stubWeather = (p) => p.route("https://api.open-meteo.com/**", (r) => r.fulfill({
   contentType: "application/json",
   body: JSON.stringify({ current: { temperature_2m: 6.6, weather_code: 2 },
-    hourly: { temperature_2m: Array(48).fill(5.2), precipitation_probability: Array(48).fill(20), weather_code: Array(48).fill(2) } }),
+    hourly: { temperature_2m: Array(72).fill(5.2), precipitation_probability: Array(72).fill(20), weather_code: Array(72).fill(2) } }),
 }));
 
 const server = await serveDist(0);
@@ -112,6 +113,31 @@ try {
       .waitForFunction(() => window.__lastList.cmds.some((c) => c.text === "7°"), null, { timeout: 3000 })
       .then(() => true, () => false);
     ok("with the weather", wx);
+    // its lines wrap rather than run over each other or out of the card:
+    // the words painted in its text column
+    const wxText = await page.evaluate(() => {
+      const a = window.__spaces;
+      a.laidOut();
+      const find = (el) => {
+        if (el.id === "sp-wx") return el;
+        for (let i = 0; i < el.getChildCount(); i++) {
+          const r = find(el.getChild(i));
+          if (r) return r;
+        }
+        return null;
+      };
+      const card = find(a.root);
+      if (!card) return null;
+      const col = card.getChild(card.getChildCount() - 1);
+      const inCol = (c) => c.text && c.x >= col.calculatedX - 1 && c.x < col.calculatedX + col.calculatedWidth
+        && c.y >= card.calculatedY - 1 && c.y < card.calculatedY + card.calculatedHeight + 16;
+      return { runs: window.__lastList.cmds.filter(inCol).map((c) => [c.x, c.y, c.w, c.h, c.text]),
+        bottom: card.calculatedY + card.calculatedHeight };
+    });
+    const clash = (p, q) => p[0] < q[0] + q[2] && q[0] < p[0] + p[2] && p[1] < q[1] + q[3] - 0.5 && q[1] < p[1] + p[3] - 0.5;
+    ok("the weather's lines do not overlap", !!wxText && wxText.runs.length > 1
+      && wxText.runs.every((p, i) => wxText.runs.every((q, j) => j <= i || !clash(p, q))), JSON.stringify(wxText));
+    ok("and stay inside the card", !!wxText && wxText.runs.every((r) => r[1] + r[3] <= wxText.bottom + 0.5), JSON.stringify(wxText));
     const nav = await navCentre(page, "sp-nav-calendar");
     await page.mouse.click(nav[0], nav[1]);
     await page.waitForTimeout(300);
