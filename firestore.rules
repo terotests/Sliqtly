@@ -34,7 +34,8 @@ rules_version = '2';
 // warden_spaces, warden_events: the shared spaces at /apps/warden and their
 // events (mcp-go/warden.go, written through POST /apps/warden/api/<op> and
 // Warden's MCP server). No rule matches them: only the server reads or
-// writes them.
+// writes them. warden_own/{uid}: one person's own budget (mcp-go/wardenown.go),
+// read and written by the server for that uid only; no rule either.
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
 // rule either.
 // licenses/{uid}: what the editor at /editor lets a signed-in user change

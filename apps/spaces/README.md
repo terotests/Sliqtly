@@ -55,6 +55,13 @@ entry has a budget estimate (from, up to), what it actually cost and whether
 it is in the family budget or someone's own; a person's budget is their own
 costs and the family's.
 
+Budget has a second part, My own (Oma talous), which only the signed-in
+person sees: their regular income and expenses (rent, insurances), the parts
+of their estimated budget (food, fuel), and irregular income and irregular or
+surprise expenses, with what is left of a month on average and month by
+month (`SpacesOwn.rgr`). Warden keeps it under the person's own account, in
+no space (`own_budget`, `save_own_item`, `delete_own_item`).
+
 Repeating events take a subset of iCalendar RRULE: DAILY, WEEKLY (with
 BYDAY), MONTHLY, INTERVAL, UNTIL, COUNT and EXDATE.
 

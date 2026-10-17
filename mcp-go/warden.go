@@ -1414,6 +1414,13 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		return s.createSpace(ctx, who, a)
 	case "list_entry_types":
 		return s.listEntryTypes(ctx, who, a)
+	// the caller's own money, in no space (wardenown.go)
+	case "own_budget":
+		return s.ownBudget(ctx, who, a)
+	case "save_own_item":
+		return s.saveOwnItem(ctx, who, a)
+	case "delete_own_item":
+		return s.deleteOwnItem(ctx, who, a)
 	}
 	if op == wardenChangesOp && page {
 		sp, err := s.space(ctx, who, argStr(a, "space_id"))

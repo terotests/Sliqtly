@@ -1,0 +1,252 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SpacesOwn — one person's own money, which only they see
+; =============================================================================
+; Regular income and expenses (rent, insurances), the parts of an estimated
+; budget (food, fuel), and irregular income and irregular or surprise
+; expenses. A regular item or an estimate is paid every `every` months from
+; its date's month (the month it was added without one) to `until`; an
+; irregular one once, in its date's month. The server keeps them under the
+; signed-in person's own account, in no space (mcp-go/wardenown.go, the
+; own_budget, save_own_item and delete_own_item ops), and works the months
+; out the same way.
+;
+;   own_budget → {items:[{item_id, kind, title, amount, every_months, date,
+;                 until, note}], monthly:{income, expenses, left}, months…}
+; =============================================================================
+
+Import "SpacesBudget.rgr"
+Import "../vela/src/VlJson.rgr"
+
+class SpOwnItem {
+    def id:string ""
+    ; regular_income, regular_expense, estimate, irregular_income,
+    ; irregular_expense
+    def kind:string "regular_expense"
+    def title:string ""
+    def amount:double 0.0
+    def every:int 1
+    ; YYYY-MM-DD or ""
+    def date:string ""
+    def until:string ""
+    def note:string ""
+    ; YYYY-MM it was added, where a regular one without a date starts
+    def added:string ""
+    Constructor () {
+    }
+}
+
+class SpOwnMonth {
+    def month:int 0
+    def income:double 0.0
+    def expenses:double 0.0
+    def lines:[SpOwnItem]
+    Constructor () {
+    }
+}
+
+class SpOwn {
+    def items:[SpOwnItem]
+    ; read from the server once
+    def loaded:boolean false
+    Constructor () {
+    }
+
+    sfn kinds:[string] () {
+        return ([] _:string ( "regular_income" "regular_expense" "estimate" "irregular_income" "irregular_expense" ))
+    }
+
+    sfn isIncome:boolean (kind:string) {
+        return ((kind == "regular_income") || (kind == "irregular_income"))
+    }
+
+    sfn isOnce:boolean (kind:string) {
+        return ((kind == "irregular_income") || (kind == "irregular_expense"))
+    }
+
+    ; whether the item is paid in month index `m`
+    sfn paidIn:boolean (it:SpOwnItem m:int) {
+        def start:int (SpBudget.monthOf(it.date))
+        if (SpOwn.isOnce(it.kind)) {
+            return (start == m)
+        }
+        if (start < 0) {
+            start = (SpBudget.monthOf(it.added))
+        }
+        if (start < 0) {
+            ; neither: it is paid now
+            start = m
+        }
+        if ((start < 0) || (m < start)) {
+            return false
+        }
+        if ((strlen it.until) > 0) {
+            def u:int (SpBudget.monthOf(it.until))
+            if ((u >= 0) && (m > u)) {
+                return false
+            }
+        }
+        def n:int it.every
+        if (n < 1) {
+            n = 1
+        }
+        return (((m - start) % n) == 0)
+    }
+
+    fn month:SpOwnMonth (m:int) {
+        def out (new SpOwnMonth())
+        out.month = m
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SpOwnItem (itemAt items i)
+            if (SpOwn.paidIn(it m)) {
+                push out.lines it
+                if (SpOwn.isIncome(it.kind)) {
+                    out.income = (out.income + it.amount)
+                } {
+                    out.expenses = (out.expenses + it.amount)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A month on average from month `now`: the regular items and the
+    ; estimates going on then, each spread over its months. [income, expenses]
+    fn monthly:[double] (now:int) {
+        def inc:double 0.0
+        def exp:double 0.0
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SpOwnItem (itemAt items i)
+            def on:boolean ((SpOwn.isOnce(it.kind)) == false)
+            if (on && ((strlen it.until) > 0)) {
+                def u:int (SpBudget.monthOf(it.until))
+                if ((u >= 0) && (u < now)) {
+                    on = false
+                }
+            }
+            if on {
+                def n:int it.every
+                if (n < 1) {
+                    n = 1
+                }
+                def per:double (it.amount / (to_double n))
+                if (SpOwn.isIncome(it.kind)) {
+                    inc = (inc + per)
+                } {
+                    exp = (exp + per)
+                }
+            }
+            i = (i + 1)
+        }
+        return ([] _:double ( inc exp ))
+    }
+
+    fn ofKind:[SpOwnItem] (kind:string) {
+        def out:[SpOwnItem]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SpOwnItem (itemAt items i)
+            if (it.kind == kind) {
+                push out it
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn indexOf:int (id:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SpOwnItem (itemAt items i)
+            if (it.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; the item in place of the one with its id, or added
+    fn put:void (it:SpOwnItem) {
+        def at:int (this.indexOf(it.id))
+        if (at >= 0) {
+            set items at it
+            return
+        }
+        push items it
+    }
+
+    fn drop:void (id:string) {
+        def rest:[SpOwnItem]
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:SpOwnItem (itemAt items i)
+            if (it.id != id) {
+                push rest it
+            }
+            i = (i + 1)
+        }
+        items = rest
+    }
+
+    ; --- the server ---------------------------------------------------------------
+
+    sfn readItem:SpOwnItem (o:VlJson) {
+        def it (new SpOwnItem())
+        it.id = (o.stringOr("item_id" ""))
+        it.kind = (o.stringOr("kind" "regular_expense"))
+        it.title = (o.stringOr("title" ""))
+        it.amount = (o.doubleOr("amount" 0.0))
+        it.every = (o.intOr("every_months" 1))
+        it.date = (o.stringOr("date" ""))
+        it.until = (o.stringOr("until" ""))
+        it.note = (o.stringOr("note" ""))
+        it.added = (o.stringOr("added" ""))
+        return it
+    }
+
+    ; own_budget's answer: its items
+    fn read:void (text:string) {
+        def p (new VlJsonParser())
+        def o:VlJson (p.parse(text))
+        if ((p.ok == false) || ((o.isObject()) == false)) {
+            return
+        }
+        def list:[SpOwnItem]
+        def l:VlJson (o.get("items"))
+        def i:int 0
+        while (i < (l.count())) {
+            def io:VlJson (l.at(i))
+            if (io.isObject()) {
+                push list (SpOwn.readItem(io))
+            }
+            i = (i + 1)
+        }
+        items = list
+        loaded = true
+    }
+
+    ; save_own_item: the item whole; a new one (an id of the page's own, "n…")
+    ; has no item_id
+    sfn saveBody:string (it:SpOwnItem) {
+        def o:VlJson (VlJson.objectValue())
+        if (((strlen it.id) > 0) && ((substring it.id 0 1) != "n")) {
+            o.setMember("item_id" (VlJson.stringValue(it.id)))
+        }
+        o.setMember("kind" (VlJson.stringValue(it.kind)))
+        o.setMember("title" (VlJson.stringValue(it.title)))
+        o.setMember("amount" (VlJson.numberValue(it.amount)))
+        o.setMember("date" (VlJson.stringValue(it.date)))
+        if ((SpOwn.isOnce(it.kind)) == false) {
+            o.setMember("every_months" (VlJson.intValue(it.every)))
+            o.setMember("until" (VlJson.stringValue(it.until)))
+        }
+        o.setMember("note" (VlJson.stringValue(it.note)))
+        def w (new VlJsonWriter())
+        return (w.write(o))
+    }
+}
