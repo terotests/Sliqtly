@@ -40,6 +40,7 @@ const ok = (what, cond, detail = "") => {
   console.log(`  ${cond ? "PASS" : "FAIL"} ${what}${!cond && detail ? ": " + detail : ""}`);
   if (!cond) failed++;
 };
+const eq = (what, got, want) => ok(what, got === want, `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 // the summary's weather, answered here instead of by Open-Meteo
 const stubWeather = (p) => p.route("https://api.open-meteo.com/**", (r) => r.fulfill({
@@ -131,6 +132,9 @@ try {
   if (!fs.existsSync(path.join(wardenDist, "index.html"))) throw new Error("npm run warden:build first");
   const calls = [];
   let signedIn = true;
+  // what an assistant added through the MCP server, and the space's stamp
+  const elsewhere = [];
+  let stamp = "1";
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const space = (extra = {}) => ({
     space_id: "sp1", name: "Home crew", vocab: "family", lang: "en", role: "owner",
@@ -150,7 +154,7 @@ try {
     let body = "";
     for await (const c of req) body += c;
     const op = rest.slice(4);
-    calls.push({ op, body: JSON.parse(body || "{}"), type: req.headers["content-type"] });
+    calls.push({ op, body: JSON.parse(body || "{}"), type: req.headers["content-type"], client: req.headers["x-warden-client"] });
     const send = (v, status = 200) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(v));
     if (!signedIn) return send({ error: "sign in", code: "signed-out" }, 401);
     if (op === "list_spaces") return send({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [space()] });
@@ -158,8 +162,10 @@ try {
       return send({ space: space(), events: [
         { event_id: "ev1", title: "Dentist", date: iso(new Date()), start: "23:00", end: "23:30", ward: "w1", who: [{ name: "Juho", role: "takes" }] },
         { event_id: "ev2", title: "Camp", date: iso(new Date()), ward: "w1", type: "local_event", fields: { registered: true } },
-      ] });
+        ...elsewhere,
+      ], changed: stamp });
     }
+    if (op === "changes") return send({ changed: stamp, mine: false });
     const last = calls[calls.length - 1].body;
     if (op === "save_event") return send({ ...last, space_id: undefined, event_id: last.event_id || "ev" + calls.length });
     if (op === "delete_event") return send({ deleted: last.event_id });
@@ -219,8 +225,9 @@ try {
 
     // a ward added by mistake: Remove, then Remove again in the question
     await clickId(page, "sp-unward-1");
-    await page.waitForTimeout(200);
-    const wardAsked = (await texts(page)).some((t) => t.startsWith("Remove alex?"));
+    const wardAsked = await page
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text && c.text.startsWith("Remove alex?")), null, { timeout: 3000 })
+      .then(() => true, () => false);
     await clickId(page, "sp-unward-yes");
     const removed = await page
       .waitForFunction(() => window.__spaces.outCount() === 0 && window.__spaces.space.resources.length === 1, null, { timeout: 5000 })
@@ -263,9 +270,13 @@ try {
       // the window, where a click can land before the scroll has settled)
       await page.keyboard.press("Escape");
       await page.waitForFunction(() => !window.__spaces.editing, null, { timeout: 3000 }).catch(() => {});
-      await page.evaluate((id) => { window.__spaces.focused = id; }, bandId);
       const before = await page.evaluate(() => ({ editing: window.__spaces.editing, active: document.activeElement && document.activeElement.tagName }));
-      await page.keyboard.press("Backspace");
+      // focus and the key in one step: a repaint in between (the page asks
+      // for changes every few seconds) would hand the focus back to the DOM's
+      await page.evaluate((id) => {
+        window.__spaces.focused = id;
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+      }, bandId);
       const deleted = await page
         .waitForFunction(() => window.__spaces.outCount() === 0 && !window.__spaces.space.events.some((e) => e.remoteId === "ev2"), null, { timeout: 5000 })
         .then(() => true, () => false);
@@ -274,9 +285,16 @@ try {
       ok("with Undo offered", (await texts(page)).includes("Undo"));
     }
 
-    // the Add menu: a new thing, with no date
+    // the Add menu: the assistant first; by hand, a type searched for: a new
+    // thing, with no date
     await clickId(page, "sp-add");
     await page.waitForTimeout(200);
+    ok("Add opens the assistant", await page.evaluate(() => window.__spaces.focused === "sp-assist-text"));
+    await clickId(page, "sp-add-manual");
+    await page.waitForTimeout(100);
+    await page.keyboard.type("thing");
+    await page.waitForTimeout(200);
+    if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "addsearch.png") });
     const thing = await clickId(page, "sp-addtype-item");
     ok("the Add menu offers a thing", thing);
     if (thing) {
@@ -317,7 +335,8 @@ try {
     const asked = calls.filter((c) => c.op === "assist").pop();
     ok("the assistant gets the text and a JPEG", asked && asked.body.text === "Swimming on Tuesdays" && asked.body.images.length === 1
       && asked.body.images[0].mimeType === "image/jpeg" && Buffer.from(asked.body.images[0].data, "base64")[0] === 0xff, JSON.stringify(asked && asked.body.text));
-    ok("its answer is shown and the space read again", answered && calls[calls.length - 1].op === "get_space", JSON.stringify(calls.slice(-3).map((c) => c.op)));
+    const read = calls.filter((c) => c.op !== "changes");
+    ok("its answer is shown and the space read again", answered && read[read.length - 1].op === "get_space", JSON.stringify(read.slice(-3).map((c) => c.op)));
     if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "assistant.png") });
     await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
     await clickId(page, "sp-copy-a-0");
@@ -329,6 +348,39 @@ try {
     if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "addmenu.png"), fullPage: true });
     ok("no errors", errors.length === 0, errors.join(" | "));
     await page.close();
+
+    // the tab is in the address: a link opens it, Back returns to it
+    console.log("Warden: the address and changes made elsewhere");
+    const live = await browser.newPage({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+    await stubWeather(live);
+    live.on("pageerror", (e) => errors.push(String(e)));
+    await live.goto(wardenUrl + "#calendar");
+    const onCal = await live.waitForFunction(() => !!window.__spaces && window.__spaces.tab === "calendar" && !window.__spaces.loading, null, { timeout: 8000 })
+      .then(() => true, () => false);
+    ok("#calendar opens the calendar", onCal && (await live.evaluate(() => location.hash)) === "#calendar");
+    await clickId(live, "sp-nav-members");
+    await live.waitForTimeout(200);
+    eq("a tab picked is in the address", await live.evaluate(() => location.hash), "#members");
+    await live.goBack();
+    const back = await live.waitForFunction(() => window.__spaces.tab === "calendar", null, { timeout: 3000 }).then(() => true, () => false);
+    ok("Back returns to the calendar", back && (await live.evaluate(() => location.hash)) === "#calendar");
+    await live.goForward();
+    const fwd = await live.waitForFunction(() => window.__spaces.tab === "members", null, { timeout: 3000 }).then(() => true, () => false);
+    ok("and Forward to the members", fwd);
+
+    // an assistant adds an event through the MCP server: the page shows it
+    elsewhere.push({ event_id: "ev50", title: "Added elsewhere", date: iso(new Date()), start: "22:00", end: "22:30", ward: "w1" });
+    stamp = "2";
+    await clickId(live, "sp-nav-home");
+    const appeared = await live
+      .waitForFunction(() => window.__spaces.space.events.some((e) => e.title === "Added elsewhere"), null, { timeout: 12000 })
+      .then(() => true, () => false);
+    ok("a change made elsewhere shows up without a reload", appeared, JSON.stringify(calls.slice(-4).map((c) => c.op)));
+    eq("on the same tab", await live.evaluate(() => window.__spaces.tab), "home");
+    const asks = calls.filter((c) => c.op === "changes");
+    ok("the page names itself when it asks", asks.length > 0 && asks.every((c) => /^p[a-z0-9]+$/.test(c.client || "")), JSON.stringify(asks.slice(-1)));
+    ok("no errors", errors.length === 0, errors.join(" | "));
+    await live.close();
 
     signedIn = false;
     const out = await browser.newPage({ viewport: { width: 390, height: 844 } });
