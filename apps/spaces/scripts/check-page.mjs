@@ -207,8 +207,9 @@ try {
 
     // a ward added by mistake: Remove, then Remove again in the question
     await clickId(page, "sp-unward-1");
-    await page.waitForTimeout(200);
-    const wardAsked = (await texts(page)).some((t) => t.startsWith("Remove alex?"));
+    const wardAsked = await page
+      .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text && c.text.startsWith("Remove alex?")), null, { timeout: 3000 })
+      .then(() => true, () => false);
     await clickId(page, "sp-unward-yes");
     const removed = await page
       .waitForFunction(() => window.__spaces.outCount() === 0 && window.__spaces.space.resources.length === 1, null, { timeout: 5000 })
