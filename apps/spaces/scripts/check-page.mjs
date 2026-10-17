@@ -135,7 +135,7 @@ try {
   const space = (extra = {}) => ({
     space_id: "sp1", name: "Home crew", vocab: "family", lang: "en", role: "owner",
     members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }], invites: [],
-    wards: [{ id: "w1", name: "Aino", color: "rose" }], ...extra,
+    wards: [{ id: "w1", name: "Aino", color: "rose" }, { id: "w2", name: "alex", color: "blue" }], ...extra,
   });
   const files = serveDir(wardenDist);
   const api = http.createServer(async (req, res) => {
@@ -164,6 +164,7 @@ try {
       return send({ from: last.from, to: last.to, total: 42, shared: 42, by_payer: { Mia: 42 }, months: [{ month: last.from, total: 42, shared: 42, by_payer: { Mia: 42 },
         lines: [{ event_id: "ev7", title: "Swimming fee", type: "hobby", date: last.from + "-10", amount: 42, payer: "Mia", scope: "shared", n: 1, of: 1 }] }] });
     }
+    if (op === "remove_ward") return send({ ...space({ wards: [{ id: "w1", name: "Aino", color: "rose" }] }), removed_ward: last.ward, events_cleared: 0 });
     if (op === "invite_member") return send(space({ invites: [calls[calls.length - 1].body.email] }));
     if (op === "assist") return send({ space_id: "sp1", text: "Added Leo's swimming on Tuesdays.", changed: true, event_ids: ["ev9"], calls: [{ tool: "import_events", ok: true }] });
     return send({ error: "not in this check" }, 400);
@@ -197,6 +198,18 @@ try {
     const inv = calls.find((c) => c.op === "invite_member");
     ok("once", calls.filter((c) => c.op === "invite_member").length === 1, JSON.stringify(calls.map((c) => c.op)));
     ok("a typed invite reaches the API", invited && inv && inv.body.email === "leena@example.com" && inv.body.space_id === "sp1", JSON.stringify(inv));
+
+    // a ward added by mistake: Remove, then Remove again in the question
+    await clickId(page, "sp-unward-1");
+    await page.waitForTimeout(200);
+    const wardAsked = (await texts(page)).some((t) => t.startsWith("Remove alex?"));
+    await clickId(page, "sp-unward-yes");
+    const removed = await page
+      .waitForFunction(() => window.__spaces.outCount() === 0 && window.__spaces.space.resources.length === 1, null, { timeout: 5000 })
+      .then(() => true, () => false);
+    const rw = calls.find((c) => c.op === "remove_ward");
+    ok("a ward is removed with two presses", wardAsked && removed && rw && rw.body.ward === "w2", JSON.stringify({ wardAsked, removed, rw }));
+    await page.evaluate(() => window.scrollTo(0, 0));
 
     // a double-click on the calendar opens the event; a typed title is saved
     const calNav = await centre(page, "sp-nav-calendar");
