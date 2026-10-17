@@ -13,8 +13,12 @@
 //
 // A watch lives on its entry, warden_events/{id}:
 //
-//	watch:    {query, max_price, sources, exclude, every_days, finds, seen,
-//	           last_run, last_error, by}
+//	watch:    {query, intent, max_price, sources, exclude, every_days, finds,
+//	           seen, runs, last_run, last_error, by}
+//	finds:    [{id, title, url, source, found, price, location, snippet,
+//	           score, why, rating, reason}] (rating: like or hide, rate_find)
+//	runs:     the latest runs' logs, newest first: {at, results, new,
+//	           left_out: {reason: count}, errors}
 //	watching: true while it is on (what the daily run looks for)
 //
 // The runs:
@@ -51,6 +55,10 @@ const (
 	wardenWatchBatch = 25  // watches one scheduled call runs
 	wardenWatchHits  = 10  // results asked of one search
 	wardenWatchMax   = 50  // watches of a space
+	wardenWatchRuns  = 10  // run logs kept
+	wardenWatchAvoid = 10  // hidden finds told to the search
+	// a find that fits worse than this (0-100) is kept but not reminded of
+	wardenWatchFit = 50
 	// the watcher as the author of what it writes
 	wardenWatchUID = "warden-watch"
 )
@@ -75,11 +83,25 @@ type wardenHit struct {
 	Title, URL, Snippet string
 	// where the item is, as the listing says ("" when not said)
 	Location string
+	// how well it fits what the buyer wants, 0-100 (-1 not said), and why
+	Score int
+	Why   string
+}
+
+// what a search looks for
+type wardenAsk struct {
+	Query string
+	// a town the listings near which come first ("" anywhere)
+	Near string
+	// what the buyer wants, in their words ("" the query)
+	Intent string
+	// listings the buyer did not want, with why ("IKEA Kura (too far)")
+	Avoid []string
+	N     int
 }
 
 type wardenSearcher interface {
-	// near: a town the listings near which come first ("" anywhere)
-	Search(ctx context.Context, query, near string, n int) ([]wardenHit, error)
+	Search(ctx context.Context, ask wardenAsk) ([]wardenHit, error)
 }
 
 // Gemini answering with Google Search (grounding), on the assistant's own
@@ -108,18 +130,28 @@ func newWardenSearch(m aiModel) wardenSearcher {
 
 const wardenSearchAsk = `Search for current second-hand or for-sale listings matching: %s
 
+What the buyer wants: %s
+
 List up to %d individual listings you found in the search results, one per line, as:
-<the listing's title> | <its price in euros, or ?> | <the town where the item is, or ?>
+<the listing's title> | <its price in euros, or ?> | <the town where the item is, or ?> | <how well it fits what the buyer wants, 0 to 100> | <a few words why>
 Only real listings from the results, no shops' category pages, no other text.`
 
 const wardenSearchNear = `
 
 The buyer lives in %s, Finland: search for listings there and nearby first, and list those first.`
 
-func (g *geminiSearch) Search(ctx context.Context, query, near string, n int) ([]wardenHit, error) {
-	ask := fmt.Sprintf(wardenSearchAsk, query, n)
-	if near != "" {
-		ask += fmt.Sprintf(wardenSearchNear, near)
+const wardenSearchAvoid = `
+
+The buyer did not want these earlier listings; give ones like them a low fit:
+%s`
+
+func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, error) {
+	ask := fmt.Sprintf(wardenSearchAsk, a.Query, wardenOr(a.Intent, a.Query), a.N)
+	if a.Near != "" {
+		ask += fmt.Sprintf(wardenSearchNear, a.Near)
+	}
+	if len(a.Avoid) > 0 {
+		ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
 	}
 	body, _ := json.Marshal(map[string]any{
 		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": ask}}}},
@@ -172,11 +204,20 @@ func (g *geminiSearch) Search(ctx context.Context, query, near string, n int) ([
 	used := map[int]bool{}
 	for _, sup := range gm.Supports {
 		for _, line := range strings.Split(sup.Segment.Text, "\n") {
-			title, rest, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
-			price, place, _ := strings.Cut(rest, "|")
-			title, price, place = strings.TrimSpace(title), strings.TrimSpace(price), strings.TrimSpace(place)
+			parts := strings.Split(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
+			for len(parts) < 5 {
+				parts = append(parts, "")
+			}
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			title, price, place, why := parts[0], parts[1], parts[2], parts[4]
 			if place == "?" {
 				place = ""
+			}
+			score := -1
+			if n, err := strconv.Atoi(strings.TrimSuffix(parts[3], "%")); err == nil && n >= 0 && n <= 100 {
+				score = n
 			}
 			if title == "" || len(sup.Chunks) == 0 {
 				continue
@@ -197,7 +238,7 @@ func (g *geminiSearch) Search(ctx context.Context, query, near string, n int) ([
 					snippet += " €"
 				}
 			}
-			hits = append(hits, wardenHit{Title: title, URL: u, Snippet: snippet, Location: aiClip(place, 60)})
+			hits = append(hits, wardenHit{Title: title, URL: u, Snippet: snippet, Location: aiClip(place, 60), Score: score, Why: aiClip(why, 120)})
 		}
 	}
 	return hits, nil
@@ -345,6 +386,12 @@ func wardenWatchJSON(d Doc) map[string]any {
 	if a := docStr(w, "area"); a != "" {
 		out["area"] = a
 	}
+	if i := docStr(w, "intent"); i != "" {
+		out["intent"] = i
+	}
+	if r := docMaps(w, "runs"); len(r) > 0 {
+		out["runs"] = anys(r)
+	}
 	if t := millis(w["last_run"]); t > 0 {
 		out["last_run"] = time.UnixMilli(t).UTC().Format(time.RFC3339)
 	}
@@ -406,6 +453,14 @@ func (s *wardenService) setWatch(ctx context.Context, sp *wardenSpace, a map[str
 			return nil, roomErr{"area is at most 80 characters"}
 		}
 		w["area"] = ar
+	}
+	if v, ok := a["intent"]; ok {
+		in, _ := v.(string)
+		in = strings.TrimSpace(in)
+		if len([]rune(in)) > 300 {
+			return nil, roomErr{"intent is at most 300 characters"}
+		}
+		w["intent"] = in
 	}
 	if v, ok := a["query"]; ok {
 		q, _ := v.(string)
@@ -514,8 +569,9 @@ func (s *wardenService) runWatchOp(ctx context.Context, sp *wardenSpace, a map[s
 	return map[string]any{"event_id": id, "new": found, "watch": wardenWatchJSON(d)}, nil
 }
 
-// One watch's searches: the new finds are put first on the entry, and a
-// reminder of them is made or renewed. → the new finds
+// One watch's searches: the new finds are put first on the entry, best fit
+// first, a log of the run is kept, and a reminder of the finds that fit is
+// made or renewed. → the new finds
 func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string, d Doc) ([]any, error) {
 	w, _ := d["watch"].(map[string]any)
 	q := wardenWatchQuery(d, w)
@@ -526,54 +582,65 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 	if len(srcs) == 0 {
 		srcs = wardenWatchDefault
 	}
+	old := docMaps(w, "finds")
+	ask := wardenAsk{Near: wardenWatchArea(sp, d, w), Intent: docStr(w, "intent"), Avoid: wardenWatchAvoided(old), N: wardenWatchHits}
 	now := s.now()
-	fresh := []any{}
+	fresh := []map[string]any{}
 	errs := []string{}
+	results := 0
+	left := map[string]int{}
 	for _, src := range srcs {
 		site, name, ok := wardenWatchSource(src)
 		if !ok {
 			continue
 		}
-		query := q
+		ask.Query = q
 		if site != "" {
-			query += " site:" + site
+			ask.Query += " site:" + site
 		}
-		hits, err := s.search.Search(ctx, query, wardenWatchArea(sp, d, w), wardenWatchHits)
+		hits, err := s.search.Search(ctx, ask)
 		if err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
 		}
+		results += len(hits)
 	hit:
 		for _, h := range hits {
 			u, err := url.Parse(h.URL)
 			if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+				left["not_listing"]++
 				continue
 			}
 			host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
 			if site != "" && host != site && !strings.HasSuffix(host, "."+site) {
+				left["other_site"]++
 				continue
 			}
 			// a page of search results or a category, not an offer
 			p := strings.ToLower(u.Path)
 			if u.Query().Has("q") || u.Query().Has("search_text") || strings.Contains(p, "/search") || p == "" || p == "/" {
+				left["not_listing"]++
 				continue
 			}
 			text := strings.ToLower(h.Title + " " + h.Snippet)
 			for _, x := range exclude {
 				if strings.Contains(text, x) {
+					left["excluded"]++
 					continue hit
 				}
 			}
 			price := wardenPrice(h.Title + " " + h.Snippet)
 			if max > 0 && price > max {
+				left["too_expensive"]++
 				continue
 			}
 			key := wardenHashURL(h.URL)
 			if slices.Contains(seen, key) {
+				left["seen"]++
 				continue
 			}
 			seen = append(seen, key)
-			f := map[string]any{"title": aiClip(h.Title, 160), "url": h.URL, "source": name, "found": now.In(wardenLoc(sp)).Format("2006-01-02")}
+			f := map[string]any{"id": key, "title": aiClip(h.Title, 160), "url": h.URL, "source": name, "found": now.In(wardenLoc(sp)).Format("2006-01-02")}
 			if price > 0 {
 				f["price"] = price
 			}
@@ -583,7 +650,22 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 			if h.Snippet != "" {
 				f["snippet"] = aiClip(h.Snippet, 240)
 			}
+			if h.Score >= 0 {
+				f["score"] = float64(h.Score)
+			}
+			if h.Why != "" {
+				f["why"] = h.Why
+			}
 			fresh = append(fresh, f)
+		}
+	}
+	sort.SliceStable(fresh, func(a, b int) bool { return wardenFindFit(fresh[a]) > wardenFindFit(fresh[b]) })
+	notify := []map[string]any{}
+	for _, f := range fresh {
+		if wardenFindFit(f) >= wardenWatchFit {
+			notify = append(notify, f)
+		} else {
+			left["low_fit"]++
 		}
 	}
 	if len(errs) > 0 && len(errs) == len(srcs) {
@@ -595,22 +677,128 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		seen = seen[n-wardenWatchSeen:]
 	}
 	w["seen"] = anys(seen)
-	finds := append(slices.Clone(fresh), anys(docMaps(w, "finds"))...)
-	if len(finds) > wardenWatchFinds {
-		finds = finds[:wardenWatchFinds]
+	w["finds"] = anys(wardenTrimFinds(append(slices.Clone(fresh), old...)))
+	run := map[string]any{"at": now.UTC().Format(time.RFC3339), "results": results, "new": len(notify)}
+	if len(left) > 0 {
+		lo := map[string]any{}
+		for k, v := range left {
+			lo[k] = v
+		}
+		run["left_out"] = lo
 	}
-	w["finds"] = finds
+	if len(errs) > 0 {
+		run["errors"] = anys(errs)
+	}
+	runs := append([]any{run}, anys(docMaps(w, "runs"))...)
+	if len(runs) > wardenWatchRuns {
+		runs = runs[:wardenWatchRuns]
+	}
+	w["runs"] = runs
 	w["last_run"] = now.UnixMilli()
 	d["watch"] = w
 	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
 		return nil, err
 	}
-	if len(fresh) > 0 {
-		if err := s.watchReminder(ctx, sp, id, d, fresh); err != nil {
-			return fresh, err
+	if len(notify) > 0 {
+		if err := s.watchReminder(ctx, sp, id, d, notify); err != nil {
+			return anys(fresh), err
 		}
 	}
-	return fresh, nil
+	return anys(fresh), nil
+}
+
+// a find's fit, 0-100; one the search gave none is taken to fit
+func wardenFindFit(f map[string]any) float64 {
+	if v, ok := f["score"].(float64); ok {
+		return v
+	}
+	return 100
+}
+
+// the finds kept, newest first: the oldest go first, liked ones last
+func wardenTrimFinds(l []map[string]any) []map[string]any {
+	for i := len(l) - 1; i >= 0 && len(l) > wardenWatchFinds; i-- {
+		if docStr(l[i], "rating") != "like" {
+			l = slices.Delete(l, i, i+1)
+		}
+	}
+	if len(l) > wardenWatchFinds {
+		l = l[:wardenWatchFinds]
+	}
+	return l
+}
+
+// the finds the buyer hid, as told to the search: "title (why)"
+func wardenWatchAvoided(finds []map[string]any) []string {
+	out := []string{}
+	for _, f := range finds {
+		if docStr(f, "rating") != "hide" || len(out) >= wardenWatchAvoid {
+			continue
+		}
+		t := docStr(f, "title")
+		if r := wardenFindReasons[docStr(f, "reason")]; r != "" {
+			t += " (" + r + ")"
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// why a find was hidden, as rate_find takes it and as told to the search
+var wardenFindReasons = map[string]string{
+	"wrong_item":      "not the thing wanted",
+	"too_far":         "too far away",
+	"too_expensive":   "too expensive",
+	"not_interesting": "not interesting",
+}
+
+// rate_find: like or hide one of an entry's finds ("" clears it); hidden
+// finds, with why, steer the next searches away from ones like them
+func (s *wardenService) rateFind(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
+	id := argStr(a, "event_id")
+	d, err := s.event(ctx, sp, id)
+	if err != nil {
+		return nil, err
+	}
+	w, _ := d["watch"].(map[string]any)
+	if w == nil {
+		return nil, roomErr{"this entry has no watch"}
+	}
+	rating, reason := argStr(a, "rating"), argStr(a, "reason")
+	switch rating {
+	case "like", "hide", "":
+	default:
+		return nil, roomErr{"rating is like, hide or \"\""}
+	}
+	if _, ok := wardenFindReasons[reason]; reason != "" && (!ok || rating != "hide") {
+		return nil, roomErr{"reason is for hide: wrong_item, too_far, too_expensive or not_interesting"}
+	}
+	finds := docMaps(w, "finds")
+	fid := argStr(a, "find_id")
+	var f map[string]any
+	for _, e := range finds {
+		if docStr(e, "id") == fid || (docStr(e, "id") == "" && wardenHashURL(docStr(e, "url")) == fid) {
+			f = e
+		}
+	}
+	if f == nil {
+		return nil, roomErr{"no such find on this entry: " + fid}
+	}
+	f["id"] = wardenHashURL(docStr(f, "url"))
+	delete(f, "rating")
+	delete(f, "reason")
+	if rating != "" {
+		f["rating"] = rating
+	}
+	if reason != "" {
+		f["reason"] = reason
+	}
+	w["finds"] = anys(finds)
+	d["watch"] = w
+	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
+		return nil, err
+	}
+	return map[string]any{"event_id": id, "find": f}, nil
 }
 
 func wardenLoc(sp *wardenSpace) *time.Location {
@@ -620,17 +808,30 @@ func wardenLoc(sp *wardenSpace) *time.Location {
 	return time.UTC
 }
 
-// the reminder of an entry's new finds: one per entry, renewed (dated
+// the reminder of an entry's new finds that fit, best first: one per entry, renewed (dated
 // today, not done) on every run that finds something
-func (s *wardenService) watchReminder(ctx context.Context, sp *wardenSpace, id string, d Doc, fresh []any) error {
+func (s *wardenService) watchReminder(ctx context.Context, sp *wardenSpace, id string, d Doc, fresh []map[string]any) error {
 	fi := docStr(sp.doc, "lang") != "en"
 	title := fmt.Sprintf("Offers: %s (%d new)", docStr(d, "title"), len(fresh))
 	if fi {
 		title = fmt.Sprintf("Tarjouksia: %s (%d uutta)", docStr(d, "title"), len(fresh))
 	}
 	var b strings.Builder
-	for _, e := range fresh {
-		f := e.(map[string]any)
+	best := fresh[0]
+	bl := []string{docStr(best, "title")}
+	if p := wardenNum(best["price"]); p > 0 {
+		bl = append(bl, strconv.FormatFloat(p, 'f', -1, 64)+" €")
+	}
+	if l := docStr(best, "location"); l != "" {
+		bl = append(bl, l)
+	}
+	if fi {
+		b.WriteString("Paras: ")
+	} else {
+		b.WriteString("Best: ")
+	}
+	b.WriteString(strings.Join(bl, " · ") + "\n\n")
+	for _, f := range fresh {
 		line := "• " + docStr(f, "title")
 		if p := wardenNum(f["price"]); p > 0 {
 			line += fmt.Sprintf(" – %s €", strconv.FormatFloat(p, 'f', -1, 64))

@@ -1230,6 +1230,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.listWatches(ctx, sp)
 	case "run_watch":
 		return s.runWatchOp(ctx, sp, a)
+	case "rate_find":
+		return s.rateFind(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }

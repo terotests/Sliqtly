@@ -174,6 +174,7 @@ var wardenTools = []roomTool{
 		desc: "Have Warden look for offers of an entry (a thing still to get, a need, a planned purchase, any entry) on second-hand sites and the web, once a day by default. New finds are kept on the entry (list_watches, the entry's watch) and the space gets a reminder of them. Only the fields given change; active: false stops the watch.",
 		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The entry to watch for"),
 			"query":      strProp("Search words, e.g. \"lasten sänky 90x200\"; the entry's title when left out"),
+			"intent":     strProp("What is wanted, in a sentence, e.g. \"a sturdy bed for a 6-year-old, white or wood, 90x200\"; each find gets a fit 0-100 against it (the query when left out), and finds under 50 are kept without a reminder"),
 			"max_price":  map[string]any{"type": "number", "description": "Leave out offers that cost more, euros (0 or null: no limit). An offer whose price is not seen is kept."},
 			"sources":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Where to look: tori (Tori.fi), vinted (Vinted.fi), huuto (Huuto.net), web (the whole web). Default tori, vinted, huuto."},
 			"exclude":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Words that leave an offer out, e.g. \"ostetaan\", \"rikki\""},
@@ -182,13 +183,19 @@ var wardenTools = []roomTool{
 			"active":     map[string]any{"type": "boolean", "description": "false stops the watch (it is kept with its finds); true by default"}},
 		required: []string{"space_id", "event_id"}},
 	{name: "list_watches", title: "List offer watches", readOnly: true,
-		desc:     "The space's entries that are watched for offers: each watch's search words, price limit, sources, area, when it last ran and its latest finds (title, url, price, where the item is, source, the day found).",
+		desc:     "The space's entries that are watched for offers: each watch's search words, intent, price limit, sources, area, when it last ran, the latest runs' logs (results, new, what was left out and why) and its latest finds (id, title, url, price, where the item is, source, the day found, fit 0-100 and why, the rating given).",
 		props:    map[string]any{"space_id": spaceIDProp},
 		required: []string{"space_id"}},
 	{name: "run_watch", title: "Look for offers now",
 		desc:     "Run an entry's watch now instead of waiting for the daily run: the new finds are answered, kept on the entry and put in a reminder.",
 		props:    map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry")},
 		required: []string{"space_id", "event_id"}},
+	{name: "rate_find", title: "Rate an offer",
+		desc: "Like or hide one of a watch's finds. Hidden finds, with why, are told to later searches so ones like them get a low fit.",
+		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry"), "find_id": strProp("The find's id (list_watches)"),
+			"rating": map[string]any{"type": "string", "enum": []any{"like", "hide", ""}, "description": "like, hide, or \"\" to clear"},
+			"reason": map[string]any{"type": "string", "enum": []any{"wrong_item", "too_far", "too_expensive", "not_interesting"}, "description": "Why it is hidden (with hide)"}},
+		required: []string{"space_id", "event_id", "find_id", "rating"}},
 }
 
 func findWardenTool(name string) *roomTool {
