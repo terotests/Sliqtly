@@ -111,19 +111,23 @@ console.log("the summary");
     const [sh, eh] = a.schoolHours(a.today);
     const temp = (h) => (h % 24 < 6 ? -2 : (h % 24) - 2);
     const hours = { temperature_2m: [], precipitation_probability: [], weather_code: [] };
-    for (let h = 0; h < 48; h++) {
+    for (let h = 0; h < 72; h++) {
       hours.temperature_2m.push(temp(h));
       hours.precipitation_probability.push(h % 24 === 13 ? 30 : 0);
       hours.weather_code.push(h % 24 === 14 ? 61 : 3);
     }
     a.setWeatherHours("Tampere", 7, 2, JSON.stringify(hours));
     const t = texts(a);
-    const at = [sh, ...(sh < 12 && eh > 12 ? [12] : []), eh].map((h) => `klo ${h} ${temp(h)}°`).join(" · ");
     ok("the school day's range", t.some((x) => x.startsWith(`Tampere · ${temp(sh)}–${temp(eh)}°`)), t.filter((x) => /Tampere/.test(x)).join());
-    ok("its hours", t.includes(at + " · sade 30 %"), t.filter((x) => /klo \d+ /.test(x)).join() + " want " + at);
+    const [nsh, neh] = a.schoolHours(a.today + 1);
+    const words = () => `${temp(nsh)}–${temp(neh)} astetta, ${nsh <= 14 && neh >= 14 ? "sadetta" : "pilvistä"}`;
+    ok("tomorrow on the second line", t.includes("Huomenna: " + words()), t.filter((x) => /omenna/.test(x)).join());
+    const sym = nsh <= 14 && neh >= 14 ? "☂" : "☁";
+    ok("with its symbol", t.filter((x) => x === sym).length >= (sym === "☂" ? 2 : 1), t.filter((x) => x.length < 3).join());
     ok("frost in the night: slippery roads", t.includes("⚠ Liukas keli: -2° yöllä"));
     a.setNow(eh * 60 + 10);
     ok("after school: tomorrow's", texts(a).some((x) => /huomenna/.test(x)));
+    ok("and the day after", texts(a).some((x) => x.startsWith("Ylihuomenna: ")));
     a.setNow(10 * 60);
   }
   const today = byId(a, "sp-card-today");
@@ -1243,6 +1247,127 @@ console.log("list tabs: one line each, inside the page");
   }
 }
 
+console.log("the offers on the summary");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
+        watch: { query: "lasten sänky", active: true, sources: ["tori"], every_days: 1, finds: [
+          { id: "f1", title: "Nukensänky", url: "https://www.tori.fi/recommerce/forsale/item/1", price: 5, source: "Tori", found: "2026-10-07", score: 20, why: "nuken sänky" },
+          { id: "f2", title: "IKEA Kura", url: "https://www.tori.fi/recommerce/forsale/item/2", price: 60, location: "Pirkkala", source: "Tori", found: "2026-10-07", score: 70 },
+          { id: "f3", title: "Lasten sänky 90x200", url: "https://www.tori.fi/recommerce/forsale/item/3", price: 80, source: "Tori", found: "2026-10-07", score: 90, why: "juuri oikea koko" },
+          { id: "f4", title: "Pinnasänky", url: "https://www.vinted.fi/items/4", source: "Vinted", found: "2026-10-07", rating: "like" },
+        ] } },
+    ],
+  }));
+  ok("a tab for the offers", !!byId(a, "sp-htab-deals"));
+  a.press("sp-htab-deals");
+  let t = texts(a);
+  const at = (s) => t.indexOf(s);
+  ok("new ones best first, then liked, then skipped", at("Uudet (2)") >= 0 && at("Uudet (2)") < at("Lasten sänky 90x200") && at("Lasten sänky 90x200") < at("IKEA Kura")
+    && at("IKEA Kura") < at("Kiinnostavat (1)") && at("Kiinnostavat (1)") < at("Pinnasänky") && at("Pinnasänky") < at("Ohitetut (1)") && at("Ohitetut (1)") < at("Nukensänky"), t.join(","));
+  ok("with the fit and why", t.includes("90") && t.includes("juuri oikea koko") && t.includes("Lasten sängyt · 60 € · Pirkkala · Tori · 7.10."), t.join(","));
+  a.press("sp-deal-0");
+  eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/3");
+  a.press("sp-dhide-1");
+  eq("Ohita asks why first", a.outCount(), 0);
+  ok("the reasons", texts(a).includes("Liian kaukana"));
+  a.press("sp-dwhy-1-too_far");
+  eq("hidden as rate_find", a.outOp(), "rate_find");
+  let rb = JSON.parse(a.outBody());
+  ok("with why", rb.event_id === "ev1" && rb.find_id === "f2" && rb.rating === "hide" && rb.reason === "too_far", JSON.stringify(rb));
+  a.answer(JSON.stringify({ event_id: "ev1", find: { id: "f2", rating: "hide", reason: "too_far" } }));
+  t = texts(a);
+  ok("now under the skipped", t.indexOf("Ohitetut (2)") >= 0 && t.indexOf("Ohitetut (2)") < t.indexOf("IKEA Kura"), t.join(","));
+  a.press("sp-dlike-0");
+  rb = JSON.parse(a.outBody());
+  ok("liked", rb.find_id === "f3" && rb.rating === "like" && rb.reason === undefined, JSON.stringify(rb));
+  a.answer(JSON.stringify({ event_id: "ev1", find: { id: "f3", rating: "like" } }));
+  ok("in the interesting ones", texts(a).includes("Kiinnostavat (2)"));
+  const probs = a.a11yProblems();
+  ok("the offers lint clean", probs.length === 0, probs.join(" | "));
+}
+
+console.log("the children's events on the summary");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  const events = [{ event_id: "ev1", title: "Leikkipuisto", date: iso(a.today), start: "10:00" }];
+  a.answer(JSON.stringify({ space, events, event_watch: { active: true, ages: ["small", "school"], every_days: 7, finds: [
+    { id: "k0", title: "Mennyt", url: "https://tapahtumat.tampere.fi/page/0", date: iso(a.today - 1) },
+  ] } }));
+  ok("no tabs while nothing is found", !byId(a, "sp-htab-kids") && !byId(a, "sp-htab-deals"));
+  const watch = { active: true, ages: ["small", "school"], every_days: 7, finds: [
+    { id: "k1", title: "Nukketeatteri", url: "https://tapahtumat.tampere.fi/page/1", date: iso(a.today + 2), start: "12:00", place: "Tahmelan Huvila", price: "ilmainen", age: "3-8", score: 90, why: "nukketeatteri" },
+    { id: "k2", title: "Karnevaali", url: "https://tapahtumat.tampere.fi/page/2", date: iso(a.today + 1), score: 30 },
+  ] };
+  a.reload();
+  a.answer(JSON.stringify({ space, events, event_watch: watch }));
+  ok("a tab once something is found", texts(a).includes("Tapahtumia") && !byId(a, "sp-htab-deals"));
+  a.press("sp-htab-kids");
+  let t = texts(a);
+  ok("the events, the skipped last", t.includes("Nukketeatteri") && t.includes("Tahmelan Huvila · ilmainen · 3-8") && t.indexOf("Ohitetut (1)") < t.indexOf("Karnevaali")
+    && t.indexOf("Nukketeatteri") < t.indexOf("Ohitetut (1)"), t.join(","));
+  ok("not in the calendar", a.space.events.length === 1);
+  a.press("sp-kev-0");
+  eq("an event opens in a new tab", a.takeAction(), "open:https://tapahtumat.tampere.fi/page/1");
+  a.press("sp-kadd-0");
+  eq("added on asking", a.outOp(), "add_event_find");
+  let b = JSON.parse(a.outBody());
+  ok("this one", b.find_id === "k1" && b.space_id === "sp1", JSON.stringify(b));
+  a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", added: "x1" }, event: { event_id: "x1" } }));
+  eq("then the space is read again", a.outOp(), "get_space");
+  watch.finds[0].added = "x1";
+  a.answer(JSON.stringify({ space, events: [{ event_id: "x1", title: "Nukketeatteri", date: iso(a.today + 2), start: "12:00" }], event_watch: watch }));
+  ok("it shows as in the calendar", texts(a).includes("Kalenterissa"));
+  a.press("sp-khide-0");
+  a.press("sp-kwhy-0-too_far");
+  b = JSON.parse(a.outBody());
+  ok("hidden with why, no entry", a.outOp() === "rate_find" && b.find_id === "k1" && b.rating === "hide" && b.reason === "too_far" && b.event_id === undefined, JSON.stringify(b));
+  a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", rating: "hide" } }));
+  a.press("sp-kage-teen");
+  b = JSON.parse(a.outBody());
+  ok("an age group", a.outOp() === "set_event_watch" && b.active === true && b.ages.join() === "small,school,teen", JSON.stringify(b));
+  a.answer(JSON.stringify({ space_id: "sp1", watch }));
+  const probs = a.a11yProblems();
+  ok("the events lint clean", probs.length === 0, probs.join(" | "));
+}
+
+console.log("the events watch on the members page");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
+  a.press("sp-nav-members");
+  ok("turned on before anything is found", texts(a).includes("Tapahtumavahti") && !!byId(a, "sp-kw-on"));
+  a.press("sp-kw-on");
+  const on = JSON.parse(a.outBody());
+  ok("on", a.outOp() === "set_event_watch" && on.active === true, JSON.stringify(on));
+  a.answer(JSON.stringify({ space_id: "sp1", watch: { active: true, ages: ["small", "school"], every_days: 7, finds: [] } }));
+  ok("then its age groups there", !!byId(a, "sp-kage-teen") && !!byId(a, "sp-kw-run"));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
@@ -1317,6 +1442,17 @@ console.log("the assistant on a server");
   eq("sent from the Add menu", a.outOp(), "assist");
   a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin hammaslääkärin.", changed: true, event_ids: ["e2"], calls: [] }));
   ok("its answer in the menu", texts(a).includes("Lisäsin hammaslääkärin.") && a.tab === "calendar" && a.addOpen);
+  ok("what can be added is listed under the field", texts(a).includes("Ostosvahti") && texts(a).includes("Kyselyt"));
+  // Enter is a line break in the field; Ctrl+Enter sends
+  a.focused = "sp-assist-text";
+  a.assistField.setValue("Leon synttärit la 15-18");
+  a.keyWith("End", false, false);
+  const sentBefore = a.outCount();
+  a.keyWith("Enter", false, false);
+  ok("Enter makes a new line, nothing sent", a.assistField.value.includes("\n") && a.outCount() === sentBefore, JSON.stringify(a.assistField.value));
+  a.keyWith("Enter", false, true);
+  ok("Ctrl+Enter sends", a.assistBusy && a.assistField.value === "" && a.asked[a.asked.length - 1].startsWith("@Leon synttärit"));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin synttärit.", changed: false, event_ids: [], calls: [] }));
   a.press("sp-add-manual");
   ok("by hand: the search", byId(a, "sp-addsearch") && a.focused === "sp-addsearch");
   a.typeSearch.setValue("hammas");
@@ -1330,6 +1466,20 @@ console.log("the assistant on a server");
     ok(`${w} the Add menu with the assistant lints clean`, probs.length === 0, probs.join(" | "));
     a.press("sp-add");
   }
+  // Add is on every page
+  for (const t of ["home", "calendar", "lists", "budget", "sheets", "docs", "members"]) {
+    a.press("sp-nav-" + t);
+    ok(`Add on ${t}`, !!byId(a, "sp-add"));
+  }
+  a.press("sp-nav-budget");
+  a.press("sp-add");
+  ok("Add opens the assistant on the budget page", byId(a, "sp-assist-image") && a.addOpen && a.tab === "budget");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the Add menu on the budget page lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.press("sp-add");
 }
 
 console.log("changes made elsewhere, and the tab in the address");
