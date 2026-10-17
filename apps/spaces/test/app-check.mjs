@@ -339,10 +339,20 @@ console.log("a space on a server");
   }
   a.setWidth(1280, 700);
 
+  // the server's older colour names, and one the page has no class for
+  eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
+  eq("red as rose", M.SpSpace.pageColor("red"), "rose");
+  eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+
   // a ward added by mistake: Remove asks first, then its events stay without it
   a.press("sp-nav-members");
   t = texts(a);
   ok("the wards are listed", t.includes("Aino") && t.includes("Dependants"));
+  a.press("sp-wardcolor-0");
+  eq("Colour gives the next one", a.space.resources[0].color, "cyan");
+  eq("and saves it", a.outOp(), "set_ward");
+  eq("that colour", JSON.parse(a.outBody()).color, "cyan");
+  a.answer(JSON.stringify({ id: "w1", name: "Aino", color: "cyan" }));
   a.press("sp-unward-0");
   eq("Remove alone sends nothing", a.outCount(), 0);
   ok("it asks", texts(a).some((s) => s.startsWith("Remove Aino?")));
@@ -656,6 +666,15 @@ console.log("a reminder ticked off on the summary");
   const [fee, passport] = a.space.events;
   ok("a reminder under Muista", t.includes("Retkimaksu 15 €") && !!byId(a, "sp-tick-" + fee.id), t.slice(0, 60).join(","));
   ok("not one already done", !byId(a, "sp-tick-" + passport.id));
+  // each box can be copied, as the canvas has no selection
+  a.press("sp-copy-r-0");
+  const cp = a.takeAction() + "|" + a.copyText;
+  ok("a Muista box to the clipboard", cp.startsWith("copy|Retkimaksu 15 €, ") && cp.endsWith(" · Aino"), cp);
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    const probs = a.a11yProblems();
+    ok(`${w} Muista with its copy chips lints clean`, probs.length === 0, probs.join(" | "));
+  }
   a.press("sp-tick-" + fee.id);
   eq("ticking saves it", a.outOp(), "save_event");
   const body = JSON.parse(a.outBody());

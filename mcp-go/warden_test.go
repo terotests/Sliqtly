@@ -383,3 +383,22 @@ func TestWardenFeed(t *testing.T) {
 	code, out = wardenCall(t, base, "tero", "calendar_feed", map[string]any{"space_id": sid, "reset": true})
 	eq(t, []any{code, out["url"] != feed}, []any{200, true}, "reset")
 }
+
+func TestWardenWardColors(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	colors := []any{}
+	for _, n := range []string{"Alex", "Leevi", "Iida"} {
+		_, out = wardenCall(t, base, "tero", "add_ward", map[string]any{"space_id": sid, "name": n})
+		colors = append(colors, out["color"])
+	}
+	eq(t, colors, []any{"blue", "emerald", "violet"}, "each its own colour of the page's palette")
+	code, out := wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "leevi", "color": "amber"})
+	eq(t, []any{code, out["name"], out["color"]}, []any{200, "Leevi", "amber"}, "recoloured")
+	code, _ = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "Leevi", "color": "plaid"})
+	eq(t, code, 400, "not a colour")
+	code, _ = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "Leevi", "name": "Iida"})
+	eq(t, code, 400, "a name another ward has")
+}

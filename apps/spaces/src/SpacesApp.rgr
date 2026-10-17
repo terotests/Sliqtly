@@ -100,6 +100,8 @@ class SpacesApp {
     ; occurrence each row is
     def itemDays:[int]
     def itemOccs:[string]
+    ; what each Muista box copies, by its number
+    def remindTexts:[string]
     def sheetSel:string ""
     def docSel:string ""
     ; the assistant's conversation: question keys and answers; a question
@@ -648,6 +650,8 @@ class SpacesApp {
         itemDays = none
         def noOccs:[string]
         itemOccs = noOccs
+        def noTexts:[string]
+        remindTexts = noTexts
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.dashHead()))
         v.addChild((this.homeTabs()))
@@ -670,8 +674,8 @@ class SpacesApp {
         if ((this.narrow()) == false) {
             cols = (SpacesApp.box("sp-cols sp-dash"))
             def free:double ((this.mainW()) - (gap * 2.0))
-            w1 = (free * 0.37)
-            w2 = (free * 0.38)
+            w1 = (free * 0.34)
+            w2 = (free * 0.35)
             w3 = ((free - w1) - w2)
         }
         def c1:EVGElement (this.todayCol(w1))
@@ -1293,7 +1297,9 @@ class SpacesApp {
     ; A reminder: a box to tick (a deadline, or an entry whose status then
     ; becomes done) or a flag (a repeating plan, opened in the form), its
     ; title and when.
+    ; Beside it a chip copies the title and when to the clipboard.
     fn remindRow:EVGElement (id:string tick:boolean title:string day:int ward:string) {
+        def box:EVGElement (SpacesApp.box("sp-rbox"))
         def row:EVGElement (UiTree.div(id "sp-rcard"))
         row.role = "button"
         row.a11yFocusable = true
@@ -1321,7 +1327,13 @@ class SpacesApp {
         }
         col.addChild((SpacesApp.tx(wcls when)))
         row.addChild(col)
-        return row
+        box.addChild(row)
+        def n:int (array_length remindTexts)
+        push remindTexts (title + ", " + when)
+        def cp:EVGElement (SpacesApp.btn(("sp-copy-r-" + (to_string n)) "sp-chip sp-rcopy" (SpWords.pick(lang "Copy" "Kopioi"))))
+        cp.a11yLabel = ((SpWords.pick(lang "Copy: " "Kopioi: ")) + title)
+        box.addChild(cp)
+        return box
     }
 
     ; "tänään", "huomenna", "myöhässä · ma 12.10.", "ti 20.10."
@@ -1510,7 +1522,12 @@ class SpacesApp {
             }
             def n:int (space.wardUses(r.id))
             def detail:string ((to_string n) + (SpWords.pick(lang " entries" " merkintää")))
-            c.addChild((this.personRow(("sp-ward-" + (to_string i)) r.name detail "" rm)))
+            def row:EVGElement (this.personRow(("sp-ward-" + (to_string i)) r.name detail "" rm))
+            def dot:EVGElement (SpacesApp.box(("sp-legdot sp-c-" + r.color)))
+            dot.a11yHidden = true
+            row.addChild(dot)
+            row.addChild((SpacesApp.btn(("sp-wardcolor-" + (to_string i)) "sp-action" (SpWords.pick(lang "Colour" "Väri")))))
+            c.addChild(row)
             if (r.id == wardAsk) {
                 def ask:EVGElement (SpacesApp.box("sp-formrow"))
                 ask.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "Remove " "Poistetaanko ")) + r.name + (SpWords.pick(lang "? Its entries stay, without it." "? Merkinnät säilyvät ilman häntä.")))))))
@@ -3421,11 +3438,15 @@ class SpacesApp {
                 cls = "sp-tab sp-tab-on"
             }
             def n:int (array_length (space.entriesOf(t2.id)))
-            def label:string (t2.name.text(lang))
+            def tb:EVGElement (SpacesApp.btn(("sp-list-" + t2.id) cls (t2.name.text(lang))))
             if (n > 0) {
-                label = (label + " " + (to_string n))
+                ; the count sits in its own pill so it reads as a count, not part of the name
+                tb.a11yLabel = ((t2.name.text(lang)) + " " + (to_string n))
+                def badge:EVGElement (UiTree.div("" "sp-count"))
+                badge.a11yHidden = true
+                badge.addChild((SpacesApp.tx("sp-count-tx" (to_string n))))
+                tb.addChild(badge)
             }
-            def tb:EVGElement (SpacesApp.btn(("sp-list-" + t2.id) cls label))
             tb.role = "tab"
             tb.a11ySelected = (SpacesApp.tri(on))
             bar.addChild(tb)
@@ -4344,6 +4365,23 @@ class SpacesApp {
             this.fillBoard()
             return true
         }
+        if (UiTree.beginsWith(target "sp-wardcolor-")) {
+            def n4@(optional):int (to_int (substring target 13 (strlen target)))
+            if (!null? n4) {
+                def k4:int (unwrap n4)
+                if ((k4 >= 0) && (k4 < (array_length space.resources))) {
+                    def wc:SpResource (itemAt space.resources k4)
+                    def pal:[string] (SpSpace.palette())
+                    def at:int (indexOf pal wc.color)
+                    wc.color = (itemAt pal ((at + 1) % (array_length pal)))
+                    if (server && ((strlen spaceId) > 0)) {
+                        this.queue("set_ward" (SpRemote.body(([] _:string ( "space_id" spaceId "ward" wc.id "color" wc.color )))) wc.id)
+                    }
+                    this.fillBoard()
+                }
+            }
+            return true
+        }
         if (UiTree.beginsWith(target "sp-unward-")) {
             def n3@(optional):int (to_int (substring target 10 (strlen target)))
             if (!null? n3) {
@@ -4429,13 +4467,21 @@ class SpacesApp {
         return ((this.sheetName(id)) + ".csv")
     }
 
-    ; "a-<row>" (an answer) or "q-<row>" (what was asked) to the clipboard
+    ; "a-<row>" (an answer), "q-<row>" (what was asked) or "r-<n>" (a Muista
+    ; box) to the clipboard
     fn copyRow:void (what:string) {
         def k@(optional):int (to_int (substring what 2 (strlen what)))
         if (null? k) {
             return
         }
         def n:int (unwrap k)
+        if (UiTree.beginsWith(what "r-")) {
+            if ((n >= 0) && (n < (array_length remindTexts))) {
+                copyText = (itemAt remindTexts n)
+                action = "copy"
+            }
+            return
+        }
         if ((n < 0) || (n >= (array_length answers))) {
             return
         }
