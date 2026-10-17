@@ -11,6 +11,8 @@
 //	                              signed in with the site's OAuth (the
 //	                              tokens /mcp's sign-in gives, for this
 //	                              resource)
+//	GET  /apps/warden/cal/<token>.ics, /apps/warden/ics/<space>/<event>.ics
+//	                              the calendar out as iCalendar (wardenfeed.go)
 //	GET  /.well-known/oauth-protected-resource/apps/warden/mcp   RFC 9728
 //
 // The page itself is static (Hosting, /apps/warden/).
@@ -66,9 +68,11 @@ var wardenEventProps = map[string]any{
 	"who": map[string]any{"type": "array", "description": "Who is responsible: e.g. [{name: \"Aino\", role: \"takes\"}, {name: \"Leo\", role: \"picks up\"}]",
 		"items": map[string]any{"type": "object", "properties": map[string]any{"name": strProp("A member's or another person's name"), "role": strProp("What they do: takes, picks up, looks after…")}, "required": []string{"name"}}},
 	"important": map[string]any{"type": "boolean", "description": "Marks an event that must not be missed"},
+	"links":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Entries to link this one with, both ways (a thing and its repair or service, a gift idea and the reminder to buy it, a registration and the gear it needs, a thing and its repairer's contact): their event_ids, or their ext_ids (also of entries in the same import). Links already there stay"},
+	"unlink":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Linked entries to unlink, by event_id or ext_id"},
 	"source":    strProp("Where it came from, e.g. \"Google Calendar\" or \"school\""),
 	"ext_id":    strProp("The event's id where it came from (an iCalendar UID): importing it again changes it instead of adding it twice"),
-	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, school_event, school_timetable, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires"),
+	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, registration, school_event, school_timetable, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires. item is only a thing the group has: something to buy is a need or purchase, a job a home_task, a registration or course a registration, a booking a reservation"),
 	"fields":    map[string]any{"type": "object", "description": "The type's own fields and the common ones (status, people, responsible, due, get_from and get_by: the days between which something is to be got or bought, tags, tasks, links, estimated_cost, actual_cost, payer, budget_scope…), e.g. a birthday_invitation's {birthday_child, rsvp: \"going\", rsvp_by, takes, gift_idea}; a list field takes an array of texts; given fields are merged into those the entry has, a field set to null is removed"},
 	"cost": map[string]any{"type": "object", "description": "What it costs, for the space's budget; null removes it",
 		"properties": map[string]any{
@@ -95,6 +99,26 @@ func wardenWith(props map[string]any, more map[string]any) map[string]any {
 
 var spaceIDProp = strProp("The space's id (list_spaces)")
 
+// a ward's clothing, for add_ward and set_ward
+var wardenClothingProps = map[string]any{
+	"sizes": map[string]any{"type": "array", "description": "A child's clothing sizes, the whole list (it replaces the one there; [] clears it): one row per kind of clothing (shoes, clothes, outerwear, hats, gloves…), the size worn now, the next size and by when it will be needed",
+		"items": map[string]any{"type": "object", "properties": map[string]any{
+			"what":      strProp("The kind of clothing, in the space's language, e.g. \"kengät\", \"vaatteet\", \"ulkovaatteet\""),
+			"size":      strProp("The size now, e.g. \"30\" or \"122\""),
+			"next_size": strProp("The size it grows into next"),
+			"next_by":   strProp("When the next size is needed, YYYY-MM (or YYYY-MM-DD)"),
+			"note":      strProp("A note"),
+		}, "required": []string{"what"}}},
+	"clothes": map[string]any{"type": "array", "description": "A child's clothing list, the whole list (it replaces the one there; [] clears it): what it should have, how many, and how many it has; missing = need - have",
+		"items": map[string]any{"type": "object", "properties": map[string]any{
+			"item": strProp("What, e.g. \"talvikengät\" or \"välikausihousut\""),
+			"size": strProp("The size it should be"),
+			"need": map[string]any{"type": "integer", "description": "How many it should have (1 by default)"},
+			"have": map[string]any{"type": "integer", "description": "How many it has (0 by default)"},
+			"note": strProp("A note"),
+		}, "required": []string{"item"}}},
+}
+
 var wardenTools = []roomTool{
 	{name: "list_spaces", title: "List spaces", readOnly: true,
 		desc: "The Warden spaces you are a member of: each with its members, pending invites and wards (the people or things the group is responsible for: children, pets, a car, clients, players). Start here."},
@@ -108,10 +132,10 @@ var wardenTools = []roomTool{
 		required: []string{"space_id"}},
 	{name: "list_events", title: "List events", readOnly: true,
 		desc:     "A space's events that may happen between from and to (repeating ones are listed once, with their rrule).",
-		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}, "type": strProp("Only entries of this type")},
+		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}, "type": strProp("Only entries of this type, and those of other types listed under it (a thing that needs repair is listed under repair too)")},
 		required: []string{"space_id"}},
 	{name: "list_entry_types", title: "List entry types", readOnly: true,
-		desc:  "The kinds of entries a space keeps besides plain events (for a family: invitations and birthdays, hobbies, school, daycare and care, health, travel, bills and purchases, gift ideas, repairs and home tasks, reminders, changes to the routine…), each with its group, its fields, the common fields every entry also takes (also_fields: the window to get it in get_from/get_by, estimates estimated_cost_min/max, actual_cost, budget_scope family or own, budget_owner), what it requires, the money fields that go to the budget and the dates that make reminders; the fields common to every entry; and how a cost is given. Read this before saving a typed entry.",
+		desc:  "The kinds of entries a space keeps besides plain events (for a family: invitations and birthdays, hobbies, school, daycare and care, health, travel and travel cards, bills and purchases, gift ideas, repairs and home tasks, reminders, changes to the routine…), each with its group, its fields, the common fields every entry also takes (also_fields: the window to get it in get_from/get_by, estimates estimated_cost_min/max, actual_cost, budget_scope family or own, budget_owner), what it requires, the money fields that go to the budget and the dates that make reminders; the fields common to every entry; and how a cost is given. Read this before saving a typed entry.",
 		props: map[string]any{"space_id": strProp("The space's id: only the types its vocabulary offers")}},
 	{name: "budget", title: "Budget", readOnly: true,
 		desc:     "The costs of a space's entries month by month: each payment (an instalment of a cost), the totals, the family's shared part, the personal part and each payer's part. Budgets are personal: give person for one member's budget, their own costs and the family's shared ones.",
@@ -126,6 +150,10 @@ var wardenTools = []roomTool{
 		desc:     "Bring the events of an iCalendar (.ics) text into a space. Times with a zone are turned into the space's own; UIDs keep a second import from duplicating; cancelled events are left out.",
 		props:    map[string]any{"space_id": spaceIDProp, "ics": strProp("The iCalendar text, BEGIN:VCALENDAR … END:VCALENDAR"), "ward": strProp("A ward's id or name for all of them"), "important": map[string]any{"type": "boolean", "description": "Mark all of them important"}, "source": strProp("Where they came from")},
 		required: []string{"space_id", "ics"}},
+	{name: "calendar_feed", title: "Calendar feed",
+		desc:     "The address of the space's calendar as an iCalendar feed: subscribe to it in Apple Calendar on an iPhone or a Mac (webcal), Google Calendar or Outlook and the space's events stay there, changed when they change here. The address is the space's secret; reset (the owner) makes a new one and the old stops working.",
+		props:    map[string]any{"space_id": spaceIDProp, "reset": map[string]any{"type": "boolean", "description": "Make a new address; the old stops working"}},
+		required: []string{"space_id"}},
 	{name: "save_event", title: "Save an event",
 		desc:     "Make one entry (an event or a typed entry, see list_entry_types), or change one: give event_id to change it (only the fields given change). From a photo or a text the user gives (an invitation card, a school letter, a receipt), read the details and save them with the fitting type.",
 		props:    wardenWith(wardenEventProps, map[string]any{"space_id": spaceIDProp, "event_id": strProp("The event to change; leave out to make a new one")}),
@@ -135,13 +163,21 @@ var wardenTools = []roomTool{
 		desc:     "Delete one event or entry of a space.",
 		required: []string{"space_id", "event_id"}},
 	{name: "add_ward", title: "Add a ward",
-		desc:     "A new ward: someone or something the group is responsible for (a child, a pet, a car, a client, a player).",
-		props:    map[string]any{"space_id": spaceIDProp, "name": strProp("Its name"), "color": strProp("Its colour in the calendar")},
+		desc:     "A new ward: someone or something the group is responsible for (a child, a pet, a car, a client, a player). A child's clothing sizes and clothing list may be given too.",
+		props:    wardenWith(wardenClothingProps, map[string]any{"space_id": spaceIDProp, "name": strProp("Its name"), "color": strProp("Its colour in the calendar")}),
 		required: []string{"space_id", "name"}},
 	{name: "set_ward", title: "Change a ward",
-		desc:     "Rename a ward or give it another colour in the calendar.",
-		props:    map[string]any{"space_id": spaceIDProp, "ward": strProp("The ward's id or name"), "name": strProp("A new name"), "color": strProp("A new colour: blue, emerald, violet, amber, rose, cyan, indigo, or #rrggbb")},
+		desc:     "Rename a ward, give it another colour in the calendar, or set a child's clothing sizes (sizes) and clothing list (clothes). The lists are given whole: read them first (list_spaces or get_space, under wards), change and give them back.",
+		props:    wardenWith(wardenClothingProps, map[string]any{"space_id": spaceIDProp, "ward": strProp("The ward's id or name"), "name": strProp("A new name"), "color": strProp("A new colour: blue, emerald, violet, amber, rose, cyan, indigo, or #rrggbb")}),
 		required: []string{"space_id", "ward"}},
+	{name: "add_place", title: "Add a place",
+		desc:     "A town in Finland where the whole space, or one ward, usually is (home, a grandparent's, the summer cottage). The summary shows the weather of each place; with none, Tampere's. The town is looked up by its name unless lat and lon are given.",
+		props:    map[string]any{"space_id": spaceIDProp, "place": strProp("The town's name, e.g. Kuopio"), "ward": strProp("The ward's id or name; leave out for the whole space"), "lat": map[string]any{"type": "number", "description": "Latitude in degrees, with lon; found from the name when left out"}, "lon": map[string]any{"type": "number", "description": "Longitude in degrees, with lat"}},
+		required: []string{"space_id", "place"}},
+	{name: "remove_place", title: "Remove a place",
+		desc:     "Take a town off the space's or a ward's places.",
+		props:    map[string]any{"space_id": spaceIDProp, "place": strProp("The town's name"), "ward": strProp("The ward's id or name; leave out for the space's own places")},
+		required: []string{"space_id", "place"}},
 	{name: "remove_ward", title: "Remove a ward", destructive: true,
 		desc:     "Owner only: remove a ward added by mistake. Its events stay, without a ward.",
 		props:    map[string]any{"space_id": spaceIDProp, "ward": strProp("The ward's id or name")},
@@ -170,10 +206,11 @@ var wardenTools = []roomTool{
 			"sources":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Where to look: tori (Tori.fi), vinted (Vinted.fi), huuto (Huuto.net), web (the whole web). Default tori, vinted, huuto."},
 			"exclude":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Words that leave an offer out, e.g. \"ostetaan\", \"rikki\""},
 			"every_days": map[string]any{"type": "integer", "description": "Days between searches, 1 to 30 (default 1)"},
+			"area":       strProp("A town whose listings come first, e.g. \"Espoo\"; by default the first usual place of the entry's ward, else the space's, else the entry's own place, else Tampere (\"\" goes back to that)"),
 			"active":     map[string]any{"type": "boolean", "description": "false stops the watch (it is kept with its finds); true by default"}},
 		required: []string{"space_id", "event_id"}},
 	{name: "list_watches", title: "List offer watches", readOnly: true,
-		desc:     "The space's entries that are watched for offers: each watch's search words, price limit, sources, when it last ran and its latest finds (title, url, price, source, the day found).",
+		desc:     "The space's entries that are watched for offers: each watch's search words, price limit, sources, area, when it last ran and its latest finds (title, url, price, where the item is, source, the day found).",
 		props:    map[string]any{"space_id": spaceIDProp},
 		required: []string{"space_id"}},
 	{name: "run_watch", title: "Look for offers now",
@@ -191,7 +228,7 @@ func findWardenTool(name string) *roomTool {
 	return nil
 }
 
-const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. Tell the user the page: "
+const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, children's travel cards and tickets, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. Tell the user the page: "
 
 // ------------------------------------------------------------------- page --
 
@@ -239,6 +276,10 @@ func serveWarden(env *Env, w http.ResponseWriter, r *http.Request) bool {
 		serveWardenWatchRun(env, w, r)
 	case strings.HasPrefix(p, wardenPath+"/api/"):
 		serveWardenAPI(env, w, r, strings.TrimPrefix(p, wardenPath+"/api/"))
+	case strings.HasPrefix(p, wardenFeedPath):
+		serveWardenFeed(env, w, r, p)
+	case strings.HasPrefix(p, wardenPath+"/ics/"):
+		serveWardenEventICS(env, w, r, p)
 	default:
 		// the page and its files are Hosting's
 		http.NotFound(w, r)

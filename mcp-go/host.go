@@ -222,6 +222,9 @@ func NewApp(env *Env) http.Handler {
 	if env.warden == nil {
 		env.warden = newWardenService(env.DB)
 	}
+	if env.warden != nil && env.warden.base == "" {
+		env.warden.base = wardenOrigin(env)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 40<<20)
 		if r.Method == http.MethodPost && r.URL.Path == "/oauth/register" && env.Registrations(clientIP(r)) != "" {

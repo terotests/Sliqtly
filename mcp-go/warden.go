@@ -86,17 +86,21 @@ type wardenService struct {
 	now func() time.Time
 	// the page's assistant (wardenai.go); nil: none
 	ai *wardenAssist
+	// the site's address, for the calendar feed's (wardenfeed.go)
+	base string
 	// the deal watcher's web search (wardenwatch.go); nil: none
 	search wardenSearcher
 	// run_watch's searches per account
 	watchLimit func(who string) string
+	// whether a bearer token is the scheduler's (wardenwatch_cloud.go)
+	cronAuth func(ctx context.Context, token string) bool
 }
 
 func newWardenService(db DB) *wardenService {
 	if db == nil {
 		return nil
 	}
-	return &wardenService{db: db, now: time.Now, search: newWardenSearch(), watchLimit: rateLimiter(30, 10*time.Minute)}
+	return &wardenService{db: db, now: time.Now, cronAuth: wardenCronAuth(), watchLimit: rateLimiter(30, 10*time.Minute)}
 }
 
 func wardenRandomID(prefix string) string {
@@ -202,7 +206,7 @@ func (sp *wardenSpace) json() map[string]any {
 	}
 	wards := []any{}
 	for _, w := range docMaps(sp.doc, "wards") {
-		wards = append(wards, map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color")})
+		wards = append(wards, wardenWardJSON(w))
 	}
 	tz := docStr(sp.doc, "tz")
 	if tz == "" {
@@ -211,6 +215,7 @@ func (sp *wardenSpace) json() map[string]any {
 	return map[string]any{
 		"space_id": sp.id, "name": docStr(sp.doc, "name"), "vocab": docStr(sp.doc, "vocab"), "lang": docStr(sp.doc, "lang"),
 		"time_zone": tz, "role": sp.role, "members": members, "invites": anys(docStrs(sp.doc, "invites")), "wards": wards,
+		"places": wardenPlacesJSON(sp.doc),
 	}
 }
 
@@ -433,6 +438,10 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 	case uid != "":
 		sp.doc["members"] = anys(slices.DeleteFunc(docStrs(sp.doc, "members"), func(e string) bool { return e == uid }))
 		delete(people, uid)
+		// the calendar feed's address they had stops working
+		if docStr(sp.doc, "feed") != "" {
+			sp.doc["feed"] = wardenRandomID("")
+		}
 	default:
 		inv := docStrs(sp.doc, "invites")
 		left := slices.DeleteFunc(slices.Clone(inv), func(e string) bool { return e == strings.ToLower(m) })
@@ -499,17 +508,203 @@ func (s *wardenService) addWardOp(ctx context.Context, sp *wardenSpace, a map[st
 	if err != nil {
 		return nil, err
 	}
+	clothing := map[string]any{}
+	if err := wardenSetClothing(clothing, a); err != nil {
+		return nil, err
+	}
 	w, err := sp.addWard(name, color)
 	if err != nil {
 		return nil, err
 	}
+	for k, v := range clothing {
+		w[k] = v
+	}
 	if err := s.save(ctx, sp); err != nil {
 		return nil, err
 	}
-	return w, nil
+	return wardenWardJSON(w), nil
 }
 
-// set_ward: any member renames a ward or gives it another colour
+// ---------------------------------------------------------------- clothes --
+// A ward's clothing (a child's): "sizes", the size it wears now in each kind
+// of clothing and the one it grows into next, and by when; "clothes", what
+// it should have, how many and how many it has. Each list is given whole.
+
+const (
+	wardenMaxSizes   = 20 // kinds of clothing with a size
+	wardenMaxClothes = 60 // rows of a clothing list
+)
+
+var wardenMonthRe = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
+// a ward as the tools give it: its clothing, the missing counted, when it has any
+func wardenWardJSON(w map[string]any) map[string]any {
+	out := map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color"), "places": wardenPlacesJSON(w)}
+	if l := docMaps(w, "sizes"); len(l) > 0 {
+		out["sizes"] = anys(l)
+	}
+	if l := docMaps(w, "clothes"); len(l) > 0 {
+		rows := []any{}
+		for _, c := range l {
+			r := map[string]any{}
+			for k, v := range c {
+				r[k] = v
+			}
+			r["missing"] = max(wardenCount(c["need"], 1)-wardenCount(c["have"], 0), 0)
+			rows = append(rows, r)
+		}
+		out["clothes"] = rows
+	}
+	return out
+}
+
+// a count as JSON gives it (a number), or def
+func wardenCount(v any, def int) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return def
+}
+
+// the text k of a list row, trimmed and at most max characters
+func wardenRowStr(row map[string]any, k string, max int, what string) (string, error) {
+	v, ok := row[k]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", roomErr{what + ": " + k + " is a text"}
+	}
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) > max {
+		return "", roomErr{fmt.Sprintf("%s: %s is at most %d characters", what, k, max)}
+	}
+	return s, nil
+}
+
+func wardenRows(v any, name string, maxRows int) ([]map[string]any, error) {
+	l, ok := v.([]any)
+	if !ok {
+		return nil, roomErr{name + " is a list (an empty one clears it)"}
+	}
+	if len(l) > maxRows {
+		return nil, roomErr{fmt.Sprintf("%s has at most %d rows", name, maxRows)}
+	}
+	out := []map[string]any{}
+	for _, it := range l {
+		row, ok := it.(map[string]any)
+		if !ok {
+			return nil, roomErr{name + ": each row is an object"}
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+// sizes, checked: [{what, size, next_size, next_by, note}]
+func wardenSizes(v any) ([]any, error) {
+	rows, err := wardenRows(v, "sizes", wardenMaxSizes)
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		d := map[string]any{}
+		for _, f := range []struct {
+			k   string
+			max int
+		}{{"what", 40}, {"size", 20}, {"next_size", 20}, {"next_by", 10}, {"note", 200}} {
+			s, err := wardenRowStr(row, f.k, f.max, "sizes")
+			if err != nil {
+				return nil, err
+			}
+			if s != "" {
+				d[f.k] = s
+			}
+		}
+		what := docStr(d, "what")
+		if what == "" {
+			return nil, roomErr{"sizes: each row names what it is the size of (what), e.g. shoes"}
+		}
+		if seen[strings.ToLower(what)] {
+			return nil, roomErr{"sizes: " + what + " is given twice"}
+		}
+		seen[strings.ToLower(what)] = true
+		if by := docStr(d, "next_by"); by != "" && !wardenMonthRe.MatchString(by) && !wardenDate(by) {
+			return nil, roomErr{"sizes: next_by is YYYY-MM or YYYY-MM-DD"}
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// a clothing list, checked: [{item, size, need, have, note}]
+func wardenClothes(v any) ([]any, error) {
+	rows, err := wardenRows(v, "clothes", wardenMaxClothes)
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	for _, row := range rows {
+		d := map[string]any{}
+		for _, f := range []struct {
+			k   string
+			max int
+		}{{"item", 60}, {"size", 20}, {"note", 200}} {
+			s, err := wardenRowStr(row, f.k, f.max, "clothes")
+			if err != nil {
+				return nil, err
+			}
+			if s != "" {
+				d[f.k] = s
+			}
+		}
+		if docStr(d, "item") == "" {
+			return nil, roomErr{"clothes: each row names its item, e.g. winter boots"}
+		}
+		for k, def := range map[string]int{"need": 1, "have": 0} {
+			n := def
+			if x, ok := row[k]; ok && x != nil {
+				f, ok := x.(float64)
+				if !ok || f != float64(int(f)) || f < 0 || f > 99 {
+					return nil, roomErr{"clothes: " + k + " is a whole number from 0 to 99"}
+				}
+				n = int(f)
+			}
+			d[k] = n
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// the clothing lists given in a, checked into w
+func wardenSetClothing(w map[string]any, a map[string]any) error {
+	if v, ok := a["sizes"]; ok && v != nil {
+		l, err := wardenSizes(v)
+		if err != nil {
+			return err
+		}
+		w["sizes"] = l
+	}
+	if v, ok := a["clothes"]; ok && v != nil {
+		l, err := wardenClothes(v)
+		if err != nil {
+			return err
+		}
+		w["clothes"] = l
+	}
+	return nil
+}
+
+// set_ward: any member renames a ward, gives it another colour or sets its clothing
 func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	id := sp.wardID(argStr(a, "ward"))
 	if id == "" {
@@ -530,6 +725,10 @@ func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[stri
 	if err != nil {
 		return nil, err
 	}
+	clothing := map[string]any{}
+	if err := wardenSetClothing(clothing, a); err != nil {
+		return nil, err
+	}
 	var out map[string]any
 	for _, w := range docMaps(sp.doc, "wards") {
 		if docStr(w, "id") != id {
@@ -541,7 +740,10 @@ func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[stri
 		if color != "" {
 			w["color"] = color
 		}
-		out = map[string]any{"id": id, "name": docStr(w, "name"), "color": docStr(w, "color")}
+		for k, v := range clothing {
+			w[k] = v
+		}
+		out = wardenWardJSON(w)
 	}
 	if err := s.save(ctx, sp); err != nil {
 		return nil, err
@@ -832,6 +1034,9 @@ func wardenEventJSON(id string, d Doc, now time.Time) map[string]any {
 	if l := docStrs(d, "exdates"); len(l) > 0 {
 		out["exdates"] = anys(l)
 	}
+	if l := docStrs(d, "links"); len(l) > 0 {
+		out["links"] = anys(l)
+	}
 	if l := docMaps(d, "who"); len(l) > 0 {
 		who := []any{}
 		for _, m := range l {
@@ -899,7 +1104,11 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	for i, d := range docs {
 		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
-	return map[string]any{"space": sp.json(), "events": evs, "changed": wardenChanged(sp.doc)}, nil
+	space := sp.json()
+	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
+		return nil, err
+	}
+	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc)}, nil
 }
 
 // list_events: the events that may happen between from and to (repeating
@@ -924,7 +1133,7 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 				continue
 			}
 		}
-		if typ != "" && wardenOr(docStr(d, "type"), "event") != typ {
+		if typ != "" && !wardenListedAs(d, typ) {
 			continue
 		}
 		// a window to get something in, or a payment, may fall outside the day
@@ -985,6 +1194,14 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 	if sp.saleLabel(d) {
 		newWards = true // the space's next label number is kept with it
 	}
+	add, err := s.linkIDs(ctx, sp, a, "links", nil)
+	if err != nil {
+		return nil, err
+	}
+	drop, err := s.linkIDs(ctx, sp, a, "unlink", nil)
+	if err != nil {
+		return nil, err
+	}
 	if id == "" {
 		if ext := docStr(d, "ext_id"); ext != "" {
 			id = wardenExtID(sp.id, ext)
@@ -1004,8 +1221,12 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 			return nil, err
 		}
 	}
+	wardenSetLinks(d, id, add, drop)
 	s.stamp(d, sp)
 	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
+		return nil, err
+	}
+	if err := s.linkOthers(ctx, sp, id, add, drop); err != nil {
 		return nil, err
 	}
 	return wardenEventJSON(id, d, s.now()), nil
@@ -1019,10 +1240,14 @@ func (s *wardenService) stamp(d Doc, sp *wardenSpace) {
 
 func (s *wardenService) deleteEvent(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	id := argStr(a, "event_id")
-	if _, err := s.event(ctx, sp, id); err != nil {
+	d, err := s.event(ctx, sp, id)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.db.Delete(ctx, wardenEvents, id); err != nil {
+		return nil, err
+	}
+	if err := s.linkOthers(ctx, sp, id, nil, docStrs(d, "links")); err != nil {
 		return nil, err
 	}
 	return map[string]any{"deleted": id}, nil
@@ -1042,9 +1267,11 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 		return nil, err
 	}
 	type put struct {
-		id  string
-		doc Doc
-		new bool
+		id        string
+		doc       Doc
+		new       bool
+		args      map[string]any
+		add, drop []string
 	}
 	puts := []put{}
 	seen := map[string]bool{}
@@ -1085,7 +1312,23 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			newWards = true
 		}
 		seen[id] = true
-		puts = append(puts, put{id, d, !slices.Contains(have, id)})
+		puts = append(puts, put{id: id, doc: d, new: !slices.Contains(have, id), args: m})
+	}
+	// links may name entries of the same import by their ext_id
+	for i := range puts {
+		p := &puts[i]
+		var err error
+		if p.add, err = s.linkIDs(ctx, sp, p.args, "links", seen); err == nil {
+			p.drop, err = s.linkIDs(ctx, sp, p.args, "unlink", seen)
+		}
+		if err != nil {
+			var re roomErr
+			if ok := asRoomErr(err, &re); ok {
+				return nil, roomErr{fmt.Sprintf("events[%d]: %s; nothing was imported", i, re.msg)}
+			}
+			return nil, err
+		}
+		wardenSetLinks(p.doc, p.id, p.add, p.drop)
 	}
 	made := 0
 	for _, p := range puts {
@@ -1108,6 +1351,11 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			return nil, err
 		}
 		ids = append(ids, p.id)
+	}
+	for _, p := range puts {
+		if err := s.linkOthers(ctx, sp, p.id, p.add, p.drop); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]any{"space_id": sp.id, "created": made, "updated": len(puts) - made, "event_ids": ids, "wards": sp.json()["wards"]}, nil
 }
@@ -1204,6 +1452,10 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.setWard(ctx, sp, a)
 	case "remove_ward":
 		return s.removeWard(ctx, sp, a)
+	case "add_place":
+		return s.addPlace(ctx, sp, a)
+	case "remove_place":
+		return s.removePlace(ctx, sp, a)
 	case "list_events":
 		return s.listEvents(ctx, sp, a)
 	case "save_event":
@@ -1215,6 +1467,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.importEvents(ctx, sp, l, nil)
 	case "import_ics":
 		return s.importICS(ctx, sp, a)
+	case "calendar_feed":
+		return s.calendarFeed(ctx, sp, a)
 	case "budget":
 		return s.budget(ctx, sp, a)
 	case "set_watch":

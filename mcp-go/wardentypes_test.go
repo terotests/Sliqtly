@@ -26,6 +26,14 @@ func TestWardenTypesSchema(t *testing.T) {
 		if ty.Legacy && wardenTypeOf(ty.ReplacedBy) == nil {
 			t.Fatalf("%s: replaced by no type", ty.ID)
 		}
+		for _, a := range ty.AlsoIn {
+			if wardenTypeOf(a.Type) == nil || a.Type == ty.ID {
+				t.Fatalf("%s: also listed as %q, no other type", ty.ID, a.Type)
+			}
+			if _, ok := ty.field(a.When.Field); !ok {
+				t.Fatalf("%s: also listed while %s, which it has not", ty.ID, a.When.Field)
+			}
+		}
 		keys := map[string]bool{}
 		for _, f := range ty.Fields {
 			if keys[f.Key] || f.Name["en"] == "" || f.Name["fi"] == "" {
@@ -77,6 +85,16 @@ func TestWardenTypesSchema(t *testing.T) {
 				f, ok := ty.field(c.Field)
 				if !ok || (c.Is != "" && !slices.Contains(f.Options, c.Is)) {
 					t.Fatalf("%s: get condition on %s=%s", ty.ID, c.Field, c.Is)
+				}
+			}
+		}
+		for _, l := range ty.Low {
+			for i, k := range []string{l.Field, l.At} {
+				if i == 1 && k == "" {
+					continue // no field of its own: the default
+				}
+				if f, ok := ty.field(k); !ok || (f.Type != "number" && f.Type != "money") {
+					t.Fatalf("%s: low field %s is not a number", ty.ID, k)
 				}
 			}
 		}
@@ -226,6 +244,45 @@ func TestWardenFamilyEntries(t *testing.T) {
 	eq(t, []any{out["total"], out["by_payer"]}, []any{92.2, map[string]any{"Mia": 84.2}}, "the bill and the trip's fee, not the need left out")
 }
 
+func TestWardenTravelCard(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	now := time.Now().Format("2006-01-02")
+	far := time.Now().AddDate(0, 6, 0).Format("2006-01-02")
+
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "HSL-kortti", "date": far})
+	eq(t, []any{code, out["error"]}, []any{400, "a travel_card needs ward"}, "whose card")
+
+	// a season ticket valid for months: reminded a week before it runs out
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "Kausilippu", "date": far, "ward": "Leo",
+		"fields": map[string]any{"card_type": "season", "operator": "HSL", "zones": "AB", "renewal_cost": 32.4}})
+	eq(t, code, 200, "season ticket: "+wardenErrOf(out))
+	week := time.Now().AddDate(0, 6, -7).Format("2006-01-02")
+	eq(t, []any{out["remind_from"], out["reminders"]}, []any{week, []any{map[string]any{"field": "date", "date": far, "day": week}}}, "a week before")
+	_, b := wardenCall(t, base, "tero", "budget", map[string]any{"space_id": sid, "from": far[:7], "to": far[:7]})
+	eq(t, b["total"], 32.4, "renewing goes to the budget")
+
+	// a multi-trip ticket with two trips left: reminded now
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "Sarjalippu", "date": far, "ward": "Aino",
+		"fields": map[string]any{"card_type": "multi_trip", "trips_left": 2}})
+	eq(t, code, 200, "multi-trip: "+wardenErrOf(out))
+	id := out["event_id"]
+	eq(t, out["remind_from"], now, "low on trips: now")
+	eq(t, out["reminders"].([]any)[1], map[string]any{"field": "trips_left", "date": now, "day": now, "low": true}, "the low reminder")
+	// its own limit, and more trips loaded
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": id, "fields": map[string]any{"trips_left": 10, "low_trips": 1}})
+	eq(t, out["remind_from"], week, "enough trips: a week before it runs out")
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": id, "fields": map[string]any{"trips_left": 1}})
+	eq(t, out["remind_from"], now, "at its own limit")
+
+	// a value card low on value
+	_, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "travel_card", "title": "Arvokortti", "date": far, "ward": "Leo",
+		"fields": map[string]any{"card_type": "value", "balance": 3.2}})
+	eq(t, out["remind_from"], now, "low on value")
+}
+
 func wardenErrOf(out map[string]any) string {
 	s, _ := out["error"].(string)
 	return s
@@ -301,6 +358,28 @@ func TestWardenNextPayment(t *testing.T) {
 	eq(t, wardenNextPayment(d, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)), map[string]any(nil), "all paid")
 	one := Doc{"date": "2026-11-02", "cost": map[string]any{"amount": 50.0, "instalments": 1.0}}
 	eq(t, wardenNextPayment(one, now), map[string]any{"date": "2026-11-02", "amount": 50.0, "n": 1, "of": 1}, "one payment: no reminder unless asked")
+}
+
+// a thing that needs repair is listed under repair too, and a missing one
+// under need; one in order only as itself
+func TestWardenListedAs(t *testing.T) {
+	bikes := map[string]any{"type": "item", "fields": map[string]any{"state": "repair"}}
+	lamp := map[string]any{"type": "item", "fields": map[string]any{"state": "missing"}}
+	ok := map[string]any{"type": "item", "fields": map[string]any{"state": "ok"}}
+	for _, c := range []struct {
+		d    map[string]any
+		typ  string
+		want bool
+	}{
+		{bikes, "item", true}, {bikes, "repair", true}, {bikes, "need", false},
+		{lamp, "need", true}, {lamp, "repair", false},
+		{ok, "item", true}, {ok, "repair", false},
+		{map[string]any{"title": "x"}, "event", true},
+	} {
+		if got := wardenListedAs(c.d, c.typ); got != c.want {
+			t.Fatalf("%v as %s: %v", c.d, c.typ, got)
+		}
+	}
 }
 
 // every common field the page's form shows is named on every type that

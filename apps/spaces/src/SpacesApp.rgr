@@ -42,6 +42,7 @@ Import "SpacesRemote.rgr"
 Import "SpacesTypes.rgr"
 Import "SpacesBudget.rgr"
 Import "../evgui/src/InputCtl.rgr"
+Import "../evgui/src/CalendarCtl.rgr"
 Import "../evgui/src/EventCalBoard.rgr"
 Import "../evgui/src/EventCalCtl.rgr"
 Import "../evgui/src/EventCalI18n.rgr"
@@ -71,6 +72,24 @@ class SpCall {
     }
 }
 
+; The weather of one place, as the host read it (Open-Meteo's numbers,
+; rounded): now, today's high and low, the chance of rain and the WMO code.
+class SpWeather {
+    def place:string ""
+    def temp:int 0
+    def hi:int 0
+    def lo:int 0
+    def rain:int 0
+    def code:int 0
+    ; by the hour from today's midnight (the place's time), when the host
+    ; read them: the temperature, the chance of rain and the WMO code
+    def hourT:[int]
+    def hourRain:[int]
+    def hourCode:[int]
+    Constructor () {
+    }
+}
+
 class SpacesApp {
     def space:SpSpace (new SpSpace())
     def pack:string "demo"
@@ -81,14 +100,10 @@ class SpacesApp {
     def browserOff:int 0
     ; the summary's page: "today", "week" or "ahead"
     def homeTab:string "today"
-    ; the weather, when the host has read it (setWeather)
-    def wxSet:boolean false
-    def wxPlace:string ""
-    def wxTemp:int 0
-    def wxHi:int 0
-    def wxLo:int 0
-    def wxRain:int 0
-    def wxCode:int 0
+    ; the weather of each place the host has read (setWeather), and the
+    ; place the summary shows ("" for the first)
+    def wx:[SpWeather]
+    def wxSel:string ""
 
     def board:EcBoard (new EcBoard())
     ; the card's event ids ("o0", "o1" …) and what each one is in the space
@@ -104,6 +119,8 @@ class SpacesApp {
     def itemOccs:[string]
     ; what each Muista box copies, by its number
     def remindTexts:[string]
+    ; the links in today's cards, by their number
+    def linkUrls:[string]
     def sheetSel:string ""
     def docSel:string ""
     ; the assistant's conversation: question keys and answers; a question
@@ -124,10 +141,15 @@ class SpacesApp {
     def sentTypes:[string]
     def sentNames:[string]
     ; what the host has to do after a press ("import", "export:<id>",
-    ; "copy": put `copyText` on the clipboard, "open:<url>": open an offer
-    ; in a new tab)
+    ; "copy": put `copyText` on the clipboard, "open:<url>": an http(s)
+    ; address (an offer) in a new tab, another (webcal) here, a relative one
+    ; the server's own)
     def action:string ""
     def copyText:string ""
+    ; what the calendar feed's address asks for besides the entries: the
+    ; windows to get things in and the payment days
+    def feedGets:boolean true
+    def feedPays:boolean true
     def status:string ""
 
     ; --- a space on a server -----------------------------------------------------
@@ -138,6 +160,11 @@ class SpacesApp {
     ; was open last
     def spaceId:string ""
     def prefer:string ""
+    ; whether the calendar card shows the windows to get things in and the
+    ; payment days: off unless the person turns them on (the host remembers
+    ; their choice); the summary and the phone feed have them either way
+    def showGets:boolean false
+    def showPays:boolean false
     def loading:boolean false
     def outbox:[SpCall]
     ; when the space last changed on the server, as the page has it, and
@@ -155,6 +182,23 @@ class SpacesApp {
     def nameField:InputCtl (new InputCtl())
     def inviteField:InputCtl (new InputCtl())
     def wardField:InputCtl (new InputCtl())
+    ; the ward whose clothing is open on the Members page, and its fields
+    def clothesOpen:string ""
+    def sizeWhat:InputCtl (new InputCtl())
+    def sizeNow:InputCtl (new InputCtl())
+    def sizeNext:InputCtl (new InputCtl())
+    def sizeBy:InputCtl (new InputCtl())
+    def clothItem:InputCtl (new InputCtl())
+    def clothSize:InputCtl (new InputCtl())
+    def clothNeed:InputCtl (new InputCtl())
+    ; the places' search: the town written, whose place it becomes (a
+    ; ward's id, "" for the whole space), what the host is to look up
+    ; (action "places") and the towns it found
+    def placeField:InputCtl (new InputCtl())
+    def placeFor:string ""
+    def placeQuery:string ""
+    def placeLooking:boolean false
+    def found:[SpPlace]
 
     ; --- entries ----------------------------------------------------------------------
     ; the entry types (the schema the server shares)
@@ -166,6 +210,8 @@ class SpacesApp {
     ; answer asked from it (-1 for none)
     def addManual:boolean false
     def typeSearch:InputCtl (new InputCtl())
+    ; the editor's search for an entry to link with
+    def linkSearch:InputCtl (new InputCtl())
     def addGroup:string ""
     def addAsked:int -1
     ; the form: open, on which event ("" for a new one), of which type, and
@@ -181,6 +227,11 @@ class SpacesApp {
     ; "important", "f:<field>", "cost:scope", "repeat")
     def formKeys:[string]
     def formCtls:[InputCtl]
+    ; A date is never typed: its field is a button that opens EVGUI's
+    ; calendar under it. `dateOpen` is the form index whose calendar is open,
+    ; -1 for none; the chosen day goes into that key's InputCtl as ISO.
+    def dateOpen:int -1
+    def datePick:CalendarCtl (new CalendarCtl())
     def pickKeys:[string]
     def pickVals:[string]
     ; the form has a cost section (the type has one, or the event a cost)
@@ -251,19 +302,170 @@ class SpacesApp {
         }
     }
 
-    ; The weather from the host (Open-Meteo's numbers, rounded): now,
-    ; today's high and low, the chance of rain and the WMO weather code.
+    ; The weather of a place from the host (Open-Meteo's numbers, rounded):
+    ; now, today's high and low, the chance of rain and the WMO weather code.
     fn setWeather:void (place:string temp:int hi:int lo:int rain:int code:int) {
-        wxSet = true
-        wxPlace = place
-        wxTemp = temp
-        wxHi = hi
-        wxLo = lo
-        wxRain = rain
-        wxCode = code
+        def w@(optional):SpWeather (this.weatherOf(place))
+        def one (new SpWeather())
+        if (!null? w) {
+            one = (unwrap w)
+        } {
+            one.place = place
+            push wx one
+        }
+        one.temp = temp
+        one.hi = hi
+        one.lo = lo
+        one.rain = rain
+        one.code = code
         if ((tab == "home") && (editing == false)) {
             this.rebuild()
         }
+    }
+
+    ; The weather of a place by the hour (Open-Meteo's `hourly`, from
+    ; today's midnight): {temperature_2m, precipitation_probability,
+    ; weather_code}. `temp` and `code` are now's.
+    fn setWeatherHours:void (place:string temp:int code:int hours:string) {
+        def h:VlJson (SpRemote.parse(hours))
+        def ts:VlJson (h.get("temperature_2m"))
+        def rs:VlJson (h.get("precipitation_probability"))
+        def cs:VlJson (h.get("weather_code"))
+        def tl:[int]
+        def rl:[int]
+        def cl:[int]
+        def i:int 0
+        while (i < (ts.count())) {
+            def tv:VlJson (ts.at(i))
+            push tl (floor ((tv.asDouble()) + 0.5))
+            def rv:VlJson (rs.at(i))
+            push rl (floor ((rv.asDouble()) + 0.5))
+            def cv:VlJson (cs.at(i))
+            push cl (floor ((cv.asDouble()) + 0.5))
+            i = (i + 1)
+        }
+        this.setWeather(place temp 0 0 0 code)
+        def w@(optional):SpWeather (this.weatherOf(place))
+        if (null? w) {
+            return
+        }
+        def one:SpWeather (unwrap w)
+        one.hourT = tl
+        one.hourRain = rl
+        one.hourCode = cl
+        this.rebuild()
+    }
+
+    ; When the school day starts and ends on `day`, in hours: the earliest
+    ; start and the latest end of the wards' school and daycare entries, or
+    ; 8 and 15.
+    fn schoolHours:[int] (day:int) {
+        def first:int -1
+        def last:int -1
+        def occ:[SpOccur] (space.occurrences(day day))
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            def school:boolean (((o.typeId == "school_timetable") || (o.typeId == "school")) || (o.typeId == "daycare_day"))
+            if (school && (o.startMin >= 0)) {
+                if ((first < 0) || (o.startMin < first)) {
+                    first = o.startMin
+                }
+                def e:int (this.endOf(o))
+                if (e > last) {
+                    last = e
+                }
+            }
+            i = (i + 1)
+        }
+        def sh:int 8
+        def eh:int 15
+        if (first >= 0) {
+            sh = (idiv first 60)
+        }
+        if (last > 0) {
+            eh = (idiv (last + 30) 60)
+        }
+        if (eh <= sh) {
+            eh = (sh + 1)
+        }
+        if (eh > 23) {
+            eh = 23
+        }
+        return ([] _:int ( sh eh ))
+    }
+
+    fn weatherOf@(optional):SpWeather (place:string) {
+        def found@(optional):SpWeather
+        def i:int 0
+        while (i < (array_length wx)) {
+            def w:SpWeather (itemAt wx i)
+            if ((to_lowercase w.place) == (to_lowercase place)) {
+                found = w
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; The places whose weather the host is to read: [{name, lat, lon}], each
+    ; town once; Tampere when the space has none.
+    fn weatherPlacesJson:string () {
+        def list:VlJson (VlJson.arrayValue())
+        def ps:[SpPlace] (space.weatherPlaces())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def p:SpPlace (itemAt ps i)
+            def o:VlJson (VlJson.objectValue())
+            o.setMember("name" (VlJson.stringValue(p.name)))
+            o.setMember("lat" (VlJson.numberValue(p.lat)))
+            o.setMember("lon" (VlJson.numberValue(p.lon)))
+            push list.arr o
+            i = (i + 1)
+        }
+        return (SpRemote.write(list))
+    }
+
+    ; The places of the summary that have weather, in the order they are kept.
+    fn shownWeather:[SpWeather] () {
+        def out:[SpWeather]
+        def ps:[SpPlace] (space.weatherPlaces())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def p:SpPlace (itemAt ps i)
+            def w@(optional):SpWeather (this.weatherOf(p.name))
+            if (!null? w) {
+                push out (unwrap w)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; What the host found for `placeQuery`: Open-Meteo's geocoding answer,
+    ; {results: [{name, latitude, longitude, admin1}]}.
+    fn placesFound:void (text:string) {
+        placeLooking = false
+        def none:[SpPlace]
+        found = none
+        def rs:VlJson ((SpRemote.parse(text)).get("results"))
+        def i:int 0
+        while (i < (rs.count())) {
+            def r:VlJson (rs.at(i))
+            def p (new SpPlace())
+            p.name = (r.stringOr("name" ""))
+            p.lat = (r.doubleOr("latitude" 0.0))
+            p.lon = (r.doubleOr("longitude" 0.0))
+            p.detail = (r.stringOr("admin1" ""))
+            if ((strlen p.name) > 0) {
+                push found p
+            }
+            i = (i + 1)
+        }
+        if ((array_length found) == 0) {
+            status = ((SpWords.pick(lang "No place in Finland is called " "Suomesta ei löytynyt paikkaa ")) + placeQuery)
+        }
+        this.rebuild()
     }
 
     ; A fresh space of the pack's demo data, in the page's language. On a
@@ -342,7 +544,11 @@ class SpacesApp {
         occStart = s
         def e:[int]
         occEnd = e
+        space.showGets = showGets
+        space.showPays = showPays
         def occ:[SpOccur] (space.occurrences((today - 92) (today + 184)))
+        space.showGets = true
+        space.showPays = true
         def i:int 0
         while (i < (array_length occ)) {
             def oc:SpOccur (itemAt occ i)
@@ -696,6 +902,8 @@ class SpacesApp {
         itemOccs = noOccs
         def noTexts:[string]
         remindTexts = noTexts
+        def noUrls:[string]
+        linkUrls = noUrls
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.dashHead()))
         v.addChild((this.homeTabs()))
@@ -932,30 +1140,152 @@ class SpacesApp {
         col.addChild((SpacesApp.tx("sp-datesub" sub)))
         h.addChild(col)
         h.addChild((SpacesApp.box("sp-grow")))
-        if wxSet {
+        if ((array_length (this.shownWeather())) > 0) {
             h.addChild((this.weatherCard()))
         }
         return h
     }
 
+    ; The weather of one place; with more, the others' names to switch to.
     fn weatherCard:EVGElement () {
+        def all:[SpWeather] (this.shownWeather())
+        def w:SpWeather (itemAt all 0)
+        def k:int 0
+        while (k < (array_length all)) {
+            def o:SpWeather (itemAt all k)
+            if ((to_lowercase o.place) == (to_lowercase wxSel)) {
+                w = o
+            }
+            k = (k + 1)
+        }
         def c:EVGElement (UiTree.div("sp-wx" "sp-wx"))
-        def t:string ((to_string wxTemp) + "°")
-        def l1:string (wxPlace + " · " + (SpWords.pick(lang "high " "ylin ")) + (to_string wxHi) + "° " + (SpWords.pick(lang "low " "alin ")) + (to_string wxLo) + "°")
-        def l2:string ((SpWords.wxText(lang wxCode)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string wxRain) + " %")
+        def t:string ((to_string w.temp) + "°")
+        def whose:string (space.placeWards(w.place))
+        def where:string w.place
+        if ((strlen whose) > 0) {
+            where = (w.place + " (" + whose + ")")
+        }
+        def l1:string (where + " · " + (SpWords.pick(lang "high " "ylin ")) + (to_string w.hi) + "° " + (SpWords.pick(lang "low " "alin ")) + (to_string w.lo) + "°")
+        def l2:string ((SpWords.wxText(lang w.code)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string w.rain) + " %")
+        def warn:string ""
+        def icon:int w.code
+        if ((array_length w.hourT) >= 24) {
+            ; the school day: when it starts, midday and when it ends; the
+            ; next one once today's is over
+            def day:int today
+            def off:int 0
+            def sch:[int] (this.schoolHours(today))
+            if (((idiv nowMin 60) >= (itemAt sch 1)) && ((array_length w.hourT) >= 48)) {
+                day = (today + 1)
+                off = 24
+                sch = (this.schoolHours(day))
+            }
+            def sh:int (itemAt sch 0)
+            def eh:int (itemAt sch 1)
+            def slots:[int] ([] _:int ( sh ))
+            if ((12 > sh) && (12 < eh)) {
+                push slots 12
+            }
+            push slots eh
+            def lo:int 999
+            def hi:int -999
+            def parts:[string]
+            def k2:int 0
+            while (k2 < (array_length slots)) {
+                def hr:int (itemAt slots k2)
+                def tv:int (itemAt w.hourT (off + hr))
+                if (tv < lo) {
+                    lo = tv
+                }
+                if (tv > hi) {
+                    hi = tv
+                }
+                push parts ((SpWords.pick(lang "at " "klo ")) + (to_string hr) + " " + (to_string tv) + "°")
+                k2 = (k2 + 1)
+            }
+            def rain:int 0
+            def worst:int 0
+            def hh:int sh
+            while (hh <= eh) {
+                def rv:int (itemAt w.hourRain (off + hh))
+                if (rv > rain) {
+                    rain = rv
+                }
+                def cv:int (itemAt w.hourCode (off + hh))
+                if (cv > worst) {
+                    worst = cv
+                }
+                hh = (hh + 1)
+            }
+            icon = worst
+            def range:string ((to_string lo) + "°")
+            if (hi != lo) {
+                range = ((to_string lo) + "–" + (to_string hi) + "°")
+            }
+            if (off > 0) {
+                range = (range + (SpWords.pick(lang " tomorrow" " huomenna")))
+            }
+            l1 = (where + " · " + range + " · " + (SpWords.wxText(lang worst)))
+            l2 = ((join parts " · ") + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string rain) + " %")
+            ; frost before school: the roads may be slippery
+            def cold:int 999
+            def nh:int 0
+            while (nh <= sh) {
+                def nv:int (itemAt w.hourT (off + nh))
+                if (nv < cold) {
+                    cold = nv
+                }
+                nh = (nh + 1)
+            }
+            if (cold < 0) {
+                warn = ((SpWords.pick(lang "Slippery roads: " "Liukas keli: ")) + (to_string cold) + (SpWords.pick(lang "° in the night" "° yöllä")))
+            }
+        }
         c.role = "region"
-        c.a11yLabel = ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
-        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(wxCode))))
+        def label:string ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
+        if ((strlen warn) > 0) {
+            label = (label + ", " + warn)
+        }
+        c.a11yLabel = label
+        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(icon))))
         ic.a11yHidden = true
         c.addChild(ic)
         def tt:EVGElement (SpacesApp.tx("sp-wxtemp" t))
         tt.a11yHidden = true
         c.addChild(tt)
+        ; the lines are in the card's label; the switches are the tree's own
         def col:EVGElement (SpacesApp.box("sp-wxtext"))
-        col.a11yHidden = true
-        col.addChild((SpacesApp.tx("sp-wxline" l1)))
-        col.addChild((SpacesApp.tx("sp-wxline" l2)))
+        def t1:EVGElement (SpacesApp.tx("sp-wxline" l1))
+        t1.a11yHidden = true
+        col.addChild(t1)
+        def t2:EVGElement (SpacesApp.tx("sp-wxline" l2))
+        t2.a11yHidden = true
+        col.addChild(t2)
+        if ((strlen warn) > 0) {
+            def t3:EVGElement (SpacesApp.tx("sp-wxwarn" ("⚠ " + warn)))
+            t3.a11yHidden = true
+            col.addChild(t3)
+        }
         c.addChild(col)
+        if ((array_length all) > 1) {
+            def pills:EVGElement (SpacesApp.box("sp-wxpills"))
+            pills.role = "group"
+            pills.a11yLabel = (SpWords.pick(lang "Places" "Paikkakunnat"))
+            def i:int 0
+            while (i < (array_length all)) {
+                def o2:SpWeather (itemAt all i)
+                def on:boolean (o2.place == w.place)
+                def pc:string "sp-wxpill"
+                if on {
+                    pc = "sp-wxpill sp-wxpill-on"
+                }
+                def pb:EVGElement (SpacesApp.btn(("sp-wxplace-" + (to_string i)) pc o2.place))
+                pb.a11yPressed = (SpacesApp.tri(on))
+                pills.addChild(pb)
+                i = (i + 1)
+            }
+            col.addChild(pills)
+        }
         return c
     }
 
@@ -1064,6 +1394,7 @@ class SpacesApp {
     }
 
     fn todayCard:EVGElement (o:SpOccur now:boolean w:double) {
+        def urls:[string]
         def n:int (this.rowOf(o))
         def past:boolean (((o.allDay()) == false) && ((this.endOf(o)) <= nowMin))
         def cls:string "sp-tcard"
@@ -1116,15 +1447,75 @@ class SpacesApp {
             }
             def e@(optional):SpEvent (space.event(o.eventId))
             if (!null? e) {
-                if ((strlen (trim e.notes)) > 0) {
-                    push parts (trim e.notes)
+                ; a web address is shown as a link below the card, and a word
+                ; too long to wrap is cut short
+                def kept:[string]
+                def words:[string] (strsplit (trim e.notes) " ")
+                def k:int 0
+                while (k < (array_length words)) {
+                    def wd:string (itemAt words k)
+                    if ((SpRemote.starts(wd "https://")) || (SpRemote.starts(wd "http://"))) {
+                        push urls wd
+                    } {
+                        if ((strlen wd) > 36) {
+                            wd = ((substring wd 0 34) + "…")
+                        }
+                        if ((strlen wd) > 0) {
+                            push kept wd
+                        }
+                    }
+                    k = (k + 1)
+                }
+                if ((array_length kept) > 0) {
+                    push parts (join kept " ")
                 }
             }
             col.addChild((SpacesApp.tx("sp-tdetail" (join parts " · "))))
         }
         UiTree.inline(col "width" (SpacesApp.px((w - 110.0))))
         row.addChild(col)
-        return row
+        if ((array_length urls) == 0) {
+            return row
+        }
+        def box:EVGElement (SpacesApp.box("sp-tbox"))
+        box.addChild(row)
+        def links:EVGElement (SpacesApp.box("sp-tlinks"))
+        def j:int 0
+        while (j < (array_length urls)) {
+            def u:string (itemAt urls j)
+            def li:int (array_length linkUrls)
+            push linkUrls u
+            def host:string (SpacesApp.linkHost(u))
+            def lb:EVGElement (SpacesApp.btn(("sp-turl-" + (to_string li)) "sp-chip sp-tlink" (host + " ↗")))
+            lb.a11yLabel = ((SpWords.pick(lang "Open link: " "Avaa linkki: ")) + host)
+            links.addChild(lb)
+            j = (j + 1)
+        }
+        box.addChild(links)
+        return box
+    }
+
+    ; "https://www.example.fi/a/b" → "example.fi"
+    sfn linkHost:string (u:string) {
+        def rest:string u
+        def at:int (indexOf rest "://")
+        if (at >= 0) {
+            rest = (substring rest (at + 3) (strlen rest))
+        }
+        def slash:int (indexOf rest "/")
+        if (slash > 0) {
+            rest = (substring rest 0 slash)
+        }
+        if (SpRemote.starts(rest "www.")) {
+            rest = (substring rest 4 (strlen rest))
+        }
+        if ((strlen rest) > 30) {
+            rest = ((substring rest 0 28) + "…")
+        }
+        if ((strlen rest) == 0) {
+            return "Linkki"
+        }
+        return rest
     }
 
     ; --- this week and what comes after ---
@@ -1530,6 +1921,7 @@ class SpacesApp {
         }
         v.addChild(c)
         v.addChild((this.wardsCard(owner)))
+        v.addChild((this.placesCard()))
         if (((array_length space.invites) > 0) || owner) {
             def iv:EVGElement (this.card("invites" (SpWords.ui(lang "invited"))))
             def k:int 0
@@ -1549,6 +1941,19 @@ class SpacesApp {
                 iv.addChild(form)
             }
             v.addChild(iv)
+        }
+        if ((strlen space.feed) > 0) {
+            def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Jokainen, jolla on osoite, näkee menot.")))))
+            def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+            sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
+            sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
+            fc.addChild(sw)
+            def fr:EVGElement (SpacesApp.box("sp-formrow"))
+            fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
+            fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
+            fc.addChild(fr)
+            v.addChild(fc)
         }
         return v
     }
@@ -1571,7 +1976,17 @@ class SpacesApp {
             dot.a11yHidden = true
             row.addChild(dot)
             row.addChild((SpacesApp.btn(("sp-wardcolor-" + (to_string i)) "sp-action" (SpWords.pick(lang "Colour" "Väri")))))
+            def ccls:string "sp-action"
+            if (r.id == clothesOpen) {
+                ccls = "sp-action sp-action-primary"
+            }
+            row.addChild((SpacesApp.btn(("sp-wardclothes-" + (to_string i)) ccls (SpWords.pick(lang "Clothes" "Vaatteet")))))
             c.addChild(row)
+            if (r.id == clothesOpen) {
+                c.addChild((this.clothesBox(r)))
+            } {
+                this.clothesSummary(c r)
+            }
             if (r.id == wardAsk) {
                 def ask:EVGElement (SpacesApp.box("sp-formrow"))
                 ask.addChild((SpacesApp.tx("sp-meta" ((SpWords.pick(lang "Remove " "Poistetaanko ")) + r.name + (SpWords.pick(lang "? Its entries stay, without it." "? Merkinnät säilyvät ilman häntä.")))))))
@@ -1586,6 +2001,365 @@ class SpacesApp {
         form.addChild((SpacesApp.btn("sp-addward" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
         c.addChild(form)
         return c
+    }
+
+    ; The towns the space and its wards usually are in, whose weather the
+    ; summary shows: any member adds one (a town in Finland, looked up by
+    ; the host) or removes one.
+    fn placesCard:EVGElement () {
+        def c:EVGElement (this.card("places" (SpWords.pick(lang "Places" "Paikkakunnat"))))
+        if ((array_length space.places) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None yet: the summary shows the weather in Tampere." "Ei vielä yhtään: koonti näyttää Tampereen sään.")))))
+        }
+        def i:int 0
+        while (i < (array_length space.places)) {
+            def p:SpPlace (itemAt space.places i)
+            def whose:string (space.resourceName(p.ward))
+            if ((strlen p.ward) == 0) {
+                whose = (SpWords.noun(lang pack "together"))
+            }
+            c.addChild((this.personRow(("sp-place-" + (to_string i)) p.name whose "" ("sp-unplace-" + (to_string i)))))
+            i = (i + 1)
+        }
+        def form:EVGElement (SpacesApp.box("sp-formrow"))
+        form.addChild((this.field(placeField "sp-place-name" (SpWords.pick(lang "Town" "Paikkakunta")) (SpWords.pick(lang "e.g. Kuopio" "esim. Kuopio")) "text")))
+        def pills:EVGElement (SpacesApp.box("sp-pills"))
+        pills.role = "group"
+        pills.a11yLabel = (SpWords.pick(lang "Whose" "Kenen"))
+        pills.addChild((this.placeForPill("sp-placefor-all" "" (SpWords.noun(lang pack "together")))))
+        def k:int 0
+        while (k < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources k)
+            pills.addChild((this.placeForPill(("sp-placefor-" + (to_string k)) r.id r.name)))
+            k = (k + 1)
+        }
+        form.addChild(pills)
+        def look:string (SpWords.pick(lang "Find" "Hae"))
+        if placeLooking {
+            look = (SpWords.pick(lang "Finding…" "Haetaan…"))
+        }
+        form.addChild((SpacesApp.btn("sp-place-find" "sp-action sp-action-primary" look)))
+        c.addChild(form)
+        if ((array_length found) > 0) {
+            def res:EVGElement (SpacesApp.box("sp-placefound"))
+            res.role = "group"
+            res.a11yLabel = (SpWords.pick(lang "Pick the town" "Valitse paikkakunta"))
+            def j:int 0
+            while (j < (array_length found)) {
+                def f:SpPlace (itemAt found j)
+                def label:string f.name
+                if ((strlen f.detail) > 0) {
+                    label = (f.name + " · " + f.detail)
+                }
+                res.addChild((SpacesApp.btn(("sp-placepick-" + (to_string j)) "sp-action" label)))
+                j = (j + 1)
+            }
+            c.addChild(res)
+        }
+        return c
+    }
+
+    fn placeForPill:EVGElement (id:string ward:string label:string) {
+        def on:boolean (ward == placeFor)
+        def pc:string "sp-pill"
+        if on {
+            pc = "sp-pill sp-pill-on"
+        }
+        def b:EVGElement (SpacesApp.btn(id pc label))
+        b.a11yPressed = (SpacesApp.tri(on))
+        return b
+    }
+
+    ; A press about the places: true when it was one.
+    fn pressPlaces:boolean (target:string) {
+        if (target == "sp-place-find") {
+            def q:string (trim placeField.value)
+            if ((strlen q) == 0) {
+                status = (SpWords.pick(lang "Write the town's name" "Kirjoita paikkakunnan nimi"))
+                focused = "sp-place-name"
+                return true
+            }
+            placeQuery = q
+            placeLooking = true
+            action = "places"
+            return true
+        }
+        if (target == "sp-placefor-all") {
+            placeFor = ""
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-placefor-")) {
+            def n@(optional):int (to_int (substring target 12 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if ((k >= 0) && (k < (array_length space.resources))) {
+                    def r:SpResource (itemAt space.resources k)
+                    placeFor = r.id
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-placepick-")) {
+            def n2@(optional):int (to_int (substring target 13 (strlen target)))
+            if (!null? n2) {
+                def k2:int (unwrap n2)
+                if ((k2 >= 0) && (k2 < (array_length found))) {
+                    def f:SpPlace (itemAt found k2)
+                    if ((space.placeAt(f.name placeFor)) >= 0) {
+                        status = (f.name + (SpWords.pick(lang " is there already" " on jo listalla")))
+                        return true
+                    }
+                    def p:SpPlace (space.addPlace(f.name f.lat f.lon placeFor))
+                    if (server && ((strlen spaceId) > 0)) {
+                        this.queue("add_place" (SpRemote.placeBody(spaceId p)) p.name)
+                    }
+                    def none:[SpPlace]
+                    found = none
+                    placeField.setValue("")
+                    status = ((SpWords.pick(lang "Added " "Lisätty ")) + p.name)
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-unplace-")) {
+            def n3@(optional):int (to_int (substring target 11 (strlen target)))
+            if (!null? n3) {
+                def k3:int (unwrap n3)
+                if ((k3 >= 0) && (k3 < (array_length space.places))) {
+                    def p3:SpPlace (itemAt space.places k3)
+                    space.dropPlace(k3)
+                    if (server && ((strlen spaceId) > 0)) {
+                        def pairs:[string] ([] _:string ( "space_id" spaceId "place" p3.name ))
+                        if ((strlen p3.ward) > 0) {
+                            push pairs "ward"
+                            push pairs p3.ward
+                        }
+                        this.queue("remove_place" (SpRemote.body(pairs)) p3.name)
+                    }
+                    status = ((SpWords.pick(lang "Removed " "Poistettu ")) + p3.name)
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    ; A ward's sizes and what is missing, under its row, when it has any.
+    fn clothesSummary:void (c:EVGElement r:SpResource) {
+        def parts:[string]
+        def i:int 0
+        while (i < (array_length r.sizes)) {
+            def z:SpSize (itemAt r.sizes i)
+            push parts (z.text())
+            i = (i + 1)
+        }
+        if ((array_length parts) > 0) {
+            c.addChild((SpacesApp.tx("sp-meta sp-clothes-line" ((SpWords.pick(lang "Sizes: " "Koot: ")) + (join parts " · ")))))
+        }
+        def miss:string (r.missingText())
+        if ((strlen miss) > 0) {
+            c.addChild((SpacesApp.tx("sp-meta sp-clothes-line" ((SpWords.pick(lang "Missing: " "Puuttuu: ")) + miss))))
+        }
+    }
+
+    ; A ward's clothing, open: its sizes now and next, and its clothing list
+    ; (what it should have, how many it has), each row changed or removed
+    ; here, and a row added at the end of each.
+    fn clothesBox:EVGElement (r:SpResource) {
+        def b:EVGElement (SpacesApp.box("sp-clothes"))
+        b.addChild((SpacesApp.tx("sp-clothes-h" (SpWords.pick(lang "Sizes" "Vaatekoot")))))
+        def i:int 0
+        while (i < (array_length r.sizes)) {
+            def z:SpSize (itemAt r.sizes i)
+            def row:EVGElement (SpacesApp.box("sp-formrow sp-clothes-row"))
+            row.addChild((SpacesApp.tx("sp-clothes-tx" (z.text()))))
+            row.addChild((SpacesApp.btn(("sp-sizedel-" + (to_string i)) "sp-action" (SpWords.ui(lang "remove")))))
+            b.addChild(row)
+            i = (i + 1)
+        }
+        def sf:EVGElement (SpacesApp.box("sp-formrow"))
+        sf.addChild((this.field(sizeWhat "sp-size-what" (SpWords.pick(lang "Clothing" "Vaate")) (SpWords.pick(lang "shoes" "kengät")) "text")))
+        sf.addChild((this.field(sizeNow "sp-size-now" (SpWords.pick(lang "Size now" "Koko nyt")) "30" "text")))
+        sf.addChild((this.field(sizeNext "sp-size-next" (SpWords.pick(lang "Next size" "Seuraava koko")) "31" "text")))
+        sf.addChild((this.field(sizeBy "sp-size-by" (SpWords.pick(lang "Needed by" "Tarvitaan")) "2027-03" "text")))
+        sf.addChild((SpacesApp.btn("sp-sizeadd" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
+        b.addChild(sf)
+        b.addChild((SpacesApp.tx("sp-clothes-h" (SpWords.pick(lang "Clothes needed" "Vaatetarpeet")))))
+        def k:int 0
+        while (k < (array_length r.clothes)) {
+            def cl:SpCloth (itemAt r.clothes k)
+            def t:string cl.item
+            if ((strlen cl.size) > 0) {
+                t = (t + " (" + cl.size + ")")
+            }
+            t = (t + "  " + (to_string cl.have) + "/" + (to_string cl.need))
+            def n:int (cl.missing())
+            def cls:string "sp-clothes-tx"
+            if (n > 0) {
+                t = (t + (SpWords.pick(lang " · missing " " · puuttuu ")) + (to_string n))
+                cls = "sp-clothes-tx sp-clothes-miss"
+            }
+            def row2:EVGElement (SpacesApp.box("sp-formrow sp-clothes-row"))
+            row2.addChild((SpacesApp.tx(cls t)))
+            row2.addChild((SpacesApp.btn(("sp-clothless-" + (to_string k)) "sp-action" "−")))
+            row2.addChild((SpacesApp.btn(("sp-clothmore-" + (to_string k)) "sp-action" "+")))
+            row2.addChild((SpacesApp.btn(("sp-clothdel-" + (to_string k)) "sp-action" (SpWords.ui(lang "remove")))))
+            b.addChild(row2)
+            k = (k + 1)
+        }
+        def cf:EVGElement (SpacesApp.box("sp-formrow"))
+        cf.addChild((this.field(clothItem "sp-cloth-item" (SpWords.pick(lang "Item" "Vaate")) (SpWords.pick(lang "winter boots" "talvikengät")) "text")))
+        cf.addChild((this.field(clothSize "sp-cloth-size" (SpWords.pick(lang "Size" "Koko")) "31" "text")))
+        cf.addChild((this.field(clothNeed "sp-cloth-need" (SpWords.pick(lang "How many" "Montako")) "1" "text")))
+        cf.addChild((SpacesApp.btn("sp-clothadd" "sp-action sp-action-primary" (SpWords.ui(lang "addOne")))))
+        b.addChild(cf)
+        return b
+    }
+
+    ; The open ward's clothing to the server, whole.
+    fn sendClothes:void (r:SpResource) {
+        if ((server == false) || ((strlen spaceId) == 0)) {
+            return
+        }
+        def ward:string r.id
+        if (UiTree.beginsWith(r.id "wnew-")) {
+            ward = r.name
+        }
+        this.queue("set_ward" (SpRemote.clothingBody(spaceId ward r)) r.id)
+    }
+
+    ; the ward whose clothing is open
+    fn clothesWard@(optional):SpResource () {
+        def found@(optional):SpResource
+        def i:int 0
+        while (i < (array_length space.resources)) {
+            def r:SpResource (itemAt space.resources i)
+            if (r.id == clothesOpen) {
+                found = r
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; the number after a target's prefix, or -1
+    sfn indexAfter:int (target:string prefix:string) {
+        def n@(optional):int (to_int (substring target (strlen prefix) (strlen target)))
+        if (null? n) {
+            return -1
+        }
+        return (unwrap n)
+    }
+
+    ; A press on the clothing of the open ward; false when it is none.
+    fn clothesClick:boolean (target:string) {
+        if (UiTree.beginsWith(target "sp-wardclothes-")) {
+            def k:int (SpacesApp.indexAfter(target "sp-wardclothes-"))
+            if ((k >= 0) && (k < (array_length space.resources))) {
+                def wr:SpResource (itemAt space.resources k)
+                if (clothesOpen == wr.id) {
+                    clothesOpen = ""
+                } {
+                    clothesOpen = wr.id
+                }
+            }
+            return true
+        }
+        def opened@(optional):SpResource (this.clothesWard())
+        if (null? opened) {
+            return false
+        }
+        def r:SpResource opened
+        if (target == "sp-sizeadd") {
+            def what:string (trim sizeWhat.value)
+            if ((strlen what) == 0) {
+                status = (SpWords.pick(lang "Name the clothing, e.g. shoes" "Anna vaate, esim. kengät"))
+                focused = "sp-size-what"
+                return true
+            }
+            def by:string (trim sizeBy.value)
+            if (((strlen by) > 0) && (((strlen by) < 7) || ((substring by 4 5) != "-"))) {
+                status = (SpWords.pick(lang "Needed by is YYYY-MM" "Tarvitaan-kenttä on muotoa VVVV-KK"))
+                focused = "sp-size-by"
+                return true
+            }
+            def z (new SpSize())
+            z.what = what
+            z.size = (trim sizeNow.value)
+            z.nextSize = (trim sizeNext.value)
+            z.nextBy = by
+            r.putSize(z)
+            sizeWhat.setValue("")
+            sizeNow.setValue("")
+            sizeNext.setValue("")
+            sizeBy.setValue("")
+            this.sendClothes(r)
+            status = ((SpWords.pick(lang "Saved " "Tallennettu ")) + (z.text()))
+            return true
+        }
+        if (target == "sp-clothadd") {
+            def item:string (trim clothItem.value)
+            if ((strlen item) == 0) {
+                status = (SpWords.pick(lang "Name the item" "Anna vaate"))
+                focused = "sp-cloth-item"
+                return true
+            }
+            def c (new SpCloth())
+            c.item = item
+            c.size = (trim clothSize.value)
+            def nt:string (trim clothNeed.value)
+            if ((strlen nt) > 0) {
+                def nn@(optional):int (to_int nt)
+                if ((null? nn) || ((unwrap nn) < 1) || ((unwrap nn) > 99)) {
+                    status = (SpWords.pick(lang "How many is a number from 1 to 99" "Montako on luku 1–99"))
+                    focused = "sp-cloth-need"
+                    return true
+                }
+                c.need = (unwrap nn)
+            }
+            push r.clothes c
+            clothItem.setValue("")
+            clothSize.setValue("")
+            clothNeed.setValue("")
+            this.sendClothes(r)
+            status = ((SpWords.pick(lang "Added " "Lisätty ")) + item)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-sizedel-")) {
+            def k2:int (SpacesApp.indexAfter(target "sp-sizedel-"))
+            if ((k2 >= 0) && (k2 < (array_length r.sizes))) {
+                r.dropSize(k2)
+                this.sendClothes(r)
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-clothdel-")) {
+            def k3:int (SpacesApp.indexAfter(target "sp-clothdel-"))
+            if ((k3 >= 0) && (k3 < (array_length r.clothes))) {
+                r.dropCloth(k3)
+                this.sendClothes(r)
+            }
+            return true
+        }
+        if ((UiTree.beginsWith(target "sp-clothless-")) || (UiTree.beginsWith(target "sp-clothmore-"))) {
+            ; the two prefixes are as long
+            def k4:int (SpacesApp.indexAfter(target "sp-clothmore-"))
+            if ((k4 >= 0) && (k4 < (array_length r.clothes))) {
+                def cl:SpCloth (itemAt r.clothes k4)
+                if (UiTree.beginsWith(target "sp-clothmore-")) {
+                    if (cl.have < 99) {
+                        cl.have = (cl.have + 1)
+                    }
+                } {
+                    if (cl.have > 0) {
+                        cl.have = (cl.have - 1)
+                    }
+                }
+                this.sendClothes(r)
+            }
+            return true
+        }
+        return false
     }
 
     ; --- spaces -------------------------------------------------------------------------
@@ -1762,11 +2536,20 @@ class SpacesApp {
         if (tid == "sp-invite-email") {
             return "sp-invite"
         }
+        if (tid == "sp-place-name") {
+            return "sp-place-find"
+        }
         if (tid == "sp-new-name") {
             return "sp-create"
         }
         if (tid == "sp-ward-name") {
             return "sp-addward"
+        }
+        if (UiTree.beginsWith(tid "sp-size-")) {
+            return "sp-sizeadd"
+        }
+        if (UiTree.beginsWith(tid "sp-cloth-")) {
+            return "sp-clothadd"
         }
         if (tid == "sp-assist-text") {
             return "sp-assist-send"
@@ -1796,8 +2579,8 @@ class SpacesApp {
     ; get things in and the payment days, each a switch.
     fn calShows:EVGElement () {
         def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
-        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) space.showGets)))
-        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) space.showPays)))
+        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) showGets)))
+        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) showPays)))
         return row
     }
 
@@ -2298,6 +3081,10 @@ class SpacesApp {
                 t = (SpWords.pick(lang "Done." "Valmis."))
             }
             if (ok == false) {
+                ; a server older than the page has no assistant yet
+                if (t == "No such call.") {
+                    t = (SpWords.pick(lang "the assistant is not on the server yet; it comes with the server's next update. What you wrote is kept below." "avustaja ei ole vielä palvelimella, se tulee palvelimen seuraavassa päivityksessä. Kirjoittamasi teksti on tallessa alla."))
+                }
                 t = ((SpWords.pick(lang "That did not go through: " "Se ei mennyt läpi: ")) + t)
                 ; what was written and the pictures are back in the field, to
                 ; send again
@@ -2660,6 +3447,7 @@ class SpacesApp {
         def pv:[string]
         pickVals = pv
         formErr = ""
+        dateOpen = -1
         addOpen = false
         editing = true
         focused = ""
@@ -2918,6 +3706,36 @@ class SpacesApp {
         return (SpWords.ui(lang key))
     }
 
+    ; A form key that holds a day: the form's own dates, the common fields'
+    ; and every field the types call "date". Each is a calendar, never a text
+    ; field (`dateField`); app-check walks every type to hold that.
+    fn isDateKey:boolean (key:string) {
+        if (((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) {
+            return true
+        }
+        if ((SpacesApp.isCommonKey(key)) && ((SpacesApp.commonType(key)) == "date")) {
+            return true
+        }
+        def f@(optional):SpField (this.editField(key))
+        if (!null? f) {
+            def ff:SpField f
+            return (ff.type == "date")
+        }
+        return false
+    }
+
+    sfn isCommonKey:boolean (key:string) {
+        def keys:[string] (SpacesApp.commonKeys())
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     ; What a text field expects.
     fn formHint:string (key:string) {
         def f@(optional):SpField (this.editField(key))
@@ -2926,8 +3744,8 @@ class SpacesApp {
             def ff:SpField f
             type = ff.type
         }
-        if (((((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) || (type == "date")) || (UiTree.beginsWith(key "get:"))) {
-            return (SpWords.pick(lang "YYYY-MM-DD" "pp.kk.vvvv"))
+        if (this.isDateKey(key)) {
+            return (SpWords.pick(lang "Choose a day" "Valitse päivä"))
         }
         if (((key == "start") || (key == "end")) || (type == "time")) {
             return (SpWords.pick(lang "HH:MM" "hh.mm"))
@@ -3041,6 +3859,9 @@ class SpacesApp {
     ; One labelled text field of the form.
     fn textField:EVGElement (i:int) {
         def key:string (itemAt formKeys i)
+        if (this.isDateKey(key)) {
+            return (this.dateField(i))
+        }
         def c:InputCtl (itemAt formCtls i)
         def label:string (this.formLabel(key))
         def wide:boolean ((((key == "title") || (key == "notes")) || (key == "who")) || (key == "place"))
@@ -3068,6 +3889,169 @@ class SpacesApp {
         box.addChild(fr)
         UiTree.inline(box "width" (SpacesApp.px(w)))
         return box
+    }
+
+    ; A day as the button shows it: "la 17.10.2026", "Sat 2026-10-17"; the
+    ; text as it is when it does not read as a day.
+    fn dateShown:string (v:string) {
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def d:int (SpTypes.dayOf(v year))
+        if (d < 0) {
+            return v
+        }
+        def p:[int] (SpSpace.ymdOf(d))
+        def wd:string (EcI18n.dayShort(lang (UiDate.weekday(d))))
+        if (lang == "fi") {
+            return ((((((wd + " ") + (to_string (itemAt p 2))) + ".") + (to_string (itemAt p 1))) + ".") + (to_string (itemAt p 0)))
+        }
+        return ((wd + " ") + (UiDate.isoOfDays(d)))
+    }
+
+    ; One labelled date: a button with the day on it, and while it is open
+    ; EVGUI's calendar under it with Today and Clear.
+    fn dateField:EVGElement (i:int) {
+        def key:string (itemAt formKeys i)
+        def c:InputCtl (itemAt formCtls i)
+        def label:string (this.formLabel(key))
+        def w:double 200.0
+        if (this.narrow()) {
+            w = (this.formW())
+        }
+        def open:boolean (dateOpen == i)
+        def bw:double w
+        if open {
+            if (w < 300.0) {
+                w = 300.0
+            }
+        }
+        def box:EVGElement (SpacesApp.box("sp-fld"))
+        UiTree.inline(box "width" (SpacesApp.px(w)))
+        def lb:EVGElement (SpacesApp.tx("sp-fldlabel" label))
+        lb.a11yHidden = true
+        box.addChild(lb)
+        def v:string (trim c.value)
+        def shown:string (this.dateShown(v))
+        def cls:string "sp-datebtn"
+        if ((strlen v) == 0) {
+            shown = (this.formHint(key))
+            cls = "sp-datebtn sp-datebtn-empty"
+        }
+        if open {
+            cls = (cls + " sp-datebtn-open")
+        }
+        def b:EVGElement (SpacesApp.btn(("sp-date-" + (to_string i)) cls ("📅 " + shown)))
+        b.a11yLabel = ((label + ", ") + shown)
+        b.a11yHasPopup = "dialog"
+        b.a11yExpanded = (SpacesApp.tri(open))
+        UiTree.inline(b "width" (SpacesApp.px(bw)))
+        box.addChild(b)
+        if open {
+            UiTree.dress(datePick)
+            def cal:EVGElement (unwrap datePick.rootEl)
+            cal.a11yLabel = label
+            box.addChild(cal)
+            def row:EVGElement (SpacesApp.box("sp-formrow"))
+            row.addChild((SpacesApp.btn("sp-dp-today" "sp-opt" (SpWords.pick(lang "Today" "Tänään")))))
+            if ((strlen v) > 0) {
+                row.addChild((SpacesApp.btn("sp-dp-clear" "sp-opt" (SpWords.pick(lang "Clear" "Tyhjennä")))))
+            }
+            box.addChild(row)
+        }
+        return box
+    }
+
+    ; Open the calendar of form index `i` on its day, or on today.
+    fn openDate:void (i:int) {
+        dateOpen = i
+        def c:InputCtl (itemAt formCtls i)
+        def p:[int] (SpSpace.ymdOf(today))
+        def pick (new CalendarCtl())
+        pick.tid = "sp-dp"
+        pick.name = (this.formLabel((itemAt formKeys i)))
+        if (lang == "fi") {
+            pick.lang = "fi"
+        }
+        pick.weekStart = 1
+        pick.setToday((itemAt p 0) (itemAt p 1) (itemAt p 2))
+        pick.setMonth((itemAt p 0) (itemAt p 1))
+        pick.startYear = ((itemAt p 0) - 15)
+        pick.endYear = ((itemAt p 0) + 10)
+        def d:int (SpTypes.dayOf((trim c.value) (itemAt p 0)))
+        if (d >= 0) {
+            def q:[int] (SpSpace.ymdOf(d))
+            pick.setSelected((itemAt q 0) (itemAt q 1) (itemAt q 2))
+            pick.setMonth((itemAt q 0) (itemAt q 1))
+            if ((itemAt q 0) < pick.startYear) {
+                pick.startYear = (itemAt q 0)
+            }
+            if ((itemAt q 0) > pick.endYear) {
+                pick.endYear = (itemAt q 0)
+            }
+        }
+        if (pick.startYear < 1970) {
+            pick.startYear = 1970
+        }
+        datePick = pick
+        focused = (pick.dayTid((pick.currentFocusDay())))
+    }
+
+    ; The open calendar's day `d` goes into its field, and the calendar closes.
+    fn putDate:void (d:int) {
+        if ((dateOpen < 0) || (dateOpen >= (array_length formCtls))) {
+            dateOpen = -1
+            return
+        }
+        def c:InputCtl (itemAt formCtls dateOpen)
+        if (d < 0) {
+            c.setValue("")
+        } {
+            c.setValue((UiDate.isoOfDays(d)))
+        }
+        focused = ("sp-date-" + (to_string dateOpen))
+        dateOpen = -1
+    }
+
+    ; A press on a date button or in its calendar.
+    fn pressDate:boolean (target:string) {
+        if (UiTree.beginsWith(target "sp-date-")) {
+            def n@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? n) {
+                def k:int (unwrap n)
+                if (k == dateOpen) {
+                    dateOpen = -1
+                } {
+                    if ((k >= 0) && (k < (array_length formCtls))) {
+                        this.openDate(k)
+                    }
+                }
+            }
+            return true
+        }
+        if (dateOpen < 0) {
+            return false
+        }
+        if (target == "sp-dp-today") {
+            this.putDate(today)
+            return true
+        }
+        if (target == "sp-dp-clear") {
+            this.putDate(-1)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-dp")) {
+            ; a day is chosen even when it is the one already chosen: the
+            ; calendar's own second click clears, which a form does not want
+            def day:int (datePick.dayOfTid(target))
+            if (day >= 0) {
+                if ((datePick.isDisabledDay(day)) == false) {
+                    this.putDate(day)
+                }
+                return true
+            }
+            datePick.activate(target)
+            return true
+        }
+        return false
     }
 
     ; One labelled row of buttons (a choice) or a switch.
@@ -3252,6 +4236,7 @@ class SpacesApp {
             c.addChild(cost)
         }
         this.addWatch(c)
+        this.addLinks(c)
         def bar:EVGElement (SpacesApp.box("sp-formrow"))
         bar.addChild((SpacesApp.btn("sp-ed-save" "sp-action sp-action-primary" (SpWords.ui(lang "save")))))
         bar.addChild((SpacesApp.btn("sp-ed-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
@@ -3266,6 +4251,9 @@ class SpacesApp {
                 if ((fe.dated()) && ((this.kindOf(fe.typeId)) != "record")) {
                     bar.addChild((SpacesApp.btn("sp-ed-showcal" "sp-link" (SpWords.ui(lang "showCal")))))
                 }
+                if ((fe.dated()) && ((strlen fe.remoteId) > 0) && ((strlen space.remoteId) > 0)) {
+                    bar.addChild((SpacesApp.btn("sp-ed-ics" "sp-link" (SpWords.pick(lang "Download .ics" "Lataa .ics")))))
+                }
             }
         }
         c.addChild(bar)
@@ -3273,9 +4261,169 @@ class SpacesApp {
         return v
     }
 
-    ; An entry's deal watch (set by the assistant or over MCP): what it looks
-    ; for and its latest finds, each opening the offer in a new tab.
+    ; An entry's deal watch (wardenwatch.go; the same settings as MCP's
+    ; set_watch): on or off, where it looks, how often, and its latest
+    ; finds, each opening the offer in a new tab. On a server only, for an
+    ; entry saved there.
     fn addWatch:void (c:EVGElement) {
+        if ((server == false) || ((strlen editId) == 0)) {
+            return
+        }
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if ((strlen e.remoteId) == 0) {
+            return
+        }
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Offer watch" "Tarjousvahti")))))
+        if ((e.watched == false) || (e.watchOn == false)) {
+            def note:string (SpWords.pick(lang "Looks for offers of this once a day or less often." "Etsii tälle tarjouksia kerran päivässä tai harvemmin."))
+            if e.watched {
+                note = ("“" + e.watchQuery + "” · " + (SpWords.pick(lang "off" "pois päältä")))
+            }
+            c.addChild((SpacesApp.tx("sp-meta" note)))
+            c.addChild((SpacesApp.btn("sp-watch-on" "sp-action" (SpWords.pick(lang "Watch for offers" "Seuraa tarjouksia")))))
+        } {
+            c.addChild((SpacesApp.tx("sp-meta" ("“" + e.watchQuery + "”"))))
+            def srcs:EVGElement (SpacesApp.box("sp-pills"))
+            srcs.role = "group"
+            srcs.a11yLabel = (SpWords.pick(lang "Where" "Mistä"))
+            def ids:[string] ([] _:string ( "tori" "vinted" "huuto" "web" ))
+            def names:[string] ([] _:string ( "Tori" "Vinted" "Huuto.net" "Web" ))
+            def i:int 0
+            while (i < (array_length ids)) {
+                def id:string (itemAt ids i)
+                def on:boolean (this.watchHas(e id))
+                def cls:string "sp-pill"
+                if on {
+                    cls = "sp-pill sp-pill-on"
+                }
+                def b:EVGElement (SpacesApp.btn(("sp-wsrc-" + id) cls (itemAt names i)))
+                b.a11yPressed = (SpacesApp.tri(on))
+                srcs.addChild(b)
+                i = (i + 1)
+            }
+            c.addChild(srcs)
+            def every:EVGElement (SpacesApp.box("sp-pills"))
+            every.role = "group"
+            every.a11yLabel = (SpWords.pick(lang "How often" "Kuinka usein"))
+            def days:[int] ([] _:int ( 1 3 7 ))
+            def labels:[string] ([] _:string ( (SpWords.pick(lang "Daily" "Päivittäin")) (SpWords.pick(lang "Every 3 days" "3 päivän välein")) (SpWords.pick(lang "Weekly" "Viikoittain")) ))
+            def j:int 0
+            while (j < (array_length days)) {
+                def d:int (itemAt days j)
+                def cls2:string "sp-pill"
+                if (e.watchEvery == d) {
+                    cls2 = "sp-pill sp-pill-on"
+                }
+                def b2:EVGElement (SpacesApp.btn(("sp-wint-" + (to_string d)) cls2 (itemAt labels j)))
+                b2.a11yPressed = (SpacesApp.tri((e.watchEvery == d)))
+                every.addChild(b2)
+                j = (j + 1)
+            }
+            c.addChild(every)
+            c.addChild((SpacesApp.btn("sp-watch-off" "sp-link" (SpWords.pick(lang "Stop watching" "Lopeta seuranta")))))
+        }
+        if ((array_length e.findUrls) == 0) {
+            if e.watched {
+                c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No finds yet." "Ei löytöjä vielä.")))))
+            }
+            return
+        }
+        def k:int 0
+        while (k < (array_length e.findUrls)) {
+            def t:string (itemAt e.findTitles k)
+            def info:string (itemAt e.findInfo k)
+            def fb:EVGElement (SpacesApp.btn(("sp-find-" + (to_string k)) "sp-link" (t + " · " + info)))
+            fb.role = "link"
+            c.addChild(fb)
+            k = (k + 1)
+        }
+    }
+
+    fn watchHas:boolean (e:SpEvent id:string) {
+        def i:int 0
+        while (i < (array_length e.watchSources)) {
+            if ((itemAt e.watchSources i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A press on the watch's controls: the entry's watch changed here and
+    ; sent as set_watch
+    fn pressWatch:void (what:string) {
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if ((strlen e.remoteId) == 0) {
+            return
+        }
+        if (what == "on") {
+            e.watchOn = true
+            if ((array_length e.watchSources) == 0) {
+                def dflt:[string] ([] _:string ( "tori" "vinted" "huuto" ))
+                e.watchSources = dflt
+            }
+            if (e.watched == false) {
+                e.watchQuery = e.title
+            }
+            e.watched = true
+        }
+        if (what == "off") {
+            e.watchOn = false
+        }
+        if (UiTree.beginsWith(what "src-")) {
+            def id:string (substring what 4 (strlen what))
+            def next:[string]
+            def had:boolean false
+            def i:int 0
+            while (i < (array_length e.watchSources)) {
+                def sid:string (itemAt e.watchSources i)
+                if (sid == id) {
+                    had = true
+                } {
+                    push next sid
+                }
+                i = (i + 1)
+            }
+            if (had == false) {
+                push next id
+            }
+            ; at least one place to look
+            if ((array_length next) == 0) {
+                return
+            }
+            e.watchSources = next
+        }
+        if (UiTree.beginsWith(what "int-")) {
+            def n@(optional):int (to_int (substring what 4 (strlen what)))
+            if (null? n) {
+                return
+            }
+            e.watchEvery = (unwrap n)
+        }
+        this.queue("set_watch" (SpRemote.watchBody(spaceId e)) e.id)
+    }
+
+    ; An entry's name in a link: its type's and its own.
+    fn linkName:string (e:SpEvent) {
+        if ((strlen e.typeId) == 0) {
+            return e.title
+        }
+        return ((this.typeName(e.typeId)) + ": " + e.title)
+    }
+
+    ; The entries linked with the one being edited (a thing and its repair,
+    ; a gift and the reminder to buy it), each opening it or unlinked, and a
+    ; search for more. Only saved entries link: the server keeps both ends.
+    fn addLinks:void (c:EVGElement) {
         if ((strlen editId) == 0) {
             return
         }
@@ -3284,28 +4432,67 @@ class SpacesApp {
             return
         }
         def e:SpEvent found
-        if (e.watched == false) {
+        if ((strlen e.remoteId) == 0) {
             return
         }
-        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Offer watch" "Tarjousvahti")))))
-        def state:string (SpWords.pick(lang "on, daily" "päällä"))
-        if (e.watchOn == false) {
-            state = (SpWords.pick(lang "off" "pois päältä"))
-        }
-        c.addChild((SpacesApp.tx("sp-meta" ("“" + e.watchQuery + "” · " + state))))
-        if ((array_length e.findUrls) == 0) {
-            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No finds yet." "Ei löytöjä vielä.")))))
-            return
-        }
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Related" "Liittyvät")))))
+        def have:[SpEvent] (space.linksOf(e))
         def i:int 0
-        while (i < (array_length e.findUrls)) {
-            def t:string (itemAt e.findTitles i)
-            def info:string (itemAt e.findInfo i)
-            def b:EVGElement (SpacesApp.btn(("sp-find-" + (to_string i)) "sp-link" (t + " · " + info)))
-            b.role = "link"
-            c.addChild(b)
+        while (i < (array_length have)) {
+            def o:SpEvent (itemAt have i)
+            def row:EVGElement (SpacesApp.box("sp-formrow"))
+            def ob:EVGElement (SpacesApp.btn(("sp-linkopen-" + o.id) "sp-link" (this.linkName(o))))
+            ob.role = "link"
+            row.addChild(ob)
+            def ub:EVGElement (SpacesApp.btn(("sp-unlink-" + o.id) "sp-link" "✕"))
+            ub.a11yLabel = ((SpWords.pick(lang "Unlink" "Poista linkki")) + ": " + o.title)
+            row.addChild(ub)
+            c.addChild(row)
             i = (i + 1)
         }
+        c.addChild((this.field(linkSearch "sp-linksearch" (SpWords.pick(lang "Link an entry" "Linkitä merkintä")) (SpWords.pick(lang "Search by name" "Hae nimellä")) "text")))
+        def hits:[SpEvent] (this.linkMatches(e))
+        def k:int 0
+        while (k < (array_length hits)) {
+            def h:SpEvent (itemAt hits k)
+            c.addChild((SpacesApp.btn(("sp-linkadd-" + h.id) "sp-link" ("+ " + (this.linkName(h))))))
+            k = (k + 1)
+        }
+    }
+
+    ; At most six saved entries the link search finds, not `e` nor linked.
+    fn linkMatches:[SpEvent] (e:SpEvent) {
+        def out:[SpEvent]
+        def q:string (to_lowercase (trim linkSearch.value))
+        if ((strlen q) == 0) {
+            return out
+        }
+        def i:int 0
+        while ((i < (array_length space.events)) && ((array_length out) < 6)) {
+            def o:SpEvent (itemAt space.events i)
+            if ((((strlen o.remoteId) > 0) && (o.id != e.id)) && ((e.linked(o.remoteId)) == false)) {
+                def hay:string (to_lowercase ((o.title) + " " + (this.typeName(o.typeId))))
+                if ((indexOf hay q) >= 0) {
+                    push out o
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Link the entry being edited with `otherId` (on) or unlink them.
+    fn linkEdited:void (otherId:string on:boolean) {
+        def a@(optional):SpEvent (space.event(editId))
+        def b@(optional):SpEvent (space.event(otherId))
+        if ((null? a) || (null? b)) {
+            return
+        }
+        def ae:SpEvent a
+        def be:SpEvent b
+        space.link(ae be on)
+        linkSearch.setValue("")
+        this.queueSaves()
     }
 
     ; a find of the entry being edited, opened in a new tab by the host
@@ -3743,7 +4930,7 @@ class SpacesApp {
 
     ; One entry in a list: its title, the day, its state and its cost.
     fn entryRow:EVGElement (e:SpEvent) {
-        def due:string (e.dueState(today))
+        def due:string (space.dueOf(e today))
         def kind:string (this.kindOf(e.typeId))
         def cls:string "sp-item"
         if ((kind == "deadline") && ((strlen due) > 0)) {
@@ -4148,6 +5335,14 @@ class SpacesApp {
             this.deleteEntry(editId editOcc)
             return true
         }
+        if (target == "sp-ed-ics") {
+            def found2@(optional):SpEvent (space.event(editId))
+            if (!null? found2) {
+                def e2:SpEvent found2
+                action = ("open:ics/" + space.remoteId + "/" + e2.remoteId + ".ics")
+            }
+            return true
+        }
         if (target == "sp-ed-showcal") {
             def found@(optional):SpEvent (space.event(editId))
             if (!null? found) {
@@ -4201,6 +5396,18 @@ class SpacesApp {
             this.openOcc((substring target 9 (strlen target)))
             return true
         }
+        if (UiTree.beginsWith(target "sp-linkopen-")) {
+            this.openOcc((substring target 12 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-linkadd-")) {
+            this.linkEdited((substring target 11 (strlen target)) true)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-unlink-")) {
+            this.linkEdited((substring target 10 (strlen target)) false)
+            return true
+        }
         if (UiTree.beginsWith(target "sp-list-")) {
             listType = (substring target 8 (strlen target))
             return true
@@ -4249,7 +5456,9 @@ class SpacesApp {
             undoKind = ""
         }
         if (target == "") {
-            if (board.closeOverlays()) {
+            def wasOpen:boolean (dateOpen >= 0)
+            dateOpen = -1
+            if ((board.closeOverlays()) || wasOpen) {
                 this.rebuild()
             }
             return false
@@ -4265,6 +5474,11 @@ class SpacesApp {
         }
         board.closeOverlays()
         focused = target
+        if (this.pressDate(target)) {
+            this.rebuild()
+            return true
+        }
+        dateOpen = -1
         def asField@(optional):InputCtl (this.fieldOf(target))
         if (!null? asField) {
             def fc:InputCtl asField
@@ -4277,6 +5491,19 @@ class SpacesApp {
             return true
         }
         if (server && (this.pressServer(target))) {
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-wxplace-")) {
+            def wn@(optional):int (to_int (substring target 11 (strlen target)))
+            def all:[SpWeather] (this.shownWeather())
+            if (!null? wn) {
+                def wk:int (unwrap wn)
+                if ((wk >= 0) && (wk < (array_length all))) {
+                    def ww:SpWeather (itemAt all wk)
+                    wxSel = ww.place
+                }
+            }
             this.rebuild()
             return true
         }
@@ -4302,9 +5529,9 @@ class SpacesApp {
         }
         if ((target == "sp-cal-gets") || (target == "sp-cal-pays")) {
             if (target == "sp-cal-gets") {
-                space.showGets = (space.showGets == false)
+                showGets = (showGets == false)
             } {
-                space.showPays = (space.showPays == false)
+                showPays = (showPays == false)
             }
             this.fillBoard()
             this.rebuild()
@@ -4419,8 +5646,39 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (target == "sp-watch-on") {
+            this.pressWatch("on")
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-watch-off") {
+            this.pressWatch("off")
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-wsrc-")) {
+            this.pressWatch(("src-" + (substring target 8 (strlen target))))
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-wint-")) {
+            this.pressWatch(("int-" + (substring target 8 (strlen target))))
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-find-")) {
             this.openFind((substring target 8 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-turl-")) {
+            def ui@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? ui) {
+                def un:int (unwrap ui)
+                if ((un >= 0) && (un < (array_length linkUrls))) {
+                    action = ("open:" + (itemAt linkUrls un))
+                }
+            }
+            this.rebuild()
             return true
         }
         if (UiTree.beginsWith(target "sp-copy-")) {
@@ -4681,6 +5939,13 @@ class SpacesApp {
             this.queueSaves()
             this.budgetChanged()
         }
+        if (c.op == "set_watch") {
+            def found@(optional):SpEvent (space.event(c.ref))
+            if (!null? found) {
+                def e:SpEvent found
+                SpRemote.readWatch(e (o.get("watch")))
+            }
+        }
         if (c.op == "budget") {
             if (c.body == budgetAsked) {
                 budgetAnswer = (SpBudget.read(text))
@@ -4695,6 +5960,11 @@ class SpacesApp {
                 }
             } {
                 this.seedWardAdded(c.ref (o.stringOr("id" "")))
+            }
+        }
+        if ((c.op == "add_place") || (c.op == "remove_place")) {
+            if ((o.stringOr("space_id" "")) == spaceId) {
+                SpRemote.readPlaces(space o)
             }
         }
         if (c.op == "assist") {
@@ -4771,8 +6041,8 @@ class SpacesApp {
         if (c.op == "budget") {
             budgetAsked = ""
         }
-        if (c.op == "remove_ward") {
-            ; the server kept it: so does the page
+        if (((c.op == "remove_ward") || (c.op == "add_place")) || (c.op == "remove_place")) {
+            ; the server kept what it had: so does the page
             this.openSpace(spaceId)
             tab = "members"
         }
@@ -4837,6 +6107,9 @@ class SpacesApp {
 
     ; A press that is about the server: true when it was one.
     fn pressServer:boolean (target:string) {
+        if (this.pressPlaces(target)) {
+            return true
+        }
         if (target == "sp-assist-send") {
             this.sendAssist()
             return true
@@ -4868,6 +6141,29 @@ class SpacesApp {
                 return true
             }
             this.queue("create_space" (SpRemote.body(([] _:string ( "name" nm "vocab" newPack "lang" lang )))) "")
+            return true
+        }
+        if (target == "sp-feed-gets") {
+            feedGets = (feedGets == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-feed-pays") {
+            feedPays = (feedPays == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-feed-open") {
+            def u:string (this.feedAddress())
+            def at:int (indexOf u "://")
+            if (at > 0) {
+                action = ("open:webcal" + (substring u at (strlen u)))
+            }
+            return true
+        }
+        if (target == "sp-feed-copy") {
+            copyText = (this.feedAddress())
+            action = "copy"
             return true
         }
         if (target == "sp-invite") {
@@ -4913,6 +6209,10 @@ class SpacesApp {
             }
             wardField.setValue("")
             status = ((SpWords.pick(lang "Added " "Lisätty ")) + wn)
+            this.fillBoard()
+            return true
+        }
+        if (this.clothesClick(target)) {
             this.fillBoard()
             return true
         }
@@ -5061,6 +6361,21 @@ class SpacesApp {
         }
         copyText = t
         action = "copy"
+    }
+
+    ; the calendar feed's address, without what the switches leave out
+    fn feedAddress:string () {
+        def q:[string]
+        if (feedGets == false) {
+            push q "get=0"
+        }
+        if (feedPays == false) {
+            push q "pay=0"
+        }
+        if ((array_length q) == 0) {
+            return space.feed
+        }
+        return (space.feed + "?" + (join q "&"))
     }
 
     ; the host says whether the clipboard took it
@@ -5286,6 +6601,26 @@ class SpacesApp {
             c.keyDownWith(c.tid k shift ctrl)
             this.rebuild()
             return true
+        }
+        if (dateOpen >= 0) {
+            if (k == "Escape") {
+                focused = ("sp-date-" + (to_string dateOpen))
+                dateOpen = -1
+                this.rebuild()
+                return true
+            }
+            def day:int (datePick.dayOfTid(focused))
+            if (day >= 0) {
+                if ((k == "Enter") || (k == " ")) {
+                    return (this.press(focused))
+                }
+                def to:string (datePick.keyDown(focused k))
+                if ((strlen to) > 0) {
+                    focused = to
+                    this.rebuild()
+                    return true
+                }
+            }
         }
         if ((k == "Escape") && (editing || addOpen)) {
             editing = false

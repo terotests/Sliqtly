@@ -588,6 +588,26 @@ class SpacesCheck {
         this.eqi((array_length items) 2 "a type's entries")
         def item0:SpEvent (itemAt items 0)
         this.eq(item0.title "Pyörä" "dated ones first")
+        kept.setField("state" "repair" "choice")
+        def repairs:[SpEvent] (s.entriesOf("repair"))
+        this.eqi((array_length repairs) 1 "a thing that needs repair is a repair too")
+        this.eqi((array_length (s.entriesOf("item"))) 2 "and still a thing")
+        this.eqi((array_length (s.entriesOf("need"))) 0 "a thing not missing is no need")
+
+        ; links: both ends here at once, sent with the first's save
+        kept.remoteId = "r-bike"
+        def fix:SpEvent (s.addEvent("Pyöräkorjaamo" (s.today + 3) -1 -1 ""))
+        fix.typeId = "contact"
+        fix.remoteId = "r-fix"
+        s.link(fix kept true)
+        this.ok((kept.linked("r-fix")) "the thing knows its repairer")
+        this.eqi((array_length (s.linksOf(fix))) 1 "and the repairer its thing")
+        this.ok(((indexOf (SpRemote.saveBody("sp1" fix)) "\"links\":[\"r-bike\"]") > 0) "the link is sent")
+        fix.saved(fix.rev)
+        this.eqi((indexOf (SpRemote.saveBody("sp1" fix)) "links") -1 "once")
+        s.link(fix kept false)
+        this.eqi((array_length kept.links) 0 "unlinked both ways")
+        this.ok(((indexOf (SpRemote.saveBody("sp1" fix)) "\"unlink\":[\"r-bike\"]") > 0) "the unlink is sent")
 
         ; deadlines and their reminders
         def pass:SpEvent (s.addAllDay("Passi" (s.today + 20) (s.today + 20) ""))
@@ -605,8 +625,18 @@ class SpacesCheck {
         this.eq((far.dueState(s.today)) "" "far off it is neither")
         far.remindFrom = (s.today - 1)
         this.eq((far.dueState(s.today)) "due" "the server's remind_from is kept")
+        ; a travel card far off but low on trips is due now
+        def card:SpEvent (s.addAllDay("Sarjalippu" (s.today + 120) (s.today + 120) ""))
+        card.typeId = "travel_card"
+        card.setField("trips_left" "5" "number")
+        this.eq((s.dueOf(card s.today)) "" "enough trips")
+        card.setField("trips_left" "2" "number")
+        this.eq((s.dueOf(card s.today)) "due" "two trips left: due")
+        card.setField("low_trips" "1" "number")
+        this.eq((s.dueOf(card s.today)) "" "its own limit")
+        card.setField("trips_left" "1" "number")
         def due:[SpEvent] (s.dueEntries(s.today))
-        this.eqi((array_length due) 4 "the due and late deadlines")
+        this.eqi((array_length due) 5 "the due and late deadlines, the card low on trips")
         def due0:SpEvent (itemAt due 0)
         this.eq(due0.title "Palovaroitin" "the earliest first")
 
