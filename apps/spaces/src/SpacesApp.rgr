@@ -2491,7 +2491,14 @@ class SpacesApp {
                 if (f.picked()) {
                     this.addPick(("f:" + f.key) (e.fieldText(f.key)))
                 } {
-                    this.addText(("f:" + f.key) (e.fieldText(f.key)))
+                    def ft:string (e.fieldText(f.key))
+                    if (f.type == "weektimes") {
+                        def wk:SpWeek (SpWeek.read(ft))
+                        if wk.ok {
+                            ft = (wk.shown(lang))
+                        }
+                    }
+                    this.addText(("f:" + f.key) ft)
                 }
                 i = (i + 1)
             }
@@ -2639,6 +2646,9 @@ class SpacesApp {
         if (key == "who") {
             return (SpWords.ui(lang "whoHint"))
         }
+        if (type == "weektimes") {
+            return (SpWords.pick(lang "Mon 8:15–13:00; Tue 9:00–14:15" "ma 8.15–13.00; ti 9.00–14.15"))
+        }
         if ((type == "money") || (key == "cost:amount")) {
             return "0,00 €"
         }
@@ -2742,7 +2752,7 @@ class SpacesApp {
         def f@(optional):SpField (this.editField(key))
         if (!null? f) {
             def ff:SpField f
-            if ((ff.type == "longtext") || (ff.type == "text")) {
+            if (((ff.type == "longtext") || (ff.type == "text")) || (ff.type == "weektimes")) {
                 wide = true
             }
         }
@@ -3158,6 +3168,23 @@ class SpacesApp {
             e.setField((itemAt fkeys k) (itemAt fvals k) (itemAt fkinds k))
             k = (k + 1)
         }
+        ; times per weekday: it repeats on those days, and its own time is
+        ; its first day's (what the server keeps too)
+        def week:SpWeek (space.weekOf(e))
+        if (week.ok && (e.dated())) {
+            e.rule.freq = "weekly"
+            e.rule.byDay = (week.days())
+            def wd:int (UiDate.weekday(e.day))
+            def n:int 0
+            while ((n < 7) && ((week.on(((wd + n) % 7))) == false)) {
+                n = (n + 1)
+            }
+            if (n < 7) {
+                e.startMin = (itemAt week.starts ((wd + n) % 7))
+                e.endMin = (itemAt week.ends ((wd + n) % 7))
+                e.endDay = e.day
+            }
+        }
         if withCost {
             e.setCost(cost)
         } {
@@ -3343,6 +3370,12 @@ class SpacesApp {
             while (i < (array_length tt.fields)) {
                 def f:SpField (itemAt tt.fields i)
                 def v:string (e.fieldText(f.key))
+                if ((f.type == "weektimes") && ((strlen v) > 0)) {
+                    def wk2:SpWeek (SpWeek.read(v))
+                    if wk2.ok {
+                        push parts (wk2.shown(lang))
+                    }
+                }
                 if (((strlen v) > 0) && ((f.type == "choice") || ((f.type == "person") || (f.type == "phone")))) {
                     if (f.type == "choice") {
                         push parts (f.optionLabel(lang v))
