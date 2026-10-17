@@ -100,6 +100,8 @@ type wardenAsk struct {
 	// listings the buyer did not want, with why ("IKEA Kura (too far)")
 	Avoid []string
 	N     int
+	// the language the why is written in ("" English)
+	Lang string
 }
 
 type wardenSearcher interface {
@@ -144,6 +146,26 @@ const wardenSearchNear = `
 
 The buyer lives in %s, Finland: search for listings there and nearby first, and list those first.`
 
+// the why in the space's language: the page shows it as it is
+const wardenWhyFinnish = `
+
+Write the few words why in Finnish.`
+
+func wardenWhyLang(lang string) string {
+	if lang == "fi" {
+		return wardenWhyFinnish
+	}
+	return ""
+}
+
+// a space's language: Finnish unless it is English
+func wardenSpaceLang(sp *wardenSpace) string {
+	if docStr(sp.doc, "lang") == "en" {
+		return "en"
+	}
+	return "fi"
+}
+
 const wardenSearchAvoid = `
 
 The buyer did not want these earlier listings; give ones like them a low fit:
@@ -157,6 +179,7 @@ func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, er
 	if len(a.Avoid) > 0 {
 		ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
 	}
+	ask += wardenWhyLang(a.Lang)
 	lines, err := g.ground(ctx, ask, 5)
 	if err != nil {
 		return nil, err
@@ -622,7 +645,7 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		srcs = wardenWatchDefault
 	}
 	old := docMaps(w, "finds")
-	ask := wardenAsk{Near: wardenWatchArea(sp, d, w), Intent: docStr(w, "intent"), Avoid: wardenWatchAvoided(old), N: wardenWatchHits}
+	ask := wardenAsk{Near: wardenWatchArea(sp, d, w), Intent: docStr(w, "intent"), Avoid: wardenWatchAvoided(old), N: wardenWatchHits, Lang: wardenSpaceLang(sp)}
 	now := s.now()
 	fresh := []map[string]any{}
 	errs := []string{}

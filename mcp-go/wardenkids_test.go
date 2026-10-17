@@ -70,7 +70,7 @@ func TestWardenKids(t *testing.T) {
 
 	code, out = wardenCall(t, base, "tero", "run_event_watch", map[string]any{"space_id": sid})
 	eq(t, code, 200, "run")
-	for _, want := range []string{"in and near Tampere, Finland, between 2026-10-17 and 2026-11-16", "small children (3-6 years), school children (7-12 years)", "They like: nukketeatteri"} {
+	for _, want := range []string{"in and near Tampere, Finland, between 2026-10-17 and 2026-11-16", "small children (3-6 years), school children (7-12 years)", "They like: nukketeatteri", "Write the few words why in Finnish."} {
 		if !strings.Contains(asked, want) {
 			t.Fatalf("asked %q, want %q", asked, want)
 		}
