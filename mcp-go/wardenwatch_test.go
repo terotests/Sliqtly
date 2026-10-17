@@ -105,7 +105,8 @@ func TestWardenWatch(t *testing.T) {
 				line += " | " + l.fit
 			}
 			lines = append(lines, line)
-			supports = append(supports, map[string]any{"segment": map[string]any{"text": line}, "groundingChunkIndices": []int{i}})
+			// a support cites only a part of its line, as Gemini does
+			supports = append(supports, map[string]any{"segment": map[string]any{"text": l.title}, "groundingChunkIndices": []int{i}})
 		}
 		json.NewEncoder(w).Encode(map[string]any{"candidates": []any{map[string]any{
 			"content":           map[string]any{"role": "model", "parts": []any{map[string]any{"text": strings.Join(lines, "\n")}}},
@@ -132,6 +133,9 @@ func TestWardenWatch(t *testing.T) {
 	r0 := lw["runs"].([]any)[0].(map[string]any)
 	eq(t, []any{r0["results"], r0["new"], r0["left_out"]}, []any{7.0, 2.0, map[string]any{"too_expensive": 1.0, "excluded": 1.0, "not_listing": 1.0, "other_site": 1.0, "low_fit": 1.0}})
 	eq(t, []any{r0["query"], r0["near"], r0["sources"], r0["local"]}, []any{"Lasten sängyt", "Tampere", []any{"tori", "vinted", "huuto"}, "2026-10-17 12:00"}, "what was searched, where and when")
+	if n, _ := r0["notes"].([]any); len(n) != 1 || !strings.HasPrefix(n[0].(string), "Huuto.net: 0 lines") {
+		t.Fatalf("a source that found nothing says what the search answered: %v", r0["notes"])
+	}
 	if by, _ := r0["by"].(string); by == "" || by == "auto" {
 		t.Fatalf("a run from the page names who ran it: %v", r0["by"])
 	}
