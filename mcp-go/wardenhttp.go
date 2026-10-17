@@ -62,7 +62,7 @@ var wardenEventProps = map[string]any{
 	"ward":     strProp("Who or what the event is about: a ward's id or name; a new name makes a new ward"),
 	"place":    strProp("Where"),
 	"notes":    strProp("Anything else, plain text"),
-	"color":    strProp("blue, green, red, orange, purple, teal, pink, yellow, gray or #rrggbb"),
+	"color":    strProp("Its own colour in the calendar, drawn over its ward's: blue, emerald, violet, amber, rose, cyan or indigo; \"\" takes it away"),
 	"rrule":    strProp("Repeats: an iCalendar RRULE with FREQ=DAILY|WEEKLY|MONTHLY and optionally INTERVAL, BYDAY (MO,TU…), UNTIL (YYYYMMDD), COUNT"),
 	"exdates":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Days a repeating event skips, YYYY-MM-DD"},
 	"who": map[string]any{"type": "array", "description": "Who is responsible: e.g. [{name: \"Aino\", role: \"takes\"}, {name: \"Leo\", role: \"picks up\"}]",

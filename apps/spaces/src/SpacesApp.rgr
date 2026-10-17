@@ -712,6 +712,19 @@ class SpacesApp {
         return (join out " ")
     }
 
+    ; a choice button with a dot of its colour before the label
+    sfn swatchBtn:EVGElement (id:string cls:string color:string label:string) {
+        def el:EVGElement (UiTree.div(id cls))
+        el.role = "button"
+        el.a11yFocusable = true
+        el.a11yLabel = label
+        el.addChild((UiTree.div("" ("sp-optdot sp-c-" + color))))
+        def t:EVGElement (UiTree.label("" (SpacesApp.txClasses(cls)) label))
+        t.a11yHidden = true
+        el.addChild(t)
+        return el
+    }
+
     sfn dot:EVGElement (color:string) {
         def d:EVGElement (UiTree.div("" ("sp-dot sp-c-" + color)))
         d.a11yHidden = true
@@ -4718,6 +4731,7 @@ class SpacesApp {
                 imp = "true"
             }
             this.addPick("important" imp)
+            this.addPick("color" e.color)
         }
         if formCost {
             def amount:string ""
@@ -4981,6 +4995,16 @@ class SpacesApp {
         if (key == "repeat") {
             return ([] _:string ( "" "daily" "weekly" "monthly" ))
         }
+        if (key == "color") {
+            def cs:[string] ([] _:string ( "" ))
+            def pal:[string] (SpSpace.palette())
+            def ci:int 0
+            while (ci < (array_length pal)) {
+                push cs (itemAt pal ci)
+                ci = (ci + 1)
+            }
+            return cs
+        }
         if (key == "cost:scope") {
             return ([] _:string ( "personal" "shared" ))
         }
@@ -5025,6 +5049,9 @@ class SpacesApp {
             if (key == "repeat") {
                 return (SpWords.ui(lang "once"))
             }
+            if (key == "color") {
+                return (SpWords.ui(lang "colorDefault"))
+            }
             return (SpWords.ui(lang "none"))
         }
         if (key == "ward") {
@@ -5032,6 +5059,9 @@ class SpacesApp {
         }
         if (((key == "repeat") || (key == "cost:scope")) || (key == "budget:scope")) {
             return (SpWords.ui(lang v))
+        }
+        if (key == "color") {
+            return (SpWords.ui(lang ("color:" + v)))
         }
         def f@(optional):SpField (this.editField(key))
         if (!null? f) {
@@ -5290,6 +5320,9 @@ class SpacesApp {
                 pc = "sp-opt sp-opt-on"
             }
             def pb:EVGElement (SpacesApp.btn(("sp-pick-" + (to_string i) + "-" + (to_string k)) pc (this.optionLabel(key o))))
+            if ((key == "color") && ((strlen o) > 0)) {
+                pb = (SpacesApp.swatchBtn(("sp-pick-" + (to_string i) + "-" + (to_string k)) pc o (this.optionLabel(key o))))
+            }
             pb.a11yPressed = (SpacesApp.tri(on2))
             row.addChild(pb)
             k = (k + 1)
@@ -5352,7 +5385,7 @@ class SpacesApp {
     ; Every key of the form in the order it is shown.
     fn formOrder:[string] () {
         def out:[string]
-        def own:[string] ([] _:string ( "title" "ward" "date" "end_date" "start" "end" "repeat" "until" "who" "place" "important" ))
+        def own:[string] ([] _:string ( "title" "ward" "date" "end_date" "start" "end" "repeat" "until" "who" "place" "important" "color" ))
         def i:int 0
         while (i < (array_length own)) {
             def key:string (itemAt own i)
@@ -5931,6 +5964,13 @@ class SpacesApp {
             e.who = (SpWho.parseList((this.formText("who"))))
         }
         e.important = ((this.pickOf("important")) == "true")
+        if (this.hasPick("color")) {
+            def col:string (this.pickOf("color"))
+            if (((strlen col) == 0) && ((strlen e.color) > 0)) {
+                e.colorDrop = true
+            }
+            e.color = col
+        }
         e.typeId = editType
         if (this.hasPick("repeat")) {
             def freq:string (this.pickOf("repeat"))

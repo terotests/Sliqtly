@@ -645,6 +645,22 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   ok("saved", !a.editing && vet.title === "Dentist, check-up" && vet.place === "Health centre" && vet.startMin === 900 && vet.important, a.formErr);
   eq("the end follows a start after it", vet.endMin, 960);
 
+  // a colour of its own, drawn over its ward's; Default takes it away
+  a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
+  const col = a.pickKeys.indexOf("color");
+  ok("the form offers a colour", col >= 0 && texts(a).includes("Violet"));
+  a.press(`sp-pick-${col}-${M.SpSpace.palette().indexOf("violet") + 1}`);
+  a.press("sp-ed-save");
+  ok("saved with it", vet.color === "violet" && M.SpRemote.saveBody("sp1", vet).includes('"color":"violet"'), vet.color);
+  const vocc = a.space.occurrences(a.today - 7, a.today + 60).find((o) => o.eventId === vet.id);
+  eq("drawn in it", a.colorOf(vocc), "violet");
+  a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
+  a.press(`sp-pick-${a.pickKeys.indexOf("color")}-0`);
+  a.press("sp-ed-save");
+  ok("Default sends it away once", vet.color === "" && M.SpRemote.saveBody("sp1", vet).includes('"color":""'));
+  vet.saved(vet.rev);
+  ok("and not again", !M.SpRemote.saveBody("sp1", vet).includes('"color"'));
+
   // a bad date is named, nothing is changed
   a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
   field("date").setValue("31.2.");
