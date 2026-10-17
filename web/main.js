@@ -6305,7 +6305,10 @@ function handleRequests() {
 let leavingByApp = false;
 let fullscreenOn = false;
 document.addEventListener("fullscreenchange", () => {
-  keys.focus({ preventScroll: true });
+  // the presentation's keys stay with the slides; editing, the keyboard
+  // stays where it is (a menu, the rail, a dialog) unless it was lost
+  const act = document.activeElement;
+  if (JSON.parse(app.layoutJson()).mode === "present" || !act || act === document.body) keys.focus({ preventScroll: true });
   if (document.fullscreenElement) {
     fullscreenOn = true;
   } else {
@@ -8360,7 +8363,8 @@ function enterViewer(from) {
   document.body.classList.add("viewer");
   // the slide the link names, read now: the page writes its own into the
   // address while the intro plays
-  const n = parseInt(hashParams().get("slide") || "", 10);
+  // (the audience's window: none, the presenter's state says where)
+  const n = audience ? 0 : parseInt(hashParams().get("slide") || "", 10);
   const begin = () => beginShow(n > 1 ? n - 1 : 0);
   if (!wantsIntro(from)) begin();
   // the page still loading: the intro follows the loader (start)
@@ -11529,7 +11533,11 @@ async function start() {
     if (doc.loading || !app.source()) await openSample("welcome");
   }
   refreshRecent().catch(() => {});
-  useAddress(at);
+  // the audience's window is where the presenter's is (PresTwoScreen), not
+  // where its own address says: that is the slide it last drew, behind the
+  // presenter's while it was not in front, and presenting it again would
+  // drop the state the presenter sent
+  if (!audience) useAddress(at);
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen

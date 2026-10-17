@@ -132,6 +132,21 @@ browser.newPage = async (opts) => {
   p.once("close", () => c.close().catch(() => {}));
   return p;
 };
+
+// A check that presented hands the page back as editing: the presentation
+// ended and its requests dropped, and out of full screen. The page's own
+// "exit-fullscreen" is among the requests dropped, and a page left in full
+// screen while editing leaves it whenever the browser decides to, its
+// fullscreenchange then taking the keyboard from whatever had it.
+async function leavePresenting(p) {
+  await p.evaluate(async () => {
+    if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent();
+    while (window.__app.takeRequest());
+    document.body.classList.remove("presenting");
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+  });
+  await p.waitForFunction(() => !document.fullscreenElement, null, { timeout: 5000 }).catch(() => {});
+}
 try {
   // part 1: the editor page `page` and the checks that go on with it, in
   // order (not indented, to keep the checks' lines as they were)
@@ -1178,7 +1193,7 @@ try {
     check("a swipe right goes back a slide, a swipe left on", !swipedBack.end && swipedBack.slide === prev.count - 2 && swipedOn.slide === prev.count - 1, JSON.stringify({ swipedBack, swipedOn }));
     check("the end panel waits until the last slide is passed", !before.shown && reached && atEnd.shown && atEnd.slide === atEnd.count - 1, JSON.stringify({ before, atEnd }));
     check("end panel: Previous slide, From the start, Exit", !prev.shown && prev.slide === prev.count - 2 && restart.slide === 0 && !restart.end && exit.mode === "edit" && !exit.shown, JSON.stringify({ prev, restart, exit }));
-    await page.evaluate(() => { while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
   }
 
   // Jumps while presenting (PresNav): PageDown / PageUp a whole slide with
@@ -1263,7 +1278,7 @@ try {
     check("the counter takes a number", counted.slide === 1, JSON.stringify(counted));
     check("⏮ is the first slide, and the arrows still work after it", first.slide === 0 && keysBack && (stepped.slide === 1 || stepped.step === 1), JSON.stringify({ first, keysBack, stepped }));
     await page.keyboard.press("Escape");
-    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
   }
 
   // The presenter view on another screen (src/PresTwoScreen.rgr,
@@ -1309,9 +1324,12 @@ try {
     check("…a next-slide press in the presenter's window moves both", followed && afterLead.slide === 1 && afterAud?.slide === 1 && afterAud.step === afterLead.step, JSON.stringify({ afterLead, afterAud }));
     check("…and one in the audience's window moves both", ledBack && audToo, JSON.stringify(fromAud));
     check("…→ steps both alike", arrowed && (leadNow.slide !== fromAud.lead.slide || leadNow.step !== fromAud.lead.step), JSON.stringify(leadNow));
-    // the audience's window reloaded: it asks again and lands where the presenter is
+    // the audience's window reloaded: it asks again and lands where the
+    // presenter is, not where its own address says (#slide= follows what it
+    // last drew, behind while it was not in front: as here, slide 2)
     let reloaded = null;
     if (aud) {
+      await aud.evaluate(() => history.replaceState(history.state, "", location.pathname + location.search + "#slide=2"));
       await aud.reload();
       await aud.waitForFunction(() => window.__app && JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 90000 }).catch(() => {});
       await aud.waitForFunction((s) => window.__app.slideShown() === s, leadNow.slide, { timeout: 8000 }).catch(() => {});
@@ -1339,7 +1357,7 @@ try {
     const ended = await page.evaluate(() => JSON.parse(window.__app.layoutJson()).mode);
     check("…Esc in the presenter's window ends it and closes the audience's", !!aud2 && (await closed) && ended === "edit", JSON.stringify({ ended }));
     await page.bringToFront();
-    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
   }
 
   // The slide's text selected with the mouse while presenting
@@ -1396,7 +1414,7 @@ try {
       await page.waitForTimeout(200);
       clickedOn = await where();
       await page.keyboard.press("Escape");
-      await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+      await leavePresenting(page);
     }
     check("presenting: a drag over the slide's text copies it, the slide stays", !!ln && copied.includes(ln.text.trim()) && stayed.slide === before.slide && stayed.step === before.step && cursor === "text", JSON.stringify({ ln, copied, before, stayed, cursor }));
     check("presenting: the click after a selection only lets go of it, the next is the slide's", !!ln && after.slide === before.slide && after.step === before.step && (clickedOn.slide !== before.slide || clickedOn.step !== before.step), JSON.stringify({ before, after, clickedOn }));
@@ -1509,7 +1527,7 @@ try {
     check("Play recording draws what was drawn and goes on where it went", played.replaying && played.strokes === 1 && played.slide === 0 && on.slide !== 0, JSON.stringify({ played, on }));
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !window.__app.isReplaying(), null, { timeout: 8000 }).catch(() => {});
-    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
     check("…Esc ends the replay", !(await page.evaluate(() => window.__app.isReplaying())));
     // Edit recording: a part marked and cut is kept in the take's file
     const cut = await page.evaluate(async () => {
