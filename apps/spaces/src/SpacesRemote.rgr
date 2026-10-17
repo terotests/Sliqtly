@@ -597,7 +597,7 @@ class SpRemote {
         if ((strlen e.notes) > 0) {
             o.setMember("notes" (SpRemote.str(e.notes)))
         }
-        if ((strlen e.color) > 0) {
+        if (((strlen e.color) > 0) || e.colorDrop) {
             o.setMember("color" (SpRemote.str(e.color)))
         }
         def rr:string (e.rule.toText())

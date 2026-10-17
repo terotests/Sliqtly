@@ -478,6 +478,8 @@ class SpEvent {
     def resource:string ""
     def place:string ""
     def color:string ""
+    ; its colour was taken away here: the next save sends color ""
+    def colorDrop:boolean false
     def rule:SpRule (new SpRule())
     def exdates:[int]
     ; the sheet an event was read from, "" for one made here
@@ -678,6 +680,7 @@ class SpEvent {
             def none:[string]
             dropped = none
             costDropped = false
+            colorDrop = false
             def none2:[string]
             linkAdd = none2
             def none3:[string]
