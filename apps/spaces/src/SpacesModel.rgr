@@ -133,7 +133,21 @@ class SpCost {
     def instalments:int 1
     def first:int -1
     def everyMonths:int 1
+    ; days before each payment day to remind of it (-1: not said, which is
+    ; three for a cost in parts and none for one payment; 0: none)
+    def remindDays:int -1
     Constructor () {
+    }
+
+    ; The days before each payment to remind of it, -1 for none.
+    fn remindBefore:int () {
+        if (remindDays > 0) {
+            return remindDays
+        }
+        if ((remindDays < 0) && (instalments > 1)) {
+            return 3
+        }
+        return -1
     }
 }
 
@@ -496,6 +510,8 @@ class SpOccur {
     def who:[SpWho]
     def important:boolean false
     def typeId:string ""
+    ; a window to get something in or a payment day, not the entry's own
+    def derived:boolean false
     Constructor () {
     }
 
@@ -912,7 +928,195 @@ class SpSpace {
     def today:int 0
     ; the entry types (SpacesTypes.rgr): which types are kept in lists only
     def types:SpTypes (new SpTypes())
+    ; the calendar shows the windows to get things in and the payment days
+    ; of costs paid in parts (each can be hidden), titled in `wordsLang`
+    def showGets:boolean true
+    def showPays:boolean true
+    def wordsLang:string "fi"
     Constructor () {
+    }
+
+    ; The day `months` months after `d`, on the same day of the month or the
+    ; month's last day when it is shorter.
+    sfn addMonths:int (d:int months:int) {
+        def p:[int] (SpSpace.ymdOf(d))
+        def idx:int ((((itemAt p 0) * 12) + ((itemAt p 1) - 1)) + months)
+        def y:int (idiv idx 12)
+        def m:int ((idx - (y * 12)) + 1)
+        def dom:int (itemAt p 2)
+        def last:int (UiDate.daysInMonth(y m))
+        if (dom > last) {
+            dom = last
+        }
+        return (UiDate.toDays(y m dom))
+    }
+
+    ; The days between which the entry's thing is got: its get_from and
+    ; get_by, else its type's own (a missing thing by its day, a need by
+    ; needed_by until bought); get_by alone is got in the two weeks before
+    ; it, get_from alone by the entry's day. [from by], or none.
+    fn getWindow:[int] (e:SpEvent) {
+        def out:[int]
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def fromText:string (e.fieldText("get_from"))
+        def byText:string (e.fieldText("get_by"))
+        if (((strlen fromText) == 0) && ((strlen byText) == 0)) {
+            def t@(optional):SpType (types.find(e.typeId))
+            if (null? t) {
+                return out
+            }
+            def tt:SpType t
+            if ((strlen tt.getBy) == 0) {
+                return out
+            }
+            if (((strlen tt.whenField) > 0) && ((e.fieldText(tt.whenField)) != tt.whenIs)) {
+                return out
+            }
+            def k:int 0
+            while (k < (array_length tt.doneFields)) {
+                def dv:string (e.fieldText((itemAt tt.doneFields k)))
+                def want:string (itemAt tt.doneIs k)
+                if (((strlen dv) > 0) && (((strlen want) == 0) || (dv == want))) {
+                    return out
+                }
+                k = (k + 1)
+            }
+            if (tt.getBy == "date") {
+                if (e.dated()) {
+                    byText = (UiDate.isoOfDays(e.day))
+                }
+            } {
+                byText = (e.fieldText(tt.getBy))
+            }
+        }
+        def from:int -1
+        def by:int -1
+        if ((strlen fromText) > 0) {
+            from = (SpText.dayOf(fromText year))
+        }
+        if ((strlen byText) > 0) {
+            by = (SpText.dayOf(byText year))
+        }
+        if ((by < 0) && (from >= 0)) {
+            by = from
+            if ((e.dated()) && (e.day > from)) {
+                by = e.day
+            }
+        }
+        if (by < 0) {
+            return out
+        }
+        if ((from < 0) || (from > by)) {
+            from = (by - 14)
+        }
+        push out from
+        push out by
+        return out
+    }
+
+    ; The payment days of the entry's cost when it is reminded of (a cost in
+    ; parts, or one with remind_days): every part's day, in order.
+    fn payDays:[int] (e:SpEvent) {
+        def out:[int]
+        if ((e.hasCost == false) || (e.cost.amount <= 0.0)) {
+            return out
+        }
+        def c:SpCost e.cost
+        if ((c.remindBefore()) < 0) {
+            return out
+        }
+        def first:int c.first
+        if (first < 0) {
+            first = e.day
+        }
+        if (first < 0) {
+            return out
+        }
+        def n:int c.instalments
+        if (n < 1) {
+            n = 1
+        }
+        def every:int c.everyMonths
+        if (every < 1) {
+            every = 1
+        }
+        def k:int 0
+        while (k < n) {
+            push out (SpSpace.addMonths(first (k * every)))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; What the calendar shows of an entry besides its own days: the window
+    ; to get its thing in (important while it is open) and its payment days
+    ; (important from their reminder on), from `from` to `to`. A closed
+    ; entry (done, cancelled, archived) has none.
+    fn derivedOf:[SpOccur] (e:SpEvent from:int to:int) {
+        def out:[SpOccur]
+        def st:string (e.fieldText("status"))
+        if (((st == "done") || (st == "cancelled")) || (st == "archived")) {
+            return out
+        }
+        def en:boolean (wordsLang == "en")
+        if showGets {
+            def w:[int] (this.getWindow(e))
+            if ((array_length w) == 2) {
+                def gf:int (itemAt w 0)
+                def gb:int (itemAt w 1)
+                if ((gb >= from) && (gf <= to)) {
+                    def word:string "Hanki: "
+                    if en {
+                        word = "Get: "
+                    }
+                    def o:SpOccur (this.derivedOcc(e (e.id + "#get") (word + e.title) gf gb))
+                    o.important = ((today >= gf) && (today <= gb))
+                    push out o
+                }
+            }
+        }
+        if showPays {
+            def days:[int] (this.payDays(e))
+            def before:int (e.cost.remindBefore())
+            def cents:int (to_int (((e.cost.amount * 100.0) / (to_double (array_length days))) + 0.5))
+            def amount:string (SpTypes.numText(((to_double cents) / 100.0)))
+            def k:int 0
+            while (k < (array_length days)) {
+                def d:int (itemAt days k)
+                if ((d >= from) && (d <= to)) {
+                    def word2:string "Maksu: "
+                    if en {
+                        word2 = "Payment: "
+                    }
+                    def p:SpOccur (this.derivedOcc(e (e.id + "#pay" + (to_string k)) (word2 + e.title + " " + amount + " €") d d))
+                    p.important = ((today >= (d - before)) && (today <= d))
+                    push out p
+                }
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+
+    ; An all-day occurrence of an entry that is not one of its own days: it
+    ; opens the entry and is not moved on the calendar; it counts as
+    ; repeating, so ticking it opens the entry rather than closing it.
+    fn derivedOcc:SpOccur (e:SpEvent id:string title:string day:int endDay:int) {
+        def o (new SpOccur())
+        o.eventId = e.id
+        o.id = id
+        o.title = title
+        o.day = day
+        o.endDay = endDay
+        o.resource = e.resource
+        o.color = e.color
+        if ((strlen o.color) == 0) {
+            o.color = (this.resourceColor(e.resource))
+        }
+        o.repeats = true
+        o.derived = true
+        o.typeId = e.typeId
+        return o
     }
 
     sfn ymdOf:[int] (d:int) {
@@ -1220,6 +1424,12 @@ class SpSpace {
                 SpSpace.insertSorted(out o)
                 k = (k + 1)
             }
+            def more:[SpOccur] (this.derivedOf(e from to))
+            def m:int 0
+            while (m < (array_length more)) {
+                SpSpace.insertSorted(out (itemAt more m))
+                m = (m + 1)
+            }
             i = (i + 1)
         }
         return out
@@ -1404,6 +1614,9 @@ class SpSpace {
     ; (EXDATE) and a single event of its own. A row from a sheet is the
     ; sheet's: it is not changed here, and false says so.
     fn moveOccurrence:boolean (occId:string day:int startMin:int endMin:int) {
+        if ((indexOf occId "#") >= 0) {
+            return false
+        }
         def at:int (indexOf occId "@")
         def baseId:string occId
         def onDay:int -1
@@ -1479,6 +1692,11 @@ class SpSpace {
         def baseId:string occId
         if (at > 0) {
             baseId = (substring occId 0 at)
+        }
+        ; a window to get something in or a payment day: "e1#get", "e1#pay3"
+        def hash:int (indexOf baseId "#")
+        if (hash > 0) {
+            baseId = (substring baseId 0 hash)
         }
         if (null? (this.event(baseId))) {
             return ""
