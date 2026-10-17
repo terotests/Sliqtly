@@ -783,8 +783,9 @@ class SpacesApp {
             bar.addChild((SpacesApp.tx("sp-spacename" (SpWords.ui(lang tab)))))
         }
         bar.addChild((SpacesApp.box("sp-grow")))
-        ; on a server only the owner changes the space's words
-        def wordsOn:boolean ((server == false) || (((strlen spaceId) > 0) && (space.myRole == "owner")))
+        ; Warden (on a server) is the family calendar: its words are the family's
+        ; and not offered for a change
+        def wordsOn:boolean (server == false)
         if (((this.narrow()) == false) && wordsOn) {
             bar.addChild((SpacesApp.tx("sp-pills-label" (SpWords.ui(lang "words")))))
         }
@@ -2454,7 +2455,9 @@ class SpacesApp {
             pills.addChild(pb)
             k = (k + 1)
         }
-        form.addChild(pills)
+        if (server == false) {
+            form.addChild(pills)
+        }
         form.addChild((SpacesApp.btn("sp-create" "sp-action sp-action-primary" (SpWords.ui(lang "create")))))
         nw.addChild(form)
         v.addChild(nw)
@@ -6040,6 +6043,9 @@ class SpacesApp {
         account.put((SpRemote.info(sp)))
         if ((strlen s.vocab) > 0) {
             pack = s.vocab
+        }
+        if server {
+            pack = "family"
         }
         if ((strlen s.lang) > 0) {
             lang = s.lang

@@ -239,6 +239,8 @@ try {
     const clothed = await page
       .waitForFunction(() => window.__spaces.space.resources[0].clothes.length === 3 && window.__spaces.outCount() === 0, null, { timeout: 5000 })
       .then(() => true, () => false);
+    // the row is on the page before its request reaches the API
+    for (let i = 0; i < 50 && !calls.some((c) => c.op === "set_ward"); i++) await page.waitForTimeout(100);
     const sw = calls.filter((c) => c.op === "set_ward").pop();
     ok("a clothing row typed on the Members page reaches the API", clothed && sw && sw.body.clothes.length === 3 && sw.body.clothes[2].item === "mittens" && sw.body.sizes.length === 2, JSON.stringify(sw));
     if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "clothes.png"), fullPage: true });

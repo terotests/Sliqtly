@@ -578,12 +578,12 @@ console.log("a space on a server");
   const st = JSON.parse(a.fieldStateJson("sp-new-name"));
   ok("the bridge reads the field", st.value === "" && st.box.w > 0, JSON.stringify(st));
   ok("and edits it", a.applyEdit("sp-new-name", "Team Vireo", 10, 10));
-  a.press("sp-newpack-business");
+  ok("no words to pick on a server", !byId(a, "sp-newpack-business") && !byId(a, "sp-pack-demo"));
   a.press("sp-create");
   eq("a new space", a.outOp(), "create_space");
   const cb = JSON.parse(a.outBody());
-  ok("with its name and words", cb.name === "Team Vireo" && cb.vocab === "business" && cb.lang === "en", JSON.stringify(cb));
-  a.answer(JSON.stringify({ space_id: "sp2", name: "Team Vireo", vocab: "business", lang: "en", role: "owner", members: [me], invites: [], wards: [] }));
+  ok("with its name and words", cb.name === "Team Vireo" && cb.vocab === "family" && cb.lang === "en", JSON.stringify(cb));
+  a.answer(JSON.stringify({ space_id: "sp2", name: "Team Vireo", vocab: "family", lang: "en", role: "owner", members: [me], invites: [], wards: [] }));
   eq("opened", a.spaceId, "sp2");
   eq("in the list", a.account.spaces.length, 2);
   eq("on the summary", a.tab, "home");
@@ -591,7 +591,7 @@ console.log("a space on a server");
 
   // the demo data: wards first, then the events with the wards' new ids
   a.press("sp-seed");
-  eq("three wards", a.outCount(), 3);
+  eq("the family's four wards", a.outCount(), 4);
   for (let i = 0; a.outOp() === "add_ward"; i++) {
     const wb = JSON.parse(a.outBody());
     ok("a ward " + wb.name, wb.space_id === "sp2" && wb.name.length > 0);
