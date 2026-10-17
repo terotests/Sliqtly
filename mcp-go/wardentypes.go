@@ -66,6 +66,8 @@ type wardenType struct {
 	Reminders []wardenReminder `json:"reminders"`
 	// the type's own window to get something in
 	Get *wardenGet `json:"get,omitempty"`
+	// the number fields that remind at once when they run low
+	Low []wardenLow `json:"low,omitempty"`
 	// the common fields the page's form shows for every entry, named here
 	// too so a client reading one type sees them (wardenFormCommon)
 	Also []string `json:"also_fields,omitempty"`
@@ -80,6 +82,37 @@ type wardenGet struct {
 	By   string       `json:"by"`
 	When *wardenCond  `json:"when,omitempty"`
 	Done []wardenCond `json:"done,omitempty"`
+}
+
+// a number field that is low at most At's value (Default when At is not set)
+type wardenLow struct {
+	Field   string  `json:"field"`
+	At      string  `json:"at,omitempty"`
+	Default float64 `json:"default"`
+}
+
+// the low fields of an entry: those set and at most their limit
+func wardenLowOf(d Doc) []string {
+	t := wardenTypeOf(docStr(d, "type"))
+	fields, _ := d["fields"].(map[string]any)
+	out := []string{}
+	if t == nil || fields == nil {
+		return out
+	}
+	for _, l := range t.Low {
+		v, ok := fields[l.Field]
+		if !ok {
+			continue
+		}
+		at := l.Default
+		if a, ok := fields[l.At]; ok && l.At != "" {
+			at = wardenNum(a)
+		}
+		if wardenNum(v) <= at {
+			out = append(out, l.Field)
+		}
+	}
+	return out
 }
 
 // a field that is set (Is "") or has the value Is
@@ -552,8 +585,9 @@ func wardenNum(v any) float64 {
 }
 
 // the day a deadline starts to show as due: remind_days before its day, or
-// as many as the type's reminder on its day says, or wardenRemindDays
-func wardenRemindFrom(d Doc) string {
+// as many as the type's reminder on its day says, or wardenRemindDays; now
+// when a low field has run low before that
+func wardenRemindFrom(d Doc, now time.Time) string {
 	t := wardenTypeOf(docStr(d, "type"))
 	day, err := time.Parse("2006-01-02", docStr(d, "date"))
 	if t == nil || t.Kind != "deadline" || err != nil {
@@ -571,7 +605,11 @@ func wardenRemindFrom(d Doc) string {
 			n = int(wardenNum(v))
 		}
 	}
-	return day.AddDate(0, 0, -n).Format("2006-01-02")
+	from := day.AddDate(0, 0, -n).Format("2006-01-02")
+	if today := now.Format("2006-01-02"); len(wardenLowOf(d)) > 0 && today < from {
+		from = today
+	}
+	return from
 }
 
 // the reminders the type makes of an entry's dates: {field, date, day}, the
@@ -596,6 +634,10 @@ func wardenReminders(d Doc, now time.Time) []any {
 			continue
 		}
 		out = append(out, map[string]any{"field": r.Field, "date": date, "day": day.AddDate(0, 0, -r.Days).Format("2006-01-02")})
+	}
+	for _, f := range wardenLowOf(d) {
+		today := now.Format("2006-01-02")
+		out = append(out, map[string]any{"field": f, "date": today, "day": today, "low": true})
 	}
 	if from, by := wardenGetWindow(d); by != "" {
 		out = append(out, map[string]any{"field": "get_by", "date": by, "day": from})
@@ -787,7 +829,7 @@ func wardenEntryJSON(out map[string]any, d Doc, now time.Time) {
 	if c, _ := d["cost"].(map[string]any); c != nil {
 		out["cost"] = c
 	}
-	if r := wardenRemindFrom(d); r != "" {
+	if r := wardenRemindFrom(d, now); r != "" {
 		out["remind_from"] = r
 	}
 	if from, by := wardenGetWindow(d); by != "" {

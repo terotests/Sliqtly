@@ -1918,14 +1918,49 @@ class SpSpace {
         return ((SpText.compare(a.title b.title)) < 0)
     }
 
-    ; Deadline entries due or late on `today` (their remind day reached),
-    ; the earliest first.
+    ; A number field of the entry's type set and at most its limit (trips
+    ; left on a travel card).
+    fn isLow:boolean (e:SpEvent) {
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return false
+        }
+        def tt:SpType t
+        def i:int 0
+        while (i < (array_length tt.lowFields)) {
+            def key:string (itemAt tt.lowFields i)
+            if ((strlen (e.fieldText(key))) > 0) {
+                def at:double (itemAt tt.lowDefaults i)
+                def atKey:string (itemAt tt.lowAts i)
+                if ((strlen atKey) > 0) {
+                    at = (e.fieldNumber(atKey at))
+                }
+                if ((e.fieldNumber(key 0.0)) <= at) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A deadline entry on `now`: its own state, or "due" when it runs low.
+    fn dueOf:string (e:SpEvent now:int) {
+        def st:string (e.dueState(now))
+        if (((strlen st) == 0) && (this.isLow(e))) {
+            return "due"
+        }
+        return st
+    }
+
+    ; Deadline entries due or late on `today` (their remind day reached, or
+    ; running low), the earliest first.
     fn dueEntries:[SpEvent] (now:int) {
         def out:[SpEvent]
         def i:int 0
         while (i < (array_length events)) {
             def e:SpEvent (itemAt events i)
-            if (((types.kindOf(e.typeId)) == "deadline") && ((strlen (e.dueState(now))) > 0)) {
+            if (((types.kindOf(e.typeId)) == "deadline") && ((strlen (this.dueOf(e now))) > 0)) {
                 push out e
                 def k:int ((array_length out) - 1)
                 while (k > 0) {

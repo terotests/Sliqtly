@@ -4340,7 +4340,7 @@ class SpacesApp {
 
     ; One entry in a list: its title, the day, its state and its cost.
     fn entryRow:EVGElement (e:SpEvent) {
-        def due:string (e.dueState(today))
+        def due:string (space.dueOf(e today))
         def kind:string (this.kindOf(e.typeId))
         def cls:string "sp-item"
         if ((kind == "deadline") && ((strlen due) > 0)) {
