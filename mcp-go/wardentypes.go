@@ -173,15 +173,19 @@ var wardenTypes, wardenCommon = func() ([]wardenType, []wardenField) {
 	}
 	for i := range f.Types {
 		f.Types[i].Also = wardenFormCommon
+		if f.Types[i].Kind == "deadline" {
+			f.Types[i].Also = append(slices.Clone(wardenFormCommon), "planned_days")
+		}
 	}
 	return f.Types, f.Common
 }()
 
 // the common fields the page's entry form shows besides a type's own (its
-// Hankinta and Budjetti sections, apps/spaces/src/SpacesApp.rgr commonField)
+// Hankinta and Budjetti sections, apps/spaces/src/SpacesApp.rgr commonField);
+// a deadline's form shows planned_days too
 var wardenFormCommon = []string{"get_from", "get_by", "get_what", "estimated_cost_min", "estimated_cost_max", "estimated_cost", "actual_cost", "budget_scope", "budget_owner", "status"}
 
-var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "people", "list", "phone", "email", "url", "months", "weektimes"}
+var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "people", "list", "phone", "email", "url", "months", "weektimes", "dates"}
 
 // the entry's own keys a type may require besides its fields
 var wardenCoreKeys = []string{"title", "date", "start", "end_date", "ward", "place"}
@@ -374,6 +378,49 @@ func (sp *wardenSpace) fieldValue(f wardenField, v any, newWards *bool) (any, er
 			return bad(err.Error())
 		}
 		return w.String(), nil
+	case "dates":
+		var items []string
+		switch l := v.(type) {
+		case []any:
+			for _, x := range l {
+				s, ok := x.(string)
+				if !ok {
+					return bad("a list of days as YYYY-MM-DD")
+				}
+				items = append(items, s)
+			}
+		case []string:
+			items = l
+		case string:
+			items = strings.FieldsFunc(l, func(r rune) bool { return r == ';' || r == ',' || r == '\n' })
+		default:
+			return bad("a list of days as YYYY-MM-DD")
+		}
+		days := []string{}
+		for _, s := range items {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			if !wardenDate(s) {
+				return bad("a list of days as YYYY-MM-DD")
+			}
+			if !slices.Contains(days, s) {
+				days = append(days, s)
+			}
+		}
+		if len(days) > wardenMaxItems {
+			return bad(fmt.Sprintf("a list of at most %d days", wardenMaxItems))
+		}
+		if len(days) == 0 {
+			return nil, nil
+		}
+		slices.Sort(days)
+		out := make([]any, len(days))
+		for i, d := range days {
+			out[i] = d
+		}
+		return out, nil
 	case "list", "people":
 		max := wardenItemLen
 		if f.Type == "people" {
@@ -671,9 +718,38 @@ func wardenReminders(d Doc, now time.Time) []any {
 	if from, by := wardenGetWindow(d); by != "" {
 		out = append(out, map[string]any{"field": "get_by", "date": by, "day": from})
 	}
+	for _, p := range wardenPlannedDays(d) {
+		out = append(out, map[string]any{"field": "planned_days", "date": p, "day": p})
+	}
 	if p := wardenNextPayment(d, now); p != nil && p["remind_from"] != nil {
 		out = append(out, map[string]any{"field": "cost", "date": p["date"], "day": p["remind_from"]})
 	}
+	return out
+}
+
+// the days an entry is planned to be done on (its planned_days), in order;
+// none once it is done, cancelled or archived
+func wardenPlannedDays(d Doc) []string {
+	fields, _ := d["fields"].(map[string]any)
+	if st := docStr(fields, "status"); st == "done" || st == "cancelled" || st == "archived" {
+		return nil
+	}
+	out := []string{}
+	switch l := fields["planned_days"].(type) {
+	case []any:
+		for _, x := range l {
+			if s, _ := x.(string); wardenDate(s) {
+				out = append(out, s)
+			}
+		}
+	case []string:
+		for _, s := range l {
+			if wardenDate(s) {
+				out = append(out, s)
+			}
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 

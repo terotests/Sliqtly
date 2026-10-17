@@ -280,9 +280,9 @@ func icsOccurrences(d Doc, all []Doc) []icsOcc {
 }
 
 // what the page's calendar shows of an entry besides its own days: the
-// window to get its thing in and its payment days (an entry done, cancelled
-// or archived has none), each a day or days of its own (UID the entry's and
-// "-get", "-payN")
+// window to get its thing in, its payment days and the days it is planned to
+// be done on (an entry done, cancelled or archived has none), each a day or
+// days of its own (UID the entry's and "-get", "-payN", "-planN")
 func icsDerived(d Doc, opt icsOptions, fi bool) []icsOcc {
 	f, _ := d["fields"].(map[string]any)
 	if st := docStr(f, "status"); st == "done" || st == "cancelled" || st == "archived" {
@@ -308,6 +308,9 @@ func icsDerived(d Doc, opt icsOptions, fi bool) []icsOcc {
 			}
 			out = append(out, icsOcc{uid: fmt.Sprintf("-pay%d", p.n-1), title: word("Maksu: ", "Payment: ") + docStr(d, "title") + " " + amount + " €", day: p.day.Format("2006-01-02")})
 		}
+	}
+	for i, p := range wardenPlannedDays(d) {
+		out = append(out, icsOcc{uid: fmt.Sprintf("-plan%d", i), title: word("Suunniteltu: ", "Planned: ") + docStr(d, "title"), day: p})
 	}
 	return out
 }
