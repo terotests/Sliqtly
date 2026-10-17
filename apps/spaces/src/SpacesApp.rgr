@@ -139,6 +139,18 @@ class SpacesApp {
     ; the person wrote is kept as "@" and its text
     def asked:[string]
     def answers:[string]
+    ; what each answer did, by row: the server's ids of the entries it made
+    ; or changed (space-separated), the titles of those it removed and what
+    ; else it changed (a ward, a place, a watch), one a line
+    def doneIds:[string]
+    def doneGone:[string]
+    def doneNotes:[string]
+    ; the assistant page's list of what it can do, open
+    def helpOpen:boolean false
+    ; an element the host scrolls into view at the next paint (takeReveal),
+    ; and whether the space read again after an answer does so too
+    def reveal:string ""
+    def revealOnLoad:boolean false
     ; on a server: what the person writes or pastes for the assistant, the
     ; pictures added to it (base64, their types and names) and whether its
     ; answer is on its way
@@ -501,6 +513,12 @@ class SpacesApp {
         asked = none
         def none2:[string]
         answers = none2
+        def none3:[string]
+        doneIds = none3
+        def none4:[string]
+        doneGone = none4
+        def none5:[string]
+        doneNotes = none5
         this.newBoard()
         this.rebuild()
     }
@@ -3522,29 +3540,43 @@ class SpacesApp {
         doc.role = "region"
         doc.a11yLabel = (SpWords.ui(lang "docs"))
         UiTree.inline(doc "width" (SpacesApp.px(w)))
+        this.mdInto(doc md (w - 50.0) "sp-md-p")
+        return doc
+    }
+
+    ; Markdown's lines into a box: headings, bullets, check boxes and
+    ; paragraphs, with **bold** inside a line. `w` is the lines' width (-1:
+    ; as wide as they are).
+    fn mdInto:void (doc:EVGElement md:string w:double cls:string) {
         def lines:[string] (strsplit md "\n")
         def i:int 0
         while (i < (array_length lines)) {
-            def l:string (itemAt lines i)
+            def l:string (trim (itemAt lines i))
             def n:int (strlen l)
             if (n > 0) {
-                if (UiTree.beginsWith(l "## ")) {
-                    def h2:EVGElement (SpacesApp.tx("sp-md-h2" (substring l 3 n)))
-                    h2.role = "heading"
-                    doc.addChild(h2)
+                if (UiTree.beginsWith(l "### ")) {
+                    def h3:EVGElement (this.mdLine("sp-md-h2" (substring l 4 n) w))
+                    h3.role = "heading"
+                    doc.addChild(h3)
                 } {
-                    if (UiTree.beginsWith(l "# ")) {
-                        def h1:EVGElement (SpacesApp.tx("sp-md-h1" (substring l 2 n)))
-                        h1.role = "heading"
-                        doc.addChild(h1)
+                    if (UiTree.beginsWith(l "## ")) {
+                        def h2:EVGElement (this.mdLine("sp-md-h2" (substring l 3 n) w))
+                        h2.role = "heading"
+                        doc.addChild(h2)
                     } {
-                        if (UiTree.beginsWith(l "- [ ] ")) {
-                            doc.addChild((SpacesApp.tx("sp-md-li" ("☐ " + (substring l 6 n)))))
+                        if (UiTree.beginsWith(l "# ")) {
+                            def h1:EVGElement (this.mdLine("sp-md-h1" (substring l 2 n) w))
+                            h1.role = "heading"
+                            doc.addChild(h1)
                         } {
-                            if (UiTree.beginsWith(l "- ")) {
-                                doc.addChild((SpacesApp.tx("sp-md-li" ("• " + (substring l 2 n)))))
+                            if (UiTree.beginsWith(l "- [ ] ")) {
+                                doc.addChild((this.mdLine("sp-md-li" ("☐ " + (substring l 6 n)) w)))
                             } {
-                                doc.addChild((SpacesApp.tx("sp-md-p" l)))
+                                if ((UiTree.beginsWith(l "- ")) || (UiTree.beginsWith(l "* ")) || (UiTree.beginsWith(l "• "))) {
+                                    doc.addChild((this.mdLine("sp-md-li" ("• " + (trim (substring l 2 n))) w)))
+                                } {
+                                    doc.addChild((this.mdLine(cls l w)))
+                                }
                             }
                         }
                     }
@@ -3552,7 +3584,67 @@ class SpacesApp {
             }
             i = (i + 1)
         }
-        return doc
+    }
+
+    ; One line: plain, it is one text; with **bold** in it, its words in a
+    ; row that wraps, the bold ones bold.
+    fn mdLine:EVGElement (cls:string text:string w:double) {
+        def parts:[string] (strsplit text "**")
+        def np:int (array_length parts)
+        if ((np < 3) || ((np % 2) == 0)) {
+            def t:EVGElement (SpacesApp.tx(cls text))
+            if (w > 0.0) {
+                UiTree.inline(t "width" (SpacesApp.px(w)))
+            }
+            return t
+        }
+        ; the words and whether each is bold; what follows a segment with
+        ; no space between ("**Leo**:") goes on the word before it
+        def words:[string]
+        def bolds:[boolean]
+        def lastSpace:boolean true
+        def p:int 0
+        while (p < np) {
+            def seg:string (itemAt parts p)
+            def bold:boolean ((p % 2) == 1)
+            if ((strlen seg) > 0) {
+                def ws:[string] (strsplit seg " ")
+                def k:int 0
+                while (k < (array_length ws)) {
+                    def word:string (itemAt ws k)
+                    if ((strlen word) > 0) {
+                        def nw:int (array_length words)
+                        if (((k == 0) && (lastSpace == false)) && (nw > 0)) {
+                            set words (nw - 1) ((itemAt words (nw - 1)) + word)
+                        } {
+                            push words word
+                            push bolds bold
+                        }
+                    }
+                    k = (k + 1)
+                }
+                lastSpace = ((substring seg ((strlen seg) - 1) (strlen seg)) == " ")
+            }
+            p = (p + 1)
+        }
+        def row:EVGElement (SpacesApp.box((cls + " sp-md-words")))
+        row.role = "text"
+        row.a11yLabel = (join parts "")
+        if (w > 0.0) {
+            UiTree.inline(row "width" (SpacesApp.px(w)))
+        }
+        def i:int 0
+        while (i < (array_length words)) {
+            def c:string "sp-md-w"
+            if (itemAt bolds i) {
+                c = "sp-md-w sp-md-b"
+            }
+            def we:EVGElement (SpacesApp.tx(c (itemAt words i)))
+            we.a11yHidden = true
+            row.addChild(we)
+            i = (i + 1)
+        }
+        return row
     }
 
     fn writeDoc:void (kind:string) {
@@ -3577,94 +3669,402 @@ class SpacesApp {
 
     fn assistantView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
+        def onServer:boolean (server && ((strlen spaceId) > 0))
         def sub:string (SpWords.ui(lang "local"))
-        if (server && ((strlen spaceId) > 0)) {
-            sub = (SpWords.pick(lang "Write or paste a school letter, a timetable, an invitation or a message, or add a picture of one: the assistant makes the events, hobbies, deadlines and reminders of it in the calendar." "Kirjoita tai liitä koulun tiedote, aikataulu, kutsu tai viesti, tai lisää siitä kuva: avustaja tekee siitä menot, harrastukset, määräpäivät ja muistutukset kalenteriin."))
+        if onServer {
+            sub = (SpWords.pick(lang "A conversation: tell it what to add or change, in your own words or as a picture. It asks when something is unclear and says when it cannot do something." "Keskustele avustajan kanssa: kerro omin sanoin tai kuvana, mitä lisätään tai muutetaan. Se kysyy, jos jokin jää epäselväksi, ja kertoo, jos ei osaa jotain."))
         }
         v.addChild((this.heading((SpWords.ui(lang "assistant")) sub)))
-        if (server && ((strlen spaceId) > 0)) {
-            v.addChild((this.assistInput()))
-            v.addChild((this.addHelp()))
+        if (onServer == false) {
+            def qs:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+            qs.role = "group"
+            qs.a11yLabel = (SpWords.ui(lang "ask"))
+            def keys:[string] ([] _:string ( "qToday" "qWeek" "qNext" "qLate" "qPlan" ))
+            def i:int 0
+            while (i < (array_length keys)) {
+                def k:string (itemAt keys i)
+                qs.addChild((SpacesApp.btn(("sp-q-" + k) "sp-chip" (SpWords.ui(lang k)))))
+                i = (i + 1)
+            }
+            v.addChild(qs)
         }
-        def qs:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
-        qs.role = "group"
-        qs.a11yLabel = (SpWords.ui(lang "ask"))
-        def keys:[string] ([] _:string ( "qToday" "qWeek" "qNext" "qLate" "qPlan" ))
-        def i:int 0
-        while (i < (array_length keys)) {
-            def k:string (itemAt keys i)
-            qs.addChild((SpacesApp.btn(("sp-q-" + k) "sp-chip" (SpWords.ui(lang k)))))
-            i = (i + 1)
-        }
-        v.addChild(qs)
-        def feed:EVGElement (SpacesApp.box("sp-feed"))
-        feed.role = "log"
-        def w:double ((this.mainW()) - 120.0)
+        def chat:EVGElement (UiTree.div("sp-chat" "sp-chat"))
+        chat.role = "region"
+        chat.a11yLabel = (SpWords.pick(lang "Conversation with the assistant" "Keskustelu avustajan kanssa"))
+        def inner:double (this.chatInner())
+        def log:EVGElement (SpacesApp.box("sp-chatlog"))
+        log.role = "log"
         if (this.narrow()) {
-            w = ((this.mainW()) - 24.0)
+            UiTree.inline(log "padding" "14px 12px")
         }
         def n:int (array_length asked)
-        def j:int (n - 1)
-        while (j >= 0) {
-            def qrow:EVGElement (SpacesApp.box("sp-row"))
-            qrow.addChild((SpacesApp.box("sp-grow")))
-            def q:EVGElement (SpacesApp.box("sp-bubble-q"))
-            def qk:string (itemAt asked j)
-            def qt:string (SpWords.ui(lang qk))
-            if (UiTree.beginsWith(qk "@")) {
-                qt = (SpacesApp.clip((substring qk 1 (strlen qk)) 400))
+        if (onServer && (n == 0)) {
+            log.addChild((this.welcome(inner)))
+        }
+        def j:int 0
+        while (j < n) {
+            log.addChild((this.mineSaid(j inner)))
+            log.addChild((this.aiSaid(j inner)))
+            j = (j + 1)
+        }
+        if ((onServer == false) && (n == 0)) {
+            log.addChild((SpacesApp.tx("sp-cardsub" (SpWords.ui(lang "ask")))))
+        }
+        chat.addChild(log)
+        if onServer {
+            def comp:EVGElement (SpacesApp.box("sp-composer"))
+            if (this.narrow()) {
+                UiTree.inline(comp "padding" "10px 12px")
             }
-            def qtx:EVGElement (SpacesApp.tx("sp-bubble-q-tx" qt))
-            ; a long question wraps in a bubble as wide as the answers
-            if ((strlen qt) > 60) {
-                UiTree.inline(q "width" (SpacesApp.px(w)))
-                UiTree.inline(qtx "width" (SpacesApp.px((w - 90.0))))
+            comp.addChild((this.assistInput()))
+            chat.addChild(comp)
+        }
+        v.addChild(chat)
+        if onServer {
+            def hrow:EVGElement (SpacesApp.box("sp-row"))
+            def mark:string "▸ "
+            if helpOpen {
+                mark = "▾ "
             }
-            q.addChild(qtx)
-            qrow.addChild(q)
-            feed.addChild(qrow)
-            def a:EVGElement (this.markdown(("sp-answer-" + (to_string j)) (itemAt answers j) w))
-            UiTree.addClass(a "sp-bubble-a")
-            feed.addChild(a)
-            def latest:boolean (j == (n - 1))
-            def saveAs:string ""
+            def hb:EVGElement (SpacesApp.btn("sp-assist-help" "sp-link" (mark + (SpWords.pick(lang "What can the assistant do?" "Mitä avustaja osaa?")))))
+            hb.a11yExpanded = (SpacesApp.tri(helpOpen))
+            hrow.addChild(hb)
+            v.addChild(hrow)
+            if helpOpen {
+                v.addChild((this.addHelp()))
+            }
+        }
+        return v
+    }
+
+    ; The width inside the conversation's box.
+    fn chatInner:double () {
+        if (this.narrow()) {
+            return ((this.mainW()) - 34.0)
+        }
+        return ((this.mainW()) - 50.0)
+    }
+
+    ; How wide a bubble may be, and the text inside it.
+    fn bubbleW:double (inner:double) {
+        if (this.narrow()) {
+            return (inner - 16.0)
+        }
+        return (inner * 0.82)
+    }
+
+    ; The assistant's opening line and a few things to try, which fill the
+    ; field when pressed.
+    fn welcome:EVGElement (inner:double) {
+        def col:EVGElement (SpacesApp.box("sp-msgcol"))
+        col.addChild((SpacesApp.tx("sp-msgwho" (SpWords.pick(lang "Assistant" "Avustaja")))))
+        def b:EVGElement (UiTree.div("sp-say-hello" "sp-say-ai"))
+        b.role = "text"
+        def bw:double (this.bubbleW(inner))
+        UiTree.inline(b "width" (SpacesApp.px(bw)))
+        this.mdInto(b (SpWords.pick(lang "Hi! Tell me what to add or change: an appointment, a hobby's place and time, something to get. You can paste a whole letter or add a picture of it. I ask if something is unclear." "Hei! Kerro, mitä lisätään tai muutetaan: menon, harrastuksen paikan ja ajan tai hankittavan asian. Voit liittää koko tiedotteen tai lisätä siitä kuvan. Kysyn, jos jokin jää epäselväksi.")) (bw - 30.0) "sp-md-p")
+        col.addChild(b)
+        def ex:EVGElement (SpacesApp.box("sp-examples"))
+        ex.role = "group"
+        ex.a11yLabel = (SpWords.pick(lang "Try for example" "Kokeile esimerkiksi"))
+        ex.addChild((SpacesApp.tx("sp-msgwho" (SpWords.pick(lang "Try for example" "Kokeile esimerkiksi")))))
+        def all:[string] (this.examples())
+        def k:int 0
+        while (k < (array_length all)) {
+            ex.addChild((SpacesApp.btn(("sp-ex-" + (to_string k)) "sp-example" ("› " + (itemAt all k)))))
+            k = (k + 1)
+        }
+        col.addChild(ex)
+        return col
+    }
+
+    fn examples:[string] () {
+        return ([] _:string (
+            (SpWords.pick(lang "Gym class is at the school gym, now 18.15–19.15" "Jumppa onkin koulun salilla, uusi aika 18.15–19.15"))
+            (SpWords.pick(lang "Add the time of the doctor's visit" "Lisää lääkärikäynnin kellonaika"))
+            (SpWords.pick(lang "Add a wish to the shopping list" "Lisää hankintatoive listalle"))
+            (SpWords.pick(lang "What do we have this week?" "Mitä meillä on tällä viikolla?"))
+        ))
+    }
+
+    ; What the person said: on the right, under "You".
+    fn mineSaid:EVGElement (j:int inner:double) {
+        def row:EVGElement (SpacesApp.box("sp-msg sp-msg-me"))
+        row.addChild((SpacesApp.box("sp-grow")))
+        def col:EVGElement (SpacesApp.box("sp-msgcol sp-msgcol-me"))
+        col.addChild((SpacesApp.tx("sp-msgwho" (SpWords.pick(lang "You" "Sinä")))))
+        def qk:string (itemAt asked j)
+        def qt:string (SpWords.ui(lang qk))
+        if (UiTree.beginsWith(qk "@")) {
+            qt = (SpacesApp.clip((substring qk 1 (strlen qk)) 1200))
+        }
+        def b:EVGElement (UiTree.div(("sp-said-" + (to_string j)) "sp-say-me"))
+        b.role = "text"
+        b.a11yLabel = qt
+        def bw:double (this.bubbleW(inner))
+        def tw:double -1.0
+        if (SpacesApp.longText(qt)) {
+            UiTree.inline(b "width" (SpacesApp.px(bw)))
+            tw = (bw - 30.0)
+        }
+        def lines:[string] (strsplit qt "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def l:string (itemAt lines i)
+            if ((strlen (trim l)) > 0) {
+                def t:EVGElement (SpacesApp.tx("sp-say-me-tx" l))
+                if (tw > 0.0) {
+                    UiTree.inline(t "width" (SpacesApp.px(tw)))
+                }
+                b.addChild(t)
+            }
+            i = (i + 1)
+        }
+        col.addChild(b)
+        if (UiTree.beginsWith(qk "@")) {
+            def act:EVGElement (SpacesApp.box("sp-msgacts"))
+            act.addChild((SpacesApp.box("sp-grow")))
+            act.addChild((SpacesApp.btn(("sp-copy-q-" + (to_string j)) "sp-link sp-link-quiet" (SpWords.pick(lang "Copy" "Kopioi")))))
+            col.addChild(act)
+        }
+        row.addChild(col)
+        return row
+    }
+
+    ; A text that does not fit on one short line wraps in a full bubble.
+    sfn longText:boolean (t:string) {
+        return ((((strlen t) > 56) || ((indexOf t "\n") >= 0)) || ((indexOf t "**") >= 0))
+    }
+
+    ; The assistant's answer: on the left, under "Assistant", with what it
+    ; made or changed as cards under it.
+    fn aiSaid:EVGElement (j:int inner:double) {
+        def col:EVGElement (SpacesApp.box("sp-msgcol"))
+        col.addChild((SpacesApp.tx("sp-msgwho" (SpWords.pick(lang "Assistant" "Avustaja")))))
+        def text:string (itemAt answers j)
+        def b:EVGElement (UiTree.div(("sp-answer-" + (to_string j)) "sp-say-ai"))
+        b.role = "text"
+        def busy:boolean (assistBusy && (j == ((array_length answers) - 1)))
+        if busy {
+            UiTree.addClass(b "sp-say-busy")
+        }
+        def bw:double (this.bubbleW(inner))
+        def tw:double -1.0
+        if (SpacesApp.longText(text)) {
+            UiTree.inline(b "width" (SpacesApp.px(bw)))
+            tw = (bw - 30.0)
+        }
+        this.mdInto(b text tw "sp-md-p")
+        ; a short answer is a short bubble
+        def brow:EVGElement (SpacesApp.box("sp-msg"))
+        brow.addChild(b)
+        brow.addChild((SpacesApp.box("sp-grow")))
+        col.addChild(brow)
+        def cards@(optional):EVGElement (this.doneCards(j bw))
+        if (!null? cards) {
+            col.addChild((unwrap cards))
+        }
+        if (busy == false) {
+            def act:EVGElement (SpacesApp.box("sp-msgacts"))
+            def latest:boolean (j == ((array_length answers) - 1))
             if (latest && ((itemAt asked j) == "qPlan")) {
-                saveAs = "sp-write-plan"
+                act.addChild((SpacesApp.btn("sp-write-plan" "sp-link" (SpWords.pick(lang "Save as a document" "Tallenna dokumentiksi")))))
             }
             if (latest && ((itemAt asked j) == "qWeek")) {
-                saveAs = "sp-write-summary"
+                act.addChild((SpacesApp.btn("sp-write-summary" "sp-link" (SpWords.pick(lang "Save as a document" "Tallenna dokumentiksi")))))
             }
-            ; the canvas has no selection: the answer and the question are
-            ; copied with a press
-            def srow:EVGElement (SpacesApp.box("sp-row sp-copyrow"))
-            if ((strlen saveAs) > 0) {
-                srow.addChild((SpacesApp.btn(saveAs "sp-action" (SpWords.pick(lang "Save as a document" "Tallenna dokumentiksi")))))
-            }
-            srow.addChild((SpacesApp.btn(("sp-copy-a-" + (to_string j)) "sp-chip" (SpWords.pick(lang "Copy answer" "Kopioi vastaus")))))
-            if (UiTree.beginsWith(qk "@")) {
-                srow.addChild((SpacesApp.btn(("sp-copy-q-" + (to_string j)) "sp-chip" (SpWords.pick(lang "Copy question" "Kopioi kysymys")))))
-            }
-            srow.addChild((SpacesApp.box("sp-grow")))
-            feed.addChild(srow)
-            j = (j - 1)
+            act.addChild((SpacesApp.btn(("sp-copy-a-" + (to_string j)) "sp-link sp-link-quiet" (SpWords.pick(lang "Copy answer" "Kopioi vastaus")))))
+            col.addChild(act)
         }
-        v.addChild(feed)
-        return v
+        return col
+    }
+
+    ; What one answer made, changed or removed, as cards; a press on one
+    ; opens the entry. None when it did nothing.
+    fn doneCards@(optional):EVGElement (j:int w:double) {
+        def none@(optional):EVGElement
+        if (j >= (array_length doneIds)) {
+            return none
+        }
+        def ids:[string] (UiTree.splitWs((itemAt doneIds j)))
+        def gone:[string] (SpacesApp.nonEmpty((strsplit (itemAt doneGone j) "\n")))
+        def notes:[string] (SpacesApp.nonEmpty((strsplit (itemAt doneNotes j) "\n")))
+        def cards:[EVGElement]
+        def cw:double w
+        if (cw > 460.0) {
+            cw = 460.0
+        }
+        def k:int 0
+        while (k < (array_length ids)) {
+            def found@(optional):SpEvent (space.byRemote((itemAt ids k)))
+            if (!null? found) {
+                def e:SpEvent found
+                push cards (this.doneCard(("sp-done-" + (to_string j) + "-" + (to_string k)) e cw))
+            }
+            k = (k + 1)
+        }
+        def g:int 0
+        while (g < (array_length gone)) {
+            def c:EVGElement (SpacesApp.box("sp-done sp-done-gone"))
+            c.role = "text"
+            def t:EVGElement (SpacesApp.tx("sp-done-title sp-done-struck" (itemAt gone g)))
+            UiTree.inline(t "width" (SpacesApp.px((cw - 80.0))))
+            c.addChild((SpacesApp.tx("sp-done-mark sp-done-mark-gone" "−")))
+            def tc:EVGElement (SpacesApp.box("sp-done-text"))
+            tc.addChild(t)
+            tc.addChild((SpacesApp.tx("sp-done-sub" (SpWords.pick(lang "Removed" "Poistettu")))))
+            c.addChild(tc)
+            UiTree.inline(c "width" (SpacesApp.px(cw)))
+            push cards c
+            g = (g + 1)
+        }
+        if (((array_length cards) == 0) && ((array_length notes) == 0)) {
+            return none
+        }
+        def box:EVGElement (UiTree.div(("sp-donelist-" + (to_string j)) "sp-donelist"))
+        box.role = "group"
+        def head:string (SpWords.pick(lang "Done" "Tehty"))
+        box.a11yLabel = head
+        box.addChild((SpacesApp.tx("sp-msgwho" ((head + " (" + (to_string ((array_length cards) + (array_length notes)))) + ")"))))
+        def c2:int 0
+        while (c2 < (array_length cards)) {
+            box.addChild((itemAt cards c2))
+            c2 = (c2 + 1)
+        }
+        def m:int 0
+        while (m < (array_length notes)) {
+            box.addChild((SpacesApp.tx("sp-done-note" ("✓ " + (itemAt notes m)))))
+            m = (m + 1)
+        }
+        def res@(optional):EVGElement box
+        return res
+    }
+
+    sfn inList:boolean (l:[string] x:string) {
+        def i:int 0
+        while (i < (array_length l)) {
+            if ((itemAt l i) == x) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn nonEmpty:[string] (l:[string]) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length l)) {
+            if ((strlen (trim (itemAt l i))) > 0) {
+                push out (itemAt l i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; One entry the assistant made or changed: its type, title, day and time
+    ; and whose it is.
+    fn doneCard:EVGElement (id:string e:SpEvent w:double) {
+        def c:EVGElement (UiTree.div(id "sp-done"))
+        c.role = "button"
+        c.a11yFocusable = true
+        UiTree.inline(c "width" (SpacesApp.px(w)))
+        def bits:[string]
+        push bits (this.typeName(e.typeId))
+        if (e.dated()) {
+            def when:string (SpWords.dayLabel(lang e.day))
+            if (e.startMin >= 0) {
+                when = (when + " " + (SpWords.clock(lang e.startMin)))
+                if (e.endMin > e.startMin) {
+                    when = (when + "–" + (SpWords.clock(lang e.endMin)))
+                }
+            }
+            if (e.repeats()) {
+                when = (when + " " + (SpWords.pick(lang "(repeats)" "(toistuu)")))
+            }
+            push bits when
+        }
+        def who:string (space.resourceName(e.resource))
+        if ((strlen who) > 0) {
+            push bits who
+        }
+        def sub:string (join bits " · ")
+        c.a11yLabel = (e.title + ", " + sub)
+        def mark:EVGElement (SpacesApp.tx(("sp-done-mark sp-c-" + (this.colorOfEvent(e))) "✓"))
+        mark.a11yHidden = true
+        c.addChild(mark)
+        def tc:EVGElement (SpacesApp.box("sp-done-text"))
+        tc.a11yHidden = true
+        def t:EVGElement (SpacesApp.tx("sp-done-title" e.title))
+        UiTree.inline(t "width" (SpacesApp.px((w - 80.0))))
+        tc.addChild(t)
+        def s:EVGElement (SpacesApp.tx("sp-done-sub" sub))
+        UiTree.inline(s "width" (SpacesApp.px((w - 80.0))))
+        tc.addChild(s)
+        c.addChild(tc)
+        c.addChild((SpacesApp.tx("sp-done-open" "›")))
+        return c
+    }
+
+    ; A press on a card: the entry opens in the form.
+    fn openDone:boolean (target:string) {
+        def parts:[string] (strsplit (substring target 8 (strlen target)) "-")
+        if ((array_length parts) != 2) {
+            return false
+        }
+        def jj@(optional):int (to_int (itemAt parts 0))
+        def kk@(optional):int (to_int (itemAt parts 1))
+        if ((null? jj) || (null? kk)) {
+            return false
+        }
+        def j:int (unwrap jj)
+        def k:int (unwrap kk)
+        if ((j < 0) || (j >= (array_length doneIds))) {
+            return false
+        }
+        def ids:[string] (UiTree.splitWs((itemAt doneIds j)))
+        if ((k < 0) || (k >= (array_length ids))) {
+            return false
+        }
+        def found@(optional):SpEvent (space.byRemote((itemAt ids k)))
+        if (null? found) {
+            return false
+        }
+        def e:SpEvent found
+        editId = e.id
+        editOcc = -1
+        editType = e.typeId
+        this.fillForm(e)
+        return true
     }
 
     fn ask:void (q:string) {
         push asked q
         push answers (SpAssist.answer(space lang today q))
+        this.noneDone()
+    }
+
+    ; An answer that made nothing (yet): its rows of what was done.
+    fn noneDone:void () {
+        push doneIds ""
+        push doneGone ""
+        push doneNotes ""
     }
 
     ; The field, the pictures added and Send.
     fn assistInput:EVGElement () {
-        def box:EVGElement (SpacesApp.box("sp-assist"))
+        def box:EVGElement (UiTree.div("sp-assist" "sp-assist"))
         assistField.multiline = true
-        assistField.maxLines = 6
-        def fr:EVGElement (this.field(assistField "sp-assist-text" (SpWords.pick(lang "For the assistant" "Avustajalle")) (SpWords.pick(lang "E.g. Leo has swimming on Tuesdays at 17–18 until the end of May" "Esim. Leolla on uinti tiistaisin klo 17–18 toukokuun loppuun")) "text"))
+        assistField.maxLines = 12
+        def fr:EVGElement (this.field(assistField "sp-assist-text" (SpWords.pick(lang "Message to the assistant" "Viesti avustajalle")) (SpWords.pick(lang "Write a message, or paste a letter or a timetable…" "Kirjoita viesti tai liitä tiedote tai aikataulu…")) "text"))
         ; as wide as the view: a letter is long
-        UiTree.inline(fr "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+        def fw:double ((this.mainW()) - 40.0)
+        if ((tab == "assistant") && (addOpen == false)) {
+            fw = (this.chatInner())
+            UiTree.inline(box "margin-bottom" "6px")
+        }
+        UiTree.inline(fr "width" (SpacesApp.px(fw)))
         box.addChild(fr)
         if ((array_length pics) > 0) {
             def prow:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
@@ -3680,12 +4080,31 @@ class SpacesApp {
         row.addChild((SpacesApp.btn("sp-assist-image" "sp-action" (SpWords.pick(lang "Add a picture" "Lisää kuva")))))
         row.addChild((SpacesApp.box("sp-grow")))
         if assistBusy {
-            row.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "Reading…" "Luetaan…")))))
+            row.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "The assistant is working…" "Avustaja työskentelee…")))))
         } {
+            if ((this.narrow()) == false) {
+                row.addChild((SpacesApp.tx("sp-hint" (SpWords.pick(lang "Ctrl+Enter sends" "Ctrl+Enter lähettää")))))
+            }
             row.addChild((SpacesApp.btn("sp-assist-send" "sp-action sp-action-primary" (SpWords.pick(lang "Send" "Lähetä")))))
         }
         box.addChild(row)
         return box
+    }
+
+    ; The colour of an entry's card: its own, its ward's, or its group's.
+    fn colorOfEvent:string (e:SpEvent) {
+        if ((strlen e.color) > 0) {
+            return e.color
+        }
+        if ((strlen e.resource) > 0) {
+            def c:string (space.resourceColor(e.resource))
+            if ((strlen c) > 0) {
+                return c
+            }
+        }
+        def o:SpOccur (new SpOccur())
+        o.typeId = e.typeId
+        return (SpacesApp.groupColor((this.groupOfOcc(o))))
     }
 
     ; What the assistant can add and the details each takes: a short list
@@ -3857,6 +4276,10 @@ class SpacesApp {
         sentTypes = picTypes
         sentNames = picNames
         push answers (SpWords.pick(lang "Reading…" "Luetaan…"))
+        this.noneDone()
+        if ((tab == "assistant") && (addOpen == false)) {
+            reveal = "sp-chat"
+        }
         this.queue("assist" (SpRemote.write(o)) (to_string ((array_length answers) - 1)))
         if addOpen {
             addAsked = ((array_length answers) - 1)
@@ -3869,6 +4292,113 @@ class SpacesApp {
         picTypes = none2
         def none3:[string]
         picNames = none3
+    }
+
+    ; What an answer did, from the server's answer: the entries it made or
+    ; changed (shown once the space is read again), the titles of those it
+    ; removed (read before the space is) and its other changes as words.
+    fn readDone:void (row:string o:VlJson) {
+        def k@(optional):int (to_int row)
+        if (null? k) {
+            return
+        }
+        def n:int (unwrap k)
+        if ((n < 0) || (n >= (array_length doneIds))) {
+            return
+        }
+        def ids:[string]
+        def ev:VlJson (o.get("event_ids"))
+        def i:int 0
+        while (i < (ev.count())) {
+            def id:string ((ev.at(i)).asString())
+            if (((strlen id) > 0) && ((SpacesApp.inList(ids id)) == false)) {
+                push ids id
+            }
+            i = (i + 1)
+        }
+        def gone:[string]
+        def del:VlJson (o.get("deleted"))
+        def d:int 0
+        while (d < (del.count())) {
+            def rid:string ((del.at(d)).asString())
+            def found@(optional):SpEvent (space.byRemote(rid))
+            if (!null? found) {
+                def e:SpEvent found
+                push gone e.title
+            } {
+                push gone (SpWords.pick(lang "An entry" "Merkintä"))
+            }
+            d = (d + 1)
+        }
+        def notes:[string]
+        def calls:VlJson (o.get("calls"))
+        def c:int 0
+        while (c < (calls.count())) {
+            def call:VlJson (calls.at(c))
+            if (call.boolOr("ok" false)) {
+                def w:string (this.toolDone((call.stringOr("tool" ""))))
+                if (((strlen w) > 0) && ((SpacesApp.inList(notes w)) == false)) {
+                    push notes w
+                }
+            }
+            c = (c + 1)
+        }
+        set doneIds n (join ids " ")
+        set doneGone n (join gone "\n")
+        set doneNotes n (join notes "\n")
+    }
+
+    ; What a call that changes something other than an entry did, in words;
+    ; "" for the entries' own calls (shown as cards) and for reading.
+    fn toolDone:string (tool:string) {
+        if ((tool == "set_ward") || (tool == "add_ward")) {
+            return (SpWords.pick(lang "Family member's details saved" "Perheenjäsenen tiedot tallennettu"))
+        }
+        if (tool == "remove_ward") {
+            return (SpWords.pick(lang "Family member removed" "Perheenjäsen poistettu"))
+        }
+        if (tool == "add_place") {
+            return (SpWords.pick(lang "Place added" "Paikkakunta lisätty"))
+        }
+        if (tool == "remove_place") {
+            return (SpWords.pick(lang "Place removed" "Paikkakunta poistettu"))
+        }
+        if (tool == "set_watch") {
+            return (SpWords.pick(lang "Deal watch set" "Ostosvahti asetettu"))
+        }
+        if ((tool == "set_event_watch") || (tool == "run_event_watch") || (tool == "run_watch")) {
+            return (SpWords.pick(lang "Watch updated" "Vahti päivitetty"))
+        }
+        if (tool == "rate_find") {
+            return (SpWords.pick(lang "Find rated" "Löytö arvioitu"))
+        }
+        if (tool == "invite_member") {
+            return (SpWords.pick(lang "Invitation sent" "Kutsu lähetetty"))
+        }
+        if (tool == "remove_member") {
+            return (SpWords.pick(lang "Member removed" "Jäsen poistettu"))
+        }
+        if (tool == "set_space") {
+            return (SpWords.pick(lang "Space settings saved" "Tilan asetukset tallennettu"))
+        }
+        return ""
+    }
+
+    ; The bottom of the element to scroll into view, once: -1 for none.
+    fn takeReveal:double () {
+        if ((strlen reveal) == 0) {
+            return -1.0
+        }
+        def id:string reveal
+        reveal = ""
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def el@(optional):EVGElement (UiTree.findById(r id))
+        if (null? el) {
+            return -1.0
+        }
+        def e:EVGElement (unwrap el)
+        return (e.calculatedY + e.calculatedHeight)
     }
 
     ; The assistant's answer, in the row it was asked in.
@@ -3985,6 +4515,10 @@ class SpacesApp {
                 def a:EVGElement (this.markdown("sp-add-answer" (itemAt answers addAsked) w))
                 UiTree.addClass(a "sp-bubble-a")
                 menu.addChild(a)
+                def cards@(optional):EVGElement (this.doneCards(addAsked w))
+                if (!null? cards) {
+                    menu.addChild((unwrap cards))
+                }
             }
             menu.addChild((this.addHelp()))
             def mark:string "▸ "
@@ -6794,6 +7328,10 @@ class SpacesApp {
                 this.readKids((o.get("event_watch")))
                 if (c.quiet == false) {
                     this.showSpace((o.get("space")) (o.get("events")))
+                    if (revealOnLoad && (tab == "assistant")) {
+                        reveal = "sp-chat"
+                    }
+                    revealOnLoad = false
                 } {
                     if (this.idle()) {
                         this.refreshSpace((o.get("space")) (o.get("events")))
@@ -6884,11 +7422,13 @@ class SpacesApp {
         }
         if (c.op == "assist") {
             this.assistAnswered(c.ref (o.stringOr("text" "")) true)
+            this.readDone(c.ref o)
             ; what it made or changed, from the server
             if ((o.boolOr("changed" false)) && ((strlen spaceId) > 0)) {
                 def keep:string tab
                 this.openSpace(spaceId)
                 tab = keep
+                revealOnLoad = ((tab == "assistant") && (addOpen == false))
             }
         }
         if (c.op == "import_events") {
@@ -7034,6 +7574,26 @@ class SpacesApp {
         }
         if (target == "sp-assist-image") {
             action = "image"
+            return true
+        }
+        if (target == "sp-assist-help") {
+            helpOpen = (helpOpen == false)
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-ex-")) {
+            def ek@(optional):int (to_int (substring target 6 (strlen target)))
+            def all:[string] (this.examples())
+            if (!null? ek) {
+                def en:int (unwrap ek)
+                if ((en >= 0) && (en < (array_length all))) {
+                    assistField.setValue((itemAt all en))
+                    focused = "sp-assist-text"
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-done-")) {
+            this.openDone(target)
             return true
         }
         if (UiTree.beginsWith(target "sp-assist-drop-")) {

@@ -58,7 +58,8 @@ func TestWardenAssist(t *testing.T) {
 	// the model was told the day, the types and the common fields; its
 	// tools are Warden's, without space_id; the picture went with the text
 	sys := fmt.Sprint(asks[0]["systemInstruction"])
-	for _, want := range []string{"<today>2026-10-16, Friday</today>", "- birthday_invitation (event, event)", "schedule_exception", "<common_fields>subtype:text"} {
+	for _, want := range []string{"<today>2026-10-16, Friday</today>", "- birthday_invitation (event, event)", "schedule_exception", "<common_fields>subtype:text",
+		"ask one short, concrete question", "say plainly that you cannot do it"} {
 		if !strings.Contains(sys, want) {
 			t.Errorf("system prompt lacks %q", want)
 		}
@@ -86,9 +87,17 @@ func TestWardenAssist(t *testing.T) {
 	}
 	eq(t, strings.Join(titles, ", "), "Uinti activity, Ellan synttärit birthday_invitation")
 
+	// a removal is told apart from what was made: the page shows it so
+	gone := out["events"].([]any)[1].(map[string]any)["event_id"].(string)
+	replies = append(replies,
+		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"delete_event","args":{"event_id":"`+gone+`"}}}]}}]}`,
+		`{"candidates":[{"content":{"role":"model","parts":[{"text":"Poistin Ellan synttärit."}]}}]}`)
+	code, out = wardenCall(t, base, "tero", "assist", map[string]any{"space_id": sid, "text": "Poista Ellan synttärit"})
+	eq(t, []any{code, out["changed"], len(out["event_ids"].([]any)), out["deleted"]}, []any{200, true, 0, []any{gone}})
+
 	// an empty question is not sent to the model
 	code, out = wardenCall(t, base, "tero", "assist", map[string]any{"space_id": sid, "text": "  "})
-	eq(t, []any{code, out["error"], len(asks)}, []any{400, "Write something or add a picture.", 3})
+	eq(t, []any{code, out["error"], len(asks)}, []any{400, "Write something or add a picture.", 5})
 }
 
 // The page's assistant has every MCP tool of a space, as the MCP server

@@ -358,6 +358,105 @@
 .sp-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; }
 .sp-bubble-a { background-color: var(--surface); }
 
+/* the conversation: a box with the messages and, at its foot, the field */
+.sp-chat {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+  margin-bottom: 10px;
+}
+.sp-chatlog { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 18px; row-gap: 18px; padding: 20px; }
+.sp-composer {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 14px 20px 6px 20px;
+  border-top: 1px solid var(--line);
+  background-color: #fbf9f6;
+  border-radius: 0 0 16px 16px;
+}
+.sp-msg { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; }
+.sp-msgcol { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 4px; row-gap: 4px; }
+.sp-msgcol-me { align-items: flex-end; }
+.sp-msgwho { color: var(--faint); font-size: 11px; font-weight: 700; height: auto; line-height: 14px; padding: 0 4px; }
+.sp-say-ai {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+  row-gap: 4px;
+  padding: 10px 14px;
+  border-radius: 4px 16px 16px 16px;
+  background-color: var(--page);
+  border: 1px solid var(--line);
+}
+.sp-say-busy { border: 1px dashed var(--line); }
+.sp-say-me {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+  row-gap: 2px;
+  padding: 10px 14px;
+  border-radius: 16px 4px 16px 16px;
+  background-color: #fbe7dc;
+  border: 1px solid #f1cdb9;
+}
+.sp-say-me-tx { color: var(--ink); font-size: 14px; height: auto; line-height: 20px; }
+.sp-msgacts { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.sp-link-quiet-tx { color: var(--muted); font-size: 12px; font-weight: 500; }
+.sp-hint { color: var(--faint); font-size: 12px; height: auto; line-height: 16px; margin-right: 10px; }
+.sp-examples { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 2px; row-gap: 2px; margin-top: 8px; }
+.sp-example { display: flex; flex-direction: row; height: auto; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+.sp-example:hover { background-color: var(--soft); }
+.sp-example:focus { background-color: var(--soft); }
+.sp-example-tx { color: var(--accent); font-size: 14px; height: auto; line-height: 20px; }
+
+/* what an answer did: a card per entry made, changed or removed */
+.sp-donelist { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; row-gap: 6px; margin-top: 6px; }
+.sp-done {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.sp-done:hover { border: 1px solid var(--accent); }
+.sp-done:focus { border: 1px solid var(--accent); }
+.sp-done-gone { cursor: default; background-color: #faf8f6; }
+.sp-done-gone:hover { border: 1px solid var(--line); }
+.sp-done-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.sp-done-mark-gone { background-color: var(--faint); }
+.sp-done-text { display: flex; flex-direction: column; flex-wrap: nowrap; flex-grow: 1; }
+.sp-done-title { color: var(--ink); font-size: 14px; font-weight: 600; height: auto; line-height: 19px; }
+.sp-done-struck { text-decoration: line-through; color: var(--muted); }
+.sp-done-sub { color: var(--muted); font-size: 12px; height: auto; line-height: 16px; }
+.sp-done-open { color: var(--faint); font-size: 18px; height: auto; line-height: 20px; flex-shrink: 0; }
+.sp-done-note { color: var(--muted); font-size: 13px; height: auto; line-height: 18px; padding-left: 2px; }
+
+/* a Markdown line with bold words: the words in a row that wraps */
+.sp-md-words { display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px; row-gap: 0; }
+.sp-md-w { color: var(--ink); font-size: 14px; height: auto; line-height: 21px; white-space: nowrap; }
+.sp-md-b { font-weight: bold; }
+
 .sp-status {
   color: var(--ink);
   font-size: 13px;

@@ -1330,6 +1330,15 @@ console.log("the assistant on a server");
   a.answer(JSON.stringify({ space, events: [] }));
   a.press("sp-nav-assistant");
   ok("a field to write in", texts(a).includes("Lisää kuva") && texts(a).includes("Lähetä"));
+  // a conversation: the assistant opens it, with things to try instead of buttons
+  ok("the assistant greets, with examples and no question buttons", texts(a).some((x) => x.startsWith("Hei!")) && !!byId(a, "sp-ex-1") && !byId(a, "sp-q-qToday"));
+  a.press("sp-ex-1");
+  ok("an example goes in the field", a.assistField.value === "Lisää lääkärikäynnin kellonaika" && a.focused === "sp-assist-text");
+  a.assistField.setValue("");
+  ok("what it can do is folded", !texts(a).includes("Ostosvahti"));
+  a.press("sp-assist-help");
+  ok("and opens", texts(a).includes("Ostosvahti"));
+  a.press("sp-assist-help");
   a.press("sp-assist-send");
   eq("nothing written, nothing sent", a.outCount(), 0);
   a.press("sp-assist-image");
@@ -1346,12 +1355,17 @@ console.log("the assistant on a server");
     && body.images[0].mimeType === "image/jpeg" && body.today === iso(a.today) && body.history.length === 0, JSON.stringify(body));
   ok("the question is in the feed, the field emptied", texts(a).some((x) => x.startsWith("Leon uinti")) && a.assistField.value === "" && a.pics.length === 0);
   ok("while it reads", texts(a).includes("Luetaan…"));
-  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin Leon uinnin tiistaisin.", changed: true, event_ids: ["e1"], calls: [{ tool: "import_events", ok: true }] }));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin Leon uinnin tiistaisin.", changed: true, event_ids: ["e1"], calls: [{ tool: "import_events", ok: true }, { tool: "add_place", ok: true }] }));
   ok("its answer", texts(a).includes("Lisäsin Leon uinnin tiistaisin.") && !a.assistBusy);
   eq("what it made is read again", a.outOp(), "get_space");
   a.answer(JSON.stringify({ space, events: [
     { event_id: "e1", title: "Uinti", date: iso(a.today + 1), start: "17:00", end: "18:00", ward: "w1", type: "activity", rrule: "FREQ=WEEKLY", fields: { hobby: "Uinti", gear: ["uimalasit", "pyyhe"] } }] }));
   eq("still on the assistant", a.tab, "assistant");
+  ok("what it made is shown as a card under the answer", !!byId(a, "sp-done-0-0") && texts(a).includes("Uinti") && texts(a).includes("✓ Paikkakunta lisätty"));
+  a.press("sp-done-0-0");
+  ok("a card opens the entry", a.editing && a.space.event(a.editId).title === "Uinti");
+  a.press("sp-ed-cancel");
+  eq("and back to the conversation", a.tab, "assistant");
   const e1 = a.space.events[0];
   eq("a list field reads as one text", e1.fieldText("gear"), "uimalasit; pyyhe");
   // the next question carries the conversation; a refusal is said
@@ -1369,6 +1383,15 @@ console.log("the assistant on a server");
   eq("a question to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Peru huominen");
   a.copied(true);
   eq("said so", a.status, "Kopioitu");
+  // Markdown's bold is drawn bold, not as asterisks; a removal is a card too
+  a.assistField.setValue("Poista uinti");
+  a.press("sp-assist-send");
+  const rowDel = a.answers.length - 1;
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Poistin **Leon uinnin**.", changed: true, event_ids: [], deleted: ["e1"], calls: [{ tool: "delete_event", ok: true }] }));
+  ok("bold without asterisks", texts(a).includes("Leon") && !texts(a).some((x) => x.includes("**")), JSON.stringify(texts(a).filter((x) => x.includes("Leon"))));
+  ok("the removed entry named", a.doneGone[rowDel] === "Uinti" && texts(a).includes("Poistettu"));
+  a.answer(JSON.stringify({ space, events: [] }));
+  a.assistField.setValue("Peru huominen");
   // a server older than the page: said in words, not as "No such call."
   a.press("sp-assist-send");
   a.failed("No such call.");
