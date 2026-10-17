@@ -3690,11 +3690,25 @@ class SpacesApp {
             }
             def pb:EVGElement (SpacesApp.btn(("sp-bud-payer-" + (to_string i)) pc name))
             pb.a11yPressed = (SpacesApp.tri(on))
+            def pe:string (space.emailOf(name))
+            if ((strlen pe) > 0) {
+                pb.a11yLabel = (name + ", " + pe)
+            }
             pills.addChild(pb)
             i = (i + 1)
         }
         bar.addChild(pills)
         v.addChild(bar)
+        ; the chosen person's email under the pills, where a touch screen
+        ; shows no tooltip
+        if (allOn == false) {
+            def be:string (space.emailOf(budgetPayer))
+            if ((strlen be) > 0) {
+                def who:EVGElement (SpacesApp.tx("sp-meta" (budgetPayer + " · " + be)))
+                who.id = "sp-bud-email"
+                v.addChild(who)
+            }
+        }
 
         def sum:EVGElement (this.card("budget-sum" (SpWords.ui(lang "total"))))
         sum.addChild((this.moneyRow("sp-bud-total" (SpWords.ui(lang "total")) b.total true)))
@@ -4784,6 +4798,33 @@ class SpacesApp {
         }
         if ((strlen id) > 0) {
             return "pointer"
+        }
+        return ""
+    }
+
+    ; The tooltip of what is at (x, y): a person's email on the budget's
+    ; person filter and on the members page, "" for none.
+    fn tipAt:string (x:double y:double) {
+        def id:string (this.hitId(x y))
+        if (UiTree.beginsWith(id "sp-bud-payer-")) {
+            def pn@(optional):int (to_int (substring id 13 (strlen id)))
+            if (!null? pn) {
+                def payers:[string] (space.payers())
+                def pk:int (unwrap pn)
+                if ((pk >= 0) && (pk < (array_length payers))) {
+                    return (space.emailOf((itemAt payers pk)))
+                }
+            }
+        }
+        if (UiTree.beginsWith(id "sp-member-")) {
+            def mn@(optional):int (to_int (substring id 10 (strlen id)))
+            if (!null? mn) {
+                def mk:int (unwrap mn)
+                if ((mk >= 0) && (mk < (array_length space.members))) {
+                    def m:SpMember (itemAt space.members mk)
+                    return m.email
+                }
+            }
         }
         return ""
     }

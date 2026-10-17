@@ -294,6 +294,20 @@ console.log("a space on a server");
   a.answer(JSON.stringify({ event_id: "ev3" }));
   eq("and then nothing is left", a.outCount(), 0);
 
+  // a person's email: the tooltip on the budget's filter and the members
+  // page, and under the filter once a person is picked
+  a.press("sp-nav-budget");
+  const juho = a.space.payers().indexOf("Juho");
+  const centre = (id) => { const e = byId(a, id); return [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2]; };
+  eq("the filter's tooltip is the email", a.tipAt(...centre("sp-bud-payer-" + juho)), "juho@example.com");
+  a.press("sp-bud-payer-" + juho);
+  ok("the picked person's email is shown", texts(a).includes("Juho · juho@example.com"));
+  a.press("sp-bud-all");
+  ok("and not for everyone", !texts(a).some((s) => s.includes("juho@example.com")));
+  while (a.outOp() === "budget") a.answer(JSON.stringify({ months: [] }));
+  a.press("sp-nav-members");
+  eq("a member's tooltip is the email", a.tipAt(...centre("sp-member-1")), "juho@example.com");
+
   // members: invite with the text field, typed key by key
   a.press("sp-nav-members");
   t = texts(a);
