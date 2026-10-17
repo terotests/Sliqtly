@@ -1729,11 +1729,13 @@ class SpacesApp {
         }
         ; deadline entries whose reminder is on, not yet done
         def due:[SpEvent] (space.dueEntries(today))
+        def listed:[string]
         def m:int 0
         while (m < (array_length due)) {
             def e:SpEvent (itemAt due m)
             if ((SpacesApp.closed(e)) == false) {
                 c.addChild((this.remindRow(("sp-tick-" + e.id) true e.title e.day (space.resourceName(e.resource)))))
+                push listed e.id
                 shown = (shown + 1)
             }
             m = (m + 1)
@@ -1748,6 +1750,14 @@ class SpacesApp {
             def open:boolean true
             if (!null? oe) {
                 open = ((SpacesApp.closed((unwrap oe))) == false)
+            }
+            ; a deadline entry already listed above is not listed twice
+            def li:int 0
+            while (li < (array_length listed)) {
+                if ((itemAt listed li) == o.eventId) {
+                    open = false
+                }
+                li = (li + 1)
             }
             if ((this.isReminder(o)) && open) {
                 if o.repeats {
