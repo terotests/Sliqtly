@@ -74,7 +74,7 @@ console.log("the summary");
 {
   const a = fresh("fi", "family");
   a.setWidth(1280, 700);
-  const t = texts(a);
+  let t = texts(a);
   for (const h of ["Tänään", "Tämä viikko", "Tulossa", "Muista"]) ok(`the section ${h}`, t.includes(h), t.slice(0, 30).join(","));
   ok("the clock", t.includes("10.00"));
   ok("the day and the week", t.includes("keskiviikko 21. lokakuuta") && t.includes("viikko 43 · Perhe"), t.slice(0, 30).join(","));
@@ -103,6 +103,30 @@ console.log("the summary");
   a.press("sp-day-" + (a.today + 1));
   ok("a day opens in the calendar", a.tab === "calendar" && a.board.view === "day" && a.board.cursor === a.today + 1);
   a.press("sp-nav-home");
+  // the week in columns, and what is coming with days to go
+  a.press("sp-htab-week");
+  t = texts(a);
+  ok("Viikko: the days as columns", !!byId(a, "sp-card-weekboard") && t.includes("ma 19.") && t.includes("su 25."), t.slice(0, 60).join(","));
+  const mon = byId(a, "sp-day-" + (a.today - 2));
+  const tue = byId(a, "sp-day-" + (a.today - 1));
+  ok("side by side at 1280", mon.calculatedY === tue.calculatedY && mon.calculatedX < tue.calculatedX);
+  ok("with times", t.includes("Hammaslääkäri") && t.includes("14.00"));
+  a.press("sp-htab-ahead");
+  t = texts(a);
+  ok("Tulossa: days to go", t.includes("huomenna") && t.some((s) => / pv$/.test(s)), t.slice(30, 80).join(","));
+  ok("a plan with no ward is the whole family's", t.includes("koko perhe"));
+  for (const k of ["today", "week", "ahead"]) {
+    a.press("sp-htab-" + k);
+    for (const w of [1280, 390]) {
+      a.setWidth(w, 700);
+      const probs = a.a11yProblems();
+      ok(`${w} ${k}: lints clean`, probs.length === 0, probs.join(" | "));
+      const main = byId(a, "sp-main");
+      ok(`${w} ${k}: fits`, main.calculatedX + main.calculatedWidth <= w + 0.5);
+    }
+  }
+  a.press("sp-htab-today");
+  a.setWidth(1280, 700);
   a.setWidth(390, 700);
   a.laidOut();
   const t2 = byId(a, "sp-card-today");

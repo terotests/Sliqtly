@@ -77,6 +77,8 @@ class SpacesApp {
     def today:int 0
     def nowMin:int 600
     def browserOff:int 0
+    ; the summary's page: "today", "week" or "ahead"
+    def homeTab:string "today"
     ; the weather, when the host has read it (setWeather)
     def wxSet:boolean false
     def wxPlace:string ""
@@ -647,8 +649,17 @@ class SpacesApp {
         itemOccs = noOccs
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.dashHead()))
+        v.addChild((this.homeTabs()))
         if ((server && (loading == false)) && (((array_length space.events) == 0) && ((array_length space.resources) == 0))) {
             v.addChild((this.emptyCard()))
+        }
+        if (homeTab == "week") {
+            v.addChild((this.weekBoard()))
+            return v
+        }
+        if (homeTab == "ahead") {
+            v.addChild((this.aheadBoard()))
+            return v
         }
         def gap:double 28.0
         def w1:double (this.mainW())
@@ -678,6 +689,174 @@ class SpacesApp {
         }
         v.addChild((SpacesApp.tx("sp-hint" (SpWords.pick(lang "Tap a plan or a reminder to open it" "Napauta menoa tai muistutusta avataksesi sen")))))
         return v
+    }
+
+    ; The summary's three pages: today, the week in columns, what is coming.
+    fn homeTabs:EVGElement () {
+        def bar:EVGElement (SpacesApp.box("sp-htabs"))
+        bar.role = "tablist"
+        bar.a11yLabel = (SpWords.ui(lang "home"))
+        def keys:[string] ([] _:string ( "today" "week" "ahead" ))
+        def names:[string] ([] _:string ( (SpWords.ui(lang "today")) (SpWords.pick(lang "Week" "Viikko")) (SpWords.pick(lang "Coming up" "Tulossa")) ))
+        def i:int 0
+        while (i < 3) {
+            def k:string (itemAt keys i)
+            def cls:string "sp-htab"
+            if (k == homeTab) {
+                cls = "sp-htab sp-htab-on"
+            }
+            def b:EVGElement (SpacesApp.btn(("sp-htab-" + k) cls (itemAt names i)))
+            b.role = "tab"
+            b.a11ySelected = (SpacesApp.tri((k == homeTab)))
+            bar.addChild(b)
+            i = (i + 1)
+        }
+        return bar
+    }
+
+    ; Viikko: Monday to Sunday side by side, each day's plans with their
+    ; times; today filled. On a phone the days are rows.
+    fn weekBoard:EVGElement () {
+        def cols:EVGElement (UiTree.div("sp-card-weekboard" "sp-wboard"))
+        if (this.narrow()) {
+            cols = (UiTree.div("sp-card-weekboard" "sp-wboard sp-wboard-narrow"))
+        }
+        cols.role = "region"
+        cols.a11yLabel = (SpWords.pick(lang "Week" "Viikko"))
+        def mon:int (SpSpace.mondayOf(today))
+        def occ:[SpOccur] (space.occurrences(mon (mon + 6)))
+        def gap:double 8.0
+        def w:double (((this.mainW()) - (gap * 6.0)) / 7.0)
+        if (this.narrow()) {
+            w = (this.mainW())
+        }
+        def d:int mon
+        while (d <= (mon + 6)) {
+            def cls:string "sp-wcol"
+            if (this.narrow()) {
+                cls = "sp-wcol sp-wcol-narrow"
+            }
+            if (d == today) {
+                cls = (cls + " sp-wcol-today")
+            }
+            def col:EVGElement (SpacesApp.box(cls))
+            col.role = "listitem"
+            col.a11yLabel = (SpWords.dayLabel(lang d))
+            UiTree.inline(col "width" (SpacesApp.px(w)))
+            def p:[int] (SpSpace.ymdOf(d))
+            def hcls:string "sp-wcolday"
+            if (d == today) {
+                hcls = "sp-wcolday sp-wcolday-today"
+            }
+            def head:EVGElement (SpacesApp.btn(("sp-day-" + (to_string d)) hcls ((SpWords.wdShort(lang d)) + " " + (to_string (itemAt p 2)) + ".")))
+            head.a11yLabel = ((SpWords.dayLabel(lang d)) + ": " + (SpWords.ui(lang "showCal")))
+            col.addChild(head)
+            def i:int 0
+            while (i < (array_length occ)) {
+                def o:SpOccur (itemAt occ i)
+                if (o.day == d) {
+                    col.addChild((this.weekItem(o (w - 20.0))))
+                }
+                i = (i + 1)
+            }
+            cols.addChild(col)
+            d = (d + 1)
+        }
+        return cols
+    }
+
+    fn weekItem:EVGElement (o:SpOccur w:double) {
+        def n:int (this.rowOf(o))
+        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) "sp-witem"))
+        row.role = "button"
+        row.a11yFocusable = true
+        row.a11yLabel = ((SpWords.timeOf(lang o)) + " " + o.title)
+        def dot:EVGElement (SpacesApp.box(("sp-wdot sp-c-" + (this.colorOf(o)))))
+        dot.a11yHidden = true
+        row.addChild(dot)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        col.a11yHidden = true
+        UiTree.inline(col "width" (SpacesApp.px((w - 22.0))))
+        col.addChild((SpacesApp.tx("sp-wititle" o.title)))
+        if ((o.allDay()) == false) {
+            col.addChild((SpacesApp.tx("sp-witime" (SpWords.clock(lang o.startMin)))))
+        }
+        row.addChild(col)
+        return row
+    }
+
+    ; Tulossa: the next plans that are not routine, with how many days away.
+    fn aheadBoard:EVGElement () {
+        def c:EVGElement (UiTree.div("sp-card-aheadboard" "sp-aboard"))
+        c.role = "list"
+        c.a11yLabel = (SpWords.pick(lang "Coming up" "Tulossa"))
+        def all:[SpOccur] (space.occurrences((today + 1) (today + 90)))
+        def shown:int 0
+        def i:int 0
+        while ((i < (array_length all)) && (shown < 10)) {
+            def o:SpOccur (itemAt all i)
+            def e@(optional):SpEvent (space.event(o.eventId))
+            def open:boolean true
+            if (!null? e) {
+                open = ((SpacesApp.closed((unwrap e))) == false)
+            }
+            if (((o.repeats) == false) && open) {
+                c.addChild((this.aheadBig(o)))
+                shown = (shown + 1)
+            }
+            i = (i + 1)
+        }
+        if (shown == 0) {
+            c.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "nothing")))))
+        }
+        return c
+    }
+
+    fn aheadBig:EVGElement (o:SpOccur) {
+        def n:int (this.rowOf(o))
+        def nw:string ""
+        def fixed:double 420.0
+        if (this.narrow()) {
+            nw = "-narrow"
+            fixed = 210.0
+        }
+        def row:EVGElement (UiTree.div(("sp-item-" + (to_string n)) ("sp-abig sp-abig" + nw)))
+        row.role = "button"
+        row.a11yFocusable = true
+        def who:string (space.resourceName(o.resource))
+        if ((strlen who) == 0) {
+            who = (to_lowercase (SpWords.noun(lang pack "together")))
+        }
+        def away:string (this.awayText(o.day))
+        row.a11yLabel = ((SpWords.dayLabel(lang o.day)) + " " + o.title + ", " + who + ", " + away)
+        def dl:EVGElement (SpacesApp.tx(("sp-abday sp-abday" + nw) (SpWords.dayLabel(lang o.day))))
+        dl.a11yHidden = true
+        row.addChild(dl)
+        def dot:EVGElement (SpacesApp.box(("sp-abdot sp-c-" + (this.colorOf(o)))))
+        dot.a11yHidden = true
+        row.addChild(dot)
+        def col:EVGElement (SpacesApp.box("sp-itemtext"))
+        col.a11yHidden = true
+        UiTree.inline(col "width" (SpacesApp.px(((this.mainW()) - fixed))))
+        col.addChild((SpacesApp.tx(("sp-abtitle sp-abtitle" + nw) o.title)))
+        col.addChild((SpacesApp.tx(("sp-abwho sp-abwho" + nw) who)))
+        row.addChild(col)
+        def aw:EVGElement (SpacesApp.tx(("sp-abaway sp-abaway" + nw) away))
+        aw.a11yHidden = true
+        row.addChild(aw)
+        return row
+    }
+
+    ; "huomenna", "3 pv" / "tomorrow", "in 3 days"
+    fn awayText:string (day:int) {
+        def n:int (day - today)
+        if (n == 1) {
+            return (SpWords.pick(lang "tomorrow" "huomenna"))
+        }
+        if (lang == "fi") {
+            return ((to_string n) + " pv")
+        }
+        return ("in " + (to_string n) + " days")
     }
 
     ; The clock, the day and the week, and the weather when the host has it.
@@ -3663,6 +3842,11 @@ class SpacesApp {
                 i = (i + 1)
             }
             focused = ""
+            this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-htab-")) {
+            homeTab = (substring target 8 (strlen target))
             this.rebuild()
             return true
         }
