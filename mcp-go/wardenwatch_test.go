@@ -52,17 +52,17 @@ func TestWardenWatch(t *testing.T) {
 
 	// Gemini with Google Search: a line per listing, each tied to a result
 	// whose redirect leads to the listing
-	type listing struct{ title, price, url, site string }
+	type listing struct{ title, price, url, site, town string }
 	results := map[string][]listing{
 		"Lasten sängyt site:tori.fi": {
-			{"Lasten sänky 90x200", "80 €", "https://www.tori.fi/recommerce/forsale/item/111", "tori.fi"},
-			{"Kerrossänky", "300", "https://www.tori.fi/recommerce/forsale/item/222", "tori.fi"},
-			{"Ostetaan lasten sänky", "?", "https://www.tori.fi/recommerce/forsale/item/333", "tori.fi"},
-			{"Sängyt – Tori", "?", "https://www.tori.fi/recommerce/forsale/search?q=s%C3%A4nky", "tori.fi"},
-			{"Muualla", "50", "https://example.com/sanky", "example.com"},
+			{"Lasten sänky 90x200", "80 €", "https://www.tori.fi/recommerce/forsale/item/111", "tori.fi", "Tampere"},
+			{"Kerrossänky", "300", "https://www.tori.fi/recommerce/forsale/item/222", "tori.fi", "Tampere"},
+			{"Ostetaan lasten sänky", "?", "https://www.tori.fi/recommerce/forsale/item/333", "tori.fi", "Tampere"},
+			{"Sängyt – Tori", "?", "https://www.tori.fi/recommerce/forsale/search?q=s%C3%A4nky", "tori.fi", "Tampere"},
+			{"Muualla", "50", "https://example.com/sanky", "example.com", "?"},
 		},
 		"Lasten sängyt site:vinted.fi": {
-			{"Pinnasänky", "?", "https://www.vinted.fi/items/444-pinnasanky", "vinted.fi"},
+			{"Pinnasänky", "?", "https://www.vinted.fi/items/444-pinnasanky", "vinted.fi", "?"},
 		},
 	}
 	var asked []string
@@ -89,12 +89,16 @@ func TestWardenWatch(t *testing.T) {
 		text := ask.Contents[0].Parts[0].Text
 		q, _, _ := strings.Cut(strings.TrimPrefix(text, "Search for current second-hand or for-sale listings matching: "), "\n")
 		asked = append(asked, q)
+		if !strings.Contains(text, "The buyer lives in Tampere, Finland") {
+			w.WriteHeader(400)
+			return
+		}
 		chunks, supports, lines := []any{}, []any{}, []string{}
 		for i, l := range results[q] {
 			path := fmt.Sprintf("/grounding-api-redirect/%d-%d", len(asked), i)
 			redirects[path] = l.url
 			chunks = append(chunks, map[string]any{"web": map[string]any{"uri": srv.URL + path, "title": l.site}})
-			line := l.title + " | " + l.price
+			line := l.title + " | " + l.price + " | " + l.town
 			lines = append(lines, line)
 			supports = append(supports, map[string]any{"segment": map[string]any{"text": line}, "groundingChunkIndices": []int{i}})
 		}
@@ -113,7 +117,10 @@ func TestWardenWatch(t *testing.T) {
 	fresh := out["new"].([]any)
 	eq(t, len(fresh), 2, "the 80 € bed and the cot without a price")
 	f := fresh[0].(map[string]any)
-	eq(t, []any{f["title"], f["price"], f["source"], f["found"]}, []any{"Lasten sänky 90x200", 80.0, "Tori", "2026-10-17"})
+	eq(t, []any{f["title"], f["price"], f["location"], f["source"], f["found"]}, []any{"Lasten sänky 90x200", 80.0, "Tampere", "Tori", "2026-10-17"})
+	if _, ok := fresh[1].(map[string]any)["location"]; ok {
+		t.Fatal("a town not given is left out")
+	}
 
 	// on the entry, and a reminder of them
 	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
@@ -158,7 +165,7 @@ func TestWardenWatch(t *testing.T) {
 	eq(t, code, 403, "wrong token")
 	code, out = run("secret")
 	eq(t, []any{code, out["ran"], out["more"]}, []any{200, 0.0, false}, "ran an hour ago")
-	results["Lasten sängyt site:huuto.net"] = []listing{{"Sänky", "10 €", "https://www.huuto.net/kohteet/sanky/555", "huuto.net"}}
+	results["Lasten sängyt site:huuto.net"] = []listing{{"Sänky", "10 €", "https://www.huuto.net/kohteet/sanky/555", "huuto.net", "Oulu"}}
 	e.warden.now = func() time.Time { return time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC) }
 	code, out = run("secret")
 	eq(t, []any{code, out["ran"], out["found"]}, []any{200, 1.0, 1.0}, "a day later")
@@ -177,4 +184,16 @@ func TestWardenWatch(t *testing.T) {
 	// another member's space is not reachable
 	code, _ = wardenCall(t, base, "anna", "set_watch", map[string]any{"space_id": sid, "event_id": id})
 	eq(t, code, 400, "anna is not a member")
+}
+
+// The town a watch prefers: its own, the ward's, the space's, the entry's
+// place, else Tampere.
+func TestWardenWatchArea(t *testing.T) {
+	sp := &wardenSpace{doc: Doc{"wards": []any{map[string]any{"id": "w1", "places": []any{map[string]any{"name": "Kuopio"}}}, map[string]any{"id": "w2"}}}}
+	eq(t, wardenWatchArea(sp, Doc{"ward": "w1"}, map[string]any{"area": "Espoo"}), "Espoo")
+	eq(t, wardenWatchArea(sp, Doc{"ward": "w1"}, map[string]any{}), "Kuopio")
+	eq(t, wardenWatchArea(sp, Doc{"ward": "w2", "place": "Hervanta, Tampere"}, map[string]any{}), "Hervanta, Tampere")
+	eq(t, wardenWatchArea(sp, Doc{}, map[string]any{}), "Tampere")
+	sp.doc["places"] = []any{map[string]any{"name": "Lahti", "lat": 60.98, "lon": 25.66}}
+	eq(t, wardenWatchArea(sp, Doc{"ward": "w2", "place": "Koti"}, map[string]any{}), "Lahti")
 }

@@ -800,7 +800,7 @@ console.log("an entry's offer watch");
     events: [
       { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
         watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
-          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, source: "Tori", found: "2026-10-07" },
+          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, location: "Tampere", source: "Tori", found: "2026-10-07" },
           { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
         ] } },
     ],
@@ -811,7 +811,7 @@ console.log("an entry's offer watch");
   a.press("sp-list-item");
   a.press("sp-entry-" + bed.id);
   const t = texts(a);
-  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tori · 7.10."), t.join(","));
+  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tampere · Tori · 7.10."), t.join(","));
   a.press("sp-find-0");
   eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
   const probs = a.a11yProblems();

@@ -55,6 +55,9 @@ const (
 	wardenWatchUID = "warden-watch"
 )
 
+// the town a watch prefers when nothing in the space names one
+const wardenWatchHome = "Tampere"
+
 // where a watch looks: a site (searched with site:) or the whole web
 var wardenWatchSources = []struct{ id, site, name string }{
 	{"tori", "tori.fi", "Tori"},
@@ -70,10 +73,13 @@ var wardenWatchDefault = []string{"tori", "vinted", "huuto"}
 // one result of a web search
 type wardenHit struct {
 	Title, URL, Snippet string
+	// where the item is, as the listing says ("" when not said)
+	Location string
 }
 
 type wardenSearcher interface {
-	Search(ctx context.Context, query string, n int) ([]wardenHit, error)
+	// near: a town the listings near which come first ("" anywhere)
+	Search(ctx context.Context, query, near string, n int) ([]wardenHit, error)
 }
 
 // Gemini answering with Google Search (grounding), on the assistant's own
@@ -103,12 +109,20 @@ func newWardenSearch(m aiModel) wardenSearcher {
 const wardenSearchAsk = `Search for current second-hand or for-sale listings matching: %s
 
 List up to %d individual listings you found in the search results, one per line, as:
-<the listing's title> | <its price in euros, or ?>
+<the listing's title> | <its price in euros, or ?> | <the town where the item is, or ?>
 Only real listings from the results, no shops' category pages, no other text.`
 
-func (g *geminiSearch) Search(ctx context.Context, query string, n int) ([]wardenHit, error) {
+const wardenSearchNear = `
+
+The buyer lives in %s, Finland: search for listings there and nearby first, and list those first.`
+
+func (g *geminiSearch) Search(ctx context.Context, query, near string, n int) ([]wardenHit, error) {
+	ask := fmt.Sprintf(wardenSearchAsk, query, n)
+	if near != "" {
+		ask += fmt.Sprintf(wardenSearchNear, near)
+	}
 	body, _ := json.Marshal(map[string]any{
-		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": fmt.Sprintf(wardenSearchAsk, query, n)}}}},
+		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": ask}}}},
 		"tools":            []any{map[string]any{"google_search": map[string]any{}}},
 		"generationConfig": map[string]any{"temperature": 0},
 	})
@@ -158,8 +172,12 @@ func (g *geminiSearch) Search(ctx context.Context, query string, n int) ([]warde
 	used := map[int]bool{}
 	for _, sup := range gm.Supports {
 		for _, line := range strings.Split(sup.Segment.Text, "\n") {
-			title, price, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
-			title, price = strings.TrimSpace(title), strings.TrimSpace(price)
+			title, rest, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
+			price, place, _ := strings.Cut(rest, "|")
+			title, price, place = strings.TrimSpace(title), strings.TrimSpace(price), strings.TrimSpace(place)
+			if place == "?" {
+				place = ""
+			}
 			if title == "" || len(sup.Chunks) == 0 {
 				continue
 			}
@@ -179,7 +197,7 @@ func (g *geminiSearch) Search(ctx context.Context, query string, n int) ([]warde
 					snippet += " €"
 				}
 			}
-			hits = append(hits, wardenHit{Title: title, URL: u, Snippet: snippet})
+			hits = append(hits, wardenHit{Title: title, URL: u, Snippet: snippet, Location: aiClip(place, 60)})
 		}
 	}
 	return hits, nil
@@ -270,6 +288,39 @@ func wardenWatchDone(d Doc) bool {
 	return false
 }
 
+// the town whose listings a watch prefers: its own area, else the first
+// usual place of the entry's ward, else the space's (wardenplaces.go), else
+// the entry's own place (an address names its town), else Tampere
+func wardenWatchArea(sp *wardenSpace, d Doc, w map[string]any) string {
+	if a := docStr(w, "area"); a != "" {
+		return a
+	}
+	first := func(m map[string]any) string {
+		for _, p := range docMaps(m, "places") {
+			if n := docStr(p, "name"); n != "" {
+				return n
+			}
+		}
+		return ""
+	}
+	if ward := docStr(d, "ward"); ward != "" {
+		for _, wd := range docMaps(sp.doc, "wards") {
+			if docStr(wd, "id") == ward {
+				if n := first(wd); n != "" {
+					return n
+				}
+			}
+		}
+	}
+	if n := first(sp.doc); n != "" {
+		return n
+	}
+	if p := docStr(d, "place"); p != "" {
+		return p
+	}
+	return wardenWatchHome
+}
+
 // what a watch searches with: its own words, or the entry's title
 func wardenWatchQuery(d Doc, w map[string]any) string {
 	if q := docStr(w, "query"); q != "" {
@@ -290,6 +341,9 @@ func wardenWatchJSON(d Doc) map[string]any {
 	}
 	if l := docStrs(w, "exclude"); len(l) > 0 {
 		out["exclude"] = anys(l)
+	}
+	if a := docStr(w, "area"); a != "" {
+		out["area"] = a
 	}
 	if t := millis(w["last_run"]); t > 0 {
 		out["last_run"] = time.UnixMilli(t).UTC().Format(time.RFC3339)
@@ -344,6 +398,14 @@ func (s *wardenService) setWatch(ctx context.Context, sp *wardenSpace, a map[str
 			return nil, roomErr{fmt.Sprintf("a space has at most %d watches", wardenWatchMax)}
 		}
 		w["sources"] = anys(wardenWatchDefault)
+	}
+	if v, ok := a["area"]; ok {
+		ar, _ := v.(string)
+		ar = strings.TrimSpace(ar)
+		if len([]rune(ar)) > 80 {
+			return nil, roomErr{"area is at most 80 characters"}
+		}
+		w["area"] = ar
 	}
 	if v, ok := a["query"]; ok {
 		q, _ := v.(string)
@@ -476,7 +538,7 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		if site != "" {
 			query += " site:" + site
 		}
-		hits, err := s.search.Search(ctx, query, wardenWatchHits)
+		hits, err := s.search.Search(ctx, query, wardenWatchArea(sp, d, w), wardenWatchHits)
 		if err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
@@ -514,6 +576,9 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 			f := map[string]any{"title": aiClip(h.Title, 160), "url": h.URL, "source": name, "found": now.In(wardenLoc(sp)).Format("2006-01-02")}
 			if price > 0 {
 				f["price"] = price
+			}
+			if h.Location != "" {
+				f["location"] = h.Location
 			}
 			if h.Snippet != "" {
 				f["snippet"] = aiClip(h.Snippet, 240)

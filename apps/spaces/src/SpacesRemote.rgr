@@ -313,6 +313,10 @@ class SpRemote {
                 if (price > 0.0) {
                     push parts ((SpTypes.numText(price)) + " €")
                 }
+                def town:string (f.stringOr("location" ""))
+                if ((strlen town) > 0) {
+                    push parts town
+                }
                 push parts (f.stringOr("source" ""))
                 def found:string (f.stringOr("found" ""))
                 if ((strlen found) == 10) {
