@@ -9404,10 +9404,11 @@ class PresApp {
         return (((barH > 0.0) && (mode != "present")) && ((toolbar.listOpen()) || toolbar.dragOn))
     }
 
-    ; The bar as a display list over the page: "" when there is none.
-    fn toolbarJson:string () {
+    ; The bar brought up to this size and state, ready to be laid out: false
+    ; when there is none.
+    fn toolbarReady:boolean () {
         if ((barH <= 0.0) || (mode == "present")) {
-            return ""
+            return false
         }
         toolbar.measurer = measurer
         if ((toolbar.w != W) || (toolbar.h != H)) {
@@ -9418,6 +9419,14 @@ class PresApp {
         toolbar.setState(playing (this.statusText()))
         ; Rooms and Review's list of comments stay open; the rest act at once
         toolbar.setRailState((? (this.reviewListOpen()) "review" "") (review.on && ((review.model.openCount()) > 0)) (this.docTitle()))
+        return true
+    }
+
+    ; The bar as a display list over the page: "" when there is none.
+    fn toolbarJson:string () {
+        if ((this.toolbarReady()) == false) {
+            return ""
+        }
         def dl:EVGDisplayList (toolbar.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -14050,6 +14059,15 @@ class PresApp {
                 def bar:EVGA11yNode (t.node("bar" "app" (EVGA11yRole.toolbar())))
                 bar.name = (PresI18n.t("Toolbar"))
                 t.place(bar 0 0 (to_int W) (to_int toolbar.barH))
+                ; a bar rebuilt since it was last drawn (a list the page sent
+                ; again: rooms, recent decks, a theme) has no layout yet: laid
+                ; out now, or its controls left the mirror until the next
+                ; frame and the keyboard on one of them with it
+                if (null? toolbar.host.lastPage) {
+                    if (this.toolbarReady()) {
+                        toolbar.displayList()
+                    }
+                }
                 PresA11y.addHost(t toolbar.host "bar")
             }
             if ((deckRect.h > 0.0) && (!null? chromeRoot)) {
