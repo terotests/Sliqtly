@@ -100,7 +100,11 @@ With the meta tag the page
 - offers an empty space the pack's demo data: its wards, then its events
   (deadlines as important all-day events).
 - shows an entry's **offer watch** on its form: what it looks for and its
-  latest finds, each opening the offer in a new tab. A watch is set by the
+  latest finds (price, town, source, day), each opening the offer in a new
+  tab. Listings near the space's usual place come first (Tampere when none
+  is known). The form turns the watch on or off and picks where it looks
+  (Tori, Vinted, Huuto.net, web) and how often (daily, every 3 days,
+  weekly), the same settings as MCP's `set_watch`. A watch is also set by the
   assistant or over MCP (`set_watch`, `list_watches`, `run_watch`); the
   server searches Tori.fi, Vinted, Huuto.net or the web for it once a day
   and makes a reminder of new finds (`mcp-go/wardenwatch.go`).

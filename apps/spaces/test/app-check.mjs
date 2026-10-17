@@ -909,7 +909,7 @@ console.log("an entry's offer watch");
     events: [
       { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
         watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
-          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, source: "Tori", found: "2026-10-07" },
+          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, location: "Tampere", source: "Tori", found: "2026-10-07" },
           { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
         ] } },
     ],
@@ -920,9 +920,24 @@ console.log("an entry's offer watch");
   a.press("sp-list-item");
   a.press("sp-entry-" + bed.id);
   const t = texts(a);
-  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tori · 7.10."), t.join(","));
+  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tampere · Tori · 7.10."), t.join(","));
   a.press("sp-find-0");
   eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
+  // its settings, sent as set_watch
+  a.press("sp-wsrc-web");
+  eq("a source is a set_watch", a.outOp(), "set_watch");
+  let wb = JSON.parse(a.outBody());
+  ok("with the sources", wb.event_id === "ev1" && wb.active === true && wb.sources.join() === "tori,web" && wb.every_days === 1, JSON.stringify(wb));
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 1, finds: [] } }));
+  a.press("sp-wint-7");
+  wb = JSON.parse(a.outBody());
+  eq("weekly", wb.every_days, 7);
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 7, finds: [] } }));
+  a.press("sp-watch-off");
+  wb = JSON.parse(a.outBody());
+  eq("stopped", wb.active, false);
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: false, sources: ["tori", "web"], every_days: 7, finds: [] } }));
+  ok("and it can be turned on again", !!byId(a, "sp-watch-on"));
   const probs = a.a11yProblems();
   ok("the watch lints clean", probs.length === 0, probs.join(" | "));
 }

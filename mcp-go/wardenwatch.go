@@ -6,9 +6,10 @@
 // the entry and the space gets a reminder of them, which the summary's
 // Muista lists.
 //
-// The search is a web search API's (Brave Search, BRAVE_SEARCH_API_KEY),
-// limited to a site per source with site:. Tori.fi, Vinted and Huuto.net
-// have no public API, and the server does not read their pages itself.
+// The search is Gemini's with Google Search (the assistant's model and
+// account, aimodel.go), limited to a site per source with site:. Tori.fi,
+// Vinted and Huuto.net have no public API, and the server does not read
+// their pages itself.
 //
 // A watch lives on its entry, warden_events/{id}:
 //
@@ -18,7 +19,8 @@
 //
 // The runs:
 //
-//	POST /apps/warden/api/run_watches  Authorization: Bearer $WARDEN_CRON_TOKEN
+//	POST /apps/warden/api/run_watches  Authorization: Bearer <a Google ID
+//	    token of the service account in WARDEN_CRON_SA, for this address>
 //	    the watches that are due, oldest first, at most wardenWatchBatch at
 //	    a time; {ran, found, more} (.github/workflows/warden-watch.yml calls
 //	    it daily, again while more)
@@ -29,14 +31,12 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
@@ -55,6 +55,9 @@ const (
 	wardenWatchUID = "warden-watch"
 )
 
+// the town a watch prefers when nothing in the space names one
+const wardenWatchHome = "Tampere"
+
 // where a watch looks: a site (searched with site:) or the whole web
 var wardenWatchSources = []struct{ id, site, name string }{
 	{"tori", "tori.fi", "Tori"},
@@ -70,64 +73,154 @@ var wardenWatchDefault = []string{"tori", "vinted", "huuto"}
 // one result of a web search
 type wardenHit struct {
 	Title, URL, Snippet string
+	// where the item is, as the listing says ("" when not said)
+	Location string
 }
 
 type wardenSearcher interface {
-	Search(ctx context.Context, query string, n int) ([]wardenHit, error)
+	// near: a town the listings near which come first ("" anywhere)
+	Search(ctx context.Context, query, near string, n int) ([]wardenHit, error)
 }
 
-// Brave Search's web search API
-type braveSearch struct {
-	key  string
-	base string // "" the real endpoint; the tests' server
-	http *http.Client
+// Gemini answering with Google Search (grounding), on the assistant's own
+// model and account: it searches, lists the offers it found one per line,
+// and each line is tied to the result it came from. Those results are
+// Google's redirect addresses; the listing's own address is read from the
+// redirect, without opening the listing.
+type geminiSearch struct {
+	m *geminiModel
+	// follows nothing: the redirect's Location is the address
+	redirect *http.Client
 }
 
-func newWardenSearch() wardenSearcher {
-	if k := os.Getenv("BRAVE_SEARCH_API_KEY"); k != "" {
-		return &braveSearch{key: k, http: &http.Client{Timeout: 15 * time.Second}}
+// the deal watcher's search on the assistant's model; nil when it is not
+// Gemini (no search)
+func newWardenSearch(m aiModel) wardenSearcher {
+	g, ok := m.(*geminiModel)
+	if !ok || g == nil {
+		return nil
 	}
-	return nil
+	c := *g
+	c.tools = nil
+	c.model = env("WARDEN_SEARCH_MODEL", g.model)
+	return &geminiSearch{m: &c, redirect: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
-func (b *braveSearch) Search(ctx context.Context, query string, n int) ([]wardenHit, error) {
-	base := b.base
-	if base == "" {
-		base = "https://api.search.brave.com"
+const wardenSearchAsk = `Search for current second-hand or for-sale listings matching: %s
+
+List up to %d individual listings you found in the search results, one per line, as:
+<the listing's title> | <its price in euros, or ?> | <the town where the item is, or ?>
+Only real listings from the results, no shops' category pages, no other text.`
+
+const wardenSearchNear = `
+
+The buyer lives in %s, Finland: search for listings there and nearby first, and list those first.`
+
+func (g *geminiSearch) Search(ctx context.Context, query, near string, n int) ([]wardenHit, error) {
+	ask := fmt.Sprintf(wardenSearchAsk, query, n)
+	if near != "" {
+		ask += fmt.Sprintf(wardenSearchNear, near)
 	}
-	q := url.Values{"q": {query}, "count": {strconv.Itoa(n)}, "country": {"FI"}, "search_lang": {"fi"}, "freshness": {"pm"}, "safesearch": {"moderate"}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/res/v1/web/search?"+q.Encode(), nil)
+	body, _ := json.Marshal(map[string]any{
+		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": ask}}}},
+		"tools":            []any{map[string]any{"google_search": map[string]any{}}},
+		"generationConfig": map[string]any{"temperature": 0},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.m.endpoint(), strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Subscription-Token", b.key)
-	res, err := b.http.Do(req)
+	req.Header.Set("Content-Type", "application/json")
+	if g.m.key != "" {
+		req.Header.Set("x-goog-api-key", g.m.key)
+	}
+	res, err := g.m.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer res.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if res.StatusCode != 200 {
 		return nil, fmt.Errorf("search: %s", res.Status)
 	}
 	var out struct {
-		Web struct {
-			Results []struct {
-				Title       string `json:"title"`
-				URL         string `json:"url"`
-				Description string `json:"description"`
-			} `json:"results"`
-		} `json:"web"`
+		Candidates []struct {
+			Grounding struct {
+				Chunks []struct {
+					Web struct {
+						URI   string `json:"uri"`
+						Title string `json:"title"`
+					} `json:"web"`
+				} `json:"groundingChunks"`
+				Supports []struct {
+					Segment struct {
+						Text string `json:"text"`
+					} `json:"segment"`
+					Chunks []int `json:"groundingChunkIndices"`
+				} `json:"groundingSupports"`
+			} `json:"groundingMetadata"`
+		} `json:"candidates"`
 	}
-	if err := json.Unmarshal(body, &out); err != nil {
+	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("search: %v", err)
 	}
+	if len(out.Candidates) == 0 {
+		return nil, nil
+	}
+	gm := out.Candidates[0].Grounding
 	hits := []wardenHit{}
-	for _, r := range out.Web.Results {
-		hits = append(hits, wardenHit{Title: wardenPlain(r.Title), URL: r.URL, Snippet: wardenPlain(r.Description)})
+	used := map[int]bool{}
+	for _, sup := range gm.Supports {
+		for _, line := range strings.Split(sup.Segment.Text, "\n") {
+			title, rest, _ := strings.Cut(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
+			price, place, _ := strings.Cut(rest, "|")
+			title, price, place = strings.TrimSpace(title), strings.TrimSpace(price), strings.TrimSpace(place)
+			if place == "?" {
+				place = ""
+			}
+			if title == "" || len(sup.Chunks) == 0 {
+				continue
+			}
+			i := sup.Chunks[0]
+			if i < 0 || i >= len(gm.Chunks) || used[i] {
+				continue
+			}
+			used[i] = true
+			u := g.resolve(ctx, gm.Chunks[i].Web.URI)
+			if u == "" {
+				continue
+			}
+			snippet := ""
+			if price != "" && price != "?" {
+				snippet = price
+				if !strings.ContainsAny(price, "€") {
+					snippet += " €"
+				}
+			}
+			hits = append(hits, wardenHit{Title: title, URL: u, Snippet: snippet, Location: aiClip(place, 60)})
+		}
 	}
 	return hits, nil
+}
+
+// the address a grounding redirect leads to ("" when it leads nowhere)
+func (g *geminiSearch) resolve(ctx context.Context, u string) string {
+	if u == "" {
+		return ""
+	}
+	if !strings.Contains(u, "grounding-api-redirect") {
+		return u
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
+	if err != nil {
+		return ""
+	}
+	res, err := g.redirect.Do(req)
+	if err != nil {
+		return ""
+	}
+	res.Body.Close()
+	return res.Header.Get("Location")
 }
 
 var wardenTagRe = regexp.MustCompile(`<[^>]*>`)
@@ -195,6 +288,39 @@ func wardenWatchDone(d Doc) bool {
 	return false
 }
 
+// the town whose listings a watch prefers: its own area, else the first
+// usual place of the entry's ward, else the space's (wardenplaces.go), else
+// the entry's own place (an address names its town), else Tampere
+func wardenWatchArea(sp *wardenSpace, d Doc, w map[string]any) string {
+	if a := docStr(w, "area"); a != "" {
+		return a
+	}
+	first := func(m map[string]any) string {
+		for _, p := range docMaps(m, "places") {
+			if n := docStr(p, "name"); n != "" {
+				return n
+			}
+		}
+		return ""
+	}
+	if ward := docStr(d, "ward"); ward != "" {
+		for _, wd := range docMaps(sp.doc, "wards") {
+			if docStr(wd, "id") == ward {
+				if n := first(wd); n != "" {
+					return n
+				}
+			}
+		}
+	}
+	if n := first(sp.doc); n != "" {
+		return n
+	}
+	if p := docStr(d, "place"); p != "" {
+		return p
+	}
+	return wardenWatchHome
+}
+
 // what a watch searches with: its own words, or the entry's title
 func wardenWatchQuery(d Doc, w map[string]any) string {
 	if q := docStr(w, "query"); q != "" {
@@ -215,6 +341,9 @@ func wardenWatchJSON(d Doc) map[string]any {
 	}
 	if l := docStrs(w, "exclude"); len(l) > 0 {
 		out["exclude"] = anys(l)
+	}
+	if a := docStr(w, "area"); a != "" {
+		out["area"] = a
 	}
 	if t := millis(w["last_run"]); t > 0 {
 		out["last_run"] = time.UnixMilli(t).UTC().Format(time.RFC3339)
@@ -269,6 +398,14 @@ func (s *wardenService) setWatch(ctx context.Context, sp *wardenSpace, a map[str
 			return nil, roomErr{fmt.Sprintf("a space has at most %d watches", wardenWatchMax)}
 		}
 		w["sources"] = anys(wardenWatchDefault)
+	}
+	if v, ok := a["area"]; ok {
+		ar, _ := v.(string)
+		ar = strings.TrimSpace(ar)
+		if len([]rune(ar)) > 80 {
+			return nil, roomErr{"area is at most 80 characters"}
+		}
+		w["area"] = ar
 	}
 	if v, ok := a["query"]; ok {
 		q, _ := v.(string)
@@ -334,7 +471,7 @@ func (s *wardenService) setWatch(ctx context.Context, sp *wardenSpace, a map[str
 	}
 	out := map[string]any{"event_id": id, "title": docStr(d, "title"), "watch": wardenWatchJSON(d)}
 	if s.search == nil {
-		out["note"] = "Saved. This server has no search API key yet (BRAVE_SEARCH_API_KEY), so the watch does not search until it gets one."
+		out["note"] = "Saved. This server has no search (its assistant's model is not Gemini), so the watch does not search."
 	}
 	return out, nil
 }
@@ -357,7 +494,7 @@ func (s *wardenService) listWatches(ctx context.Context, sp *wardenSpace) (any, 
 // run_watch: one entry's watch, now
 func (s *wardenService) runWatchOp(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	if s.search == nil {
-		return nil, roomErr{"This server has no search API key yet (BRAVE_SEARCH_API_KEY)."}
+		return nil, roomErr{"This server has no search (its assistant's model is not Gemini)."}
 	}
 	id := argStr(a, "event_id")
 	d, err := s.event(ctx, sp, id)
@@ -401,7 +538,7 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		if site != "" {
 			query += " site:" + site
 		}
-		hits, err := s.search.Search(ctx, query, wardenWatchHits)
+		hits, err := s.search.Search(ctx, query, wardenWatchArea(sp, d, w), wardenWatchHits)
 		if err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
@@ -439,6 +576,9 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 			f := map[string]any{"title": aiClip(h.Title, 160), "url": h.URL, "source": name, "found": now.In(wardenLoc(sp)).Format("2006-01-02")}
 			if price > 0 {
 				f["price"] = price
+			}
+			if h.Location != "" {
+				f["location"] = h.Location
 			}
 			if h.Snippet != "" {
 				f["snippet"] = aiClip(h.Snippet, 240)
@@ -528,7 +668,7 @@ func (s *wardenService) watchReminder(ctx context.Context, sp *wardenSpace, id s
 // how many ran, the new finds, and whether more are due
 func (s *wardenService) runDueWatches(ctx context.Context) (map[string]any, error) {
 	if s.search == nil {
-		return nil, roomErr{"no search API key (BRAVE_SEARCH_API_KEY)"}
+		return nil, roomErr{"no search (the assistant's model is not Gemini)"}
 	}
 	docs, ids, err := s.db.WhereEq(ctx, wardenEvents, "watching", true)
 	if err != nil {
@@ -587,11 +727,10 @@ func (s *wardenService) runDueWatches(ctx context.Context) (map[string]any, erro
 	return map[string]any{"ran": ran, "found": found, "more": more}, nil
 }
 
-// POST /apps/warden/api/run_watches, with the scheduler's token
+// POST /apps/warden/api/run_watches, from the scheduler
 func serveWardenWatchRun(env *Env, w http.ResponseWriter, r *http.Request) {
-	tok := os.Getenv("WARDEN_CRON_TOKEN")
-	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if r.Method != http.MethodPost || tok == "" || subtle.ConstantTimeCompare([]byte(got), []byte(tok)) != 1 {
+	auth := env.warden.cronAuth
+	if r.Method != http.MethodPost || auth == nil || !auth(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
 		editorJSON(w, 403, map[string]string{"error": "Not allowed."})
 		return
 	}
