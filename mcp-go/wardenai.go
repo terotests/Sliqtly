@@ -169,7 +169,7 @@ func wardenTypeLines(vocab, lang string) string {
 		if t.Repeats {
 			b.WriteString(" Usually repeats (rrule).")
 		}
-		for _, a := range t.Also {
+		for _, a := range t.AlsoIn {
 			fmt.Fprintf(&b, " Also listed as %s while %s is %s.", a.Type, a.When.Field, a.When.Is)
 		}
 		b.WriteString("\n")

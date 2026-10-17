@@ -3,6 +3,8 @@
 package main
 
 import (
+	"os"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
@@ -24,7 +26,7 @@ func TestWardenTypesSchema(t *testing.T) {
 		if ty.Legacy && wardenTypeOf(ty.ReplacedBy) == nil {
 			t.Fatalf("%s: replaced by no type", ty.ID)
 		}
-		for _, a := range ty.Also {
+		for _, a := range ty.AlsoIn {
 			if wardenTypeOf(a.Type) == nil || a.Type == ty.ID {
 				t.Fatalf("%s: also listed as %q, no other type", ty.ID, a.Type)
 			}
@@ -327,6 +329,44 @@ func TestWardenListedAs(t *testing.T) {
 	} {
 		if got := wardenListedAs(c.d, c.typ); got != c.want {
 			t.Fatalf("%v as %s: %v", c.d, c.typ, got)
+		}
+	}
+}
+
+// every common field the page's form shows is named on every type that
+// list_entry_types answers, so an MCP client reading one type finds them
+func TestWardenFormFieldsListed(t *testing.T) {
+	src, err := os.ReadFile("../apps/spaces/src/SpacesApp.rgr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := regexp.MustCompile(`sfn commonField:string`).FindIndex(src)
+	if i == nil {
+		t.Fatal("SpacesApp.rgr has no commonField")
+	}
+	body := src[i[1]:]
+	body = body[:regexp.MustCompile(`\n    sfn `).FindIndex(body)[0]]
+	form := []string{}
+	for _, m := range regexp.MustCompile(`return "(\w+)"`).FindAllSubmatch(body, -1) {
+		form = append(form, string(m[1]))
+	}
+	if len(form) < 5 {
+		t.Fatalf("read %v from commonField", form)
+	}
+	common := map[string]bool{}
+	for _, f := range wardenCommon {
+		common[f.Key] = true
+	}
+	for _, k := range wardenFormCommon {
+		if !common[k] {
+			t.Fatalf("%s is not a common field", k)
+		}
+	}
+	for _, ty := range wardenTypesFor("family") {
+		for _, k := range form {
+			if !slices.Contains(ty.Also, k) {
+				t.Fatalf("%s: the form's %s is not in its also_fields", ty.ID, k)
+			}
 		}
 	}
 }
