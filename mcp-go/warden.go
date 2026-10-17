@@ -1427,10 +1427,24 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 	// the caller's own money, in no space (wardenown.go)
 	case "own_budget":
 		return s.ownBudget(ctx, who, a)
-	case "save_own_item":
-		return s.saveOwnItem(ctx, who, a)
-	case "delete_own_item":
+	case "save_own_item", "delete_own_item":
+		if who.uid != "" {
+			if err := s.backupOwn(ctx, who.uid, op, false); err != nil {
+				log.Printf("warden own %s: backup before %s: %v", who.uid, op, err)
+			}
+		}
+		if op == "save_own_item" {
+			return s.saveOwnItem(ctx, who, a)
+		}
 		return s.deleteOwnItem(ctx, who, a)
+	}
+	// the backups are the page's alone (wardenbackup.go): no tool, so no
+	// assistant reaches them
+	if page && op == wardenListBackupsOp {
+		return s.listBackups(ctx, who, a)
+	}
+	if page && op == wardenRestoreBackupOp {
+		return s.restoreBackup(ctx, who, a)
 	}
 	if op == wardenChangesOp && page {
 		sp, err := s.space(ctx, who, argStr(a, "space_id"))
@@ -1440,12 +1454,18 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		by := docStr(sp.doc, "changed_by")
 		return map[string]any{"changed": wardenChanged(sp.doc), "mine": by != "" && by == who.client}, nil
 	}
-	if findWardenTool(op) == nil {
+	tool := findWardenTool(op)
+	if tool == nil {
 		return nil, roomErr{"no such operation: " + op}
 	}
 	sp, err := s.space(ctx, who, argStr(a, "space_id"))
 	if err != nil {
 		return nil, err
+	}
+	if !tool.readOnly {
+		if err := s.backupBefore(ctx, sp, op); err != nil {
+			return nil, err
+		}
 	}
 	out, err := s.run(ctx, sp, op, a)
 	if err == nil && wardenWrites[op] {

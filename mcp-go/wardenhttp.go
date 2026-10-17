@@ -376,7 +376,7 @@ func serveWardenLogin(env *Env, w http.ResponseWriter, r *http.Request) {
 
 func serveWardenAPI(env *Env, w http.ResponseWriter, r *http.Request, op string) {
 	g := env.EditorGate
-	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && op != wardenChangesOp && findWardenTool(op) == nil) {
+	if g == nil || (op != "list_spaces" && op != "create_space" && op != wardenAssistOp && op != wardenChangesOp && op != wardenListBackupsOp && op != wardenRestoreBackupOp && findWardenTool(op) == nil) {
 		editorJSON(w, 404, map[string]string{"error": "No such call."})
 		return
 	}

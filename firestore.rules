@@ -36,6 +36,9 @@ rules_version = '2';
 // Warden's MCP server). No rule matches them: only the server reads or
 // writes them. warden_own/{uid}: one person's own budget (mcp-go/wardenown.go),
 // read and written by the server for that uid only; no rule either.
+// warden_backups, warden_backup_data: the copies of the spaces and the own
+// budgets (mcp-go/wardenbackup.go), written by the server only and restored
+// only from the page; no rule, so no client reads, changes or removes them.
 // stats, stats_salt, stats_seen: the visitor counts (mcp-go/rgr/Stats.rgr); no
 // rule either.
 // licenses/{uid}: what the editor at /editor lets a signed-in user change

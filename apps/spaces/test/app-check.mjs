@@ -1702,6 +1702,59 @@ console.log("changes made elsewhere, and the tab in the address");
   ok("not a tab", !a.goTab("nowhere") && a.tab === "budget");
 }
 
+console.log("backups: the owner restores a copy, and a deleted space");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
+  a.press("sp-nav-members");
+  ok("a card on the members page", texts(a).includes("Varmuuskopiot") && !!byId(a, "sp-backups-show"));
+  a.press("sp-backups-show");
+  ok("listed on asking", a.outOp() === "list_backups" && JSON.parse(a.outBody()).space_id === "sp1", a.outBody());
+  a.answer(JSON.stringify({ space_id: "sp1", backups: [{ backup_id: "sp1.2", when: "2026-10-17 14:05", reason: "delete_event", events: 3 }, { backup_id: "sp1.1", when: "2026-10-16 09:00", reason: "save_event", events: 0 }] }));
+  const t = texts(a);
+  ok("newest first, in Finnish", t.includes("17.10.2026 klo 14.05") && t.includes("3 merkintää · ennen poistoa"), t.join("|"));
+  a.press("sp-backuprestore-0");
+  ok("asks first", !!byId(a, "sp-backup-yes") && a.outCount() === 0);
+  a.press("sp-backup-yes");
+  ok("then restores", a.outOp() === "restore_backup" && JSON.parse(a.outBody()).backup_id === "sp1.2", a.outBody());
+  a.answer(JSON.stringify({ restored: "sp1.2", space_id: "sp1", events: 3 }));
+  ok("and reads the space again", a.status.includes("Palautettu: 3") && a.outOp() === "get_space", a.status + " " + a.outOp());
+  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
+  ok("on the members page", a.tab === "members");
+
+  a.press("sp-nav-spaces");
+  a.press("sp-lost-show");
+  ok("the deleted spaces on asking", a.outOp() === "list_backups" && a.outBody() === "{}", a.outBody());
+  a.answer(JSON.stringify({ own: [], deleted_spaces: [{ space_id: "sp9", name: "Mökki", backups: [{ backup_id: "sp9.5", when: "2026-10-15 20:00", reason: "delete_space", events: 12 }] }] }));
+  ok("with the newest copy", texts(a).includes("Mökki") && texts(a).includes("15.10.2026 klo 20.00 · 12 merkintää · ennen tilan poistoa"), texts(a).join("|"));
+  a.press("sp-lostrestore-0");
+  a.press("sp-backup-yes");
+  ok("restores it", a.outOp() === "restore_backup" && JSON.parse(a.outBody()).backup_id === "sp9.5");
+  a.answer(JSON.stringify({ restored: "sp9.5", space_id: "sp9", events: 12 }));
+  ok("and lists the spaces again", a.outOp() === "list_spaces");
+}
+
+const memberOnly = new M.SpacesApp();
+{
+  const a = memberOnly;
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u2", name: "Leo", email: "leo@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "member" }] }));
+  a.answer(JSON.stringify({ space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "member", members: [], invites: [], wards: [] }, events: [], event_watch: { active: false, finds: [] } }));
+  a.press("sp-nav-members");
+  ok("a member sees no backups", !byId(a, "sp-backups-show"));
+}
+
 console.log(`passed=${passed} failed=${failed}`);
 if (failed > 0) process.exit(1);
 console.log("ALL PASS");
