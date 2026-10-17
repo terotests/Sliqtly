@@ -2218,11 +2218,43 @@ class SpSpace {
         while (k < (array_length events)) {
             def e:SpEvent (itemAt events k)
             if e.hasCost {
-                SpSpace.addOnce(out e.cost.payer)
+                SpSpace.addOnce(out (this.memberName(e.cost.payer)))
             }
             k = (k + 1)
         }
         return out
+    }
+
+    ; A name as the member it means: "Tero" on a cost is the one member whose
+    ; first name it is ("Tero Tolonen"), as the server's budget reads it. A
+    ; name no member has, or a first name two share, stays as written.
+    fn memberName:string (name:string) {
+        def t:string (trim name)
+        def match:string ""
+        def i:int 0
+        while (i < (array_length members)) {
+            def m:SpMember (itemAt members i)
+            def full:string (trim m.name)
+            if ((to_lowercase full) == (to_lowercase t)) {
+                return full
+            }
+            def first:string full
+            def sp:int (indexOf full " ")
+            if (sp > 0) {
+                first = (substring full 0 sp)
+            }
+            if (((strlen t) > 0) && ((to_lowercase first) == (to_lowercase t))) {
+                if ((strlen match) > 0) {
+                    return t
+                }
+                match = full
+            }
+            i = (i + 1)
+        }
+        if ((strlen match) > 0) {
+            return match
+        }
+        return t
     }
 
     ; The email of the member named `name`, "" when no member has it: two
