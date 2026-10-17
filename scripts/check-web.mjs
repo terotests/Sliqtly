@@ -2059,17 +2059,21 @@ try {
     check("a shared deck's end panel closes to its last slide", end.shown && /Close/.test(end.exit) && !after.shown && after.mode === "present" && after.last, JSON.stringify({ end, after }));
     await pageE.close();
   }
-  // The bar fades when the pointer rests for 2.5 s, and a slow frame can
-  // take that long: each press moves the pointer first, and tries again if
-  // the bar faded before the click landed.
+  // The bar fades when the pointer rests for 2.5 s away from it, and on
+  // CI's software GL a presenting frame can take that long (a click waits
+  // for two frames): each press first rests the mouse on what it presses,
+  // which keeps the bar, gives the click time for slow frames, and tries
+  // again if the bar faded before the click landed.
   async function tapViewer(pg, sel) {
     for (let i = 0; ; i += 1) {
-      await pg.mouse.move(300 + i, 300);
+      const box = await pg.locator(sel).boundingBox();
+      if (box) await pg.mouse.move(box.x + box.width / 2 + (i % 2), box.y + box.height / 2);
+      else await pg.mouse.move(300 + i, 300);
       try {
-        await pg.click(sel, { timeout: 4000 });
+        await pg.click(sel, { timeout: 15000 });
         return;
       } catch (e) {
-        if (i >= 5) throw e;
+        if (i >= 2) throw e;
       }
     }
   }
@@ -2112,7 +2116,7 @@ try {
   await page4.close();
   const shownMd = await page3.evaluate(() => window.__app.source());
   await tapViewer(page3, "#vMore");
-  await Promise.all([page3.waitForEvent("load", { timeout: 30000 }), page3.click('#vMenu [data-act="new"]')]);
+  await Promise.all([page3.waitForEvent("load", { timeout: 90000 }), tapViewer(page3, '#vMenu [data-act="new"]')]);
   await page3.waitForFunction(() => window.__pageStarted === true, null, { timeout: 90000 });
   const made = await page3.evaluate(() => ({ viewer: document.body.classList.contains("viewer"), mode: JSON.parse(window.__app.layoutJson()).mode, md: window.__app.source() }));
   check("Create New… opens the shown deck in the editor", !made.viewer && made.mode !== "present" && made.md === shownMd, JSON.stringify({ ...made, md: made.md.slice(0, 40) }));
