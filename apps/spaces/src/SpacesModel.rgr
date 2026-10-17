@@ -47,6 +47,19 @@ class SpResource {
     }
 }
 
+; A town the space, or one ward (`ward`, its id; "" for the whole space),
+; usually is in: the summary shows its weather. `detail` is what a search
+; says of it (its region), for the list of results only.
+class SpPlace {
+    def name:string ""
+    def lat:double 0.0
+    def lon:double 0.0
+    def ward:string ""
+    def detail:string ""
+    Constructor () {
+    }
+}
+
 ; Who looks after an event, and how: "Mia" who "takes".
 class SpWho {
     def name:string ""
@@ -316,6 +329,15 @@ class SpEvent {
     def costDropped:boolean false
     ; a deadline's first day to remind on, as the server said (-1: not said)
     def remindFrom:int -1
+    ; on a server: its deal watch (wardenwatch.go), when it has one: the
+    ; search words, whether it is on, and the latest finds (title, address
+    ; and a line of price, source and day)
+    def watched:boolean false
+    def watchQuery:string ""
+    def watchOn:boolean false
+    def findTitles:[string]
+    def findUrls:[string]
+    def findInfo:[string]
     Constructor () {
     }
 
@@ -917,6 +939,8 @@ class SpSpace {
     def invites:[string]
     def myRole:string "owner"
     def resources:[SpResource]
+    ; the usual places of the space and of its wards
+    def places:[SpPlace]
     def events:[SpEvent]
     def deadlines:[SpDeadline]
     def sheets:[SpSheet]
@@ -1063,11 +1087,7 @@ class SpSpace {
                 def gf:int (itemAt w 0)
                 def gb:int (itemAt w 1)
                 if ((gb >= from) && (gf <= to)) {
-                    def word:string "Hanki: "
-                    if en {
-                        word = "Get: "
-                    }
-                    def o:SpOccur (this.derivedOcc(e (e.id + "#get") (word + e.title) gf gb))
+                    def o:SpOccur (this.derivedOcc(e (e.id + "#get") e.title gf gb))
                     o.important = ((today >= gf) && (today <= gb))
                     push out o
                 }
@@ -1298,6 +1318,10 @@ class SpSpace {
         }
         if (rule.freq == "weekly") {
             def days:[int] rule.byDay
+            def week:SpWeek (this.weekOf(e))
+            if week.ok {
+                days = (week.days())
+            }
             if ((array_length days) == 0) {
                 days = ([] _:int ( (UiDate.weekday(e.day)) ))
             }
@@ -1378,8 +1402,77 @@ class SpSpace {
         return (d - ((w + 6) % 7))
     }
 
+    ; An event's times per weekday (its type's weektimes field); not `ok`
+    ; when it has none.
+    fn weekOf:SpWeek (e:SpEvent) {
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return (new SpWeek())
+        }
+        def tt:SpType t
+        def i:int 0
+        while (i < (array_length tt.fields)) {
+            def f:SpField (itemAt tt.fields i)
+            if (f.type == "weektimes") {
+                def text:string (e.fieldText(f.key))
+                if ((strlen text) > 0) {
+                    return (SpWeek.read(text))
+                }
+            }
+            i = (i + 1)
+        }
+        return (new SpWeek())
+    }
+
+    ; The days in [from, to] an event does not happen on because its type
+    ; skips them: a school day on a holiday or an exception day of the same
+    ; ward (or of no ward), unless that day says the school is open.
+    fn skippedDays:[int] (e:SpEvent all:[SpEvent] from:int to:int) {
+        def out:[int]
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return out
+        }
+        def tt:SpType t
+        if ((array_length tt.skips) == 0) {
+            return out
+        }
+        def i:int 0
+        while (i < (array_length all)) {
+            def x:SpEvent (itemAt all i)
+            def hit:boolean false
+            def k:int 0
+            while (k < (array_length tt.skips)) {
+                if ((itemAt tt.skips k) == x.typeId) {
+                    hit = true
+                }
+                k = (k + 1)
+            }
+            if (((hit && (x.dated())) && (((strlen x.resource) == 0) || (x.resource == e.resource))) && ((x.fieldOn("school_open")) == false)) {
+                def ds:[int] (this.daysOf(x from to))
+                def j:int 0
+                while (j < (array_length ds)) {
+                    def first:int (itemAt ds j)
+                    def last:int (first + (x.endDay - x.day))
+                    if (last < first) {
+                        last = first
+                    }
+                    def d:int first
+                    while (d <= last) {
+                        push out d
+                        d = (d + 1)
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; One SpOccur for every day in [from, to] each event happens on, sheet
-    ; rows included, sorted.
+    ; rows included, sorted. An event with times per weekday starts and ends
+    ; at each day's own.
     fn occurrences:[SpOccur] (from:int to:int) {
         def out:[SpOccur]
         def all:[SpEvent] (this.allEvents())
@@ -1391,9 +1484,15 @@ class SpSpace {
                 def none:[int]
                 days = none
             }
+            def week:SpWeek (this.weekOf(e))
+            def off:[int] (this.skippedDays(e all from to))
             def k:int 0
             while (k < (array_length days)) {
                 def d:int (itemAt days k)
+                if (SpSpace.hasDay(off d)) {
+                    k = (k + 1)
+                    continue
+                }
                 def o (new SpOccur())
                 o.eventId = e.id
                 o.id = e.id
@@ -1408,6 +1507,11 @@ class SpSpace {
                 }
                 o.startMin = e.startMin
                 o.endMin = e.endMin
+                if (week.ok && (week.on((UiDate.weekday(d))))) {
+                    o.startMin = (itemAt week.starts (UiDate.weekday(d)))
+                    o.endMin = (itemAt week.ends (UiDate.weekday(d)))
+                    o.endDay = d
+                }
                 o.resource = e.resource
                 o.place = e.place
                 o.color = e.color
@@ -1892,6 +1996,21 @@ class SpSpace {
         return out
     }
 
+    ; The email of the member named `name`, "" when no member has it: two
+    ; members may share a first name, the email tells them apart.
+    fn emailOf:string (name:string) {
+        def t:string (trim name)
+        def i:int 0
+        while (i < (array_length members)) {
+            def m:SpMember (itemAt members i)
+            if ((trim m.name) == t) {
+                return m.email
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     sfn addOnce:void (list:[string] v:string) {
         def t:string (trim v)
         if ((strlen t) == 0) {
@@ -1939,6 +2058,8 @@ class SpSpace {
         members = m
         def iv:[string]
         invites = iv
+        def pl:[SpPlace]
+        places = pl
     }
 
     fn loadWard:SpResource (wid:string wname:string color:string) {
@@ -1948,6 +2069,89 @@ class SpSpace {
             c = (itemAt (SpSpace.palette()) ((array_length resources) % (array_length (SpSpace.palette()))))
         }
         return (this.addResource(wid wname c))
+    }
+
+    fn addPlace:SpPlace (pname:string lat:double lon:double ward:string) {
+        def p (new SpPlace())
+        p.name = pname
+        p.lat = lat
+        p.lon = lon
+        p.ward = ward
+        push places p
+        return p
+    }
+
+    ; The index of the place of that name (any case) the ward or the space
+    ; has, -1 when it has none.
+    fn placeAt:int (pname:string ward:string) {
+        def i:int 0
+        while (i < (array_length places)) {
+            def p:SpPlace (itemAt places i)
+            if ((p.ward == ward) && ((to_lowercase p.name) == (to_lowercase pname))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn dropPlace:void (k:int) {
+        def kept:[SpPlace]
+        def i:int 0
+        while (i < (array_length places)) {
+            if (i != k) {
+                push kept (itemAt places i)
+            }
+            i = (i + 1)
+        }
+        places = kept
+    }
+
+    ; The towns whose weather the summary shows: each place once, the
+    ; space's first; Tampere when there are none.
+    fn weatherPlaces:[SpPlace] () {
+        def out:[SpPlace]
+        def names:[string]
+        def pass:int 0
+        while (pass < 2) {
+            def i:int 0
+            while (i < (array_length places)) {
+                def p:SpPlace (itemAt places i)
+                def mine:boolean ((strlen p.ward) == 0)
+                if ((mine == (pass == 0)) && ((indexOf names (to_lowercase p.name)) < 0)) {
+                    push names (to_lowercase p.name)
+                    push out p
+                }
+                i = (i + 1)
+            }
+            pass = (pass + 1)
+        }
+        if ((array_length out) == 0) {
+            def h (new SpPlace())
+            h.name = "Tampere"
+            h.lat = 61.4978
+            h.lon = 23.761
+            push out h
+        }
+        return out
+    }
+
+    ; The wards whose place the town is, by name ("" when only the whole
+    ; space's).
+    fn placeWards:string (pname:string) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length places)) {
+            def p:SpPlace (itemAt places i)
+            if (((strlen p.ward) > 0) && ((to_lowercase p.name) == (to_lowercase pname))) {
+                def rn:string (this.resourceName(p.ward))
+                if ((strlen rn) > 0) {
+                    push out rn
+                }
+            }
+            i = (i + 1)
+        }
+        return (join out ", ")
     }
 
     ; The colours the page draws (spaces.css .sp-c-*, EVGUI's board).

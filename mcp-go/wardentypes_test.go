@@ -3,6 +3,8 @@
 package main
 
 import (
+	"os"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
@@ -348,4 +350,81 @@ func TestWardenNextPayment(t *testing.T) {
 	eq(t, wardenNextPayment(d, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)), map[string]any(nil), "all paid")
 	one := Doc{"date": "2026-11-02", "cost": map[string]any{"amount": 50.0, "instalments": 1.0}}
 	eq(t, wardenNextPayment(one, now), map[string]any{"date": "2026-11-02", "amount": 50.0, "n": 1, "of": 1}, "one payment: no reminder unless asked")
+}
+
+// every common field the page's form shows is named on every type that
+// list_entry_types answers, so an MCP client reading one type finds them
+func TestWardenFormFieldsListed(t *testing.T) {
+	src, err := os.ReadFile("../apps/spaces/src/SpacesApp.rgr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := regexp.MustCompile(`sfn commonField:string`).FindIndex(src)
+	if i == nil {
+		t.Fatal("SpacesApp.rgr has no commonField")
+	}
+	body := src[i[1]:]
+	body = body[:regexp.MustCompile(`\n    sfn `).FindIndex(body)[0]]
+	form := []string{}
+	for _, m := range regexp.MustCompile(`return "(\w+)"`).FindAllSubmatch(body, -1) {
+		form = append(form, string(m[1]))
+	}
+	if len(form) < 5 {
+		t.Fatalf("read %v from commonField", form)
+	}
+	common := map[string]bool{}
+	for _, f := range wardenCommon {
+		common[f.Key] = true
+	}
+	for _, k := range wardenFormCommon {
+		if !common[k] {
+			t.Fatalf("%s is not a common field", k)
+		}
+	}
+	for _, ty := range wardenTypesFor("family") {
+		for _, k := range form {
+			if !slices.Contains(ty.Also, k) {
+				t.Fatalf("%s: the form's %s is not in its also_fields", ty.ID, k)
+			}
+		}
+	}
+}
+
+func TestWardenWeekTimes(t *testing.T) {
+	for in, want := range map[string]string{
+		"ma 8.15-13, ti 9-14.15":                 "MO 08:15-13:00; TU 09:00-14:15",
+		"MO,WE 08:00-12:00; TU 9:00–14:00":       "MO 08:00-12:00; TU 09:00-14:00; WE 08:00-12:00",
+		"ma-ke 8-12; ke 9-13":                    "",
+		"pe klo 8.00–12.00\nma–to 8:15 - 14:00":  "MO 08:15-14:00; TU 08:15-14:00; WE 08:15-14:00; TH 08:15-14:00; FR 08:00-12:00",
+		"Monday 8:15-13:00, Tuesday 9:00-14:15":  "MO 08:15-13:00; TU 09:00-14:15",
+		"ke 10-9":                                "",
+		"ma 8-12, ma 9-13":                       "",
+		"ma, ke":                                 "",
+		"maanantaisin 8-12; keskiviikko 8.30-14": "MO 08:00-12:00; WE 08:30-14:00",
+	} {
+		w, err := wardenWeekTimes(in)
+		got := ""
+		if err == nil {
+			got = w.String()
+		}
+		eq(t, got, want, in)
+	}
+}
+
+func TestWardenSchoolTimetable(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+
+	// the weekdays' times make the rule; the first day's times are its own
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12",
+		"ward": "Leo", "rrule": "FREQ=WEEKLY;UNTIL=20270531", "fields": map[string]any{"times": "ma 8.15-13, ti 9-14.15, ke-pe 8:15-14"}})
+	eq(t, code, 200, "timetable: "+wardenErrOf(out))
+	eq(t, []any{out["rrule"], out["start"], out["end"], out["fields"].(map[string]any)["times"]},
+		[]any{"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20270531", "08:15", "14:00", "MO 08:15-13:00; TU 09:00-14:15; WE 08:15-14:00; TH 08:15-14:00; FR 08:15-14:00"}, "a Wednesday's times")
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12", "ward": "Leo"})
+	eq(t, []any{code, out["error"]}, []any{400, "a school_timetable needs fields.times"})
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12", "ward": "Leo", "fields": map[string]any{"times": "ma 8-12, xx 9-13"}})
+	eq(t, code, 400, "a weekday it does not know: "+wardenErrOf(out))
 }

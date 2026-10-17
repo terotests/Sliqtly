@@ -29,7 +29,7 @@ const wardenAssistOp = "assist"
 
 // the MCP tools the page's assistant may call: those of one space, without
 // the owner's (members, the space's name, deleting it)
-var wardenAssistTools = []string{"list_events", "list_entry_types", "budget", "save_event", "import_events", "import_ics", "delete_event", "add_ward"}
+var wardenAssistTools = []string{"list_events", "list_entry_types", "budget", "save_event", "import_events", "import_ics", "delete_event", "add_ward", "set_watch", "list_watches", "run_watch", "add_place", "remove_place"}
 
 const (
 	wardenAssistText    = 20000 // characters of what the person gives
@@ -180,6 +180,7 @@ How to work:
 - Read everything given, the pictures too. Find every date, time, repeating schedule, deadline, payment, thing to bring or buy, and change to the usual routine.
 - Pick the most fitting type for each entry from <types> (a birthday invitation, a hobby with its weekly times, a school event, an exception day, a doctor's visit, a bill, a need, a reminder, a schedule exception…); a plain event only when no type fits, custom_family_event for family matters no type covers. Fill the type's fields and the common fields you can read; leave out what is not said. Give what each type requires.
 - A schedule that repeats is ONE entry with an rrule (FREQ=WEEKLY;BYDAY=TU;UNTIL=20270531), not one entry per week; days off are exdates.
+- A school timetable (lukujärjestys) is ONE school_timetable entry per child: date is the first school day, rrule FREQ=WEEKLY;UNTIL=<last school day>, and fields.times the start of the first lesson and the end of the last one on each weekday ("MO 08:15-13:00; TU 09:00-14:15"). Holidays and exception days are their own school_exception_day entries for that child; the timetable skips them.
 - Deadlines (answer by, register by, pay by, bring by) are fields of the entry they belong to, which then reminds of them; a deadline with nothing else around it is its own deadline or reminder entry. Mark important things important.
 - Something to get or buy between two days goes in the common fields get_from and get_by (get_what: what), which the calendar shows as a span. A recurring cost (a contract, a monthly fee) is a cost in instalments every so many months; each payment day is reminded of (cost.remind_days, 3 by default). A cost's scope is shared (the family budget) or personal (the payer's own budget); it varies by thing, so set it when it is said or plain (a shared storage is the family's, a parent's mattress or electricity contract is their own). An estimate or a frame goes in estimated_cost or estimated_cost_min and estimated_cost_max, what it really cost in actual_cost.
 - The ward is who the entry is about (a child's name: a new name makes a new ward). Who takes, picks up or pays goes in the fields or in who.

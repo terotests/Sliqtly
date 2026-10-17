@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,16 +44,19 @@ type wardenField struct {
 }
 
 type wardenType struct {
-	ID      string        `json:"id"`
-	Kind    string        `json:"kind"`
-	Group   string        `json:"group"`
-	Packs   []string      `json:"packs"`
-	Icon    string        `json:"icon"`
-	Repeats bool          `json:"repeats,omitempty"`
-	Name    wardenText    `json:"name"`
-	Help    wardenText    `json:"help,omitempty"`
-	Fields  []wardenField `json:"fields"`
-	Cost    wardenText    `json:"cost,omitempty"`
+	ID      string   `json:"id"`
+	Kind    string   `json:"kind"`
+	Group   string   `json:"group"`
+	Packs   []string `json:"packs"`
+	Icon    string   `json:"icon"`
+	Repeats bool     `json:"repeats,omitempty"`
+	// the types whose days an entry of this one skips (a school day on a
+	// holiday of the same ward), unless the day says school_open
+	Skips  []string      `json:"skips,omitempty"`
+	Name   wardenText    `json:"name"`
+	Help   wardenText    `json:"help,omitempty"`
+	Fields []wardenField `json:"fields"`
+	Cost   wardenText    `json:"cost,omitempty"`
 	// what an entry must have: date, start, end_date, ward or a field's key
 	Required []string `json:"required"`
 	// the money fields that put an entry without a cost into the budget,
@@ -64,6 +68,9 @@ type wardenType struct {
 	Get *wardenGet `json:"get,omitempty"`
 	// the number fields that remind at once when they run low
 	Low []wardenLow `json:"low,omitempty"`
+	// the common fields the page's form shows for every entry, named here
+	// too so a client reading one type sees them (wardenFormCommon)
+	Also []string `json:"also_fields,omitempty"`
 	// kept for entries already made; new ones take ReplacedBy
 	Legacy     bool   `json:"legacy,omitempty"`
 	ReplacedBy string `json:"replaced_by,omitempty"`
@@ -135,10 +142,17 @@ var wardenTypes, wardenCommon = func() ([]wardenType, []wardenField) {
 	if err := json.Unmarshal(wardenTypesJSON, &f); err != nil {
 		panic("assets/warden-types.json: " + err.Error())
 	}
+	for i := range f.Types {
+		f.Types[i].Also = wardenFormCommon
+	}
 	return f.Types, f.Common
 }()
 
-var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "people", "list", "phone", "email", "url", "months"}
+// the common fields the page's entry form shows besides a type's own (its
+// Hankinta and Budjetti sections, apps/spaces/src/SpacesApp.rgr commonField)
+var wardenFormCommon = []string{"get_from", "get_by", "get_what", "estimated_cost_min", "estimated_cost_max", "estimated_cost", "actual_cost", "budget_scope", "budget_owner", "status"}
+
+var wardenFieldTypes = []string{"text", "longtext", "date", "time", "number", "money", "bool", "choice", "ward", "person", "people", "list", "phone", "email", "url", "months", "weektimes"}
 
 // the entry's own keys a type may require besides its fields
 var wardenCoreKeys = []string{"title", "date", "start", "end_date", "ward", "place"}
@@ -324,6 +338,13 @@ func (sp *wardenSpace) fieldValue(f wardenField, v any, newWards *bool) (any, er
 			return bad("a web address, https://…")
 		}
 		return s, nil
+	case "weektimes":
+		s, _ := text(400)
+		w, err := wardenWeekTimes(s)
+		if err != nil {
+			return bad(err.Error())
+		}
+		return w.String(), nil
 	case "list", "people":
 		max := wardenItemLen
 		if f.Type == "people" {
@@ -481,6 +502,7 @@ func (sp *wardenSpace) entryDoc(a map[string]any, d Doc, newWards *bool) error {
 			d["cost"] = c
 		}
 	}
+	wardenWeekRule(t, d)
 	if t.Kind != "record" && !wardenDate(docStr(d, "date")) {
 		return roomErr{"date is missing: the day as YYYY-MM-DD"}
 	}
@@ -976,4 +998,177 @@ func wardenOr(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// --- times per weekday (a school's timetable) -----------------------------------
+
+var wardenDayCodes = []string{"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+
+// the ways a weekday is written, English and Finnish, by its index in
+// wardenDayCodes
+var wardenDayNames = [][]string{
+	{"mo", "mon", "monday", "ma", "maanantai", "maanantaisin"},
+	{"tu", "tue", "tuesday", "ti", "tiistai", "tiistaisin"},
+	{"we", "wed", "wednesday", "ke", "keskiviikko", "keskiviikkoisin"},
+	{"th", "thu", "thursday", "to", "torstai", "torstaisin"},
+	{"fr", "fri", "friday", "pe", "perjantai", "perjantaisin"},
+	{"sa", "sat", "saturday", "la", "lauantai", "lauantaisin"},
+	{"su", "sun", "sunday", "su", "sunnuntai", "sunnuntaisin"},
+}
+
+// one weekday's times; days not in the timetable are off
+type wardenWeek [7]struct {
+	on         bool
+	start, end string
+}
+
+// "MO 08:15-13:00; TU 09:00-14:15", Monday first
+func (w wardenWeek) String() string {
+	parts := []string{}
+	for i, d := range w {
+		if d.on {
+			parts = append(parts, wardenDayCodes[i]+" "+d.start+"-"+d.end)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (w wardenWeek) days() []string {
+	out := []string{}
+	for i, d := range w {
+		if d.on {
+			out = append(out, wardenDayCodes[i])
+		}
+	}
+	return out
+}
+
+func wardenDayIndex(s string) int {
+	s = strings.ToLower(strings.Trim(s, " .:"))
+	for i, names := range wardenDayNames {
+		if slices.Contains(names, s) {
+			return i
+		}
+	}
+	return -1
+}
+
+var wardenWeekItemRe = regexp.MustCompile(`^\s*([^\d]*?)\s*(\d{1,2}(?:[:.]\d{2})?)\s*[-–—]\s*(\d{1,2}(?:[:.]\d{2})?)\s*$`)
+
+var wardenKloRe = regexp.MustCompile(`(?i)\b(klo|kello|at|from)\b`)
+
+// "8", "8.15", "08:15" as "08:15"
+func wardenClock(s string) (string, bool) {
+	h, m := s, "00"
+	if i := strings.IndexAny(s, ":."); i >= 0 {
+		h, m = s[:i], s[i+1:]
+	}
+	hh, err1 := strconv.Atoi(h)
+	mm, err2 := strconv.Atoi(m)
+	if err1 != nil || err2 != nil || hh > 23 || mm > 59 {
+		return "", false
+	}
+	return fmt.Sprintf("%02d:%02d", hh, mm), true
+}
+
+// A timetable as written: "ma 8.15-13, ti 9-14.15", "MO,WE 08:00-12:00;
+// TU-TH 9:00-14:00". Days written without a time take the next time given.
+func wardenWeekTimes(s string) (wardenWeek, error) {
+	var w wardenWeek
+	bad := func(why string) (wardenWeek, error) {
+		return w, fmt.Errorf("times of the weekdays, e.g. \"MO 08:15-13:00; TU 09:00-14:15\" (%s)", why)
+	}
+	pending := []int{}
+	for _, item := range strings.FieldsFunc(s, func(r rune) bool { return r == ';' || r == ',' || r == '\n' }) {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		m := wardenWeekItemRe.FindStringSubmatch(item)
+		dayPart := item
+		if m != nil {
+			dayPart = m[1]
+		}
+		dayPart = strings.TrimSpace(wardenKloRe.ReplaceAllString(dayPart, " "))
+		// "ma-pe", "ma–ke", "ma ke"
+		var days []int
+		if a, b, ok := strings.Cut(strings.NewReplacer("–", "-", "—", "-").Replace(dayPart), "-"); ok {
+			i, j := wardenDayIndex(a), wardenDayIndex(b)
+			if i < 0 || j < i {
+				return bad(dayPart + " is not a range of weekdays")
+			}
+			for k := i; k <= j; k++ {
+				days = append(days, k)
+			}
+		} else {
+			for _, f := range strings.Fields(dayPart) {
+				i := wardenDayIndex(f)
+				if i < 0 {
+					return bad(f + " is not a weekday")
+				}
+				days = append(days, i)
+			}
+		}
+		if len(days) == 0 {
+			return bad(item + " names no weekday")
+		}
+		pending = append(pending, days...)
+		if m == nil {
+			continue
+		}
+		start, ok1 := wardenClock(m[2])
+		end, ok2 := wardenClock(m[3])
+		if !ok1 || !ok2 || end <= start {
+			return bad(item + " is not a time from start to end")
+		}
+		for _, i := range pending {
+			if w[i].on {
+				return bad(wardenDayCodes[i] + " is given twice")
+			}
+			w[i].on, w[i].start, w[i].end = true, start, end
+		}
+		pending = nil
+	}
+	if len(pending) > 0 {
+		return bad("a weekday without a time")
+	}
+	if len(w.days()) == 0 {
+		return bad("no weekdays")
+	}
+	return w, nil
+}
+
+// An entry with times per weekday repeats weekly on those days (until the
+// day its rule ends) and starts and ends at its first day's times, which is
+// what a reader that knows only one time a week shows.
+func wardenWeekRule(t *wardenType, d Doc) {
+	fields, _ := d["fields"].(map[string]any)
+	for _, f := range t.Fields {
+		s, _ := fields[f.Key].(string)
+		if f.Type != "weektimes" || s == "" {
+			continue
+		}
+		w, err := wardenWeekTimes(s)
+		if err != nil {
+			continue
+		}
+		r := "FREQ=WEEKLY;BYDAY=" + strings.Join(w.days(), ",")
+		for _, p := range strings.Split(docStr(d, "rrule"), ";") {
+			if strings.HasPrefix(p, "UNTIL=") {
+				r += ";" + p
+			}
+		}
+		d["rrule"] = r
+		day := 0
+		if dt, err := time.Parse("2006-01-02", docStr(d, "date")); err == nil {
+			day = (int(dt.Weekday()) + 6) % 7
+		}
+		for k := 0; k < 7; k++ {
+			if x := w[(day+k)%7]; x.on {
+				d["start"], d["end"], d["end_date"] = x.start, x.end, ""
+				break
+			}
+		}
+		return
+	}
 }

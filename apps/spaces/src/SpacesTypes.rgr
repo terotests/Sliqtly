@@ -50,7 +50,7 @@ class SpWord {
 class SpField {
     def key:string ""
     ; text, longtext, date, time, number, money, bool, choice, ward, person,
-    ; phone, email, url, months
+    ; phone, email, url, months, weektimes
     def type:string "text"
     def name:SpWord (new SpWord())
     def options:[string]
@@ -104,6 +104,8 @@ class SpType {
     ; kept for entries made before; new ones take `replacedBy`
     def legacy:boolean false
     def replacedBy:string ""
+    ; the types whose days an entry of this one skips, for the same ward
+    def skips:[string]
     ; its own window to get something in: the date field it is got by ("date":
     ; the entry's day; "": none), while `whenField` is `whenIs`, until one of
     ; `doneFields` is set (or has the value of `doneIs` beside it)
@@ -207,6 +209,15 @@ class SpTypes {
         if (c.isObject()) {
             t.hasCost = true
             t.cost = (SpWord.read("cost" c))
+        }
+        def sk:VlJson (o.get("skips"))
+        def si:int 0
+        while (si < (sk.count())) {
+            def sv:VlJson (sk.at(si))
+            if (sv.isString()) {
+                push t.skips sv.str
+            }
+            si = (si + 1)
         }
         def g:VlJson (o.get("get"))
         if (g.isObject()) {
@@ -417,9 +428,10 @@ class SpTypes {
 
     ; What a field's typed text is kept as: "" for an empty field (the value
     ; is removed), the text itself for text fields, a plain number ("12.5")
-    ; for numbers, "true"/"false" for a switch, "YYYY-MM-DD" for a date and
-    ; "HH:MM" for a time. `err` is set to the field type when it does not
-    ; read, and the text is returned as it was.
+    ; for numbers, "true"/"false" for a switch, "YYYY-MM-DD" for a date,
+    ; "HH:MM" for a time and "MO 08:15-13:00; TU …" for times per weekday.
+    ; `err` is set to the field type when it does not read, and the text is
+    ; returned as it was.
     sfn normalize:string (type:string text:string year:int err:[string]) {
         def t:string (trim text)
         if ((strlen t) == 0) {
@@ -464,6 +476,14 @@ class SpTypes {
                 return t
             }
             return (SpTypes.hhmm(m))
+        }
+        if (type == "weektimes") {
+            def wk:SpWeek (SpWeek.read(t))
+            if (wk.ok == false) {
+                push err type
+                return t
+            }
+            return (wk.toText())
         }
         if (type == "email") {
             if ((indexOf t "@") <= 0) {
@@ -605,5 +625,247 @@ class SpTypes {
             return (sign + body + " €")
         }
         return (sign + "€" + body)
+    }
+}
+
+; A start and an end time for each weekday (a weektimes field: a school's
+; day, "MO 08:15-13:00; TU 09:00-14:15"). Read from what people write in
+; English or Finnish: "ma 8.15-13, ti 9-14.15", "ma–to klo 8.15–14"; days
+; written without a time take the next time given. Weekdays are UiDate's,
+; 0 = Sunday; a day off is -1.
+class SpWeek {
+    def starts:[int]
+    def ends:[int]
+    def ok:boolean false
+    Constructor () {
+        def i:int 0
+        while (i < 7) {
+            push starts -1
+            push ends -1
+            i = (i + 1)
+        }
+    }
+
+    ; the ways a weekday is written, Monday first
+    sfn names:[string] () {
+        return ([] _:string ( "mo mon monday ma maanantai maanantaisin" "tu tue tuesday ti tiistai tiistaisin" "we wed wednesday ke keskiviikko keskiviikkoisin" "th thu thursday to torstai torstaisin" "fr fri friday pe perjantai perjantaisin" "sa sat saturday la lauantai lauantaisin" "su sun sunday sunnuntai sunnuntaisin" ))
+    }
+
+    ; a written weekday as UiDate's weekday, or -1
+    sfn dayOf:int (word:string) {
+        def w:string (to_lowercase (trim word))
+        if ((strlen w) == 0) {
+            return -1
+        }
+        def all:[string] (SpWeek.names())
+        def i:int 0
+        while (i < 7) {
+            def ns:[string] (strsplit (itemAt all i) " ")
+            def k:int 0
+            while (k < (array_length ns)) {
+                if ((itemAt ns k) == w) {
+                    return ((i + 1) % 7)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; dashes as "-", the separators of items as ","; dots and colons after a
+    ; day's name ("ma." "ma:") dropped
+    sfn clean:string (text:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            def s:string (substring text i (i + 1))
+            if ((c == 8211) || (c == 8212)) {
+                s = "-"
+            }
+            if ((c == 59) || (c == 10)) {
+                s = ","
+            }
+            out = (out + s)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn read:SpWeek (text:string) {
+        def w (new SpWeek())
+        def items:[string] (strsplit (SpWeek.clean(text)) ",")
+        def pending:[int]
+        def i:int 0
+        while (i < (array_length items)) {
+            def item:string (trim (itemAt items i))
+            if ((strlen item) > 0) {
+                ; the days are what comes before the first digit
+                def at:int 0
+                def n:int (strlen item)
+                while ((at < n) && (((charAt item at) < 48) || ((charAt item at) > 57))) {
+                    at = (at + 1)
+                }
+                def dayPart:string (substring item 0 at)
+                def timePart:string (substring item at n)
+                def words:[string]
+                def raw:[string] (strsplit (to_lowercase dayPart) " ")
+                def r:int 0
+                while (r < (array_length raw)) {
+                    def word:string (trim (itemAt raw r))
+                    def last:int ((strlen word) - 1)
+                    if (last >= 0) {
+                        def lc:int (charAt word last)
+                        if ((lc == 46) || (lc == 58)) {
+                            word = (substring word 0 last)
+                        }
+                    }
+                    if ((strlen word) > 0) {
+                        if ((((word != "klo") && (word != "kello")) && (word != "at")) && (word != "from")) {
+                            push words word
+                        }
+                    }
+                    r = (r + 1)
+                }
+                def days:[int]
+                def joined:string (join words " ")
+                def dash:int (indexOf joined "-")
+                if (dash >= 0) {
+                    def a:int (SpWeek.dayOf((substring joined 0 dash)))
+                    def b:int (SpWeek.dayOf((substring joined (dash + 1) (strlen joined))))
+                    ; Monday-first positions
+                    def pa:int ((a + 6) % 7)
+                    def pb:int ((b + 6) % 7)
+                    if (((a < 0) || (b < 0)) || (pb < pa)) {
+                        return w
+                    }
+                    def p:int pa
+                    while (p <= pb) {
+                        push days ((p + 1) % 7)
+                        p = (p + 1)
+                    }
+                } {
+                    def k:int 0
+                    while (k < (array_length words)) {
+                        def d:int (SpWeek.dayOf((itemAt words k)))
+                        if (d < 0) {
+                            return w
+                        }
+                        push days d
+                        k = (k + 1)
+                    }
+                }
+                if ((array_length days) == 0) {
+                    return w
+                }
+                def m:int 0
+                while (m < (array_length days)) {
+                    push pending (itemAt days m)
+                    m = (m + 1)
+                }
+                if ((strlen (trim timePart)) > 0) {
+                    def se:[string] (strsplit timePart "-")
+                    if ((array_length se) != 2) {
+                        return w
+                    }
+                    def s:int (SpTypes.minuteOf((itemAt se 0)))
+                    def e:int (SpTypes.minuteOf((itemAt se 1)))
+                    if (((s < 0) || (e < 0)) || (e <= s)) {
+                        return w
+                    }
+                    def q:int 0
+                    while (q < (array_length pending)) {
+                        def pd:int (itemAt pending q)
+                        if ((itemAt w.starts pd) >= 0) {
+                            return w
+                        }
+                        set w.starts pd s
+                        set w.ends pd e
+                        q = (q + 1)
+                    }
+                    def none:[int]
+                    pending = none
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length pending) > 0) {
+            return w
+        }
+        def any:boolean false
+        def z:int 0
+        while (z < 7) {
+            if ((itemAt w.starts z) >= 0) {
+                any = true
+            }
+            z = (z + 1)
+        }
+        w.ok = any
+        return w
+    }
+
+    fn on:boolean (wd:int) {
+        return ((itemAt starts wd) >= 0)
+    }
+
+    ; the weekdays it has, 0 = Sunday, Monday first
+    fn days:[int] () {
+        def out:[int]
+        def p:int 0
+        while (p < 7) {
+            def wd:int ((p + 1) % 7)
+            if (this.on(wd)) {
+                push out wd
+            }
+            p = (p + 1)
+        }
+        return out
+    }
+
+    ; "MO 08:15-13:00; TU 09:00-14:15", as the server keeps it
+    fn toText:string () {
+        def codes:[string] ([] _:string ( "SU" "MO" "TU" "WE" "TH" "FR" "SA" ))
+        def parts:[string]
+        def ds:[int] (this.days())
+        def i:int 0
+        while (i < (array_length ds)) {
+            def wd:int (itemAt ds i)
+            push parts ((itemAt codes wd) + " " + (SpTypes.hhmm((itemAt starts wd))) + "-" + (SpTypes.hhmm((itemAt ends wd))))
+            i = (i + 1)
+        }
+        return (join parts "; ")
+    }
+
+    ; as people read it: "ma 8.15–13.00; ti 9.00–14.15" in Finnish, "Mon
+    ; 8:15–13:00; Tue 9:00–14:15" in English
+    fn shown:string (lang:string) {
+        def fi:boolean (lang == "fi")
+        def names:[string] ([] _:string ( "Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat" ))
+        if fi {
+            names = ([] _:string ( "su" "ma" "ti" "ke" "to" "pe" "la" ))
+        }
+        def parts:[string]
+        def ds:[int] (this.days())
+        def i:int 0
+        while (i < (array_length ds)) {
+            def wd:int (itemAt ds i)
+            push parts ((itemAt names wd) + " " + (SpWeek.clock((itemAt starts wd) fi)) + "–" + (SpWeek.clock((itemAt ends wd) fi)))
+            i = (i + 1)
+        }
+        return (join parts "; ")
+    }
+
+    sfn clock:string (m:int fi:boolean) {
+        def h:int (idiv m 60)
+        def mm:int (m - (h * 60))
+        def ms:string (to_string mm)
+        if (mm < 10) {
+            ms = ("0" + ms)
+        }
+        if fi {
+            return ((to_string h) + "." + ms)
+        }
+        return ((to_string h) + ":" + ms)
     }
 }

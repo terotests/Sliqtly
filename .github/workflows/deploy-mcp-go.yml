@@ -82,6 +82,11 @@ jobs:
           GH_TOKEN_SECRET: ${{ secrets.SLIQTLY_GITHUB_TOKEN }}
           GH_USERS_SECRET: ${{ secrets.SLIQTLY_GITHUB_USERS }}
           GEMINI_KEY_SECRET: ${{ secrets.GEMINI_API_KEY }}
+          # optional: Warden's deal watcher (mcp-go/wardenwatch.go): the
+          # web search's key, and the token the daily run
+          # (.github/workflows/warden-watch.yml) calls it with
+          BRAVE_KEY_SECRET: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          WARDEN_CRON_SECRET: ${{ secrets.WARDEN_CRON_TOKEN }}
           # the owner's dashboard, sliqtly.com/main/admin (mcp-go/admin.go):
           # the Google accounts let in, and the Cloud Billing export's
           # BigQuery table (project.dataset.table; unset: no costs shown)
@@ -115,6 +120,12 @@ jobs:
           # GEMINI_API_KEY (optional): Gemini through AI Studio, not Vertex AI
           if [ -n "$GEMINI_KEY_SECRET" ]; then
             ENV_VARS="$ENV_VARS|GEMINI_API_KEY=$GEMINI_KEY_SECRET"
+          fi
+          if [ -n "$BRAVE_KEY_SECRET" ]; then
+            ENV_VARS="$ENV_VARS|BRAVE_SEARCH_API_KEY=$BRAVE_KEY_SECRET"
+          fi
+          if [ -n "$WARDEN_CRON_SECRET" ]; then
+            ENV_VARS="$ENV_VARS|WARDEN_CRON_TOKEN=$WARDEN_CRON_SECRET"
           fi
           ENV_ARGS=(--update-env-vars "^|^$ENV_VARS")
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \

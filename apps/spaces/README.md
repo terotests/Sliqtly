@@ -18,7 +18,8 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   **Viikko** (Monday to Sunday as columns, each plan with its time, today
   filled) and **Tulossa** (the next one-off plans, whose they are and how
   many days away). On top the clock, the date, the week number
-  and the weather (Open-Meteo, Helsinki, read by the host page). Tänään has
+  and the weather (Open-Meteo, read by the host page) of each of the
+  space's places, with a switch between them; Tampere when it has none. Tänään has
   three columns: **today** as cards with each ward's colour, the plan going
   on or coming next open with its times, who looks after it and its notes;
   **this week** day by day with the plans as coloured chips (today framed,
@@ -76,7 +77,7 @@ With the meta tag the page
 
 - calls the server with `POST /apps/warden/api/<op>` and a JSON body
   (`list_spaces`, `get_space`, `create_space`, `set_space`, `save_event`,
-  `add_ward`, `set_ward`, `remove_ward`, `invite_member`, `remove_member`, `import_events`), sending the
+  `add_ward`, `set_ward`, `remove_ward`, `add_place`, `remove_place`, `invite_member`, `remove_member`, `import_events`), sending the
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
@@ -85,10 +86,24 @@ With the meta tag the page
   first) and sends them to `assist`: the server's model makes the entries
   with Warden's own MCP tools (`mcp-go/wardenai.go`), and the page reads the
   space again;
+- reads the space again when it changed elsewhere: every five seconds,
+  while the page is in view, it asks `changes` (`{changed, mine}`, the
+  stamp each write sets on the space); a change an assistant made through
+  the MCP server, or another member's page, is shown once no form is open
+  and nothing is left to save. The page names itself in `X-Warden-Client`,
+  so its own changes are not news to it;
+- keeps the tab in the address (`#calendar`): Back and Forward move between
+  tabs, and a link or a reload opens the same one;
 - has a **Members** view (members, invites; the owner invites by email and
-  removes) and a **Spaces** view (the spaces you are in, and a new one);
+  removes; the **places**, towns in Finland the space or a ward usually is
+  in, found with Open-Meteo's geocoding) and a **Spaces** view (the spaces you are in, and a new one);
 - offers an empty space the pack's demo data: its wards, then its events
   (deadlines as important all-day events).
+- shows an entry's **offer watch** on its form: what it looks for and its
+  latest finds, each opening the offer in a new tab. A watch is set by the
+  assistant or over MCP (`set_watch`, `list_watches`, `run_watch`); the
+  server searches Tori.fi, Vinted, Huuto.net or the web for it once a day
+  and makes a reminder of new finds (`mcp-go/wardenwatch.go`).
 
 The app keeps the calls in an outbox (`outOp`, `outBody`); `web/main.js`
 sends them one at a time and hands each reply to `answer` or `failed`.

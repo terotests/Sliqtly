@@ -173,11 +173,52 @@ class SpRemote {
             s.loadWard((w.stringOr("id" "")) (w.stringOr("name" "")) (w.stringOr("color" "")))
             i = (i + 1)
         }
+        SpRemote.readPlaces(s sp)
         def k:int 0
         while (k < (events.count())) {
             SpRemote.readEvent(s (events.at(k)))
             k = (k + 1)
         }
+    }
+
+    ; The places of a Space object, the space's and each ward's, into `s`,
+    ; replacing those it had.
+    sfn readPlaces:void (s:SpSpace sp:VlJson) {
+        def none:[SpPlace]
+        s.places = none
+        SpRemote.readPlaceList(s (sp.get("places")) "")
+        def ws:VlJson (sp.get("wards"))
+        def i:int 0
+        while (i < (ws.count())) {
+            def w:VlJson (ws.at(i))
+            SpRemote.readPlaceList(s (w.get("places")) (w.stringOr("id" "")))
+            i = (i + 1)
+        }
+    }
+
+    sfn readPlaceList:void (s:SpSpace list:VlJson ward:string) {
+        def k:int 0
+        while (k < (list.count())) {
+            def p:VlJson (list.at(k))
+            def nm:string (p.stringOr("name" ""))
+            if ((strlen nm) > 0) {
+                s.addPlace(nm (p.doubleOr("lat" 0.0)) (p.doubleOr("lon" 0.0)) ward)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; add_place with the town's coordinates, for the space or a ward.
+    sfn placeBody:string (spaceId:string p:SpPlace) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("place" (SpRemote.str(p.name)))
+        if ((strlen p.ward) > 0) {
+            o.setMember("ward" (SpRemote.str(p.ward)))
+        }
+        o.setMember("lat" (VlJson.numberValue(p.lat)))
+        o.setMember("lon" (VlJson.numberValue(p.lon)))
+        return (SpRemote.write(o))
     }
 
     sfn readEvent:void (s:SpSpace o:VlJson) {
@@ -280,6 +321,68 @@ class SpRemote {
             e.setCost(cost)
         }
         e.remindFrom = (SpText.dayOf((o.stringOr("remind_from" "")) (itemAt (SpSpace.ymdOf(s.today)) 0)))
+        SpRemote.readWatch(e (o.get("watch")))
+    }
+
+    ; An entry's deal watch and its finds, into `e`.
+    sfn readWatch:void (e:SpEvent w:VlJson) {
+        def nt:[string]
+        def nu:[string]
+        def ni:[string]
+        e.findTitles = nt
+        e.findUrls = nu
+        e.findInfo = ni
+        e.watched = (w.isObject())
+        if ((w.isObject()) == false) {
+            return
+        }
+        e.watchQuery = (w.stringOr("query" ""))
+        e.watchOn = (w.boolOr("active" false))
+        def fs:VlJson (w.get("finds"))
+        if ((fs.isArray()) == false) {
+            return
+        }
+        def i:int 0
+        while (i < (fs.count())) {
+            def f:VlJson (fs.at(i))
+            def u:string (f.stringOr("url" ""))
+            if ((SpRemote.starts(u "https://")) || (SpRemote.starts(u "http://"))) {
+                push e.findTitles (f.stringOr("title" u))
+                push e.findUrls u
+                def parts:[string]
+                def price:double (f.doubleOr("price" 0.0))
+                if (price > 0.0) {
+                    push parts ((SpTypes.numText(price)) + " €")
+                }
+                push parts (f.stringOr("source" ""))
+                def found:string (f.stringOr("found" ""))
+                if ((strlen found) == 10) {
+                    push parts ((SpRemote.dayMonth(found)))
+                }
+                push e.findInfo (join parts " · ")
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn starts:boolean (s:string p:string) {
+        if ((strlen s) < (strlen p)) {
+            return false
+        }
+        return ((substring s 0 (strlen p)) == p)
+    }
+
+    ; "2026-10-17" as "17.10."
+    sfn dayMonth:string (d:string) {
+        def dd:string (substring d 8 10)
+        def mm:string (substring d 5 7)
+        if (SpRemote.starts(dd "0")) {
+            dd = (substring dd 1 2)
+        }
+        if (SpRemote.starts(mm "0")) {
+            mm = (substring mm 1 2)
+        }
+        return (dd + "." + mm + ".")
     }
 
     ; --- what the page sends -----------------------------------------------------
