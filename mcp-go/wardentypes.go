@@ -928,7 +928,7 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	if !ok1 || !ok2 || t.Before(f) || t.After(f.AddDate(5, 0, 0)) {
 		return nil, roomErr{"from and to are months as YYYY-MM, at most five years apart"}
 	}
-	payer, person := cleanName(argStr(a, "payer")), cleanName(argStr(a, "person"))
+	payer, person := sp.memberName(cleanName(argStr(a, "payer"))), sp.memberName(cleanName(argStr(a, "person")))
 	docs, ids, err := s.events(ctx, sp)
 	if err != nil {
 		return nil, err
@@ -943,7 +943,7 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 		if c == nil {
 			continue
 		}
-		who := docStr(c, "payer")
+		who := sp.memberName(docStr(c, "payer"))
 		if payer != "" && !strings.EqualFold(who, payer) {
 			continue
 		}

@@ -402,6 +402,8 @@ console.log("a space on a server");
   eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
   eq("red as rose", M.SpSpace.pageColor("red"), "rose");
   eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+  eq("a member's name in another case is that member", a.space.memberName("mia"), "Mia");
+  eq("a name no member has stays", a.space.memberName("Anna"), "Anna");
 
   // the places: none means Tampere; a town is looked up, picked for a
   // ward, saved, and the summary shows the weather of each
