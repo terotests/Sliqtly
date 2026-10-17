@@ -202,7 +202,7 @@ func (sp *wardenSpace) json() map[string]any {
 	}
 	wards := []any{}
 	for _, w := range docMaps(sp.doc, "wards") {
-		wards = append(wards, map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color")})
+		wards = append(wards, map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color"), "places": wardenPlacesJSON(w)})
 	}
 	tz := docStr(sp.doc, "tz")
 	if tz == "" {
@@ -211,6 +211,7 @@ func (sp *wardenSpace) json() map[string]any {
 	return map[string]any{
 		"space_id": sp.id, "name": docStr(sp.doc, "name"), "vocab": docStr(sp.doc, "vocab"), "lang": docStr(sp.doc, "lang"),
 		"time_zone": tz, "role": sp.role, "members": members, "invites": anys(docStrs(sp.doc, "invites")), "wards": wards,
+		"places": wardenPlacesJSON(sp.doc),
 	}
 }
 
@@ -1204,6 +1205,10 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.setWard(ctx, sp, a)
 	case "remove_ward":
 		return s.removeWard(ctx, sp, a)
+	case "add_place":
+		return s.addPlace(ctx, sp, a)
+	case "remove_place":
+		return s.removePlace(ctx, sp, a)
 	case "list_events":
 		return s.listEvents(ctx, sp, a)
 	case "save_event":

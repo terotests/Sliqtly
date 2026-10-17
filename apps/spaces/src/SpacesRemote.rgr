@@ -173,11 +173,52 @@ class SpRemote {
             s.loadWard((w.stringOr("id" "")) (w.stringOr("name" "")) (w.stringOr("color" "")))
             i = (i + 1)
         }
+        SpRemote.readPlaces(s sp)
         def k:int 0
         while (k < (events.count())) {
             SpRemote.readEvent(s (events.at(k)))
             k = (k + 1)
         }
+    }
+
+    ; The places of a Space object, the space's and each ward's, into `s`,
+    ; replacing those it had.
+    sfn readPlaces:void (s:SpSpace sp:VlJson) {
+        def none:[SpPlace]
+        s.places = none
+        SpRemote.readPlaceList(s (sp.get("places")) "")
+        def ws:VlJson (sp.get("wards"))
+        def i:int 0
+        while (i < (ws.count())) {
+            def w:VlJson (ws.at(i))
+            SpRemote.readPlaceList(s (w.get("places")) (w.stringOr("id" "")))
+            i = (i + 1)
+        }
+    }
+
+    sfn readPlaceList:void (s:SpSpace list:VlJson ward:string) {
+        def k:int 0
+        while (k < (list.count())) {
+            def p:VlJson (list.at(k))
+            def nm:string (p.stringOr("name" ""))
+            if ((strlen nm) > 0) {
+                s.addPlace(nm (p.doubleOr("lat" 0.0)) (p.doubleOr("lon" 0.0)) ward)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; add_place with the town's coordinates, for the space or a ward.
+    sfn placeBody:string (spaceId:string p:SpPlace) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("place" (SpRemote.str(p.name)))
+        if ((strlen p.ward) > 0) {
+            o.setMember("ward" (SpRemote.str(p.ward)))
+        }
+        o.setMember("lat" (VlJson.numberValue(p.lat)))
+        o.setMember("lon" (VlJson.numberValue(p.lon)))
+        return (SpRemote.write(o))
     }
 
     sfn readEvent:void (s:SpSpace o:VlJson) {

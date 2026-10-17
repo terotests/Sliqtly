@@ -18,7 +18,8 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   **Viikko** (Monday to Sunday as columns, each plan with its time, today
   filled) and **Tulossa** (the next one-off plans, whose they are and how
   many days away). On top the clock, the date, the week number
-  and the weather (Open-Meteo, Helsinki, read by the host page). Tänään has
+  and the weather (Open-Meteo, read by the host page) of each of the
+  space's places, with a switch between them; Tampere when it has none. Tänään has
   three columns: **today** as cards with each ward's colour, the plan going
   on or coming next open with its times, who looks after it and its notes;
   **this week** day by day with the plans as coloured chips (today framed,
@@ -76,7 +77,7 @@ With the meta tag the page
 
 - calls the server with `POST /apps/warden/api/<op>` and a JSON body
   (`list_spaces`, `get_space`, `create_space`, `set_space`, `save_event`,
-  `add_ward`, `set_ward`, `remove_ward`, `invite_member`, `remove_member`, `import_events`), sending the
+  `add_ward`, `set_ward`, `remove_ward`, `add_place`, `remove_place`, `invite_member`, `remove_member`, `import_events`), sending the
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
@@ -94,7 +95,8 @@ With the meta tag the page
 - keeps the tab in the address (`#calendar`): Back and Forward move between
   tabs, and a link or a reload opens the same one;
 - has a **Members** view (members, invites; the owner invites by email and
-  removes) and a **Spaces** view (the spaces you are in, and a new one);
+  removes; the **places**, towns in Finland the space or a ward usually is
+  in, found with Open-Meteo's geocoding) and a **Spaces** view (the spaces you are in, and a new one);
 - offers an empty space the pack's demo data: its wards, then its events
   (deadlines as important all-day events).
 - shows an entry's **offer watch** on its form: what it looks for and its

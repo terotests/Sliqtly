@@ -137,6 +137,7 @@ function after() {
   if (a === "import") fileInput.click();
   else if (a === "image") pictureInput.click();
   else if (a === "copy") copy(app.copyText);
+  else if (a === "places") findPlaces(app.placeQuery);
   else if (a.startsWith("open:")) {
     const url = a.slice(5);
     if (/^https?:\/\//.test(url)) window.open(url, "_blank", "noopener");
@@ -208,6 +209,7 @@ async function pump() {
       }
       if (!app.loading) openWanted();
       try { if (app.spaceId) localStorage.setItem(REMEMBER, app.spaceId); } catch { /* storage off */ }
+      weatherIfMoved();
       paint();
     }
   } finally {
@@ -401,22 +403,40 @@ setInterval(() => {
   paint();
 }, 15000);
 
-// The weather on the summary, from Open-Meteo (no key), for Helsinki; read
-// again every half hour. Without an answer the summary has no weather card.
-const WEATHER = { place: "Helsinki", lat: 60.17, lon: 24.94 };
+// The weather on the summary, from Open-Meteo (no key), for each of the
+// space's places (Tampere when it has none); read again every half hour,
+// and when the places change. A place without an answer has no weather.
+let wxPlaces = "";
 async function weather() {
-  try {
-    const q = `latitude=${WEATHER.lat}&longitude=${WEATHER.lon}&current=temperature_2m,weather_code`
-      + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1";
-    const w = await (await fetch("https://api.open-meteo.com/v1/forecast?" + q)).json();
-    const r = (v) => Math.round(Number(v) || 0);
-    app.setWeather(WEATHER.place, r(w.current.temperature_2m), r(w.daily.temperature_2m_max[0]),
-      r(w.daily.temperature_2m_min[0]), r(w.daily.precipitation_probability_max[0]), r(w.current.weather_code));
-    paint();
-  } catch { /* no weather: the card stays off */ }
+  wxPlaces = app.weatherPlacesJson();
+  const r = (v) => Math.round(Number(v) || 0);
+  for (const p of JSON.parse(wxPlaces)) {
+    try {
+      const q = `latitude=${p.lat}&longitude=${p.lon}&current=temperature_2m,weather_code`
+        + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1";
+      const w = await (await fetch("https://api.open-meteo.com/v1/forecast?" + q)).json();
+      app.setWeather(p.name, r(w.current.temperature_2m), r(w.daily.temperature_2m_max[0]),
+        r(w.daily.temperature_2m_min[0]), r(w.daily.precipitation_probability_max[0]), r(w.current.weather_code));
+      paint();
+    } catch { /* no weather for this place */ }
+  }
+}
+function weatherIfMoved() {
+  if (app.weatherPlacesJson() !== wxPlaces) weather();
 }
 weather();
 setInterval(weather, 30 * 60 * 1000);
+
+// A town in Finland for the places, from Open-Meteo's geocoding.
+async function findPlaces(name) {
+  let text = '{"results":[]}';
+  try {
+    const q = new URLSearchParams({ name, count: "6", language: app.lang, countryCode: "FI", format: "json" });
+    text = await (await fetch("https://geocoding-api.open-meteo.com/v1/search?" + q)).text();
+  } catch { /* nothing found */ }
+  app.placesFound(text);
+  paint();
+}
 
 // Changes made elsewhere: asked for every few seconds while the page is in
 // view, at once when it comes back into view, never in the middle of a drag.

@@ -85,8 +85,8 @@ console.log("the summary");
   ok("the wards' colours", t.includes("Nappi") && t.includes("Koko perhe"));
   ok("the Add button", t.includes("+ Lisää meno"));
   ok("no weather until the host has it", !byId(a, "sp-wx"));
-  a.setWeather("Helsinki", 7, 9, 4, 20, 2);
-  ok("the weather", texts(a).includes("7°") && texts(a).includes("Helsinki · ylin 9° alin 4°"));
+  a.setWeather("Tampere", 7, 9, 4, 20, 2);
+  ok("the weather", texts(a).includes("7°") && texts(a).includes("Tampere · ylin 9° alin 4°"));
   const today = byId(a, "sp-card-today");
   const week = byId(a, "sp-card-week");
   const late = byId(a, "sp-card-late");
@@ -346,6 +346,47 @@ console.log("a space on a server");
   eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
   eq("red as rose", M.SpSpace.pageColor("red"), "rose");
   eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+
+  // the places: none means Tampere; a town is looked up, picked for a
+  // ward, saved, and the summary shows the weather of each
+  eq("no places: Tampere's weather", JSON.parse(a.weatherPlacesJson()).map((p) => p.name).join(), "Tampere");
+  a.press("sp-nav-members");
+  ok("the places card", texts(a).includes("Places"));
+  a.press("sp-placefor-0");
+  a.press("sp-place-name");
+  for (const ch of "kuopio") a.keyWith(ch, false, false);
+  a.keyWith("Enter", false, false);
+  eq("Enter looks the town up", a.takeAction(), "places");
+  eq("that town", a.placeQuery, "kuopio");
+  a.placesFound(JSON.stringify({ results: [{ name: "Kuopio", latitude: 62.89238, longitude: 27.67703, admin1: "Pohjois-Savo" }] }));
+  ok("the towns found", texts(a).includes("Kuopio · Pohjois-Savo"));
+  a.press("sp-placepick-0");
+  eq("add_place", a.outOp(), "add_place");
+  const pb = JSON.parse(a.outBody());
+  ok("for Aino, with where it is", pb.place === "Kuopio" && pb.ward === "w1" && pb.lat === 62.89238 && pb.lon === 27.67703, JSON.stringify(pb));
+  a.answer(JSON.stringify(spaceOf({ places: [{ name: "Espoo", lat: 60.2, lon: 24.66 }],
+    wards: [{ id: "w1", name: "Aino", color: "cyan", places: [{ name: "Kuopio", lat: 62.8924, lon: 27.677 }] }] })));
+  eq("the space's place first, then the ward's", JSON.parse(a.weatherPlacesJson()).map((p) => p.name).join(), "Espoo,Kuopio");
+  ok("listed", texts(a).includes("Kuopio") && texts(a).includes("Espoo"));
+  a.press("sp-nav-home");
+  a.setWeather("Kuopio", 3, 5, 1, 40, 61);
+  a.setWeather("Espoo", 8, 10, 6, 10, 1);
+  ok("the space's weather first", texts(a).includes("Espoo · high 10° low 6°"));
+  a.press("sp-wxplace-1");
+  ok("switched to Aino's town", texts(a).includes("Kuopio (Aino) · high 5° low 1°"), texts(a).filter((s) => /high/.test(s)).join());
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the summary with places lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.setWidth(1280, 700);
+  a.press("sp-nav-members");
+  const kuo = a.space.places.findIndex((p) => p.name === "Kuopio");
+  a.press("sp-unplace-" + kuo);
+  const rb = JSON.parse(a.outBody());
+  ok("remove_place, the ward's", a.outOp() === "remove_place" && rb.place === "Kuopio" && rb.ward === "w1", JSON.stringify(rb));
+  a.answer(JSON.stringify(spaceOf({ places: [{ name: "Espoo", lat: 60.2, lon: 24.66 }], wards: [{ id: "w1", name: "Aino", color: "cyan" }] })));
+  eq("one place left", a.space.places.length, 1);
 
   // a ward added by mistake: Remove asks first, then its events stay without it
   a.press("sp-nav-members");

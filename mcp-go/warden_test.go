@@ -368,3 +368,45 @@ func TestWardenWardColors(t *testing.T) {
 	code, _ = wardenCall(t, base, "tero", "set_ward", map[string]any{"space_id": sid, "ward": "Leevi", "name": "Iida"})
 	eq(t, code, 400, "a name another ward has")
 }
+
+func TestWardenPlaces(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	looked := []string{}
+	was := wardenGeocode
+	wardenGeocode = func(_ context.Context, name string) (wardenPlace, bool, error) {
+		looked = append(looked, name)
+		if strings.EqualFold(name, "kuopio") {
+			return wardenPlace{Name: "Kuopio", Lat: 62.89238, Lon: 27.67703}, true, nil
+		}
+		return wardenPlace{}, false, nil
+	}
+	defer func() { wardenGeocode = was }()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	eq(t, out["places"], []any{}, "no places at first")
+	wardenCall(t, base, "tero", "add_ward", map[string]any{"space_id": sid, "name": "Aino"})
+
+	code, out := wardenCall(t, base, "tero", "add_place", map[string]any{"space_id": sid, "place": "Espoo", "lat": 60.2055, "lon": 24.6559})
+	eq(t, []any{code, out["places"]}, []any{200, []any{map[string]any{"name": "Espoo", "lat": 60.2055, "lon": 24.6559}}}, "the space's place, as given")
+	code, out = wardenCall(t, base, "tero", "add_place", map[string]any{"space_id": sid, "place": "kuopio", "ward": "aino"})
+	w := out["wards"].([]any)[0].(map[string]any)
+	eq(t, []any{code, w["places"], looked}, []any{200, []any{map[string]any{"name": "Kuopio", "lat": 62.8924, "lon": 27.677}}, []string{"kuopio"}}, "a ward's, looked up by its name")
+	code, _ = wardenCall(t, base, "tero", "add_place", map[string]any{"space_id": sid, "place": "Kuopio", "ward": "Aino"})
+	eq(t, code, 400, "twice")
+	code, _ = wardenCall(t, base, "tero", "add_place", map[string]any{"space_id": sid, "place": "Atlantis"})
+	eq(t, code, 400, "not found")
+	code, _ = wardenCall(t, base, "tero", "add_place", map[string]any{"space_id": sid, "place": "Oulu", "lat": 65.0})
+	eq(t, code, 400, "lat without lon")
+	code, _ = wardenCall(t, base, "tero", "add_place", map[string]any{"space_id": sid, "place": "Oulu", "ward": "Nobody"})
+	eq(t, code, 400, "no such ward")
+
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	sp := out["space"].(map[string]any)
+	eq(t, len(sp["places"].([]any)), 1, "kept")
+	code, out = wardenCall(t, base, "tero", "remove_place", map[string]any{"space_id": sid, "place": "KUOPIO", "ward": "Aino"})
+	w = out["wards"].([]any)[0].(map[string]any)
+	eq(t, []any{code, w["places"]}, []any{200, []any{}}, "removed")
+	code, _ = wardenCall(t, base, "tero", "remove_place", map[string]any{"space_id": sid, "place": "Kuopio"})
+	eq(t, code, 400, "not there")
+}

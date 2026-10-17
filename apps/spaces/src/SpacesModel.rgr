@@ -47,6 +47,19 @@ class SpResource {
     }
 }
 
+; A town the space, or one ward (`ward`, its id; "" for the whole space),
+; usually is in: the summary shows its weather. `detail` is what a search
+; says of it (its region), for the list of results only.
+class SpPlace {
+    def name:string ""
+    def lat:double 0.0
+    def lon:double 0.0
+    def ward:string ""
+    def detail:string ""
+    Constructor () {
+    }
+}
+
 ; Who looks after an event, and how: "Mia" who "takes".
 class SpWho {
     def name:string ""
@@ -926,6 +939,8 @@ class SpSpace {
     def invites:[string]
     def myRole:string "owner"
     def resources:[SpResource]
+    ; the usual places of the space and of its wards
+    def places:[SpPlace]
     def events:[SpEvent]
     def deadlines:[SpDeadline]
     def sheets:[SpSheet]
@@ -2008,6 +2023,8 @@ class SpSpace {
         members = m
         def iv:[string]
         invites = iv
+        def pl:[SpPlace]
+        places = pl
     }
 
     fn loadWard:SpResource (wid:string wname:string color:string) {
@@ -2017,6 +2034,89 @@ class SpSpace {
             c = (itemAt (SpSpace.palette()) ((array_length resources) % (array_length (SpSpace.palette()))))
         }
         return (this.addResource(wid wname c))
+    }
+
+    fn addPlace:SpPlace (pname:string lat:double lon:double ward:string) {
+        def p (new SpPlace())
+        p.name = pname
+        p.lat = lat
+        p.lon = lon
+        p.ward = ward
+        push places p
+        return p
+    }
+
+    ; The index of the place of that name (any case) the ward or the space
+    ; has, -1 when it has none.
+    fn placeAt:int (pname:string ward:string) {
+        def i:int 0
+        while (i < (array_length places)) {
+            def p:SpPlace (itemAt places i)
+            if ((p.ward == ward) && ((to_lowercase p.name) == (to_lowercase pname))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn dropPlace:void (k:int) {
+        def kept:[SpPlace]
+        def i:int 0
+        while (i < (array_length places)) {
+            if (i != k) {
+                push kept (itemAt places i)
+            }
+            i = (i + 1)
+        }
+        places = kept
+    }
+
+    ; The towns whose weather the summary shows: each place once, the
+    ; space's first; Tampere when there are none.
+    fn weatherPlaces:[SpPlace] () {
+        def out:[SpPlace]
+        def names:[string]
+        def pass:int 0
+        while (pass < 2) {
+            def i:int 0
+            while (i < (array_length places)) {
+                def p:SpPlace (itemAt places i)
+                def mine:boolean ((strlen p.ward) == 0)
+                if ((mine == (pass == 0)) && ((indexOf names (to_lowercase p.name)) < 0)) {
+                    push names (to_lowercase p.name)
+                    push out p
+                }
+                i = (i + 1)
+            }
+            pass = (pass + 1)
+        }
+        if ((array_length out) == 0) {
+            def h (new SpPlace())
+            h.name = "Tampere"
+            h.lat = 61.4978
+            h.lon = 23.761
+            push out h
+        }
+        return out
+    }
+
+    ; The wards whose place the town is, by name ("" when only the whole
+    ; space's).
+    fn placeWards:string (pname:string) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length places)) {
+            def p:SpPlace (itemAt places i)
+            if (((strlen p.ward) > 0) && ((to_lowercase p.name) == (to_lowercase pname))) {
+                def rn:string (this.resourceName(p.ward))
+                if ((strlen rn) > 0) {
+                    push out rn
+                }
+            }
+            i = (i + 1)
+        }
+        return (join out ", ")
     }
 
     ; The colours the page draws (spaces.css .sp-c-*, EVGUI's board).
