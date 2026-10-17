@@ -69,8 +69,23 @@ const centre = (p, id) => p.evaluate((id) => {
   return e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2] : null;
 }, id);
 
+// on a narrow page the navigation is behind the menu button: open it first
+const openNav = async (p, id) => {
+  if (!id.startsWith("sp-nav-") || (await centre(p, id))) return;
+  const m = await centre(p, "sp-menu");
+  if (!m) return;
+  await p.evaluate(() => window.scrollTo(0, 0));
+  await p.mouse.click(m[0], m[1]);
+  await p.waitForTimeout(200);
+};
+const navCentre = async (p, id) => {
+  await openNav(p, id);
+  return centre(p, id);
+};
+
 // a click on an element of the app's tree, scrolled into the window first
 const clickId = async (p, id) => {
+  await openNav(p, id);
   const c = await centre(p, id);
   if (!c) return false;
   const top = await p.evaluate((y) => {
@@ -97,11 +112,11 @@ try {
       .waitForFunction(() => window.__lastList.cmds.some((c) => c.text === "7°"), null, { timeout: 3000 })
       .then(() => true, () => false);
     ok("with the weather", wx);
-    const nav = await centre(page, "sp-nav-calendar");
+    const nav = await navCentre(page, "sp-nav-calendar");
     await page.mouse.click(nav[0], nav[1]);
     await page.waitForTimeout(300);
     ok("a click on Calendar opens it", await page.evaluate(() => window.__spaces.tab === "calendar"));
-    const sheets = await centre(page, "sp-nav-sheets");
+    const sheets = await navCentre(page, "sp-nav-sheets");
     await page.mouse.click(sheets[0], sheets[1]);
     await page.waitForTimeout(300);
     const csv = path.join(os.tmpdir(), "spaces-check.csv");
@@ -117,7 +132,7 @@ try {
       .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Imported row"), null, { timeout: 3000 })
       .then(() => true, () => false);
     ok("a picked CSV is a sheet", painted);
-    const home = await centre(page, "sp-nav-home");
+    const home = await navCentre(page, "sp-nav-home");
     await page.mouse.click(home[0], home[1]);
     await page.waitForTimeout(300);
     ok("and its row is in today's summary", (await texts(page)).includes("Imported row"));
@@ -194,7 +209,7 @@ try {
       .then(() => true, () => false);
     ok("the space comes from the API", shown, JSON.stringify(calls.map((c) => c.op)));
     ok("as JSON", calls.every((c) => c.type === "application/json"));
-    const nav = await centre(page, "sp-nav-members");
+    const nav = await navCentre(page, "sp-nav-members");
     await page.mouse.click(nav[0], nav[1]);
     await page.waitForTimeout(300);
     const field = await centre(page, "sp-invite-email");
@@ -237,7 +252,7 @@ try {
     await page.evaluate(() => window.scrollTo(0, 0));
 
     // a double-click on the calendar opens the event; a typed title is saved
-    const calNav = await centre(page, "sp-nav-calendar");
+    const calNav = await navCentre(page, "sp-nav-calendar");
     await page.mouse.click(calNav[0], calNav[1]);
     await page.waitForTimeout(300);
     const bandId = await page.evaluate(() => {

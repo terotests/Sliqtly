@@ -70,6 +70,25 @@ console.log("every view lays out");
   }
 }
 
+console.log("the menu button on a narrow page");
+{
+  const a = fresh("fi", "family");
+  a.setWidth(390, 700);
+  ok("the navigation hides behind the menu", !byId(a, "sp-nav-calendar") && !!byId(a, "sp-menu"));
+  ok("the bar names the tab shown", texts(a).includes("Koonti"));
+  a.press("sp-menu");
+  ok("the menu opens the navigation", !!byId(a, "sp-nav-calendar"));
+  const expanded = byId(a, "sp-menu").a11yExpanded;
+  const probs = a.a11yProblems();
+  ok("the open menu lints clean", probs.length === 0, probs.join(" | "));
+  a.press("sp-nav-calendar");
+  eq("a pick opens its tab", a.tab, "calendar");
+  ok("and closes the menu", !byId(a, "sp-nav-calendar"));
+  ok("the button tells it is open or closed", byId(a, "sp-menu").a11yExpanded !== expanded);
+  a.setWidth(1280, 700);
+  ok("a wide page has no menu button", !byId(a, "sp-menu") && !!byId(a, "sp-nav-calendar"));
+}
+
 console.log("the summary");
 {
   const a = fresh("fi", "family");
