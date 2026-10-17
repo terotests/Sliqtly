@@ -325,6 +325,9 @@ class SpEvent {
     def findTitles:[string]
     def findUrls:[string]
     def findInfo:[string]
+    ; where it looks (tori, vinted, huuto, web) and days between searches
+    def watchSources:[string]
+    def watchEvery:int 1
     Constructor () {
     }
 
