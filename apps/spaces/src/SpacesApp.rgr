@@ -120,24 +120,6 @@ class SpacesApp {
     def itemOccs:[string]
     ; what each Muista box copies, by its number
     def remindTexts:[string]
-    ; the offers feed's finds by row: the entry and its find's index; the
-    ; find whose Ohita asks why
-    def dealEv:[string]
-    def dealK:[int]
-    def dealAskEv:string ""
-    def dealAskK:int -1
-    ; the space's children's events watch (wardenkids.go): on, its age
-    ; groups, the events found and the one whose Ohita asks why
-    def kidOn:boolean false
-    def kidAges:[string]
-    def kidFinds:[SpKidFind]
-    def kidAsk:int -1
-    ; its searches, newest first, its town and when it last searched
-    def kidRuns:[SpWatchRun]
-    def kidArea:string ""
-    def kidLast:string ""
-    ; Vahdit's search history: "all", "deals" or "kids"
-    def runsShow:string "all"
     ; the links in today's cards, by their number
     def linkUrls:[string]
     def sheetSel:string ""
@@ -859,371 +841,7 @@ class SpacesApp {
         if (tab == "questions") {
             return (this.questionsView())
         }
-        if ((tab == "watches") && server) {
-            return (this.watchesView())
-        }
         return (this.homeView())
-    }
-
-    ; Vahdit: the offer and events watches in numbers, each offer watch,
-    ; and every search they made (the latest kept), newest first: when,
-    ; what it looked for and where, and what came of it.
-    fn watchesView:EVGElement () {
-        def v:EVGElement (SpacesApp.box("sp-view"))
-        v.addChild((this.heading((SpWords.ui(lang "watches")) (SpWords.pick(lang "What the offer and events watches have searched, and when." "Mitä tarjous- ja tapahtumavahti ovat hakeneet ja milloin.")))))
-        def watched:int 0
-        def on:int 0
-        def finds:int 0
-        def likes:int 0
-        def hides:int 0
-        def runs:int 0
-        def fresh:int 0
-        def last:string ""
-        def lastOrder:int -1
-        def i:int 0
-        while (i < (array_length space.events)) {
-            def e:SpEvent (itemAt space.events i)
-            if e.watched {
-                watched = (watched + 1)
-                if e.watchOn {
-                    on = (on + 1)
-                }
-                finds = (finds + (array_length e.findUrls))
-                def k:int 0
-                while (k < (array_length e.findRating)) {
-                    if ((itemAt e.findRating k) == "like") {
-                        likes = (likes + 1)
-                    }
-                    if ((itemAt e.findRating k) == "hide") {
-                        hides = (hides + 1)
-                    }
-                    k = (k + 1)
-                }
-                def r:int 0
-                while (r < (array_length e.watchRuns)) {
-                    def run:SpWatchRun (itemAt e.watchRuns r)
-                    runs = (runs + 1)
-                    fresh = (fresh + run.fresh)
-                    if ((run.order()) > lastOrder) {
-                        lastOrder = (run.order())
-                        last = (this.runTime(run))
-                    }
-                    r = (r + 1)
-                }
-            }
-            i = (i + 1)
-        }
-        def cols:EVGElement (SpacesApp.box("sp-cols sp-cols-narrow"))
-        def cw:double (this.mainW())
-        if ((this.narrow()) == false) {
-            cols = (SpacesApp.box("sp-cols"))
-            cw = (((this.mainW()) - 16.0) / 2.0)
-        }
-        def dc:EVGElement (this.card("dealstats" (SpWords.pick(lang "Offer watch" "Tarjousvahti"))))
-        UiTree.inline(dc "width" (SpacesApp.px(cw)))
-        if (watched == 0) {
-            dc.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "No offer watches yet. Turn one on on a thing to get, on its form." "Ei tarjousvahteja vielä. Tarjousvahdin saa päälle hankinnan lomakkeelta.")))))
-        } {
-            dc.addChild((this.statRow("sp-ws-on" (SpWords.pick(lang "Watches on" "Vahteja päällä")) ((to_string on) + " / " + (to_string watched)))))
-            dc.addChild((this.statRow("sp-ws-runs" (SpWords.pick(lang "Searches in the log" "Hakuja lokissa")) (to_string runs))))
-            dc.addChild((this.statRow("sp-ws-last" (SpWords.pick(lang "Latest search" "Viimeisin haku")) (this.orNone(last)))))
-            dc.addChild((this.statRow("sp-ws-new" (SpWords.pick(lang "New finds in those" "Uusia löytöjä niissä")) (to_string fresh))))
-            dc.addChild((this.statRow("sp-ws-finds" (SpWords.pick(lang "Finds kept" "Löytöjä tallessa")) (to_string finds))))
-            dc.addChild((this.statRow("sp-ws-likes" (SpWords.pick(lang "Interesting / skipped" "Kiinnostavia / ohitettuja")) ((to_string likes) + " / " + (to_string hides)))))
-        }
-        cols.addChild(dc)
-        def kc:EVGElement (this.card("kidstats" (SpWords.pick(lang "Events watch" "Tapahtumavahti"))))
-        UiTree.inline(kc "width" (SpacesApp.px(cw)))
-        def state:string (SpWords.pick(lang "Off" "Pois päältä"))
-        if kidOn {
-            state = (SpWords.pick(lang "On" "Päällä"))
-        }
-        kc.addChild((this.statRow("sp-ks-on" (SpWords.pick(lang "State" "Tila")) state)))
-        if ((strlen kidArea) > 0) {
-            kc.addChild((this.statRow("sp-ks-area" (SpWords.pick(lang "Near" "Alue")) kidArea)))
-        }
-        def kLast:string ""
-        def kLastOrder:int -1
-        def kFresh:int 0
-        def r2:int 0
-        while (r2 < (array_length kidRuns)) {
-            def run:SpWatchRun (itemAt kidRuns r2)
-            kFresh = (kFresh + run.fresh)
-            if ((run.order()) > kLastOrder) {
-                kLastOrder = (run.order())
-                kLast = (this.runTime(run))
-            }
-            r2 = (r2 + 1)
-        }
-        def coming:int 0
-        def added:int 0
-        def f2:int 0
-        while (f2 < (array_length kidFinds)) {
-            def f:SpKidFind (itemAt kidFinds f2)
-            if (f.day >= today) {
-                coming = (coming + 1)
-            }
-            if ((strlen f.added) > 0) {
-                added = (added + 1)
-            }
-            f2 = (f2 + 1)
-        }
-        kc.addChild((this.statRow("sp-ks-runs" (SpWords.pick(lang "Searches in the log" "Hakuja lokissa")) (to_string (array_length kidRuns)))))
-        kc.addChild((this.statRow("sp-ks-last" (SpWords.pick(lang "Latest search" "Viimeisin haku")) (this.orNone(kLast)))))
-        kc.addChild((this.statRow("sp-ks-new" (SpWords.pick(lang "New events in those" "Uusia tapahtumia niissä")) (to_string kFresh))))
-        kc.addChild((this.statRow("sp-ks-coming" (SpWords.pick(lang "Events still to come" "Tulevia tapahtumia")) (to_string coming))))
-        kc.addChild((this.statRow("sp-ks-added" (SpWords.pick(lang "Added to the calendar" "Lisätty kalenteriin")) (to_string added))))
-        cols.addChild(kc)
-        v.addChild(cols)
-        if (watched > 0) {
-            v.addChild((this.watchList()))
-        }
-        v.addChild((this.runsCard()))
-        return v
-    }
-
-    ; a number on a stats card: its label and the value at the right
-    fn statRow:EVGElement (id:string label:string value:string) {
-        def row:EVGElement (UiTree.div(id "sp-moneyrow"))
-        row.role = "listitem"
-        row.a11yLabel = (label + ": " + value)
-        def lb:EVGElement (SpacesApp.tx("sp-moneylabel" label))
-        lb.a11yHidden = true
-        row.addChild(lb)
-        row.addChild((SpacesApp.box("sp-grow")))
-        def mv:EVGElement (SpacesApp.tx("sp-money" value))
-        mv.a11yHidden = true
-        row.addChild(mv)
-        return row
-    }
-
-    fn orNone:string (s:string) {
-        if ((strlen s) == 0) {
-            return (SpWords.pick(lang "not yet" "ei vielä"))
-        }
-        return s
-    }
-
-    ; a search's time in the space's time: "17.10. 08:15" (an older log
-    ; has only UTC, said so)
-    fn runTime:string (r:SpWatchRun) {
-        if ((strlen r.local) >= 16) {
-            return ((SpRemote.dayMonth((substring r.local 0 10))) + " " + (substring r.local 11 16))
-        }
-        if ((strlen r.at) >= 16) {
-            return ((SpRemote.dayMonth((substring r.at 0 10))) + " " + (substring r.at 11 16) + " UTC")
-        }
-        return "?"
-    }
-
-    ; tori, vinted, huuto, web as their names
-    fn sourceNames:string (ids:[string]) {
-        def out:[string]
-        def i:int 0
-        while (i < (array_length ids)) {
-            def id:string (itemAt ids i)
-            def n:string id
-            if (id == "tori") {
-                n = "Tori"
-            }
-            if (id == "vinted") {
-                n = "Vinted"
-            }
-            if (id == "huuto") {
-                n = "Huuto.net"
-            }
-            if (id == "web") {
-                n = (SpWords.pick(lang "the web" "verkko"))
-            }
-            push out n
-            i = (i + 1)
-        }
-        return (join out ", ")
-    }
-
-    ; why results were left out, in words
-    fn leftWord:string (why:string) {
-        if (why == "seen") { return (SpWords.pick(lang "seen before" "jo nähty")) }
-        if (why == "too_expensive") { return (SpWords.pick(lang "too expensive" "liian kallis")) }
-        if (why == "excluded") { return (SpWords.pick(lang "excluded word" "pois rajattu sana")) }
-        if (why == "not_listing") { return (SpWords.pick(lang "not a listing" "ei ilmoitus")) }
-        if (why == "other_site") { return (SpWords.pick(lang "another site" "muu sivusto")) }
-        if (why == "low_fit") { return (SpWords.pick(lang "poor fit" "huono osuvuus")) }
-        if (why == "no_day") { return (SpWords.pick(lang "no day in range" "ei päivää aikavälillä")) }
-        if (why == "not_event") { return (SpWords.pick(lang "not an event" "ei tapahtuma")) }
-        return why
-    }
-
-    ; Each offer watch: what it searches, where and how often, its finds
-    ; and its latest search.
-    fn watchList:EVGElement () {
-        def c:EVGElement (this.card("watchlist" (SpWords.pick(lang "Offer watches" "Tarjousvahdit"))))
-        def i:int 0
-        while (i < (array_length space.events)) {
-            def e:SpEvent (itemAt space.events i)
-            if e.watched {
-                def row:EVGElement (UiTree.div(("sp-wl-" + (to_string i)) "sp-wrun"))
-                row.role = "listitem"
-                row.a11yLabel = e.title
-                def top:EVGElement (SpacesApp.box("sp-dealtop"))
-                top.addChild((SpacesApp.tx("sp-title" e.title)))
-                top.addChild((SpacesApp.box("sp-grow")))
-                if (e.watchOn == false) {
-                    top.addChild((SpacesApp.tx("sp-dfit" (SpWords.pick(lang "off" "pois")))))
-                }
-                top.addChild((SpacesApp.tx("sp-dfit" ((to_string (array_length e.findUrls)) + (SpWords.pick(lang " finds" " löytöä"))))))
-                row.addChild(top)
-                def parts:[string]
-                push parts ("”" + e.watchQuery + "”")
-                push parts (this.sourceNames(e.watchSources))
-                if (e.watchEvery <= 1) {
-                    push parts (SpWords.pick(lang "daily" "päivittäin"))
-                } {
-                    push parts ((SpWords.pick(lang "every " "joka ")) + (to_string e.watchEvery) + (SpWords.pick(lang " days" ". päivä")))
-                }
-                row.addChild((SpacesApp.tx("sp-meta" (join parts " · "))))
-                def last:string (SpWords.pick(lang "Not searched yet" "Ei haettu vielä"))
-                if ((array_length e.watchRuns) > 0) {
-                    def r:SpWatchRun (itemAt e.watchRuns 0)
-                    last = ((SpWords.pick(lang "Latest search " "Viimeisin haku ")) + (this.runTime(r)) + " · " + (this.runResult(r)))
-                }
-                row.addChild((SpacesApp.tx("sp-meta" last)))
-                c.addChild(row)
-            }
-            i = (i + 1)
-        }
-        return c
-    }
-
-    ; "12 results, 3 new"
-    fn runResult:string (r:SpWatchRun) {
-        return ((to_string r.results) + (SpWords.pick(lang " results, " " tulosta, ")) + (to_string r.fresh) + (SpWords.pick(lang " new" " uutta")))
-    }
-
-    ; Hakuhistoria: both watches' searches newest first, at most 60, with
-    ; a switch between all, offers and events.
-    fn runsCard:EVGElement () {
-        def c:EVGElement (this.card("runs" (SpWords.pick(lang "Search history" "Hakuhistoria"))))
-        def pills:EVGElement (SpacesApp.box("sp-pills"))
-        pills.role = "group"
-        pills.a11yLabel = (SpWords.pick(lang "Show" "Näytä"))
-        def keys:[string] ([] _:string ( "all" "deals" "kids" ))
-        def names:[string] ([] _:string ( (SpWords.pick(lang "All" "Kaikki")) (SpWords.pick(lang "Offers" "Tarjoukset")) (SpWords.pick(lang "Events" "Tapahtumat")) ))
-        def p:int 0
-        while (p < 3) {
-            def k:string (itemAt keys p)
-            def cls:string "sp-pill"
-            if (k == runsShow) {
-                cls = "sp-pill sp-pill-on"
-            }
-            def b:EVGElement (SpacesApp.btn(("sp-runs-" + k) cls (itemAt names p)))
-            b.a11yPressed = (SpacesApp.tri((k == runsShow)))
-            pills.addChild(b)
-            p = (p + 1)
-        }
-        c.addChild(pills)
-        def all:[SpWatchRun]
-        if (runsShow != "kids") {
-            def i:int 0
-            while (i < (array_length space.events)) {
-                def e:SpEvent (itemAt space.events i)
-                def r:int 0
-                while (r < (array_length e.watchRuns)) {
-                    push all (itemAt e.watchRuns r)
-                    r = (r + 1)
-                }
-                i = (i + 1)
-            }
-        }
-        if (runsShow != "deals") {
-            def j:int 0
-            while (j < (array_length kidRuns)) {
-                push all (itemAt kidRuns j)
-                j = (j + 1)
-            }
-        }
-        if ((array_length all) == 0) {
-            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "No searches yet." "Ei hakuja vielä.")))))
-            return c
-        }
-        ; newest first: the newest left is taken each time
-        def used:[boolean]
-        def u:int 0
-        while (u < (array_length all)) {
-            push used false
-            u = (u + 1)
-        }
-        def shown:int 0
-        while ((shown < (array_length all)) && (shown < 60)) {
-            def best:int -1
-            def bestAt:int -2
-            def q:int 0
-            while (q < (array_length all)) {
-                if ((itemAt used q) == false) {
-                    def cand:SpWatchRun (itemAt all q)
-                    def o:int (cand.order())
-                    if (o > bestAt) {
-                        best = q
-                        bestAt = o
-                    }
-                }
-                q = (q + 1)
-            }
-            set used best true
-            c.addChild((this.runRow((itemAt all best) shown)))
-            shown = (shown + 1)
-        }
-        return c
-    }
-
-    fn runRow:EVGElement (r:SpWatchRun n:int) {
-        def row:EVGElement (UiTree.div(("sp-run-" + (to_string n)) "sp-wrun"))
-        row.role = "listitem"
-        def what:string r.entry
-        if ((strlen what) == 0) {
-            what = (SpWords.pick(lang "Events watch" "Tapahtumavahti"))
-        }
-        row.a11yLabel = ((this.runTime(r)) + " " + what)
-        def top:EVGElement (SpacesApp.box("sp-dealtop"))
-        top.addChild((SpacesApp.tx("sp-wrtime" (this.runTime(r)))))
-        top.addChild((SpacesApp.tx("sp-title" what)))
-        top.addChild((SpacesApp.box("sp-grow")))
-        def by:string r.by
-        if (by == "auto") {
-            by = (SpWords.pick(lang "scheduled" "ajastettu"))
-        }
-        if ((strlen by) > 0) {
-            top.addChild((SpacesApp.tx("sp-dfit" by)))
-        }
-        row.addChild(top)
-        def parts:[string]
-        if ((strlen r.query) > 0) {
-            push parts ("”" + r.query + "”")
-        }
-        if ((array_length r.sources) > 0) {
-            push parts (this.sourceNames(r.sources))
-        }
-        if ((strlen r.near) > 0) {
-            push parts ((SpWords.pick(lang "near " "lähellä ")) + r.near)
-        }
-        if ((array_length parts) > 0) {
-            row.addChild((SpacesApp.tx("sp-meta" (join parts " · "))))
-        }
-        def res:string (this.runResult(r))
-        if ((array_length r.leftWhy) > 0) {
-            def lp:[string]
-            def k:int 0
-            while (k < (array_length r.leftWhy)) {
-                push lp ((to_string (itemAt r.leftN k)) + " " + (this.leftWord((itemAt r.leftWhy k))))
-                k = (k + 1)
-            }
-            res = (res + (SpWords.pick(lang " · left out: " " · pois jätetty: ")) + (join lp ", "))
-        }
-        row.addChild((SpacesApp.tx("sp-meta" res)))
-        if ((array_length r.errors) > 0) {
-            row.addChild((SpacesApp.tx("sp-dwhy" ((SpWords.pick(lang "Errors: " "Virheet: ")) + (join r.errors "; ")))))
-        }
-        return row
     }
 
     fn appName:string () {
@@ -1324,7 +942,7 @@ class SpacesApp {
 
     fn tabNames:[string] () {
         if server {
-            return ([] _:string ( "home" "questions" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "watches" "assistant" ))
+            return ([] _:string ( "home" "questions" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
         }
         return ([] _:string ( "home" "calendar" "lists" "budget" "sheets" "docs" "assistant" ))
     }
@@ -1436,17 +1054,6 @@ class SpacesApp {
             v.addChild((this.aheadBoard()))
             return v
         }
-        if (((homeTab == "deals") && ((this.dealsAny()) == false)) || ((homeTab == "kids") && ((this.kidsAny()) == false))) {
-            homeTab = "today"
-        }
-        if (homeTab == "deals") {
-            v.addChild((this.dealsBoard()))
-            return v
-        }
-        if (homeTab == "kids") {
-            v.addChild((this.kidsBoard()))
-            return v
-        }
         def gap:double 28.0
         def w1:double (this.mainW())
         def w2:double w1
@@ -1477,23 +1084,13 @@ class SpacesApp {
         return v
     }
 
-    ; The summary's pages: today, the week in columns, what is coming and,
-    ; on a server, the offers found.
+    ; The summary's pages: today, the week in columns and what is coming.
     fn homeTabs:EVGElement () {
         def bar:EVGElement (SpacesApp.box("sp-htabs"))
         bar.role = "tablist"
         bar.a11yLabel = (SpWords.ui(lang "home"))
         def keys:[string] ([] _:string ( "today" "week" "ahead" ))
         def names:[string] ([] _:string ( (SpWords.ui(lang "today")) (SpWords.pick(lang "Week" "Viikko")) (SpWords.pick(lang "Coming up" "Tulossa")) ))
-        ; the watches' finds, only while there are some
-        if (this.dealsAny()) {
-            push keys "deals"
-            push names (SpWords.pick(lang "Offers" "Tarjouksia"))
-        }
-        if (this.kidsAny()) {
-            push keys "kids"
-            push names (SpWords.pick(lang "Events" "Tapahtumia"))
-        }
         def i:int 0
         while (i < (array_length keys)) {
             def k:string (itemAt keys i)
@@ -1579,506 +1176,6 @@ class SpacesApp {
         }
         row.addChild(col)
         return row
-    }
-
-    ; Tarjoukset: every watch's finds in one feed, best fit first, as new
-    ; ones, liked ones and skipped ones (hidden, or under 50). A find opens
-    ; in a new tab; Kiinnostava likes it, Ohita asks why and hides it.
-    fn dealsBoard:EVGElement () {
-        def none:[string]
-        dealEv = none
-        def noK:[int]
-        dealK = noK
-        def c:EVGElement (UiTree.div("sp-card-deals" "sp-deals"))
-        c.role = "region"
-        c.a11yLabel = (SpWords.pick(lang "Offers" "Tarjouksia"))
-        def keys:[string] ([] _:string ( "new" "like" "skip" ))
-        def heads:[string] ([] _:string ( (SpWords.pick(lang "New" "Uudet")) (SpWords.pick(lang "Interesting" "Kiinnostavat")) (SpWords.pick(lang "Skipped" "Ohitetut")) ))
-        def any:boolean false
-        def g:int 0
-        while (g < 3) {
-            def evs:[string]
-            def ks:[int]
-            def i:int 0
-            while (i < (array_length space.events)) {
-                def e:SpEvent (itemAt space.events i)
-                def k:int 0
-                while (k < (array_length e.findUrls)) {
-                    if ((this.dealGroup(e k)) == (itemAt keys g)) {
-                        push evs e.id
-                        push ks k
-                    }
-                    k = (k + 1)
-                }
-                i = (i + 1)
-            }
-            if ((array_length ks) > 0) {
-                any = true
-                c.addChild((SpacesApp.tx("sp-dhead" ((itemAt heads g) + " (" + (to_string (array_length ks)) + ")"))))
-                ; best fit first: the best left is taken each time
-                def used:[boolean]
-                def u:int 0
-                while (u < (array_length ks)) {
-                    push used false
-                    u = (u + 1)
-                }
-                def shown:int 0
-                while ((shown < (array_length ks)) && (shown < 30)) {
-                    def best:int -1
-                    def bestFit:int -2
-                    def j:int 0
-                    while (j < (array_length ks)) {
-                        if ((itemAt used j) == false) {
-                            def fit:int (this.dealFit((itemAt evs j) (itemAt ks j)))
-                            if (fit > bestFit) {
-                                best = j
-                                bestFit = fit
-                            }
-                        }
-                        j = (j + 1)
-                    }
-                    set used best true
-                    c.addChild((this.dealRow((itemAt evs best) (itemAt ks best))))
-                    shown = (shown + 1)
-                }
-            }
-            g = (g + 1)
-        }
-        if (any == false) {
-            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "No offers yet. Turn on an offer watch on a thing to get, on its form." "Ei tarjouksia vielä. Tarjousvahdin saa päälle hankinnan lomakkeelta.")))))
-        }
-        return c
-    }
-
-    ; whether the summary has an offers tab: a find on a server
-    fn dealsAny:boolean () {
-        if (server == false) {
-            return false
-        }
-        def i:int 0
-        while (i < (array_length space.events)) {
-            def e:SpEvent (itemAt space.events i)
-            if ((array_length e.findUrls) > 0) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
-    ; whether the summary has an events tab: an event found still to come
-    fn kidsAny:boolean () {
-        if (server == false) {
-            return false
-        }
-        def i:int 0
-        while (i < (array_length kidFinds)) {
-            def f:SpKidFind (itemAt kidFinds i)
-            if (f.day >= today) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
-    ; a find's group: like, skip (hidden or a fit under 50) or new
-    fn dealGroup:string (e:SpEvent k:int) {
-        def r:string (itemAt e.findRating k)
-        if (r == "like") {
-            return "like"
-        }
-        def s:int (itemAt e.findScores k)
-        if ((r == "hide") || ((s >= 0) && (s < 50))) {
-            return "skip"
-        }
-        return "new"
-    }
-
-    ; a find's fit; one not given counts as fitting
-    fn dealFit:int (id:string k:int) {
-        def found@(optional):SpEvent (space.event(id))
-        if (null? found) {
-            return -1
-        }
-        def e:SpEvent found
-        def s:int (itemAt e.findScores k)
-        if (s < 0) {
-            return 100
-        }
-        return s
-    }
-
-    fn dealRow:EVGElement (id:string k:int) {
-        def n:int (array_length dealK)
-        push dealEv id
-        push dealK k
-        def ns:string (to_string n)
-        def e:SpEvent (unwrap (space.event(id)))
-        def row:EVGElement (SpacesApp.box("sp-deal"))
-        row.role = "group"
-        row.a11yLabel = (itemAt e.findTitles k)
-        def head:EVGElement (SpacesApp.box("sp-dealtop"))
-        def open:EVGElement (SpacesApp.btn(("sp-deal-" + ns) "sp-link" (itemAt e.findTitles k)))
-        open.role = "link"
-        head.addChild(open)
-        def s:int (itemAt e.findScores k)
-        if (s >= 0) {
-            def chip:EVGElement (SpacesApp.tx("sp-dfit" (to_string s)))
-            chip.a11yLabel = ((SpWords.pick(lang "fit " "osuvuus ")) + (to_string s))
-            head.addChild(chip)
-        }
-        row.addChild(head)
-        row.addChild((SpacesApp.tx("sp-meta" (e.title + " · " + (itemAt e.findInfo k)))))
-        def why:string (itemAt e.findWhy k)
-        if ((strlen why) > 0) {
-            row.addChild((SpacesApp.tx("sp-dwhy" why)))
-        }
-        def acts:EVGElement (SpacesApp.box("sp-pills"))
-        acts.role = "group"
-        acts.a11yLabel = (SpWords.pick(lang "Rate" "Arvioi"))
-        def r:string (itemAt e.findRating k)
-        def lc:string "sp-pill"
-        if (r == "like") {
-            lc = "sp-pill sp-pill-on"
-        }
-        def lb:EVGElement (SpacesApp.btn(("sp-dlike-" + ns) lc (SpWords.pick(lang "Interesting" "Kiinnostava"))))
-        lb.a11yPressed = (SpacesApp.tri((r == "like")))
-        acts.addChild(lb)
-        def hc:string "sp-pill"
-        if (r == "hide") {
-            hc = "sp-pill sp-pill-on"
-        }
-        def hb:EVGElement (SpacesApp.btn(("sp-dhide-" + ns) hc (SpWords.pick(lang "Skip" "Ohita"))))
-        hb.a11yPressed = (SpacesApp.tri((r == "hide")))
-        acts.addChild(hb)
-        row.addChild(acts)
-        if ((dealAskEv == id) && (dealAskK == k)) {
-            def whys:EVGElement (SpacesApp.box("sp-pills"))
-            whys.role = "group"
-            whys.a11yLabel = (SpWords.pick(lang "Why" "Miksi"))
-            def ids:[string] ([] _:string ( "wrong_item" "too_far" "too_expensive" "not_interesting" ))
-            def names:[string] ([] _:string ( (SpWords.pick(lang "Wrong thing" "Väärä tuote")) (SpWords.pick(lang "Too far" "Liian kaukana")) (SpWords.pick(lang "Too dear" "Liian kallis")) (SpWords.pick(lang "Not interesting" "Ei kiinnostava")) ))
-            def i:int 0
-            while (i < 4) {
-                whys.addChild((SpacesApp.btn(("sp-dwhy-" + ns + "-" + (itemAt ids i)) "sp-pill" (itemAt names i))))
-                i = (i + 1)
-            }
-            row.addChild(whys)
-        }
-        return row
-    }
-
-    ; A press on a find in the feed: "open", "like", "hide" (asks why) or
-    ; "why-<reason>"; the rating is sent as rate_find
-    fn pressDeal:void (what:string n:int) {
-        if ((n < 0) || (n >= (array_length dealK))) {
-            return
-        }
-        def found@(optional):SpEvent (space.event((itemAt dealEv n)))
-        if (null? found) {
-            return
-        }
-        def e:SpEvent found
-        def k:int (itemAt dealK n)
-        if (k >= (array_length e.findUrls)) {
-            return
-        }
-        if (what == "open") {
-            action = ("open:" + (itemAt e.findUrls k))
-            return
-        }
-        def r:string (itemAt e.findRating k)
-        if (what == "hide") {
-            if (r == "hide") {
-                set e.findRating k ""
-                set e.findReason k ""
-            } {
-                dealAskEv = e.id
-                dealAskK = k
-                return
-            }
-        }
-        if (what == "like") {
-            set e.findReason k ""
-            if (r == "like") {
-                set e.findRating k ""
-            } {
-                set e.findRating k "like"
-            }
-        }
-        if (UiTree.beginsWith(what "why-")) {
-            set e.findRating k "hide"
-            set e.findReason k (substring what 4 (strlen what))
-        }
-        dealAskEv = ""
-        dealAskK = -1
-        if (((strlen e.remoteId) == 0) || ((strlen (itemAt e.findIds k)) == 0)) {
-            return
-        }
-        this.queue("rate_find" (SpRemote.rateBody(spaceId e k)) e.id)
-    }
-
-    ; the events watch's switch, its age groups and Hae nyt: on the events
-    ; tab and on the members page, where it is turned on before anything
-    ; is found (the tab shows only once something is)
-    fn kidControls:void (c:EVGElement) {
-        if (kidOn == false) {
-            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Looks for events and things to do for the children near home once a week: shows, workshops, sports try-outs, library events. They are listed on the summary's Events tab, not in the calendar, until you add one." "Etsii kerran viikossa lapsille tapahtumia ja tekemistä kodin läheltä: esityksiä, työpajoja, lajikokeiluja, kirjaston tapahtumia. Ne näkyvät koonnin Tapahtumia-välilehdellä, eivät kalenterissa, kunnes lisäät jonkin.")))))
-            c.addChild((SpacesApp.btn("sp-kw-on" "sp-action" (SpWords.pick(lang "Watch for events" "Ota tapahtumavahti käyttöön")))))
-            return
-        }
-        def bar:EVGElement (SpacesApp.box("sp-dealtop"))
-        def ages:EVGElement (SpacesApp.box("sp-pills"))
-        ages.role = "group"
-        ages.a11yLabel = (SpWords.pick(lang "Ages" "Iät"))
-        def ids:[string] ([] _:string ( "baby" "small" "school" "teen" ))
-        def names:[string] ([] _:string ( "0–2" "3–6" "7–12" "13–17" ))
-        def i:int 0
-        while (i < 4) {
-            def id:string (itemAt ids i)
-            def on:boolean (this.kidHas(id))
-            def cls:string "sp-pill"
-            if on {
-                cls = "sp-pill sp-pill-on"
-            }
-            def b:EVGElement (SpacesApp.btn(("sp-kage-" + id) cls (itemAt names i)))
-            b.a11yLabel = ((SpWords.pick(lang "Ages " "Iät ")) + (itemAt names i))
-            b.a11yPressed = (SpacesApp.tri(on))
-            ages.addChild(b)
-            i = (i + 1)
-        }
-        bar.addChild(ages)
-        bar.addChild((SpacesApp.btn("sp-kw-run" "sp-pill" (SpWords.pick(lang "Search now" "Hae nyt")))))
-        bar.addChild((SpacesApp.btn("sp-kw-off" "sp-link" (SpWords.pick(lang "Stop" "Lopeta")))))
-        c.addChild(bar)
-    }
-
-    ; Tapahtumat: events for the children the server found near home, by
-    ; day, kept apart from the calendar until Lisää kalenteriin puts one in.
-    ; Off: a button turns the watch on. On: its age groups, Hae nyt, the
-    ; events, and the skipped ones (Ohita, or a fit under 50) last.
-    fn kidsBoard:EVGElement () {
-        def c:EVGElement (UiTree.div("sp-card-kids" "sp-deals"))
-        c.role = "region"
-        c.a11yLabel = (SpWords.pick(lang "Events" "Tapahtumia"))
-        this.kidControls(c)
-        if (kidOn == false) {
-            return c
-        }
-        def skipped:int 0
-        def shown:int 0
-        def k:int 0
-        while (k < (array_length kidFinds)) {
-            def f:SpKidFind (itemAt kidFinds k)
-            if (this.kidSkipped(f)) {
-                skipped = (skipped + 1)
-            } {
-                if (f.day >= today) {
-                    c.addChild((this.kidRow(f k)))
-                    shown = (shown + 1)
-                }
-            }
-            k = (k + 1)
-        }
-        if (shown == 0) {
-            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Nothing found yet." "Ei löytöjä vielä.")))))
-        }
-        if (skipped > 0) {
-            c.addChild((SpacesApp.tx("sp-dhead" ((SpWords.pick(lang "Skipped" "Ohitetut")) + " (" + (to_string skipped) + ")"))))
-            def j:int 0
-            while (j < (array_length kidFinds)) {
-                def g:SpKidFind (itemAt kidFinds j)
-                if ((this.kidSkipped(g)) && (g.day >= today)) {
-                    c.addChild((this.kidRow(g j)))
-                }
-                j = (j + 1)
-            }
-        }
-        return c
-    }
-
-    fn kidHas:boolean (id:string) {
-        def i:int 0
-        while (i < (array_length kidAges)) {
-            if ((itemAt kidAges i) == id) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
-    fn kidSkipped:boolean (f:SpKidFind) {
-        return ((f.rating == "hide") || ((f.score >= 0) && ((f.score < 50) && (f.rating != "like"))))
-    }
-
-    fn kidRow:EVGElement (f:SpKidFind k:int) {
-        def ns:string (to_string k)
-        def row:EVGElement (SpacesApp.box("sp-deal"))
-        row.role = "group"
-        row.a11yLabel = f.title
-        def when:string (SpWords.dayLabel(lang f.day))
-        if ((strlen f.start) > 0) {
-            def sm:int (SpText.minuteOf(f.start))
-            if (sm >= 0) {
-                when = (when + " " + (SpWords.clock(lang sm)))
-            }
-        }
-        def head:EVGElement (SpacesApp.box("sp-dealtop"))
-        head.addChild((SpacesApp.tx("sp-dhead" when)))
-        if (f.score >= 0) {
-            def chip:EVGElement (SpacesApp.tx("sp-dfit" (to_string f.score)))
-            chip.a11yLabel = ((SpWords.pick(lang "fit " "osuvuus ")) + (to_string f.score))
-            head.addChild(chip)
-        }
-        row.addChild(head)
-        def open:EVGElement (SpacesApp.btn(("sp-kev-" + ns) "sp-link" f.title))
-        open.role = "link"
-        row.addChild(open)
-        if ((strlen f.info) > 0) {
-            row.addChild((SpacesApp.tx("sp-meta" f.info)))
-        }
-        if ((strlen f.why) > 0) {
-            row.addChild((SpacesApp.tx("sp-dwhy" f.why)))
-        }
-        def acts:EVGElement (SpacesApp.box("sp-pills"))
-        acts.role = "group"
-        acts.a11yLabel = (SpWords.pick(lang "Rate" "Arvioi"))
-        if ((strlen f.added) > 0) {
-            acts.addChild((SpacesApp.tx("sp-pill-tx sp-pill-on-tx" (SpWords.pick(lang "In the calendar" "Kalenterissa")))))
-        } {
-            acts.addChild((SpacesApp.btn(("sp-kadd-" + ns) "sp-pill" (SpWords.pick(lang "Add to calendar" "Lisää kalenteriin")))))
-        }
-        def lc:string "sp-pill"
-        if (f.rating == "like") {
-            lc = "sp-pill sp-pill-on"
-        }
-        def lb:EVGElement (SpacesApp.btn(("sp-klike-" + ns) lc (SpWords.pick(lang "Interesting" "Kiinnostava"))))
-        lb.a11yPressed = (SpacesApp.tri((f.rating == "like")))
-        acts.addChild(lb)
-        def hc:string "sp-pill"
-        if (f.rating == "hide") {
-            hc = "sp-pill sp-pill-on"
-        }
-        def hb:EVGElement (SpacesApp.btn(("sp-khide-" + ns) hc (SpWords.pick(lang "Skip" "Ohita"))))
-        hb.a11yPressed = (SpacesApp.tri((f.rating == "hide")))
-        acts.addChild(hb)
-        row.addChild(acts)
-        if (kidAsk == k) {
-            def whys:EVGElement (SpacesApp.box("sp-pills"))
-            whys.role = "group"
-            whys.a11yLabel = (SpWords.pick(lang "Why" "Miksi"))
-            def ids:[string] ([] _:string ( "wrong_item" "too_far" "too_expensive" "not_interesting" ))
-            def names:[string] ([] _:string ( (SpWords.pick(lang "Not for us" "Ei sovi meille")) (SpWords.pick(lang "Too far" "Liian kaukana")) (SpWords.pick(lang "Too dear" "Liian kallis")) (SpWords.pick(lang "Not interesting" "Ei kiinnostava")) ))
-            def i:int 0
-            while (i < 4) {
-                whys.addChild((SpacesApp.btn(("sp-kwhy-" + ns + "-" + (itemAt ids i)) "sp-pill" (itemAt names i))))
-                i = (i + 1)
-            }
-            row.addChild(whys)
-        }
-        return row
-    }
-
-    ; A press in the Tapahtumat tab: "on", "off", "run", "age-<id>", or on
-    ; the k'th event "open", "add", "like", "hide" (asks why), "why-<reason>"
-    fn pressKids:void (what:string k:int) {
-        if (((what == "on") || (what == "off")) || (UiTree.beginsWith(what "age-"))) {
-            if (what == "on") {
-                kidOn = true
-                if ((array_length kidAges) == 0) {
-                    def dflt:[string] ([] _:string ( "small" "school" ))
-                    kidAges = dflt
-                }
-            }
-            if (what == "off") {
-                kidOn = false
-            }
-            if (UiTree.beginsWith(what "age-")) {
-                def id:string (substring what 4 (strlen what))
-                def next:[string]
-                def had:boolean false
-                def i:int 0
-                while (i < (array_length kidAges)) {
-                    if ((itemAt kidAges i) == id) {
-                        had = true
-                    } {
-                        push next (itemAt kidAges i)
-                    }
-                    i = (i + 1)
-                }
-                if (had == false) {
-                    push next id
-                }
-                kidAges = next
-            }
-            this.queue("set_event_watch" (SpRemote.kidWatchBody(spaceId kidOn kidAges)) spaceId)
-            if (what == "on") {
-                this.queue("run_event_watch" (SpRemote.body(([] _:string ( "space_id" spaceId )))) spaceId)
-                status = (SpWords.pick(lang "Looking for events…" "Haetaan tapahtumia…"))
-            }
-            return
-        }
-        if (what == "run") {
-            this.queue("run_event_watch" (SpRemote.body(([] _:string ( "space_id" spaceId )))) spaceId)
-            status = (SpWords.pick(lang "Looking for events…" "Haetaan tapahtumia…"))
-            return
-        }
-        if ((k < 0) || (k >= (array_length kidFinds))) {
-            return
-        }
-        def f:SpKidFind (itemAt kidFinds k)
-        if (what == "open") {
-            action = ("open:" + f.url)
-            return
-        }
-        if (what == "add") {
-            if ((strlen f.added) == 0) {
-                f.added = "…"
-                this.queue("add_event_find" (SpRemote.body(([] _:string ( "space_id" spaceId "find_id" f.id )))) spaceId)
-            }
-            return
-        }
-        if (what == "hide") {
-            if (f.rating == "hide") {
-                f.rating = ""
-                f.reason = ""
-            } {
-                kidAsk = k
-                return
-            }
-        }
-        if (what == "like") {
-            f.reason = ""
-            if (f.rating == "like") {
-                f.rating = ""
-            } {
-                f.rating = "like"
-            }
-        }
-        if (UiTree.beginsWith(what "why-")) {
-            f.rating = "hide"
-            f.reason = (substring what 4 (strlen what))
-        }
-        kidAsk = -1
-        this.queue("rate_find" (SpRemote.rateKidBody(spaceId f)) spaceId)
-    }
-
-    fn readKids:void (w:VlJson) {
-        def ages:[string]
-        def finds:[SpKidFind]
-        kidOn = (SpRemote.readKids(w ages finds))
-        kidAges = ages
-        kidFinds = finds
-        kidAsk = -1
-        kidRuns = (SpRemote.readRuns(w ""))
-        kidArea = ""
-        kidLast = ""
-        if (w.isObject()) {
-            kidArea = (w.stringOr("area" ""))
-            kidLast = (w.stringOr("last_run" ""))
-        }
     }
 
     ; Tulossa: the next plans that are not routine, with how many days away.
@@ -3138,11 +2235,6 @@ class SpacesApp {
             fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
             fc.addChild(fr)
             v.addChild(fc)
-        }
-        if server {
-            def kc:EVGElement (this.card("kidwatch" (SpWords.pick(lang "Events watch" "Tapahtumavahti"))))
-            this.kidControls(kc)
-            v.addChild(kc)
         }
         return v
     }
@@ -4551,7 +3643,7 @@ class SpacesApp {
     }
 
     ; What the assistant can add and the details each takes: a short list
-    ; under its field. The kinds follow the entry types' groups, watches,
+    ; under its field. The kinds follow the entry types' groups,
     ; questions and the space's own wards and places.
     fn addHelp:EVGElement () {
         def box:EVGElement (SpacesApp.box("sp-help"))
@@ -4570,22 +3662,20 @@ class SpacesApp {
             (SpWords.pick(lang "Trips and bookings" "Matkat ja varaukset"))
             (SpWords.pick(lang "Money" "Raha"))
             (SpWords.pick(lang "Things to get" "Hankinnat"))
-            (SpWords.pick(lang "Deal watch" "Ostosvahti"))
             (SpWords.pick(lang "Questions" "Kyselyt"))
             (SpWords.pick(lang "Home and things" "Koti ja tavarat"))
             (SpWords.pick(lang "Reminders" "Muistutukset"))
             (SpWords.pick(lang "Family and places" "Perhe ja paikat"))
         ))
         def vals:[string] ([] _:string (
-            (SpWords.pick(lang "Birthday invitation, party, school event, parents' evening, meeting. Day and time or a range, place, whose, who takes, reply by, gift." "Synttärikutsu, juhla, koulun tapahtuma, vanhempainilta, tapaaminen. Päivä ja kellonaika tai aikaväli, paikka, kenen, kuka vie, vastaa viimeistään, lahja."))
+            (SpWords.pick(lang "Birthday invitation, party, school event, parents' evening, meeting, an event you found (paste its link). Day and time or a range, place, whose, who takes, reply by, gift." "Synttärikutsu, juhla, koulun tapahtuma, vanhempainilta, tapaaminen, löytämäsi tapahtuma (liitä linkki). Päivä ja kellonaika tai aikaväli, paikka, kenen, kuka vie, vastaa viimeistään, lahja."))
             (SpWords.pick(lang "Hobby and its sessions, match, camp, course sign-up. Weekdays and times, season from–to, place, fee, gear." "Harrastus ja sen kerrat, ottelu, leiri, kurssi-ilmoittautuminen. Viikonpäivät ja ajat, kausi alkaa–päättyy, paikka, maksu, varusteet."))
             (SpWords.pick(lang "School day times, holidays and exception days, exams, daycare days, term." "Koulupäivän ajat, lomat ja poikkeuspäivät, kokeet, päiväkotipäivät, lukukausi."))
             (SpWords.pick(lang "Childcare shift or a suggested time, babysitter, change to the usual, rides. Date range, times, who looks after whom, price." "Hoitovuoro tai hoitoaikaehdotus, babysitter, poikkeus normaalirytmiin, kuljetukset. Päivämääräväli, kellonajat, kuka hoitaa kenet, hinta."))
             (SpWords.pick(lang "Doctor, dentist, health check, medication period. Time, place, whose, what to bring." "Lääkäri, hammaslääkäri, neuvola tai tarkastus, lääkitysjakso. Aika, paikka, kenen, mitä mukaan."))
             (SpWords.pick(lang "Trip, flight, train or ferry, accommodation, holiday home, travel card. Dates from–to, booking code, price, who goes, card balance." "Matka, lento, juna tai laiva, majoitus, loma-asunto, matkakortti. Päivät alkaen–asti, varaustunnus, hinta, ketkä, kortin saldo."))
             (SpWords.pick(lang "Bill, expected or recurring expense, insurance. Amount, due date, how often; amounts go to the budget." "Lasku, menovaraus, toistuva kulu, vakuutus. Summa, eräpäivä, kuinka usein; summat menevät budjettiin."))
-            (SpWords.pick(lang "Need, purchase idea, gift idea, Christmas gift, thing to sell. Price or budget, size, for whom, where from, get from–by." "Ostotarve, tavarahankintaidea, lahjaidea, joululahja, myytävä tavara. Hinta tai budjetti, koko, kenelle, mistä, hanki aikaisintaan–viimeistään."))
-            (SpWords.pick(lang "”Watch for a winter overall size 110 under 40 € on Tori and Vinted.” Tori, Huuto.net, Vinted or the web, once a day; search words, size, top price." "”Laita ostosvahti: talvihaalari koko 110 alle 40 € Torista ja Vintedistä.” Tori, Huuto.net, Vinted tai verkko kerran päivässä; hakusanat, koko, enimmäishinta."))
+            (SpWords.pick(lang "Need, purchase idea, gift idea, Christmas gift, an offer you found (paste its link), thing to sell. Price or budget, size, for whom, where from, get from–by." "Ostotarve, tavarahankintaidea, lahjaidea, joululahja, löytämäsi tarjous (liitä linkki), myytävä tavara. Hinta tai budjetti, koko, kenelle, mistä, hanki aikaisintaan–viimeistään."))
             (SpWords.pick(lang "”Ask Tero: can you take the kids on Sat 25.10. at 10–16?” To whom, what, day or range, times, an amount to settle. A yes goes in the calendar." "”Kysy Terolta: otatko lapset hoitoon la 25.10. klo 10–16?” Kenelle, mitä, päivä tai aikaväli, kellonajat, tasattava summa. Kyllä-vastaus menee kalenteriin."))
             (SpWords.pick(lang "Maintenance, repair, home task, cleaning, smoke alarm, storage check. Due date, how often, who does it, cost." "Huolto, korjaus, kotityö, siivous, palohälytin, varaston tarkastus. Määräpäivä, kuinka usein, kuka hoitaa, kustannus."))
             (SpWords.pick(lang "Reminder, a call to make, deadline, passport renewal, contact. Day and how many days before to remind." "Muistutus, soitettava asia, määräpäivä, passin uusiminen, yhteystieto. Päivä ja montako päivää ennen muistutetaan."))
@@ -4818,15 +3908,6 @@ class SpacesApp {
         }
         if (tool == "remove_place") {
             return (SpWords.pick(lang "Place removed" "Paikkakunta poistettu"))
-        }
-        if (tool == "set_watch") {
-            return (SpWords.pick(lang "Deal watch set" "Ostosvahti asetettu"))
-        }
-        if ((tool == "set_event_watch") || (tool == "run_event_watch") || (tool == "run_watch")) {
-            return (SpWords.pick(lang "Watch updated" "Vahti päivitetty"))
-        }
-        if (tool == "rate_find") {
-            return (SpWords.pick(lang "Find rated" "Löytö arvioitu"))
         }
         if (tool == "invite_member") {
             return (SpWords.pick(lang "Invitation sent" "Kutsu lähetetty"))
@@ -6136,7 +5217,6 @@ class SpacesApp {
             this.addFields(cost "cost:")
             c.addChild(cost)
         }
-        this.addWatch(c)
         this.addLinks(c)
         def bar:EVGElement (SpacesApp.box("sp-formrow"))
         bar.addChild((SpacesApp.btn("sp-ed-save" "sp-action sp-action-primary" (SpWords.ui(lang "save")))))
@@ -6160,157 +5240,6 @@ class SpacesApp {
         c.addChild(bar)
         v.addChild(c)
         return v
-    }
-
-    ; An entry's deal watch (wardenwatch.go; the same settings as MCP's
-    ; set_watch): on or off, where it looks, how often, and its latest
-    ; finds, each opening the offer in a new tab. On a server only, for an
-    ; entry saved there.
-    fn addWatch:void (c:EVGElement) {
-        if ((server == false) || ((strlen editId) == 0)) {
-            return
-        }
-        def found@(optional):SpEvent (space.event(editId))
-        if (null? found) {
-            return
-        }
-        def e:SpEvent found
-        if ((strlen e.remoteId) == 0) {
-            return
-        }
-        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Offer watch" "Tarjousvahti")))))
-        if ((e.watched == false) || (e.watchOn == false)) {
-            def note:string (SpWords.pick(lang "Looks for offers of this once a day or less often." "Etsii tälle tarjouksia kerran päivässä tai harvemmin."))
-            if e.watched {
-                note = ("“" + e.watchQuery + "” · " + (SpWords.pick(lang "off" "pois päältä")))
-            }
-            c.addChild((SpacesApp.tx("sp-meta" note)))
-            c.addChild((SpacesApp.btn("sp-watch-on" "sp-action" (SpWords.pick(lang "Watch for offers" "Seuraa tarjouksia")))))
-        } {
-            c.addChild((SpacesApp.tx("sp-meta" ("“" + e.watchQuery + "”"))))
-            def srcs:EVGElement (SpacesApp.box("sp-pills"))
-            srcs.role = "group"
-            srcs.a11yLabel = (SpWords.pick(lang "Where" "Mistä"))
-            def ids:[string] ([] _:string ( "tori" "vinted" "huuto" "web" ))
-            def names:[string] ([] _:string ( "Tori" "Vinted" "Huuto.net" "Web" ))
-            def i:int 0
-            while (i < (array_length ids)) {
-                def id:string (itemAt ids i)
-                def on:boolean (this.watchHas(e id))
-                def cls:string "sp-pill"
-                if on {
-                    cls = "sp-pill sp-pill-on"
-                }
-                def b:EVGElement (SpacesApp.btn(("sp-wsrc-" + id) cls (itemAt names i)))
-                b.a11yPressed = (SpacesApp.tri(on))
-                srcs.addChild(b)
-                i = (i + 1)
-            }
-            c.addChild(srcs)
-            def every:EVGElement (SpacesApp.box("sp-pills"))
-            every.role = "group"
-            every.a11yLabel = (SpWords.pick(lang "How often" "Kuinka usein"))
-            def days:[int] ([] _:int ( 1 3 7 ))
-            def labels:[string] ([] _:string ( (SpWords.pick(lang "Daily" "Päivittäin")) (SpWords.pick(lang "Every 3 days" "3 päivän välein")) (SpWords.pick(lang "Weekly" "Viikoittain")) ))
-            def j:int 0
-            while (j < (array_length days)) {
-                def d:int (itemAt days j)
-                def cls2:string "sp-pill"
-                if (e.watchEvery == d) {
-                    cls2 = "sp-pill sp-pill-on"
-                }
-                def b2:EVGElement (SpacesApp.btn(("sp-wint-" + (to_string d)) cls2 (itemAt labels j)))
-                b2.a11yPressed = (SpacesApp.tri((e.watchEvery == d)))
-                every.addChild(b2)
-                j = (j + 1)
-            }
-            c.addChild(every)
-            c.addChild((SpacesApp.btn("sp-watch-off" "sp-link" (SpWords.pick(lang "Stop watching" "Lopeta seuranta")))))
-        }
-        if ((array_length e.findUrls) == 0) {
-            if e.watched {
-                c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No finds yet." "Ei löytöjä vielä.")))))
-            }
-            return
-        }
-        def k:int 0
-        while (k < (array_length e.findUrls)) {
-            def t:string (itemAt e.findTitles k)
-            def info:string (itemAt e.findInfo k)
-            def fb:EVGElement (SpacesApp.btn(("sp-find-" + (to_string k)) "sp-link" (t + " · " + info)))
-            fb.role = "link"
-            c.addChild(fb)
-            k = (k + 1)
-        }
-    }
-
-    fn watchHas:boolean (e:SpEvent id:string) {
-        def i:int 0
-        while (i < (array_length e.watchSources)) {
-            if ((itemAt e.watchSources i) == id) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
-    ; A press on the watch's controls: the entry's watch changed here and
-    ; sent as set_watch
-    fn pressWatch:void (what:string) {
-        def found@(optional):SpEvent (space.event(editId))
-        if (null? found) {
-            return
-        }
-        def e:SpEvent found
-        if ((strlen e.remoteId) == 0) {
-            return
-        }
-        if (what == "on") {
-            e.watchOn = true
-            if ((array_length e.watchSources) == 0) {
-                def dflt:[string] ([] _:string ( "tori" "vinted" "huuto" ))
-                e.watchSources = dflt
-            }
-            if (e.watched == false) {
-                e.watchQuery = e.title
-            }
-            e.watched = true
-        }
-        if (what == "off") {
-            e.watchOn = false
-        }
-        if (UiTree.beginsWith(what "src-")) {
-            def id:string (substring what 4 (strlen what))
-            def next:[string]
-            def had:boolean false
-            def i:int 0
-            while (i < (array_length e.watchSources)) {
-                def sid:string (itemAt e.watchSources i)
-                if (sid == id) {
-                    had = true
-                } {
-                    push next sid
-                }
-                i = (i + 1)
-            }
-            if (had == false) {
-                push next id
-            }
-            ; at least one place to look
-            if ((array_length next) == 0) {
-                return
-            }
-            e.watchSources = next
-        }
-        if (UiTree.beginsWith(what "int-")) {
-            def n@(optional):int (to_int (substring what 4 (strlen what)))
-            if (null? n) {
-                return
-            }
-            e.watchEvery = (unwrap n)
-        }
-        this.queue("set_watch" (SpRemote.watchBody(spaceId e)) e.id)
     }
 
     ; An entry's name in a link: its type's and its own.
@@ -6394,23 +5323,6 @@ class SpacesApp {
         space.link(ae be on)
         linkSearch.setValue("")
         this.queueSaves()
-    }
-
-    ; a find of the entry being edited, opened in a new tab by the host
-    fn openFind:void (what:string) {
-        def k@(optional):int (to_int what)
-        if (null? k) {
-            return
-        }
-        def n:int (unwrap k)
-        def found@(optional):SpEvent (space.event(editId))
-        if (null? found) {
-            return
-        }
-        def e:SpEvent found
-        if ((n >= 0) && (n < (array_length e.findUrls))) {
-            action = ("open:" + (itemAt e.findUrls n))
-        }
     }
 
     fn typeFieldKeys:[string] () {
@@ -8776,11 +7688,6 @@ class SpacesApp {
             this.rebuild()
             return true
         }
-        if (UiTree.beginsWith(target "sp-runs-")) {
-            runsShow = (substring target 8 (strlen target))
-            this.rebuild()
-            return true
-        }
         if (UiTree.beginsWith(target "sp-htab-")) {
             homeTab = (substring target 8 (strlen target))
             this.rebuild()
@@ -8850,99 +7757,6 @@ class SpacesApp {
         if (UiTree.beginsWith(target "sp-q-")) {
             this.ask((substring target 5 (strlen target)))
             this.rebuild()
-            return true
-        }
-        if (target == "sp-watch-on") {
-            this.pressWatch("on")
-            this.rebuild()
-            return true
-        }
-        if (target == "sp-watch-off") {
-            this.pressWatch("off")
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-wsrc-")) {
-            this.pressWatch(("src-" + (substring target 8 (strlen target))))
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-wint-")) {
-            this.pressWatch(("int-" + (substring target 8 (strlen target))))
-            this.rebuild()
-            return true
-        }
-        if ((target == "sp-kw-on") || ((target == "sp-kw-off") || (target == "sp-kw-run"))) {
-            this.pressKids((substring target 6 (strlen target)) -1)
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-kage-")) {
-            this.pressKids(("age-" + (substring target 8 (strlen target))) -1)
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-kwhy-")) {
-            def rest:string (substring target 8 (strlen target))
-            def dash:int (indexOf rest "-")
-            def kn@(optional):int (to_int (substring rest 0 dash))
-            if ((dash > 0) && (!null? kn)) {
-                this.pressKids(("why-" + (substring rest (dash + 1) (strlen rest))) (unwrap kn))
-            }
-            this.rebuild()
-            return true
-        }
-        def kidOps:[string] ([] _:string ( "sp-kev-" "sp-kadd-" "sp-klike-" "sp-khide-" ))
-        def kidWhat:[string] ([] _:string ( "open" "add" "like" "hide" ))
-        def ko:int 0
-        while (ko < 4) {
-            def pre:string (itemAt kidOps ko)
-            if (UiTree.beginsWith(target pre)) {
-                def kn@(optional):int (to_int (substring target (strlen pre) (strlen target)))
-                if (!null? kn) {
-                    this.pressKids((itemAt kidWhat ko) (unwrap kn))
-                }
-                this.rebuild()
-                return true
-            }
-            ko = (ko + 1)
-        }
-        if (UiTree.beginsWith(target "sp-dwhy-")) {
-            def rest:string (substring target 8 (strlen target))
-            def dash:int (indexOf rest "-")
-            def dn@(optional):int (to_int (substring rest 0 dash))
-            if ((dash > 0) && (!null? dn)) {
-                this.pressDeal(("why-" + (substring rest (dash + 1) (strlen rest))) (unwrap dn))
-            }
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-dlike-")) {
-            def dn@(optional):int (to_int (substring target 9 (strlen target)))
-            if (!null? dn) {
-                this.pressDeal("like" (unwrap dn))
-            }
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-dhide-")) {
-            def dn@(optional):int (to_int (substring target 9 (strlen target)))
-            if (!null? dn) {
-                this.pressDeal("hide" (unwrap dn))
-            }
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-deal-")) {
-            def dn@(optional):int (to_int (substring target 8 (strlen target)))
-            if (!null? dn) {
-                this.pressDeal("open" (unwrap dn))
-            }
-            this.rebuild()
-            return true
-        }
-        if (UiTree.beginsWith(target "sp-find-")) {
-            this.openFind((substring target 8 (strlen target)))
             return true
         }
         if (UiTree.beginsWith(target "sp-turl-")) {
@@ -9167,7 +7981,6 @@ class SpacesApp {
         if (c.op == "get_space") {
             if (c.ref == spaceId) {
                 changed = (o.stringOr("changed" ""))
-                this.readKids((o.get("event_watch")))
                 if (c.quiet == false) {
                     this.showSpace((o.get("space")) (o.get("events")))
                     if (revealOnLoad && (tab == "assistant")) {
@@ -9240,22 +8053,6 @@ class SpacesApp {
                 status = (status + (SpWords.pick(lang "; added: " "; lisätty: ")) + (made.stringOr("title" "")))
             }
             this.reload()
-        }
-        if ((c.op == "set_event_watch") || (c.op == "run_event_watch")) {
-            this.readKids((o.get("watch")))
-            if (c.op == "run_event_watch") {
-                status = ""
-            }
-        }
-        if (c.op == "add_event_find") {
-            this.reload()
-        }
-        if (c.op == "set_watch") {
-            def found@(optional):SpEvent (space.event(c.ref))
-            if (!null? found) {
-                def e:SpEvent found
-                SpRemote.readWatch(e (o.get("watch")))
-            }
         }
         if (c.op == "budget") {
             if (c.body == budgetAsked) {

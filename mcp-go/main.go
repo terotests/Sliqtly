@@ -288,7 +288,6 @@ func main() {
 				// Warden's assistant on the page (wardenai.go)
 				if e.warden = newWardenService(e.DB); e.warden != nil {
 					e.warden.ai = newWardenAssist(m)
-					e.warden.search = newWardenSearch(m)
 				}
 			}
 			e.EditorGate = newEditorGate(webFiles(*web), e.DB, e.VerifyIDToken, splitList(os.Getenv("SLIQTLY_ADMIN_EMAILS")))
