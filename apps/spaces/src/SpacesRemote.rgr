@@ -577,7 +577,11 @@ class SpRemote {
         o.setMember("space_id" (SpRemote.str(spaceId)))
         o.setMember("event_id" (SpRemote.str(e.remoteId)))
         o.setMember("find_id" (SpRemote.str((itemAt e.findIds k))))
-        o.setMember("rating" (SpRemote.str((itemAt e.findRating k))))
+        def rating:string (itemAt e.findRating k)
+        if ((strlen rating) == 0) {
+            rating = "none"
+        }
+        o.setMember("rating" (SpRemote.str(rating)))
         def r:string (itemAt e.findReason k)
         if ((strlen r) > 0) {
             o.setMember("reason" (SpRemote.str(r)))

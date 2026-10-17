@@ -162,6 +162,11 @@ func TestWardenWatch(t *testing.T) {
 	eq(t, []any{code, out["find"].(map[string]any)["rating"], out["find"].(map[string]any)["reason"]}, []any{200, "hide", "wrong_item"})
 	code, _ = wardenCall(t, base, "tero", "rate_find", map[string]any{"space_id": sid, "event_id": id, "find_id": "nope", "rating": "like"})
 	eq(t, code, 400, "no such find")
+	_, out = wardenCall(t, base, "tero", "rate_find", map[string]any{"space_id": sid, "event_id": id, "find_id": fresh[0].(map[string]any)["id"], "rating": "like"})
+	_, out = wardenCall(t, base, "tero", "rate_find", map[string]any{"space_id": sid, "event_id": id, "find_id": fresh[0].(map[string]any)["id"], "rating": "none"})
+	if _, ok := out["find"].(map[string]any)["rating"]; ok {
+		t.Fatal("none clears the rating")
+	}
 	wardenCall(t, base, "tero", "set_watch", map[string]any{"space_id": sid, "event_id": id, "intent": "Sänky 6-vuotiaalle"})
 	intent, avoid = "Sänky 6-vuotiaalle", "- Nukensänky (not the thing wanted)"
 

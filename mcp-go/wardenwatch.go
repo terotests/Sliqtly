@@ -752,7 +752,7 @@ var wardenFindReasons = map[string]string{
 	"not_interesting": "not interesting",
 }
 
-// rate_find: like or hide one of an entry's finds ("" clears it); hidden
+// rate_find: like or hide one of an entry's finds (none clears it); hidden
 // finds, with why, steer the next searches away from ones like them
 func (s *wardenService) rateFind(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	id := argStr(a, "event_id")
@@ -766,9 +766,11 @@ func (s *wardenService) rateFind(ctx context.Context, sp *wardenSpace, a map[str
 	}
 	rating, reason := argStr(a, "rating"), argStr(a, "reason")
 	switch rating {
-	case "like", "hide", "":
+	case "like", "hide":
+	case "none", "":
+		rating = ""
 	default:
-		return nil, roomErr{"rating is like, hide or \"\""}
+		return nil, roomErr{"rating is like, hide or none"}
 	}
 	if _, ok := wardenFindReasons[reason]; reason != "" && (!ok || rating != "hide") {
 		return nil, roomErr{"reason is for hide: wrong_item, too_far, too_expensive or not_interesting"}

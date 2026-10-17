@@ -108,6 +108,11 @@ With the meta tag the page
   assistant or over MCP (`set_watch`, `list_watches`, `run_watch`); the
   server searches Tori.fi, Vinted, Huuto.net or the web for it once a day
   and makes a reminder of new finds (`mcp-go/wardenwatch.go`).
+- on a server, the summary's **Tarjoukset** tab lists every watch's finds:
+  new ones best fit first, then liked (Kiinnostava), then skipped (Ohita,
+  or a fit under 50). Ohita asks why (wrong thing, too far, too dear, not
+  interesting); ratings go to the server as `rate_find`, and later searches
+  are told of the hidden ones.
 
 The app keeps the calls in an outbox (`outOp`, `outBody`); `web/main.js`
 sends them one at a time and hands each reply to `answer` or `failed`.

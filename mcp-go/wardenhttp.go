@@ -193,7 +193,7 @@ var wardenTools = []roomTool{
 	{name: "rate_find", title: "Rate an offer",
 		desc: "Like or hide one of a watch's finds. Hidden finds, with why, are told to later searches so ones like them get a low fit.",
 		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry"), "find_id": strProp("The find's id (list_watches)"),
-			"rating": map[string]any{"type": "string", "enum": []any{"like", "hide", ""}, "description": "like, hide, or \"\" to clear"},
+			"rating": map[string]any{"type": "string", "enum": []any{"like", "hide", "none"}, "description": "like, hide, or none to clear"},
 			"reason": map[string]any{"type": "string", "enum": []any{"wrong_item", "too_far", "too_expensive", "not_interesting"}, "description": "Why it is hidden (with hide)"}},
 		required: []string{"space_id", "event_id", "find_id", "rating"}},
 }
