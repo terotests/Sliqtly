@@ -1265,6 +1265,17 @@ console.log("the assistant on a server");
   eq("sent from the Add menu", a.outOp(), "assist");
   a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin hammaslääkärin.", changed: true, event_ids: ["e2"], calls: [] }));
   ok("its answer in the menu", texts(a).includes("Lisäsin hammaslääkärin.") && a.tab === "calendar" && a.addOpen);
+  ok("what can be added is listed under the field", texts(a).includes("Ostosvahti") && texts(a).includes("Kyselyt"));
+  // Enter is a line break in the field; Ctrl+Enter sends
+  a.focused = "sp-assist-text";
+  a.assistField.setValue("Leon synttärit la 15-18");
+  a.keyWith("End", false, false);
+  const sentBefore = a.outCount();
+  a.keyWith("Enter", false, false);
+  ok("Enter makes a new line, nothing sent", a.assistField.value.includes("\n") && a.outCount() === sentBefore, JSON.stringify(a.assistField.value));
+  a.keyWith("Enter", false, true);
+  ok("Ctrl+Enter sends", a.assistBusy && a.assistField.value === "" && a.asked[a.asked.length - 1].startsWith("@Leon synttärit"));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin synttärit.", changed: false, event_ids: [], calls: [] }));
   a.press("sp-add-manual");
   ok("by hand: the search", byId(a, "sp-addsearch") && a.focused === "sp-addsearch");
   a.typeSearch.setValue("hammas");
@@ -1278,6 +1289,20 @@ console.log("the assistant on a server");
     ok(`${w} the Add menu with the assistant lints clean`, probs.length === 0, probs.join(" | "));
     a.press("sp-add");
   }
+  // Add is on every page
+  for (const t of ["home", "calendar", "lists", "budget", "sheets", "docs", "members"]) {
+    a.press("sp-nav-" + t);
+    ok(`Add on ${t}`, !!byId(a, "sp-add"));
+  }
+  a.press("sp-nav-budget");
+  a.press("sp-add");
+  ok("Add opens the assistant on the budget page", byId(a, "sp-assist-image") && a.addOpen && a.tab === "budget");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the Add menu on the budget page lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.press("sp-add");
 }
 
 console.log("changes made elsewhere, and the tab in the address");

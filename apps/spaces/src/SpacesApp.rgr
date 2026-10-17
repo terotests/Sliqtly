@@ -2057,6 +2057,7 @@ class SpacesApp {
     fn membersView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.heading((SpWords.ui(lang "members")) space.name)))
+        v.addChild((this.addBar()))
         def owner:boolean (space.myRole == "owner")
         def c:EVGElement (this.card("members" (SpWords.ui(lang "members"))))
         def i:int 0
@@ -2758,6 +2759,7 @@ class SpacesApp {
     fn sheetsView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.heading((SpWords.ui(lang "sheets")) (SpWords.pick(lang "Rows with a date (and a time, a title, who) show in the summary and the calendar." "Rivit, joilla on päivä (ja aika, otsikko, kuka), näkyvät koonnissa ja kalenterissa.")))))
+        v.addChild((this.addBar()))
         def bar:EVGElement (SpacesApp.box("sp-tabs"))
         if (this.narrow()) {
             bar = (SpacesApp.box("sp-tabs sp-wrap"))
@@ -2869,6 +2871,7 @@ class SpacesApp {
     fn docsView:EVGElement () {
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.heading((SpWords.ui(lang "docs")) (SpWords.pick(lang "Summaries and plans the assistant wrote, and the space's own notes." "Avustajan kirjoittamat koosteet ja suunnitelmat sekä tilan omat muistiinpanot.")))))
+        v.addChild((this.addBar()))
         def bar:EVGElement (SpacesApp.box("sp-tabs"))
         bar.addChild((SpacesApp.btn("sp-write-summary" "sp-action" (SpWords.ui(lang "newSummary")))))
         bar.addChild((SpacesApp.btn("sp-write-plan" "sp-action sp-action-primary" (SpWords.ui(lang "newPlan")))))
@@ -3001,6 +3004,7 @@ class SpacesApp {
         v.addChild((this.heading((SpWords.ui(lang "assistant")) sub)))
         if (server && ((strlen spaceId) > 0)) {
             v.addChild((this.assistInput()))
+            v.addChild((this.addHelp()))
         }
         def qs:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
         qs.role = "group"
@@ -3101,6 +3105,70 @@ class SpacesApp {
             row.addChild((SpacesApp.btn("sp-assist-send" "sp-action sp-action-primary" (SpWords.pick(lang "Send" "Lähetä")))))
         }
         box.addChild(row)
+        return box
+    }
+
+    ; What the assistant can add and the details each takes: a short list
+    ; under its field. The kinds follow the entry types' groups, watches,
+    ; questions and the space's own wards and places.
+    fn addHelp:EVGElement () {
+        def box:EVGElement (SpacesApp.box("sp-help"))
+        box.role = "region"
+        box.a11yLabel = (SpWords.pick(lang "What you can add" "Mitä voi lisätä"))
+        def w:double ((this.mainW()) - 40.0)
+        def head:EVGElement (SpacesApp.tx("sp-addgroup-name" (SpWords.pick(lang "What you can add (write several at once; Enter makes a new line, Ctrl+Enter sends)" "Mitä voi lisätä (useampi kerralla käy; Enter tekee rivinvaihdon, Ctrl+Enter lähettää)"))))
+        UiTree.inline(head "width" (SpacesApp.px(w)))
+        box.addChild(head)
+        def keys:[string] ([] _:string (
+            (SpWords.pick(lang "Events" "Menot ja juhlat"))
+            (SpWords.pick(lang "Hobbies" "Harrastukset"))
+            (SpWords.pick(lang "School and daycare" "Koulu ja päiväkoti"))
+            (SpWords.pick(lang "Childcare" "Hoito"))
+            (SpWords.pick(lang "Health" "Terveys"))
+            (SpWords.pick(lang "Trips and bookings" "Matkat ja varaukset"))
+            (SpWords.pick(lang "Money" "Raha"))
+            (SpWords.pick(lang "Things to get" "Hankinnat"))
+            (SpWords.pick(lang "Deal watch" "Ostosvahti"))
+            (SpWords.pick(lang "Questions" "Kyselyt"))
+            (SpWords.pick(lang "Home and things" "Koti ja tavarat"))
+            (SpWords.pick(lang "Reminders" "Muistutukset"))
+            (SpWords.pick(lang "Family and places" "Perhe ja paikat"))
+        ))
+        def vals:[string] ([] _:string (
+            (SpWords.pick(lang "Birthday invitation, party, school event, parents' evening, meeting. Day and time or a range, place, whose, who takes, reply by, gift." "Synttärikutsu, juhla, koulun tapahtuma, vanhempainilta, tapaaminen. Päivä ja kellonaika tai aikaväli, paikka, kenen, kuka vie, vastaa viimeistään, lahja."))
+            (SpWords.pick(lang "Hobby and its sessions, match, camp, course sign-up. Weekdays and times, season from–to, place, fee, gear." "Harrastus ja sen kerrat, ottelu, leiri, kurssi-ilmoittautuminen. Viikonpäivät ja ajat, kausi alkaa–päättyy, paikka, maksu, varusteet."))
+            (SpWords.pick(lang "School day times, holidays and exception days, exams, daycare days, term." "Koulupäivän ajat, lomat ja poikkeuspäivät, kokeet, päiväkotipäivät, lukukausi."))
+            (SpWords.pick(lang "Childcare shift or a suggested time, babysitter, change to the usual, rides. Date range, times, who looks after whom, price." "Hoitovuoro tai hoitoaikaehdotus, babysitter, poikkeus normaalirytmiin, kuljetukset. Päivämääräväli, kellonajat, kuka hoitaa kenet, hinta."))
+            (SpWords.pick(lang "Doctor, dentist, health check, medication period. Time, place, whose, what to bring." "Lääkäri, hammaslääkäri, neuvola tai tarkastus, lääkitysjakso. Aika, paikka, kenen, mitä mukaan."))
+            (SpWords.pick(lang "Trip, flight, train or ferry, accommodation, holiday home, travel card. Dates from–to, booking code, price, who goes, card balance." "Matka, lento, juna tai laiva, majoitus, loma-asunto, matkakortti. Päivät alkaen–asti, varaustunnus, hinta, ketkä, kortin saldo."))
+            (SpWords.pick(lang "Bill, expected or recurring expense, insurance. Amount, due date, how often; amounts go to the budget." "Lasku, menovaraus, toistuva kulu, vakuutus. Summa, eräpäivä, kuinka usein; summat menevät budjettiin."))
+            (SpWords.pick(lang "Need, purchase idea, gift idea, Christmas gift, thing to sell. Price or budget, size, for whom, where from, get from–by." "Ostotarve, tavarahankintaidea, lahjaidea, joululahja, myytävä tavara. Hinta tai budjetti, koko, kenelle, mistä, hanki aikaisintaan–viimeistään."))
+            (SpWords.pick(lang "”Watch for a winter overall size 110 under 40 € on Tori and Vinted.” Tori, Huuto.net, Vinted or the web, once a day; search words, size, top price." "”Laita ostosvahti: talvihaalari koko 110 alle 40 € Torista ja Vintedistä.” Tori, Huuto.net, Vinted tai verkko kerran päivässä; hakusanat, koko, enimmäishinta."))
+            (SpWords.pick(lang "”Ask Tero: can you take the kids on Sat 25.10. at 10–16?” To whom, what, day or range, times, an amount to settle. A yes goes in the calendar." "”Kysy Terolta: otatko lapset hoitoon la 25.10. klo 10–16?” Kenelle, mitä, päivä tai aikaväli, kellonajat, tasattava summa. Kyllä-vastaus menee kalenteriin."))
+            (SpWords.pick(lang "Maintenance, repair, home task, cleaning, smoke alarm, storage check. Due date, how often, who does it, cost." "Huolto, korjaus, kotityö, siivous, palohälytin, varaston tarkastus. Määräpäivä, kuinka usein, kuka hoitaa, kustannus."))
+            (SpWords.pick(lang "Reminder, a call to make, deadline, passport renewal, contact. Day and how many days before to remind." "Muistutus, soitettava asia, määräpäivä, passin uusiminen, yhteystieto. Päivä ja montako päivää ennen muistutetaan."))
+            (SpWords.pick(lang "Children, pets or a car, their sizes and clothes, places for the weather. ”Leo's shoe size is 32”, ”add the place Kuopio”." "Lapset, lemmikit tai auto, vaatekoot ja vaatteet, paikkakunnat säätä varten. ”Leon kengänkoko on 32”, ”lisää paikkakunta Kuopio”."))
+        ))
+        def narrow:boolean (this.narrow())
+        def kw:double 150.0
+        def i:int 0
+        while (i < (array_length keys)) {
+            def row:EVGElement (SpacesApp.box("sp-helprow"))
+            def k:EVGElement (SpacesApp.tx("sp-helpk" (itemAt keys i)))
+            def v:EVGElement (SpacesApp.tx("sp-helpv" (itemAt vals i)))
+            if narrow {
+                row = (SpacesApp.box("sp-helprow sp-helprow-narrow"))
+                UiTree.inline(k "width" (SpacesApp.px(w)))
+                UiTree.inline(v "width" (SpacesApp.px(w)))
+            } {
+                UiTree.inline(k "width" (SpacesApp.px(kw)))
+                UiTree.inline(v "width" (SpacesApp.px(((w - kw) - 12.0))))
+            }
+            row.addChild(k)
+            row.addChild(v)
+            box.addChild(row)
+            i = (i + 1)
+        }
         return box
     }
 
@@ -3338,6 +3406,7 @@ class SpacesApp {
                 UiTree.addClass(a "sp-bubble-a")
                 menu.addChild(a)
             }
+            menu.addChild((this.addHelp()))
             def mark:string "▸ "
             if addManual {
                 mark = "▾ "
@@ -5311,6 +5380,7 @@ class SpacesApp {
         def from:int (this.budgetStart())
         def range:string ((this.monthName(from)) + " – " + (this.monthName((from + 5))))
         v.addChild((this.heading((SpWords.ui(lang "budget")) range)))
+        v.addChild((this.addBar()))
         def bar:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
         bar.addChild((SpacesApp.btn("sp-bud-prev" "sp-action" (SpWords.ui(lang "earlier")))))
         bar.addChild((SpacesApp.btn("sp-bud-next" "sp-action" (SpWords.ui(lang "later")))))
@@ -6771,6 +6841,12 @@ class SpacesApp {
         def f@(optional):InputCtl (this.fieldOf(focused))
         if ((!null? f) && (k != "Tab")) {
             def c:InputCtl f
+            ; in a field of many lines Enter is a line break, Ctrl+Enter sends
+            if ((k == "Enter") && (c.multiline && (ctrl == false))) {
+                c.keyDownWith(c.tid k shift ctrl)
+                this.rebuild()
+                return true
+            }
             if (k == "Enter") {
                 def go:string (SpacesApp.submitOf(c.tid))
                 if ((strlen go) > 0) {
