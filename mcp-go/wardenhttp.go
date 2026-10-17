@@ -198,6 +198,40 @@ var wardenTools = []roomTool{
 		desc:     "Owner only: delete a space and all its events. confirm_name must be the space's name.",
 		props:    map[string]any{"space_id": spaceIDProp, "confirm_name": strProp("The space's name, exactly")},
 		required: []string{"space_id", "confirm_name"}},
+	{name: "ask_question", title: "Ask a family member",
+		desc: "Ask another member of the space something, for them to answer yes or no or by picking an option (answer_question): kind care_time (does the care time suit: date and until), take_kids (can you look after the children: date, start and end or hours), buy (can you buy something: what, by date, amount as the estimate), event (may I take the children to an event: what, date, times; add_to_calendar), suggest (suggest a day or a time for what: options may list the choices), payment (pay amount euros to even out the budget; a yes records a budget settlement), school or hobby (take to or pick up from school or a hobby: direction, date, start, what = the place), free (anything: question). A yes makes the calendar entry (add_to_calendar, on by default but for buy and payment), the purchase or the settlement, linked with the question. The question's words are made from these when question is left out. Questions show on the page's Questions view.",
+		props: map[string]any{"space_id": spaceIDProp,
+			"kind":            strProp("care_time, take_kids, buy, event, suggest, payment, school, hobby or free"),
+			"to":              strProp("The member asked: their name, first name or address"),
+			"question":        strProp("The question in the space's language; made from the rest when left out"),
+			"what":            strProp("What is bought, the event, what a day is suggested for, or the school or hobby"),
+			"ward":            strProp("The child (a ward's id or name) it concerns"),
+			"date":            strProp("The day, YYYY-MM-DD"),
+			"until":           strProp("The last day of a care time, YYYY-MM-DD"),
+			"start":           strProp("From, HH:MM"),
+			"end":             strProp("To, HH:MM"),
+			"hours":           map[string]any{"type": "number", "description": "For how many hours (take_kids)"},
+			"direction":       strProp("school and hobby: take, pick or both"),
+			"amount":          map[string]any{"type": "number", "description": "Euros: the payment asked, or what a purchase is reckoned to cost"},
+			"options":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The choices to answer with instead of yes (e.g. days or times); no is always one"},
+			"add_to_calendar": map[string]any{"type": "boolean", "description": "Put it on the calendar when the answer is yes"},
+			"answer_by":       strProp("The day the answer is needed by, YYYY-MM-DD"),
+			"place":           strProp("Where"),
+			"notes":           strProp("Anything else for the one asked")},
+		required: []string{"space_id", "kind", "to"}},
+	{name: "answer_question", title: "Answer a question",
+		desc: "Answer a question asked of you (list_questions): yes, no, one of its options, or for a suggest question the day or time suggested (give date and start too, to put it on the calendar). A yes makes what was asked: the calendar entry, the purchase or the budget settlement, linked with the question.",
+		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The question's event_id"),
+			"answer": strProp("yes, no, an option, or a suggestion"),
+			"note":   strProp("A word with the answer"),
+			"date":   strProp("A suggested or chosen day, YYYY-MM-DD"),
+			"start":  strProp("A suggested time, HH:MM"),
+			"end":    strProp("Until, HH:MM")},
+		required: []string{"space_id", "event_id", "answer"}},
+	{name: "list_questions", title: "List questions", readOnly: true,
+		desc:     "The space's questions between members, the open ones first: each with what is asked (fields.ask), of whom (ask_to) and by whom (asked_by), the answer when there is one, and whether it is to_me or by_me.",
+		props:    map[string]any{"space_id": spaceIDProp, "open_only": map[string]any{"type": "boolean", "description": "Only those not answered yet"}, "mine": strProp("to: only those asked of you; by: only those you asked")},
+		required: []string{"space_id"}},
 	{name: "set_watch", title: "Watch for offers",
 		desc: "Have Warden look for offers of an entry (a thing still to get, a need, a planned purchase, any entry) on second-hand sites and the web, once a day by default. New finds are kept on the entry (list_watches, the entry's watch) and the space gets a reminder of them. Only the fields given change; active: false stops the watch.",
 		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The entry to watch for"),
@@ -228,7 +262,7 @@ func findWardenTool(name string) *roomTool {
 	return nil
 }
 
-const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, children's travel cards and tickets, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. Tell the user the page: "
+const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, children's travel cards and tickets, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. ask_question asks another member something (does the care time suit, can you take the children to school, pay to even out the budget) and answer_question answers it; a yes makes the calendar entry or the budget settlement. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. Tell the user the page: "
 
 // ------------------------------------------------------------------- page --
 

@@ -30,6 +30,15 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   `status` becomes `done`, saved like any change), each with a Copy chip
   that puts its title and date on the clipboard, the Add button and the
   wards' colours.
+- **Questions** (Warden): ask another member something, by writing it for
+  the assistant or by picking a kind (does the care time suit, can you look
+  after the children, take to or pick up from school or a hobby, may I take
+  them to an event, can you buy something, suggest a day, pay to even out
+  the budget). The one asked answers yes, no or an option; a yes makes the
+  calendar entry, the purchase or the budget settlement, linked with the
+  question (`mcp-go/wardenask.go`, MCP `ask_question`, `answer_question`,
+  `list_questions`). The nav shows how many wait for the person's answer;
+  the budget lists the settlements apart from the costs.
 - **Calendar**: EVGUI's event calendar card (month, week, day, agenda,
   per-ward views). A move, a resize or a new event is written back to the
   space; one day of a repeating event becomes its own event.

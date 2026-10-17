@@ -43,6 +43,7 @@ class SpWords {
         if (g == "reminder") { return (SpWords.pick(lang "Reminders and contacts" "Muistutukset ja yhteydenotot")) }
         if (g == "financial") { return (SpWords.pick(lang "Money and purchases" "Raha ja hankinnat")) }
         if (g == "asset_action") { return (SpWords.pick(lang "Home and things" "Koti ja tavarat")) }
+        if (g == "question") { return (SpWords.pick(lang "Questions" "Kyselyt")) }
         return (SpWords.pick(lang "Events" "Tapahtumat"))
     }
 
@@ -158,6 +159,7 @@ class SpWords {
     ; The page's own words.
     sfn ui:string (lang:string key:string) {
         if (key == "home") { return (SpWords.pick(lang "Summary" "Koonti")) }
+        if (key == "questions") { return (SpWords.pick(lang "Questions" "Kyselyt")) }
         if (key == "calendar") { return (SpWords.pick(lang "Calendar" "Kalenteri")) }
         if (key == "sheets") { return (SpWords.pick(lang "Sheets" "Taulukot")) }
         if (key == "docs") { return (SpWords.pick(lang "Documents" "Dokumentit")) }
