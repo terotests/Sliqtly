@@ -382,6 +382,9 @@ console.log("a space on a server");
   ok("the feed's card", texts(a).includes("Calendar on your phone"));
   a.press("sp-feed-open");
   eq("subscribe opens the webcal address", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics");
+  ok("the share choices start closed", !byId(a, "sp-feed-copy"));
+  a.press("sp-feed-share");
+  ok("Share offers the iCal address and the Apple link", !!byId(a, "sp-feed-copy") && !!byId(a, "sp-feed-copyapple"));
   a.press("sp-feed-copy");
   eq("copy puts the https address on the clipboard", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics");
   a.press("sp-feed-pays");
@@ -397,6 +400,8 @@ console.log("a space on a server");
   ok("it opens the feed's card", texts(a).includes("Calendar on your phone"));
   a.press("sp-feed-copy");
   eq("which copies the same address", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
+  a.press("sp-feed-copyapple");
+  eq("and the Apple link is the webcal address", a.takeAction() + " " + a.copyText, "copy webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     const probs = a.a11yProblems();

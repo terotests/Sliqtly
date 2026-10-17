@@ -241,6 +241,8 @@ class SpacesApp {
     def menuOpen:boolean false
     ; the calendar-on-your-phone panel opened from the top bar
     def phoneOpen:boolean false
+    ; the feed card's share choices are open
+    def feedShare:boolean false
     ; in it: the types to pick by hand shown (on a server the assistant comes
     ; first), what is searched for, the group picked, and the assistant's
     ; answer asked from it (-1 for none)
@@ -3176,8 +3178,20 @@ class SpacesApp {
         fc.addChild(sw)
         def fr:EVGElement (SpacesApp.box("sp-formrow"))
         fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
-        fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
+        def sh:EVGElement (SpacesApp.btn("sp-feed-share" "sp-action" (SpWords.pick(lang "Share" "Jaa"))))
+        sh.a11yExpanded = (SpacesApp.tri(feedShare))
+        fr.addChild(sh)
         fc.addChild(fr)
+        ; sharing copies the address in the form the receiver's calendar takes
+        if feedShare {
+            def so:EVGElement (SpacesApp.box("sp-formrow"))
+            so.role = "group"
+            so.a11yLabel = (SpWords.pick(lang "Share" "Jaa"))
+            so.addChild((SpacesApp.btn("sp-feed-copy" "sp-opt" (SpWords.pick(lang "Copy iCal address" "Kopioi iCal-osoite")))))
+            so.addChild((SpacesApp.btn("sp-feed-copyapple" "sp-opt" (SpWords.pick(lang "Copy Apple subscription link" "Kopioi Apple-tilauslinkki")))))
+            fc.addChild(so)
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "iCal works in Google and Outlook; the Apple link opens the subscription straight in an iPhone's or Mac's calendar." "iCal-osoite käy Googleen ja Outlookiin; Apple-linkki avaa tilauksen suoraan iPhonen tai Macin kalenterissa.")))))
+        }
         return fc
     }
 
@@ -9565,9 +9579,25 @@ class SpacesApp {
             }
             return true
         }
+        if (target == "sp-feed-share") {
+            feedShare = (feedShare == false)
+            this.rebuild()
+            return true
+        }
         if (target == "sp-feed-copy") {
             copyText = (this.feedAddress())
             action = "copy"
+            return true
+        }
+        ; the webcal address: tapped on an iPhone or a Mac it opens the
+        ; subscription in Apple's calendar
+        if (target == "sp-feed-copyapple") {
+            def ua:string (this.feedAddress())
+            def uat:int (indexOf ua "://")
+            if (uat > 0) {
+                copyText = ("webcal" + (substring ua uat (strlen ua)))
+                action = "copy"
+            }
             return true
         }
         if (target == "sp-invite") {
