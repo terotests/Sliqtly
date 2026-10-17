@@ -328,10 +328,20 @@ console.log("a space on a server");
   }
   a.setWidth(1280, 700);
 
+  // the server's older colour names, and one the page has no class for
+  eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
+  eq("red as rose", M.SpSpace.pageColor("red"), "rose");
+  eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+
   // a ward added by mistake: Remove asks first, then its events stay without it
   a.press("sp-nav-members");
   t = texts(a);
   ok("the wards are listed", t.includes("Aino") && t.includes("Dependants"));
+  a.press("sp-wardcolor-0");
+  eq("Colour gives the next one", a.space.resources[0].color, "cyan");
+  eq("and saves it", a.outOp(), "set_ward");
+  eq("that colour", JSON.parse(a.outBody()).color, "cyan");
+  a.answer(JSON.stringify({ id: "w1", name: "Aino", color: "cyan" }));
   a.press("sp-unward-0");
   eq("Remove alone sends nothing", a.outCount(), 0);
   ok("it asks", texts(a).some((s) => s.startsWith("Remove Aino?")));
