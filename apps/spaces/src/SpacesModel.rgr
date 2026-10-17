@@ -1857,6 +1857,21 @@ class SpSpace {
         return out
     }
 
+    ; The email of the member named `name`, "" when no member has it: two
+    ; members may share a first name, the email tells them apart.
+    fn emailOf:string (name:string) {
+        def t:string (trim name)
+        def i:int 0
+        while (i < (array_length members)) {
+            def m:SpMember (itemAt members i)
+            if ((trim m.name) == t) {
+                return m.email
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
     sfn addOnce:void (list:[string] v:string) {
         def t:string (trim v)
         if ((strlen t) == 0) {

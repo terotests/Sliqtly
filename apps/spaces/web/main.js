@@ -290,6 +290,9 @@ canvas.addEventListener("pointermove", (ev) => {
     paint();
   }
   canvas.style.cursor = app.cursorAt(x, y) || "default";
+  // a person's email as the browser's tooltip
+  const tip = app.tipAt(x, y);
+  if (canvas.title !== tip) canvas.title = tip;
 });
 
 canvas.addEventListener("pointerup", () => {
