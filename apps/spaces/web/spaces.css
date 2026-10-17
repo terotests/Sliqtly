@@ -419,6 +419,8 @@
 .sp-wxtemp { color: var(--ink); font-size: 38px; font-weight: 800; height: 46px; line-height: 46px; }
 .sp-wxtext { display: flex; flex-direction: column; flex-wrap: nowrap; }
 .sp-wxline { color: var(--muted); font-size: 14px; height: 20px; line-height: 20px; }
+.sp-wxnext { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.sp-wxicon-sm { color: #e0a526; font-size: 15px; height: 20px; line-height: 20px; }
 .sp-wxwarn { color: #b4501f; font-size: 14px; font-weight: 600; height: 20px; line-height: 20px; }
 .sp-placefound { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .sp-wxpills { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; margin-top: 4px; }

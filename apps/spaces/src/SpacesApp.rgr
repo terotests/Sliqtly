@@ -1208,6 +1208,7 @@ class SpacesApp {
         def l2:string ((SpWords.wxText(lang w.code)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string w.rain) + " %")
         def warn:string ""
         def icon:int w.code
+        def nextIcon:string ""
         if ((array_length w.hourT) >= 24) {
             ; the school day: when it starts, midday and when it ends; the
             ; next one once today's is over
@@ -1266,6 +1267,43 @@ class SpacesApp {
             }
             l1 = (where + " · " + range + " · " + (SpWords.wxText(lang worst)))
             l2 = ((join parts " · ") + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string rain) + " %")
+            ; the next school day's range and its worst weather, in words
+            def noff:int (off + 24)
+            if ((array_length w.hourT) >= (noff + 24)) {
+                def nsch:[int] (this.schoolHours((day + 1)))
+                def nlo:int 999
+                def nhi:int -999
+                def nworst:int 0
+                def nh2:int (itemAt nsch 0)
+                while (nh2 <= (itemAt nsch 1)) {
+                    def tv2:int (itemAt w.hourT (noff + nh2))
+                    if (tv2 < nlo) {
+                        nlo = tv2
+                    }
+                    if (tv2 > nhi) {
+                        nhi = tv2
+                    }
+                    def cv2:int (itemAt w.hourCode (noff + nh2))
+                    if (cv2 > nworst) {
+                        nworst = cv2
+                    }
+                    nh2 = (nh2 + 1)
+                }
+                def deg:string (SpWords.pick(lang "°" " astetta"))
+                if ((nlo == nhi) && ((nlo == 1) || (nlo == -1))) {
+                    deg = (SpWords.pick(lang "°" " aste"))
+                }
+                def nrange:string ((to_string nlo) + deg)
+                if (nhi != nlo) {
+                    nrange = ((to_string nlo) + "–" + (to_string nhi) + deg)
+                }
+                def when:string (SpWords.pick(lang "Tomorrow" "Huomenna"))
+                if (off > 0) {
+                    when = (SpWords.pick(lang "Day after tomorrow" "Ylihuomenna"))
+                }
+                l2 = (when + ": " + nrange + ", " + (SpWords.wxText(lang nworst)))
+                nextIcon = (SpWords.wxIcon(nworst))
+            }
             ; frost before school: the roads may be slippery
             def cold:int 999
             def nh:int 0
@@ -1299,7 +1337,17 @@ class SpacesApp {
         col.addChild(t1)
         def t2:EVGElement (SpacesApp.tx("sp-wxline" l2))
         t2.a11yHidden = true
-        col.addChild(t2)
+        if ((strlen nextIcon) > 0) {
+            ; the next day with its symbol, small, after the words
+            def row:EVGElement (SpacesApp.box("sp-wxnext"))
+            row.addChild(t2)
+            def ni:EVGElement (SpacesApp.tx("sp-wxicon-sm" nextIcon))
+            ni.a11yHidden = true
+            row.addChild(ni)
+            col.addChild(row)
+        } {
+            col.addChild(t2)
+        }
         if ((strlen warn) > 0) {
             def t3:EVGElement (SpacesApp.tx("sp-wxwarn" ("⚠ " + warn)))
             t3.a11yHidden = true
