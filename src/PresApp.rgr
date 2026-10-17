@@ -157,6 +157,11 @@ class PresApp {
     ; the whole deck's bytes, shown beside the tabs (PresDeckSize)
     def deckSize:PresDeckSize (new PresDeckSize())
     def sizeShown:string ""
+    ; "Not saved" beside the tabs while the open deck is kept nowhere (the
+    ; page decides, web/decksafe.js); a press opens the Files tab, whose
+    ; note says why and what to do
+    def unsavedText:string ""
+    def unsavedEl@(optional):EVGElement
     def tabH:double 34.0
     ; Over the stage: the slides one at a time ("slides") or the deck read
     ; as one page that scrolls ("doc", PresDocView), and the tabs that switch
@@ -3228,6 +3233,26 @@ class PresApp {
         return (deckSize.label())
     }
 
+    ; The page's word for a deck kept nowhere, "" when it is kept.
+    fn setUnsaved:void (text:string) {
+        if (text != unsavedText) {
+            unsavedText = text
+            chromeRev = (chromeRev + 1)
+        }
+    }
+
+    fn unsavedLabel:string () {
+        return unsavedText
+    }
+
+    fn unsavedHas:boolean (x:double y:double) {
+        if (((strlen unsavedText) == 0) || (null? unsavedEl)) {
+            return false
+        }
+        def b:EVGElement (unwrap unsavedEl)
+        return ((((x >= b.calculatedX) && (x <= (b.calculatedX + b.calculatedWidth))) && (y >= b.calculatedY)) && (y <= (b.calculatedY + b.calculatedHeight)))
+    }
+
     ; One rebuild that draws again at most `budget` charts and figures whose
     ; defaults changed (-1: all), the shown slide's and its neighbours'
     ; whatever the count. `lazy`: only those and the ones on the visible
@@ -6173,6 +6198,14 @@ class PresApp {
             def gap:EVGElement (EVGElement.createDiv())
             gap.className = "ed-tabs-gap"
             tabBar.addChild(gap)
+            if ((strlen unsavedText) > 0) {
+                def un:EVGElement (EVGElement.createDiv())
+                un.id = "ed-unsaved"
+                un.className = "ed-unsaved"
+                un.textContent = unsavedText
+                tabBar.addChild(un)
+                unsavedEl = un
+            }
             def size:EVGElement (EVGElement.createDiv())
             size.id = "ed-size"
             size.className = "ed-size"
@@ -6716,6 +6749,14 @@ class PresApp {
             return "stage"
         }
         if (tabRect.has(x y)) {
+            if (this.unsavedHas(x y)) {
+                ; the Files tab's note says why, and what to do
+                if ((strlen filePath) > 0) {
+                    this.closeFile()
+                }
+                this.showTab("files")
+                return "editor"
+            }
             def hitTab:string (this.tabAt(x))
             if ((hitTab == "md") && (this.mdFileOpen())) {
                 ; the deck's own text again
@@ -7335,7 +7376,7 @@ class PresApp {
         }
         if codePress {
             codePress = false
-            codeView.release()
+            codeView.release(deck.uiNow)
             this.takeCode()
             return
         }
@@ -7666,7 +7707,7 @@ class PresApp {
         if ((tocUi.isOpen()) && ((this.layerAt(x y)) == "toc")) {
             return (tocUi.cursorAt(x y))
         }
-        if ((mode == "edit") && (this.tocBtnHas(x y))) {
+        if ((mode == "edit") && ((this.tocBtnHas(x y)) || (this.unsavedHas(x y)))) {
             return "pointer"
         }
         if (review.on && ((this.layerAt(x y)) == "review")) {
@@ -9363,10 +9404,11 @@ class PresApp {
         return (((barH > 0.0) && (mode != "present")) && ((toolbar.listOpen()) || toolbar.dragOn))
     }
 
-    ; The bar as a display list over the page: "" when there is none.
-    fn toolbarJson:string () {
+    ; The bar brought up to this size and state, ready to be laid out: false
+    ; when there is none.
+    fn toolbarReady:boolean () {
         if ((barH <= 0.0) || (mode == "present")) {
-            return ""
+            return false
         }
         toolbar.measurer = measurer
         if ((toolbar.w != W) || (toolbar.h != H)) {
@@ -9377,6 +9419,14 @@ class PresApp {
         toolbar.setState(playing (this.statusText()))
         ; Rooms and Review's list of comments stay open; the rest act at once
         toolbar.setRailState((? (this.reviewListOpen()) "review" "") (review.on && ((review.model.openCount()) > 0)) (this.docTitle()))
+        return true
+    }
+
+    ; The bar as a display list over the page: "" when there is none.
+    fn toolbarJson:string () {
+        if ((this.toolbarReady()) == false) {
+            return ""
+        }
         def dl:EVGDisplayList (toolbar.displayList())
         return ("{\"x\":0,\"y\":0,\"width\":" + (EVGDisplayList.num(W)) + ",\"height\":" + (EVGDisplayList.num(H)) + ",\"list\":" + (dl.toJson()) + "}")
     }
@@ -14009,6 +14059,15 @@ class PresApp {
                 def bar:EVGA11yNode (t.node("bar" "app" (EVGA11yRole.toolbar())))
                 bar.name = (PresI18n.t("Toolbar"))
                 t.place(bar 0 0 (to_int W) (to_int toolbar.barH))
+                ; a bar rebuilt since it was last drawn (a list the page sent
+                ; again: rooms, recent decks, a theme) has no layout yet: laid
+                ; out now, or its controls left the mirror until the next
+                ; frame and the keyboard on one of them with it
+                if (null? toolbar.host.lastPage) {
+                    if (this.toolbarReady()) {
+                        toolbar.displayList()
+                    }
+                }
                 PresA11y.addHost(t toolbar.host "bar")
             }
             if ((deckRect.h > 0.0) && (!null? chromeRoot)) {

@@ -6,7 +6,10 @@
  * the one Playwright keeps under PLAYWRIGHT_BROWSERS_PATH. What it checks is
  * whether the page is WIRED — the chrome, the stage, the timeline, typing,
  * presenting, the two exports and a pasted picture — not how it looks.
- * `--shots=DIR` also writes screenshots.
+ * `--shots=DIR` also writes screenshots. `--part=1` runs only the checks on
+ * the editor page every early check shares, `--part=2` only the ones after
+ * them that open pages of their own: the Web workflow runs the two side by
+ * side.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -19,13 +22,24 @@ import { build } from "./build.mjs";
 
 const shotsArg = process.argv.find((a) => a.startsWith("--shots="));
 const shots = shotsArg ? path.resolve(shotsArg.split("=")[1]) : "";
+const partArg = process.argv.find((a) => a.startsWith("--part="));
+const part = partArg ? Number(partArg.split("=")[1]) : 0;
+if (partArg && part !== 1 && part !== 2) {
+  log(`--part is 1 or 2, not ${partArg.split("=")[1]}`);
+  process.exit(1);
+}
 
-function chromiumPath() {
-  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+// CHROMIUM_PATH, a Chromium under PLAYWRIGHT_BROWSERS_PATH, the one
+// `npx playwright-core install chromium` put there for this version (the
+// Web workflow's check-web job: the whole Chromium, as the others, not the
+// headless shell Playwright would pick), else the installed Chrome
+function chromium_(chromium) {
+  if (process.env.CHROMIUM_PATH) return { executablePath: process.env.CHROMIUM_PATH };
   const base = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
   const direct = path.join(base, "chromium");
-  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) return direct;
-  return undefined;
+  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) return { executablePath: direct };
+  if (fs.existsSync(chromium.executablePath())) return { executablePath: chromium.executablePath() };
+  return { channel: "chrome" };
 }
 
 function serve() {
@@ -64,8 +78,12 @@ function unzip(buf) {
 }
 
 let failures = 0;
+const failed = [];
 function check(name, ok, note = "") {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+    failed.push(`${name}${note ? `  (${note})` : ""}`);
+  }
   log(`${ok ? "ok  " : "FAIL"} ${name}${note ? `  (${note})` : ""}`);
 }
 
@@ -81,7 +99,7 @@ fs.writeFileSync(path.join(distDir, "data", "check-sales.csv"), "month,sales,dat
 const server = await serve();
 const url = `http://127.0.0.1:${server.address().port}/`;
 const browser = await chromium.launch({
-  executablePath: chromiumPath(),
+  ...chromium_(chromium),
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 // The checks read the interface's words as written ("room",
@@ -91,9 +109,19 @@ const roomWords = () => { try { if (!localStorage.getItem("sliqtly.roomWord")) l
 // …and opens presentations in Edit (Settings → Presentations open in), as
 // the editor did before View; "a deck opens in View" checks it on its own
 const openInEdit = () => { try { if (!localStorage.getItem("sliqtly.openIn")) localStorage.setItem("sliqtly.openIn", "edit"); } catch (_) {} };
+// Google's sign-in scripts are not fetched: the page goes on without
+// sign-in at once, as it does wherever they cannot be had, rather than
+// after however long this network takes to fail (a load behind a proxy can
+// outlast a check's timeout). The PRO checks route them to stand-ins of
+// their own, which are asked first.
+const signInScripts = /^https:\/\/(www\.gstatic\.com\/firebasejs|apis\.google\.com)\//;
 const plainContext = browser.newContext.bind(browser);
 browser.newContext = async (opts) => {
   const c = await plainContext(opts);
+  await c.route(signInScripts, (r) => r.abort());
+  // a page loads as long as it takes on a busy machine, as its start is
+  // waited for (__pageStarted, 90 s), not Playwright's 30 s
+  c.setDefaultNavigationTimeout(90000);
   await c.addInitScript(roomWords);
   await c.addInitScript(openInEdit);
   return c;
@@ -104,7 +132,47 @@ browser.newPage = async (opts) => {
   p.once("close", () => c.close().catch(() => {}));
   return p;
 };
+
+// A check that presented hands the page back as editing: the presentation
+// ended and its requests dropped, and out of full screen. The page's own
+// "exit-fullscreen" is among the requests dropped, and a page left in full
+// screen while editing leaves it whenever the browser decides to, its
+// fullscreenchange then taking the keyboard from whatever had it.
+async function leavePresenting(p) {
+  await p.evaluate(async () => {
+    if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent();
+    while (window.__app.takeRequest());
+    document.body.classList.remove("presenting");
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+  });
+  await p.waitForFunction(() => !document.fullscreenElement, null, { timeout: 5000 }).catch(() => {});
+}
+// Why the bar's controls are not in the screen reader's mirror, when a
+// keyboard check finds none: the bar's height, the mode, the toolbar's own
+// rows and how many were laid out with a size (read first, as they are),
+// then whether the page draws frames at all (none while it is held in the
+// background)
+const toolbarA11y = (p) => p.evaluate(async () => {
+  const a = window.__app;
+  const h = a.toolbar.host;
+  const page = h.lastPage;
+  const rows = h.allRows();
+  const sized = page ? rows.filter((r) => { const e = h.findEl(page, r.tid); return e && e.calculatedWidth > 0 && e.calculatedHeight > 0; }).length : -1;
+  const tree = JSON.parse(a.a11yJson()).nodes;
+  const out = { err: (document.getElementById("err")?.textContent || "").slice(0, 300), visible: document.visibilityState, focused: document.hasFocus(), barH: a.barH, mode: JSON.parse(a.layoutJson()).mode, page: !!page, rows: rows.length, sized, inTree: tree.filter((n) => /^tb-/.test(n.id)).length, focusable: tree.filter((n) => /^tb-/.test(n.id) && n.focusable && !n.disabled).length };
+  out.frames = await new Promise((done) => {
+    let n = 0;
+    const t0 = performance.now();
+    const f = () => { n += 1; if (performance.now() - t0 < 250) requestAnimationFrame(f); else done(n); };
+    requestAnimationFrame(f);
+    setTimeout(() => done(n), 400);
+  });
+  return out;
+});
 try {
+  // part 1: the editor page `page` and the checks that go on with it, in
+  // order (not indented, to keep the checks' lines as they were)
+  if (part !== 2) {
   // A phone: the filmstrip swipes, a tap picks a thumbnail, two fingers
   // zoom the slide (clipped to the stage) and a double tap goes back out.
   {
@@ -1147,7 +1215,7 @@ try {
     check("a swipe right goes back a slide, a swipe left on", !swipedBack.end && swipedBack.slide === prev.count - 2 && swipedOn.slide === prev.count - 1, JSON.stringify({ swipedBack, swipedOn }));
     check("the end panel waits until the last slide is passed", !before.shown && reached && atEnd.shown && atEnd.slide === atEnd.count - 1, JSON.stringify({ before, atEnd }));
     check("end panel: Previous slide, From the start, Exit", !prev.shown && prev.slide === prev.count - 2 && restart.slide === 0 && !restart.end && exit.mode === "edit" && !exit.shown, JSON.stringify({ prev, restart, exit }));
-    await page.evaluate(() => { while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
   }
 
   // Jumps while presenting (PresNav): PageDown / PageUp a whole slide with
@@ -1232,7 +1300,7 @@ try {
     check("the counter takes a number", counted.slide === 1, JSON.stringify(counted));
     check("⏮ is the first slide, and the arrows still work after it", first.slide === 0 && keysBack && (stepped.slide === 1 || stepped.step === 1), JSON.stringify({ first, keysBack, stepped }));
     await page.keyboard.press("Escape");
-    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
   }
 
   // The presenter view on another screen (src/PresTwoScreen.rgr,
@@ -1278,9 +1346,12 @@ try {
     check("…a next-slide press in the presenter's window moves both", followed && afterLead.slide === 1 && afterAud?.slide === 1 && afterAud.step === afterLead.step, JSON.stringify({ afterLead, afterAud }));
     check("…and one in the audience's window moves both", ledBack && audToo, JSON.stringify(fromAud));
     check("…→ steps both alike", arrowed && (leadNow.slide !== fromAud.lead.slide || leadNow.step !== fromAud.lead.step), JSON.stringify(leadNow));
-    // the audience's window reloaded: it asks again and lands where the presenter is
+    // the audience's window reloaded: it asks again and lands where the
+    // presenter is, not where its own address says (#slide= follows what it
+    // last drew, behind while it was not in front: as here, slide 2)
     let reloaded = null;
     if (aud) {
+      await aud.evaluate(() => history.replaceState(history.state, "", location.pathname + location.search + "#slide=2"));
       await aud.reload();
       await aud.waitForFunction(() => window.__app && JSON.parse(window.__app.layoutJson()).mode === "present", null, { timeout: 90000 }).catch(() => {});
       await aud.waitForFunction((s) => window.__app.slideShown() === s, leadNow.slide, { timeout: 8000 }).catch(() => {});
@@ -1308,7 +1379,7 @@ try {
     const ended = await page.evaluate(() => JSON.parse(window.__app.layoutJson()).mode);
     check("…Esc in the presenter's window ends it and closes the audience's", !!aud2 && (await closed) && ended === "edit", JSON.stringify({ ended }));
     await page.bringToFront();
-    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
   }
 
   // The slide's text selected with the mouse while presenting
@@ -1365,7 +1436,7 @@ try {
       await page.waitForTimeout(200);
       clickedOn = await where();
       await page.keyboard.press("Escape");
-      await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+      await leavePresenting(page);
     }
     check("presenting: a drag over the slide's text copies it, the slide stays", !!ln && copied.includes(ln.text.trim()) && stayed.slide === before.slide && stayed.step === before.step && cursor === "text", JSON.stringify({ ln, copied, before, stayed, cursor }));
     check("presenting: the click after a selection only lets go of it, the next is the slide's", !!ln && after.slide === before.slide && after.step === before.step && (clickedOn.slide !== before.slide || clickedOn.step !== before.step), JSON.stringify({ before, after, clickedOn }));
@@ -1407,13 +1478,20 @@ try {
       a.selectSlide(0);
       a.request("rec:start");
       const open = a.chart.isOpen && a.chart.mode === "confirm" && a.chart.cfKey === "recstart";
+      // the count seen by the page itself, not by a poll a busy machine may
+      // run only after the three seconds are over
+      const el = document.getElementById("recCount");
+      const seen = () => { if (!el.hidden && !document.body.classList.contains("recording")) window.__recCounted = true; };
+      window.__recCounted = false;
+      new MutationObserver(seen).observe(el, { attributes: true, attributeFilter: ["hidden"] });
       a.chart.confirmAct("cf-alt");
       a.afterChart();
+      seen();
       return open;
     });
-    await page.waitForFunction(() => !document.getElementById("recCount").hidden, null, { timeout: 8000 }).catch(() => {});
-    const counted = await page.evaluate(() => !document.getElementById("recCount").hidden && !document.body.classList.contains("recording"));
-    await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 8000 });
+    // asked for in a frame, then 3, 2, 1: as long as this machine takes
+    await page.waitForFunction(() => document.body.classList.contains("recording"), null, { timeout: 20000 });
+    const counted = await page.evaluate(() => window.__recCounted);
     await page.waitForTimeout(300);
     const badge = await page.evaluate(() => ({ shown: !document.getElementById("recBadge").hidden, mute: !document.getElementById("recMute").hidden, hint: document.getElementById("recHint").textContent }));
     check("Record asks with or without the voice, counts down, then shows REC (no sound) and what to do", asked && counted && badge.shown && badge.mute && badge.hint.length > 0, JSON.stringify({ asked, counted, badge }));
@@ -1464,12 +1542,14 @@ try {
     await page.waitForFunction(() => document.body.classList.contains("replaying"), null, { timeout: 8000 });
     await page.waitForFunction(() => JSON.parse(window.__app.inkState()).strokes > 0, null, { timeout: 20000 }).catch(() => {});
     const played = await ink();
-    await page.waitForFunction(() => window.__app.slideShown() !== 0 || !window.__app.isReplaying(), null, { timeout: 20000 }).catch(() => {});
+    // the replay goes on when the take did, which is later the slower this
+    // machine recorded it: wait for that, up to the take's whole length
+    await page.waitForFunction(() => window.__app.slideShown() !== 0 || !window.__app.isReplaying(), null, { timeout: Math.max(20000, (played.duration - played.t) * 1000 + 5000) }).catch(() => {});
     const on = await ink();
     check("Play recording draws what was drawn and goes on where it went", played.replaying && played.strokes === 1 && played.slide === 0 && on.slide !== 0, JSON.stringify({ played, on }));
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !window.__app.isReplaying(), null, { timeout: 8000 }).catch(() => {});
-    await page.evaluate(() => { if (JSON.parse(window.__app.layoutJson()).mode === "present") window.__app.endPresent(); while (window.__app.takeRequest()); document.body.classList.remove("presenting"); });
+    await leavePresenting(page);
     check("…Esc ends the replay", !(await page.evaluate(() => window.__app.isReplaying())));
     // Edit recording: a part marked and cut is kept in the take's file
     const cut = await page.evaluate(async () => {
@@ -4010,6 +4090,7 @@ try {
     const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
     const seen = [];
     for (let i = 0; i < 8; i += 1) { await page.keyboard.press("F6"); seen.push(await act() + "/" + await page.evaluate(() => ["bar", "rail", "rooms"].map((r) => window.__kb.focusables(r).length).join(""))); }
+    const f6Bar = await toolbarA11y(page);
     await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.editor.moveCaret(2, 10, false); document.getElementById("keys").focus(); });
     await page.keyboard.press("Control+Space");
     await page.waitForTimeout(200);
@@ -4041,7 +4122,8 @@ try {
     const chartBack = await act();
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath: tabPath.slice(0, 3) }));
-    check("F6 goes from area to area (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.some((x) => /^keys\//.test(x)), seen.join(","));
+    const f6Ok = seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.some((x) => /^keys\//.test(x));
+    check("F6 goes from area to area (slides, bar, tabs, editor)", f6Ok, seen.join(",") + (f6Ok ? "" : " " + JSON.stringify(f6Bar)));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
     check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Slide \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
   }
@@ -4065,19 +4147,54 @@ try {
     for (let i = 0; i < 12 && !/^tb-m-file-trigger$/.test(await act()); i += 1) await page.keyboard.press("Tab");
     const menu = [];
     for (const k of ["Enter", "ArrowRight", "ArrowLeft", "End", "Escape"]) { await page.keyboard.press(k); await page.waitForTimeout(150); menu.push(await act()); }
+    // where the keyboard went from here, and what sent it (a focus moved by
+    // a script has the script's stack; a Tab has none): listed when the
+    // check fails
+    await page.evaluate(() => {
+      const t0 = performance.now();
+      window.__focusLog = [];
+      if (window.__focusLogOn) return;
+      window.__focusLogOn = true;
+      document.addEventListener("focusin", (ev) => {
+        const e = ev.target;
+        const at = (new Error().stack || "").split("\n").slice(2, 6).map((l) => l.trim().replace(/^at /, "").replace(/\(?https?:\/\/[^)]*\/([^/)?]+)(\?[^:)]*)?(:\d+):\d+\)?/, "$1$3")).join(" < ");
+        window.__focusLog?.push(Math.round(performance.now() - t0) + "ms " + ((e.dataset && e.dataset.a11yId) || e.id || e.tagName) + (at ? " <- " + at : ""));
+      }, true);
+    });
     await page.evaluate(() => window.__kb.focusRegion("rail"));
-    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) await page.keyboard.press("Tab");
+    const railWalk = [await act()];
+    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) { await page.keyboard.press("Tab"); railWalk.push(await act()); }
+    const beforeEnter = await act();
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(300);
+    // the dialog is drawn and focused a frame or more after the key
+    await page.waitForFunction(() => /^pn-set-/.test(document.activeElement?.dataset?.a11yId || "") && !!document.querySelector('.evg-a11y [data-a11y-id="pn-dlg"]'), null, { timeout: 5000 }).catch(() => {});
     const inSettings = await act();
     const dialog = await page.evaluate(() => { const d = document.querySelector('.evg-a11y [data-a11y-id="pn-dlg"]'); return d ? d.getAttribute("role") + ":" + d.getAttribute("aria-modal") + ":" + d.getAttribute("aria-label") : ""; });
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => document.activeElement?.dataset?.a11yId === "tb-rail-settings", null, { timeout: 5000 }).catch(() => {});
     const afterSettings = await act();
     check("Tab runs on from the bar into the next area instead of round the bar", walk.some((x) => /^tb-rail-/.test(x)), walk.join(","));
     check("Esc and then Tab leaves the editor, the text untouched", leftEditor !== "keys" && srcSame, leftEditor);
     check("a menu of the bar from the keyboard: Enter opens on its first row, → opens a submenu, ← back, End, Esc to the trigger", menu[0] === "tb-m-file-item-new" && /^tb-m-file-item-new-item-/.test(menu[1]) && menu[2] === "tb-m-file-item-new" && menu[3] !== menu[2] && menu[4] === "tb-m-file-trigger", menu.join(","));
-    check("Settings takes the keyboard as a named modal dialog and gives it back on Esc", /^pn-set-/.test(inSettings) && dialog === "dialog:true:Settings" && afterSettings === "tb-rail-settings", JSON.stringify({ inSettings, dialog, afterSettings }));
+    const settingsOk = /^pn-set-/.test(inSettings) && dialog === "dialog:true:Settings" && afterSettings === "tb-rail-settings";
+    const focusLog = settingsOk ? null : await page.evaluate(() => window.__focusLog);
+    const settingsBar = settingsOk ? null : await toolbarA11y(page);
+    check("Settings takes the keyboard as a named modal dialog and gives it back on Esc", settingsOk, JSON.stringify(settingsOk ? { inSettings, dialog, afterSettings } : { inSettings, dialog, afterSettings, railWalk, beforeEnter, focusLog, bar: settingsBar }));
+    // the bar rebuilt between two frames (a list the page sends again after
+    // a save: rooms, recent decks) keeps its controls in the mirror, and the
+    // keyboard on the one it was on (they all left the mirror until the next
+    // frame drew the bar, and the keyboard with them)
+    await page.evaluate(() => window.__kb.focusRegion("rail"));
+    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) await page.keyboard.press("Tab");
+    const rebuilt = await page.evaluate(() => {
+      const a = window.__app;
+      const on = (document.activeElement?.dataset?.a11yId) || "";
+      // the same value again: a rebuild that changes nothing else
+      a.setToolbarOptions("dark", "", a.toolbar.darkOn ? "1" : "");
+      window.__kb.focusRegion("no-such-region");
+      return { on, bar: window.__kb.focusables("bar").length, rail: window.__kb.focusables("rail").length, after: (document.activeElement?.dataset?.a11yId) || document.activeElement?.id || "" };
+    });
+    check("a bar rebuilt between frames keeps its controls in the mirror and the keyboard where it was", rebuilt.on === "tb-rail-settings" && rebuilt.bar > 0 && rebuilt.rail > 0 && rebuilt.after === "tb-rail-settings", JSON.stringify(rebuilt));
     await page.evaluate((s) => window.__app.setSource(s), src0);
   }
 
@@ -4576,8 +4693,13 @@ try {
     await page.evaluate(() => [...document.querySelectorAll(".sheet-dialog-bar button")].find((b) => !b.classList.contains("primary"))?.click());
     await page.waitForTimeout(300);
     // without EVGSheets (no copy beside the page, its site out of reach) the
-    // text editor is the fallback
-    const sheetsHere = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    // text editor is the fallback. Which one this page has is asked of the
+    // page itself: with no copy beside it, it loads EVGSheets from its site
+    // (build.mjs, "evgsheets.base"), which one machine's network reaches
+    // (GitHub's runners) and another's does not.
+    const sheetsLocal = fs.existsSync(path.join(distDir, "sheets", "evgsheets.mjs"));
+    const sheetsBase = sheetsLocal ? "./sheets/" : (JSON.parse(fs.readFileSync(path.join(root, "presentation.config.json"), "utf8")).evgsheets?.base || "https://terotests.github.io/EVGSheets/");
+    const sheetsHere = await page.evaluate((u) => import(new URL(u, location.href).href).then(() => true, () => false), sheetsBase + "evgsheets.mjs");
     const asked = csvOpen.asked && csvOpen.asked.name === "vfs-sales.csv" && /^kk,euroa/i.test(csvOpen.asked.csv || "");
     check("Open on a CSV file: the spreadsheet editor, not the text" + (sheetsHere ? "" : " (EVGSheets unreachable: asked, then the text)"),
       asked && (sheetsHere ? csvOpen.dialog && csvOpen.name === "vfs-sales.csv" && !csvOpen.asText : csvOpen.asText), JSON.stringify(csvOpen).slice(0, 200));
@@ -5085,12 +5207,21 @@ try {
   check("PPTX slide 2 has a push transition", /<p:transition[^>]*>[\s\S]*<p:push/.test(slide2));
   const paras = new Set((slide2.match(/<p:pRg st="(\d+)"/g) || []));
   check("PPTX slide 2 builds its four list items one paragraph at a time", paras.size === 4, [...paras].join(" "));
-  // Keynote imports a build only with its build list and group ids, and
-  // warns about any face it does not have
+  // Keynote imports a build only with its build list and group ids
   check("PPTX slide 2 declares its paragraph build", /<p:bldLst><p:bldP spid="\d+" grpId="0" build="p"\/>/.test(slide2) && /grpId="0" nodeType="clickEffect"/.test(slide2));
+  // The file names the faces the stage drew with, the ones the boxes were
+  // measured for (PresExport.exportFont, #607): the theme's heading and
+  // body, a run's own (a theme's `code` face), all of them Sliqtly's
+  // (PresFonts.FAMILIES), or the theme's (+mn-lt …); never a generic family
+  // ("sans-serif", the Calibri a chart asks for). A reader without a face
+  // substitutes its own.
+  const ownFaces = ["Open Sans", "Noto Sans", "Lato", "Droid Serif", "Fjalla One"];
+  const theme = pptx.get("ppt/theme/theme1.xml") || "";
+  const major = (theme.match(/<a:majorFont><a:latin typeface="([^"]*)"/) || [])[1] || "";
+  const minor = (theme.match(/<a:minorFont><a:latin typeface="([^"]*)"/) || [])[1] || "";
   const faces = new Set();
   for (const [k, v] of pptx) if (k.endsWith(".xml")) for (const m of v.matchAll(/typeface="([^"]+)"/g)) if (m[1]) faces.add(m[1]);
-  check("PPTX names only faces every machine has", [...faces].every((f) => f === "Arial" || f.startsWith("+")), [...faces].join(", "));
+  check("PPTX names the faces the stage drew with: the theme's heading and body, no generic family", ownFaces.includes(major) && ownFaces.includes(minor) && [...faces].every((f) => ownFaces.includes(f) || f.startsWith("+")), `theme ${major} / ${minor}; ${[...faces].join(", ")}`);
   // A formula in a line is an equation PowerPoint can edit (Office Math in
   // the a14 choice) and Unicode text in the fallback, never its TeX source.
   // Equations are set in Cambria Math, which every Office install has.
@@ -5113,6 +5244,23 @@ try {
   const n2 = notes.map((k) => pptx.get(k)).join(" ");
   check("the notes are the speaker's words without the cue marks", n2.includes("linkin saanut") && !n2.includes("[[1]]"));
 
+  // Open → Sample documents: English decks for an English interface, and the
+  // prompt is the trigger's text, not a row in the list
+  const samples = await page.evaluate(() => {
+    const a = window.__app;
+    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
+    const sel = a.panels.samplePick;
+    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
+    a.closeShare();
+    return out;
+  });
+  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "welcome=Welcome: what Sliqtly can do" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
+
+  check("no page errors", errors.length === 0, errors.join(" | "));
+  } // part 1
+
+  // part 2: checks that open pages of their own
+  if (part !== 1) {
   // A data file dropped on the editor: the import dialog, a chart made from
   // its columns, and a paged table (a .xlsx through its own bundle).
   {
@@ -5150,9 +5298,10 @@ try {
     check("a dropped CSV asks what to make; Chart groups Revenue by Region and opens the chart editor", dlgOpen && plan.cat === 0 && plan.rev && chart.open && chart.fence, JSON.stringify({ dlgOpen, plan, chart }));
     await pd.evaluate(() => { const a = window.__app; a.closeChart(); a.setSource(a.source() + "\n\n## Data table\n\n"); a.mdEditor.moveCaret(a.mdEditor.buf.lineCount() - 1, 0, false); });
     await drop("check-import.csv", Buffer.from(rows.join("\n") + "\n").toString("base64"), "text/csv");
-    await pd.waitForTimeout(300);
+    await pd.waitForFunction(() => window.__app.shareIsOpen() && window.__app.panels.dialogKind === "data", null, { timeout: 5000 }).catch(() => {});
     await press("pn-d-table");
-    await pd.waitForTimeout(800);
+    // the table pages once its file is read, which a busy machine takes a while to do
+    await pd.waitForFunction(() => { const u = window.__app.deck.tables[0]; return !!u && u.pages() > 1; }, null, { timeout: 10000 }).catch(() => {});
     const table = await pd.evaluate(() => {
       const a = window.__app;
       const u = a.deck.tables[0];
@@ -5716,18 +5865,6 @@ try {
     await ctx.close();
   }
 
-  // Open → Sample documents: English decks for an English interface, and the
-  // prompt is the trigger's text, not a row in the list
-  const samples = await page.evaluate(() => {
-    const a = window.__app;
-    a.openOpen([...document.getElementById("sample").options].map((o) => o.value + "\t" + o.textContent.trim()).join("\n"));
-    const sel = a.panels.samplePick;
-    const out = { trigger: sel.labelOf(sel.value), rows: sel.items.map((it) => it.value + "=" + it.name) };
-    a.closeShare();
-    return out;
-  });
-  check("Open: the samples list starts with a deck, the prompt only on the trigger", samples.trigger === "Open sample document…" && samples.rows[0] === "welcome=Welcome: what Sliqtly can do" && !samples.rows.some((r) => r.startsWith("=")), JSON.stringify(samples));
-
   // a first visit (nothing kept in this browser) opens the welcome deck in
   // English, with a card that starts a deck of one's own
   {
@@ -5963,6 +6100,12 @@ try {
     };
     const src = (p) => p.evaluate(() => window.__app.source());
     const edit = (p, from, to) => p.evaluate(([a, b]) => window.__app.setSource(window.__app.source().replace(a, b)), [from, to]);
+    // the two tabs settle as fast as this machine lets them: ask until they
+    // have (or the time is up, and the check below says how they stand)
+    const settled = async (ok, ms = 20000) => {
+      for (const end = Date.now() + ms; Date.now() < end; await a.waitForTimeout(250)) if (await ok()) return;
+    };
+    const agree = (...words) => async () => { const m = [await src(a), await src(b)]; return m[0] === m[1] && words.every((w) => m[0].includes(w)); };
     const base = "# Kaksi ikkunaa\n\n## Yksi\n\nrivi 1\nrivi 2\nrivi 3\n\n## Kaksi\n\nrivi 4\nrivi 5\nrivi 6\n";
     const a = await tab(url);
     await a.evaluate(() => window.__fileRequest("new"));
@@ -5978,19 +6121,20 @@ try {
     check("versions: a change in one tab shows in the other", (await src(b)).includes("rivi 1 A"));
     await edit(a, "rivi 2", "rivi 2 A");
     await edit(b, "rivi 5", "rivi 5 B");
-    await a.waitForTimeout(6000);
+    await settled(agree("rivi 2 A", "rivi 5 B"));
     const m = [await src(a), await src(b)];
     check("versions: edits to different lines in two tabs are merged", m[0] === m[1] && m[0].includes("rivi 2 A") && m[0].includes("rivi 5 B"), JSON.stringify(m));
     await edit(a, "rivi 3", "rivi 3 A");
     await edit(b, "rivi 3", "rivi 3 B");
-    await a.waitForTimeout(4000);
+    const card = (p) => p.evaluate(() => !!document.getElementById("mergeCard"));
+    await settled(async () => (await card(a)) || (await card(b)));
     const asked = (await a.evaluate(() => !!document.getElementById("mergeCard"))) ? a : (await b.evaluate(() => !!document.getElementById("mergeCard"))) ? b : null;
     check("versions: the same line edited in two tabs asks", !!asked);
     if (asked) {
       await asked.evaluate(() => document.querySelector('#mergeCard input[value="both"]').click());
       await asked.evaluate(() => document.querySelector("#mergeCard button.primary").click());
     }
-    await a.waitForTimeout(5000);
+    await settled(agree("rivi 3 A", "rivi 3 B"));
     const both = [await src(a), await src(b)];
     check("versions: both kept as asked, and the tabs agree", both[0] === both[1] && both[0].includes("rivi 3 A") && both[0].includes("rivi 3 B"), JSON.stringify(both));
     await a.evaluate(() => document.getElementById("history").click());
@@ -6371,12 +6515,14 @@ try {
     check("ToC: presenting, the bar's ToC opens the drawer", await pg.evaluate(() => window.__app.tocShown()));
     // presenting, the search takes the letters (not the bar's keys) and
     // Enter goes to the first heading found
-    // the drawer just opened: its field has a place once a frame has laid it out
+    // the drawer just opened: its field has a place once a frame has laid it
+    // out (until then it keeps where the editor's drawer had it)
+    await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await pg.waitForFunction(() => window.__app.tocUi.search.rootEl.calculatedWidth > 0, null, { timeout: 5000 }).catch(() => {});
     const pfield = await pg.evaluate(() => { const r = window.__app.tocUi.search.rootEl; return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight]; });
     await pg.mouse.click(pfield[0] + 40, pfield[1] + pfield[3] / 2);
     await pg.keyboard.type("kohta 12", { delay: 20 });
-    await pg.waitForTimeout(200);
+    await pg.waitForFunction(() => window.__app.tocUi.shown.length === 1, null, { timeout: 5000 }).catch(() => {});
     const pf = await pg.evaluate(() => ({ value: window.__app.tocUi.search.value, shown: window.__app.tocUi.shown.length, slide: window.__app.slideShown() }));
     check("ToC search: presenting, typing filters and the slide stays", pf.value === "kohta 12" && pf.shown === 1 && pf.slide === 0, JSON.stringify(pf));
     await pg.keyboard.press("Enter");
@@ -6384,11 +6530,11 @@ try {
     const pe = await pg.evaluate(() => ({ slide: window.__app.slideShown(), mode: JSON.parse(window.__app.layoutJson()).mode, keys: window.__app.tocHasKeys() }));
     check("ToC search: Enter shows the found heading's slide", pe.slide === 11 && pe.mode === "present" && !pe.keys, JSON.stringify(pe));
     await pg.evaluate(() => window.__app.tocEscape());
-    await pg.waitForTimeout(200);
+    await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     // a row in view (the list shows the one being read, Kohta 12.1's)
     const prow = await pg.evaluate(() => { const b = window.__app.tocUi.drawer.body(); for (let i = 0; i < b.getChildCount(); i++) { const r = b.getChild(i); if (r.calculatedY > 300 && window.__app.toc.entryAt(i).slide !== 11) return [r.calculatedX, r.calculatedY, r.calculatedWidth, r.calculatedHeight, i]; } return null; });
     await pg.mouse.click(prow[0] + 30, prow[1] + prow[3] / 2);
-    await pg.waitForTimeout(500);
+    await pg.waitForFunction((i) => window.__app.slideShown() === window.__app.toc.entryAt(i).slide, prow[4], { timeout: 5000 }).catch(() => {});
     const p1 = await pg.evaluate((i) => ({ slide: window.__app.slideShown(), want: window.__app.toc.entryAt(i).slide, mode: JSON.parse(window.__app.layoutJson()).mode }), prow[4]);
     check("ToC: presenting, a row shows its slide", p1.slide === p1.want && p1.mode === "present", JSON.stringify(p1));
     check("ToC: without errors", terr.length === 0, terr.join(" | "));
@@ -7669,10 +7815,15 @@ try {
   await pageFi.close();
   check("?lang=fi: the bar drawn and the page's own words in Finnish", fi.lang === "fi" && fi.bar && /Esitä/.test(fi.html) && fi.langSel === "fi" && fi.langBar && fi.sample, JSON.stringify(fi));
 
-  check("no page errors", errors.length === 0, errors.join(" | "));
+  } // part 2
+} catch (e) {
+  // a step that threw (a wait without its .catch, a crashed page) ends the
+  // run: listed with the failed checks, whose summary still follows
+  check("the run goes on to its end", false, (e.stack || String(e)).split("\n").slice(0, 3).join(" | "));
 } finally {
   await browser.close();
   server.close();
 }
-log(failures ? `${failures} failed` : "all passed");
+if (failures) log(`\n${failures} failed${part ? ` in part ${part}` : ""}:\n${failed.map((f) => `FAIL ${f}`).join("\n")}`);
+else log(`all passed${part ? ` in part ${part}` : ""}`);
 process.exit(failures ? 1 : 0);

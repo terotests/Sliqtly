@@ -144,6 +144,7 @@
    little a presentation takes */
 .ed-tabs-gap { flex-grow: 1; }
 .ed-size { font-size: 12px; font-weight: 600; color: #047857; background-color: #d1fae5; height: 22px; line-height: 22px; padding: 0 10px; border-radius: 11px; margin-right: 10px; }
+.ed-unsaved { font-size: 12px; font-weight: 700; color: #b91c1c; background-color: #fee2e2; height: 22px; line-height: 22px; padding: 0 10px; border-radius: 11px; margin-right: 8px; }
 .toc-btn { font-size: 12px; font-weight: 600; color: #334155; background-color: #e2e8f0; height: 22px; line-height: 22px; padding: 0 10px; border-radius: 11px; margin-right: 10px; }
 .toc-btn-on { color: #1e3a8a; background-color: #bfdbfe; }
 /* EVGUI's pill tabs on the white of the deck's tab above, so the tab and

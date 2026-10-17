@@ -512,6 +512,8 @@ class SpacesApp {
         board.view = keepView
         board.startH = 7
         board.endH = 22
+        ; the hours at full height: the page scrolls, not the grid
+        board.fullHeight = true
         board.newTitle = (SpWords.noun(lang pack "event"))
         board.hasSettings = false
         ; Add (above the calendar) is how an entry is made; the bar has no New
@@ -551,10 +553,23 @@ class SpacesApp {
         def occ:[SpOccur] (space.occurrences((today - 92) (today + 184)))
         space.showGets = true
         space.showPays = true
+        ; 7:00-22:00, widened to the earliest and latest event
+        def fromH:int 7
+        def toH:int 22
         def i:int 0
         while (i < (array_length occ)) {
             def oc:SpOccur (itemAt occ i)
             def id:string ("o" + (to_string i))
+            if ((oc.allDay()) == false) {
+                def sh:int (idiv oc.startMin 60)
+                def eh:int (idiv (oc.endMin + 59) 60)
+                if (sh < fromH) {
+                    fromH = sh
+                }
+                if (eh > toH) {
+                    toH = eh
+                }
+            }
             if (oc.allDay()) {
                 def ad:CalEvent (board.model.addAllDay(id oc.title oc.day oc.endDay))
                 ad.color = oc.color
@@ -569,6 +584,14 @@ class SpacesApp {
             push occEnd oc.endMin
             i = (i + 1)
         }
+        if (fromH < 0) {
+            fromH = 0
+        }
+        if (toH > 24) {
+            toH = 24
+        }
+        board.startH = fromH
+        board.endH = toH
     }
 
     ; What the card changed, written to the space: a moved or resized event,
@@ -3381,6 +3404,14 @@ class SpacesApp {
         return menu
     }
 
+    ; The types the Add menu offers: on the lists page those kept on lists.
+    fn addTypes:[SpType] () {
+        if (tab == "lists") {
+            return (types.listedFor(pack))
+        }
+        return (types.forPack(pack))
+    }
+
     ; A type's group as the menu groups it: an unknown one with the first.
     sfn groupOf:string (t:SpType) {
         if (SpacesApp.knownGroup(t.group)) {
@@ -3394,7 +3425,7 @@ class SpacesApp {
     ; shows them all; of many, none until something is searched or picked.
     fn addMatches:[SpType] () {
         def res:[SpType]
-        def list:[SpType] (types.forPack(pack))
+        def list:[SpType] (this.addTypes())
         def q:string (to_lowercase (trim typeSearch.value))
         def many:boolean ((array_length list) > 12)
         if (many && (((strlen q) == 0) && ((strlen addGroup) == 0))) {
@@ -3430,7 +3461,7 @@ class SpacesApp {
             UiTree.inline(fr "width" "320px")
         }
         box.addChild(fr)
-        def list:[SpType] (types.forPack(pack))
+        def list:[SpType] (this.addTypes())
         def q:string (trim typeSearch.value)
         def many:boolean ((array_length list) > 12)
         if (many && ((strlen q) == 0)) {
@@ -3583,6 +3614,10 @@ class SpacesApp {
         def tid:string typeId
         if (tid == "event") {
             tid = ""
+        }
+        ; added on the lists page, its list is the one shown
+        if (tab == "lists") {
+            listType = typeId
         }
         def e (new SpEvent())
         e.typeId = tid
@@ -5203,8 +5238,20 @@ class SpacesApp {
             }
             lt = (lt + 1)
         }
+        v.addChild((this.addBar()))
+        ; only the lists that have something, and the one picked last
+        def full:[SpType]
+        def li:int 0
+        while (li < (array_length listed)) {
+            def lt2:SpType (itemAt listed li)
+            if (((array_length (space.entriesOf(lt2.id))) > 0) || (lt2.id == listType)) {
+                push full lt2
+            }
+            li = (li + 1)
+        }
+        listed = full
         if ((array_length listed) == 0) {
-            v.addChild((SpacesApp.tx("sp-empty" (SpWords.ui(lang "noEntries")))))
+            v.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Nothing on the lists yet. Add something above." "Listoilla ei ole vielä mitään. Lisää jotain yläpuolelta.")))))
             return v
         }
         def cur:SpType (itemAt listed 0)

@@ -782,8 +782,18 @@ console.log("entries: the form, the Add menu, deleting and Undo");
     && inv.hasCost && inv.cost.amount === 20.5 && inv.cost.scope === "shared" && inv.cost.payer === "Mia", JSON.stringify(inv.values));
   ok("and on the calendar", a.occIds.includes(inv.id));
 
-  // a record without a date
+  // a record without a date; the lists page shows only the lists with
+  // something, and Add offers the types kept on lists
   a.press("sp-nav-lists");
+  ok("empty lists are not shown", !byId(a, "sp-list-gift_idea") && byId(a, "sp-add"));
+  a.press("sp-add");
+  a.typeSearch.setValue("thing");
+  a.rebuild();
+  ok("Add on the lists page offers the listed types", !!byId(a, "sp-addtype-item"), texts(a).slice(-20).join(","));
+  a.typeSearch.setValue("dentist");
+  a.rebuild();
+  ok("not the calendar's", !byId(a, "sp-addtype-dentist_visit"));
+  a.press("sp-add");
   a.press("sp-addtype-item");
   eq("a thing has no date to start with", field("date").value, "");
   field("title").setValue("Skates");
@@ -1157,6 +1167,31 @@ console.log("a plan over several days in Tulossa");
     ok(`${w} on the Tulossa page too`, t.includes(short));
     const probs = a.a11yProblems();
     ok(`${w} Tulossa lints clean`, probs.length === 0, probs.join(" | "));
+  }
+}
+
+console.log("list tabs: one line each, inside the page");
+{
+  const a = fresh("fi", "family");
+  for (const t of a.types.listedFor("family")) {
+    const e = new M.SpEvent();
+    e.id = "x" + t.id;
+    e.typeId = t.id;
+    e.title = "T " + t.id;
+    e.day = -1;
+    a.space.events.push(e);
+  }
+  a.press("sp-nav-lists");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const els = flat(a);
+    const main = els.find((e) => e.id === "sp-main");
+    const tabs = els.filter((e) => e.id && e.id.startsWith("sp-list-"));
+    ok(`${w} every list has a tab`, tabs.length === a.types.listedFor("family").length, String(tabs.length));
+    const lines = JSON.parse(a.displayListJson()).cmds.filter((c) => c.text === "kurssi" || c.text === "määräpäivä");
+    ok(`${w} a long name stays on one line`, lines.length === 0, JSON.stringify(lines.map((c) => c.text)));
+    const out = tabs.filter((e) => e.calculatedX + e.calculatedWidth > main.calculatedX + main.calculatedWidth + 0.5);
+    ok(`${w} the tabs stay inside the page`, out.length === 0, out.map((e) => e.id).join(","));
   }
 }
 
