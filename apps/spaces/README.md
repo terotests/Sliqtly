@@ -66,7 +66,7 @@ With the meta tag the page
 
 - calls the server with `POST /apps/warden/api/<op>` and a JSON body
   (`list_spaces`, `get_space`, `create_space`, `set_space`, `save_event`,
-  `add_ward`, `remove_ward`, `invite_member`, `remove_member`, `import_events`), sending the
+  `add_ward`, `set_ward`, `remove_ward`, `invite_member`, `remove_member`, `import_events`), sending the
   sign-in cookie; a 401 sends it to `/apps/warden/login`;
 - saves what the calendar changes: a moved event, a new one, and one day of a
   repeating event (the series gets an exdate, the day becomes its own event);
