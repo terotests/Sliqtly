@@ -74,6 +74,9 @@ type wardenType struct {
 	// too so a client reading one type sees them (wardenFormCommon)
 	Also []string `json:"also_fields,omitempty"`
 	// kept for entries already made; new ones take ReplacedBy
+	// the page that shows its entries instead of the lists and the Add
+	// menu ("questions": the Questions page, wardenask.go)
+	Page       string `json:"page,omitempty"`
 	Legacy     bool   `json:"legacy,omitempty"`
 	ReplacedBy string `json:"replaced_by,omitempty"`
 }
@@ -1010,6 +1013,21 @@ func (s *wardenService) budget(ctx context.Context, sp *wardenSpace, a map[strin
 	}
 	out := jsonOf(all)
 	out["from"], out["to"], out["months"], out["currency"] = from, to, months, "EUR"
+	// money paid between members to even out the costs: in the books, not a
+	// cost (wardenask.go)
+	who := payer
+	if who == "" {
+		who = person
+	}
+	settlements, net := wardenSettlements(docs, ids, f, t, who)
+	out["settlements"] = settlements
+	if len(settlements) > 0 {
+		settled := map[string]any{}
+		for k, v := range net {
+			settled[k] = round(v)
+		}
+		out["settled"] = settled
+	}
 	if payer != "" {
 		out["payer"] = payer
 	}
