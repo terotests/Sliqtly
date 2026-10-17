@@ -236,8 +236,12 @@ try {
       ok("a click opens it in the form", await page.evaluate(() => window.__spaces.editing && window.__spaces.editId !== ""));
       await clickId(page, "sp-ed-cancel");
       await page.waitForTimeout(200);
-      await page.evaluate((id) => { window.__spaces.focused = id; }, bandId);
-      await page.keyboard.press("Backspace");
+      // focus and the key in one step: a repaint in between (the page asks
+      // for changes every few seconds) would hand the focus back to the DOM's
+      await page.evaluate((id) => {
+        window.__spaces.focused = id;
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+      }, bandId);
       const deleted = await page
         .waitForFunction(() => window.__spaces.outCount() === 0 && !window.__spaces.space.events.some((e) => e.remoteId === "ev2"), null, { timeout: 5000 })
         .then(() => true, () => false);
