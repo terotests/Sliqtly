@@ -66,6 +66,8 @@ type wardenType struct {
 	Reminders []wardenReminder `json:"reminders"`
 	// the type's own window to get something in
 	Get *wardenGet `json:"get,omitempty"`
+	// the other types' lists an entry also belongs to while When holds
+	AlsoIn []wardenAlso `json:"also,omitempty"`
 	// the number fields that remind at once when they run low
 	Low []wardenLow `json:"low,omitempty"`
 	// the common fields the page's form shows for every entry, named here
@@ -74,6 +76,30 @@ type wardenType struct {
 	// kept for entries already made; new ones take ReplacedBy
 	Legacy     bool   `json:"legacy,omitempty"`
 	ReplacedBy string `json:"replaced_by,omitempty"`
+}
+
+type wardenAlso struct {
+	Type string     `json:"type"`
+	When wardenCond `json:"when"`
+}
+
+// whether an entry of its own type, or one listed under typ by its type's also
+func wardenListedAs(d map[string]any, typ string) bool {
+	own := wardenOr(docStr(d, "type"), "event")
+	if own == typ {
+		return true
+	}
+	t := wardenTypeOf(own)
+	if t == nil {
+		return false
+	}
+	fields, _ := d["fields"].(map[string]any)
+	for _, a := range t.AlsoIn {
+		if a.Type == typ && a.When.holds(fields) {
+			return true
+		}
+	}
+	return false
 }
 
 // what a type gets by: the date field (or "date"), when the condition holds,

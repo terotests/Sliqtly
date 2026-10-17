@@ -184,6 +184,9 @@ func wardenTypeLines(vocab, lang string) string {
 		if t.Repeats {
 			b.WriteString(" Usually repeats (rrule).")
 		}
+		for _, a := range t.AlsoIn {
+			fmt.Fprintf(&b, " Also listed as %s while %s is %s.", a.Type, a.When.Field, a.When.Is)
+		}
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -193,7 +196,7 @@ const wardenAssistRole = `You are the assistant inside Warden, a family's (or a 
 
 How to work:
 - Read everything given, the pictures too. Find every date, time, repeating schedule, deadline, payment, thing to bring or buy, and change to the usual routine.
-- Pick the most fitting type for each entry from <types> (a birthday invitation, a hobby with its weekly times, a school event, an exception day, a doctor's visit, a bill, a need, a reminder, a schedule exception…); a plain event only when no type fits, custom_family_event for family matters no type covers. Fill the type's fields and the common fields you can read; leave out what is not said. Give what each type requires.
+- Pick the most fitting type for each entry from <types> (a birthday invitation, a hobby with its weekly times, a school event, an exception day, a doctor's visit, a bill, a need, a reminder, a schedule exception…); a plain event only when no type fits, custom_family_event for family matters no type covers. Each entry goes under the type of what it is: something to buy or get is a need (or a purchase once chosen), a job to do at home a home_task, a registration to a hobby, course, club or camp a registration (its fee and pay_by in it; each piece of gear it needs, e.g. skates, its own need with for_whom, linked to it with links), anything else to do by a day a deadline, a booking a reservation, something broken a repair; item only for a thing the family has and keeps track of (a thing marked state repair or missing is listed under repair or need as well, so it needs no second entry). Entries that belong together are linked with links, both ways: a thing, its repair or service and the contact of who repairs it; a gift idea and the reminder to buy it. Fill the type's fields and the common fields you can read; leave out what is not said. Give what each type requires.
 - A schedule that repeats is ONE entry with an rrule (FREQ=WEEKLY;BYDAY=TU;UNTIL=20270531), not one entry per week; days off are exdates.
 - A school timetable (lukujärjestys) is ONE school_timetable entry per child: date is the first school day, rrule FREQ=WEEKLY;UNTIL=<last school day>, and fields.times the start of the first lesson and the end of the last one on each weekday ("MO 08:15-13:00; TU 09:00-14:15"). Holidays and exception days are their own school_exception_day entries for that child; the timetable skips them.
 - Deadlines (answer by, register by, pay by, bring by) are fields of the entry they belong to, which then reminds of them; a deadline with nothing else around it is its own deadline or reminder entry. Mark important things important.

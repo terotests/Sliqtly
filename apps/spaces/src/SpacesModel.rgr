@@ -459,7 +459,40 @@ class SpEvent {
     ; where it looks (tori, vinted, huuto, web) and days between searches
     def watchSources:[string]
     def watchEvery:int 1
+    ; the server ids of the entries it is linked with (both ways), and the
+    ; links made or taken off here that the server has not had yet
+    def links:[string]
+    def linkAdd:[string]
+    def linkDrop:[string]
     Constructor () {
+    }
+
+    fn linked:boolean (rid:string) {
+        def i:int 0
+        while (i < (array_length links)) {
+            if ((itemAt links i) == rid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; `rid` into (on) or out of (off) its links
+    fn setLink:void (rid:string on:boolean) {
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length links)) {
+            def l:string (itemAt links i)
+            if (l != rid) {
+                push kept l
+            }
+            i = (i + 1)
+        }
+        if on {
+            push kept rid
+        }
+        links = kept
     }
 
     fn dated:boolean () {
@@ -576,6 +609,10 @@ class SpEvent {
             def none:[string]
             dropped = none
             costDropped = false
+            def none2:[string]
+            linkAdd = none2
+            def none3:[string]
+            linkDrop = none3
         }
     }
 
@@ -1331,6 +1368,53 @@ class SpSpace {
 
     ; --- finding ----------------------------------------------------------------
 
+    fn byRemote@(optional):SpEvent (rid:string) {
+        def found@(optional):SpEvent
+        if ((strlen rid) == 0) {
+            return found
+        }
+        def i:int 0
+        while (i < (array_length events)) {
+            def e:SpEvent (itemAt events i)
+            if (e.remoteId == rid) {
+                found = e
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; The entries linked with `e`, in the order linked.
+    fn linksOf:[SpEvent] (e:SpEvent) {
+        def out:[SpEvent]
+        def i:int 0
+        while (i < (array_length e.links)) {
+            def o@(optional):SpEvent (this.byRemote((itemAt e.links i)))
+            if (!null? o) {
+                def oe:SpEvent o
+                push out oe
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Link `a` and `b` both ways (on) or take the link off: here at once, on
+    ; the server with `a`'s next save, which changes `b` there too.
+    fn link:void (a:SpEvent b:SpEvent on:boolean) {
+        if ((((strlen a.remoteId) == 0) || ((strlen b.remoteId) == 0)) || (a.id == b.id)) {
+            return
+        }
+        a.setLink(b.remoteId on)
+        b.setLink(a.remoteId on)
+        if on {
+            push a.linkAdd b.remoteId
+        } {
+            push a.linkDrop b.remoteId
+        }
+        a.touch()
+    }
+
     fn event@(optional):SpEvent (id:string) {
         def found@(optional):SpEvent
         def i:int 0
@@ -2003,13 +2087,35 @@ class SpSpace {
         return had
     }
 
-    ; The entries of a type, dated ones first by day, then by title.
+    ; Whether an entry is in a type's list: its own, or another its type's
+    ; `also` puts it in (a thing that needs repair is a repair too).
+    fn listedAs:boolean (e:SpEvent typeId:string) {
+        if (e.typeId == typeId) {
+            return true
+        }
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return false
+        }
+        def tt:SpType t
+        def k:int 0
+        while (k < (array_length tt.alsoTypes)) {
+            if (((itemAt tt.alsoTypes k) == typeId) && ((e.fieldText((itemAt tt.alsoFields k))) == (itemAt tt.alsoIs k))) {
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    ; The entries of a type (and those listed as it), dated ones first by
+    ; day, then by title.
     fn entriesOf:[SpEvent] (typeId:string) {
         def out:[SpEvent]
         def i:int 0
         while (i < (array_length events)) {
             def e:SpEvent (itemAt events i)
-            if (e.typeId == typeId) {
+            if (this.listedAs(e typeId)) {
                 push out e
                 def k:int ((array_length out) - 1)
                 while (k > 0) {

@@ -329,6 +329,15 @@ class SpRemote {
             }
             i = (i + 1)
         }
+        def ls:VlJson (o.get("links"))
+        def li:int 0
+        while (li < (ls.count())) {
+            def lv:VlJson (ls.at(li))
+            if (lv.isString()) {
+                push e.links lv.str
+            }
+            li = (li + 1)
+        }
         def who:VlJson (o.get("who"))
         def k:int 0
         while (k < (who.count())) {
@@ -518,6 +527,12 @@ class SpRemote {
         if ((strlen rr) > 0) {
             o.setMember("rrule" (SpRemote.str(rr)))
         }
+        if ((array_length e.linkAdd) > 0) {
+            o.setMember("links" (SpRemote.strs(e.linkAdd)))
+        }
+        if ((array_length e.linkDrop) > 0) {
+            o.setMember("unlink" (SpRemote.strs(e.linkDrop)))
+        }
         if ((array_length e.exdates) > 0) {
             def ex:VlJson (VlJson.arrayValue())
             def i:int 0
@@ -602,6 +617,16 @@ class SpRemote {
             }
         }
         return (SpRemote.str(v.text))
+    }
+
+    sfn strs:VlJson (l:[string]) {
+        def a:VlJson (VlJson.arrayValue())
+        def i:int 0
+        while (i < (array_length l)) {
+            push a.arr (SpRemote.str((itemAt l i)))
+            i = (i + 1)
+        }
+        return a
     }
 
     sfn write:string (v:VlJson) {
