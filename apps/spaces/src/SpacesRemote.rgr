@@ -173,11 +173,52 @@ class SpRemote {
             s.loadWard((w.stringOr("id" "")) (w.stringOr("name" "")) (w.stringOr("color" "")))
             i = (i + 1)
         }
+        SpRemote.readPlaces(s sp)
         def k:int 0
         while (k < (events.count())) {
             SpRemote.readEvent(s (events.at(k)))
             k = (k + 1)
         }
+    }
+
+    ; The places of a Space object, the space's and each ward's, into `s`,
+    ; replacing those it had.
+    sfn readPlaces:void (s:SpSpace sp:VlJson) {
+        def none:[SpPlace]
+        s.places = none
+        SpRemote.readPlaceList(s (sp.get("places")) "")
+        def ws:VlJson (sp.get("wards"))
+        def i:int 0
+        while (i < (ws.count())) {
+            def w:VlJson (ws.at(i))
+            SpRemote.readPlaceList(s (w.get("places")) (w.stringOr("id" "")))
+            i = (i + 1)
+        }
+    }
+
+    sfn readPlaceList:void (s:SpSpace list:VlJson ward:string) {
+        def k:int 0
+        while (k < (list.count())) {
+            def p:VlJson (list.at(k))
+            def nm:string (p.stringOr("name" ""))
+            if ((strlen nm) > 0) {
+                s.addPlace(nm (p.doubleOr("lat" 0.0)) (p.doubleOr("lon" 0.0)) ward)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; add_place with the town's coordinates, for the space or a ward.
+    sfn placeBody:string (spaceId:string p:SpPlace) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("place" (SpRemote.str(p.name)))
+        if ((strlen p.ward) > 0) {
+            o.setMember("ward" (SpRemote.str(p.ward)))
+        }
+        o.setMember("lat" (VlJson.numberValue(p.lat)))
+        o.setMember("lon" (VlJson.numberValue(p.lon)))
+        return (SpRemote.write(o))
     }
 
     sfn readEvent:void (s:SpSpace o:VlJson) {
@@ -306,6 +347,20 @@ class SpRemote {
         }
         e.watchQuery = (w.stringOr("query" ""))
         e.watchOn = (w.boolOr("active" false))
+        e.watchEvery = (w.intOr("every_days" 1))
+        def ns:[string]
+        e.watchSources = ns
+        def ss:VlJson (w.get("sources"))
+        if (ss.isArray()) {
+            def k:int 0
+            while (k < (ss.count())) {
+                def sv:VlJson (ss.at(k))
+                if (sv.isString()) {
+                    push e.watchSources sv.str
+                }
+                k = (k + 1)
+            }
+        }
         def fs:VlJson (w.get("finds"))
         if ((fs.isArray()) == false) {
             return
@@ -321,6 +376,10 @@ class SpRemote {
                 def price:double (f.doubleOr("price" 0.0))
                 if (price > 0.0) {
                     push parts ((SpTypes.numText(price)) + " €")
+                }
+                def town:string (f.stringOr("location" ""))
+                if ((strlen town) > 0) {
+                    push parts town
                 }
                 push parts (f.stringOr("source" ""))
                 def found:string (f.stringOr("found" ""))
@@ -499,6 +558,25 @@ class SpRemote {
         def o:VlJson (SpRemote.eventObj(e))
         o.setMember("space_id" (SpRemote.str(spaceId)))
         o.setMember("event_id" (SpRemote.str(e.remoteId)))
+        return (SpRemote.write(o))
+    }
+
+    ; set_watch: an entry's watch on or off, where it looks and how often
+    sfn watchBody:string (spaceId:string e:SpEvent) {
+        def o:VlJson (VlJson.objectValue())
+        o.setMember("space_id" (SpRemote.str(spaceId)))
+        o.setMember("event_id" (SpRemote.str(e.remoteId)))
+        o.setMember("active" (VlJson.boolValue(e.watchOn)))
+        o.setMember("every_days" (VlJson.intValue(e.watchEvery)))
+        if ((array_length e.watchSources) > 0) {
+            def a:VlJson (VlJson.arrayValue())
+            def i:int 0
+            while (i < (array_length e.watchSources)) {
+                push a.arr (SpRemote.str((itemAt e.watchSources i)))
+                i = (i + 1)
+            }
+            o.setMember("sources" a)
+        }
         return (SpRemote.write(o))
     }
 

@@ -90,13 +90,15 @@ type wardenService struct {
 	search wardenSearcher
 	// run_watch's searches per account
 	watchLimit func(who string) string
+	// whether a bearer token is the scheduler's (wardenwatch_cloud.go)
+	cronAuth func(ctx context.Context, token string) bool
 }
 
 func newWardenService(db DB) *wardenService {
 	if db == nil {
 		return nil
 	}
-	return &wardenService{db: db, now: time.Now, search: newWardenSearch(), watchLimit: rateLimiter(30, 10*time.Minute)}
+	return &wardenService{db: db, now: time.Now, cronAuth: wardenCronAuth(), watchLimit: rateLimiter(30, 10*time.Minute)}
 }
 
 func wardenRandomID(prefix string) string {
@@ -202,7 +204,7 @@ func (sp *wardenSpace) json() map[string]any {
 	}
 	wards := []any{}
 	for _, w := range docMaps(sp.doc, "wards") {
-		wards = append(wards, map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color")})
+		wards = append(wards, map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color"), "places": wardenPlacesJSON(w)})
 	}
 	tz := docStr(sp.doc, "tz")
 	if tz == "" {
@@ -211,6 +213,7 @@ func (sp *wardenSpace) json() map[string]any {
 	return map[string]any{
 		"space_id": sp.id, "name": docStr(sp.doc, "name"), "vocab": docStr(sp.doc, "vocab"), "lang": docStr(sp.doc, "lang"),
 		"time_zone": tz, "role": sp.role, "members": members, "invites": anys(docStrs(sp.doc, "invites")), "wards": wards,
+		"places": wardenPlacesJSON(sp.doc),
 	}
 }
 
@@ -1246,6 +1249,10 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.setWard(ctx, sp, a)
 	case "remove_ward":
 		return s.removeWard(ctx, sp, a)
+	case "add_place":
+		return s.addPlace(ctx, sp, a)
+	case "remove_place":
+		return s.removePlace(ctx, sp, a)
 	case "list_events":
 		return s.listEvents(ctx, sp, a)
 	case "save_event":

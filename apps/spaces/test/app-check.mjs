@@ -85,8 +85,8 @@ console.log("the summary");
   ok("the wards' colours", t.includes("Nappi") && t.includes("Koko perhe"));
   ok("the Add button", t.includes("+ Lisää meno"));
   ok("no weather until the host has it", !byId(a, "sp-wx"));
-  a.setWeather("Helsinki", 7, 9, 4, 20, 2);
-  ok("the weather", texts(a).includes("7°") && texts(a).includes("Helsinki · ylin 9° alin 4°"));
+  a.setWeather("Tampere", 7, 9, 4, 20, 2);
+  ok("the weather", texts(a).includes("7°") && texts(a).includes("Tampere · ylin 9° alin 4°"));
   const today = byId(a, "sp-card-today");
   const week = byId(a, "sp-card-week");
   const late = byId(a, "sp-card-late");
@@ -347,6 +347,47 @@ console.log("a space on a server");
   eq("red as rose", M.SpSpace.pageColor("red"), "rose");
   eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
 
+  // the places: none means Tampere; a town is looked up, picked for a
+  // ward, saved, and the summary shows the weather of each
+  eq("no places: Tampere's weather", JSON.parse(a.weatherPlacesJson()).map((p) => p.name).join(), "Tampere");
+  a.press("sp-nav-members");
+  ok("the places card", texts(a).includes("Places"));
+  a.press("sp-placefor-0");
+  a.press("sp-place-name");
+  for (const ch of "kuopio") a.keyWith(ch, false, false);
+  a.keyWith("Enter", false, false);
+  eq("Enter looks the town up", a.takeAction(), "places");
+  eq("that town", a.placeQuery, "kuopio");
+  a.placesFound(JSON.stringify({ results: [{ name: "Kuopio", latitude: 62.89238, longitude: 27.67703, admin1: "Pohjois-Savo" }] }));
+  ok("the towns found", texts(a).includes("Kuopio · Pohjois-Savo"));
+  a.press("sp-placepick-0");
+  eq("add_place", a.outOp(), "add_place");
+  const pb = JSON.parse(a.outBody());
+  ok("for Aino, with where it is", pb.place === "Kuopio" && pb.ward === "w1" && pb.lat === 62.89238 && pb.lon === 27.67703, JSON.stringify(pb));
+  a.answer(JSON.stringify(spaceOf({ places: [{ name: "Espoo", lat: 60.2, lon: 24.66 }],
+    wards: [{ id: "w1", name: "Aino", color: "cyan", places: [{ name: "Kuopio", lat: 62.8924, lon: 27.677 }] }] })));
+  eq("the space's place first, then the ward's", JSON.parse(a.weatherPlacesJson()).map((p) => p.name).join(), "Espoo,Kuopio");
+  ok("listed", texts(a).includes("Kuopio") && texts(a).includes("Espoo"));
+  a.press("sp-nav-home");
+  a.setWeather("Kuopio", 3, 5, 1, 40, 61);
+  a.setWeather("Espoo", 8, 10, 6, 10, 1);
+  ok("the space's weather first", texts(a).includes("Espoo · high 10° low 6°"));
+  a.press("sp-wxplace-1");
+  ok("switched to Aino's town", texts(a).includes("Kuopio (Aino) · high 5° low 1°"), texts(a).filter((s) => /high/.test(s)).join());
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} the summary with places lints clean`, probs.length === 0, probs.join(" | "));
+  }
+  a.setWidth(1280, 700);
+  a.press("sp-nav-members");
+  const kuo = a.space.places.findIndex((p) => p.name === "Kuopio");
+  a.press("sp-unplace-" + kuo);
+  const rb = JSON.parse(a.outBody());
+  ok("remove_place, the ward's", a.outOp() === "remove_place" && rb.place === "Kuopio" && rb.ward === "w1", JSON.stringify(rb));
+  a.answer(JSON.stringify(spaceOf({ places: [{ name: "Espoo", lat: 60.2, lon: 24.66 }], wards: [{ id: "w1", name: "Aino", color: "cyan" }] })));
+  eq("one place left", a.space.places.length, 1);
+
   // a ward added by mistake: Remove asks first, then its events stay without it
   a.press("sp-nav-members");
   t = texts(a);
@@ -490,6 +531,71 @@ console.log("entries: the form, the Add menu, deleting and Undo");
     }
   }
   a.setWidth(1280, 700);
+
+  // a date is never typed: every date key of every type is EVGUI's calendar
+  // behind a button, and nothing a date goes into is a text field
+  const OWN_DATES = ["date", "end_date", "until", "cost:first", "get:from", "get:by"];
+  let dates = 0;
+  for (const ty of a.types.types) {
+    a.openNew(ty.id);
+    a.formCost = true;
+    a.rebuild();
+    const typed = ty.fields.filter((f) => f.type === "date").map((f) => "f:" + f.key);
+    a.formKeys.forEach((key, i) => {
+      if (!OWN_DATES.includes(key) && !typed.includes(key)) return;
+      dates++;
+      const btn = byId(a, "sp-date-" + i);
+      ok(`${ty.id} ${key} is a calendar`, !!btn && btn.role === "button" && !byId(a, "sp-ed-" + i));
+    });
+    for (const f of typed) ok(`${ty.id} ${f} is on the form`, a.formKeys.includes(f));
+    const boxes = flat(a).filter((e) => e.role === "textbox" && /^sp-ed-/.test(e.id));
+    for (const b of boxes) {
+      const key = a.formKeys[Number(b.id.slice(6))];
+      ok(`${ty.id} ${key} is text and not a day`, !a.isDateKey(key));
+    }
+    a.press("sp-ed-cancel");
+  }
+  ok("the forms have dates", dates > 50, String(dates));
+
+  // choosing a day: open, pick, it is written as ISO; Today; Clear; Escape
+  {
+    a.openNew("birthday_invitation");
+    const i = a.formKeys.indexOf("date");
+    const iso = (d) => M.UiDate.isoOfDays(d);
+    a.press("sp-date-" + i);
+    ok("the button opens the calendar", a.dateOpen === i && !!byId(a, "sp-dp-grid"));
+    eq("on the field's day", a.datePick.selectedDay, M.SpTypes.dayOf(field("date").value, 2026));
+    const probs = a.a11yProblems();
+    ok("an open calendar lints clean", probs.length === 0, probs.join(" | "));
+    for (const w of [1280, 390]) {
+      a.setWidth(w, 700);
+      const main = byId(a, "sp-main");
+      ok(`${w} an open calendar fits`, main.calculatedX + main.calculatedWidth <= w + 0.5);
+    }
+    a.setWidth(1280, 700);
+    a.press("sp-dp-" + iso(a.today + 3));
+    ok("a day is chosen and the calendar closes", field("date").value === iso(a.today + 3) && a.dateOpen === -1, field("date").value);
+    a.press("sp-date-" + i);
+    a.press("sp-dp-next");
+    ok("the next month", byId(a, "sp-dp-month") && a.dateOpen === i);
+    a.press("sp-dp-today");
+    eq("Today", field("date").value, iso(a.today));
+    a.press("sp-date-" + i);
+    a.keyWith("ArrowRight", false, false);
+    a.keyWith("Enter", false, false);
+    eq("the keyboard picks a day", field("date").value, iso(a.today + 1));
+    a.press("sp-date-" + i);
+    a.keyWith("Escape", false, false);
+    ok("Escape closes only the calendar", a.dateOpen === -1 && a.editing);
+    const end = a.formKeys.indexOf("end_date");
+    a.press("sp-date-" + end);
+    a.press("sp-dp-clear");
+    eq("Clear", field("end_date").value, "");
+    a.press("sp-date-" + i);
+    a.press("sp-ed-title");
+    ok("a press elsewhere closes it", a.dateOpen === -1);
+    a.press("sp-ed-cancel");
+  }
 
   // the Add menu: without a server, a search over the pack's types and its
   // groups to browse, not the whole long list
@@ -803,7 +909,7 @@ console.log("an entry's offer watch");
     events: [
       { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
         watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
-          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, source: "Tori", found: "2026-10-07" },
+          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, location: "Tampere", source: "Tori", found: "2026-10-07" },
           { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
         ] } },
     ],
@@ -814,9 +920,24 @@ console.log("an entry's offer watch");
   a.press("sp-list-item");
   a.press("sp-entry-" + bed.id);
   const t = texts(a);
-  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tori · 7.10."), t.join(","));
+  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tampere · Tori · 7.10."), t.join(","));
   a.press("sp-find-0");
   eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
+  // its settings, sent as set_watch
+  a.press("sp-wsrc-web");
+  eq("a source is a set_watch", a.outOp(), "set_watch");
+  let wb = JSON.parse(a.outBody());
+  ok("with the sources", wb.event_id === "ev1" && wb.active === true && wb.sources.join() === "tori,web" && wb.every_days === 1, JSON.stringify(wb));
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 1, finds: [] } }));
+  a.press("sp-wint-7");
+  wb = JSON.parse(a.outBody());
+  eq("weekly", wb.every_days, 7);
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 7, finds: [] } }));
+  a.press("sp-watch-off");
+  wb = JSON.parse(a.outBody());
+  eq("stopped", wb.active, false);
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: false, sources: ["tori", "web"], every_days: 7, finds: [] } }));
+  ok("and it can be turned on again", !!byId(a, "sp-watch-on"));
   const probs = a.a11yProblems();
   ok("the watch lints clean", probs.length === 0, probs.join(" | "));
 }
