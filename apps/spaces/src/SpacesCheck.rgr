@@ -425,13 +425,19 @@ class SpacesCheck {
         def li:int 0
         while (li < (array_length ts.types)) {
             def lty:SpType (itemAt ts.types li)
-            if lty.legacy {
+            if (lty.legacy || ((strlen lty.page) > 0)) {
                 legacy = (legacy + 1)
             }
             li = (li + 1)
         }
         this.ok((legacy > 0) "older types are kept as legacy")
-        this.eqi((array_length demo) ((array_length ts.types) - legacy) "the demo pack offers every type but the legacy ones")
+        this.eqi((array_length demo) ((array_length ts.types) - legacy) "the demo pack offers every type but the legacy ones and those of a page of their own")
+        def qt@(optional):SpType (ts.find("question"))
+        this.ok((!null? qt) "a question is a type")
+        if (!null? qt) {
+            def qq:SpType qt
+            this.eq(qq.page "questions" "questions show on their own page, not in the Add menu or the lists")
+        }
         def famIds:string ""
         def fi:int 0
         while (fi < (array_length fam)) {
