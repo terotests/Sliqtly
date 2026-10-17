@@ -141,3 +141,41 @@ func TestWardenKids(t *testing.T) {
 	code, _ = wardenCall(t, base, "anna", "list_event_finds", map[string]any{"space_id": sid})
 	eq(t, code, 400, "anna is not a member")
 }
+
+// An answer that names pages without citing them: a page that is there and
+// names the event is kept, a made-up one is not.
+func TestWardenGroundNamed(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/hevisaurus":
+			fmt.Fprint(w, "<title>Hevisaurus – Tampere-talo</title>")
+			return
+		case "/other":
+			fmt.Fprint(w, "<title>Jotain muuta</title>")
+			return
+		case "/missing":
+			w.WriteHeader(404)
+			return
+		}
+		lines := []string{
+			"Hevisaurus | 2026-10-24 | 14:00 | Tampere-talo | ? | 3-12 | 80 | jurahevishow | " + srv.URL + "/hevisaurus",
+			"Keksitty | 2026-10-25 | ? | ? | ? | ? | 70 | x | " + srv.URL + "/missing",
+			"Väärä sivu | 2026-10-26 | ? | ? | ? | ? | 70 | x | <" + srv.URL + "/other>",
+			"Ei osoitetta | 2026-10-27 | ? | ? | ? | ? | 70 | x",
+		}
+		json.NewEncoder(w).Encode(map[string]any{"candidates": []any{map[string]any{
+			"content": map[string]any{"role": "model", "parts": []any{map[string]any{"text": strings.Join(lines, "\n")}}},
+		}}})
+	}))
+	defer srv.Close()
+	g := newWardenSearch(&geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL}).(*geminiSearch)
+	lines, note, err := g.ground(context.Background(), "ask", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0].parts[0] != "Hevisaurus" || lines[0].url != srv.URL+"/hevisaurus" || lines[0].parts[7] != "jurahevishow" {
+		t.Fatalf("got %+v", lines)
+	}
+	eq(t, note, "", "something was found")
+}

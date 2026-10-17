@@ -72,8 +72,8 @@ Look in the town's own event calendar, its libraries', museums', theatres' and s
 The children: %s.
 
 List up to %d individual events you found in the search results, one per line, as:
-<the event's name> | <its day as YYYY-MM-DD> | <its start time as HH:MM, or ?> | <the place and town> | <the price in euros, free, or ?> | <the ages it is for, or ?> | <how well it suits these children, 0 to 100> | <a few words why>
-Only real events from the results with a day between those days, nearest first, no other text.`
+<the event's name> | <its day as YYYY-MM-DD> | <its start time as HH:MM, or ?> | <the place and town> | <the price in euros, free, or ?> | <the ages it is for, or ?> | <how well it suits these children, 0 to 100> | <a few words why> | <the event's own page, https://...>
+Use Google Search, and list only real events from its results with a day between those days, nearest first, no other text.`
 
 const wardenKidInterests = `
 
