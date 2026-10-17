@@ -458,3 +458,37 @@ func TestWardenSchoolTimetable(t *testing.T) {
 	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "school_timetable", "title": "Koulu", "date": "2026-08-12", "ward": "Leo", "fields": map[string]any{"times": "ma 8-12, xx 9-13"}})
 	eq(t, code, 400, "a weekday it does not know: "+wardenErrOf(out))
 }
+
+func TestWardenPlannedDays(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+
+	// a deadline done on days of its own: in order, once each, each reminded of
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "deadline", "title": "Tien raivaus", "date": "2026-11-10",
+		"fields": map[string]any{"planned_days": "2026-11-03; 2026-10-31, 2026-11-03"}})
+	eq(t, code, 200, "planned: "+wardenErrOf(out))
+	id := out["event_id"]
+	eq(t, out["fields"].(map[string]any)["planned_days"], []any{"2026-10-31", "2026-11-03"}, "sorted, once each")
+	rs := []any{}
+	for _, r := range out["reminders"].([]any) {
+		if m := r.(map[string]any); m["field"] == "planned_days" {
+			rs = append(rs, m["day"])
+		}
+	}
+	eq(t, rs, []any{"2026-10-31", "2026-11-03"}, "reminded on each planned day")
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "event_id": id, "fields": map[string]any{"planned_days": []any{"3.11."}}})
+	eq(t, code, 400, "not a day: "+wardenErrOf(out))
+
+	// listed for a planned day before its due day
+	_, out = wardenCall(t, base, "tero", "list_events", map[string]any{"space_id": sid, "from": "2026-10-30", "to": "2026-11-01"})
+	eq(t, len(out["events"].([]any)), 1, "listed for its planned day")
+
+	// the deadline types name it among their form's fields
+	for _, ty := range wardenTypesFor("family") {
+		if ty.Kind == "deadline" && !slices.Contains(ty.Also, "planned_days") {
+			t.Fatalf("%s: no planned_days in its also_fields", ty.ID)
+		}
+	}
+}

@@ -9,7 +9,10 @@
 //
 //	POST /apps/warden/api/assist
 //	  {space_id, text, images: [{mimeType, data}], history: [{role, text}], today}
-//	  {text, changed, event_ids, calls: [{tool, ok}]}
+//	  {text, changed, event_ids, deleted, calls: [{tool, ok}]}
+//
+// event_ids are the entries it made or changed, deleted the ones it removed:
+// the page shows them under the answer.
 //
 // The model is the editor's (aimodel.go, SLIQTLY_AI); WARDEN_AI_MODEL names
 // another of the same kind.
@@ -200,15 +203,18 @@ How to work:
 - A schedule that repeats is ONE entry with an rrule (FREQ=WEEKLY;BYDAY=TU;UNTIL=20270531), not one entry per week; days off are exdates.
 - A school timetable (lukujärjestys) is ONE school_timetable entry per child: date is the first school day, rrule FREQ=WEEKLY;UNTIL=<last school day>, and fields.times the start of the first lesson and the end of the last one on each weekday ("MO 08:15-13:00; TU 09:00-14:15"). Holidays and exception days are their own school_exception_day entries for that child; the timetable skips them.
 - Deadlines (answer by, register by, pay by, bring by) are fields of the entry they belong to, which then reminds of them; a deadline with nothing else around it is its own deadline or reminder entry. Mark important things important.
-- Something to get or buy between two days goes in the common fields get_from and get_by (get_what: what), which the calendar shows as a span. A recurring cost (a contract, a monthly fee) is a cost in instalments every so many months; each payment day is reminded of (cost.remind_days, 3 by default). A cost's scope is shared (the family budget) or personal (the payer's own budget); it varies by thing, so set it when it is said or plain (a shared storage is the family's, a parent's mattress or electricity contract is their own). An estimate or a frame goes in estimated_cost or estimated_cost_min and estimated_cost_max, what it really cost in actual_cost.
+- The days someone plans to do a deadline on (it is due on its date, done earlier) go in the common field planned_days, one day or several, as an array of YYYY-MM-DD; the calendar shows the entry on each. Something to get or buy between two days goes in the common fields get_from and get_by (get_what: what), which the calendar shows as a span. A recurring cost (a contract, a monthly fee) is a cost in instalments every so many months; each payment day is reminded of (cost.remind_days, 3 by default). A cost's scope is shared (the family budget) or personal (the payer's own budget); it varies by thing, so set it when it is said or plain (a shared storage is the family's, a parent's mattress or electricity contract is their own). An estimate or a frame goes in estimated_cost or estimated_cost_min and estimated_cost_max, what it really cost in actual_cost.
 - The ward is who the entry is about (a child's name: a new name makes a new ward). Who takes, picks up or pays goes in the fields or in who.
 - Dates are the space's own local days and times. A date without a year is the next such day from today. Never invent a date or a time that is not given or plainly meant; when one is missing, make what you can and say what is missing.
 - Before adding, look at what is there already (list_events for the dates in question) and change an existing entry (save_event with its event_id) rather than adding it twice. For several new entries at once use import_events, each with an ext_id made of the source and the entry (e.g. "assist:school-letter-2026-11:retki"), so giving the same letter again changes them instead of doubling them.
 - A child's clothing sizes (what it wears now in shoes, clothes, outerwear…, the next size and by when) and its clothing list (what it should have, how many it has) are the ward's: set_ward with sizes and clothes, each list given whole (the ward's present lists are in <wards>). Clothing to buy may also be a need entry when the person asks for one.
+- A question to another member ("ask Anna whether she can pick Leo up on Tuesday", "kysy käykö hoitoaika", "pyydä maksamaan 40 € tasaukseksi") is ask_question with the fitting kind, to that member (<members>), the child as ward and the day and times; not a calendar entry, which the answer makes. Answering a question asked of the person is answer_question (list_questions shows them).
 - Do not delete anything unless the person asks.
 - If a call is refused, read why, mend it and call again.
+- This is a conversation: the earlier turns are in it, and the person's next message may answer what you asked. When something you need is unclear and neither the message nor the space tells it (which child, which of several entries to change, a time or a place that is not said), make what is already clear and ask one short, concrete question about the rest instead of guessing.
+- When you are asked for something your functions cannot do (sending a message or an email, booking, paying, reading a web page…), say plainly that you cannot do it and, when there is one, what the person can do instead. Never say you did something you did not do.
 
-When you are done, answer in the person's language (Finnish when they write Finnish) in a few short lines: what you added or changed, one line each with its day, and anything you could not read or that they should check. No Markdown tables. If you only answered a question, say so briefly.`
+When you are done, answer in the person's language (Finnish when they write Finnish) in a few short lines: what you added or changed, one line each with its day, and anything you could not read or that they should check; then your question, if you have one. The page shows the entries you made or changed as cards under your answer, so do not repeat their every field. Plain sentences; **bold** and "- " lists are fine, no tables or headings. If you only answered a question, say so briefly.`
 
 // the system prompt for one space
 func wardenAssistSystem(sp *wardenSpace, today time.Time) string {
@@ -230,8 +236,12 @@ func wardenAssistSystem(sp *wardenSpace, today time.Time) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("</wards>\n<members>\n")
-	for _, m := range docMaps(sp.doc, "members") {
-		fmt.Fprintf(&b, "- %s\n", docStr(m, "name"))
+	for _, uid := range docStrs(sp.doc, "members") {
+		me := ""
+		if uid == sp.who.uid {
+			me = " (the person you talk with)"
+		}
+		fmt.Fprintf(&b, "- %s%s\n", wardenOr(sp.nameOf(uid), uid), me)
 	}
 	b.WriteString("</members>\n<common_fields>")
 	keys := []string{}
@@ -251,6 +261,9 @@ type wardenAssistAsk struct {
 	Images  []aiImage `json:"images"`
 	History []aiTurn  `json:"history"`
 	Today   string    `json:"today"`
+	// "question": written on the page's Questions view, to be asked of
+	// another member
+	Purpose string `json:"purpose"`
 }
 
 type wardenAssistCall struct {
@@ -303,10 +316,14 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 	if text == "" {
 		text = "(The picture.)"
 	}
+	if q.Purpose == "question" {
+		text = "(Written on the Questions page: make it a question to another member with ask_question.)\n" + text
+	}
 	turns = append(turns, aiTurn{Role: "user", Text: text, Images: pics})
 
 	calls := []wardenAssistCall{}
 	ids := []any{}
+	deleted := []any{}
 	changed := false
 	r := &aiReader{Tools: wardenAssistToolList(), Rounds: 14, Run: func(ctx context.Context, name string, args map[string]any) aiRead {
 		if !slices.Contains(wardenAssistTools, name) {
@@ -329,7 +346,11 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 		calls = append(calls, wardenAssistCall{name, true})
 		if t := findWardenTool(name); t != nil && !t.readOnly {
 			changed = true
-			if m, ok := out.(map[string]any); ok {
+			if name == "delete_event" {
+				if id, ok := args["event_id"].(string); ok {
+					deleted = append(deleted, id)
+				}
+			} else if m, ok := out.(map[string]any); ok {
 				if id, ok := m["event_id"].(string); ok {
 					ids = append(ids, id)
 				}
@@ -353,5 +374,5 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 	if answer == "" && changed {
 		answer = fmt.Sprintf("Saved %d entries.", len(ids))
 	}
-	return map[string]any{"space_id": sp.id, "text": answer, "changed": changed, "event_ids": ids, "calls": calls}, nil
+	return map[string]any{"space_id": sp.id, "text": answer, "changed": changed, "event_ids": ids, "deleted": deleted, "calls": calls}, nil
 }

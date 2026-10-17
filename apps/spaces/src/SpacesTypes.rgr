@@ -101,6 +101,9 @@ class SpType {
     ; what kind of family item it is (event, activity, booking, deadline,
     ; financial, asset_action, care, health, travel, reminder)
     def group:string "event"
+    ; the page that shows its entries instead of the lists and the Add menu
+    ; ("questions"; "" for none)
+    def page:string ""
     ; kept for entries made before; new ones take `replacedBy`
     def legacy:boolean false
     def replacedBy:string ""
@@ -208,6 +211,7 @@ class SpTypes {
         t.repeats = (o.boolOr("repeats" false))
         t.group = (o.stringOr("group" "event"))
         t.legacy = (o.boolOr("legacy" false))
+        t.page = (o.stringOr("page" ""))
         t.replacedBy = (o.stringOr("replaced_by" ""))
         def c:VlJson (o.get("cost"))
         if (c.isObject()) {
@@ -333,13 +337,14 @@ class SpTypes {
         return tt.kind
     }
 
-    ; The types a pack offers, in the schema's order; not the legacy ones.
+    ; The types a pack offers, in the schema's order; not the legacy ones,
+    ; nor those a page of their own shows (questions).
     fn forPack:[SpType] (pack:string) {
         def out:[SpType]
         def i:int 0
         while (i < (array_length types)) {
             def t:SpType (itemAt types i)
-            if ((t.offeredIn(pack)) && (t.legacy == false)) {
+            if ((t.offeredIn(pack)) && ((t.legacy == false) && ((strlen t.page) == 0))) {
                 push out t
             }
             i = (i + 1)

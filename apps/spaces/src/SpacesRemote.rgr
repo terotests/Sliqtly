@@ -414,6 +414,64 @@ class SpRemote {
         SpRemote.readWatch(e (o.get("watch")))
     }
 
+    ; A watch's run logs (runs), newest first; entry names the deal watch's
+    ; entry, "" for the events watch.
+    sfn readRuns:[SpWatchRun] (w:VlJson entry:string) {
+        def out:[SpWatchRun]
+        def rs:VlJson (w.get("runs"))
+        if ((rs.isArray()) == false) {
+            return out
+        }
+        def i:int 0
+        while (i < (rs.count())) {
+            def r:VlJson (rs.at(i))
+            if (r.isObject()) {
+                def run (new SpWatchRun())
+                run.at = (r.stringOr("at" ""))
+                run.local = (r.stringOr("local" ""))
+                run.by = (r.stringOr("by" ""))
+                run.entry = entry
+                run.query = (r.stringOr("query" ""))
+                run.near = (r.stringOr("near" ""))
+                run.results = (r.intOr("results" 0))
+                run.fresh = (r.intOr("new" 0))
+                run.sources = (SpRemote.strList((r.get("sources"))))
+                run.errors = (SpRemote.strList((r.get("errors"))))
+                def lo:VlJson (r.get("left_out"))
+                if (lo.isObject()) {
+                    def keys:[string] lo.keys
+                    def k:int 0
+                    while (k < (array_length keys)) {
+                        def key:string (itemAt keys k)
+                        push run.leftWhy key
+                        push run.leftN (lo.intOr(key 0))
+                        k = (k + 1)
+                    }
+                }
+                push out run
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the strings of a JSON array, others skipped
+    sfn strList:[string] (a:VlJson) {
+        def out:[string]
+        if ((a.isArray()) == false) {
+            return out
+        }
+        def i:int 0
+        while (i < (a.count())) {
+            def v:VlJson (a.at(i))
+            if (v.isString()) {
+                push out v.str
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; An entry's deal watch and its finds, into `e`.
     sfn readWatch:void (e:SpEvent w:VlJson) {
         def nt:[string]
@@ -432,10 +490,14 @@ class SpRemote {
         e.findWhy = nwhy
         e.findRating = nrat
         e.findReason = nrea
+        def nr:[SpWatchRun]
+        e.watchRuns = nr
         e.watched = (w.isObject())
         if ((w.isObject()) == false) {
             return
         }
+        e.watchRuns = (SpRemote.readRuns(w e.title))
+        e.watchLast = (w.stringOr("last_run" ""))
         e.watchQuery = (w.stringOr("query" ""))
         e.watchOn = (w.boolOr("active" false))
         e.watchEvery = (w.intOr("every_days" 1))
@@ -535,7 +597,7 @@ class SpRemote {
         if ((strlen e.notes) > 0) {
             o.setMember("notes" (SpRemote.str(e.notes)))
         }
-        if ((strlen e.color) > 0) {
+        if (((strlen e.color) > 0) || e.colorDrop) {
             o.setMember("color" (SpRemote.str(e.color)))
         }
         def rr:string (e.rule.toText())

@@ -36,6 +36,8 @@ class SpBudgetLine {
     ; the n:th instalment of `of`
     def n:int 1
     def of:int 1
+    ; a settlement's receiver
+    def to:string ""
     Constructor () {
     }
 }
@@ -113,7 +115,19 @@ class SpBudget {
     def shared:double 0.0
     def byPayer:SpSums (new SpSums())
     def months:[SpBudgetMonth]
+    ; money paid between members to even out the costs (budget_settlement
+    ; entries): in the books, not costs. Each one's line, and what each
+    ; member paid (+) or received (-) in them.
+    def settlements:[SpBudgetLine]
+    def settled:SpSums (new SpSums())
     Constructor () {
+    }
+
+    ; A settlement: `l.payer` pays, `to` receives.
+    fn settle:void (l:SpBudgetLine to:string) {
+        push settlements l
+        settled.add(l.payer l.amount)
+        settled.add(to (0.0 - l.amount))
     }
 
     ; --- months as numbers: year * 12 + month - 1 ------------------------------------
@@ -224,6 +238,26 @@ class SpBudget {
             push b.months bm
             m = (m + 1)
         }
+        def si:int 0
+        while (si < (array_length s.events)) {
+            def se:SpEvent (itemAt s.events si)
+            if ((se.typeId == "budget_settlement") && (se.dated())) {
+                def sat:int ((SpBudget.monthOfDay(se.day)) - fromIdx)
+                def sl (new SpBudgetLine())
+                sl.eventId = se.id
+                sl.title = se.title
+                sl.typeId = se.typeId
+                sl.date = (UiDate.isoOfDays(se.day))
+                sl.amount = (se.fieldNumber("amount" 0.0))
+                sl.payer = (se.fieldText("from_person"))
+                sl.to = (se.fieldText("to_person"))
+                def about:boolean ((((strlen payer) == 0) || (sl.payer == payer)) || (sl.to == payer))
+                if ((((sat >= 0) && (sat < (array_length b.months))) && (sl.amount > 0.0)) && about) {
+                    b.settle(sl sl.to)
+                }
+            }
+            si = (si + 1)
+        }
         def i:int 0
         while (i < (array_length s.events)) {
             def e:SpEvent (itemAt s.events i)
@@ -295,6 +329,23 @@ class SpBudget {
                 push b.months bm
             }
             i = (i + 1)
+        }
+        def ss:VlJson (o.get("settlements"))
+        def j:int 0
+        while (j < (ss.count())) {
+            def so:VlJson (ss.at(j))
+            if (so.isObject()) {
+                def sl (new SpBudgetLine())
+                sl.eventId = (so.stringOr("event_id" ""))
+                sl.title = (so.stringOr("title" ""))
+                sl.typeId = "budget_settlement"
+                sl.date = (so.stringOr("date" ""))
+                sl.amount = (so.doubleOr("amount" 0.0))
+                sl.payer = (so.stringOr("from" ""))
+                sl.to = (so.stringOr("to" ""))
+                b.settle(sl sl.to)
+            }
+            j = (j + 1)
         }
         return b
     }

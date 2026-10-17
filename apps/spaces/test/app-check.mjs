@@ -645,6 +645,22 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   ok("saved", !a.editing && vet.title === "Dentist, check-up" && vet.place === "Health centre" && vet.startMin === 900 && vet.important, a.formErr);
   eq("the end follows a start after it", vet.endMin, 960);
 
+  // a colour of its own, drawn over its ward's; Default takes it away
+  a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
+  const col = a.pickKeys.indexOf("color");
+  ok("the form offers a colour", col >= 0 && texts(a).includes("Violet"));
+  a.press(`sp-pick-${col}-${M.SpSpace.palette().indexOf("violet") + 1}`);
+  a.press("sp-ed-save");
+  ok("saved with it", vet.color === "violet" && M.SpRemote.saveBody("sp1", vet).includes('"color":"violet"'), vet.color);
+  const vocc = a.space.occurrences(a.today - 7, a.today + 60).find((o) => o.eventId === vet.id);
+  eq("drawn in it", a.colorOf(vocc), "violet");
+  a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
+  a.press(`sp-pick-${a.pickKeys.indexOf("color")}-0`);
+  a.press("sp-ed-save");
+  ok("Default sends it away once", vet.color === "" && M.SpRemote.saveBody("sp1", vet).includes('"color":""'));
+  vet.saved(vet.rev);
+  ok("and not again", !M.SpRemote.saveBody("sp1", vet).includes('"color"'));
+
   // a bad date is named, nothing is changed
   a.press("sp-item-" + a.itemOccs.indexOf(vet.id));
   field("date").setValue("31.2.");
@@ -1368,6 +1384,34 @@ console.log("the events watch on the members page");
   ok("then its age groups there", !!byId(a, "sp-kage-teen") && !!byId(a, "sp-kw-run"));
 }
 
+console.log("the watches page");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  const watch = { query: "Lasten sänky", active: true, every_days: 1, sources: ["tori", "vinted"],
+    finds: [{ id: "f1", title: "Sänky", url: "https://www.tori.fi/a/1", source: "Tori", rating: "like" }, { id: "f2", title: "Pinnasänky", url: "https://www.tori.fi/a/2", source: "Tori" }],
+    runs: [{ at: "2026-10-17T05:15:00Z", local: "2026-10-17 08:15", by: "auto", query: "Lasten sänky", near: "Tampere", sources: ["tori", "vinted"], results: 7, new: 2, left_out: { seen: 3, too_expensive: 1 } },
+      { at: "2026-10-16T05:15:00Z", results: 4, new: 0, errors: ["Vinted: timeout"] }] };
+  const event_watch = { active: true, area: "Tampere", ages: ["small"], finds: [],
+    runs: [{ at: "2026-10-17T09:00:00Z", local: "2026-10-17 12:00", by: "Mia", near: "Tampere", results: 5, new: 3 }] };
+  a.answer(JSON.stringify({ space, events: [{ event_id: "e1", title: "Sänky Leolle", type: "item", watch }], event_watch }));
+  ok("in the menu", !!byId(a, "sp-nav-watches") && texts(a).includes("Vahdit"));
+  a.press("sp-nav-watches");
+  const t = texts(a);
+  ok("the numbers", t.includes("1 / 1") && t.includes("17.10. 08:15") && t.includes("17.10. 12:00") && t.includes("Päällä"), t.join("|"));
+  ok("each watch", t.includes("”Lasten sänky” · Tori, Vinted · päivittäin") && t.includes("2 löytöä"), t.join("|"));
+  ok("every search, newest first", t.indexOf("Tapahtumavahti", t.indexOf("Hakuhistoria")) < t.indexOf("Sänky Leolle", t.indexOf("Hakuhistoria")), t.join("|"));
+  ok("what came of it", t.includes("7 tulosta, 2 uutta · pois jätetty: 3 jo nähty, 1 liian kallis") && t.includes("ajastettu") && t.includes("Virheet: Vinted: timeout") && t.includes("16.10. 05:15 UTC"), t.join("|"));
+  a.press("sp-runs-kids");
+  ok("only the events watch's", !texts(a).includes("Virheet: Vinted: timeout") && texts(a).includes("5 tulosta, 3 uutta"));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
@@ -1382,6 +1426,15 @@ console.log("the assistant on a server");
   a.answer(JSON.stringify({ space, events: [] }));
   a.press("sp-nav-assistant");
   ok("a field to write in", texts(a).includes("Lisää kuva") && texts(a).includes("Lähetä"));
+  // a conversation: the assistant opens it, with things to try instead of buttons
+  ok("the assistant greets, with examples and no question buttons", texts(a).some((x) => x.startsWith("Hei!")) && !!byId(a, "sp-ex-1") && !byId(a, "sp-q-qToday"));
+  a.press("sp-ex-1");
+  ok("an example goes in the field", a.assistField.value === "Lisää lääkärikäynnin kellonaika" && a.focused === "sp-assist-text");
+  a.assistField.setValue("");
+  ok("what it can do is folded", !texts(a).includes("Ostosvahti"));
+  a.press("sp-assist-help");
+  ok("and opens", texts(a).includes("Ostosvahti"));
+  a.press("sp-assist-help");
   a.press("sp-assist-send");
   eq("nothing written, nothing sent", a.outCount(), 0);
   a.press("sp-assist-image");
@@ -1398,12 +1451,17 @@ console.log("the assistant on a server");
     && body.images[0].mimeType === "image/jpeg" && body.today === iso(a.today) && body.history.length === 0, JSON.stringify(body));
   ok("the question is in the feed, the field emptied", texts(a).some((x) => x.startsWith("Leon uinti")) && a.assistField.value === "" && a.pics.length === 0);
   ok("while it reads", texts(a).includes("Luetaan…"));
-  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin Leon uinnin tiistaisin.", changed: true, event_ids: ["e1"], calls: [{ tool: "import_events", ok: true }] }));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin Leon uinnin tiistaisin.", changed: true, event_ids: ["e1"], calls: [{ tool: "import_events", ok: true }, { tool: "add_place", ok: true }] }));
   ok("its answer", texts(a).includes("Lisäsin Leon uinnin tiistaisin.") && !a.assistBusy);
   eq("what it made is read again", a.outOp(), "get_space");
   a.answer(JSON.stringify({ space, events: [
     { event_id: "e1", title: "Uinti", date: iso(a.today + 1), start: "17:00", end: "18:00", ward: "w1", type: "activity", rrule: "FREQ=WEEKLY", fields: { hobby: "Uinti", gear: ["uimalasit", "pyyhe"] } }] }));
   eq("still on the assistant", a.tab, "assistant");
+  ok("what it made is shown as a card under the answer", !!byId(a, "sp-done-0-0") && texts(a).includes("Uinti") && texts(a).includes("✓ Paikkakunta lisätty"));
+  a.press("sp-done-0-0");
+  ok("a card opens the entry", a.editing && a.space.event(a.editId).title === "Uinti");
+  a.press("sp-ed-cancel");
+  eq("and back to the conversation", a.tab, "assistant");
   const e1 = a.space.events[0];
   eq("a list field reads as one text", e1.fieldText("gear"), "uimalasit; pyyhe");
   // the next question carries the conversation; a refusal is said
@@ -1421,6 +1479,15 @@ console.log("the assistant on a server");
   eq("a question to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Peru huominen");
   a.copied(true);
   eq("said so", a.status, "Kopioitu");
+  // Markdown's bold is drawn bold, not as asterisks; a removal is a card too
+  a.assistField.setValue("Poista uinti");
+  a.press("sp-assist-send");
+  const rowDel = a.answers.length - 1;
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Poistin **Leon uinnin**.", changed: true, event_ids: [], deleted: ["e1"], calls: [{ tool: "delete_event", ok: true }] }));
+  ok("bold without asterisks", texts(a).includes("Leon") && !texts(a).some((x) => x.includes("**")), JSON.stringify(texts(a).filter((x) => x.includes("Leon"))));
+  ok("the removed entry named", a.doneGone[rowDel] === "Uinti" && texts(a).includes("Poistettu"));
+  a.answer(JSON.stringify({ space, events: [] }));
+  a.assistField.setValue("Peru huominen");
   // a server older than the page: said in words, not as "No such call."
   a.press("sp-assist-send");
   a.failed("No such call.");
@@ -1480,6 +1547,105 @@ console.log("the assistant on a server");
     ok(`${w} the Add menu on the budget page lints clean`, probs.length === 0, probs.join(" | "));
   }
   a.press("sp-add");
+}
+
+console.log("questions between members");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 900);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner",
+    members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }, { uid: "u2", name: "Juho", email: "juho@example.com", role: "member" }],
+    invites: [], wards: [{ id: "w1", name: "Leo", color: "sky" }] };
+  const q1 = { event_id: "q1", title: "Voitko maksaa 40 € budjetin tasaukseksi?", type: "question",
+    fields: { ask: "payment", ask_to: "Mia", ask_to_uid: "u1", asked_by: "Juho", asked_by_uid: "u2", amount: 40, status: "planned" } };
+  const q2 = { event_id: "q2", title: "Mikä päivä sopisi mummolaan?", type: "question",
+    fields: { ask: "suggest", ask_to: "Mia", ask_to_uid: "u1", asked_by: "Juho", asked_by_uid: "u2", options: ["la", "su"], status: "planned" } };
+  a.answer(JSON.stringify({ space, events: [q1, q2] }));
+  ok("Questions is under the summary, with what waits for an answer", a.tabNames()[1] === "questions" && byId(a, "sp-nav-questions").a11yLabel === "Kyselyt 2");
+  a.press("sp-nav-questions");
+  ok("the assistant first, then the kinds", texts(a).includes("Anna AI:n hoitaa kyselyn teko") && texts(a).includes("Käykö hoitoaika") && texts(a).includes("Maksupyyntö budjetin tasaukseen"));
+  ok("not in the Add menu's types", !a.types.forPack("family").some((t) => t.id === "question"));
+  // the assistant: written for a question
+  a.askAiField.setValue("Kysy Juholta voiko hän hakea Leon koulusta tiistaina klo 14");
+  a.focused = "sp-askai-text";
+  a.keyWith("Enter", false, true);
+  eq("Ctrl+Enter asks the assistant", a.outOp(), "assist");
+  const ab = JSON.parse(a.outBody());
+  ok("as a question", ab.purpose === "question" && ab.text.startsWith("Kysy Juholta"), JSON.stringify(ab));
+  a.answer(JSON.stringify({ space_id: "sp1", text: "Kysyin Juholta.", changed: true, event_ids: ["q3"], calls: [] }));
+  ok("its answer under the field, still here", texts(a).includes("Kysyin Juholta.") && a.tab === "questions");
+  a.answer(JSON.stringify({ space, events: [q1, q2] }));
+  eq("still on Questions", a.tab, "questions");
+  // by hand: a school run
+  a.press("sp-askkind-school");
+  ok("its form: whom, the child, the day, take or pick up", byId(a, "sp-ask-send") && texts(a).includes("Juho") && texts(a).includes("Vie") && texts(a).includes("Hae"));
+  ok("no one is asked of themselves", !a.askable().includes("Mia"));
+  a.press("sp-ask-send");
+  ok("the day is asked for", a.formErr.includes("Päivä") && a.outCount() === 0, a.formErr);
+  a.formCtls[a.textIndex("f:on_date")].setValue(iso(a.today + 2));
+  a.formCtls[a.textIndex("f:from_time")].setValue("14");
+  a.press(`sp-pick-${a.pickIndex("f:direction")}-1`);
+  a.press(`sp-pick-${a.pickIndex("ward")}-1`);
+  ok("the day is a calendar", byId(a, `sp-date-${a.textIndex("f:on_date")}`));
+  a.press("sp-ask-send");
+  eq("sent", a.outOp(), "ask_question");
+  const qb = JSON.parse(a.outBody());
+  ok("with the kind, whom, the child, the day and the time", qb.kind === "school" && qb.to === "Juho" && qb.ward === "w1" && qb.date === iso(a.today + 2)
+    && qb.start === "14:00" && qb.direction === "pick" && qb.add_to_calendar === true && qb.what === undefined, JSON.stringify(qb));
+  a.answer(JSON.stringify({ event_id: "q4", title: "Voitko hakea: Leo (koulu)?", type: "question" }));
+  ok("the form closes and the space is read again", a.askKind === "" && a.outOp() === "get_space" && a.status === "Kysytty: Juho");
+  const q4 = { event_id: "q4", title: "Voitko hakea: Leo (koulu)?", type: "question", ward: "w1",
+    fields: { ask: "school", ask_to: "Juho", ask_to_uid: "u2", asked_by: "Mia", asked_by_uid: "u1", on_date: iso(a.today + 2), from_time: "14:00", direction: "pick", status: "planned" } };
+  a.answer(JSON.stringify({ space, events: [q1, q2, q4] }));
+  ok("asked, waiting", texts(a).includes("Voitko hakea: Leo (koulu)?") && texts(a).includes("Peru kysymys"));
+  // a payment: the amount is needed
+  a.press("sp-askkind-payment");
+  a.press("sp-ask-send");
+  ok("the amount", a.formErr.includes("Summa"), a.formErr);
+  a.formCtls[a.textIndex("f:amount")].setValue("25,50");
+  a.press("sp-ask-send");
+  const pb = JSON.parse(a.outBody());
+  ok("in euros, not on the calendar", pb.amount === 25.5 && pb.add_to_calendar === undefined && pb.ward === undefined, JSON.stringify(pb));
+  a.failed("to: ask another member, not yourself");
+  ok("a refusal keeps the form", a.askKind === "payment" && a.status.startsWith("to:"));
+  a.press("sp-ask-cancel");
+  // answering: yes, an option, a suggestion
+  const rowOf = (rid) => a.askIds.findIndex((id) => a.space.event(id).remoteId === rid);
+  const k1 = rowOf("q1");
+  a.press(`sp-ans-${k1}-y`);
+  eq("a yes", a.outOp(), "answer_question");
+  ok("for that question", JSON.parse(a.outBody()).event_id === "q1" && JSON.parse(a.outBody()).answer === "yes");
+  a.answer(JSON.stringify({ answer: "yes", made: { event_id: "s1", title: "Budjetin tasaus: Mia → Juho", type: "budget_settlement" } }));
+  ok("what it made is said", a.status === "Vastattu; lisätty: Budjetin tasaus: Mia → Juho" && a.outOp() === "get_space");
+  a.answer(JSON.stringify({ space, events: [q1, q2, q4] }));
+  const k2 = rowOf("q2");
+  ok("the options to pick from, no plain yes", byId(a, `sp-ans-${k2}-1`) && !byId(a, `sp-ans-${k2}-y`));
+  a.press(`sp-ans-${k2}-w`);
+  ok("a suggestion in words", a.focused === "sp-answer-text" && byId(a, `sp-ans-${k2}-s`));
+  a.answerField.setValue("lauantaina klo 10");
+  a.press(`sp-ans-${k2}-s`);
+  const sb = JSON.parse(a.outBody());
+  ok("sent as the answer", sb.event_id === "q2" && sb.answer === "lauantaina klo 10" && sb.note === undefined, JSON.stringify(sb));
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 900);
+    a.press("sp-askkind-care_time");
+    const probs = a.a11yProblems();
+    ok(`${w} Questions lints clean`, probs.length === 0, probs.join(" | "));
+    a.press("sp-ask-cancel");
+  }
+}
+
+// the budget's settlements: in the books, apart from the costs
+{
+  const b = M.SpBudget.read(JSON.stringify({ from: "2026-10", to: "2027-03", total: 100, shared: 100, by_payer: { Mia: 100 }, months: [],
+    settlements: [{ event_id: "s1", title: "Budjetin tasaus: Juho → Mia", date: "2026-10-17", amount: 50, from: "Juho", to: "Mia" }] }));
+  eq("a settlement read", b.settlements.length + "|" + b.settled.of("Juho") + "|" + b.settled.of("Mia"), "1|50|-50");
 }
 
 console.log("changes made elsewhere, and the tab in the address");

@@ -43,6 +43,7 @@ class SpWords {
         if (g == "reminder") { return (SpWords.pick(lang "Reminders and contacts" "Muistutukset ja yhteydenotot")) }
         if (g == "financial") { return (SpWords.pick(lang "Money and purchases" "Raha ja hankinnat")) }
         if (g == "asset_action") { return (SpWords.pick(lang "Home and things" "Koti ja tavarat")) }
+        if (g == "question") { return (SpWords.pick(lang "Questions" "Kyselyt")) }
         return (SpWords.pick(lang "Events" "Tapahtumat"))
     }
 
@@ -158,10 +159,12 @@ class SpWords {
     ; The page's own words.
     sfn ui:string (lang:string key:string) {
         if (key == "home") { return (SpWords.pick(lang "Summary" "Koonti")) }
+        if (key == "questions") { return (SpWords.pick(lang "Questions" "Kyselyt")) }
         if (key == "calendar") { return (SpWords.pick(lang "Calendar" "Kalenteri")) }
         if (key == "sheets") { return (SpWords.pick(lang "Sheets" "Taulukot")) }
         if (key == "docs") { return (SpWords.pick(lang "Documents" "Dokumentit")) }
         if (key == "assistant") { return (SpWords.pick(lang "Assistant" "Avustaja")) }
+        if (key == "watches") { return (SpWords.pick(lang "Watches" "Vahdit")) }
         if (key == "today") { return (SpWords.pick(lang "Today" "Tänään")) }
         if (key == "week") { return (SpWords.pick(lang "Later this week" "Myöhemmin tällä viikolla")) }
         if (key == "next") { return (SpWords.pick(lang "Next week" "Ensi viikolla")) }
@@ -207,6 +210,15 @@ class SpWords {
         if (key == "loading") { return (SpWords.pick(lang "Loading…" "Ladataan…")) }
         if (key == "saving") { return (SpWords.pick(lang "Saving…" "Tallennetaan…")) }
         if (key == "important") { return (SpWords.pick(lang "Important" "Tärkeä")) }
+        if (key == "color") { return (SpWords.pick(lang "Colour" "Väri")) }
+        if (key == "colorDefault") { return (SpWords.pick(lang "Default" "Oletus")) }
+        if (key == "color:blue") { return (SpWords.pick(lang "Blue" "Sininen")) }
+        if (key == "color:emerald") { return (SpWords.pick(lang "Green" "Vihreä")) }
+        if (key == "color:violet") { return (SpWords.pick(lang "Violet" "Violetti")) }
+        if (key == "color:amber") { return (SpWords.pick(lang "Yellow" "Keltainen")) }
+        if (key == "color:rose") { return (SpWords.pick(lang "Red" "Punainen")) }
+        if (key == "color:cyan") { return (SpWords.pick(lang "Turquoise" "Turkoosi")) }
+        if (key == "color:indigo") { return (SpWords.pick(lang "Indigo" "Indigo")) }
         if (key == "lists") { return (SpWords.pick(lang "Lists" "Listat")) }
         if (key == "budget") { return (SpWords.pick(lang "Budget" "Budjetti")) }
         if (key == "add") { return (SpWords.pick(lang "+ Add…" "+ Lisää…")) }

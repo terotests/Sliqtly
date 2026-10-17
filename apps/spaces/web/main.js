@@ -72,6 +72,9 @@ const fileInput = document.getElementById("file");
 const pictureInput = document.getElementById("picture");
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true, preserveDrawingBuffer: true });
 if (!gl) document.body.textContent = "WebGL 2 is not available in this browser.";
+// the tallest canvas the GPU draws whole: a taller one (a long agenda at 2x)
+// gets a clipped drawing buffer and the page's top goes missing
+const MAX_PX = gl ? Math.min(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS)) : 4096;
 
 const CLIENT = "p" + Math.random().toString(36).slice(2, 12);
 let generation = 0;
@@ -103,14 +106,28 @@ function frame(t) {
   const list = JSON.parse(app.displayListJson());
   const W = app.widthPx();
   const H = app.heightPx();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  let dpr = Math.min(2, window.devicePixelRatio || 1, MAX_PX / W, MAX_PX / H);
   canvas.style.width = W + "px";
   canvas.style.height = H + "px";
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
+  // the browser may still give a smaller buffer (its own limits): draw at
+  // the size it gave
+  if (gl && (gl.drawingBufferWidth < canvas.width || gl.drawingBufferHeight < canvas.height)) {
+    dpr *= Math.min(gl.drawingBufferWidth / canvas.width, gl.drawingBufferHeight / canvas.height);
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+  }
   stage.style.height = H + "px";
   window.__lastList = list;
   syncAddress(false);
+  // what the app wants in view (the assistant's conversation after a
+  // message): scrolled down to, never up
+  const reveal = app.takeReveal();
+  if (reveal >= 0) {
+    const want = stage.getBoundingClientRect().top + window.scrollY + reveal + 16 - window.innerHeight;
+    if (want > window.scrollY) window.scrollTo(0, want);
+  }
   if (gl) renderDisplayList(gl, { width: W, height: H, list }, { dpr });
   generation += 1;
   const tree = JSON.parse(app.a11yJson(generation, app.focused || ""));
