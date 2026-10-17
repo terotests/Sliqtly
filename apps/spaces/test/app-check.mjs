@@ -87,6 +87,26 @@ console.log("the summary");
   ok("no weather until the host has it", !byId(a, "sp-wx"));
   a.setWeather("Tampere", 7, 9, 4, 20, 2);
   ok("the weather", texts(a).includes("7°") && texts(a).includes("Tampere · ylin 9° alin 4°"));
+  // by the hour: the school day's start, midday and end, and frost before it
+  {
+    const [sh, eh] = a.schoolHours(a.today);
+    const temp = (h) => (h % 24 < 6 ? -2 : (h % 24) - 2);
+    const hours = { temperature_2m: [], precipitation_probability: [], weather_code: [] };
+    for (let h = 0; h < 48; h++) {
+      hours.temperature_2m.push(temp(h));
+      hours.precipitation_probability.push(h % 24 === 13 ? 30 : 0);
+      hours.weather_code.push(h % 24 === 14 ? 61 : 3);
+    }
+    a.setWeatherHours("Tampere", 7, 2, JSON.stringify(hours));
+    const t = texts(a);
+    const at = [sh, ...(sh < 12 && eh > 12 ? [12] : []), eh].map((h) => `klo ${h} ${temp(h)}°`).join(" · ");
+    ok("the school day's range", t.some((x) => x.startsWith(`Tampere · ${temp(sh)}–${temp(eh)}°`)), t.filter((x) => /Tampere/.test(x)).join());
+    ok("its hours", t.includes(at + " · sade 30 %"), t.filter((x) => /klo \d+ /.test(x)).join() + " want " + at);
+    ok("frost in the night: slippery roads", t.includes("⚠ Liukas keli: -2° yöllä"));
+    a.setNow(eh * 60 + 10);
+    ok("after school: tomorrow's", texts(a).some((x) => /huomenna/.test(x)));
+    a.setNow(10 * 60);
+  }
   const today = byId(a, "sp-card-today");
   const week = byId(a, "sp-card-week");
   const late = byId(a, "sp-card-late");

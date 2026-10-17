@@ -18,7 +18,9 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   **Viikko** (Monday to Sunday as columns, each plan with its time, today
   filled) and **Tulossa** (the next one-off plans, whose they are and how
   many days away). On top the clock, the date, the week number
-  and the weather (Open-Meteo, read by the host page) of each of the
+  and the weather (Open-Meteo, read by the host page) of the school day
+  (its start, midday and end, from the wards' school and daycare entries,
+  else 8 and 15, with a slippery-roads warning after a night of frost) of each of the
   space's places, with a switch between them; Tampere when it has none. Tänään has
   three columns: **today** as cards with each ward's colour, the plan going
   on or coming next open with its times, who looks after it and its notes;
