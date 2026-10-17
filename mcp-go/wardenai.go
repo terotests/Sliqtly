@@ -236,7 +236,7 @@ func wardenAssistSystem(sp *wardenSpace, today time.Time) string {
 		if uid == sp.who.uid {
 			me = " (the person you talk with)"
 		}
-		fmt.Fprintf(&b, "- %s%s\n", wardenOr(sp.memberName(uid), uid), me)
+		fmt.Fprintf(&b, "- %s%s\n", wardenOr(sp.nameOf(uid), uid), me)
 	}
 	b.WriteString("</members>\n<common_fields>")
 	keys := []string{}

@@ -61,7 +61,7 @@ func (sp *wardenSpace) memberUID(v string) string {
 }
 
 // a member's name as the space knows it
-func (sp *wardenSpace) memberName(uid string) string {
+func (sp *wardenSpace) nameOf(uid string) string {
 	people, _ := sp.doc["people"].(map[string]any)
 	p, _ := people[uid].(map[string]any)
 	if n := docStr(p, "name"); n != "" {
@@ -176,12 +176,12 @@ func (s *wardenService) askQuestion(ctx context.Context, sp *wardenSpace, a map[
 	if to == "" {
 		return nil, roomErr{"to: the member asked, by name or address"}
 	}
-	f := map[string]any{"ask": kind, "asked_by": sp.memberName(sp.who.uid), "asked_by_uid": sp.who.uid, "status": "planned"}
+	f := map[string]any{"ask": kind, "asked_by": sp.nameOf(sp.who.uid), "asked_by_uid": sp.who.uid, "status": "planned"}
 	if uid := sp.memberUID(to); uid != "" {
 		if uid == sp.who.uid {
 			return nil, roomErr{"to: ask another member, not yourself"}
 		}
-		f["ask_to"], f["ask_to_uid"] = sp.memberName(uid), uid
+		f["ask_to"], f["ask_to_uid"] = sp.nameOf(uid), uid
 	} else {
 		f["ask_to"] = cleanName(to)
 	}
@@ -305,7 +305,7 @@ func (s *wardenService) answerQuestion(ctx context.Context, sp *wardenSpace, a m
 		return nil, err
 	}
 	today := sp.today(s.now())
-	upd := map[string]any{"answer": word, "answered_by": wardenOr(sp.memberName(sp.who.uid), cleanName(sp.who.name)), "answered_on": today, "status": "cancelled"}
+	upd := map[string]any{"answer": word, "answered_by": wardenOr(sp.nameOf(sp.who.uid), cleanName(sp.who.name)), "answered_on": today, "status": "cancelled"}
 	if yes {
 		upd["status"] = "confirmed"
 	}
