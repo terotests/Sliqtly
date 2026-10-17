@@ -102,6 +102,8 @@ type wardenAsk struct {
 
 type wardenSearcher interface {
 	Search(ctx context.Context, ask wardenAsk) ([]wardenHit, error)
+	// children's events (wardenkids.go)
+	Events(ctx context.Context, ask wardenEventAsk) ([]wardenEventHit, error)
 }
 
 // Gemini answering with Google Search (grounding), on the assistant's own
@@ -153,6 +155,44 @@ func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, er
 	if len(a.Avoid) > 0 {
 		ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
 	}
+	lines, err := g.ground(ctx, ask, 5)
+	if err != nil {
+		return nil, err
+	}
+	hits := []wardenHit{}
+	for _, l := range lines {
+		title, price, place, why := l.parts[0], l.parts[1], l.parts[2], l.parts[4]
+		snippet := ""
+		if price != "" && price != "?" {
+			snippet = price
+			if !strings.ContainsAny(price, "€") {
+				snippet += " €"
+			}
+		}
+		hits = append(hits, wardenHit{Title: title, URL: l.url, Snippet: snippet, Location: aiClip(place, 60), Score: wardenFit(l.parts[3]), Why: aiClip(why, 120)})
+	}
+	return hits, nil
+}
+
+// a fit as the search wrote it ("85", "85%"); -1 when not a number 0-100
+func wardenFit(s string) int {
+	if n, err := strconv.Atoi(strings.TrimSuffix(s, "%")); err == nil && n >= 0 && n <= 100 {
+		return n
+	}
+	return -1
+}
+
+// a line of a grounded answer: its "|" separated parts (n of them, "" for
+// those missing, "?" read as ""), and the address of the result it came
+// from
+type wardenLine struct {
+	parts []string
+	url   string
+}
+
+// Gemini with Google Search, asked to answer a line per result: each line
+// tied to a result, its redirect resolved to the page's own address
+func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenLine, error) {
 	body, _ := json.Marshal(map[string]any{
 		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": ask}}}},
 		"tools":            []any{map[string]any{"google_search": map[string]any{}}},
@@ -200,26 +240,21 @@ func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, er
 		return nil, nil
 	}
 	gm := out.Candidates[0].Grounding
-	hits := []wardenHit{}
+	lines := []wardenLine{}
 	used := map[int]bool{}
 	for _, sup := range gm.Supports {
 		for _, line := range strings.Split(sup.Segment.Text, "\n") {
 			parts := strings.Split(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
-			for len(parts) < 5 {
+			for len(parts) < n {
 				parts = append(parts, "")
 			}
 			for i := range parts {
 				parts[i] = strings.TrimSpace(parts[i])
+				if parts[i] == "?" {
+					parts[i] = ""
+				}
 			}
-			title, price, place, why := parts[0], parts[1], parts[2], parts[4]
-			if place == "?" {
-				place = ""
-			}
-			score := -1
-			if n, err := strconv.Atoi(strings.TrimSuffix(parts[3], "%")); err == nil && n >= 0 && n <= 100 {
-				score = n
-			}
-			if title == "" || len(sup.Chunks) == 0 {
+			if parts[0] == "" || len(sup.Chunks) == 0 {
 				continue
 			}
 			i := sup.Chunks[0]
@@ -231,17 +266,10 @@ func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, er
 			if u == "" {
 				continue
 			}
-			snippet := ""
-			if price != "" && price != "?" {
-				snippet = price
-				if !strings.ContainsAny(price, "€") {
-					snippet += " €"
-				}
-			}
-			hits = append(hits, wardenHit{Title: title, URL: u, Snippet: snippet, Location: aiClip(place, 60), Score: score, Why: aiClip(why, 120)})
+			lines = append(lines, wardenLine{parts: parts, url: u})
 		}
 	}
-	return hits, nil
+	return lines, nil
 }
 
 // the address a grounding redirect leads to ("" when it leads nowhere)
@@ -752,18 +780,10 @@ var wardenFindReasons = map[string]string{
 	"not_interesting": "not interesting",
 }
 
-// rate_find: like or hide one of an entry's finds (none clears it); hidden
+// rate_find: like or hide one of an entry's finds, or without an entry one
+// of the space's children's events (none clears it); hidden
 // finds, with why, steer the next searches away from ones like them
 func (s *wardenService) rateFind(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
-	id := argStr(a, "event_id")
-	d, err := s.event(ctx, sp, id)
-	if err != nil {
-		return nil, err
-	}
-	w, _ := d["watch"].(map[string]any)
-	if w == nil {
-		return nil, roomErr{"this entry has no watch"}
-	}
 	rating, reason := argStr(a, "rating"), argStr(a, "reason")
 	switch rating {
 	case "like", "hide":
@@ -774,6 +794,18 @@ func (s *wardenService) rateFind(ctx context.Context, sp *wardenSpace, a map[str
 	}
 	if _, ok := wardenFindReasons[reason]; reason != "" && (!ok || rating != "hide") {
 		return nil, roomErr{"reason is for hide: wrong_item, too_far, too_expensive or not_interesting"}
+	}
+	id := argStr(a, "event_id")
+	if id == "" {
+		return s.rateKidFind(ctx, sp, argStr(a, "find_id"), rating, reason)
+	}
+	d, err := s.event(ctx, sp, id)
+	if err != nil {
+		return nil, err
+	}
+	w, _ := d["watch"].(map[string]any)
+	if w == nil {
+		return nil, roomErr{"this entry has no watch"}
 	}
 	finds := docMaps(w, "finds")
 	fid := argStr(a, "find_id")
@@ -926,6 +958,16 @@ func (s *wardenService) runDueWatches(ctx context.Context) (map[string]any, erro
 		}
 		ran++
 		found += len(fresh)
+	}
+	// the children's events watches in what is left of the batch
+	if left := wardenWatchBatch - ran; left > 0 {
+		kr, kf, km, err := s.runDueKidWatches(ctx, left)
+		if err != nil {
+			return nil, err
+		}
+		ran, found, more = ran+kr, found+kf, more || km
+	} else {
+		more = true
 	}
 	return map[string]any{"ran": ran, "found": found, "more": more}, nil
 }

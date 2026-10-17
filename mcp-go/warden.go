@@ -1095,7 +1095,11 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	for i, d := range docs {
 		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
-	return map[string]any{"space": sp.json(), "events": evs, "changed": wardenChanged(sp.doc)}, nil
+	kw, err := s.kidWatch(ctx, sp)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"space": sp.json(), "events": evs, "changed": wardenChanged(sp.doc), "event_watch": wardenKidJSON(sp, kw, s.today(sp))}, nil
 }
 
 // list_events: the events that may happen between from and to (repeating
@@ -1425,6 +1429,14 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.runWatchOp(ctx, sp, a)
 	case "rate_find":
 		return s.rateFind(ctx, sp, a)
+	case "set_event_watch":
+		return s.setKidWatch(ctx, sp, a)
+	case "list_event_finds":
+		return s.listKidFinds(ctx, sp)
+	case "run_event_watch":
+		return s.runKidWatchOp(ctx, sp)
+	case "add_event_find":
+		return s.addKidFind(ctx, sp, a)
 	}
 	return nil, roomErr{"no such operation: " + op}
 }

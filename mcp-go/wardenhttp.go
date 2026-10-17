@@ -210,12 +210,33 @@ var wardenTools = []roomTool{
 		desc:     "Run an entry's watch now instead of waiting for the daily run: the new finds are answered, kept on the entry and put in a reminder.",
 		props:    map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry")},
 		required: []string{"space_id", "event_id"}},
-	{name: "rate_find", title: "Rate an offer",
-		desc: "Like or hide one of a watch's finds. Hidden finds, with why, are told to later searches so ones like them get a low fit.",
-		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry"), "find_id": strProp("The find's id (list_watches)"),
+	{name: "rate_find", title: "Rate an offer or a children's event",
+		desc: "Like or hide one of a watch's finds, or (without event_id) one of the children's events (list_event_finds). Hidden ones, with why, are told to later searches so ones like them get a low fit.",
+		props: map[string]any{"space_id": spaceIDProp, "event_id": strProp("The watched entry; leave out for a children's event"), "find_id": strProp("The find's id (list_watches, list_event_finds)"),
 			"rating": map[string]any{"type": "string", "enum": []any{"like", "hide", "none"}, "description": "like, hide, or none to clear"},
 			"reason": map[string]any{"type": "string", "enum": []any{"wrong_item", "too_far", "too_expensive", "not_interesting"}, "description": "Why it is hidden (with hide)"}},
-		required: []string{"space_id", "event_id", "find_id", "rating"}},
+		required: []string{"space_id", "find_id", "rating"}},
+	{name: "set_event_watch", title: "Watch for children's events",
+		desc: "Have Warden look for events and things to do for the space's children near home (shows, workshops, sports try-outs, library and museum events) once a week by default. What it finds is kept apart from the calendar, in the summary's Tapahtumat tab (list_event_finds), until add_event_find puts one in the calendar. Only the fields given change; active: false stops it.",
+		props: map[string]any{"space_id": spaceIDProp,
+			"ages":       map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []any{"baby", "small", "school", "teen"}}, "description": "The children's age groups: baby (0-2), small (3-6), school (7-12), teen (13-17). Default small, school."},
+			"interests":  strProp("What they like, e.g. \"puppet theatre, football, dinosaurs\""),
+			"area":       strProp("A town to look in and near; by default the space's first usual place, else Tampere"),
+			"every_days": map[string]any{"type": "integer", "description": "Days between searches, 1 to 30 (default 7)"},
+			"active":     map[string]any{"type": "boolean", "description": "false stops the watch; true by default"}},
+		required: []string{"space_id"}},
+	{name: "list_event_finds", title: "List children's events found", readOnly: true,
+		desc:     "The space's children's events watch and the events it found that are still to come: each with id, title, url, day, start, place, price, ages, fit 0-100 and why, rating, and added (the calendar entry, once added).",
+		props:    map[string]any{"space_id": spaceIDProp},
+		required: []string{"space_id"}},
+	{name: "run_event_watch", title: "Look for children's events now",
+		desc:     "Run the space's children's events watch now instead of waiting for its turn.",
+		props:    map[string]any{"space_id": spaceIDProp},
+		required: []string{"space_id"}},
+	{name: "add_event_find", title: "Put a children's event in the calendar",
+		desc:     "Put one of the children's events found (list_event_finds) in the calendar as an event, with its day, time, place and address.",
+		props:    map[string]any{"space_id": spaceIDProp, "find_id": strProp("The event's id (list_event_finds)"), "ward": strProp("The child it is for (a ward's id or name), if one")},
+		required: []string{"space_id", "find_id"}},
 }
 
 func findWardenTool(name string) *roomTool {
@@ -227,7 +248,7 @@ func findWardenTool(name string) *roomTool {
 	return nil
 }
 
-const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, children's travel cards and tickets, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. Tell the user the page: "
+const wardenInstructions = "Warden keeps a group's shared calendar: its spaces, the wards the group is responsible for (children, pets, a car, clients, players), their events and who takes care of what. Call list_spaces first. To bring the important events of the user's own calendar or of a schedule into a space, use import_events (or import_ics for an .ics file) with each event's source id as ext_id, the ward it concerns and who is responsible; times are the space's local time. Every entry has a type (birthday invitations, hobbies and their sessions, school events and exception days, doctor's visits, trips and bookings, children's travel cards and tickets, bills, purchases and needs, gift ideas, repairs, home tasks, reminders, changes to the usual routine and more): list_entry_types lists them with the fields common to all, each type's own fields, what it requires, which money fields go to the budget and which dates make reminders. save_event saves one with its type, fields and cost, and budget sums the costs. set_watch has Warden look for offers of an entry (a thing to get) on Tori, Vinted, Huuto.net or the web once a day; list_watches shows the finds. set_event_watch has it look for children's events near home; they stay out of the calendar (list_event_finds) until add_event_find puts one in. Tell the user the page: "
 
 // ------------------------------------------------------------------- page --
 

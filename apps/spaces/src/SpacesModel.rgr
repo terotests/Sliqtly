@@ -178,6 +178,28 @@ class SpPlace {
     }
 }
 
+; An event for the children the server's events watch found
+; (wardenkids.go): kept apart from the calendar until added to it.
+class SpKidFind {
+    def id:string ""
+    def title:string ""
+    def url:string ""
+    ; its day (SpText.ymd), -1 when not read
+    def day:int -1
+    def start:string ""
+    ; place · price · ages
+    def info:string ""
+    def score:int -1
+    def why:string ""
+    ; "like", "hide" or ""
+    def rating:string ""
+    def reason:string ""
+    ; the calendar entry it was added as, "" when not
+    def added:string ""
+    Constructor () {
+    }
+}
+
 ; Who looks after an event, and how: "Mia" who "takes".
 class SpWho {
     def name:string ""

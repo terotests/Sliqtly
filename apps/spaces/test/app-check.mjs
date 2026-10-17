@@ -1069,6 +1069,62 @@ console.log("the offers on the summary");
   ok("the offers lint clean", probs.length === 0, probs.join(" | "));
 }
 
+console.log("the children's events on the summary");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  a.answer(JSON.stringify({ space, events: [
+    { event_id: "ev1", title: "Leikkipuisto", date: iso(a.today), start: "10:00", notes: "Katso https://www.example.com/hyvin/pitka/osoite/joka/ei/mahdu tarkemmin" },
+  ], event_watch: { active: false, ages: ["small", "school"], every_days: 7, finds: [] } }));
+  ok("a long address in a note shows as its site", texts(a).join(" ").includes("Katso example.com tarkemmin") && !texts(a).join(" ").includes("pitka"), texts(a).join(","));
+  ok("a tab for the events", !!byId(a, "sp-htab-kids"));
+  a.press("sp-htab-kids");
+  a.press("sp-kw-on");
+  eq("turned on", a.outOp(), "set_event_watch");
+  let b = JSON.parse(a.outBody());
+  ok("with its ages", b.active === true && b.ages.join() === "small,school", JSON.stringify(b));
+  const watch = { active: true, ages: ["small", "school"], every_days: 7, finds: [
+    { id: "k1", title: "Nukketeatteri", url: "https://tapahtumat.tampere.fi/page/1", date: iso(a.today + 2), start: "12:00", place: "Tahmelan Huvila", price: "ilmainen", age: "3-8", score: 90, why: "nukketeatteri" },
+    { id: "k2", title: "Karnevaali", url: "https://tapahtumat.tampere.fi/page/2", date: iso(a.today + 1), score: 30 },
+  ] };
+  a.answer(JSON.stringify({ space_id: "sp1", watch }));
+  eq("and searched", a.outOp(), "run_event_watch");
+  a.answer(JSON.stringify({ space_id: "sp1", new: [], watch }));
+  let t = texts(a);
+  ok("the events, the skipped last", t.includes("Nukketeatteri") && t.includes("Tahmelan Huvila · ilmainen · 3-8") && t.indexOf("Ohitetut (1)") < t.indexOf("Karnevaali")
+    && t.indexOf("Nukketeatteri") < t.indexOf("Ohitetut (1)"), t.join(","));
+  ok("not in the calendar", a.space.events.length === 1);
+  a.press("sp-kev-0");
+  eq("an event opens in a new tab", a.takeAction(), "open:https://tapahtumat.tampere.fi/page/1");
+  a.press("sp-kadd-0");
+  eq("added on asking", a.outOp(), "add_event_find");
+  b = JSON.parse(a.outBody());
+  ok("this one", b.find_id === "k1" && b.space_id === "sp1", JSON.stringify(b));
+  a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", added: "x1" }, event: { event_id: "x1" } }));
+  eq("then the space is read again", a.outOp(), "get_space");
+  watch.finds[0].added = "x1";
+  a.answer(JSON.stringify({ space, events: [{ event_id: "x1", title: "Nukketeatteri", date: iso(a.today + 2), start: "12:00" }], event_watch: watch }));
+  ok("it shows as in the calendar", texts(a).includes("Kalenterissa"));
+  a.press("sp-khide-0");
+  a.press("sp-kwhy-0-too_far");
+  b = JSON.parse(a.outBody());
+  ok("hidden with why, no entry", a.outOp() === "rate_find" && b.find_id === "k1" && b.rating === "hide" && b.reason === "too_far" && b.event_id === undefined, JSON.stringify(b));
+  a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", rating: "hide" } }));
+  a.press("sp-kage-teen");
+  b = JSON.parse(a.outBody());
+  eq("an age group", b.ages.join(), "small,school,teen");
+  a.answer(JSON.stringify({ space_id: "sp1", watch }));
+  const probs = a.a11yProblems();
+  ok("the events lint clean", probs.length === 0, probs.join(" | "));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
