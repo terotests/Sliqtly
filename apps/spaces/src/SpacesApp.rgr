@@ -4765,6 +4765,31 @@ class SpacesApp {
             owner = e.cost.payer
         }
         this.addText("budget:owner" owner)
+        ; a deadline's days to do it on, one calendar each
+        if (kind == "deadline") {
+            def plan:[int] (space.plannedDays(e))
+            def pi:int 0
+            while (pi < (array_length plan)) {
+                this.addText(("plan:" + (to_string pi)) (UiDate.isoOfDays((itemAt plan pi))))
+                pi = (pi + 1)
+            }
+            if ((array_length plan) == 0) {
+                this.addText("plan:0" "")
+            }
+        }
+    }
+
+    ; The form's planned days ("plan:0", "plan:1"…), in the order made.
+    fn planKeys:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length formKeys)) {
+            if (UiTree.beginsWith((itemAt formKeys i) "plan:")) {
+                push out (itemAt formKeys i)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; The common fields the form's get: and budget: keys keep, and the kind
@@ -4879,6 +4904,9 @@ class SpacesApp {
         if (key == "place") {
             return (SpWords.noun(lang pack "place"))
         }
+        if (UiTree.beginsWith(key "plan:")) {
+            return (SpWords.pick(lang "Planned day" "Suunniteltu päivä"))
+        }
         if (key == "date") {
             def kind:string (this.kindOf(editType))
             if (kind == "deadline") {
@@ -4905,6 +4933,9 @@ class SpacesApp {
     ; field (`dateField`); app-check walks every type to hold that.
     fn isDateKey:boolean (key:string) {
         if (((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) {
+            return true
+        }
+        if (UiTree.beginsWith(key "plan:")) {
             return true
         }
         if ((SpacesApp.isCommonKey(key)) && ((SpacesApp.commonType(key)) == "date")) {
@@ -5331,6 +5362,9 @@ class SpacesApp {
             def mine:boolean false
             if (prefix == "") {
                 mine = ((((UiTree.beginsWith(key "f:")) == false) && ((UiTree.beginsWith(key "cost:")) == false)) && (((UiTree.beginsWith(key "get:")) == false) && ((UiTree.beginsWith(key "budget:")) == false)))
+                if (UiTree.beginsWith(key "plan:")) {
+                    mine = false
+                }
             } {
                 mine = (UiTree.beginsWith(key prefix))
             }
@@ -5370,6 +5404,12 @@ class SpacesApp {
                 push out ("f:" + f.key)
                 k = (k + 1)
             }
+        }
+        def plans:[string] (this.planKeys())
+        def pk:int 0
+        while (pk < (array_length plans)) {
+            push out (itemAt plans pk)
+            pk = (pk + 1)
         }
         push out "notes"
         def cost:[string] ([] _:string ( "cost:amount" "cost:payer" "cost:instalments" "cost:first" "cost:every" "cost:remind" "get:from" "get:by" "budget:min" "budget:max" "budget:actual" "budget:scope" "budget:owner" ))
@@ -5414,6 +5454,13 @@ class SpacesApp {
             def more:EVGElement (SpacesApp.box("sp-form"))
             this.addFields(more "f:")
             c.addChild(more)
+        }
+        if ((array_length (this.planKeys())) > 0) {
+            c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Planned days" "Suunnitellut päivät")))))
+            def plans:EVGElement (SpacesApp.box("sp-form"))
+            this.addFields(plans "plan:")
+            plans.addChild((SpacesApp.btn("sp-plan-add" "sp-opt" (SpWords.pick(lang "+ Add a day" "+ Lisää päivä")))))
+            c.addChild(plans)
         }
         c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "getHead")))))
         def gets:EVGElement (SpacesApp.box("sp-form"))
@@ -5835,6 +5882,27 @@ class SpacesApp {
             push fvals cv
             push fkinds (SpTypes.kindOfField(ct))
             ci = (ci + 1)
+        }
+        ; the days to do it on, in order and once each
+        def plans:[string] (this.planKeys())
+        if ((array_length plans) > 0) {
+            def days:[string]
+            def pj:int 0
+            while (pj < (array_length plans)) {
+                def perr:[string]
+                def pv:string (SpTypes.normalize("date" (this.formText((itemAt plans pj))) year perr))
+                if ((array_length perr) > 0) {
+                    push bad (this.formLabel((itemAt plans pj)))
+                } {
+                    if (((strlen pv) > 0) && ((indexOf (join days ";") pv) < 0)) {
+                        push days pv
+                    }
+                }
+                pj = (pj + 1)
+            }
+            push fkeys "planned_days"
+            push fvals (join days "; ")
+            push fkinds "string"
         }
         def gf:string (this.formText("get:from"))
         def gb:string (this.formText("get:by"))
@@ -6527,6 +6595,11 @@ class SpacesApp {
         }
         if (target == "sp-ed-save") {
             this.saveForm()
+            return true
+        }
+        if (target == "sp-plan-add") {
+            this.addText(("plan:" + (to_string (array_length (this.planKeys())))) "")
+            this.openDate(((array_length formKeys) - 1))
             return true
         }
         if (target == "sp-ed-cancel") {
