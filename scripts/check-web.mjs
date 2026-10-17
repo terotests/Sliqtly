@@ -147,6 +147,28 @@ async function leavePresenting(p) {
   });
   await p.waitForFunction(() => !document.fullscreenElement, null, { timeout: 5000 }).catch(() => {});
 }
+// Why the bar's controls are not in the screen reader's mirror, when a
+// keyboard check finds none: the bar's height, the mode, the toolbar's own
+// rows and how many were laid out with a size (read first, as they are),
+// then whether the page draws frames at all (none while it is held in the
+// background)
+const toolbarA11y = (p) => p.evaluate(async () => {
+  const a = window.__app;
+  const h = a.toolbar.host;
+  const page = h.lastPage;
+  const rows = h.allRows();
+  const sized = page ? rows.filter((r) => { const e = h.findEl(page, r.tid); return e && e.calculatedWidth > 0 && e.calculatedHeight > 0; }).length : -1;
+  const tree = JSON.parse(a.a11yJson()).nodes;
+  const out = { err: (document.getElementById("err")?.textContent || "").slice(0, 300), visible: document.visibilityState, focused: document.hasFocus(), barH: a.barH, mode: JSON.parse(a.layoutJson()).mode, page: !!page, rows: rows.length, sized, inTree: tree.filter((n) => /^tb-/.test(n.id)).length, focusable: tree.filter((n) => /^tb-/.test(n.id) && n.focusable && !n.disabled).length };
+  out.frames = await new Promise((done) => {
+    let n = 0;
+    const t0 = performance.now();
+    const f = () => { n += 1; if (performance.now() - t0 < 250) requestAnimationFrame(f); else done(n); };
+    requestAnimationFrame(f);
+    setTimeout(() => done(n), 400);
+  });
+  return out;
+});
 try {
   // part 1: the editor page `page` and the checks that go on with it, in
   // order (not indented, to keep the checks' lines as they were)
@@ -4068,6 +4090,7 @@ try {
     const act = () => page.evaluate(() => { const e = document.activeElement; return (e.dataset && e.dataset.a11yId) || e.id; });
     const seen = [];
     for (let i = 0; i < 8; i += 1) { await page.keyboard.press("F6"); seen.push(await act() + "/" + await page.evaluate(() => ["bar", "rail", "rooms"].map((r) => window.__kb.focusables(r).length).join(""))); }
+    const f6Bar = await toolbarA11y(page);
     await page.evaluate(() => { const a = window.__app; a.showTab("md"); a.editor.moveCaret(2, 10, false); document.getElementById("keys").focus(); });
     await page.keyboard.press("Control+Space");
     await page.waitForTimeout(200);
@@ -4099,7 +4122,8 @@ try {
     const chartBack = await act();
     await page.evaluate((s) => window.__app.setSource(s), src0);
     check("the chart editor from the keyboard: Tab to a slider, an arrow moves it, Esc closes", w1 > w0 && chartBack === "keys", JSON.stringify({ w0, w1, chartBack, tabPath: tabPath.slice(0, 3) }));
-    check("F6 goes from area to area (slides, bar, tabs, editor)", seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.some((x) => /^keys\//.test(x)), seen.join(","));
+    const f6Ok = seen.some((x) => /^thumb-/.test(x)) && seen.some((x) => /^tb-/.test(x)) && seen.some((x) => /^edtabs/.test(x)) && seen.some((x) => /^keys\//.test(x));
+    check("F6 goes from area to area (slides, bar, tabs, editor)", f6Ok, seen.join(",") + (f6Ok ? "" : " " + JSON.stringify(f6Bar)));
     check("Ctrl+Space opens the value popover with the keyboard in it; Enter picks, Esc returns", /^hp-opt-/.test(inHint) && !/fx=starfield/.test(line) && /fx=/.test(line) && back === "keys", JSON.stringify({ inHint, line, back }));
     check("the canvas is mirrored for a screen reader: the bar, the slides, where we are", dom.nodes > 10 && dom.bar && dom.slides >= 2 && /Slide \d+ \/ \d+/.test(dom.status) && dom.canvasHidden, JSON.stringify(dom));
   }
@@ -4123,8 +4147,24 @@ try {
     for (let i = 0; i < 12 && !/^tb-m-file-trigger$/.test(await act()); i += 1) await page.keyboard.press("Tab");
     const menu = [];
     for (const k of ["Enter", "ArrowRight", "ArrowLeft", "End", "Escape"]) { await page.keyboard.press(k); await page.waitForTimeout(150); menu.push(await act()); }
+    // where the keyboard went from here, and what sent it (a focus moved by
+    // a script has the script's stack; a Tab has none): listed when the
+    // check fails
+    await page.evaluate(() => {
+      const t0 = performance.now();
+      window.__focusLog = [];
+      if (window.__focusLogOn) return;
+      window.__focusLogOn = true;
+      document.addEventListener("focusin", (ev) => {
+        const e = ev.target;
+        const at = (new Error().stack || "").split("\n").slice(2, 6).map((l) => l.trim().replace(/^at /, "").replace(/\(?https?:\/\/[^)]*\/([^/)?]+)(\?[^:)]*)?(:\d+):\d+\)?/, "$1$3")).join(" < ");
+        window.__focusLog?.push(Math.round(performance.now() - t0) + "ms " + ((e.dataset && e.dataset.a11yId) || e.id || e.tagName) + (at ? " <- " + at : ""));
+      }, true);
+    });
     await page.evaluate(() => window.__kb.focusRegion("rail"));
-    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) await page.keyboard.press("Tab");
+    const railWalk = [await act()];
+    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) { await page.keyboard.press("Tab"); railWalk.push(await act()); }
+    const beforeEnter = await act();
     await page.keyboard.press("Enter");
     // the dialog is drawn and focused a frame or more after the key
     await page.waitForFunction(() => /^pn-set-/.test(document.activeElement?.dataset?.a11yId || "") && !!document.querySelector('.evg-a11y [data-a11y-id="pn-dlg"]'), null, { timeout: 5000 }).catch(() => {});
@@ -4136,7 +4176,25 @@ try {
     check("Tab runs on from the bar into the next area instead of round the bar", walk.some((x) => /^tb-rail-/.test(x)), walk.join(","));
     check("Esc and then Tab leaves the editor, the text untouched", leftEditor !== "keys" && srcSame, leftEditor);
     check("a menu of the bar from the keyboard: Enter opens on its first row, → opens a submenu, ← back, End, Esc to the trigger", menu[0] === "tb-m-file-item-new" && /^tb-m-file-item-new-item-/.test(menu[1]) && menu[2] === "tb-m-file-item-new" && menu[3] !== menu[2] && menu[4] === "tb-m-file-trigger", menu.join(","));
-    check("Settings takes the keyboard as a named modal dialog and gives it back on Esc", /^pn-set-/.test(inSettings) && dialog === "dialog:true:Settings" && afterSettings === "tb-rail-settings", JSON.stringify({ inSettings, dialog, afterSettings }));
+    const settingsOk = /^pn-set-/.test(inSettings) && dialog === "dialog:true:Settings" && afterSettings === "tb-rail-settings";
+    const focusLog = settingsOk ? null : await page.evaluate(() => window.__focusLog);
+    const settingsBar = settingsOk ? null : await toolbarA11y(page);
+    check("Settings takes the keyboard as a named modal dialog and gives it back on Esc", settingsOk, JSON.stringify(settingsOk ? { inSettings, dialog, afterSettings } : { inSettings, dialog, afterSettings, railWalk, beforeEnter, focusLog, bar: settingsBar }));
+    // the bar rebuilt between two frames (a list the page sends again after
+    // a save: rooms, recent decks) keeps its controls in the mirror, and the
+    // keyboard on the one it was on (they all left the mirror until the next
+    // frame drew the bar, and the keyboard with them)
+    await page.evaluate(() => window.__kb.focusRegion("rail"));
+    for (let i = 0; i < 12 && (await act()) !== "tb-rail-settings"; i += 1) await page.keyboard.press("Tab");
+    const rebuilt = await page.evaluate(() => {
+      const a = window.__app;
+      const on = (document.activeElement?.dataset?.a11yId) || "";
+      // the same value again: a rebuild that changes nothing else
+      a.setToolbarOptions("dark", "", a.toolbar.darkOn ? "1" : "");
+      window.__kb.focusRegion("no-such-region");
+      return { on, bar: window.__kb.focusables("bar").length, rail: window.__kb.focusables("rail").length, after: (document.activeElement?.dataset?.a11yId) || document.activeElement?.id || "" };
+    });
+    check("a bar rebuilt between frames keeps its controls in the mirror and the keyboard where it was", rebuilt.on === "tb-rail-settings" && rebuilt.bar > 0 && rebuilt.rail > 0 && rebuilt.after === "tb-rail-settings", JSON.stringify(rebuilt));
     await page.evaluate((s) => window.__app.setSource(s), src0);
   }
 
