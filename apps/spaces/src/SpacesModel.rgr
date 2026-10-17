@@ -1307,6 +1307,10 @@ class SpSpace {
         }
         if (rule.freq == "weekly") {
             def days:[int] rule.byDay
+            def week:SpWeek (this.weekOf(e))
+            if week.ok {
+                days = (week.days())
+            }
             if ((array_length days) == 0) {
                 days = ([] _:int ( (UiDate.weekday(e.day)) ))
             }
@@ -1387,8 +1391,77 @@ class SpSpace {
         return (d - ((w + 6) % 7))
     }
 
+    ; An event's times per weekday (its type's weektimes field); not `ok`
+    ; when it has none.
+    fn weekOf:SpWeek (e:SpEvent) {
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return (new SpWeek())
+        }
+        def tt:SpType t
+        def i:int 0
+        while (i < (array_length tt.fields)) {
+            def f:SpField (itemAt tt.fields i)
+            if (f.type == "weektimes") {
+                def text:string (e.fieldText(f.key))
+                if ((strlen text) > 0) {
+                    return (SpWeek.read(text))
+                }
+            }
+            i = (i + 1)
+        }
+        return (new SpWeek())
+    }
+
+    ; The days in [from, to] an event does not happen on because its type
+    ; skips them: a school day on a holiday or an exception day of the same
+    ; ward (or of no ward), unless that day says the school is open.
+    fn skippedDays:[int] (e:SpEvent all:[SpEvent] from:int to:int) {
+        def out:[int]
+        def t@(optional):SpType (types.find(e.typeId))
+        if (null? t) {
+            return out
+        }
+        def tt:SpType t
+        if ((array_length tt.skips) == 0) {
+            return out
+        }
+        def i:int 0
+        while (i < (array_length all)) {
+            def x:SpEvent (itemAt all i)
+            def hit:boolean false
+            def k:int 0
+            while (k < (array_length tt.skips)) {
+                if ((itemAt tt.skips k) == x.typeId) {
+                    hit = true
+                }
+                k = (k + 1)
+            }
+            if (((hit && (x.dated())) && (((strlen x.resource) == 0) || (x.resource == e.resource))) && ((x.fieldOn("school_open")) == false)) {
+                def ds:[int] (this.daysOf(x from to))
+                def j:int 0
+                while (j < (array_length ds)) {
+                    def first:int (itemAt ds j)
+                    def last:int (first + (x.endDay - x.day))
+                    if (last < first) {
+                        last = first
+                    }
+                    def d:int first
+                    while (d <= last) {
+                        push out d
+                        d = (d + 1)
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; One SpOccur for every day in [from, to] each event happens on, sheet
-    ; rows included, sorted.
+    ; rows included, sorted. An event with times per weekday starts and ends
+    ; at each day's own.
     fn occurrences:[SpOccur] (from:int to:int) {
         def out:[SpOccur]
         def all:[SpEvent] (this.allEvents())
@@ -1400,9 +1473,15 @@ class SpSpace {
                 def none:[int]
                 days = none
             }
+            def week:SpWeek (this.weekOf(e))
+            def off:[int] (this.skippedDays(e all from to))
             def k:int 0
             while (k < (array_length days)) {
                 def d:int (itemAt days k)
+                if (SpSpace.hasDay(off d)) {
+                    k = (k + 1)
+                    continue
+                }
                 def o (new SpOccur())
                 o.eventId = e.id
                 o.id = e.id
@@ -1417,6 +1496,11 @@ class SpSpace {
                 }
                 o.startMin = e.startMin
                 o.endMin = e.endMin
+                if (week.ok && (week.on((UiDate.weekday(d))))) {
+                    o.startMin = (itemAt week.starts (UiDate.weekday(d)))
+                    o.endMin = (itemAt week.ends (UiDate.weekday(d)))
+                    o.endDay = d
+                }
                 o.resource = e.resource
                 o.place = e.place
                 o.color = e.color
