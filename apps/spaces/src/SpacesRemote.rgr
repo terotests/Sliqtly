@@ -279,6 +279,68 @@ class SpRemote {
             e.setCost(cost)
         }
         e.remindFrom = (SpText.dayOf((o.stringOr("remind_from" "")) (itemAt (SpSpace.ymdOf(s.today)) 0)))
+        SpRemote.readWatch(e (o.get("watch")))
+    }
+
+    ; An entry's deal watch and its finds, into `e`.
+    sfn readWatch:void (e:SpEvent w:VlJson) {
+        def nt:[string]
+        def nu:[string]
+        def ni:[string]
+        e.findTitles = nt
+        e.findUrls = nu
+        e.findInfo = ni
+        e.watched = (w.isObject())
+        if ((w.isObject()) == false) {
+            return
+        }
+        e.watchQuery = (w.stringOr("query" ""))
+        e.watchOn = (w.boolOr("active" false))
+        def fs:VlJson (w.get("finds"))
+        if ((fs.isArray()) == false) {
+            return
+        }
+        def i:int 0
+        while (i < (fs.count())) {
+            def f:VlJson (fs.at(i))
+            def u:string (f.stringOr("url" ""))
+            if ((SpRemote.starts(u "https://")) || (SpRemote.starts(u "http://"))) {
+                push e.findTitles (f.stringOr("title" u))
+                push e.findUrls u
+                def parts:[string]
+                def price:double (f.doubleOr("price" 0.0))
+                if (price > 0.0) {
+                    push parts ((SpTypes.numText(price)) + " €")
+                }
+                push parts (f.stringOr("source" ""))
+                def found:string (f.stringOr("found" ""))
+                if ((strlen found) == 10) {
+                    push parts ((SpRemote.dayMonth(found)))
+                }
+                push e.findInfo (join parts " · ")
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn starts:boolean (s:string p:string) {
+        if ((strlen s) < (strlen p)) {
+            return false
+        }
+        return ((substring s 0 (strlen p)) == p)
+    }
+
+    ; "2026-10-17" as "17.10."
+    sfn dayMonth:string (d:string) {
+        def dd:string (substring d 8 10)
+        def mm:string (substring d 5 7)
+        if (SpRemote.starts(dd "0")) {
+            dd = (substring dd 1 2)
+        }
+        if (SpRemote.starts(mm "0")) {
+            mm = (substring mm 1 2)
+        }
+        return (dd + "." + mm + ".")
     }
 
     ; --- what the page sends -----------------------------------------------------

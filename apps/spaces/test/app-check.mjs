@@ -671,6 +671,38 @@ console.log("a reminder ticked off on the summary");
   ok("and it leaves the list", !byId(a, "sp-tick-" + fee.id));
 }
 
+console.log("an entry's offer watch");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
+        watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
+          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, source: "Tori", found: "2026-10-07" },
+          { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
+        ] } },
+    ],
+  }));
+  const bed = a.space.events[0];
+  eq("one safe find read", bed.findUrls.length, 1);
+  a.press("sp-nav-lists");
+  a.press("sp-list-item");
+  a.press("sp-entry-" + bed.id);
+  const t = texts(a);
+  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tori · 7.10."), t.join(","));
+  a.press("sp-find-0");
+  eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
+  const probs = a.a11yProblems();
+  ok("the watch lints clean", probs.length === 0, probs.join(" | "));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();

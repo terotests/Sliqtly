@@ -122,7 +122,8 @@ class SpacesApp {
     def sentTypes:[string]
     def sentNames:[string]
     ; what the host has to do after a press ("import", "export:<id>",
-    ; "copy": put `copyText` on the clipboard)
+    ; "copy": put `copyText` on the clipboard, "open:<url>": open an offer
+    ; in a new tab)
     def action:string ""
     def copyText:string ""
     def status:string ""
@@ -2938,6 +2939,7 @@ class SpacesApp {
             this.addFields(cost "cost:")
             c.addChild(cost)
         }
+        this.addWatch(c)
         def bar:EVGElement (SpacesApp.box("sp-formrow"))
         bar.addChild((SpacesApp.btn("sp-ed-save" "sp-action sp-action-primary" (SpWords.ui(lang "save")))))
         bar.addChild((SpacesApp.btn("sp-ed-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
@@ -2957,6 +2959,58 @@ class SpacesApp {
         c.addChild(bar)
         v.addChild(c)
         return v
+    }
+
+    ; An entry's deal watch (set by the assistant or over MCP): what it looks
+    ; for and its latest finds, each opening the offer in a new tab.
+    fn addWatch:void (c:EVGElement) {
+        if ((strlen editId) == 0) {
+            return
+        }
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if (e.watched == false) {
+            return
+        }
+        c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Offer watch" "Tarjousvahti")))))
+        def state:string (SpWords.pick(lang "on, daily" "päällä"))
+        if (e.watchOn == false) {
+            state = (SpWords.pick(lang "off" "pois päältä"))
+        }
+        c.addChild((SpacesApp.tx("sp-meta" ("“" + e.watchQuery + "” · " + state))))
+        if ((array_length e.findUrls) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No finds yet." "Ei löytöjä vielä.")))))
+            return
+        }
+        def i:int 0
+        while (i < (array_length e.findUrls)) {
+            def t:string (itemAt e.findTitles i)
+            def info:string (itemAt e.findInfo i)
+            def b:EVGElement (SpacesApp.btn(("sp-find-" + (to_string i)) "sp-link" (t + " · " + info)))
+            b.role = "link"
+            c.addChild(b)
+            i = (i + 1)
+        }
+    }
+
+    ; a find of the entry being edited, opened in a new tab by the host
+    fn openFind:void (what:string) {
+        def k@(optional):int (to_int what)
+        if (null? k) {
+            return
+        }
+        def n:int (unwrap k)
+        def found@(optional):SpEvent (space.event(editId))
+        if (null? found) {
+            return
+        }
+        def e:SpEvent found
+        if ((n >= 0) && (n < (array_length e.findUrls))) {
+            action = ("open:" + (itemAt e.findUrls n))
+        }
     }
 
     fn typeFieldKeys:[string] () {
@@ -3935,6 +3989,10 @@ class SpacesApp {
         if (UiTree.beginsWith(target "sp-q-")) {
             this.ask((substring target 5 (strlen target)))
             this.rebuild()
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-find-")) {
+            this.openFind((substring target 8 (strlen target)))
             return true
         }
         if (UiTree.beginsWith(target "sp-copy-")) {

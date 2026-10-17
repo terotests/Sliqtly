@@ -80,6 +80,11 @@ With the meta tag the page
   removes) and a **Spaces** view (the spaces you are in, and a new one);
 - offers an empty space the pack's demo data: its wards, then its events
   (deadlines as important all-day events).
+- shows an entry's **offer watch** on its form: what it looks for and its
+  latest finds, each opening the offer in a new tab. A watch is set by the
+  assistant or over MCP (`set_watch`, `list_watches`, `run_watch`); the
+  server searches Tori.fi, Vinted, Huuto.net or the web for it once a day
+  and makes a reminder of new finds (`mcp-go/wardenwatch.go`).
 
 The app keeps the calls in an outbox (`outOp`, `outBody`); `web/main.js`
 sends them one at a time and hands each reply to `answer` or `failed`.
