@@ -605,8 +605,18 @@ class SpacesCheck {
         this.eq((far.dueState(s.today)) "" "far off it is neither")
         far.remindFrom = (s.today - 1)
         this.eq((far.dueState(s.today)) "due" "the server's remind_from is kept")
+        ; a travel card far off but low on trips is due now
+        def card:SpEvent (s.addAllDay("Sarjalippu" (s.today + 120) (s.today + 120) ""))
+        card.typeId = "travel_card"
+        card.setField("trips_left" "5" "number")
+        this.eq((s.dueOf(card s.today)) "" "enough trips")
+        card.setField("trips_left" "2" "number")
+        this.eq((s.dueOf(card s.today)) "due" "two trips left: due")
+        card.setField("low_trips" "1" "number")
+        this.eq((s.dueOf(card s.today)) "" "its own limit")
+        card.setField("trips_left" "1" "number")
         def due:[SpEvent] (s.dueEntries(s.today))
-        this.eqi((array_length due) 4 "the due and late deadlines")
+        this.eqi((array_length due) 5 "the due and late deadlines, the card low on trips")
         def due0:SpEvent (itemAt due 0)
         this.eq(due0.title "Palovaroitin" "the earliest first")
 

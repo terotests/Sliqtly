@@ -204,7 +204,7 @@ func (sp *wardenSpace) json() map[string]any {
 	}
 	wards := []any{}
 	for _, w := range docMaps(sp.doc, "wards") {
-		wards = append(wards, map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color"), "places": wardenPlacesJSON(w)})
+		wards = append(wards, wardenWardJSON(w))
 	}
 	tz := docStr(sp.doc, "tz")
 	if tz == "" {
@@ -502,17 +502,203 @@ func (s *wardenService) addWardOp(ctx context.Context, sp *wardenSpace, a map[st
 	if err != nil {
 		return nil, err
 	}
+	clothing := map[string]any{}
+	if err := wardenSetClothing(clothing, a); err != nil {
+		return nil, err
+	}
 	w, err := sp.addWard(name, color)
 	if err != nil {
 		return nil, err
 	}
+	for k, v := range clothing {
+		w[k] = v
+	}
 	if err := s.save(ctx, sp); err != nil {
 		return nil, err
 	}
-	return w, nil
+	return wardenWardJSON(w), nil
 }
 
-// set_ward: any member renames a ward or gives it another colour
+// ---------------------------------------------------------------- clothes --
+// A ward's clothing (a child's): "sizes", the size it wears now in each kind
+// of clothing and the one it grows into next, and by when; "clothes", what
+// it should have, how many and how many it has. Each list is given whole.
+
+const (
+	wardenMaxSizes   = 20 // kinds of clothing with a size
+	wardenMaxClothes = 60 // rows of a clothing list
+)
+
+var wardenMonthRe = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
+// a ward as the tools give it: its clothing, the missing counted, when it has any
+func wardenWardJSON(w map[string]any) map[string]any {
+	out := map[string]any{"id": docStr(w, "id"), "name": docStr(w, "name"), "color": docStr(w, "color"), "places": wardenPlacesJSON(w)}
+	if l := docMaps(w, "sizes"); len(l) > 0 {
+		out["sizes"] = anys(l)
+	}
+	if l := docMaps(w, "clothes"); len(l) > 0 {
+		rows := []any{}
+		for _, c := range l {
+			r := map[string]any{}
+			for k, v := range c {
+				r[k] = v
+			}
+			r["missing"] = max(wardenCount(c["need"], 1)-wardenCount(c["have"], 0), 0)
+			rows = append(rows, r)
+		}
+		out["clothes"] = rows
+	}
+	return out
+}
+
+// a count as JSON gives it (a number), or def
+func wardenCount(v any, def int) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return def
+}
+
+// the text k of a list row, trimmed and at most max characters
+func wardenRowStr(row map[string]any, k string, max int, what string) (string, error) {
+	v, ok := row[k]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", roomErr{what + ": " + k + " is a text"}
+	}
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) > max {
+		return "", roomErr{fmt.Sprintf("%s: %s is at most %d characters", what, k, max)}
+	}
+	return s, nil
+}
+
+func wardenRows(v any, name string, maxRows int) ([]map[string]any, error) {
+	l, ok := v.([]any)
+	if !ok {
+		return nil, roomErr{name + " is a list (an empty one clears it)"}
+	}
+	if len(l) > maxRows {
+		return nil, roomErr{fmt.Sprintf("%s has at most %d rows", name, maxRows)}
+	}
+	out := []map[string]any{}
+	for _, it := range l {
+		row, ok := it.(map[string]any)
+		if !ok {
+			return nil, roomErr{name + ": each row is an object"}
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+// sizes, checked: [{what, size, next_size, next_by, note}]
+func wardenSizes(v any) ([]any, error) {
+	rows, err := wardenRows(v, "sizes", wardenMaxSizes)
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		d := map[string]any{}
+		for _, f := range []struct {
+			k   string
+			max int
+		}{{"what", 40}, {"size", 20}, {"next_size", 20}, {"next_by", 10}, {"note", 200}} {
+			s, err := wardenRowStr(row, f.k, f.max, "sizes")
+			if err != nil {
+				return nil, err
+			}
+			if s != "" {
+				d[f.k] = s
+			}
+		}
+		what := docStr(d, "what")
+		if what == "" {
+			return nil, roomErr{"sizes: each row names what it is the size of (what), e.g. shoes"}
+		}
+		if seen[strings.ToLower(what)] {
+			return nil, roomErr{"sizes: " + what + " is given twice"}
+		}
+		seen[strings.ToLower(what)] = true
+		if by := docStr(d, "next_by"); by != "" && !wardenMonthRe.MatchString(by) && !wardenDate(by) {
+			return nil, roomErr{"sizes: next_by is YYYY-MM or YYYY-MM-DD"}
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// a clothing list, checked: [{item, size, need, have, note}]
+func wardenClothes(v any) ([]any, error) {
+	rows, err := wardenRows(v, "clothes", wardenMaxClothes)
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	for _, row := range rows {
+		d := map[string]any{}
+		for _, f := range []struct {
+			k   string
+			max int
+		}{{"item", 60}, {"size", 20}, {"note", 200}} {
+			s, err := wardenRowStr(row, f.k, f.max, "clothes")
+			if err != nil {
+				return nil, err
+			}
+			if s != "" {
+				d[f.k] = s
+			}
+		}
+		if docStr(d, "item") == "" {
+			return nil, roomErr{"clothes: each row names its item, e.g. winter boots"}
+		}
+		for k, def := range map[string]int{"need": 1, "have": 0} {
+			n := def
+			if x, ok := row[k]; ok && x != nil {
+				f, ok := x.(float64)
+				if !ok || f != float64(int(f)) || f < 0 || f > 99 {
+					return nil, roomErr{"clothes: " + k + " is a whole number from 0 to 99"}
+				}
+				n = int(f)
+			}
+			d[k] = n
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// the clothing lists given in a, checked into w
+func wardenSetClothing(w map[string]any, a map[string]any) error {
+	if v, ok := a["sizes"]; ok && v != nil {
+		l, err := wardenSizes(v)
+		if err != nil {
+			return err
+		}
+		w["sizes"] = l
+	}
+	if v, ok := a["clothes"]; ok && v != nil {
+		l, err := wardenClothes(v)
+		if err != nil {
+			return err
+		}
+		w["clothes"] = l
+	}
+	return nil
+}
+
+// set_ward: any member renames a ward, gives it another colour or sets its clothing
 func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	id := sp.wardID(argStr(a, "ward"))
 	if id == "" {
@@ -533,6 +719,10 @@ func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[stri
 	if err != nil {
 		return nil, err
 	}
+	clothing := map[string]any{}
+	if err := wardenSetClothing(clothing, a); err != nil {
+		return nil, err
+	}
 	var out map[string]any
 	for _, w := range docMaps(sp.doc, "wards") {
 		if docStr(w, "id") != id {
@@ -544,7 +734,10 @@ func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[stri
 		if color != "" {
 			w["color"] = color
 		}
-		out = map[string]any{"id": id, "name": docStr(w, "name"), "color": docStr(w, "color")}
+		for k, v := range clothing {
+			w[k] = v
+		}
+		out = wardenWardJSON(w)
 	}
 	if err := s.save(ctx, sp); err != nil {
 		return nil, err
