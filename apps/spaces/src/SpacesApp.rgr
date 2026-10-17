@@ -514,6 +514,8 @@ class SpacesApp {
         board.endH = 22
         board.newTitle = (SpWords.noun(lang pack "event"))
         board.hasSettings = false
+        ; Add (above the calendar) is how an entry is made; the bar has no New
+        board.hasNew = false
         def i:int 0
         while (i < (array_length space.resources)) {
             def r:SpResource (itemAt space.resources i)
