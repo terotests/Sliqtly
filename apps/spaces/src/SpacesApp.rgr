@@ -239,6 +239,8 @@ class SpacesApp {
     def addOpen:boolean false
     ; on a narrow page the navigation hides behind the menu button
     def menuOpen:boolean false
+    ; the calendar-on-your-phone panel opened from the top bar
+    def phoneOpen:boolean false
     ; in it: the types to pick by hand shown (on a server the assistant comes
     ; first), what is searched for, the group picked, and the assistant's
     ; answer asked from it (-1 for none)
@@ -798,6 +800,16 @@ class SpacesApp {
         shown = none
         def shell:EVGElement (UiTree.div("sp-shell" "sp-shell"))
         shell.addChild((this.topBar()))
+        if (phoneOpen && ((strlen space.feed) > 0)) {
+            def pop:EVGElement (SpacesApp.box("sp-phonepop"))
+            def pc:EVGElement (this.feedCard())
+            pc.role = "dialog"
+            def cr:EVGElement (SpacesApp.box("sp-formrow"))
+            cr.addChild((SpacesApp.btn("sp-phone-close" "sp-action" (SpWords.pick(lang "Close" "Sulje")))))
+            pc.addChild(cr)
+            pop.addChild(pc)
+            shell.addChild(pop)
+        }
         def body:EVGElement (SpacesApp.box("sp-body"))
         if (this.narrow()) {
             body = (SpacesApp.box("sp-body sp-body-narrow"))
@@ -1280,6 +1292,22 @@ class SpacesApp {
         }
         if wordsOn {
             bar.addChild(pills)
+        }
+        if ((strlen space.feed) > 0) {
+            def phw:string (SpWords.pick(lang "Add to phone" "Liitä puhelimeen"))
+            def phc:string "sp-action sp-phonebtn"
+            if phoneOpen {
+                phc = "sp-action sp-phonebtn sp-action-primary"
+            }
+            def phs:string ("📱 " + phw)
+            if (this.narrow()) {
+                phs = "📱"
+            }
+            def ph:EVGElement (SpacesApp.btn("sp-phone" phc phs))
+            ph.a11yLabel = phw
+            ph.a11yHasPopup = "dialog"
+            ph.a11yExpanded = (SpacesApp.tri(phoneOpen))
+            bar.addChild(ph)
         }
         def lg:EVGElement (SpacesApp.box("sp-pills"))
         lg.role = "group"
@@ -3125,19 +3153,8 @@ class SpacesApp {
             }
             v.addChild(iv)
         }
-        if ((strlen space.feed) > 0) {
-            def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
-            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Apple's calendar also alerts of the reminders; Google's leaves the alerts out. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Applen kalenteri myös hälyttää muistutuksista; Googlen kalenteri jättää hälytykset pois. Jokainen, jolla on osoite, näkee menot.")))))
-            def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
-            sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
-            sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
-            sw.addChild((this.showSwitch("sp-feed-alarms" (SpWords.pick(lang "Alerts" "Hälytykset")) feedAlarms)))
-            fc.addChild(sw)
-            def fr:EVGElement (SpacesApp.box("sp-formrow"))
-            fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
-            fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
-            fc.addChild(fr)
-            v.addChild(fc)
+        if (((strlen space.feed) > 0) && (phoneOpen == false)) {
+            v.addChild((this.feedCard()))
         }
         if server {
             def kc:EVGElement (this.card("kidwatch" (SpWords.pick(lang "Events watch" "Tapahtumavahti"))))
@@ -3145,6 +3162,23 @@ class SpacesApp {
             v.addChild(kc)
         }
         return v
+    }
+
+    ; Subscribing to the space's calendar feed: on the members page and in
+    ; the panel the top bar's phone button opens.
+    fn feedCard:EVGElement () {
+        def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
+        fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Apple's calendar also alerts of the reminders; Google's leaves the alerts out. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Applen kalenteri myös hälyttää muistutuksista; Googlen kalenteri jättää hälytykset pois. Jokainen, jolla on osoite, näkee menot.")))))
+        def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
+        sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
+        sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
+        sw.addChild((this.showSwitch("sp-feed-alarms" (SpWords.pick(lang "Alerts" "Hälytykset")) feedAlarms)))
+        fc.addChild(sw)
+        def fr:EVGElement (SpacesApp.box("sp-formrow"))
+        fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
+        fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
+        fc.addChild(fr)
+        return fc
     }
 
     ; The wards; the owner removes one with a second press that says what
@@ -8699,6 +8733,17 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (target == "sp-phone") {
+            phoneOpen = (phoneOpen == false)
+            this.rebuild()
+            return true
+        }
+        if (target == "sp-phone-close") {
+            phoneOpen = false
+            focused = "sp-phone"
+            this.rebuild()
+            return true
+        }
         if (target == "sp-menu") {
             menuOpen = (menuOpen == false)
             this.rebuild()
@@ -10013,6 +10058,12 @@ class SpacesApp {
                     return true
                 }
             }
+        }
+        if ((k == "Escape") && phoneOpen) {
+            phoneOpen = false
+            focused = "sp-phone"
+            this.rebuild()
+            return true
         }
         if ((k == "Escape") && (editing || addOpen)) {
             editing = false
