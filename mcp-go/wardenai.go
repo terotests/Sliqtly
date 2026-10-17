@@ -9,7 +9,10 @@
 //
 //	POST /apps/warden/api/assist
 //	  {space_id, text, images: [{mimeType, data}], history: [{role, text}], today}
-//	  {text, changed, event_ids, calls: [{tool, ok}]}
+//	  {text, changed, event_ids, deleted, calls: [{tool, ok}]}
+//
+// event_ids are the entries it made or changed, deleted the ones it removed:
+// the page shows them under the answer.
 //
 // The model is the editor's (aimodel.go, SLIQTLY_AI); WARDEN_AI_MODEL names
 // another of the same kind.
@@ -208,8 +211,10 @@ How to work:
 - A question to another member ("ask Anna whether she can pick Leo up on Tuesday", "kysy käykö hoitoaika", "pyydä maksamaan 40 € tasaukseksi") is ask_question with the fitting kind, to that member (<members>), the child as ward and the day and times; not a calendar entry, which the answer makes. Answering a question asked of the person is answer_question (list_questions shows them).
 - Do not delete anything unless the person asks.
 - If a call is refused, read why, mend it and call again.
+- This is a conversation: the earlier turns are in it, and the person's next message may answer what you asked. When something you need is unclear and neither the message nor the space tells it (which child, which of several entries to change, a time or a place that is not said), make what is already clear and ask one short, concrete question about the rest instead of guessing.
+- When you are asked for something your functions cannot do (sending a message or an email, booking, paying, reading a web page…), say plainly that you cannot do it and, when there is one, what the person can do instead. Never say you did something you did not do.
 
-When you are done, answer in the person's language (Finnish when they write Finnish) in a few short lines: what you added or changed, one line each with its day, and anything you could not read or that they should check. No Markdown tables. If you only answered a question, say so briefly.`
+When you are done, answer in the person's language (Finnish when they write Finnish) in a few short lines: what you added or changed, one line each with its day, and anything you could not read or that they should check; then your question, if you have one. The page shows the entries you made or changed as cards under your answer, so do not repeat their every field. Plain sentences; **bold** and "- " lists are fine, no tables or headings. If you only answered a question, say so briefly.`
 
 // the system prompt for one space
 func wardenAssistSystem(sp *wardenSpace, today time.Time) string {
@@ -318,6 +323,7 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 
 	calls := []wardenAssistCall{}
 	ids := []any{}
+	deleted := []any{}
 	changed := false
 	r := &aiReader{Tools: wardenAssistToolList(), Rounds: 14, Run: func(ctx context.Context, name string, args map[string]any) aiRead {
 		if !slices.Contains(wardenAssistTools, name) {
@@ -340,7 +346,11 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 		calls = append(calls, wardenAssistCall{name, true})
 		if t := findWardenTool(name); t != nil && !t.readOnly {
 			changed = true
-			if m, ok := out.(map[string]any); ok {
+			if name == "delete_event" {
+				if id, ok := args["event_id"].(string); ok {
+					deleted = append(deleted, id)
+				}
+			} else if m, ok := out.(map[string]any); ok {
 				if id, ok := m["event_id"].(string); ok {
 					ids = append(ids, id)
 				}
@@ -364,5 +374,5 @@ func (s *wardenService) assist(ctx context.Context, who wardenWho, a map[string]
 	if answer == "" && changed {
 		answer = fmt.Sprintf("Saved %d entries.", len(ids))
 	}
-	return map[string]any{"space_id": sp.id, "text": answer, "changed": changed, "event_ids": ids, "calls": calls}, nil
+	return map[string]any{"space_id": sp.id, "text": answer, "changed": changed, "event_ids": ids, "deleted": deleted, "calls": calls}, nil
 }

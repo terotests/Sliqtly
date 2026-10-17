@@ -111,6 +111,13 @@ function frame(t) {
   stage.style.height = H + "px";
   window.__lastList = list;
   syncAddress(false);
+  // what the app wants in view (the assistant's conversation after a
+  // message): scrolled down to, never up
+  const reveal = app.takeReveal();
+  if (reveal >= 0) {
+    const want = stage.getBoundingClientRect().top + window.scrollY + reveal + 16 - window.innerHeight;
+    if (want > window.scrollY) window.scrollTo(0, want);
+  }
   if (gl) renderDisplayList(gl, { width: W, height: H, list }, { dpr });
   generation += 1;
   const tree = JSON.parse(app.a11yJson(generation, app.focused || ""));
