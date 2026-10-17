@@ -83,6 +83,7 @@ func TestWardenKids(t *testing.T) {
 	eq(t, []any{f["title"], f["place"], f["price"], f["age"], f["url"]}, []any{"Nukketeatteri", "Tahmelan Huvila, Tampere", "ilmainen", "3-8", "https://tapahtumat.tampere.fi/page/0"})
 	run := out["watch"].(map[string]any)["runs"].([]any)[0].(map[string]any)
 	eq(t, []any{run["results"], run["new"], run["left_out"]}, []any{4.0, 2.0, map[string]any{"no_day": 2.0, "low_fit": 1.0}})
+	eq(t, []any{run["near"], run["local"]}, []any{"Tampere", "2026-10-17 12:00"}, "where and when")
 
 	// not in the calendar until added
 	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})

@@ -278,9 +278,9 @@
 .sp-tab:hover { background-color: #efe7df; }
 .sp-tab:focus { background-color: #efe7df; }
 .sp-tab-on { background-color: var(--surface); border: 1px solid var(--line); }
-.sp-tab-tx { color: var(--ink); font-size: 13px; font-weight: 500; height: 18px; line-height: 18px; white-space: nowrap; }
+.sp-tab-tx { color: var(--ink); font-size: 13px; height: 18px; line-height: 18px; white-space: nowrap; }
 .sp-tab-on-tx { font-weight: 700; }
-.sp-count { display: flex; flex-shrink: 0; align-items: center; justify-content: center; height: 18px; padding: 0 6px; margin-left: 6px; border-radius: 9px; background-color: var(--accent); }
+.sp-count { display: flex; flex-shrink: 0; align-items: center; justify-content: center; height: 18px; padding: 0 6px; margin-left: 8px; border-radius: 9px; background-color: var(--accent); }
 .sp-count-tx { color: var(--on-accent); font-size: 11px; font-weight: 700; height: 18px; line-height: 18px; }
 
 .sp-table {
@@ -860,6 +860,8 @@
 .sp-deal { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 10px 12px; border-radius: 12px; background-color: var(--surface); }
 .sp-dealtop { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .sp-dfit { color: var(--ink); font-size: 12px; font-weight: 700; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 10px; background-color: var(--soft); flex-shrink: 0; }
+.sp-wrun { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.sp-wrtime { color: var(--muted); font-size: 13px; font-weight: 600; height: 20px; line-height: 20px; flex-shrink: 0; }
 .sp-dwhy { color: var(--muted); font-size: 13px; height: auto; line-height: 18px; }
 
 /* --- a ward's clothing (Members page) ------------------------------------------- */

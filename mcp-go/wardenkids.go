@@ -17,6 +17,8 @@
 //	ages:  age groups: baby (0-2), small (3-6), school (7-12), teen (13-17)
 //	finds: [{id, title, url, date, start, place, price, age, score, why,
 //	        found, rating, reason, added}] (added: the calendar entry's id)
+//	runs:  the latest runs' logs, newest first, as an entry watch's
+//	       (wardenwatch.go), with near and ages in place of query
 //
 // The daily run (POST /apps/warden/api/run_watches) runs the due ones after
 // the entries' watches.
@@ -249,7 +251,8 @@ func (s *wardenService) runKidWatch(ctx context.Context, sp *wardenSpace, w Doc)
 	left := map[string]int{}
 	fresh := []map[string]any{}
 	hits, err := s.search.Events(ctx, ask)
-	run := map[string]any{"at": now.UTC().Format(time.RFC3339), "results": len(hits)}
+	run := wardenRunLog(sp, now)
+	run["near"], run["ages"], run["results"] = ask.Near, anys(docStrs(w, "ages")), len(hits)
 	if err != nil {
 		w["last_error"] = err.Error()
 		run["errors"] = []any{err.Error()}
