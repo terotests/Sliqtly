@@ -1,0 +1,34 @@
+# Warden's deal watcher (mcp-go/wardenwatch.go): once a day the server looks
+# for offers of the entries that are watched. The call runs a batch of the
+# watches that are due and says whether more are; it is made again while
+# they are. Run by hand: Actions → Warden watch → Run workflow.
+#
+# Needs the WARDEN_CRON_TOKEN secret, the same one Deploy MCP Go gives the
+# service; without it nothing is called.
+name: Warden watch
+
+on:
+  schedule:
+    - cron: "15 5 * * *" # 07:15 or 08:15 in Helsinki
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the watches that are due
+        env:
+          TOKEN: ${{ secrets.WARDEN_CRON_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::No WARDEN_CRON_TOKEN secret: the watches are not run."
+            exit 0
+          fi
+          for i in 1 2 3 4 5 6 7 8; do
+            OUT=$(curl -fsS -X POST -H "Authorization: Bearer $TOKEN" https://sliqtly.com/apps/warden/api/run_watches)
+            echo "$OUT" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "$OUT" | grep -q '"more":true' || break
+          done
