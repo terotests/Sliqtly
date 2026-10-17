@@ -131,6 +131,10 @@ func TestWardenWatch(t *testing.T) {
 	lw := out["watch"].(map[string]any)
 	r0 := lw["runs"].([]any)[0].(map[string]any)
 	eq(t, []any{r0["results"], r0["new"], r0["left_out"]}, []any{7.0, 2.0, map[string]any{"too_expensive": 1.0, "excluded": 1.0, "not_listing": 1.0, "other_site": 1.0, "low_fit": 1.0}})
+	eq(t, []any{r0["query"], r0["near"], r0["sources"], r0["local"]}, []any{"Lasten sängyt", "Tampere", []any{"tori", "vinted", "huuto"}, "2026-10-17 12:00"}, "what was searched, where and when")
+	if by, _ := r0["by"].(string); by == "" || by == "auto" {
+		t.Fatalf("a run from the page names who ran it: %v", r0["by"])
+	}
 
 	// on the entry, and nothing in the calendar
 	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})

@@ -17,8 +17,10 @@
 //	           seen, runs, last_run, last_error, by}
 //	finds:    [{id, title, url, source, found, price, location, snippet,
 //	           score, why, rating, reason}] (rating: like or hide, rate_find)
-//	runs:     the latest runs' logs, newest first: {at, results, new,
-//	           left_out: {reason: count}, errors}
+//	runs:     the latest runs' logs, newest first: {at, local, by, query,
+//	           near, sources, results, new, left_out: {reason: count},
+//	           errors} (local: the space's time; by: who ran it, "auto"
+//	           for the daily run; the Vahdit page lists them)
 //	watching: true while it is on (what the daily run looks for)
 //
 // The runs:
@@ -55,7 +57,7 @@ const (
 	wardenWatchBatch = 25  // watches one scheduled call runs
 	wardenWatchHits  = 10  // results asked of one search
 	wardenWatchMax   = 50  // watches of a space
-	wardenWatchRuns  = 10  // run logs kept
+	wardenWatchRuns  = 30  // run logs kept
 	wardenWatchAvoid = 10  // hidden finds told to the search
 	// a find that fits worse than this (0-100) is kept but not reminded of
 	wardenWatchFit = 50
@@ -715,7 +717,9 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 	}
 	w["seen"] = anys(seen)
 	w["finds"] = anys(wardenTrimFinds(append(slices.Clone(fresh), old...)))
-	run := map[string]any{"at": now.UTC().Format(time.RFC3339), "results": results, "new": len(notify)}
+	run := wardenRunLog(sp, now)
+	run["query"], run["near"], run["sources"] = q, ask.Near, anys(srcs)
+	run["results"], run["new"] = results, len(notify)
 	if len(left) > 0 {
 		lo := map[string]any{}
 		for k, v := range left {
@@ -737,6 +741,16 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		return nil, err
 	}
 	return anys(fresh), nil
+}
+
+// a run's log as it begins: when, in UTC and in the space's time, and who
+// ran it ("auto" for the daily run)
+func wardenRunLog(sp *wardenSpace, now time.Time) map[string]any {
+	by := wardenOr(sp.who.name, sp.who.uid)
+	if sp.who.uid == wardenWatchUID {
+		by = "auto"
+	}
+	return map[string]any{"at": now.UTC().Format(time.RFC3339), "local": now.In(wardenLoc(sp)).Format("2006-01-02 15:04"), "by": by}
 }
 
 // a find's fit, 0-100; one the search gave none is taken to fit

@@ -200,6 +200,43 @@ class SpKidFind {
     }
 }
 
+; One search a watch made (wardenwatch.go's run logs): when, who ran it
+; ("auto" for the daily run), what it looked for and where, and what came
+; of it. An entry's deal watch or the space's events watch.
+class SpWatchRun {
+    ; UTC, RFC 3339: the order
+    def at:string ""
+    ; the space's time, "2026-10-17 08:15" ("" in an older log)
+    def local:string ""
+    def by:string ""
+    ; the deal watch's entry ("" the events watch)
+    def entry:string ""
+    def query:string ""
+    def near:string ""
+    ; where it looked: tori, vinted, huuto, web
+    def sources:[string]
+    def results:int 0
+    def fresh:int 0
+    ; why results were left out, with how many: "seen" 3
+    def leftWhy:[string]
+    def leftN:[int]
+    def errors:[string]
+    Constructor () {
+    }
+
+    ; minutes since day 0 (UTC), for newest first; -1 when unread
+    fn order:int () {
+        if ((strlen at) < 16) {
+            return -1
+        }
+        def d:int (SpText.dayOf((substring at 0 10) 2026))
+        if (d < 0) {
+            return -1
+        }
+        return ((d * 1440) + ((SpText.number((substring at 11 13))) * 60) + (SpText.number((substring at 14 16))))
+    }
+}
+
 ; Who looks after an event, and how: "Mia" who "takes".
 class SpWho {
     def name:string ""
@@ -488,6 +525,9 @@ class SpEvent {
     ; where it looks (tori, vinted, huuto, web) and days between searches
     def watchSources:[string]
     def watchEvery:int 1
+    ; the latest searches, newest first, and when it last searched (UTC)
+    def watchRuns:[SpWatchRun]
+    def watchLast:string ""
     ; the server ids of the entries it is linked with (both ways), and the
     ; links made or taken off here that the server has not had yet
     def links:[string]
