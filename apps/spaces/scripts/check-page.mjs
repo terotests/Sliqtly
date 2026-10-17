@@ -139,7 +139,10 @@ try {
   const space = (extra = {}) => ({
     space_id: "sp1", name: "Home crew", vocab: "family", lang: "en", role: "owner",
     members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }], invites: [],
-    wards: [{ id: "w1", name: "Aino", color: "rose" }, { id: "w2", name: "alex", color: "blue" }], ...extra,
+    wards: [{ id: "w1", name: "Aino", color: "rose",
+      sizes: [{ what: "shoes", size: "30", next_size: "31", next_by: "2027-03" }, { what: "clothes", size: "122", next_size: "128", next_by: "2027-08" }],
+      clothes: [{ item: "winter boots", size: "31", need: 1, have: 0, missing: 1 }, { item: "socks", need: 6, have: 4, missing: 2 }] },
+      { id: "w2", name: "alex", color: "blue" }], ...extra,
   });
   const files = serveDir(wardenDist);
   const api = http.createServer(async (req, res) => {
@@ -170,6 +173,7 @@ try {
       return send({ from: last.from, to: last.to, total: 42, shared: 42, by_payer: { Mia: 42 }, months: [{ month: last.from, total: 42, shared: 42, by_payer: { Mia: 42 },
         lines: [{ event_id: "ev7", title: "Swimming fee", type: "hobby", date: last.from + "-10", amount: 42, payer: "Mia", scope: "shared", n: 1, of: 1 }] }] });
     }
+    if (op === "set_ward") return send({ id: "w1" });
     if (op === "remove_ward") return send({ ...space({ wards: [{ id: "w1", name: "Aino", color: "rose" }] }), removed_ward: last.ward, events_cleared: 0 });
     if (op === "invite_member") return send(space({ invites: [calls[calls.length - 1].body.email] }));
     if (op === "assist") return send({ space_id: "sp1", text: "Added Leo's swimming on Tuesdays.", changed: true, event_ids: ["ev9"], calls: [{ tool: "import_events", ok: true }] });
@@ -204,6 +208,20 @@ try {
     const inv = calls.find((c) => c.op === "invite_member");
     ok("once", calls.filter((c) => c.op === "invite_member").length === 1, JSON.stringify(calls.map((c) => c.op)));
     ok("a typed invite reaches the API", invited && inv && inv.body.email === "leena@example.com" && inv.body.space_id === "sp1", JSON.stringify(inv));
+    // a ward's clothing: opened, a row typed in, the lists to the API
+    await clickId(page, "sp-wardclothes-0");
+    await page.waitForTimeout(200);
+    await clickId(page, "sp-cloth-item");
+    await page.keyboard.type("mittens");
+    await page.keyboard.press("Enter");
+    const clothed = await page
+      .waitForFunction(() => window.__spaces.space.resources[0].clothes.length === 3, null, { timeout: 5000 })
+      .then(() => true, () => false);
+    const sw = calls.filter((c) => c.op === "set_ward").pop();
+    ok("a clothing row typed on the Members page reaches the API", clothed && sw && sw.body.clothes.length === 3 && sw.body.clothes[2].item === "mittens" && sw.body.sizes.length === 2, JSON.stringify(sw));
+    if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "clothes.png"), fullPage: true });
+    await clickId(page, "sp-wardclothes-0");
+    await page.waitForTimeout(200);
 
     // a ward added by mistake: Remove, then Remove again in the question
     await clickId(page, "sp-unward-1");

@@ -27,9 +27,24 @@ import (
 
 const wardenAssistOp = "assist"
 
-// the MCP tools the page's assistant may call: those of one space, without
-// the owner's (members, the space's name, deleting it)
-var wardenAssistTools = []string{"list_events", "list_entry_types", "budget", "save_event", "import_events", "import_ics", "delete_event", "add_ward", "set_watch", "list_watches", "run_watch", "add_place", "remove_place"}
+// the MCP tools the page's assistant may not call: it works in the open
+// space, so it neither lists the person's spaces nor makes a new one
+var wardenAssistLeftOut = []string{"list_spaces", "create_space"}
+
+// the MCP tools the page's assistant calls: every other one of wardenTools,
+// the same name, description and arguments (space_id is the open space's),
+// so the assistant can do whatever an assistant connected to the MCP server
+// can (TestWardenAssistToolsAreMCP). The owner's tools refuse a member as
+// they do over MCP.
+var wardenAssistTools = func() []string {
+	out := []string{}
+	for _, t := range wardenTools {
+		if !slices.Contains(wardenAssistLeftOut, t.name) {
+			out = append(out, t.name)
+		}
+	}
+	return out
+}()
 
 const (
 	wardenAssistText    = 20000 // characters of what the person gives
@@ -186,6 +201,7 @@ How to work:
 - The ward is who the entry is about (a child's name: a new name makes a new ward). Who takes, picks up or pays goes in the fields or in who.
 - Dates are the space's own local days and times. A date without a year is the next such day from today. Never invent a date or a time that is not given or plainly meant; when one is missing, make what you can and say what is missing.
 - Before adding, look at what is there already (list_events for the dates in question) and change an existing entry (save_event with its event_id) rather than adding it twice. For several new entries at once use import_events, each with an ext_id made of the source and the entry (e.g. "assist:school-letter-2026-11:retki"), so giving the same letter again changes them instead of doubling them.
+- A child's clothing sizes (what it wears now in shoes, clothes, outerwear…, the next size and by when) and its clothing list (what it should have, how many it has) are the ward's: set_ward with sizes and clothes, each list given whole (the ward's present lists are in <wards>). Clothing to buy may also be a need entry when the person asks for one.
 - Do not delete anything unless the person asks.
 - If a call is refused, read why, mend it and call again.
 
@@ -200,7 +216,15 @@ func wardenAssistSystem(sp *wardenSpace, today time.Time) string {
 	fmt.Fprintf(&b, "<space name=%q vocab=%q lang=%q/>\n", docStr(sp.doc, "name"), vocab, lang)
 	b.WriteString("<wards>\n")
 	for _, w := range docMaps(sp.doc, "wards") {
-		fmt.Fprintf(&b, "- %s: %s\n", docStr(w, "id"), docStr(w, "name"))
+		fmt.Fprintf(&b, "- %s: %s", docStr(w, "id"), docStr(w, "name"))
+		j := wardenWardJSON(w)
+		for _, k := range []string{"sizes", "clothes"} {
+			if l, ok := j[k]; ok {
+				raw, _ := json.Marshal(l)
+				fmt.Fprintf(&b, " %s=%s", k, raw)
+			}
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString("</wards>\n<members>\n")
 	for _, m := range docMaps(sp.doc, "members") {
