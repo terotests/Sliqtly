@@ -1114,53 +1114,6 @@ console.log("a reminder ticked off on the summary");
   ok("and it leaves the list", !byId(a, "sp-tick-" + fee.id));
 }
 
-console.log("an entry's offer watch");
-{
-  const a = new M.SpacesApp();
-  a.server = true;
-  a.lang = "fi";
-  a.init(CSS);
-  a.setWidth(1280, 700);
-  a.start();
-  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
-  a.answer(JSON.stringify({
-    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
-    events: [
-      { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
-        watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
-          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, location: "Tampere", source: "Tori", found: "2026-10-07" },
-          { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
-        ] } },
-    ],
-  }));
-  const bed = a.space.events[0];
-  eq("one safe find read", bed.findUrls.length, 1);
-  a.press("sp-nav-lists");
-  a.press("sp-list-item");
-  a.press("sp-entry-" + bed.id);
-  const t = texts(a);
-  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tampere · Tori · 7.10."), t.join(","));
-  a.press("sp-find-0");
-  eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
-  // its settings, sent as set_watch
-  a.press("sp-wsrc-web");
-  eq("a source is a set_watch", a.outOp(), "set_watch");
-  let wb = JSON.parse(a.outBody());
-  ok("with the sources", wb.event_id === "ev1" && wb.active === true && wb.sources.join() === "tori,web" && wb.every_days === 1, JSON.stringify(wb));
-  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 1, finds: [] } }));
-  a.press("sp-wint-7");
-  wb = JSON.parse(a.outBody());
-  eq("weekly", wb.every_days, 7);
-  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 7, finds: [] } }));
-  a.press("sp-watch-off");
-  wb = JSON.parse(a.outBody());
-  eq("stopped", wb.active, false);
-  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: false, sources: ["tori", "web"], every_days: 7, finds: [] } }));
-  ok("and it can be turned on again", !!byId(a, "sp-watch-on"));
-  const probs = a.a11yProblems();
-  ok("the watch lints clean", probs.length === 0, probs.join(" | "));
-}
-
 console.log("a web address in today's card");
 {
   const a = new M.SpacesApp();
@@ -1263,155 +1216,6 @@ console.log("list tabs: one line each, inside the page");
   }
 }
 
-console.log("the offers on the summary");
-{
-  const a = new M.SpacesApp();
-  a.server = true;
-  a.lang = "fi";
-  a.init(CSS);
-  a.setWidth(1280, 700);
-  a.start();
-  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
-  a.answer(JSON.stringify({
-    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
-    events: [
-      { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
-        watch: { query: "lasten sänky", active: true, sources: ["tori"], every_days: 1, finds: [
-          { id: "f1", title: "Nukensänky", url: "https://www.tori.fi/recommerce/forsale/item/1", price: 5, source: "Tori", found: "2026-10-07", score: 20, why: "nuken sänky" },
-          { id: "f2", title: "IKEA Kura", url: "https://www.tori.fi/recommerce/forsale/item/2", price: 60, location: "Pirkkala", source: "Tori", found: "2026-10-07", score: 70 },
-          { id: "f3", title: "Lasten sänky 90x200", url: "https://www.tori.fi/recommerce/forsale/item/3", price: 80, source: "Tori", found: "2026-10-07", score: 90, why: "juuri oikea koko" },
-          { id: "f4", title: "Pinnasänky", url: "https://www.vinted.fi/items/4", source: "Vinted", found: "2026-10-07", rating: "like" },
-        ] } },
-    ],
-  }));
-  ok("a tab for the offers", !!byId(a, "sp-htab-deals"));
-  a.press("sp-htab-deals");
-  let t = texts(a);
-  const at = (s) => t.indexOf(s);
-  ok("new ones best first, then liked, then skipped", at("Uudet (2)") >= 0 && at("Uudet (2)") < at("Lasten sänky 90x200") && at("Lasten sänky 90x200") < at("IKEA Kura")
-    && at("IKEA Kura") < at("Kiinnostavat (1)") && at("Kiinnostavat (1)") < at("Pinnasänky") && at("Pinnasänky") < at("Ohitetut (1)") && at("Ohitetut (1)") < at("Nukensänky"), t.join(","));
-  ok("with the fit and why", t.includes("90") && t.includes("juuri oikea koko") && t.includes("Lasten sängyt · 60 € · Pirkkala · Tori · 7.10."), t.join(","));
-  a.press("sp-deal-0");
-  eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/3");
-  a.press("sp-dhide-1");
-  eq("Ohita asks why first", a.outCount(), 0);
-  ok("the reasons", texts(a).includes("Liian kaukana"));
-  a.press("sp-dwhy-1-too_far");
-  eq("hidden as rate_find", a.outOp(), "rate_find");
-  let rb = JSON.parse(a.outBody());
-  ok("with why", rb.event_id === "ev1" && rb.find_id === "f2" && rb.rating === "hide" && rb.reason === "too_far", JSON.stringify(rb));
-  a.answer(JSON.stringify({ event_id: "ev1", find: { id: "f2", rating: "hide", reason: "too_far" } }));
-  t = texts(a);
-  ok("now under the skipped", t.indexOf("Ohitetut (2)") >= 0 && t.indexOf("Ohitetut (2)") < t.indexOf("IKEA Kura"), t.join(","));
-  a.press("sp-dlike-0");
-  rb = JSON.parse(a.outBody());
-  ok("liked", rb.find_id === "f3" && rb.rating === "like" && rb.reason === undefined, JSON.stringify(rb));
-  a.answer(JSON.stringify({ event_id: "ev1", find: { id: "f3", rating: "like" } }));
-  ok("in the interesting ones", texts(a).includes("Kiinnostavat (2)"));
-  const probs = a.a11yProblems();
-  ok("the offers lint clean", probs.length === 0, probs.join(" | "));
-}
-
-console.log("the children's events on the summary");
-{
-  const a = new M.SpacesApp();
-  a.server = true;
-  a.lang = "fi";
-  a.init(CSS);
-  a.setWidth(1280, 700);
-  a.start();
-  const iso = (d) => M.UiDate.isoOfDays(d);
-  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
-  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
-  const events = [{ event_id: "ev1", title: "Leikkipuisto", date: iso(a.today), start: "10:00" }];
-  a.answer(JSON.stringify({ space, events, event_watch: { active: true, ages: ["small", "school"], every_days: 7, finds: [
-    { id: "k0", title: "Mennyt", url: "https://tapahtumat.tampere.fi/page/0", date: iso(a.today - 1) },
-  ] } }));
-  ok("no tabs while nothing is found", !byId(a, "sp-htab-kids") && !byId(a, "sp-htab-deals"));
-  const watch = { active: true, ages: ["small", "school"], every_days: 7, finds: [
-    { id: "k1", title: "Nukketeatteri", url: "https://tapahtumat.tampere.fi/page/1", date: iso(a.today + 2), start: "12:00", place: "Tahmelan Huvila", price: "ilmainen", age: "3-8", score: 90, why: "nukketeatteri" },
-    { id: "k2", title: "Karnevaali", url: "https://tapahtumat.tampere.fi/page/2", date: iso(a.today + 1), score: 30 },
-  ] };
-  a.reload();
-  a.answer(JSON.stringify({ space, events, event_watch: watch }));
-  ok("a tab once something is found", texts(a).includes("Tapahtumia") && !byId(a, "sp-htab-deals"));
-  a.press("sp-htab-kids");
-  let t = texts(a);
-  ok("the events, the skipped last", t.includes("Nukketeatteri") && t.includes("Tahmelan Huvila · ilmainen · 3-8") && t.indexOf("Ohitetut (1)") < t.indexOf("Karnevaali")
-    && t.indexOf("Nukketeatteri") < t.indexOf("Ohitetut (1)"), t.join(","));
-  ok("not in the calendar", a.space.events.length === 1);
-  a.press("sp-kev-0");
-  eq("an event opens in a new tab", a.takeAction(), "open:https://tapahtumat.tampere.fi/page/1");
-  a.press("sp-kadd-0");
-  eq("added on asking", a.outOp(), "add_event_find");
-  let b = JSON.parse(a.outBody());
-  ok("this one", b.find_id === "k1" && b.space_id === "sp1", JSON.stringify(b));
-  a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", added: "x1" }, event: { event_id: "x1" } }));
-  eq("then the space is read again", a.outOp(), "get_space");
-  watch.finds[0].added = "x1";
-  a.answer(JSON.stringify({ space, events: [{ event_id: "x1", title: "Nukketeatteri", date: iso(a.today + 2), start: "12:00" }], event_watch: watch }));
-  ok("it shows as in the calendar", texts(a).includes("Kalenterissa"));
-  a.press("sp-khide-0");
-  a.press("sp-kwhy-0-too_far");
-  b = JSON.parse(a.outBody());
-  ok("hidden with why, no entry", a.outOp() === "rate_find" && b.find_id === "k1" && b.rating === "hide" && b.reason === "too_far" && b.event_id === undefined, JSON.stringify(b));
-  a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", rating: "hide" } }));
-  a.press("sp-kage-teen");
-  b = JSON.parse(a.outBody());
-  ok("an age group", a.outOp() === "set_event_watch" && b.active === true && b.ages.join() === "small,school,teen", JSON.stringify(b));
-  a.answer(JSON.stringify({ space_id: "sp1", watch }));
-  const probs = a.a11yProblems();
-  ok("the events lint clean", probs.length === 0, probs.join(" | "));
-}
-
-console.log("the events watch on the members page");
-{
-  const a = new M.SpacesApp();
-  a.server = true;
-  a.lang = "fi";
-  a.init(CSS);
-  a.setWidth(1280, 700);
-  a.start();
-  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
-  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
-  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
-  a.press("sp-nav-members");
-  ok("turned on before anything is found", texts(a).includes("Tapahtumavahti") && !!byId(a, "sp-kw-on"));
-  a.press("sp-kw-on");
-  const on = JSON.parse(a.outBody());
-  ok("on", a.outOp() === "set_event_watch" && on.active === true, JSON.stringify(on));
-  a.answer(JSON.stringify({ space_id: "sp1", watch: { active: true, ages: ["small", "school"], every_days: 7, finds: [] } }));
-  ok("then its age groups there", !!byId(a, "sp-kage-teen") && !!byId(a, "sp-kw-run"));
-}
-
-console.log("the watches page");
-{
-  const a = new M.SpacesApp();
-  a.server = true;
-  a.lang = "fi";
-  a.init(CSS);
-  a.setWidth(1280, 700);
-  a.start();
-  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
-  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
-  const watch = { query: "Lasten sänky", active: true, every_days: 1, sources: ["tori", "vinted"],
-    finds: [{ id: "f1", title: "Sänky", url: "https://www.tori.fi/a/1", source: "Tori", rating: "like" }, { id: "f2", title: "Pinnasänky", url: "https://www.tori.fi/a/2", source: "Tori" }],
-    runs: [{ at: "2026-10-17T05:15:00Z", local: "2026-10-17 08:15", by: "auto", query: "Lasten sänky", near: "Tampere", sources: ["tori", "vinted"], results: 7, new: 2, left_out: { seen: 3, too_expensive: 1 } },
-      { at: "2026-10-16T05:15:00Z", results: 4, new: 0, errors: ["Vinted: timeout"] }] };
-  const event_watch = { active: true, area: "Tampere", ages: ["small"], finds: [],
-    runs: [{ at: "2026-10-17T09:00:00Z", local: "2026-10-17 12:00", by: "Mia", near: "Tampere", results: 5, new: 3 }] };
-  a.answer(JSON.stringify({ space, events: [{ event_id: "e1", title: "Sänky Leolle", type: "item", watch }], event_watch }));
-  ok("in the menu", !!byId(a, "sp-nav-watches") && texts(a).includes("Vahdit"));
-  a.press("sp-nav-watches");
-  const t = texts(a);
-  ok("the numbers", t.includes("1 / 1") && t.includes("17.10. 08:15") && t.includes("17.10. 12:00") && t.includes("Päällä"), t.join("|"));
-  ok("each watch", t.includes("”Lasten sänky” · Tori, Vinted · päivittäin") && t.includes("2 löytöä"), t.join("|"));
-  ok("every search, newest first", t.indexOf("Tapahtumavahti", t.indexOf("Hakuhistoria")) < t.indexOf("Sänky Leolle", t.indexOf("Hakuhistoria")), t.join("|"));
-  ok("what came of it", t.includes("7 tulosta, 2 uutta · pois jätetty: 3 jo nähty, 1 liian kallis") && t.includes("ajastettu") && t.includes("Virheet: Vinted: timeout") && t.includes("16.10. 05:15 UTC"), t.join("|"));
-  a.press("sp-runs-kids");
-  ok("only the events watch's", !texts(a).includes("Virheet: Vinted: timeout") && texts(a).includes("5 tulosta, 3 uutta"));
-}
-
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
@@ -1431,9 +1235,9 @@ console.log("the assistant on a server");
   a.press("sp-ex-1");
   ok("an example goes in the field", a.assistField.value === "Lisää lääkärikäynnin kellonaika" && a.focused === "sp-assist-text");
   a.assistField.setValue("");
-  ok("what it can do is folded", !texts(a).includes("Ostosvahti"));
+  ok("what it can do is folded", !texts(a).includes("Perhe ja paikat"));
   a.press("sp-assist-help");
-  ok("and opens", texts(a).includes("Ostosvahti"));
+  ok("and opens", texts(a).includes("Perhe ja paikat") && !texts(a).includes("Ostosvahti"));
   a.press("sp-assist-help");
   a.press("sp-assist-send");
   eq("nothing written, nothing sent", a.outCount(), 0);
@@ -1509,7 +1313,7 @@ console.log("the assistant on a server");
   eq("sent from the Add menu", a.outOp(), "assist");
   a.answer(JSON.stringify({ space_id: "sp1", text: "Lisäsin hammaslääkärin.", changed: true, event_ids: ["e2"], calls: [] }));
   ok("its answer in the menu", texts(a).includes("Lisäsin hammaslääkärin.") && a.tab === "calendar" && a.addOpen);
-  ok("what can be added is listed under the field", texts(a).includes("Ostosvahti") && texts(a).includes("Kyselyt"));
+  ok("what can be added is listed under the field", texts(a).includes("Hankinnat") && texts(a).includes("Kyselyt"));
   // Enter is a line break in the field; Ctrl+Enter sends
   a.focused = "sp-assist-text";
   a.assistField.setValue("Leon synttärit la 15-18");

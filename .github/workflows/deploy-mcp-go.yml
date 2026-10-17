@@ -116,13 +116,6 @@ jobs:
           if [ -n "$GEMINI_KEY_SECRET" ]; then
             ENV_VARS="$ENV_VARS|GEMINI_API_KEY=$GEMINI_KEY_SECRET"
           fi
-          # Warden's deal watcher (mcp-go/wardenwatch.go): its daily run
-          # (.github/workflows/warden-watch.yml) signs in as this same
-          # account, the only one the run lets in
-          CRON_SA=$(gcloud config get-value account 2>/dev/null)
-          if [ -n "$CRON_SA" ]; then
-            ENV_VARS="$ENV_VARS|WARDEN_CRON_SA=$CRON_SA"
-          fi
           ENV_ARGS=(--update-env-vars "^|^$ENV_VARS")
           gcloud run deploy sliqtly-mcp --image "$IMAGE:$GITHUB_SHA" \
             --region "$REGION" --project "$PROJECT" --allow-unauthenticated \
