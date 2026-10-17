@@ -1372,18 +1372,14 @@ class SpacesApp {
         this.queue("rate_find" (SpRemote.rateBody(spaceId e k)) e.id)
     }
 
-    ; Tapahtumat: events for the children the server found near home, by
-    ; day, kept apart from the calendar until Lisää kalenteriin puts one in.
-    ; Off: a button turns the watch on. On: its age groups, Hae nyt, the
-    ; events, and the skipped ones (Ohita, or a fit under 50) last.
-    fn kidsBoard:EVGElement () {
-        def c:EVGElement (UiTree.div("sp-card-kids" "sp-deals"))
-        c.role = "region"
-        c.a11yLabel = (SpWords.pick(lang "Events" "Tapahtumia"))
+    ; the events watch's switch, its age groups and Hae nyt: on the events
+    ; tab and on the members page, where it is turned on before anything
+    ; is found (the tab shows only once something is)
+    fn kidControls:void (c:EVGElement) {
         if (kidOn == false) {
-            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Looks for events and things to do for the children near home once a week: shows, workshops, sports try-outs, library events. They stay here until you add one to the calendar." "Etsii kerran viikossa lapsille tapahtumia ja tekemistä kotin läheltä: esityksiä, työpajoja, lajikokeiluja, kirjaston tapahtumia. Ne pysyvät täällä, kunnes lisäät jonkin kalenteriin.")))))
+            c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Looks for events and things to do for the children near home once a week: shows, workshops, sports try-outs, library events. They are listed on the summary's Events tab, not in the calendar, until you add one." "Etsii kerran viikossa lapsille tapahtumia ja tekemistä kodin läheltä: esityksiä, työpajoja, lajikokeiluja, kirjaston tapahtumia. Ne näkyvät koonnin Tapahtumia-välilehdellä, eivät kalenterissa, kunnes lisäät jonkin.")))))
             c.addChild((SpacesApp.btn("sp-kw-on" "sp-action" (SpWords.pick(lang "Watch for events" "Ota tapahtumavahti käyttöön")))))
-            return c
+            return
         }
         def bar:EVGElement (SpacesApp.box("sp-dealtop"))
         def ages:EVGElement (SpacesApp.box("sp-pills"))
@@ -1409,6 +1405,20 @@ class SpacesApp {
         bar.addChild((SpacesApp.btn("sp-kw-run" "sp-pill" (SpWords.pick(lang "Search now" "Hae nyt")))))
         bar.addChild((SpacesApp.btn("sp-kw-off" "sp-link" (SpWords.pick(lang "Stop" "Lopeta")))))
         c.addChild(bar)
+    }
+
+    ; Tapahtumat: events for the children the server found near home, by
+    ; day, kept apart from the calendar until Lisää kalenteriin puts one in.
+    ; Off: a button turns the watch on. On: its age groups, Hae nyt, the
+    ; events, and the skipped ones (Ohita, or a fit under 50) last.
+    fn kidsBoard:EVGElement () {
+        def c:EVGElement (UiTree.div("sp-card-kids" "sp-deals"))
+        c.role = "region"
+        c.a11yLabel = (SpWords.pick(lang "Events" "Tapahtumia"))
+        this.kidControls(c)
+        if (kidOn == false) {
+            return c
+        }
         def skipped:int 0
         def shown:int 0
         def k:int 0
@@ -2672,6 +2682,11 @@ class SpacesApp {
             fr.addChild((SpacesApp.btn("sp-feed-copy" "sp-action" (SpWords.pick(lang "Copy the address" "Kopioi osoite")))))
             fc.addChild(fr)
             v.addChild(fc)
+        }
+        if server {
+            def kc:EVGElement (this.card("kidwatch" (SpWords.pick(lang "Events watch" "Tapahtumavahti"))))
+            this.kidControls(kc)
+            v.addChild(kc)
         }
         return v
     }
