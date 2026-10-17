@@ -85,3 +85,42 @@ func TestWardenQuestionHours(t *testing.T) {
 	m := out["made"].(map[string]any)
 	eq(t, []any{m["type"], m["start"], m["end"], m["fields"].(map[string]any)["carer"]}, []any{"childcare_shift", "16:00", "18:30", "Anna"})
 }
+
+// a question to everyone else, and the asker changing an open one
+func TestWardenQuestionAllAndChange(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	wardenCall(t, base, "tero", "invite_member", map[string]any{"space_id": sid, "email": "anna@example.com"})
+	wardenCall(t, base, "anna", "list_spaces", nil)
+
+	// no one named: everyone else, and the first to answer does it
+	code, out := wardenCall(t, base, "tero", "ask_question", map[string]any{"space_id": sid, "kind": "take_kids", "date": "2026-10-22", "start": "16:00", "hours": 2})
+	eq(t, code, 200, "asked of all")
+	qid := out["event_id"].(string)
+	f := out["fields"].(map[string]any)
+	eq(t, []any{f["ask_to"], f["ask_to_uid"]}, []any{"Kaikki muut", "*"})
+	_, out = wardenCall(t, base, "anna", "list_questions", map[string]any{"space_id": sid, "mine": "to"})
+	eq(t, len(out["questions"].([]any)), 1, "it is Anna's to answer")
+	_, out = wardenCall(t, base, "tero", "list_questions", map[string]any{"space_id": sid, "mine": "to"})
+	eq(t, len(out["questions"].([]any)), 0, "not the asker's")
+	code, out = wardenCall(t, base, "tero", "answer_question", map[string]any{"space_id": sid, "event_id": qid, "answer": "kyllä"})
+	eq(t, []any{code, out["error"]}, []any{400, "the others answer this question, not the one who asked"})
+
+	// changed before an answer: new words, the kind's old fields gone
+	code, out = wardenCall(t, base, "anna", "ask_question", map[string]any{"space_id": sid, "event_id": qid, "kind": "free", "question": "Hei?"})
+	eq(t, []any{code, out["error"]}, []any{400, "only Tero changes this question"})
+	code, out = wardenCall(t, base, "tero", "ask_question", map[string]any{"space_id": sid, "event_id": qid, "kind": "free", "question": "Moneltako Leevin neuvola on?", "to": "Anna"})
+	eq(t, code, 200, "changed")
+	f = out["fields"].(map[string]any)
+	eq(t, []any{out["event_id"], out["title"], f["ask"], f["ask_to"], f["on_date"], f["hours"]}, []any{qid, "Moneltako Leevin neuvola on?", "free", "Anna", nil, nil})
+
+	// answered by anyone of everyone else: the one who said yes does it
+	_, out = wardenCall(t, base, "tero", "ask_question", map[string]any{"space_id": sid, "kind": "school", "to": "kaikki", "date": "2026-10-20", "start": "08:00", "direction": "pick"})
+	sq := out["event_id"].(string)
+	_, out = wardenCall(t, base, "anna", "answer_question", map[string]any{"space_id": sid, "event_id": sq, "answer": "voin"})
+	eq(t, out["made"].(map[string]any)["who"], []any{map[string]any{"name": "Anna", "role": "hakee"}})
+	code, out = wardenCall(t, base, "tero", "ask_question", map[string]any{"space_id": sid, "event_id": sq, "kind": "free", "question": "?"})
+	eq(t, []any{code, strings.HasPrefix(out["error"].(string), "it has been answered already")}, []any{400, true})
+}

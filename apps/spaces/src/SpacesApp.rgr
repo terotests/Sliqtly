@@ -288,6 +288,10 @@ class SpacesApp {
     ; question being answered in words and its field, and the questions
     ; shown, by the number their buttons carry
     def askKind:string ""
+    ; the new question's card is open; the open question being asked anew
+    ; (its local id, "" a new one)
+    def askNew:boolean false
+    def askEdit:string ""
     def askAiField:InputCtl (new InputCtl())
     def askAiAsked:int -1
     def askSel:string ""
@@ -1034,6 +1038,8 @@ class SpacesApp {
     fn homeView:EVGElement () {
         def none:[int]
         itemDays = none
+        def noAsks:[string]
+        askIds = noAsks
         def noOccs:[string]
         itemOccs = noOccs
         def noTexts:[string]
@@ -1561,6 +1567,18 @@ class SpacesApp {
 
     fn todayCol:EVGElement (w:double) {
         def c:EVGElement (this.section("today" (SpWords.ui(lang "today"))))
+        ; the first open question, the person's to answer first; the rest
+        ; on the Questions view
+        if server {
+            def qs:[SpEvent] (this.askOpenList())
+            if ((array_length qs) > 0) {
+                c.addChild((this.askRow((itemAt qs 0) w)))
+                if ((array_length qs) > 1) {
+                    def more:EVGElement (SpacesApp.btn("sp-askmore" "sp-link" ((SpWords.pick(lang "See more questions" "Katso lisää kysymyksiä")) + " (" + (to_string ((array_length qs) - 1)) + ")")))
+                    c.addChild(more)
+                }
+            }
+        }
         def r:SpRange (space.range("today" today today))
         ; windows to get things in and payment days are under Remember
         def own:[SpOccur]
@@ -5958,8 +5976,27 @@ class SpacesApp {
         return kind
     }
 
-    ; The other members by name: whom a question can go to.
+    ; Whom a question can go to: everyone else, then each other member by
+    ; name.
     fn askable:[string] () {
+        def out:[string]
+        def others:[string] (this.askOthers())
+        if ((array_length others) > 0) {
+            push out (this.askAllLabel())
+        }
+        def i:int 0
+        while (i < (array_length others)) {
+            push out (itemAt others i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn askAllLabel:string () {
+        return (SpWords.pick(lang "Everyone else" "Kaikki muut"))
+    }
+
+    fn askOthers:[string] () {
         def out:[string]
         def i:int 0
         while (i < (array_length space.members)) {
@@ -5994,7 +6031,51 @@ class SpacesApp {
         if ((strlen account.uid) == 0) {
             return false
         }
-        return ((SpacesApp.askOpen(e)) && ((e.fieldText("ask_to_uid")) == account.uid))
+        if ((SpacesApp.askOpen(e)) == false) {
+            return false
+        }
+        def to:string (e.fieldText("ask_to_uid"))
+        ; asked of everyone else: any of them answers
+        if (to == "*") {
+            return ((e.fieldText("asked_by_uid")) != account.uid)
+        }
+        return (to == account.uid)
+    }
+
+    ; The open questions: the person's to answer first, then those they
+    ; asked, then the rest.
+    fn askOpenList:[SpEvent] () {
+        def qs:[SpEvent] (this.questions())
+        def mine:[SpEvent]
+        def sent:[SpEvent]
+        def rest:[SpEvent]
+        def i:int 0
+        while (i < (array_length qs)) {
+            def e:SpEvent (itemAt qs i)
+            if (this.askForMe(e)) {
+                push mine e
+            } {
+                if (SpacesApp.askOpen(e)) {
+                    if ((e.fieldText("asked_by_uid")) == account.uid) {
+                        push sent e
+                    } {
+                        push rest e
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length sent)) {
+            push mine (itemAt sent j)
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length rest)) {
+            push mine (itemAt rest k)
+            k = (k + 1)
+        }
+        return mine
     }
 
     fn askWaiting:int () {
@@ -6032,41 +6113,82 @@ class SpacesApp {
         if ((array_length to) > 0) {
             first = (itemAt to 0)
         }
+        def was:string (this.askWas("ask_to_uid"))
+        if (((strlen was) > 0) && (was != "*")) {
+            first = (this.askWas("ask_to"))
+        }
         this.addPick("f:ask_to" first)
         if (((array_length space.resources) > 0) && (kind != "payment")) {
-            this.addPick("ward" "")
+            this.addPick("ward" (this.askWas("ward")))
         }
         if ((kind != "care_time") && ((kind != "take_kids") && (kind != "payment"))) {
-            this.addText("f:what" "")
+            this.addText("f:what" (this.askWas("what")))
         }
         if ((kind != "payment") && (kind != "suggest")) {
-            this.addText("f:on_date" "")
+            this.addText("f:on_date" (this.askWas("on_date")))
         }
         if (kind == "care_time") {
-            this.addText("f:until_date" "")
+            this.addText("f:until_date" (this.askWas("until_date")))
         }
         if ((kind == "take_kids") || ((kind == "event") || ((kind == "school") || ((kind == "hobby") || (kind == "free"))))) {
-            this.addText("f:from_time" "")
-            this.addText("f:to_time" "")
+            this.addText("f:from_time" (this.askWas("from_time")))
+            this.addText("f:to_time" (this.askWas("to_time")))
         }
         if (kind == "take_kids") {
-            this.addText("f:hours" "")
+            this.addText("f:hours" (this.askWas("hours")))
         }
         if ((kind == "school") || (kind == "hobby")) {
-            this.addPick("f:direction" "take")
+            this.addPick("f:direction" (SpacesApp.orOf((this.askWas("direction")) "take")))
         }
         if ((kind == "payment") || (kind == "buy")) {
-            this.addText("f:amount" "")
+            this.addText("f:amount" (this.askWas("amount")))
         }
         if ((kind == "suggest") || (kind == "free")) {
-            this.addText("f:options" "")
+            this.addText("f:options" (this.askWas("options")))
         }
         if ((kind != "buy") && (kind != "payment")) {
-            this.addPick("f:add_to_calendar" "true")
+            this.addPick("f:add_to_calendar" (SpacesApp.orOf((this.askWas("add_to_calendar")) "true")))
         }
-        this.addText("title" "")
-        this.addText("notes" "")
+        this.addText("title" (this.askWas("title")))
+        this.addText("notes" (this.askWas("notes")))
         focused = ""
+    }
+
+    sfn orOf:string (v:string dflt:string) {
+        if ((strlen v) > 0) {
+            return v
+        }
+        return dflt
+    }
+
+    ; A value of the question being asked anew ("" for a new one): its
+    ; fields, and title, notes and ward.
+    fn askWas:string (key:string) {
+        if ((strlen askEdit) == 0) {
+            return ""
+        }
+        def found@(optional):SpEvent (space.event(askEdit))
+        if (null? found) {
+            return ""
+        }
+        def e:SpEvent found
+        if (key == "title") {
+            return e.title
+        }
+        if (key == "notes") {
+            return e.notes
+        }
+        if (key == "ward") {
+            return e.resource
+        }
+        return (e.fieldText(key))
+    }
+
+    ; An open question of the person's own, into the form to change.
+    fn editAsk:void (e:SpEvent) {
+        askEdit = e.id
+        askNew = true
+        this.openAsk((SpacesApp.orOf((e.fieldText("ask")) "free")))
     }
 
     ; The kinds whose form asks for a day.
@@ -6094,7 +6216,18 @@ class SpacesApp {
         def o:VlJson (VlJson.objectValue())
         o.setMember("space_id" (SpRemote.str(spaceId)))
         o.setMember("kind" (SpRemote.str(askKind)))
-        o.setMember("to" (SpRemote.str(to)))
+        if (to == (this.askAllLabel())) {
+            o.setMember("to" (SpRemote.str("all")))
+        } {
+            o.setMember("to" (SpRemote.str(to)))
+        }
+        if ((strlen askEdit) > 0) {
+            def found@(optional):SpEvent (space.event(askEdit))
+            if (!null? found) {
+                def ee:SpEvent found
+                o.setMember("event_id" (SpRemote.str(ee.remoteId)))
+            }
+        }
         def texts:[string] ([] _:string ( "title" "question" "f:what" "what" "f:on_date" "date" "f:until_date" "until" "notes" "notes" ))
         def i:int 0
         while (i < (array_length texts)) {
@@ -6243,81 +6376,96 @@ class SpacesApp {
         def none:[string]
         askIds = none
         def v:EVGElement (SpacesApp.box("sp-view"))
-        v.addChild((this.heading((SpWords.ui(lang "questions")) (SpWords.pick(lang "Ask another family member: they answer yes or no, and a yes goes on the calendar or into the budget." "Kysy toiselta perheenjäseneltä: hän vastaa kyllä tai ei, ja myönteinen vastaus menee kalenteriin tai budjettiin.")))))
-        ; the assistant first
-        def ai:EVGElement (this.card("ask-ai" (SpWords.pick(lang "Let the assistant make the question" "Anna AI:n hoitaa kyselyn teko"))))
-        ai.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "Write what you want to ask and of whom." "Kirjoita mitä haluat kysyä ja keneltä.")))))
-        askAiField.multiline = true
-        askAiField.maxLines = 4
-        def fr:EVGElement (this.field(askAiField "sp-askai-text" (SpWords.pick(lang "Your question" "Kysymyksesi")) (SpWords.pick(lang "E.g. Ask Anna whether she can pick Leo up from school on Tuesday at 14" "Esim. Kysy Annalta voiko hän hakea Leon koulusta tiistaina klo 14")) "text"))
-        UiTree.inline(fr "width" (SpacesApp.px(((this.mainW()) - 40.0))))
-        ai.addChild(fr)
-        def arow:EVGElement (SpacesApp.box("sp-row"))
-        arow.addChild((SpacesApp.box("sp-grow")))
-        if assistBusy {
-            arow.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "Reading…" "Luetaan…")))))
+        v.addChild((this.heading((SpWords.ui(lang "questions")) "")))
+        ; a new question: the assistant first, then the kinds by hand
+        if (askNew == false) {
+            def nrow:EVGElement (SpacesApp.box("sp-row"))
+            nrow.addChild((SpacesApp.btn("sp-ask-new" "sp-action sp-action-primary" (SpWords.pick(lang "Add a new question" "Lisää uusi kysymys")))))
+            v.addChild(nrow)
         } {
-            arow.addChild((SpacesApp.btn("sp-askai-send" "sp-action sp-action-primary" (SpWords.pick(lang "Ask" "Kysy")))))
-        }
-        ai.addChild(arow)
-        if ((askAiAsked >= 0) && (askAiAsked < (array_length answers))) {
-            def bubble:EVGElement (this.markdown("sp-askai-answer" (itemAt answers askAiAsked) ((this.mainW()) - 60.0)))
-            UiTree.addClass(bubble "sp-bubble-a")
-            ai.addChild(bubble)
-        }
-        v.addChild(ai)
-        ; then the kinds by hand
-        def hand:EVGElement (this.card("ask-kinds" (SpWords.pick(lang "Or pick what to ask" "Tai valitse mitä kysyt"))))
-        def chips:EVGElement (SpacesApp.box("sp-addgroup"))
-        chips.role = "group"
-        chips.a11yLabel = (SpWords.pick(lang "What to ask" "Mitä kysyt"))
-        def kinds:[string] (SpacesApp.askKinds())
-        def i:int 0
-        while (i < (array_length kinds)) {
-            def kd:string (itemAt kinds i)
-            def on:boolean (kd == askKind)
-            def cls:string "sp-chip"
-            if on {
-                cls = "sp-chip sp-chip-on"
+            def ctitle:string (SpWords.pick(lang "New question" "Uusi kysymys"))
+            if ((strlen askEdit) > 0) {
+                ctitle = (SpWords.pick(lang "Change the question" "Muokkaa kysymystä"))
             }
-            def b:EVGElement (SpacesApp.btn(("sp-askkind-" + kd) cls (this.askLabel(kd))))
-            b.a11yPressed = (SpacesApp.tri(on))
-            chips.addChild(b)
-            i = (i + 1)
-        }
-        hand.addChild(chips)
-        if ((strlen askKind) > 0) {
-            if ((array_length (this.askable())) == 0) {
-                hand.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "There is no one else in the space yet: invite a member on the Members page." "Tilassa ei ole vielä muita: kutsu jäsen Jäsenet-sivulla.")))))
-            }
-            if ((strlen formErr) > 0) {
-                def er:EVGElement (UiTree.label("sp-formerr" "sp-formerr" formErr))
-                er.role = "alert"
-                hand.addChild(er)
-            }
-            def form:EVGElement (SpacesApp.box("sp-form"))
-            def keys:[string] ([] _:string ( "f:ask_to" "ward" "f:what" "f:on_date" "f:until_date" "f:from_time" "f:to_time" "f:hours" "f:direction" "f:amount" "f:options" "f:add_to_calendar" "title" "notes" ))
-            def j:int 0
-            while (j < (array_length keys)) {
-                def key:string (itemAt keys j)
-                def ti:int (this.textIndex(key))
-                if (ti >= 0) {
-                    form.addChild((this.textField(ti)))
+            def ai:EVGElement (this.card("ask-ai" ctitle))
+            if ((strlen askEdit) == 0) {
+                askAiField.multiline = true
+                askAiField.maxLines = 4
+                def fr:EVGElement (this.field(askAiField "sp-askai-text" (SpWords.pick(lang "Write what you want to ask the other family members" "Kirjoita mitä haluat kysyä muilta perheenjäseniltä")) (SpWords.pick(lang "E.g. Can someone pick Leo up from school on Tuesday at 14?" "Esim. Voiko joku hakea Leon koulusta tiistaina klo 14?")) "text"))
+                UiTree.inline(fr "width" (SpacesApp.px(((this.mainW()) - 40.0))))
+                ai.addChild(fr)
+                def arow:EVGElement (SpacesApp.box("sp-row"))
+                arow.addChild((SpacesApp.box("sp-grow")))
+                if assistBusy {
+                    arow.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "Reading…" "Luetaan…")))))
                 } {
-                    def pi:int (this.pickIndex(key))
-                    if (pi >= 0) {
-                        form.addChild((this.pickField(pi)))
-                    }
+                    arow.addChild((SpacesApp.btn("sp-askai-send" "sp-action sp-action-primary" (SpWords.pick(lang "Ask" "Kysy")))))
                 }
-                j = (j + 1)
+                ai.addChild(arow)
+                if ((askAiAsked >= 0) && (askAiAsked < (array_length answers))) {
+                    def bubble:EVGElement (this.markdown("sp-askai-answer" (itemAt answers askAiAsked) ((this.mainW()) - 60.0)))
+                    UiTree.addClass(bubble "sp-bubble-a")
+                    ai.addChild(bubble)
+                }
+                ai.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "Or pick what to ask" "Tai valitse mitä kysyt")))))
             }
-            hand.addChild(form)
+            def chips:EVGElement (SpacesApp.box("sp-addgroup"))
+            chips.role = "group"
+            chips.a11yLabel = (SpWords.pick(lang "What to ask" "Mitä kysyt"))
+            def kinds:[string] (SpacesApp.askKinds())
+            def i:int 0
+            while (i < (array_length kinds)) {
+                def kd:string (itemAt kinds i)
+                def on:boolean (kd == askKind)
+                def cls:string "sp-chip"
+                if on {
+                    cls = "sp-chip sp-chip-on"
+                }
+                def b:EVGElement (SpacesApp.btn(("sp-askkind-" + kd) cls (this.askLabel(kd))))
+                b.a11yPressed = (SpacesApp.tri(on))
+                chips.addChild(b)
+                i = (i + 1)
+            }
+            ai.addChild(chips)
+            if ((strlen askKind) > 0) {
+                if ((array_length (this.askable())) == 0) {
+                    ai.addChild((SpacesApp.tx("sp-cardsub" (SpWords.pick(lang "There is no one else in the space yet: invite a member on the Members page." "Tilassa ei ole vielä muita: kutsu jäsen Jäsenet-sivulla.")))))
+                }
+                if ((strlen formErr) > 0) {
+                    def er:EVGElement (UiTree.label("sp-formerr" "sp-formerr" formErr))
+                    er.role = "alert"
+                    ai.addChild(er)
+                }
+                def form:EVGElement (SpacesApp.box("sp-form"))
+                def keys:[string] ([] _:string ( "f:ask_to" "ward" "f:what" "f:on_date" "f:until_date" "f:from_time" "f:to_time" "f:hours" "f:direction" "f:amount" "f:options" "f:add_to_calendar" "title" "notes" ))
+                def j:int 0
+                while (j < (array_length keys)) {
+                    def key:string (itemAt keys j)
+                    def ti:int (this.textIndex(key))
+                    if (ti >= 0) {
+                        form.addChild((this.textField(ti)))
+                    } {
+                        def pi:int (this.pickIndex(key))
+                        if (pi >= 0) {
+                            form.addChild((this.pickField(pi)))
+                        }
+                    }
+                    j = (j + 1)
+                }
+                ai.addChild(form)
+            }
             def bar:EVGElement (SpacesApp.box("sp-formrow"))
-            bar.addChild((SpacesApp.btn("sp-ask-send" "sp-action sp-action-primary" (SpWords.pick(lang "Send the question" "Lähetä kysymys")))))
+            if ((strlen askKind) > 0) {
+                def sl:string (SpWords.pick(lang "Send the question" "Lähetä kysymys"))
+                if ((strlen askEdit) > 0) {
+                    sl = (SpWords.pick(lang "Save the question" "Tallenna kysymys"))
+                }
+                bar.addChild((SpacesApp.btn("sp-ask-send" "sp-action sp-action-primary" sl)))
+            }
             bar.addChild((SpacesApp.btn("sp-ask-cancel" "sp-action" (SpWords.ui(lang "cancel")))))
-            hand.addChild(bar)
+            ai.addChild(bar)
+            v.addChild(ai)
         }
-        v.addChild(hand)
         ; the questions
         def qs:[SpEvent] (this.questions())
         def mine:[SpEvent]
@@ -6363,7 +6511,7 @@ class SpacesApp {
         }
         def i:int 0
         while (i < (array_length list)) {
-            c.addChild((this.askRow((itemAt list i))))
+            c.addChild((this.askRow((itemAt list i) (this.mainW()))))
             i = (i + 1)
         }
         return c
@@ -6371,7 +6519,7 @@ class SpacesApp {
 
     ; One question: what is asked, by whom of whom, when; the answer or,
     ; for the person asked, the buttons to answer with.
-    fn askRow:EVGElement (e:SpEvent) {
+    fn askRow:EVGElement (e:SpEvent w:double) {
         def k:int (array_length askIds)
         push askIds e.id
         def ks:string (to_string k)
@@ -6456,7 +6604,7 @@ class SpacesApp {
                     hint = (SpWords.pick(lang "E.g. Saturday at 10" "Esim. lauantaina klo 10"))
                 }
                 def af:EVGElement (this.field(answerField "sp-answer-text" wl hint "text"))
-                UiTree.inline(af "width" (SpacesApp.px(((this.mainW()) - 80.0))))
+                UiTree.inline(af "width" (SpacesApp.px((w - 80.0))))
                 row.addChild(af)
                 if ((e.fieldText("ask")) == "suggest") {
                     def srow:EVGElement (SpacesApp.box("sp-formrow"))
@@ -6467,6 +6615,7 @@ class SpacesApp {
         }
         if ((SpacesApp.askOpen(e)) && (((e.fieldText("asked_by_uid")) == account.uid) && ((strlen account.uid) > 0))) {
             def dbar:EVGElement (SpacesApp.box("sp-formrow"))
+            dbar.addChild((SpacesApp.btn(("sp-askedit-" + ks) "sp-link" (SpWords.pick(lang "Change" "Muokkaa")))))
             dbar.addChild((SpacesApp.btn(("sp-askdel-" + ks) "sp-link" (SpWords.pick(lang "Withdraw the question" "Peru kysymys")))))
             row.addChild(dbar)
         }
@@ -6482,6 +6631,7 @@ class SpacesApp {
             } {
                 this.openAsk(kd)
             }
+            askNew = true
             return true
         }
         if (target == "sp-ask-send") {
@@ -6492,8 +6642,38 @@ class SpacesApp {
         }
         if (target == "sp-ask-cancel") {
             askKind = ""
+            askEdit = ""
+            askNew = false
             formErr = ""
             focused = ""
+            return true
+        }
+        if (target == "sp-ask-new") {
+            askNew = true
+            askEdit = ""
+            askKind = ""
+            focused = "sp-askai-text"
+            return true
+        }
+        if (target == "sp-askmore") {
+            this.press("sp-nav-questions")
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-askedit-")) {
+            def en@(optional):int (to_int (substring target 11 (strlen target)))
+            if (!null? en) {
+                def ek:int (unwrap en)
+                if ((ek >= 0) && (ek < (array_length askIds))) {
+                    def found@(optional):SpEvent (space.event((itemAt askIds ek)))
+                    if (!null? found) {
+                        def fe:SpEvent found
+                        this.editAsk(fe)
+                        if (tab != "questions") {
+                            this.press("sp-nav-questions")
+                        }
+                    }
+                }
+            }
             return true
         }
         if (target == "sp-askai-send") {
@@ -8040,6 +8220,8 @@ class SpacesApp {
         }
         if (c.op == "ask_question") {
             askKind = ""
+            askEdit = ""
+            askNew = false
             formErr = ""
             status = ((SpWords.pick(lang "Asked: " "Kysytty: ")) + c.ref)
             this.reload()
