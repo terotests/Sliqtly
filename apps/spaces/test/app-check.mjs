@@ -494,6 +494,7 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   // the Add menu: without a server, a search over the pack's types and its
   // groups to browse, not the whole long list
   a.press("sp-nav-calendar");
+  ok("the calendar's bar has no New button; Add makes entries", !byId(a, "spc-new"));
   a.press("sp-add");
   t = texts(a);
   ok("the Add menu searches the types", byId(a, "sp-addsearch") && a.focused === "sp-addsearch" && t.includes("Health") && !t.includes("Doctor's visit"), t.slice(-40).join(","));
