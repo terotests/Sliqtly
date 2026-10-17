@@ -19,7 +19,7 @@ it, and how ("Takes: Juho", "Picks up: Mia").
   filled) and **Tulossa** (the next one-off plans, whose they are and how
   many days away). On top the clock, the date, the week number
   and the weather (Open-Meteo, read by the host page) of each of the
-  space's places, with a switch between them; Helsinki when it has none. Tänään has
+  space's places, with a switch between them; Tampere when it has none. Tänään has
   three columns: **today** as cards with each ward's colour, the plan going
   on or coming next open with its times, who looks after it and its notes;
   **this week** day by day with the plans as coloured chips (today framed,

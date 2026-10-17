@@ -2077,7 +2077,7 @@ class SpSpace {
     }
 
     ; The towns whose weather the summary shows: each place once, the
-    ; space's first; Helsinki when there are none.
+    ; space's first; Tampere when there are none.
     fn weatherPlaces:[SpPlace] () {
         def out:[SpPlace]
         def names:[string]
@@ -2097,9 +2097,9 @@ class SpSpace {
         }
         if ((array_length out) == 0) {
             def h (new SpPlace())
-            h.name = "Helsinki"
-            h.lat = 60.1695
-            h.lon = 24.9354
+            h.name = "Tampere"
+            h.lat = 61.4978
+            h.lon = 23.761
             push out h
         }
         return out

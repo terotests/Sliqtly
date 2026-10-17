@@ -404,7 +404,7 @@ setInterval(() => {
 }, 15000);
 
 // The weather on the summary, from Open-Meteo (no key), for each of the
-// space's places (Helsinki when it has none); read again every half hour,
+// space's places (Tampere when it has none); read again every half hour,
 // and when the places change. A place without an answer has no weather.
 let wxPlaces = "";
 async function weather() {

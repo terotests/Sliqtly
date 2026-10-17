@@ -143,7 +143,7 @@ var wardenTools = []roomTool{
 		props:    map[string]any{"space_id": spaceIDProp, "ward": strProp("The ward's id or name"), "name": strProp("A new name"), "color": strProp("A new colour: blue, emerald, violet, amber, rose, cyan, indigo, or #rrggbb")},
 		required: []string{"space_id", "ward"}},
 	{name: "add_place", title: "Add a place",
-		desc:     "A town in Finland where the whole space, or one ward, usually is (home, a grandparent's, the summer cottage). The summary shows the weather of each place; with none, Helsinki's. The town is looked up by its name unless lat and lon are given.",
+		desc:     "A town in Finland where the whole space, or one ward, usually is (home, a grandparent's, the summer cottage). The summary shows the weather of each place; with none, Tampere's. The town is looked up by its name unless lat and lon are given.",
 		props:    map[string]any{"space_id": spaceIDProp, "place": strProp("The town's name, e.g. Kuopio"), "ward": strProp("The ward's id or name; leave out for the whole space"), "lat": map[string]any{"type": "number", "description": "Latitude in degrees, with lon; found from the name when left out"}, "lon": map[string]any{"type": "number", "description": "Longitude in degrees, with lat"}},
 		required: []string{"space_id", "place"}},
 	{name: "remove_place", title: "Remove a place",

@@ -85,8 +85,8 @@ console.log("the summary");
   ok("the wards' colours", t.includes("Nappi") && t.includes("Koko perhe"));
   ok("the Add button", t.includes("+ Lisää meno"));
   ok("no weather until the host has it", !byId(a, "sp-wx"));
-  a.setWeather("Helsinki", 7, 9, 4, 20, 2);
-  ok("the weather", texts(a).includes("7°") && texts(a).includes("Helsinki · ylin 9° alin 4°"));
+  a.setWeather("Tampere", 7, 9, 4, 20, 2);
+  ok("the weather", texts(a).includes("7°") && texts(a).includes("Tampere · ylin 9° alin 4°"));
   const today = byId(a, "sp-card-today");
   const week = byId(a, "sp-card-week");
   const late = byId(a, "sp-card-late");
@@ -347,9 +347,9 @@ console.log("a space on a server");
   eq("red as rose", M.SpSpace.pageColor("red"), "rose");
   eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
 
-  // the places: none means Helsinki; a town is looked up, picked for a
+  // the places: none means Tampere; a town is looked up, picked for a
   // ward, saved, and the summary shows the weather of each
-  eq("no places: Helsinki's weather", JSON.parse(a.weatherPlacesJson()).map((p) => p.name).join(), "Helsinki");
+  eq("no places: Tampere's weather", JSON.parse(a.weatherPlacesJson()).map((p) => p.name).join(), "Tampere");
   a.press("sp-nav-members");
   ok("the places card", texts(a).includes("Places"));
   a.press("sp-placefor-0");

@@ -2,7 +2,7 @@
 
 // Warden's places: the towns a space, or one of its wards, usually is in
 // (home, a grandparent's, the summer cottage). The page's summary shows the
-// weather of each; with none it shows Helsinki's. A place is kept with its
+// weather of each; with none it shows Tampere's. A place is kept with its
 // name and coordinates, in the space document: `places` on the space and on
 // each ward, [{name, lat, lon}].
 //

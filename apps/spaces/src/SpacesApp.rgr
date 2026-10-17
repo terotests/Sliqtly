@@ -303,7 +303,7 @@ class SpacesApp {
     }
 
     ; The places whose weather the host is to read: [{name, lat, lon}], each
-    ; town once; Helsinki when the space has none.
+    ; town once; Tampere when the space has none.
     fn weatherPlacesJson:string () {
         def list:VlJson (VlJson.arrayValue())
         def ps:[SpPlace] (space.weatherPlaces())
@@ -1717,7 +1717,7 @@ class SpacesApp {
     fn placesCard:EVGElement () {
         def c:EVGElement (this.card("places" (SpWords.pick(lang "Places" "Paikkakunnat"))))
         if ((array_length space.places) == 0) {
-            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None yet: the summary shows the weather in Helsinki." "Ei vielä yhtään: koonti näyttää Helsingin sään.")))))
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "None yet: the summary shows the weather in Tampere." "Ei vielä yhtään: koonti näyttää Tampereen sään.")))))
         }
         def i:int 0
         while (i < (array_length space.places)) {
