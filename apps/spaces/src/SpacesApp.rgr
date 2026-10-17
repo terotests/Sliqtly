@@ -147,6 +147,11 @@ class SpacesApp {
     ; was open last
     def spaceId:string ""
     def prefer:string ""
+    ; whether the calendar card shows the windows to get things in and the
+    ; payment days: off unless the person turns them on (the host remembers
+    ; their choice); the summary and the phone feed have them either way
+    def showGets:boolean false
+    def showPays:boolean false
     def loading:boolean false
     def outbox:[SpCall]
     ; when the space last changed on the server, as the page has it, and
@@ -436,7 +441,11 @@ class SpacesApp {
         occStart = s
         def e:[int]
         occEnd = e
+        space.showGets = showGets
+        space.showPays = showPays
         def occ:[SpOccur] (space.occurrences((today - 92) (today + 184)))
+        space.showGets = true
+        space.showPays = true
         def i:int 0
         while (i < (array_length occ)) {
             def oc:SpOccur (itemAt occ i)
@@ -2074,8 +2083,8 @@ class SpacesApp {
     ; get things in and the payment days, each a switch.
     fn calShows:EVGElement () {
         def row:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
-        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) space.showGets)))
-        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) space.showPays)))
+        row.addChild((this.showSwitch("sp-cal-gets" (SpWords.ui(lang "showGets")) showGets)))
+        row.addChild((this.showSwitch("sp-cal-pays" (SpWords.ui(lang "showPays")) showPays)))
         return row
     }
 
@@ -4593,9 +4602,9 @@ class SpacesApp {
         }
         if ((target == "sp-cal-gets") || (target == "sp-cal-pays")) {
             if (target == "sp-cal-gets") {
-                space.showGets = (space.showGets == false)
+                showGets = (showGets == false)
             } {
-                space.showPays = (space.showPays == false)
+                showPays = (showPays == false)
             }
             this.fillBoard()
             this.rebuild()
