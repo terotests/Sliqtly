@@ -3,8 +3,8 @@
 // Warden's deal watcher: an entry (a thing still to get, a need, a planned
 // purchase, any entry) can carry a watch, and now and then the server looks
 // for offers of it on second-hand sites and the web. New finds are kept on
-// the entry and the space gets a reminder of them, which the summary's
-// Muista lists.
+// the entry and listed in the summary's Tarjouksia tab; nothing goes in the
+// calendar.
 //
 // The search is Gemini's with Google Search (the assistant's model and
 // account, aimodel.go), limited to a site per source with site:. Tori.fi,
@@ -598,8 +598,9 @@ func (s *wardenService) runWatchOp(ctx context.Context, sp *wardenSpace, a map[s
 }
 
 // One watch's searches: the new finds are put first on the entry, best fit
-// first, a log of the run is kept, and a reminder of the finds that fit is
-// made or renewed. → the new finds
+// first, and a log of the run is kept ("new" counts those that fit). They
+// are shown in the summary's Tarjouksia tab, not in the calendar. → the new
+// finds
 func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string, d Doc) ([]any, error) {
 	w, _ := d["watch"].(map[string]any)
 	q := wardenWatchQuery(d, w)
@@ -727,11 +728,6 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
 		return nil, err
 	}
-	if len(notify) > 0 {
-		if err := s.watchReminder(ctx, sp, id, d, notify); err != nil {
-			return anys(fresh), err
-		}
-	}
 	return anys(fresh), nil
 }
 
@@ -840,61 +836,6 @@ func wardenLoc(sp *wardenSpace) *time.Location {
 		return l
 	}
 	return time.UTC
-}
-
-// the reminder of an entry's new finds that fit, best first: one per entry, renewed (dated
-// today, not done) on every run that finds something
-func (s *wardenService) watchReminder(ctx context.Context, sp *wardenSpace, id string, d Doc, fresh []map[string]any) error {
-	fi := docStr(sp.doc, "lang") != "en"
-	title := fmt.Sprintf("Offers: %s (%d new)", docStr(d, "title"), len(fresh))
-	if fi {
-		title = fmt.Sprintf("Tarjouksia: %s (%d uutta)", docStr(d, "title"), len(fresh))
-	}
-	var b strings.Builder
-	best := fresh[0]
-	bl := []string{docStr(best, "title")}
-	if p := wardenNum(best["price"]); p > 0 {
-		bl = append(bl, strconv.FormatFloat(p, 'f', -1, 64)+" €")
-	}
-	if l := docStr(best, "location"); l != "" {
-		bl = append(bl, l)
-	}
-	if fi {
-		b.WriteString("Paras: ")
-	} else {
-		b.WriteString("Best: ")
-	}
-	b.WriteString(strings.Join(bl, " · ") + "\n\n")
-	for _, f := range fresh {
-		line := "• " + docStr(f, "title")
-		if p := wardenNum(f["price"]); p > 0 {
-			line += fmt.Sprintf(" – %s €", strconv.FormatFloat(p, 'f', -1, 64))
-		}
-		line += " (" + docStr(f, "source") + ") " + docStr(f, "url") + "\n"
-		if b.Len()+len(line) > 1900 {
-			break
-		}
-		b.WriteString(line)
-	}
-	a := map[string]any{
-		"type":   "reminder",
-		"title":  aiClip(title, 200),
-		"date":   s.now().In(wardenLoc(sp)).Format("2006-01-02"),
-		"notes":  strings.TrimSpace(b.String()),
-		"ext_id": "watch:" + id,
-		"source": "Tarjousvahti",
-		"fields": map[string]any{"about": aiClip(docStr(d, "title"), 200)},
-	}
-	if w := docStr(d, "ward"); w != "" {
-		a["ward"] = w
-	}
-	nw := false
-	doc, err := sp.eventDoc(a, Doc{}, &nw)
-	if err != nil {
-		return err
-	}
-	s.stamp(doc, sp)
-	return s.db.Set(ctx, wardenEvents, wardenExtID(sp.id, "watch:"+id), doc)
 }
 
 // ---------------------------------------------------------------- the runs --

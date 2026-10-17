@@ -168,6 +168,7 @@ function after() {
   else if (a.startsWith("open:")) {
     const url = a.slice(5);
     if (/^https?:\/\//.test(url)) window.open(url, "_blank", "noopener");
+    else location.href = /^[a-z]+:/.test(url) ? url : SERVER + url;
   }
   else if (a.startsWith("export:")) {
     const id = a.slice(7);

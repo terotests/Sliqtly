@@ -86,6 +86,8 @@ type wardenService struct {
 	now func() time.Time
 	// the page's assistant (wardenai.go); nil: none
 	ai *wardenAssist
+	// the site's address, for the calendar feed's (wardenfeed.go)
+	base string
 	// the deal watcher's web search (wardenwatch.go); nil: none
 	search wardenSearcher
 	// run_watch's searches per account
@@ -436,6 +438,10 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 	case uid != "":
 		sp.doc["members"] = anys(slices.DeleteFunc(docStrs(sp.doc, "members"), func(e string) bool { return e == uid }))
 		delete(people, uid)
+		// the calendar feed's address they had stops working
+		if docStr(sp.doc, "feed") != "" {
+			sp.doc["feed"] = wardenRandomID("")
+		}
 	default:
 		inv := docStrs(sp.doc, "invites")
 		left := slices.DeleteFunc(slices.Clone(inv), func(e string) bool { return e == strings.ToLower(m) })
@@ -448,6 +454,35 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 		return nil, err
 	}
 	return sp.json(), nil
+}
+
+// A name as the member it means: "Tero" written on a cost is the one member
+// whose first name it is ("Tero Tolonen"), so the budget has one Tero. A name
+// no member has, or a first name two share, stays as written.
+func (sp *wardenSpace) memberName(n string) string {
+	n = strings.TrimSpace(n)
+	if n == "" {
+		return n
+	}
+	people, _ := sp.doc["people"].(map[string]any)
+	match := ""
+	for _, id := range docStrs(sp.doc, "members") {
+		p, _ := people[id].(map[string]any)
+		full := docStr(p, "name")
+		if strings.EqualFold(full, n) {
+			return full
+		}
+		if first, _, _ := strings.Cut(full, " "); strings.EqualFold(first, n) {
+			if match != "" {
+				return n
+			}
+			match = full
+		}
+	}
+	if match != "" {
+		return match
+	}
+	return n
 }
 
 // ------------------------------------------------------------------ wards --
@@ -1028,6 +1063,9 @@ func wardenEventJSON(id string, d Doc, now time.Time) map[string]any {
 	if l := docStrs(d, "exdates"); len(l) > 0 {
 		out["exdates"] = anys(l)
 	}
+	if l := docStrs(d, "links"); len(l) > 0 {
+		out["links"] = anys(l)
+	}
 	if l := docMaps(d, "who"); len(l) > 0 {
 		who := []any{}
 		for _, m := range l {
@@ -1095,11 +1133,15 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	for i, d := range docs {
 		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
+	space := sp.json()
+	if space["calendar_feed"], err = s.feedURL(ctx, sp, false); err != nil {
+		return nil, err
+	}
 	kw, err := s.kidWatch(ctx, sp)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"space": sp.json(), "events": evs, "changed": wardenChanged(sp.doc), "event_watch": wardenKidJSON(sp, kw, s.today(sp))}, nil
+	return map[string]any{"space": space, "events": evs, "changed": wardenChanged(sp.doc), "event_watch": wardenKidJSON(sp, kw, s.today(sp))}, nil
 }
 
 // list_events: the events that may happen between from and to (repeating
@@ -1124,7 +1166,7 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 				continue
 			}
 		}
-		if typ != "" && wardenOr(docStr(d, "type"), "event") != typ {
+		if typ != "" && !wardenListedAs(d, typ) {
 			continue
 		}
 		// a window to get something in, or a payment, may fall outside the day
@@ -1185,6 +1227,14 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 	if sp.saleLabel(d) {
 		newWards = true // the space's next label number is kept with it
 	}
+	add, err := s.linkIDs(ctx, sp, a, "links", nil)
+	if err != nil {
+		return nil, err
+	}
+	drop, err := s.linkIDs(ctx, sp, a, "unlink", nil)
+	if err != nil {
+		return nil, err
+	}
 	if id == "" {
 		if ext := docStr(d, "ext_id"); ext != "" {
 			id = wardenExtID(sp.id, ext)
@@ -1204,8 +1254,12 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 			return nil, err
 		}
 	}
+	wardenSetLinks(d, id, add, drop)
 	s.stamp(d, sp)
 	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
+		return nil, err
+	}
+	if err := s.linkOthers(ctx, sp, id, add, drop); err != nil {
 		return nil, err
 	}
 	return wardenEventJSON(id, d, s.now()), nil
@@ -1219,10 +1273,14 @@ func (s *wardenService) stamp(d Doc, sp *wardenSpace) {
 
 func (s *wardenService) deleteEvent(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
 	id := argStr(a, "event_id")
-	if _, err := s.event(ctx, sp, id); err != nil {
+	d, err := s.event(ctx, sp, id)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.db.Delete(ctx, wardenEvents, id); err != nil {
+		return nil, err
+	}
+	if err := s.linkOthers(ctx, sp, id, nil, docStrs(d, "links")); err != nil {
 		return nil, err
 	}
 	return map[string]any{"deleted": id}, nil
@@ -1242,9 +1300,11 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 		return nil, err
 	}
 	type put struct {
-		id  string
-		doc Doc
-		new bool
+		id        string
+		doc       Doc
+		new       bool
+		args      map[string]any
+		add, drop []string
 	}
 	puts := []put{}
 	seen := map[string]bool{}
@@ -1285,7 +1345,23 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			newWards = true
 		}
 		seen[id] = true
-		puts = append(puts, put{id, d, !slices.Contains(have, id)})
+		puts = append(puts, put{id: id, doc: d, new: !slices.Contains(have, id), args: m})
+	}
+	// links may name entries of the same import by their ext_id
+	for i := range puts {
+		p := &puts[i]
+		var err error
+		if p.add, err = s.linkIDs(ctx, sp, p.args, "links", seen); err == nil {
+			p.drop, err = s.linkIDs(ctx, sp, p.args, "unlink", seen)
+		}
+		if err != nil {
+			var re roomErr
+			if ok := asRoomErr(err, &re); ok {
+				return nil, roomErr{fmt.Sprintf("events[%d]: %s; nothing was imported", i, re.msg)}
+			}
+			return nil, err
+		}
+		wardenSetLinks(p.doc, p.id, p.add, p.drop)
 	}
 	made := 0
 	for _, p := range puts {
@@ -1308,6 +1384,11 @@ func (s *wardenService) importEvents(ctx context.Context, sp *wardenSpace, list 
 			return nil, err
 		}
 		ids = append(ids, p.id)
+	}
+	for _, p := range puts {
+		if err := s.linkOthers(ctx, sp, p.id, p.add, p.drop); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]any{"space_id": sp.id, "created": made, "updated": len(puts) - made, "event_ids": ids, "wards": sp.json()["wards"]}, nil
 }
@@ -1419,6 +1500,8 @@ func (s *wardenService) run(ctx context.Context, sp *wardenSpace, op string, a m
 		return s.importEvents(ctx, sp, l, nil)
 	case "import_ics":
 		return s.importICS(ctx, sp, a)
+	case "calendar_feed":
+		return s.calendarFeed(ctx, sp, a)
 	case "budget":
 		return s.budget(ctx, sp, a)
 	case "set_watch":

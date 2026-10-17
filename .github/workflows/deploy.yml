@@ -18,9 +18,11 @@ on:
 permissions:
   contents: read
 
+# A deploy that has started finishes: with merges minutes apart, cancelling
+# it meant none finished. GitHub keeps only the newest waiting run.
 concurrency:
   group: deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:

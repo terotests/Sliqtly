@@ -70,6 +70,25 @@ console.log("every view lays out");
   }
 }
 
+console.log("the menu button on a narrow page");
+{
+  const a = fresh("fi", "family");
+  a.setWidth(390, 700);
+  ok("the navigation hides behind the menu", !byId(a, "sp-nav-calendar") && !!byId(a, "sp-menu"));
+  ok("the bar names the tab shown", texts(a).includes("Koonti"));
+  a.press("sp-menu");
+  ok("the menu opens the navigation", !!byId(a, "sp-nav-calendar"));
+  const expanded = byId(a, "sp-menu").a11yExpanded;
+  const probs = a.a11yProblems();
+  ok("the open menu lints clean", probs.length === 0, probs.join(" | "));
+  a.press("sp-nav-calendar");
+  eq("a pick opens its tab", a.tab, "calendar");
+  ok("and closes the menu", !byId(a, "sp-nav-calendar"));
+  ok("the button tells it is open or closed", byId(a, "sp-menu").a11yExpanded !== expanded);
+  a.setWidth(1280, 700);
+  ok("a wide page has no menu button", !byId(a, "sp-menu") && !!byId(a, "sp-nav-calendar"));
+}
+
 console.log("the summary");
 {
   const a = fresh("fi", "family");
@@ -350,6 +369,23 @@ console.log("a space on a server");
   a.answer(JSON.stringify(spaceOf({ members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }] })));
   eq("one member left", a.space.members.length, 1);
   eq("and the events are kept", a.space.events.length, 3);
+
+  // the calendar feed: subscribe on a phone, or copy the address
+  a.press("sp-invite-email");
+  for (const ch of "leo@example.com") a.keyWith(ch, false, false);
+  a.keyWith("Enter", false, false);
+  a.answer(JSON.stringify(spaceOf({ members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }], invites: ["leo@example.com"], calendar_feed: "https://sliqtly.com/apps/warden/cal/abc123.ics" })));
+  ok("the feed's card", texts(a).includes("Calendar on your phone"));
+  a.press("sp-feed-open");
+  eq("subscribe opens the webcal address", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics");
+  a.press("sp-feed-copy");
+  eq("copy puts the https address on the clipboard", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics");
+  a.press("sp-feed-pays");
+  a.press("sp-feed-copy");
+  eq("without the payment days", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics?pay=0");
+  a.press("sp-feed-gets");
+  a.press("sp-feed-open");
+  eq("nor the windows to get things in", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     for (const v of ["members", "spaces"]) {
@@ -366,6 +402,8 @@ console.log("a space on a server");
   eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
   eq("red as rose", M.SpSpace.pageColor("red"), "rose");
   eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+  eq("a member's name in another case is that member", a.space.memberName("mia"), "Mia");
+  eq("a name no member has stays", a.space.memberName("Anna"), "Anna");
 
   // the places: none means Tampere; a town is looked up, picked for a
   // ward, saved, and the summary shows the weather of each
@@ -542,12 +580,12 @@ console.log("a space on a server");
   const st = JSON.parse(a.fieldStateJson("sp-new-name"));
   ok("the bridge reads the field", st.value === "" && st.box.w > 0, JSON.stringify(st));
   ok("and edits it", a.applyEdit("sp-new-name", "Team Vireo", 10, 10));
-  a.press("sp-newpack-business");
+  ok("no words to pick on a server", !byId(a, "sp-newpack-business") && !byId(a, "sp-pack-demo"));
   a.press("sp-create");
   eq("a new space", a.outOp(), "create_space");
   const cb = JSON.parse(a.outBody());
-  ok("with its name and words", cb.name === "Team Vireo" && cb.vocab === "business" && cb.lang === "en", JSON.stringify(cb));
-  a.answer(JSON.stringify({ space_id: "sp2", name: "Team Vireo", vocab: "business", lang: "en", role: "owner", members: [me], invites: [], wards: [] }));
+  ok("with its name and words", cb.name === "Team Vireo" && cb.vocab === "family" && cb.lang === "en", JSON.stringify(cb));
+  a.answer(JSON.stringify({ space_id: "sp2", name: "Team Vireo", vocab: "family", lang: "en", role: "owner", members: [me], invites: [], wards: [] }));
   eq("opened", a.spaceId, "sp2");
   eq("in the list", a.account.spaces.length, 2);
   eq("on the summary", a.tab, "home");
@@ -555,7 +593,7 @@ console.log("a space on a server");
 
   // the demo data: wards first, then the events with the wards' new ids
   a.press("sp-seed");
-  eq("three wards", a.outCount(), 3);
+  eq("the family's four wards", a.outCount(), 4);
   for (let i = 0; a.outOp() === "add_ward"; i++) {
     const wb = JSON.parse(a.outBody());
     ok("a ward " + wb.name, wb.space_id === "sp2" && wb.name.length > 0);
@@ -694,6 +732,7 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   // the Add menu: without a server, a search over the pack's types and its
   // groups to browse, not the whole long list
   a.press("sp-nav-calendar");
+  ok("the calendar's bar has no New button; Add makes entries", !byId(a, "spc-new"));
   a.press("sp-add");
   t = texts(a);
   ok("the Add menu searches the types", byId(a, "sp-addsearch") && a.focused === "sp-addsearch" && t.includes("Health") && !t.includes("Doctor's visit"), t.slice(-40).join(","));
@@ -739,8 +778,18 @@ console.log("entries: the form, the Add menu, deleting and Undo");
     && inv.hasCost && inv.cost.amount === 20.5 && inv.cost.scope === "shared" && inv.cost.payer === "Mia", JSON.stringify(inv.values));
   ok("and on the calendar", a.occIds.includes(inv.id));
 
-  // a record without a date
+  // a record without a date; the lists page shows only the lists with
+  // something, and Add offers the types kept on lists
   a.press("sp-nav-lists");
+  ok("empty lists are not shown", !byId(a, "sp-list-gift_idea") && byId(a, "sp-add"));
+  a.press("sp-add");
+  a.typeSearch.setValue("thing");
+  a.rebuild();
+  ok("Add on the lists page offers the listed types", !!byId(a, "sp-addtype-item"), texts(a).slice(-20).join(","));
+  a.typeSearch.setValue("dentist");
+  a.rebuild();
+  ok("not the calendar's", !byId(a, "sp-addtype-dentist_visit"));
+  a.press("sp-add");
   a.press("sp-addtype-item");
   eq("a thing has no date to start with", field("date").value, "");
   field("title").setValue("Skates");
@@ -1073,6 +1122,72 @@ console.log("a web address in today's card");
     inside.push(byId(a, "sp-turl-0"));
     const over = inside.filter((e) => e.calculatedX + e.calculatedWidth > card.calculatedX + card.calculatedWidth + 0.5);
     ok(`${w} everything stays inside the card`, over.length === 0, over.map((e) => `${e.id || e.className} ${e.calculatedX}+${e.calculatedWidth}`).join(", ") + ` card ${card.calculatedX}+${card.calculatedWidth}`);
+  }
+}
+
+console.log("a plan over several days in Tulossa");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const end = iso(a.today + 12);
+  const short = `– ${Number(end.slice(8, 10))}.${Number(end.slice(5, 7))}.`;
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lapset Terolla", date: iso(a.today + 10), end_date: end },
+      { event_id: "ev2", title: "Hammaslääkäri", date: iso(a.today + 11), start: "09:00", end: "09:30", type: "dentist_visit" },
+      { event_id: "ev3", title: "Laivamatka", date: iso(a.today + 14), type: "trip" },
+    ],
+  }));
+  let t = texts(a);
+  ok("the last day under the first", t.includes(short), t.filter((s) => s.startsWith("–")).join(","));
+  eq("only for the plan over several days", t.filter((s) => s.startsWith("–")).length, 1);
+  // plans for no one in particular take their type group's colour
+  const dots = flat(a).map((e) => e.className || "").filter((c) => c.startsWith("sp-adot"));
+  ok("a colour by the kind of plan", dots.some((c) => c.includes("sp-c-all")) && dots.some((c) => c.includes("sp-c-g-health")) && dots.some((c) => c.includes("sp-c-g-travel")), dots.join(","));
+  ok("and the legend names them", t.includes("Terveys") && t.includes("Matkat"), t.slice(-12).join(","));
+  a.press("sp-htab-ahead");
+  ok("the Tulossa page names the kind", texts(a).includes("koko perhe · hammaslääkäri"), texts(a).slice(-12).join(","));
+  a.press("sp-htab-today");
+  eq("no stylesheet errors", a.styleErrorCount(), 0);
+  a.press("sp-htab-ahead");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    t = texts(a);
+    ok(`${w} on the Tulossa page too`, t.includes(short));
+    const probs = a.a11yProblems();
+    ok(`${w} Tulossa lints clean`, probs.length === 0, probs.join(" | "));
+  }
+}
+
+console.log("list tabs: one line each, inside the page");
+{
+  const a = fresh("fi", "family");
+  for (const t of a.types.listedFor("family")) {
+    const e = new M.SpEvent();
+    e.id = "x" + t.id;
+    e.typeId = t.id;
+    e.title = "T " + t.id;
+    e.day = -1;
+    a.space.events.push(e);
+  }
+  a.press("sp-nav-lists");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const els = flat(a);
+    const main = els.find((e) => e.id === "sp-main");
+    const tabs = els.filter((e) => e.id && e.id.startsWith("sp-list-"));
+    ok(`${w} every list has a tab`, tabs.length === a.types.listedFor("family").length, String(tabs.length));
+    const lines = JSON.parse(a.displayListJson()).cmds.filter((c) => c.text === "kurssi" || c.text === "määräpäivä");
+    ok(`${w} a long name stays on one line`, lines.length === 0, JSON.stringify(lines.map((c) => c.text)));
+    const out = tabs.filter((e) => e.calculatedX + e.calculatedWidth > main.calculatedX + main.calculatedWidth + 0.5);
+    ok(`${w} the tabs stay inside the page`, out.length === 0, out.map((e) => e.id).join(","));
   }
 }
 

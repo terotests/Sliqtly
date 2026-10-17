@@ -20,7 +20,9 @@
  *   - another Google account in the same browser has a store of its own:
  *     none of the first one's decks, rooms or tabs (web/account.js)
  *   - with the Trial's two presentations taken, a new deck is not saved to
- *     the cloud and the Files tab says why
+ *     the cloud and the Files tab says why; changed, the editor shows "Not
+ *     saved" beside its tabs, a press opens Files saying what to do, and
+ *     leaving asks
  *   - signed out in the page, it goes back through the sign-in page
  *
  * Run after `npm run build`. Chromium: $CHROMIUM_PATH, Playwright's
@@ -265,6 +267,32 @@ try {
     shares().length === before && /^no-edit-right: .*2/.test(made), made);
   const note = await pg.evaluate(() => document.getElementById("pro")?.title || "");
   check("the PRO button tells the license", /Trial: 2 \/ 2/.test(note), note);
+  // the same in the editor: a new deck changed is kept nowhere, and says so
+  // (web/decksafe.js) until the page closes
+  const leaveAsks = () => pg.evaluate(() => {
+    const e = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  await pg.goto(base + "/editor/?sample=welcome");
+  await started();
+  const calm = { pill: await pg.evaluate(() => window.__app.unsavedLabel()), asks: await leaveAsks() };
+  await pg.evaluate(() => window.__app.setSource("# Kolmas\n\n## Dia\n"));
+  await pg.waitForFunction(() => window.__app.unsavedLabel() !== "", null, { timeout: 15000 }).catch(() => {});
+  const full = { pill: await pg.evaluate(() => window.__app.unsavedLabel()), asks: await leaveAsks(), shares: shares().length };
+  // a press on the pill: the Files tab, saying why and what to do
+  const cv = await pg.evaluate(() => document.getElementById("c").getBoundingClientRect().toJSON());
+  const at = await pg.evaluate(() => {
+    const el = window.__app.unsavedEl;
+    return el ? [el.calculatedX + el.calculatedWidth / 2, el.calculatedY + el.calculatedHeight / 2] : null;
+  });
+  if (at) await pg.mouse.click(cv.x + at[0], cv.y + at[1]);
+  await pg.waitForFunction(() => window.__app.editorTab() === "files" && /"warn":true/.test(window.__app.panels.filesJson), null, { timeout: 10000 }).catch(() => {});
+  const said = await pg.evaluate(() => { try { return JSON.parse(window.__app.panels.filesJson).promo?.text || ""; } catch (_) { return ""; } });
+  check("with the Trial full, a changed deck shows Not saved beside the tabs, a press opens Files saying to export it or free a place, and leaving the page asks first",
+    calm.pill === "" && !calm.asks && full.pill === "Not saved" && full.asks && full.shares === before
+      && /File → Export → Markdown \(\.md\)/.test(said) && /delete another .* to free a place/.test(said),
+    JSON.stringify({ calm, full, at, said }));
 
   // another Google account in the same browser: the editor keeps no deck in
   // the browser at all (cloud only), so none of the first one's decks, rooms

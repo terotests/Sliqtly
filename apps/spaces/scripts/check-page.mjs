@@ -69,8 +69,23 @@ const centre = (p, id) => p.evaluate((id) => {
   return e ? [e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2] : null;
 }, id);
 
+// on a narrow page the navigation is behind the menu button: open it first
+const openNav = async (p, id) => {
+  if (!id.startsWith("sp-nav-") || (await centre(p, id))) return;
+  const m = await centre(p, "sp-menu");
+  if (!m) return;
+  await p.evaluate(() => window.scrollTo(0, 0));
+  await p.mouse.click(m[0], m[1]);
+  await p.waitForTimeout(200);
+};
+const navCentre = async (p, id) => {
+  await openNav(p, id);
+  return centre(p, id);
+};
+
 // a click on an element of the app's tree, scrolled into the window first
 const clickId = async (p, id) => {
+  await openNav(p, id);
   const c = await centre(p, id);
   if (!c) return false;
   const top = await p.evaluate((y) => {
@@ -97,11 +112,11 @@ try {
       .waitForFunction(() => window.__lastList.cmds.some((c) => c.text === "7°"), null, { timeout: 3000 })
       .then(() => true, () => false);
     ok("with the weather", wx);
-    const nav = await centre(page, "sp-nav-calendar");
+    const nav = await navCentre(page, "sp-nav-calendar");
     await page.mouse.click(nav[0], nav[1]);
     await page.waitForTimeout(300);
     ok("a click on Calendar opens it", await page.evaluate(() => window.__spaces.tab === "calendar"));
-    const sheets = await centre(page, "sp-nav-sheets");
+    const sheets = await navCentre(page, "sp-nav-sheets");
     await page.mouse.click(sheets[0], sheets[1]);
     await page.waitForTimeout(300);
     const csv = path.join(os.tmpdir(), "spaces-check.csv");
@@ -117,7 +132,7 @@ try {
       .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Imported row"), null, { timeout: 3000 })
       .then(() => true, () => false);
     ok("a picked CSV is a sheet", painted);
-    const home = await centre(page, "sp-nav-home");
+    const home = await navCentre(page, "sp-nav-home");
     await page.mouse.click(home[0], home[1]);
     await page.waitForTimeout(300);
     ok("and its row is in today's summary", (await texts(page)).includes("Imported row"));
@@ -194,7 +209,7 @@ try {
       .then(() => true, () => false);
     ok("the space comes from the API", shown, JSON.stringify(calls.map((c) => c.op)));
     ok("as JSON", calls.every((c) => c.type === "application/json"));
-    const nav = await centre(page, "sp-nav-members");
+    const nav = await navCentre(page, "sp-nav-members");
     await page.mouse.click(nav[0], nav[1]);
     await page.waitForTimeout(300);
     const field = await centre(page, "sp-invite-email");
@@ -209,14 +224,23 @@ try {
     ok("once", calls.filter((c) => c.op === "invite_member").length === 1, JSON.stringify(calls.map((c) => c.op)));
     ok("a typed invite reaches the API", invited && inv && inv.body.email === "leena@example.com" && inv.body.space_id === "sp1", JSON.stringify(inv));
     // a ward's clothing: opened, a row typed in, the lists to the API
-    await clickId(page, "sp-wardclothes-0");
-    await page.waitForTimeout(200);
-    await clickId(page, "sp-cloth-item");
+    // each press waits for what it opens: the page is taller than the window
+    // and a click can land before the scroll and the layout have settled
+    for (let k = 0; k < 3 && !(await page.evaluate(() => window.__spaces.clothesOpen !== "")); k++) {
+      await clickId(page, "sp-wardclothes-0");
+      await page.waitForTimeout(200);
+    }
+    for (let k = 0; k < 3 && (await page.evaluate(() => window.__spaces.focusedField())) !== "sp-cloth-item"; k++) {
+      await clickId(page, "sp-cloth-item");
+      await page.waitForTimeout(150);
+    }
     await page.keyboard.type("mittens");
     await page.keyboard.press("Enter");
     const clothed = await page
-      .waitForFunction(() => window.__spaces.space.resources[0].clothes.length === 3, null, { timeout: 5000 })
+      .waitForFunction(() => window.__spaces.space.resources[0].clothes.length === 3 && window.__spaces.outCount() === 0, null, { timeout: 5000 })
       .then(() => true, () => false);
+    // the row is on the page before its request reaches the API
+    for (let i = 0; i < 50 && !calls.some((c) => c.op === "set_ward"); i++) await page.waitForTimeout(100);
     const sw = calls.filter((c) => c.op === "set_ward").pop();
     ok("a clothing row typed on the Members page reaches the API", clothed && sw && sw.body.clothes.length === 3 && sw.body.clothes[2].item === "mittens" && sw.body.sizes.length === 2, JSON.stringify(sw));
     if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "clothes.png"), fullPage: true });
@@ -237,7 +261,7 @@ try {
     await page.evaluate(() => window.scrollTo(0, 0));
 
     // a double-click on the calendar opens the event; a typed title is saved
-    const calNav = await centre(page, "sp-nav-calendar");
+    const calNav = await navCentre(page, "sp-nav-calendar");
     await page.mouse.click(calNav[0], calNav[1]);
     await page.waitForTimeout(300);
     const bandId = await page.evaluate(() => {
@@ -317,6 +341,15 @@ try {
       .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Swimming fee"), null, { timeout: 5000 })
       .then(() => true, () => false);
     ok("the budget is read from the API", budget, JSON.stringify(calls.map((c) => c.op)));
+
+    if (process.env.SPACES_SHOTS) {
+      await clickId(page, "sp-nav-lists");
+      await page.waitForTimeout(200);
+      await clickId(page, "sp-add");
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "lists.png") });
+      await clickId(page, "sp-add");
+    }
 
     // the assistant: a picture and a line of text
     await clickId(page, "sp-nav-assistant");

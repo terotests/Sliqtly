@@ -28,7 +28,7 @@ func TestWardenPrice(t *testing.T) {
 
 // A thing still to get is watched: the searches go to each source with
 // site:, results that are not offers, too dear, excluded or seen before are
-// left out, the new ones are kept on the entry and put in a reminder.
+// left out, the new ones are kept on the entry.
 func TestWardenWatch(t *testing.T) {
 	e, base, stop := editorServer(t)
 	defer stop()
@@ -132,25 +132,13 @@ func TestWardenWatch(t *testing.T) {
 	r0 := lw["runs"].([]any)[0].(map[string]any)
 	eq(t, []any{r0["results"], r0["new"], r0["left_out"]}, []any{7.0, 2.0, map[string]any{"too_expensive": 1.0, "excluded": 1.0, "not_listing": 1.0, "other_site": 1.0, "low_fit": 1.0}})
 
-	// on the entry, and a reminder of them
+	// on the entry, and nothing in the calendar
 	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
-	var item, rem map[string]any
-	for _, ev := range out["events"].([]any) {
-		m := ev.(map[string]any)
-		switch m["type"] {
-		case "item":
-			item = m
-		case "reminder":
-			rem = m
-		}
-	}
+	eq(t, len(out["events"].([]any)), 1, "no reminder")
+	item := out["events"].([]any)[0].(map[string]any)
 	eq(t, len(item["watch"].(map[string]any)["finds"].([]any)), 3, "finds on the entry")
 	if _, ok := item["watch"].(map[string]any)["seen"]; ok {
 		t.Fatal("seen is the server's own")
-	}
-	eq(t, []any{rem["title"], rem["date"], rem["source"]}, []any{"Tarjouksia: Lasten sängyt (2 uutta)", "2026-10-17", "Tarjousvahti"})
-	if n := rem["notes"].(string); !strings.HasPrefix(n, "Paras: Pinnasänky\n") || !strings.Contains(n, "https://www.tori.fi/recommerce/forsale/item/111") || strings.Contains(n, "Nukensänky") {
-		t.Fatalf("notes: %v", rem["notes"])
 	}
 
 	// the doll's bed hidden as the wrong thing: later searches are told of
@@ -170,7 +158,7 @@ func TestWardenWatch(t *testing.T) {
 	wardenCall(t, base, "tero", "set_watch", map[string]any{"space_id": sid, "event_id": id, "intent": "Sänky 6-vuotiaalle"})
 	intent, avoid = "Sänky 6-vuotiaalle", "- Nukensänky (not the thing wanted)"
 
-	// again: nothing new, the reminder stays as it was
+	// again: nothing new
 	code, out = wardenCall(t, base, "tero", "run_watch", map[string]any{"space_id": sid, "event_id": id})
 	eq(t, code, 200, "told of the hidden find and the intent")
 	eq(t, len(out["new"].([]any)), 0, "seen already")

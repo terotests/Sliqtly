@@ -42,6 +42,22 @@
 
 .sp-top-narrow { flex-wrap: wrap; height: auto; padding: 8px 12px; row-gap: 8px; }
 
+.sp-menubtn {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.sp-menubtn:hover { background-color: #efe7df; }
+.sp-menubtn:focus { background-color: #efe7df; }
+.sp-menubtn-on { background-color: var(--soft); }
+.sp-menubar { width: 18px; height: 2px; border-radius: 1px; background-color: var(--ink); }
+
 .sp-brand { display: flex; flex-direction: row; align-items: center; gap: 8px; height: 32px; }
 .sp-mark {
   display: flex;
@@ -102,7 +118,7 @@
   width: 196px;
   padding: 0 0 0 16px;
 }
-.sp-nav-row { flex-direction: row; flex-wrap: wrap; width: auto; padding: 0; }
+.sp-nav-menu { width: auto; padding: 4px; border-radius: 12px; background-color: var(--surface); }
 
 .sp-navbtn {
   display: flex;
@@ -117,6 +133,7 @@
 .sp-navbtn:hover { background-color: #efe7df; }
 .sp-navbtn:focus { background-color: #efe7df; }
 .sp-navbtn-on { background-color: var(--surface); }
+.sp-navbtn-menu-on { background-color: var(--soft); }
 .sp-navglyph { color: var(--accent); font-size: 15px; width: 18px; height: 20px; line-height: 20px; }
 .sp-navbtn-tx { color: var(--ink); font-size: 14px; height: 20px; line-height: 20px; }
 
@@ -261,7 +278,7 @@
 .sp-tab:hover { background-color: #efe7df; }
 .sp-tab:focus { background-color: #efe7df; }
 .sp-tab-on { background-color: var(--surface); border: 1px solid var(--line); }
-.sp-tab-tx { color: var(--ink); font-size: 13px; font-weight: 500; height: 18px; line-height: 18px; }
+.sp-tab-tx { color: var(--ink); font-size: 13px; font-weight: 500; height: 18px; line-height: 18px; white-space: nowrap; }
 .sp-tab-on-tx { font-weight: 700; }
 .sp-count { display: flex; flex-shrink: 0; align-items: center; justify-content: center; height: 18px; padding: 0 6px; margin-left: 6px; border-radius: 9px; background-color: var(--accent); }
 .sp-count-tx { color: var(--on-accent); font-size: 11px; font-weight: 700; height: 18px; line-height: 18px; }
@@ -362,6 +379,15 @@
 .sp-c-indigo { background-color: #6366f1; }
 .sp-c-orange { background-color: #f97316; }
 .sp-c-all { background-color: #d9573f; }
+.sp-c-g-activity { background-color: #0d9488; }
+.sp-c-g-care { background-color: #db2777; }
+.sp-c-g-health { background-color: #16a34a; }
+.sp-c-g-travel { background-color: #0284c7; }
+.sp-c-g-booking { background-color: #a16207; }
+.sp-c-g-deadline { background-color: #b91c1c; }
+.sp-c-g-reminder { background-color: #ca8a04; }
+.sp-c-g-financial { background-color: #475569; }
+.sp-c-g-asset_action { background-color: #78716c; }
 
 /* --- the summary: a wall calendar ------------------------------------------------- */
 
@@ -472,11 +498,15 @@
 .sp-abig:hover { background-color: var(--surface); }
 .sp-abig:focus { background-color: var(--surface); }
 .sp-abday { color: var(--ink); font-size: 24px; font-weight: 500; width: 150px; height: 32px; line-height: 32px; flex-shrink: 0; white-space: nowrap; }
+.sp-abdaycol { display: flex; flex-direction: column; flex-wrap: nowrap; width: 150px; flex-shrink: 0; }
+.sp-abend { color: var(--ink); font-size: 18px; width: 150px; height: 24px; line-height: 24px; white-space: nowrap; }
 .sp-abdot { width: 22px; height: 22px; border-radius: 11px; flex-shrink: 0; }
 .sp-abtitle { color: var(--ink); font-size: 26px; font-weight: 500; height: auto; line-height: 32px; }
 .sp-abwho { color: var(--ink); font-size: 17px; height: auto; line-height: 22px; }
 .sp-abig-narrow { gap: 10px; padding: 8px 4px; }
 .sp-abday-narrow { font-size: 16px; width: 82px; height: 22px; line-height: 22px; }
+.sp-abdaycol-narrow { width: 82px; }
+.sp-abend-narrow { font-size: 14px; width: 82px; height: 18px; line-height: 18px; }
 .sp-abtitle-narrow { font-size: 18px; line-height: 24px; }
 .sp-abwho-narrow { font-size: 14px; line-height: 18px; }
 .sp-abaway { color: var(--late); font-size: 24px; font-weight: 600; width: 160px; height: 32px; line-height: 32px; flex-shrink: 0; white-space: nowrap; text-align: right; }
@@ -568,6 +598,10 @@
 .sp-arow:focus { background-color: var(--soft); }
 .sp-adot { width: 12px; height: 12px; border-radius: 6px; flex-shrink: 0; }
 .sp-aday { color: var(--ink); font-size: 16px; font-weight: 700; width: 92px; height: 22px; line-height: 22px; flex-shrink: 0; }
+.sp-arow-span { align-items: flex-start; }
+.sp-adot-span { margin-top: 5px; }
+.sp-adaycol { display: flex; flex-direction: column; flex-wrap: nowrap; width: 92px; flex-shrink: 0; }
+.sp-aend { color: var(--ink); font-size: 15px; width: 92px; height: 20px; line-height: 20px; }
 .sp-atitle { color: var(--ink); font-size: 16px; height: auto; line-height: 22px; }
 
 .sp-rcard {
@@ -674,9 +708,10 @@
 .ui-input-selection { background-color: #f3d9cb; }
 .ui-input-clear { width: 18px; height: 18px; border-radius: 9px; color: var(--muted); background-color: var(--soft); font-size: 13px; text-align: center; line-height: 18px; margin-left: 6px; }
 
-/* --- a date: a button with the day, EVGUI's calendar under it ------------------- */
+/* --- a date field: a button with the day, EVGUI's calendar under it ------------- */
+/* (not .sp-date: that is the summary's big date) */
 
-.sp-date {
+.sp-datebtn {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -688,11 +723,11 @@
   height: 34px;
   cursor: pointer;
 }
-.sp-date:hover { background-color: var(--soft); }
-.sp-date:focus { border: 1px solid var(--accent); }
-.sp-date-open { border: 1px solid var(--accent); }
-.sp-date-tx { color: var(--ink); font-size: 14px; height: 18px; line-height: 18px; }
-.sp-date-empty-tx { color: var(--faint); }
+.sp-datebtn:hover { background-color: var(--soft); }
+.sp-datebtn:focus { border: 1px solid var(--accent); }
+.sp-datebtn-open { border: 1px solid var(--accent); }
+.sp-datebtn-tx { color: var(--ink); font-size: 14px; height: 18px; line-height: 18px; }
+.sp-datebtn-empty-tx { color: var(--faint); }
 .ui-calendar {
   display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px;
   width: 274px; min-width: 274px;

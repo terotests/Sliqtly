@@ -114,6 +114,10 @@ class SpType {
     def whenIs:string ""
     def doneFields:[string]
     def doneIs:[string]
+    ; the other types' lists an entry is in too, while its alsoField is alsoIs
+    def alsoTypes:[string]
+    def alsoFields:[string]
+    def alsoIs:[string]
     ; number fields that remind at once when at most a limit: the field in
     ; `lowAts` beside it, or `lowDefaults` when that is not set
     def lowFields:[string]
@@ -237,6 +241,20 @@ class SpTypes {
                 }
                 q = (q + 1)
             }
+        }
+        def al:VlJson (o.get("also"))
+        def ai:int 0
+        while (ai < (al.count())) {
+            def ao:VlJson (al.at(ai))
+            if (ao.isObject()) {
+                def aw:VlJson (ao.get("when"))
+                if (aw.isObject()) {
+                    push t.alsoTypes (ao.stringOr("type" ""))
+                    push t.alsoFields (aw.stringOr("field" ""))
+                    push t.alsoIs (aw.stringOr("is" ""))
+                }
+            }
+            ai = (ai + 1)
         }
         def lows:VlJson (o.get("low"))
         def li:int 0

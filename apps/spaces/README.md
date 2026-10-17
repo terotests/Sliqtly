@@ -109,7 +109,7 @@ With the meta tag the page
   weekly), the same settings as MCP's `set_watch`. A watch is also set by the
   assistant or over MCP (`set_watch`, `list_watches`, `run_watch`); the
   server searches Tori.fi, Vinted, Huuto.net or the web for it once a day
-  and makes a reminder of new finds (`mcp-go/wardenwatch.go`).
+  and keeps new finds for the Tarjouksia tab (`mcp-go/wardenwatch.go`).
 - on a server, while a watch has found something, the summary has a
   **Tarjouksia** tab (offers) and a **Tapahtumia** tab (children's events
   from `set_event_watch`, kept out of the calendar until one is added).
