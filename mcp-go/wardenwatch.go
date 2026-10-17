@@ -280,6 +280,7 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 	// support's segment is the line, a part of it, or several lines
 	lines := []wardenLine{}
 	used := map[int]bool{}
+	resolved := map[int]string{}
 	asked, unbacked, unresolved := 0, 0, 0
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "-*•0123456789. "))
@@ -302,20 +303,27 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 		asked++
 		cited := false
 		u := ""
+		// a result no other line took first, else one that lists several
+		// (an events calendar)
 	find:
-		for _, sup := range gm.Supports {
-			seg := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(sup.Segment.Text), "-*•0123456789. "))
-			if seg == "" || !(strings.Contains(line, seg) || strings.Contains(seg, line)) {
-				continue
-			}
-			for _, i := range sup.Chunks {
-				if i < 0 || i >= len(gm.Chunks) || used[i] {
+		for _, again := range []bool{false, true} {
+			for _, sup := range gm.Supports {
+				seg := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(sup.Segment.Text), "-*•0123456789. "))
+				if seg == "" || !(strings.Contains(line, seg) || strings.Contains(seg, line)) {
 					continue
 				}
-				cited = true
-				if u = g.resolve(ctx, gm.Chunks[i].Web.URI); u != "" {
-					used[i] = true
-					break find
+				for _, i := range sup.Chunks {
+					if i < 0 || i >= len(gm.Chunks) || used[i] != again {
+						continue
+					}
+					cited = true
+					if _, ok := resolved[i]; !ok {
+						resolved[i] = g.resolve(ctx, gm.Chunks[i].Web.URI)
+					}
+					if u = resolved[i]; u != "" {
+						used[i] = true
+						break find
+					}
 				}
 			}
 		}
