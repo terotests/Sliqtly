@@ -699,3 +699,12 @@
 .sp-opt-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
 .sp-opt-on-tx { color: var(--ink); font-weight: 600; }
 .sp-abaway-narrow { font-size: 15px; width: 80px; height: 22px; line-height: 22px; }
+
+/* --- a ward's clothing (Members page) ------------------------------------------- */
+
+.sp-clothes { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; padding: 8px 6px 12px 46px; }
+.sp-clothes-h { color: var(--muted); font-size: 12px; font-weight: 700; height: 16px; line-height: 16px; margin-top: 4px; }
+.sp-clothes-row { flex-wrap: nowrap; }
+.sp-clothes-tx { color: var(--ink); font-size: 14px; height: auto; line-height: 20px; flex-grow: 1; }
+.sp-clothes-miss { color: var(--late); }
+.sp-clothes-line { padding-left: 46px; }

@@ -85,6 +85,26 @@ func wardenWith(props map[string]any, more map[string]any) map[string]any {
 
 var spaceIDProp = strProp("The space's id (list_spaces)")
 
+// a ward's clothing, for add_ward and set_ward
+var wardenClothingProps = map[string]any{
+	"sizes": map[string]any{"type": "array", "description": "A child's clothing sizes, the whole list (it replaces the one there; [] clears it): one row per kind of clothing (shoes, clothes, outerwear, hats, gloves…), the size worn now, the next size and by when it will be needed",
+		"items": map[string]any{"type": "object", "properties": map[string]any{
+			"what":      strProp("The kind of clothing, in the space's language, e.g. \"kengät\", \"vaatteet\", \"ulkovaatteet\""),
+			"size":      strProp("The size now, e.g. \"30\" or \"122\""),
+			"next_size": strProp("The size it grows into next"),
+			"next_by":   strProp("When the next size is needed, YYYY-MM (or YYYY-MM-DD)"),
+			"note":      strProp("A note"),
+		}, "required": []string{"what"}}},
+	"clothes": map[string]any{"type": "array", "description": "A child's clothing list, the whole list (it replaces the one there; [] clears it): what it should have, how many, and how many it has; missing = need - have",
+		"items": map[string]any{"type": "object", "properties": map[string]any{
+			"item": strProp("What, e.g. \"talvikengät\" or \"välikausihousut\""),
+			"size": strProp("The size it should be"),
+			"need": map[string]any{"type": "integer", "description": "How many it should have (1 by default)"},
+			"have": map[string]any{"type": "integer", "description": "How many it has (0 by default)"},
+			"note": strProp("A note"),
+		}, "required": []string{"item"}}},
+}
+
 var wardenTools = []roomTool{
 	{name: "list_spaces", title: "List spaces", readOnly: true,
 		desc: "The Warden spaces you are a member of: each with its members, pending invites and wards (the people or things the group is responsible for: children, pets, a car, clients, players). Start here."},
@@ -125,12 +145,12 @@ var wardenTools = []roomTool{
 		desc:     "Delete one event or entry of a space.",
 		required: []string{"space_id", "event_id"}},
 	{name: "add_ward", title: "Add a ward",
-		desc:     "A new ward: someone or something the group is responsible for (a child, a pet, a car, a client, a player).",
-		props:    map[string]any{"space_id": spaceIDProp, "name": strProp("Its name"), "color": strProp("Its colour in the calendar")},
+		desc:     "A new ward: someone or something the group is responsible for (a child, a pet, a car, a client, a player). A child's clothing sizes and clothing list may be given too.",
+		props:    wardenWith(wardenClothingProps, map[string]any{"space_id": spaceIDProp, "name": strProp("Its name"), "color": strProp("Its colour in the calendar")}),
 		required: []string{"space_id", "name"}},
 	{name: "set_ward", title: "Change a ward",
-		desc:     "Rename a ward or give it another colour in the calendar.",
-		props:    map[string]any{"space_id": spaceIDProp, "ward": strProp("The ward's id or name"), "name": strProp("A new name"), "color": strProp("A new colour: blue, emerald, violet, amber, rose, cyan, indigo, or #rrggbb")},
+		desc:     "Rename a ward, give it another colour in the calendar, or set a child's clothing sizes (sizes) and clothing list (clothes). The lists are given whole: read them first (list_spaces or get_space, under wards), change and give them back.",
+		props:    wardenWith(wardenClothingProps, map[string]any{"space_id": spaceIDProp, "ward": strProp("The ward's id or name"), "name": strProp("A new name"), "color": strProp("A new colour: blue, emerald, violet, amber, rose, cyan, indigo, or #rrggbb")}),
 		required: []string{"space_id", "ward"}},
 	{name: "remove_ward", title: "Remove a ward", destructive: true,
 		desc:     "Owner only: remove a ward added by mistake. Its events stay, without a ward.",
