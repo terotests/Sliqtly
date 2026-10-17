@@ -428,6 +428,14 @@ func wardenWatchJSON(d Doc) map[string]any {
 	}
 	finds := []any{}
 	for _, f := range docMaps(w, "finds") {
+		if docStr(f, "id") == "" {
+			// a find kept before finds had ids: the id rate_find knows it by
+			c := map[string]any{"id": wardenHashURL(docStr(f, "url"))}
+			for k, v := range f {
+				c[k] = v
+			}
+			f = c
+		}
 		finds = append(finds, f)
 	}
 	out["finds"] = finds

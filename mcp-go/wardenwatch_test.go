@@ -214,3 +214,11 @@ func TestWardenWatchArea(t *testing.T) {
 	sp.doc["places"] = []any{map[string]any{"name": "Lahti", "lat": 60.98, "lon": 25.66}}
 	eq(t, wardenWatchArea(sp, Doc{"ward": "w2", "place": "Koti"}, map[string]any{}), "Lahti")
 }
+
+func TestWardenWatchOldFindID(t *testing.T) {
+	d := Doc{"watch": map[string]any{"finds": []any{map[string]any{"title": "Luistimet", "url": "https://www.huuto.net/kohteet/x/1"}}}}
+	f := wardenWatchJSON(d)["finds"].([]any)[0].(map[string]any)
+	if f["id"] != wardenHashURL("https://www.huuto.net/kohteet/x/1") {
+		t.Fatalf("an old find gets the id rate_find knows it by: %v", f)
+	}
+}
