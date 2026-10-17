@@ -1296,6 +1296,26 @@ console.log("the children's events on the summary");
   ok("the events lint clean", probs.length === 0, probs.join(" | "));
 }
 
+console.log("the events watch on the members page");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
+  a.answer(JSON.stringify({ space, events: [], event_watch: { active: false, finds: [] } }));
+  a.press("sp-nav-members");
+  ok("turned on before anything is found", texts(a).includes("Tapahtumavahti") && !!byId(a, "sp-kw-on"));
+  a.press("sp-kw-on");
+  const on = JSON.parse(a.outBody());
+  ok("on", a.outOp() === "set_event_watch" && on.active === true, JSON.stringify(on));
+  a.answer(JSON.stringify({ space_id: "sp1", watch: { active: true, ages: ["small", "school"], every_days: 7, finds: [] } }));
+  ok("then its age groups there", !!byId(a, "sp-kage-teen") && !!byId(a, "sp-kw-run"));
+}
+
 console.log("the assistant on a server");
 {
   const a = new M.SpacesApp();
