@@ -4481,13 +4481,20 @@ try {
     });
     const res = await page.evaluate(async (path) => {
       if (path) await window.__fileRequest("unlink:" + path);
-      await new Promise((r) => setTimeout(r, 400));
-      const files = await window.__docFiles();
       const a = window.__app;
+      // the file is read on a frame, which a slow run takes seconds for
+      const barsNow = () => {
+        a.selectSlide(1);
+        const st = JSON.parse(a.stageJson());
+        return st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      };
+      let bars = 0;
+      for (let i = 0; i < 40 && bars !== 2; i += 1) {
+        await new Promise((r) => setTimeout(r, 400));
+        bars = barsNow();
+      }
+      const files = await window.__docFiles();
       const md = a.source();
-      a.selectSlide(1);
-      const st = JSON.parse(a.stageJson());
-      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
       Object.assign(window.sliqtly, window.__was);
       a.showTab("md");
       return { file: files.includes("data/Budjetti-Syyskuu.csv"), copy: files.includes(path), md: /"url": ?"data\/Budjetti-Syyskuu\.csv"/.test(md), bars };
