@@ -6305,7 +6305,10 @@ function handleRequests() {
 let leavingByApp = false;
 let fullscreenOn = false;
 document.addEventListener("fullscreenchange", () => {
-  keys.focus({ preventScroll: true });
+  // the presentation's keys stay with the slides; editing, the keyboard
+  // stays where it is (a menu, the rail, a dialog) unless it was lost
+  const act = document.activeElement;
+  if (JSON.parse(app.layoutJson()).mode === "present" || !act || act === document.body) keys.focus({ preventScroll: true });
   if (document.fullscreenElement) {
     fullscreenOn = true;
   } else {
@@ -8360,7 +8363,8 @@ function enterViewer(from) {
   document.body.classList.add("viewer");
   // the slide the link names, read now: the page writes its own into the
   // address while the intro plays
-  const n = parseInt(hashParams().get("slide") || "", 10);
+  // (the audience's window: none, the presenter's state says where)
+  const n = audience ? 0 : parseInt(hashParams().get("slide") || "", 10);
   const begin = () => beginShow(n > 1 ? n - 1 : 0);
   if (!wantsIntro(from)) begin();
   // the page still loading: the intro follows the loader (start)
@@ -10910,6 +10914,9 @@ canvas.addEventListener("pointerdown", (ev) => {
   app.setDragSlop(finger ? 16 : 6);
   app.setTouch(finger);
   app.setCtrl(pickKeyHeld(ev, IS_MAC));
+  // the press's own time, not the last frame's: a hold is timed from it
+  // (PresCodeView), and a slow machine's frames can be a second apart
+  app.setUiTime(performance.now() / 1000);
   const where = app.pointerDown(x, y, ev.shiftKey, Math.min(clicks, 3));
   ev.preventDefault();
   if (where === "hint" && app.hintWantsPick()) startColorPick();
@@ -11118,6 +11125,8 @@ function endPointer(ev) {
     }
     return;
   }
+  // …and the release's: a hold no frame saw is still one (PresCodeView.upAt)
+  app.setUiTime(performance.now() / 1000);
   app.pointerUp();
   if (ev.pointerType === "mouse" && ev.button !== 2 && app.focusTarget() === "strip" && !app.toolbarOnTop()) {
     paintOnce();
@@ -11524,7 +11533,11 @@ async function start() {
     if (doc.loading || !app.source()) await openSample("welcome");
   }
   refreshRecent().catch(() => {});
-  useAddress(at);
+  // the audience's window is where the presenter's is (PresTwoScreen), not
+  // where its own address says: that is the slide it last drew, behind the
+  // presenter's while it was not in front, and presenting it again would
+  // drop the state the presenter sent
+  if (!audience) useAddress(at);
 
   // A narrow window gets the slides without the editor (PresApp.isCompact,
   // decided on every layout, so it follows the window); on a touch screen

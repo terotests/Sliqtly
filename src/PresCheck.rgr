@@ -919,6 +919,11 @@ class PresCheck {
         v.move(2 100.0 60.0)
         this.ok((((v.holdFrom()) == 2) && ((v.holdLast()) == 4)) "viewer: …either way")
         this.ok(((v.up()) == "comment") "viewer: let go, a comment")
+        ; held long enough with no frame between: a hold all the same
+        v.down(4 100.0 100.0 6.0)
+        this.ok(((v.upAt(6.3 true)) == "click") "viewer: let go at 0.3 s with no frame between, a click")
+        v.down(4 100.0 100.0 6.5)
+        this.ok(((v.upAt(7.3 true)) == "comment") "viewer: let go at 0.8 s with no frame between, a comment")
         ; one that moves first is a drag, never a hold
         v.down(4 100.0 100.0 7.0)
         v.move(4 100.0 120.0)

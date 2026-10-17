@@ -622,19 +622,23 @@ class PresCodeViewUi {
         if (view.pressing == false) {
             return false
         }
-        def rs:[PresCodeRow] (this.rowsOf(edPress))
-        def can:boolean false
-        if ((view.pressRow >= 0) && (view.pressRow < (array_length rs))) {
-            def w:PresCodeRow (itemAt rs view.pressRow)
-            can = ((w.canComment()) || ((w.kind == "fill") && (w.at > 0)))
-        }
-        if (view.tick(now can)) {
+        if (view.tick(now (this.pressCan()))) {
             this.bandHold()
             rev = (rev + 1)
             return true
         }
         if view.held {
             this.bandHold()
+        }
+        return false
+    }
+
+    ; The pressed row can take a comment (a filler row: the line it stands for).
+    fn pressCan:boolean () {
+        def rs:[PresCodeRow] (this.rowsOf(edPress))
+        if ((view.pressRow >= 0) && (view.pressRow < (array_length rs))) {
+            def w:PresCodeRow (itemAt rs view.pressRow)
+            return ((w.canComment()) || ((w.kind == "fill") && (w.at > 0)))
         }
         return false
     }
@@ -659,11 +663,12 @@ class PresCodeViewUi {
         ed.setLineBands(bands)
     }
 
-    ; Let go. A hold asks the host for a comment on its lines (`holdLines`).
+    ; Let go at `now`. A hold asks the host for a comment on its lines
+    ; (`holdLines`).
     def holdLines:[int]
 
-    fn release:void () {
-        def what:string (view.up())
+    fn release:void (now:double) {
+        def what:string (view.upAt(now (this.pressCan())))
         if (what == "comment") {
             def rs:[PresCodeRow] (this.rowsOf(edPress))
             holdLines = (PresCodeView.commentLines(rs (view.holdFrom()) (view.holdLast())))

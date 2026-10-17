@@ -583,3 +583,11 @@ func TestWardenFeedGetsPays(t *testing.T) {
 	_, ics = editorDo(t, "GET", base+path+"?pay=0", "", "", "")
 	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 2, "and its window")
 }
+
+func TestWardenMemberName(t *testing.T) {
+	sp := &wardenSpace{doc: Doc{"members": []any{"u1", "u2", "u3"}, "people": map[string]any{
+		"u1": map[string]any{"name": "Tero Tolonen"}, "u2": map[string]any{"name": "Mia Ek"}, "u3": map[string]any{"name": "Mia Lund"}}}}
+	for in, want := range map[string]string{"Tero": "Tero Tolonen", "tero tolonen": "Tero Tolonen", "Mia": "Mia", "Anna": "Anna", "": ""} {
+		eq(t, sp.memberName(in), want, in)
+	}
+}

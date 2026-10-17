@@ -402,6 +402,8 @@ console.log("a space on a server");
   eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
   eq("red as rose", M.SpSpace.pageColor("red"), "rose");
   eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+  eq("a member's name in another case is that member", a.space.memberName("mia"), "Mia");
+  eq("a name no member has stays", a.space.memberName("Anna"), "Anna");
 
   // the places: none means Tampere; a town is looked up, picked for a
   // ward, saved, and the summary shows the weather of each
@@ -776,8 +778,18 @@ console.log("entries: the form, the Add menu, deleting and Undo");
     && inv.hasCost && inv.cost.amount === 20.5 && inv.cost.scope === "shared" && inv.cost.payer === "Mia", JSON.stringify(inv.values));
   ok("and on the calendar", a.occIds.includes(inv.id));
 
-  // a record without a date
+  // a record without a date; the lists page shows only the lists with
+  // something, and Add offers the types kept on lists
   a.press("sp-nav-lists");
+  ok("empty lists are not shown", !byId(a, "sp-list-gift_idea") && byId(a, "sp-add"));
+  a.press("sp-add");
+  a.typeSearch.setValue("thing");
+  a.rebuild();
+  ok("Add on the lists page offers the listed types", !!byId(a, "sp-addtype-item"), texts(a).slice(-20).join(","));
+  a.typeSearch.setValue("dentist");
+  a.rebuild();
+  ok("not the calendar's", !byId(a, "sp-addtype-dentist_visit"));
+  a.press("sp-add");
   a.press("sp-addtype-item");
   eq("a thing has no date to start with", field("date").value, "");
   field("title").setValue("Skates");
@@ -1110,6 +1122,47 @@ console.log("a web address in today's card");
     inside.push(byId(a, "sp-turl-0"));
     const over = inside.filter((e) => e.calculatedX + e.calculatedWidth > card.calculatedX + card.calculatedWidth + 0.5);
     ok(`${w} everything stays inside the card`, over.length === 0, over.map((e) => `${e.id || e.className} ${e.calculatedX}+${e.calculatedWidth}`).join(", ") + ` card ${card.calculatedX}+${card.calculatedWidth}`);
+  }
+}
+
+console.log("a plan over several days in Tulossa");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const end = iso(a.today + 12);
+  const short = `– ${Number(end.slice(8, 10))}.${Number(end.slice(5, 7))}.`;
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [
+      { event_id: "ev1", title: "Lapset Terolla", date: iso(a.today + 10), end_date: end },
+      { event_id: "ev2", title: "Hammaslääkäri", date: iso(a.today + 11), start: "09:00", end: "09:30", type: "dentist_visit" },
+      { event_id: "ev3", title: "Laivamatka", date: iso(a.today + 14), type: "trip" },
+    ],
+  }));
+  let t = texts(a);
+  ok("the last day under the first", t.includes(short), t.filter((s) => s.startsWith("–")).join(","));
+  eq("only for the plan over several days", t.filter((s) => s.startsWith("–")).length, 1);
+  // plans for no one in particular take their type group's colour
+  const dots = flat(a).map((e) => e.className || "").filter((c) => c.startsWith("sp-adot"));
+  ok("a colour by the kind of plan", dots.some((c) => c.includes("sp-c-all")) && dots.some((c) => c.includes("sp-c-g-health")) && dots.some((c) => c.includes("sp-c-g-travel")), dots.join(","));
+  ok("and the legend names them", t.includes("Terveys") && t.includes("Matkat"), t.slice(-12).join(","));
+  a.press("sp-htab-ahead");
+  ok("the Tulossa page names the kind", texts(a).includes("koko perhe · hammaslääkäri"), texts(a).slice(-12).join(","));
+  a.press("sp-htab-today");
+  eq("no stylesheet errors", a.styleErrorCount(), 0);
+  a.press("sp-htab-ahead");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    t = texts(a);
+    ok(`${w} on the Tulossa page too`, t.includes(short));
+    const probs = a.a11yProblems();
+    ok(`${w} Tulossa lints clean`, probs.length === 0, probs.join(" | "));
   }
 }
 

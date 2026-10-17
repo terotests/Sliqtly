@@ -290,6 +290,16 @@ class SpWords {
         return (en + " " + mo + " " + (to_string (itemAt p 2)))
     }
 
+    ; "8.11." / "Nov 8"
+    sfn dateShort:string (lang:string d:int) {
+        def p:[int] (SpSpace.ymdOf(d))
+        if (lang == "fi") {
+            return ((to_string (itemAt p 2)) + "." + (to_string (itemAt p 1)) + ".")
+        }
+        def mo:string (itemAt ([] _:string ( "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec" )) ((itemAt p 1) - 1))
+        return (mo + " " + (to_string (itemAt p 2)))
+    }
+
     ; "ma" / "Mon"
     sfn wdShort:string (lang:string d:int) {
         def wd:int (UiDate.weekday(d))

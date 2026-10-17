@@ -456,6 +456,35 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 	return sp.json(), nil
 }
 
+// A name as the member it means: "Tero" written on a cost is the one member
+// whose first name it is ("Tero Tolonen"), so the budget has one Tero. A name
+// no member has, or a first name two share, stays as written.
+func (sp *wardenSpace) memberName(n string) string {
+	n = strings.TrimSpace(n)
+	if n == "" {
+		return n
+	}
+	people, _ := sp.doc["people"].(map[string]any)
+	match := ""
+	for _, id := range docStrs(sp.doc, "members") {
+		p, _ := people[id].(map[string]any)
+		full := docStr(p, "name")
+		if strings.EqualFold(full, n) {
+			return full
+		}
+		if first, _, _ := strings.Cut(full, " "); strings.EqualFold(first, n) {
+			if match != "" {
+				return n
+			}
+			match = full
+		}
+	}
+	if match != "" {
+		return match
+	}
+	return n
+}
+
 // ------------------------------------------------------------------ wards --
 
 func wardenColor(c string) (string, error) {
