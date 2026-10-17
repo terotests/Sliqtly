@@ -120,6 +120,8 @@ type geminiSearch struct {
 	m *geminiModel
 	// follows nothing: the redirect's Location is the address
 	redirect *http.Client
+	// opens a page the answer names without citing it, to see it is there
+	page *http.Client
 }
 
 // the deal watcher's search on the assistant's model; nil when it is not
@@ -132,7 +134,7 @@ func newWardenSearch(m aiModel) wardenSearcher {
 	c := *g
 	c.tools = nil
 	c.model = env("WARDEN_SEARCH_MODEL", g.model)
-	return &geminiSearch{m: &c, redirect: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &geminiSearch{m: &c, redirect: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, page: &http.Client{Timeout: 6 * time.Second}}
 }
 
 const wardenSearchAsk = `Search for current second-hand or for-sale listings matching: %s
@@ -140,8 +142,8 @@ const wardenSearchAsk = `Search for current second-hand or for-sale listings mat
 What the buyer wants: %s
 
 List up to %d individual listings you found in the search results, one per line, as:
-<the listing's title> | <its price in euros, or ?> | <the town where the item is, or ?> | <how well it fits what the buyer wants, 0 to 100> | <a few words why>
-Only real listings from the results, no shops' category pages, no other text.`
+<the listing's title> | <its price in euros, or ?> | <the town where the item is, or ?> | <how well it fits what the buyer wants, 0 to 100> | <a few words why> | <the listing's own address, https://...>
+Use Google Search, and list only real listings from its results, no shops' category pages, no other text.`
 
 const wardenSearchNear = `
 
@@ -288,6 +290,13 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 			continue
 		}
 		parts := strings.Split(line, "|")
+		// the page's address, written last
+		named := ""
+		if k := len(parts) - 1; k > 0 {
+			if v := strings.Trim(strings.TrimSpace(parts[k]), "<>()[]*"); strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "http://") {
+				named, parts = v, parts[:k]
+			}
+		}
 		for len(parts) < n {
 			parts = append(parts, "")
 		}
@@ -327,6 +336,11 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 				}
 			}
 		}
+		// an address the answer wrote but did not cite: kept when the page
+		// is there and names the thing, so a made-up address is left out
+		if u == "" && named != "" && g.pageNames(ctx, named, parts[0]) {
+			u = named
+		}
 		switch {
 		case u != "":
 			lines = append(lines, wardenLine{parts: parts, url: u})
@@ -338,9 +352,44 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 	}
 	note := ""
 	if len(lines) == 0 {
-		note = fmt.Sprintf("%d lines, %d without a result, %d results unresolved, %d results, %d supports: %s", asked, unbacked, unresolved, len(gm.Chunks), len(gm.Supports), aiClip(strings.Join(strings.Fields(text), " "), 200))
+		note = fmt.Sprintf("%d lines, %d not found, %d results unresolved, %d results, %d supports: %s", asked, unbacked, unresolved, len(gm.Chunks), len(gm.Supports), aiClip(strings.Join(strings.Fields(text), " "), 200))
 	}
 	return lines, note, nil
+}
+
+var wardenWordRe = regexp.MustCompile(`[\pL\pN]{4,}`)
+
+// whether a page opens and its text has a word of four letters or more
+// from the title (any of them: the page may spell the rest otherwise)
+func (g *geminiSearch) pageNames(ctx context.Context, u, title string) bool {
+	if g.page == nil {
+		return false
+	}
+	words := wardenWordRe.FindAllString(strings.ToLower(title), -1)
+	if len(words) == 0 {
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Warden)")
+	res, err := g.page.Do(req)
+	if err != nil {
+		return false
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		return false
+	}
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	text := strings.ToLower(string(raw))
+	for _, w := range words {
+		if strings.Contains(text, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // the address a grounding redirect leads to ("" when it leads nowhere)
