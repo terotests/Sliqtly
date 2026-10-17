@@ -81,6 +81,11 @@ class SpWeather {
     def lo:int 0
     def rain:int 0
     def code:int 0
+    ; by the hour from today's midnight (the place's time), when the host
+    ; read them: the temperature, the chance of rain and the WMO code
+    def hourT:[int]
+    def hourRain:[int]
+    def hourCode:[int]
     Constructor () {
     }
 }
@@ -126,6 +131,8 @@ class SpacesApp {
     def kidAges:[string]
     def kidFinds:[SpKidFind]
     def kidAsk:int -1
+    ; the links in today's cards, by their number
+    def linkUrls:[string]
     def sheetSel:string ""
     def docSel:string ""
     ; the assistant's conversation: question keys and answers; a question
@@ -319,6 +326,78 @@ class SpacesApp {
         if ((tab == "home") && (editing == false)) {
             this.rebuild()
         }
+    }
+
+    ; The weather of a place by the hour (Open-Meteo's `hourly`, from
+    ; today's midnight): {temperature_2m, precipitation_probability,
+    ; weather_code}. `temp` and `code` are now's.
+    fn setWeatherHours:void (place:string temp:int code:int hours:string) {
+        def h:VlJson (SpRemote.parse(hours))
+        def ts:VlJson (h.get("temperature_2m"))
+        def rs:VlJson (h.get("precipitation_probability"))
+        def cs:VlJson (h.get("weather_code"))
+        def tl:[int]
+        def rl:[int]
+        def cl:[int]
+        def i:int 0
+        while (i < (ts.count())) {
+            def tv:VlJson (ts.at(i))
+            push tl (floor ((tv.asDouble()) + 0.5))
+            def rv:VlJson (rs.at(i))
+            push rl (floor ((rv.asDouble()) + 0.5))
+            def cv:VlJson (cs.at(i))
+            push cl (floor ((cv.asDouble()) + 0.5))
+            i = (i + 1)
+        }
+        this.setWeather(place temp 0 0 0 code)
+        def w@(optional):SpWeather (this.weatherOf(place))
+        if (null? w) {
+            return
+        }
+        def one:SpWeather (unwrap w)
+        one.hourT = tl
+        one.hourRain = rl
+        one.hourCode = cl
+        this.rebuild()
+    }
+
+    ; When the school day starts and ends on `day`, in hours: the earliest
+    ; start and the latest end of the wards' school and daycare entries, or
+    ; 8 and 15.
+    fn schoolHours:[int] (day:int) {
+        def first:int -1
+        def last:int -1
+        def occ:[SpOccur] (space.occurrences(day day))
+        def i:int 0
+        while (i < (array_length occ)) {
+            def o:SpOccur (itemAt occ i)
+            def school:boolean (((o.typeId == "school_timetable") || (o.typeId == "school")) || (o.typeId == "daycare_day"))
+            if (school && (o.startMin >= 0)) {
+                if ((first < 0) || (o.startMin < first)) {
+                    first = o.startMin
+                }
+                def e:int (this.endOf(o))
+                if (e > last) {
+                    last = e
+                }
+            }
+            i = (i + 1)
+        }
+        def sh:int 8
+        def eh:int 15
+        if (first >= 0) {
+            sh = (idiv first 60)
+        }
+        if (last > 0) {
+            eh = (idiv (last + 30) 60)
+        }
+        if (eh <= sh) {
+            eh = (sh + 1)
+        }
+        if (eh > 23) {
+            eh = 23
+        }
+        return ([] _:int ( sh eh ))
     }
 
     fn weatherOf@(optional):SpWeather (place:string) {
@@ -580,37 +659,6 @@ class SpacesApp {
         return el
     }
 
-    ; a long address in a note as its site: "https://www.x.fi/a/b" as "x.fi"
-    ; (a summary's line is not the place to read one)
-    sfn shortLinks:string (s:string) {
-        def words:[string] (UiTree.splitWs(s))
-        def out:[string]
-        def i:int 0
-        while (i < (array_length words)) {
-            def wd:string (itemAt words i)
-            def rest:string ""
-            if (UiTree.beginsWith(wd "https://")) {
-                rest = (substring wd 8 (strlen wd))
-            }
-            if (UiTree.beginsWith(wd "http://")) {
-                rest = (substring wd 7 (strlen wd))
-            }
-            if ((strlen rest) > 0) {
-                def slash:int (indexOf rest "/")
-                if (slash > 0) {
-                    rest = (substring rest 0 slash)
-                }
-                if (UiTree.beginsWith(rest "www.")) {
-                    rest = (substring rest 4 (strlen rest))
-                }
-                wd = rest
-            }
-            push out wd
-            i = (i + 1)
-        }
-        return (join out " ")
-    }
-
     ; a button's label takes each of the button's classes with "-tx":
     ; "sp-pill sp-pill-on" labels with "sp-pill-tx sp-pill-on-tx"
     sfn txClasses:string (cls:string) {
@@ -857,6 +905,8 @@ class SpacesApp {
         itemOccs = noOccs
         def noTexts:[string]
         remindTexts = noTexts
+        def noUrls:[string]
+        linkUrls = noUrls
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.dashHead()))
         v.addChild((this.homeTabs()))
@@ -1587,9 +1637,87 @@ class SpacesApp {
         }
         def l1:string (where + " · " + (SpWords.pick(lang "high " "ylin ")) + (to_string w.hi) + "° " + (SpWords.pick(lang "low " "alin ")) + (to_string w.lo) + "°")
         def l2:string ((SpWords.wxText(lang w.code)) + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string w.rain) + " %")
+        def warn:string ""
+        def icon:int w.code
+        if ((array_length w.hourT) >= 24) {
+            ; the school day: when it starts, midday and when it ends; the
+            ; next one once today's is over
+            def day:int today
+            def off:int 0
+            def sch:[int] (this.schoolHours(today))
+            if (((idiv nowMin 60) >= (itemAt sch 1)) && ((array_length w.hourT) >= 48)) {
+                day = (today + 1)
+                off = 24
+                sch = (this.schoolHours(day))
+            }
+            def sh:int (itemAt sch 0)
+            def eh:int (itemAt sch 1)
+            def slots:[int] ([] _:int ( sh ))
+            if ((12 > sh) && (12 < eh)) {
+                push slots 12
+            }
+            push slots eh
+            def lo:int 999
+            def hi:int -999
+            def parts:[string]
+            def k2:int 0
+            while (k2 < (array_length slots)) {
+                def hr:int (itemAt slots k2)
+                def tv:int (itemAt w.hourT (off + hr))
+                if (tv < lo) {
+                    lo = tv
+                }
+                if (tv > hi) {
+                    hi = tv
+                }
+                push parts ((SpWords.pick(lang "at " "klo ")) + (to_string hr) + " " + (to_string tv) + "°")
+                k2 = (k2 + 1)
+            }
+            def rain:int 0
+            def worst:int 0
+            def hh:int sh
+            while (hh <= eh) {
+                def rv:int (itemAt w.hourRain (off + hh))
+                if (rv > rain) {
+                    rain = rv
+                }
+                def cv:int (itemAt w.hourCode (off + hh))
+                if (cv > worst) {
+                    worst = cv
+                }
+                hh = (hh + 1)
+            }
+            icon = worst
+            def range:string ((to_string lo) + "°")
+            if (hi != lo) {
+                range = ((to_string lo) + "–" + (to_string hi) + "°")
+            }
+            if (off > 0) {
+                range = (range + (SpWords.pick(lang " tomorrow" " huomenna")))
+            }
+            l1 = (where + " · " + range + " · " + (SpWords.wxText(lang worst)))
+            l2 = ((join parts " · ") + " · " + (SpWords.pick(lang "rain " "sade ")) + (to_string rain) + " %")
+            ; frost before school: the roads may be slippery
+            def cold:int 999
+            def nh:int 0
+            while (nh <= sh) {
+                def nv:int (itemAt w.hourT (off + nh))
+                if (nv < cold) {
+                    cold = nv
+                }
+                nh = (nh + 1)
+            }
+            if (cold < 0) {
+                warn = ((SpWords.pick(lang "Slippery roads: " "Liukas keli: ")) + (to_string cold) + (SpWords.pick(lang "° in the night" "° yöllä")))
+            }
+        }
         c.role = "region"
-        c.a11yLabel = ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
-        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(w.code))))
+        def label:string ((SpWords.pick(lang "Weather" "Sää")) + ": " + t + ", " + l1 + ", " + l2)
+        if ((strlen warn) > 0) {
+            label = (label + ", " + warn)
+        }
+        c.a11yLabel = label
+        def ic:EVGElement (SpacesApp.tx("sp-wxicon" (SpWords.wxIcon(icon))))
         ic.a11yHidden = true
         c.addChild(ic)
         def tt:EVGElement (SpacesApp.tx("sp-wxtemp" t))
@@ -1603,6 +1731,11 @@ class SpacesApp {
         def t2:EVGElement (SpacesApp.tx("sp-wxline" l2))
         t2.a11yHidden = true
         col.addChild(t2)
+        if ((strlen warn) > 0) {
+            def t3:EVGElement (SpacesApp.tx("sp-wxwarn" ("⚠ " + warn)))
+            t3.a11yHidden = true
+            col.addChild(t3)
+        }
         c.addChild(col)
         if ((array_length all) > 1) {
             def pills:EVGElement (SpacesApp.box("sp-wxpills"))
@@ -1731,6 +1864,7 @@ class SpacesApp {
     }
 
     fn todayCard:EVGElement (o:SpOccur now:boolean w:double) {
+        def urls:[string]
         def n:int (this.rowOf(o))
         def past:boolean (((o.allDay()) == false) && ((this.endOf(o)) <= nowMin))
         def cls:string "sp-tcard"
@@ -1783,15 +1917,75 @@ class SpacesApp {
             }
             def e@(optional):SpEvent (space.event(o.eventId))
             if (!null? e) {
-                if ((strlen (trim e.notes)) > 0) {
-                    push parts (SpacesApp.shortLinks((trim e.notes)))
+                ; a web address is shown as a link below the card, and a word
+                ; too long to wrap is cut short
+                def kept:[string]
+                def words:[string] (strsplit (trim e.notes) " ")
+                def k:int 0
+                while (k < (array_length words)) {
+                    def wd:string (itemAt words k)
+                    if ((SpRemote.starts(wd "https://")) || (SpRemote.starts(wd "http://"))) {
+                        push urls wd
+                    } {
+                        if ((strlen wd) > 36) {
+                            wd = ((substring wd 0 34) + "…")
+                        }
+                        if ((strlen wd) > 0) {
+                            push kept wd
+                        }
+                    }
+                    k = (k + 1)
+                }
+                if ((array_length kept) > 0) {
+                    push parts (join kept " ")
                 }
             }
             col.addChild((SpacesApp.tx("sp-tdetail" (join parts " · "))))
         }
         UiTree.inline(col "width" (SpacesApp.px((w - 110.0))))
         row.addChild(col)
-        return row
+        if ((array_length urls) == 0) {
+            return row
+        }
+        def box:EVGElement (SpacesApp.box("sp-tbox"))
+        box.addChild(row)
+        def links:EVGElement (SpacesApp.box("sp-tlinks"))
+        def j:int 0
+        while (j < (array_length urls)) {
+            def u:string (itemAt urls j)
+            def li:int (array_length linkUrls)
+            push linkUrls u
+            def host:string (SpacesApp.linkHost(u))
+            def lb:EVGElement (SpacesApp.btn(("sp-turl-" + (to_string li)) "sp-chip sp-tlink" (host + " ↗")))
+            lb.a11yLabel = ((SpWords.pick(lang "Open link: " "Avaa linkki: ")) + host)
+            links.addChild(lb)
+            j = (j + 1)
+        }
+        box.addChild(links)
+        return box
+    }
+
+    ; "https://www.example.fi/a/b" → "example.fi"
+    sfn linkHost:string (u:string) {
+        def rest:string u
+        def at:int (indexOf rest "://")
+        if (at >= 0) {
+            rest = (substring rest (at + 3) (strlen rest))
+        }
+        def slash:int (indexOf rest "/")
+        if (slash > 0) {
+            rest = (substring rest 0 slash)
+        }
+        if (SpRemote.starts(rest "www.")) {
+            rest = (substring rest 4 (strlen rest))
+        }
+        if ((strlen rest) > 30) {
+            rest = ((substring rest 0 28) + "…")
+        }
+        if ((strlen rest) == 0) {
+            return "Linkki"
+        }
+        return rest
     }
 
     ; --- this week and what comes after ---
@@ -5893,6 +6087,17 @@ class SpacesApp {
         }
         if (UiTree.beginsWith(target "sp-find-")) {
             this.openFind((substring target 8 (strlen target)))
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-turl-")) {
+            def ui@(optional):int (to_int (substring target 8 (strlen target)))
+            if (!null? ui) {
+                def un:int (unwrap ui)
+                if ((un >= 0) && (un < (array_length linkUrls))) {
+                    action = ("open:" + (itemAt linkUrls un))
+                }
+            }
+            this.rebuild()
             return true
         }
         if (UiTree.beginsWith(target "sp-copy-")) {

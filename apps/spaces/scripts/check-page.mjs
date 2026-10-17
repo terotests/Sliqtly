@@ -46,7 +46,7 @@ const eq = (what, got, want) => ok(what, got === want, `got ${JSON.stringify(got
 const stubWeather = (p) => p.route("https://api.open-meteo.com/**", (r) => r.fulfill({
   contentType: "application/json",
   body: JSON.stringify({ current: { temperature_2m: 6.6, weather_code: 2 },
-    daily: { temperature_2m_max: [9.2], temperature_2m_min: [3.8], precipitation_probability_max: [20] } }),
+    hourly: { temperature_2m: Array(48).fill(5.2), precipitation_probability: Array(48).fill(20), weather_code: Array(48).fill(2) } }),
 }));
 
 const server = await serveDist(0);

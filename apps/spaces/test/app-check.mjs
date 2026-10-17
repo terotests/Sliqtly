@@ -87,6 +87,26 @@ console.log("the summary");
   ok("no weather until the host has it", !byId(a, "sp-wx"));
   a.setWeather("Tampere", 7, 9, 4, 20, 2);
   ok("the weather", texts(a).includes("7°") && texts(a).includes("Tampere · ylin 9° alin 4°"));
+  // by the hour: the school day's start, midday and end, and frost before it
+  {
+    const [sh, eh] = a.schoolHours(a.today);
+    const temp = (h) => (h % 24 < 6 ? -2 : (h % 24) - 2);
+    const hours = { temperature_2m: [], precipitation_probability: [], weather_code: [] };
+    for (let h = 0; h < 48; h++) {
+      hours.temperature_2m.push(temp(h));
+      hours.precipitation_probability.push(h % 24 === 13 ? 30 : 0);
+      hours.weather_code.push(h % 24 === 14 ? 61 : 3);
+    }
+    a.setWeatherHours("Tampere", 7, 2, JSON.stringify(hours));
+    const t = texts(a);
+    const at = [sh, ...(sh < 12 && eh > 12 ? [12] : []), eh].map((h) => `klo ${h} ${temp(h)}°`).join(" · ");
+    ok("the school day's range", t.some((x) => x.startsWith(`Tampere · ${temp(sh)}–${temp(eh)}°`)), t.filter((x) => /Tampere/.test(x)).join());
+    ok("its hours", t.includes(at + " · sade 30 %"), t.filter((x) => /klo \d+ /.test(x)).join() + " want " + at);
+    ok("frost in the night: slippery roads", t.includes("⚠ Liukas keli: -2° yöllä"));
+    a.setNow(eh * 60 + 10);
+    ok("after school: tomorrow's", texts(a).some((x) => /huomenna/.test(x)));
+    a.setNow(10 * 60);
+  }
   const today = byId(a, "sp-card-today");
   const week = byId(a, "sp-card-week");
   const late = byId(a, "sp-card-late");
@@ -1020,6 +1040,42 @@ console.log("an entry's offer watch");
   ok("the watch lints clean", probs.length === 0, probs.join(" | "));
 }
 
+console.log("a web address in today's card");
+{
+  const a = new M.SpacesApp();
+  a.server = true;
+  a.lang = "fi";
+  a.init(CSS);
+  a.setWidth(1280, 700);
+  a.start();
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  const url = "https://ilmaistapahtumat.fi/tapahtuma/tampere:6a9fd2f180aad500079c9608";
+  a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
+  a.answer(JSON.stringify({
+    space: { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] },
+    events: [{ event_id: "ev1", title: "Lasten galleria", date: iso(a.today), start: "23:00", end: "23:30",
+      notes: "Hinta: ilmainen. Näyttely keskustassa. " + url + " Koodi:abcdefghijklmnopqrstuvwxyzabcdefghijklmnop" }],
+  }));
+  const t = texts(a);
+  ok("the address is not written out", !t.some((s) => s.includes("https://")), t.filter((s) => s.includes("http")).join(","));
+  ok("a link with its site instead", !!byId(a, "sp-turl-0") && t.includes("ilmaistapahtumat.fi ↗"));
+  ok("a word too long to wrap is cut", t.some((s) => s.includes("Koodi:abcdefghijklmnopqrstuvwxyzab…")), t.filter((s) => s.includes("Koodi")).join(","));
+  a.press("sp-turl-0");
+  eq("a press opens it", a.takeAction(), "open:" + url);
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    const probs = a.a11yProblems();
+    ok(`${w} the card with its link lints clean`, probs.length === 0, probs.join(" | "));
+    const card = byId(a, "sp-item-0");
+    const inside = [];
+    const walk = (el) => { inside.push(el); for (let i = 0; i < el.getChildCount(); i++) walk(el.getChild(i)); };
+    walk(card);
+    inside.push(byId(a, "sp-turl-0"));
+    const over = inside.filter((e) => e.calculatedX + e.calculatedWidth > card.calculatedX + card.calculatedWidth + 0.5);
+    ok(`${w} everything stays inside the card`, over.length === 0, over.map((e) => `${e.id || e.className} ${e.calculatedX}+${e.calculatedWidth}`).join(", ") + ` card ${card.calculatedX}+${card.calculatedWidth}`);
+  }
+}
+
 console.log("the offers on the summary");
 {
   const a = new M.SpacesApp();
@@ -1083,7 +1139,6 @@ console.log("the children's events on the summary");
   a.answer(JSON.stringify({ space, events: [
     { event_id: "ev1", title: "Leikkipuisto", date: iso(a.today), start: "10:00", notes: "Katso https://www.example.com/hyvin/pitka/osoite/joka/ei/mahdu tarkemmin" },
   ], event_watch: { active: false, ages: ["small", "school"], every_days: 7, finds: [] } }));
-  ok("a long address in a note shows as its site", texts(a).join(" ").includes("Katso example.com tarkemmin") && !texts(a).join(" ").includes("pitka"), texts(a).join(","));
   ok("a tab for the events", !!byId(a, "sp-htab-kids"));
   a.press("sp-htab-kids");
   a.press("sp-kw-on");
