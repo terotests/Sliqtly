@@ -1174,6 +1174,9 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 		if g, _ := wardenGetWindow(d); g != "" && (first == "" || g < first) {
 			first = g
 		}
+		if p := wardenPlannedDays(d); len(p) > 0 && (first == "" || p[0] < first) {
+			first = p[0]
+		}
 		if to != "" && first > to {
 			continue
 		}
@@ -1191,6 +1194,9 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 			}
 			if _, by := wardenGetWindow(d); by > last {
 				last = by
+			}
+			if p := wardenPlannedDays(d); len(p) > 0 && p[len(p)-1] > last {
+				last = p[len(p)-1]
 			}
 			if c := wardenCostOf(d); c != nil {
 				if p := wardenPayments(d, c); len(p) > 0 {

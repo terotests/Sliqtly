@@ -180,6 +180,7 @@ class SpacesApp {
     ; windows to get things in and the payment days
     def feedGets:boolean true
     def feedPays:boolean true
+    def feedAlarms:boolean true
     def status:string ""
 
     ; --- a space on a server -----------------------------------------------------
@@ -741,6 +742,19 @@ class SpacesApp {
             i = (i + 1)
         }
         return (join out " ")
+    }
+
+    ; a choice button with a dot of its colour before the label
+    sfn swatchBtn:EVGElement (id:string cls:string color:string label:string) {
+        def el:EVGElement (UiTree.div(id cls))
+        el.role = "button"
+        el.a11yFocusable = true
+        el.a11yLabel = label
+        el.addChild((UiTree.div("" ("sp-optdot sp-c-" + color))))
+        def t:EVGElement (UiTree.label("" (SpacesApp.txClasses(cls)) label))
+        t.a11yHidden = true
+        el.addChild(t)
+        return el
     }
 
     sfn dot:EVGElement (color:string) {
@@ -3095,10 +3109,11 @@ class SpacesApp {
         }
         if ((strlen space.feed) > 0) {
             def fc:EVGElement (this.card("feed" (SpWords.pick(lang "Calendar on your phone" "Kalenteri puhelimeen"))))
-            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Jokainen, jolla on osoite, näkee menot.")))))
+            fc.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Subscribe and the space's events show in Apple's, Google's or Outlook's calendar, and change there when they change here. Apple's calendar also alerts of the reminders; Google's leaves the alerts out. Anyone with the address sees the events." "Tilaa, niin tilan menot näkyvät Applen, Googlen tai Outlookin kalenterissa ja muuttuvat siellä, kun ne muuttuvat täällä. Applen kalenteri myös hälyttää muistutuksista; Googlen kalenteri jättää hälytykset pois. Jokainen, jolla on osoite, näkee menot.")))))
             def sw:EVGElement (SpacesApp.box("sp-tabs sp-wrap"))
             sw.addChild((this.showSwitch("sp-feed-gets" (SpWords.ui(lang "showGets")) feedGets)))
             sw.addChild((this.showSwitch("sp-feed-pays" (SpWords.ui(lang "showPays")) feedPays)))
+            sw.addChild((this.showSwitch("sp-feed-alarms" (SpWords.pick(lang "Alerts" "Hälytykset")) feedAlarms)))
             fc.addChild(sw)
             def fr:EVGElement (SpacesApp.box("sp-formrow"))
             fr.addChild((SpacesApp.btn("sp-feed-open" "sp-action sp-action-primary" (SpWords.pick(lang "Subscribe" "Tilaa kalenteriin")))))
@@ -5300,6 +5315,7 @@ class SpacesApp {
                 imp = "true"
             }
             this.addPick("important" imp)
+            this.addPick("color" e.color)
         }
         if formCost {
             def amount:string ""
@@ -5347,6 +5363,31 @@ class SpacesApp {
             owner = e.cost.payer
         }
         this.addText("budget:owner" owner)
+        ; a deadline's days to do it on, one calendar each
+        if (kind == "deadline") {
+            def plan:[int] (space.plannedDays(e))
+            def pi:int 0
+            while (pi < (array_length plan)) {
+                this.addText(("plan:" + (to_string pi)) (UiDate.isoOfDays((itemAt plan pi))))
+                pi = (pi + 1)
+            }
+            if ((array_length plan) == 0) {
+                this.addText("plan:0" "")
+            }
+        }
+    }
+
+    ; The form's planned days ("plan:0", "plan:1"…), in the order made.
+    fn planKeys:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length formKeys)) {
+            if (UiTree.beginsWith((itemAt formKeys i) "plan:")) {
+                push out (itemAt formKeys i)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; The common fields the form's get: and budget: keys keep, and the kind
@@ -5469,6 +5510,9 @@ class SpacesApp {
         if (key == "place") {
             return (SpWords.noun(lang pack "place"))
         }
+        if (UiTree.beginsWith(key "plan:")) {
+            return (SpWords.pick(lang "Planned day" "Suunniteltu päivä"))
+        }
         if (key == "date") {
             def kind:string (this.kindOf(editType))
             if (kind == "deadline") {
@@ -5495,6 +5539,9 @@ class SpacesApp {
     ; field (`dateField`); app-check walks every type to hold that.
     fn isDateKey:boolean (key:string) {
         if (((key == "date") || (key == "end_date")) || ((key == "until") || (key == "cost:first"))) {
+            return true
+        }
+        if (UiTree.beginsWith(key "plan:")) {
             return true
         }
         if ((SpacesApp.isCommonKey(key)) && ((SpacesApp.commonType(key)) == "date")) {
@@ -5582,6 +5629,16 @@ class SpacesApp {
         if (key == "repeat") {
             return ([] _:string ( "" "daily" "weekly" "monthly" ))
         }
+        if (key == "color") {
+            def cs:[string] ([] _:string ( "" ))
+            def pal:[string] (SpSpace.palette())
+            def ci:int 0
+            while (ci < (array_length pal)) {
+                push cs (itemAt pal ci)
+                ci = (ci + 1)
+            }
+            return cs
+        }
         if (key == "cost:scope") {
             return ([] _:string ( "personal" "shared" ))
         }
@@ -5629,6 +5686,9 @@ class SpacesApp {
             if (key == "repeat") {
                 return (SpWords.ui(lang "once"))
             }
+            if (key == "color") {
+                return (SpWords.ui(lang "colorDefault"))
+            }
             return (SpWords.ui(lang "none"))
         }
         if (key == "ward") {
@@ -5636,6 +5696,9 @@ class SpacesApp {
         }
         if (((key == "repeat") || (key == "cost:scope")) || (key == "budget:scope")) {
             return (SpWords.ui(lang v))
+        }
+        if (key == "color") {
+            return (SpWords.ui(lang ("color:" + v)))
         }
         def f@(optional):SpField (this.editField(key))
         if (!null? f) {
@@ -5894,6 +5957,9 @@ class SpacesApp {
                 pc = "sp-opt sp-opt-on"
             }
             def pb:EVGElement (SpacesApp.btn(("sp-pick-" + (to_string i) + "-" + (to_string k)) pc (this.optionLabel(key o))))
+            if ((key == "color") && ((strlen o) > 0)) {
+                pb = (SpacesApp.swatchBtn(("sp-pick-" + (to_string i) + "-" + (to_string k)) pc o (this.optionLabel(key o))))
+            }
             pb.a11yPressed = (SpacesApp.tri(on2))
             row.addChild(pb)
             k = (k + 1)
@@ -5935,6 +6001,9 @@ class SpacesApp {
             def mine:boolean false
             if (prefix == "") {
                 mine = ((((UiTree.beginsWith(key "f:")) == false) && ((UiTree.beginsWith(key "cost:")) == false)) && (((UiTree.beginsWith(key "get:")) == false) && ((UiTree.beginsWith(key "budget:")) == false)))
+                if (UiTree.beginsWith(key "plan:")) {
+                    mine = false
+                }
             } {
                 mine = (UiTree.beginsWith(key prefix))
             }
@@ -5956,7 +6025,7 @@ class SpacesApp {
     ; Every key of the form in the order it is shown.
     fn formOrder:[string] () {
         def out:[string]
-        def own:[string] ([] _:string ( "title" "ward" "date" "end_date" "start" "end" "repeat" "until" "who" "place" "important" ))
+        def own:[string] ([] _:string ( "title" "ward" "date" "end_date" "start" "end" "repeat" "until" "who" "place" "important" "color" ))
         def i:int 0
         while (i < (array_length own)) {
             def key:string (itemAt own i)
@@ -5974,6 +6043,12 @@ class SpacesApp {
                 push out ("f:" + f.key)
                 k = (k + 1)
             }
+        }
+        def plans:[string] (this.planKeys())
+        def pk:int 0
+        while (pk < (array_length plans)) {
+            push out (itemAt plans pk)
+            pk = (pk + 1)
         }
         push out "notes"
         def cost:[string] ([] _:string ( "cost:amount" "cost:payer" "cost:instalments" "cost:first" "cost:every" "cost:remind" "get:from" "get:by" "budget:min" "budget:max" "budget:actual" "budget:scope" "budget:owner" ))
@@ -6018,6 +6093,13 @@ class SpacesApp {
             def more:EVGElement (SpacesApp.box("sp-form"))
             this.addFields(more "f:")
             c.addChild(more)
+        }
+        if ((array_length (this.planKeys())) > 0) {
+            c.addChild((SpacesApp.tx("sp-formhead" (SpWords.pick(lang "Planned days" "Suunnitellut päivät")))))
+            def plans:EVGElement (SpacesApp.box("sp-form"))
+            this.addFields(plans "plan:")
+            plans.addChild((SpacesApp.btn("sp-plan-add" "sp-opt" (SpWords.pick(lang "+ Add a day" "+ Lisää päivä")))))
+            c.addChild(plans)
         }
         c.addChild((SpacesApp.tx("sp-formhead" (SpWords.ui(lang "getHead")))))
         def gets:EVGElement (SpacesApp.box("sp-form"))
@@ -6440,6 +6522,27 @@ class SpacesApp {
             push fkinds (SpTypes.kindOfField(ct))
             ci = (ci + 1)
         }
+        ; the days to do it on, in order and once each
+        def plans:[string] (this.planKeys())
+        if ((array_length plans) > 0) {
+            def days:[string]
+            def pj:int 0
+            while (pj < (array_length plans)) {
+                def perr:[string]
+                def pv:string (SpTypes.normalize("date" (this.formText((itemAt plans pj))) year perr))
+                if ((array_length perr) > 0) {
+                    push bad (this.formLabel((itemAt plans pj)))
+                } {
+                    if (((strlen pv) > 0) && ((indexOf (join days ";") pv) < 0)) {
+                        push days pv
+                    }
+                }
+                pj = (pj + 1)
+            }
+            push fkeys "planned_days"
+            push fvals (join days "; ")
+            push fkinds "string"
+        }
         def gf:string (this.formText("get:from"))
         def gb:string (this.formText("get:by"))
         if (((strlen gf) > 0) && ((strlen gb) > 0)) {
@@ -6535,6 +6638,13 @@ class SpacesApp {
             e.who = (SpWho.parseList((this.formText("who"))))
         }
         e.important = ((this.pickOf("important")) == "true")
+        if (this.hasPick("color")) {
+            def col:string (this.pickOf("color"))
+            if (((strlen col) == 0) && ((strlen e.color) > 0)) {
+                e.colorDrop = true
+            }
+            e.color = col
+        }
         e.typeId = editType
         if (this.hasPick("repeat")) {
             def freq:string (this.pickOf("repeat"))
@@ -7806,6 +7916,11 @@ class SpacesApp {
             this.saveForm()
             return true
         }
+        if (target == "sp-plan-add") {
+            this.addText(("plan:" + (to_string (array_length (this.planKeys())))) "")
+            this.openDate(((array_length formKeys) - 1))
+            return true
+        }
         if (target == "sp-ed-cancel") {
             editing = false
             focused = ""
@@ -8776,6 +8891,11 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (target == "sp-feed-alarms") {
+            feedAlarms = (feedAlarms == false)
+            this.rebuild()
+            return true
+        }
         if (target == "sp-feed-open") {
             def u:string (this.feedAddress())
             def at:int (indexOf u "://")
@@ -8994,6 +9114,9 @@ class SpacesApp {
         }
         if (feedPays == false) {
             push q "pay=0"
+        }
+        if (feedAlarms == false) {
+            push q "alarm=0"
         }
         if ((array_length q) == 0) {
             return space.feed

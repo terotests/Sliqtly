@@ -210,6 +210,15 @@ class SpWords {
         if (key == "loading") { return (SpWords.pick(lang "Loading…" "Ladataan…")) }
         if (key == "saving") { return (SpWords.pick(lang "Saving…" "Tallennetaan…")) }
         if (key == "important") { return (SpWords.pick(lang "Important" "Tärkeä")) }
+        if (key == "color") { return (SpWords.pick(lang "Colour" "Väri")) }
+        if (key == "colorDefault") { return (SpWords.pick(lang "Default" "Oletus")) }
+        if (key == "color:blue") { return (SpWords.pick(lang "Blue" "Sininen")) }
+        if (key == "color:emerald") { return (SpWords.pick(lang "Green" "Vihreä")) }
+        if (key == "color:violet") { return (SpWords.pick(lang "Violet" "Violetti")) }
+        if (key == "color:amber") { return (SpWords.pick(lang "Yellow" "Keltainen")) }
+        if (key == "color:rose") { return (SpWords.pick(lang "Red" "Punainen")) }
+        if (key == "color:cyan") { return (SpWords.pick(lang "Turquoise" "Turkoosi")) }
+        if (key == "color:indigo") { return (SpWords.pick(lang "Indigo" "Indigo")) }
         if (key == "lists") { return (SpWords.pick(lang "Lists" "Listat")) }
         if (key == "budget") { return (SpWords.pick(lang "Budget" "Budjetti")) }
         if (key == "add") { return (SpWords.pick(lang "+ Add…" "+ Lisää…")) }

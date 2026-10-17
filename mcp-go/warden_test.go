@@ -584,6 +584,36 @@ func TestWardenFeedGetsPays(t *testing.T) {
 	eq(t, strings.Count(ics, "BEGIN:VEVENT"), 2, "and its window")
 }
 
+func TestWardenFeedAlarms(t *testing.T) {
+	_, base, stop := editorServer(t)
+	defer stop()
+	_, out := wardenCall(t, base, "tero", "create_space", map[string]any{"name": "Koti", "vocab": "family"})
+	sid := out["space_id"].(string)
+	code, out := wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "type": "birthday_invitation", "title": "Ellan synttärit",
+		"date": "2027-03-20", "start": "14:00", "ward": "Leevi", "fields": map[string]any{"rsvp_by": "2027-03-10"}})
+	eq(t, code, 200, "saved: "+wardenErrOf(out))
+	code, out = wardenCall(t, base, "tero", "save_event", map[string]any{"space_id": sid, "title": "Luistimet", "date": "2027-11-20",
+		"fields": map[string]any{"get_from": "2027-11-01", "get_by": "2027-11-15"}, "cost": map[string]any{"amount": 100, "instalments": 2, "first": "2027-11-01"}})
+	eq(t, code, 200, "saved: "+wardenErrOf(out))
+	_, out = wardenCall(t, base, "tero", "get_space", map[string]any{"space_id": sid})
+	feed := out["space"].(map[string]any)["calendar_feed"].(string)
+	path := feed[strings.Index(feed, "/apps/warden/cal/"):]
+	_, ics := editorDo(t, "GET", base+path, "", "", "")
+	for _, want := range []string{"TRIGGER:-P3D", "DESCRIPTION:Ellan synttärit", "TRIGGER;VALUE=DATE-TIME:20270309T070000Z",
+		"DESCRIPTION:Vastattava viimeistään 10.3.: Ellan synttärit", "TRIGGER:PT9H", "DESCRIPTION:Hanki: Luistimet", "TRIGGER:-PT63H"} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("feed has no %q:\n%s", want, ics)
+		}
+	}
+	// the window and two payments one each, the invitation two
+	eq(t, strings.Count(ics, "BEGIN:VALARM"), 5, "alarms")
+	_, ics = editorDo(t, "GET", base+path+"?alarm=0", "", "", "")
+	eq(t, strings.Count(ics, "BEGIN:VALARM"), 0, "none asked")
+	loc, _ := time.LoadLocation(wardenTZ)
+	evs, _, err := icsToEvents(ics, loc)
+	eq(t, []any{err, len(evs)}, []any{nil, 5}, "the feed reads back")
+}
+
 func TestWardenMemberName(t *testing.T) {
 	sp := &wardenSpace{doc: Doc{"members": []any{"u1", "u2", "u3"}, "people": map[string]any{
 		"u1": map[string]any{"name": "Tero Tolonen"}, "u2": map[string]any{"name": "Mia Ek"}, "u3": map[string]any{"name": "Mia Lund"}}}}

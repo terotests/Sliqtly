@@ -951,6 +951,7 @@
 .sp-opt-on { background-color: var(--soft); border: 1px solid var(--accent); }
 .sp-opt-tx { color: var(--muted); font-size: 13px; height: 18px; line-height: 18px; }
 .sp-opt-on-tx { color: var(--ink); font-weight: 600; }
+.sp-optdot { width: 12px; height: 12px; border-radius: 6px; margin-right: 6px; flex-shrink: 0; }
 .sp-abaway-narrow { font-size: 15px; width: 80px; height: 22px; line-height: 22px; }
 
 /* Tarjoukset: the offer watches' finds */

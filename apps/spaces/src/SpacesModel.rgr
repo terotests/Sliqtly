@@ -478,6 +478,8 @@ class SpEvent {
     def resource:string ""
     def place:string ""
     def color:string ""
+    ; its colour was taken away here: the next save sends color ""
+    def colorDrop:boolean false
     def rule:SpRule (new SpRule())
     def exdates:[int]
     ; the sheet an event was read from, "" for one made here
@@ -678,6 +680,7 @@ class SpEvent {
             def none:[string]
             dropped = none
             costDropped = false
+            colorDrop = false
             def none2:[string]
             linkAdd = none2
             def none3:[string]
@@ -1299,9 +1302,47 @@ class SpSpace {
         return out
     }
 
+    ; The days the entry is planned to be done on (its planned_days, "YYYY-MM-DD;
+    ; YYYY-MM-DD"), in order and once each.
+    fn plannedDays:[int] (e:SpEvent) {
+        def out:[int]
+        def t:string (e.fieldText("planned_days"))
+        if ((strlen t) == 0) {
+            return out
+        }
+        def year:int (itemAt (SpSpace.ymdOf(today)) 0)
+        def parts:[string] (strsplit t ";")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def d:int (SpText.dayOf((trim (itemAt parts i)) year))
+            if (d >= 0) {
+                def at:int 0
+                def dup:boolean false
+                while ((at < (array_length out)) && ((itemAt out at) <= d)) {
+                    if ((itemAt out at) == d) {
+                        dup = true
+                    }
+                    at = (at + 1)
+                }
+                if (dup == false) {
+                    push out d
+                    def j:int ((array_length out) - 1)
+                    while (j > at) {
+                        set out j (itemAt out (j - 1))
+                        j = (j - 1)
+                    }
+                    set out at d
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; What the calendar shows of an entry besides its own days: the window
     ; to get its thing in (important while it is open) and its payment days
-    ; (important from their reminder on), from `from` to `to`. A closed
+    ; (important from their reminder on) and the days it is planned to be
+    ; done on, from `from` to `to`. A closed
     ; entry (done, cancelled, archived) has none.
     fn derivedOf:[SpOccur] (e:SpEvent from:int to:int) {
         def out:[SpOccur]
@@ -1341,6 +1382,19 @@ class SpSpace {
                 }
                 k = (k + 1)
             }
+        }
+        def plan:[int] (this.plannedDays(e))
+        def word3:string "Suunniteltu: "
+        if en {
+            word3 = "Planned: "
+        }
+        def q:int 0
+        while (q < (array_length plan)) {
+            def pd:int (itemAt plan q)
+            if ((pd >= from) && (pd <= to)) {
+                push out (this.derivedOcc(e (e.id + "#plan" + (to_string q)) (word3 + e.title) pd pd))
+            }
+            q = (q + 1)
         }
         return out
     }
