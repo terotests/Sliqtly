@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,45 +39,72 @@ func TestWardenWatch(t *testing.T) {
 
 	e.warden.search = nil
 	code, out := wardenCall(t, base, "tero", "set_watch", map[string]any{"space_id": sid, "event_id": id, "max_price": 150.0, "exclude": []any{"Ostetaan"}})
-	eq(t, code, 200, "set without a key")
+	eq(t, code, 200, "set without a search")
 	w := out["watch"].(map[string]any)
 	eq(t, []any{w["query"], w["sources"], w["max_price"], w["every_days"], w["active"], w["exclude"]}, []any{"Lasten sängyt", []any{"tori", "vinted", "huuto"}, 150.0, 1.0, true, []any{"ostetaan"}})
-	if !strings.Contains(out["note"].(string), "no search API key") {
+	if !strings.Contains(out["note"].(string), "has no search") {
 		t.Fatalf("note: %v", out["note"])
 	}
 	code, out = wardenCall(t, base, "tero", "run_watch", map[string]any{"space_id": sid, "event_id": id})
-	eq(t, []any{code, out["error"]}, []any{400, "This server has no search API key yet (BRAVE_SEARCH_API_KEY)."})
+	eq(t, []any{code, out["error"]}, []any{400, "This server has no search (its assistant's model is not Gemini)."})
 	code, _ = wardenCall(t, base, "tero", "set_watch", map[string]any{"space_id": sid, "event_id": id, "sources": []any{"ebay"}})
 	eq(t, code, 400, "no such source")
 
-	var asked []string
-	results := map[string][]map[string]string{
+	// Gemini with Google Search: a line per listing, each tied to a result
+	// whose redirect leads to the listing
+	type listing struct{ title, price, url, site string }
+	results := map[string][]listing{
 		"Lasten sängyt site:tori.fi": {
-			{"title": "Lasten <strong>sänky</strong> 90x200", "url": "https://www.tori.fi/recommerce/forsale/item/111", "description": "Hyvä kunto, 80 €"},
-			{"title": "Kerrossänky", "url": "https://www.tori.fi/recommerce/forsale/item/222", "description": "Hinta 300 €"},
-			{"title": "Ostetaan lasten sänky", "url": "https://www.tori.fi/recommerce/forsale/item/333", "description": ""},
-			{"title": "Sängyt – Tori", "url": "https://www.tori.fi/recommerce/forsale/search?q=s%C3%A4nky", "description": "Hakutulokset"},
-			{"title": "Muualla", "url": "https://example.com/sanky", "description": "50 €"},
+			{"Lasten sänky 90x200", "80 €", "https://www.tori.fi/recommerce/forsale/item/111", "tori.fi"},
+			{"Kerrossänky", "300", "https://www.tori.fi/recommerce/forsale/item/222", "tori.fi"},
+			{"Ostetaan lasten sänky", "?", "https://www.tori.fi/recommerce/forsale/item/333", "tori.fi"},
+			{"Sängyt – Tori", "?", "https://www.tori.fi/recommerce/forsale/search?q=s%C3%A4nky", "tori.fi"},
+			{"Muualla", "50", "https://example.com/sanky", "example.com"},
 		},
 		"Lasten sängyt site:vinted.fi": {
-			{"title": "Pinnasänky", "url": "https://www.vinted.fi/items/444-pinnasanky", "description": "Hinta ei tiedossa"},
+			{"Pinnasänky", "?", "https://www.vinted.fi/items/444-pinnasanky", "vinted.fi"},
 		},
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Subscription-Token") != "k" {
-			w.WriteHeader(401)
+	var asked []string
+	redirects := map[string]string{}
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if to, ok := redirects[r.URL.Path]; ok {
+			http.Redirect(w, r, to, http.StatusFound)
 			return
 		}
-		q := r.URL.Query().Get("q")
-		asked = append(asked, q)
-		res := []any{}
-		for _, h := range results[q] {
-			res = append(res, h)
+		var ask struct {
+			Contents []struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"contents"`
+			Tools []map[string]any `json:"tools"`
 		}
-		json.NewEncoder(w).Encode(map[string]any{"web": map[string]any{"results": res}})
+		json.NewDecoder(r.Body).Decode(&ask)
+		if r.Header.Get("x-goog-api-key") != "k" || len(ask.Tools) != 1 || ask.Tools[0]["google_search"] == nil {
+			w.WriteHeader(400)
+			return
+		}
+		text := ask.Contents[0].Parts[0].Text
+		q, _, _ := strings.Cut(strings.TrimPrefix(text, "Search for current second-hand or for-sale listings matching: "), "\n")
+		asked = append(asked, q)
+		chunks, supports, lines := []any{}, []any{}, []string{}
+		for i, l := range results[q] {
+			path := fmt.Sprintf("/grounding-api-redirect/%d-%d", len(asked), i)
+			redirects[path] = l.url
+			chunks = append(chunks, map[string]any{"web": map[string]any{"uri": srv.URL + path, "title": l.site}})
+			line := l.title + " | " + l.price
+			lines = append(lines, line)
+			supports = append(supports, map[string]any{"segment": map[string]any{"text": line}, "groundingChunkIndices": []int{i}})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"candidates": []any{map[string]any{
+			"content":           map[string]any{"role": "model", "parts": []any{map[string]any{"text": strings.Join(lines, "\n")}}},
+			"groundingMetadata": map[string]any{"groundingChunks": chunks, "groundingSupports": supports},
+		}}})
 	}))
 	defer srv.Close()
-	e.warden.search = &braveSearch{key: "k", base: srv.URL, http: srv.Client()}
+	e.warden.search = newWardenSearch(&geminiModel{http: srv.Client(), model: "g", key: "k", base: srv.URL, tools: aiEditTools})
 	e.warden.now = func() time.Time { return time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC) }
 
 	code, out = wardenCall(t, base, "tero", "run_watch", map[string]any{"space_id": sid, "event_id": id})
@@ -112,7 +141,7 @@ func TestWardenWatch(t *testing.T) {
 	eq(t, len(out["new"].([]any)), 0, "seen already")
 
 	// the scheduled run: a wrong token, then not due yet, then due
-	t.Setenv("WARDEN_CRON_TOKEN", "secret")
+	e.warden.cronAuth = func(_ context.Context, tok string) bool { return tok == "secret" }
 	run := func(tok string) (int, map[string]any) {
 		req, _ := http.NewRequest("POST", base+"/apps/warden/api/run_watches", nil)
 		req.Header.Set("Authorization", "Bearer "+tok)
@@ -129,7 +158,7 @@ func TestWardenWatch(t *testing.T) {
 	eq(t, code, 403, "wrong token")
 	code, out = run("secret")
 	eq(t, []any{code, out["ran"], out["more"]}, []any{200, 0.0, false}, "ran an hour ago")
-	results["Lasten sängyt site:huuto.net"] = []map[string]string{{"title": "Sänky", "url": "https://www.huuto.net/kohteet/sanky/555", "description": "Lähtöhinta 10 €"}}
+	results["Lasten sängyt site:huuto.net"] = []listing{{"Sänky", "10 €", "https://www.huuto.net/kohteet/sanky/555", "huuto.net"}}
 	e.warden.now = func() time.Time { return time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC) }
 	code, out = run("secret")
 	eq(t, []any{code, out["ran"], out["found"]}, []any{200, 1.0, 1.0}, "a day later")
