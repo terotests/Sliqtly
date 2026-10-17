@@ -153,3 +153,14 @@ test("trial front pages at /web/1, /web/2, /web/3 and /web/use-cases: built, not
     assert.ok(!/["'(]\/web\/\d/.test(fs.readFileSync(path.join(web, page), "utf8")), page);
   }
 });
+
+// the Warden paths the Go server answers (mcp-go/wardenhttp.go) reach it:
+// without a rewrite Hosting answers them itself, and a calendar app
+// subscribing to the feed gets no calendar
+test("Warden's server paths are rewritten to the server", () => {
+  const hosting = JSON.parse(fs.readFileSync(path.join(root, "firebase.json"), "utf8")).hosting;
+  const run = new Set(hosting.rewrites.filter((r) => r.run?.serviceId === "sliqtly-mcp").map((r) => r.source));
+  for (const p of ["/apps/warden/api/**", "/apps/warden/mcp", "/apps/warden/login", "/apps/warden/cal/**", "/apps/warden/ics/**"]) {
+    assert.ok(run.has(p), p);
+  }
+});
