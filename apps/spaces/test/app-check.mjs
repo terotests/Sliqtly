@@ -549,6 +549,71 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   }
   a.setWidth(1280, 700);
 
+  // a date is never typed: every date key of every type is EVGUI's calendar
+  // behind a button, and nothing a date goes into is a text field
+  const OWN_DATES = ["date", "end_date", "until", "cost:first", "get:from", "get:by"];
+  let dates = 0;
+  for (const ty of a.types.types) {
+    a.openNew(ty.id);
+    a.formCost = true;
+    a.rebuild();
+    const typed = ty.fields.filter((f) => f.type === "date").map((f) => "f:" + f.key);
+    a.formKeys.forEach((key, i) => {
+      if (!OWN_DATES.includes(key) && !typed.includes(key)) return;
+      dates++;
+      const btn = byId(a, "sp-date-" + i);
+      ok(`${ty.id} ${key} is a calendar`, !!btn && btn.role === "button" && !byId(a, "sp-ed-" + i));
+    });
+    for (const f of typed) ok(`${ty.id} ${f} is on the form`, a.formKeys.includes(f));
+    const boxes = flat(a).filter((e) => e.role === "textbox" && /^sp-ed-/.test(e.id));
+    for (const b of boxes) {
+      const key = a.formKeys[Number(b.id.slice(6))];
+      ok(`${ty.id} ${key} is text and not a day`, !a.isDateKey(key));
+    }
+    a.press("sp-ed-cancel");
+  }
+  ok("the forms have dates", dates > 50, String(dates));
+
+  // choosing a day: open, pick, it is written as ISO; Today; Clear; Escape
+  {
+    a.openNew("birthday_invitation");
+    const i = a.formKeys.indexOf("date");
+    const iso = (d) => M.UiDate.isoOfDays(d);
+    a.press("sp-date-" + i);
+    ok("the button opens the calendar", a.dateOpen === i && !!byId(a, "sp-dp-grid"));
+    eq("on the field's day", a.datePick.selectedDay, M.SpTypes.dayOf(field("date").value, 2026));
+    const probs = a.a11yProblems();
+    ok("an open calendar lints clean", probs.length === 0, probs.join(" | "));
+    for (const w of [1280, 390]) {
+      a.setWidth(w, 700);
+      const main = byId(a, "sp-main");
+      ok(`${w} an open calendar fits`, main.calculatedX + main.calculatedWidth <= w + 0.5);
+    }
+    a.setWidth(1280, 700);
+    a.press("sp-dp-" + iso(a.today + 3));
+    ok("a day is chosen and the calendar closes", field("date").value === iso(a.today + 3) && a.dateOpen === -1, field("date").value);
+    a.press("sp-date-" + i);
+    a.press("sp-dp-next");
+    ok("the next month", byId(a, "sp-dp-month") && a.dateOpen === i);
+    a.press("sp-dp-today");
+    eq("Today", field("date").value, iso(a.today));
+    a.press("sp-date-" + i);
+    a.keyWith("ArrowRight", false, false);
+    a.keyWith("Enter", false, false);
+    eq("the keyboard picks a day", field("date").value, iso(a.today + 1));
+    a.press("sp-date-" + i);
+    a.keyWith("Escape", false, false);
+    ok("Escape closes only the calendar", a.dateOpen === -1 && a.editing);
+    const end = a.formKeys.indexOf("end_date");
+    a.press("sp-date-" + end);
+    a.press("sp-dp-clear");
+    eq("Clear", field("end_date").value, "");
+    a.press("sp-date-" + i);
+    a.press("sp-ed-title");
+    ok("a press elsewhere closes it", a.dateOpen === -1);
+    a.press("sp-ed-cancel");
+  }
+
   // the Add menu: without a server, a search over the pack's types and its
   // groups to browse, not the whole long list
   a.press("sp-nav-calendar");
@@ -861,7 +926,7 @@ console.log("an entry's offer watch");
     events: [
       { event_id: "ev1", title: "Lasten sängyt", date: "", type: "item", fields: { state: "missing" },
         watch: { query: "lasten sänky 90x200", active: true, sources: ["tori"], every_days: 1, finds: [
-          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, source: "Tori", found: "2026-10-07" },
+          { title: "Lasten sänky", url: "https://www.tori.fi/recommerce/forsale/item/111", price: 80, location: "Tampere", source: "Tori", found: "2026-10-07" },
           { title: "Huono", url: "javascript:alert(1)", source: "Tori", found: "2026-10-07" },
         ] } },
     ],
@@ -872,9 +937,24 @@ console.log("an entry's offer watch");
   a.press("sp-list-item");
   a.press("sp-entry-" + bed.id);
   const t = texts(a);
-  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tori · 7.10."), t.join(","));
+  ok("the form shows the watch and its find", t.includes("Tarjousvahti") && t.includes("Lasten sänky · 80 € · Tampere · Tori · 7.10."), t.join(","));
   a.press("sp-find-0");
   eq("a find opens in a new tab", a.takeAction(), "open:https://www.tori.fi/recommerce/forsale/item/111");
+  // its settings, sent as set_watch
+  a.press("sp-wsrc-web");
+  eq("a source is a set_watch", a.outOp(), "set_watch");
+  let wb = JSON.parse(a.outBody());
+  ok("with the sources", wb.event_id === "ev1" && wb.active === true && wb.sources.join() === "tori,web" && wb.every_days === 1, JSON.stringify(wb));
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 1, finds: [] } }));
+  a.press("sp-wint-7");
+  wb = JSON.parse(a.outBody());
+  eq("weekly", wb.every_days, 7);
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: true, sources: ["tori", "web"], every_days: 7, finds: [] } }));
+  a.press("sp-watch-off");
+  wb = JSON.parse(a.outBody());
+  eq("stopped", wb.active, false);
+  a.answer(JSON.stringify({ event_id: "ev1", watch: { query: "lasten sänky 90x200", active: false, sources: ["tori", "web"], every_days: 7, finds: [] } }));
+  ok("and it can be turned on again", !!byId(a, "sp-watch-on"));
   const probs = a.a11yProblems();
   ok("the watch lints clean", probs.length === 0, probs.join(" | "));
 }

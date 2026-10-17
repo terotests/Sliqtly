@@ -92,13 +92,15 @@ type wardenService struct {
 	search wardenSearcher
 	// run_watch's searches per account
 	watchLimit func(who string) string
+	// whether a bearer token is the scheduler's (wardenwatch_cloud.go)
+	cronAuth func(ctx context.Context, token string) bool
 }
 
 func newWardenService(db DB) *wardenService {
 	if db == nil {
 		return nil
 	}
-	return &wardenService{db: db, now: time.Now, search: newWardenSearch(), watchLimit: rateLimiter(30, 10*time.Minute)}
+	return &wardenService{db: db, now: time.Now, cronAuth: wardenCronAuth(), watchLimit: rateLimiter(30, 10*time.Minute)}
 }
 
 func wardenRandomID(prefix string) string {

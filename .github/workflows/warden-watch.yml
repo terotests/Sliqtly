@@ -3,8 +3,9 @@
 # watches that are due and says whether more are; it is made again while
 # they are. Run by hand: Actions → Warden watch → Run workflow.
 #
-# Needs the WARDEN_CRON_TOKEN secret, the same one Deploy MCP Go gives the
-# service; without it nothing is called.
+# It signs in with a Google ID token of the FIREBASE_SERVICE_ACCOUNT
+# secret's account, the one Deploy MCP Go deploys as and names to the
+# service (WARDEN_CRON_SA): no secret of its own.
 name: Warden watch
 
 on:
@@ -21,14 +22,15 @@ jobs:
     steps:
       - name: Run the watches that are due
         env:
-          TOKEN: ${{ secrets.WARDEN_CRON_TOKEN }}
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          URL: https://sliqtly.com/apps/warden/api/run_watches
         run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::notice::No WARDEN_CRON_TOKEN secret: the watches are not run."
-            exit 0
-          fi
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          gcloud auth activate-service-account --key-file "$RUNNER_TEMP/sa.json" --quiet
+          TOKEN=$(gcloud auth print-identity-token --audiences "$URL")
+          rm -f "$RUNNER_TEMP/sa.json"
           for i in 1 2 3 4 5 6 7 8; do
-            OUT=$(curl -fsS -X POST -H "Authorization: Bearer $TOKEN" https://sliqtly.com/apps/warden/api/run_watches)
+            OUT=$(curl -fsS -X POST -H "Authorization: Bearer $TOKEN" "$URL")
             echo "$OUT" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "$OUT" | grep -q '"more":true' || break
           done
