@@ -1117,6 +1117,9 @@ class SpacesApp {
         if ((strlen who) == 0) {
             who = (to_lowercase (SpWords.noun(lang pack "together")))
         }
+        if ((strlen o.typeId) > 0) {
+            who = (who + " · " + (to_lowercase (this.typeName(o.typeId))))
+        }
         def away:string (this.awayText(o.day))
         row.a11yLabel = ((SpWords.dayLabel(lang o.day)) + (this.untilText(o)) + " " + o.title + ", " + who + ", " + away)
         def dl:EVGElement (this.dayStack(o ("sp-abday sp-abday" + nw) ("sp-abend sp-abend" + nw) ("sp-abdaycol sp-abdaycol" + nw)))
@@ -1352,9 +1355,31 @@ class SpacesApp {
                     return e.color
                 }
             }
-            return "all"
+            return (SpacesApp.groupColor((this.groupOfOcc(o))))
         }
         return o.color
+    }
+
+    ; The group of an occurrence's entry type ("event" when unknown).
+    fn groupOfOcc:string (o:SpOccur) {
+        def t@(optional):SpType (this.typeOf(o.typeId))
+        if (null? t) {
+            return "event"
+        }
+        def ty:SpType (unwrap t)
+        if (SpacesApp.knownGroup(ty.group)) {
+            return ty.group
+        }
+        return "event"
+    }
+
+    ; A plan for no one in particular takes its group's colour; plain
+    ; events keep the whole group's.
+    sfn groupColor:string (g:string) {
+        if (g == "event") {
+            return "all"
+        }
+        return ("g-" + g)
     }
 
     ; Remembers which day and occurrence the row `sp-item-<n>` is; returns n.
@@ -1869,8 +1894,39 @@ class SpacesApp {
             c.addChild((this.legendRow(r.color r.name)))
             i = (i + 1)
         }
+        ; the groups of the plans for no one in particular in the next weeks
+        def seen:[string]
+        def occ:[SpOccur] (space.occurrences(today (today + 90)))
+        def k:int 0
+        while (k < (array_length occ)) {
+            def o:SpOccur (itemAt occ k)
+            if ((strlen o.resource) == 0) {
+                def g:string (this.groupOfOcc(o))
+                if ((g != "event") && ((this.hasStr(seen g)) == false)) {
+                    push seen g
+                }
+            }
+            k = (k + 1)
+        }
         c.addChild((this.legendRow("all" (SpWords.noun(lang pack "together")))))
+        def j:int 0
+        while (j < (array_length seen)) {
+            def g2:string (itemAt seen j)
+            c.addChild((this.legendRow((SpacesApp.groupColor(g2)) (SpWords.groupName(lang g2)))))
+            j = (j + 1)
+        }
         return c
+    }
+
+    fn hasStr:boolean (list:[string] s:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == s) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn legendRow:EVGElement (color:string name:string) {

@@ -379,6 +379,15 @@
 .sp-c-indigo { background-color: #6366f1; }
 .sp-c-orange { background-color: #f97316; }
 .sp-c-all { background-color: #d9573f; }
+.sp-c-g-activity { background-color: #0d9488; }
+.sp-c-g-care { background-color: #db2777; }
+.sp-c-g-health { background-color: #16a34a; }
+.sp-c-g-travel { background-color: #0284c7; }
+.sp-c-g-booking { background-color: #a16207; }
+.sp-c-g-deadline { background-color: #b91c1c; }
+.sp-c-g-reminder { background-color: #ca8a04; }
+.sp-c-g-financial { background-color: #475569; }
+.sp-c-g-asset_action { background-color: #78716c; }
 
 /* --- the summary: a wall calendar ------------------------------------------------- */
 
