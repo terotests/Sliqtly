@@ -59,7 +59,7 @@ var wardenEventProps = map[string]any{
 	"important": map[string]any{"type": "boolean", "description": "Marks an event that must not be missed"},
 	"source":    strProp("Where it came from, e.g. \"Google Calendar\" or \"school\""),
 	"ext_id":    strProp("The event's id where it came from (an iCalendar UID): importing it again changes it instead of adding it twice"),
-	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, school_event, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires"),
+	"type":      strProp("The entry's type, from list_entry_types: event (the default) or e.g. birthday_invitation, activity, activity_occurrence, registration, school_event, school_exception_day, doctor_visit, trip, bill, purchase, need, gift_idea, repair, home_task, reminder, schedule_exception, contact_task, custom_family_event. A record type (purchase, need, gift_idea, item, contact…) needs no date; each type says what it requires. item is only a thing the group has: something to buy is a need or purchase, a job a home_task, a registration or course a registration, a booking a reservation"),
 	"fields":    map[string]any{"type": "object", "description": "The type's own fields and the common ones (status, people, responsible, due, get_from and get_by: the days between which something is to be got or bought, tags, tasks, links, estimated_cost, actual_cost, payer, budget_scope…), e.g. a birthday_invitation's {birthday_child, rsvp: \"going\", rsvp_by, takes, gift_idea}; a list field takes an array of texts; given fields are merged into those the entry has, a field set to null is removed"},
 	"cost": map[string]any{"type": "object", "description": "What it costs, for the space's budget; null removes it",
 		"properties": map[string]any{
@@ -99,7 +99,7 @@ var wardenTools = []roomTool{
 		required: []string{"space_id"}},
 	{name: "list_events", title: "List events", readOnly: true,
 		desc:     "A space's events that may happen between from and to (repeating ones are listed once, with their rrule).",
-		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}, "type": strProp("Only entries of this type")},
+		props:    map[string]any{"space_id": spaceIDProp, "from": strProp("First day, YYYY-MM-DD"), "to": strProp("Last day, YYYY-MM-DD"), "important_only": map[string]any{"type": "boolean", "description": "Only events marked important"}, "type": strProp("Only entries of this type, and those of other types listed under it (a thing that needs repair is listed under repair too)")},
 		required: []string{"space_id"}},
 	{name: "list_entry_types", title: "List entry types", readOnly: true,
 		desc:  "The kinds of entries a space keeps besides plain events (for a family: invitations and birthdays, hobbies, school, daycare and care, health, travel, bills and purchases, gift ideas, repairs and home tasks, reminders, changes to the routine…), each with its group, its fields, what it requires, the money fields that go to the budget and the dates that make reminders; the fields common to every entry; and how a cost is given. Read this before saving a typed entry.",

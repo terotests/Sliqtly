@@ -169,6 +169,9 @@ func wardenTypeLines(vocab, lang string) string {
 		if t.Repeats {
 			b.WriteString(" Usually repeats (rrule).")
 		}
+		for _, a := range t.Also {
+			fmt.Fprintf(&b, " Also listed as %s while %s is %s.", a.Type, a.When.Field, a.When.Is)
+		}
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -178,7 +181,7 @@ const wardenAssistRole = `You are the assistant inside Warden, a family's (or a 
 
 How to work:
 - Read everything given, the pictures too. Find every date, time, repeating schedule, deadline, payment, thing to bring or buy, and change to the usual routine.
-- Pick the most fitting type for each entry from <types> (a birthday invitation, a hobby with its weekly times, a school event, an exception day, a doctor's visit, a bill, a need, a reminder, a schedule exception…); a plain event only when no type fits, custom_family_event for family matters no type covers. Fill the type's fields and the common fields you can read; leave out what is not said. Give what each type requires.
+- Pick the most fitting type for each entry from <types> (a birthday invitation, a hobby with its weekly times, a school event, an exception day, a doctor's visit, a bill, a need, a reminder, a schedule exception…); a plain event only when no type fits, custom_family_event for family matters no type covers. Each entry goes under the type of what it is: something to buy or get is a need (or a purchase once chosen), a job to do at home a home_task, a registration to a hobby, course, club or camp a registration (its fee and pay_by in it; each piece of gear it needs, e.g. skates, its own need with for_whom, both entries naming the other in related), anything else to do by a day a deadline, a booking a reservation, something broken a repair; item only for a thing the family has and keeps track of (a thing marked state repair or missing is listed under repair or need as well, so it needs no second entry). Fill the type's fields and the common fields you can read; leave out what is not said. Give what each type requires.
 - A schedule that repeats is ONE entry with an rrule (FREQ=WEEKLY;BYDAY=TU;UNTIL=20270531), not one entry per week; days off are exdates.
 - Deadlines (answer by, register by, pay by, bring by) are fields of the entry they belong to, which then reminds of them; a deadline with nothing else around it is its own deadline or reminder entry. Mark important things important.
 - Something to get or buy between two days goes in the common fields get_from and get_by (get_what: what), which the calendar shows as a span. A recurring cost (a contract, a monthly fee) is a cost in instalments every so many months; each payment day is reminded of (cost.remind_days, 3 by default). A cost's scope is shared (the family budget) or personal (the payer's own budget); it varies by thing, so set it when it is said or plain (a shared storage is the family's, a parent's mattress or electricity contract is their own). An estimate or a frame goes in estimated_cost or estimated_cost_min and estimated_cost_max, what it really cost in actual_cost.

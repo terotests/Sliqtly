@@ -914,7 +914,7 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 				continue
 			}
 		}
-		if typ != "" && wardenOr(docStr(d, "type"), "event") != typ {
+		if typ != "" && !wardenListedAs(d, typ) {
 			continue
 		}
 		// a window to get something in, or a payment, may fall outside the day

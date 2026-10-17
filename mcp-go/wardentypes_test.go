@@ -24,6 +24,14 @@ func TestWardenTypesSchema(t *testing.T) {
 		if ty.Legacy && wardenTypeOf(ty.ReplacedBy) == nil {
 			t.Fatalf("%s: replaced by no type", ty.ID)
 		}
+		for _, a := range ty.Also {
+			if wardenTypeOf(a.Type) == nil || a.Type == ty.ID {
+				t.Fatalf("%s: also listed as %q, no other type", ty.ID, a.Type)
+			}
+			if _, ok := ty.field(a.When.Field); !ok {
+				t.Fatalf("%s: also listed while %s, which it has not", ty.ID, a.When.Field)
+			}
+		}
 		keys := map[string]bool{}
 		for _, f := range ty.Fields {
 			if keys[f.Key] || f.Name["en"] == "" || f.Name["fi"] == "" {
@@ -299,4 +307,26 @@ func TestWardenNextPayment(t *testing.T) {
 	eq(t, wardenNextPayment(d, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)), map[string]any(nil), "all paid")
 	one := Doc{"date": "2026-11-02", "cost": map[string]any{"amount": 50.0, "instalments": 1.0}}
 	eq(t, wardenNextPayment(one, now), map[string]any{"date": "2026-11-02", "amount": 50.0, "n": 1, "of": 1}, "one payment: no reminder unless asked")
+}
+
+// a thing that needs repair is listed under repair too, and a missing one
+// under need; one in order only as itself
+func TestWardenListedAs(t *testing.T) {
+	bikes := map[string]any{"type": "item", "fields": map[string]any{"state": "repair"}}
+	lamp := map[string]any{"type": "item", "fields": map[string]any{"state": "missing"}}
+	ok := map[string]any{"type": "item", "fields": map[string]any{"state": "ok"}}
+	for _, c := range []struct {
+		d    map[string]any
+		typ  string
+		want bool
+	}{
+		{bikes, "item", true}, {bikes, "repair", true}, {bikes, "need", false},
+		{lamp, "need", true}, {lamp, "repair", false},
+		{ok, "item", true}, {ok, "repair", false},
+		{map[string]any{"title": "x"}, "event", true},
+	} {
+		if got := wardenListedAs(c.d, c.typ); got != c.want {
+			t.Fatalf("%v as %s: %v", c.d, c.typ, got)
+		}
+	}
 }
