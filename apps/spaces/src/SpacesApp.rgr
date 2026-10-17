@@ -3839,9 +3839,19 @@ class SpacesApp {
             return false
         }
         board.focused = focused
+        def clicked:boolean (board.dragging == false)
+        def pressed:string board.armed
         def r:boolean (board.pointerUp())
         focused = board.focused
         this.syncBack()
+        ; a click on an event (not a drag) opens it in the form, an all-day
+        ; bar over several days too; a sheet's row only takes the focus
+        if clicked {
+            def occ:string (this.occOfTarget(pressed))
+            if (((strlen occ) > 0) && ((strlen (space.eventIdOf(occ))) > 0)) {
+                this.openOcc(occ)
+            }
+        }
         this.rebuild()
         return r
     }
