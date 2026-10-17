@@ -4267,7 +4267,10 @@ try {
       const walk = (e, id) => { if (e.id === id) return e; for (const k of e.children || []) { const r = walk(k, id); if (r) return r; } return null; };
       const w = () => { const m = /"width": ?(\d+)/.exec(a.source()); return m ? +m[1] : 0; };
       const sl = walk(a.chart.host.lastPage, "ce-width");
-      let t = 500;
+      // after the page's own clock (frame() sets it from performance.now()),
+      // which an earlier drag left the chart's last live write at: a slow run
+      // passes 500 s before it gets here
+      let t = performance.now() / 1000 + 1;
       a.setUiTime(t);
       a.pointerDown(sl.calculatedX + sl.calculatedWidth * 0.5, sl.calculatedY + 8, false, 1);
       const seen = [];
@@ -4478,13 +4481,20 @@ try {
     });
     const res = await page.evaluate(async (path) => {
       if (path) await window.__fileRequest("unlink:" + path);
-      await new Promise((r) => setTimeout(r, 400));
-      const files = await window.__docFiles();
       const a = window.__app;
+      // the file is read on a frame, which a slow run takes seconds for
+      const barsNow = () => {
+        a.selectSlide(1);
+        const st = JSON.parse(a.stageJson());
+        return st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
+      };
+      let bars = 0;
+      for (let i = 0; i < 40 && bars !== 2; i += 1) {
+        await new Promise((r) => setTimeout(r, 400));
+        bars = barsNow();
+      }
+      const files = await window.__docFiles();
       const md = a.source();
-      a.selectSlide(1);
-      const st = JSON.parse(a.stageJson());
-      const bars = st.list.cmds.filter((c) => c.k === 0 && c.w > 20 && c.h > 20 && c.w < 300).length;
       Object.assign(window.sliqtly, window.__was);
       a.showTab("md");
       return { file: files.includes("data/Budjetti-Syyskuu.csv"), copy: files.includes(path), md: /"url": ?"data\/Budjetti-Syyskuu\.csv"/.test(md), bars };
@@ -4711,8 +4721,12 @@ try {
     await page.evaluate(() => { const a = window.__app; a.showTab("files"); a.openFile("data/vfs-sales.csv", "kk,euroa\n"); });
     await page.waitForFunction(() => window.__app.openFilePath() === "data/vfs-sales.csv", null, { timeout: 5000 }).catch(() => {});
     await page.evaluate(() => { const a = window.__app; a.fileEditor.init("kk,euroa\ntammi,120\nhelmi,180\nmaalis,90\nhuhti,300\n"); a.syncEditor(); });
-    await page.waitForTimeout(1000);
-    const bars2 = await barsOf();
+    // the file is kept and read back over a few frames, which a slow run takes seconds for
+    let bars2 = [];
+    for (let i = 0; i < 30 && bars2.length !== 4; i += 1) {
+      await page.waitForTimeout(500);
+      bars2 = await barsOf();
+    }
     // the chart editor on a fence that names a file: it opens on the file's
     // spec, and its changes go into the file, not into the fence
     const viaFile = await page.evaluate(() => {
