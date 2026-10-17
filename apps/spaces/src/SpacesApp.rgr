@@ -205,6 +205,8 @@ class SpacesApp {
     def types:SpTypes (SpTypes.builtin())
     ; the Add menu is open
     def addOpen:boolean false
+    ; on a narrow page the navigation hides behind the menu button
+    def menuOpen:boolean false
     ; in it: the types to pick by hand shown (on a server the assistant comes
     ; first), what is searched for, the group picked, and the assistant's
     ; answer asked from it (-1 for none)
@@ -694,7 +696,9 @@ class SpacesApp {
         if (this.narrow()) {
             body = (SpacesApp.box("sp-body sp-body-narrow"))
         }
-        body.addChild((this.nav()))
+        if (((this.narrow()) == false) || menuOpen) {
+            body.addChild((this.nav()))
+        }
         def main:EVGElement (UiTree.div("sp-main" "sp-main"))
         main.role = "main"
         UiTree.inline(main "width" (SpacesApp.px((this.mainW()))))
@@ -762,6 +766,9 @@ class SpacesApp {
             bar = (SpacesApp.box("sp-top sp-top-narrow"))
         }
         bar.role = "banner"
+        if (this.narrow()) {
+            bar.addChild((this.menuButton()))
+        }
         def brand:EVGElement (SpacesApp.box("sp-brand"))
         def mark:EVGElement (SpacesApp.box("sp-mark"))
         mark.addChild((SpacesApp.tx("sp-mark-tx" (substring (this.appName()) 0 1))))
@@ -771,6 +778,9 @@ class SpacesApp {
         if ((this.narrow()) == false) {
             def name:EVGElement (SpacesApp.tx("sp-spacename" space.name))
             bar.addChild(name)
+        } {
+            ; the menu is closed: the bar names the tab shown
+            bar.addChild((SpacesApp.tx("sp-spacename" (SpWords.ui(lang tab)))))
         }
         bar.addChild((SpacesApp.box("sp-grow")))
         ; on a server only the owner changes the space's words
@@ -817,6 +827,27 @@ class SpacesApp {
         return bar
     }
 
+    ; three bars that open and close the navigation on a narrow page
+    fn menuButton:EVGElement () {
+        def cls:string "sp-menubtn"
+        if menuOpen {
+            cls = "sp-menubtn sp-menubtn-on"
+        }
+        def b:EVGElement (UiTree.div("sp-menu" cls))
+        b.role = "button"
+        b.a11yFocusable = true
+        b.a11yLabel = (SpWords.ui(lang "menu"))
+        b.a11yExpanded = (SpacesApp.tri(menuOpen))
+        def i:int 0
+        while (i < 3) {
+            def bar:EVGElement (UiTree.div("" "sp-menubar"))
+            bar.a11yHidden = true
+            b.addChild(bar)
+            i = (i + 1)
+        }
+        return b
+    }
+
     fn tabNames:[string] () {
         if server {
             return ([] _:string ( "home" "calendar" "lists" "budget" "members" "spaces" "sheets" "docs" "assistant" ))
@@ -844,7 +875,7 @@ class SpacesApp {
     fn nav:EVGElement () {
         def nav:EVGElement (SpacesApp.box("sp-nav"))
         if (this.narrow()) {
-            nav = (SpacesApp.box("sp-nav sp-nav-row"))
+            nav = (SpacesApp.box("sp-nav sp-nav-menu"))
         }
         nav.role = "navigation"
         def tabs:[string] (this.tabNames())
@@ -858,6 +889,10 @@ class SpacesApp {
             def cls:string "sp-navbtn"
             if (t == tab) {
                 cls = "sp-navbtn sp-navbtn-on"
+                if (this.narrow()) {
+                    ; the open menu is drawn on the surface colour
+                    cls = "sp-navbtn sp-navbtn-on sp-navbtn-menu-on"
+                }
             }
             def label:string (SpWords.ui(lang t))
             def b:EVGElement (UiTree.div(("sp-nav-" + t) cls))
@@ -5505,7 +5540,13 @@ class SpacesApp {
             this.rebuild()
             return true
         }
+        if (target == "sp-menu") {
+            menuOpen = (menuOpen == false)
+            this.rebuild()
+            return true
+        }
         if (UiTree.beginsWith(target "sp-nav-")) {
+            menuOpen = false
             tab = (substring target 7 (strlen target))
             editing = false
             addOpen = false
