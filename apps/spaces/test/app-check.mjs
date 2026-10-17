@@ -1136,22 +1136,19 @@ console.log("the children's events on the summary");
   const iso = (d) => M.UiDate.isoOfDays(d);
   a.answer(JSON.stringify({ me: { uid: "u1", name: "Mia", email: "mia@example.com" }, spaces: [{ space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner" }] }));
   const space = { space_id: "sp1", name: "Kotiväki", vocab: "family", lang: "fi", role: "owner", members: [], invites: [], wards: [] };
-  a.answer(JSON.stringify({ space, events: [
-    { event_id: "ev1", title: "Leikkipuisto", date: iso(a.today), start: "10:00", notes: "Katso https://www.example.com/hyvin/pitka/osoite/joka/ei/mahdu tarkemmin" },
-  ], event_watch: { active: false, ages: ["small", "school"], every_days: 7, finds: [] } }));
-  ok("a tab for the events", !!byId(a, "sp-htab-kids"));
-  a.press("sp-htab-kids");
-  a.press("sp-kw-on");
-  eq("turned on", a.outOp(), "set_event_watch");
-  let b = JSON.parse(a.outBody());
-  ok("with its ages", b.active === true && b.ages.join() === "small,school", JSON.stringify(b));
+  const events = [{ event_id: "ev1", title: "Leikkipuisto", date: iso(a.today), start: "10:00" }];
+  a.answer(JSON.stringify({ space, events, event_watch: { active: true, ages: ["small", "school"], every_days: 7, finds: [
+    { id: "k0", title: "Mennyt", url: "https://tapahtumat.tampere.fi/page/0", date: iso(a.today - 1) },
+  ] } }));
+  ok("no tabs while nothing is found", !byId(a, "sp-htab-kids") && !byId(a, "sp-htab-deals"));
   const watch = { active: true, ages: ["small", "school"], every_days: 7, finds: [
     { id: "k1", title: "Nukketeatteri", url: "https://tapahtumat.tampere.fi/page/1", date: iso(a.today + 2), start: "12:00", place: "Tahmelan Huvila", price: "ilmainen", age: "3-8", score: 90, why: "nukketeatteri" },
     { id: "k2", title: "Karnevaali", url: "https://tapahtumat.tampere.fi/page/2", date: iso(a.today + 1), score: 30 },
   ] };
-  a.answer(JSON.stringify({ space_id: "sp1", watch }));
-  eq("and searched", a.outOp(), "run_event_watch");
-  a.answer(JSON.stringify({ space_id: "sp1", new: [], watch }));
+  a.reload();
+  a.answer(JSON.stringify({ space, events, event_watch: watch }));
+  ok("a tab once something is found", texts(a).includes("Tapahtumia") && !byId(a, "sp-htab-deals"));
+  a.press("sp-htab-kids");
   let t = texts(a);
   ok("the events, the skipped last", t.includes("Nukketeatteri") && t.includes("Tahmelan Huvila · ilmainen · 3-8") && t.indexOf("Ohitetut (1)") < t.indexOf("Karnevaali")
     && t.indexOf("Nukketeatteri") < t.indexOf("Ohitetut (1)"), t.join(","));
@@ -1160,7 +1157,7 @@ console.log("the children's events on the summary");
   eq("an event opens in a new tab", a.takeAction(), "open:https://tapahtumat.tampere.fi/page/1");
   a.press("sp-kadd-0");
   eq("added on asking", a.outOp(), "add_event_find");
-  b = JSON.parse(a.outBody());
+  let b = JSON.parse(a.outBody());
   ok("this one", b.find_id === "k1" && b.space_id === "sp1", JSON.stringify(b));
   a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", added: "x1" }, event: { event_id: "x1" } }));
   eq("then the space is read again", a.outOp(), "get_space");
@@ -1174,7 +1171,7 @@ console.log("the children's events on the summary");
   a.answer(JSON.stringify({ space_id: "sp1", find: { id: "k1", rating: "hide" } }));
   a.press("sp-kage-teen");
   b = JSON.parse(a.outBody());
-  eq("an age group", b.ages.join(), "small,school,teen");
+  ok("an age group", a.outOp() === "set_event_watch" && b.active === true && b.ages.join() === "small,school,teen", JSON.stringify(b));
   a.answer(JSON.stringify({ space_id: "sp1", watch }));
   const probs = a.a11yProblems();
   ok("the events lint clean", probs.length === 0, probs.join(" | "));

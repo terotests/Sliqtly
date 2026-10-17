@@ -921,6 +921,9 @@ class SpacesApp {
             v.addChild((this.aheadBoard()))
             return v
         }
+        if (((homeTab == "deals") && ((this.dealsAny()) == false)) || ((homeTab == "kids") && ((this.kidsAny()) == false))) {
+            homeTab = "today"
+        }
         if (homeTab == "deals") {
             v.addChild((this.dealsBoard()))
             return v
@@ -967,12 +970,14 @@ class SpacesApp {
         bar.a11yLabel = (SpWords.ui(lang "home"))
         def keys:[string] ([] _:string ( "today" "week" "ahead" ))
         def names:[string] ([] _:string ( (SpWords.ui(lang "today")) (SpWords.pick(lang "Week" "Viikko")) (SpWords.pick(lang "Coming up" "Tulossa")) ))
-        ; the offer watches' finds live on a server
-        if server {
+        ; the watches' finds, only while there are some
+        if (this.dealsAny()) {
             push keys "deals"
-            push names (SpWords.pick(lang "Offers" "Tarjoukset"))
+            push names (SpWords.pick(lang "Offers" "Tarjouksia"))
+        }
+        if (this.kidsAny()) {
             push keys "kids"
-            push names (SpWords.pick(lang "Events" "Tapahtumat"))
+            push names (SpWords.pick(lang "Events" "Tapahtumia"))
         }
         def i:int 0
         while (i < (array_length keys)) {
@@ -1071,7 +1076,7 @@ class SpacesApp {
         dealK = noK
         def c:EVGElement (UiTree.div("sp-card-deals" "sp-deals"))
         c.role = "region"
-        c.a11yLabel = (SpWords.pick(lang "Offers" "Tarjoukset"))
+        c.a11yLabel = (SpWords.pick(lang "Offers" "Tarjouksia"))
         def keys:[string] ([] _:string ( "new" "like" "skip" ))
         def heads:[string] ([] _:string ( (SpWords.pick(lang "New" "Uudet")) (SpWords.pick(lang "Interesting" "Kiinnostavat")) (SpWords.pick(lang "Skipped" "Ohitetut")) ))
         def any:boolean false
@@ -1128,6 +1133,38 @@ class SpacesApp {
             c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "No offers yet. Turn on an offer watch on a thing to get, on its form." "Ei tarjouksia vielä. Tarjousvahdin saa päälle hankinnan lomakkeelta.")))))
         }
         return c
+    }
+
+    ; whether the summary has an offers tab: a find on a server
+    fn dealsAny:boolean () {
+        if (server == false) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length space.events)) {
+            def e:SpEvent (itemAt space.events i)
+            if ((array_length e.findUrls) > 0) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; whether the summary has an events tab: an event found still to come
+    fn kidsAny:boolean () {
+        if (server == false) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length kidFinds)) {
+            def f:SpKidFind (itemAt kidFinds i)
+            if (f.day >= today) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; a find's group: like, skip (hidden or a fit under 50) or new
@@ -1274,7 +1311,7 @@ class SpacesApp {
     fn kidsBoard:EVGElement () {
         def c:EVGElement (UiTree.div("sp-card-kids" "sp-deals"))
         c.role = "region"
-        c.a11yLabel = (SpWords.pick(lang "Events" "Tapahtumat"))
+        c.a11yLabel = (SpWords.pick(lang "Events" "Tapahtumia"))
         if (kidOn == false) {
             c.addChild((SpacesApp.tx("sp-empty" (SpWords.pick(lang "Looks for events and things to do for the children near home once a week: shows, workshops, sports try-outs, library events. They stay here until you add one to the calendar." "Etsii kerran viikossa lapsille tapahtumia ja tekemistä kotin läheltä: esityksiä, työpajoja, lajikokeiluja, kirjaston tapahtumia. Ne pysyvät täällä, kunnes lisäät jonkin kalenteriin.")))))
             c.addChild((SpacesApp.btn("sp-kw-on" "sp-action" (SpWords.pick(lang "Watch for events" "Ota tapahtumavahti käyttöön")))))
