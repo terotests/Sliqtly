@@ -27,19 +27,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	wardenKidWatches = "warden_kidwatch"
-	wardenKidFinds   = 40 // events kept, soonest first
+	wardenKidFinds   = 60 // events kept, soonest first
 	wardenKidHits    = 12 // events asked of one search
-	wardenKidDays    = 30 // how far ahead a search looks
+	wardenKidDays    = 45 // how far ahead a search looks
 )
 
 var wardenKidAges = []struct{ id, en, fi string }{
@@ -64,7 +66,8 @@ type wardenEventAsk struct {
 	Lang                            string
 }
 
-const wardenKidAsk = `Search for upcoming events and things to do for children in and near %s, Finland, between %s and %s: shows, concerts, workshops, sports and club try-outs, library and museum events, fairs, family days.
+const wardenKidAsk = `Search for upcoming events and things to do for children in and near %s, Finland, between %s and %s: %s.
+Look in the town's own event calendar, its libraries', museums', theatres' and sports clubs' pages, and ticket sites such as Lippu.fi and Tiketti.
 
 The children: %s.
 
@@ -76,25 +79,70 @@ const wardenKidInterests = `
 
 They like: %s`
 
-func (g *geminiSearch) Events(ctx context.Context, a wardenEventAsk) ([]wardenEventHit, error) {
-	ask := fmt.Sprintf(wardenKidAsk, a.Near, a.From, a.To, a.Ages, a.N)
-	if a.Interests != "" {
-		ask += fmt.Sprintf(wardenKidInterests, a.Interests)
+// what each of a run's searches looks for: one search answers only a
+// handful of events, so a run asks for each kind apart
+var wardenKidKinds = []string{
+	"theatre and puppet shows, children's concerts, circus and films for children",
+	"library story hours and events, museum and science centre workshops and family days",
+	"sports and hobby try-outs: swimming, skating, climbing, dance, football, music schools and clubs",
+	"workshops and crafts, fairs and markets, holiday and free events, happenings in parks and shopping centres",
+}
+
+func (g *geminiSearch) Events(ctx context.Context, a wardenEventAsk) ([]wardenEventHit, string, error) {
+	type answer struct {
+		lines []wardenLine
+		note  string
+		err   error
 	}
-	if len(a.Avoid) > 0 {
-		ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
+	got := make([]answer, len(wardenKidKinds))
+	var wg sync.WaitGroup
+	for i, kind := range wardenKidKinds {
+		ask := fmt.Sprintf(wardenKidAsk, a.Near, a.From, a.To, kind, a.Ages, a.N)
+		if a.Interests != "" {
+			ask += fmt.Sprintf(wardenKidInterests, a.Interests)
+		}
+		if len(a.Avoid) > 0 {
+			ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
+		}
+		ask += wardenWhyLang(a.Lang)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l, note, err := g.ground(ctx, ask, 8)
+			got[i] = answer{l, note, err}
+		}()
 	}
-	ask += wardenWhyLang(a.Lang)
-	lines, err := g.ground(ctx, ask, 8)
-	if err != nil {
-		return nil, err
-	}
+	wg.Wait()
 	hits := []wardenEventHit{}
-	for _, l := range lines {
-		p := l.parts
-		hits = append(hits, wardenEventHit{Title: p[0], URL: l.url, Date: p[1], Start: p[2], Place: aiClip(p[3], 120), Price: aiClip(p[4], 40), Age: aiClip(p[5], 40), Score: wardenFit(p[6]), Why: aiClip(p[7], 120)})
+	have := map[string]bool{}
+	notes, errs := []string{}, []string{}
+	for _, an := range got {
+		if an.err != nil {
+			errs = append(errs, an.err.Error())
+			continue
+		}
+		if an.note != "" {
+			notes = append(notes, an.note)
+		}
+		for _, l := range an.lines {
+			p := l.parts
+			// the same event found by two searches
+			k := strings.ToLower(p[0]) + "\x00" + p[1]
+			if have[k] {
+				continue
+			}
+			have[k] = true
+			hits = append(hits, wardenEventHit{Title: p[0], URL: l.url, Date: p[1], Start: p[2], Place: aiClip(p[3], 120), Price: aiClip(p[4], 40), Age: aiClip(p[5], 40), Score: wardenFit(p[6]), Why: aiClip(p[7], 120)})
+		}
 	}
-	return hits, nil
+	if len(errs) == len(got) {
+		return nil, "", errors.New(errs[0])
+	}
+	note := ""
+	if len(hits) == 0 {
+		note = strings.Join(notes, " / ")
+	}
+	return hits, note, nil
 }
 
 func wardenKidAgeText(ids []string) string {
@@ -252,9 +300,12 @@ func (s *wardenService) runKidWatch(ctx context.Context, sp *wardenSpace, w Doc)
 	seen := docStrs(w, "seen")
 	left := map[string]int{}
 	fresh := []map[string]any{}
-	hits, err := s.search.Events(ctx, ask)
+	hits, note, err := s.search.Events(ctx, ask)
 	run := wardenRunLog(sp, now)
 	run["near"], run["ages"], run["results"] = ask.Near, anys(docStrs(w, "ages")), len(hits)
+	if note != "" {
+		run["notes"] = []any{note}
+	}
 	if err != nil {
 		w["last_error"] = err.Error()
 		run["errors"] = []any{err.Error()}

@@ -105,9 +105,10 @@ type wardenAsk struct {
 }
 
 type wardenSearcher interface {
-	Search(ctx context.Context, ask wardenAsk) ([]wardenHit, error)
+	// the hits, and when there are none a note on what the search answered
+	Search(ctx context.Context, ask wardenAsk) ([]wardenHit, string, error)
 	// children's events (wardenkids.go)
-	Events(ctx context.Context, ask wardenEventAsk) ([]wardenEventHit, error)
+	Events(ctx context.Context, ask wardenEventAsk) ([]wardenEventHit, string, error)
 }
 
 // Gemini answering with Google Search (grounding), on the assistant's own
@@ -171,7 +172,7 @@ const wardenSearchAvoid = `
 The buyer did not want these earlier listings; give ones like them a low fit:
 %s`
 
-func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, error) {
+func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, string, error) {
 	ask := fmt.Sprintf(wardenSearchAsk, a.Query, wardenOr(a.Intent, a.Query), a.N)
 	if a.Near != "" {
 		ask += fmt.Sprintf(wardenSearchNear, a.Near)
@@ -180,9 +181,9 @@ func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, er
 		ask += fmt.Sprintf(wardenSearchAvoid, "- "+strings.Join(a.Avoid, "\n- "))
 	}
 	ask += wardenWhyLang(a.Lang)
-	lines, err := g.ground(ctx, ask, 5)
+	lines, note, err := g.ground(ctx, ask, 5)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	hits := []wardenHit{}
 	for _, l := range lines {
@@ -196,7 +197,7 @@ func (g *geminiSearch) Search(ctx context.Context, a wardenAsk) ([]wardenHit, er
 		}
 		hits = append(hits, wardenHit{Title: title, URL: l.url, Snippet: snippet, Location: aiClip(place, 60), Score: wardenFit(l.parts[3]), Why: aiClip(why, 120)})
 	}
-	return hits, nil
+	return hits, note, nil
 }
 
 // a fit as the search wrote it ("85", "85%"); -1 when not a number 0-100
@@ -217,7 +218,7 @@ type wardenLine struct {
 
 // Gemini with Google Search, asked to answer a line per result: each line
 // tied to a result, its redirect resolved to the page's own address
-func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenLine, error) {
+func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenLine, string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": ask}}}},
 		"tools":            []any{map[string]any{"google_search": map[string]any{}}},
@@ -225,7 +226,7 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.m.endpoint(), strings.NewReader(string(body)))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if g.m.key != "" {
@@ -233,15 +234,20 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 	}
 	res, err := g.m.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("search: %s", res.Status)
+		return nil, "", fmt.Errorf("search: %s", res.Status)
 	}
 	var out struct {
 		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
 			Grounding struct {
 				Chunks []struct {
 					Web struct {
@@ -259,42 +265,82 @@ func (g *geminiSearch) ground(ctx context.Context, ask string, n int) ([]wardenL
 		} `json:"candidates"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("search: %v", err)
+		return nil, "", fmt.Errorf("search: %v", err)
 	}
 	if len(out.Candidates) == 0 {
-		return nil, nil
+		return nil, "no answer", nil
 	}
-	gm := out.Candidates[0].Grounding
+	c := out.Candidates[0]
+	gm := c.Grounding
+	text := ""
+	for _, p := range c.Content.Parts {
+		text += p.Text
+	}
+	// a line of the answer is tied to the results its supports cite: a
+	// support's segment is the line, a part of it, or several lines
 	lines := []wardenLine{}
 	used := map[int]bool{}
-	for _, sup := range gm.Supports {
-		for _, line := range strings.Split(sup.Segment.Text, "\n") {
-			parts := strings.Split(strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. ")), "|")
-			for len(parts) < n {
-				parts = append(parts, "")
+	resolved := map[int]string{}
+	asked, unbacked, unresolved := 0, 0, 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "-*•0123456789. "))
+		if !strings.Contains(line, "|") {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		for len(parts) < n {
+			parts = append(parts, "")
+		}
+		for i := range parts {
+			parts[i] = strings.TrimSpace(strings.Trim(strings.TrimSpace(parts[i]), "*"))
+			if parts[i] == "?" {
+				parts[i] = ""
 			}
-			for i := range parts {
-				parts[i] = strings.TrimSpace(parts[i])
-				if parts[i] == "?" {
-					parts[i] = ""
+		}
+		if parts[0] == "" {
+			continue
+		}
+		asked++
+		cited := false
+		u := ""
+		// a result no other line took first, else one that lists several
+		// (an events calendar)
+	find:
+		for _, again := range []bool{false, true} {
+			for _, sup := range gm.Supports {
+				seg := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(sup.Segment.Text), "-*•0123456789. "))
+				if seg == "" || !(strings.Contains(line, seg) || strings.Contains(seg, line)) {
+					continue
+				}
+				for _, i := range sup.Chunks {
+					if i < 0 || i >= len(gm.Chunks) || used[i] != again {
+						continue
+					}
+					cited = true
+					if _, ok := resolved[i]; !ok {
+						resolved[i] = g.resolve(ctx, gm.Chunks[i].Web.URI)
+					}
+					if u = resolved[i]; u != "" {
+						used[i] = true
+						break find
+					}
 				}
 			}
-			if parts[0] == "" || len(sup.Chunks) == 0 {
-				continue
-			}
-			i := sup.Chunks[0]
-			if i < 0 || i >= len(gm.Chunks) || used[i] {
-				continue
-			}
-			used[i] = true
-			u := g.resolve(ctx, gm.Chunks[i].Web.URI)
-			if u == "" {
-				continue
-			}
+		}
+		switch {
+		case u != "":
 			lines = append(lines, wardenLine{parts: parts, url: u})
+		case cited:
+			unresolved++
+		default:
+			unbacked++
 		}
 	}
-	return lines, nil
+	note := ""
+	if len(lines) == 0 {
+		note = fmt.Sprintf("%d lines, %d without a result, %d results unresolved, %d results, %d supports: %s", asked, unbacked, unresolved, len(gm.Chunks), len(gm.Supports), aiClip(strings.Join(strings.Fields(text), " "), 200))
+	}
+	return lines, note, nil
 }
 
 // the address a grounding redirect leads to ("" when it leads nowhere)
@@ -310,7 +356,17 @@ func (g *geminiSearch) resolve(ctx context.Context, u string) string {
 		return ""
 	}
 	res, err := g.redirect.Do(req)
-	if err != nil {
+	if err == nil {
+		res.Body.Close()
+		if l := res.Header.Get("Location"); l != "" {
+			return l
+		}
+	}
+	// some redirects answer only GET
+	if req, err = http.NewRequestWithContext(ctx, http.MethodGet, u, nil); err != nil {
+		return ""
+	}
+	if res, err = g.redirect.Do(req); err != nil {
 		return ""
 	}
 	res.Body.Close()
@@ -649,6 +705,7 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 	now := s.now()
 	fresh := []map[string]any{}
 	errs := []string{}
+	notes := []string{}
 	results := 0
 	left := map[string]int{}
 	for _, src := range srcs {
@@ -660,10 +717,13 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 		if site != "" {
 			ask.Query += " site:" + site
 		}
-		hits, err := s.search.Search(ctx, ask)
+		hits, note, err := s.search.Search(ctx, ask)
 		if err != nil {
 			errs = append(errs, name+": "+err.Error())
 			continue
+		}
+		if note != "" {
+			notes = append(notes, name+": "+note)
 		}
 		results += len(hits)
 	hit:
@@ -752,6 +812,9 @@ func (s *wardenService) runWatch(ctx context.Context, sp *wardenSpace, id string
 	}
 	if len(errs) > 0 {
 		run["errors"] = anys(errs)
+	}
+	if len(notes) > 0 {
+		run["notes"] = anys(notes)
 	}
 	runs := append([]any{run}, anys(docMaps(w, "runs"))...)
 	if len(runs) > wardenWatchRuns {

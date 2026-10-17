@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -35,8 +37,13 @@ func TestWardenKids(t *testing.T) {
 		"Ei päivää | ? | ? | Metso | ? | ? | 70 | no day",
 		"Karnevaali | 2026-10-20 | 13:00 | Särkänniemi | 18 € | ? | 40 | scary for small ones",
 	}
-	asked := ""
+	// a run's searches come at once, one per kind of event
+	var mu sync.Mutex
+	asked, asks := "", []string{}
 	redirects := map[string]string{}
+	for i := range lines {
+		redirects[fmt.Sprintf("/grounding-api-redirect/k%d", i)] = fmt.Sprintf("https://tapahtumat.tampere.fi/page/%d", i)
+	}
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if to, ok := redirects[r.URL.Path]; ok {
@@ -51,11 +58,13 @@ func TestWardenKids(t *testing.T) {
 			} `json:"contents"`
 		}
 		json.NewDecoder(r.Body).Decode(&ask)
+		mu.Lock()
 		asked = ask.Contents[0].Parts[0].Text
+		asks = append(asks, asked)
+		mu.Unlock()
 		chunks, supports := []any{}, []any{}
 		for i, l := range lines {
 			path := fmt.Sprintf("/grounding-api-redirect/k%d", i)
-			redirects[path] = fmt.Sprintf("https://tapahtumat.tampere.fi/page/%d", i)
 			chunks = append(chunks, map[string]any{"web": map[string]any{"uri": srv.URL + path}})
 			supports = append(supports, map[string]any{"segment": map[string]any{"text": l}, "groundingChunkIndices": []int{i}})
 		}
@@ -70,7 +79,11 @@ func TestWardenKids(t *testing.T) {
 
 	code, out = wardenCall(t, base, "tero", "run_event_watch", map[string]any{"space_id": sid})
 	eq(t, code, 200, "run")
-	for _, want := range []string{"in and near Tampere, Finland, between 2026-10-17 and 2026-11-16", "small children (3-6 years), school children (7-12 years)", "They like: nukketeatteri", "Write the few words why in Finnish."} {
+	eq(t, len(asks), len(wardenKidKinds), "a search per kind of event")
+	if !slices.ContainsFunc(asks, func(a string) bool { return strings.Contains(a, "library story hours") }) {
+		t.Fatalf("no library search: %v", asks)
+	}
+	for _, want := range []string{"in and near Tampere, Finland, between 2026-10-17 and 2026-12-01", "small children (3-6 years), school children (7-12 years)", "They like: nukketeatteri", "Write the few words why in Finnish."} {
 		if !strings.Contains(asked, want) {
 			t.Fatalf("asked %q, want %q", asked, want)
 		}
