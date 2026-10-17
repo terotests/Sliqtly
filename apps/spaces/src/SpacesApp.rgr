@@ -213,6 +213,14 @@ class SpacesApp {
     def placeQuery:string ""
     def placeLooking:boolean false
     def found:[SpPlace]
+    ; the server's copies (wardenbackup.go): the open space's, listed for its
+    ; owner on the Members page, and the deleted spaces', on the Spaces page;
+    ; the copy whose restore waits for a second press
+    def backups:[SpBackup]
+    def backupsShown:boolean false
+    def lostSpaces:[SpBackup]
+    def lostShown:boolean false
+    def backupAsk:string ""
 
     ; --- entries ----------------------------------------------------------------------
     ; the entry types (the schema the server shares)
@@ -2254,6 +2262,9 @@ class SpacesApp {
             fc.addChild(fr)
             v.addChild(fc)
         }
+        if (owner && server) {
+            v.addChild((this.backupsCard()))
+        }
         return v
     }
 
@@ -2356,6 +2367,203 @@ class SpacesApp {
             c.addChild(res)
         }
         return c
+    }
+
+    ; The space's copies, for its owner: taken before a change, at most every
+    ; two hours, and before the space is deleted. Neither an assistant nor
+    ; the MCP server can remove or restore one: only this card restores.
+    fn backupsCard:EVGElement () {
+        def c:EVGElement (this.card("backups" (SpWords.pick(lang "Backups" "Varmuuskopiot"))))
+        c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Warden copies the space and its entries before they change, at most every two hours. An assistant cannot remove or restore a copy; the owner restores one here, and what there is now is copied first." "Warden kopioi tilan merkintöineen ennen muutoksia, enintään kahden tunnin välein. Avustaja ei voi poistaa eikä palauttaa kopiota; omistaja palauttaa sen täältä, ja nykyinen tila kopioidaan ensin.")))))
+        if (backupsShown == false) {
+            c.addChild((SpacesApp.btn("sp-backups-show" "sp-action" (SpWords.pick(lang "Show backups" "Näytä varmuuskopiot")))))
+            return c
+        }
+        if ((array_length backups) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No copies yet." "Ei vielä kopioita.")))))
+        }
+        def i:int 0
+        while (i < (array_length backups)) {
+            def b:SpBackup (itemAt backups i)
+            this.backupRow(c b ("sp-backup-" + (to_string i)) ("sp-backuprestore-" + (to_string i)) (this.backupWhen(b.when)) (this.backupDetail(b)))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; The deleted spaces the caller owned, each with its newest copy.
+    fn lostCard:EVGElement () {
+        def c:EVGElement (this.card("lost" (SpWords.pick(lang "Deleted spaces" "Poistetut tilat"))))
+        if (lostShown == false) {
+            c.addChild((SpacesApp.btn("sp-lost-show" "sp-action" (SpWords.pick(lang "Show deleted spaces" "Näytä poistetut tilat")))))
+            return c
+        }
+        if ((array_length lostSpaces) == 0) {
+            c.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "No deleted spaces with a backup." "Ei poistettuja tiloja, joista olisi kopio.")))))
+        }
+        def i:int 0
+        while (i < (array_length lostSpaces)) {
+            def b:SpBackup (itemAt lostSpaces i)
+            this.backupRow(c b ("sp-lost-" + (to_string i)) ("sp-lostrestore-" + (to_string i)) b.name ((this.backupWhen(b.when)) + " · " + (this.backupDetail(b))))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn backupRow:void (c:EVGElement b:SpBackup id:string restoreId:string title:string detail:string) {
+        def row:EVGElement (this.personRow(id title detail "" ""))
+        row.addChild((SpacesApp.btn(restoreId "sp-action" (SpWords.pick(lang "Restore" "Palauta")))))
+        c.addChild(row)
+        if (backupAsk == b.id) {
+            def ask:EVGElement (SpacesApp.box("sp-formrow"))
+            ask.addChild((SpacesApp.tx("sp-meta" (SpWords.pick(lang "Put the space back as it was then? Entries made since go away; what there is now is copied first." "Palautetaanko tila sellaiseksi kuin se silloin oli? Sen jälkeen tehdyt merkinnät poistuvat; nykyinen tila kopioidaan ensin.")))))
+            ask.addChild((SpacesApp.btn("sp-backup-yes" "sp-action sp-action-primary" (SpWords.pick(lang "Restore" "Palauta")))))
+            ask.addChild((SpacesApp.btn("sp-backup-no" "sp-action" (SpWords.ui(lang "cancel")))))
+            c.addChild(ask)
+        }
+    }
+
+    ; "2026-10-17 14:05" as the page's language writes it
+    fn backupWhen:string (when:string) {
+        if ((lang != "fi") || ((strlen when) < 16)) {
+            return when
+        }
+        def y:string (substring when 0 4)
+        def m@(optional):int (to_int (substring when 5 7))
+        def d@(optional):int (to_int (substring when 8 10))
+        if ((null? m) || (null? d)) {
+            return when
+        }
+        return ((to_string (unwrap d)) + "." + (to_string (unwrap m)) + "." + y + " klo " + (substring when 11 13) + "." + (substring when 14 16))
+    }
+
+    fn backupDetail:string (b:SpBackup) {
+        def why:string (SpWords.pick(lang "before a change" "ennen muutosta"))
+        if (b.reason == "delete_event") {
+            why = (SpWords.pick(lang "before a removal" "ennen poistoa"))
+        }
+        if (b.reason == "delete_space") {
+            why = (SpWords.pick(lang "before the space was deleted" "ennen tilan poistoa"))
+        }
+        if (b.reason == "before_restore") {
+            why = (SpWords.pick(lang "before a restore" "ennen palautusta"))
+        }
+        return ((to_string b.events) + (SpWords.pick(lang " entries · " " merkintää · ")) + why)
+    }
+
+    sfn readBackup:SpBackup (o:VlJson) {
+        def b (new SpBackup())
+        b.id = (o.stringOr("backup_id" ""))
+        b.when = (o.stringOr("when" ""))
+        b.reason = (o.stringOr("reason" ""))
+        b.events = (o.intOr("events" 0))
+        return b
+    }
+
+    ; A press about the backups: true when it was one.
+    fn pressBackups:boolean (target:string) {
+        if (target == "sp-backups-show") {
+            backupsShown = true
+            def none:[SpBackup]
+            backups = none
+            this.queue("list_backups" (SpRemote.body(([] _:string ( "space_id" spaceId )))) "space")
+            return true
+        }
+        if (target == "sp-lost-show") {
+            lostShown = true
+            def none2:[SpBackup]
+            lostSpaces = none2
+            this.queue("list_backups" "{}" "lost")
+            return true
+        }
+        if (target == "sp-backup-no") {
+            backupAsk = ""
+            return true
+        }
+        if (target == "sp-backup-yes") {
+            if ((strlen backupAsk) > 0) {
+                def where:string "space"
+                def k:int 0
+                while (k < (array_length lostSpaces)) {
+                    def l:SpBackup (itemAt lostSpaces k)
+                    if (l.id == backupAsk) {
+                        where = "lost"
+                    }
+                    k = (k + 1)
+                }
+                this.queue("restore_backup" (SpRemote.body(([] _:string ( "backup_id" backupAsk )))) where)
+                backupAsk = ""
+                status = (SpWords.pick(lang "Restoring…" "Palautetaan…"))
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-backuprestore-")) {
+            def n@(optional):int (to_int (substring target 17 (strlen target)))
+            if (!null? n) {
+                def i:int (unwrap n)
+                if ((i >= 0) && (i < (array_length backups))) {
+                    def b:SpBackup (itemAt backups i)
+                    backupAsk = b.id
+                }
+            }
+            return true
+        }
+        if (UiTree.beginsWith(target "sp-lostrestore-")) {
+            def n2@(optional):int (to_int (substring target 15 (strlen target)))
+            if (!null? n2) {
+                def j:int (unwrap n2)
+                if ((j >= 0) && (j < (array_length lostSpaces))) {
+                    def b2:SpBackup (itemAt lostSpaces j)
+                    backupAsk = b2.id
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    ; list_backups' and restore_backup's answers
+    fn backupsAnswered:void (c:SpCall o:VlJson) {
+        if ((c.op == "list_backups") && (c.ref == "space")) {
+            def none:[SpBackup]
+            backups = none
+            def l:VlJson (o.get("backups"))
+            def i:int 0
+            while (i < (l.count())) {
+                push backups (SpacesApp.readBackup((l.at(i))))
+                i = (i + 1)
+            }
+        }
+        if ((c.op == "list_backups") && (c.ref == "lost")) {
+            def none2:[SpBackup]
+            lostSpaces = none2
+            def ds:VlJson (o.get("deleted_spaces"))
+            def k:int 0
+            while (k < (ds.count())) {
+                def d:VlJson (ds.at(k))
+                def bl:VlJson (d.get("backups"))
+                if ((bl.count()) > 0) {
+                    def b:SpBackup (SpacesApp.readBackup((bl.at(0))))
+                    b.space = (d.stringOr("space_id" ""))
+                    b.name = (d.stringOr("name" ""))
+                    push lostSpaces b
+                }
+                k = (k + 1)
+            }
+        }
+        if (c.op == "restore_backup") {
+            status = ((SpWords.pick(lang "Restored: " "Palautettu: ")) + (to_string (o.intOr("events" 0))) + (SpWords.pick(lang " entries" " merkintää")))
+            backupsShown = false
+            lostShown = false
+            def rid:string (o.stringOr("space_id" ""))
+            if (c.ref == "lost") {
+                prefer = rid
+                this.queue("list_spaces" "{}" "")
+            } {
+                this.openSpace(spaceId)
+                tab = "members"
+            }
+        }
     }
 
     fn placeForPill:EVGElement (id:string ward:string label:string) {
@@ -2726,6 +2934,9 @@ class SpacesApp {
         form.addChild((SpacesApp.btn("sp-create" "sp-action sp-action-primary" (SpWords.ui(lang "create")))))
         nw.addChild(form)
         v.addChild(nw)
+        if (server && (loading == false)) {
+            v.addChild((this.lostCard()))
+        }
         return v
     }
 
@@ -8244,6 +8455,9 @@ class SpacesApp {
         if (c.op == "own_budget") {
             own.read(text)
         }
+        if ((c.op == "list_backups") || (c.op == "restore_backup")) {
+            this.backupsAnswered(c o)
+        }
         if (c.op == "save_own_item") {
             this.ownSaved(c.ref (o.stringOr("item_id" "")))
         }
@@ -8421,6 +8635,9 @@ class SpacesApp {
     ; A press that is about the server: true when it was one.
     fn pressServer:boolean (target:string) {
         if (this.pressPlaces(target)) {
+            return true
+        }
+        if (this.pressBackups(target)) {
             return true
         }
         if (target == "sp-assist-send") {

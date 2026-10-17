@@ -8468,12 +8468,19 @@ function playIntro() {
     timer = setTimeout(end, Math.max(0, INTRO_MS - (performance.now() - at)));
   });
 }
+// where a mouse rests, so the bar stays under it
+let restingAt = null;
+function overViewBar() {
+  if (!restingAt) return false;
+  const r = document.getElementById("viewBar").getBoundingClientRect();
+  return restingAt[0] >= r.left && restingAt[0] <= r.right && restingAt[1] >= r.top && restingAt[1] <= r.bottom;
+}
 function wakeViewer() {
   document.body.classList.remove("idle");
   clearTimeout(idleTimer);
-  // the bar stays while its menu is open
+  // the bar stays while its menu is open or the mouse rests on it
   idleTimer = setTimeout(() => {
-    if (vMenu.hidden && vGo.hidden && !app.navTyping()) document.body.classList.add("idle");
+    if (vMenu.hidden && vGo.hidden && !app.navTyping() && !overViewBar()) document.body.classList.add("idle");
     else wakeViewer();
   }, 2500);
 }
@@ -8498,6 +8505,8 @@ window.addEventListener("keydown", (ev) => {
 for (const ev of ["pointermove", "pointerdown", "keydown"]) {
   window.addEventListener(ev, () => { if (viewer || presentingNow()) wakeViewer(); }, { passive: true });
 }
+window.addEventListener("pointermove", (ev) => { restingAt = ev.pointerType === "mouse" ? [ev.clientX, ev.clientY] : null; }, { passive: true });
+document.documentElement.addEventListener("pointerleave", () => { restingAt = null; });
 document.getElementById("vFirst").addEventListener("click", () => { app.firstSlide(); afterInput(); });
 document.getElementById("vPrev").addEventListener("click", () => { app.prev(); afterInput(); });
 document.getElementById("vNext").addEventListener("click", () => { app.next(); afterInput(); });
