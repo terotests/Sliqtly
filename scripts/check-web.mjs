@@ -2059,9 +2059,6 @@ try {
     check("a shared deck's end panel closes to its last slide", end.shown && /Close/.test(end.exit) && !after.shown && after.mode === "present" && after.last, JSON.stringify({ end, after }));
     await pageE.close();
   }
-  // the page of its own took the front; the viewer's bar only shows on the
-  // page in front, so bring page3 back before pressing its buttons
-  await page3.bringToFront();
   // The bar fades when the pointer rests for 2.5 s, and a slow frame can
   // take that long: each press moves the pointer first, and tries again if
   // the bar faded before the click landed.
