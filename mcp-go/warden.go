@@ -728,7 +728,7 @@ func wardenRule(s string) (string, error) {
 }
 
 // the event as an answer
-func wardenEventJSON(id string, d Doc) map[string]any {
+func wardenEventJSON(id string, d Doc, now time.Time) map[string]any {
 	out := map[string]any{"event_id": id}
 	for _, k := range []string{"title", "date", "end_date", "start", "end", "ward", "place", "notes", "color", "rrule", "source", "ext_id"} {
 		if v := docStr(d, k); v != "" {
@@ -748,7 +748,7 @@ func wardenEventJSON(id string, d Doc) map[string]any {
 	if b, _ := d["important"].(bool); b {
 		out["important"] = true
 	}
-	wardenEntryJSON(out, d)
+	wardenEntryJSON(out, d, now)
 	return out
 }
 
@@ -800,7 +800,7 @@ func (s *wardenService) getSpace(ctx context.Context, sp *wardenSpace) (any, err
 	}
 	evs := []any{}
 	for i, d := range docs {
-		evs = append(evs, wardenEventJSON(ids[i], d))
+		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
 	return map[string]any{"space": sp.json(), "events": evs}, nil
 }
@@ -830,7 +830,12 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 		if typ != "" && wardenOr(docStr(d, "type"), "event") != typ {
 			continue
 		}
-		if to != "" && docStr(d, "date") > to {
+		// a window to get something in, or a payment, may fall outside the day
+		first := docStr(d, "date")
+		if g, _ := wardenGetWindow(d); g != "" && (first == "" || g < first) {
+			first = g
+		}
+		if to != "" && first > to {
 			continue
 		}
 		if from != "" && docStr(d, "date") != "" {
@@ -845,11 +850,21 @@ func (s *wardenService) listEvents(ctx context.Context, sp *wardenSpace, a map[s
 					last = u[:4] + "-" + u[4:6] + "-" + u[6:]
 				}
 			}
+			if _, by := wardenGetWindow(d); by > last {
+				last = by
+			}
+			if c := wardenCostOf(d); c != nil {
+				if p := wardenPayments(d, c); len(p) > 0 {
+					if l := p[len(p)-1].day.Format("2006-01-02"); l > last {
+						last = l
+					}
+				}
+			}
 			if last < from {
 				continue
 			}
 		}
-		evs = append(evs, wardenEventJSON(ids[i], d))
+		evs = append(evs, wardenEventJSON(ids[i], d, s.now()))
 	}
 	return map[string]any{"space_id": sp.id, "time_zone": sp.json()["time_zone"], "events": evs}, nil
 }
@@ -896,7 +911,7 @@ func (s *wardenService) saveEvent(ctx context.Context, sp *wardenSpace, a map[st
 	if err := s.db.Set(ctx, wardenEvents, id, d); err != nil {
 		return nil, err
 	}
-	return wardenEventJSON(id, d), nil
+	return wardenEventJSON(id, d, s.now()), nil
 }
 
 func (s *wardenService) stamp(d Doc, sp *wardenSpace) {

@@ -421,7 +421,6 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   a.press(`sp-pick-${rsvp}-1`);
   field("cost:amount").setValue("20,50");
   field("cost:payer").setValue("Mia");
-  a.press(`sp-pick-${a.pickKeys.indexOf("cost:scope")}-1`);
   const n = a.space.events.length;
   a.press("sp-ed-save");
   eq("it is in the space", a.space.events.length, n + 1);
@@ -442,6 +441,64 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   a.press("sp-list-item");
   ok("listed under Things", texts(a).includes("Skates"));
   ok("not on the calendar", !a.occIds.includes(skates.id));
+
+  // a missing thing with a day: the two weeks to get it in are on the
+  // calendar (a switch hides them); its estimate and what it cost are kept
+  const iso = (d) => M.UiDate.isoOfDays(d);
+  a.press("sp-addtype-item");
+  field("title").setValue("Kids' beds");
+  field("date").setValue(iso(a.today + 9));
+  a.press(`sp-pick-${a.pickKeys.indexOf("f:state")}-1`);
+  field("budget:min").setValue("200");
+  field("budget:max").setValue("400");
+  a.press("sp-ed-save");
+  const beds = a.space.events.find((e) => e.title === "Kids' beds");
+  ok("saved with its estimate", !!beds && Number(beds.fieldText("estimated_cost_min")) === 200 && Number(beds.fieldText("estimated_cost_max")) === 400 && beds.fieldText("budget_scope") === "", a.formErr);
+  a.press("sp-nav-calendar");
+  const getAt = a.occIds.indexOf(beds.id + "#get");
+  ok("the window to get it is on the calendar", getAt >= 0 && a.occDay[getAt] === a.today - 5);
+  const getOcc = a.space.occurrences(a.today, a.today).find((o) => o.id === beds.id + "#get");
+  ok("titled, and important while open", !!getOcc && getOcc.title === "Get: Kids' beds" && getOcc.important && getOcc.endDay === a.today + 9);
+  ok("the switch is on the calendar", texts(a).some((t) => t.includes("Things to get")));
+  a.press("sp-cal-gets");
+  ok("switched off, it is not", !a.occIds.includes(beds.id + "#get"));
+  a.press("sp-cal-gets");
+  ok("and back", a.occIds.includes(beds.id + "#get"));
+  a.press("sp-cal-pays");
+  a.press("sp-cal-pays");
+  ok("a moved window is not moved", !a.space.moveOccurrence(beds.id + "#get", a.today, -1, -1) && beds.day === a.today + 9);
+  ok("it opens the thing", a.space.eventIdOf(beds.id + "#get") === beds.id);
+  // a window backwards is named
+  a.press("sp-entry-" + beds.id);
+  field("get:from").setValue(iso(a.today + 9));
+  field("get:by").setValue(iso(a.today + 2));
+  a.press("sp-ed-save");
+  ok("get from after get by is named", a.editing && a.formErr.includes("Get from"), a.formErr);
+  field("get:from").setValue(iso(a.today));
+  a.press("sp-ed-save");
+  ok("its own window", !a.editing && beds.fieldText("get_from") === iso(a.today) && beds.fieldText("get_by") === iso(a.today + 2), a.formErr);
+
+  // a cost in twelve parts: its payment days, reminded three days before; an
+  // own budget names its owner
+  a.press("sp-nav-lists");
+  a.press("sp-addtype-item");
+  field("title").setValue("Electricity");
+  field("cost:amount").setValue("600");
+  field("cost:instalments").setValue("12");
+  field("cost:first").setValue(iso(a.today - 28));
+  a.press(`sp-pick-${a.pickKeys.indexOf("budget:scope")}-1`);
+  a.press("sp-ed-save");
+  ok("an own budget without its owner is named", a.editing && a.formErr.includes("Whose own"), a.formErr);
+  field("budget:owner").setValue("Tero");
+  a.press("sp-ed-save");
+  const el = a.space.events.find((e) => e.title === "Electricity");
+  ok("Tero's own, paid by him", !!el && el.cost.scope === "personal" && el.cost.payer === "Tero" && el.fieldText("budget_scope") === "personal", a.formErr);
+  const pays = a.space.occurrences(a.today, a.today + 40).filter((o) => o.eventId === el.id);
+  eq("two payment days in forty days", pays.length, 2);
+  ok("the next one is reminded of", pays[0].title === "Payment: Electricity 50 €" && pays[0].important && !pays[1].important, JSON.stringify(pays.map((o) => [o.title, o.day - a.today, o.important])));
+  a.space.showPays = false;
+  eq("hidden with the switch", a.space.occurrences(a.today, a.today + 40).filter((o) => o.eventId === el.id).length, 0);
+  a.space.showPays = true;
 
   // Backspace deletes the selected event; Undo brings it back
   a.press("sp-nav-calendar");
@@ -495,7 +552,7 @@ console.log("entries: the form, the Add menu, deleting and Undo");
   ok("the budget shows the cost", t.includes("Eero's birthday") && t.includes("€20.50"), t.filter((x) => /€/.test(x)).join(","));
   const mia = a.space.payers().indexOf("Mia");
   a.press("sp-bud-payer-" + mia);
-  ok("one payer's budget", texts(a).includes("Eero's birthday"));
+  ok("one person's budget: their own and the family's", texts(a).includes("Eero's birthday"));
   eq("without a server nothing is sent", a.outCount(), 0);
 }
 
@@ -571,7 +628,7 @@ console.log("entries on a server");
   t = texts(a);
   ok("the server's budget is shown", t.includes("Uintimaksu") && t.includes("120 €") && t.includes("100 €"), t.filter((x) => /€/.test(x)).join(","));
   a.press("sp-bud-payer-0");
-  eq("a payer asks again", JSON.parse(a.outBody()).payer, "Mia");
+  eq("a person's budget asks again", JSON.parse(a.outBody()).person, "Mia");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     for (const v of ["lists", "budget"]) {

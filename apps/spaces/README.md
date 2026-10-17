@@ -39,6 +39,15 @@ care, health, travel, bills, purchases, repairs, reminders, changes to the
 routine…), each with its group (the Add menu's headings), what it requires,
 the money fields that go to the budget and the dates that make reminders.
 
+An entry may say when its thing is to be got (`get_from`, `get_by`; a
+missing thing by its day, a need by `needed_by`): the calendar shows that
+window as a span, and Remember while it is open. A cost paid in parts (a
+contract, a monthly fee) shows its payment days, reminded of three days
+before (`remind_days`). Both can be switched off on the calendar. Every
+entry has a budget estimate (from, up to), what it actually cost and whether
+it is in the family budget or someone's own; a person's budget is their own
+costs and the family's.
+
 Repeating events take a subset of iCalendar RRULE: DAILY, WEEKLY (with
 BYDAY), MONTHLY, INTERVAL, UNTIL, COUNT and EXDATE.
 
