@@ -382,6 +382,9 @@ console.log("a space on a server");
   ok("the feed's card", texts(a).includes("Calendar on your phone"));
   a.press("sp-feed-open");
   eq("subscribe opens the webcal address", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics");
+  ok("the share choices start closed", !byId(a, "sp-feed-copy"));
+  a.press("sp-feed-share");
+  ok("Share offers the iCal address and the Apple link", !!byId(a, "sp-feed-copy") && !!byId(a, "sp-feed-copyapple"));
   a.press("sp-feed-copy");
   eq("copy puts the https address on the clipboard", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics");
   a.press("sp-feed-pays");
@@ -390,6 +393,28 @@ console.log("a space on a server");
   a.press("sp-feed-gets");
   a.press("sp-feed-open");
   eq("nor the windows to get things in", a.takeAction(), "open:webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
+  // the same card from the top bar, on any page
+  a.press("sp-nav-calendar");
+  ok("the top bar has the phone button", !!byId(a, "sp-phone"));
+  a.press("sp-phone");
+  ok("it opens the feed's card", texts(a).includes("Calendar on your phone"));
+  a.press("sp-feed-copy");
+  eq("which copies the same address", a.takeAction() + " " + a.copyText, "copy https://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
+  a.press("sp-feed-copyapple");
+  eq("and the Apple link is the webcal address", a.takeAction() + " " + a.copyText, "copy webcal://sliqtly.com/apps/warden/cal/abc123.ics?get=0&pay=0");
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 700);
+    const probs = a.a11yProblems();
+    ok(`${w} phone panel: the accessible tree lints clean`, probs.length === 0, probs.join(" | "));
+    const bar = byId(a, "sp-phone");
+    ok(`${w} phone button: fits the bar`, bar.calculatedX + bar.calculatedWidth <= w + 0.5);
+  }
+  a.keyWith("Escape", false, false);
+  ok("Escape closes it", !texts(a).includes("Calendar on your phone"));
+  a.press("sp-phone");
+  a.press("sp-phone-close");
+  ok("and so does Close", !texts(a).includes("Calendar on your phone"));
+  a.press("sp-nav-members");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     for (const v of ["members", "spaces"]) {

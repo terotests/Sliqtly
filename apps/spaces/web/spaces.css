@@ -963,3 +963,7 @@
 .sp-clothes-tx { color: var(--ink); font-size: 14px; height: auto; line-height: 20px; flex-grow: 1; }
 .sp-clothes-miss { color: var(--late); }
 .sp-clothes-line { padding-left: 46px; }
+
+/* --- the calendar-on-your-phone panel opened from the top bar ------------- */
+.sp-phonebtn { white-space: nowrap; }
+.sp-phonepop { display: flex; flex-direction: column; flex-wrap: nowrap; padding: 12px 16px; background-color: var(--soft); }
