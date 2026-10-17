@@ -178,6 +178,20 @@ class SpPlace {
     }
 }
 
+; A copy of a space the server keeps (wardenbackup.go), as the page lists
+; it: when it was taken in the space's time ("YYYY-MM-DD HH:MM"), why, how
+; many entries it holds; a deleted space's also its name.
+class SpBackup {
+    def id:string ""
+    def when:string ""
+    def reason:string ""
+    def events:int 0
+    def space:string ""
+    def name:string ""
+    Constructor () {
+    }
+}
+
 ; Who looks after an event, and how: "Mia" who "takes".
 class SpWho {
     def name:string ""
