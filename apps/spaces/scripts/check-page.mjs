@@ -310,6 +310,17 @@ try {
     await clickId(page, "sp-assist-text");
     await page.waitForTimeout(100);
     await page.keyboard.type("Swimming on Tuesdays");
+    // Ctrl+A, Ctrl+C in a field copy what it holds: the keyboard stays in
+    // the field's own element
+    const copiedKeys = page.evaluate(() => new Promise((done) => document.addEventListener("copy", () => {
+      const a = document.activeElement;
+      done(a.value.slice(a.selectionStart, a.selectionEnd));
+    }, { once: true })));
+    await page.keyboard.press("Control+a");
+    await page.waitForTimeout(100);
+    await page.keyboard.press("Control+c");
+    ok("Ctrl+A, Ctrl+C copy a field's text", (await copiedKeys) === "Swimming on Tuesdays");
+    await page.keyboard.press("End");
     await page.keyboard.press("Enter");
     const answered = await page
       .waitForFunction(() => window.__lastList && window.__lastList.cmds.some((c) => c.text === "Added Leo's swimming on Tuesdays."), null, { timeout: 5000 })
