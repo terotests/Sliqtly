@@ -557,7 +557,10 @@
   border-radius: 12px;
   background-color: var(--surface);
   cursor: pointer;
+  flex-grow: 1;
 }
+.sp-rbox { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.sp-rcopy { flex-shrink: 0; height: 30px; padding: 0 10px; }
 .sp-rcard:hover { background-color: var(--soft); }
 .sp-rcard:focus { background-color: var(--soft); }
 .sp-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--accent); flex-shrink: 0; margin-top: 2px; }

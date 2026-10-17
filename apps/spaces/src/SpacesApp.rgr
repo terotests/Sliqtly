@@ -100,6 +100,8 @@ class SpacesApp {
     ; occurrence each row is
     def itemDays:[int]
     def itemOccs:[string]
+    ; what each Muista box copies, by its number
+    def remindTexts:[string]
     def sheetSel:string ""
     def docSel:string ""
     ; the assistant's conversation: question keys and answers; a question
@@ -647,6 +649,8 @@ class SpacesApp {
         itemDays = none
         def noOccs:[string]
         itemOccs = noOccs
+        def noTexts:[string]
+        remindTexts = noTexts
         def v:EVGElement (SpacesApp.box("sp-view"))
         v.addChild((this.dashHead()))
         v.addChild((this.homeTabs()))
@@ -669,8 +673,8 @@ class SpacesApp {
         if ((this.narrow()) == false) {
             cols = (SpacesApp.box("sp-cols sp-dash"))
             def free:double ((this.mainW()) - (gap * 2.0))
-            w1 = (free * 0.37)
-            w2 = (free * 0.38)
+            w1 = (free * 0.34)
+            w2 = (free * 0.35)
             w3 = ((free - w1) - w2)
         }
         def c1:EVGElement (this.todayCol(w1))
@@ -1292,7 +1296,9 @@ class SpacesApp {
     ; A reminder: a box to tick (a deadline, or an entry whose status then
     ; becomes done) or a flag (a repeating plan, opened in the form), its
     ; title and when.
+    ; Beside it a chip copies the title and when to the clipboard.
     fn remindRow:EVGElement (id:string tick:boolean title:string day:int ward:string) {
+        def box:EVGElement (SpacesApp.box("sp-rbox"))
         def row:EVGElement (UiTree.div(id "sp-rcard"))
         row.role = "button"
         row.a11yFocusable = true
@@ -1320,7 +1326,13 @@ class SpacesApp {
         }
         col.addChild((SpacesApp.tx(wcls when)))
         row.addChild(col)
-        return row
+        box.addChild(row)
+        def n:int (array_length remindTexts)
+        push remindTexts (title + ", " + when)
+        def cp:EVGElement (SpacesApp.btn(("sp-copy-r-" + (to_string n)) "sp-chip sp-rcopy" (SpWords.pick(lang "Copy" "Kopioi"))))
+        cp.a11yLabel = ((SpWords.pick(lang "Copy: " "Kopioi: ")) + title)
+        box.addChild(cp)
+        return box
     }
 
     ; "tänään", "huomenna", "myöhässä · ma 12.10.", "ti 20.10."
@@ -4396,13 +4408,21 @@ class SpacesApp {
         return ((this.sheetName(id)) + ".csv")
     }
 
-    ; "a-<row>" (an answer) or "q-<row>" (what was asked) to the clipboard
+    ; "a-<row>" (an answer), "q-<row>" (what was asked) or "r-<n>" (a Muista
+    ; box) to the clipboard
     fn copyRow:void (what:string) {
         def k@(optional):int (to_int (substring what 2 (strlen what)))
         if (null? k) {
             return
         }
         def n:int (unwrap k)
+        if (UiTree.beginsWith(what "r-")) {
+            if ((n >= 0) && (n < (array_length remindTexts))) {
+                copyText = (itemAt remindTexts n)
+                action = "copy"
+            }
+            return
+        }
         if ((n < 0) || (n >= (array_length answers))) {
             return
         }
