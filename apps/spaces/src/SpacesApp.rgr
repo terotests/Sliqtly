@@ -2663,6 +2663,7 @@ class SpacesApp {
         o.setMember("kind" (VlJson.stringValue(c.kind)))
         o.setMember("maxLength" (VlJson.intValue(c.maxLength)))
         o.setMember("readOnly" (VlJson.boolValue(c.readOnly)))
+        o.setMember("multiline" (VlJson.boolValue(c.multiline)))
         def r:EVGElement (unwrap c.rootEl)
         def box:VlJson (VlJson.objectValue())
         box.setMember("x" (VlJson.numberValue(r.calculatedX)))
