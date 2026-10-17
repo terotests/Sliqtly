@@ -74,7 +74,7 @@ console.log("the summary");
 {
   const a = fresh("fi", "family");
   a.setWidth(1280, 700);
-  const t = texts(a);
+  let t = texts(a);
   for (const h of ["Tänään", "Tämä viikko", "Tulossa", "Muista"]) ok(`the section ${h}`, t.includes(h), t.slice(0, 30).join(","));
   ok("the clock", t.includes("10.00"));
   ok("the day and the week", t.includes("keskiviikko 21. lokakuuta") && t.includes("viikko 43 · Perhe"), t.slice(0, 30).join(","));
@@ -103,6 +103,30 @@ console.log("the summary");
   a.press("sp-day-" + (a.today + 1));
   ok("a day opens in the calendar", a.tab === "calendar" && a.board.view === "day" && a.board.cursor === a.today + 1);
   a.press("sp-nav-home");
+  // the week in columns, and what is coming with days to go
+  a.press("sp-htab-week");
+  t = texts(a);
+  ok("Viikko: the days as columns", !!byId(a, "sp-card-weekboard") && t.includes("ma 19.") && t.includes("su 25."), t.slice(0, 60).join(","));
+  const mon = byId(a, "sp-day-" + (a.today - 2));
+  const tue = byId(a, "sp-day-" + (a.today - 1));
+  ok("side by side at 1280", mon.calculatedY === tue.calculatedY && mon.calculatedX < tue.calculatedX);
+  ok("with times", t.includes("Hammaslääkäri") && t.includes("14.00"));
+  a.press("sp-htab-ahead");
+  t = texts(a);
+  ok("Tulossa: days to go", t.includes("huomenna") && t.some((s) => / pv$/.test(s)), t.slice(30, 80).join(","));
+  ok("a plan with no ward is the whole family's", t.includes("koko perhe"));
+  for (const k of ["today", "week", "ahead"]) {
+    a.press("sp-htab-" + k);
+    for (const w of [1280, 390]) {
+      a.setWidth(w, 700);
+      const probs = a.a11yProblems();
+      ok(`${w} ${k}: lints clean`, probs.length === 0, probs.join(" | "));
+      const main = byId(a, "sp-main");
+      ok(`${w} ${k}: fits`, main.calculatedX + main.calculatedWidth <= w + 0.5);
+    }
+  }
+  a.press("sp-htab-today");
+  a.setWidth(1280, 700);
   a.setWidth(390, 700);
   a.laidOut();
   const t2 = byId(a, "sp-card-today");
@@ -303,6 +327,34 @@ console.log("a space on a server");
     }
   }
   a.setWidth(1280, 700);
+
+  // the server's older colour names, and one the page has no class for
+  eq("green reads as emerald", M.SpSpace.pageColor("green"), "emerald");
+  eq("red as rose", M.SpSpace.pageColor("red"), "rose");
+  eq("#rrggbb as none", M.SpSpace.pageColor("#123456"), "");
+
+  // a ward added by mistake: Remove asks first, then its events stay without it
+  a.press("sp-nav-members");
+  t = texts(a);
+  ok("the wards are listed", t.includes("Aino") && t.includes("Dependants"));
+  a.press("sp-wardcolor-0");
+  eq("Colour gives the next one", a.space.resources[0].color, "cyan");
+  eq("and saves it", a.outOp(), "set_ward");
+  eq("that colour", JSON.parse(a.outBody()).color, "cyan");
+  a.answer(JSON.stringify({ id: "w1", name: "Aino", color: "cyan" }));
+  a.press("sp-unward-0");
+  eq("Remove alone sends nothing", a.outCount(), 0);
+  ok("it asks", texts(a).some((s) => s.startsWith("Remove Aino?")));
+  a.press("sp-unward-no");
+  ok("Cancel keeps it", a.space.resources.length === 1 && !texts(a).some((s) => s.startsWith("Remove Aino?")));
+  a.press("sp-unward-0");
+  a.press("sp-unward-yes");
+  eq("then remove_ward", a.outOp(), "remove_ward");
+  eq("of that ward", JSON.parse(a.outBody()).ward, "w1");
+  eq("gone from the page", a.space.resources.length, 0);
+  ok("its events kept, without it", a.space.events.length === 3 && a.space.events.every((e) => e.resource === ""));
+  a.answer(JSON.stringify(spaceOf({ wards: [], members: [{ uid: "u1", name: "Mia", email: "mia@example.com", role: "owner" }] })));
+  eq("nothing left to send after it", a.outCount(), 0);
 
   // a pointer in a field puts the caret where it lands
   a.press("sp-nav-members");
@@ -660,6 +712,15 @@ console.log("a reminder ticked off on the summary");
   const [fee, passport] = a.space.events;
   ok("a reminder under Muista", t.includes("Retkimaksu 15 €") && !!byId(a, "sp-tick-" + fee.id), t.slice(0, 60).join(","));
   ok("not one already done", !byId(a, "sp-tick-" + passport.id));
+  // each box can be copied, as the canvas has no selection
+  a.press("sp-copy-r-0");
+  const cp = a.takeAction() + "|" + a.copyText;
+  ok("a Muista box to the clipboard", cp.startsWith("copy|Retkimaksu 15 €, ") && cp.endsWith(" · Aino"), cp);
+  for (const w of [1280, 390]) {
+    a.setWidth(w, 800);
+    const probs = a.a11yProblems();
+    ok(`${w} Muista with its copy chips lints clean`, probs.length === 0, probs.join(" | "));
+  }
   a.press("sp-tick-" + fee.id);
   eq("ticking saves it", a.outOp(), "save_event");
   const body = JSON.parse(a.outBody());
@@ -712,6 +773,14 @@ console.log("the assistant on a server");
   ok("with the history", b2.history.length === 2 && b2.history[1].text === "Lisäsin Leon uinnin tiistaisin.", JSON.stringify(b2.history));
   a.failed("Too many questions in a short time; try again in a few minutes.");
   ok("the error in its place", texts(a).some((x) => x.startsWith("Se ei mennyt läpi")) && !a.assistBusy);
+  eq("what was written is back to send again", a.assistField.value, "Peru huominen");
+  // the canvas has no selection: a press copies an answer or a question
+  a.press("sp-copy-a-0");
+  eq("an answer to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Lisäsin Leon uinnin tiistaisin.");
+  a.press("sp-copy-q-1");
+  eq("a question to the clipboard", a.takeAction() + "|" + a.copyText, "copy|Peru huominen");
+  a.copied(true);
+  eq("said so", a.status, "Kopioitu");
   for (const w of [1280, 390]) {
     a.setWidth(w, 700);
     const probs = a.a11yProblems();

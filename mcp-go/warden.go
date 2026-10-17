@@ -60,7 +60,9 @@ const (
 var wardenVocabs = []string{"demo", "family", "business", "sports"}
 
 // the colours a ward or an event may name (the calendar's own), or #rrggbb
-var wardenColors = []string{"blue", "green", "red", "orange", "purple", "teal", "pink", "yellow", "gray"}
+// the page's palette, given to new wards in turn; the older names still read
+var wardenColors = []string{"blue", "emerald", "violet", "amber", "rose", "cyan", "indigo"}
+var wardenOldColors = []string{"green", "red", "orange", "purple", "teal", "pink", "yellow", "gray"}
 
 var (
 	wardenDateRe  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -442,7 +444,7 @@ func (s *wardenService) removeMember(ctx context.Context, sp *wardenSpace, a map
 
 func wardenColor(c string) (string, error) {
 	c = strings.ToLower(strings.TrimSpace(c))
-	if c == "" || slices.Contains(wardenColors, c) || wardenHexRe.MatchString(c) {
+	if c == "" || slices.Contains(wardenColors, c) || slices.Contains(wardenOldColors, c) || wardenHexRe.MatchString(c) {
 		return c, nil
 	}
 	return "", roomErr{"color is one of " + strings.Join(wardenColors, ", ") + ", or #rrggbb"}
@@ -498,6 +500,91 @@ func (s *wardenService) addWardOp(ctx context.Context, sp *wardenSpace, a map[st
 		return nil, err
 	}
 	return w, nil
+}
+
+// set_ward: any member renames a ward or gives it another colour
+func (s *wardenService) setWard(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
+	id := sp.wardID(argStr(a, "ward"))
+	if id == "" {
+		return nil, roomErr{"no such ward: give its id or name"}
+	}
+	name := ""
+	if argStr(a, "name") != "" {
+		n, err := wardenName(a, "name", 60)
+		if err != nil {
+			return nil, err
+		}
+		if other := sp.wardID(n); other != "" && other != id {
+			return nil, roomErr{"there is a ward of that name already: " + other}
+		}
+		name = n
+	}
+	color, err := wardenColor(argStr(a, "color"))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	for _, w := range docMaps(sp.doc, "wards") {
+		if docStr(w, "id") != id {
+			continue
+		}
+		if name != "" {
+			w["name"] = name
+		}
+		if color != "" {
+			w["color"] = color
+		}
+		out = map[string]any{"id": id, "name": docStr(w, "name"), "color": docStr(w, "color")}
+	}
+	if err := s.save(ctx, sp); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// remove_ward: owner only; its events stay, without a ward
+func (s *wardenService) removeWard(ctx context.Context, sp *wardenSpace, a map[string]any) (any, error) {
+	if err := sp.owner(); err != nil {
+		return nil, err
+	}
+	id := sp.wardID(argStr(a, "ward"))
+	if id == "" {
+		return nil, roomErr{"no such ward: give its id or name"}
+	}
+	docs, ids, err := s.db.WhereEq(ctx, wardenEvents, "space", sp.id)
+	if err != nil {
+		return nil, err
+	}
+	cleared := 0
+	for i, d := range docs {
+		// the entry's ward, and a typed field naming it (ward ids are random)
+		hit := docStr(d, "ward") == id
+		if hit {
+			d["ward"] = ""
+		}
+		fields, _ := d["fields"].(map[string]any)
+		for k, v := range fields {
+			if v == id {
+				delete(fields, k)
+				hit = true
+			}
+		}
+		if !hit {
+			continue
+		}
+		s.stamp(d, sp)
+		if err := s.db.Set(ctx, wardenEvents, ids[i], d); err != nil {
+			return nil, err
+		}
+		cleared++
+	}
+	sp.doc["wards"] = anys(slices.DeleteFunc(docMaps(sp.doc, "wards"), func(w map[string]any) bool { return docStr(w, "id") == id }))
+	if err := s.save(ctx, sp); err != nil {
+		return nil, err
+	}
+	out := sp.json()
+	out["removed_ward"], out["events_cleared"] = id, cleared
+	return out, nil
 }
 
 // ----------------------------------------------------------------- events --
@@ -1061,6 +1148,10 @@ func (s *wardenService) call(ctx context.Context, who wardenWho, op string, a ma
 		return s.removeMember(ctx, sp, a)
 	case "add_ward":
 		return s.addWardOp(ctx, sp, a)
+	case "set_ward":
+		return s.setWard(ctx, sp, a)
+	case "remove_ward":
+		return s.removeWard(ctx, sp, a)
 	case "list_events":
 		return s.listEvents(ctx, sp, a)
 	case "save_event":

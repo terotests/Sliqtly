@@ -64,6 +64,8 @@ func TestWardenAssist(t *testing.T) {
 	}
 	tools, _ := json.Marshal(asks[0]["tools"])
 	match(t, string(tools), `"name":"import_events"`)
+	// Gemini refuses an object with no properties: list_entry_types has none
+	match(t, string(tools), `{"description":"[^"]*","name":"list_entry_types"}`)
 	if strings.Contains(string(tools), "space_id") || strings.Contains(string(tools), "invite_member") || strings.Contains(string(tools), "replace_slide") {
 		t.Errorf("tools: %s", tools)
 	}

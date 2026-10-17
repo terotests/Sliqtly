@@ -9,8 +9,8 @@
  *
  * Then the Warden page (npm run warden:build) against a stand-in for the
  * server: it reads the space from the API, a typed invite reaches the API,
- * a double-click opens an event in the form and a typed title is saved,
- * Backspace deletes the selected event, the Add menu makes a new entry, the
+ * a double-click or a click opens an event in the form and a typed title
+ * is saved, Backspace deletes the selected event, the Add menu makes a new entry, the
  * budget is read from the API, a picture picked for the assistant goes to
  * it with the text (made a JPEG) and its answer is shown, and a signed-out
  * answer sends the page to the sign-in page.
@@ -224,9 +224,13 @@ try {
       const sv = calls.find((c) => c.op === "save_event");
       ok("the typed title is saved", saved && sv && sv.body.event_id === "ev2" && sv.body.title === "Camp weekend" && sv.body.type === "local_event" && sv.body.fields.registered === true, JSON.stringify(sv));
 
-      // select it and press Backspace
+      // a click opens it too; selected (from the keyboard), Backspace deletes it
       await clickId(page, bandId);
       await page.waitForTimeout(200);
+      ok("a click opens it in the form", await page.evaluate(() => window.__spaces.editing && window.__spaces.editId !== ""));
+      await clickId(page, "sp-ed-cancel");
+      await page.waitForTimeout(200);
+      await page.evaluate((id) => { window.__spaces.focused = id; }, bandId);
       await page.keyboard.press("Backspace");
       const deleted = await page
         .waitForFunction(() => window.__spaces.outCount() === 0 && !window.__spaces.space.events.some((e) => e.remoteId === "ev2"), null, { timeout: 5000 })
@@ -281,6 +285,10 @@ try {
       && asked.body.images[0].mimeType === "image/jpeg" && Buffer.from(asked.body.images[0].data, "base64")[0] === 0xff, JSON.stringify(asked && asked.body.text));
     ok("its answer is shown and the space read again", answered && calls[calls.length - 1].op === "get_space", JSON.stringify(calls.slice(-3).map((c) => c.op)));
     if (process.env.SPACES_SHOTS) await page.screenshot({ path: path.join(process.env.SPACES_SHOTS, "assistant.png") });
+    await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
+    await clickId(page, "sp-copy-a-0");
+    const copied = await page.waitForFunction(() => window.__copied, null, { timeout: 3000 }).then((h) => h.jsonValue(), () => null);
+    ok("a press copies the answer", copied === "Added Leo's swimming on Tuesdays.", String(copied));
     await clickId(page, "sp-nav-calendar");
     await clickId(page, "sp-add");
     await page.waitForTimeout(200);

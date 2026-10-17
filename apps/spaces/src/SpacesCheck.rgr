@@ -341,7 +341,7 @@ class SpacesCheck {
         this.eqi((array_length s.invites) 1 "the invites")
         this.eqi((array_length s.resources) 2 "the wards")
         def nappi:SpResource (itemAt s.resources 1)
-        this.eq(nappi.color "blue" "a ward with no colour")
+        this.eq(nappi.color "emerald" "a ward with no colour takes the next of the palette")
         this.eqi((array_length s.events) 2 "the events, the one without a date left out, what was there before gone")
         def swim:SpEvent (itemAt s.events 0)
         this.eq(swim.remoteId "ev1" "the server's id")
